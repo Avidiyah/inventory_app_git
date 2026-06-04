@@ -15,7 +15,31 @@
       "Bash(./venv/Scripts/python.exe -m alembic upgrade head)",
       "Bash(./venv/Scripts/python.exe -m scripts.create_owner --username owner)",
       "Bash(./venv/Scripts/python.exe -c ' *)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(git commit -m '@ *)",
+      "Bash(cat app/database.py)",
+      "Bash(ls alembic/versions)",
+      "Bash(ls *.env .env)",
+      "PowerShell(cd C:\\\\Users\\\\mcclu\\\\Desktop\\\\inventory_app_git; $env:PYTHONUNBUFFERED=\"1\"; Start-Process -FilePath \"backend\\\\venv\\\\Scripts\\\\python.exe\" -ArgumentList \"-c\",\"import os; os.chdir\\('backend'\\); import uvicorn; uvicorn.run\\('app.main:app', port=8124\\)\" -RedirectStandardOutput server_out.log -RedirectStandardError server_err.log -NoNewWindow -PassThru | Select-Object Id; Start-Sleep -Seconds 6; \"started\")",
+      "PowerShell(\"waited\")",
+      "PowerShell(Get-NetTCPConnection -LocalPort 8124 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; \"freed 8124\")",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(venv/Scripts/python.exe --version)",
+      "Bash(venv/Scripts/python.exe -m pip list)",
+      "PowerShell(& \"C:\\\\Users\\\\mcclu\\\\Desktop\\\\inventory_app_git\\\\backend\\\\venv\\\\Scripts\\\\python.exe\" -c \"from pyzbar import pyzbar; from PIL import Image; import multipart, pyzbar as p; print\\('pyzbar', p.__version__\\); print\\('Pillow', Image.__version__\\); print\\('IMPORT OK'\\)\")",
+      "PowerShell($env:PYTHONPATH=\"C:\\\\Users\\\\mcclu\\\\Desktop\\\\inventory_app_git\\\\backend\"; & \"C:\\\\Users\\\\mcclu\\\\Desktop\\\\inventory_app_git\\\\backend\\\\venv\\\\Scripts\\\\python.exe\" -c \"import os; os.chdir\\(r'C:\\\\Users\\\\mcclu\\\\Desktop\\\\inventory_app_git\\\\backend'\\); from dotenv import load_dotenv; load_dotenv\\(\\); from app.main import app; routes=[r.path for r in app.routes]; print\\('decode route registered:', '/barcodes/decode' in routes\\)\")",
+      "Bash(cat requirements.txt)",
+      "Bash(ls -la .env*)",
+      "Bash(cd backend *)",
+      "Bash(ls scripts/)",
+      "Bash(sed -E 's/=.*/=<redacted>/' .env)",
+      "Bash(head -45 alembic/env.py)",
+      "Bash(cat requirements-dev.txt)",
+      "Bash(tail -n +45 alembic/env.py)",
+      "Bash(cat scripts/create_owner.py)",
+      "Bash(grep -oE '^DATABASE_URL=[a-zA-Z+]+' .env)",
+      "Bash(pg_dump --version)",
+      "Bash(psql --version)"
     ]
   }
 }
