@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<!--
+  SPA shell for the Inventory Management frontend.
+  Layer: markup. Served by FastAPI from `app/main.py::read_root`.
+
+  All behavior lives in `/static/main.js` (loaded at the bottom of
+  <body>) and the view modules under `/static/views/`. This file
+  is structure only -- no inline scripts, no event handlers in
+  attributes.
+
+  IDs used as the API contract between markup and JS are listed
+  in `docs/interfaces.md` section 12 ("Frozen DOM contract"). Do
+  not rename them without updating that document.
+
+  Layout: three `.page` sections (Entry, Transaction, History);
+  the nav bar toggles which one has the `active` class via
+  `views/nav.js::showPage`.
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory Management</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+    <header>
+        <h1>Inventory Management</h1>
+        <nav id="main-nav">
+            <button class="nav-btn" data-page="create-item">Create Item</button>
+            <button class="nav-btn" data-page="saved-items">Saved Items</button>
+            <button class="nav-btn" data-page="create-user">Create User</button>
+            <button class="nav-btn" data-page="saved-users">Saved Users</button>
+            <button class="nav-btn" data-page="transaction">Transaction</button>
+            <button class="nav-btn" data-page="history">History</button>
+        </nav>
+    </header>
+
+    <main>
+
+    <!-- =================== CREATE ITEM PAGE =================== -->
+    <div class="page" id="create-item-page">
+
+        <section id="create-item-section">
+            <h2>Create Item</h2>
+            <div class="form-stack">
+                <label for="barcode">Barcode</label>
+                <input type="text" id="barcode" placeholder="Enter barcode">
+
+                <label for="name">Item Name</label>
+                <input type="text" id="name" placeholder="Enter item name">
+
+                <label for="location">Location</label>
+                <input type="text" id="location" placeholder="Enter location">
+
+                <label for="quantity">Starting Quantity</label>
+                <input type="number" id="quantity" placeholder="0" min="0" value="0">
+
+                <button id="create-item-btn">Create Item</button>
+                <p id="create-item-message"></p>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- =================== SAVED ITEMS PAGE =================== -->
+    <div class="page" id="saved-items-page">
+
+        <section id="items-section">
+            <h2>Saved Items</h2>
+            <div class="filter-row">
+                <label for="items-search">Search</label>
+                <input type="text" id="items-search" placeholder="Filter by name or barcode">
+            </div>
+            <table id="items-table">
+                <thead>
+                    <tr>
+                        <th>Barcode</th>
+                        <th>Name</th>
+                        <th>Quantity</th>
+                        <th>Location</th>
+                        <th>Notes</th>
+                        <th>Created At</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="items-tbody"></tbody>
+            </table>
+        </section>
+
+        <section id="notes-editor-section" hidden>
+            <h2>Edit Notes</h2>
+            <div class="form-stack">
+                <p id="notes-editor-selected"></p>
+
+                <div id="notes-rows"></div>
+
+                <button id="notes-add-row-btn" type="button" class="secondary-btn">+ Add Note</button>
+
+                <div class="form-buttons">
+                    <button id="notes-save-btn">Save Notes</button>
+                    <button id="notes-cancel-btn" type="button" class="secondary-btn">Cancel</button>
+                </div>
+                <p id="notes-message"></p>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- =================== CREATE USER PAGE =================== -->
+    <div class="page" id="create-user-page">
+
+        <section id="create-user-section">
+            <h2>Create User</h2>
+            <div class="form-stack">
+                <label for="username">Username</label>
+                <input type="text" id="username" placeholder="Enter username">
+
+                <button id="create-user-btn">Create User</button>
+                <p id="create-user-message"></p>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- =================== SAVED USERS PAGE =================== -->
+    <div class="page" id="saved-users-page">
+
+        <section id="users-section">
+            <h2>Saved Users</h2>
+            <table id="users-table">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Created At</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="users-tbody"></tbody>
+            </table>
+        </section>
+
+    </div>
+
+    <!-- =================== TRANSACTION PAGE =================== -->
+    <div class="page" id="transaction-page">
+
+        <section id="txn-items-section">
+            <h2>Items</h2>
+            <p class="hint">Click Stock or Dispense to record a transaction.</p>
+            <table id="txn-items-table">
+                <thead>
+                    <tr>
+                        <th>Barcode</th>
+                        <th>Name</th>
+                        <th>Quantity</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="txn-items-tbody"></tbody>
+            </table>
+        </section>
+
+        <section id="transaction-section" hidden>
+            <h2>New Transaction</h2>
+            <div id="transaction-form" class="form-stack">
+                <p id="transaction-selected"></p>
+
+                <label for="transaction-type">Type</label>
+                <select id="transaction-type">
+                    <option value="stock">Stock (add)</option>
+                    <option value="dispense">Dispense (remove)</option>
+                </select>
+
+                <label for="transaction-user">User</label>
+                <select id="transaction-user">
+                    <option value="" disabled selected>-- Select user --</option>
+                </select>
+
+                <label for="transaction-quantity">Quantity</label>
+                <input type="number" id="transaction-quantity" placeholder="0" min="0" step="any" value="0">
+
+                <label for="transaction-work-order">Work Order Number (optional)</label>
+                <input type="text" id="transaction-work-order" placeholder="Enter work order number">
+
+                <div class="form-buttons">
+                    <button id="save-transaction-btn">Save Transaction</button>
+                    <button id="cancel-transaction-btn" type="button" class="secondary-btn">Cancel</button>
+                </div>
+                <p id="transaction-message"></p>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- =================== HISTORY PAGE =================== -->
+    <div class="page" id="history-page">
+
+        <section id="history-section">
+            <h2>Transaction History</h2>
+
+            <div id="history-tabs" class="sub-tabs">
+                <button class="sub-tab-btn" data-tab="all">All Transactions</button>
+                <button class="sub-tab-btn" data-tab="item">By Item</button>
+                <button class="sub-tab-btn" data-tab="user">By User</button>
+            </div>
+
+            <!-- All Transactions sub-tab -->
+            <div class="sub-tab-panel" id="history-all-panel">
+                <p class="hint">Every stock and dispense transaction, newest first.</p>
+            </div>
+
+            <!-- By Item sub-tab -->
+            <div class="sub-tab-panel" id="history-item-panel" hidden>
+                <div class="filter-row">
+                    <label for="history-item-barcode">Item Barcode</label>
+                    <input type="text" id="history-item-barcode" placeholder="Enter barcode">
+                    <button id="history-item-lookup-btn">Look Up</button>
+                </div>
+                <p id="history-item-message"></p>
+            </div>
+
+            <!-- By User sub-tab -->
+            <div class="sub-tab-panel" id="history-user-panel" hidden>
+                <div class="filter-row">
+                    <label for="history-user-select">User</label>
+                    <select id="history-user-select">
+                        <option value="" disabled selected>-- Select user --</option>
+                    </select>
+                </div>
+                <p id="history-user-message"></p>
+            </div>
+
+            <!-- Shared results table -->
+            <div id="history-results" hidden>
+                <table id="history-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Item</th>
+                            <th>Type</th>
+                            <th>Quantity</th>
+                            <th>Work Order</th>
+                            <th>User</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-tbody"></tbody>
+                </table>
+
+                <div id="history-pagination" class="pagination">
+                    <button id="history-prev-btn">&laquo; Prev</button>
+                    <span id="history-page-info">Page 1 of 1</span>
+                    <button id="history-next-btn">Next &raquo;</button>
+                </div>
+            </div>
+
+        </section>
+
+    </div>
+
+    </main>
+
+    <script type="module" src="/static/main.js"></script>
+</body>
+</html>

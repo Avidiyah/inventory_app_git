@@ -1,0 +1,413 @@
+/*
+  Inventory Management -- stylesheet.
+  Layer: presentation. Served as a static file from
+  `backend/static/styles.css`; linked once from `index.html`.
+
+  Hand-written CSS (no preprocessor, no framework). Sections in
+  rough top-to-bottom order:
+    - Reset / base typography
+    - Header & main nav
+    - Page / section layout
+    - Form controls (inputs, selects, buttons, messages)
+    - Tables & row actions
+    - Transaction-specific controls (stock/dispense buttons)
+    - History sub-tabs, filters, type badges, pagination
+    - Notes editor grid
+
+  Class/ID hooks that JS depends on are frozen alongside the DOM
+  contract in `docs/interfaces.md` section 12 -- in particular the
+  state-toggling classes `.active`, `.success`, `.error`, and the
+  `.type-badge.stock` / `.type-badge.dispense` pair set by
+  `views/history.js`.
+*/
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f4f4;
+    color: #333;
+    padding: 0;
+}
+
+header {
+    background-color: #1f2937;
+    color: white;
+    padding: 16px 40px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+header h1 {
+    margin-bottom: 12px;
+}
+
+#main-nav {
+    display: flex;
+    gap: 8px;
+}
+
+.nav-btn {
+    background-color: #374151;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+    margin-top: 0;
+}
+
+.nav-btn:hover {
+    background-color: #4b5563;
+}
+
+.nav-btn.active {
+    background-color: #2563eb;
+}
+
+.nav-btn.active:hover {
+    background-color: #1d4ed8;
+}
+
+main {
+    padding: 30px 40px;
+}
+
+.page {
+    display: none;
+}
+
+.page.active {
+    display: block;
+}
+
+h1 {
+    margin-bottom: 0;
+}
+
+h2 {
+    margin-bottom: 16px;
+}
+
+section {
+    background-color: #fff;
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 30px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.form-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 400px;
+}
+
+.hint {
+    font-size: 13px;
+    color: #6b7280;
+    margin-bottom: 12px;
+}
+
+label {
+    font-weight: bold;
+    font-size: 14px;
+}
+
+input {
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+select {
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+    background-color: white;
+}
+
+button {
+    padding: 10px;
+    background-color: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+    margin-top: 6px;
+}
+
+button:hover {
+    background-color: #1d4ed8;
+}
+
+button:disabled {
+    background-color: #9ca3af;
+    cursor: not-allowed;
+}
+
+#create-item-message,
+#create-user-message,
+#transaction-message,
+#history-item-message,
+#history-user-message {
+    font-size: 14px;
+    margin-top: 4px;
+}
+
+.success {
+    color: green;
+}
+
+.error {
+    color: red;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+th {
+    text-align: left;
+    padding: 10px;
+    border-bottom: 2px solid #e5e7eb;
+    color: #555;
+}
+
+td {
+    padding: 10px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+tr:last-child td {
+    border-bottom: none;
+}
+
+.delete-btn,
+.delete-user-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 4px;
+    color: #dc2626;
+}
+
+.delete-btn:hover,
+.delete-user-btn:hover {
+    background: none;
+    color: #991b1b;
+}
+
+.row-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.stock-btn,
+.dispense-btn {
+    padding: 4px 10px;
+    font-size: 13px;
+    margin-top: 0;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.stock-btn {
+    background-color: #16a34a;
+}
+
+.stock-btn:hover {
+    background-color: #15803d;
+}
+
+.dispense-btn {
+    background-color: #d97706;
+}
+
+.dispense-btn:hover {
+    background-color: #b45309;
+}
+
+#transaction-selected {
+    font-size: 14px;
+    font-weight: bold;
+    color: #111;
+}
+
+.form-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.secondary-btn {
+    background-color: #6b7280;
+}
+
+.secondary-btn:hover {
+    background-color: #4b5563;
+}
+
+/* History sub-tabs */
+.sub-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid #e5e7eb;
+    margin-bottom: 20px;
+}
+
+.sub-tab-btn {
+    background-color: transparent;
+    color: #374151;
+    padding: 8px 16px;
+    border: none;
+    border-bottom: 3px solid transparent;
+    border-radius: 0;
+    font-size: 14px;
+    cursor: pointer;
+    margin-top: 0;
+}
+
+.sub-tab-btn:hover {
+    background-color: #f3f4f6;
+    color: #111;
+}
+
+.sub-tab-btn.active {
+    color: #2563eb;
+    border-bottom-color: #2563eb;
+    font-weight: bold;
+}
+
+.filter-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.filter-row label {
+    margin: 0;
+}
+
+.filter-row input,
+.filter-row select {
+    min-width: 240px;
+}
+
+.filter-row button {
+    margin-top: 0;
+}
+
+/* Type badges */
+.type-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: bold;
+    color: white;
+}
+
+.type-badge.stock {
+    background-color: #16a34a;
+}
+
+.type-badge.dispense {
+    background-color: #d97706;
+}
+
+/* Pagination */
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.pagination button {
+    margin-top: 0;
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+#history-page-info {
+    font-size: 13px;
+    color: #6b7280;
+}
+
+/* Notes editor */
+.edit-notes-btn {
+    padding: 4px 10px;
+    font-size: 13px;
+    margin-top: 0;
+    background-color: #6b7280;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.edit-notes-btn:hover {
+    background-color: #4b5563;
+}
+
+#notes-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 700px;
+}
+
+.note-row {
+    display: grid;
+    grid-template-columns: 1fr 130px 1fr 36px;
+    gap: 8px;
+    align-items: center;
+}
+
+.note-row input,
+.note-row select {
+    width: 100%;
+    margin: 0;
+}
+
+.note-remove-btn {
+    background-color: #dc2626;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 0;
+    font-size: 14px;
+    cursor: pointer;
+    margin-top: 0;
+}
+
+.note-remove-btn:hover {
+    background-color: #991b1b;
+}
+
+.notes-cell {
+    font-size: 13px;
+    color: #374151;
+    max-width: 320px;
+}
+
+.notes-cell .empty {
+    color: #9ca3af;
+}
