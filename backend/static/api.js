@@ -93,6 +93,21 @@ export async function apiGetItemByBarcode(barcode) {
   return parseResponse(await fetch(`/items/${encodeURIComponent(barcode)}`, { credentials: "include" }));
 }
 
+// --- Barcodes ----------------------------------------------------
+export async function apiDecodeBarcode(file) {
+  // multipart/form-data upload -- do NOT set Content-Type by hand; the
+  // browser must add the multipart boundary itself. The decoded image is
+  // never persisted server-side (see app/services/barcodes.py).
+  const form = new FormData();
+  form.append("file", file);
+  const response = await fetch("/barcodes/decode", {
+    method: "POST",
+    body: form,
+    credentials: "include",
+  });
+  return parseResponse(response);
+}
+
 // --- Users -------------------------------------------------------
 export async function apiListUsers() {
   return parseResponse(await fetch("/users/", { credentials: "include" }));

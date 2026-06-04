@@ -36,11 +36,29 @@ const transactionMessage = document.getElementById("transaction-message");
 const saveTransactionBtn = document.getElementById("save-transaction-btn");
 const cancelTransactionBtn = document.getElementById("cancel-transaction-btn");
 
+// When a barcode scan resolves to an item, the items table is narrowed to
+// just that row so the operator sees exactly what they scanned. `null`
+// means "show everything" (the normal state). Set via `focusItemByBarcode`,
+// cleared via `clearTxnScanFilter` (called by the scan view's reset).
+let scanFilterBarcode = null;
+
+// Injected by `main.js` (see `setOnTransactionSaved`) so a completed
+// stock/dispense can reset the scan UI without this module importing the
+// scan view -- keeping the dependency one-way (scan -> transactions).
+let onTransactionSaved = null;
+
+export function setOnTransactionSaved(fn) {
+  onTransactionSaved = fn;
+}
+
 export async function loadTxnItems() {
   try {
     const items = await apiListItems();
+    const visible = scanFilterBarcode
+      ? items.filter(item => item.barcode === scanFilterBarcode)
+      : items;
     txnItemsTbody.innerHTML = "";
-    items.forEach(item => {
+    visible.forEach(item => {
       const row = document.createElement("tr");
       row.innerHTML = `
         <td>${escapeHtml(item.barcode)}</td>
@@ -81,6 +99,21 @@ export function closeTransactionForm() {
   setSelectedItemId(null);
   transactionSection.hidden = true;
   setMessage(transactionMessage, "", "");
+  // If a scan had narrowed the table, restore the full list when the form
+  // closes (cancel, post-save, or the selected item being deleted).
+  if (scanFilterBarcode !== null) {
+    scanFilterBarcode = null;
+    loadTxnItems();
+  }
+}
+
+// Called by the scan view after a successful decode + exact lookup: narrow
+// the items table to the scanned item and open its transaction form,
+// defaulting to "stock" (the Type dropdown flips to dispense in one click).
+export function focusItemByBarcode(item) {
+  scanFilterBarcode = item.barcode;
+  loadTxnItems();
+  openTransactionForm(item.id, item.name, "stock");
 }
 
 txnItemsTbody.addEventListener("click", (event) => {
@@ -117,6 +150,9 @@ saveTransactionBtn.addEventListener("click", async () => {
       work_order_number: workOrder || null,
     });
     setMessage(transactionMessage, `Transaction saved (${data.transaction_type}, qty ${data.quantity}).`, "success");
+    // Auto-reset the scan UI so the next scan starts clean (no-op if the
+    // transaction was started manually rather than by a scan).
+    if (onTransactionSaved) onTransactionSaved();
     loadTxnItems();
     loadItems();
     setTimeout(closeTransactionForm, 1200);

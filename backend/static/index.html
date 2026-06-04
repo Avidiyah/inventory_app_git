@@ -184,6 +184,17 @@
     <!-- =================== TRANSACTION PAGE =================== -->
     <div class="page" id="transaction-page">
 
+        <section id="txn-scan-section">
+            <h2>Scan Barcode</h2>
+            <p class="hint">Point your phone camera at a barcode (or upload an image) to jump straight to the item and open a transaction.</p>
+            <div class="scan-controls">
+                <label for="txn-scan-input" class="scan-label">Scan / Upload Barcode</label>
+                <input type="file" id="txn-scan-input" accept="image/*" capture="environment">
+            </div>
+            <div id="txn-scan-chooser" class="scan-chooser" hidden></div>
+            <p id="txn-scan-message"></p>
+        </section>
+
         <section id="txn-items-section">
             <h2>Items</h2>
             <p class="hint">Click Stock or Dispense to record a transaction.</p>

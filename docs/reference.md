@@ -23,6 +23,8 @@ An **inventory management system** with a Python/FastAPI backend, PostgreSQL dat
 | Database | PostgreSQL | (external) |
 | Config | python-dotenv | 1.2.2 |
 | Frontend | Static files (HTML/CSS/JS) | served via FastAPI StaticFiles |
+| Barcode decode | pyzbar (native `zbar`) + Pillow | 0.1.9 / 12.2.0 |
+| File uploads | python-multipart | 0.0.32 |
 
 ---
 
@@ -180,6 +182,14 @@ Note: Deleting a user with existing transactions returns `400`.
 
 GET `/transactions/` query params: `item_id` (UUID), `user_id` (UUID), `page` (int ≥ 1, default 1), `page_size` (int 1–100, default 10).
 
+### Barcodes — prefix `/barcodes`
+
+| Method | Path | Description | Status |
+|---|---|---|---|
+| POST | `/barcodes/decode` | Decode an uploaded image → barcodes found | 200 / 400 |
+
+`multipart/form-data` with a single `file`. **Supervisor or above** (matches the Transaction page, the only scanning surface). The image is decoded **in memory and never persisted**, restricted to `UPC_A`, `UPC_E`, `EAN_13`, `EAN_8`, `CODE_128`. Response: `{"barcodes": [{"text": ..., "format": ...}, ...]}`. A readable image with no supported barcode returns `200` with an empty list; an unreadable file returns `400`. No database access — stateless, so no migration was required.
+
 ### Root / Utility
 
 | Method | Path | Description |
@@ -241,3 +251,4 @@ All response models use `model_config = {"from_attributes": True}` for ORM compa
 - **Synchronous SQLAlchemy** — not async; standard `Session`, not `AsyncSession`.
 - **No authentication** — the API has no auth layer; `user_id` on transactions is optional and informational only.
 - **Static frontend co-located** — the FastAPI app mounts `./static/` and serves `index.html` at the root.
+- **Backend barcode decoding** — uploaded images are decoded server-side with `pyzbar` (a ctypes wrapper over the native `zbar` C library), in memory only, never persisted. Chosen over a frontend JS decoder so the symbology/format logic lives in one unit-tested place (`app/services/barcodes.py`). **Windows gotcha:** pyzbar's bundled DLLs require the **Visual C++ 2013 Redistributable** (`msvcr120.dll`); without it the import fails with a missing `libiconv.dll`/`libzbar-64.dll`. (`zxing-cpp` was the original intent but has no prebuilt wheel for this Python/OS and needs a C++ toolchain to build — see `spec.md` decisions log.)

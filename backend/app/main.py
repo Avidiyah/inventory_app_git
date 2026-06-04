@@ -21,13 +21,14 @@ from fastapi.responses import FileResponse
 from app.auth_deps import require_min_role
 from app.database import test_connection
 from app.domain import roles
-from app.routers import auth, items, transactions, users
+from app.routers import auth, barcodes, items, transactions, users
 
 app = FastAPI(title="Inventory Management API")
 
 # Routers register their own prefixes (`/auth`, `/items`,
 # `/transactions`, `/users`); ordering here is irrelevant.
 app.include_router(auth.router)
+app.include_router(barcodes.router)
 app.include_router(items.router)
 app.include_router(transactions.router)
 app.include_router(users.router)

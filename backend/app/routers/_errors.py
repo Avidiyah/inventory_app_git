@@ -22,6 +22,7 @@ from app.domain.errors import (
     ItemNotFoundError,
     NegativeQuantityError,
     RoleManagementError,
+    UnreadableImageError,
     UserHasTransactionsError,
     UserNotFoundError,
 )
@@ -37,6 +38,7 @@ _STATUS_MAP: dict[type[DomainError], int] = {
     DuplicateUsernameError: 400,
     UserHasTransactionsError: 400,
     NegativeQuantityError: 400,
+    UnreadableImageError: 400,
     InvalidCredentialsError: 401,
     RoleManagementError: 403,
 }

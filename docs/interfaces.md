@@ -655,6 +655,7 @@ The following IDs are required by the frontend view modules. Renaming or removin
 
 **Transaction page**
 
+- `#txn-scan-section`, `#txn-scan-input`, `#txn-scan-chooser`, `#txn-scan-message` (barcode scanning — see addendum L)
 - `#transaction-page`, `#txn-items-section`, `#transaction-section`
 - `#txn-items-tbody`, `#transaction-selected`, `#transaction-type`, `#transaction-user`
 - `#transaction-quantity`, `#transaction-work-order`
@@ -799,7 +800,7 @@ Default `historyState`: `{ tab: "all", itemId: null, userId: null, page: 1, tota
 
 ### `static/api.js`
 One async function per backend endpoint. Returns parsed JSON on success; on non-2xx throws `{ status, detail }`; returns `null` for 204.
-Exports: `apiListItems`, `apiCreateItem({barcode,name,location,quantity})`, `apiDeleteItem(itemId)`, `apiUpdateNotes(itemId, notesDict)`, `apiGetItemByBarcode(barcode)`, `apiListUsers`, `apiCreateUser({username})`, `apiDeleteUser(userId)`, `apiListTransactions({page,pageSize,itemId,userId})`, `apiCreateTransaction(payload)`.
+Exports: `apiListItems`, `apiCreateItem({barcode,name,location,quantity})`, `apiDeleteItem(itemId)`, `apiUpdateNotes(itemId, notesDict)`, `apiGetItemByBarcode(barcode)`, `apiListUsers`, `apiCreateUser({username})`, `apiDeleteUser(userId)`, `apiListTransactions({page,pageSize,itemId,userId})`, `apiCreateTransaction(payload)`, `apiDecodeBarcode(file)` (multipart upload → `{barcodes:[...]}`).
 **Must NOT know about:** DOM, state.
 
 ### `static/format.js`
@@ -836,9 +837,14 @@ Each view module owns DOM queries against a specific section of `index.html`, wi
 - **Wires:** `#create-user-btn`, delegated clicks on `#users-tbody`.
 
 ### `static/views/transactions.js`
-- **Exports:** `loadTxnItems()`, `openTransactionForm(itemId, itemName, action)`, `closeTransactionForm()`.
+- **Exports:** `loadTxnItems()`, `openTransactionForm(itemId, itemName, action)`, `closeTransactionForm()`, `focusItemByBarcode(item)` (narrow the table to the scanned item + open its form), `setOnTransactionSaved(fn)` (post-save reset hook, injected by `main.js`).
 - **Wires:** delegated clicks on `#txn-items-tbody`, `#cancel-transaction-btn`, `#save-transaction-btn`.
-- **Imports:** `views/items.js → loadItems` to refresh the items list after a transaction.
+- **Imports:** `views/items.js → loadItems` to refresh the items list after a transaction. Does **not** import `views/scan.js` (the dependency is one-way: scan → transactions).
+
+### `static/views/scan.js`
+- **Exports:** `resetScan()` (clears the scan input/message/chooser).
+- **Wires:** `change` on `#txn-scan-input`, delegated clicks on `#txn-scan-chooser`.
+- **Imports:** `api.js → apiDecodeBarcode, apiGetItemByBarcode`; `views/transactions.js → focusItemByBarcode`; `state.js → getRole`; `roles.js → roleAtLeast`. Navigates to the Create Item page by clicking the existing nav button (no `nav.js` import), keeping the module graph acyclic.
 
 ### `static/views/history.js`
 - **Exports:** `loadHistory()`, `renderHistory(data)`, `setHistoryTab(tab)`.
@@ -890,3 +896,24 @@ loadUsers();
 ## K. State ownership (replaces §11)
 
 All state listed in §11 now lives behind `static/state.js` getters/setters. The Set-by / Read-by table in §11 still applies — only the access mechanism has changed (e.g. `itemsCache` → `getItems()` / `setItems(arr)`; `historyState.page = n` → `updateHistoryState({ page: n })`).
+
+---
+
+## L. Barcode scanning (feature addendum)
+
+End-to-end contract for the Transaction-page barcode scanner. Decoding is **backend** (`pyzbar` over native `zbar`), in memory, never persisted.
+
+### Backend — `POST /barcodes/decode`
+Router prefix `/barcodes`, tag `barcodes`. Gated **supervisor or above**.
+- **Input:** `multipart/form-data`, one `file: UploadFile`.
+- **Output:** `BarcodeDecodeResponse` → `{ "barcodes": [ { "text": str, "format": str } ] }`. `format` ∈ `{UPC_A, UPC_E, EAN_13, EAN_8, CODE_128}` (canonical; other symbologies are dropped). Duplicates collapsed.
+- **Errors:** `400` (`UnreadableImageError`) when the bytes are not a decodable image. A readable image with no supported barcode is **not** an error — it returns `200` with `barcodes: []`.
+
+### Backend — modules
+- **`app/schemas/barcodes.py`** — `BarcodeMatch{text, format}`, `BarcodeDecodeResponse{barcodes}` (re-exported from `app.schemas`).
+- **`app/services/barcodes.py`** — `decode_image(data: bytes) -> list[BarcodeMatch]`. Opens via Pillow (`UnreadableImageError` on failure), decodes with `pyzbar.decode` restricted to the five `ZBarSymbol`s, maps native type names → canonical, dedupes by `(text, format)`. No FastAPI/DB.
+- **`app/domain/errors.py`** — `UnreadableImageError(DomainError)`, mapped to `400` in `routers/_errors.py`.
+- **`app/routers/barcodes.py`** — thin handler; reads the upload, calls the service, translates `DomainError` via `to_http`.
+
+### Frontend — flow
+`apiDecodeBarcode(file)` → branch on `barcodes.length`: `0` shows a "no barcode" message (manual table stays usable); `1` resolves via `apiGetItemByBarcode` → `focusItemByBarcode` (filter + auto-open the Stock form) or, on `404`, an Owner/Admin-only "Create Item" shortcut that prefills `#barcode`; `>1` renders a chooser in `#txn-scan-chooser`. The scan UI auto-resets after a completed stock/dispense via `setOnTransactionSaved(resetScan)` wired in `main.js`.

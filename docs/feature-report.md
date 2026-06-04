@@ -21,6 +21,8 @@ This report is grounded in the current codebase: a single FastAPI process (`back
 
 ## Feature 1 — Barcode scan as a search filter
 
+> **✅ Implemented (as-built note).** This shipped, but with a different decode strategy than the options weighed below. Decoding is done on the **backend** with `pyzbar` (native `zbar`) via `POST /barcodes/decode`, **not** with a vendored JS library or the `BarcodeDetector` API. Surface is the **Transaction page only**: a file input with `accept="image/*" capture="environment"` (phone camera + desktop upload) → on a single match the items table filters to that row and the Stock/Dispense form auto-opens; unknown barcodes offer an Owner/Admin "Create Item" shortcut; multiple barcodes show a chooser; failures keep the manual fallback. Formats: UPC-A, UPC-E, EAN-13, EAN-8, Code128. New Python deps: `pyzbar`, `Pillow`, `python-multipart` (see `backend/requirements.txt`). No schema/migration change. See `spec.md` decisions log and `interfaces.md` addendum L. The original `zxing-cpp` plan was dropped (no prebuilt wheel for this Python/OS, needs a C++ toolchain). The analysis below is retained for historical context.
+
 ### What you already have
 - `items.barcode` is a unique, indexed-by-constraint column (`backend/app/models.py:45`).
 - A working lookup endpoint already exists: `GET /items/{barcode}` → `items_service.get_item_by_barcode` (`backend/app/routers/items.py:49`).

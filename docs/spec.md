@@ -22,6 +22,7 @@ A self-hosted inventory management tool for tracking physical items by barcode. 
 |Filter history by item (barcode lookup)|✅ Working|
 |Filter history by user|✅ Working|
 |Client-side item search (name / barcode)|✅ Working|
+|Barcode scanning on Transaction page (image upload / mobile camera → filter + auto-open form)|✅ Working — backend `pyzbar` decode|
 |Codebase modularization (domain / services / views split)|✅ Complete — backend logic isolated from FastAPI; frontend split into ES modules; element-ID and route contracts unchanged|
 |Authentication / access control|❌ Not implemented|
 |Edit item name, barcode, or location|❌ Not implemented|
@@ -60,6 +61,8 @@ Table listing all users with a delete button. Deleting a user who has transactio
 ---
 
 ### Transaction Page
+
+**Barcode scan** (top of the page) — a file input with `accept="image/*" capture="environment"` so phones open the rear camera and desktops open a file picker. The chosen image is POSTed to `/barcodes/decode` (backend pyzbar decode, in memory). On a single match the items table is filtered to that row and the Stock form auto-opens (Type defaults to Stock; one click flips to Dispense). On an unknown barcode, Owner/Admin see a "Create Item" shortcut that jumps to the Create Item page with the barcode prefilled. Multiple barcodes in one image show a chooser. Decode failures show a clear message and the manual table below stays usable. The scan resets automatically after a completed stock/dispense. Supported formats: UPC-A, UPC-E, EAN-13, EAN-8, Code128.
 
 Displays all items in a table (barcode, name, current quantity) with "Stock" and "Dispense" buttons per row.
 
@@ -200,3 +203,5 @@ The frontend never calls `/db-test`.
 | v2    | Added JSONB `notes` (formerly `attributes`)             | Flexible metadata without schema migrations per new field |
 | v3    | Added `location` column, renamed `attributes` → `notes` | Clearer semantics; location is a first-class field        |
 | v3    | `FOR UPDATE` lock on item during transaction            | Prevents race condition on concurrent stock/dispense      |
+| barcode | Barcode scanning lives on the Transaction page only; capture via file upload + mobile camera (`<input type=file capture>`); success filters to the matching row and auto-opens the Stock/Dispense form | Smallest surface that delivers the value; reuses the existing exact `GET /items/{barcode}` lookup (no fuzzy search) |
+| barcode | Decode on the **backend** with `pyzbar`, **not** `zxing-cpp` (the originally chosen library) and not a JS decoder | `zxing-cpp` has no prebuilt wheel for this Python 3.13 / Windows and needs a C++ toolchain to build (not available on the dev machine). `pyzbar` ships the native `zbar` DLLs in its wheel. Keeps symbology/format logic server-side and unit-tested. **Caveat:** on Windows pyzbar needs the VC++ 2013 runtime (`msvcr120.dll`). |

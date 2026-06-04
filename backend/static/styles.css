@@ -157,6 +157,7 @@ button:disabled {
 #create-item-message,
 #create-user-message,
 #transaction-message,
+#txn-scan-message,
 #history-item-message,
 #history-user-message {
     font-size: 14px;
@@ -475,4 +476,55 @@ tr:last-child td {
 /* Hidden nav buttons (role-gated) must collapse fully. */
 .nav-btn[hidden] {
     display: none;
+}
+
+/*
+  Barcode scan controls (Transaction page).
+  Added with the barcode-scanning feature. `#txn-scan-section` sits above
+  the items table; `views/scan.js` drives the input, message, and chooser.
+*/
+.scan-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 400px;
+}
+
+.scan-label {
+    font-weight: bold;
+    font-size: 14px;
+}
+
+#txn-scan-input {
+    font-size: 14px;
+}
+
+.scan-chooser {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+    max-width: 400px;
+}
+
+/* Higher specificity than the `.scan-chooser` flex rule so the `hidden`
+   attribute wins when the chooser is empty. */
+.scan-chooser[hidden] {
+    display: none;
+}
+
+.scan-choice-btn,
+.scan-create-btn {
+    text-align: left;
+    margin-top: 0;
+}
+
+/* The Create Item shortcut is a "go do something new" action -- green,
+   matching the stock button's affordance rather than the blue default. */
+.scan-create-btn {
+    background-color: #16a34a;
+}
+
+.scan-create-btn:hover {
+    background-color: #15803d;
 }

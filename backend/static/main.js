@@ -25,17 +25,24 @@ import "./views/items.js";
 import "./views/users.js";
 import "./views/history.js";
 import "./views/transactions.js";
+import "./views/scan.js";
 import "./views/auth.js";
 
 // --- Named imports for bootstrap calls ---------------------------
 import { setOnDeletedSelectedItem } from "./views/items.js";
-import { closeTransactionForm } from "./views/transactions.js";
+import { closeTransactionForm, setOnTransactionSaved } from "./views/transactions.js";
+import { resetScan } from "./views/scan.js";
 import { initAuth } from "./views/auth.js";
 
 // Cross-view wiring: deleting the selected item from the Entry
 // page must also dismiss the transaction form on the Transaction
 // page (otherwise it would point at a now-missing row).
 setOnDeletedSelectedItem(closeTransactionForm);
+
+// After a completed stock/dispense, reset the scan UI so the next scan
+// starts clean. Injected here (rather than imported by transactions.js)
+// to keep the view dependency one-way: scan -> transactions.
+setOnTransactionSaved(resetScan);
 
 // --- Auth gate ---------------------------------------------------
 // `initAuth` checks /auth/me and then either shows the login screen or

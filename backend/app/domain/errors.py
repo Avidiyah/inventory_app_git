@@ -80,3 +80,11 @@ class RoleManagementError(DomainError):
     """Raised when an actor attempts to create, reset, or delete a user
     they do not outrank (see `domain.roles.can_manage`). This is an
     authorization failure, not a validation error, so it maps to 403."""
+
+
+class UnreadableImageError(DomainError):
+    """Raised by `services.barcodes.decode_image` when the uploaded bytes
+    are not a decodable image (PIL cannot open them). This is a malformed
+    request, not a "not found", so it maps to 400. A *readable* image that
+    simply contains no barcode is NOT an error -- the service returns an
+    empty list and the router responds 200."""

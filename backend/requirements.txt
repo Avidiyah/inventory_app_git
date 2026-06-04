@@ -1,0 +1,23 @@
+# Runtime dependencies for the Inventory Management backend.
+#
+# Pinned to the verified working environment (pip freeze of backend/venv).
+# Curated to direct runtime needs; pip resolves the remaining transitive
+# packages. Dev/test-only tools live in requirements-dev.txt.
+#
+# NOTE on pyzbar: it wraps the native `zbar` library. The wheel bundles the
+# DLLs, but on Windows they require the Visual C++ 2013 Redistributable
+# (msvcr120.dll); without it the import fails with a missing libiconv.dll.
+# See docs/reference.md.
+
+fastapi==0.136.3
+uvicorn==0.48.0
+starlette==1.2.1
+pydantic==2.13.4
+SQLAlchemy==2.0.50
+alembic==1.18.4
+psycopg==3.3.4
+psycopg-binary==3.3.4
+python-dotenv==1.2.2
+python-multipart==0.0.32
+pyzbar==0.1.9
+pillow==12.2.0

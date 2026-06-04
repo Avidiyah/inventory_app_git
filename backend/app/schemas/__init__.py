@@ -12,6 +12,7 @@ knowing which submodule it lives in. Submodules are split by
 resource (items / transactions / users) to mirror the router layout.
 """
 
+from app.schemas.barcodes import BarcodeMatch, BarcodeDecodeResponse
 from app.schemas.items import ItemCreate, ItemResponse, ItemNotesUpdate
 from app.schemas.transactions import (
     TransactionCreate,
@@ -22,6 +23,8 @@ from app.schemas.transactions import (
 from app.schemas.users import UserCreate, UserResponse
 
 __all__ = [
+    "BarcodeMatch",
+    "BarcodeDecodeResponse",
     "ItemCreate",
     "ItemResponse",
     "ItemNotesUpdate",
