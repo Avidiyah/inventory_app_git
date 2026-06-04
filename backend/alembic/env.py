@@ -66,8 +66,13 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    # Reuse the app's scheme normalization so migrations hit the same
+    # psycopg 3 dialect as the running service (Render/Heroku style URLs
+    # arrive as `postgresql://`, which would otherwise pick psycopg2).
+    from app.database import normalize_db_url
+
     connectable = create_engine(
-        os.getenv("DATABASE_URL"),
+        normalize_db_url(os.getenv("DATABASE_URL")),
         poolclass=pool.NullPool,
     )
 

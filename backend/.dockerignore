@@ -1,0 +1,9 @@
+# Keep the build context small and free of local-only / secret files.
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+tests/
+.env
+*.md

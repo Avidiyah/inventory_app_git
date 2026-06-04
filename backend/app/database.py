@@ -19,14 +19,37 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 load_dotenv()
 
+
+def normalize_db_url(url: str) -> str:
+    """Force the psycopg 3 dialect on a Postgres URL.
+
+    Managed Postgres providers (Render, Heroku, etc.) hand out URLs that
+    begin with `postgres://` or `postgresql://`. SQLAlchemy maps both to
+    the psycopg2 driver, which this project does not install -- it uses
+    psycopg 3. Rewriting the scheme to `postgresql+psycopg://` keeps the
+    local `.env` and the deployed `DATABASE_URL` working unchanged.
+    """
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set. Check your .env file.")
 
+DATABASE_URL = normalize_db_url(DATABASE_URL)
+
+# `echo` logs every SQL statement -- handy locally, but in production it
+# floods the logs and can leak data. Off unless SQL_ECHO=true.
+SQL_ECHO = os.getenv("SQL_ECHO", "false").strip().lower() == "true"
+
 engine = create_engine(
     DATABASE_URL,
-    echo=True,
+    echo=SQL_ECHO,
     connect_args={"connect_timeout": 5},
 )
 

@@ -1,0 +1,31 @@
+# Render Blueprint: one Docker web service + one managed Postgres.
+# Create both at once via the Render dashboard -> "New" -> "Blueprint",
+# pointed at this repo. After the first deploy creates the empty schema,
+# load your existing data once with scripts/import_local_data.ps1
+# (see docs/deploy-render.md).
+
+databases:
+  - name: inventory-db
+    plan: free            # free Postgres expires after 90 days; upgrade before then
+    databaseName: inventory
+    user: inventory
+
+services:
+  - type: web
+    name: inventory-app
+    runtime: docker
+    plan: free            # free web tier sleeps when idle (~30s cold start)
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: inventory-db
+          property: connectionString
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: SQL_ECHO
+        value: "false"
