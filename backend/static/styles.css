@@ -426,6 +426,14 @@ tr:last-child td {
     padding: 20px;
 }
 
+/* The `display: flex` above is an ID selector and outranks the UA
+   `[hidden] { display: none }`, so without this the login card would
+   stay visible after `auth.js` sets `hidden`. This higher-specificity
+   rule lets the `hidden` attribute win on login / logout / timeout. */
+#login-screen[hidden] {
+    display: none;
+}
+
 #login-section {
     background-color: white;
     padding: 32px;
