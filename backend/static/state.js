@@ -15,6 +15,12 @@ let usersCache = [];
 let selectedItemId = null;
 let editingNotesItemId = null;
 
+// The logged-in user: `{ id, username, role }` or null when logged out.
+// Auth itself lives in the HttpOnly session cookie (not readable here);
+// this is only the identity the views need to gate the UI. Deliberately
+// NOT persisted to localStorage -- a page reload re-checks `/auth/me`.
+let currentUser = null;
+
 // Hard-coded page size for the history view. Backend caps at 100;
 // 10 is plenty for the current UI density.
 export const HISTORY_PAGE_SIZE = 10;
@@ -41,6 +47,11 @@ export function setSelectedItemId(id) { selectedItemId = id; }
 
 export function getEditingNotesItemId() { return editingNotesItemId; }
 export function setEditingNotesItemId(id) { editingNotesItemId = id; }
+
+export function getCurrentUser() { return currentUser; }
+export function setCurrentUser(user) { currentUser = user; }
+// Convenience accessor used pervasively by the role-gated views.
+export function getRole() { return currentUser ? currentUser.role : null; }
 
 // History state is returned by copy so callers cannot mutate the
 // internal object by reference. Use `updateHistoryState({...})`

@@ -14,17 +14,20 @@ Business logic lives in `app.services`, validation in
 ever grow beyond wiring.
 """
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
+from app.auth_deps import require_min_role
 from app.database import test_connection
-from app.routers import items, transactions, users
+from app.domain import roles
+from app.routers import auth, items, transactions, users
 
 app = FastAPI(title="Inventory Management API")
 
-# Routers register their own prefixes (`/items`, `/transactions`,
-# `/users`); ordering here is irrelevant.
+# Routers register their own prefixes (`/auth`, `/items`,
+# `/transactions`, `/users`); ordering here is irrelevant.
+app.include_router(auth.router)
 app.include_router(items.router)
 app.include_router(transactions.router)
 app.include_router(users.router)
@@ -41,11 +44,11 @@ def read_root():
     return FileResponse("static/index.html")
 
 
-@app.get("/db-test")
+@app.get("/db-test", dependencies=[Depends(require_min_role(roles.ROLE_ADMIN))])
 def db_test():
-    """Liveness probe for the database connection. Returns the
-    current database name and connected user so deploys can
-    confirm they are pointed at the right environment."""
+    """Liveness probe for the database connection. Restricted to
+    Owner/Admin. Returns the current database name and connected user so
+    deploys can confirm they are pointed at the right environment."""
     database_name, user_name = test_connection()
 
     return {

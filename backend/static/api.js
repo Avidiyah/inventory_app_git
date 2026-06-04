@@ -10,6 +10,16 @@
 // parsing, and 204-handling are written once, and adding an
 // endpoint never requires touching view code.
 
+// A single callback the app registers (via `setUnauthorizedHandler`) so
+// that ANY 401 -- an expired or missing session on any request -- drops
+// the user back to the login screen without each view handling it. The
+// login view's own handler still renders bad-credential messages; this
+// hook just guarantees the gate re-appears.
+let unauthorizedHandler = null;
+export function setUnauthorizedHandler(fn) {
+  unauthorizedHandler = fn;
+}
+
 async function parseResponse(response) {
   // 204 No Content has an empty body by definition -- short-circuit
   // so callers can branch on `null` without parsing an empty string.
@@ -25,6 +35,9 @@ async function parseResponse(response) {
     const detail = (body && typeof body === "object" && body.detail !== undefined)
       ? body.detail
       : (typeof body === "string" ? body : response.statusText);
+    if (response.status === 401 && unauthorizedHandler) {
+      unauthorizedHandler();
+    }
     throw { status: response.status, detail };
   }
   return body;
@@ -32,18 +45,34 @@ async function parseResponse(response) {
 
 // Shared helper for POST/PATCH/PUT bodies. GETs and DELETEs go
 // straight through `fetch` because they have no JSON payload.
+// `credentials: "include"` ensures the session cookie rides along even
+// if the app is ever served from a different origin.
 async function jsonRequest(url, method, payload) {
   const response = await fetch(url, {
     method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    credentials: "include",
   });
   return parseResponse(response);
 }
 
+// --- Auth --------------------------------------------------------
+export async function apiLogin({ username, password }) {
+  return jsonRequest("/auth/login", "POST", { username, password });
+}
+
+export async function apiLogout() {
+  return parseResponse(await fetch("/auth/logout", { method: "POST", credentials: "include" }));
+}
+
+export async function apiMe() {
+  return parseResponse(await fetch("/auth/me", { credentials: "include" }));
+}
+
 // --- Items -------------------------------------------------------
 export async function apiListItems() {
-  return parseResponse(await fetch("/items/"));
+  return parseResponse(await fetch("/items/", { credentials: "include" }));
 }
 
 export async function apiCreateItem({ barcode, name, location, quantity }) {
@@ -51,7 +80,7 @@ export async function apiCreateItem({ barcode, name, location, quantity }) {
 }
 
 export async function apiDeleteItem(itemId) {
-  return parseResponse(await fetch(`/items/${itemId}`, { method: "DELETE" }));
+  return parseResponse(await fetch(`/items/${itemId}`, { method: "DELETE", credentials: "include" }));
 }
 
 export async function apiUpdateNotes(itemId, notesDict) {
@@ -61,20 +90,24 @@ export async function apiUpdateNotes(itemId, notesDict) {
 export async function apiGetItemByBarcode(barcode) {
   // Barcodes may contain characters that need URL-escaping (e.g.
   // `/` or `#`); raw values would silently mis-route.
-  return parseResponse(await fetch(`/items/${encodeURIComponent(barcode)}`));
+  return parseResponse(await fetch(`/items/${encodeURIComponent(barcode)}`, { credentials: "include" }));
 }
 
 // --- Users -------------------------------------------------------
 export async function apiListUsers() {
-  return parseResponse(await fetch("/users/"));
+  return parseResponse(await fetch("/users/", { credentials: "include" }));
 }
 
-export async function apiCreateUser({ username }) {
-  return jsonRequest("/users/", "POST", { username });
+export async function apiCreateUser({ username, password, role }) {
+  return jsonRequest("/users/", "POST", { username, password, role });
+}
+
+export async function apiResetPassword(userId, password) {
+  return jsonRequest(`/users/${userId}/reset-password`, "POST", { password });
 }
 
 export async function apiDeleteUser(userId) {
-  return parseResponse(await fetch(`/users/${userId}`, { method: "DELETE" }));
+  return parseResponse(await fetch(`/users/${userId}`, { method: "DELETE", credentials: "include" }));
 }
 
 // --- Transactions ------------------------------------------------
@@ -86,18 +119,19 @@ export async function apiListTransactions({ page, pageSize, itemId, userId }) {
   // them as "all" rather than as `item_id=null`.
   if (itemId) params.set("item_id", itemId);
   if (userId) params.set("user_id", userId);
-  return parseResponse(await fetch(`/transactions/?${params.toString()}`));
+  return parseResponse(await fetch(`/transactions/?${params.toString()}`, { credentials: "include" }));
 }
 
 export async function apiCreateTransaction(payload) {
   // Build the body explicitly rather than spreading -- the backend
   // schema rejects unknown keys, and dropping a missing
-  // `work_order_number` keeps the wire format clean.
+  // `work_order_number` keeps the wire format clean. There is no
+  // `user_id`: the server attributes the transaction to the logged-in
+  // user from the session.
   const body = {
     item_id: payload.item_id,
     transaction_type: payload.transaction_type,
     quantity: payload.quantity,
-    user_id: payload.user_id,
   };
   if (payload.work_order_number) body.work_order_number = payload.work_order_number;
   return jsonRequest("/transactions/", "POST", body);

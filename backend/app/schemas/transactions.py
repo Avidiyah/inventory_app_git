@@ -25,13 +25,16 @@ class TransactionCreate(BaseModel):
     pollute the audit log. Stock-level overdraft (`dispense` larger
     than current quantity) is *not* checked here; that is the
     service layer's job because it requires a row lock.
+
+    There is no `user_id` field: a transaction is always attributed to
+    the logged-in user, which the router supplies from the session. A
+    client cannot record a transaction "as" someone else.
     """
 
     item_id: UUID
     transaction_type: Literal["stock", "dispense"]
     quantity: Decimal
     work_order_number: Optional[str] = None
-    user_id: Optional[UUID] = None
 
     @field_validator("quantity")
     @classmethod

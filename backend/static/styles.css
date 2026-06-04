@@ -411,3 +411,60 @@ tr:last-child td {
 .notes-cell .empty {
     color: #9ca3af;
 }
+/*
+  Auth: login screen overlay and the header auth bar.
+  Added with the v1 authentication feature. The login screen is a
+  full-viewport centred card shown by `views/auth.js` when there is no
+  valid session; #app-root holds the rest of the UI.
+*/
+
+#login-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+#login-section {
+    background-color: white;
+    padding: 32px;
+    border-radius: 8px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 360px;
+}
+
+#login-section h1 {
+    font-size: 22px;
+    margin-bottom: 4px;
+}
+
+#login-section h2 {
+    font-size: 16px;
+    font-weight: normal;
+    color: #6b7280;
+    margin-bottom: 16px;
+}
+
+/* The auth bar sits to the right of the nav inside the dark header. */
+#auth-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+    font-size: 14px;
+}
+
+#auth-user-indicator {
+    color: #d1d5db;
+}
+
+#logout-btn {
+    margin-top: 0;
+}
+
+/* Hidden nav buttons (role-gated) must collapse fully. */
+.nav-btn[hidden] {
+    display: none;
+}

@@ -1,100 +1,128 @@
-// View: users list, create-user form, and the user dropdowns
-// embedded in the transaction form and the history filter.
+// View: users list, create-user form, and the History "by user"
+// dropdown.
 //
-// Layer: views. `loadUsers()` is the single public entry point
-// -- it refreshes the cache, repaints the users table, and
-// repopulates every `<select>` that lists users via
-// `populateUserSelects()`. Called by `main.js` on boot and by
-// this view itself after a create/delete.
+// Layer: views. `loadUsers()` refreshes the cache, repaints the users
+// table (with a Role column and role-gated row actions), and
+// repopulates the History user filter via `populateUserSelects()`.
 //
-// The select-population path also toggles the transaction form's
-// save button: if the user list goes empty, the form is locked
-// with a hint message until at least one user exists.
+// Authorization is mirrored from the backend for UX only: the create
+// form offers just the roles the current user may assign, and each row
+// shows Reset Password / Delete only when the current user outranks
+// that row's role. The backend re-checks everything.
 
-import { getUsers, setUsers } from "../state.js";
-import { apiListUsers, apiCreateUser, apiDeleteUser } from "../api.js";
+import { getUsers, setUsers, getRole } from "../state.js";
+import {
+  apiListUsers,
+  apiCreateUser,
+  apiDeleteUser,
+  apiResetPassword,
+} from "../api.js";
 import { escapeHtml, formatError } from "../format.js";
 import { setMessage } from "../dom.js";
+import { assignableRoles, canManage } from "../roles.js";
 
 const createUserBtn = document.getElementById("create-user-btn");
 const createUserMessage = document.getElementById("create-user-message");
 const usersTbody = document.getElementById("users-tbody");
 const usernameInput = document.getElementById("username");
-const transactionUser = document.getElementById("transaction-user");
+const userRoleSelect = document.getElementById("user-role");
+const userPasswordInput = document.getElementById("user-password");
 const historyUserSelect = document.getElementById("history-user-select");
-const transactionSection = document.getElementById("transaction-section");
-const transactionMessage = document.getElementById("transaction-message");
-const saveTransactionBtn = document.getElementById("save-transaction-btn");
 
 export async function loadUsers() {
   try {
     const users = await apiListUsers();
     setUsers(users);
-
-    usersTbody.innerHTML = "";
-    users.forEach(user => {
-      const row = document.createElement("tr");
-      const createdAt = new Date(user.created_at).toLocaleString();
-      row.innerHTML = `
-        <td>${escapeHtml(user.username)}</td>
-        <td>${escapeHtml(createdAt)}</td>
-        <td>
-          <div class="row-actions">
-            <button class="delete-user-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">🗑️</button>
-          </div>
-        </td>
-      `;
-      usersTbody.appendChild(row);
-    });
-
+    renderUsersTable();
+    populateRoleSelect();
     populateUserSelects();
   } catch (error) {
     console.error("Failed to load users:", error);
   }
 }
 
-export function populateUserSelects() {
-  populateSelect(transactionUser);
-  populateSelect(historyUserSelect);
+function renderUsersTable() {
+  const actorRole = getRole();
+  usersTbody.innerHTML = "";
 
-  if (!transactionSection.hidden) {
-    if (getUsers().length === 0) {
-      saveTransactionBtn.disabled = true;
-      setMessage(transactionMessage, "Create a user first to record transactions.", "error");
-    } else if (transactionMessage.textContent === "Create a user first to record transactions.") {
-      saveTransactionBtn.disabled = false;
-      setMessage(transactionMessage, "", "");
-    }
+  getUsers().forEach(user => {
+    const row = document.createElement("tr");
+    const createdAt = new Date(user.created_at).toLocaleString();
+    // Actions appear only for rows the current user outranks; otherwise
+    // the cell is an empty placeholder (hidden, not disabled).
+    const actions = canManage(actorRole, user.role)
+      ? `<div class="row-actions">
+           <button class="reset-pw-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">Reset Password</button>
+           <button class="delete-user-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">🗑️</button>
+         </div>`
+      : `<span class="empty">—</span>`;
+    row.innerHTML = `
+      <td>${escapeHtml(user.username)}</td>
+      <td>${escapeHtml(user.role)}</td>
+      <td>${escapeHtml(createdAt)}</td>
+      <td>${actions}</td>
+    `;
+    usersTbody.appendChild(row);
+  });
+}
+
+// Fill the create-user role dropdown with the roles the current user is
+// allowed to assign (those ranked strictly below them).
+function populateRoleSelect() {
+  if (!userRoleSelect) return;
+  const previous = userRoleSelect.value;
+  userRoleSelect.innerHTML = "";
+  assignableRoles(getRole()).forEach(role => {
+    const option = document.createElement("option");
+    option.value = role;
+    option.textContent = role.charAt(0).toUpperCase() + role.slice(1);
+    userRoleSelect.appendChild(option);
+  });
+  if (previous && [...userRoleSelect.options].some(o => o.value === previous)) {
+    userRoleSelect.value = previous;
   }
 }
 
-function populateSelect(selectEl) {
-  const previousValue = selectEl.value;
-  selectEl.innerHTML = '<option value="" disabled selected>-- Select user --</option>';
+// Repopulate the History "by user" filter, preserving the current
+// selection if that user still exists.
+export function populateUserSelects() {
+  const previousValue = historyUserSelect.value;
+  historyUserSelect.innerHTML = '<option value="" disabled selected>-- Select user --</option>';
   getUsers().forEach(user => {
     const option = document.createElement("option");
     option.value = user.id;
     option.textContent = user.username;
-    selectEl.appendChild(option);
+    historyUserSelect.appendChild(option);
   });
   if (previousValue && getUsers().some(u => u.id === previousValue)) {
-    selectEl.value = previousValue;
+    historyUserSelect.value = previousValue;
   }
 }
 
 createUserBtn.addEventListener("click", async () => {
   const username = usernameInput.value.trim();
+  const role = userRoleSelect ? userRoleSelect.value : "";
+  const password = userPasswordInput.value;
   setMessage(createUserMessage, "", "");
 
   if (!username) {
     setMessage(createUserMessage, "Username is required.", "error");
     return;
   }
+  if (!role) {
+    setMessage(createUserMessage, "Select a role.", "error");
+    return;
+  }
+  if (password.length < 4) {
+    setMessage(createUserMessage, "Password must be at least 4 characters.", "error");
+    return;
+  }
 
   try {
-    const data = await apiCreateUser({ username });
-    setMessage(createUserMessage, `User "${data.username}" created successfully.`, "success");
+    const data = await apiCreateUser({ username, password, role });
+    setMessage(createUserMessage, `User "${data.username}" created as ${data.role}.`, "success");
     usernameInput.value = "";
+    userPasswordInput.value = "";
     loadUsers();
   } catch (err) {
     if (err && err.status !== undefined) {
@@ -107,6 +135,25 @@ createUserBtn.addEventListener("click", async () => {
 
 usersTbody.addEventListener("click", async (event) => {
   const target = event.target;
+
+  if (target.classList.contains("reset-pw-btn")) {
+    const userId = target.dataset.id;
+    const userName = target.dataset.name;
+    const newPassword = prompt(`New password for "${userName}" (at least 4 characters):`);
+    if (newPassword === null) return; // cancelled
+    if (newPassword.length < 4) {
+      alert("Password must be at least 4 characters.");
+      return;
+    }
+    try {
+      await apiResetPassword(userId, newPassword);
+      alert(`Password reset for "${userName}".`);
+    } catch (err) {
+      alert(err && err.detail ? formatError(err.detail, "Failed to reset password.") : "Failed to reset password.");
+    }
+    return;
+  }
+
   if (!target.classList.contains("delete-user-btn")) return;
 
   const userId = target.dataset.id;
@@ -118,6 +165,6 @@ usersTbody.addEventListener("click", async (event) => {
     await apiDeleteUser(userId);
     loadUsers();
   } catch (err) {
-    alert(err && err.detail ? err.detail : "Failed to delete user.");
+    alert(err && err.detail ? formatError(err.detail, "Failed to delete user.") : "Failed to delete user.");
   }
 });

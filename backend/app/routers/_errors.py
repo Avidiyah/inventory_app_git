@@ -18,15 +18,18 @@ from app.domain.errors import (
     DomainError,
     DuplicateBarcodeError,
     DuplicateUsernameError,
+    InvalidCredentialsError,
     ItemNotFoundError,
     NegativeQuantityError,
+    RoleManagementError,
     UserHasTransactionsError,
     UserNotFoundError,
 )
 
 
 # Status code per domain exception. Unknown subclasses fall back
-# to 400 in `to_http` -- 404 is reserved for true "not found".
+# to 400 in `to_http` -- 404 is reserved for true "not found",
+# 401 for authentication failure, 403 for authorization failure.
 _STATUS_MAP: dict[type[DomainError], int] = {
     ItemNotFoundError: 404,
     UserNotFoundError: 404,
@@ -34,6 +37,8 @@ _STATUS_MAP: dict[type[DomainError], int] = {
     DuplicateUsernameError: 400,
     UserHasTransactionsError: 400,
     NegativeQuantityError: 400,
+    InvalidCredentialsError: 401,
+    RoleManagementError: 403,
 }
 
 

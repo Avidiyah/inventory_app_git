@@ -24,10 +24,12 @@ import {
   setItems,
   getSelectedItemId,
   getEditingNotesItemId,
+  getRole,
 } from "../state.js";
 import { apiListItems, apiCreateItem, apiDeleteItem } from "../api.js";
 import { escapeHtml, formatError } from "../format.js";
 import { setMessage } from "../dom.js";
+import { roleAtLeast } from "../roles.js";
 import { openNotesEditor, closeNotesEditor, renderNotesSummary, setOnSaved } from "./notes.js";
 
 const createItemBtn = document.getElementById("create-item-btn");
@@ -74,9 +76,19 @@ export function renderItems() {
     return;
   }
 
+  // Items are read/write for Owner/Admin; Supervisor and Technician get
+  // a read-only view (search + lookup), so their action cell is empty.
+  const canWrite = roleAtLeast(getRole(), "admin");
+
   items.forEach(item => {
     const row = document.createElement("tr");
     const createdAt = new Date(item.created_at).toLocaleString();
+    const actions = canWrite
+      ? `<div class="row-actions">
+           <button class="edit-notes-btn" data-id="${item.id}" data-name="${escapeHtml(item.name)}">Edit Notes</button>
+           <button class="delete-btn" data-id="${item.id}" data-name="${escapeHtml(item.name)}">🗑️</button>
+         </div>`
+      : `<span class="empty">—</span>`;
     row.innerHTML = `
       <td>${escapeHtml(item.barcode)}</td>
       <td>${escapeHtml(item.name)}</td>
@@ -84,12 +96,7 @@ export function renderItems() {
       <td>${escapeHtml(item.location)}</td>
       <td class="notes-cell">${renderNotesSummary(item.notes)}</td>
       <td>${escapeHtml(createdAt)}</td>
-      <td>
-        <div class="row-actions">
-          <button class="edit-notes-btn" data-id="${item.id}" data-name="${escapeHtml(item.name)}">Edit Notes</button>
-          <button class="delete-btn" data-id="${item.id}" data-name="${escapeHtml(item.name)}">🗑️</button>
-        </div>
-      </td>
+      <td>${actions}</td>
     `;
     itemsTbody.appendChild(row);
   });

@@ -14,6 +14,30 @@ import { loadUsers } from "./users.js";
 const navButtons = document.querySelectorAll(".nav-btn");
 const pages = document.querySelectorAll(".page");
 
+// Which roles may see each page. This is the single source of truth for
+// nav visibility AND for the post-login boot in `auth.js`. It mirrors
+// the backend route gates; the backend still enforces them.
+export const PAGE_ACCESS = {
+  "create-item": ["owner", "admin"],
+  "saved-items": ["owner", "admin", "supervisor", "technician"],
+  "create-user": ["owner", "admin", "supervisor"],
+  "saved-users": ["owner", "admin", "supervisor"],
+  "transaction": ["owner", "admin", "supervisor"],
+  "history": ["owner", "admin", "supervisor"],
+};
+
+export function canAccessPage(role, pageName) {
+  return (PAGE_ACCESS[pageName] || []).includes(role);
+}
+
+// Hide (not disable) every nav button the role may not use. Forbidden
+// pages simply do not appear.
+export function applyRoleVisibility(role) {
+  navButtons.forEach(btn => {
+    btn.hidden = !canAccessPage(role, btn.dataset.page);
+  });
+}
+
 export function showPage(pageName) {
   pages.forEach(page => {
     page.classList.toggle("active", page.id === `${pageName}-page`);

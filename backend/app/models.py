@@ -21,16 +21,21 @@ from app.database import Base
 
 
 class User(Base):
-    """Operator who recorded a transaction. Username is the only
-    identifier (no auth yet) and must be unique."""
+    """A person who can log in and act on the system. `username` is the
+    login identifier and must be unique; `password_hash` stores a salted
+    scrypt digest (see `app.services.auth`); `role` is one of the four
+    values in `app.domain.roles` and drives authorization."""
 
     __tablename__ = "users"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     username = Column(Text, nullable=False, unique=True)
+    password_hash = Column(Text, nullable=False)
+    role = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     transactions = relationship("Transaction", back_populates="user")
+    sessions = relationship("AuthSession", back_populates="user", cascade="all, delete-orphan")
 
 
 class Item(Base):
@@ -73,3 +78,30 @@ class Transaction(Base):
 
     item = relationship("Item", back_populates="transactions")
     user = relationship("User", back_populates="transactions")
+
+
+class AuthSession(Base):
+    """A server-side login session, keyed by an opaque random token
+    that lives in an HttpOnly cookie on the client.
+
+    State is held here (not in a signed cookie) so the server is the
+    sole authority on validity: logout deletes the row, and a session
+    that has not been touched within the idle window
+    (`app.services.auth.SESSION_IDLE_TIMEOUT`) is treated as expired
+    and removed. `last_active_at` is bumped on every authenticated
+    request, giving a sliding-window timeout. The FK is ON DELETE
+    CASCADE so deleting a user also drops all of their sessions.
+    """
+
+    __tablename__ = "sessions"
+
+    token = Column(Text, primary_key=True)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    last_active_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", back_populates="sessions")

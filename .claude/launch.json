@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "inventory-app",
+      "runtimeExecutable": "backend/venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-c",
+        "import os; os.chdir('backend'); import uvicorn; uvicorn.run('app.main:app', port=8124)"
+      ],
+      "port": 8124
+    }
+  ]
+}

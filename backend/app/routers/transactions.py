@@ -17,8 +17,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.auth_deps import require_min_role
 from app.database import get_db
+from app.domain import roles
 from app.domain.errors import DomainError
+from app.models import User
 from app.routers._errors import to_http
 from app.schemas.transactions import (
     TransactionCreate,
@@ -32,8 +35,13 @@ router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 
 @router.post("/", response_model=TransactionResponse, status_code=201)
-def create_transaction(payload: TransactionCreate, db: Session = Depends(get_db)):
-    """Record a stock or dispense. 404 if the item is unknown,
+def create_transaction(
+    payload: TransactionCreate,
+    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
+    db: Session = Depends(get_db),
+):
+    """Record a stock or dispense. Supervisor or above. The transaction
+    is attributed to the logged-in user. 404 if the item is unknown,
     400 if a dispense would overdraw stock
     (`NegativeQuantityError` -> "Insufficient stock to dispense.")."""
     try:
@@ -42,14 +50,18 @@ def create_transaction(payload: TransactionCreate, db: Session = Depends(get_db)
             item_id=payload.item_id,
             transaction_type=payload.transaction_type,
             quantity=payload.quantity,
-            user_id=payload.user_id,
+            user_id=user.id,
             work_order_number=payload.work_order_number,
         )
     except DomainError as exc:
         raise to_http(exc)
 
 
-@router.get("/", response_model=TransactionHistoryPage)
+@router.get(
+    "/",
+    response_model=TransactionHistoryPage,
+    dependencies=[Depends(require_min_role(roles.ROLE_SUPERVISOR))],
+)
 def list_transactions(
     item_id: Optional[UUID] = None,
     user_id: Optional[UUID] = None,
@@ -57,9 +69,9 @@ def list_transactions(
     page_size: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    """Paginated history. Optional `item_id` / `user_id` filters
-    combine with AND. `page_size` is capped at 100 to bound the
-    join cost."""
+    """Paginated history. Supervisor or above. Optional `item_id` /
+    `user_id` filters combine with AND. `page_size` is capped at 100 to
+    bound the join cost."""
     return history_service.list_history(
         db,
         item_id=item_id,

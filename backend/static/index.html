@@ -25,6 +25,30 @@
 </head>
 <body>
 
+    <!-- =================== LOGIN SCREEN =================== -->
+    <!-- Shown by auth.js when there is no valid session; hides the app
+         entirely. Both this and #app-root start hidden, and auth.js
+         reveals exactly one after checking /auth/me on boot. -->
+    <div id="login-screen" hidden>
+        <section id="login-section">
+            <h1>Inventory Management</h1>
+            <h2>Sign In</h2>
+            <div class="form-stack">
+                <label for="login-username">Username</label>
+                <input type="text" id="login-username" autocomplete="username" placeholder="Enter username">
+
+                <label for="login-password">Password</label>
+                <input type="password" id="login-password" autocomplete="current-password" placeholder="Enter password">
+
+                <button id="login-btn">Log In</button>
+                <p id="login-message"></p>
+            </div>
+        </section>
+    </div>
+
+    <!-- =================== APPLICATION =================== -->
+    <div id="app-root" hidden>
+
     <header>
         <h1>Inventory Management</h1>
         <nav id="main-nav">
@@ -35,6 +59,10 @@
             <button class="nav-btn" data-page="transaction">Transaction</button>
             <button class="nav-btn" data-page="history">History</button>
         </nav>
+        <div id="auth-bar">
+            <span id="auth-user-indicator"></span>
+            <button id="logout-btn" type="button" class="secondary-btn">Log Out</button>
+        </div>
     </header>
 
     <main>
@@ -117,6 +145,15 @@
                 <label for="username">Username</label>
                 <input type="text" id="username" placeholder="Enter username">
 
+                <label for="user-role">Role</label>
+                <select id="user-role">
+                    <!-- Options populated by views/users.js from the
+                         current user's assignable roles. -->
+                </select>
+
+                <label for="user-password">Password</label>
+                <input type="password" id="user-password" autocomplete="new-password" placeholder="At least 4 characters">
+
                 <button id="create-user-btn">Create User</button>
                 <p id="create-user-message"></p>
             </div>
@@ -133,6 +170,7 @@
                 <thead>
                     <tr>
                         <th>Username</th>
+                        <th>Role</th>
                         <th>Created At</th>
                         <th>Actions</th>
                     </tr>
@@ -171,11 +209,6 @@
                 <select id="transaction-type">
                     <option value="stock">Stock (add)</option>
                     <option value="dispense">Dispense (remove)</option>
-                </select>
-
-                <label for="transaction-user">User</label>
-                <select id="transaction-user">
-                    <option value="" disabled selected>-- Select user --</option>
                 </select>
 
                 <label for="transaction-quantity">Quantity</label>
@@ -260,6 +293,8 @@
     </div>
 
     </main>
+
+    </div><!-- /#app-root -->
 
     <script type="module" src="/static/main.js"></script>
 </body>

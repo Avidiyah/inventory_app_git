@@ -26,10 +26,13 @@ from app.domain.errors import (
 from app.models import User
 
 
-def create_user(db: Session, *, username: str) -> User:
-    """Insert a new user. Raises `DuplicateUsernameError` if the
-    UNIQUE constraint on `username` fires."""
-    new_user = User(username=username)
+def create_user(db: Session, *, username: str, password_hash: str, role: str) -> User:
+    """Insert a new user with a pre-hashed password and a role. The
+    caller (router) is responsible for hashing the password and for
+    checking that it is allowed to assign `role`. Raises
+    `DuplicateUsernameError` if the UNIQUE constraint on `username`
+    fires."""
+    new_user = User(username=username, password_hash=password_hash, role=role)
     db.add(new_user)
     try:
         db.commit()
@@ -41,9 +44,28 @@ def create_user(db: Session, *, username: str) -> User:
 
 
 def list_users(db: Session):
-    """Return every user, newest first. Used to populate the user
-    dropdowns in the frontend transaction form."""
+    """Return every user, newest first. Populates the Saved Users table
+    and the History "by user" filter dropdown."""
     return db.query(User).order_by(User.created_at.desc()).all()
+
+
+def get_user(db: Session, user_id: uuid.UUID) -> User:
+    """Fetch one user by id. Raises `UserNotFoundError` if missing so
+    routers can return 404 and inspect the target's role before acting
+    on it."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise UserNotFoundError("User not found.")
+    return user
+
+
+def reset_password(db: Session, user_id: uuid.UUID, password_hash: str) -> None:
+    """Replace a user's password hash. Raises `UserNotFoundError` if the
+    user does not exist. Existing sessions are intentionally left
+    intact; the idle timeout will retire them."""
+    user = get_user(db, user_id)
+    user.password_hash = password_hash
+    db.commit()
 
 
 def delete_user(db: Session, user_id: uuid.UUID) -> None:

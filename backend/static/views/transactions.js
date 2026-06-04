@@ -18,7 +18,6 @@
 // immediately without page navigation.
 
 import {
-  getUsers,
   getSelectedItemId,
   setSelectedItemId,
 } from "../state.js";
@@ -31,7 +30,6 @@ const txnItemsTbody = document.getElementById("txn-items-tbody");
 const transactionSection = document.getElementById("transaction-section");
 const transactionSelected = document.getElementById("transaction-selected");
 const transactionType = document.getElementById("transaction-type");
-const transactionUser = document.getElementById("transaction-user");
 const transactionQuantity = document.getElementById("transaction-quantity");
 const transactionWorkOrder = document.getElementById("transaction-work-order");
 const transactionMessage = document.getElementById("transaction-message");
@@ -67,20 +65,16 @@ export function openTransactionForm(itemId, itemName, action) {
   transactionType.value = action;
   transactionQuantity.value = "0";
   transactionWorkOrder.value = "";
-  transactionUser.value = "";
   setMessage(transactionMessage, "", "");
   transactionSelected.textContent = `Selected item: ${itemName}`;
   transactionSection.hidden = false;
   transactionSection.scrollIntoView({ behavior: "smooth", block: "start" });
 
-  if (getUsers().length === 0) {
-    saveTransactionBtn.disabled = true;
-    setMessage(transactionMessage, "Create a user first to record transactions.", "error");
-  } else {
-    saveTransactionBtn.disabled = false;
-    transactionQuantity.focus();
-    transactionQuantity.select();
-  }
+  // The transaction is attributed to the logged-in user server-side, so
+  // there is no user to pick here -- just focus the quantity field.
+  saveTransactionBtn.disabled = false;
+  transactionQuantity.focus();
+  transactionQuantity.select();
 }
 
 export function closeTransactionForm() {
@@ -113,12 +107,6 @@ saveTransactionBtn.addEventListener("click", async () => {
     return;
   }
 
-  const userId = transactionUser.value;
-  if (!userId) {
-    setMessage(transactionMessage, "Please select a user.", "error");
-    return;
-  }
-
   const workOrder = transactionWorkOrder.value.trim();
 
   try {
@@ -126,7 +114,6 @@ saveTransactionBtn.addEventListener("click", async () => {
       item_id: selectedId,
       transaction_type: transactionType.value,
       quantity,
-      user_id: userId,
       work_order_number: workOrder || null,
     });
     setMessage(transactionMessage, `Transaction saved (${data.transaction_type}, qty ${data.quantity}).`, "success");

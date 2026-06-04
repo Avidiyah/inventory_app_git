@@ -24,21 +24,21 @@ import "./views/notes.js";
 import "./views/items.js";
 import "./views/users.js";
 import "./views/history.js";
+import "./views/transactions.js";
+import "./views/auth.js";
 
 // --- Named imports for bootstrap calls ---------------------------
-import { showPage } from "./views/nav.js";
-import { loadItems, setOnDeletedSelectedItem } from "./views/items.js";
-import { loadUsers } from "./views/users.js";
-import { setHistoryTab } from "./views/history.js";
+import { setOnDeletedSelectedItem } from "./views/items.js";
 import { closeTransactionForm } from "./views/transactions.js";
+import { initAuth } from "./views/auth.js";
 
 // Cross-view wiring: deleting the selected item from the Entry
 // page must also dismiss the transaction form on the Transaction
 // page (otherwise it would point at a now-missing row).
 setOnDeletedSelectedItem(closeTransactionForm);
 
-// --- Initial state -----------------------------------------------
-showPage("create-item");
-setHistoryTab("all");
-loadItems();
-loadUsers();
+// --- Auth gate ---------------------------------------------------
+// `initAuth` checks /auth/me and then either shows the login screen or
+// reveals the app and runs the role-appropriate initial loads. All
+// data loading now happens behind a valid session.
+initAuth();

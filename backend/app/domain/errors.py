@@ -67,3 +67,16 @@ class NegativeQuantityError(DomainError):
         super().__init__(
             f"Cannot dispense {requested}: only {current} in stock."
         )
+
+
+class InvalidCredentialsError(DomainError):
+    """Raised by `services.auth.authenticate` when the username does
+    not exist or the password does not match. Deliberately does not
+    distinguish the two cases so the API cannot be used to enumerate
+    valid usernames. Maps to 401."""
+
+
+class RoleManagementError(DomainError):
+    """Raised when an actor attempts to create, reset, or delete a user
+    they do not outrank (see `domain.roles.can_manage`). This is an
+    authorization failure, not a validation error, so it maps to 403."""
