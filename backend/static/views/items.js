@@ -43,6 +43,7 @@ import {
   getEditingCorrectionItemId,
   setOnSaved as setOnCorrectionSaved,
 } from "./correction.js";
+import { mountScanner } from "./scan.js";
 
 const createItemBtn = document.getElementById("create-item-btn");
 const createItemMessage = document.getElementById("create-item-message");
@@ -88,21 +89,36 @@ export function renderItems() {
     return;
   }
 
-  // Items are read/write for Owner/Admin; Supervisor and Technician get
-  // a read-only view (search + lookup), so their action cell is empty.
-  const canWrite = roleAtLeast(getRole(), "admin");
+  // Items are read/write for Owner/Admin; Supervisor may edit notes
+  // only; Technician is read-only. The action column renders a
+  // per-row dropdown of only the actions the current role can perform
+  // (see §3 in docs/plan-saved-items-and-history.md). The backend is
+  // still the source of truth -- this is purely UI gating.
+  const role = getRole();
+  const canAdmin = roleAtLeast(role, "admin");
+  const canNotes = roleAtLeast(role, "supervisor");
 
   items.forEach(item => {
     const row = document.createElement("tr");
     const createdAt = new Date(item.created_at).toLocaleString();
-    const actions = canWrite
-      ? `<div class="row-actions">
-           <button class="edit-item-btn" data-id="${item.id}">Edit</button>
-           <button class="edit-notes-btn" data-id="${item.id}" data-name="${escapeHtml(item.name)}">Edit Notes</button>
-           <button class="correct-item-btn" data-id="${item.id}">Correct</button>
-           <button class="delete-btn" data-id="${item.id}" data-name="${escapeHtml(item.name)}">🗑️</button>
-         </div>`
-      : `<span class="empty">—</span>`;
+
+    const actionOptions = [];
+    if (canAdmin) actionOptions.push(`<option value="edit">Edit</option>`);
+    if (canNotes) actionOptions.push(`<option value="notes">Edit Notes</option>`);
+    if (canAdmin) {
+      actionOptions.push(`<option value="correct">Correct</option>`);
+      actionOptions.push(`<option value="delete">Delete</option>`);
+    }
+
+    const ariaLabel = `Actions for ${item.name}`;
+    const actions = actionOptions.length === 0
+      ? `<span class="empty">—</span>`
+      : `<label class="sr-only" for="row-actions-${item.id}">${escapeHtml(ariaLabel)}</label>
+         <select id="row-actions-${item.id}" class="row-actions-select" data-id="${item.id}" aria-label="${escapeHtml(ariaLabel)}">
+           <option value="" disabled selected>Actions</option>
+           ${actionOptions.join("")}
+         </select>`;
+
     row.innerHTML = `
       <td>${escapeHtml(item.barcode)}</td>
       <td>${escapeHtml(item.name)}</td>
@@ -161,49 +177,93 @@ createItemBtn.addEventListener("click", async () => {
   }
 });
 
-itemsTbody.addEventListener("click", async (event) => {
+itemsTbody.addEventListener("change", async (event) => {
   const target = event.target;
+  if (!target.classList.contains("row-actions-select")) return;
 
-  if (target.classList.contains("edit-item-btn")) {
-    const item = getItems().find(i => i.id === target.dataset.id);
-    if (item) openItemEditor(item);
-    return;
-  }
-
-  if (target.classList.contains("correct-item-btn")) {
-    const item = getItems().find(i => i.id === target.dataset.id);
-    if (item) openCorrection(item);
-    return;
-  }
-
-  if (target.classList.contains("edit-notes-btn")) {
-    openNotesEditor(target.dataset.id, target.dataset.name);
-    return;
-  }
-
-  if (!target.classList.contains("delete-btn")) return;
-
+  const action = target.value;
   const itemId = target.dataset.id;
-  const itemName = target.dataset.name;
+  // Reset to the placeholder so picking the same action twice in a
+  // row still fires `change` and so the cell never visually "remembers"
+  // a destructive choice.
+  target.value = "";
 
-  if (!confirm(`Are you sure you want to delete "${itemName}"?`)) return;
+  if (!action || !itemId) return;
+  const item = getItems().find(i => i.id === itemId);
+  if (!item) return;
 
-  try {
-    await apiDeleteItem(itemId);
-    if (getSelectedItemId() === itemId && onDeletedSelectedItem) {
-      onDeletedSelectedItem();
-    }
-    if (getEditingNotesItemId() === itemId) {
-      closeNotesEditor();
-    }
-    if (getEditingItemId() === itemId) {
-      closeItemEditor();
-    }
-    if (getEditingCorrectionItemId() === itemId) {
-      closeCorrection();
-    }
-    loadItems();
-  } catch (err) {
-    alert(err && err.detail ? err.detail : "Failed to delete item.");
+  if (action === "edit") {
+    openItemEditor(item);
+    return;
   }
+
+  if (action === "correct") {
+    openCorrection(item);
+    return;
+  }
+
+  if (action === "notes") {
+    openNotesEditor(item.id, item.name);
+    return;
+  }
+
+  if (action === "delete") {
+    if (!confirm(`Are you sure you want to delete "${item.name}"?`)) return;
+    try {
+      await apiDeleteItem(itemId);
+      if (getSelectedItemId() === itemId && onDeletedSelectedItem) {
+        onDeletedSelectedItem();
+      }
+      if (getEditingNotesItemId() === itemId) {
+        closeNotesEditor();
+      }
+      if (getEditingItemId() === itemId) {
+        closeItemEditor();
+      }
+      if (getEditingCorrectionItemId() === itemId) {
+        closeCorrection();
+      }
+      loadItems();
+    } catch (err) {
+      alert(err && err.detail ? err.detail : "Failed to delete item.");
+    }
+  }
+});
+
+// --- Saved Items scanner ----------------------------------------
+//
+// Same widget as the Transaction page (see views/scan.js). Visible to
+// all roles -- it's a read-only lookup aid. On a successful match we
+// filter the items table by the scanned barcode and scroll the
+// matching row into view. On a 404 the Create-Item shortcut inside
+// the chooser is gated to Owner/Admin by `mountScanner` itself.
+
+const itemsScanInput = document.getElementById("items-scan-input");
+const itemsScanMessage = document.getElementById("items-scan-message");
+const itemsScanChooser = document.getElementById("items-scan-chooser");
+
+// Shared with the Transaction-page scanner: the Create-Item form
+// lives on its own page, so the shortcut prefills `#barcode` and
+// clicks the nav button to switch pages.
+const createItemNavBtnForItems = document.querySelector('.nav-btn[data-page="create-item"]');
+const createItemBarcodeInput = document.getElementById("barcode");
+
+mountScanner({
+  inputEl: itemsScanInput,
+  messageEl: itemsScanMessage,
+  chooserEl: itemsScanChooser,
+  allowCreate: true,
+  onItemFound: (item) => {
+    itemsSearch.value = item.barcode;
+    renderItems();
+    // Scroll the (now-single) matching row into view if it exists.
+    const row = itemsTbody.querySelector("tr");
+    if (row && typeof row.scrollIntoView === "function") {
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  },
+  onCreateShortcut: (barcode) => {
+    if (createItemBarcodeInput) createItemBarcodeInput.value = barcode;
+    if (createItemNavBtnForItems) createItemNavBtnForItems.click();
+  },
 });

@@ -93,17 +93,22 @@ def create_correction(
 def list_transactions(
     item_id: Optional[UUID] = None,
     user_id: Optional[UUID] = None,
+    work_order_number: Optional[str] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    """Paginated history. Supervisor or above. Optional `item_id` /
-    `user_id` filters combine with AND. `page_size` is capped at 100 to
-    bound the join cost."""
+    """Paginated history. Supervisor or above. Optional `item_id`,
+    `user_id`, and `work_order_number` filters combine with AND.
+    `work_order_number` is a case-sensitive substring match against
+    `Transaction.work_order_number`; an empty / whitespace-only value
+    is treated as "no filter". `page_size` is capped at 100 to bound
+    the join cost."""
     return history_service.list_history(
         db,
         item_id=item_id,
         user_id=user_id,
+        work_order_number=work_order_number,
         page=page,
         page_size=page_size,
     )

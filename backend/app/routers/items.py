@@ -75,16 +75,17 @@ def get_item_by_barcode(barcode: str, db: Session = Depends(get_db)):
 @router.patch(
     "/{item_id}/notes",
     response_model=ItemResponse,
-    dependencies=[Depends(require_min_role(roles.ROLE_ADMIN))],
+    dependencies=[Depends(require_min_role(roles.ROLE_SUPERVISOR))],
 )
 def update_item_notes(
     item_id: uuid.UUID,
     payload: ItemNotesUpdate,
     db: Session = Depends(get_db),
 ):
-    """Replace the JSONB `notes` dict wholesale. Owner/Admin only. Notes
-    whitelist is enforced by `ItemNotesUpdate`'s field validator; 404 if
-    the item does not exist."""
+    """Replace the JSONB `notes` dict wholesale. Supervisor or above
+    (notes are an operational field, distinct from the Admin-only
+    structural edits). Notes whitelist is enforced by
+    `ItemNotesUpdate`'s field validator; 404 if the item does not exist."""
     try:
         return notes_service.replace_notes(db, item_id, payload.notes)
     except DomainError as exc:

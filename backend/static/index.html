@@ -95,6 +95,17 @@
     <!-- =================== SAVED ITEMS PAGE =================== -->
     <div class="page" id="saved-items-page">
 
+        <section id="items-scan-section">
+            <h2>Scan Barcode</h2>
+            <p class="hint">Scan or upload a barcode to find the matching item in the table below.</p>
+            <div class="scan-controls">
+                <label for="items-scan-input" class="scan-label">Scan / Upload Barcode</label>
+                <input type="file" id="items-scan-input" accept="image/*" capture="environment">
+            </div>
+            <div id="items-scan-chooser" class="scan-chooser" hidden></div>
+            <p id="items-scan-message"></p>
+        </section>
+
         <section id="items-section">
             <h2>Saved Items</h2>
             <div class="filter-row">
@@ -286,6 +297,14 @@
         <section id="history-section">
             <h2>Transaction History</h2>
 
+            <!-- Work-order overlay filter: visible on every sub-tab, composes
+                 with item / user filters via AND. -->
+            <div class="filter-row">
+                <label for="history-wo-filter">Work Order</label>
+                <input type="text" id="history-wo-filter" placeholder="Filter by work order number">
+                <button id="history-wo-clear-btn" type="button" class="secondary-btn">Clear</button>
+            </div>
+
             <div id="history-tabs" class="sub-tabs">
                 <button class="sub-tab-btn" data-tab="all">All Transactions</button>
                 <button class="sub-tab-btn" data-tab="item">By Item</button>
@@ -320,6 +339,10 @@
 
             <!-- Shared results table -->
             <div id="history-results" hidden>
+                <div class="history-results-toolbar">
+                    <button id="history-copy-btn" type="button" class="secondary-btn" disabled>Copy table</button>
+                    <p id="history-copy-message"></p>
+                </div>
                 <table id="history-table">
                     <thead>
                         <tr>

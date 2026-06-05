@@ -27,12 +27,16 @@ let currentUser = null;
 export const HISTORY_PAGE_SIZE = 10;
 
 // History view's complete display state -- which tab is active,
-// the current filter, and pagination position. Kept as one object
-// so callers can patch fields without losing the rest.
+// the current filters (item / user / work order), and pagination
+// position. Kept as one object so callers can patch fields without
+// losing the rest. `workOrder` is an *overlay* filter: it survives
+// sub-tab switches and combines with `itemId` / `userId` via AND.
 const historyState = {
   tab: "all",
   itemId: null,
+  itemLabel: null,
   userId: null,
+  workOrder: null,
   page: 1,
   totalPages: 1,
 };

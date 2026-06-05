@@ -263,6 +263,8 @@ Router prefix: `/items` — Tag: `items`
 
 ### `PATCH /items/{item_id}/notes` → `ItemResponse` (200)
 
+**Auth:** Supervisor or above (`require_min_role(roles.ROLE_SUPERVISOR)`). Notes are an operational field, distinct from the Admin-only structural edits on `PATCH /items/{item_id}`.
+
 **Input:** `item_id: UUID` (path param), `ItemNotesUpdate` (request body), `Session` (injected) **Output:** Updated `ItemResponse` **Errors:**
 
 - `404` — item not found
@@ -344,10 +346,11 @@ Router prefix: `/transactions` — Tag: `transactions`
 |---|---|---|
 |`item_id`|`UUID?` (query)|None|
 |`user_id`|`UUID?` (query)|None|
+|`work_order_number`|`str?` (query)|None|
 |`page`|`int ≥ 1` (query)|`1`|
 |`page_size`|`int` 1–100 (query)|`10`|
 
-**Output:** `TransactionHistoryPage` — paginated list of enriched transaction rows **Query logic:** Joins `transactions → items` (inner) and `transactions → users` (outer). Filters by `item_id` and/or `user_id` when provided. Orders by `created_at DESC`.
+**Output:** `TransactionHistoryPage` — paginated list of enriched transaction rows **Query logic:** Joins `transactions → items` (inner) and `transactions → users` (outer). Filters by `item_id`, `user_id`, and `work_order_number` when provided (combined with AND). `work_order_number` is a case-sensitive substring match (`LIKE %value%`) with `%` and `_` escaped; empty / whitespace-only values are treated as "no filter". Orders by `created_at DESC`.
 
 ---
 

@@ -132,7 +132,7 @@ export async function apiDeleteUser(userId) {
 }
 
 // --- Transactions ------------------------------------------------
-export async function apiListTransactions({ page, pageSize, itemId, userId }) {
+export async function apiListTransactions({ page, pageSize, itemId, userId, workOrder }) {
   const params = new URLSearchParams();
   params.set("page", page);
   params.set("page_size", pageSize);
@@ -140,6 +140,7 @@ export async function apiListTransactions({ page, pageSize, itemId, userId }) {
   // them as "all" rather than as `item_id=null`.
   if (itemId) params.set("item_id", itemId);
   if (userId) params.set("user_id", userId);
+  if (workOrder) params.set("work_order_number", workOrder);
   return parseResponse(await fetch(`/transactions/?${params.toString()}`, { credentials: "include" }));
 }
 
