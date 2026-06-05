@@ -102,12 +102,20 @@ export function renderHistory(data) {
       const row = document.createElement("tr");
       const timestamp = new Date(txn.created_at).toLocaleString();
       const type = txn.transaction_type;
+      // The fifth column is overloaded: for stock/dispense it shows
+      // the work order number; for adjust (correction) rows it shows
+      // the required reason. This avoids adding a separate column
+      // (and a wider table) for a field that is only ever populated
+      // on adjust rows.
+      const detail = type === "adjust"
+        ? (txn.reason || txn.work_order_number || "—")
+        : (txn.work_order_number || "—");
       row.innerHTML = `
         <td>${escapeHtml(timestamp)}</td>
         <td>${escapeHtml(txn.item_name)} (${escapeHtml(txn.item_barcode)})</td>
         <td><span class="type-badge ${escapeHtml(type)}">${escapeHtml(type)}</span></td>
         <td>${escapeHtml(txn.quantity)}</td>
-        <td>${escapeHtml(txn.work_order_number) || "—"}</td>
+        <td>${escapeHtml(detail)}</td>
         <td>${escapeHtml(txn.username) || "—"}</td>
       `;
       historyTbody.appendChild(row);

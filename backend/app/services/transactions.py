@@ -19,7 +19,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from app.domain.errors import ItemNotFoundError
+from app.domain.errors import ItemNotFoundError, NoChangeError
 from app.domain.quantity import apply_delta
 from app.models import Item, Transaction
 
@@ -59,6 +59,60 @@ def apply_transaction(
         transaction_type=transaction_type,
         quantity=quantity,
         work_order_number=work_order_number,
+        reason=None,
+    )
+    db.add(new_txn)
+    db.commit()
+    db.refresh(new_txn)
+    return new_txn
+
+
+def apply_correction(
+    db: Session,
+    *,
+    item_id: uuid.UUID,
+    new_quantity: Decimal,
+    reason: str,
+    user_id: Optional[uuid.UUID],
+) -> Transaction:
+    """Set an item's `quantity` to `new_quantity` and append an "adjust"
+    audit row recording the signed delta and the reason.
+
+    Reuses the same `SELECT ... FOR UPDATE` row lock as
+    `apply_transaction`, so concurrent corrections / stocks / dispenses
+    serialise per item and never lose updates. The audit row stores
+    the *delta* (so history rows have a uniform "what was applied to
+    stock" reading); the UI surfaces the absolute new value via the
+    item's updated quantity.
+
+    Raises `ItemNotFoundError` if the id is unknown, `NoChangeError`
+    if `new_quantity` equals the current quantity (no audit row is
+    created for a no-op), and `NegativeQuantityError` if `new_quantity`
+    is negative — `CorrectionCreate` blocks that at the Pydantic layer
+    too, but we re-check here as a domain invariant.
+    """
+    item = (
+        db.query(Item)
+        .filter(Item.id == item_id)
+        .with_for_update()
+        .first()
+    )
+    if not item:
+        raise ItemNotFoundError("Item not found.")
+
+    delta = new_quantity - item.quantity
+    if delta == 0:
+        raise NoChangeError("No change to apply.")
+
+    item.quantity = apply_delta(item.quantity, "adjust", delta)
+
+    new_txn = Transaction(
+        item_id=item_id,
+        user_id=user_id,
+        transaction_type="adjust",
+        quantity=delta,
+        work_order_number=None,
+        reason=reason,
     )
     db.add(new_txn)
     db.commit()

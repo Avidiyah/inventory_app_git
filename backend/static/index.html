@@ -134,6 +134,48 @@
             </div>
         </section>
 
+        <section id="item-editor-section" hidden>
+            <h2>Edit Item</h2>
+            <div class="form-stack">
+                <p id="item-editor-selected"></p>
+
+                <label for="item-editor-barcode">Barcode</label>
+                <input type="text" id="item-editor-barcode" placeholder="Barcode">
+
+                <label for="item-editor-name">Name</label>
+                <input type="text" id="item-editor-name" placeholder="Item name">
+
+                <label for="item-editor-location">Location</label>
+                <input type="text" id="item-editor-location" placeholder="Location">
+
+                <div class="form-buttons">
+                    <button id="item-editor-save-btn">Save Changes</button>
+                    <button id="item-editor-cancel-btn" type="button" class="secondary-btn">Cancel</button>
+                </div>
+                <p id="item-editor-message"></p>
+            </div>
+        </section>
+
+        <section id="correction-section" hidden>
+            <h2>Correct Quantity</h2>
+            <div class="form-stack">
+                <p id="correction-selected"></p>
+                <p id="correction-current"></p>
+
+                <label for="correction-new-quantity">New Quantity</label>
+                <input type="number" id="correction-new-quantity" step="any" min="0" placeholder="0">
+
+                <label for="correction-reason">Reason</label>
+                <input type="text" id="correction-reason" placeholder="Why is this correction being made?">
+
+                <div class="form-buttons">
+                    <button id="correction-save-btn">Save Correction</button>
+                    <button id="correction-cancel-btn" type="button" class="secondary-btn">Cancel</button>
+                </div>
+                <p id="correction-message"></p>
+            </div>
+        </section>
+
     </div>
 
     <!-- =================== CREATE USER PAGE =================== -->

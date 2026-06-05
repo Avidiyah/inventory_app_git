@@ -24,6 +24,7 @@ import {
   setItems,
   getSelectedItemId,
   getEditingNotesItemId,
+  getEditingItemId,
   getRole,
 } from "../state.js";
 import { apiListItems, apiCreateItem, apiDeleteItem } from "../api.js";
@@ -31,6 +32,17 @@ import { escapeHtml, formatError } from "../format.js";
 import { setMessage } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
 import { openNotesEditor, closeNotesEditor, renderNotesSummary, setOnSaved } from "./notes.js";
+import {
+  openItemEditor,
+  closeItemEditor,
+  setOnSaved as setOnItemSaved,
+} from "./itemEditor.js";
+import {
+  openCorrection,
+  closeCorrection,
+  getEditingCorrectionItemId,
+  setOnSaved as setOnCorrectionSaved,
+} from "./correction.js";
 
 const createItemBtn = document.getElementById("create-item-btn");
 const createItemMessage = document.getElementById("create-item-message");
@@ -85,7 +97,9 @@ export function renderItems() {
     const createdAt = new Date(item.created_at).toLocaleString();
     const actions = canWrite
       ? `<div class="row-actions">
+           <button class="edit-item-btn" data-id="${item.id}">Edit</button>
            <button class="edit-notes-btn" data-id="${item.id}" data-name="${escapeHtml(item.name)}">Edit Notes</button>
+           <button class="correct-item-btn" data-id="${item.id}">Correct</button>
            <button class="delete-btn" data-id="${item.id}" data-name="${escapeHtml(item.name)}">🗑️</button>
          </div>`
       : `<span class="empty">—</span>`;
@@ -105,6 +119,8 @@ export function renderItems() {
 itemsSearch.addEventListener("input", renderItems);
 
 setOnSaved(loadItems);
+setOnItemSaved(loadItems);
+setOnCorrectionSaved(loadItems);
 
 createItemBtn.addEventListener("click", async () => {
   const barcode = barcodeInput.value.trim();
@@ -148,6 +164,18 @@ createItemBtn.addEventListener("click", async () => {
 itemsTbody.addEventListener("click", async (event) => {
   const target = event.target;
 
+  if (target.classList.contains("edit-item-btn")) {
+    const item = getItems().find(i => i.id === target.dataset.id);
+    if (item) openItemEditor(item);
+    return;
+  }
+
+  if (target.classList.contains("correct-item-btn")) {
+    const item = getItems().find(i => i.id === target.dataset.id);
+    if (item) openCorrection(item);
+    return;
+  }
+
   if (target.classList.contains("edit-notes-btn")) {
     openNotesEditor(target.dataset.id, target.dataset.name);
     return;
@@ -167,6 +195,12 @@ itemsTbody.addEventListener("click", async (event) => {
     }
     if (getEditingNotesItemId() === itemId) {
       closeNotesEditor();
+    }
+    if (getEditingItemId() === itemId) {
+      closeItemEditor();
+    }
+    if (getEditingCorrectionItemId() === itemId) {
+      closeCorrection();
     }
     loadItems();
   } catch (err) {

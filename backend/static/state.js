@@ -14,6 +14,7 @@ let itemsCache = [];
 let usersCache = [];
 let selectedItemId = null;
 let editingNotesItemId = null;
+let editingItemId = null;
 
 // The logged-in user: `{ id, username, role }` or null when logged out.
 // Auth itself lives in the HttpOnly session cookie (not readable here);
@@ -47,6 +48,9 @@ export function setSelectedItemId(id) { selectedItemId = id; }
 
 export function getEditingNotesItemId() { return editingNotesItemId; }
 export function setEditingNotesItemId(id) { editingNotesItemId = id; }
+
+export function getEditingItemId() { return editingItemId; }
+export function setEditingItemId(id) { editingItemId = id; }
 
 export function getCurrentUser() { return currentUser; }
 export function setCurrentUser(user) { currentUser = user; }

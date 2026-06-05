@@ -83,6 +83,12 @@ export async function apiDeleteItem(itemId) {
   return parseResponse(await fetch(`/items/${itemId}`, { method: "DELETE", credentials: "include" }));
 }
 
+export async function apiUpdateItem(itemId, payload) {
+  // `payload` is `{barcode?, name?, location?}` — only fields the
+  // caller wants to change. The backend requires at least one.
+  return jsonRequest(`/items/${itemId}`, "PATCH", payload);
+}
+
 export async function apiUpdateNotes(itemId, notesDict) {
   return jsonRequest(`/items/${itemId}/notes`, "PATCH", { notes: notesDict });
 }
@@ -150,4 +156,15 @@ export async function apiCreateTransaction(payload) {
   };
   if (payload.work_order_number) body.work_order_number = payload.work_order_number;
   return jsonRequest("/transactions/", "POST", body);
+}
+
+export async function apiCreateCorrection({ itemId, newQuantity, reason }) {
+  // Sibling of apiCreateTransaction, but for `transaction_type = "adjust"`
+  // -- Admin+ only on the backend. The user sends the absolute new
+  // quantity; the server computes the signed delta under FOR UPDATE.
+  return jsonRequest("/transactions/adjust", "POST", {
+    item_id: itemId,
+    new_quantity: newQuantity,
+    reason,
+  });
 }

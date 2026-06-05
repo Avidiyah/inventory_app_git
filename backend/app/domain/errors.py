@@ -48,6 +48,14 @@ class UserHasTransactionsError(DomainError):
     intentionally preserved — see spec.md decisions log."""
 
 
+class ItemHasTransactionsError(DomainError):
+    """Raised by `services.items.delete_item` when the item is
+    referenced by one or more rows in `transactions`. Mirrors
+    `UserHasTransactionsError`: the audit trail wins over the
+    convenience of deletion, and `transactions.item_id` is pinned
+    `ON DELETE RESTRICT` at the DB level to match."""
+
+
 class UserNotFoundError(DomainError):
     """Raised by `services.users.delete_user` when no row matches
     the given user id."""
@@ -67,6 +75,13 @@ class NegativeQuantityError(DomainError):
         super().__init__(
             f"Cannot dispense {requested}: only {current} in stock."
         )
+
+
+class NoChangeError(DomainError):
+    """Raised by `services.transactions.apply_correction` when the
+    requested `new_quantity` matches the item's current quantity, so
+    the correction would create an empty audit row. The user almost
+    always means a typo here; a clean 400 makes the no-op explicit."""
 
 
 class InvalidCredentialsError(DomainError):

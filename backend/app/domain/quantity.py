@@ -21,22 +21,34 @@ from app.domain.errors import NegativeQuantityError
 
 def apply_delta(
     current: Decimal,
-    transaction_type: Literal["stock", "dispense"],
+    transaction_type: Literal["stock", "dispense", "adjust"],
     quantity: Decimal,
 ) -> Decimal:
     """Return the new item quantity after applying a transaction.
 
-    - `stock` adds `quantity` to `current`.
-    - `dispense` subtracts `quantity`; if the result would be
-      negative, raises `NegativeQuantityError` carrying both numbers.
+    - `stock` adds `quantity` (positive) to `current`.
+    - `dispense` subtracts `quantity` (positive) from `current`; if the
+      result would be negative, raises `NegativeQuantityError` carrying
+      both numbers.
+    - `adjust` adds `quantity` as a *signed* delta (the caller has
+      already computed `new_quantity - current` under FOR UPDATE). The
+      same overdraft check applies: if the result is below zero, raises
+      `NegativeQuantityError`.
 
-    Inputs are assumed already validated by the Pydantic layer:
-    `quantity` is a positive `Decimal` and `transaction_type` is one
-    of the two literals. We deliberately do NOT re-validate here —
-    that is a boundary concern, not a domain concern.
+    Inputs are assumed already validated by the Pydantic / service
+    layer: for stock/dispense, `quantity` is a positive `Decimal`; for
+    adjust, `quantity` may be any non-zero `Decimal`. We deliberately
+    do NOT re-validate here — that is a boundary concern, not a
+    domain concern.
     """
     if transaction_type == "stock":
         return current + quantity
+
+    if transaction_type == "adjust":
+        new_quantity = current + quantity
+        if new_quantity < 0:
+            raise NegativeQuantityError(current=current, requested=-quantity)
+        return new_quantity
 
     new_quantity = current - quantity
     if new_quantity < 0:

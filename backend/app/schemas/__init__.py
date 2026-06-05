@@ -13,8 +13,9 @@ resource (items / transactions / users) to mirror the router layout.
 """
 
 from app.schemas.barcodes import BarcodeMatch, BarcodeDecodeResponse
-from app.schemas.items import ItemCreate, ItemResponse, ItemNotesUpdate
+from app.schemas.items import ItemCreate, ItemResponse, ItemNotesUpdate, ItemUpdate
 from app.schemas.transactions import (
+    CorrectionCreate,
     TransactionCreate,
     TransactionResponse,
     TransactionHistoryItem,
@@ -28,6 +29,8 @@ __all__ = [
     "ItemCreate",
     "ItemResponse",
     "ItemNotesUpdate",
+    "ItemUpdate",
+    "CorrectionCreate",
     "TransactionCreate",
     "TransactionResponse",
     "TransactionHistoryItem",

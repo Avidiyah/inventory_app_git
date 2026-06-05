@@ -332,6 +332,10 @@ tr:last-child td {
     background-color: #d97706;
 }
 
+.type-badge.adjust {
+    background-color: #2563eb;
+}
+
 /* Pagination */
 .pagination {
     display: flex;

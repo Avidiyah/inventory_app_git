@@ -643,6 +643,8 @@ The following IDs are required by the frontend view modules. Renaming or removin
 
 - `#saved-items-page`, `#items-section`, `#items-search`, `#items-tbody`
 - `#notes-editor-section`, `#notes-editor-selected`, `#notes-rows`, `#notes-add-row-btn`, `#notes-save-btn`, `#notes-cancel-btn`, `#notes-message`
+- `#item-editor-section`, `#item-editor-selected`, `#item-editor-barcode`, `#item-editor-name`, `#item-editor-location`, `#item-editor-save-btn`, `#item-editor-cancel-btn`, `#item-editor-message`
+- `#correction-section`, `#correction-selected`, `#correction-current`, `#correction-new-quantity`, `#correction-reason`, `#correction-save-btn`, `#correction-cancel-btn`, `#correction-message`
 
 **Create User page**
 
@@ -693,9 +695,11 @@ Purely presentational. Has no logic contract with JS, but the following CSS clas
 | `.error`                                                                            | `setMessage()` in JS                              | Red text on feedback paragraphs           |
 | `.type-badge.stock`                                                                 | `renderHistory()` in JS                           | Green badge                               |
 | `.type-badge.dispense`                                                              | `renderHistory()` in JS                           | Amber badge                               |
+| `.type-badge.adjust`                                                                | `renderHistory()` in JS                           | Blue badge (correction / quantity adjust) |
 | `.note-row`                                                                         | `addNoteRow()` in JS                              | Grid layout for key/type/value/remove     |
 | `.note-key`, `.note-type`, `.note-value`, `.note-value-wrapper`, `.note-remove-btn` | `addNoteRow()` / `renderNoteValueInput()`         | Queried by class within note row logic    |
 | `.edit-notes-btn`                                                                   | `index.html` (static) / `renderItems()` (dynamic) | Triggers notes editor on click            |
+| `.correct-item-btn`                                                                 | `renderItems()` (dynamic)                         | Triggers correction (quantity adjust) on click |
 | `.delete-btn`, `.delete-user-btn`                                                   | `renderItems()`, `loadUsers()`                    | Triggers delete confirmation on click     |
 | `.stock-btn`, `.dispense-btn`                                                       | `loadTxnItems()`                                  | Triggers transaction form open            |
 | `.empty`                                                                            | `renderNotesSummary()` in JS                      | Grey `—` placeholder                      |

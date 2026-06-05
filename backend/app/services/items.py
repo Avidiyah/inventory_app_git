@@ -13,8 +13,12 @@ from typing import Sequence
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.domain.errors import DuplicateBarcodeError, ItemNotFoundError
-from app.models import Item
+from app.domain.errors import (
+    DuplicateBarcodeError,
+    ItemHasTransactionsError,
+    ItemNotFoundError,
+)
+from app.models import Item, Transaction
 
 
 def create_item(
@@ -59,12 +63,56 @@ def get_item_by_barcode(db: Session, barcode: str) -> Item:
     return item
 
 
-def delete_item(db: Session, item_id: uuid.UUID) -> None:
-    """Hard-delete an item. Cascade rules on `transactions.item_id`
-    are defined in the model; this function only enforces the
-    "must exist" precondition."""
+def update_item(
+    db: Session,
+    item_id: uuid.UUID,
+    *,
+    barcode: str | None = None,
+    name: str | None = None,
+    location: str | None = None,
+) -> Item:
+    """Edit any of `barcode`, `name`, `location` on an existing item.
+    Only fields passed as non-`None` are written; the schema guarantees
+    at least one is set. Raises `ItemNotFoundError` if the id is
+    unknown, or `DuplicateBarcodeError` if a new barcode collides with
+    another item. Quantity is intentionally not editable here — direct
+    corrections go through `services.transactions.apply_correction`.
+    """
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item:
         raise ItemNotFoundError("Item not found.")
+    if barcode is not None:
+        item.barcode = barcode
+    if name is not None:
+        item.name = name
+    if location is not None:
+        item.location = location
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise DuplicateBarcodeError(
+            "An item with this barcode already exists."
+        ) from exc
+    db.refresh(item)
+    return item
+
+
+def delete_item(db: Session, item_id: uuid.UUID) -> None:
+    """Hard-delete an item. Refuses if any transactions reference it
+    (`ItemHasTransactionsError`, → 400) so the audit trail is never
+    orphaned; the `transactions.item_id` FK is also `ON DELETE RESTRICT`
+    as a belt-and-braces guarantee at the DB level."""
+    item = db.query(Item).filter(Item.id == item_id).first()
+    if not item:
+        raise ItemNotFoundError("Item not found.")
+    has_txn = (
+        db.query(Transaction.id).filter(Transaction.item_id == item_id).first()
+        is not None
+    )
+    if has_txn:
+        raise ItemHasTransactionsError(
+            "Cannot delete an item with transaction history."
+        )
     db.delete(item)
     db.commit()

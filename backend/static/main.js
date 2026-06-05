@@ -21,6 +21,8 @@
 // --- Side-effect imports (register DOM handlers) -----------------
 import "./views/nav.js";
 import "./views/notes.js";
+import "./views/itemEditor.js";
+import "./views/correction.js";
 import "./views/items.js";
 import "./views/users.js";
 import "./views/history.js";

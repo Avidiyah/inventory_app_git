@@ -58,12 +58,20 @@ class Item(Base):
 
 
 class Transaction(Base):
-    """Append-only audit row for a stock or dispense event.
+    """Append-only audit row for a stock, dispense, or correction event.
 
-    `user_id` is nullable -- anonymous transactions are allowed.
-    The FK on `user_id` is RESTRICT (configured at the database
-    level via Alembic), which is why deleting a referenced user
-    raises `UserHasTransactionsError`.
+    `user_id` is nullable -- anonymous transactions are allowed (older
+    pre-auth rows). The FK on `user_id` and `item_id` are both
+    `ON DELETE RESTRICT` (configured at the database level via
+    Alembic), which is why deleting a referenced user or item raises
+    `UserHasTransactionsError` / `ItemHasTransactionsError`.
+
+    `quantity` is the signed delta applied to `Item.quantity`:
+    positive for `stock` and `adjust`-up, negative for `adjust`-down.
+    `dispense` rows store a positive number for historical consistency
+    (the sign is implied by the type). `reason` is populated only for
+    `transaction_type = "adjust"` and is required at the schema layer
+    for that type.
     """
 
     __tablename__ = "transactions"
@@ -71,9 +79,10 @@ class Transaction(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     item_id = Column(UUID(as_uuid=True), ForeignKey("items.id"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    transaction_type = Column(Text, nullable=False)  # "stock" or "dispense"
+    transaction_type = Column(Text, nullable=False)  # "stock" | "dispense" | "adjust"
     quantity = Column(Numeric, nullable=False)
     work_order_number = Column(Text, nullable=True)
+    reason = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     item = relationship("Item", back_populates="transactions")

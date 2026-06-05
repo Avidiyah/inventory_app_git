@@ -10,9 +10,9 @@ can be unit-tested without Pydantic.
 from uuid import UUID
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from app.domain.notes_validation import validate_notes
 
@@ -81,3 +81,37 @@ class ItemNotesUpdate(BaseModel):
     @classmethod
     def _validate(cls, v):
         return validate_notes(v)
+
+
+class ItemUpdate(BaseModel):
+    """Payload for `PATCH /items/{id}` — edit barcode, name, or location.
+
+    All three fields are optional; at least one must be present (a
+    no-field request is treated as a client bug, not a no-op). Quantity
+    is deliberately not editable here — direct quantity changes go
+    through `POST /transactions/adjust` so the audit trail is preserved.
+    Barcode uniqueness is a database concern, surfaced as
+    `DuplicateBarcodeError` by the service layer.
+    """
+
+    barcode: Optional[str] = None
+    name: Optional[str] = None
+    location: Optional[str] = None
+
+    @field_validator("barcode", "name", "location")
+    @classmethod
+    def _not_blank_if_present(cls, v):
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            raise ValueError("Field cannot be blank.")
+        return v
+
+    @model_validator(mode="after")
+    def _at_least_one_field(self):
+        if self.barcode is None and self.name is None and self.location is None:
+            raise ValueError(
+                "At least one of barcode, name, or location is required."
+            )
+        return self

@@ -67,6 +67,7 @@ def list_history(
             transaction_type=txn.transaction_type,
             quantity=txn.quantity,
             work_order_number=txn.work_order_number,
+            reason=txn.reason,
             created_at=txn.created_at,
         )
         for txn, item, user in rows

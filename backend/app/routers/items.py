@@ -20,7 +20,7 @@ from app.database import get_db
 from app.domain import roles
 from app.domain.errors import DomainError
 from app.routers._errors import to_http
-from app.schemas.items import ItemCreate, ItemResponse, ItemNotesUpdate
+from app.schemas.items import ItemCreate, ItemResponse, ItemNotesUpdate, ItemUpdate
 from app.services import items as items_service
 from app.services import notes as notes_service
 
@@ -87,6 +87,31 @@ def update_item_notes(
     the item does not exist."""
     try:
         return notes_service.replace_notes(db, item_id, payload.notes)
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.patch(
+    "/{item_id}",
+    response_model=ItemResponse,
+    dependencies=[Depends(require_min_role(roles.ROLE_ADMIN))],
+)
+def update_item(
+    item_id: uuid.UUID,
+    payload: ItemUpdate,
+    db: Session = Depends(get_db),
+):
+    """Edit barcode, name, and/or location. Owner/Admin only. 404 if the
+    item does not exist; 400 on duplicate barcode. Quantity is not
+    editable here — corrections go through `POST /transactions/adjust`."""
+    try:
+        return items_service.update_item(
+            db,
+            item_id,
+            barcode=payload.barcode,
+            name=payload.name,
+            location=payload.location,
+        )
     except DomainError as exc:
         raise to_http(exc)
 
