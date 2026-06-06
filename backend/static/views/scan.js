@@ -28,6 +28,8 @@ import { formatError } from "../format.js";
 import { getRole } from "../state.js";
 import { roleAtLeast } from "../roles.js";
 import { focusItemByBarcode } from "./transactions.js";
+import { BarcodeDecoder } from "../scan/barcode-decoder.js";
+import { FrameDebouncer } from "../scan/frame-debouncer.js";
 
 /**
  * Mount a scanner widget on a set of DOM elements.
@@ -39,7 +41,14 @@ import { focusItemByBarcode } from "./transactions.js";
  * @param {(item: object) => void} opts.onItemFound - called when a barcode resolves to an item
  * @param {boolean} [opts.allowCreate=true]   - offer the "Create item" shortcut on 404 (Admin+ only)
  * @param {(barcode: string) => void} [opts.onCreateShortcut] - what the Create shortcut button does
- * @returns {{ reset: () => void }}
+ * @param {Object} [opts.liveEls]             - optional live-camera DOM handles; when omitted the
+ *                                              widget is upload-only (existing behaviour).
+ * @param {HTMLVideoElement} opts.liveEls.videoEl
+ * @param {HTMLButtonElement} opts.liveEls.scanBtn   - toggles the live decoder on
+ * @param {HTMLButtonElement} opts.liveEls.uploadBtn - the visible button that opens the file picker
+ * @param {HTMLButtonElement} opts.liveEls.torchBtn  - torch toggle (hidden when capability absent)
+ * @param {HTMLElement}      opts.liveEls.aimboxEl   - aim-box overlay; toggled hidden in lockstep with camera state
+ * @returns {{ reset: () => void, stopLive: () => void }}
  */
 export function mountScanner({
   inputEl,
@@ -48,12 +57,14 @@ export function mountScanner({
   onItemFound,
   allowCreate = true,
   onCreateShortcut,
+  liveEls,
 }) {
   function reset() {
     inputEl.value = "";
     chooserEl.innerHTML = "";
     chooserEl.hidden = true;
     setMessage(messageEl, "", "");
+    if (liveEls) stopLive();
   }
 
   function clearChooser() {
@@ -162,7 +173,193 @@ export function mountScanner({
     }
   });
 
-  return { reset };
+  // --- Live-camera mode -----------------------------------------
+  //
+  // Wired only when `liveEls` is provided. The decoder is push-based
+  // (ZXing's `decodeFromStream` callback); decoded texts feed into a
+  // 5-of-10 debouncer (`FrameDebouncer`). On accept we stop the
+  // camera and funnel the text through the same `resolveBarcode`
+  // path the upload flow uses -- live mode never calls
+  // `/barcodes/decode`. See docs/plan-live-capture.md decision #3.
+  //
+  // Mutual exclusion: clicking Upload tears the camera down first so
+  // we never hold a video track while the file picker is open.
+
+  const decoder = liveEls ? new BarcodeDecoder() : null;
+  const debouncer = liveEls ? new FrameDebouncer() : null;
+  let liveStream = null;
+  let liveTrack = null;
+  let liveRunning = false;
+  let torchOn = false;
+
+  function setAimboxVisible(visible) {
+    if (liveEls && liveEls.aimboxEl) liveEls.aimboxEl.hidden = !visible;
+  }
+
+  function setUploadDisabled(disabled) {
+    if (liveEls && liveEls.uploadBtn) liveEls.uploadBtn.disabled = disabled;
+  }
+
+  function stopLive() {
+    if (!liveEls) return;
+    liveRunning = false;
+    if (decoder) decoder.stop();
+    if (debouncer) debouncer.reset();
+    if (liveStream) {
+      for (const track of liveStream.getTracks()) {
+        try { track.stop(); } catch (_err) { /* nothing actionable */ }
+      }
+    }
+    if (liveEls.videoEl) {
+      try { liveEls.videoEl.srcObject = null; } catch (_err) { /* nothing actionable */ }
+    }
+    liveStream = null;
+    liveTrack = null;
+    torchOn = false;
+    setAimboxVisible(false);
+    setUploadDisabled(false);
+    if (liveEls.torchBtn) {
+      liveEls.torchBtn.hidden = true;
+      liveEls.torchBtn.disabled = false;
+    }
+  }
+
+  async function startLive() {
+    if (!liveEls || liveRunning) return;
+    if (!(await BarcodeDecoder.supports())) {
+      setMessage(messageEl, "Live camera is not available in this browser.", "error");
+      return;
+    }
+    clearChooser();
+    setMessage(messageEl, "Starting camera…", "");
+
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          focusMode: { ideal: "continuous" },
+        },
+        audio: false,
+      });
+    } catch (err) {
+      const denied = err && (err.name === "NotAllowedError" || err.name === "SecurityError");
+      setMessage(
+        messageEl,
+        denied
+          ? "Camera permission denied. Use Upload instead, or allow camera access in your browser settings."
+          : "Could not open the camera. Try Upload instead.",
+        "error",
+      );
+      return;
+    }
+
+    liveStream = stream;
+    liveTrack = stream.getVideoTracks()[0] || null;
+    liveRunning = true;
+    setAimboxVisible(true);
+    setUploadDisabled(true);
+    setMessage(messageEl, "Aim at a barcode…", "");
+
+    // Best-effort post-start retry of focusMode -- iOS ignores this
+    // silently, Android Chrome accepts the call but the driver may
+    // leave the actual setting on `manual`. See Phase 1 results.
+    if (liveTrack && typeof liveTrack.applyConstraints === "function") {
+      setTimeout(() => {
+        if (!liveRunning || !liveTrack) return;
+        liveTrack
+          .applyConstraints({ advanced: [{ focusMode: "continuous" }] })
+          .catch(() => { /* expected on devices without driver support */ });
+      }, 500);
+    }
+
+    // Expose the torch button only if the track advertises the
+    // capability. Hidden by default in Phase 3 markup; we flip it on
+    // here once we know it works.
+    if (liveEls.torchBtn) {
+      const caps = liveTrack && typeof liveTrack.getCapabilities === "function"
+        ? liveTrack.getCapabilities()
+        : {};
+      liveEls.torchBtn.hidden = !caps.torch;
+      liveEls.torchBtn.disabled = false;
+    }
+
+    try {
+      await decoder.start(liveEls.videoEl, stream, (text, _format) => {
+        if (!liveRunning) return;
+        const accepted = debouncer.pushAndCheck(text);
+        if (accepted) {
+          stopLive();
+          resolveBarcode(accepted);
+        }
+      });
+    } catch (err) {
+      stopLive();
+      setMessage(messageEl, `Could not start the decoder: ${err && err.message ? err.message : "unknown error"}.`, "error");
+    }
+  }
+
+  async function toggleTorch() {
+    if (!liveRunning || !liveTrack || typeof liveTrack.applyConstraints !== "function") return;
+    const next = !torchOn;
+    try {
+      await liveTrack.applyConstraints({ advanced: [{ torch: next }] });
+      torchOn = next;
+    } catch (_err) {
+      // Capability lied; disable the button so the user stops trying.
+      if (liveEls.torchBtn) liveEls.torchBtn.disabled = true;
+    }
+  }
+
+  if (liveEls) {
+    if (liveEls.scanBtn) {
+      liveEls.scanBtn.addEventListener("click", () => {
+        if (liveRunning) {
+          stopLive();
+          setMessage(messageEl, "", "");
+        } else {
+          startLive();
+        }
+      });
+    }
+    if (liveEls.uploadBtn) {
+      liveEls.uploadBtn.addEventListener("click", () => {
+        if (liveRunning) stopLive();
+        inputEl.click();
+      });
+    }
+    if (liveEls.torchBtn) {
+      liveEls.torchBtn.hidden = true;
+      liveEls.torchBtn.addEventListener("click", toggleTorch);
+    }
+  }
+
+  // Pre-check the camera permission state (per decision #21). Called
+  // by `views/nav.js` whenever the page hosting this scanner becomes
+  // active. On `denied`, hide the Scan button and surface the
+  // blocked-mode message; Upload remains the only path. On supported,
+  // we leave the message untouched -- `reset()` on the previous
+  // page-leave already cleared it, so the section presents clean.
+  async function refreshPermissionState() {
+    if (!liveEls) return;
+    const supported = await BarcodeDecoder.supports();
+    if (liveEls.scanBtn) liveEls.scanBtn.hidden = !supported;
+    if (!supported) {
+      setMessage(
+        messageEl,
+        "Camera blocked. Re-enable it via the lock icon in your browser, or use Upload.",
+        "error",
+      );
+    }
+  }
+
+  return {
+    reset,
+    stopLive: liveEls ? stopLive : () => {},
+    refreshPermissionState: liveEls ? refreshPermissionState : () => {},
+  };
 }
 
 // --- Auto-mount: Transaction-page scanner -----------------------
@@ -180,7 +377,10 @@ const txnScanChooser = document.getElementById("txn-scan-chooser");
 const createItemNavBtn = document.querySelector('.nav-btn[data-page="create-item"]');
 const createBarcodeInput = document.getElementById("barcode");
 
-const txnScanner = mountScanner({
+// Exported so `views/nav.js` can drive page-level camera lifecycle:
+// stop on tab-hide / page-leave, refresh permission state on page-enter.
+// Phase 3 PR1 wires the Transaction page only; Saved Items follows in PR2.
+export const txnScanner = mountScanner({
   inputEl: txnScanInput,
   messageEl: txnScanMessage,
   chooserEl: txnScanChooser,
@@ -191,6 +391,13 @@ const txnScanner = mountScanner({
     // triggering the existing nav button (no import of nav.js).
     if (createBarcodeInput) createBarcodeInput.value = barcode;
     if (createItemNavBtn) createItemNavBtn.click();
+  },
+  liveEls: {
+    videoEl: document.getElementById("txn-scan-video"),
+    scanBtn: document.getElementById("txn-scan-scan-btn"),
+    uploadBtn: document.getElementById("txn-scan-upload-btn"),
+    torchBtn: document.getElementById("txn-scan-torch-btn"),
+    aimboxEl: document.getElementById("txn-scan-aimbox"),
   },
 });
 

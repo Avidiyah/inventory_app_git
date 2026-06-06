@@ -556,3 +556,58 @@ tr:last-child td {
 .scan-create-btn:hover {
     background-color: #15803d;
 }
+
+/* --- Live-mode scanner additions (Phase 3) -----------------------
+   Adds video preview + aim-box overlay + Scan/Upload/Torch toolbar to
+   the existing scan controls. The file input is hidden but kept --
+   the Upload button programmatically clicks it so the upload path in
+   views/scan.js stays unchanged. See docs/plan-live-capture.md. */
+#txn-scan-input,
+#items-scan-input {
+    display: none;
+}
+
+.scan-viewport {
+    position: relative;
+    width: 100%;
+    max-width: 400px;
+    background: #000;
+    line-height: 0; /* prevents the inline <video>'s baseline gap */
+}
+
+.scan-video {
+    width: 100%;
+    display: block;
+    filter: grayscale(100%);
+}
+
+/* Aim-box overlay -- guidance only. The decoder still sees the full
+   frame (decision #15: no cropping in v1). White border plus a dark
+   box-shadow gives a high-contrast edge on both light and dark
+   labels. */
+.scan-aimbox {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 80%;
+    aspect-ratio: 3 / 1;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.6);
+    pointer-events: none;
+}
+
+.scan-aimbox[hidden] {
+    display: none;
+}
+
+.scan-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.scan-toolbar > button {
+    margin-top: 0;
+}

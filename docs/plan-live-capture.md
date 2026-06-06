@@ -1,7 +1,30 @@
 # Plan: Live Camera Barcode Capture
 
-Status: **Phase 0 signed off.** All assumptions closed. Ready to
-proceed with the prerequisite work and Phase 1 spike.
+Status: **Phase 3 PR1 implemented and locally verified.** Live
+capture is now wired into the Transaction page: video preview,
+Scan / Upload / Torch toolbar, aim-box overlay, page-level camera
+lifecycle (visibility change, page-leave teardown), and blocked-mode
+fallback. Phase 1 spike files (`backend/static/scan-test.html`,
+`backend/static/scan-test.js`) have been deleted. Upload-mode
+regression remains intact.
+
+Upload-mode regression was verified after the Phase 2 refactor on
+both Transaction and Saved Items. The reusable scanner refactor is
+in place: `mountScanner({...})` accepts optional live-mode DOM
+handles, the ZXing wrapper lives in
+[backend/static/scan/barcode-decoder.js](backend/static/scan/barcode-decoder.js),
+the 5-of-10 debounce lives in
+[backend/static/scan/frame-debouncer.js](backend/static/scan/frame-debouncer.js),
+and the vendored ZXing UMD is loaded globally from
+[backend/static/index.html](backend/static/index.html#L383).
+
+Remaining work: **Phase 3 PR2** -- wire `liveEls` into the Saved
+Items `mountScanner` call site, mirror the markup/CSS additions in
+`#items-scan-section`, and register the Saved Items scanner in
+`views/nav.js`. Ships one week after PR1 lands in production.
+
+Important: the Saved Items page still uses upload-only behaviour
+until PR2 lands.
 
 ---
 
@@ -39,16 +62,29 @@ The stack is well-prepared. Confirmed in earlier discussion:
   mode plugs into it by skipping the `apiDecodeBarcode` step.
 - Plain ES modules, no build step.
 
-Gaps to close as part of the work:
+Gaps remaining (all in Phase 3):
 
 - New DOM IDs to be added to the "frozen DOM contract" in
-  [docs/interfaces.md](docs/interfaces.md) section 12.
-- `Permissions-Policy: camera=(self)` header (currently absent;
-  future-proofs against iframe embedding).
-- New `backend/static/vendor/` directory for vendored third-party JS.
-- Auth gate on `/barcodes/decode` lowered from supervisor to any
-  authenticated user (decision #2).
-- Session idle timeout raised from 60 s to 600 s (see Prerequisites).
+  [docs/interfaces.md](docs/interfaces.md) section 12, and the
+  corresponding markup added to
+  [backend/static/index.html](backend/static/index.html).
+- Population of `liveEls` from the Transaction and Saved Items call
+  sites in [backend/static/views/scan.js](backend/static/views/scan.js)
+  and [backend/static/views/items.js](backend/static/views/items.js).
+- Page-level `visibilitychange` and section-leave lifecycle hooks.
+- Blocked-mode UI (Permissions-API pre-check + fallback messaging).
+- Deletion of the Phase 1 spike files (see "Spike files left in
+  place" below).
+
+Gaps already closed:
+
+- `Permissions-Policy: camera=(self)` header shipped in
+  [backend/app/main.py](backend/app/main.py#L46) during Phase 1.
+- `backend/static/vendor/` exists with the pinned ZXing UMD and its
+  LICENSE; vendoring procedure documented in
+  [docs/reference.md](docs/reference.md).
+- `/barcodes/decode` auth gate lowered in Prerequisites #2.
+- Session idle timeout raised in Prerequisites #1.
 
 ---
 
@@ -177,31 +213,112 @@ scan.
 
 1. **Phase 0 — close assumptions (no code).** ✅ Done. Decisions
    locked above.
-2. **Prerequisites (separate PRs).** Bump session idle timeout to
-   600 s; lower `/barcodes/decode` gate to any authenticated user. See
-   Prerequisites section above.
-3. **Phase 1 — decoder spike.** Vendor `@zxing/browser` to
-   `backend/static/vendor/` with pinned-version filename and SHA-256
-   in [docs/reference.md](docs/reference.md). Build a throwaway
-   `/static/scan-test.html` that does nothing but camera-on,
-   decode-loop, show decoded text plus the running debounce window.
-   No auth, no router integration, no item lookup. Goal: prove the
-   library works on the actual labels and phones the workers use,
-   and shake out iOS Safari quirks. Open-ended exit criterion.
-4. **Phase 2 — refactor `mountScanner`.** Extend
-   [backend/static/views/scan.js](backend/static/views/scan.js#L40) to
-   accept a mode (`upload` | `live`) without changing its callback
-   contract. Add the `BarcodeDecoder` class (wraps ZXing, single
-   `decodeFrame(videoEl): Promise<Result | null>` method). Existing
-   callers at [backend/static/views/scan.js](backend/static/views/scan.js#L186-L199)
-   and [backend/static/views/items.js](backend/static/views/items.js#L250-L269)
-   keep working unchanged.
-5. **Phase 3 — wire and ship.** Add the new DOM (video element, Scan /
-   Upload / Torch buttons, aim-box overlay, permission-state
-   messaging), the `Permissions-Policy: camera=(self)` middleware, the
-   `visibilitychange` and section-leave lifecycle hooks, and the
-   blocked-mode fallback. Both Prerequisites must already be merged.
-   Ship to Transaction page first for a week, then Saved Items.
+2. **Prerequisites (separate PRs).** ✅ Done. Session idle timeout
+   bumped to 600 s in [backend/app/services/auth.py](backend/app/services/auth.py#L33);
+   `/barcodes/decode` gate lowered to any authenticated user in
+   [backend/app/routers/barcodes.py](backend/app/routers/barcodes.py#L29).
+3. **Phase 1 — decoder spike.** ✅ Done. See "Phase 1 results" below.
+   The `Permissions-Policy: camera=(self)` middleware originally
+   scheduled for Phase 3 shipped here (in [backend/app/main.py](backend/app/main.py#L46))
+   so the spike validated it as well.
+4. **Phase 2 — refactor `mountScanner`.** ✅ Done. The reusable
+   scanner in [backend/static/views/scan.js](backend/static/views/scan.js)
+   now accepts optional `liveEls` handles and returns
+   `{ reset, stopLive }` while preserving the existing upload-only
+   callers unchanged. The ZXing wrapper shipped in
+   [backend/static/scan/barcode-decoder.js](backend/static/scan/barcode-decoder.js)
+   with a push-based API: `static async supports()`,
+   `async start(videoEl, stream, onDecode)`, and `stop()`. The 5-of-10
+   debounce shipped separately in
+   [backend/static/scan/frame-debouncer.js](backend/static/scan/frame-debouncer.js).
+   The vendored UMD is now loaded globally from
+   [backend/static/index.html](backend/static/index.html#L383).
+5. **Phase 3 — wire and ship.** Split into two PRs.
+   - **PR1 (Transaction page).** ✅ Done. Added new real-page DOM
+     (video, Scan/Upload/Torch toolbar, aim-box overlay) to
+     `#txn-scan-section`. Passed `liveEls` from the Transaction
+     auto-mount in [backend/static/views/scan.js](backend/static/views/scan.js)
+     and exported the `txnScanner` handle. Added page-level
+     `visibilitychange` + section-leave lifecycle hooks and a
+     blocked-mode fallback (Scan hidden, blocked-mode message,
+     Upload still usable) via a new `refreshPermissionState()`
+     helper called from [backend/static/views/nav.js](backend/static/views/nav.js).
+     `getUserMedia` constraints now include `width: { ideal: 1920 }`
+     and `height: { ideal: 1080 }`. Phase 1 spike files
+     (`scan-test.html`, `scan-test.js`) deleted.
+   - **PR2 (Saved Items page).** Pending. Mirror the markup/CSS
+     additions in `#items-scan-section`, pass `liveEls` from the
+     Saved Items `mountScanner` call site, export `itemsScanner`,
+     and register it in `SCANNERS_BY_PAGE` in `views/nav.js`. Ships
+     one week after PR1 lands in production.
+
+---
+
+## Phase 1 results
+
+Spike at `/static/scan-test.html` validated on the actual fleet (all
+iPhones, plus desktop Chrome for control) and several Android phones
+for comparison. Answers to the seven Phase 1 questions:
+
+1. **Single vendored UMD works.** `@zxing/browser` 0.2.0 UMD
+   (`ZXingBrowser` global, 441 KB) loads from
+   `/static/vendor/zxing-browser-0.2.0.umd.min.js` with no runtime
+   sub-imports, no source-map 404s. Phase 2 uses the same vendoring.
+2. **5-of-10 debounce holds.** No false accepts observed during
+   testing on iOS Safari. Keeping the ratio as locked in decision #18.
+3. **iOS grants `environment` reliably.** No `enumerateDevices`
+   camera-switching UI needed in Phase 3 — stays out of scope.
+4. **Decode latency within budget** on iPhones (well under the 33 ms
+   frame budget). Resolution kept uncapped per decision #8.
+5. **Torch capability** surfaces only on Android (as predicted). Moot
+   for v1 since the fleet is iOS; the torch button stays in the Phase
+   3 DOM contract behind the `caps.torch === true` gate so it appears
+   automatically if/when Android is added.
+6. **Multi-barcode detection per frame** — ZXing's
+   `BrowserMultiFormatReader.decodeFromStream` returns one result per
+   frame, not all results. Decision #17 ("discard frame with 2+
+   codes") is therefore not directly achievable with this entry point;
+   the practical effect is that ZXing picks one of the two codes
+   non-deterministically. **Plan amendment:** decision #17 becomes
+   "single-decode-per-frame; if two labels are physically in view, the
+   user will get whichever ZXing locks onto first, and the 5-of-10
+   debounce will still suppress flicker between them." Real-world
+   labels are rarely twinned in our environment so this is acceptable.
+7. **UPC-A returns as `UPC_A`** — no normalisation needed in
+   [backend/app/services/barcodes.py](backend/app/services/barcodes.py).
+
+### Android caveat (non-blocking)
+
+Decoding on Android Chrome and Edge is unreliable. Investigated:
+
+- Same resolution as iOS in the granted track settings (so not a
+  pixel-count issue).
+- `focusMode` capability is exposed and includes `continuous`, but
+  both the initial `getUserMedia` constraint *and* a post-start
+  `applyConstraints({ advanced: [{ focusMode: 'continuous' }] })`
+  retry left `getSettings().focusMode === 'manual'` on the test
+  device. The Android Chrome camera driver accepts the request and
+  ignores it.
+- Did not test resolution cap, tap-to-focus, or wide-angle-vs-main
+  camera selection — entire workforce is on iOS, so deferred.
+
+Not a ship blocker for v1. If Android joins the fleet later, escalate
+in this order: cap resolution at 1280×720 (cheap, may force a focus
+mode change), add tap-to-focus on the video element, enumerate rear
+cameras and prefer the "main" one, periodic single-shot AF re-trigger
+every few seconds.
+
+### Spike files left in place
+
+The following stay in the repo through Phase 2 and are **deleted in
+the Phase 3 ship PR**:
+
+- [backend/static/scan-test.html](backend/static/scan-test.html)
+- [backend/static/scan-test.js](backend/static/scan-test.js)
+
+The vendored library, its LICENSE, the
+[backend/static/vendor/](backend/static/vendor) directory, and the
+`Permissions-Policy` middleware are permanent.
 
 ---
 
@@ -274,3 +391,9 @@ refer to the decisions table above.
 - Session idle timeout (Prerequisites #1) lifted out of this plan:
   it's a one-line change with no UI surface and is needed by other
   flows too, not just live capture.
+- Phase 2 amended the implementation shape of decision #7: the
+  `BarcodeDecoder` boundary stayed, but the concrete API is
+  push-based (`supports()`, `start(videoEl, stream, onDecode)`,
+  `stop()`) rather than a pull-based `decodeFrame(...)` method.
+  Reason: ZXing's `decodeFromStream` is callback-driven, and wrapping
+  it as per-frame pull logic adds complexity for no gain.

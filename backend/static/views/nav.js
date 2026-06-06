@@ -10,9 +10,33 @@ import { loadTxnItems } from "./transactions.js";
 import { loadHistory } from "./history.js";
 import { loadItems } from "./items.js";
 import { loadUsers } from "./users.js";
+import { txnScanner } from "./scan.js";
+import { itemsScanner } from "./items.js";
 
 const navButtons = document.querySelectorAll(".nav-btn");
 const pages = document.querySelectorAll(".page");
+
+// Page-scoped scanners. Drives camera-lifecycle hooks below: stop on
+// page-leave / tab-hide, refresh permission state on page-enter. Add
+// new entries here as more pages adopt live capture (Saved Items in
+// Phase 3 PR2). See docs/plan-live-capture.md.
+const SCANNERS_BY_PAGE = {
+  "transaction": txnScanner,
+  "saved-items": itemsScanner,
+};
+
+let activePage = null;
+
+// Tab-hide -> stop every active camera. The user has navigated away
+// from the tab; releasing the camera also turns off the torch LED and
+// the recording indicator. We do NOT reset() -- if they tab back, the
+// section still has whatever message/chooser state it had before.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) return;
+  for (const scanner of Object.values(SCANNERS_BY_PAGE)) {
+    if (scanner && typeof scanner.stopLive === "function") scanner.stopLive();
+  }
+});
 
 // Which roles may see each page. This is the single source of truth for
 // nav visibility AND for the post-login boot in `auth.js`. It mirrors
@@ -39,12 +63,22 @@ export function applyRoleVisibility(role) {
 }
 
 export function showPage(pageName) {
+  // Camera lifecycle: stop + reset the leaving page's scanner (if any)
+  // before swapping the active section, then refresh the entering
+  // page's permission state. reset() also calls stopLive() internally.
+  const leaving = SCANNERS_BY_PAGE[activePage];
+  if (leaving && activePage !== pageName) leaving.reset();
+
   pages.forEach(page => {
     page.classList.toggle("active", page.id === `${pageName}-page`);
   });
   navButtons.forEach(btn => {
     btn.classList.toggle("active", btn.dataset.page === pageName);
   });
+  activePage = pageName;
+
+  const entering = SCANNERS_BY_PAGE[pageName];
+  if (entering) entering.refreshPermissionState();
 
   if (pageName === "transaction") {
     loadTxnItems();

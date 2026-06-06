@@ -248,7 +248,7 @@ const itemsScanChooser = document.getElementById("items-scan-chooser");
 const createItemNavBtnForItems = document.querySelector('.nav-btn[data-page="create-item"]');
 const createItemBarcodeInput = document.getElementById("barcode");
 
-mountScanner({
+export const itemsScanner = mountScanner({
   inputEl: itemsScanInput,
   messageEl: itemsScanMessage,
   chooserEl: itemsScanChooser,
@@ -265,5 +265,12 @@ mountScanner({
   onCreateShortcut: (barcode) => {
     if (createItemBarcodeInput) createItemBarcodeInput.value = barcode;
     if (createItemNavBtnForItems) createItemNavBtnForItems.click();
+  },
+  liveEls: {
+    videoEl:   document.getElementById("items-scan-video"),
+    scanBtn:   document.getElementById("items-scan-scan-btn"),
+    uploadBtn: document.getElementById("items-scan-upload-btn"),
+    torchBtn:  document.getElementById("items-scan-torch-btn"),
+    aimboxEl:  document.getElementById("items-scan-aimbox"),
   },
 });
