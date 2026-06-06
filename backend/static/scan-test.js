@@ -34,6 +34,7 @@ const els = {
   resolution: document.getElementById("diag-resolution"),
   facing: document.getElementById("diag-facing"),
   torch: document.getElementById("diag-torch"),
+  focus: document.getElementById("diag-focus"),
   fps: document.getElementById("diag-fps"),
   latency: document.getElementById("diag-latency"),
   latest: document.getElementById("diag-latest"),
@@ -97,9 +98,17 @@ function renderDiag() {
     const s = state.videoTrack.getSettings();
     els.resolution.textContent = `${s.width || "?"} x ${s.height || "?"}`;
     els.facing.textContent = s.facingMode || "(not reported)";
+    const grantedFocus = s.focusMode || "(not reported)";
+    let capableFocus = "unknown";
+    try {
+      const caps = state.videoTrack.getCapabilities ? state.videoTrack.getCapabilities() : {};
+      capableFocus = Array.isArray(caps.focusMode) ? caps.focusMode.join(",") : "(not exposed)";
+    } catch (_) { /* swallow -- already logged in start() */ }
+    els.focus.textContent = `${grantedFocus} / ${capableFocus}`;
   } else {
     els.resolution.textContent = "—";
     els.facing.textContent = "—";
+    els.focus.textContent = "—";
   }
 
   // FPS over last (up to) SAMPLES callbacks.
@@ -262,6 +271,24 @@ async function start() {
       } catch (err) {
         log(`getCapabilities() threw: ${err.message}`, "warn");
         els.torch.textContent = "n/a (threw)";
+      }
+
+      // Request continuous autofocus. Android Chrome/Edge default to a
+      // single focus pass at stream start and then lock; if the phone is
+      // held still during load, every label held at arm's length comes
+      // back blurry. iOS Safari does continuous AF by default and does
+      // not expose focusMode in capabilities, so this is a no-op there.
+      try {
+        const caps2 = state.videoTrack.getCapabilities ? state.videoTrack.getCapabilities() : {};
+        const supported = Array.isArray(caps2.focusMode) && caps2.focusMode.includes("continuous");
+        log(`focusMode capabilities: ${JSON.stringify(caps2.focusMode || null)}; will request continuous: ${supported}`);
+        if (supported) {
+          await state.videoTrack.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
+          const after = state.videoTrack.getSettings();
+          log(`focusMode after applyConstraints: ${after.focusMode || "(not reported)"}`);
+        }
+      } catch (err) {
+        log(`applyConstraints(focusMode=continuous) threw: ${err.name} -- ${err.message}`, "warn");
       }
     }
 
