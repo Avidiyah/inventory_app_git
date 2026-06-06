@@ -234,6 +234,14 @@ async function start() {
         facingMode: { ideal: "environment" },
         width: { ideal: 1920 },
         height: { ideal: 1080 },
+        // Request continuous autofocus up front. Android Chrome/Edge
+        // default to a single AF pass at stream start and lock; on iOS
+        // Safari this key is unrecognised and silently ignored. Setting
+        // it here (as a basic best-effort constraint, not under
+        // `advanced`) is more reliable than calling applyConstraints
+        // after the stream is already running -- which on Chrome Android
+        // is documented to be accepted but ignored on many devices.
+        focusMode: { ideal: "continuous" },
       },
       audio: false,
     };
@@ -260,6 +268,7 @@ async function start() {
           ? state.videoTrack.getCapabilities()
           : {};
         log(`track capabilities keys: ${Object.keys(caps).join(",")}`);
+        log(`focusMode capabilities: ${JSON.stringify(caps.focusMode || null)}; granted: ${s.focusMode || "(not reported)"}`);
         if (caps.torch === true) {
           els.torch.textContent = "yes";
           els.torch.className = "";
@@ -273,22 +282,29 @@ async function start() {
         els.torch.textContent = "n/a (threw)";
       }
 
-      // Request continuous autofocus. Android Chrome/Edge default to a
-      // single focus pass at stream start and then lock; if the phone is
-      // held still during load, every label held at arm's length comes
-      // back blurry. iOS Safari does continuous AF by default and does
-      // not expose focusMode in capabilities, so this is a no-op there.
+      // Fallback if the initial constraint didn't move us off `manual`.
+      // Some Chrome-on-Android cameras only honour focusMode via
+      // applyConstraints once a frame has been delivered. Retry after a
+      // short delay; log both attempts so we can tell which (if either)
+      // worked.
       try {
+        const initialFocus = state.videoTrack.getSettings().focusMode;
         const caps2 = state.videoTrack.getCapabilities ? state.videoTrack.getCapabilities() : {};
-        const supported = Array.isArray(caps2.focusMode) && caps2.focusMode.includes("continuous");
-        log(`focusMode capabilities: ${JSON.stringify(caps2.focusMode || null)}; will request continuous: ${supported}`);
-        if (supported) {
-          await state.videoTrack.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
-          const after = state.videoTrack.getSettings();
-          log(`focusMode after applyConstraints: ${after.focusMode || "(not reported)"}`);
+        const supportsContinuous = Array.isArray(caps2.focusMode) && caps2.focusMode.includes("continuous");
+        if (initialFocus !== "continuous" && supportsContinuous) {
+          log("focus not continuous after initial constraint; will retry via applyConstraints in 500ms");
+          setTimeout(async () => {
+            try {
+              await state.videoTrack.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
+              const after = state.videoTrack.getSettings().focusMode;
+              log(`focusMode after retry applyConstraints: ${after || "(not reported)"}`);
+            } catch (err) {
+              log(`retry applyConstraints(focusMode) threw: ${err.name} -- ${err.message}`, "warn");
+            }
+          }, 500);
         }
       } catch (err) {
-        log(`applyConstraints(focusMode=continuous) threw: ${err.name} -- ${err.message}`, "warn");
+        log(`focus fallback check threw: ${err.message}`, "warn");
       }
     }
 
