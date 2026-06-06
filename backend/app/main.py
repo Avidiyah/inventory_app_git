@@ -42,6 +42,17 @@ class NoCacheStaticFiles(StaticFiles):
 
 app = FastAPI(title="Inventory Management API")
 
+
+@app.middleware("http")
+async def add_permissions_policy(request, call_next):
+    """Tell browsers the camera is usable on this origin and nowhere
+    else (no cross-origin iframes). Required by the live barcode
+    scanner; harmless for every other route."""
+    response = await call_next(request)
+    response.headers["Permissions-Policy"] = "camera=(self)"
+    return response
+
+
 # Routers register their own prefixes (`/auth`, `/items`,
 # `/transactions`, `/users`); ordering here is irrelevant.
 app.include_router(auth.router)

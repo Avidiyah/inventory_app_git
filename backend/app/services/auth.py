@@ -29,8 +29,10 @@ from app.domain.errors import InvalidCredentialsError
 from app.models import AuthSession, User
 
 # Idle window: a session not touched within this period is expired on
-# the next request. The product spec fixes this at 60 seconds.
-SESSION_IDLE_TIMEOUT = timedelta(seconds=60)
+# the next request. Set to 10 minutes so live barcode capture (where
+# the user can spend a long time aiming the phone without firing any
+# network request) does not get logged out mid-scan.
+SESSION_IDLE_TIMEOUT = timedelta(minutes=10)
 
 # scrypt cost parameters. n must be a power of two; these are sensible
 # interactive-login defaults that complete in a few milliseconds.

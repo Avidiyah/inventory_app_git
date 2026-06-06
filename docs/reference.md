@@ -252,3 +252,71 @@ All response models use `model_config = {"from_attributes": True}` for ORM compa
 - **No authentication** — the API has no auth layer; `user_id` on transactions is optional and informational only.
 - **Static frontend co-located** — the FastAPI app mounts `./static/` and serves `index.html` at the root.
 - **Backend barcode decoding** — uploaded images are decoded server-side with `pyzbar` (a ctypes wrapper over the native `zbar` C library), in memory only, never persisted. Chosen over a frontend JS decoder so the symbology/format logic lives in one unit-tested place (`app/services/barcodes.py`). **Windows gotcha:** pyzbar's bundled DLLs require the **Visual C++ 2013 Redistributable** (`msvcr120.dll`); without it the import fails with a missing `libiconv.dll`/`libzbar-64.dll`. (`zxing-cpp` was the original intent but has no prebuilt wheel for this Python/OS and needs a C++ toolchain to build — see `spec.md` decisions log.)
+
+---
+
+## Vendored Frontend Libraries
+
+Third-party JS that ships in `backend/static/vendor/`. Each entry pins a version, records two SHA-256 hashes (upstream tarball + the file in the repo, which may differ from the tarball's copy if a post-extract transform was applied), and documents the exact update procedure so the next bump is mechanical.
+
+### `zxing-browser-0.2.0.umd.min.js`
+
+- **Library:** [`@zxing/browser`](https://www.npmjs.com/package/@zxing/browser)
+- **Version:** `0.2.0`
+- **Bundled peer:** `@zxing/library ^0.22.0` — inlined into the UMD bundle, no separate file shipped.
+- **License:** MIT — full text in `backend/static/vendor/zxing-browser-LICENSE.txt` (must be redistributed with the library; do not delete on update).
+- **Format:** UMD, single self-contained file. Exposes a `ZXingBrowser` global; loaded via plain `<script src=...>` (not an ES module).
+- **Size:** 441,121 bytes.
+- **Source URL:** `https://registry.npmjs.org/@zxing/browser/-/browser-0.2.0.tgz`
+- **Tarball SHA-256:** `519E5F7E9540E085AE3AB430EA68C7013F8F36EAA3865AE8486135C286473448`
+- **Vendored file SHA-256:** `066BC34EDFCDD4A33F0964AEEC967752A0DEA1CCAF36E58E319AC9FCB5070F6A`
+- **Vendored on:** 2026-06-06
+- **Used by:** Phase 1 spike at `/static/scan-test.html`; Phase 3 live barcode capture. See [`plan-live-capture.md`](plan-live-capture.md).
+
+### Update procedure (PowerShell, from repo root)
+
+When bumping the version, run these commands verbatim, replacing `<VER>` with the target version. Both hashes go into this document; the old file is overwritten in place.
+
+```powershell
+$ver = "<VER>"
+$tarball = "browser-$ver.tgz"
+
+# 1. Download from npm registry (no Node required).
+Invoke-WebRequest `
+    -Uri "https://registry.npmjs.org/@zxing/browser/-/$tarball" `
+    -OutFile $tarball
+
+# 2. Record tarball SHA-256 BEFORE extracting -- this is what npm published.
+Get-FileHash -Algorithm SHA256 $tarball | Format-List
+
+# 3. Extract to a scratch directory.
+New-Item -ItemType Directory -Path .\_zxing-scratch -Force | Out-Null
+tar -xzf $tarball -C .\_zxing-scratch
+
+# 4. Inspect package.json "unpkg" field to confirm the UMD path; for 0.2.0
+#    it is ./umd/zxing-browser.min.js. Check the bundle does NOT contain a
+#    `sourceMappingURL` comment pointing at an unvendored .map file:
+$umd = ".\_zxing-scratch\package\umd\zxing-browser.min.js"
+(Get-Content $umd -Raw | Select-String -Pattern 'sourceMappingURL' -AllMatches).Matches.Count
+# If non-zero, strip the offending comment before copying:
+#   (Get-Content $umd -Raw) -replace '//# sourceMappingURL=.*$', '' | Set-Content $umd -NoNewline
+
+# 5. Copy into vendor/ with the version in the filename.
+Copy-Item $umd ".\backend\static\vendor\zxing-browser-$ver.umd.min.js"
+Copy-Item ".\_zxing-scratch\package\LICENSE" `
+          ".\backend\static\vendor\zxing-browser-LICENSE.txt"
+
+# 6. Record the vendored file's SHA-256 AFTER any transform in step 4.
+Get-FileHash -Algorithm SHA256 ".\backend\static\vendor\zxing-browser-$ver.umd.min.js" | Format-List
+
+# 7. Clean up.
+Remove-Item -Recurse -Force .\_zxing-scratch
+Remove-Item $tarball
+
+# 8. Delete the old `zxing-browser-<OLD>.umd.min.js`.
+# 9. Update the script tag in any consumer (scan-test.html, real-flow HTML in Phase 3+).
+# 10. Update this document: version, both hashes, vendored-on date, size.
+```
+
+A version mismatch between the filename, the script tag, and the hashes here is a review blocker.
+

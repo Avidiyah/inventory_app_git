@@ -645,6 +645,8 @@ The following IDs are required by the frontend view modules. Renaming or removin
 **Saved Items page**
 
 - `#saved-items-page`, `#items-section`, `#items-search`, `#items-tbody`
+- `#items-scan-section`, `#items-scan-input`, `#items-scan-chooser`, `#items-scan-message` (upload-mode barcode scanning — see addendum L)
+- `#items-scan-video`, `#items-scan-scan-btn`, `#items-scan-upload-btn`, `#items-scan-torch-btn`, `#items-scan-aimbox` (live-capture barcode scanning — see addendum L)
 - `#notes-editor-section`, `#notes-editor-selected`, `#notes-rows`, `#notes-add-row-btn`, `#notes-save-btn`, `#notes-cancel-btn`, `#notes-message`
 - `#item-editor-section`, `#item-editor-selected`, `#item-editor-barcode`, `#item-editor-name`, `#item-editor-location`, `#item-editor-save-btn`, `#item-editor-cancel-btn`, `#item-editor-message`
 - `#correction-section`, `#correction-selected`, `#correction-current`, `#correction-new-quantity`, `#correction-reason`, `#correction-save-btn`, `#correction-cancel-btn`, `#correction-message`
@@ -660,7 +662,8 @@ The following IDs are required by the frontend view modules. Renaming or removin
 
 **Transaction page**
 
-- `#txn-scan-section`, `#txn-scan-input`, `#txn-scan-chooser`, `#txn-scan-message` (barcode scanning — see addendum L)
+- `#txn-scan-section`, `#txn-scan-input`, `#txn-scan-chooser`, `#txn-scan-message` (upload-mode barcode scanning — see addendum L)
+- `#txn-scan-video`, `#txn-scan-scan-btn`, `#txn-scan-upload-btn`, `#txn-scan-torch-btn`, `#txn-scan-aimbox` (live-capture barcode scanning — see addendum L)
 - `#transaction-page`, `#txn-items-section`, `#transaction-section`
 - `#txn-items-tbody`, `#transaction-selected`, `#transaction-type`, `#transaction-user`
 - `#transaction-quantity`, `#transaction-work-order`
@@ -908,10 +911,13 @@ All state listed in §11 now lives behind `static/state.js` getters/setters. The
 
 ## L. Barcode scanning (feature addendum)
 
-End-to-end contract for the Transaction-page barcode scanner. Decoding is **backend** (`pyzbar` over native `zbar`), in memory, never persisted.
+End-to-end contract for the barcode scanner on the Transaction and Saved Items pages. There are two modes:
 
-### Backend — `POST /barcodes/decode`
-Router prefix `/barcodes`, tag `barcodes`. Gated **supervisor or above**.
+- **Upload mode** — still-photo capture; decoded **backend** (`pyzbar` over native `zbar`) in memory, never persisted.
+- **Live mode** — live camera preview; decoded **client-side** with `@zxing/browser` (vendored under `static/vendor/`). The server-side decode endpoint is **not** called in this mode. See [plan-live-capture.md](plan-live-capture.md) for the full design.
+
+### Backend — `POST /barcodes/decode` (upload mode only)
+Router prefix `/barcodes`, tag `barcodes`. Gated **any authenticated user**. Real authorisation is enforced downstream by `/items/by-barcode/{text}` and `POST /transactions/`; this endpoint only turns image bytes into strings.
 - **Input:** `multipart/form-data`, one `file: UploadFile`.
 - **Output:** `BarcodeDecodeResponse` → `{ "barcodes": [ { "text": str, "format": str } ] }`. `format` ∈ `{UPC_A, UPC_E, EAN_13, EAN_8, CODE_128}` (canonical; other symbologies are dropped). Duplicates collapsed.
 - **Errors:** `400` (`UnreadableImageError`) when the bytes are not a decodable image. A readable image with no supported barcode is **not** an error — it returns `200` with `barcodes: []`.
@@ -922,5 +928,8 @@ Router prefix `/barcodes`, tag `barcodes`. Gated **supervisor or above**.
 - **`app/domain/errors.py`** — `UnreadableImageError(DomainError)`, mapped to `400` in `routers/_errors.py`.
 - **`app/routers/barcodes.py`** — thin handler; reads the upload, calls the service, translates `DomainError` via `to_http`.
 
-### Frontend — flow
-`apiDecodeBarcode(file)` → branch on `barcodes.length`: `0` shows a "no barcode" message (manual table stays usable); `1` resolves via `apiGetItemByBarcode` → `focusItemByBarcode` (filter + auto-open the Stock form) or, on `404`, an Owner/Admin-only "Create Item" shortcut that prefills `#barcode`; `>1` renders a chooser in `#txn-scan-chooser`. The scan UI auto-resets after a completed stock/dispense via `setOnTransactionSaved(resetScan)` wired in `main.js`.
+### Frontend — upload-mode flow
+`apiDecodeBarcode(file)` → branch on `barcodes.length`: `0` shows a "no barcode" message (manual table stays usable); `1` resolves via `apiGetItemByBarcode` → `focusItemByBarcode` (filter + auto-open the Stock form) or, on `404`, an Owner/Admin-only "Create Item" shortcut that prefills `#barcode`; `>1` renders a chooser in `#txn-scan-chooser` / `#items-scan-chooser`. The scan UI auto-resets after a completed stock/dispense via `setOnTransactionSaved(resetScan)` wired in `main.js`.
+
+### Frontend — live-mode flow
+User taps `#txn-scan-scan-btn` (or `#items-scan-scan-btn`) — this user-gesture click is the only entry point for camera start (iOS Safari requirement). On success, the `<video>` element (`#txn-scan-video` / `#items-scan-video`) shows the preview with a grayscale CSS filter and the aim-box overlay (`#txn-scan-aimbox` / `#items-scan-aimbox`) drawn over it. A `BarcodeDecoder` (ZXing wrapper) decodes each frame; a decoded text is accepted only when it appears in **≥5 of the last 10 frames**. On accept, the decoder pauses and `apiGetItemByBarcode(text)` is called directly — `apiDecodeBarcode` is **not** used in this mode. The result feeds the same `onItemFound` / `handleUnknownBarcode` pipeline as upload mode. Tracks are stopped on `visibilitychange→hidden`, on leaving the scan section, and after the transaction is saved or cancelled. The torch button (`#txn-scan-torch-btn` / `#items-scan-torch-btn`) is shown only when `track.getCapabilities().torch === true`.
