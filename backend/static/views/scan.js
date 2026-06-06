@@ -24,7 +24,7 @@
 
 import { apiDecodeBarcode, apiGetItemByBarcode } from "../api.js";
 import { setMessage } from "../dom.js";
-import { formatError } from "../format.js";
+import { friendlyError } from "../format.js";
 import { getRole } from "../state.js";
 import { roleAtLeast } from "../roles.js";
 import { focusItemByBarcode } from "./transactions.js";
@@ -81,17 +81,13 @@ export function mountScanner({
     try {
       result = await apiDecodeBarcode(file);
     } catch (err) {
-      if (err && err.status !== undefined) {
-        setMessage(messageEl, formatError(err.detail, "Could not decode the image."), "error");
-      } else {
-        setMessage(messageEl, "Could not connect to the server.", "error");
-      }
+      setMessage(messageEl, friendlyError(err, "Could not read that image. Try again."), "error");
       return;
     }
 
     const barcodes = (result && result.barcodes) || [];
     if (barcodes.length === 0) {
-      setMessage(messageEl, "No barcode found in that image. Try again, or use the items table below.", "error");
+      setMessage(messageEl, "Could not read that barcode. Move closer, hold steady, and try again.", "error");
       return;
     }
     if (barcodes.length === 1) {
@@ -126,10 +122,8 @@ export function mountScanner({
     } catch (err) {
       if (err && err.status === 404) {
         handleUnknownBarcode(barcode);
-      } else if (err && err.status !== undefined) {
-        setMessage(messageEl, formatError(err.detail, "Lookup failed."), "error");
       } else {
-        setMessage(messageEl, "Could not connect to the server.", "error");
+        setMessage(messageEl, friendlyError(err, "Lookup failed. Try again."), "error");
       }
       return;
     }
@@ -139,7 +133,7 @@ export function mountScanner({
   }
 
   function handleUnknownBarcode(barcode) {
-    setMessage(messageEl, `No item matches barcode ${barcode}.`, "error");
+    setMessage(messageEl, "No item matches that barcode.", "error");
 
     // The Create Item flow is Owner/Admin only on the backend; only
     // offer the shortcut to roles that can actually use it. Others

@@ -1,95 +1,120 @@
 # Backend Reference — Stable Facts
 
-> Use this document as a concise briefing when starting any AI-assisted task on this project. It covers architecture, data models, API contracts, validation rules, and key technical decisions that are unlikely to change often.
+Use this as a concise technical briefing. `docs/spec.md` covers product behavior; this file covers stack, schema, routes, and durable engineering decisions.
 
 ---
 
 ## Project Overview
 
-An **inventory management system** with a Python/FastAPI backend, PostgreSQL database, and a static HTML/CSS/JS frontend served from the same process. Items are tracked by barcode; quantity changes are recorded as immutable transactions.
+Inventory management system with a Python/FastAPI backend, PostgreSQL database, and a static ES-module frontend served by the same FastAPI process. Items are tracked by barcode. Quantity changes are recorded as append-only transaction rows.
 
 ---
 
 ## Technology Stack
 
-| Layer | Technology | Version |
+| Layer | Technology | Version / notes |
 |---|---|---|
-| Language | Python | 3.13 |
+| Deploy runtime | Python | 3.12 via `backend/Dockerfile` |
 | Web framework | FastAPI | 0.136.3 |
-| ORM | SQLAlchemy | (installed in venv) |
-| DB driver | psycopg (v3) + psycopg_binary | 3.3.4 |
+| ASGI server | Uvicorn | 0.48.0 |
+| ORM | SQLAlchemy | 2.0.50 |
+| DB driver | psycopg 3 + binary wheel | 3.3.4 |
 | Migrations | Alembic | 1.18.4 |
 | Validation | Pydantic v2 | 2.13.4 |
-| Database | PostgreSQL | (external) |
+| Database | PostgreSQL | Local dev and Render managed Postgres |
 | Config | python-dotenv | 1.2.2 |
-| Frontend | Static files (HTML/CSS/JS) | served via FastAPI StaticFiles |
-| Barcode decode | pyzbar (native `zbar`) + Pillow | 0.1.9 / 12.2.0 |
+| Frontend | Static HTML/CSS/JS modules | Served through FastAPI `StaticFiles` |
+| Upload barcode decode | pyzbar + Pillow + native zbar | `libzbar0` installed in Docker |
+| Live barcode decode | Vendored `@zxing/browser` | `backend/static/vendor/zxing-browser-0.2.0.umd.min.js` |
 | File uploads | python-multipart | 0.0.32 |
+| Tests | pytest | 9.0.3 in `requirements-dev.txt` |
 
 ---
 
 ## Project Structure
 
-```
+```text
 backend/
-├── app/
-│   ├── main.py          # FastAPI app, router registration, static mount
-│   ├── database.py      # Engine, SessionLocal, Base, get_db dependency
-│   ├── models.py        # SQLAlchemy ORM models
-│   ├── domain/          # Pure, framework-free business rules
-│   │   ├── errors.py        # Domain exception vocabulary
-│   │   ├── quantity.py      # Stock/dispense arithmetic
-│   │   └── notes_validation.py  # Notes dict validator
-│   ├── schemas/         # Pydantic request/response schemas (package)
-│   │   ├── items.py
-│   │   ├── transactions.py
-│   │   └── users.py
-│   ├── services/        # Persistence + business orchestration (no FastAPI)
-│   │   ├── items.py
-│   │   ├── notes.py
-│   │   ├── transactions.py
-│   │   ├── history.py
-│   │   └── users.py
-│   └── routers/         # Thin HTTP handlers
-│       ├── items.py
-│       ├── transactions.py
-│       ├── users.py
-│       └── _errors.py       # Domain → HTTPException translator
-├── alembic/             # Database migrations
-│   └── versions/        # Migration scripts (see Migration History below)
-├── static/              # Frontend ES modules
-│   ├── index.html
-│   ├── styles.css
-│   ├── main.js              # Composition root
-│   ├── state.js             # Client state store
-│   ├── api.js               # Fetch wrappers per endpoint
-│   ├── format.js            # Pure formatters / escapers
-│   ├── dom.js               # Generic DOM helpers
-│   └── views/               # One module per UI concern
-│       ├── nav.js
-│       ├── items.js
-│       ├── notes.js
-│       ├── users.js
-│       ├── transactions.js
-│       └── history.js
-├── .env                 # DATABASE_URL environment variable
-└── alembic.ini
+  app/
+    main.py
+    auth_deps.py
+    database.py
+    models.py
+    domain/
+      errors.py
+      notes_validation.py
+      quantity.py
+      roles.py
+    routers/
+      auth.py
+      barcodes.py
+      items.py
+      transactions.py
+      users.py
+      _errors.py
+    schemas/
+      auth.py
+      barcodes.py
+      items.py
+      transactions.py
+      users.py
+    services/
+      auth.py
+      barcodes.py
+      history.py
+      items.py
+      notes.py
+      transactions.py
+      users.py
+  alembic/
+    versions/
+  scripts/
+    create_owner.py
+    import_local_data.ps1
+  static/
+    api.js
+    dom.js
+    format.js
+    index.html
+    main.js
+    roles.js
+    state.js
+    scan/
+      barcode-decoder.js
+      frame-debouncer.js
+    vendor/
+      zxing-browser-0.2.0.umd.min.js
+      zxing-browser-LICENSE.txt
+    views/
+      auth.js
+      correction.js
+      history.js
+      itemEditor.js
+      items.js
+      nav.js
+      notes.js
+      scan.js
+      transactions.js
+      users.js
+  Dockerfile
+  entrypoint.sh
+  requirements.txt
+  requirements-dev.txt
+render.yaml
 ```
 
 ---
 
 ## Database
 
-**Connection:** Configured via `DATABASE_URL` in `.env`, loaded by `python-dotenv`.
+`DATABASE_URL` is required. `app/database.py` normalizes `postgres://` and `postgresql://` URLs to the psycopg 3 SQLAlchemy dialect.
 
-**Format:** `postgresql+psycopg://<user>:<password>@<host>:<port>/<dbname>`
+Engine settings:
 
-**Engine settings:**
-- `echo=True` (SQL logging enabled)
-- `connect_args={"connect_timeout": 5}`
-- Sessions: `autoflush=False`, `autocommit=False`
-
-**Session pattern:** Dependency injection via `get_db()` generator; session is always closed in `finally`.
+- `echo` is controlled by `SQL_ECHO`; default is off.
+- `connect_timeout` is 5 seconds.
+- Sessions use `autoflush=False` and `autocommit=False`.
+- `get_db()` yields one session per request and closes it in `finally`.
 
 ---
 
@@ -97,47 +122,53 @@ backend/
 
 ### `users`
 
-| Column | Type | Constraints |
+| Column | Type | Notes |
 |---|---|---|
-| `id` | UUID | PK, default `uuid4` |
-| `username` | Text | NOT NULL, UNIQUE |
-| `created_at` | DateTime (tz-aware) | default `utcnow` |
+| `id` | UUID | Primary key |
+| `username` | Text | Required, unique |
+| `password_hash` | Text | Required, scrypt hash |
+| `role` | Text | `owner`, `admin`, `supervisor`, or `technician` |
+| `created_at` | timestamptz | Set on insert |
 
-Relationships: one-to-many → `transactions`
+Relationships: one-to-many to `transactions`, one-to-many to `sessions`.
 
----
+### `sessions`
+
+| Column | Type | Notes |
+|---|---|---|
+| `token` | Text | Primary key, opaque random token |
+| `user_id` | UUID | FK to `users.id`, `ON DELETE CASCADE` |
+| `created_at` | timestamptz | Set on insert |
+| `last_active_at` | timestamptz | Bumped on authenticated requests |
 
 ### `items`
 
-| Column | Type | Constraints |
+| Column | Type | Notes |
 |---|---|---|
-| `id` | UUID | PK, default `uuid4` |
-| `barcode` | Text | NOT NULL, UNIQUE |
-| `name` | Text | NOT NULL |
-| `quantity` | Numeric | NOT NULL, default `0` |
-| `location` | Text | NOT NULL |
-| `notes` | JSONB | NOT NULL, default `{}` |
-| `created_at` | DateTime (tz-aware) | default `utcnow` |
+| `id` | UUID | Primary key |
+| `barcode` | Text | Required, unique |
+| `name` | Text | Required |
+| `quantity` | Numeric | Required, current stock level |
+| `location` | Text | Required |
+| `notes` | JSONB | Required, default `{}` |
+| `created_at` | timestamptz | Set on insert |
 
-Relationships: one-to-many → `transactions`
-
-**Notes on `notes` field:** Stores arbitrary key-value metadata. Keys must be non-blank strings; values must be `str`, `int`, `float`, or `bool`. Full replacement only (no partial merge) — the entire `notes` object is overwritten on PATCH.
-
----
+Notes keys must be non-blank strings. Values may be `str`, `int`, `float`, or `bool`. Notes updates replace the whole JSON object.
 
 ### `transactions`
 
-| Column | Type | Constraints |
+| Column | Type | Notes |
 |---|---|---|
-| `id` | UUID | PK, default `uuid4` |
-| `item_id` | UUID | FK → `items.id`, NOT NULL |
-| `user_id` | UUID | FK → `users.id`, nullable |
-| `transaction_type` | Text | NOT NULL — `"stock"` or `"dispense"` |
-| `quantity` | Numeric | NOT NULL |
-| `work_order_number` | Text | nullable |
-| `created_at` | DateTime (tz-aware) | default `utcnow` |
+| `id` | UUID | Primary key |
+| `item_id` | UUID | FK to `items.id`, delete restricted |
+| `user_id` | UUID nullable | FK to `users.id`, delete restricted |
+| `transaction_type` | Text | `stock`, `dispense`, or `adjust` |
+| `quantity` | Numeric | Positive for stock/dispense; signed delta for adjust |
+| `work_order_number` | Text nullable | Used by stock/dispense |
+| `reason` | Text nullable | Required by correction/adjust rows |
+| `created_at` | timestamptz | Set on insert |
 
-Transactions are **append-only** — never updated or deleted. Quantity changes always go through a transaction record.
+Transactions are append-only. Quantity changes are never made by editing historical transaction rows.
 
 ---
 
@@ -145,178 +176,136 @@ Transactions are **append-only** — never updated or deleted. Quantity changes 
 
 | Revision | Description |
 |---|---|
-| `4f0a7ce7d1ac` | Initial schema: creates `users`, `items`, `transactions` tables |
-| `9a2c5d4e8b11` | Adds `attributes` JSONB column to `items` (NOT NULL, server default `'{}'`) |
-| `4c1e7f3a9b22` | Adds `location` column to `items`; renames `attributes` → `notes` |
+| `4f0a7ce7d1ac` | Create initial users/items/transactions tables |
+| `9a2c5d4e8b11` | Add item JSONB attributes |
+| `4c1e7f3a9b22` | Add location and rename attributes to notes |
+| `a1b2c3d4e5f6` | Add password hashes, roles, and sessions |
+| `b2d3e4f5a6c7` | Restrict transaction foreign keys |
+| `c3d4e5f6a7b8` | Add correction reason column |
+
+---
+
+## Authentication And Authorization
+
+Auth endpoints:
+
+- `POST /auth/login`
+- `POST /auth/logout`
+- `GET /auth/me`
+
+Passwords use standard-library `hashlib.scrypt` and are stored as self-describing hash strings. Sessions are server-side rows and are carried by an HttpOnly `session` cookie with `SameSite=Lax`; `COOKIE_SECURE=true` is set in Render.
+
+Roles:
+
+```text
+owner > admin > supervisor > technician
+```
+
+`require_min_role(minimum)` gates ordinary routes. User management uses `roles.can_manage(actor_role, target_role)`, meaning the actor must strictly outrank the target. Owner accounts are bootstrap-only and not manageable through the API.
 
 ---
 
 ## API Routes
 
-### Items — prefix `/items`
-
-| Method | Path | Description | Status |
-|---|---|---|---|
-| POST | `/items/` | Create item | 201 |
-| GET | `/items/` | List all items (ordered by `created_at` DESC) | 200 |
-| GET | `/items/{barcode}` | Get item by barcode | 200 / 404 |
-| PATCH | `/items/{item_id}/notes` | Replace item notes entirely | 200 / 404 |
-| DELETE | `/items/{item_id}` | Delete item | 204 / 404 |
-
-### Users — prefix `/users`
-
-| Method | Path | Description | Status |
-|---|---|---|---|
-| POST | `/users/` | Create user | 201 |
-| GET | `/users/` | List all users (ordered by `created_at` DESC) | 200 |
-| DELETE | `/users/{user_id}` | Delete user | 204 / 400 / 404 |
-
-Note: Deleting a user with existing transactions returns `400`.
-
-### Transactions — prefix `/transactions`
-
-| Method | Path | Description | Status |
-|---|---|---|---|
-| POST | `/transactions/` | Create transaction (updates item quantity) | 201 |
-| GET | `/transactions/` | List transactions with pagination | 200 |
-
-GET `/transactions/` query params: `item_id` (UUID), `user_id` (UUID), `page` (int ≥ 1, default 1), `page_size` (int 1–100, default 10).
-
-### Barcodes — prefix `/barcodes`
-
-| Method | Path | Description | Status |
-|---|---|---|---|
-| POST | `/barcodes/decode` | Decode an uploaded image → barcodes found | 200 / 400 |
-
-`multipart/form-data` with a single `file`. **Supervisor or above** (matches the Transaction page, the only scanning surface). The image is decoded **in memory and never persisted**, restricted to `UPC_A`, `UPC_E`, `EAN_13`, `EAN_8`, `CODE_128`. Response: `{"barcodes": [{"text": ..., "format": ...}, ...]}`. A readable image with no supported barcode returns `200` with an empty list; an unreadable file returns `400`. No database access — stateless, so no migration was required.
-
-### Root / Utility
+### Auth
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/` | Serves `static/index.html` |
-| GET | `/db-test` | Returns DB name and connected user |
+| POST | `/auth/login` | Authenticate and set cookie |
+| POST | `/auth/logout` | Delete session and clear cookie |
+| GET | `/auth/me` | Current user identity and role |
+
+### Items
+
+| Method | Path | Minimum role | Description |
+|---|---|---|---|
+| POST | `/items/` | Admin | Create item |
+| GET | `/items/` | Any logged-in user | List items newest-first |
+| GET | `/items/{barcode}` | Any logged-in user | Lookup item by barcode |
+| PATCH | `/items/{item_id}` | Admin | Edit barcode, name, and/or location |
+| PATCH | `/items/{item_id}/notes` | Supervisor | Replace notes |
+| DELETE | `/items/{item_id}` | Admin | Delete unreferenced item |
+
+### Users
+
+| Method | Path | Minimum rule | Description |
+|---|---|---|---|
+| POST | `/users/` | Actor must outrank assigned role | Create user with password and role |
+| GET | `/users/` | Supervisor | List users |
+| POST | `/users/{user_id}/reset-password` | Actor must outrank target | Reset password |
+| DELETE | `/users/{user_id}` | Actor must outrank target | Delete unreferenced user |
+
+### Transactions
+
+| Method | Path | Minimum role | Description |
+|---|---|---|---|
+| POST | `/transactions/` | Supervisor | Record stock or dispense |
+| POST | `/transactions/adjust` | Admin | Record correction to absolute quantity |
+| GET | `/transactions/` | Supervisor | Paginated history |
+
+`GET /transactions/` query params:
+
+- `item_id`
+- `user_id`
+- `work_order_number`
+- `page`, default `1`
+- `page_size`, default `10`, max `100`
+
+`work_order_number` is a case-sensitive substring match using escaped SQL `LIKE`.
+
+### Barcodes And Utility
+
+| Method | Path | Minimum role | Description |
+|---|---|---|---|
+| POST | `/barcodes/decode` | Any logged-in user | Decode uploaded image bytes |
+| GET | `/` | Public | Serve SPA shell |
+| GET | `/db-test` | Admin | Return current database and user |
 
 ---
 
-## Business Logic & Validation Rules
+## Business Rules
 
-### Item creation
-- `barcode` must be unique — duplicate returns `400`.
-- `quantity` must be ≥ 0.
-- `location` must not be blank (stripped before validation).
-
-### Transaction creation
-- `transaction_type` must be `"stock"` or `"dispense"` (Pydantic `Literal`).
-- `quantity` must be > 0.
-- **`stock`**: adds `quantity` to item's current quantity.
-- **`dispense`**: subtracts `quantity`; returns `400` if result would be negative.
-- Item row is locked with `SELECT ... FOR UPDATE` during the transaction to prevent race conditions.
-
-### Notes update
-- Full replacement only — the entire `notes` dict is replaced.
-- Keys: non-blank strings.
-- Values: `str`, `int`, `float`, or `bool` only. No nested objects or arrays.
-- Uses `flag_modified(item, "notes")` to ensure SQLAlchemy tracks JSONB mutations.
-
-### User creation
-- `username` must not be blank (stripped).
-- Must be unique — duplicate returns `400`.
-
----
-
-## Pydantic Schemas Summary
-
-| Schema | Purpose |
-|---|---|
-| `ItemCreate` | POST /items body |
-| `ItemResponse` | Item read model (includes `notes`, `location`) |
-| `ItemNotesUpdate` | PATCH /items/{id}/notes body |
-| `TransactionCreate` | POST /transactions body |
-| `TransactionResponse` | Minimal transaction read (no item/user names) |
-| `TransactionHistoryItem` | Enriched transaction row (includes `item_barcode`, `item_name`, `username`) |
-| `TransactionHistoryPage` | Paginated wrapper: `items`, `total`, `page`, `page_size` |
-| `UserCreate` | POST /users body |
-| `UserResponse` | User read model |
-
-All response models use `model_config = {"from_attributes": True}` for ORM compatibility.
+- Item starting quantity must be non-negative.
+- Item location must be non-blank.
+- Item update requires at least one of barcode, name, or location.
+- Transaction quantity must be greater than zero.
+- Dispense cannot reduce stock below zero.
+- Stock/dispense locks the item row with `SELECT ... FOR UPDATE`.
+- Correction sets an absolute new quantity, stores the signed delta, requires a non-blank reason, and rejects no-op corrections.
+- Usernames are unique and non-blank.
+- User passwords must meet the configured minimum length.
+- User create/reset/delete actions require strict subordinate management.
+- Deleting an item or user with transaction history is blocked.
 
 ---
 
 ## Key Technical Decisions
 
-- **UUIDs for all PKs** — not integer sequences; all IDs are `uuid.UUID` in Python and `UUID` type in Postgres.
-- **Numeric for quantity** — uses `decimal.Decimal` in Python (not float) to avoid floating-point precision issues.
-- **JSONB for notes** — flexible key-value metadata stored in Postgres JSONB; `flag_modified` required when mutating in-place.
-- **Synchronous SQLAlchemy** — not async; standard `Session`, not `AsyncSession`.
-- **No authentication** — the API has no auth layer; `user_id` on transactions is optional and informational only.
-- **Static frontend co-located** — the FastAPI app mounts `./static/` and serves `index.html` at the root.
-- **Backend barcode decoding** — uploaded images are decoded server-side with `pyzbar` (a ctypes wrapper over the native `zbar` C library), in memory only, never persisted. Chosen over a frontend JS decoder so the symbology/format logic lives in one unit-tested place (`app/services/barcodes.py`). **Windows gotcha:** pyzbar's bundled DLLs require the **Visual C++ 2013 Redistributable** (`msvcr120.dll`); without it the import fails with a missing `libiconv.dll`/`libzbar-64.dll`. (`zxing-cpp` was the original intent but has no prebuilt wheel for this Python/OS and needs a C++ toolchain to build — see `spec.md` decisions log.)
+- UUID primary keys for core tables.
+- `Numeric`/`Decimal` for quantities.
+- Synchronous SQLAlchemy sessions.
+- Static frontend co-located with the API.
+- Server-side cookie sessions rather than JWT bearer tokens.
+- scrypt password hashing from the standard library.
+- Upload barcode decode on the backend with `pyzbar`.
+- Live barcode decode in the browser with vendored `@zxing/browser`.
+- Render deployment as one Docker web service plus one managed Postgres.
+- Alembic migrations run at container startup.
 
 ---
 
-## Vendored Frontend Libraries
-
-Third-party JS that ships in `backend/static/vendor/`. Each entry pins a version, records two SHA-256 hashes (upstream tarball + the file in the repo, which may differ from the tarball's copy if a post-extract transform was applied), and documents the exact update procedure so the next bump is mechanical.
+## Vendored Frontend Library
 
 ### `zxing-browser-0.2.0.umd.min.js`
 
-- **Library:** [`@zxing/browser`](https://www.npmjs.com/package/@zxing/browser)
-- **Version:** `0.2.0`
-- **Bundled peer:** `@zxing/library ^0.22.0` — inlined into the UMD bundle, no separate file shipped.
-- **License:** MIT — full text in `backend/static/vendor/zxing-browser-LICENSE.txt` (must be redistributed with the library; do not delete on update).
-- **Format:** UMD, single self-contained file. Exposes a `ZXingBrowser` global; loaded via plain `<script src=...>` (not an ES module).
-- **Size:** 441,121 bytes.
-- **Source URL:** `https://registry.npmjs.org/@zxing/browser/-/browser-0.2.0.tgz`
-- **Tarball SHA-256:** `519E5F7E9540E085AE3AB430EA68C7013F8F36EAA3865AE8486135C286473448`
-- **Vendored file SHA-256:** `066BC34EDFCDD4A33F0964AEEC967752A0DEA1CCAF36E58E319AC9FCB5070F6A`
-- **Vendored on:** 2026-06-06
-- **Used by:** Phase 1 spike at `/static/scan-test.html`; Phase 3 live barcode capture. See [`plan-live-capture.md`](plan-live-capture.md).
+- Library: `@zxing/browser`
+- Version: `0.2.0`
+- Format: UMD global `ZXingBrowser`
+- License: MIT, stored in `backend/static/vendor/zxing-browser-LICENSE.txt`
+- Used by `backend/static/scan/barcode-decoder.js`
+- Source URL: `https://registry.npmjs.org/@zxing/browser/-/browser-0.2.0.tgz`
+- Tarball SHA-256: `519E5F7E9540E085AE3AB430EA68C7013F8F36EAA3865AE8486135C286473448`
+- Vendored file SHA-256: `066BC34EDFCDD4A33F0964AEEC967752A0DEA1CCAF36E58E319AC9FCB5070F6A`
 
-### Update procedure (PowerShell, from repo root)
-
-When bumping the version, run these commands verbatim, replacing `<VER>` with the target version. Both hashes go into this document; the old file is overwritten in place.
-
-```powershell
-$ver = "<VER>"
-$tarball = "browser-$ver.tgz"
-
-# 1. Download from npm registry (no Node required).
-Invoke-WebRequest `
-    -Uri "https://registry.npmjs.org/@zxing/browser/-/$tarball" `
-    -OutFile $tarball
-
-# 2. Record tarball SHA-256 BEFORE extracting -- this is what npm published.
-Get-FileHash -Algorithm SHA256 $tarball | Format-List
-
-# 3. Extract to a scratch directory.
-New-Item -ItemType Directory -Path .\_zxing-scratch -Force | Out-Null
-tar -xzf $tarball -C .\_zxing-scratch
-
-# 4. Inspect package.json "unpkg" field to confirm the UMD path; for 0.2.0
-#    it is ./umd/zxing-browser.min.js. Check the bundle does NOT contain a
-#    `sourceMappingURL` comment pointing at an unvendored .map file:
-$umd = ".\_zxing-scratch\package\umd\zxing-browser.min.js"
-(Get-Content $umd -Raw | Select-String -Pattern 'sourceMappingURL' -AllMatches).Matches.Count
-# If non-zero, strip the offending comment before copying:
-#   (Get-Content $umd -Raw) -replace '//# sourceMappingURL=.*$', '' | Set-Content $umd -NoNewline
-
-# 5. Copy into vendor/ with the version in the filename.
-Copy-Item $umd ".\backend\static\vendor\zxing-browser-$ver.umd.min.js"
-Copy-Item ".\_zxing-scratch\package\LICENSE" `
-          ".\backend\static\vendor\zxing-browser-LICENSE.txt"
-
-# 6. Record the vendored file's SHA-256 AFTER any transform in step 4.
-Get-FileHash -Algorithm SHA256 ".\backend\static\vendor\zxing-browser-$ver.umd.min.js" | Format-List
-
-# 7. Clean up.
-Remove-Item -Recurse -Force .\_zxing-scratch
-Remove-Item $tarball
-
-# 8. Delete the old `zxing-browser-<OLD>.umd.min.js`.
-# 9. Update the script tag in any consumer (scan-test.html, real-flow HTML in Phase 3+).
-# 10. Update this document: version, both hashes, vendored-on date, size.
-```
-
-A version mismatch between the filename, the script tag, and the hashes here is a review blocker.
+Keep the filename, script tag, license, and hash notes in sync when updating.
 

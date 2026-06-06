@@ -40,7 +40,7 @@
                 <label for="login-password">Password</label>
                 <input type="password" id="login-password" autocomplete="current-password" placeholder="Enter password">
 
-                <button id="login-btn">Log In</button>
+                <button id="login-btn">Sign In</button>
                 <p id="login-message"></p>
             </div>
         </section>
@@ -52,11 +52,11 @@
     <header>
         <h1>Inventory Management</h1>
         <nav id="main-nav">
-            <button class="nav-btn" data-page="create-item">Create Item</button>
-            <button class="nav-btn" data-page="saved-items">Saved Items</button>
-            <button class="nav-btn" data-page="create-user">Create User</button>
-            <button class="nav-btn" data-page="saved-users">Saved Users</button>
-            <button class="nav-btn" data-page="transaction">Transaction</button>
+            <button class="nav-btn" data-page="create-item">Add Item</button>
+            <button class="nav-btn" data-page="saved-items">Find Item</button>
+            <button class="nav-btn" data-page="create-user">Add User</button>
+            <button class="nav-btn" data-page="saved-users">Users</button>
+            <button class="nav-btn" data-page="transaction">Scan / Stock</button>
             <button class="nav-btn" data-page="history">History</button>
         </nav>
         <div id="auth-bar">
@@ -71,21 +71,23 @@
     <div class="page" id="create-item-page">
 
         <section id="create-item-section">
-            <h2>Create Item</h2>
+            <h2>Add Item</h2>
             <div class="form-stack">
                 <label for="barcode">Barcode</label>
-                <input type="text" id="barcode" placeholder="Enter barcode">
+                <input type="text" id="barcode" placeholder="Scan or enter barcode">
+                <p class="hint">Scan or type the label number.</p>
 
                 <label for="name">Item Name</label>
                 <input type="text" id="name" placeholder="Enter item name">
 
                 <label for="location">Location</label>
                 <input type="text" id="location" placeholder="Enter location">
+                <p class="hint">Where workers will find it.</p>
 
                 <label for="quantity">Starting Quantity</label>
                 <input type="number" id="quantity" placeholder="0" min="0" value="0">
 
-                <button id="create-item-btn">Create Item</button>
+                <button id="create-item-btn">Save Item</button>
                 <p id="create-item-message"></p>
             </div>
         </section>
@@ -97,7 +99,7 @@
 
         <section id="items-scan-section">
             <h2>Scan Barcode</h2>
-            <p class="hint">Scan or upload a barcode to find the matching item in the table below.</p>
+            <p class="hint">Scan a barcode or search below to find an item.</p>
             <div class="scan-controls">
                 <input type="file" id="items-scan-input" accept="image/*" capture="environment">
                 <div class="scan-viewport">
@@ -105,8 +107,8 @@
                     <div id="items-scan-aimbox" class="scan-aimbox" role="presentation" hidden></div>
                 </div>
                 <div class="scan-toolbar">
-                    <button id="items-scan-scan-btn" type="button">Scan</button>
-                    <button id="items-scan-upload-btn" type="button" class="secondary-btn">Upload</button>
+                    <button id="items-scan-scan-btn" type="button">Scan Barcode</button>
+                    <button id="items-scan-upload-btn" type="button" class="secondary-btn">Upload Photo</button>
                     <button id="items-scan-torch-btn" type="button" class="secondary-btn" hidden>Torch</button>
                 </div>
             </div>
@@ -115,12 +117,12 @@
         </section>
 
         <section id="items-section">
-            <h2>Saved Items</h2>
+            <h2>Find Item</h2>
             <div class="filter-row">
                 <label for="items-search">Search</label>
-                <input type="text" id="items-search" placeholder="Filter by name or barcode">
+                <input type="text" id="items-search" placeholder="Search name or barcode">
             </div>
-            <table id="items-table">
+            <table id="items-table" class="stack-table">
                 <thead>
                     <tr>
                         <th>Barcode</th>
@@ -137,13 +139,13 @@
         </section>
 
         <section id="notes-editor-section" hidden>
-            <h2>Edit Notes</h2>
+            <h2>Notes</h2>
             <div class="form-stack">
                 <p id="notes-editor-selected"></p>
 
                 <div id="notes-rows"></div>
 
-                <button id="notes-add-row-btn" type="button" class="secondary-btn">+ Add Note</button>
+                <button id="notes-add-row-btn" type="button" class="secondary-btn">Add Another Note</button>
 
                 <div class="form-buttons">
                     <button id="notes-save-btn">Save Notes</button>
@@ -154,7 +156,7 @@
         </section>
 
         <section id="item-editor-section" hidden>
-            <h2>Edit Item</h2>
+            <h2>Edit Details</h2>
             <div class="form-stack">
                 <p id="item-editor-selected"></p>
 
@@ -176,19 +178,20 @@
         </section>
 
         <section id="correction-section" hidden>
-            <h2>Correct Quantity</h2>
+            <h2>Correct Count</h2>
+            <p class="hint">Use this when the shelf count is wrong.</p>
             <div class="form-stack">
                 <p id="correction-selected"></p>
                 <p id="correction-current"></p>
 
-                <label for="correction-new-quantity">New Quantity</label>
+                <label for="correction-new-quantity">New Count</label>
                 <input type="number" id="correction-new-quantity" step="any" min="0" placeholder="0">
 
-                <label for="correction-reason">Reason</label>
-                <input type="text" id="correction-reason" placeholder="Why is this correction being made?">
+                <label for="correction-reason">Why are you changing it?</label>
+                <input type="text" id="correction-reason" placeholder="Reason for the correction">
 
                 <div class="form-buttons">
-                    <button id="correction-save-btn">Save Correction</button>
+                    <button id="correction-save-btn">Save Correct Count</button>
                     <button id="correction-cancel-btn" type="button" class="secondary-btn">Cancel</button>
                 </div>
                 <p id="correction-message"></p>
@@ -201,7 +204,7 @@
     <div class="page" id="create-user-page">
 
         <section id="create-user-section">
-            <h2>Create User</h2>
+            <h2>Add User</h2>
             <div class="form-stack">
                 <label for="username">Username</label>
                 <input type="text" id="username" placeholder="Enter username">
@@ -211,11 +214,12 @@
                     <!-- Options populated by views/users.js from the
                          current user's assignable roles. -->
                 </select>
+                <p class="hint" id="user-role-help"></p>
 
                 <label for="user-password">Password</label>
                 <input type="password" id="user-password" autocomplete="new-password" placeholder="At least 4 characters">
 
-                <button id="create-user-btn">Create User</button>
+                <button id="create-user-btn">Add User</button>
                 <p id="create-user-message"></p>
             </div>
         </section>
@@ -226,7 +230,7 @@
     <div class="page" id="saved-users-page">
 
         <section id="users-section">
-            <h2>Saved Users</h2>
+            <h2>Users</h2>
             <table id="users-table">
                 <thead>
                     <tr>
@@ -247,7 +251,7 @@
 
         <section id="txn-scan-section">
             <h2>Scan Barcode</h2>
-            <p class="hint">Point your phone camera at a barcode (or upload an image) to jump straight to the item and open a transaction.</p>
+            <p class="hint">Point your camera at a barcode, or upload a photo, to open a transaction.</p>
             <div class="scan-controls">
                 <!-- File input is hidden via CSS; the Upload button
                      programmatically clicks it. Kept here so the
@@ -259,8 +263,8 @@
                     <div id="txn-scan-aimbox" class="scan-aimbox" role="presentation" hidden></div>
                 </div>
                 <div class="scan-toolbar">
-                    <button id="txn-scan-scan-btn" type="button">Scan</button>
-                    <button id="txn-scan-upload-btn" type="button" class="secondary-btn">Upload</button>
+                    <button id="txn-scan-scan-btn" type="button">Scan Barcode</button>
+                    <button id="txn-scan-upload-btn" type="button" class="secondary-btn">Upload Photo</button>
                     <button id="txn-scan-torch-btn" type="button" class="secondary-btn" hidden>Torch</button>
                 </div>
             </div>
@@ -270,8 +274,8 @@
 
         <section id="txn-items-section">
             <h2>Items</h2>
-            <p class="hint">Click Stock or Dispense to record a transaction.</p>
-            <table id="txn-items-table">
+            <p class="hint">Tap Add Stock or Take Out on an item.</p>
+            <table id="txn-items-table" class="stack-table">
                 <thead>
                     <tr>
                         <th>Barcode</th>
@@ -290,10 +294,11 @@
                 <p id="transaction-selected"></p>
 
                 <label for="transaction-type">Type</label>
-                <select id="transaction-type">
-                    <option value="stock">Stock (add)</option>
-                    <option value="dispense">Dispense (remove)</option>
-                </select>
+                <input type="hidden" id="transaction-type" value="stock">
+                <div class="segmented" role="group" aria-label="Transaction type">
+                    <button type="button" class="seg-btn seg-stock active" data-value="stock">Add Stock</button>
+                    <button type="button" class="seg-btn seg-dispense" data-value="dispense">Take Out Stock</button>
+                </div>
 
                 <label for="transaction-quantity">Quantity</label>
                 <input type="number" id="transaction-quantity" placeholder="0" min="0" step="any" value="0">
@@ -320,7 +325,7 @@
             <!-- Work-order overlay filter: visible on every sub-tab, composes
                  with item / user filters via AND. -->
             <div class="filter-row">
-                <label for="history-wo-filter">Work Order</label>
+                <label for="history-wo-filter">Filter by Work Order</label>
                 <input type="text" id="history-wo-filter" placeholder="Filter by work order number">
                 <button id="history-wo-clear-btn" type="button" class="secondary-btn">Clear</button>
             </div>
@@ -363,7 +368,7 @@
                     <button id="history-copy-btn" type="button" class="secondary-btn" disabled>Copy table</button>
                     <p id="history-copy-message"></p>
                 </div>
-                <table id="history-table">
+                <table id="history-table" class="stack-table">
                     <thead>
                         <tr>
                             <th>Timestamp</th>

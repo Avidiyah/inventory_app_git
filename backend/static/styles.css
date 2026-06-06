@@ -3,24 +3,92 @@
   Layer: presentation. Served as a static file from
   `backend/static/styles.css`; linked once from `index.html`.
 
-  Hand-written CSS (no preprocessor, no framework). Sections in
-  rough top-to-bottom order:
+  Hand-written CSS (no preprocessor, no framework). Field-friendly UX
+  overhaul: red/black/white (Belfor-style) palette driven by the design
+  tokens in `:root` -- see docs/design-spec-ux-overhaul.md section 2.
+  No raw hex outside `:root`.
+
+  Sections in rough top-to-bottom order:
+    - Design tokens (:root)
     - Reset / base typography
     - Header & main nav
     - Page / section layout
     - Form controls (inputs, selects, buttons, messages)
+    - Focus states
     - Tables & row actions
     - Transaction-specific controls (stock/dispense buttons)
     - History sub-tabs, filters, type badges, pagination
     - Notes editor grid
+    - Auth (login screen + header auth bar)
+    - Barcode scan controls
 
   Class/ID hooks that JS depends on are frozen alongside the DOM
-  contract in `docs/interfaces.md` section 12 -- in particular the
-  state-toggling classes `.active`, `.success`, `.error`, and the
-  `.type-badge.stock` / `.type-badge.dispense` pair set by
-  `views/history.js`.
+  contract in `docs/interfaces.md` -- in particular the state-toggling
+  classes `.active`, `.success`, `.error`, and the `.type-badge.stock` /
+  `.type-badge.dispense` / `.type-badge.adjust` trio set by
+  `views/history.js`. Brand red is PRIMARY; destructive actions use the
+  outline-red `.btn-danger` treatment, not solid red.
 */
 
+/* =================== DESIGN TOKENS =================== */
+:root {
+    /* Brand */
+    --color-brand:        #C8102E;  /* primary actions */
+    --color-brand-hover:  #A50D25;
+    --color-brand-active: #8E0B20;
+    --color-brand-tint:   #FBE9EC;  /* faint red wash (hover on outline-red) */
+
+    /* Ink / neutrals */
+    --color-ink:    #1A1A1A;        /* body text */
+    --color-header: #141414;        /* header/nav bar */
+    --color-white:  #FFFFFF;
+    --gray-50:      #F7F7F7;        /* app background */
+    --gray-100:     #EFEFEF;
+    --gray-200:     #E2E2E2;        /* hairline borders */
+    --gray-300:     #CFCFCF;        /* input borders */
+    --gray-400:     #A8A8A8;
+    --gray-500:     #6B6B6B;        /* secondary text, table headers */
+    --gray-700:     #3A3A3A;
+    --gray-900:     #141414;
+
+    /* Status accents (badges + stock/dispense affordances ONLY) */
+    --status-stock:         #16A34A;
+    --status-stock-hover:   #15803D;
+    --status-dispense:      #D97706;
+    --status-dispense-hover:#B45309;
+    --status-adjust:        #2563EB;
+
+    /* Feedback text */
+    --color-success: #15803D;
+    --color-error:   #C8102E;
+
+    /* Typography */
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    --fs-xs: 12px; --fs-sm: 14px; --fs-base: 16px; --fs-lg: 18px;
+    --fs-xl: 22px; --fs-2xl: 28px; --fs-3xl: 34px;
+    --fw-regular: 400; --fw-semibold: 600; --fw-bold: 700;
+    --lh-body: 1.45; --lh-heading: 1.2;
+
+    /* Spacing (4px base) */
+    --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+    --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px;
+
+    /* Radius / shadow / border */
+    --radius-sm: 6px; --radius-md: 8px; --radius-pill: 999px;
+    --shadow-sm:   0 1px 3px rgba(0, 0, 0, .12);
+    --shadow-card: 0 1px 4px rgba(0, 0, 0, .10);
+    --shadow-md:   0 2px 8px rgba(0, 0, 0, .12);
+    --border:       1px solid var(--gray-200);
+    --border-input: 1px solid var(--gray-300);
+
+    /* Controls */
+    --control-h: 48px;   /* inputs, selects */
+    --btn-h: 52px;       /* primary buttons */
+    --btn-h-sm: 44px;    /* compact/toolbar buttons (min touch) */
+    --focus-ring: 0 0 0 3px rgba(200, 16, 46, .40);
+}
+
+/* =================== RESET / BASE =================== */
 * {
     box-sizing: border-box;
     margin: 0;
@@ -28,53 +96,68 @@
 }
 
 body {
-    font-family: Arial, sans-serif;
-    background-color: #f4f4f4;
-    color: #333;
+    font-family: var(--font-sans);
+    font-size: var(--fs-base);
+    line-height: var(--lh-body);
+    background-color: var(--gray-50);
+    color: var(--color-ink);
     padding: 0;
 }
 
+/* =================== HEADER & NAV =================== */
 header {
-    background-color: #1f2937;
-    color: white;
-    padding: 16px 40px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    background-color: var(--color-header);
+    color: var(--color-white);
+    padding: var(--space-4) var(--space-6);
+    box-shadow: var(--shadow-md);
 }
 
 header h1 {
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 #main-nav {
     display: flex;
-    gap: 8px;
+    flex-wrap: wrap;
+    gap: var(--space-2);
 }
 
 .nav-btn {
-    background-color: #374151;
-    color: white;
+    background-color: transparent;
+    color: var(--gray-200);
     border: none;
-    padding: 8px 16px;
-    border-radius: 4px;
-    font-size: 14px;
+    padding: 0 var(--space-4);
+    min-height: var(--btn-h-sm);
+    border-radius: var(--radius-md);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
     cursor: pointer;
     margin-top: 0;
 }
 
 .nav-btn:hover {
-    background-color: #4b5563;
+    background-color: #2A2A2A;
+    color: var(--color-white);
 }
 
+/* Active page = brand-red pill in the black bar. Unmistakable. */
 .nav-btn.active {
-    background-color: #2563eb;
+    background-color: var(--color-brand);
+    color: var(--color-white);
 }
 
 .nav-btn.active:hover {
-    background-color: #1d4ed8;
+    background-color: var(--color-brand-hover);
+    color: var(--color-white);
+}
+
+/* Hidden nav buttons (role-gated) must collapse fully. */
+.nav-btn[hidden] {
+    display: none;
 }
 
 main {
-    padding: 30px 40px;
+    padding: var(--space-8) var(--space-6);
 }
 
 .page {
@@ -85,142 +168,218 @@ main {
     display: block;
 }
 
+/* =================== TYPOGRAPHY =================== */
 h1 {
     margin-bottom: 0;
+    line-height: var(--lh-heading);
 }
 
 h2 {
-    margin-bottom: 16px;
+    margin-bottom: var(--space-4);
+    font-size: var(--fs-xl);
+    line-height: var(--lh-heading);
+    color: var(--color-ink);
 }
 
+/* =================== SECTION / LAYOUT =================== */
 section {
-    background-color: #fff;
-    border-radius: 8px;
-    padding: 24px;
-    margin-bottom: 30px;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+    background-color: var(--color-white);
+    border-radius: var(--radius-md);
+    padding: var(--space-6);
+    margin-bottom: var(--space-6);
+    box-shadow: var(--shadow-card);
 }
 
 .form-stack {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    max-width: 400px;
+    gap: var(--space-3);
+    max-width: 420px;
 }
 
 .hint {
-    font-size: 13px;
-    color: #6b7280;
-    margin-bottom: 12px;
+    font-size: var(--fs-sm);
+    color: var(--gray-500);
+    margin-bottom: var(--space-3);
 }
 
+/* =================== FORM CONTROLS =================== */
 label {
-    font-weight: bold;
-    font-size: 14px;
+    font-weight: var(--fw-bold);
+    font-size: var(--fs-sm);
+    color: var(--color-ink);
 }
 
-input {
-    padding: 8px 12px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    font-size: 14px;
-}
-
+input,
 select {
-    padding: 8px 12px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    font-size: 14px;
-    background-color: white;
+    min-height: var(--control-h);
+    padding: 0 var(--space-3);
+    border: var(--border-input);
+    border-radius: var(--radius-md);
+    font-size: var(--fs-base);
+    color: var(--color-ink);
+    background-color: var(--color-white);
 }
 
+/* Primary button = solid brand red ("go"). */
 button {
-    padding: 10px;
-    background-color: #2563eb;
-    color: white;
+    min-height: var(--btn-h);
+    padding: 0 var(--space-5);
+    background-color: var(--color-brand);
+    color: var(--color-white);
     border: none;
-    border-radius: 4px;
-    font-size: 14px;
+    border-radius: var(--radius-md);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-bold);
     cursor: pointer;
-    margin-top: 6px;
+    margin-top: var(--space-1);
 }
 
 button:hover {
-    background-color: #1d4ed8;
+    background-color: var(--color-brand-hover);
+}
+
+button:active {
+    background-color: var(--color-brand-active);
 }
 
 button:disabled {
-    background-color: #9ca3af;
+    background-color: var(--gray-300);
+    color: var(--gray-500);
     cursor: not-allowed;
 }
 
+/* Secondary = neutral outline on white (Cancel, Upload, Clear, Copy...). */
+.secondary-btn {
+    background-color: var(--color-white);
+    color: var(--color-ink);
+    border: var(--border-input);
+}
+
+.secondary-btn:hover {
+    background-color: var(--gray-50);
+    color: var(--color-ink);
+}
+
+/* Destructive = OUTLINE red + leading glyph + confirmation (set in JS).
+   Never solid red -- solid red is reserved for primary "go" actions. */
+.btn-danger {
+    background-color: var(--color-white);
+    color: var(--color-brand);
+    border: 1.5px solid var(--color-brand);
+}
+
+.btn-danger:hover {
+    background-color: var(--color-brand-tint);
+    color: var(--color-brand-hover);
+}
+
+/* Messages */
 #create-item-message,
 #create-user-message,
 #transaction-message,
 #txn-scan-message,
 #history-item-message,
 #history-user-message {
-    font-size: 14px;
-    margin-top: 4px;
+    font-size: var(--fs-base);
+    margin-top: var(--space-1);
 }
 
 .success {
-    color: green;
+    color: var(--color-success);
 }
 
 .error {
-    color: red;
+    color: var(--color-error);
 }
 
+/* =================== FOCUS STATES =================== */
+/* Inputs: brand border + red ring. */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: none;
+    border-color: var(--color-brand);
+    box-shadow: var(--focus-ring);
+}
+
+/* Solid-red primary buttons: a dark ring reads better than red-on-red. */
+button:focus-visible {
+    outline: 3px solid var(--color-ink);
+    outline-offset: 2px;
+}
+
+/* White-background buttons can use the red ring. */
+.secondary-btn:focus-visible,
+.btn-danger:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+/* Nav buttons sit on the black header: white ring. */
+.nav-btn:focus-visible,
+#logout-btn:focus-visible {
+    outline: 2px solid var(--color-white);
+    outline-offset: 2px;
+}
+
+/* =================== TABLES =================== */
 table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 14px;
+    font-size: var(--fs-sm);
 }
 
 th {
     text-align: left;
-    padding: 10px;
-    border-bottom: 2px solid #e5e7eb;
-    color: #555;
+    padding: var(--space-3);
+    border-bottom: 2px solid var(--gray-200);
+    color: var(--gray-500);
+    font-weight: var(--fw-bold);
 }
 
 td {
-    padding: 10px;
-    border-bottom: 1px solid #e5e7eb;
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--gray-200);
 }
 
 tr:last-child td {
     border-bottom: none;
 }
 
+/* Icon-only delete (Users table). Brand red glyph. */
 .delete-user-btn {
     background: none;
     border: none;
     cursor: pointer;
-    font-size: 16px;
-    padding: 4px;
-    color: #dc2626;
+    font-size: var(--fs-lg);
+    min-height: var(--btn-h-sm);
+    padding: var(--space-1);
+    margin-top: 0;
+    color: var(--color-brand);
 }
 
 .delete-user-btn:hover {
     background: none;
-    color: #991b1b;
+    color: var(--color-brand-hover);
 }
 
 .row-actions {
     display: flex;
-    gap: 6px;
+    gap: var(--space-2);
     align-items: center;
+    flex-wrap: wrap;
 }
 
 .row-actions-select {
-    padding: 4px 8px;
-    font-size: 13px;
+    padding: 0 var(--space-2);
+    min-height: var(--btn-h-sm);
+    font-size: var(--fs-sm);
     margin-top: 0;
-    border: 1px solid #d1d5db;
-    border-radius: 4px;
-    background-color: white;
+    border: var(--border-input);
+    border-radius: var(--radius-md);
+    background-color: var(--color-white);
+    color: var(--color-ink);
     cursor: pointer;
 }
 
@@ -236,89 +395,87 @@ tr:last-child td {
     border: 0;
 }
 
+/* =================== STOCK / DISPENSE AFFORDANCES =================== */
+/* Accent-exempt: these carry inventory-direction meaning. */
 .stock-btn,
 .dispense-btn {
-    padding: 4px 10px;
-    font-size: 13px;
+    padding: 0 var(--space-3);
+    min-height: var(--btn-h-sm);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-bold);
     margin-top: 0;
-    color: white;
+    color: var(--color-white);
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-md);
     cursor: pointer;
 }
 
 .stock-btn {
-    background-color: #16a34a;
+    background-color: var(--status-stock);
 }
 
 .stock-btn:hover {
-    background-color: #15803d;
+    background-color: var(--status-stock-hover);
 }
 
 .dispense-btn {
-    background-color: #d97706;
+    background-color: var(--status-dispense);
 }
 
 .dispense-btn:hover {
-    background-color: #b45309;
+    background-color: var(--status-dispense-hover);
 }
 
 #transaction-selected {
-    font-size: 14px;
-    font-weight: bold;
-    color: #111;
+    font-size: var(--fs-base);
+    font-weight: var(--fw-bold);
+    color: var(--color-ink);
 }
 
 .form-buttons {
     display: flex;
-    gap: 8px;
+    gap: var(--space-2);
 }
 
-.secondary-btn {
-    background-color: #6b7280;
-}
-
-.secondary-btn:hover {
-    background-color: #4b5563;
-}
-
-/* History sub-tabs */
+/* =================== HISTORY SUB-TABS =================== */
 .sub-tabs {
     display: flex;
-    gap: 4px;
-    border-bottom: 1px solid #e5e7eb;
-    margin-bottom: 20px;
+    gap: var(--space-1);
+    border-bottom: 1px solid var(--gray-200);
+    margin-bottom: var(--space-5);
 }
 
 .sub-tab-btn {
     background-color: transparent;
-    color: #374151;
-    padding: 8px 16px;
+    color: var(--gray-700);
+    padding: var(--space-2) var(--space-4);
+    min-height: var(--btn-h-sm);
     border: none;
     border-bottom: 3px solid transparent;
     border-radius: 0;
-    font-size: 14px;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
     cursor: pointer;
     margin-top: 0;
 }
 
 .sub-tab-btn:hover {
-    background-color: #f3f4f6;
-    color: #111;
+    background-color: var(--gray-100);
+    color: var(--color-ink);
 }
 
 .sub-tab-btn.active {
-    color: #2563eb;
-    border-bottom-color: #2563eb;
-    font-weight: bold;
+    color: var(--color-brand);
+    border-bottom-color: var(--color-brand);
+    font-weight: var(--fw-bold);
 }
 
 .filter-row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-3);
     flex-wrap: wrap;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 .filter-row label {
@@ -332,43 +489,45 @@ tr:last-child td {
 
 .filter-row button {
     margin-top: 0;
+    min-height: var(--btn-h-sm);
 }
 
-/* Type badges */
+/* =================== TYPE BADGES =================== */
 .type-badge {
     display: inline-block;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 12px;
-    font-weight: bold;
-    color: white;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-pill);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    color: var(--color-white);
 }
 
 .type-badge.stock {
-    background-color: #16a34a;
+    background-color: var(--status-stock);
 }
 
 .type-badge.dispense {
-    background-color: #d97706;
+    background-color: var(--status-dispense);
 }
 
 .type-badge.adjust {
-    background-color: #2563eb;
+    background-color: var(--status-adjust);
 }
 
-/* Pagination */
+/* =================== PAGINATION =================== */
 .pagination {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 12px;
-    margin-top: 16px;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
 }
 
 .pagination button {
     margin-top: 0;
-    padding: 6px 12px;
-    font-size: 13px;
+    min-height: var(--btn-h-sm);
+    padding: 0 var(--space-3);
+    font-size: var(--fs-sm);
 }
 
 /* History results toolbar (Copy table button + status) */
@@ -376,37 +535,39 @@ tr:last-child td {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 12px;
-    margin-bottom: 8px;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
 }
 
 .history-results-toolbar button {
     margin-top: 0;
-    padding: 6px 12px;
-    font-size: 13px;
+    min-height: var(--btn-h-sm);
+    padding: 0 var(--space-3);
+    font-size: var(--fs-sm);
 }
 
 .history-results-toolbar p {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-sm);
 }
 
 #history-page-info {
-    font-size: 13px;
-    color: #6b7280;
+    font-size: var(--fs-sm);
+    color: var(--gray-500);
 }
 
+/* =================== NOTES EDITOR =================== */
 #notes-rows {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-2);
     max-width: 700px;
 }
 
 .note-row {
     display: grid;
-    grid-template-columns: 1fr 130px 1fr 36px;
-    gap: 8px;
+    grid-template-columns: 1fr 130px 1fr 44px;
+    gap: var(--space-2);
     align-items: center;
 }
 
@@ -416,43 +577,48 @@ tr:last-child td {
     margin: 0;
 }
 
+/* Small in-form remove control. Outline red to stay consistent with the
+   destructive treatment without stealing the primary-red affordance. */
 .note-remove-btn {
-    background-color: #dc2626;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    padding: 6px 0;
-    font-size: 14px;
+    background-color: var(--color-white);
+    color: var(--color-brand);
+    border: 1.5px solid var(--color-brand);
+    border-radius: var(--radius-md);
+    min-height: var(--btn-h-sm);
+    padding: 0;
+    font-size: var(--fs-base);
     cursor: pointer;
     margin-top: 0;
 }
 
 .note-remove-btn:hover {
-    background-color: #991b1b;
+    background-color: var(--color-brand-tint);
+    color: var(--color-brand-hover);
 }
 
 .notes-cell {
-    font-size: 13px;
-    color: #374151;
+    font-size: var(--fs-sm);
+    color: var(--gray-700);
     max-width: 320px;
 }
 
 .notes-cell .empty {
-    color: #9ca3af;
+    color: var(--gray-400);
 }
+
+/* =================== AUTH =================== */
 /*
   Auth: login screen overlay and the header auth bar.
-  Added with the v1 authentication feature. The login screen is a
-  full-viewport centred card shown by `views/auth.js` when there is no
-  valid session; #app-root holds the rest of the UI.
+  The login screen is a full-viewport centred card shown by
+  `views/auth.js` when there is no valid session; #app-root holds the
+  rest of the UI.
 */
-
 #login-screen {
     min-height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 20px;
+    padding: var(--space-5);
 }
 
 /* The `display: flex` above is an ID selector and outranks the UA
@@ -464,74 +630,79 @@ tr:last-child td {
 }
 
 #login-section {
-    background-color: white;
-    padding: 32px;
-    border-radius: 8px;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+    background-color: var(--color-white);
+    padding: var(--space-8);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
     width: 100%;
     max-width: 360px;
 }
 
 #login-section h1 {
-    font-size: 22px;
-    margin-bottom: 4px;
+    font-size: var(--fs-2xl);
+    margin-bottom: var(--space-1);
 }
 
 #login-section h2 {
-    font-size: 16px;
-    font-weight: normal;
-    color: #6b7280;
-    margin-bottom: 16px;
+    font-size: var(--fs-base);
+    font-weight: var(--fw-regular);
+    color: var(--gray-500);
+    margin-bottom: var(--space-4);
 }
 
 /* The auth bar sits to the right of the nav inside the dark header. */
 #auth-bar {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin-top: 12px;
-    font-size: 14px;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+    font-size: var(--fs-sm);
 }
 
 #auth-user-indicator {
-    color: #d1d5db;
+    color: var(--gray-200);
 }
 
+/* Logout: white outline button on the dark header. */
 #logout-btn {
     margin-top: 0;
+    min-height: var(--btn-h-sm);
+    background-color: transparent;
+    color: var(--color-white);
+    border: 1px solid var(--gray-400);
 }
 
-/* Hidden nav buttons (role-gated) must collapse fully. */
-.nav-btn[hidden] {
-    display: none;
+#logout-btn:hover {
+    background-color: #2A2A2A;
+    color: var(--color-white);
 }
 
+/* =================== BARCODE SCAN CONTROLS =================== */
 /*
-  Barcode scan controls (Transaction page).
-  Added with the barcode-scanning feature. `#txn-scan-section` sits above
-  the items table; `views/scan.js` drives the input, message, and chooser.
+  `#txn-scan-section` / `#items-scan-section` sit above the items tables;
+  `views/scan.js` drives the input, message, and chooser.
 */
 .scan-controls {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-2);
     max-width: 400px;
 }
 
 .scan-label {
-    font-weight: bold;
-    font-size: 14px;
+    font-weight: var(--fw-bold);
+    font-size: var(--fs-sm);
 }
 
 #txn-scan-input {
-    font-size: 14px;
+    font-size: var(--fs-sm);
 }
 
 .scan-chooser {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    margin-top: 12px;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
     max-width: 400px;
 }
 
@@ -548,20 +719,19 @@ tr:last-child td {
 }
 
 /* The Create Item shortcut is a "go do something new" action -- green,
-   matching the stock button's affordance rather than the blue default. */
+   matching the stock affordance rather than the brand-red default. */
 .scan-create-btn {
-    background-color: #16a34a;
+    background-color: var(--status-stock);
 }
 
 .scan-create-btn:hover {
-    background-color: #15803d;
+    background-color: var(--status-stock-hover);
 }
 
-/* --- Live-mode scanner additions (Phase 3) -----------------------
-   Adds video preview + aim-box overlay + Scan/Upload/Torch toolbar to
-   the existing scan controls. The file input is hidden but kept --
-   the Upload button programmatically clicks it so the upload path in
-   views/scan.js stays unchanged. See docs/plan-live-capture.md. */
+/* --- Live-mode scanner: video preview + aim-box overlay + toolbar.
+   The file input is hidden but kept -- the Upload button programmatically
+   clicks it so the upload path in views/scan.js stays unchanged.
+   See docs/plan-live-capture.md. */
 #txn-scan-input,
 #items-scan-input {
     display: none;
@@ -573,6 +743,8 @@ tr:last-child td {
     max-width: 400px;
     background: #000;
     line-height: 0; /* prevents the inline <video>'s baseline gap */
+    border-radius: var(--radius-md);
+    overflow: hidden;
 }
 
 .scan-video {
@@ -582,9 +754,8 @@ tr:last-child td {
 }
 
 /* Aim-box overlay -- guidance only. The decoder still sees the full
-   frame (decision #15: no cropping in v1). White border plus a dark
-   box-shadow gives a high-contrast edge on both light and dark
-   labels. */
+   frame (no cropping). White border plus a dark box-shadow gives a
+   high-contrast edge on both light and dark labels. */
 .scan-aimbox {
     position: absolute;
     top: 50%;
@@ -604,10 +775,180 @@ tr:last-child td {
 .scan-toolbar {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 8px;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
 }
 
 .scan-toolbar > button {
     margin-top: 0;
+    min-height: var(--control-h);
+}
+
+/* =================== SEGMENTED CONTROL (Scan / Stock type) =================== */
+/* Two equal cells backing the hidden #transaction-type input. Selected
+   state uses the inventory-direction accents (accent-exempt): green for
+   Add Stock, amber for Take Out. */
+.segmented {
+    display: flex;
+}
+
+.seg-btn {
+    flex: 1 1 0;
+    min-height: var(--btn-h);
+    margin-top: 0;
+    border: var(--border-input);
+    border-radius: 0;
+    background-color: var(--color-white);
+    color: var(--color-ink);
+    font-weight: var(--fw-bold);
+}
+
+.seg-btn:hover {
+    background-color: var(--gray-50);
+}
+
+.seg-btn + .seg-btn {
+    border-left: none;
+}
+
+.seg-btn:first-child {
+    border-top-left-radius: var(--radius-md);
+    border-bottom-left-radius: var(--radius-md);
+}
+
+.seg-btn:last-child {
+    border-top-right-radius: var(--radius-md);
+    border-bottom-right-radius: var(--radius-md);
+}
+
+.seg-stock.active {
+    background-color: var(--status-stock);
+    border-color: var(--status-stock);
+    color: var(--color-white);
+}
+
+.seg-stock.active:hover {
+    background-color: var(--status-stock-hover);
+}
+
+.seg-dispense.active {
+    background-color: var(--status-dispense);
+    border-color: var(--status-dispense);
+    color: var(--color-white);
+}
+
+.seg-dispense.active:hover {
+    background-color: var(--status-dispense-hover);
+}
+
+/* =================== POST-SCAN CONFIRMATION =================== */
+/* #transaction-selected carries the scanned item: a large name plus a
+   quiet meta line (on-hand + location). Also used as a plain bold label
+   when a transaction is started from a row button (name only). */
+#transaction-selected {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+#transaction-selected .confirm-name {
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-bold);
+    color: var(--color-ink);
+}
+
+#transaction-selected .confirm-meta {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-regular);
+    color: var(--gray-500);
+}
+
+/* =================== RESPONSIVE (mobile portrait) =================== */
+@media (max-width: 639px) {
+    header { padding: var(--space-3) var(--space-4); }
+    main { padding: var(--space-4); }
+    section { padding: var(--space-4); }
+    h1 { font-size: var(--fs-2xl); }
+
+    /* Let stacked content use the full card width on phones. */
+    .form-stack,
+    .scan-controls,
+    .scan-viewport,
+    .scan-chooser {
+        max-width: none;
+    }
+
+    .filter-row input,
+    .filter-row select {
+        min-width: 0;
+        flex: 1 1 100%;
+    }
+
+    /* --- Worker tables collapse to stacked cards (design-spec §4) --- */
+    .stack-table thead { display: none; }
+
+    .stack-table tr {
+        display: block;
+        border: var(--border);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-sm);
+        padding: var(--space-3);
+        margin-bottom: var(--space-3);
+        background: var(--color-white);
+    }
+
+    .stack-table td {
+        display: flex;
+        justify-content: space-between;
+        gap: var(--space-3);
+        padding: var(--space-2) 0;
+        border-bottom: 1px solid var(--gray-100);
+        text-align: right;
+    }
+
+    .stack-table tr td:last-child { border-bottom: none; }
+
+    .stack-table td::before {
+        content: attr(data-label);
+        font-weight: var(--fw-bold);
+        color: var(--gray-500);
+        text-align: left;
+        flex: 0 0 auto;
+    }
+
+    /* Item / row name: large, no label, full width. */
+    .stack-table td[data-primary] {
+        display: block;
+        font-size: var(--fs-lg);
+        font-weight: var(--fw-bold);
+        text-align: left;
+    }
+
+    .stack-table td[data-primary]::before { content: none; }
+
+    /* Empty-state (colspan) rows: plain left-aligned text, no label. */
+    .stack-table td[colspan] {
+        justify-content: flex-start;
+        text-align: left;
+    }
+
+    .stack-table td[colspan]::before { content: none; }
+
+    /* The single Actions menu fills the card width. */
+    .stack-table .row-actions-select { width: 100%; }
+
+    /* Notes editor: stack each note's fields so they're scannable on a
+       phone instead of cramming four controls into one row. */
+    .note-row {
+        grid-template-columns: 1fr;
+        gap: var(--space-2);
+        padding-bottom: var(--space-3);
+        border-bottom: 1px solid var(--gray-100);
+    }
+
+    .note-row .note-remove-btn {
+        justify-self: end;
+        width: auto;
+        padding: 0 var(--space-4);
+    }
 }

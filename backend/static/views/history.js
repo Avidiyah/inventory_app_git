@@ -23,7 +23,7 @@ import {
   HISTORY_PAGE_SIZE,
 } from "../state.js";
 import { apiListTransactions, apiGetItemByBarcode } from "../api.js";
-import { escapeHtml } from "../format.js";
+import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage } from "../dom.js";
 
 const historyTabs = document.getElementById("history-tabs");
@@ -106,8 +106,8 @@ function emptyStateMessage(s) {
     const label = historyUserSelect.selectedOptions[0].textContent;
     if (label && historyUserSelect.value) clauses.push(`user ${label}`);
   }
-  if (clauses.length === 0) return "No transactions found.";
-  return `No transactions match ${clauses.join(" and ")}.`;
+  if (clauses.length === 0) return "No history found for those filters.";
+  return `No history matches ${clauses.join(" and ")}.`;
 }
 
 // Single source of truth for how a transaction row is rendered.
@@ -130,6 +130,11 @@ function formatRow(txn) {
   return [timestamp, item, type, quantity, detail, user];
 }
 
+// Friendly on-screen labels for the type badge. The CSS class stays the
+// raw type (stock/dispense/adjust) so the badge colour is unchanged; only
+// the visible text is humanised. TSV export keeps the raw type via formatRow.
+const TYPE_LABELS = { stock: "Added", dispense: "Taken Out", adjust: "Correction" };
+
 export function renderHistory(data) {
   const items = data.items || [];
   const total = data.total || 0;
@@ -150,12 +155,12 @@ export function renderHistory(data) {
       const [timestamp, itemLabel, type, quantity, detail, user] = formatRow(txn);
       const row = document.createElement("tr");
       row.innerHTML = `
-        <td>${escapeHtml(timestamp)}</td>
-        <td>${escapeHtml(itemLabel)}</td>
-        <td><span class="type-badge ${escapeHtml(type)}">${escapeHtml(type)}</span></td>
-        <td>${escapeHtml(quantity)}</td>
-        <td>${escapeHtml(detail || "—")}</td>
-        <td>${escapeHtml(user || "—")}</td>
+        <td data-label="Time">${escapeHtml(timestamp)}</td>
+        <td data-primary>${escapeHtml(itemLabel)}</td>
+        <td data-label="Type"><span class="type-badge ${escapeHtml(type)}">${escapeHtml(TYPE_LABELS[type] || type)}</span></td>
+        <td data-label="Quantity">${escapeHtml(quantity)}</td>
+        <td data-label="Work Order">${escapeHtml(detail || "—")}</td>
+        <td data-label="User">${escapeHtml(user || "—")}</td>
       `;
       historyTbody.appendChild(row);
     });
@@ -200,7 +205,7 @@ historyItemLookupBtn.addEventListener("click", async () => {
     if (err && err.status === 404) {
       setMessage(historyItemMessage, "No item found with that barcode.", "error");
     } else {
-      setMessage(historyItemMessage, "Could not connect to the server.", "error");
+      setMessage(historyItemMessage, friendlyError(err, "Look-up failed. Try again."), "error");
     }
   }
 });
@@ -341,7 +346,7 @@ historyCopyBtn.addEventListener("click", async () => {
     const tsv = rowsToTsv(rows.map(formatRow));
     const ok = await copyTextToClipboard(tsv);
     if (ok) {
-      setMessage(historyCopyMessage, `Copied ${rows.length} row${rows.length === 1 ? "" : "s"}.`, "success");
+      setMessage(historyCopyMessage, "Copied history.", "success");
     } else {
       setMessage(historyCopyMessage, "Copy failed — your browser blocked clipboard access.", "error");
     }

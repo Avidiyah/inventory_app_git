@@ -1,30 +1,26 @@
 # Plan: Live Camera Barcode Capture
 
-Status: **Phase 3 PR1 implemented and locally verified.** Live
-capture is now wired into the Transaction page: video preview,
-Scan / Upload / Torch toolbar, aim-box overlay, page-level camera
-lifecycle (visibility change, page-leave teardown), and blocked-mode
-fallback. Phase 1 spike files (`backend/static/scan-test.html`,
+Status: **Implemented.** Live capture is wired into both the
+Transaction page and Saved Items page: video preview, Scan / Upload /
+Torch toolbar, aim-box overlay, page-level camera lifecycle
+(visibility change, page-leave teardown), and blocked-mode fallback.
+Phase 1 spike files (`backend/static/scan-test.html`,
 `backend/static/scan-test.js`) have been deleted. Upload-mode
 regression remains intact.
 
-Upload-mode regression was verified after the Phase 2 refactor on
-both Transaction and Saved Items. The reusable scanner refactor is
-in place: `mountScanner({...})` accepts optional live-mode DOM
+Upload-mode regression was verified after the reusable scanner
+refactor. `mountScanner({...})` accepts optional live-mode DOM
 handles, the ZXing wrapper lives in
 [backend/static/scan/barcode-decoder.js](backend/static/scan/barcode-decoder.js),
 the 5-of-10 debounce lives in
 [backend/static/scan/frame-debouncer.js](backend/static/scan/frame-debouncer.js),
 and the vendored ZXing UMD is loaded globally from
-[backend/static/index.html](backend/static/index.html#L383).
+[backend/static/index.html](backend/static/index.html).
 
-Remaining work: **Phase 3 PR2** -- wire `liveEls` into the Saved
-Items `mountScanner` call site, mirror the markup/CSS additions in
-`#items-scan-section`, and register the Saved Items scanner in
-`views/nav.js`. Ships one week after PR1 lands in production.
-
-Important: the Saved Items page still uses upload-only behaviour
-until PR2 lands.
+The Saved Items page now passes `liveEls` into its `mountScanner` call
+site, has mirrored `#items-scan-*` markup/CSS, exports
+`itemsScanner`, and is registered in `views/nav.js` for page-level
+camera lifecycle.
 
 ---
 
@@ -233,7 +229,8 @@ scan.
    [backend/static/scan/frame-debouncer.js](backend/static/scan/frame-debouncer.js).
    The vendored UMD is now loaded globally from
    [backend/static/index.html](backend/static/index.html#L383).
-5. **Phase 3 — wire and ship.** Split into two PRs.
+5. **Phase 3 — wire and ship.** Implemented across Transaction and
+   Saved Items.
    - **PR1 (Transaction page).** ✅ Done. Added new real-page DOM
      (video, Scan/Upload/Torch toolbar, aim-box overlay) to
      `#txn-scan-section`. Passed `liveEls` from the Transaction
@@ -246,11 +243,10 @@ scan.
      `getUserMedia` constraints now include `width: { ideal: 1920 }`
      and `height: { ideal: 1080 }`. Phase 1 spike files
      (`scan-test.html`, `scan-test.js`) deleted.
-   - **PR2 (Saved Items page).** Pending. Mirror the markup/CSS
-     additions in `#items-scan-section`, pass `liveEls` from the
-     Saved Items `mountScanner` call site, export `itemsScanner`,
-     and register it in `SCANNERS_BY_PAGE` in `views/nav.js`. Ships
-     one week after PR1 lands in production.
+   - **PR2 (Saved Items page).** Done. Mirrored the markup/CSS
+     additions in `#items-scan-section`, passes `liveEls` from the
+     Saved Items `mountScanner` call site, exports `itemsScanner`,
+     and registers it in `SCANNERS_BY_PAGE` in `views/nav.js`.
 
 ---
 

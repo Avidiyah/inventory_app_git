@@ -19,7 +19,7 @@
 
 import { getItems, getEditingNotesItemId, setEditingNotesItemId } from "../state.js";
 import { apiUpdateNotes } from "../api.js";
-import { escapeHtml, formatNoteValue, detectNoteType, formatError } from "../format.js";
+import { escapeHtml, formatNoteValue, detectNoteType, friendlyError } from "../format.js";
 import { setMessage, getNoteValueRaw } from "../dom.js";
 
 const notesEditorSection = document.getElementById("notes-editor-section");
@@ -76,14 +76,14 @@ function addNoteRow(key = "", type = "string", value = "") {
   const row = document.createElement("div");
   row.className = "note-row";
   row.innerHTML = `
-    <input type="text" class="note-key" placeholder="Key" value="${escapeHtml(key)}">
-    <select class="note-type">
+    <input type="text" class="note-key" placeholder="Note name" aria-label="Note name" value="${escapeHtml(key)}">
+    <select class="note-type" aria-label="Note type">
       <option value="string">String</option>
       <option value="number">Number</option>
       <option value="boolean">Boolean</option>
     </select>
     <span class="note-value-wrapper"></span>
-    <button type="button" class="note-remove-btn" title="Remove">×</button>
+    <button type="button" class="note-remove-btn" title="Remove" aria-label="Remove note">×</button>
   `;
   const typeSelect = row.querySelector(".note-type");
   typeSelect.value = type;
@@ -104,6 +104,7 @@ function renderNoteValueInput(wrapper, type, currentValue) {
   if (type === "boolean") {
     const sel = document.createElement("select");
     sel.className = "note-value";
+    sel.setAttribute("aria-label", "Note value");
     sel.innerHTML = '<option value="true">true</option><option value="false">false</option>';
     sel.value = (currentValue === true || currentValue === "true") ? "true" : "false";
     wrapper.appendChild(sel);
@@ -112,6 +113,7 @@ function renderNoteValueInput(wrapper, type, currentValue) {
     input.type = "number";
     input.step = "any";
     input.className = "note-value";
+    input.setAttribute("aria-label", "Note value");
     input.placeholder = "Number";
     input.value = (currentValue === "" || currentValue === null || currentValue === undefined) ? "" : currentValue;
     wrapper.appendChild(input);
@@ -119,6 +121,7 @@ function renderNoteValueInput(wrapper, type, currentValue) {
     const input = document.createElement("input");
     input.type = "text";
     input.className = "note-value";
+    input.setAttribute("aria-label", "Note value");
     input.placeholder = "Value";
     input.value = (currentValue === null || currentValue === undefined) ? "" : String(currentValue);
     wrapper.appendChild(input);
@@ -145,7 +148,7 @@ notesSaveBtn.addEventListener("click", async () => {
     const key = row.querySelector(".note-key").value.trim();
     if (!key) continue;
     if (seenKeys.has(key)) {
-      setMessage(notesMessage, `Duplicate key: "${key}".`, "error");
+      setMessage(notesMessage, "Two notes share a name. Make each note name different.", "error");
       return;
     }
     seenKeys.add(key);
@@ -177,10 +180,6 @@ notesSaveBtn.addEventListener("click", async () => {
     if (onSavedCallback) await onSavedCallback();
     setTimeout(closeNotesEditor, 1000);
   } catch (err) {
-    if (err && err.status !== undefined) {
-      setMessage(notesMessage, formatError(err.detail, "Failed to save notes."), "error");
-    } else {
-      setMessage(notesMessage, "Could not connect to the server.", "error");
-    }
+    setMessage(notesMessage, friendlyError(err, "Could not save the notes. Try again."), "error");
   }
 });

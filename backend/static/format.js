@@ -42,3 +42,24 @@ export function formatError(detail, fallback) {
   }
   return detail || fallback;
 }
+
+// Map a thrown API error to a short, field-friendly message. `err` is
+// the `{ status, detail }` shape thrown by api.js, or a network failure
+// with no `status`. Connection / session / permission / insufficient-stock
+// get crew-friendly wording with a next step; anything else falls back to
+// the backend detail via `formatError`, then to `fallback`.
+export function friendlyError(err, fallback) {
+  if (!err || err.status === undefined) {
+    return "Could not reach the app. Check your signal and try again.";
+  }
+  if (err.status === 401) {
+    return "You were signed out. Sign in again.";
+  }
+  if (err.status === 403) {
+    return "Your account can't do that. Ask a supervisor if this seems wrong.";
+  }
+  if (err.detail === "Insufficient stock to dispense.") {
+    return "Not enough stock available. Check the count before taking more out.";
+  }
+  return formatError(err.detail, fallback);
+}

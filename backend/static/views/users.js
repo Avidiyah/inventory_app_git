@@ -17,7 +17,7 @@ import {
   apiDeleteUser,
   apiResetPassword,
 } from "../api.js";
-import { escapeHtml, formatError } from "../format.js";
+import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage } from "../dom.js";
 import { assignableRoles, canManage } from "../roles.js";
 
@@ -27,7 +27,24 @@ const usersTbody = document.getElementById("users-tbody");
 const usernameInput = document.getElementById("username");
 const userRoleSelect = document.getElementById("user-role");
 const userPasswordInput = document.getElementById("user-password");
+const userRoleHelp = document.getElementById("user-role-help");
 const historyUserSelect = document.getElementById("history-user-select");
+
+// Plain-language role descriptions shown under the Role select so the
+// person creating an account understands what each role can do.
+const ROLE_DESCRIPTIONS = {
+  technician: "Scan items and do basic work.",
+  supervisor: "Record stock, edit notes, view history.",
+  admin: "Manage items and corrections.",
+  owner: "Top-level setup.",
+};
+
+function updateRoleHelp() {
+  if (!userRoleHelp || !userRoleSelect) return;
+  userRoleHelp.textContent = ROLE_DESCRIPTIONS[userRoleSelect.value] || "";
+}
+
+if (userRoleSelect) userRoleSelect.addEventListener("change", updateRoleHelp);
 
 export async function loadUsers() {
   try {
@@ -52,7 +69,7 @@ function renderUsersTable() {
     // the cell is an empty placeholder (hidden, not disabled).
     const actions = canManage(actorRole, user.role)
       ? `<div class="row-actions">
-           <button class="reset-pw-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">Reset Password</button>
+           <button class="reset-pw-btn secondary-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">Reset Password</button>
            <button class="delete-user-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">🗑️</button>
          </div>`
       : `<span class="empty">—</span>`;
@@ -81,6 +98,7 @@ function populateRoleSelect() {
   if (previous && [...userRoleSelect.options].some(o => o.value === previous)) {
     userRoleSelect.value = previous;
   }
+  updateRoleHelp();
 }
 
 // Repopulate the History "by user" filter, preserving the current
@@ -125,11 +143,7 @@ createUserBtn.addEventListener("click", async () => {
     userPasswordInput.value = "";
     loadUsers();
   } catch (err) {
-    if (err && err.status !== undefined) {
-      setMessage(createUserMessage, formatError(err.detail, "An error occurred."), "error");
-    } else {
-      setMessage(createUserMessage, "Could not connect to the server.", "error");
-    }
+    setMessage(createUserMessage, friendlyError(err, "Could not create the user. Try again."), "error");
   }
 });
 
@@ -149,7 +163,7 @@ usersTbody.addEventListener("click", async (event) => {
       await apiResetPassword(userId, newPassword);
       alert(`Password reset for "${userName}".`);
     } catch (err) {
-      alert(err && err.detail ? formatError(err.detail, "Failed to reset password.") : "Failed to reset password.");
+      alert(friendlyError(err, "Could not reset the password. Try again."));
     }
     return;
   }
@@ -165,6 +179,6 @@ usersTbody.addEventListener("click", async (event) => {
     await apiDeleteUser(userId);
     loadUsers();
   } catch (err) {
-    alert(err && err.detail ? formatError(err.detail, "Failed to delete user.") : "Failed to delete user.");
+    alert(friendlyError(err, "Could not delete the user. Try again."));
   }
 });

@@ -28,7 +28,7 @@ import {
   getRole,
 } from "../state.js";
 import { apiListItems, apiCreateItem, apiDeleteItem } from "../api.js";
-import { escapeHtml, formatError } from "../format.js";
+import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
 import { openNotesEditor, closeNotesEditor, renderNotesSummary, setOnSaved } from "./notes.js";
@@ -83,7 +83,7 @@ export function renderItems() {
 
   if (items.length === 0) {
     const row = document.createElement("tr");
-    const text = term ? "No items match your search." : "No items yet.";
+    const text = term ? "No items match that search." : "No items yet.";
     row.innerHTML = `<td colspan="7">${text}</td>`;
     itemsTbody.appendChild(row);
     return;
@@ -103,11 +103,11 @@ export function renderItems() {
     const createdAt = new Date(item.created_at).toLocaleString();
 
     const actionOptions = [];
-    if (canAdmin) actionOptions.push(`<option value="edit">Edit</option>`);
-    if (canNotes) actionOptions.push(`<option value="notes">Edit Notes</option>`);
+    if (canAdmin) actionOptions.push(`<option value="edit">Edit Details</option>`);
+    if (canNotes) actionOptions.push(`<option value="notes">Notes</option>`);
     if (canAdmin) {
-      actionOptions.push(`<option value="correct">Correct</option>`);
-      actionOptions.push(`<option value="delete">Delete</option>`);
+      actionOptions.push(`<option value="correct">Correct Count</option>`);
+      actionOptions.push(`<option value="delete">Delete Item</option>`);
     }
 
     const ariaLabel = `Actions for ${item.name}`;
@@ -120,13 +120,13 @@ export function renderItems() {
          </select>`;
 
     row.innerHTML = `
-      <td>${escapeHtml(item.barcode)}</td>
-      <td>${escapeHtml(item.name)}</td>
-      <td>${escapeHtml(item.quantity)}</td>
-      <td>${escapeHtml(item.location)}</td>
-      <td class="notes-cell">${renderNotesSummary(item.notes)}</td>
-      <td>${escapeHtml(createdAt)}</td>
-      <td>${actions}</td>
+      <td data-label="Barcode">${escapeHtml(item.barcode)}</td>
+      <td data-primary>${escapeHtml(item.name)}</td>
+      <td data-label="Quantity"><strong>${escapeHtml(item.quantity)}</strong></td>
+      <td data-label="Location">${escapeHtml(item.location)}</td>
+      <td class="notes-cell" data-label="Notes">${renderNotesSummary(item.notes)}</td>
+      <td data-label="Created">${escapeHtml(createdAt)}</td>
+      <td data-label="Actions">${actions}</td>
     `;
     itemsTbody.appendChild(row);
   });
@@ -147,11 +147,11 @@ createItemBtn.addEventListener("click", async () => {
   setMessage(createItemMessage, "", "");
 
   if (!barcode || !name) {
-    setMessage(createItemMessage, "Barcode and item name are required.", "error");
+    setMessage(createItemMessage, "Enter a barcode and an item name.", "error");
     return;
   }
   if (!location) {
-    setMessage(createItemMessage, "Location is required.", "error");
+    setMessage(createItemMessage, "Enter a location.", "error");
     return;
   }
 
@@ -162,18 +162,14 @@ createItemBtn.addEventListener("click", async () => {
       location,
       quantity: parseFloat(quantity) || 0,
     });
-    setMessage(createItemMessage, `Item "${data.name}" created successfully.`, "success");
+    setMessage(createItemMessage, "Item saved.", "success");
     barcodeInput.value = "";
     nameInput.value = "";
     locationInput.value = "";
     quantityInput.value = "0";
     loadItems();
   } catch (err) {
-    if (err && err.status !== undefined) {
-      setMessage(createItemMessage, formatError(err.detail, "An error occurred."), "error");
-    } else {
-      setMessage(createItemMessage, "Could not connect to the server.", "error");
-    }
+    setMessage(createItemMessage, friendlyError(err, "Could not save the item. Try again."), "error");
   }
 });
 
@@ -225,7 +221,7 @@ itemsTbody.addEventListener("change", async (event) => {
       }
       loadItems();
     } catch (err) {
-      alert(err && err.detail ? err.detail : "Failed to delete item.");
+      alert(friendlyError(err, "Could not delete the item. Try again."));
     }
   }
 });

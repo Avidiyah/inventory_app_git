@@ -15,7 +15,7 @@
 import { apiLogin, apiLogout, apiMe, setUnauthorizedHandler } from "../api.js";
 import { setCurrentUser } from "../state.js";
 import { setMessage } from "../dom.js";
-import { formatError } from "../format.js";
+import { friendlyError } from "../format.js";
 import { applyRoleVisibility, canAccessPage, showPage } from "./nav.js";
 import { loadUsers } from "./users.js";
 import { setHistoryTab } from "./history.js";
@@ -37,9 +37,9 @@ function showLoginScreen() {
 }
 
 // Reveal the app for a logged-in user and run the initial loads they
-// are allowed to see. The default landing page is Create Item for
-// Owner/Admin and Saved Items for everyone else (Supervisor/Technician
-// cannot create items).
+// are allowed to see. Every role lands on Find Item (saved-items) after
+// sign-in (UX overhaul decision) so the first screen is identical and
+// obvious for the crew, regardless of role.
 function enterApp(user) {
   setCurrentUser(user);
   loginScreen.hidden = true;
@@ -56,9 +56,7 @@ function enterApp(user) {
     loadUsers();
   }
 
-  const landing =
-    (user.role === "owner" || user.role === "admin") ? "create-item" : "saved-items";
-  showPage(landing);
+  showPage("saved-items");
 }
 
 // Any 401 anywhere -> back to login. The login form's own catch still
@@ -82,11 +80,9 @@ loginBtn.addEventListener("click", async () => {
     enterApp(user);
   } catch (err) {
     if (err && err.status === 401) {
-      setMessage(loginMessage, "Invalid username or password.", "error");
-    } else if (err && err.status !== undefined) {
-      setMessage(loginMessage, formatError(err.detail, "Login failed."), "error");
+      setMessage(loginMessage, "That sign-in did not work. Check the username and password, then try again.", "error");
     } else {
-      setMessage(loginMessage, "Could not connect to the server.", "error");
+      setMessage(loginMessage, friendlyError(err, "Sign in failed."), "error");
     }
   }
 });

@@ -24,7 +24,7 @@ A self-hosted inventory management tool for tracking physical items by barcode. 
 |Client-side item search (name / barcode)|✅ Working|
 |Barcode scanning on Transaction page (image upload / mobile camera → filter + auto-open form)|✅ Working — backend `pyzbar` decode|
 |Codebase modularization (domain / services / views split)|✅ Complete — backend logic isolated from FastAPI; frontend split into ES modules; element-ID and route contracts unchanged|
-|Authentication (login / logout / session cookie)|✅ Working — HttpOnly session cookie, bcrypt password hashes, `/auth/login`, `/auth/logout`, `/auth/me`|
+|Authentication (login / logout / session cookie)|✅ Working — HttpOnly session cookie, scrypt password hashes, `/auth/login`, `/auth/logout`, `/auth/me`|
 |Role-based access control (Owner / Admin / Supervisor / Technician)|✅ Working — backend enforces via `get_current_user` + role checks; frontend hides controls the role cannot use|
 |Public deployment on Render (Docker + managed Postgres + HTTPS)|✅ Live — see `docs/deploy-render.md`|
 |Edit item name, barcode, or location|✅ Working — inline editor on Saved Items, Admin+, with a confirm dialog when the barcode changes|
@@ -40,7 +40,7 @@ The frontend is a single HTML page with a login gate and six tab-based views.
 
 ### Login Screen
 
-Shown by `views/auth.js` on boot when `GET /auth/me` returns 401, and again after logout. Username + password form posts to `/auth/login`; on success the app reveals itself and role-appropriate initial loads run. A header bar shows `username (role)` and a Logout button. A global 401 handler returns the user to the login screen if a session expires mid-use.
+Shown by `views/auth.js` on boot when `GET /auth/me` returns 401, and again after logout. Username + password form posts to `/auth/login`; the sign-in button reads "Sign In". On success the app reveals itself and role-appropriate initial loads run, and **every role lands on the Find Item page** (UX overhaul, Phase 1 — previously Owner/Admin landed on Create Item). A header bar shows `username (role)` and a Logout button. A global 401 handler returns the user to the login screen if a session expires mid-use.
 
 **Role-gated UI.** `applyRoleVisibility(role)` hides nav buttons and controls the current role cannot use (e.g. Technicians do not see Create Item / Create User / delete buttons). Backend dependencies are the authoritative check; the UI gating is convenience only.
 
@@ -54,7 +54,7 @@ Form with barcode, name, location, and starting quantity. Client validates barco
 
 ### Saved Items Page
 
-Table showing all items (barcode, name, quantity, location, notes summary, created date). Supports client-side text filter by name or barcode. Each row has an "Edit", "Edit Notes", "Correct", and delete button (Admin+ only; Supervisor/Technician see a read-only table). Items are ordered newest-first from the API.
+Table showing all items (barcode, name, quantity, location, notes summary, created date). Supports client-side text filter by name or barcode (placeholder "Search name or barcode"). Each row exposes Edit Details / Notes / Correct Count / Delete Item actions via a single per-row Actions menu (Admin+ for edit/correct/delete; Supervisor+ for notes; Technician sees none). On narrow screens (≤639px) the table collapses to stacked cards. Items are ordered newest-first from the API.
 
 **Item Editor** — inline section on the same page (hidden until triggered). Opens when "Edit" is clicked. Lets Admin+ change the barcode, name, and/or location of an existing item. Quantity is NOT editable here (use a Correction transaction). Changing the barcode prompts a confirm dialog ("Changing this barcode breaks any scanner labels still pointing at this row. Continue?"). Auto-closes after 1 second on success.
 
@@ -66,7 +66,7 @@ Table showing all items (barcode, name, quantity, location, notes summary, creat
 
 ### Create User Page
 
-Simple username form. Client validates username is non-empty before sending.
+Simple username form (username, role, password). A plain-language description of the selected role is shown under the Role select (Technician/Supervisor/Admin/Owner). Client validates username is non-empty before sending.
 
 ---
 
@@ -78,11 +78,11 @@ Table listing all users with a delete button. Deleting a user who has transactio
 
 ### Transaction Page
 
-**Barcode scan** (top of the page) — a file input with `accept="image/*" capture="environment"` so phones open the rear camera and desktops open a file picker. The chosen image is POSTed to `/barcodes/decode` (backend pyzbar decode, in memory). On a single match the items table is filtered to that row and the Stock form auto-opens (Type defaults to Stock; one click flips to Dispense). On an unknown barcode, Owner/Admin see a "Create Item" shortcut that jumps to the Create Item page with the barcode prefilled. Multiple barcodes in one image show a chooser. Decode failures show a clear message and the manual table below stays usable. The scan resets automatically after a completed stock/dispense. Supported formats: UPC-A, UPC-E, EAN-13, EAN-8, Code128.
+**Barcode scan** (top of the page) — has live camera mode and upload mode. Live mode starts only from the Scan button, decodes in-browser with vendored `@zxing/browser`, accepts a barcode after the 5-of-10 frame debounce, and then calls `GET /items/{barcode}` directly. Upload mode opens a file picker / still-camera capture and POSTs the image to `/barcodes/decode` (backend pyzbar decode, in memory). On a single match the items table is filtered to that row and the Stock form auto-opens (Type defaults to Stock; one click flips to Dispense). On an unknown barcode, Owner/Admin see a "Create Item" shortcut that jumps to the Create Item page with the barcode prefilled. Multiple barcodes in one uploaded image show a chooser. Decode failures show a clear message and the manual table below stays usable. The scan resets automatically after a completed stock/dispense. Supported upload formats: UPC-A, UPC-E, EAN-13, EAN-8, Code128.
 
-Displays all items in a table (barcode, name, current quantity) with "Stock" and "Dispense" buttons per row.
+Displays all items in a table (barcode, name, current quantity) with "Add Stock" and "Take Out" buttons per row. On narrow screens (≤639px) the items table collapses to stacked cards (`class="stack-table"`).
 
-**New Transaction form** (hidden until triggered) — shows the selected item name, type selector (pre-filled from which button was clicked), a user dropdown, quantity field, and optional work order number. User selection is required before saving. If no users exist, the save button is disabled with an explanatory message. Closes automatically after 1.2 seconds on success and refreshes both the transaction table and the items list.
+**New Transaction form** (hidden until triggered) — shows the selected/scanned item (large name, plus on-hand quantity and location when known), a segmented **Add Stock / Take Out Stock** control (pre-filled from which button was clicked; submitted `transaction_type` stays `stock`/`dispense`), quantity field, and optional work order number. Transactions are attributed to the logged-in user server-side; the client cannot submit a transaction as someone else. Closes automatically after 1.2 seconds on success and refreshes both the transaction table and the items list.
 
 ---
 
@@ -98,7 +98,7 @@ Transaction history with three sub-tabs sharing a single results table:
 
 **Pagination** — fixed page size of 10. Prev/Next buttons, page X of Y display. Page resets to 1 on tab or filter change.
 
-**History table columns:** Timestamp, Item (name + barcode), Type (styled badge — `stock` green, `dispense` amber, `adjust` blue), Quantity, Work Order, User. For `adjust` rows the Work Order column displays the correction's reason instead (the field is overloaded to avoid widening the table for a value only adjust rows ever carry); the quantity is the signed delta (positive when stock was increased, negative when it was decreased).
+**History table columns:** Timestamp, Item (name + barcode), Type (styled badge — green "Added", amber "Taken Out", blue "Correction"; the CSS classes stay `stock`/`dispense`/`adjust` so colours are unchanged, only the visible label is humanised), Quantity, Work Order, User. For `adjust` rows the Work Order column displays the correction's reason instead (the field is overloaded to avoid widening the table for a value only adjust rows ever carry); the quantity is the signed delta (positive when stock was increased, negative when it was decreased). On narrow screens (≤639px) the table collapses to stacked cards (`class="stack-table"`).
 
 ---
 
@@ -106,10 +106,10 @@ Transaction history with three sub-tabs sharing a single results table:
 
 ### On load
 
-1. `showPage("create-item")` activates the Create Item tab.
+1. `enterApp` calls `showPage("saved-items")` so every role lands on the Find Item page.
 2. `setHistoryTab("all")` initialises history state and triggers `loadHistory()`.
 3. `loadItems()` — fetches `/items/`, populates `itemsCache`, renders items table.
-4. `loadUsers()` — fetches `/users/`, populates `usersCache`, renders users table, populates user dropdowns.
+4. `loadUsers()` — fetches `/users/`, populates `usersCache`, renders the users table, and populates user selects used by history/user-management views where available.
 
 ### After creating/deleting an item
 
@@ -117,7 +117,7 @@ Transaction history with three sub-tabs sharing a single results table:
 
 ### After creating/deleting a user
 
-- `loadUsers()` is called; this also refreshes both user dropdowns and rechecks transaction form state.
+- `loadUsers()` is called; this also refreshes user-facing selects.
 
 ### After saving a transaction
 
@@ -168,7 +168,7 @@ Transaction history with three sub-tabs sharing a single results table:
 |Username required and non-blank|Frontend + Backend|
 |Username uniqueness|Backend (DB constraint → 400)|
 |Transaction quantity > 0|Frontend + Backend|
-|Transaction user required|Frontend (user_id remains optional on backend; gap, see below)|
+|Transaction attribution|Backend derives `user_id` from the logged-in session; legacy/null `user_id` rows may still appear in history|
 |Dispense cannot make quantity negative|Backend|
 |Authenticated session required on every non-login route|Backend (`get_current_user` dependency → 401)|
 |Role-based authorization on mutating routes|Backend (role checks in routers/services → 403)|
@@ -212,8 +212,6 @@ The frontend never calls `/db-test`.
 
 ## Known Gaps & Open Questions
 
-- **No item editing.** Once created, an item's barcode, name, and location cannot be changed through the UI. There is no PATCH endpoint for those fields. *(Resolved: see Saved Items → Item Editor.)*
-- **Quantity is read-only outside of transactions.** *(Resolved: see Saved Items → Correction. Quantity changes still flow through a transaction — corrections are recorded as `transaction_type = "adjust"` audit rows with a required reason — so the append-only invariant is preserved.)*
 - **Transaction page has its own item fetch.** `loadTxnItems()` fetches `/items/` independently from `loadItems()`, so the two tables can briefly diverge if items change between calls.
 - **Notes are fully replaced on every save.** There is no partial merge. Loading the editor, removing a row, and saving will permanently delete that note.
 - **No soft deletes.** Deleting an item or user is permanent. Deletion of an item or user that has transactions is blocked by the service layer (`ItemHasTransactionsError` / `UserHasTransactionsError`, → 400) and pinned at the DB level by `ON DELETE RESTRICT` on the `transactions.item_id` and `transactions.user_id` FKs.
@@ -230,7 +228,7 @@ The frontend never calls `/db-test`.
 | v2    | Added JSONB `notes` (formerly `attributes`)             | Flexible metadata without schema migrations per new field |
 | v3    | Added `location` column, renamed `attributes` → `notes` | Clearer semantics; location is a first-class field        |
 | v3    | `FOR UPDATE` lock on item during transaction            | Prevents race condition on concurrent stock/dispense      |
-| barcode | Barcode scanning lives on the Transaction page only; capture via file upload + mobile camera (`<input type=file capture>`); success filters to the matching row and auto-opens the Stock/Dispense form | Smallest surface that delivers the value; reuses the existing exact `GET /items/{barcode}` lookup (no fuzzy search) |
+| barcode | Barcode scanning lives on both Transaction and Saved Items. Upload mode uses file/still capture and backend `pyzbar`; live mode uses vendored `@zxing/browser`. Transaction success filters to the item and opens Stock/Dispense; Saved Items success filters to the row. | Delivers lookup where workers need it while keeping exact barcode resolution through `GET /items/{barcode}`. |
 | barcode | Decode on the **backend** with `pyzbar`, **not** `zxing-cpp` (the originally chosen library) and not a JS decoder | `zxing-cpp` has no prebuilt wheel for this Python 3.13 / Windows and needs a C++ toolchain to build (not available on the dev machine). `pyzbar` ships the native `zbar` DLLs in its wheel. Keeps symbology/format logic server-side and unit-tested. **Caveat:** on Windows pyzbar needs the VC++ 2013 runtime (`msvcr120.dll`). |
 | auth | Cookie sessions (HttpOnly, `SameSite=Lax`, `Secure` in prod) over JWT bearer tokens | Single-origin SPA served by the same FastAPI process; cookies are simpler, can't be read by JS (XSS-resistant), and need no token storage on the client. |
 | auth | Four-tier role hierarchy (Owner / Admin / Supervisor / Technician) with a strict "actor must outrank target" rule for create / reset / delete; Owner is bootstrap-only via `scripts/create_owner.py` | Captures the real workforce structure without inventing per-action permission flags; keeps the management rule trivially auditable and prevents any API caller from creating or escalating an Owner. |
@@ -238,3 +236,4 @@ The frontend never calls `/db-test`.
 | deploy | Single Render service (Docker) serves both the API and the static SPA, with managed Postgres; HTTPS terminates at Render | Cheapest path to production for a co-located FastAPI + static SPA; HTTPS is also the prerequisite for the mobile camera scan flow. |
 | delete-guard | `transactions.item_id` and `transactions.user_id` are pinned `ON DELETE RESTRICT`; the services pre-check for child rows and raise `ItemHasTransactionsError` / `UserHasTransactionsError` (→ 400) | The audit log is the system of record. A clean 400 from the service is more useful than a 500 from a DB integrity error, and the DB-level RESTRICT documents the invariant for any future writer. |
 | corrections | Quantity corrections flow through a new `POST /transactions/adjust` route (Admin+) that records a `transaction_type = "adjust"` audit row with the signed delta in `transactions.quantity` and the required reason in a new `transactions.reason` column. The earlier "no direct quantity edit" decision is superseded — but the append-only invariant it was protecting is preserved, because corrections are *new rows*, not UPDATEs to past transactions. Split route (not a branch inside `POST /transactions/`) keeps the role gate and payload shape obvious. Reason as its own column (not overloading `work_order_number`) keeps the field's semantics clean. | Operators occasionally need to reconcile observed stock with the system value (e.g. discovered miscount); forcing them to fake a stock or dispense pollutes the audit log with a fictional transaction. A first-class correction with a mandatory reason captures the *why* and keeps the audit trail honest. |
+| ux-overhaul-p1 | Field-friendly UX overhaul, Phase 1 (frontend only). Visible labels renamed: Create Item→"Add Item", Saved Items→"Find Item", Create User→"Add User", Saved Users→"Users", Transaction→"Scan / Stock"; "Log In"→"Sign In"; "Correct Quantity"→"Correct Count"; "Edit Notes"→"Notes"; type options→"Add Stock"/"Take Out Stock". All roles now land on Find Item after sign-in. Messages rewritten to crew-friendly wording via the new `format.friendlyError`. New red/black/white (Belfor) visual system via CSS tokens (primary 52px / inputs 48px / body 16px). Internal `data-page` values, element IDs, state classes, and `transaction_type` values are unchanged — the frozen DOM contract is intact. | The app workflow already works; the problem was clarity and confidence for a low-tech-tolerance construction crew on phones. See `docs/plan-ux-overhaul.md`, `docs/roadmap-ux-overhaul.md`, and `docs/design-spec-ux-overhaul.md`. |

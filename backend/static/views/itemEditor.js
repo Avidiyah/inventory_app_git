@@ -21,7 +21,7 @@
 
 import { getEditingItemId, setEditingItemId } from "../state.js";
 import { apiUpdateItem } from "../api.js";
-import { formatError } from "../format.js";
+import { friendlyError } from "../format.js";
 import { setMessage } from "../dom.js";
 
 const itemEditorSection = document.getElementById("item-editor-section");
@@ -93,14 +93,10 @@ itemEditorSaveBtn.addEventListener("click", async () => {
   // and makes the PATCH idempotent.
   try {
     await apiUpdateItem(editingId, { barcode, name, location });
-    setMessage(itemEditorMessage, "Item updated.", "success");
+    setMessage(itemEditorMessage, "Item saved.", "success");
     if (onSavedCallback) await onSavedCallback();
     setTimeout(closeItemEditor, 1000);
   } catch (err) {
-    if (err && err.status !== undefined) {
-      setMessage(itemEditorMessage, formatError(err.detail, "Failed to update item."), "error");
-    } else {
-      setMessage(itemEditorMessage, "Could not connect to the server.", "error");
-    }
+    setMessage(itemEditorMessage, friendlyError(err, "Could not save the changes. Try again."), "error");
   }
 });

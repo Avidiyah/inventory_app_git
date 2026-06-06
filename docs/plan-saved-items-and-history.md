@@ -1,13 +1,13 @@
 # Plan: Saved Items + History UX Pass
 
-Status: **Planning only — no code changes yet. All open questions
-resolved (see Decision log at the bottom).**
+Status: **Implemented.** This document is retained as the design
+rationale for the shipped Saved Items scanner, action dropdown,
+Supervisor notes carve-out, work-order history filter, and copy-table
+history export.
 
-This document tracks five related changes the user has asked for. It
-captures *what* we want, *where* it lives in the current codebase, and
-*how* it should behave. The Decision log records the answers we got
-for every previously open question so the implementation phase has no
-ambiguity.
+This document tracks five related changes the user asked for. The
+implementation has landed; the sections below explain the intended
+behavior and the decisions that shaped the current code.
 
 ---
 

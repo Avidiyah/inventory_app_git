@@ -18,7 +18,7 @@
 //   table refreshes after a successful correction.
 
 import { apiCreateCorrection } from "../api.js";
-import { formatError } from "../format.js";
+import { friendlyError } from "../format.js";
 import { setMessage } from "../dom.js";
 
 const correctionSection = document.getElementById("correction-section");
@@ -40,7 +40,7 @@ export function setOnSaved(fn) {
 export function openCorrection(item) {
   editingItemId = item.id;
   correctionSelected.textContent = `Correcting: ${item.name} (${item.barcode})`;
-  correctionCurrent.textContent = `Current quantity: ${item.quantity}`;
+  correctionCurrent.textContent = `Current count: ${item.quantity}`;
   correctionNewQuantity.value = item.quantity;
   correctionReason.value = "";
   setMessage(correctionMessage, "", "");
@@ -74,16 +74,16 @@ correctionSaveBtn.addEventListener("click", async () => {
   const raw = correctionNewQuantity.value;
   const newQuantity = Number(raw);
   if (raw === "" || !Number.isFinite(newQuantity)) {
-    setMessage(correctionMessage, "Enter a valid new quantity.", "error");
+    setMessage(correctionMessage, "Enter a valid new count.", "error");
     return;
   }
   if (newQuantity < 0) {
-    setMessage(correctionMessage, "New quantity cannot be negative.", "error");
+    setMessage(correctionMessage, "Enter a count of zero or more.", "error");
     return;
   }
   const reason = correctionReason.value.trim();
   if (!reason) {
-    setMessage(correctionMessage, "Reason is required.", "error");
+    setMessage(correctionMessage, "Enter a reason for the correction.", "error");
     return;
   }
 
@@ -93,14 +93,10 @@ correctionSaveBtn.addEventListener("click", async () => {
       newQuantity,
       reason,
     });
-    setMessage(correctionMessage, "Correction saved.", "success");
+    setMessage(correctionMessage, "Count corrected.", "success");
     if (onSavedCallback) await onSavedCallback();
     setTimeout(closeCorrection, 1000);
   } catch (err) {
-    if (err && err.status !== undefined) {
-      setMessage(correctionMessage, formatError(err.detail, "Failed to save correction."), "error");
-    } else {
-      setMessage(correctionMessage, "Could not connect to the server.", "error");
-    }
+    setMessage(correctionMessage, friendlyError(err, "Could not save the correction. Try again."), "error");
   }
 });
