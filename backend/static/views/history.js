@@ -22,7 +22,7 @@ import {
   updateHistoryState,
   HISTORY_PAGE_SIZE,
 } from "../state.js";
-import { apiListTransactions, apiGetItemByBarcode } from "../api.js";
+import { apiListTransactions, apiGetItemByBarcode, apiVoidTransaction } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage } from "../dom.js";
 
@@ -148,12 +148,16 @@ export function renderHistory(data) {
   if (items.length === 0) {
     const row = document.createElement("tr");
     const text = emptyStateMessage(s);
-    row.innerHTML = `<td colspan="6">${escapeHtml(text)}</td>`;
+    row.innerHTML = `<td colspan="7">${escapeHtml(text)}</td>`;
     historyTbody.appendChild(row);
   } else {
     items.forEach(txn => {
       const [timestamp, itemLabel, type, quantity, detail, user] = formatRow(txn);
       const row = document.createElement("tr");
+      // Every role that can reach this page is Supervisor or above
+      // (PAGE_ACCESS gates History at supervisor), which is exactly the
+      // set allowed to void, so the button needs no per-row role check.
+      const voidLabel = `Void ${TYPE_LABELS[type] || type} of ${quantity} for ${txn.item_name}`;
       row.innerHTML = `
         <td data-label="Time">${escapeHtml(timestamp)}</td>
         <td data-primary>${escapeHtml(itemLabel)}</td>
@@ -161,6 +165,7 @@ export function renderHistory(data) {
         <td data-label="Quantity">${escapeHtml(quantity)}</td>
         <td data-label="Work Order">${escapeHtml(detail || "—")}</td>
         <td data-label="User">${escapeHtml(user || "—")}</td>
+        <td data-label="Actions"><button type="button" class="void-txn-btn btn-danger" data-id="${escapeHtml(txn.id)}" aria-label="${escapeHtml(voidLabel)}">Delete</button></td>
       `;
       historyTbody.appendChild(row);
     });
@@ -178,6 +183,36 @@ historyTabs.addEventListener("click", (event) => {
   const target = event.target;
   if (target.classList.contains("sub-tab-btn")) {
     setHistoryTab(target.dataset.tab);
+  }
+});
+
+// Void (delete) a mis-clicked transaction. Delegated so it covers every
+// re-rendered row. The backend reverses the stock effect and hides the
+// row from history; we just confirm and reload the current view.
+historyTbody.addEventListener("click", async (event) => {
+  const btn = event.target.closest(".void-txn-btn");
+  if (!btn) return;
+  const id = btn.dataset.id;
+  if (!id) return;
+
+  if (!confirm(
+    "Delete this transaction?\n\nThis undoes its effect on the on-hand count and removes it from history."
+  )) return;
+
+  btn.disabled = true;
+  try {
+    await apiVoidTransaction(id);
+    // If this was the only row left on a page past the first, step back
+    // so the user doesn't land on an empty page.
+    const s = getHistoryState();
+    const remaining = historyTbody.querySelectorAll(".void-txn-btn").length;
+    if (remaining <= 1 && s.page > 1) {
+      updateHistoryState({ page: s.page - 1 });
+    }
+    loadHistory();
+  } catch (err) {
+    btn.disabled = false;
+    alert(friendlyError(err, "Could not delete the transaction. Try again."));
   }
 });
 

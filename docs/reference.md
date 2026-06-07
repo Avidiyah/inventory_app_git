@@ -167,8 +167,14 @@ Notes keys must be non-blank strings. Values may be `str`, `int`, `float`, or `b
 | `work_order_number` | Text nullable | Used by stock/dispense |
 | `reason` | Text nullable | Required by correction/adjust rows |
 | `created_at` | timestamptz | Set on insert |
+| `voided_at` | timestamptz nullable | NULL = live; a timestamp = voided (soft delete), hidden from history |
+| `voided_by_id` | UUID nullable | Who voided the row (hidden audit metadata; deliberately not an FK) |
 
-Transactions are append-only. Quantity changes are never made by editing historical transaction rows.
+Transactions are append-only and never edited in place. A mis-clicked
+transaction can be *voided* (Supervisor+): the row is retained for the
+audit trail but stamped `voided_at` / `voided_by_id`, excluded from the
+history view, and its effect on item stock is reversed under the item
+row lock. A void that would drive stock below zero is rejected (400).
 
 ---
 
@@ -182,6 +188,7 @@ Transactions are append-only. Quantity changes are never made by editing histori
 | `a1b2c3d4e5f6` | Add password hashes, roles, and sessions |
 | `b2d3e4f5a6c7` | Restrict transaction foreign keys |
 | `c3d4e5f6a7b8` | Add correction reason column |
+| `d4e5f6a7b8c9` | Add transaction void columns (`voided_at`, `voided_by_id`) |
 
 ---
 
@@ -241,7 +248,8 @@ owner > admin > supervisor > technician
 |---|---|---|---|
 | POST | `/transactions/` | Supervisor | Record stock or dispense |
 | POST | `/transactions/adjust` | Admin | Record correction to absolute quantity |
-| GET | `/transactions/` | Supervisor | Paginated history |
+| DELETE | `/transactions/{transaction_id}` | Supervisor | Void (soft-delete) a mis-clicked transaction; reverses its stock effect |
+| GET | `/transactions/` | Supervisor | Paginated history (excludes voided rows) |
 
 `GET /transactions/` query params:
 

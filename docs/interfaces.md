@@ -88,6 +88,8 @@ Inputs:
 | `work_order_number` | str? | Stock/dispense detail |
 | `reason` | str? | Correction detail |
 | `created_at` | datetime | tz-aware |
+| `voided_at` | datetime? | NULL = live; set = voided (soft delete), hidden from history |
+| `voided_by_id` | UUID? | Who voided it (plain UUID, not an FK — hidden audit metadata) |
 
 ---
 
@@ -118,6 +120,10 @@ Strict ordering: owner > admin > supervisor > technician.
 - `dispense`: subtracts quantity and raises `NegativeQuantityError` below zero.
 - `adjust`: applies signed delta and raises `NegativeQuantityError` below zero.
 
+`reverse_delta(current: Decimal, transaction_type: str, quantity: Decimal) -> Decimal`
+
+- Undoes a previously-applied transaction (used when voiding). Reuses `apply_delta` with the opposite operation, so it inherits the below-zero guard.
+
 ### `app/domain/notes_validation.py`
 
 `validate_notes(notes: dict) -> dict[str, str | int | float | bool]`
@@ -136,6 +142,8 @@ Domain exceptions are translated by `routers/_errors.py`. Important errors inclu
 - `UserHasTransactionsError`
 - `NegativeQuantityError`
 - `NoChangeError`
+- `TransactionNotFoundError`
+- `TransactionVoidError`
 - `InvalidCredentialsError`
 - `RoleManagementError`
 - `UnreadableImageError`
@@ -318,14 +326,15 @@ Opens bytes with Pillow, decodes with pyzbar, filters to supported formats, dedu
 
 - `apply_transaction(db, *, item_id, transaction_type, quantity, user_id, work_order_number) -> Transaction`
 - `apply_correction(db, *, item_id, new_quantity, reason, user_id) -> Transaction`
+- `void_transaction(db, *, transaction_id, user_id) -> None`
 
-Both lock the item row with `SELECT ... FOR UPDATE`.
+All three lock the item row with `SELECT ... FOR UPDATE`. `void_transaction` soft-deletes the row (sets `voided_at` / `voided_by_id`) and reverses its stock effect via `domain.quantity.reverse_delta`; raises `TransactionNotFoundError` (unknown/already-voided) or `TransactionVoidError` (reversal would go negative).
 
 ### `services/history.py`
 
 - `list_history(db, *, item_id?, user_id?, work_order_number?, page, page_size) -> TransactionHistoryPage`
 
-Filters combine with AND. `work_order_number` is a case-sensitive escaped substring match.
+Filters combine with AND, and voided rows are excluded (`voided_at IS NULL`). `work_order_number` is a case-sensitive escaped substring match.
 
 ### `services/users.py`
 
@@ -373,6 +382,7 @@ Filters combine with AND. `work_order_number` is a case-sensitive escaped substr
 |---|---|---|---|---|
 | POST | `/transactions/` | Supervisor+ | `TransactionCreate` | `TransactionResponse` |
 | POST | `/transactions/adjust` | Admin+ | `CorrectionCreate` | `TransactionResponse` |
+| DELETE | `/transactions/{transaction_id}` | Supervisor+ | path id | `204` |
 | GET | `/transactions/` | Supervisor+ | query filters | `TransactionHistoryPage` |
 
 ### `/barcodes`
@@ -416,6 +426,7 @@ Exports:
 - `apiListTransactions({ page, pageSize, itemId, userId, workOrder })`
 - `apiCreateTransaction(payload)`
 - `apiCreateCorrection({ itemId, newQuantity, reason })`
+- `apiVoidTransaction(transactionId)`
 
 ### `static/state.js`
 

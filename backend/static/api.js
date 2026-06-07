@@ -159,6 +159,13 @@ export async function apiCreateTransaction(payload) {
   return jsonRequest("/transactions/", "POST", body);
 }
 
+export async function apiVoidTransaction(transactionId) {
+  // Soft-delete (void) a mis-clicked transaction. Supervisor+ on the
+  // backend; reverses the row's effect on stock and hides it from
+  // history. 204 on success.
+  return parseResponse(await fetch(`/transactions/${transactionId}`, { method: "DELETE", credentials: "include" }));
+}
+
 export async function apiCreateCorrection({ itemId, newQuantity, reason }) {
   // Sibling of apiCreateTransaction, but for `transaction_type = "adjust"`
   // -- Admin+ only on the backend. The user sends the absolute new

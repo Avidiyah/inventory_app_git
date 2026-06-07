@@ -1,6 +1,6 @@
 """Transaction history read service.
 
-Layer: services. Backs `GET /transactions/history`. Performs the
+Layer: services. Backs `GET /transactions/`. Performs the
 JOIN across `transactions` / `items` / `users` and builds the
 denormalised `TransactionHistoryPage` directly, so the router is a
 pass-through and the frontend renders the table without N+1
@@ -69,11 +69,17 @@ def list_history(
     `User` is joined with an OUTER join because transactions may be
     recorded anonymously (NULL `user_id`) — an inner join would
     silently drop those rows from the history view.
+
+    Voided (soft-deleted) transactions are excluded entirely: a void
+    sets `voided_at`, and history only ever shows live rows
+    (`voided_at IS NULL`). This applies to the filtered `total` too, so
+    pagination counts match what is shown.
     """
     query = (
         db.query(Transaction, Item, User)
         .join(Item, Item.id == Transaction.item_id)
         .outerjoin(User, User.id == Transaction.user_id)
+        .filter(Transaction.voided_at.is_(None))
     )
 
     if item_id is not None:

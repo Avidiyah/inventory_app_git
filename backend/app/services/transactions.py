@@ -14,13 +14,20 @@ live in `app.domain.quantity.apply_delta`.
 """
 
 import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from app.domain.errors import ItemNotFoundError, NoChangeError
-from app.domain.quantity import apply_delta
+from app.domain.errors import (
+    ItemNotFoundError,
+    NegativeQuantityError,
+    NoChangeError,
+    TransactionNotFoundError,
+    TransactionVoidError,
+)
+from app.domain.quantity import apply_delta, reverse_delta
 from app.models import Item, Transaction
 
 
@@ -65,6 +72,67 @@ def apply_transaction(
     db.commit()
     db.refresh(new_txn)
     return new_txn
+
+
+def void_transaction(
+    db: Session,
+    *,
+    transaction_id: uuid.UUID,
+    user_id: Optional[uuid.UUID],
+) -> None:
+    """Void a mis-clicked transaction (soft delete) and reverse its
+    effect on the item's stock.
+
+    The row is NOT hard-deleted: it is stamped with `voided_at` (now)
+    and `voided_by_id` (the acting user) so the audit trail is retained,
+    but it disappears from the history view (which filters out voided
+    rows). The item's `quantity` is adjusted by the opposite of the
+    original delta -- under the same `SELECT ... FOR UPDATE` row lock the
+    stock/dispense path uses -- so concurrent writes serialise per item.
+
+    Raises:
+    - `TransactionNotFoundError` if the id is unknown or the row has
+      already been voided (it is no longer actionable from history).
+    - `TransactionVoidError` if undoing the row would drive stock below
+      zero (e.g. voiding a stock-in whose units were since dispensed);
+      the operator should make a correction instead.
+    """
+    txn = (
+        db.query(Transaction)
+        .filter(Transaction.id == transaction_id)
+        .first()
+    )
+    if txn is None or txn.voided_at is not None:
+        raise TransactionNotFoundError("Transaction not found.")
+
+    # Lock the item row before the read-modify-write of its quantity, so
+    # a void racing a stock/dispense/correction can never lose an update.
+    item = (
+        db.query(Item)
+        .filter(Item.id == txn.item_id)
+        .with_for_update()
+        .first()
+    )
+    if item is None:
+        # The item_id FK is RESTRICT, so a live transaction always has a
+        # live item; this is a defensive guard, not an expected path.
+        raise ItemNotFoundError("Item not found.")
+
+    try:
+        item.quantity = reverse_delta(
+            item.quantity, txn.transaction_type, txn.quantity
+        )
+    except NegativeQuantityError as exc:
+        # Translate the low-level overdraft into a void-specific message;
+        # SQLAlchemy rolls back the (untouched) transaction on raise.
+        raise TransactionVoidError(
+            "Cannot void this entry — it would make the on-hand count "
+            "negative. Make a correction instead."
+        ) from exc
+
+    txn.voided_at = datetime.now(timezone.utc)
+    txn.voided_by_id = user_id
+    db.commit()
 
 
 def apply_correction(

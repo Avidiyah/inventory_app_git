@@ -6,7 +6,7 @@ Layer: schemas. `TransactionCreate` is the body of `POST
 sibling route that records a quantity correction (signed delta
 computed by the service from `new_quantity - current`).
 `TransactionHistoryItem` / `TransactionHistoryPage` are the
-denormalised, paginated shapes served by `GET /transactions/history`
+denormalised, paginated shapes served by `GET /transactions/`
 — they carry item barcode/name and username so the frontend history
 view does not need a second round-trip per row.
 """

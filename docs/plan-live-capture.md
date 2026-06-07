@@ -113,7 +113,7 @@ not depend on either.
 |----|------------------------------------------------|-------|
 | 1  | Pages getting live capture                     | Both Transaction and Saved Items |
 | 2  | Upload still supported                         | Yes, kept alongside live capture |
-| 3  | Server-side verify in live mode                | **No.** Live mode calls `apiGetItemByBarcode(text)` directly. Upload mode keeps `POST /barcodes/decode` unchanged. Rationale: ZXing (client) and pyzbar (server) are different decoders, so a "verify" step can fail on a correct client decode; the auth gate is also enforced again by `/items/by-barcode/{text}` and `POST /transactions/`, so nothing security-relevant is lost. |
+| 3  | Server-side verify in live mode                | **No.** Live mode calls `apiGetItemByBarcode(text)` directly. Upload mode keeps `POST /barcodes/decode` unchanged. Rationale: ZXing (client) and pyzbar (server) are different decoders, so a "verify" step can fail on a correct client decode; the auth gate is also enforced again by `GET /items/{barcode}` and `POST /transactions/`, so nothing security-relevant is lost. |
 | 4  | Decoding cadence                               | **One accepted result per transaction; continuous decode otherwise.** Decoder runs every frame while in `scanning`, pauses on accept, resumes after the transaction closes. |
 | 5  | Decoder library                                | `@zxing/browser` |
 | 6  | Vendor vs CDN                                  | Vendor. File in `backend/static/vendor/`, version pinned by filename (e.g. `zxing-browser-0.1.5.min.js`), SHA-256 recorded in [docs/reference.md](docs/reference.md), manual update steps documented there. |

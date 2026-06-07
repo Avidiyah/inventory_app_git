@@ -85,6 +85,29 @@ def create_correction(
         raise to_http(exc)
 
 
+@router.delete("/{transaction_id}", status_code=204)
+def void_transaction(
+    transaction_id: UUID,
+    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
+    db: Session = Depends(get_db),
+):
+    """Void a mis-clicked transaction. Supervisor or above. This is a
+    soft delete: the row is retained (stamped with who/when) but hidden
+    from history, and its effect on the item's stock is reversed.
+
+    404 if the transaction is unknown or already voided; 400 if undoing
+    it would drive the item's stock below zero
+    (`TransactionVoidError` — make a correction instead)."""
+    try:
+        transactions_service.void_transaction(
+            db,
+            transaction_id=transaction_id,
+            user_id=user.id,
+        )
+    except DomainError as exc:
+        raise to_http(exc)
+
+
 @router.get(
     "/",
     response_model=TransactionHistoryPage,

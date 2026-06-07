@@ -17,6 +17,7 @@ A self-hosted inventory management tool for tracking physical items by barcode. 
 |Create / list / delete items|✅ Working|
 |Create / list / delete users|✅ Working|
 |Stock and dispense transactions|✅ Working|
+|Void (delete) a mis-clicked transaction|✅ Working — Supervisor+; soft delete, hidden from history, reverses stock|
 |Item notes (JSONB key-value)|✅ Working|
 |Transaction history with pagination|✅ Working|
 |Filter history by item (barcode lookup)|✅ Working|
@@ -98,7 +99,9 @@ Transaction history with three sub-tabs sharing a single results table:
 
 **Pagination** — fixed page size of 10. Prev/Next buttons, page X of Y display. Page resets to 1 on tab or filter change.
 
-**History table columns:** Timestamp, Item (name + barcode), Type (styled badge — green "Added", amber "Taken Out", blue "Correction"; the CSS classes stay `stock`/`dispense`/`adjust` so colours are unchanged, only the visible label is humanised), Quantity, Work Order, User. For `adjust` rows the Work Order column displays the correction's reason instead (the field is overloaded to avoid widening the table for a value only adjust rows ever carry); the quantity is the signed delta (positive when stock was increased, negative when it was decreased). On narrow screens (≤639px) the table collapses to stacked cards (`class="stack-table"`).
+**History table columns:** Timestamp, Item (name + barcode), Type (styled badge — green "Added", amber "Taken Out", blue "Correction"; the CSS classes stay `stock`/`dispense`/`adjust` so colours are unchanged, only the visible label is humanised), Quantity, Work Order, User, Actions. For `adjust` rows the Work Order column displays the correction's reason instead (the field is overloaded to avoid widening the table for a value only adjust rows ever carry); the quantity is the signed delta (positive when stock was increased, negative when it was decreased). On narrow screens (≤639px) the table collapses to stacked cards (`class="stack-table"`).
+
+**Void (delete) a transaction** — the Actions column shows a "Delete" button on every row (outline-red `.btn-danger`). The whole History page is gated to Supervisor+, which is exactly the set allowed to void, so the button needs no per-row role check. Clicking confirms, then `DELETE /transactions/{id}` *voids* the row: it is soft-deleted (kept in the DB stamped with who/when for the audit trail), removed from history entirely, and its effect on the item's on-hand quantity is reversed under the item row lock. A void that would drive stock below zero is refused with a 400 and a "make a correction instead" message. The Copy-table TSV is unaffected (Actions is a UI-only column). After a void the current page reloads; if it was the last row on a page past the first, the view steps back a page.
 
 ---
 
@@ -181,6 +184,9 @@ Transaction history with three sub-tabs sharing a single results table:
 |Correction `new_quantity` ≥ 0|Backend (`CorrectionCreate` field validator) + Frontend|
 |Correction `reason` required (non-blank, stripped)|Backend (`CorrectionCreate` field validator) + Frontend|
 |Correction must actually change quantity (`new_quantity != current`)|Backend (`NoChangeError` → 400; computed under `FOR UPDATE`)|
+|Void requires Supervisor or above|Backend (`require_min_role(supervisor)` on `DELETE /transactions/{id}` → 403)|
+|Void of an unknown / already-voided transaction blocked|Backend (`TransactionNotFoundError` → 404)|
+|Void that would drive stock below zero blocked|Backend (`TransactionVoidError` → 400; reversal computed under `FOR UPDATE`)|
 
 ---
 
@@ -205,6 +211,7 @@ Transaction history with three sub-tabs sharing a single results table:
 |Load transaction history|GET `/transactions/?page=&page_size=&[item_id=\|user_id=]`|
 |Create transaction|POST `/transactions/`|
 |Record a correction (quantity adjust)|POST `/transactions/adjust`|
+|Void (delete) a transaction|DELETE `/transactions/{transaction_id}`|
 
 The frontend never calls `/db-test`.
 
@@ -214,7 +221,8 @@ The frontend never calls `/db-test`.
 
 - **Transaction page has its own item fetch.** `loadTxnItems()` fetches `/items/` independently from `loadItems()`, so the two tables can briefly diverge if items change between calls.
 - **Notes are fully replaced on every save.** There is no partial merge. Loading the editor, removing a row, and saving will permanently delete that note.
-- **No soft deletes.** Deleting an item or user is permanent. Deletion of an item or user that has transactions is blocked by the service layer (`ItemHasTransactionsError` / `UserHasTransactionsError`, → 400) and pinned at the DB level by `ON DELETE RESTRICT` on the `transactions.item_id` and `transactions.user_id` FKs.
+- **No soft deletes for items / users.** Deleting an item or user is permanent. Deletion of an item or user that has transactions is blocked by the service layer (`ItemHasTransactionsError` / `UserHasTransactionsError`, → 400) and pinned at the DB level by `ON DELETE RESTRICT` on the `transactions.item_id` and `transactions.user_id` FKs. (Note: a *voided* transaction is still a row referencing its item/user, so it continues to block that item/user's deletion — the audit row is retained, just hidden from history.)
+- **Transactions have a soft-delete (void).** A mis-clicked transaction can be voided by a Supervisor+ (`DELETE /transactions/{id}`): the row is retained and stamped `voided_at` / `voided_by_id`, hidden from history, and its stock effect reversed. There is no UI to *un-void* a transaction yet — recovery would currently require a manual DB edit.
 
 ---
 
@@ -236,4 +244,5 @@ The frontend never calls `/db-test`.
 | deploy | Single Render service (Docker) serves both the API and the static SPA, with managed Postgres; HTTPS terminates at Render | Cheapest path to production for a co-located FastAPI + static SPA; HTTPS is also the prerequisite for the mobile camera scan flow. |
 | delete-guard | `transactions.item_id` and `transactions.user_id` are pinned `ON DELETE RESTRICT`; the services pre-check for child rows and raise `ItemHasTransactionsError` / `UserHasTransactionsError` (→ 400) | The audit log is the system of record. A clean 400 from the service is more useful than a 500 from a DB integrity error, and the DB-level RESTRICT documents the invariant for any future writer. |
 | corrections | Quantity corrections flow through a new `POST /transactions/adjust` route (Admin+) that records a `transaction_type = "adjust"` audit row with the signed delta in `transactions.quantity` and the required reason in a new `transactions.reason` column. The earlier "no direct quantity edit" decision is superseded — but the append-only invariant it was protecting is preserved, because corrections are *new rows*, not UPDATEs to past transactions. Split route (not a branch inside `POST /transactions/`) keeps the role gate and payload shape obvious. Reason as its own column (not overloading `work_order_number`) keeps the field's semantics clean. | Operators occasionally need to reconcile observed stock with the system value (e.g. discovered miscount); forcing them to fake a stock or dispense pollutes the audit log with a fictional transaction. A first-class correction with a mandatory reason captures the *why* and keeps the audit trail honest. |
+| void-txn | A mis-clicked transaction can be deleted by Supervisor+ via `DELETE /transactions/{id}`. Implemented as a **soft delete ("void")**, not a hard delete: the row is kept (stamped `voided_at` + `voided_by_id`), excluded from the history view (`list_history` filters `voided_at IS NULL`), and its effect on `Item.quantity` is reversed under the same `SELECT ... FOR UPDATE` lock as stock/dispense (reversal arithmetic in `domain.quantity.reverse_delta`, unit-tested). A reversal that would make stock negative raises `TransactionVoidError` (400). Supervisor+ chosen because that is the existing History-page gate, so the whole set of viewers can self-correct. `voided_by_id` is a plain UUID rather than a second FK to `users`, to avoid disambiguating the existing `Transaction.user` relationship for what is hidden audit metadata. | Operators occasionally fat-finger a stock/dispense on a phone; forcing a compensating fake transaction (or a DB edit) to fix it is worse than letting them remove the bad row. Soft delete keeps the append-only audit trail honest (nothing is truly destroyed; who/when is recorded) while giving the crew a clean "undo" and keeping the history view uncluttered. |
 | ux-overhaul-p1 | Field-friendly UX overhaul, Phase 1 (frontend only). Visible labels renamed: Create Item→"Add Item", Saved Items→"Find Item", Create User→"Add User", Saved Users→"Users", Transaction→"Scan / Stock"; "Log In"→"Sign In"; "Correct Quantity"→"Correct Count"; "Edit Notes"→"Notes"; type options→"Add Stock"/"Take Out Stock". All roles now land on Find Item after sign-in. Messages rewritten to crew-friendly wording via the new `format.friendlyError`. New red/black/white (Belfor) visual system via CSS tokens (primary 52px / inputs 48px / body 16px). Internal `data-page` values, element IDs, state classes, and `transaction_type` values are unchanged — the frozen DOM contract is intact. | The app workflow already works; the problem was clarity and confidence for a low-tech-tolerance construction crew on phones. See `docs/plan-ux-overhaul.md`, `docs/roadmap-ux-overhaul.md`, and `docs/design-spec-ux-overhaul.md`. |

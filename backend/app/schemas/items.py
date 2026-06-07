@@ -68,7 +68,7 @@ class ItemResponse(BaseModel):
 
 
 class ItemNotesUpdate(BaseModel):
-    """Payload for `PUT /items/{id}/notes` — a full replacement.
+    """Payload for `PATCH /items/{id}/notes` — a full replacement.
 
     The validator delegates to `domain.notes_validation.validate_notes`
     so the same whitelist (str / int / float / bool, non-blank keys)

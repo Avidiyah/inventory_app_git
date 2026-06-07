@@ -77,6 +77,21 @@ class NegativeQuantityError(DomainError):
         )
 
 
+class TransactionNotFoundError(DomainError):
+    """Raised by `services.transactions.void_transaction` when no row
+    matches the given transaction id (or it is already voided, so it is
+    no longer visible to act on). Maps to 404."""
+
+
+class TransactionVoidError(DomainError):
+    """Raised by `services.transactions.void_transaction` when undoing a
+    transaction's effect on stock would drive the item's quantity below
+    zero -- e.g. voiding a stock-in whose units have since been
+    dispensed. Wraps the lower-level `NegativeQuantityError` so the user
+    gets a void-specific message rather than the dispense wording. Maps
+    to 400."""
+
+
 class NoChangeError(DomainError):
     """Raised by `services.transactions.apply_correction` when the
     requested `new_quantity` matches the item's current quantity, so

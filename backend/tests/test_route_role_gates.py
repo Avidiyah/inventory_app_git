@@ -60,17 +60,31 @@ def test_delete_item_requires_admin():
     assert _min_role_for(route) == roles.ROLE_ADMIN
 
 
-def test_create_correction_requires_admin():
-    # `POST /transactions/adjust`. Gate is on the `user=` Depends in the
-    # signature, not on the decorator's `dependencies=[...]`, so walk
-    # the endpoint's own dependant tree instead of `route.dependencies`.
-    route = _route(transactions_router, "create_correction")
+def _min_role_from_dependant(route):
+    """Return the `minimum` role from a `require_min_role(...)` gate
+    attached via the endpoint's `user=` Depends parameter (rather than
+    the decorator's `dependencies=[...]`), or None if absent."""
     for sub in route.dependant.dependencies:
         call = getattr(sub, "call", None)
         closure = getattr(call, "__closure__", None) or ()
         freevars = call.__code__.co_freevars if call is not None else ()
         for name, cell in zip(freevars, closure):
             if name == "minimum" and isinstance(cell.cell_contents, str):
-                assert cell.cell_contents == roles.ROLE_ADMIN
-                return
-    raise AssertionError("create_correction has no require_min_role dependency")
+                return cell.cell_contents
+    return None
+
+
+def test_create_correction_requires_admin():
+    # `POST /transactions/adjust`. Gate is on the `user=` Depends in the
+    # signature, not on the decorator's `dependencies=[...]`, so walk
+    # the endpoint's own dependant tree instead of `route.dependencies`.
+    route = _route(transactions_router, "create_correction")
+    assert _min_role_from_dependant(route) == roles.ROLE_ADMIN
+
+
+def test_void_transaction_requires_supervisor():
+    # `DELETE /transactions/{transaction_id}`. Owner/Admin/Supervisor may
+    # void a mis-clicked transaction; Technician may not. The gate is on
+    # the `user=` Depends so the handler can record who voided it.
+    route = _route(transactions_router, "void_transaction")
+    assert _min_role_from_dependant(route) == roles.ROLE_SUPERVISOR

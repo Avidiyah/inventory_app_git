@@ -72,6 +72,18 @@ class Transaction(Base):
     (the sign is implied by the type). `reason` is populated only for
     `transaction_type = "adjust"` and is required at the schema layer
     for that type.
+
+    Voids (soft delete): a mis-clicked transaction can be voided by a
+    Supervisor or above. Voiding does NOT hard-delete the row -- it sets
+    `voided_at` (and records who in `voided_by_id`) and reverses the
+    row's effect on `Item.quantity`. Voided rows are retained for the
+    audit trail but excluded from the history view
+    (`services.history.list_history` filters `voided_at IS NULL`).
+    `voided_by_id` is a plain UUID, deliberately NOT a second FK to
+    `users`: a second `users` FK would force disambiguating the existing
+    `user` relationship, and this is hidden audit metadata rather than a
+    core audit link (the `user_id` / `item_id` RESTRICT FKs still govern
+    referential integrity).
     """
 
     __tablename__ = "transactions"
@@ -84,6 +96,8 @@ class Transaction(Base):
     work_order_number = Column(Text, nullable=True)
     reason = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    voided_at = Column(DateTime(timezone=True), nullable=True)
+    voided_by_id = Column(UUID(as_uuid=True), nullable=True)
 
     item = relationship("Item", back_populates="transactions")
     user = relationship("User", back_populates="transactions")

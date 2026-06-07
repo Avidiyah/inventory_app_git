@@ -54,3 +54,32 @@ def apply_delta(
     if new_quantity < 0:
         raise NegativeQuantityError(current=current, requested=quantity)
     return new_quantity
+
+
+def reverse_delta(
+    current: Decimal,
+    transaction_type: Literal["stock", "dispense", "adjust"],
+    quantity: Decimal,
+) -> Decimal:
+    """Return the item quantity after *undoing* a previously-applied
+    transaction -- used when a mis-clicked transaction is voided.
+
+    Reversing is just applying the opposite operation, so it reuses
+    `apply_delta` (and inherits its overdraft check):
+
+    - undo `stock` -> subtract the stocked amount (`dispense`).
+    - undo `dispense` -> add the dispensed amount back (`stock`).
+    - undo `adjust` -> apply the negated signed delta.
+
+    Like `apply_delta`, this raises `NegativeQuantityError` if the undo
+    would drive stock below zero (e.g. voiding a stock-in whose units
+    have since been dispensed). The caller is expected to translate that
+    into a user-facing "can't void" message under the item row lock.
+    """
+    if transaction_type == "stock":
+        return apply_delta(current, "dispense", quantity)
+    if transaction_type == "dispense":
+        return apply_delta(current, "stock", quantity)
+    # adjust: the stored quantity is the signed delta already applied;
+    # undo by applying its negation through the same signed-delta path.
+    return apply_delta(current, "adjust", -quantity)

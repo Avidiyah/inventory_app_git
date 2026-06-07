@@ -7,7 +7,7 @@ business logic, no persistence: the image is decoded in memory and
 discarded when the request ends.
 
 Open to any authenticated user. Lookup and mutation gates downstream
-(`/items/by-barcode/{text}`, `POST /transactions/`) still enforce the
+(`GET /items/{barcode}`, `POST /transactions/`) still enforce the
 real authorisation; this endpoint only turns bytes into strings.
 
 Mounted by `app/main.py` under the root prefix.
