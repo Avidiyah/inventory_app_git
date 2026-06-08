@@ -40,7 +40,10 @@
       "Bash(grep -oE '^DATABASE_URL=[a-zA-Z+]+' .env)",
       "Bash(pg_dump --version)",
       "Bash(psql --version)",
-      "Bash(./venv/Scripts/python.exe -m pytest -q)"
+      "Bash(./venv/Scripts/python.exe -m pytest -q)",
+      "Bash(git -C \"C:\\\\Users\\\\mcclu\\\\Desktop\\\\inventory_app_git\" diff -- backend/static/index.html)",
+      "Bash(git -C \"C:\\\\Users\\\\mcclu\\\\Desktop\\\\inventory_app_git\" diff -- backend/static/views/items.js)",
+      "Bash(Select-String -Pattern \"price:\")"
     ]
   }
 }

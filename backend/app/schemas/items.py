@@ -31,6 +31,8 @@ class ItemCreate(BaseModel):
     name: str
     quantity: Decimal = Decimal("0")
     location: str
+    price: Optional[Decimal] = None
+    product_link: Optional[str] = None
 
     @field_validator("quantity")
     @classmethod
@@ -106,6 +108,8 @@ class ItemUpdate(BaseModel):
     barcode: Optional[str] = None
     name: Optional[str] = None
     location: Optional[str] = None
+    price: Optional[Decimal] = None
+    product_link: Optional[str] = None
 
     @field_validator("barcode", "name", "location")
     @classmethod

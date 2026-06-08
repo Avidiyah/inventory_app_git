@@ -29,6 +29,8 @@ const itemEditorSelected = document.getElementById("item-editor-selected");
 const itemEditorBarcode = document.getElementById("item-editor-barcode");
 const itemEditorName = document.getElementById("item-editor-name");
 const itemEditorLocation = document.getElementById("item-editor-location");
+const itemEditorPrice = document.getElementById("item-editor-price");
+const itemEditorProductLink = document.getElementById("item-editor-product-link");
 const itemEditorSaveBtn = document.getElementById("item-editor-save-btn");
 const itemEditorCancelBtn = document.getElementById("item-editor-cancel-btn");
 const itemEditorMessage = document.getElementById("item-editor-message");
@@ -50,6 +52,8 @@ export function openItemEditor(item) {
   itemEditorBarcode.value = item.barcode;
   itemEditorName.value = item.name;
   itemEditorLocation.value = item.location;
+  itemEditorPrice.value = item.price ?? "";
+  itemEditorProductLink.value = item.product_link ?? "";
   setMessage(itemEditorMessage, "", "");
   itemEditorSection.hidden = false;
   itemEditorSection.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -75,6 +79,8 @@ itemEditorSaveBtn.addEventListener("click", async () => {
   const barcode = itemEditorBarcode.value.trim();
   const name = itemEditorName.value.trim();
   const location = itemEditorLocation.value.trim();
+  const price = itemEditorPrice.value.trim();
+  const productLink = itemEditorProductLink.value.trim();
 
   if (!barcode || !name || !location) {
     setMessage(itemEditorMessage, "Barcode, name, and location are required.", "error");
@@ -92,7 +98,13 @@ itemEditorSaveBtn.addEventListener("click", async () => {
   // no-op write; keeping the request shape stable simplifies the client
   // and makes the PATCH idempotent.
   try {
-    await apiUpdateItem(editingId, { barcode, name, location });
+    await apiUpdateItem(editingId, {
+      barcode,
+      name,
+      location,
+      price: price ? parseFloat(price) : null,
+      product_link: productLink ? productLink : null,
+    });
     setMessage(itemEditorMessage, "Item saved.", "success");
     if (onSavedCallback) await onSavedCallback();
     setTimeout(closeItemEditor, 1000);

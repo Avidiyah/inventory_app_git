@@ -28,6 +28,8 @@ def create_item(
     name: str,
     quantity: Decimal,
     location: str,
+    price: Decimal | None = None,
+    product_link: str | None = None,
 ) -> Item:
     """Insert a new item. Raises `DuplicateBarcodeError` if the
     `barcode` UNIQUE constraint fires."""
@@ -36,6 +38,8 @@ def create_item(
         name=name,
         quantity=quantity,
         location=location,
+        price=price,
+        product_link=product_link,
     )
     db.add(new_item)
     try:
@@ -70,8 +74,10 @@ def update_item(
     barcode: str | None = None,
     name: str | None = None,
     location: str | None = None,
+    price: Decimal | None = None,
+    product_link: str | None = None,
 ) -> Item:
-    """Edit any of `barcode`, `name`, `location` on an existing item.
+    """Edit any of `barcode`, `name`, `location`, `price`, or `product_link` on an existing item.
     Only fields passed as non-`None` are written; the schema guarantees
     at least one is set. Raises `ItemNotFoundError` if the id is
     unknown, or `DuplicateBarcodeError` if a new barcode collides with
@@ -87,6 +93,10 @@ def update_item(
         item.name = name
     if location is not None:
         item.location = location
+    if price is not None:
+        item.price = price
+    if product_link is not None:
+        item.product_link = product_link
     try:
         db.commit()
     except IntegrityError as exc:

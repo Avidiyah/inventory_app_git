@@ -59,6 +59,8 @@ def create_item(
             name=payload.name,
             quantity=payload.quantity,
             location=payload.location,
+            price=payload.price,
+            product_link=payload.product_link,
         )
         return _item_response(item, user.role)
     except DomainError as exc:
@@ -143,6 +145,8 @@ def update_item(
             barcode=payload.barcode,
             name=payload.name,
             location=payload.location,
+            price=payload.price,
+            product_link=payload.product_link,
         )
         return _item_response(item, user.role)
     except DomainError as exc:

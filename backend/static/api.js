@@ -75,8 +75,8 @@ export async function apiListItems() {
   return parseResponse(await fetch("/items/", { credentials: "include" }));
 }
 
-export async function apiCreateItem({ barcode, name, location, quantity }) {
-  return jsonRequest("/items/", "POST", { barcode, name, location, quantity });
+export async function apiCreateItem({ barcode, name, location, quantity, price, product_link }) {
+  return jsonRequest("/items/", "POST", { barcode, name, location, quantity, price, product_link });
 }
 
 export async function apiDeleteItem(itemId) {

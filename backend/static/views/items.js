@@ -62,7 +62,8 @@ const locationInput = document.getElementById("location");
 const barcodeInput = document.getElementById("barcode");
 const nameInput = document.getElementById("name");
 const quantityInput = document.getElementById("quantity");
-
+const priceInput = document.getElementById("price");
+const productLinkInput = document.getElementById("product-link");
 let onDeletedSelectedItem = null;
 
 export function setOnDeletedSelectedItem(fn) {
@@ -161,7 +162,8 @@ createItemBtn.addEventListener("click", async () => {
   const name = nameInput.value.trim();
   const location = locationInput.value.trim();
   const quantity = quantityInput.value;
-
+  const price = priceInput.value;
+  const product_link = productLinkInput.value.trim();
   setMessage(createItemMessage, "", "");
 
   if (!barcode || !name) {
@@ -179,12 +181,16 @@ createItemBtn.addEventListener("click", async () => {
       name,
       location,
       quantity: parseFloat(quantity) || 0,
+      price: parseFloat(price) || 0,
+      product_link: product_link || null,
     });
     setMessage(createItemMessage, "Item saved.", "success");
     barcodeInput.value = "";
     nameInput.value = "";
     locationInput.value = "";
-    quantityInput.value = "0";
+    quantityInput.value = "";
+    priceInput.value = "";
+    productLinkInput.value = "";
     loadItems();
   } catch (err) {
     setMessage(createItemMessage, friendlyError(err, "Could not save the item. Try again."), "error");

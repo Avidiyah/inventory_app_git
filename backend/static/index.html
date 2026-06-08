@@ -87,6 +87,12 @@
                 <label for="quantity">Starting Quantity</label>
                 <input type="number" id="quantity" placeholder="0" min="0" value="0">
 
+                <label for="price">Price (optional)</label>
+                <input type="number" id="price" placeholder="0.00" min="0" step="0.01">
+
+                <label for="product-link">Product Link (optional)</label>
+                <input type="url" id="product-link" placeholder="Enter product link">
+
                 <button id="create-item-btn">Save Item</button>
                 <p id="create-item-message"></p>
             </div>
@@ -158,7 +164,7 @@
         </section>
 
         <section id="item-editor-section" hidden>
-            <h2>Edit Details</h2>
+            <h2>Edit Item</h2>
             <div class="form-stack">
                 <p id="item-editor-selected"></p>
 
@@ -170,6 +176,12 @@
 
                 <label for="item-editor-location">Location</label>
                 <input type="text" id="item-editor-location" placeholder="Location">
+
+                <label for="item-editor-price">Price</label>
+                <input type="number" id="item-editor-price" placeholder="0.00" min="0" step="0.01">
+
+                <label for="item-editor-product-link">Product Link</label>
+                <input type="url" id="item-editor-product-link" placeholder="Enter product link">
 
                 <div class="form-buttons">
                     <button id="item-editor-save-btn">Save Changes</button>
