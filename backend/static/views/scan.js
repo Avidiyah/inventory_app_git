@@ -170,11 +170,12 @@ export function mountScanner({
   // --- Live-camera mode -----------------------------------------
   //
   // Wired only when `liveEls` is provided. The decoder is push-based
-  // (ZXing's `decodeFromStream` callback); decoded texts feed into a
-  // 5-of-10 debouncer (`FrameDebouncer`). On accept we stop the
-  // camera and funnel the text through the same `resolveBarcode`
-  // path the upload flow uses -- live mode never calls
-  // `/barcodes/decode`. See docs/plan-live-capture.md decision #3.
+  // (`BarcodeDecoder` runs a crop loop and fires a callback per decode);
+  // decoded texts feed into a 3-consecutive debouncer (`FrameDebouncer`).
+  // On accept we stop the camera and funnel the text through the same
+  // `resolveBarcode` path the upload flow uses -- live mode never calls
+  // `/barcodes/decode`. See docs/plan-live-capture.md decision #3 and
+  // docs/plan-scan-tuning.md.
   //
   // Mutual exclusion: clicking Upload tears the camera down first so
   // we never hold a video track while the file picker is open.
@@ -232,8 +233,12 @@ export function mountScanner({
       stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          // 720p, not 1080p: with the aim-box crop the cropped region has
+          // ample pixels for a label that fills the box, and smaller frames
+          // decode faster. Validated on the fleet -- see docs/plan-scan-tuning.md
+          // (supersedes plan-live-capture decision #8).
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
           focusMode: { ideal: "continuous" },
         },
         audio: false,
