@@ -3,8 +3,8 @@
 Two layers, both DB-free (consistent with the rest of this suite):
 
 1. Logic tests with `pyzbar.decode` monkeypatched -- exercise the
-   format mapping, the supported-format filter, dedupe, and the
-   unreadable-image error without depending on the native decoder.
+   format mapping, raw pass-through of uncatalogued formats, dedupe,
+   and the unreadable-image error without depending on the native decoder.
 2. End-to-end tests against committed PNG fixtures under
    `tests/fixtures/` -- exercise the real pyzbar pipeline (and so also
    confirm the native zbar library is wired up correctly).
@@ -67,14 +67,40 @@ def test_maps_native_types_to_canonical(monkeypatch):
     ]
 
 
-def test_drops_unsupported_formats(monkeypatch):
+def test_maps_extended_formats_to_canonical(monkeypatch):
+    # Formats beyond the original five now decode, mapped to the
+    # ZXing-consistent canonical names.
     _patch_decode(monkeypatch, [
+        FakeSymbol("CODE39", b"PART-001"),
+        FakeSymbol("CODE93", b"PART-002"),
+        FakeSymbol("CODABAR", b"A1234B"),
+        FakeSymbol("I25", b"1234567890"),
+        FakeSymbol("DATABAR", b"0100000000000017"),
         FakeSymbol("QRCODE", b"https://example.com"),
-        FakeSymbol("CODE39", b"NOPE"),
+    ])
+    out = barcodes.decode_image(_valid_png_bytes())
+    assert [(m.text, m.format) for m in out] == [
+        ("PART-001", "CODE_39"),
+        ("PART-002", "CODE_93"),
+        ("A1234B", "CODABAR"),
+        ("1234567890", "ITF"),
+        ("0100000000000017", "RSS_14"),
+        ("https://example.com", "QR_CODE"),
+    ]
+
+
+def test_uncatalogued_type_passes_through_raw(monkeypatch):
+    # A symbology with no _FORMAT_MAP entry is reported under its raw
+    # zbar name rather than dropped.
+    _patch_decode(monkeypatch, [
+        FakeSymbol("SQCODE", b"SQ-PAYLOAD"),
         FakeSymbol("CODE128", b"KEEP"),
     ])
     out = barcodes.decode_image(_valid_png_bytes())
-    assert [(m.text, m.format) for m in out] == [("KEEP", "CODE_128")]
+    assert [(m.text, m.format) for m in out] == [
+        ("SQ-PAYLOAD", "SQCODE"),
+        ("KEEP", "CODE_128"),
+    ]
 
 
 def test_dedupes_repeated_symbols(monkeypatch):

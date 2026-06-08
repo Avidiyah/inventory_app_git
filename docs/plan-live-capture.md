@@ -5,8 +5,16 @@ Transaction page and Saved Items page: video preview, Scan / Upload /
 Torch toolbar, aim-box overlay, page-level camera lifecycle
 (visibility change, page-leave teardown), and blocked-mode fallback.
 Phase 1 spike files (`backend/static/scan-test.html`,
-`backend/static/scan-test.js`) have been deleted. Upload-mode
+`backend/static/scan-test.js`) were deleted at ship time, then
+**restored and repurposed** as a reliability/speed experiment harness
+(see [docs/plan-scan-tuning.md](plan-scan-tuning.md)). Upload-mode
 regression remains intact.
+
+> **Amended by field testing.** A later on-fleet experiment validated a
+> faster/more-reliable configuration. Decisions **#3, #7, #8, #15, #18**
+> below were superseded — each amended row points to
+> [docs/plan-scan-tuning.md](plan-scan-tuning.md), which is the
+> authoritative source for the current decode behaviour.
 
 Upload-mode regression was verified after the reusable scanner
 refactor. `mountScanner({...})` accepts optional live-mode DOM
@@ -113,22 +121,22 @@ not depend on either.
 |----|------------------------------------------------|-------|
 | 1  | Pages getting live capture                     | Both Transaction and Saved Items |
 | 2  | Upload still supported                         | Yes, kept alongside live capture |
-| 3  | Server-side verify in live mode                | **No.** Live mode calls `apiGetItemByBarcode(text)` directly. Upload mode keeps `POST /barcodes/decode` unchanged. Rationale: ZXing (client) and pyzbar (server) are different decoders, so a "verify" step can fail on a correct client decode; the auth gate is also enforced again by `GET /items/{barcode}` and `POST /transactions/`, so nothing security-relevant is lost. |
+| 3  | Server-side verify in live mode                | **No.** Live mode calls `apiGetItemByBarcode(text)` directly. Upload mode keeps `POST /barcodes/decode` unchanged. Rationale: ZXing (client) and pyzbar (server) are different decoders, so a "verify" step can fail on a correct client decode; the auth gate is also enforced again by `GET /items/{barcode}` and `POST /transactions/`, so nothing security-relevant is lost.<br>**Amended ([plan-scan-tuning.md](plan-scan-tuning.md)):** verify still skipped, but the upload decoder was widened from 5 formats to all zbar symbologies, with canonical names aligned to ZXing's. The two paths now share a format vocabulary; the residual gap is zbar's lack of 2D (DataMatrix) support, accepted. |
 | 4  | Decoding cadence                               | **One accepted result per transaction; continuous decode otherwise.** Decoder runs every frame while in `scanning`, pauses on accept, resumes after the transaction closes. |
 | 5  | Decoder library                                | `@zxing/browser` |
 | 6  | Vendor vs CDN                                  | Vendor. File in `backend/static/vendor/`, version pinned by filename (e.g. `zxing-browser-0.1.5.min.js`), SHA-256 recorded in [docs/reference.md](docs/reference.md), manual update steps documented there. |
-| 7  | Main thread vs Web Worker                      | Main thread v1, behind a `BarcodeDecoder` class for an easy later swap. |
-| 8  | Camera constraints                             | `facingMode: { ideal: "environment" }`, `width: { ideal: 1920 }`, `height: { ideal: 1080 }`, **no `max`** — higher resolution helps decode small/distant labels and decode time stays within budget on the phones we care about. |
+| 7  | Main thread vs Web Worker                      | Main thread v1, behind a `BarcodeDecoder` class for an easy later swap.<br>**Amended ([plan-scan-tuning.md](plan-scan-tuning.md)):** still main-thread and still behind `BarcodeDecoder`, but the decode model moved from ZXing's `decodeFromStream` to a manual `requestAnimationFrame` + `decodeFromCanvas` loop (required to crop — see #15). |
+| 8  | Camera constraints                             | `facingMode: { ideal: "environment" }`, `width: { ideal: 1920 }`, `height: { ideal: 1080 }`, **no `max`** — higher resolution helps decode small/distant labels and decode time stays within budget on the phones we care about.<br>**Amended ([plan-scan-tuning.md](plan-scan-tuning.md)):** resolution dropped to **720p** (`width/height ideal 1280/720`). With the aim-box crop, the cropped region has ample pixels for a label that fills the box, and smaller frames decode faster. |
 | 9  | `Permissions-Policy: camera=(self)` middleware | Yes. |
 | 10 | CSP                                            | Out of scope — threat model does not justify it. |
 | 11 | Role gating                                    | All authenticated roles (Technician through Owner) get **both** upload and live capture. See Prerequisites #2 for the upload-mode gate change. |
 | 12 | Audit / logging                                | Only the confirmed scan (the one that triggers item lookup or transaction) is logged, same as today. |
 | 13 | New DOM IDs                                    | `txn-scan-video`, `txn-scan-scan-btn`, `txn-scan-upload-btn`, `txn-scan-torch-btn`, `txn-scan-aimbox`; mirrored `items-scan-*`. |
 | 14 | Bundling format additions in same PR           | No — separate work. |
-| 15 | Live-feed visuals                              | Grayscale via `filter: grayscale(100%)` on `<video>`. Decoder still receives full-colour frames internally. Aim-box overlay: positioned `<div>` with thin high-contrast border, ~3:1 aspect ratio, guidance only — **no frame cropping in v1.** |
+| 15 | Live-feed visuals                              | Grayscale via `filter: grayscale(100%)` on `<video>`. Decoder still receives full-colour frames internally. Aim-box overlay: positioned `<div>` with thin high-contrast border, ~3:1 aspect ratio, guidance only — **no frame cropping in v1.**<br>**Amended ([plan-scan-tuning.md](plan-scan-tuning.md)):** the aim-box is now the **decode region** — the loop crops to it (80% width, 3:1, centred) before decoding. Faster decode and no background-label misreads. Crop constants must stay in sync with `.scan-aimbox` in `styles.css`. |
 | 16 | Offline / PWA / installable                    | Out of scope. |
 | 17 | Multiple barcodes in one frame                 | Discard the frame, wait for the next. |
-| 18 | False-positive debounce                        | Accept decoded text X only when X appears in **≥5 of the last 10 frames.** Sliding window; reset on accept. Cheap, kills almost all single-frame misreads. |
+| 18 | False-positive debounce                        | Accept decoded text X only when X appears in **≥5 of the last 10 frames.** Sliding window; reset on accept. Cheap, kills almost all single-frame misreads.<br>**Amended ([plan-scan-tuning.md](plan-scan-tuning.md)):** replaced by **3 consecutive identical decodes** (a differing decode resets the streak; misses don't). Faster to accept; safe because the crop (#15) removed the background noise the wider window guarded against. |
 | 19 | Camera lifecycle                               | Camera tracks stopped on `visibilitychange→hidden`, on navigating away from the scan section, and on tapping a Cancel/Stop button. Restart **requires the user tapping the Scan button again** — iOS Safari rule. |
 | 20 | iOS Safari support                             | In scope. `<video playsinline muted autoplay>`. Camera start is **only** from the Scan button click handler, never on section open. |
 | 21 | Permission-denied handling                     | On scan-section entry, pre-check `navigator.permissions.query({name:'camera'})` (where supported). If state is `denied`, hide the Scan button, show "Camera blocked. Re-enable via the lock icon in the address bar," and surface Upload mode as the only option. If `getUserMedia` itself rejects with `NotAllowedError`, same message. |
@@ -325,14 +333,19 @@ The vendored library, its LICENSE, the
 - Server-side preprocessing improvements (grayscale, retry pyramid,
   rotation passes in `decode_image`) — live capture removes most of
   the failure cases that motivated these; revisit only if needed.
-- Additional 1D / 2D barcode formats — tracked separately.
+- ~~Additional 1D / 2D barcode formats — tracked separately.~~ **Done
+  for the upload path** ([plan-scan-tuning.md](plan-scan-tuning.md)): the
+  pyzbar decoder now reads all zbar symbologies. Live (ZXing) was already
+  all-formats. 2D matrix codes (DataMatrix) remain unsupported on upload.
 - Offline / PWA / installable-app behaviour.
 - Multi-decode per frame (decision #17).
 - Camera switching UI (`enumerateDevices`-driven swap). Rear-camera
   default via `facingMode` is sufficient for v1; revisit if tablets or
   laptops need it.
-- Aim-box → decode-region cropping. Overlay is guidance only in v1;
-  crop only if false positives from outside the box become a problem.
+- ~~Aim-box → decode-region cropping. Overlay is guidance only in v1;
+  crop only if false positives from outside the box become a problem.~~
+  **Done** ([plan-scan-tuning.md](plan-scan-tuning.md)): the decode loop
+  now crops to the aim-box.
 - Wake Lock API. The session-timeout bump (Prerequisites #1) plus the
   fleet's OS-level 10-minute screen timeout cover the same failure
   mode.
