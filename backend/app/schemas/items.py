@@ -54,6 +54,13 @@ class ItemResponse(BaseModel):
     `from_attributes=True` lets FastAPI build this directly from a
     SQLAlchemy `Item` ORM instance — the router never has to convert
     rows to dicts by hand.
+
+    `price` and `product_link` are cost-sensitive and are surfaced ONLY
+    to Admin/Owner. The router (`app/routers/items.py::_item_response`)
+    nulls both for lower roles before serialising, so a Supervisor /
+    Technician never receives them even though the field exists on the
+    schema. The frontend additionally hides the columns, but the backend
+    gate is the authoritative one.
     """
 
     id: UUID
@@ -62,6 +69,8 @@ class ItemResponse(BaseModel):
     quantity: Decimal
     location: str
     notes: dict[str, Any] = {}
+    price: Optional[Decimal] = None
+    product_link: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

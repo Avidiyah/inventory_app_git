@@ -112,6 +112,12 @@ class TransactionHistoryItem(BaseModel):
     table without further lookups. `username` is `None` when the
     transaction was recorded anonymously. `reason` is populated only
     for `transaction_type = "adjust"`.
+
+    `item_price` is the item's current *per-unit* price, included ONLY
+    when the requester is Admin/Owner (the service nulls it otherwise);
+    the frontend multiplies it by `quantity` to show the line value and
+    hides the column for lower roles. It is the live item price, not a
+    historical snapshot — prices are not versioned per transaction.
     """
 
     id: UUID
@@ -124,6 +130,7 @@ class TransactionHistoryItem(BaseModel):
     quantity: Decimal
     work_order_number: Optional[str]
     reason: Optional[str] = None
+    item_price: Optional[Decimal] = None
     created_at: datetime
 
 

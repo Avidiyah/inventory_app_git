@@ -33,6 +33,27 @@ export function detectNoteType(v) {
   return "string";
 }
 
+// Format a numeric/string amount as USD currency (e.g. 12.5 -> "$12.50").
+// Returns "" for null/undefined/blank/non-numeric so callers can fall
+// back to an em dash. Prices arrive from the API as JSON numbers or
+// strings (serialised Decimal); Number() handles both.
+export function formatMoney(value) {
+  if (value === null || value === undefined || value === "") return "";
+  const n = Number(value);
+  if (Number.isNaN(n)) return "";
+  return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
+}
+
+// Return `url` only if it is a safe http(s) link, else "". Guards the
+// product-link cell against `javascript:` / `data:` URLs being placed in
+// an href. The value is still passed through `escapeHtml` by the caller.
+export function safeHttpUrl(url) {
+  if (typeof url !== "string") return "";
+  const trimmed = url.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return "";
+}
+
 // FastAPI returns validation errors as `detail: [{msg, loc, ...}]`
 // and business errors as `detail: "text"`. This collapses both
 // shapes into a single string for `setMessage`.

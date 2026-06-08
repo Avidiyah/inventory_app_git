@@ -52,6 +52,8 @@ class Item(Base):
     quantity = Column(Numeric, nullable=False, default=0)
     location = Column(Text, nullable=False)
     notes = Column(JSONB, nullable=False, default=dict, server_default="{}")
+    price = Column(Numeric, nullable=True)
+    product_link = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     transactions = relationship("Transaction", back_populates="item")

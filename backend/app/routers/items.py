@@ -19,6 +19,7 @@ from app.auth_deps import get_current_user, require_min_role
 from app.database import get_db
 from app.domain import roles
 from app.domain.errors import DomainError
+from app.models import Item, User
 from app.routers._errors import to_http
 from app.schemas.items import ItemCreate, ItemResponse, ItemNotesUpdate, ItemUpdate
 from app.services import items as items_service
@@ -27,22 +28,39 @@ from app.services import notes as notes_service
 router = APIRouter(prefix="/items", tags=["items"])
 
 
+def _item_response(item: Item, role: str) -> ItemResponse:
+    """Serialise an item, redacting the cost-sensitive `price` and
+    `product_link` for anyone below Admin. This is the authoritative
+    gate (the frontend only hides the columns): a Supervisor or
+    Technician hitting `GET /items/` directly still gets `null` for
+    both fields."""
+    resp = ItemResponse.model_validate(item)
+    if not roles.role_at_least(role, roles.ROLE_ADMIN):
+        resp.price = None
+        resp.product_link = None
+    return resp
+
+
 @router.post(
     "/",
     response_model=ItemResponse,
     status_code=201,
-    dependencies=[Depends(require_min_role(roles.ROLE_ADMIN))],
 )
-def create_item(payload: ItemCreate, db: Session = Depends(get_db)):
+def create_item(
+    payload: ItemCreate,
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
     """Create an item. Owner/Admin only. 400 on duplicate barcode."""
     try:
-        return items_service.create_item(
+        item = items_service.create_item(
             db,
             barcode=payload.barcode,
             name=payload.name,
             quantity=payload.quantity,
             location=payload.location,
         )
+        return _item_response(item, user.role)
     except DomainError as exc:
         raise to_http(exc)
 
@@ -50,24 +68,32 @@ def create_item(payload: ItemCreate, db: Session = Depends(get_db)):
 @router.get(
     "/",
     response_model=list[ItemResponse],
-    dependencies=[Depends(get_current_user)],
 )
-def list_items(db: Session = Depends(get_db)):
+def list_items(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Return every item, newest first. Any logged-in user (this is the
-    Technician item-lookup feed). No filtering or pagination."""
-    return items_service.list_items(db)
+    Technician item-lookup feed). No filtering or pagination. `price` /
+    `product_link` are redacted for non-Admin callers."""
+    return [_item_response(item, user.role) for item in items_service.list_items(db)]
 
 
 @router.get(
     "/{barcode}",
     response_model=ItemResponse,
-    dependencies=[Depends(get_current_user)],
 )
-def get_item_by_barcode(barcode: str, db: Session = Depends(get_db)):
+def get_item_by_barcode(
+    barcode: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Lookup by barcode for the scan/entry flow. Any logged-in user.
-    404 if unknown."""
+    404 if unknown. `price` / `product_link` are redacted for non-Admin
+    callers."""
     try:
-        return items_service.get_item_by_barcode(db, barcode)
+        item = items_service.get_item_by_barcode(db, barcode)
+        return _item_response(item, user.role)
     except DomainError as exc:
         raise to_http(exc)
 
@@ -80,14 +106,19 @@ def get_item_by_barcode(barcode: str, db: Session = Depends(get_db)):
 def update_item_notes(
     item_id: uuid.UUID,
     payload: ItemNotesUpdate,
+    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
     """Replace the JSONB `notes` dict wholesale. Supervisor or above
     (notes are an operational field, distinct from the Admin-only
     structural edits). Notes whitelist is enforced by
-    `ItemNotesUpdate`'s field validator; 404 if the item does not exist."""
+    `ItemNotesUpdate`'s field validator; 404 if the item does not exist.
+
+    Routed through `_item_response` so a Supervisor saving notes does not
+    receive the Admin-only `price` / `product_link` in the echo."""
     try:
-        return notes_service.replace_notes(db, item_id, payload.notes)
+        item = notes_service.replace_notes(db, item_id, payload.notes)
+        return _item_response(item, user.role)
     except DomainError as exc:
         raise to_http(exc)
 
@@ -95,24 +126,25 @@ def update_item_notes(
 @router.patch(
     "/{item_id}",
     response_model=ItemResponse,
-    dependencies=[Depends(require_min_role(roles.ROLE_ADMIN))],
 )
 def update_item(
     item_id: uuid.UUID,
     payload: ItemUpdate,
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ):
     """Edit barcode, name, and/or location. Owner/Admin only. 404 if the
     item does not exist; 400 on duplicate barcode. Quantity is not
     editable here — corrections go through `POST /transactions/adjust`."""
     try:
-        return items_service.update_item(
+        item = items_service.update_item(
             db,
             item_id,
             barcode=payload.barcode,
             name=payload.name,
             location=payload.location,
         )
+        return _item_response(item, user.role)
     except DomainError as exc:
         raise to_http(exc)
 

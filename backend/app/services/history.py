@@ -56,6 +56,7 @@ def list_history(
     work_order_number: Optional[str] = None,
     page: int,
     page_size: int,
+    include_price: bool = False,
 ) -> TransactionHistoryPage:
     """Return one page of transaction history, newest first.
 
@@ -65,6 +66,11 @@ def list_history(
     are escaped with `\\` and the matching ESCAPE clause so a user who
     types `%` matches a literal percent, not "anything". An empty /
     whitespace-only value is treated as "no filter".
+
+    `include_price` carries the per-unit `item_price` into each row only
+    when the caller is Admin/Owner; for lower roles it stays `None` so
+    cost data is never sent to the client (the router decides this from
+    the requester's role).
 
     `User` is joined with an OUTER join because transactions may be
     recorded anonymously (NULL `user_id`) — an inner join would
@@ -114,6 +120,7 @@ def list_history(
             quantity=txn.quantity,
             work_order_number=txn.work_order_number,
             reason=txn.reason,
+            item_price=item.price if include_price else None,
             created_at=txn.created_at,
         )
         for txn, item, user in rows

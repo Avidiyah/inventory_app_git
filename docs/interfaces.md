@@ -73,6 +73,8 @@ Inputs:
 | `quantity` | Decimal | Required |
 | `location` | str | Required |
 | `notes` | dict | JSONB, default `{}` |
+| `price` | Decimal? | Per-unit price; redacted below Admin by the router |
+| `product_link` | str? | Product URL; redacted below Admin by the router |
 | `created_at` | datetime | tz-aware |
 | `transactions` | list[`Transaction`] | Relationship |
 
@@ -227,7 +229,11 @@ At least one field must be present.
 | `quantity` | Decimal |
 | `location` | str |
 | `notes` | dict[str, Any] |
+| `price` | Decimal? (null below Admin) |
+| `product_link` | str? (null below Admin) |
 | `created_at` | datetime |
+
+`price` / `product_link` are redacted to `null` for callers below Admin by `routers/items._item_response`, which wraps every item-returning route.
 
 ### Users
 
@@ -280,7 +286,7 @@ At least one field must be present.
 | `reason` | str? |
 | `created_at` | datetime |
 
-`TransactionHistoryItem` adds `item_barcode`, `item_name`, and `username`.
+`TransactionHistoryItem` adds `item_barcode`, `item_name`, `username`, and `item_price` (per-unit; `None` unless requester is Admin/Owner — the frontend multiplies it by `quantity` for the Price column).
 
 `TransactionHistoryPage`
 
@@ -332,9 +338,9 @@ All three lock the item row with `SELECT ... FOR UPDATE`. `void_transaction` sof
 
 ### `services/history.py`
 
-- `list_history(db, *, item_id?, user_id?, work_order_number?, page, page_size) -> TransactionHistoryPage`
+- `list_history(db, *, item_id?, user_id?, work_order_number?, page, page_size, include_price=False) -> TransactionHistoryPage`
 
-Filters combine with AND, and voided rows are excluded (`voided_at IS NULL`). `work_order_number` is a case-sensitive escaped substring match.
+Filters combine with AND, and voided rows are excluded (`voided_at IS NULL`). `work_order_number` is a case-sensitive escaped substring match. `include_price` (set from the requester's role by the router) carries the per-unit `item_price` into each row only for Admin/Owner.
 
 ### `services/users.py`
 
@@ -361,8 +367,8 @@ Filters combine with AND, and voided rows are excluded (`voided_at IS NULL`). `w
 | Method | Path | Role | Body | Response |
 |---|---|---|---|---|
 | POST | `/items/` | Admin+ | `ItemCreate` | `ItemResponse` |
-| GET | `/items/` | Authenticated | none | list[`ItemResponse`] |
-| GET | `/items/{barcode}` | Authenticated | none | `ItemResponse` |
+| GET | `/items/` | Authenticated | none | list[`ItemResponse`] (price/link null below Admin) |
+| GET | `/items/{barcode}` | Authenticated | none | `ItemResponse` (price/link null below Admin) |
 | PATCH | `/items/{item_id}` | Admin+ | `ItemUpdate` | `ItemResponse` |
 | PATCH | `/items/{item_id}/notes` | Supervisor+ | `ItemNotesUpdate` | `ItemResponse` |
 | DELETE | `/items/{item_id}` | Admin+ | none | 204 |
@@ -459,6 +465,8 @@ Client mirror of the role hierarchy for UI visibility only:
 - `escapeHtml`
 - `formatNoteValue`
 - `detectNoteType`
+- `formatMoney` — formats a number/string amount as USD currency (`""` for null/blank/non-numeric)
+- `safeHttpUrl` — returns the URL only if it is an `http(s)` link, else `""` (guards the product-link href)
 - `formatError`
 - `friendlyError` — maps a thrown `{ status, detail }` (or a network failure) to a short, field-friendly message (connection / session / permission / insufficient-stock), falling back to `formatError`
 

@@ -111,7 +111,6 @@ def void_transaction(
 @router.get(
     "/",
     response_model=TransactionHistoryPage,
-    dependencies=[Depends(require_min_role(roles.ROLE_SUPERVISOR))],
 )
 def list_transactions(
     item_id: Optional[UUID] = None,
@@ -119,6 +118,7 @@ def list_transactions(
     work_order_number: Optional[str] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
+    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
     """Paginated history. Supervisor or above. Optional `item_id`,
@@ -126,7 +126,10 @@ def list_transactions(
     `work_order_number` is a case-sensitive substring match against
     `Transaction.work_order_number`; an empty / whitespace-only value
     is treated as "no filter". `page_size` is capped at 100 to bound
-    the join cost."""
+    the join cost.
+
+    The per-unit `item_price` is included in each row only for
+    Admin/Owner; Supervisors get `None` so cost data stays gated."""
     return history_service.list_history(
         db,
         item_id=item_id,
@@ -134,4 +137,5 @@ def list_transactions(
         work_order_number=work_order_number,
         page=page,
         page_size=page_size,
+        include_price=roles.role_at_least(user.role, roles.ROLE_ADMIN),
     )

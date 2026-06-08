@@ -151,9 +151,11 @@ Relationships: one-to-many to `transactions`, one-to-many to `sessions`.
 | `quantity` | Numeric | Required, current stock level |
 | `location` | Text | Required |
 | `notes` | JSONB | Required, default `{}` |
+| `price` | Numeric nullable | Per-unit price; surfaced ONLY to Admin/Owner |
+| `product_link` | Text nullable | URL to the product; surfaced ONLY to Admin/Owner |
 | `created_at` | timestamptz | Set on insert |
 
-Notes keys must be non-blank strings. Values may be `str`, `int`, `float`, or `bool`. Notes updates replace the whole JSON object.
+`price` and `product_link` are cost-sensitive: the items router redacts both to `null` for Supervisor/Technician before serialising, so they never reach a non-Admin client (the frontend also hides the columns). Notes keys must be non-blank strings. Values may be `str`, `int`, `float`, or `bool`. Notes updates replace the whole JSON object.
 
 ### `transactions`
 
@@ -189,6 +191,7 @@ row lock. A void that would drive stock below zero is rejected (400).
 | `b2d3e4f5a6c7` | Restrict transaction foreign keys |
 | `c3d4e5f6a7b8` | Add correction reason column |
 | `d4e5f6a7b8c9` | Add transaction void columns (`voided_at`, `voided_by_id`) |
+| `e5f67b8c9d0` | Add item `price` and `product_link` columns |
 
 ---
 
@@ -227,8 +230,8 @@ owner > admin > supervisor > technician
 | Method | Path | Minimum role | Description |
 |---|---|---|---|
 | POST | `/items/` | Admin | Create item |
-| GET | `/items/` | Any logged-in user | List items newest-first |
-| GET | `/items/{barcode}` | Any logged-in user | Lookup item by barcode |
+| GET | `/items/` | Any logged-in user | List items newest-first (`price`/`product_link` redacted below Admin) |
+| GET | `/items/{barcode}` | Any logged-in user | Lookup item by barcode (`price`/`product_link` redacted below Admin) |
 | PATCH | `/items/{item_id}` | Admin | Edit barcode, name, and/or location |
 | PATCH | `/items/{item_id}/notes` | Supervisor | Replace notes |
 | DELETE | `/items/{item_id}` | Admin | Delete unreferenced item |

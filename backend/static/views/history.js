@@ -20,12 +20,15 @@
 import {
   getHistoryState,
   updateHistoryState,
+  getRole,
   HISTORY_PAGE_SIZE,
 } from "../state.js";
 import { apiListTransactions, apiGetItemByBarcode, apiVoidTransaction } from "../api.js";
-import { escapeHtml, friendlyError } from "../format.js";
+import { escapeHtml, friendlyError, formatMoney } from "../format.js";
+import { roleAtLeast } from "../roles.js";
 import { setMessage } from "../dom.js";
 
+const historyTable = document.getElementById("history-table");
 const historyTabs = document.getElementById("history-tabs");
 const historyAllPanel = document.getElementById("history-all-panel");
 const historyItemPanel = document.getElementById("history-item-panel");
@@ -135,6 +138,17 @@ function formatRow(txn) {
 // the visible text is humanised. TSV export keeps the raw type via formatRow.
 const TYPE_LABELS = { stock: "Added", dispense: "Taken Out", adjust: "Correction" };
 
+// Line value for the Admin/Owner-only Price column: per-unit `item_price`
+// times the row's quantity (so a dispense of N shows price*N). Returns an
+// em dash when the item has no price set. `item_price` is null for
+// non-Admin callers (backend-gated), but the column is hidden for them
+// anyway.
+function lineValueCell(txn) {
+  if (txn.item_price === null || txn.item_price === undefined) return "—";
+  const formatted = formatMoney(Number(txn.item_price) * Number(txn.quantity));
+  return formatted ? escapeHtml(formatted) : "—";
+}
+
 export function renderHistory(data) {
   const items = data.items || [];
   const total = data.total || 0;
@@ -143,12 +157,21 @@ export function renderHistory(data) {
 
   const s = getHistoryState();
 
+  // Price (price-per-unit * quantity) is Admin/Owner only. Toggle the
+  // header column to match the cells we emit; the backend redacts
+  // `item_price` for lower roles, so this is presentational only.
+  const canSeePrice = roleAtLeast(getRole(), "admin");
+  historyTable.querySelectorAll("thead .admin-col").forEach(th => { th.hidden = !canSeePrice; });
+  // Base table is 7 columns (Time, Item, Type, Qty, WO, User, Actions);
+  // the Price column adds one for Admin/Owner.
+  const colCount = canSeePrice ? 8 : 7;
+
   historyTbody.innerHTML = "";
 
   if (items.length === 0) {
     const row = document.createElement("tr");
     const text = emptyStateMessage(s);
-    row.innerHTML = `<td colspan="7">${escapeHtml(text)}</td>`;
+    row.innerHTML = `<td colspan="${colCount}">${escapeHtml(text)}</td>`;
     historyTbody.appendChild(row);
   } else {
     items.forEach(txn => {
@@ -165,6 +188,7 @@ export function renderHistory(data) {
         <td data-label="Quantity">${escapeHtml(quantity)}</td>
         <td data-label="Work Order">${escapeHtml(detail || "—")}</td>
         <td data-label="User">${escapeHtml(user || "—")}</td>
+        ${canSeePrice ? `<td class="admin-col" data-label="Price">${lineValueCell(txn)}</td>` : ""}
         <td data-label="Actions"><button type="button" class="void-txn-btn btn-danger" data-id="${escapeHtml(txn.id)}" aria-label="${escapeHtml(voidLabel)}">Delete</button></td>
       `;
       historyTbody.appendChild(row);

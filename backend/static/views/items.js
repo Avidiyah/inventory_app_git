@@ -28,7 +28,7 @@ import {
   getRole,
 } from "../state.js";
 import { apiListItems, apiCreateItem, apiDeleteItem } from "../api.js";
-import { escapeHtml, friendlyError } from "../format.js";
+import { escapeHtml, friendlyError, formatMoney, safeHttpUrl } from "../format.js";
 import { setMessage } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
 import { openNotesEditor, closeNotesEditor, renderNotesSummary, setOnSaved } from "./notes.js";
@@ -47,8 +47,17 @@ import { mountScanner } from "./scan.js";
 
 const createItemBtn = document.getElementById("create-item-btn");
 const createItemMessage = document.getElementById("create-item-message");
+const itemsTable = document.getElementById("items-table");
 const itemsTbody = document.getElementById("items-tbody");
 const itemsSearch = document.getElementById("items-search");
+
+// Product-link cell: a safe http(s) link renders as an "Open" anchor;
+// anything else (missing, or a non-http scheme) shows an em dash.
+function productLinkCell(url) {
+  const safe = safeHttpUrl(url);
+  if (!safe) return "—";
+  return `<a href="${escapeHtml(safe)}" target="_blank" rel="noopener noreferrer">Open</a>`;
+}
 const locationInput = document.getElementById("location");
 const barcodeInput = document.getElementById("barcode");
 const nameInput = document.getElementById("name");
@@ -81,14 +90,6 @@ export function renderItems() {
 
   itemsTbody.innerHTML = "";
 
-  if (items.length === 0) {
-    const row = document.createElement("tr");
-    const text = term ? "No items match that search." : "No items yet.";
-    row.innerHTML = `<td colspan="7">${text}</td>`;
-    itemsTbody.appendChild(row);
-    return;
-  }
-
   // Items are read/write for Owner/Admin; Supervisor may edit notes
   // only; Technician is read-only. The action column renders a
   // per-row dropdown of only the actions the current role can perform
@@ -97,6 +98,21 @@ export function renderItems() {
   const role = getRole();
   const canAdmin = roleAtLeast(role, "admin");
   const canNotes = roleAtLeast(role, "supervisor");
+
+  // Price + product link are Admin/Owner only. Toggle the header columns
+  // to match the cells emitted below; the backend also redacts the
+  // fields, so this is purely presentational. Base table is 7 columns;
+  // the two extra columns appear only for Admin/Owner.
+  itemsTable.querySelectorAll("thead .admin-col").forEach(th => { th.hidden = !canAdmin; });
+  const colCount = canAdmin ? 9 : 7;
+
+  if (items.length === 0) {
+    const row = document.createElement("tr");
+    const text = term ? "No items match that search." : "No items yet.";
+    row.innerHTML = `<td colspan="${colCount}">${text}</td>`;
+    itemsTbody.appendChild(row);
+    return;
+  }
 
   items.forEach(item => {
     const row = document.createElement("tr");
@@ -125,6 +141,8 @@ export function renderItems() {
       <td data-label="Quantity"><strong>${escapeHtml(item.quantity)}</strong></td>
       <td data-label="Location">${escapeHtml(item.location)}</td>
       <td class="notes-cell" data-label="Notes">${renderNotesSummary(item.notes)}</td>
+      ${canAdmin ? `<td class="admin-col" data-label="Price">${escapeHtml(formatMoney(item.price)) || "—"}</td>` : ""}
+      ${canAdmin ? `<td class="admin-col" data-label="Link">${productLinkCell(item.product_link)}</td>` : ""}
       <td data-label="Created">${escapeHtml(createdAt)}</td>
       <td data-label="Actions">${actions}</td>
     `;
