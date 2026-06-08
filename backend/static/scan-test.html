@@ -3,14 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Scan Test (Phase 1 Spike)</title>
+  <title>Scan Test (Reliability/Speed Harness)</title>
   <!--
-    Phase 1 decoder spike. Not part of the SPA, not linked from the app
-    UI, not authenticated. Exists to validate @zxing/browser on the
-    actual phones and labels in use; deleted in the Phase 3 ship PR.
-    See docs/plan-live-capture.md.
+    Live-decoder experiment harness. Not part of the SPA, not linked
+    from the app UI, not authenticated. Originally the Phase 1 decoder
+    spike (deleted in the Phase 3 ship PR); restored and repurposed to
+    A/B the reliability/speed levers before they touch production:
 
-    Inline styles allowed *only* in this file -- scoped to the spike and
+      - Restrict ZXing to the 5 supported formats (POSSIBLE_FORMATS hint)
+      - Decode only the aim-box region (crop) instead of the full frame
+      - TRY_HARDER hint
+      - Capture resolution (1080p vs 720p)
+      - Debounce strategy (5-of-10 window vs 3-consecutive fast path)
+
+    Unlike the production path (`decodeFromStream`), this harness drives
+    its own requestAnimationFrame loop and decodes via `decodeFromCanvas`,
+    which is what makes cropping and a TRUE per-frame decode-success rate
+    measurable. See docs/plan-live-capture.md "reliability/speed" levers.
+
+    Inline styles allowed *only* in this file -- scoped to the harness and
     isolated from the real frontend's no-inline-style convention.
   -->
   <style>
@@ -49,11 +60,22 @@
       pointer-events: none;
       box-sizing: border-box;
     }
+    /* Offscreen scratch canvas the decode loop draws frames into. Kept
+       in the DOM (not detached) so Safari reliably rasterises drawImage. */
+    #scan-test-canvas {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+      left: -9999px;
+    }
     .controls {
       margin-top: 0.5rem;
       display: flex;
       flex-wrap: wrap;
       gap: 0.4rem;
+      align-items: center;
     }
     .controls button {
       font-size: 1rem;
@@ -66,6 +88,37 @@
     .controls button:disabled {
       opacity: 0.4;
       cursor: not-allowed;
+    }
+    .experiments {
+      margin-top: 0.6rem;
+      border: 1px solid #bbb;
+      border-radius: 4px;
+      padding: 0.4rem 0.6rem 0.6rem;
+      background: #fff;
+    }
+    .experiments legend {
+      font-size: 0.8rem;
+      color: #555;
+      padding: 0 0.3rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .experiments .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.9rem;
+      align-items: center;
+      margin-top: 0.3rem;
+    }
+    .experiments label {
+      font-size: 0.9rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+    .experiments .group {
+      font-size: 0.8rem;
+      color: #555;
     }
     .diag {
       margin-top: 0.75rem;
@@ -128,11 +181,12 @@
   </style>
 </head>
 <body>
-  <h1>Phase 1 Decoder Spike</h1>
+  <h1>Live-Decoder Reliability / Speed Harness</h1>
 
   <div class="stage">
     <video id="scan-test-video" playsinline muted autoplay></video>
     <div id="scan-test-aimbox" hidden></div>
+    <canvas id="scan-test-canvas"></canvas>
   </div>
 
   <div class="controls">
@@ -143,10 +197,35 @@
     <button id="scan-test-copy-logs-btn" type="button">Copy logs</button>
   </div>
 
+  <!--
+    Experiment knobs. Format / crop / TRY_HARDER apply live (no camera
+    restart). Resolution requires a Stop + Start because it is a
+    getUserMedia constraint. Each change is logged so a copied snapshot
+    records exactly which configuration produced the numbers.
+  -->
+  <fieldset class="experiments">
+    <legend>Experiments</legend>
+    <div class="row">
+      <label><input id="experiment-formats" type="checkbox" checked> Restrict to 5 formats</label>
+      <label><input id="experiment-crop" type="checkbox" checked> Crop to aim-box</label>
+      <label><input id="experiment-tryharder" type="checkbox"> TRY_HARDER</label>
+    </div>
+    <div class="row">
+      <span class="group">Resolution (needs restart):</span>
+      <label><input type="radio" name="experiment-res" value="1080" checked> 1080p</label>
+      <label><input type="radio" name="experiment-res" value="720"> 720p</label>
+    </div>
+    <div class="row">
+      <span class="group">Debounce:</span>
+      <label><input type="radio" name="experiment-debounce" value="window" checked> 5-of-10 window</label>
+      <label><input type="radio" name="experiment-debounce" value="consecutive"> 3 consecutive</label>
+    </div>
+  </fieldset>
+
   <div class="controls">
     <label class="field">
       Phone:
-      <input id="scan-test-phone" type="text" placeholder="e.g. Pixel 6a" size="20">
+      <input id="scan-test-phone" type="text" placeholder="e.g. iPhone 13" size="20">
     </label>
     <label class="field">
       Conditions:
@@ -158,15 +237,18 @@
     <table>
       <tbody id="scan-test-diag-rows">
         <tr><td>Camera state</td><td><span id="diag-state" class="pill">idle</span></td></tr>
+        <tr><td>Active config</td><td id="diag-config">—</td></tr>
         <tr><td>Resolution granted</td><td id="diag-resolution">—</td></tr>
         <tr><td>facingMode granted</td><td id="diag-facing">—</td></tr>
         <tr><td>Torch capability</td><td id="diag-torch">—</td></tr>
         <tr><td>Focus mode (granted / capable)</td><td id="diag-focus">—</td></tr>
-        <tr><td>FPS (decode callbacks)</td><td id="diag-fps">—</td></tr>
-        <tr><td>Mean decode latency</td><td id="diag-latency">—</td></tr>
+        <tr><td>Decode region (px)</td><td id="diag-region">—</td></tr>
+        <tr><td>Attempts / sec</td><td id="diag-attempts">—</td></tr>
+        <tr><td>Decode success rate</td><td id="diag-success">—</td></tr>
+        <tr><td>Mean attempt latency</td><td id="diag-latency">—</td></tr>
         <tr><td>Latest decoded</td><td id="diag-latest">—</td></tr>
-        <tr><td>Rolling window (last 10)</td><td id="diag-window">—</td></tr>
-        <tr><td>Accepted (≥5 of 10)</td><td id="diag-accepted">—</td></tr>
+        <tr><td>Rolling window (last 10 hits)</td><td id="diag-window">—</td></tr>
+        <tr><td>Accepted</td><td id="diag-accepted">—</td></tr>
         <tr><td>Time Start → accepted</td><td id="diag-tta">—</td></tr>
       </tbody>
     </table>

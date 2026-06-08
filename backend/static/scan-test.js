@@ -1,8 +1,17 @@
-// Phase 1 decoder spike. Pairs with scan-test.html. Deleted in the
-// Phase 3 ship PR. See docs/plan-live-capture.md.
+// Live-decoder reliability/speed experiment harness. Pairs with
+// scan-test.html. Originally the Phase 1 spike (deleted in the Phase 3
+// ship PR); restored and repurposed to measure the reliability/speed
+// levers before they touch production. See docs/plan-live-capture.md.
 //
-// Purpose: answer the seven Phase 1 questions on real phones and labels.
-// Specifically, no integration with the real scan flow, no API calls.
+// Difference from production (`views/scan.js` + `scan/barcode-decoder.js`):
+// production uses ZXing's `decodeFromStream`, which owns its own canvas
+// and only surfaces SUCCESSFUL decodes. That hides two things this
+// harness needs to measure: the per-frame decode-success RATE, and the
+// effect of decoding only a cropped region. So this harness drives its
+// own requestAnimationFrame loop, draws each frame (optionally cropped to
+// the aim-box) into a scratch canvas, and decodes via `decodeFromCanvas`,
+// which throws NotFoundException on a miss -- letting us count attempts
+// vs hits directly.
 //
 // ZXing comes from a vendored UMD bundle loaded via a plain <script> tag,
 // which attaches `ZXingBrowser` to `window`. This module references it
@@ -18,9 +27,23 @@ if (!ZXingBrowser) {
   throw new Error("ZXingBrowser global missing");
 }
 
+// DecodeHintType enum values (not exported on the UMD global; mirrored
+// from @zxing/library's DecodeHintType). POSSIBLE_FORMATS restricts the
+// decoder to a format allow-list; TRY_HARDER trades speed for a more
+// exhaustive search per frame.
+const HINT_POSSIBLE_FORMATS = 2;
+const HINT_TRY_HARDER = 3;
+
+// The five formats the backend accepts in services/barcodes.py. Used both
+// for the POSSIBLE_FORMATS hint and the "[supported]" annotation.
+const BF = ZXingBrowser.BarcodeFormat;
+const SUPPORTED_BARCODE_FORMATS = [BF.UPC_A, BF.UPC_E, BF.EAN_13, BF.EAN_8, BF.CODE_128];
+const SUPPORTED_FORMAT_NAMES = new Set(["UPC_A", "UPC_E", "EAN_13", "EAN_8", "CODE_128"]);
+
 // --- DOM handles ---
 const els = {
   video: document.getElementById("scan-test-video"),
+  canvas: document.getElementById("scan-test-canvas"),
   aimbox: document.getElementById("scan-test-aimbox"),
   startBtn: document.getElementById("scan-test-start-btn"),
   stopBtn: document.getElementById("scan-test-stop-btn"),
@@ -30,12 +53,20 @@ const els = {
   phone: document.getElementById("scan-test-phone"),
   conditions: document.getElementById("scan-test-conditions"),
   log: document.getElementById("scan-test-log"),
+  // experiment knobs
+  expFormats: document.getElementById("experiment-formats"),
+  expCrop: document.getElementById("experiment-crop"),
+  expTryHarder: document.getElementById("experiment-tryharder"),
+  // diagnostics
   state: document.getElementById("diag-state"),
+  config: document.getElementById("diag-config"),
   resolution: document.getElementById("diag-resolution"),
   facing: document.getElementById("diag-facing"),
   torch: document.getElementById("diag-torch"),
   focus: document.getElementById("diag-focus"),
-  fps: document.getElementById("diag-fps"),
+  region: document.getElementById("diag-region"),
+  attempts: document.getElementById("diag-attempts"),
+  success: document.getElementById("diag-success"),
   latency: document.getElementById("diag-latency"),
   latest: document.getElementById("diag-latest"),
   window: document.getElementById("diag-window"),
@@ -43,25 +74,41 @@ const els = {
   tta: document.getElementById("diag-tta"),
 };
 
-// --- State ---
+// --- Tunables ---
 const WINDOW_SIZE = 10;
-const ACCEPT_THRESHOLD = 5;
-const SAMPLES = 30; // rolling samples for FPS / latency
+const ACCEPT_THRESHOLD = 5; // 5-of-10 window mode
+const CONSECUTIVE_THRESHOLD = 3; // consecutive mode
+const SAMPLES = 30; // rolling samples for attempts/sec, latency, success rate
+// Aim-box geometry, in fractions of the video frame. Mirrors the CSS box
+// in scan-test.html (80% width, 3:1 aspect, centred) so the cropped
+// decode region matches what the user sees.
+const AIMBOX_WIDTH_FRAC = 0.8;
+const AIMBOX_ASPECT = 3; // width : height
 const LOG_MAX_LINES = 200;
 
+// --- State ---
 const state = {
   reader: null,
-  controls: null, // IScannerControls from ZXing decodeFromStream
+  ctx: els.canvas.getContext("2d", { willReadFrequently: true }),
   stream: null,
   videoTrack: null,
   cameraState: "idle",
   startBtnLock: false,
-  window: [], // last N decoded texts
+  rafId: null,
+
+  // debounce
+  window: [], // last N decoded texts (hits only)
+  consecutiveText: null,
+  consecutiveCount: 0,
   accepted: null,
+
+  // instrumentation
   startTimestamp: null,
-  decodeTimestamps: [], // wall-clock per decode callback
-  decodeLatencies: [], // ms per decode (lastFrameStart -> now)
-  lastFrameStart: null,
+  attemptTimestamps: [], // wall-clock per decode attempt (hit or miss)
+  attemptLatencies: [], // ms spent inside decodeFromCanvas per attempt
+  attemptOutcomes: [], // booleans: true = hit, false = miss
+  lastRegion: null,
+
   torchOn: false,
   logLines: [],
 };
@@ -78,6 +125,46 @@ function log(msg, level = "info") {
   els.log.scrollTop = els.log.scrollHeight;
 }
 
+// --- Experiment config readers ---
+function cfgFormatsRestricted() {
+  return els.expFormats.checked;
+}
+function cfgCrop() {
+  return els.expCrop.checked;
+}
+function cfgTryHarder() {
+  return els.expTryHarder.checked;
+}
+function cfgResolution() {
+  const checked = document.querySelector('input[name="experiment-res"]:checked');
+  return checked && checked.value === "720" ? { width: 1280, height: 720 } : { width: 1920, height: 1080 };
+}
+function cfgDebounceMode() {
+  const checked = document.querySelector('input[name="experiment-debounce"]:checked');
+  return checked ? checked.value : "window";
+}
+function configSummary() {
+  const res = cfgResolution();
+  return [
+    cfgFormatsRestricted() ? "formats:5" : "formats:all",
+    cfgCrop() ? "crop:on" : "crop:off",
+    cfgTryHarder() ? "tryHarder:on" : "tryHarder:off",
+    `res:${res.height}p`,
+    `debounce:${cfgDebounceMode() === "consecutive" ? CONSECUTIVE_THRESHOLD + "-consec" : ACCEPT_THRESHOLD + "-of-" + WINDOW_SIZE}`,
+  ].join("  ");
+}
+
+// --- Reader construction (format + TRY_HARDER hints) ---
+// Rebuilt on Start and whenever the format/TRY_HARDER toggles change,
+// so the next decode attempt uses the new hints without a camera restart.
+function buildReader() {
+  const hints = new Map();
+  if (cfgFormatsRestricted()) hints.set(HINT_POSSIBLE_FORMATS, SUPPORTED_BARCODE_FORMATS);
+  if (cfgTryHarder()) hints.set(HINT_TRY_HARDER, true);
+  state.reader = new ZXingBrowser.BrowserMultiFormatReader(hints);
+  log(`reader built: ${configSummary()}`);
+}
+
 // --- State transitions ---
 function setCameraState(next) {
   state.cameraState = next;
@@ -90,10 +177,126 @@ function setCameraState(next) {
   log(`camera state -> ${next}`);
 }
 
+// --- Crop geometry ---
+// Returns the source rectangle (in intrinsic video pixels) the decoder
+// should read this frame. Crop on -> the aim-box region; crop off -> the
+// whole frame.
+function decodeRegion() {
+  const vw = els.video.videoWidth;
+  const vh = els.video.videoHeight;
+  if (!cfgCrop()) return { sx: 0, sy: 0, sw: vw, sh: vh };
+  const sw = Math.round(vw * AIMBOX_WIDTH_FRAC);
+  const sh = Math.round(sw / AIMBOX_ASPECT);
+  const sx = Math.round((vw - sw) / 2);
+  const sy = Math.round((vh - sh) / 2);
+  return { sx, sy, sw, sh };
+}
+
+// --- Decode loop (requestAnimationFrame-driven) ---
+function tick() {
+  if (state.cameraState !== "streaming") return;
+  const vw = els.video.videoWidth;
+  const vh = els.video.videoHeight;
+  if (!vw || !vh) {
+    state.rafId = requestAnimationFrame(tick);
+    return; // metadata not ready yet
+  }
+
+  const region = decodeRegion();
+  state.lastRegion = region;
+  if (els.canvas.width !== region.sw) els.canvas.width = region.sw;
+  if (els.canvas.height !== region.sh) els.canvas.height = region.sh;
+  state.ctx.drawImage(
+    els.video,
+    region.sx, region.sy, region.sw, region.sh,
+    0, 0, region.sw, region.sh,
+  );
+
+  const t0 = performance.now();
+  let result = null;
+  try {
+    result = state.reader.decodeFromCanvas(els.canvas);
+  } catch (_err) {
+    // NotFoundException on a miss is expected during normal scanning.
+    result = null;
+  }
+  const latency = performance.now() - t0;
+
+  recordAttempt(latency, !!result);
+  if (result) onHit(result);
+
+  renderDiag();
+  state.rafId = requestAnimationFrame(tick);
+}
+
+// --- Instrumentation bookkeeping ---
+function recordAttempt(latency, isHit) {
+  const now = performance.now();
+  state.attemptTimestamps.push(now);
+  if (state.attemptTimestamps.length > SAMPLES) state.attemptTimestamps.shift();
+  state.attemptLatencies.push(latency);
+  if (state.attemptLatencies.length > SAMPLES) state.attemptLatencies.shift();
+  state.attemptOutcomes.push(isHit);
+  if (state.attemptOutcomes.length > SAMPLES) state.attemptOutcomes.shift();
+}
+
+// --- Successful decode handling + debounce ---
+function onHit(result) {
+  const text = result.getText();
+  const format = formatName(result.getBarcodeFormat());
+  const supported = SUPPORTED_FORMAT_NAMES.has(format);
+  els.latest.textContent = `${text} (${format})${supported ? " [supported]" : " [UNSUPPORTED]"}`;
+
+  // Rolling window (for 5-of-10 mode + display).
+  state.window.push(text);
+  if (state.window.length > WINDOW_SIZE) state.window.shift();
+
+  // Consecutive streak (for fast-path mode). A differing hit resets the
+  // streak; misses between identical hits do NOT (focus flicker tolerance).
+  if (text === state.consecutiveText) {
+    state.consecutiveCount += 1;
+  } else {
+    state.consecutiveText = text;
+    state.consecutiveCount = 1;
+  }
+
+  log(`hit text="${text}" format=${format} supported=${supported}`);
+
+  if (state.accepted) return;
+  const accepted = checkAccept();
+  if (accepted) {
+    state.accepted = accepted.text;
+    const tta = state.startTimestamp != null
+      ? (performance.now() - state.startTimestamp).toFixed(0) + " ms"
+      : "n/a";
+    els.accepted.textContent = `${accepted.text}  (${accepted.reason})`;
+    els.tta.textContent = tta;
+    log(`ACCEPTED "${accepted.text}" after ${tta} (${accepted.reason})`, "accept");
+  }
+}
+
+// Returns { text, reason } when the current debounce mode is satisfied,
+// else null.
+function checkAccept() {
+  if (cfgDebounceMode() === "consecutive") {
+    if (state.consecutiveCount >= CONSECUTIVE_THRESHOLD) {
+      return { text: state.consecutiveText, reason: `consecutive=${state.consecutiveCount}` };
+    }
+    return null;
+  }
+  const counts = new Map();
+  for (const t of state.window) {
+    const next = (counts.get(t) || 0) + 1;
+    if (next >= ACCEPT_THRESHOLD) return { text: t, reason: `count=${next}/${WINDOW_SIZE}` };
+    counts.set(t, next);
+  }
+  return null;
+}
+
 // --- Diagnostics renderer ---
 function renderDiag() {
-  // Resolution + facingMode pulled live each render in case the track
-  // renegotiates (rare but possible).
+  els.config.textContent = configSummary();
+
   if (state.videoTrack) {
     const s = state.videoTrack.getSettings();
     els.resolution.textContent = `${s.width || "?"} x ${s.height || "?"}`;
@@ -111,21 +314,42 @@ function renderDiag() {
     els.focus.textContent = "—";
   }
 
-  // FPS over last (up to) SAMPLES callbacks.
-  if (state.decodeTimestamps.length >= 2) {
-    const first = state.decodeTimestamps[0];
-    const last = state.decodeTimestamps[state.decodeTimestamps.length - 1];
-    const seconds = (last - first) / 1000;
-    const fps = seconds > 0 ? (state.decodeTimestamps.length - 1) / seconds : 0;
-    els.fps.textContent = fps.toFixed(1);
+  // Decode region (px) and what fraction of the frame it is.
+  if (state.lastRegion && els.video.videoWidth) {
+    const r = state.lastRegion;
+    const fullPx = els.video.videoWidth * els.video.videoHeight;
+    const regionPx = r.sw * r.sh;
+    const pct = fullPx > 0 ? ((regionPx / fullPx) * 100).toFixed(0) : "?";
+    els.region.textContent = `${r.sw} x ${r.sh}  (${pct}% of frame)`;
   } else {
-    els.fps.textContent = "—";
+    els.region.textContent = "—";
   }
 
-  // Mean decode latency over last SAMPLES.
-  if (state.decodeLatencies.length > 0) {
-    const sum = state.decodeLatencies.reduce((a, b) => a + b, 0);
-    els.latency.textContent = `${(sum / state.decodeLatencies.length).toFixed(1)} ms`;
+  // Attempts/sec over the rolling sample window.
+  if (state.attemptTimestamps.length >= 2) {
+    const first = state.attemptTimestamps[0];
+    const last = state.attemptTimestamps[state.attemptTimestamps.length - 1];
+    const seconds = (last - first) / 1000;
+    const rate = seconds > 0 ? (state.attemptTimestamps.length - 1) / seconds : 0;
+    els.attempts.textContent = rate.toFixed(1);
+  } else {
+    els.attempts.textContent = "—";
+  }
+
+  // Decode success rate = hits / attempts over the rolling window.
+  if (state.attemptOutcomes.length > 0) {
+    const hits = state.attemptOutcomes.reduce((a, b) => a + (b ? 1 : 0), 0);
+    const total = state.attemptOutcomes.length;
+    const pct = ((hits / total) * 100).toFixed(0);
+    els.success.textContent = `${pct}%  (${hits}/${total})`;
+  } else {
+    els.success.textContent = "—";
+  }
+
+  // Mean attempt latency (time inside decodeFromCanvas, hits + misses).
+  if (state.attemptLatencies.length > 0) {
+    const sum = state.attemptLatencies.reduce((a, b) => a + b, 0);
+    els.latency.textContent = `${(sum / state.attemptLatencies.length).toFixed(1)} ms`;
   } else {
     els.latency.textContent = "—";
   }
@@ -140,57 +364,6 @@ function renderDiag() {
       .map(([t, c]) => `${c}× ${t}`)
       .join("  |  ");
   }
-}
-
-// --- Decode callback ---
-function onDecode(result, error) {
-  const now = performance.now();
-  if (state.lastFrameStart != null) {
-    const latency = now - state.lastFrameStart;
-    state.decodeLatencies.push(latency);
-    if (state.decodeLatencies.length > SAMPLES) state.decodeLatencies.shift();
-  }
-  state.lastFrameStart = now;
-
-  state.decodeTimestamps.push(now);
-  if (state.decodeTimestamps.length > SAMPLES) state.decodeTimestamps.shift();
-
-  if (result) {
-    const text = result.getText();
-    const format = formatName(result.getBarcodeFormat());
-    const supported = SUPPORTED_FORMATS.has(format);
-    els.latest.innerHTML = ""; // safe -- replaced by textContent on next line
-    els.latest.textContent = `${text} (${format})${supported ? " [supported]" : " [UNSUPPORTED]"}`;
-
-    state.window.push(text);
-    if (state.window.length > WINDOW_SIZE) state.window.shift();
-
-    log(`decoded text="${text}" format=${format} supported=${supported}`);
-
-    // Check 5-of-10.
-    if (!state.accepted) {
-      const counts = new Map();
-      for (const t of state.window) counts.set(t, (counts.get(t) || 0) + 1);
-      for (const [t, c] of counts) {
-        if (c >= ACCEPT_THRESHOLD) {
-          state.accepted = t;
-          const tta = state.startTimestamp != null
-            ? (performance.now() - state.startTimestamp).toFixed(0) + " ms"
-            : "n/a";
-          els.accepted.textContent = `${t}  (count=${c})`;
-          els.accepted.className = "";
-          els.tta.textContent = tta;
-          log(`ACCEPTED "${t}" after ${tta} (count=${c}/${WINDOW_SIZE})`, "accept");
-          break;
-        }
-      }
-    }
-  }
-
-  // error is a NotFoundException for "no barcode this frame" -- expected
-  // during normal scanning, do not log.
-
-  renderDiag();
 }
 
 // --- Format name lookup ---
@@ -219,9 +392,6 @@ function formatName(n) {
   return FORMAT_NAMES[n] || `UNKNOWN(${n})`;
 }
 
-// Mirrors the five formats the backend accepts in services/barcodes.py.
-const SUPPORTED_FORMATS = new Set(["UPC_A", "UPC_E", "EAN_13", "EAN_8", "CODE_128"]);
-
 // --- Start ---
 async function start() {
   if (state.startBtnLock) return;
@@ -229,18 +399,18 @@ async function start() {
   try {
     setCameraState("requesting");
 
+    const res = cfgResolution();
     const constraints = {
       video: {
         facingMode: { ideal: "environment" },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
+        width: { ideal: res.width },
+        height: { ideal: res.height },
         // Request continuous autofocus up front. Android Chrome/Edge
         // default to a single AF pass at stream start and lock; on iOS
         // Safari this key is unrecognised and silently ignored. Setting
         // it here (as a basic best-effort constraint, not under
         // `advanced`) is more reliable than calling applyConstraints
-        // after the stream is already running -- which on Chrome Android
-        // is documented to be accepted but ignored on many devices.
+        // after the stream is already running.
         focusMode: { ideal: "continuous" },
       },
       audio: false,
@@ -283,10 +453,6 @@ async function start() {
       }
 
       // Fallback if the initial constraint didn't move us off `manual`.
-      // Some Chrome-on-Android cameras only honour focusMode via
-      // applyConstraints once a frame has been delivered. Retry after a
-      // short delay; log both attempts so we can tell which (if either)
-      // worked.
       try {
         const initialFocus = state.videoTrack.getSettings().focusMode;
         const caps2 = state.videoTrack.getCapabilities ? state.videoTrack.getCapabilities() : {};
@@ -308,15 +474,21 @@ async function start() {
       }
     }
 
-    els.aimbox.hidden = false;
-    state.startTimestamp = performance.now();
-    state.reader = new ZXingBrowser.BrowserMultiFormatReader();
+    // Attach the stream to the preview <video> ourselves (production uses
+    // ZXing's decodeFromStream for this; the manual loop does it directly).
+    els.video.srcObject = stream;
+    try {
+      await els.video.play();
+    } catch (err) {
+      log(`video.play() threw: ${err.name} -- ${err.message}`, "warn");
+    }
 
-    // decodeFromStream attaches the existing stream to our video element
-    // and invokes onDecode after every decode attempt.
-    state.controls = await state.reader.decodeFromStream(stream, els.video, onDecode);
+    els.aimbox.hidden = false;
+    buildReader();
+    state.startTimestamp = performance.now();
     setCameraState("streaming");
-    log("streaming started");
+    log(`streaming started: ${configSummary()}`);
+    state.rafId = requestAnimationFrame(tick);
   } finally {
     state.startBtnLock = false;
   }
@@ -327,12 +499,9 @@ function stop() {
   if (state.cameraState === "idle") return;
   setCameraState("stopping");
 
-  try {
-    if (state.controls && typeof state.controls.stop === "function") {
-      state.controls.stop();
-    }
-  } catch (err) {
-    log(`controls.stop() threw: ${err.message}`, "warn");
+  if (state.rafId != null) {
+    cancelAnimationFrame(state.rafId);
+    state.rafId = null;
   }
 
   if (state.stream) {
@@ -352,10 +521,12 @@ function stop() {
   }
 
   state.reader = null;
-  state.controls = null;
   state.stream = null;
   state.videoTrack = null;
-  state.lastFrameStart = null;
+  state.lastRegion = null;
+  state.attemptTimestamps = [];
+  state.attemptLatencies = [];
+  state.attemptOutcomes = [];
   state.torchOn = false;
   els.torchBtn.textContent = "Torch: off";
   els.aimbox.hidden = true;
@@ -366,6 +537,8 @@ function stop() {
 // --- Reset rolling window ---
 function resetWindow() {
   state.window = [];
+  state.consecutiveText = null;
+  state.consecutiveCount = 0;
   state.accepted = null;
   state.startTimestamp = state.cameraState === "streaming" ? performance.now() : null;
   els.accepted.textContent = "—";
@@ -390,17 +563,22 @@ async function toggleTorch() {
 
 // --- Copy logs ---
 async function copyLogs() {
+  const hits = state.attemptOutcomes.reduce((a, b) => a + (b ? 1 : 0), 0);
   const snapshot = {
     capturedAt: new Date().toISOString(),
     userAgent: navigator.userAgent,
     phone: els.phone.value || "(unset)",
     conditions: els.conditions.value || "(unset)",
+    experimentConfig: configSummary(),
     cameraState: state.cameraState,
     resolutionGranted: els.resolution.textContent,
     facingModeGranted: els.facing.textContent,
     torchCapability: els.torch.textContent,
-    fps: els.fps.textContent,
-    meanDecodeLatency: els.latency.textContent,
+    decodeRegion: els.region.textContent,
+    attemptsPerSec: els.attempts.textContent,
+    decodeSuccessRate: els.success.textContent,
+    successCount: `${hits}/${state.attemptOutcomes.length}`,
+    meanAttemptLatency: els.latency.textContent,
     rollingWindow: [...state.window],
     accepted: state.accepted,
     timeToAccept: els.tta.textContent,
@@ -457,8 +635,34 @@ els.resetBtn.addEventListener("click", () => resetWindow());
 els.torchBtn.addEventListener("click", () => toggleTorch());
 els.copyBtn.addEventListener("click", () => copyLogs());
 
+// Format / TRY_HARDER toggles rebuild the reader live (no restart needed).
+els.expFormats.addEventListener("change", () => {
+  if (state.cameraState === "streaming") buildReader();
+});
+els.expTryHarder.addEventListener("change", () => {
+  if (state.cameraState === "streaming") buildReader();
+});
+// Crop applies on the next tick automatically; just log + refresh.
+els.expCrop.addEventListener("change", () => {
+  log(`crop -> ${cfgCrop() ? "on" : "off"}`);
+  renderDiag();
+});
+// Debounce-mode change invalidates any standing accept; reset cleanly.
+for (const r of document.querySelectorAll('input[name="experiment-debounce"]')) {
+  r.addEventListener("change", () => {
+    log(`debounce mode -> ${cfgDebounceMode()}`);
+    resetWindow();
+  });
+}
+// Resolution change only takes effect on restart; remind the user.
+for (const r of document.querySelectorAll('input[name="experiment-res"]')) {
+  r.addEventListener("change", () => {
+    log(`resolution -> ${cfgResolution().height}p (Stop + Start to apply)`, "warn");
+  });
+}
+
 // --- Boot ---
-log(`spike loaded -- ZXingBrowser keys: ${Object.keys(ZXingBrowser).slice(0, 10).join(",")}`);
+log(`harness loaded -- ZXingBrowser keys: ${Object.keys(ZXingBrowser).slice(0, 10).join(",")}`);
 log(`userAgent: ${navigator.userAgent}`);
 permissionsPrecheck();
 renderDiag();

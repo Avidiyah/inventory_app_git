@@ -48,7 +48,9 @@
       "Bash(alembic upgrade *)",
       "Bash(./venv/Scripts/alembic.exe upgrade *)",
       "Bash(./venv/Scripts/alembic.exe current *)",
-      "Bash(./venv/Scripts/python.exe -c \"from app.database import engine; from sqlalchemy import inspect; cols=[c['name'] for c in inspect\\(engine\\).get_columns\\('items'\\)]; print\\('archived_at present:', 'archived_at' in cols\\); print\\('items columns:', cols\\)\")"
+      "Bash(./venv/Scripts/python.exe -c \"from app.database import engine; from sqlalchemy import inspect; cols=[c['name'] for c in inspect\\(engine\\).get_columns\\('items'\\)]; print\\('archived_at present:', 'archived_at' in cols\\); print\\('items columns:', cols\\)\")",
+      "Bash(./venv/Scripts/python.exe -c \"import PIL, fastapi, uvicorn; print\\('deps ok'\\)\")",
+      "Bash(/c/Users/mcclu/Desktop/inventory_app_git/backend/venv/Scripts/python.exe -c \"import PIL, fastapi, uvicorn; print\\('deps ok'\\)\")"
     ]
   }
 }
