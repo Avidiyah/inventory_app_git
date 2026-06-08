@@ -43,7 +43,12 @@
       "Bash(./venv/Scripts/python.exe -m pytest -q)",
       "Bash(git -C \"C:\\\\Users\\\\mcclu\\\\Desktop\\\\inventory_app_git\" diff -- backend/static/index.html)",
       "Bash(git -C \"C:\\\\Users\\\\mcclu\\\\Desktop\\\\inventory_app_git\" diff -- backend/static/views/items.js)",
-      "Bash(Select-String -Pattern \"price:\")"
+      "Bash(Select-String -Pattern \"price:\")",
+      "Bash(python -m py_compile app/models.py app/services/items.py alembic/versions/f6b8c0d2e4a1_add_item_archived_at.py)",
+      "Bash(alembic upgrade *)",
+      "Bash(./venv/Scripts/alembic.exe upgrade *)",
+      "Bash(./venv/Scripts/alembic.exe current *)",
+      "Bash(./venv/Scripts/python.exe -c \"from app.database import engine; from sqlalchemy import inspect; cols=[c['name'] for c in inspect\\(engine\\).get_columns\\('items'\\)]; print\\('archived_at present:', 'archived_at' in cols\\); print\\('items columns:', cols\\)\")"
     ]
   }
 }

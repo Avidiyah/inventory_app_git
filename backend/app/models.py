@@ -42,7 +42,15 @@ class Item(Base):
     """An inventoried item. `barcode` is the human/scanner-facing
     identifier and is unique; `notes` is a JSONB bag of
     `str|int|float|bool` values validated by
-    `app.domain.notes_validation`."""
+    `app.domain.notes_validation`.
+
+    Soft delete: items are archived rather than hard-deleted, so the
+    transaction history -- which reads an item's name/barcode/price via
+    a live join (`services.history.list_history`) -- stays intact after
+    a "delete". `archived_at` is NULL for live items; a timestamp means
+    the item is hidden from `list_items` and barcode lookups but its row
+    (and therefore its history) is retained. This mirrors the
+    transaction-void pattern on `Transaction.voided_at`."""
 
     __tablename__ = "items"
 
@@ -55,6 +63,7 @@ class Item(Base):
     price = Column(Numeric, nullable=True)
     product_link = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    archived_at = Column(DateTime(timezone=True), nullable=True)
 
     transactions = relationship("Transaction", back_populates="item")
 

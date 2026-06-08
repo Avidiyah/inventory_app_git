@@ -7,6 +7,7 @@ to know about the database driver's exception classes.
 """
 
 import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Sequence
 
@@ -15,10 +16,9 @@ from sqlalchemy.orm import Session
 
 from app.domain.errors import (
     DuplicateBarcodeError,
-    ItemHasTransactionsError,
     ItemNotFoundError,
 )
-from app.models import Item, Transaction
+from app.models import Item
 
 
 def create_item(
@@ -52,16 +52,27 @@ def create_item(
 
 
 def list_items(db: Session) -> Sequence[Item]:
-    """Return every item, newest first. The full table is small
-    enough that pagination is unnecessary at this stage."""
-    return db.query(Item).order_by(Item.created_at.desc()).all()
+    """Return every live item, newest first. Archived (soft-deleted)
+    items are excluded. The full table is small enough that pagination
+    is unnecessary at this stage."""
+    return (
+        db.query(Item)
+        .filter(Item.archived_at.is_(None))
+        .order_by(Item.created_at.desc())
+        .all()
+    )
 
 
 def get_item_by_barcode(db: Session, barcode: str) -> Item:
-    """Lookup used by the scan/entry flow. Raises `ItemNotFoundError`
-    rather than returning `None` so the router can translate via the
-    standard `to_http` table."""
-    item = db.query(Item).filter(Item.barcode == barcode).first()
+    """Lookup used by the scan/entry flow. Archived (soft-deleted) items
+    are treated as not found, so a deleted item cannot be scanned into a
+    new transaction. Raises `ItemNotFoundError` rather than returning
+    `None` so the router can translate via the standard `to_http` table."""
+    item = (
+        db.query(Item)
+        .filter(Item.barcode == barcode, Item.archived_at.is_(None))
+        .first()
+    )
     if not item:
         raise ItemNotFoundError("Item not found.")
     return item
@@ -109,20 +120,16 @@ def update_item(
 
 
 def delete_item(db: Session, item_id: uuid.UUID) -> None:
-    """Hard-delete an item. Refuses if any transactions reference it
-    (`ItemHasTransactionsError`, → 400) so the audit trail is never
-    orphaned; the `transactions.item_id` FK is also `ON DELETE RESTRICT`
-    as a belt-and-braces guarantee at the DB level."""
+    """Archive (soft-delete) an item by setting `archived_at`. The row is
+    deliberately NOT removed: the history view reads each transaction's
+    item name/barcode/price through a live join
+    (`services.history.list_history`), so a hard delete would orphan or
+    hide those rows. Archiving keeps the audit trail fully intact while
+    hiding the item from `list_items` and barcode lookups. Raises
+    `ItemNotFoundError` if the id is unknown. Idempotent: archiving an
+    already-archived item simply refreshes the timestamp."""
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item:
         raise ItemNotFoundError("Item not found.")
-    has_txn = (
-        db.query(Transaction.id).filter(Transaction.item_id == item_id).first()
-        is not None
-    )
-    if has_txn:
-        raise ItemHasTransactionsError(
-            "Cannot delete an item with transaction history."
-        )
-    db.delete(item)
+    item.archived_at = datetime.now(timezone.utc)
     db.commit()
