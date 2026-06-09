@@ -77,3 +77,11 @@ def test_void_transaction_requires_supervisor():
     # `DELETE /transactions/{transaction_id}`. Owner/Admin/Supervisor may
     # void a mis-clicked transaction; Technician may not.
     assert _min_role_for(transactions_router, "void_transaction") == roles.ROLE_SUPERVISOR
+
+
+def test_create_transaction_has_no_static_min_role():
+    # `POST /transactions/` is open to any logged-in user at the route
+    # level; the stock-vs-dispense split is enforced in the handler via
+    # `roles.can_transact` (covered by test_roles.py), not a
+    # `require_min_role` gate. So no static minimum should be discoverable.
+    assert _min_role_for(transactions_router, "create_transaction") is None

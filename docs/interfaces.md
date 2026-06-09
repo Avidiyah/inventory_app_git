@@ -386,7 +386,7 @@ Filters combine with AND, and voided rows are excluded (`voided_at IS NULL`). `w
 
 | Method | Path | Role | Body/query | Response |
 |---|---|---|---|---|
-| POST | `/transactions/` | Supervisor+ | `TransactionCreate` | `TransactionResponse` |
+| POST | `/transactions/` | Authenticated; `dispense` any role, `stock` Supervisor+ | `TransactionCreate` | `TransactionResponse` |
 | POST | `/transactions/adjust` | Admin+ | `CorrectionCreate` | `TransactionResponse` |
 | DELETE | `/transactions/{transaction_id}` | Supervisor+ | path id | `204` |
 | GET | `/transactions/` | Supervisor+ | query filters | `TransactionHistoryPage` |

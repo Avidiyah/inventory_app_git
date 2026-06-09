@@ -53,6 +53,22 @@ def role_at_least(role: str, minimum: str) -> bool:
     return rank(role) >= rank(minimum)
 
 
+def can_transact(actor_role: str, transaction_type: str) -> bool:
+    """True if `actor_role` may record a stock/dispense transaction of
+    `transaction_type`.
+
+    Dispense is the floor-crew action: any recognised role (Technician
+    and above) may take stock out. Adding stock is a supervisory action,
+    so `stock` requires Supervisor or above. Any other transaction type
+    (e.g. the impossible-from-the-schema case, or `adjust`, which has its
+    own Admin-gated route) is refused here."""
+    if transaction_type == "dispense":
+        return is_valid_role(actor_role)
+    if transaction_type == "stock":
+        return role_at_least(actor_role, ROLE_SUPERVISOR)
+    return False
+
+
 def can_manage(actor_role: str, target_role: str) -> bool:
     """True if an actor may create / reset / delete a user holding
     `target_role`. The actor must strictly outrank the target, so no

@@ -95,6 +95,14 @@
     padding: 0;
 }
 
+/* The `hidden` attribute must always win, even over component rules that
+   set their own `display` (e.g. `.segmented` and `#scango-active` use
+   `display: flex`, which would otherwise defeat `[hidden]`). JS toggles
+   visibility via `.hidden` throughout, so this keeps that contract honest. */
+[hidden] {
+    display: none !important;
+}
+
 body {
     font-family: var(--font-sans);
     font-size: var(--fs-base);
@@ -873,6 +881,98 @@ tr:last-child td {
     color: var(--gray-500);
 }
 
+/* =================== SCAN-AND-GO (work-order batch) =================== */
+/* The Transaction page's primary flow: a work-order gate (#wo-gate) then
+   the active batch (#scango-active) with a big direction + quantity and a
+   running log. See views/transactions.js and docs/plan-scan-and-go.md. */
+#wo-gate,
+#scango-active {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    max-width: 480px;
+}
+
+/* The work-order entry and the per-item quantity are the two fields the
+   crew touches most -- make them large and unmissable. */
+.wo-gate-input,
+.scango-quantity {
+    min-height: var(--btn-h);
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-bold);
+}
+
+#wo-gate-start-btn {
+    font-size: var(--fs-lg);
+}
+
+/* Active work-order header: bold label on the left, quiet "Change" on
+   the right. */
+#scango-wo-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    padding-bottom: var(--space-2);
+    border-bottom: var(--border);
+}
+
+#scango-wo-label {
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-bold);
+    color: var(--color-ink);
+}
+
+#scango-change-wo-btn {
+    min-height: var(--btn-h-sm);
+    flex: 0 0 auto;
+}
+
+/* Technician dispense-only indicator (shown in place of the toggle). */
+.scango-fixed {
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    background-color: var(--status-dispense);
+    color: var(--color-white);
+    font-weight: var(--fw-bold);
+    text-align: center;
+}
+
+/* Running tally for the active work order. */
+.scango-summary {
+    margin: 0;
+    font-weight: var(--fw-bold);
+    color: var(--gray-700);
+}
+
+/* Per-scan log: newest first; green for committed, red for refused. */
+.scango-log {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.scango-log-line {
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-sm);
+    border-left: 4px solid transparent;
+}
+
+.scango-log-ok {
+    background-color: var(--gray-50);
+    border-left-color: var(--status-stock);
+    color: var(--color-ink);
+}
+
+.scango-log-err {
+    background-color: var(--color-brand-tint);
+    border-left-color: var(--color-error);
+    color: var(--color-error);
+}
+
 /* =================== RESPONSIVE (mobile portrait) =================== */
 @media (max-width: 639px) {
     header { padding: var(--space-3) var(--space-4); }
@@ -884,7 +984,9 @@ tr:last-child td {
     .form-stack,
     .scan-controls,
     .scan-viewport,
-    .scan-chooser {
+    .scan-chooser,
+    #wo-gate,
+    #scango-active {
         max-width: none;
     }
 

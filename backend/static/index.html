@@ -263,9 +263,48 @@
     <!-- =================== TRANSACTION PAGE =================== -->
     <div class="page" id="transaction-page">
 
-        <section id="txn-scan-section">
-            <h2>Scan Barcode</h2>
-            <p class="hint">Point your camera at a barcode, or upload a photo, to open a transaction.</p>
+        <!-- Scan-and-go batch flow. Two states share this section:
+             #wo-gate (enter a work order) then #scango-active (pick a
+             direction + quantity, then scan items into the work order).
+             Driven by views/transactions.js; see docs/plan-scan-and-go.md. -->
+        <section id="txn-scango-section">
+            <div id="wo-gate">
+                <h2>Start a work order</h2>
+                <p class="hint">Enter the work order you're working on. You'll scan items into it.</p>
+                <label for="wo-gate-input">Work Order Number</label>
+                <input type="text" id="wo-gate-input" class="wo-gate-input" placeholder="Enter work order number" autocomplete="off" inputmode="text">
+                <button id="wo-gate-start-btn">Start</button>
+                <p id="wo-gate-message"></p>
+            </div>
+
+            <div id="scango-active" hidden>
+                <div id="scango-wo-bar">
+                    <span id="scango-wo-label"></span>
+                    <button id="scango-change-wo-btn" type="button" class="secondary-btn">Change work order</button>
+                </div>
+
+                <!-- Direction. Supervisor+ get the segmented toggle; the
+                     hidden #scango-type carries the submitted value. For
+                     Technicians (dispense-only) the toggle is hidden and
+                     #scango-direction-fixed is shown instead. -->
+                <input type="hidden" id="scango-type" value="stock">
+                <div id="scango-direction" class="segmented" role="group" aria-label="Transaction type">
+                    <button type="button" class="seg-btn scango-seg-stock active" data-value="stock">Add Stock</button>
+                    <button type="button" class="seg-btn scango-seg-dispense" data-value="dispense">Take Out Stock</button>
+                </div>
+                <p id="scango-direction-fixed" class="scango-fixed" hidden>Taking out stock</p>
+
+                <label for="scango-quantity">Quantity</label>
+                <input type="number" id="scango-quantity" class="scango-quantity" placeholder="0" min="0" step="any">
+
+                <p id="scango-summary" class="scango-summary" hidden></p>
+                <div id="scango-log" class="scango-log" hidden></div>
+            </div>
+        </section>
+
+        <section id="txn-scan-section" hidden>
+            <h2>Scan item</h2>
+            <p class="hint">Point your camera at a barcode, or upload a photo. Each scan is saved to the work order automatically.</p>
             <div class="scan-controls">
                 <!-- File input is hidden via CSS; the Upload button
                      programmatically clicks it. Kept here so the

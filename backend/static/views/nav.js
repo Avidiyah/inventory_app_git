@@ -6,7 +6,7 @@
 // activation so the view never shows stale rows after a write
 // elsewhere in the SPA.
 
-import { loadTxnItems } from "./transactions.js";
+import { enterTransactionPage } from "./transactions.js";
 import { loadHistory } from "./history.js";
 import { loadItems } from "./items.js";
 import { loadUsers } from "./users.js";
@@ -46,7 +46,9 @@ export const PAGE_ACCESS = {
   "saved-items": ["owner", "admin", "supervisor", "technician"],
   "create-user": ["owner", "admin", "supervisor"],
   "saved-users": ["owner", "admin", "supervisor"],
-  "transaction": ["owner", "admin", "supervisor"],
+  // Technicians get scan-and-go too, but dispense-only (enforced server-side
+  // in roles.can_transact; the UI hides the Stock toggle for them).
+  "transaction": ["owner", "admin", "supervisor", "technician"],
   "history": ["owner", "admin", "supervisor"],
 };
 
@@ -81,7 +83,7 @@ export function showPage(pageName) {
   if (entering) entering.refreshPermissionState();
 
   if (pageName === "transaction") {
-    loadTxnItems();
+    enterTransactionPage();
   } else if (pageName === "history") {
     loadHistory();
   } else if (pageName === "saved-items") {
