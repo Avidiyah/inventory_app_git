@@ -32,7 +32,7 @@ import "./views/auth.js";
 
 // --- Named imports for bootstrap calls ---------------------------
 import { setOnDeletedSelectedItem } from "./views/items.js";
-import { closeTransactionForm, setOnTransactionSaved } from "./views/transactions.js";
+import { closeTransactionForm, setOnTransactionSaved, setScanResetter } from "./views/transactions.js";
 import { resetScan } from "./views/scan.js";
 import { initAuth } from "./views/auth.js";
 
@@ -41,10 +41,14 @@ import { initAuth } from "./views/auth.js";
 // page (otherwise it would point at a now-missing row).
 setOnDeletedSelectedItem(closeTransactionForm);
 
-// After a completed stock/dispense, reset the scan UI so the next scan
-// starts clean. Injected here (rather than imported by transactions.js)
-// to keep the view dependency one-way: scan -> transactions.
+// After a completed manual stock/dispense, reset the scan UI so the next
+// scan starts clean. Injected here (rather than imported by
+// transactions.js) to keep the view dependency one-way: scan -> transactions.
 setOnTransactionSaved(resetScan);
+
+// Let the scan-and-go flow stop the live camera + clear the scan UI when
+// the operator changes the work order. Same one-way-dependency reasoning.
+setScanResetter(resetScan);
 
 // --- Auth gate ---------------------------------------------------
 // `initAuth` checks /auth/me and then either shows the login screen or

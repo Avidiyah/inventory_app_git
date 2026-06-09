@@ -125,8 +125,8 @@ owner > admin > supervisor > technician
 
 Route-level expectations:
 
-- Any logged-in user: item list and barcode lookup.
-- Supervisor+: item notes, stock/dispense transactions, user list, history, barcode decode.
+- Any logged-in user: item list and barcode lookup, barcode decode, and **dispense** transactions (scan-and-go; Technician is dispense-only).
+- Supervisor+: item notes, **stock** transactions, voids, user list, history.
 - Admin+: create/edit/delete items, corrections, `/db-test`.
 - User management: create, reset password, and delete only when the actor strictly outranks the target role.
 - Owner is bootstrap-only via `backend/scripts/create_owner.py`; no API caller can create or manage an owner unless they outrank the target role, which no one does for owners.

@@ -14,10 +14,10 @@ Mounted by `app/main.py` under the root prefix.
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.auth_deps import require_min_role
+from app.auth_deps import get_current_user, require_min_role
 from app.database import get_db
 from app.domain import roles
 from app.domain.errors import DomainError
@@ -38,13 +38,22 @@ router = APIRouter(prefix="/transactions", tags=["transactions"])
 @router.post("/", response_model=TransactionResponse, status_code=201)
 def create_transaction(
     payload: TransactionCreate,
-    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Record a stock or dispense. Supervisor or above. The transaction
-    is attributed to the logged-in user. 404 if the item is unknown,
-    400 if a dispense would overdraw stock
-    (`NegativeQuantityError` -> "Insufficient stock to dispense.")."""
+    """Record a stock or dispense. The transaction is attributed to the
+    logged-in user.
+
+    Authorization is per-direction (see `roles.can_transact`): any
+    logged-in user may *dispense* (the floor-crew action), but *stock*
+    requires Supervisor or above. A Technician attempting to stock gets
+    a 403. 404 if the item is unknown, 400 if a dispense would overdraw
+    stock (`NegativeQuantityError` -> "Insufficient stock to dispense.")."""
+    if not roles.can_transact(user.role, payload.transaction_type):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to perform this action.",
+        )
     try:
         return transactions_service.apply_transaction(
             db,

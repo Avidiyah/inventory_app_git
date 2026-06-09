@@ -27,7 +27,7 @@ import { setMessage } from "../dom.js";
 import { friendlyError } from "../format.js";
 import { getRole } from "../state.js";
 import { roleAtLeast } from "../roles.js";
-import { focusItemByBarcode } from "./transactions.js";
+import { commitScannedItem, scanGoArmed } from "./transactions.js";
 import { BarcodeDecoder } from "../scan/barcode-decoder.js";
 import { FrameDebouncer } from "../scan/frame-debouncer.js";
 
@@ -41,6 +41,14 @@ import { FrameDebouncer } from "../scan/frame-debouncer.js";
  * @param {(item: object) => void} opts.onItemFound - called when a barcode resolves to an item
  * @param {boolean} [opts.allowCreate=true]   - offer the "Create item" shortcut on 404 (Admin+ only)
  * @param {(barcode: string) => void} [opts.onCreateShortcut] - what the Create shortcut button does
+ * @param {boolean} [opts.continuous=false]   - scan-and-go batch mode: a successful decode is
+ *                                              committed via `onCommit` instead of opening a form,
+ *                                              and the live camera stays running between scans.
+ * @param {(item: object) => Promise<{committed: boolean}>} [opts.onCommit] - records the transaction
+ *                                              for a resolved item (continuous mode only) and reports
+ *                                              whether it was actually committed.
+ * @param {() => boolean} [opts.canScan]       - continuous-mode gate: return false to refuse a scan
+ *                                              (e.g. no quantity entered yet) with a prompt.
  * @param {Object} [opts.liveEls]             - optional live-camera DOM handles; when omitted the
  *                                              widget is upload-only (existing behaviour).
  * @param {HTMLVideoElement} opts.liveEls.videoEl
@@ -58,7 +66,28 @@ export function mountScanner({
   allowCreate = true,
   onCreateShortcut,
   liveEls,
+  continuous = false,
+  onCommit,
+  canScan,
 }) {
+  // Scan-and-go tuning. After a commit the live decoder keeps running, so
+  // two guards stop the same label (still in frame) from being counted
+  // twice: a short DWELL where every decode is ignored, plus a longer
+  // COOLDOWN during which only the *just-committed* barcode is suppressed
+  // (a different item commits immediately). See docs/plan-scan-and-go.md.
+  const DWELL_MS = 1200;
+  const COOLDOWN_MS = 3000;
+
+  // Short haptic confirmation for field use; silent no-op where the
+  // Vibration API is absent (desktop, iOS Safari).
+  function buzz(ok) {
+    if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") return;
+    try {
+      navigator.vibrate(ok ? 60 : [40, 40, 40]);
+    } catch (_err) {
+      /* vibrate can throw if the document is not focused; nothing actionable */
+    }
+  }
   function reset() {
     inputEl.value = "";
     chooserEl.innerHTML = "";
@@ -114,6 +143,14 @@ export function mountScanner({
 
   async function resolveBarcode(barcode) {
     clearChooser();
+
+    // Scan-and-go: look up the item and commit the transaction in place
+    // rather than opening a form. Used by both the upload path (via
+    // handleFile / the chooser) and the live path (via handleLiveAccept).
+    if (continuous) {
+      return resolveAndCommit(barcode);
+    }
+
     setMessage(messageEl, "Looking up item…", "");
 
     let item;
@@ -130,6 +167,41 @@ export function mountScanner({
 
     setMessage(messageEl, `Matched ${item.name} (${barcode}).`, "success");
     onItemFound(item);
+  }
+
+  // Scan-and-go commit path. Returns `{committed}` so the live handler
+  // can decide whether to start the same-barcode cooldown. Buzzes on
+  // every outcome (success once, error pattern on any failure) and never
+  // throws -- the camera keeps running regardless.
+  async function resolveAndCommit(barcode) {
+    if (canScan && !canScan()) {
+      setMessage(messageEl, "Enter a quantity first, then scan.", "error");
+      buzz(false);
+      return { committed: false };
+    }
+
+    setMessage(messageEl, "Looking up item…", "");
+
+    let item;
+    try {
+      item = await apiGetItemByBarcode(barcode);
+    } catch (err) {
+      // No Create-Item shortcut in scan-and-go: it would derail a hands-busy
+      // batch, and the floor crew cannot create items anyway.
+      setMessage(
+        messageEl,
+        err && err.status === 404
+          ? "No item matches that barcode."
+          : friendlyError(err, "Lookup failed. Try again."),
+        "error",
+      );
+      buzz(false);
+      return { committed: false };
+    }
+
+    const result = onCommit ? await onCommit(item) : { committed: false };
+    buzz(Boolean(result && result.committed));
+    return result;
   }
 
   function handleUnknownBarcode(barcode) {
@@ -187,6 +259,41 @@ export function mountScanner({
   let liveRunning = false;
   let torchOn = false;
 
+  // Continuous-mode guard state (see DWELL_MS / COOLDOWN_MS above).
+  // `livePaused` swallows every decode during the post-commit dwell;
+  // `cooldownBarcode` + `cooldownUntil` suppress only a repeat of the
+  // just-committed code for the longer window.
+  let livePaused = false;
+  let cooldownBarcode = null;
+  let cooldownUntil = 0;
+
+  // Continuous live accept: debounce, suppress immediate repeats, commit,
+  // then dwell. The camera is never stopped here -- it stays live for the
+  // next item.
+  async function handleLiveAccept(text) {
+    if (livePaused) return;
+
+    const accepted = debouncer.pushAndCheck(text);
+    if (!accepted) return;
+    debouncer.reset(); // consume this streak; the next item needs a fresh one
+
+    if (accepted === cooldownBarcode && Date.now() < cooldownUntil) return;
+
+    livePaused = true; // ignore decodes while we look up + commit + dwell
+    try {
+      const result = await resolveBarcode(accepted);
+      if (result && result.committed) {
+        cooldownBarcode = accepted;
+        cooldownUntil = Date.now() + COOLDOWN_MS;
+      }
+    } finally {
+      setTimeout(() => {
+        livePaused = false;
+        debouncer.reset();
+      }, DWELL_MS);
+    }
+  }
+
   function setAimboxVisible(visible) {
     if (liveEls && liveEls.aimboxEl) liveEls.aimboxEl.hidden = !visible;
   }
@@ -198,6 +305,9 @@ export function mountScanner({
   function stopLive() {
     if (!liveEls) return;
     liveRunning = false;
+    livePaused = false;
+    cooldownBarcode = null;
+    cooldownUntil = 0;
     if (decoder) decoder.stop();
     if (debouncer) debouncer.reset();
     if (liveStream) {
@@ -288,6 +398,12 @@ export function mountScanner({
     try {
       await decoder.start(liveEls.videoEl, stream, (text, _format) => {
         if (!liveRunning) return;
+        // Scan-and-go: keep the camera live and commit in place.
+        if (continuous) {
+          handleLiveAccept(text);
+          return;
+        }
+        // Default: first accepted code stops the camera and opens a form.
         const accepted = debouncer.pushAndCheck(text);
         if (accepted) {
           stopLive();
@@ -356,6 +472,7 @@ export function mountScanner({
 
   return {
     reset,
+    startLive: liveEls ? startLive : () => {},
     stopLive: liveEls ? stopLive : () => {},
     refreshPermissionState: liveEls ? refreshPermissionState : () => {},
   };
@@ -371,26 +488,18 @@ const txnScanInput = document.getElementById("txn-scan-input");
 const txnScanMessage = document.getElementById("txn-scan-message");
 const txnScanChooser = document.getElementById("txn-scan-chooser");
 
-// Owned by other views; used only to drive the Create-Item shortcut on
-// the Transaction page (prefill barcode, jump to the Create Item page).
-const createItemNavBtn = document.querySelector('.nav-btn[data-page="create-item"]');
-const createBarcodeInput = document.getElementById("barcode");
-
 // Exported so `views/nav.js` can drive page-level camera lifecycle:
 // stop on tab-hide / page-leave, refresh permission state on page-enter.
-// Phase 3 PR1 wires the Transaction page only; Saved Items follows in PR2.
+// The Transaction-page scanner runs in scan-and-go (continuous) mode: a
+// successful decode is committed straight into the active work order via
+// `commitScannedItem`, gated by `scanGoArmed` (a quantity must be set).
 export const txnScanner = mountScanner({
   inputEl: txnScanInput,
   messageEl: txnScanMessage,
   chooserEl: txnScanChooser,
-  onItemFound: focusItemByBarcode,
-  allowCreate: true,
-  onCreateShortcut: (barcode) => {
-    // Prefill the barcode, then switch to the Create Item page by
-    // triggering the existing nav button (no import of nav.js).
-    if (createBarcodeInput) createBarcodeInput.value = barcode;
-    if (createItemNavBtn) createItemNavBtn.click();
-  },
+  continuous: true,
+  onCommit: commitScannedItem,
+  canScan: scanGoArmed,
   liveEls: {
     videoEl: document.getElementById("txn-scan-video"),
     scanBtn: document.getElementById("txn-scan-scan-btn"),

@@ -44,3 +44,25 @@ def test_assignable_roles():
     assert roles.assignable_roles("admin") == ["supervisor", "technician"]
     assert roles.assignable_roles("supervisor") == ["technician"]
     assert roles.assignable_roles("technician") == []
+
+
+def test_can_transact_dispense_allowed_for_every_role():
+    # Dispense is the floor-crew action: every recognised role may do it.
+    for actor in roles.ALL_ROLES:
+        assert roles.can_transact(actor, "dispense") is True
+
+
+def test_can_transact_stock_requires_supervisor():
+    assert roles.can_transact("owner", "stock") is True
+    assert roles.can_transact("admin", "stock") is True
+    assert roles.can_transact("supervisor", "stock") is True
+    # A Technician may not add stock.
+    assert roles.can_transact("technician", "stock") is False
+
+
+def test_can_transact_refuses_unknown_type_and_role():
+    # `adjust` has its own Admin-gated route; it is not transactable here.
+    assert roles.can_transact("owner", "adjust") is False
+    assert roles.can_transact("owner", "bogus") is False
+    # A corrupt actor role can never transact, even to dispense.
+    assert roles.can_transact("bogus", "dispense") is False

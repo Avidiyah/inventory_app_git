@@ -19,6 +19,7 @@ import { friendlyError } from "../format.js";
 import { applyRoleVisibility, canAccessPage, showPage } from "./nav.js";
 import { loadUsers } from "./users.js";
 import { setHistoryTab } from "./history.js";
+import { resetBatch } from "./transactions.js";
 
 const loginScreen = document.getElementById("login-screen");
 const appRoot = document.getElementById("app-root");
@@ -31,17 +32,20 @@ const authUserIndicator = document.getElementById("auth-user-indicator");
 
 function showLoginScreen() {
   setCurrentUser(null);
+  resetBatch(); // drop any in-progress work-order batch on logout/expiry
   appRoot.hidden = true;
   loginScreen.hidden = false;
   loginPassword.value = "";
 }
 
 // Reveal the app for a logged-in user and run the initial loads they
-// are allowed to see. Every role lands on Find Item (saved-items) after
-// sign-in (UX overhaul decision) so the first screen is identical and
-// obvious for the crew, regardless of role.
+// are allowed to see. Every role lands on the Transaction page, which
+// opens on the work-order gate, so the first action after sign-in is to
+// start a work order and scan -- the core job for the whole crew
+// (see docs/plan-scan-and-go.md).
 function enterApp(user) {
   setCurrentUser(user);
+  resetBatch(); // start every session at the work-order gate
   loginScreen.hidden = true;
   appRoot.hidden = false;
   authUserIndicator.textContent = `${user.username} (${user.role})`;
@@ -56,7 +60,7 @@ function enterApp(user) {
     loadUsers();
   }
 
-  showPage("saved-items");
+  showPage("transaction");
 }
 
 // Any 401 anywhere -> back to login. The login form's own catch still

@@ -42,7 +42,7 @@ The frontend is a single HTML page with a login gate and six tab-based views.
 
 ### Login Screen
 
-Shown by `views/auth.js` on boot when `GET /auth/me` returns 401, and again after logout. Username + password form posts to `/auth/login`; the sign-in button reads "Sign In". On success the app reveals itself and role-appropriate initial loads run, and **every role lands on the Find Item page** (UX overhaul, Phase 1 — previously Owner/Admin landed on Create Item). A header bar shows `username (role)` and a Logout button. A global 401 handler returns the user to the login screen if a session expires mid-use.
+Shown by `views/auth.js` on boot when `GET /auth/me` returns 401, and again after logout. Username + password form posts to `/auth/login`; the sign-in button reads "Sign In". On success the app reveals itself and role-appropriate initial loads run, and **every role lands on the Transaction (scan-and-go) page**, which opens on the work-order gate (scan-and-go change — previously every role landed on Find Item). A header bar shows `username (role)` and a Logout button. A global 401 handler returns the user to the login screen if a session expires mid-use.
 
 **Role-gated UI.** `applyRoleVisibility(role)` hides nav buttons and controls the current role cannot use (e.g. Technicians do not see Create Item / Create User / delete buttons). Backend dependencies are the authoritative check; the UI gating is convenience only.
 
@@ -80,13 +80,22 @@ Table listing all users with a delete button. Deleting a user who has transactio
 
 ---
 
-### Transaction Page
+### Transaction Page (scan-and-go)
 
-**Barcode scan** (top of the page) — has live camera mode and upload mode. Live mode starts only from the Scan button, decodes in-browser with vendored `@zxing/browser`, accepts a barcode after the 5-of-10 frame debounce, and then calls `GET /items/{barcode}` directly. Upload mode opens a file picker / still-camera capture and POSTs the image to `/barcodes/decode` (backend pyzbar decode, in memory). On a single match the items table is filtered to that row and the Stock form auto-opens (Type defaults to Stock; one click flips to Dispense). On an unknown barcode, Owner/Admin see a "Create Item" shortcut that jumps to the Create Item page with the barcode prefilled. Multiple barcodes in one uploaded image show a chooser. Decode failures show a clear message and the manual table below stays usable. The scan resets automatically after a completed stock/dispense. Supported upload formats: UPC-A, UPC-E, EAN-13, EAN-8, Code128.
+This is where every role lands after sign-in. It is a **work-order batch** flow — see `docs/plan-scan-and-go.md` for the design record.
 
-Displays all items in a table (barcode, name, current quantity) with "Add Stock" and "Take Out" buttons per row. On narrow screens (≤639px) the items table collapses to stacked cards (`class="stack-table"`).
+**Work-order gate (State A).** On arrival the page shows only a single large work-order input and a **Start** button. A non-empty work order is required to proceed; this becomes the *batch* work order, reused for every scan until changed.
 
-**New Transaction form** (hidden until triggered) — shows the selected/scanned item (large name, plus on-hand quantity and location when known), a segmented **Add Stock / Take Out Stock** control (pre-filled from which button was clicked; submitted `transaction_type` stays `stock`/`dispense`), quantity field, and optional work order number. Transactions are attributed to the logged-in user server-side; the client cannot submit a transaction as someone else. Closes automatically after 1.2 seconds on success and refreshes both the transaction table and the items list.
+**Scan-and-go (State B).** After Start, the page shows: the active work order with a **Change work order** button (returns to the gate; if any scans were logged it confirms first, then clears the on-screen log — saved scans stay in history); a **direction** control; a large **quantity** input; the scanner; a running **batch log** with a `This work order: N scans, M units` summary.
+
+- **Direction.** Supervisor+ get the segmented **Add Stock / Take Out Stock** toggle (defaults to Add Stock). **Technicians are dispense-only**: the toggle is replaced by a fixed "Taking out stock" indicator and `transaction_type` is pinned to `dispense`.
+- **Scan = commit.** Live mode (vendored `@zxing/browser`, in-browser decode, `GET /items/{barcode}`) and upload mode (`/barcodes/decode`) both **commit the transaction immediately** — `POST /transactions/` with the batch work order, the chosen direction, and the entered quantity — instead of opening a form. Transactions are attributed to the logged-in user server-side. A scan is refused with a prompt unless a positive quantity is set (`Enter a quantity first, then scan`).
+- **Continuous camera.** In live mode the camera stays running across scans. Two guards stop a label still in frame from double-counting: a ~1.2 s dwell where every decode is ignored after a commit, and a ~3 s cooldown that suppresses only the just-committed barcode (a different item commits immediately). A short `navigator.vibrate` confirms each outcome on supporting devices.
+- **After each commit** the quantity resets to empty (so the next item gets a deliberate count), a green line is appended to the log, and the running total updates. Failures (unknown barcode, insufficient stock to dispense) append a red line and keep the quantity. The unknown-barcode "Create Item" shortcut is intentionally suppressed in this flow.
+
+**Manual fallback (Supervisor+ only).** Below the scan-and-go flow, Supervisor+ still see the items table (barcode, name, quantity) with per-row **Add Stock / Take Out** buttons and the **New Transaction form** (selected item, segmented direction, quantity, optional work order). Technicians do not see the table or the manual form. On narrow screens (≤639px) the table collapses to stacked cards (`class="stack-table"`).
+
+Supported upload formats: UPC-A, UPC-E, EAN-13, EAN-8, Code128.
 
 ---
 
@@ -114,7 +123,7 @@ Transaction history with three sub-tabs sharing a single results table:
 
 ### On load
 
-1. `enterApp` calls `showPage("saved-items")` so every role lands on the Find Item page.
+1. `enterApp` calls `resetBatch()` then `showPage("transaction")` so every role lands on the scan-and-go work-order gate.
 2. `setHistoryTab("all")` initialises history state and triggers `loadHistory()`.
 3. `loadItems()` — fetches `/items/`, populates `itemsCache`, renders items table.
 4. `loadUsers()` — fetches `/users/`, populates `usersCache`, renders the users table, and populates user selects used by history/user-management views where available.
@@ -177,6 +186,7 @@ Transaction history with three sub-tabs sharing a single results table:
 |Username uniqueness|Backend (DB constraint → 400)|
 |Transaction quantity > 0|Frontend + Backend|
 |Transaction attribution|Backend derives `user_id` from the logged-in session; legacy/null `user_id` rows may still appear in history|
+|Transaction direction by role: any logged-in user may `dispense`, only Supervisor+ may `stock`|Backend (`roles.can_transact` checked in `create_transaction` → 403) + Frontend (Technicians see no Stock toggle)|
 |Dispense cannot make quantity negative|Backend|
 |Authenticated session required on every non-login route|Backend (`get_current_user` dependency → 401)|
 |Role-based authorization on mutating routes|Backend (role checks in routers/services → 403)|
