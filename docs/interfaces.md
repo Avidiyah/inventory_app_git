@@ -556,6 +556,18 @@ value contract is unchanged (`stock` | `dispense`). Worker tables (`#items-table
 their render functions emit `data-label` / `data-primary` per `<td>` so CSS can collapse
 them to stacked cards below 640px.
 
+**DOM contract note (scan-and-go confirm, 2026-06-10):** the per-scan confirmation
+modal is an app-level overlay `#scan-confirm-overlay` (`.modal-overlay` → `.modal-box`)
+holding `#scan-confirm-title`, `#scan-confirm-yes`, and `#scan-confirm-no`. It is
+toggled via the `hidden` attribute (relies on the global `[hidden]{display:none!important}`)
+and driven by `confirmScan(message)` in `views/transactions.js`. The scan-and-go
+defaults also changed: `#scango-type` defaults to `dispense` (segmented `active` on
+`.scango-seg-dispense`) and `#scango-quantity` defaults to `1`. A Supervisor+-only
+opt-in button `#scango-advanced-toggle` reveals the direction toggle + manual table
+(`#txn-items-section`) / form (`#transaction-section`); by default Supervisor+ get
+the streamlined dispense-only flow (driven by the `supervisorAdvanced` flag in
+`views/transactions.js`).
+
 ### `views/history.js`
 
 Exports:

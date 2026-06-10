@@ -973,6 +973,50 @@ tr:last-child td {
     color: var(--color-error);
 }
 
+/* =================== MODAL (scan-and-go confirm) =================== */
+/* App-level overlay toggled via the `hidden` attribute. The global
+   [hidden]{display:none!important} rule outranks this `display:flex`, so
+   `hidden` reliably hides it without a higher-specificity override. */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+    background-color: rgba(20, 20, 20, .55);
+}
+
+.modal-box {
+    width: 100%;
+    max-width: 360px;
+    background-color: var(--color-white);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    padding: var(--space-6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.modal-title {
+    margin: 0;
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-bold);
+    color: var(--color-ink);
+}
+
+.modal-buttons {
+    display: flex;
+    gap: var(--space-2);
+}
+
+.modal-buttons button {
+    flex: 1 1 0;
+    margin-top: 0;
+}
+
 /* =================== RESPONSIVE (mobile portrait) =================== */
 @media (max-width: 639px) {
     header { padding: var(--space-3) var(--space-4); }

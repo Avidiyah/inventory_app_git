@@ -200,7 +200,13 @@ export function mountScanner({
     }
 
     const result = onCommit ? await onCommit(item) : { committed: false };
-    buzz(Boolean(result && result.committed));
+    // Buzz success on a commit and the error pattern on a real failure (e.g.
+    // overdraw), but stay silent on a user decline -- saying No is not an error.
+    if (result && result.committed) {
+      buzz(true);
+    } else if (!(result && result.declined)) {
+      buzz(false);
+    }
     return result;
   }
 
@@ -279,10 +285,12 @@ export function mountScanner({
 
     if (accepted === cooldownBarcode && Date.now() < cooldownUntil) return;
 
-    livePaused = true; // ignore decodes while we look up + commit + dwell
+    livePaused = true; // ignore decodes while we look up + confirm + commit + dwell
     try {
       const result = await resolveBarcode(accepted);
-      if (result && result.committed) {
+      // Cool down on a commit *or* a decline so a label still in frame isn't
+      // immediately re-committed or re-prompted; a different item is unaffected.
+      if (result && (result.committed || result.declined)) {
         cooldownBarcode = accepted;
         cooldownUntil = Date.now() + COOLDOWN_MS;
       }

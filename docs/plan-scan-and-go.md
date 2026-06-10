@@ -115,3 +115,42 @@ verification — both states were rendering at once.)
   sluggishness show up, alongside `docs/plan-scan-tuning.md`.
 - Obsidian project memory (per `AGENTS.md`) was **not** updated — no Obsidian
   MCP access in this session. Sync the repo-doc area when next available.
+
+## Addendum — 2026-06-10: simplified per-scan flow
+
+Field feedback wanted the floor job to be "open, sign in, scan, move on." Three
+decisions above were revised:
+
+- **Decision #1 (direction default).** Supervisor+ now default to **dispense**
+  (Take Out Stock), not Add Stock — work orders are usually about taking parts
+  out. Techs were already dispense-only.
+- **Decision #6 (quantity).** Quantity no longer starts empty / resets to empty
+  to force a per-item count. It now **defaults to 1 and resets to 1** after each
+  commit; a non-1 amount is a deliberate per-item opt-in that does not carry
+  over. The field is no longer auto-focused (that popped the mobile keyboard).
+  `scanGoArmed` still refuses an emptied/zeroed field; double-count protection
+  now rests entirely on the DWELL/COOLDOWN guards (decision #7), which remain.
+- **Decision #3 (scan = commit).** A scan no longer commits instantly. After the
+  barcode resolves to an item, a **custom confirmation modal** (`#scan-confirm-overlay`,
+  `confirmScan` in `views/transactions.js`) asks `Take out 1 × [item]?`; the
+  transaction is committed only on **Yes** (No / Esc / backdrop cancels). The Yes
+  click is the flow's "Save." The live decoder stays paused for the dialog's whole
+  lifetime because `handleLiveAccept` awaits the resolve+confirm+commit chain
+  before starting its dwell timer, so modals never stack. The same-barcode
+  cooldown is now set on a **decline** too (not just a commit), and a decline is
+  not error-buzzed.
+
+Files touched: `static/index.html` (scango defaults + `#scan-confirm-overlay`
+markup), `static/views/transactions.js` (`confirmScan`, quantity/direction
+defaults), `static/views/scan.js` (buzz/cooldown for decline),
+`static/styles.css` (`.modal-overlay`/`.modal-box`). Backend unchanged.
+
+- **Decision #5 (manual fallback).** Supervisor+ no longer see the manual items
+  table / form (or the direction toggle) by default — they now get the *same*
+  streamlined dispense-only flow as a Technician. A Supervisor+-only opt-in
+  button (`#scango-advanced-toggle`, "Manual entry & stock options") reveals the
+  direction toggle + table + form; toggling off reverts to dispense-only. The
+  flag (`supervisorAdvanced` in `views/transactions.js`) resets on each login;
+  `loadTxnItems()` is now only called when that opted-in table is actually
+  visible. Technicians can never opt in. (`static/index.html` +
+  `static/views/transactions.js`; backend unchanged.)

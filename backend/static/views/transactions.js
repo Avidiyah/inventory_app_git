@@ -53,11 +53,18 @@ const scangoDirection = document.getElementById("scango-direction");
 const scangoSegStock = document.querySelector(".scango-seg-stock");
 const scangoSegDispense = document.querySelector(".scango-seg-dispense");
 const scangoDirectionFixed = document.getElementById("scango-direction-fixed");
+const scangoAdvancedToggle = document.getElementById("scango-advanced-toggle");
 const scangoQuantity = document.getElementById("scango-quantity");
 const scangoSummary = document.getElementById("scango-summary");
 const scangoLog = document.getElementById("scango-log");
 const txnScanSection = document.getElementById("txn-scan-section");
 const txnItemsSection = document.getElementById("txn-items-section");
+
+// Per-scan confirmation modal (see confirmScan).
+const scanConfirmOverlay = document.getElementById("scan-confirm-overlay");
+const scanConfirmTitle = document.getElementById("scan-confirm-title");
+const scanConfirmYesBtn = document.getElementById("scan-confirm-yes");
+const scanConfirmNoBtn = document.getElementById("scan-confirm-no");
 
 // Injected by `main.js` (see `setOnTransactionSaved`) so a completed
 // stock/dispense can reset the scan UI without this module importing the
@@ -85,6 +92,10 @@ let batchWorkOrder = null;
 // Running tallies for the current work order's on-screen summary.
 let batchScanCount = 0;
 let batchUnitCount = 0;
+// Supervisor+ opt-in: false = same streamlined dispense-only flow as a
+// Technician; true = reveal the direction toggle + manual items table / form.
+// Technicians can never flip this. Reset to false on each fresh login.
+let supervisorAdvanced = false;
 
 // Injected by main.js so changing the work order can stop the live camera
 // without this module importing the scan view (keeps the dependency
@@ -105,26 +116,38 @@ function setScangoType(value) {
   if (scangoSegDispense) scangoSegDispense.classList.toggle("active", value === "dispense");
 }
 
-// Show the gate or the active batch, and apply role visibility: hide the
-// Stock/Dispense toggle (and force dispense) for Technicians, and hide
-// the manual items table / form from them entirely.
+// Show the gate or the active batch, and apply role visibility. By default
+// Supervisor+ get the same streamlined dispense-only flow as a Technician; the
+// `#scango-advanced-toggle` opt-in (Supervisor+ only) reveals the Stock/Dispense
+// toggle plus the manual items table / form.
 function showScanGoState() {
   const tech = isTechnician();
   const active = batchWorkOrder !== null;
+  // "advanced" = a Supervisor+ who has opted in. Everyone else (Technicians,
+  // and Supervisor+ by default) gets the streamlined dispense-only view.
+  const advanced = !tech && supervisorAdvanced;
 
   if (woGate) woGate.hidden = active;
   if (scangoActive) scangoActive.hidden = !active;
   if (txnScanSection) txnScanSection.hidden = !active;
 
-  // Direction control: toggle for Supervisor+, fixed "dispense" for techs.
-  if (scangoDirection) scangoDirection.hidden = tech;
-  if (scangoDirectionFixed) scangoDirectionFixed.hidden = !tech;
-  if (tech) setScangoType("dispense");
+  // Opt-in control: Supervisor+ only, and only inside an active batch.
+  if (scangoAdvancedToggle) {
+    scangoAdvancedToggle.hidden = tech || !active;
+    scangoAdvancedToggle.textContent = advanced ? "Hide manual entry" : "Manual entry & stock options";
+    scangoAdvancedToggle.setAttribute("aria-expanded", advanced ? "true" : "false");
+  }
 
-  // Manual fallback table: Supervisor+ only, and only inside an active
-  // batch. The manual form stays hidden until a row button opens it.
-  if (txnItemsSection) txnItemsSection.hidden = tech || !active;
-  if (tech && transactionSection) transactionSection.hidden = true;
+  // Direction control: toggle only in advanced mode; otherwise the fixed
+  // "Taking out stock" indicator, with the type pinned to dispense.
+  if (scangoDirection) scangoDirection.hidden = !advanced;
+  if (scangoDirectionFixed) scangoDirectionFixed.hidden = advanced;
+  if (!advanced) setScangoType("dispense");
+
+  // Manual fallback table + form: advanced mode only. The form stays hidden
+  // until a row button opens it.
+  if (txnItemsSection) txnItemsSection.hidden = !advanced || !active;
+  if (!advanced && transactionSection) transactionSection.hidden = true;
 }
 
 function clearBatchLog() {
@@ -167,12 +190,14 @@ function startBatch() {
   clearBatchLog();
   setMessage(woGateMessage, "", "");
   if (scangoWoLabel) scangoWoLabel.textContent = `Work order: ${workOrder}`;
-  if (scangoQuantity) scangoQuantity.value = "";
-  // Supervisor+ default to Add Stock; techs are forced to dispense in
-  // showScanGoState.
-  setScangoType("stock");
+  // Quantity defaults to 1 so the batch is armed without typing; the operator
+  // taps the field only to opt into a different amount.
+  if (scangoQuantity) scangoQuantity.value = "1";
+  // Default to dispense (the common work-order job is taking parts out);
+  // Supervisor+ can toggle to Add Stock. Techs are forced to dispense in
+  // showScanGoState regardless.
+  setScangoType("dispense");
   showScanGoState();
-  if (scangoQuantity) scangoQuantity.focus();
 }
 
 function changeWorkOrder() {
@@ -199,16 +224,60 @@ export function scanGoArmed() {
   return Number.isFinite(quantity) && quantity > 0;
 }
 
+// Per-scan confirmation. Resolves true (Yes) or false (No / Esc / backdrop).
+// The live decoder stays paused while this is open because handleLiveAccept
+// awaits the whole resolve+commit chain before starting its dwell timer (see
+// docs/plan-scan-and-go.md), so there are never stacked modals.
+function confirmScan(message) {
+  return new Promise((resolve) => {
+    if (!scanConfirmOverlay) {
+      resolve(true); // no modal in the DOM -> fall back to instant commit
+      return;
+    }
+    scanConfirmTitle.textContent = message; // textContent: item name is untrusted
+    scanConfirmOverlay.hidden = false;
+    if (scanConfirmYesBtn) scanConfirmYesBtn.focus();
+
+    function cleanup() {
+      if (scanConfirmYesBtn) scanConfirmYesBtn.removeEventListener("click", onYes);
+      if (scanConfirmNoBtn) scanConfirmNoBtn.removeEventListener("click", onNo);
+      scanConfirmOverlay.removeEventListener("click", onBackdrop);
+      document.removeEventListener("keydown", onKey);
+    }
+    function done(ok) {
+      scanConfirmOverlay.hidden = true;
+      cleanup();
+      resolve(ok);
+    }
+    function onYes() { done(true); }
+    function onNo() { done(false); }
+    function onBackdrop(event) { if (event.target === scanConfirmOverlay) done(false); }
+    function onKey(event) { if (event.key === "Escape") done(false); }
+
+    if (scanConfirmYesBtn) scanConfirmYesBtn.addEventListener("click", onYes);
+    if (scanConfirmNoBtn) scanConfirmNoBtn.addEventListener("click", onNo);
+    scanConfirmOverlay.addEventListener("click", onBackdrop);
+    document.addEventListener("keydown", onKey);
+  });
+}
+
 // Commit a scanned item into the active work order. Returns
-// `{committed}` so the scanner knows whether to start its same-barcode
-// cooldown. Never throws -- failures are surfaced in the log and the
-// camera keeps running.
+// `{committed, declined}` so the scanner knows whether to start its
+// same-barcode cooldown (set on either) and whether to buzz. Never throws --
+// failures are surfaced in the log and the camera keeps running.
 export async function commitScannedItem(item) {
   const quantity = scangoQuantity ? parseFloat(scangoQuantity.value) : NaN;
   if (batchWorkOrder === null || !Number.isFinite(quantity) || quantity <= 0) {
     return { committed: false };
   }
   const type = scangoType.value; // "stock" | "dispense"
+
+  // Confirm before committing: the Yes click is this flow's "Save".
+  const confirmVerb = type === "stock" ? "Add" : "Take out";
+  const confirmed = await confirmScan(`${confirmVerb} ${quantity} × ${item.name}?`);
+  if (!confirmed) {
+    return { committed: false, declined: true };
+  }
 
   try {
     await apiCreateTransaction({
@@ -236,24 +305,23 @@ export async function commitScannedItem(item) {
   appendLogLine(`✓ ${verb} ${quantity} × ${item.name}${tail}`, true);
   updateSummary();
 
-  // Reset quantity so the next item gets a deliberate count; this also
-  // disarms scanning until a new quantity is entered.
-  if (scangoQuantity) {
-    scangoQuantity.value = "";
-    scangoQuantity.focus();
-  }
+  // Reset quantity to the default of 1 so the next scan is immediately armed
+  // (a non-1 amount is a deliberate per-item opt-in that does not carry over).
+  // Don't focus the field -- on mobile that pops the keyboard mid-batch.
+  if (scangoQuantity) scangoQuantity.value = "1";
 
-  // Keep the Supervisor+ manual table's on-hand numbers fresh.
-  if (roleAtLeast(getRole(), "supervisor")) loadTxnItems();
+  // Keep the manual table's on-hand numbers fresh -- only when it's actually
+  // visible (a Supervisor+ who has opted in).
+  if (!isTechnician() && supervisorAdvanced) loadTxnItems();
 
   return { committed: true };
 }
 
 // Called by nav.js when the Transaction page activates: paint the right
-// state and (Supervisor+) load the manual table.
+// state and, for an opted-in Supervisor+, load the manual table.
 export function enterTransactionPage() {
   showScanGoState();
-  if (batchWorkOrder !== null && roleAtLeast(getRole(), "supervisor")) {
+  if (batchWorkOrder !== null && !isTechnician() && supervisorAdvanced) {
     loadTxnItems();
   }
 }
@@ -262,8 +330,9 @@ export function enterTransactionPage() {
 // work-order gate with no stale batch.
 export function resetBatch() {
   batchWorkOrder = null;
+  supervisorAdvanced = false; // every fresh login starts streamlined
   if (woGateInput) woGateInput.value = "";
-  if (scangoQuantity) scangoQuantity.value = "";
+  if (scangoQuantity) scangoQuantity.value = "1";
   clearBatchLog();
   showScanGoState();
 }
@@ -275,6 +344,14 @@ if (woGateInput) {
   });
 }
 if (scangoChangeWoBtn) scangoChangeWoBtn.addEventListener("click", changeWorkOrder);
+if (scangoAdvancedToggle) {
+  scangoAdvancedToggle.addEventListener("click", () => {
+    supervisorAdvanced = !supervisorAdvanced;
+    showScanGoState();
+    // Populate the now-visible manual table when opting in.
+    if (supervisorAdvanced && batchWorkOrder !== null) loadTxnItems();
+  });
+}
 if (scangoSegStock) scangoSegStock.addEventListener("click", () => setScangoType("stock"));
 if (scangoSegDispense) scangoSegDispense.addEventListener("click", () => setScangoType("dispense"));
 
