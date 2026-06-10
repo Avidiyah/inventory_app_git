@@ -129,15 +129,17 @@
                 <input type="text" id="items-search" placeholder="Search name or barcode">
             </div>
             <table id="items-table" class="stack-table">
+                <!-- Header cells are rebuilt per-role by views/items.js
+                     (renderItems) so the column set/order matches the rows:
+                     technicians get a decluttered, quantity/location-first
+                     table. These static cells are just an initial placeholder. -->
                 <thead>
-                    <tr>
+                    <tr id="items-thead-row">
                         <th>Barcode</th>
                         <th>Name</th>
                         <th>Quantity</th>
                         <th>Location</th>
                         <th>Notes</th>
-                        <th class="admin-col" hidden>Price</th>
-                        <th class="admin-col" hidden>Link</th>
                         <th>Created At</th>
                         <th>Actions</th>
                     </tr>
@@ -289,20 +291,6 @@
                      reveals the direction toggle + manual items table + form. -->
                 <button type="button" id="scango-advanced-toggle" class="secondary-btn" hidden aria-expanded="false" aria-controls="txn-items-section">Manual entry &amp; stock options</button>
 
-                <!-- Direction. Supervisor+ get the segmented toggle; the
-                     hidden #scango-type carries the submitted value. For
-                     Technicians (dispense-only) the toggle is hidden and
-                     #scango-direction-fixed is shown instead. -->
-                <input type="hidden" id="scango-type" value="dispense">
-                <div id="scango-direction" class="segmented" role="group" aria-label="Transaction type">
-                    <button type="button" class="seg-btn scango-seg-stock" data-value="stock">Add Stock</button>
-                    <button type="button" class="seg-btn scango-seg-dispense active" data-value="dispense">Take Out Stock</button>
-                </div>
-                <p id="scango-direction-fixed" class="scango-fixed" hidden>Taking out stock</p>
-
-                <label for="scango-quantity">Quantity</label>
-                <input type="number" id="scango-quantity" class="scango-quantity" placeholder="1" min="0" step="any" value="1">
-
                 <p id="scango-summary" class="scango-summary" hidden></p>
                 <div id="scango-log" class="scango-log" hidden></div>
             </div>
@@ -327,6 +315,22 @@
                     <button id="txn-scan-torch-btn" type="button" class="secondary-btn" hidden>Torch</button>
                 </div>
             </div>
+
+            <!-- Direction + quantity sit below the scan controls so the scan
+                 button is the first thing shown after the work order. Supervisor+
+                 get the segmented toggle; the hidden #scango-type carries the
+                 submitted value. Technicians (and non-opted-in Supervisor+) see
+                 the fixed #scango-direction-fixed instead. -->
+            <input type="hidden" id="scango-type" value="dispense">
+            <div id="scango-direction" class="segmented" role="group" aria-label="Transaction type">
+                <button type="button" class="seg-btn scango-seg-stock" data-value="stock">Add Stock</button>
+                <button type="button" class="seg-btn scango-seg-dispense active" data-value="dispense">Take Out Stock</button>
+            </div>
+            <p id="scango-direction-fixed" class="scango-fixed" hidden>Taking out stock</p>
+
+            <label for="scango-quantity">Quantity</label>
+            <input type="number" id="scango-quantity" class="scango-quantity" placeholder="1" min="0" step="any" inputmode="decimal" value="1">
+
             <div id="txn-scan-chooser" class="scan-chooser" hidden></div>
             <p id="txn-scan-message"></p>
         </section>
@@ -360,7 +364,7 @@
                 </div>
 
                 <label for="transaction-quantity">Quantity</label>
-                <input type="number" id="transaction-quantity" placeholder="0" min="0" step="any" value="0">
+                <input type="number" id="transaction-quantity" placeholder="0" min="0" step="any" inputmode="decimal" value="0">
 
                 <label for="transaction-work-order">Work Order Number (optional)</label>
                 <input type="text" id="transaction-work-order" placeholder="Enter work order number">

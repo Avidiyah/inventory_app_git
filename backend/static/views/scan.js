@@ -478,11 +478,24 @@ export function mountScanner({
     }
   }
 
+  // Start the live camera without a user tap, but ONLY when permission is
+  // already granted -- never trigger a permission prompt from here. Used by
+  // the scan-and-go flow so beginning a work order shows a live camera ready
+  // to scan; on first use / denied / unsupported the manual "Scan Barcode"
+  // button stays the path. No-op if already running.
+  async function autoStartIfPermitted() {
+    if (!liveEls || liveRunning) return;
+    if (!(await BarcodeDecoder.supports())) return;
+    if (!(await BarcodeDecoder.permissionGranted())) return;
+    await startLive();
+  }
+
   return {
     reset,
     startLive: liveEls ? startLive : () => {},
     stopLive: liveEls ? stopLive : () => {},
     refreshPermissionState: liveEls ? refreshPermissionState : () => {},
+    autoStartIfPermitted: liveEls ? autoStartIfPermitted : () => {},
   };
 }
 
@@ -521,4 +534,12 @@ export const txnScanner = mountScanner({
 // owned by transactions.js and cleared when the transaction form closes.
 export function resetScan() {
   txnScanner.reset();
+}
+
+// Auto-start the Transaction-page camera when a batch begins -- only if
+// permission is already granted (never prompts). Injected into
+// transactions.js via main.js to keep the dependency one-way (scan ->
+// transactions).
+export function autoStartTxnScan() {
+  txnScanner.autoStartIfPermitted();
 }

@@ -154,3 +154,13 @@ defaults), `static/views/scan.js` (buzz/cooldown for decline),
   `loadTxnItems()` is now only called when that opted-in table is actually
   visible. Technicians can never opt in. (`static/index.html` +
   `static/views/transactions.js`; backend unchanged.)
+- **Decision #7 (camera lifecycle) extended.** The camera now **auto-starts**
+  when a batch begins (`startBatch`) or when returning to an in-progress batch
+  (`enterTransactionPage`), so there's no "Scan Barcode" tap before the fast
+  loop. It is strictly prompt-free: `BarcodeDecoder.permissionGranted()` (a new
+  static that returns true only on a Permissions API `granted` state) gates
+  `mountScanner`'s new `autoStartIfPermitted()`. On first use / denied / no
+  Permissions API it does nothing and the manual button remains. Wired one-way
+  via `setScanAutostarter` (main.js → `autoStartTxnScan` in `views/scan.js`),
+  mirroring `setScanResetter`. The existing reordering (scan controls above
+  quantity) and the page reordering land the live camera at the top of State B.

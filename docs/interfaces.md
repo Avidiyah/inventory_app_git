@@ -501,7 +501,7 @@ Exports:
 - `setOnDeletedSelectedItem(fn)`
 - `itemsScanner`
 
-Owns Create Item, Saved Items table, action dropdown, Saved Items scanner mount, and delete cleanup.
+Owns Create Item, Saved Items table, action dropdown, Saved Items scanner mount, and delete cleanup. `renderItems()` builds the `#items-table` header (`#items-thead-row`) and body together from a per-role column model, so column set/order can never desync. Technicians get a decluttered, quantity/location-first table (no Created / Actions columns); Supervisor+ keep the original order plus the Admin-only Price/Link columns.
 
 ### `views/itemEditor.js`
 
@@ -585,8 +585,9 @@ Exports:
 - `mountScanner(opts)`
 - `txnScanner`
 - `resetScan()`
+- `autoStartTxnScan()` — starts the Transaction-page camera only if permission is already granted (never prompts); injected into `transactions.js` via `setScanAutostarter` (wired in `main.js`).
 
-`mountScanner` accepts upload DOM handles, optional live camera handles, `onItemFound`, `allowCreate`, and `onCreateShortcut`. Upload mode calls `/barcodes/decode`; live mode calls `apiGetItemByBarcode` directly after ZXing decode debounce.
+`mountScanner` accepts upload DOM handles, optional live camera handles, `onItemFound`, `allowCreate`, and `onCreateShortcut`. Upload mode calls `/barcodes/decode`; live mode calls `apiGetItemByBarcode` directly after ZXing decode debounce. The returned object adds `autoStartIfPermitted()` (prompt-free auto-start), backed by the new `BarcodeDecoder.permissionGranted()` static.
 
 ---
 

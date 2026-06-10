@@ -67,6 +67,22 @@ export class BarcodeDecoder {
     return true;
   }
 
+  // True ONLY when camera permission is already granted, so a caller can
+  // start the camera without ever triggering a permission prompt. Returns
+  // false when the Permissions API is missing or rejects a `camera` query
+  // (Firefox, older Safari) -- callers must then fall back to a user gesture.
+  static async permissionGranted() {
+    if (!navigator.permissions || typeof navigator.permissions.query !== "function") {
+      return false;
+    }
+    try {
+      const status = await navigator.permissions.query({ name: "camera" });
+      return !!status && status.state === "granted";
+    } catch (_err) {
+      return false;
+    }
+  }
+
   // Begin continuous decoding against an already-acquired MediaStream.
   // Idempotent: a second call while running stops the existing loop first
   // so the caller can re-attach to a fresh stream without double-running.

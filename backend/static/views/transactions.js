@@ -105,6 +105,14 @@ export function setScanResetter(fn) {
   resetScanUi = fn;
 }
 
+// Injected by main.js: start the live camera when a batch begins, but only
+// if permission is already granted (never prompts). Same one-way dependency
+// (scan -> transactions) as resetScanUi.
+let scanAutoStart = null;
+export function setScanAutostarter(fn) {
+  scanAutoStart = fn;
+}
+
 function isTechnician() {
   // Technician is the only role below Supervisor that can reach this page.
   return !roleAtLeast(getRole(), "supervisor");
@@ -198,6 +206,10 @@ function startBatch() {
   // showScanGoState regardless.
   setScangoType("dispense");
   showScanGoState();
+  // Bring the camera up immediately so the first thing after the work order
+  // is a live scanner (only if permission is already granted; otherwise the
+  // manual "Scan Barcode" button remains).
+  if (scanAutoStart) scanAutoStart();
 }
 
 function changeWorkOrder() {
@@ -234,6 +246,10 @@ function confirmScan(message) {
       resolve(true); // no modal in the DOM -> fall back to instant commit
       return;
     }
+    // Remember what was focused so we can restore it on close (a11y).
+    const previouslyFocused = document.activeElement;
+    const focusables = [scanConfirmYesBtn, scanConfirmNoBtn].filter(Boolean);
+
     scanConfirmTitle.textContent = message; // textContent: item name is untrusted
     scanConfirmOverlay.hidden = false;
     if (scanConfirmYesBtn) scanConfirmYesBtn.focus();
@@ -244,15 +260,40 @@ function confirmScan(message) {
       scanConfirmOverlay.removeEventListener("click", onBackdrop);
       document.removeEventListener("keydown", onKey);
     }
+    function restoreFocus() {
+      const el = previouslyFocused;
+      if (!el || typeof el.focus !== "function") return;
+      // Don't re-focus a text/number field -- that re-pops the mobile keyboard
+      // mid-batch (the same reason we don't auto-focus quantity after a commit).
+      const tag = (el.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return;
+      try { el.focus(); } catch (_err) { /* element gone; nothing actionable */ }
+    }
     function done(ok) {
       scanConfirmOverlay.hidden = true;
       cleanup();
+      restoreFocus();
       resolve(ok);
     }
     function onYes() { done(true); }
     function onNo() { done(false); }
     function onBackdrop(event) { if (event.target === scanConfirmOverlay) done(false); }
-    function onKey(event) { if (event.key === "Escape") done(false); }
+    function onKey(event) {
+      if (event.key === "Escape") { done(false); return; }
+      // Trap Tab focus within the dialog while it's open.
+      if (event.key === "Tab" && focusables.length) {
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement;
+        if (event.shiftKey && (active === first || !focusables.includes(active))) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && (active === last || !focusables.includes(active))) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    }
 
     if (scanConfirmYesBtn) scanConfirmYesBtn.addEventListener("click", onYes);
     if (scanConfirmNoBtn) scanConfirmNoBtn.addEventListener("click", onNo);
@@ -321,8 +362,11 @@ export async function commitScannedItem(item) {
 // state and, for an opted-in Supervisor+, load the manual table.
 export function enterTransactionPage() {
   showScanGoState();
-  if (batchWorkOrder !== null && !isTechnician() && supervisorAdvanced) {
-    loadTxnItems();
+  if (batchWorkOrder !== null) {
+    // Returning to an in-progress batch: bring the camera back up (permission
+    // is already granted by this point, so this won't prompt).
+    if (scanAutoStart) scanAutoStart();
+    if (!isTechnician() && supervisorAdvanced) loadTxnItems();
   }
 }
 

@@ -32,8 +32,8 @@ import "./views/auth.js";
 
 // --- Named imports for bootstrap calls ---------------------------
 import { setOnDeletedSelectedItem } from "./views/items.js";
-import { closeTransactionForm, setOnTransactionSaved, setScanResetter } from "./views/transactions.js";
-import { resetScan } from "./views/scan.js";
+import { closeTransactionForm, setOnTransactionSaved, setScanResetter, setScanAutostarter } from "./views/transactions.js";
+import { resetScan, autoStartTxnScan } from "./views/scan.js";
 import { initAuth } from "./views/auth.js";
 
 // Cross-view wiring: deleting the selected item from the Entry
@@ -49,6 +49,10 @@ setOnTransactionSaved(resetScan);
 // Let the scan-and-go flow stop the live camera + clear the scan UI when
 // the operator changes the work order. Same one-way-dependency reasoning.
 setScanResetter(resetScan);
+
+// Auto-start the camera when a work order batch begins (only if camera
+// permission is already granted -- never prompts). Same one-way dependency.
+setScanAutostarter(autoStartTxnScan);
 
 // --- Auth gate ---------------------------------------------------
 // `initAuth` checks /auth/me and then either shows the login screen or
