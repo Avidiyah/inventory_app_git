@@ -63,6 +63,13 @@ class ItemResponse(BaseModel):
     Technician never receives them even though the field exists on the
     schema. The frontend additionally hides the columns, but the backend
     gate is the authoritative one.
+
+    `barcode` is the canonical/display code. `barcodes` is the list of
+    *additional* package codes (from the `item_barcodes` child table).
+    Because the ORM exposes those as `Item.alt_barcodes` objects rather
+    than strings, `from_attributes` cannot fill `barcodes` directly --
+    `_item_response` sets it explicitly from `[b.code for b in
+    item.alt_barcodes]`.
     """
 
     id: UUID
@@ -71,6 +78,7 @@ class ItemResponse(BaseModel):
     quantity: Decimal
     location: str
     notes: dict[str, Any] = {}
+    barcodes: list[str] = []
     price: Optional[Decimal] = None
     product_link: Optional[str] = None
     created_at: datetime
@@ -92,6 +100,37 @@ class ItemNotesUpdate(BaseModel):
     @classmethod
     def _validate(cls, v):
         return validate_notes(v)
+
+
+class ItemBarcodesUpdate(BaseModel):
+    """Payload for `PATCH /items/{id}/barcodes` -- a full replacement of an
+    item's *additional* barcodes (the canonical `barcode` is edited via
+    `PATCH /items/{id}`).
+
+    The validator normalises the list the same way the Notes editor
+    normalises keys: each code is stripped, blanks are dropped, and an
+    in-list duplicate is rejected (a duplicate is almost always a typo and
+    would otherwise be silently collapsed). Cross-item / primary-vs-alt
+    uniqueness is a database/service concern, surfaced as
+    `DuplicateBarcodeError` by `services.items.replace_barcodes`.
+    """
+
+    barcodes: list[str]
+
+    @field_validator("barcodes")
+    @classmethod
+    def _clean(cls, v):
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in v:
+            code = raw.strip()
+            if not code:
+                continue
+            if code in seen:
+                raise ValueError("Duplicate barcode in the list.")
+            seen.add(code)
+            cleaned.append(code)
+        return cleaned
 
 
 class ItemUpdate(BaseModel):

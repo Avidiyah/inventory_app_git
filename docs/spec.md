@@ -30,8 +30,10 @@ A self-hosted inventory management tool for tracking physical items by barcode. 
 |Role-based access control (Owner / Admin / Supervisor / Technician)|✅ Working — backend enforces via `get_current_user` + role checks; frontend hides controls the role cannot use|
 |Public deployment on Render (Docker + managed Postgres + HTTPS)|✅ Live — see `docs/deploy-render.md`|
 |Edit item name, barcode, or location|✅ Working — inline editor on Saved Items, Admin+, with a confirm dialog when the barcode changes|
+|Multiple barcodes per item (additional package codes)|✅ Working — item editor manages an add/remove list of *additional* barcodes (Admin+, via `PATCH /items/{id}/barcodes`); a scan of the primary or any alternate resolves to the item|
 |Update item quantity directly|✅ Working — via Correction transaction on Saved Items (Admin+); writes an `adjust` audit row with required reason|
-|Soft deletes for items and users|❌ Not implemented (hard delete only)|
+|Soft delete for items (archive)|✅ Working — "Delete" sets `items.archived_at`; the row is retained so history stays intact, but the item is hidden from `list_items` and barcode lookups|
+|Soft deletes for users|❌ Not implemented (hard delete only; blocked when the user has transactions)|
 |Partial / merge updates for item notes|❌ Not implemented (every save replaces all notes)|
 
 ---
@@ -62,7 +64,9 @@ Table showing all items (barcode, name, quantity, location, notes summary, creat
 
 **Price & Product Link columns (Admin/Owner only).** Two extra columns — **Price** (formatted USD currency) and **Link** (an "Open" anchor to `product_link`, or "—") — appear in the items table only for Admin/Owner. The backend redacts `price` / `product_link` to `null` for Supervisor/Technician, so the columns are both hidden client-side *and* unpopulated server-side (a lower role cannot read them from the raw API). A safe-URL guard renders `product_link` as a clickable link only when it is an `http(s)` URL. These are display-only for now — there is no UI to set price/product_link yet (populate via the DB or a future editor).
 
-**Item Editor** — inline section on the same page (hidden until triggered). Opens when "Edit" is clicked. Lets Admin+ change the barcode, name, and/or location of an existing item. Quantity is NOT editable here (use a Correction transaction). Changing the barcode prompts a confirm dialog ("Changing this barcode breaks any scanner labels still pointing at this row. Continue?"). Auto-closes after 1 second on success.
+**Item Editor** — inline section on the same page (hidden until triggered). Opens when "Edit" is clicked. Lets Admin+ change the barcode, name, location, price, and/or product link of an existing item, plus the item's **additional barcodes**. Quantity is NOT editable here (use a Correction transaction). Changing the (primary) barcode prompts a confirm dialog ("Changing this barcode breaks any scanner labels still pointing at this row. Continue?"). Auto-closes after 1 second on success.
+
+**Additional barcodes.** A physical item often carries several barcodes on its packaging (manufacturer code, repackaged carton code, retail label). The editor includes an "Additional barcodes" add/remove list (same add-a-row / remove-a-row UX as the Notes editor) for codes *beyond* the primary `barcode`. A scan of the primary **or any additional** code resolves to the same item. Every code stays globally unique across all items (a code already used as another item's primary or additional barcode, or equal to this item's own primary, is rejected with a friendly error and the panel stays open to fix). The primary `barcode` remains the single code shown in the Find Item table, History, and the copy-export. On **Save Changes** the editor issues two calls: the additional barcodes go through `PATCH /items/{id}/barcodes` (wholesale replace) and the core fields through `PATCH /items/{id}`; the barcodes call runs first so a duplicate is caught before the core fields are written.
 
 **Correction (quantity adjust)** — inline section on the same page (hidden until triggered). Opens when "Correct" is clicked. Lets Admin+ set the item to an absolute new quantity with a required reason. The backend computes the signed delta under the item row lock and records a `transaction_type = "adjust"` audit row carrying the delta and the reason; the append-only invariant is preserved (corrections are new rows, never UPDATEs to past transactions). A no-op (`new_quantity == current_quantity`) returns 400. Auto-closes after 1 second on success.
 
@@ -199,6 +203,8 @@ Transaction history with three sub-tabs sharing a single results table:
 |Note values must be str, int, float, or bool|Backend|
 |Duplicate note keys|Frontend only|
 |At least one of barcode / name / location required on item update|Backend (`ItemUpdate` model validator) + Frontend (all three required, treated as non-blank)|
+|Additional barcodes trimmed, non-blank, no in-list duplicates|Backend (`ItemBarcodesUpdate` validator) + Frontend (item editor collects/dedupes before send)|
+|Every barcode (primary or additional) globally unique across all items|Backend (`item_barcodes.code` UNIQUE + `items.barcode` UNIQUE + cross-table pre-check `services.items._barcode_in_use` → `DuplicateBarcodeError` 400)|
 |Deleting item or user with transactions blocked|Backend (`ItemHasTransactionsError` / `UserHasTransactionsError` → 400; FKs are `ON DELETE RESTRICT`)|
 |Correction `new_quantity` ≥ 0|Backend (`CorrectionCreate` field validator) + Frontend|
 |Correction `reason` required (non-blank, stripped)|Backend (`CorrectionCreate` field validator) + Frontend|
@@ -222,6 +228,7 @@ Transaction history with three sub-tabs sharing a single results table:
 |Load items|GET `/items/`|
 |Create item|POST `/items/`|
 |Edit item|PATCH `/items/{item_id}`|
+|Replace item's additional barcodes|PATCH `/items/{item_id}/barcodes`|
 |Delete item|DELETE `/items/{item_id}`|
 |Update notes|PATCH `/items/{item_id}/notes`|
 |Barcode lookup (history)|GET `/items/{barcode}`|
@@ -242,7 +249,7 @@ The frontend never calls `/db-test`.
 
 - **Transaction page has its own item fetch.** `loadTxnItems()` fetches `/items/` independently from `loadItems()`, so the two tables can briefly diverge if items change between calls.
 - **Notes are fully replaced on every save.** There is no partial merge. Loading the editor, removing a row, and saving will permanently delete that note.
-- **No soft deletes for items / users.** Deleting an item or user is permanent. Deletion of an item or user that has transactions is blocked by the service layer (`ItemHasTransactionsError` / `UserHasTransactionsError`, → 400) and pinned at the DB level by `ON DELETE RESTRICT` on the `transactions.item_id` and `transactions.user_id` FKs. (Note: a *voided* transaction is still a row referencing its item/user, so it continues to block that item/user's deletion — the audit row is retained, just hidden from history.)
+- **Items are soft-deleted (archived); users are not.** "Deleting" an item sets `items.archived_at`: the row is retained (so history's live join stays intact) and the item is hidden from `list_items` and barcode lookups. Users are still hard-deleted, and deleting a user that has transactions is blocked by the service layer (`UserHasTransactionsError`, → 400) and pinned at the DB level by `ON DELETE RESTRICT` on the `transactions.user_id` FK. (Note: a *voided* transaction is still a row referencing its user, so it continues to block that user's deletion — the audit row is retained, just hidden from history.)
 - **Transactions have a soft-delete (void).** A mis-clicked transaction can be voided by a Supervisor+ (`DELETE /transactions/{id}`): the row is retained and stamped `voided_at` / `voided_by_id`, hidden from history, and its stock effect reversed. There is no UI to *un-void* a transaction yet — recovery would currently require a manual DB edit.
 
 ---

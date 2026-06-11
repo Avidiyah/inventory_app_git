@@ -155,7 +155,18 @@ Relationships: one-to-many to `transactions`, one-to-many to `sessions`.
 | `product_link` | Text nullable | URL to the product; surfaced ONLY to Admin/Owner |
 | `created_at` | timestamptz | Set on insert |
 
-`price` and `product_link` are cost-sensitive: the items router redacts both to `null` for Supervisor/Technician before serialising, so they never reach a non-Admin client (the frontend also hides the columns). Notes keys must be non-blank strings. Values may be `str`, `int`, `float`, or `bool`. Notes updates replace the whole JSON object.
+`price` and `product_link` are cost-sensitive: the items router redacts both to `null` for Supervisor/Technician before serialising, so they never reach a non-Admin client (the frontend also hides the columns). Notes keys must be non-blank strings. Values may be `str`, `int`, `float`, or `bool`. Notes updates replace the whole JSON object. `archived_at` (timestamptz, nullable) implements item soft delete — a "delete" sets it and the item is hidden from `list_items` and barcode lookups while its row (and history) is retained.
+
+### `item_barcodes`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `item_id` | UUID | FK to `items.id`, `ON DELETE CASCADE` |
+| `code` | Text | Required, globally unique |
+| `created_at` | timestamptz | Set on insert |
+
+An item's **additional** barcodes (beyond its canonical `items.barcode`). A physical item often carries several codes on its packaging; each gets a row here so a scan of the primary or any additional code resolves to the same item (`services.items.get_item_by_barcode`). `code` is globally UNIQUE (guards alt-vs-alt); the primary-vs-alt overlap is enforced by the service pre-check `services.items._barcode_in_use`. The FK is `ON DELETE CASCADE` (alternates are owned config, not audit data), but items are soft-deleted via `archived_at` so the cascade only fires on a true row delete.
 
 ### `transactions`
 
@@ -192,6 +203,8 @@ row lock. A void that would drive stock below zero is rejected (400).
 | `c3d4e5f6a7b8` | Add correction reason column |
 | `d4e5f6a7b8c9` | Add transaction void columns (`voided_at`, `voided_by_id`) |
 | `e5f67b8c9d0` | Add item `price` and `product_link` columns |
+| `f6b8c0d2e4a1` | Add item `archived_at` (soft delete) |
+| `a7c9e1f3b5d2` | Add `item_barcodes` table (additional barcodes per item) |
 
 ---
 
@@ -231,10 +244,11 @@ owner > admin > supervisor > technician
 |---|---|---|---|
 | POST | `/items/` | Admin | Create item |
 | GET | `/items/` | Any logged-in user | List items newest-first (`price`/`product_link` redacted below Admin) |
-| GET | `/items/{barcode}` | Any logged-in user | Lookup item by barcode (`price`/`product_link` redacted below Admin) |
-| PATCH | `/items/{item_id}` | Admin | Edit barcode, name, and/or location |
+| GET | `/items/{barcode}` | Any logged-in user | Lookup item by primary or additional barcode (`price`/`product_link` redacted below Admin) |
+| PATCH | `/items/{item_id}` | Admin | Edit barcode, name, location, price, and/or product link |
 | PATCH | `/items/{item_id}/notes` | Supervisor | Replace notes |
-| DELETE | `/items/{item_id}` | Admin | Delete unreferenced item |
+| PATCH | `/items/{item_id}/barcodes` | Admin | Replace the item's additional barcodes |
+| DELETE | `/items/{item_id}` | Admin | Soft-delete (archive) an item |
 
 ### Users
 
@@ -286,7 +300,8 @@ owner > admin > supervisor > technician
 - Usernames are unique and non-blank.
 - User passwords must meet the configured minimum length.
 - User create/reset/delete actions require strict subordinate management.
-- Deleting an item or user with transaction history is blocked.
+- Items are soft-deleted (archived via `archived_at`), keeping history intact; deleting a *user* with transaction history is still blocked.
+- Every barcode (an item's primary `barcode` or any additional `item_barcodes.code`) is globally unique across all items; a scan resolves the primary or any additional code to exactly one item.
 
 ---
 

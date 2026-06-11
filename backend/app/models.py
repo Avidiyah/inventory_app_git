@@ -50,7 +50,15 @@ class Item(Base):
     a "delete". `archived_at` is NULL for live items; a timestamp means
     the item is hidden from `list_items` and barcode lookups but its row
     (and therefore its history) is retained. This mirrors the
-    transaction-void pattern on `Transaction.voided_at`."""
+    transaction-void pattern on `Transaction.voided_at`.
+
+    Multiple barcodes: `barcode` is the canonical/display code (shown in
+    Find Item, History, and exports). A physical item can also carry
+    *additional* package codes, held in the `item_barcodes` child table
+    via `alt_barcodes`. A scan resolves against the primary OR any
+    alternate (`services.items.get_item_by_barcode`); every code stays
+    globally unique across both columns (enforced by the child table's
+    UNIQUE constraint plus a cross-table service pre-check)."""
 
     __tablename__ = "items"
 
@@ -66,6 +74,44 @@ class Item(Base):
     archived_at = Column(DateTime(timezone=True), nullable=True)
 
     transactions = relationship("Transaction", back_populates="item")
+    alt_barcodes = relationship(
+        "ItemBarcode",
+        back_populates="item",
+        cascade="all, delete-orphan",
+    )
+
+
+class ItemBarcode(Base):
+    """An *additional* barcode for an item, beyond its canonical
+    `Item.barcode`. One physical item often carries several codes on its
+    packaging (manufacturer code, repackaged carton code, retail label);
+    each gets its own row here so a scan of any of them resolves to the
+    same item.
+
+    `code` is globally UNIQUE, which guarantees alt-vs-alt codes never
+    collide across items. The remaining cross-table rule -- an alternate
+    must not equal any item's *primary* `Item.barcode` -- is enforced by
+    a service pre-check (`services.items._barcode_in_use`), since a single
+    column UNIQUE constraint cannot span two tables.
+
+    The FK is `ON DELETE CASCADE` (deliberately NOT the `RESTRICT` used by
+    `Transaction.item_id`): alternates are owned configuration, not audit
+    records, so they should disappear with the item rather than block its
+    removal. Items are soft-deleted via `archived_at`, so this cascade
+    only fires on a genuine row delete."""
+
+    __tablename__ = "item_barcodes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    item_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("items.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    code = Column(Text, nullable=False, unique=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    item = relationship("Item", back_populates="alt_barcodes")
 
 
 class Transaction(Base):

@@ -76,7 +76,19 @@ Inputs:
 | `price` | Decimal? | Per-unit price; redacted below Admin by the router |
 | `product_link` | str? | Product URL; redacted below Admin by the router |
 | `created_at` | datetime | tz-aware |
+| `archived_at` | datetime? | NULL = live; set = archived (soft delete), hidden from `list_items` and barcode lookups |
 | `transactions` | list[`Transaction`] | Relationship |
+| `alt_barcodes` | list[`ItemBarcode`] | Relationship, cascade delete-orphan; the item's *additional* barcodes |
+
+### `ItemBarcode`
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `item_id` | UUID | FK to items, `ON DELETE CASCADE` |
+| `code` | str | Required, globally unique (an *additional* barcode for the item) |
+| `created_at` | datetime | tz-aware |
+| `item` | `Item` | Relationship |
 
 ### `Transaction`
 
@@ -219,6 +231,12 @@ At least one field must be present.
 |---|---|---|
 | `notes` | dict[str, scalar] | Delegates to `validate_notes` |
 
+`ItemBarcodesUpdate`
+
+| Field | Type | Validation |
+|---|---|---|
+| `barcodes` | list[str] | Each trimmed; blanks dropped; in-list duplicates rejected. Full replacement of the item's *additional* codes. |
+
 `ItemResponse`
 
 | Field | Type |
@@ -229,6 +247,7 @@ At least one field must be present.
 | `quantity` | Decimal |
 | `location` | str |
 | `notes` | dict[str, Any] |
+| `barcodes` | list[str] — the item's *additional* codes (set by `_item_response` from `alt_barcodes`) |
 | `price` | Decimal? (null below Admin) |
 | `product_link` | str? (null below Admin) |
 | `created_at` | datetime |
@@ -318,11 +337,13 @@ Opens bytes with Pillow, decodes with pyzbar, filters to supported formats, dedu
 
 ### `services/items.py`
 
-- `create_item(db, *, barcode, name, quantity, location) -> Item`
+- `create_item(db, *, barcode, name, quantity, location, price?, product_link?) -> Item`
 - `list_items(db) -> Sequence[Item]`
-- `get_item_by_barcode(db, barcode) -> Item`
-- `update_item(db, item_id, *, barcode?, name?, location?) -> Item`
-- `delete_item(db, item_id) -> None`
+- `get_item_by_barcode(db, barcode) -> Item` — resolves against the primary `barcode` OR any `item_barcodes.code`; archived items excluded.
+- `update_item(db, item_id, *, barcode?, name?, location?, price?, product_link?) -> Item`
+- `replace_barcodes(db, item_id, codes) -> Item` — wholesale-replace the item's *additional* barcodes; rejects codes already in use (cross-table) or equal to the item's primary via `DuplicateBarcodeError`.
+- `delete_item(db, item_id) -> None` — soft delete (sets `archived_at`).
+- `_barcode_in_use(db, code, *, exclude_item_id?) -> bool` — internal cross-table uniqueness check (primary + additional).
 
 ### `services/notes.py`
 
@@ -371,6 +392,7 @@ Filters combine with AND, and voided rows are excluded (`voided_at IS NULL`). `w
 | GET | `/items/{barcode}` | Authenticated | none | `ItemResponse` (price/link null below Admin) |
 | PATCH | `/items/{item_id}` | Admin+ | `ItemUpdate` | `ItemResponse` |
 | PATCH | `/items/{item_id}/notes` | Supervisor+ | `ItemNotesUpdate` | `ItemResponse` |
+| PATCH | `/items/{item_id}/barcodes` | Admin+ | `ItemBarcodesUpdate` | `ItemResponse` |
 | DELETE | `/items/{item_id}` | Admin+ | none | 204 |
 
 ### `/users`
@@ -423,6 +445,7 @@ Exports:
 - `apiUpdateItem(itemId, patch)`
 - `apiDeleteItem(itemId)`
 - `apiUpdateNotes(itemId, notesDict)`
+- `apiUpdateBarcodes(itemId, codes)`
 - `apiGetItemByBarcode(barcode)`
 - `apiListUsers()`
 - `apiCreateUser({ username, password, role })`

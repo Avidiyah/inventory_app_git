@@ -93,6 +93,13 @@ export async function apiUpdateNotes(itemId, notesDict) {
   return jsonRequest(`/items/${itemId}/notes`, "PATCH", { notes: notesDict });
 }
 
+export async function apiUpdateBarcodes(itemId, codes) {
+  // `codes` is the full list of an item's *additional* barcodes (the
+  // primary is edited via apiUpdateItem). Wholesale replace, mirroring
+  // apiUpdateNotes.
+  return jsonRequest(`/items/${itemId}/barcodes`, "PATCH", { barcodes: codes });
+}
+
 export async function apiGetItemByBarcode(barcode) {
   // Barcodes may contain characters that need URL-escaping (e.g.
   // `/` or `#`); raw values would silently mis-route.

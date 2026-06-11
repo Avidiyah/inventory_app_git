@@ -21,7 +21,13 @@ from app.domain import roles
 from app.domain.errors import DomainError
 from app.models import Item, User
 from app.routers._errors import to_http
-from app.schemas.items import ItemCreate, ItemResponse, ItemNotesUpdate, ItemUpdate
+from app.schemas.items import (
+    ItemBarcodesUpdate,
+    ItemCreate,
+    ItemNotesUpdate,
+    ItemResponse,
+    ItemUpdate,
+)
 from app.services import items as items_service
 from app.services import notes as notes_service
 
@@ -35,6 +41,11 @@ def _item_response(item: Item, role: str) -> ItemResponse:
     Technician hitting `GET /items/` directly still gets `null` for
     both fields."""
     resp = ItemResponse.model_validate(item)
+    # The additional barcodes are an ORM relationship of `ItemBarcode`
+    # objects, so `from_attributes` cannot coerce them to `list[str]` --
+    # flatten to their codes here. Ordered oldest-first for a stable
+    # display (the relationship default order is insertion order).
+    resp.barcodes = [b.code for b in item.alt_barcodes]
     if not roles.role_at_least(role, roles.ROLE_ADMIN):
         resp.price = None
         resp.product_link = None
@@ -126,6 +137,28 @@ def update_item_notes(
 
 
 @router.patch(
+    "/{item_id}/barcodes",
+    response_model=ItemResponse,
+)
+def update_item_barcodes(
+    item_id: uuid.UUID,
+    payload: ItemBarcodesUpdate,
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """Replace the item's *additional* barcodes wholesale. Owner/Admin
+    only (same gate as the structural `PATCH /items/{item_id}` edit). The
+    canonical `barcode` is unchanged -- it is edited via that route. 404 if
+    the item does not exist; 400 if a submitted code is already in use by
+    another item or equals this item's own primary barcode."""
+    try:
+        item = items_service.replace_barcodes(db, item_id, payload.barcodes)
+        return _item_response(item, user.role)
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.patch(
     "/{item_id}",
     response_model=ItemResponse,
 )
@@ -159,7 +192,7 @@ def update_item(
     dependencies=[Depends(require_min_role(roles.ROLE_ADMIN))],
 )
 def delete_item(item_id: uuid.UUID, db: Session = Depends(get_db)):
-    """Hard-delete an item. Owner/Admin only. 404 if unknown."""
+    """Soft-delete (archive) an item. Owner/Admin only. 404 if unknown."""
     try:
         items_service.delete_item(db, item_id)
     except DomainError as exc:

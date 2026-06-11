@@ -624,6 +624,33 @@ tr:last-child td {
     color: var(--gray-400);
 }
 
+/* Additional-barcodes editor (inside the item editor). Reuses the
+   notes-row remove-button treatment; one text input + remove control. */
+#item-editor-barcodes-rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    max-width: 700px;
+}
+
+.barcode-row {
+    display: grid;
+    grid-template-columns: 1fr 44px;
+    gap: var(--space-2);
+    align-items: center;
+}
+
+.barcode-row input {
+    width: 100%;
+    margin: 0;
+}
+
+.field-hint {
+    font-size: var(--fs-sm);
+    color: var(--gray-700);
+    margin: 0 0 var(--space-2);
+}
+
 /* =================== AUTH =================== */
 /*
   Auth: login screen overlay and the header auth bar.

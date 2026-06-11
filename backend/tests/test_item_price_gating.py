@@ -30,6 +30,7 @@ def _fake_item():
         quantity=Decimal("7"),
         location="Bay 1",
         notes={},
+        alt_barcodes=[],
         price=Decimal("12.50"),
         product_link="https://example.com/widget",
         created_at=datetime.now(timezone.utc),
