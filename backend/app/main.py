@@ -14,9 +14,11 @@ Business logic lives in `app.services`, validation in
 ever grow beyond wiring.
 """
 
+from pathlib import Path
+
 from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 
 from app.auth_deps import require_min_role
 from starlette.types import Scope
@@ -62,17 +64,49 @@ app.include_router(transactions.router)
 app.include_router(users.router)
 
 # The frontend is a static SPA served from `backend/static/`.
-# `index.html` is served at `/`; its `<script type="module">` and
+# The shell document is assembled at request time from per-page
+# fragments (see `SHELL_PARTS`); its `<script type="module">` and
 # CSS pull the rest from `/static/...`.
 app.mount("/static", NoCacheStaticFiles(directory="static"), name="static")
+
+# `static/` resolved from this file (not the CWD) so assembly works
+# regardless of where the process is launched.
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
+# The SPA shell, split into per-page fragments so each page's markup can
+# be edited in isolation. Concatenated in this order at request time, the
+# result is byte-identical to the former monolithic `index.html` -- the
+# frozen DOM contract (docs/interfaces.md) is unchanged because the browser
+# still receives one complete document with every page present on boot.
+# Fragments are migrated out of the shell one page at a time; pages not yet
+# extracted still live inline in `shell-head.html` / `shell-tail.html`.
+SHELL_PARTS = (
+    "shell-head.html",          # head, login, header/nav, <main>
+    "pages/create-item.html",
+    "pages/saved-items.html",
+    "pages/create-user.html",
+    "pages/saved-users.html",
+    "pages/transaction.html",
+    "pages/history.html",
+    "shell-tail.html",          # </main>, scan-confirm overlay, scripts, </body></html>
+)
+
+
+def _assemble_index() -> bytes:
+    """Concatenate the shell fragments into the full SPA document.
+
+    Reads bytes (not text) so CRLF line endings survive verbatim, and
+    reads fresh on every request: `uvicorn --reload` does not restart on
+    `.html` edits, so caching here would serve a stale shell after a
+    fragment is edited. The cost is a handful of small file reads.
+    """
+    return b"".join((STATIC_DIR / part).read_bytes() for part in SHELL_PARTS)
 
 
 @app.get("/")
 def read_root():
-    """Serve the SPA shell."""
-    return FileResponse(
-        "static/index.html", headers={"Cache-Control": "no-cache"}
-    )
+    """Serve the SPA shell, assembled from per-page fragments."""
+    return HTMLResponse(_assemble_index(), headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/db-test", dependencies=[Depends(require_min_role(roles.ROLE_ADMIN))])

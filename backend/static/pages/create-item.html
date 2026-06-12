@@ -1,0 +1,33 @@
+    <!-- =================== CREATE ITEM PAGE =================== -->
+    <div class="page" id="create-item-page">
+
+        <section id="create-item-section">
+            <h2>Add Item</h2>
+            <div class="form-stack">
+                <label for="barcode">Barcode</label>
+                <input type="text" id="barcode" placeholder="Scan or enter barcode">
+                <p class="hint">Scan or type the label number.</p>
+
+                <label for="name">Item Name</label>
+                <input type="text" id="name" placeholder="Enter item name">
+
+                <label for="location">Location</label>
+                <input type="text" id="location" placeholder="Enter location">
+                <p class="hint">Where workers will find it.</p>
+
+                <label for="quantity">Starting Quantity</label>
+                <input type="number" id="quantity" placeholder="0" min="0" value="0">
+
+                <label for="price">Price (optional)</label>
+                <input type="number" id="price" placeholder="0.00" min="0" step="0.01">
+
+                <label for="product-link">Product Link (optional)</label>
+                <input type="url" id="product-link" placeholder="Enter product link">
+
+                <button id="create-item-btn">Save Item</button>
+                <p id="create-item-message"></p>
+            </div>
+        </section>
+
+    </div>
+

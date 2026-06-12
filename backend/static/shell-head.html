@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<!--
+  SPA shell -- HEAD fragment.
+  Layer: markup. The document served at `/` is assembled at request
+  time by `app/main.py::read_root` (`_assemble_index`, in the order of
+  `SHELL_PARTS`):
+
+      shell-head.html        (this file: <head>, login, header/nav, <main>)
+    + static/pages/*.html    (one file per page, in nav order)
+    + shell-tail.html        (</main>, scan-confirm overlay, scripts, </body>)
+
+  The former monolithic `index.html` was split this way so each page's
+  markup can be edited in isolation. The assembled bytes are identical to
+  the old single file, so runtime behavior is unchanged: every page's
+  markup is present on boot, and `main.js` (loaded from shell-tail.html)
+  wires all of them at startup.
+
+  Structure only -- no inline scripts, no event handlers in attributes.
+  All behavior lives in `/static/main.js` and the view modules under
+  `/static/views/`.
+
+  IDs used as the API contract between markup and JS are the "Frozen DOM
+  contract" in `docs/interfaces.md`. Do not rename them without updating
+  that document. The `.page` sections are toggled by
+  `views/nav.js::showPage`, which adds the `active` class to the selected
+  one.
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory Management</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+    <!-- =================== LOGIN SCREEN =================== -->
+    <!-- Shown by auth.js when there is no valid session; hides the app
+         entirely. Both this and #app-root start hidden, and auth.js
+         reveals exactly one after checking /auth/me on boot. -->
+    <div id="login-screen" hidden>
+        <section id="login-section">
+            <h1>Inventory Management</h1>
+            <h2>Sign In</h2>
+            <div class="form-stack">
+                <label for="login-username">Username</label>
+                <input type="text" id="login-username" autocomplete="username" placeholder="Enter username">
+
+                <label for="login-password">Password</label>
+                <input type="password" id="login-password" autocomplete="current-password" placeholder="Enter password">
+
+                <button id="login-btn">Sign In</button>
+                <p id="login-message"></p>
+            </div>
+        </section>
+    </div>
+
+    <!-- =================== APPLICATION =================== -->
+    <div id="app-root" hidden>
+
+    <header>
+        <h1>Inventory Management</h1>
+        <nav id="main-nav">
+            <button class="nav-btn" data-page="create-item">Add Item</button>
+            <button class="nav-btn" data-page="saved-items">Find Item</button>
+            <button class="nav-btn" data-page="create-user">Add User</button>
+            <button class="nav-btn" data-page="saved-users">Users</button>
+            <button class="nav-btn" data-page="transaction">Scan / Stock</button>
+            <button class="nav-btn" data-page="history">History</button>
+        </nav>
+        <div id="auth-bar">
+            <span id="auth-user-indicator"></span>
+            <button id="logout-btn" type="button" class="secondary-btn">Log Out</button>
+        </div>
+    </header>
+
+    <main>
+

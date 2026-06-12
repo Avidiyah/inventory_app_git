@@ -187,11 +187,24 @@ The frontend mirrors these rules for convenience, but backend dependencies are a
 
 ## Frontend Shape
 
-The frontend is a static SPA mounted at `/`. Main modules:
+The frontend is a static SPA mounted at `/`. The shell document is
+assembled at request time by `app/main.py::read_root` from per-page
+fragments (`shell-head.html` + `pages/*.html` + `shell-tail.html`, in the
+order of `SHELL_PARTS`) so each page's markup lives in its own file; the
+assembled result is one complete document with every page present on boot.
+Main modules:
 
 ```text
 backend/static/
-  index.html
+  shell-head.html        # <head>, login, header/nav, <main>
+  shell-tail.html        # </main>, scan-confirm overlay, scripts, </body>
+  pages/                 # one file per page, assembled in nav order
+    create-item.html
+    saved-items.html
+    create-user.html
+    saved-users.html
+    transaction.html
+    history.html
   styles.css
   main.js
   api.js

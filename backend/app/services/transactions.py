@@ -97,9 +97,14 @@ def void_transaction(
       zero (e.g. voiding a stock-in whose units were since dispensed);
       the operator should make a correction instead.
     """
+    # Lock the transaction row itself so two concurrent voids of the same
+    # transaction serialise here: the second blocks until the first commits,
+    # then re-reads the row, sees `voided_at` set, and raises instead of
+    # reversing the stock effect a second time.
     txn = (
         db.query(Transaction)
         .filter(Transaction.id == transaction_id)
+        .with_for_update()
         .first()
     )
     if txn is None or txn.voided_at is not None:

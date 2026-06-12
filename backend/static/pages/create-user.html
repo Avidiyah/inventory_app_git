@@ -1,0 +1,26 @@
+    <!-- =================== CREATE USER PAGE =================== -->
+    <div class="page" id="create-user-page">
+
+        <section id="create-user-section">
+            <h2>Add User</h2>
+            <div class="form-stack">
+                <label for="username">Username</label>
+                <input type="text" id="username" placeholder="Enter username">
+
+                <label for="user-role">Role</label>
+                <select id="user-role">
+                    <!-- Options populated by views/users.js from the
+                         current user's assignable roles. -->
+                </select>
+                <p class="hint" id="user-role-help"></p>
+
+                <label for="user-password">Password</label>
+                <input type="password" id="user-password" autocomplete="new-password" placeholder="At least 4 characters">
+
+                <button id="create-user-btn">Add User</button>
+                <p id="create-user-message"></p>
+            </div>
+        </section>
+
+    </div>
+

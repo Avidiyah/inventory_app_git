@@ -1,0 +1,118 @@
+
+    <!-- =================== TRANSACTION PAGE =================== -->
+    <div class="page" id="transaction-page">
+
+        <!-- Scan-and-go batch flow. Two states share this section:
+             #wo-gate (enter a work order) then #scango-active (pick a
+             direction + quantity, then scan items into the work order).
+             Driven by views/transactions.js; see docs/plan-scan-and-go.md. -->
+        <section id="txn-scango-section">
+            <div id="wo-gate">
+                <h2>Start a work order</h2>
+                <p class="hint">Enter the work order you're working on. You'll scan items into it.</p>
+                <label for="wo-gate-input">Work Order Number</label>
+                <input type="text" id="wo-gate-input" class="wo-gate-input" placeholder="Enter work order number" autocomplete="off" inputmode="text">
+                <button id="wo-gate-start-btn">Start</button>
+                <p id="wo-gate-message"></p>
+            </div>
+
+            <div id="scango-active" hidden>
+                <div id="scango-wo-bar">
+                    <span id="scango-wo-label"></span>
+                    <button id="scango-change-wo-btn" type="button" class="secondary-btn">Change work order</button>
+                </div>
+
+                <!-- Opt-in for Supervisor+ only (hidden for Technicians and
+                     until shown by views/transactions.js). By default
+                     Supervisor+ get the streamlined dispense-only flow; this
+                     reveals the direction toggle + manual items table + form. -->
+                <button type="button" id="scango-advanced-toggle" class="secondary-btn" hidden aria-expanded="false" aria-controls="txn-items-section">Manual entry &amp; stock options</button>
+
+                <p id="scango-summary" class="scango-summary" hidden></p>
+                <div id="scango-log" class="scango-log" hidden></div>
+            </div>
+        </section>
+
+        <section id="txn-scan-section" hidden>
+            <h2>Scan item</h2>
+            <p class="hint">Point your camera at a barcode, or upload a photo. Each scan is saved to the work order automatically.</p>
+            <div class="scan-controls">
+                <!-- File input is hidden via CSS; the Upload button
+                     programmatically clicks it. Kept here so the
+                     existing upload path in views/scan.js works
+                     unchanged. -->
+                <input type="file" id="txn-scan-input" accept="image/*" capture="environment">
+                <div class="scan-viewport">
+                    <video id="txn-scan-video" class="scan-video" playsinline muted autoplay></video>
+                    <div id="txn-scan-aimbox" class="scan-aimbox" role="presentation" hidden></div>
+                </div>
+                <div class="scan-toolbar">
+                    <button id="txn-scan-scan-btn" type="button">Scan Barcode</button>
+                    <button id="txn-scan-upload-btn" type="button" class="secondary-btn">Upload Photo</button>
+                    <button id="txn-scan-torch-btn" type="button" class="secondary-btn" hidden>Torch</button>
+                </div>
+            </div>
+
+            <!-- Direction + quantity sit below the scan controls so the scan
+                 button is the first thing shown after the work order. Supervisor+
+                 get the segmented toggle; the hidden #scango-type carries the
+                 submitted value. Technicians (and non-opted-in Supervisor+) see
+                 the fixed #scango-direction-fixed instead. -->
+            <input type="hidden" id="scango-type" value="dispense">
+            <div id="scango-direction" class="segmented" role="group" aria-label="Transaction type">
+                <button type="button" class="seg-btn scango-seg-stock" data-value="stock">Add Stock</button>
+                <button type="button" class="seg-btn scango-seg-dispense active" data-value="dispense">Take Out Stock</button>
+            </div>
+            <p id="scango-direction-fixed" class="scango-fixed" hidden>Taking out stock</p>
+
+            <label for="scango-quantity">Quantity</label>
+            <input type="number" id="scango-quantity" class="scango-quantity" placeholder="1" min="0" step="any" inputmode="decimal" value="1">
+
+            <div id="txn-scan-chooser" class="scan-chooser" hidden></div>
+            <p id="txn-scan-message"></p>
+        </section>
+
+        <section id="txn-items-section">
+            <h2>Items</h2>
+            <p class="hint">Tap Add Stock or Take Out on an item.</p>
+            <table id="txn-items-table" class="stack-table">
+                <thead>
+                    <tr>
+                        <th>Barcode</th>
+                        <th>Name</th>
+                        <th>Quantity</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="txn-items-tbody"></tbody>
+            </table>
+        </section>
+
+        <section id="transaction-section" hidden>
+            <h2>New Transaction</h2>
+            <div id="transaction-form" class="form-stack">
+                <p id="transaction-selected"></p>
+
+                <label for="transaction-type">Type</label>
+                <input type="hidden" id="transaction-type" value="stock">
+                <div class="segmented" role="group" aria-label="Transaction type">
+                    <button type="button" class="seg-btn seg-stock active" data-value="stock">Add Stock</button>
+                    <button type="button" class="seg-btn seg-dispense" data-value="dispense">Take Out Stock</button>
+                </div>
+
+                <label for="transaction-quantity">Quantity</label>
+                <input type="number" id="transaction-quantity" placeholder="0" min="0" step="any" inputmode="decimal" value="0">
+
+                <label for="transaction-work-order">Work Order Number (optional)</label>
+                <input type="text" id="transaction-work-order" placeholder="Enter work order number">
+
+                <div class="form-buttons">
+                    <button id="save-transaction-btn">Save Transaction</button>
+                    <button id="cancel-transaction-btn" type="button" class="secondary-btn">Cancel</button>
+                </div>
+                <p id="transaction-message"></p>
+            </div>
+        </section>
+
+    </div>
+

@@ -1,0 +1,138 @@
+    <!-- =================== SAVED ITEMS PAGE =================== -->
+    <div class="page" id="saved-items-page">
+
+        <section id="items-scan-section">
+            <h2>Scan Barcode</h2>
+            <p class="hint">Scan a barcode or search below to find an item.</p>
+            <div class="scan-controls">
+                <input type="file" id="items-scan-input" accept="image/*" capture="environment">
+                <div class="scan-viewport">
+                    <video id="items-scan-video" class="scan-video" playsinline muted autoplay></video>
+                    <div id="items-scan-aimbox" class="scan-aimbox" role="presentation" hidden></div>
+                </div>
+                <div class="scan-toolbar">
+                    <button id="items-scan-scan-btn" type="button">Scan Barcode</button>
+                    <button id="items-scan-upload-btn" type="button" class="secondary-btn">Upload Photo</button>
+                    <button id="items-scan-torch-btn" type="button" class="secondary-btn" hidden>Torch</button>
+                </div>
+            </div>
+            <div id="items-scan-chooser" class="scan-chooser" hidden></div>
+            <p id="items-scan-message"></p>
+        </section>
+
+        <section id="items-section">
+            <h2>Find Item</h2>
+            <div class="filter-row">
+                <label for="items-search">Search</label>
+                <input type="text" id="items-search" placeholder="Search name or barcode">
+            </div>
+            <table id="items-table" class="stack-table">
+                <!-- Header cells are rebuilt per-role by views/items.js
+                     (renderItems) so the column set/order matches the rows:
+                     technicians get a decluttered, quantity/location-first
+                     table. These static cells are just an initial placeholder. -->
+                <thead>
+                    <tr id="items-thead-row">
+                        <th>Barcode</th>
+                        <th>Name</th>
+                        <th>Quantity</th>
+                        <th>Location</th>
+                        <th>Notes</th>
+                        <th>Created At</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="items-tbody"></tbody>
+            </table>
+        </section>
+
+        <section id="notes-editor-section" hidden>
+            <h2>Notes</h2>
+            <div class="form-stack">
+                <p id="notes-editor-selected"></p>
+
+                <div id="notes-rows"></div>
+
+                <button id="notes-add-row-btn" type="button" class="secondary-btn">Add Another Note</button>
+
+                <div class="form-buttons">
+                    <button id="notes-save-btn">Save Notes</button>
+                    <button id="notes-cancel-btn" type="button" class="secondary-btn">Cancel</button>
+                </div>
+                <p id="notes-message"></p>
+            </div>
+        </section>
+
+        <section id="item-editor-section" hidden>
+            <h2>Edit Item</h2>
+            <div class="form-stack">
+                <p id="item-editor-selected"></p>
+
+                <label for="item-editor-barcode">Barcode</label>
+                <input type="text" id="item-editor-barcode" placeholder="Barcode">
+
+                <label for="item-editor-name">Name</label>
+                <input type="text" id="item-editor-name" placeholder="Item name">
+
+                <label for="item-editor-location">Location</label>
+                <input type="text" id="item-editor-location" placeholder="Location">
+
+                <label>Additional barcodes</label>
+                <p class="field-hint">Extra codes on the packaging that should scan to this item.</p>
+                <div id="item-editor-barcodes-rows"></div>
+                <button id="item-editor-add-barcode-btn" type="button" class="secondary-btn">Add Another Barcode</button>
+
+                <label for="item-editor-price">Price</label>
+                <input type="number" id="item-editor-price" placeholder="0.00" min="0" step="0.01">
+
+                <label for="item-editor-product-link">Product Link</label>
+                <input type="url" id="item-editor-product-link" placeholder="Enter product link">
+
+                <div class="form-buttons">
+                    <button id="item-editor-save-btn">Save Changes</button>
+                    <button id="item-editor-cancel-btn" type="button" class="secondary-btn">Cancel</button>
+                </div>
+                <p id="item-editor-message"></p>
+            </div>
+        </section>
+
+        <section id="correction-section" hidden>
+            <h2>Correct Count</h2>
+            <p class="hint">Use this when the shelf count is wrong.</p>
+            <div class="form-stack">
+                <p id="correction-selected"></p>
+                <p id="correction-current"></p>
+
+                <label for="correction-new-quantity">New Count</label>
+                <input type="number" id="correction-new-quantity" step="any" min="0" placeholder="0">
+
+                <label for="correction-reason">Why are you changing it?</label>
+                <input type="text" id="correction-reason" placeholder="Reason for the correction">
+
+                <div class="form-buttons">
+                    <button id="correction-save-btn">Save Correct Count</button>
+                    <button id="correction-cancel-btn" type="button" class="secondary-btn">Cancel</button>
+                </div>
+                <p id="correction-message"></p>
+            </div>
+        </section>
+
+        <section id="add-barcode-section" hidden>
+            <h2>Add Barcode to an Item</h2>
+            <p class="hint">Attach the scanned code to an item you already have.</p>
+            <div class="form-stack">
+                <p id="add-barcode-scanned"></p>
+
+                <label for="add-barcode-search">Search item by name</label>
+                <input type="text" id="add-barcode-search" placeholder="Type an item name">
+                <div id="add-barcode-results" class="scan-chooser" hidden></div>
+
+                <div class="form-buttons">
+                    <button id="add-barcode-cancel-btn" type="button" class="secondary-btn">Cancel</button>
+                </div>
+                <p id="add-barcode-message"></p>
+            </div>
+        </section>
+
+    </div>
+

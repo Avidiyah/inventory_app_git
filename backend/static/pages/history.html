@@ -1,0 +1,79 @@
+    <!-- =================== HISTORY PAGE =================== -->
+    <div class="page" id="history-page">
+
+        <section id="history-section">
+            <h2>Transaction History</h2>
+
+            <!-- Work-order overlay filter: visible on every sub-tab, composes
+                 with item / user filters via AND. -->
+            <div class="filter-row">
+                <label for="history-wo-filter">Filter by Work Order</label>
+                <input type="text" id="history-wo-filter" placeholder="Filter by work order number">
+                <button id="history-wo-clear-btn" type="button" class="secondary-btn">Clear</button>
+            </div>
+
+            <div id="history-tabs" class="sub-tabs">
+                <button class="sub-tab-btn" data-tab="all">All Transactions</button>
+                <button class="sub-tab-btn" data-tab="item">By Item</button>
+                <button class="sub-tab-btn" data-tab="user">By User</button>
+            </div>
+
+            <!-- All Transactions sub-tab -->
+            <div class="sub-tab-panel" id="history-all-panel">
+                <p class="hint">Every stock and dispense transaction, newest first.</p>
+            </div>
+
+            <!-- By Item sub-tab -->
+            <div class="sub-tab-panel" id="history-item-panel" hidden>
+                <div class="filter-row">
+                    <label for="history-item-barcode">Item Barcode</label>
+                    <input type="text" id="history-item-barcode" placeholder="Enter barcode">
+                    <button id="history-item-lookup-btn">Look Up</button>
+                </div>
+                <p id="history-item-message"></p>
+            </div>
+
+            <!-- By User sub-tab -->
+            <div class="sub-tab-panel" id="history-user-panel" hidden>
+                <div class="filter-row">
+                    <label for="history-user-select">User</label>
+                    <select id="history-user-select">
+                        <option value="" disabled selected>-- Select user --</option>
+                    </select>
+                </div>
+                <p id="history-user-message"></p>
+            </div>
+
+            <!-- Shared results table -->
+            <div id="history-results" hidden>
+                <div class="history-results-toolbar">
+                    <button id="history-copy-btn" type="button" class="secondary-btn" disabled>Copy table</button>
+                    <p id="history-copy-message"></p>
+                </div>
+                <table id="history-table" class="stack-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Item</th>
+                            <th>Type</th>
+                            <th>Quantity</th>
+                            <th>Work Order</th>
+                            <th>User</th>
+                            <th class="admin-col" hidden>Price</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-tbody"></tbody>
+                </table>
+
+                <div id="history-pagination" class="pagination">
+                    <button id="history-prev-btn">&laquo; Prev</button>
+                    <span id="history-page-info">Page 1 of 1</span>
+                    <button id="history-next-btn">Next &raquo;</button>
+                </div>
+            </div>
+
+        </section>
+
+    </div>
+

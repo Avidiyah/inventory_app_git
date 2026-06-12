@@ -1,0 +1,31 @@
+    </main>
+
+    <!-- Scan-and-go per-scan confirmation. Shown by views/transactions.js
+         (confirmScan) when a scan resolves to an item; Yes commits the
+         transaction, No/Esc/backdrop cancels. App-level so it overlays
+         every page. Toggled via the `hidden` attribute (the global
+         [hidden]{display:none!important} rule beats .modal-overlay's flex). -->
+    <div id="scan-confirm-overlay" class="modal-overlay" hidden>
+        <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="scan-confirm-title">
+            <p id="scan-confirm-title" class="modal-title"></p>
+            <div class="modal-buttons">
+                <button id="scan-confirm-yes">Yes, save</button>
+                <button id="scan-confirm-no" type="button" class="secondary-btn">No</button>
+            </div>
+        </div>
+    </div>
+
+    </div><!-- /#app-root -->
+
+    <!--
+      Vendored @zxing/browser UMD. Loaded as a plain (non-module)
+      script so it attaches `ZXingBrowser` to `window` synchronously
+      before the deferred `main.js` module evaluates. The only
+      consumer is `scan/barcode-decoder.js`. See docs/reference.md
+      for the pinned version and hash, and docs/plan-live-capture.md
+      for why this is loaded globally.
+    -->
+    <script src="/static/vendor/zxing-browser-0.2.0.umd.min.js"></script>
+    <script type="module" src="/static/main.js"></script>
+</body>
+</html>

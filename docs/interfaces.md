@@ -423,8 +423,13 @@ Filters combine with AND, and voided rows are excluded (`voided_at IS NULL`). `w
 
 | Method | Path | Role | Response |
 |---|---|---|---|
-| GET | `/` | Public | `static/index.html` |
+| GET | `/` | Public | SPA shell, assembled by `read_root` from `shell-head.html` + `static/pages/*.html` + `shell-tail.html` (see `main.py::SHELL_PARTS`) |
 | GET | `/db-test` | Admin+ | `{status, database, user}` |
+
+The `/` document is built at request time by concatenating per-page HTML
+fragments; the browser receives one complete document, so the Frozen DOM
+contract (all page markup present on boot) is unchanged from the former
+single `index.html`.
 
 ---
 
