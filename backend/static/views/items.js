@@ -44,6 +44,7 @@ import {
   setOnSaved as setOnCorrectionSaved,
 } from "./correction.js";
 import { mountScanner } from "./scan.js";
+import { openAddBarcode, setOnSaved as setOnAddBarcodeSaved } from "./addBarcode.js";
 
 const createItemBtn = document.getElementById("create-item-btn");
 const createItemMessage = document.getElementById("create-item-message");
@@ -177,6 +178,7 @@ itemsSearch.addEventListener("input", renderItems);
 setOnSaved(loadItems);
 setOnItemSaved(loadItems);
 setOnCorrectionSaved(loadItems);
+setOnAddBarcodeSaved(loadItems);
 
 createItemBtn.addEventListener("click", async () => {
   const barcode = barcodeInput.value.trim();
@@ -307,6 +309,7 @@ export const itemsScanner = mountScanner({
     if (createItemBarcodeInput) createItemBarcodeInput.value = barcode;
     if (createItemNavBtnForItems) createItemNavBtnForItems.click();
   },
+  onAddBarcode: (barcode) => openAddBarcode(barcode),
   liveEls: {
     videoEl:   document.getElementById("items-scan-video"),
     scanBtn:   document.getElementById("items-scan-scan-btn"),

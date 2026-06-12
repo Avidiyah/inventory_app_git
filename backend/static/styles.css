@@ -758,7 +758,8 @@ tr:last-child td {
 }
 
 .scan-choice-btn,
-.scan-create-btn {
+.scan-create-btn,
+.scan-addbarcode-btn {
     text-align: left;
     margin-top: 0;
 }

@@ -534,6 +534,16 @@ Exports:
 - `closeItemEditor()`
 - `setOnSaved(fn)`
 
+### `views/addBarcode.js`
+
+Exports:
+
+- `openAddBarcode(barcode)` — opens the Find Item "add a scanned code to an existing item" panel; searches items by name and appends the code to the chosen item's additional barcodes via `apiUpdateBarcodes` (re-fetching the item fresh first, since that PATCH is a wholesale replace).
+- `closeAddBarcode()`
+- `setOnSaved(fn)`
+
+Wired from `views/items.js` as the Saved Items scanner's `onAddBarcode` callback; the shortcut button is rendered by `views/scan.js` on a 404 (Admin+).
+
 ### `views/correction.js`
 
 Exports:
@@ -610,7 +620,7 @@ Exports:
 - `resetScan()`
 - `autoStartTxnScan()` — starts the Transaction-page camera only if permission is already granted (never prompts); injected into `transactions.js` via `setScanAutostarter` (wired in `main.js`).
 
-`mountScanner` accepts upload DOM handles, optional live camera handles, `onItemFound`, `allowCreate`, and `onCreateShortcut`. Upload mode calls `/barcodes/decode`; live mode calls `apiGetItemByBarcode` directly after ZXing decode debounce. The returned object adds `autoStartIfPermitted()` (prompt-free auto-start), backed by the new `BarcodeDecoder.permissionGranted()` static.
+`mountScanner` accepts upload DOM handles, optional live camera handles, `onItemFound`, `allowCreate`, `onCreateShortcut`, and `onAddBarcode`. On a 404 (Admin+ only) the chooser renders the Create-Item shortcut (`onCreateShortcut`) and/or the Add-Barcode shortcut (`onAddBarcode`); each is shown only if its callback is supplied. Upload mode calls `/barcodes/decode`; live mode calls `apiGetItemByBarcode` directly after ZXing decode debounce. The returned object adds `autoStartIfPermitted()` (prompt-free auto-start), backed by the new `BarcodeDecoder.permissionGranted()` static.
 
 ---
 

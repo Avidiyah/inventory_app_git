@@ -41,6 +41,9 @@ import { FrameDebouncer } from "../scan/frame-debouncer.js";
  * @param {(item: object) => void} opts.onItemFound - called when a barcode resolves to an item
  * @param {boolean} [opts.allowCreate=true]   - offer the "Create item" shortcut on 404 (Admin+ only)
  * @param {(barcode: string) => void} [opts.onCreateShortcut] - what the Create shortcut button does
+ * @param {(barcode: string) => void} [opts.onAddBarcode] - offer an "Add Barcode to an existing item"
+ *                                              shortcut on 404 (Admin+ only); the callback opens the
+ *                                              by-name add-barcode flow for the scanned code
  * @param {boolean} [opts.continuous=false]   - scan-and-go batch mode: a successful decode is
  *                                              committed via `onCommit` instead of opening a form,
  *                                              and the live camera stays running between scans.
@@ -65,6 +68,7 @@ export function mountScanner({
   onItemFound,
   allowCreate = true,
   onCreateShortcut,
+  onAddBarcode,
   liveEls,
   continuous = false,
   onCommit,
@@ -213,19 +217,32 @@ export function mountScanner({
   function handleUnknownBarcode(barcode) {
     setMessage(messageEl, "No item matches that barcode.", "error");
 
-    // The Create Item flow is Owner/Admin only on the backend; only
-    // offer the shortcut to roles that can actually use it. Others
+    // Both shortcuts (Create Item, Add Barcode) hit Owner/Admin-only
+    // backend routes, so gate the whole chooser to Admin+. Lower roles
     // just see the message above.
-    if (!allowCreate) return;
     if (!roleAtLeast(getRole(), "admin")) return;
 
     chooserEl.innerHTML = "";
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "scan-create-btn";
-    btn.dataset.barcode = barcode;
-    btn.textContent = `Create a new item for ${barcode}`;
-    chooserEl.appendChild(btn);
+
+    if (allowCreate) {
+      const createBtn = document.createElement("button");
+      createBtn.type = "button";
+      createBtn.className = "scan-create-btn";
+      createBtn.dataset.barcode = barcode;
+      createBtn.textContent = `Create a new item for ${barcode}`;
+      chooserEl.appendChild(createBtn);
+    }
+
+    if (onAddBarcode) {
+      const addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.className = "scan-addbarcode-btn";
+      addBtn.dataset.barcode = barcode;
+      addBtn.textContent = `Add ${barcode} to an existing item`;
+      chooserEl.appendChild(addBtn);
+    }
+
+    if (!chooserEl.children.length) return; // nothing to offer this role
     chooserEl.hidden = false;
   }
 
@@ -241,6 +258,11 @@ export function mountScanner({
     }
     if (target.classList.contains("scan-create-btn") && onCreateShortcut) {
       onCreateShortcut(target.dataset.barcode);
+      reset();
+      return;
+    }
+    if (target.classList.contains("scan-addbarcode-btn") && onAddBarcode) {
+      onAddBarcode(target.dataset.barcode);
       reset();
     }
   });
