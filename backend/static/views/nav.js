@@ -10,6 +10,7 @@ import { enterTransactionPage } from "./transactions.js";
 import { loadHistory } from "./history.js";
 import { loadItems } from "./items.js";
 import { loadUsers } from "./users.js";
+import { loadStages } from "./massStage.js";
 import { txnScanner } from "./scan.js";
 import { itemsScanner } from "./items.js";
 
@@ -49,6 +50,7 @@ export const PAGE_ACCESS = {
   // Technicians get scan-and-go too, but dispense-only (enforced server-side
   // in roles.can_transact; the UI hides the Stock toggle for them).
   "transaction": ["owner", "admin", "supervisor", "technician"],
+  "mass-stage": ["owner", "admin", "supervisor"],
   "history": ["owner", "admin", "supervisor"],
 };
 
@@ -90,6 +92,8 @@ export function showPage(pageName) {
     loadItems();
   } else if (pageName === "saved-users") {
     loadUsers();
+  } else if (pageName === "mass-stage") {
+    loadStages();
   }
 }
 

@@ -934,6 +934,19 @@ tr:last-child td {
     font-size: var(--fs-lg);
 }
 
+/* By-room work-order picker (mid-job dispense, Supervisor+). Stacks two
+   selects + a note within the #wo-gate flex column. */
+#wo-gate-byroom {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+#wo-gate-byroom-toggle {
+    margin-top: 0;
+    align-self: flex-start;
+}
+
 /* Active work-order header: bold label on the left, quiet "Change" on
    the right. */
 #scango-wo-bar {
@@ -1044,6 +1057,202 @@ tr:last-child td {
     flex: 1 1 0;
     margin-top: 0;
 }
+
+/* =================== MASS STAGE =================== */
+/* Planning UI: expandable stage cards, each holding expandable room cards,
+   each holding planned-item rows. Built by views/massStage.js. */
+#mass-stage-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.stage-card,
+.room-card {
+    border: var(--border);
+    border-radius: var(--radius-md);
+    background-color: var(--color-white);
+    box-shadow: var(--shadow-card);
+}
+
+.stage-summary,
+.room-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4);
+    cursor: pointer;
+    font-weight: var(--fw-bold);
+    list-style: none;
+}
+
+/* Custom disclosure caret (replace the default marker on both engines). */
+.stage-summary::-webkit-details-marker,
+.room-summary::-webkit-details-marker { display: none; }
+.stage-summary::before,
+.room-summary::before {
+    content: "\25B8"; /* triangle right */
+    color: var(--gray-500);
+    font-size: var(--fs-sm);
+}
+details[open] > .stage-summary::before,
+details[open] > .room-summary::before { content: "\25BE"; /* triangle down */ }
+
+.stage-title { font-size: var(--fs-lg); }
+.room-title { font-size: var(--fs-base); }
+
+.stage-meta,
+.room-meta {
+    margin-left: auto;
+    color: var(--gray-500);
+    font-weight: var(--fw-regular);
+    font-size: var(--fs-sm);
+}
+
+.stage-body { padding: 0 var(--space-4) var(--space-4); }
+.room-card { margin: var(--space-2) 0; }
+.room-body { padding: 0 var(--space-4) var(--space-4); }
+
+.ms-rooms,
+.ms-items {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+}
+
+.ms-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+}
+
+.ms-item-name { font-weight: var(--fw-bold); }
+.ms-item-barcode { color: var(--gray-500); font-size: var(--fs-sm); }
+.ms-item-planned { flex: 0 0 90px; width: 90px; margin-top: 0; margin-left: auto; }
+.ms-item-planned-ro { margin-left: auto; color: var(--gray-700); font-size: var(--fs-sm); }
+
+.ms-item .secondary-btn,
+.ms-item .btn-danger {
+    min-height: var(--btn-h-sm);
+    margin-top: 0;
+    padding: 0 var(--space-3);
+    font-size: var(--fs-sm);
+}
+
+.ms-add-room,
+.ms-add-item-row {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: var(--space-2);
+}
+
+.ms-add-room input,
+.ms-add-item-row .ms-item-search { flex: 1 1 160px; margin-top: 0; }
+.ms-add-room button,
+.ms-add-item-row button { margin-top: 0; min-height: var(--control-h); }
+.ms-item-qty { flex: 0 0 90px; width: 90px; margin-top: 0; }
+
+/* Per-room work-order editor (planning; reused stages start cleared). */
+.ms-room-wo-edit {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+}
+.ms-room-wo-edit .ms-room-wo-input { flex: 1 1 160px; margin-top: 0; }
+.ms-room-wo-edit button { margin-top: 0; min-height: var(--btn-h-sm); }
+
+.ms-stage-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+.ms-stage-message { margin-top: var(--space-2); font-size: var(--fs-sm); }
+.ms-item-results { margin-top: var(--space-2); }
+.ms-pick-barcode { color: var(--gray-500); font-size: var(--fs-xs); margin-left: var(--space-2); }
+
+/* Stage status pill (reuses the type-badge look). */
+.stage-status {
+    display: inline-block;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-pill);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    color: var(--color-white);
+    text-transform: capitalize;
+}
+.stage-status-planning { background-color: var(--status-adjust); }
+.stage-status-loading { background-color: var(--status-dispense); }
+.stage-status-completed { background-color: var(--status-stock); }
+
+/* Loading view: merged load list + per-item Staged / Unused controls. */
+.ms-subhead {
+    font-size: var(--fs-base);
+    margin: var(--space-3) 0 var(--space-2);
+    color: var(--gray-700);
+}
+
+.ms-merged {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+}
+
+.ms-merged-item {
+    padding: var(--space-3);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+}
+
+.ms-merged-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.ms-merged-stats,
+.ms-merged-stats-ro {
+    color: var(--gray-500);
+    font-size: var(--fs-sm);
+    margin: var(--space-1) 0;
+}
+
+.ms-overflow {
+    color: var(--status-dispense);
+    font-weight: var(--fw-bold);
+    font-size: var(--fs-sm);
+}
+
+/* Current on-hand stock vs the staged amount (coverage check). */
+.ms-onhand {
+    color: var(--gray-500);
+    font-size: var(--fs-sm);
+}
+
+.ms-short {
+    color: var(--color-error);
+    font-weight: var(--fw-bold);
+    font-size: var(--fs-sm);
+}
+
+.ms-merged-actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    align-items: center;
+    margin-top: var(--space-2);
+}
+
+.ms-load-qty,
+.ms-return-qty { flex: 0 0 100px; width: 100px; margin-top: 0; }
+.ms-merged-actions button { margin-top: 0; min-height: var(--btn-h-sm); }
 
 /* =================== RESPONSIVE (mobile portrait) =================== */
 @media (max-width: 639px) {

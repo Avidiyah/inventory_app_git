@@ -22,9 +22,9 @@ import {
   setSelectedItemId,
   getRole,
 } from "../state.js";
-import { apiListItems, apiCreateTransaction } from "../api.js";
+import { apiListItems, apiCreateTransaction, apiListStages, apiGetStage } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
-import { setMessage } from "../dom.js";
+import { setMessage, confirmDialog } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
 import { loadItems } from "./items.js";
 
@@ -60,11 +60,12 @@ const scangoLog = document.getElementById("scango-log");
 const txnScanSection = document.getElementById("txn-scan-section");
 const txnItemsSection = document.getElementById("txn-items-section");
 
-// Per-scan confirmation modal (see confirmScan).
-const scanConfirmOverlay = document.getElementById("scan-confirm-overlay");
-const scanConfirmTitle = document.getElementById("scan-confirm-title");
-const scanConfirmYesBtn = document.getElementById("scan-confirm-yes");
-const scanConfirmNoBtn = document.getElementById("scan-confirm-no");
+// By-room work-order picker (Supervisor+; workflow step 13).
+const byRoomToggle = document.getElementById("wo-gate-byroom-toggle");
+const byRoomBlock = document.getElementById("wo-gate-byroom");
+const byRoomBuilding = document.getElementById("wo-gate-building");
+const byRoomRoom = document.getElementById("wo-gate-room");
+const byRoomNote = document.getElementById("wo-gate-byroom-note");
 
 // Injected by `main.js` (see `setOnTransactionSaved`) so a completed
 // stock/dispense can reset the scan UI without this module importing the
@@ -138,6 +139,9 @@ function showScanGoState() {
   if (woGate) woGate.hidden = active;
   if (scangoActive) scangoActive.hidden = !active;
   if (txnScanSection) txnScanSection.hidden = !active;
+
+  // By-room work-order picker: Supervisor+ only, and only on the gate (State A).
+  if (byRoomToggle) byRoomToggle.hidden = tech || active;
 
   // Opt-in control: Supervisor+ only, and only inside an active batch.
   if (scangoAdvancedToggle) {
@@ -223,8 +227,85 @@ function changeWorkOrder() {
   if (resetScanUi) resetScanUi(); // stop the camera + clear the scan message
   clearBatchLog();
   if (woGateInput) woGateInput.value = "";
+  resetByRoom();
   showScanGoState();
   if (woGateInput) woGateInput.focus();
+}
+
+// --- By-room work-order picker (Supervisor+) ----------------------
+// Mid-job dispense (workflow step 13): pick a building + room from the
+// mass-staging plan to fill the work order, then start a normal scan-and-go
+// batch. The dispense is a plain transaction on that work order -- nothing is
+// written back to the stage (the stage stays the plan/load record). Room
+// numbers repeat across buildings, so the building is chosen first.
+
+function resetByRoom() {
+  if (byRoomBlock) byRoomBlock.hidden = true;
+  if (byRoomToggle) byRoomToggle.setAttribute("aria-expanded", "false");
+  if (byRoomBuilding) byRoomBuilding.innerHTML = `<option value="">Select a building…</option>`;
+  if (byRoomRoom) {
+    byRoomRoom.innerHTML = `<option value="">Select a room…</option>`;
+    byRoomRoom.disabled = true;
+  }
+  if (byRoomNote) setMessage(byRoomNote, "", "");
+}
+
+async function loadBuildings() {
+  if (!byRoomBuilding) return;
+  byRoomBuilding.innerHTML = `<option value="">Select a building…</option>`;
+  try {
+    const stages = await apiListStages();
+    const active = stages.filter((s) => s.status !== "completed");
+    if (!active.length) {
+      setMessage(byRoomNote, "No active buildings. Create one on the Mass Stage page.", "");
+      return;
+    }
+    active.forEach((s) => {
+      const opt = document.createElement("option");
+      opt.value = s.id;
+      opt.textContent = `${s.building_name} (${s.status})`;
+      byRoomBuilding.appendChild(opt);
+    });
+    setMessage(byRoomNote, "", "");
+  } catch (err) {
+    setMessage(byRoomNote, friendlyError(err, "Could not load buildings."), "error");
+  }
+}
+
+async function loadRoomsForBuilding(stageId) {
+  if (!byRoomRoom) return;
+  byRoomRoom.innerHTML = `<option value="">Select a room…</option>`;
+  byRoomRoom.disabled = true;
+  if (woGateInput) woGateInput.value = "";
+  setMessage(byRoomNote, "", "");
+  if (!stageId) return;
+  try {
+    const stage = await apiGetStage(stageId);
+    if (!stage.rooms.length) {
+      setMessage(byRoomNote, "No rooms in this building yet.", "");
+      return;
+    }
+    stage.rooms.forEach((room) => {
+      const opt = document.createElement("option");
+      opt.value = room.work_order_number;
+      opt.textContent = `Room ${room.room_number} — WO ${room.work_order_number}`;
+      byRoomRoom.appendChild(opt);
+    });
+    byRoomRoom.disabled = false;
+  } catch (err) {
+    setMessage(byRoomNote, friendlyError(err, "Could not load rooms."), "error");
+  }
+}
+
+function pickRoom() {
+  const wo = byRoomRoom ? byRoomRoom.value : "";
+  if (!wo) {
+    if (woGateInput) woGateInput.value = "";
+    setMessage(byRoomNote, "", "");
+    return;
+  }
+  if (woGateInput) woGateInput.value = wo;
+  setMessage(byRoomNote, `Using work order ${wo}. Tap Start to scan into it.`, "success");
 }
 
 // Gate consulted by the scanner before it commits a decode (see
@@ -239,67 +320,11 @@ export function scanGoArmed() {
 // Per-scan confirmation. Resolves true (Yes) or false (No / Esc / backdrop).
 // The live decoder stays paused while this is open because handleLiveAccept
 // awaits the whole resolve+commit chain before starting its dwell timer (see
-// docs/plan-scan-and-go.md), so there are never stacked modals.
+// docs/plan-scan-and-go.md), so there are never stacked modals. The modal
+// itself is the shared `dom.confirmDialog` (also used by the mass-stage load
+// action); this wrapper keeps the scan-and-go call sites unchanged.
 function confirmScan(message) {
-  return new Promise((resolve) => {
-    if (!scanConfirmOverlay) {
-      resolve(true); // no modal in the DOM -> fall back to instant commit
-      return;
-    }
-    // Remember what was focused so we can restore it on close (a11y).
-    const previouslyFocused = document.activeElement;
-    const focusables = [scanConfirmYesBtn, scanConfirmNoBtn].filter(Boolean);
-
-    scanConfirmTitle.textContent = message; // textContent: item name is untrusted
-    scanConfirmOverlay.hidden = false;
-    if (scanConfirmYesBtn) scanConfirmYesBtn.focus();
-
-    function cleanup() {
-      if (scanConfirmYesBtn) scanConfirmYesBtn.removeEventListener("click", onYes);
-      if (scanConfirmNoBtn) scanConfirmNoBtn.removeEventListener("click", onNo);
-      scanConfirmOverlay.removeEventListener("click", onBackdrop);
-      document.removeEventListener("keydown", onKey);
-    }
-    function restoreFocus() {
-      const el = previouslyFocused;
-      if (!el || typeof el.focus !== "function") return;
-      // Don't re-focus a text/number field -- that re-pops the mobile keyboard
-      // mid-batch (the same reason we don't auto-focus quantity after a commit).
-      const tag = (el.tagName || "").toLowerCase();
-      if (tag === "input" || tag === "textarea" || tag === "select") return;
-      try { el.focus(); } catch (_err) { /* element gone; nothing actionable */ }
-    }
-    function done(ok) {
-      scanConfirmOverlay.hidden = true;
-      cleanup();
-      restoreFocus();
-      resolve(ok);
-    }
-    function onYes() { done(true); }
-    function onNo() { done(false); }
-    function onBackdrop(event) { if (event.target === scanConfirmOverlay) done(false); }
-    function onKey(event) {
-      if (event.key === "Escape") { done(false); return; }
-      // Trap Tab focus within the dialog while it's open.
-      if (event.key === "Tab" && focusables.length) {
-        const first = focusables[0];
-        const last = focusables[focusables.length - 1];
-        const active = document.activeElement;
-        if (event.shiftKey && (active === first || !focusables.includes(active))) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && (active === last || !focusables.includes(active))) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    }
-
-    if (scanConfirmYesBtn) scanConfirmYesBtn.addEventListener("click", onYes);
-    if (scanConfirmNoBtn) scanConfirmNoBtn.addEventListener("click", onNo);
-    scanConfirmOverlay.addEventListener("click", onBackdrop);
-    document.addEventListener("keydown", onKey);
-  });
+  return confirmDialog(message);
 }
 
 // Commit a scanned item into the active work order. Returns
@@ -378,6 +403,7 @@ export function resetBatch() {
   if (woGateInput) woGateInput.value = "";
   if (scangoQuantity) scangoQuantity.value = "1";
   clearBatchLog();
+  resetByRoom();
   showScanGoState();
 }
 
@@ -398,6 +424,17 @@ if (scangoAdvancedToggle) {
 }
 if (scangoSegStock) scangoSegStock.addEventListener("click", () => setScangoType("stock"));
 if (scangoSegDispense) scangoSegDispense.addEventListener("click", () => setScangoType("dispense"));
+
+if (byRoomToggle) {
+  byRoomToggle.addEventListener("click", () => {
+    const opening = byRoomBlock.hidden;
+    byRoomBlock.hidden = !opening;
+    byRoomToggle.setAttribute("aria-expanded", opening ? "true" : "false");
+    if (opening) loadBuildings();
+  });
+}
+if (byRoomBuilding) byRoomBuilding.addEventListener("change", () => loadRoomsForBuilding(byRoomBuilding.value));
+if (byRoomRoom) byRoomRoom.addEventListener("change", pickRoom);
 
 export async function loadTxnItems() {
   try {

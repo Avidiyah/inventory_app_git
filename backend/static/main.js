@@ -28,6 +28,7 @@ import "./views/users.js";
 import "./views/history.js";
 import "./views/transactions.js";
 import "./views/scan.js";
+import "./views/massStage.js";
 import "./views/auth.js";
 
 // --- Named imports for bootstrap calls ---------------------------

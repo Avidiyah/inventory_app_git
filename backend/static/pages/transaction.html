@@ -12,6 +12,25 @@
                 <p class="hint">Enter the work order you're working on. You'll scan items into it.</p>
                 <label for="wo-gate-input">Work Order Number</label>
                 <input type="text" id="wo-gate-input" class="wo-gate-input" placeholder="Enter work order number" autocomplete="off" inputmode="text">
+
+                <!-- By-room shortcut (Supervisor+; shown by views/transactions.js).
+                     Picks a building + room from the mass-staging plan and fills the
+                     work order above. Mid-job dispense is a plain transaction on that
+                     work order -- it is NOT added to the stage. See
+                     docs/mass-staging/phase-8-byroom-dispense.md. -->
+                <button type="button" id="wo-gate-byroom-toggle" class="secondary-btn" hidden aria-expanded="false" aria-controls="wo-gate-byroom">Use a building &amp; room</button>
+                <div id="wo-gate-byroom" hidden>
+                    <label for="wo-gate-building">Building</label>
+                    <select id="wo-gate-building">
+                        <option value="">Select a building…</option>
+                    </select>
+                    <label for="wo-gate-room">Room</label>
+                    <select id="wo-gate-room" disabled>
+                        <option value="">Select a room…</option>
+                    </select>
+                    <p id="wo-gate-byroom-note" class="hint"></p>
+                </div>
+
                 <button id="wo-gate-start-btn">Start</button>
                 <p id="wo-gate-message"></p>
             </div>

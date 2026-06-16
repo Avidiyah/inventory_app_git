@@ -42,6 +42,7 @@ backend/
     models.py
     domain/
       errors.py
+      mass_staging.py
       notes_validation.py
       quantity.py
       roles.py
@@ -49,6 +50,7 @@ backend/
       auth.py
       barcodes.py
       items.py
+      mass_stages.py
       transactions.py
       users.py
       _errors.py
@@ -56,6 +58,7 @@ backend/
       auth.py
       barcodes.py
       items.py
+      mass_stages.py
       transactions.py
       users.py
     services/
@@ -63,6 +66,7 @@ backend/
       barcodes.py
       history.py
       items.py
+      mass_staging.py
       notes.py
       transactions.py
       users.py
@@ -91,6 +95,7 @@ backend/
       history.js
       itemEditor.js
       items.js
+      massStage.js
       nav.js
       notes.js
       scan.js
@@ -189,6 +194,54 @@ audit trail but stamped `voided_at` / `voided_by_id`, excluded from the
 history view, and its effect on item stock is reversed under the item
 row lock. A void that would drive stock below zero is rejected (400).
 
+### `mass_stages`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `building_name` | Text | The "Building Name + #" label |
+| `status` | Text | `planning`, `loading`, or `completed` |
+| `created_by_id` | UUID nullable | FK to `users.id` (plain) |
+| `created_at` / `updated_at` | timestamptz | `updated_at` bumped on ORM update |
+| `completed_at` | timestamptz nullable | Set when status → `completed` |
+
+A building's batch-staging plan. The partial unique index
+`uq_mass_stages_active_building` (`UNIQUE(building_name) WHERE status <>
+'completed'`) enforces at most one *active* stage per building.
+
+### `mass_stage_rooms`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `stage_id` | UUID | FK to `mass_stages.id`, `ON DELETE CASCADE` |
+| `room_number` | Text | Unique within a stage |
+| `work_order_number` | Text | The room's single work order |
+| `sort_order` | Integer | Entry order; drives load fill / overflow |
+| `created_at` | timestamptz | Set on insert |
+
+A room within a stage, paired with one work order. `UNIQUE(stage_id,
+room_number)` (room numbers only distinguish within a stage).
+
+### `mass_stage_items`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `room_id` | UUID | FK to `mass_stage_rooms.id`, `ON DELETE CASCADE` |
+| `item_id` | UUID | FK to `items.id` (plain) |
+| `planned_quantity` | Numeric | The estimate (not a transaction) |
+| `loaded_quantity` | Numeric | Accrues as the item is staged onto the truck (default 0) |
+| `returned_quantity` | Numeric | Accrues from unused-materials returns (default 0) |
+| `created_at` | timestamptz | Set on insert |
+
+One planned item per room (`UNIQUE(room_id, item_id)`). Per-item overflow
+(`Σloaded − Σplanned`) and net consumed (`Σloaded − Σreturned`) are
+derived, never stored. Owned plan data, so the FKs cascade from the room;
+`item_id` is plain (blocks hard-deleting a referenced item — benign,
+items are soft-deleted). The `transactions` table is unchanged: loading
+writes ordinary `dispense` rows, and returns write none.
+
 ---
 
 ## Migration History
@@ -205,6 +258,7 @@ row lock. A void that would drive stock below zero is rejected (400).
 | `e5f67b8c9d0` | Add item `price` and `product_link` columns |
 | `f6b8c0d2e4a1` | Add item `archived_at` (soft delete) |
 | `a7c9e1f3b5d2` | Add `item_barcodes` table (additional barcodes per item) |
+| `b1f3d5a7c9e2` | Add mass staging tables (`mass_stages`, `mass_stage_rooms`, `mass_stage_items`) |
 
 ---
 
@@ -278,6 +332,27 @@ owner > admin > supervisor > technician
 
 `work_order_number` is a case-sensitive substring match using escaped SQL `LIKE`.
 
+### Mass Stages
+
+All routes require Supervisor or above (`require_min_role(supervisor)`).
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/mass-stages/` | Create a `planning` stage for a building (400 if one is already active) |
+| GET | `/mass-stages/` | List stages, optional `?status=` filter |
+| GET | `/mass-stages/{id}` | Stage detail: rooms → items + the merged rollup |
+| PATCH | `/mass-stages/{id}` | Rename and/or change status (forward-only transition) |
+| DELETE | `/mass-stages/{id}` | Delete a stage (rooms/items cascade; does not reverse dispenses) |
+| POST | `/mass-stages/{id}/rooms` | Add a room (planning only) |
+| PATCH / DELETE | `/mass-stages/{id}/rooms/{room_id}` | Edit / remove a room (planning only) |
+| POST | `/mass-stages/{id}/rooms/{room_id}/items` | Add/upsert a planned item (planning only) |
+| PATCH / DELETE | `…/rooms/{room_id}/items/{stage_item_id}` | Edit qty / remove a planned item (planning only) |
+| POST | `/mass-stages/{id}/load` | Stage a merged item onto the truck (per-room dispenses); loading only |
+| POST | `/mass-stages/{id}/return` | Return unused materials (silent stock-add); loading only |
+| POST | `/mass-stages/{id}/reuse` | "Stage again": fresh planning copy of a completed stage (rooms kept, work orders cleared, no items) |
+
+`/load` and `/return` return the affected item's updated merged rollup.
+
 ### Barcodes And Utility
 
 | Method | Path | Minimum role | Description |
@@ -302,6 +377,10 @@ owner > admin > supervisor > technician
 - User create/reset/delete actions require strict subordinate management.
 - Items are soft-deleted (archived via `archived_at`), keeping history intact; deleting a *user* with transaction history is still blocked.
 - Every barcode (an item's primary `barcode` or any additional `item_barcodes.code`) is globally unique across all items; a scan resolves the primary or any additional code to exactly one item.
+- Mass staging: at most one active (non-completed) stage per building; status is forward-only `planning → loading → completed`; rooms/items are editable only while `planning`, load/return only while `loading`.
+- A mass-stage load splits its quantity across the item's rooms (fill in `sort_order`, overflow onto the last room) into `dispense` rows on each room's work order, atomic under the item `SELECT ... FOR UPDATE`; an overdraw is rejected.
+- An unused-materials return adds stock back **without** a transaction row (reverse-filled across rooms, capped at net loaded) — the only stock change with no append-only audit row.
+- "Stage again" (`/reuse`) clones a completed stage's building + rooms into a fresh `planning` stage with work orders cleared (stored as empty strings — no migration) and no items; the completed stage is retained as the saved record. A stage cannot move to `loading` until every room has a non-blank work order.
 
 ---
 

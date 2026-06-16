@@ -118,3 +118,64 @@ class UnreadableImageError(DomainError):
     request, not a "not found", so it maps to 400. A *readable* image that
     simply contains no barcode is NOT an error -- the service returns an
     empty list and the router responds 200."""
+
+
+class StageNotFoundError(DomainError):
+    """Raised when a mass-staging service is asked to operate on a stage
+    (`mass_stages` row) that does not exist. Maps to 404."""
+
+
+class RoomNotFoundError(DomainError):
+    """Raised when a stage room (`mass_stage_rooms` row) is not found, or
+    does not belong to the stage named in the request. Maps to 404."""
+
+
+class StageItemNotFoundError(DomainError):
+    """Raised when a planned stage item is not found -- including a load
+    request for an item that no room in the stage planned (loading an
+    unplanned item is the mid-job plain-dispense path, not a stage load).
+    Maps to 404."""
+
+
+class DuplicateBuildingStageError(DomainError):
+    """Raised when creating a stage for a building that already has an
+    active (non-completed) stage. Mirrors the DB partial unique index
+    `uq_mass_stages_active_building`; the service pre-checks so callers get
+    a clean 400 rather than a raw IntegrityError."""
+
+
+class InvalidStageTransitionError(DomainError):
+    """Raised by `domain.mass_staging.validate_transition` when a stage
+    status change is not allowed. The lifecycle is forward-only
+    (`planning -> loading -> completed`); every backward, same-state, or
+    unknown move is rejected. Carries both ends for tests and messaging.
+    Maps to 400."""
+
+    def __init__(self, current: str, target: str):
+        self.current = current
+        self.target = target
+        super().__init__(
+            f"Cannot change stage status from {current!r} to {target!r}."
+        )
+
+
+class ReturnExceedsLoadedError(DomainError):
+    """Raised by `domain.mass_staging.allocate_return` when the quantity to
+    return exceeds what is still loaded (net of prior returns) across the
+    item's rooms. Carries the requested amount and the returnable cap so
+    callers and tests can inspect them. Maps to 400."""
+
+    def __init__(self, requested: Decimal, returnable: Decimal):
+        self.requested = requested
+        self.returnable = returnable
+        super().__init__(
+            f"Cannot return {requested}: only {returnable} loaded."
+        )
+
+
+class StageStateError(DomainError):
+    """Raised when a mass-staging operation is not allowed in the stage's
+    current status -- e.g. editing rooms/items once the stage has left
+    `planning`, or (Phase 5) loading/returning before it reaches `loading`.
+    A single generic state guard rather than several niche errors; the
+    message states the specific rule. Maps to 400."""

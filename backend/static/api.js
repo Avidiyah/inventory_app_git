@@ -183,3 +183,77 @@ export async function apiCreateCorrection({ itemId, newQuantity, reason }) {
     reason,
   });
 }
+
+// --- Mass Staging (planning) -------------------------------------
+// All Supervisor+ on the backend. The frontend snake_cases the bodies the
+// schemas expect; callers pass camelCase.
+export async function apiListStages(status) {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  return parseResponse(await fetch(`/mass-stages/${qs}`, { credentials: "include" }));
+}
+
+export async function apiCreateStage(buildingName) {
+  return jsonRequest("/mass-stages/", "POST", { building_name: buildingName });
+}
+
+export async function apiGetStage(stageId) {
+  return parseResponse(await fetch(`/mass-stages/${stageId}`, { credentials: "include" }));
+}
+
+export async function apiUpdateStage(stageId, patch) {
+  // `patch` is `{building_name?, status?}` — at least one.
+  return jsonRequest(`/mass-stages/${stageId}`, "PATCH", patch);
+}
+
+export async function apiDeleteStage(stageId) {
+  return parseResponse(await fetch(`/mass-stages/${stageId}`, { method: "DELETE", credentials: "include" }));
+}
+
+export async function apiAddRoom(stageId, { roomNumber, workOrderNumber }) {
+  return jsonRequest(`/mass-stages/${stageId}/rooms`, "POST", {
+    room_number: roomNumber,
+    work_order_number: workOrderNumber,
+  });
+}
+
+export async function apiUpdateRoom(stageId, roomId, patch) {
+  return jsonRequest(`/mass-stages/${stageId}/rooms/${roomId}`, "PATCH", patch);
+}
+
+export async function apiDeleteRoom(stageId, roomId) {
+  return parseResponse(await fetch(`/mass-stages/${stageId}/rooms/${roomId}`, { method: "DELETE", credentials: "include" }));
+}
+
+export async function apiAddStageItem(stageId, roomId, { itemId, plannedQuantity }) {
+  return jsonRequest(`/mass-stages/${stageId}/rooms/${roomId}/items`, "POST", {
+    item_id: itemId,
+    planned_quantity: plannedQuantity,
+  });
+}
+
+export async function apiUpdateStageItem(stageId, roomId, stageItemId, { plannedQuantity }) {
+  return jsonRequest(`/mass-stages/${stageId}/rooms/${roomId}/items/${stageItemId}`, "PATCH", {
+    planned_quantity: plannedQuantity,
+  });
+}
+
+export async function apiDeleteStageItem(stageId, roomId, stageItemId) {
+  return parseResponse(await fetch(`/mass-stages/${stageId}/rooms/${roomId}/items/${stageItemId}`, { method: "DELETE", credentials: "include" }));
+}
+
+// Loading + returns (the stock-touching actions). Both return the item's
+// updated merged rollup. `load` writes per-room dispenses; `return` adds stock
+// back silently (no ledger row). See docs/mass-staging/phase-5-load-return.md.
+export async function apiLoadStageItem(stageId, { itemId, quantity }) {
+  return jsonRequest(`/mass-stages/${stageId}/load`, "POST", { item_id: itemId, quantity });
+}
+
+export async function apiReturnStageItem(stageId, { itemId, quantity }) {
+  return jsonRequest(`/mass-stages/${stageId}/return`, "POST", { item_id: itemId, quantity });
+}
+
+export async function apiReuseStage(stageId) {
+  // Spin off a fresh planning stage from a completed one (same building + rooms,
+  // work orders cleared, no items). Returns the new MassStageSummary.
+  return jsonRequest(`/mass-stages/${stageId}/reuse`, "POST", {});
+}

@@ -1,0 +1,23 @@
+    <!-- =================== MASS STAGE PAGE =================== -->
+    <!-- Supervisor+ batch-staging planner. Static shell only: the stage /
+         room / item cards are built by views/massStage.js and toggled by
+         views/nav.js (`.page.active`). See docs/mass-staging/. -->
+    <div class="page" id="mass-stage-page">
+
+        <section id="mass-stage-create-section">
+            <h2>New Mass Stage</h2>
+            <p class="hint">Start a staging list for a building.</p>
+            <div class="filter-row">
+                <input type="text" id="mass-stage-building-input" placeholder="Building name + #">
+                <button id="mass-stage-create-btn" type="button">Create</button>
+            </div>
+            <p id="mass-stage-create-message"></p>
+        </section>
+
+        <section id="mass-stage-list-section">
+            <h2>Mass Stages</h2>
+            <div id="mass-stage-list"></div>
+            <p id="mass-stage-list-message"></p>
+        </section>
+
+    </div>

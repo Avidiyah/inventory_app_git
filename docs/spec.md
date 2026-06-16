@@ -36,6 +36,11 @@ A self-hosted inventory management tool for tracking physical items by barcode. 
 |Soft delete for items (archive)|✅ Working — "Delete" sets `items.archived_at`; the row is retained so history stays intact, but the item is hidden from `list_items` and barcode lookups|
 |Soft deletes for users|❌ Not implemented (hard delete only; blocked when the user has transactions)|
 |Partial / merge updates for item notes|❌ Not implemented (every save replaces all notes)|
+|Mass staging — plan materials per building/room|✅ Working — Supervisor+ "Mass Stage" page; a stage holds rooms (one work order each) with planned items (estimates, not transactions); lifecycle `planning → loading → completed`. See `docs/mass-staging/`|
+|Mass staging — load onto truck|✅ Working — a merged item's load is split across its rooms (fill in order, overflow → last room) into real `dispense` rows on each room's work order, atomic under the item row lock|
+|Mass staging — unused-materials return|✅ Working — adds stock back **without** a ledger row (the one deliberate silent stock change); net consumption is tracked in the stage tables|
+|Mass staging — by-room mid-job dispense|✅ Working — Scan / Stock gate lets Supervisor+ pick a building + room to fill the work order, then dispense normally (not added to the stage)|
+|Mass staging — reuse a finished building ("Stage again")|✅ Working — a completed stage spins off a fresh `planning` copy with the same building + rooms (room numbers kept, work orders cleared) and empty item lists; the completed stage stays as the saved record. Rooms gain an inline work-order editor; a stage can't move to `loading` until every room has a work order|
 
 ---
 
@@ -108,6 +113,24 @@ This is where every role lands after sign-in. It is a **work-order batch** flow 
 
 Supported upload formats: UPC-A, UPC-E, EAN-13, EAN-8, Code128.
 
+**By-room work order (Supervisor+).** The work-order gate has a **"Use a building & room"** toggle (`#wo-gate-byroom-toggle`, Supervisor+ only). It lists active (non-completed) mass stages; picking a building then a room fills the gate's work-order input with that room's work order (room numbers repeat across buildings, so the building is chosen first). Start then runs the normal scan-and-go dispense — the transaction is a plain dispense on that work order and is **not** added to the stage (workflow step 13). Technicians never see the toggle.
+
+---
+
+### Mass Stage Page
+
+Supervisor+ (owner / admin / supervisor) batch-staging planner — the home of the mass-staging feature. See `docs/mass-staging/` for the full design record.
+
+**Create + list.** A "New Mass Stage" form (building name + #) plus a list of stages as **expandable one-line cards** (`<details>`): building name + a status pill (`planning` / `loading` / `completed`) + room/item counts. A card lazy-loads its full detail on first expand.
+
+**Planning (status `planning`).** Inside a stage card, rooms are nested expandable cards (room # — work order). Each room lists planned **item cards** (name, barcode, planned quantity, inline qty edit, remove); an **Add item** search (filters the cached item list) adds estimates — planning is **not** a transaction. **Next Room** adds a room (room # + work order #). **Save Mass Stage** flips the status to `loading` and locks the plan.
+
+**Loading (status `loading`).** The card shows the **load list** — the per-item merged rollup across rooms (Planned / Loaded / Remaining, with an amber **+N over** flag on overflow). Each item has a quantity (defaulting to remaining) + a **Staged** button → a confirm dialog → the load (real per-room dispenses on each room's work order, split fill-in-order with overflow on the last room). An **Unused** quantity + **Return** button adds stock back silently. The rooms are shown read-only. **Mark Completed** moves the stage to `completed`.
+
+**Inventory coverage.** Throughout planning and loading, each item shows its current **on-hand** stock next to the staged amounts; when the planned (planning) or remaining-to-load (loading) amount exceeds what's in stock, a red **"short by N"** flag appears. Advisory only — an actual over-draw is still refused server-side.
+
+**Completed (status `completed`).** Read-only; each merged item shows Returned / Consumed. The plan and movements are frozen. A **Stage again** button spins off a fresh `planning` stage for the same building — copying the rooms (room numbers kept, **work orders cleared**) with empty item lists — so buildings/rooms are reused without re-typing; the completed stage remains as the saved record. (In `planning`, each room has an inline **work-order editor**, and a stage cannot be saved to `loading` until every room has a work order.)
+
 ---
 
 ### History Page
@@ -157,6 +180,7 @@ Transaction history with three sub-tabs sharing a single results table:
 - Navigating to **Saved Users** triggers `loadUsers()`.
 - Navigating to **Transaction** triggers `loadTxnItems()` (does not use `itemsCache`; separate fetch).
 - Navigating to **History** triggers `loadHistory()` with current `historyState`.
+- Navigating to **Mass Stage** triggers `loadStages()` (lists stages; lazy-loads each stage's detail on expand). The item list is cached once for the planning add-item search.
 
 ---
 
@@ -217,6 +241,16 @@ Transaction history with three sub-tabs sharing a single results table:
 |History per-unit `item_price` visible to Admin/Owner only|Backend (`list_history(include_price=...)` set from requester role) + Frontend (Price column hidden below Admin)|
 |Void of an unknown / already-voided transaction blocked|Backend (`TransactionNotFoundError` → 404)|
 |Void that would drive stock below zero blocked|Backend (`TransactionVoidError` → 400; reversal computed under `FOR UPDATE`)|
+|One active (non-completed) mass stage per building|Backend (partial unique index `uq_mass_stages_active_building` + service pre-check → `DuplicateBuildingStageError` 400)|
+|Mass-stage rooms/items editable only while `planning`|Backend (`StageStateError` → 400 via `domain.mass_staging.can_edit_plan`)|
+|Mass-stage load/return only while `loading`|Backend (`StageStateError` → 400 via `can_load`)|
+|Every room must have a work order before a stage can move to `loading`|Backend (`StageStateError` → 400 in `update_stage`) — catches reused stages whose work orders were cleared|
+|"Stage again" (reuse) only from a `completed` stage; blocked if the building already has an active stage|Backend (`StageStateError` / `DuplicateBuildingStageError` → 400)|
+|Stage status transitions forward-only (`planning→loading→completed`)|Backend (`domain.mass_staging.validate_transition` → `InvalidStageTransitionError` 400)|
+|Planned / load / return quantity > 0|Backend (Pydantic) + Frontend|
+|Mass-stage load cannot overdraw stock|Backend (`domain.quantity.apply_delta` → `NegativeQuantityError` 400, rolled back)|
+|Unused return ≤ net loaded|Backend (`domain.mass_staging.allocate_return` → `ReturnExceedsLoadedError` 400)|
+|All `/mass-stages` routes require Supervisor or above|Backend (`require_min_role(supervisor)` → 403) + Frontend (nav hidden below Supervisor)|
 
 ---
 
@@ -243,6 +277,13 @@ Transaction history with three sub-tabs sharing a single results table:
 |Create transaction|POST `/transactions/`|
 |Record a correction (quantity adjust)|POST `/transactions/adjust`|
 |Void (delete) a transaction|DELETE `/transactions/{transaction_id}`|
+|List / create mass stages|GET `/mass-stages/?status=` · POST `/mass-stages/`|
+|Read / update / delete a stage|GET · PATCH · DELETE `/mass-stages/{id}`|
+|Add / edit / remove a room|POST `/mass-stages/{id}/rooms` · PATCH · DELETE `…/rooms/{room_id}`|
+|Add / edit / remove a planned item|POST `…/rooms/{room_id}/items` · PATCH · DELETE `…/items/{stage_item_id}`|
+|Load a merged item onto the truck|POST `/mass-stages/{id}/load`|
+|Return unused materials|POST `/mass-stages/{id}/return`|
+|Reuse a completed building ("Stage again")|POST `/mass-stages/{id}/reuse`|
 
 The frontend never calls `/db-test`.
 
@@ -254,6 +295,8 @@ The frontend never calls `/db-test`.
 - **Notes are fully replaced on every save.** There is no partial merge. Loading the editor, removing a row, and saving will permanently delete that note.
 - **Items are soft-deleted (archived); users are not.** "Deleting" an item sets `items.archived_at`: the row is retained (so history's live join stays intact) and the item is hidden from `list_items` and barcode lookups. Users are still hard-deleted, and deleting a user that has transactions is blocked by the service layer (`UserHasTransactionsError`, → 400) and pinned at the DB level by `ON DELETE RESTRICT` on the `transactions.user_id` FK. (Note: a *voided* transaction is still a row referencing its user, so it continues to block that user's deletion — the audit row is retained, just hidden from history.)
 - **Transactions have a soft-delete (void).** A mis-clicked transaction can be voided by a Supervisor+ (`DELETE /transactions/{id}`): the row is retained and stamped `voided_at` / `voided_by_id`, hidden from history, and its stock effect reversed. There is no UI to *un-void* a transaction yet — recovery would currently require a manual DB edit.
+- **Mass-stage returns have no ledger row (deliberate).** Loading writes real `dispense` rows, but the "unused materials" return adds stock back *silently* — the only place stock changes without an append-only transaction. Consequence: the transaction ledger shows **gross dispensed** (≥ actual consumed); true consumption (`Σloaded − Σreturned`) lives in the stage tables and the merged rollup. On-hand quantity stays correct. This is an accepted, isolated trade-off — see `docs/mass-staging/phase-1-design-record.md` §6.
+- **No camera scan on the mass-stage load screen / no stage reopen.** The Staged action is quantity + confirm dialog (camera scan-to-verify was deferred), and a `completed` stage is terminal (no un-complete / reopen flow).
 
 ---
 
@@ -278,3 +321,4 @@ The frontend never calls `/db-test`.
 | item-price | Items carry an optional `price` (per-unit) and `product_link`, surfaced ONLY to Admin/Owner. Find Item gains Price + Link columns; History gains a Price column showing `price_per_unit × quantity` (the cost of what was dispensed/moved). The gate is enforced **server-side** — `items._item_response` and `history.list_history(include_price=...)` null the fields for Supervisor/Technician — not just hidden in the UI, because price is cost-sensitive and the spec's standing rule is that the backend is the authoritative access check. `price` is the *live* item price (not snapshotted per transaction), so historical line values reflect the current price. Display-only: no edit UI yet. | The owner wants cost visibility for senior roles without exposing margins to the floor crew; gating in the API (not just CSS) means a Supervisor opening devtools still cannot read prices. Computing `price × quantity` in History answers "how much did we consume" directly. |
 | void-txn | A mis-clicked transaction can be deleted by Supervisor+ via `DELETE /transactions/{id}`. Implemented as a **soft delete ("void")**, not a hard delete: the row is kept (stamped `voided_at` + `voided_by_id`), excluded from the history view (`list_history` filters `voided_at IS NULL`), and its effect on `Item.quantity` is reversed under the same `SELECT ... FOR UPDATE` lock as stock/dispense (reversal arithmetic in `domain.quantity.reverse_delta`, unit-tested). A reversal that would make stock negative raises `TransactionVoidError` (400). Supervisor+ chosen because that is the existing History-page gate, so the whole set of viewers can self-correct. `voided_by_id` is a plain UUID rather than a second FK to `users`, to avoid disambiguating the existing `Transaction.user` relationship for what is hidden audit metadata. | Operators occasionally fat-finger a stock/dispense on a phone; forcing a compensating fake transaction (or a DB edit) to fix it is worse than letting them remove the bad row. Soft delete keeps the append-only audit trail honest (nothing is truly destroyed; who/when is recorded) while giving the crew a clean "undo" and keeping the history view uncluttered. |
 | ux-overhaul-p1 | Field-friendly UX overhaul, Phase 1 (frontend only). Visible labels renamed: Create Item→"Add Item", Saved Items→"Find Item", Create User→"Add User", Saved Users→"Users", Transaction→"Scan / Stock"; "Log In"→"Sign In"; "Correct Quantity"→"Correct Count"; "Edit Notes"→"Notes"; type options→"Add Stock"/"Take Out Stock". All roles now land on Find Item after sign-in. Messages rewritten to crew-friendly wording via the new `format.friendlyError`. New red/black/white (Belfor) visual system via CSS tokens (primary 52px / inputs 48px / body 16px). Internal `data-page` values, element IDs, state classes, and `transaction_type` values are unchanged — the frozen DOM contract is intact. | The app workflow already works; the problem was clarity and confidence for a low-tech-tolerance construction crew on phones. See `docs/plan-ux-overhaul.md`, `docs/roadmap-ux-overhaul.md`, and `docs/design-spec-ux-overhaul.md`. |
+| mass-staging | Supervisor+ batch-staging by **building → room → planned item**, built in 9 phases (`docs/mass-staging/`). One work order per room; planning is estimates only (no transactions). **Loading** splits a merged item across its rooms (fill in `sort_order`, overflow → last room) into real `dispense` rows on each room's work order, committed atomically under the item `SELECT … FOR UPDATE`. **Unused-materials return** adds stock back with **no** ledger row (consumption tracked in the stage tables — the one deliberate silent stock change). Lifecycle `planning → loading → completed` (forward-only). One active stage per building (DB partial unique index). Mid-job extras are a plain Scan/Stock dispense with the room's work order, looked up from the stage but **not** added to it. New tables `mass_stages` / `mass_stage_rooms` / `mass_stage_items`; pure allocation logic in `domain/mass_staging.py`. | Crews grab material per building, not per work order, and partially-used items come back. A first-class plan→load→return flow keeps stock and per-work-order attribution honest without forcing fake transactions, while matching how the floor actually works. Full rationale + the locked decisions in `docs/mass-staging/phase-1-design-record.md`. |

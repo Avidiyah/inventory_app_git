@@ -24,7 +24,7 @@ from app.auth_deps import require_min_role
 from starlette.types import Scope
 from app.database import test_connection
 from app.domain import roles
-from app.routers import auth, barcodes, items, transactions, users
+from app.routers import auth, barcodes, items, mass_stages, transactions, users
 
 class NoCacheStaticFiles(StaticFiles):
     """StaticFiles that tells browsers to revalidate every asset.
@@ -60,6 +60,7 @@ async def add_permissions_policy(request, call_next):
 app.include_router(auth.router)
 app.include_router(barcodes.router)
 app.include_router(items.router)
+app.include_router(mass_stages.router)
 app.include_router(transactions.router)
 app.include_router(users.router)
 
@@ -87,6 +88,7 @@ SHELL_PARTS = (
     "pages/create-user.html",
     "pages/saved-users.html",
     "pages/transaction.html",
+    "pages/mass-stage.html",
     "pages/history.html",
     "shell-tail.html",          # </main>, scan-confirm overlay, scripts, </body></html>
 )

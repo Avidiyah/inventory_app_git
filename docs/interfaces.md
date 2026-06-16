@@ -105,6 +105,48 @@ Inputs:
 | `voided_at` | datetime? | NULL = live; set = voided (soft delete), hidden from history |
 | `voided_by_id` | UUID? | Who voided it (plain UUID, not an FK — hidden audit metadata) |
 
+### `MassStage`
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `building_name` | str | "Building Name + #" |
+| `status` | str | `planning` / `loading` / `completed` |
+| `created_by_id` | UUID? | FK to users (plain) |
+| `created_at` / `updated_at` | datetime | tz-aware; `updated_at` has ORM `onupdate` |
+| `completed_at` | datetime? | Set when status → `completed` |
+| `rooms` | list[`MassStageRoom`] | Relationship, cascade delete-orphan, ordered by `sort_order` |
+
+Partial unique index `uq_mass_stages_active_building` = `UNIQUE(building_name) WHERE status <> 'completed'`.
+
+### `MassStageRoom`
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `stage_id` | UUID | FK to mass_stages, `ON DELETE CASCADE` |
+| `room_number` | str | Unique within the stage |
+| `work_order_number` | str | The room's single work order |
+| `sort_order` | int | Drives load fill / overflow |
+| `created_at` | datetime | tz-aware |
+| `stage` / `items` | rel. | `items` cascade delete-orphan |
+
+`UniqueConstraint(stage_id, room_number)`.
+
+### `MassStageItem`
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `room_id` | UUID | FK to mass_stage_rooms, `ON DELETE CASCADE` |
+| `item_id` | UUID | FK to items (plain) |
+| `planned_quantity` | Decimal | Estimate (not a transaction) |
+| `loaded_quantity` | Decimal | Default 0; accrues on load |
+| `returned_quantity` | Decimal | Default 0; accrues on return |
+| `room` / `item` | rel. | `item` one-way (no backref on `Item`) |
+
+`UniqueConstraint(room_id, item_id)`. Overflow / net-consumed are derived, not stored.
+
 ---
 
 ## Domain Modules
@@ -144,6 +186,23 @@ Strict ordering: owner > admin > supervisor > technician.
 
 Rejects blank keys, non-string keys, nested values, arrays, objects, and unsupported scalar types.
 
+### `app/domain/mass_staging.py`
+
+Pure mass-staging rules (no DB/HTTP), `Decimal`-based. Status vocabulary:
+`STATUS_PLANNING` / `STATUS_LOADING` / `STATUS_COMPLETED`, `ALL_STATUSES`,
+`ALLOWED_TRANSITIONS` (forward-only). Dataclasses (opaque `key`):
+`RoomPlan(key, planned, loaded=0)`, `RoomLoaded(key, loaded, returned=0)`,
+`Allocation(key, quantity)`.
+
+- `allocate_load(rooms, quantity) -> list[Allocation]` — fill rooms in order up to
+  `planned - loaded`; overflow onto the last room; under-load stops early. Empty
+  `rooms` → `ValueError`.
+- `allocate_return(rooms, quantity) -> list[Allocation]` — reverse-fill, capped at
+  `Σ(loaded - returned)`; over-return → `ReturnExceedsLoadedError`.
+- `validate_transition(current, target) -> None` — forward-only; otherwise
+  `InvalidStageTransitionError`.
+- `can_edit_plan(status) -> bool` (== planning); `can_load(status) -> bool` (== loading).
+
 ### `app/domain/errors.py`
 
 Domain exceptions are translated by `routers/_errors.py`. Important errors include:
@@ -161,6 +220,13 @@ Domain exceptions are translated by `routers/_errors.py`. Important errors inclu
 - `InvalidCredentialsError`
 - `RoleManagementError`
 - `UnreadableImageError`
+- `StageNotFoundError`
+- `RoomNotFoundError`
+- `StageItemNotFoundError`
+- `DuplicateBuildingStageError`
+- `InvalidStageTransitionError(current, target)`
+- `ReturnExceedsLoadedError(requested, returnable)`
+- `StageStateError`
 
 ---
 
@@ -316,6 +382,22 @@ At least one field must be present.
 | `page` | int |
 | `page_size` | int |
 
+### Mass Stages
+
+Requests (`schemas/mass_stages.py`): `MassStageCreate {building_name}`,
+`MassStageUpdate {building_name?, status?}` (≥1), `RoomCreate {room_number,
+work_order_number}`, `RoomUpdate {room_number?, work_order_number?}` (≥1),
+`StageItemCreate {item_id, planned_quantity>0}`, `StageItemUpdate
+{planned_quantity>0}`, `LoadRequest {item_id, quantity>0}`, `ReturnRequest
+{item_id, quantity>0}`.
+
+Responses (built by the router from ORM, not `from_attributes`):
+- `StageItemDetail {id, item_id, item_name, item_barcode, item_quantity (on-hand), planned_quantity, loaded_quantity, returned_quantity}`
+- `RoomDetail {id, room_number, work_order_number, sort_order, items[]}`
+- `MassStageDetail {id, building_name, status, created_at, rooms[], merged_items[]}`
+- `MassStageSummary {id, building_name, status, room_count, item_count, created_at}`
+- `MergedItem {item_id, item_name, item_barcode, on_hand, planned_total, loaded_total, returned_total, overflow, net_consumed, remaining_to_load}`
+
 ---
 
 ## Services
@@ -371,6 +453,21 @@ Filters combine with AND, and voided rows are excluded (`voided_at IS NULL`). `w
 - `reset_password(db, user_id, password_hash) -> None`
 - `delete_user(db, user_id) -> None`
 
+### `services/mass_staging.py`
+
+Planning CRUD + the two stock-touching actions. Raises the mass-staging domain
+errors; gates editability via `domain.mass_staging.can_edit_plan` / `can_load`.
+
+- `create_stage(db, *, building_name, created_by_id) -> MassStage` — one-active-per-building guard (`DuplicateBuildingStageError`).
+- `list_stages(db, *, status?) -> Sequence[MassStage]`; `get_stage(db, stage_id) -> MassStage` (eager-loads rooms→items→item).
+- `update_stage(db, stage_id, *, building_name?, status?) -> MassStage` — status change via `validate_transition`; stamps `completed_at`.
+- `delete_stage(db, stage_id) -> None` (cascades rooms/items).
+- `reuse_stage(db, stage_id, *, created_by_id) -> MassStage` — clone a *completed* stage into a fresh `planning` one (rooms copied with work orders cleared to `""`, no items); `StageStateError` if not completed, `DuplicateBuildingStageError` if the building is already active. `update_stage` also blocks the `→ loading` transition while any room's work order is blank (`StageStateError`).
+- `add_room` / `update_room` / `delete_room` (planning only).
+- `add_item(db, stage_id, room_id, *, item_id, planned_quantity) -> MassStageItem` — upsert by `(room, item)`; `update_item` / `delete_item` by `stage_item_id`.
+- `load_item(db, stage_id, *, item_id, quantity, user_id) -> None` — under the item `FOR UPDATE`, allocate (`allocate_load`) and write one `dispense` per room slice + bump `loaded_quantity`; rolls back on `NegativeQuantityError`.
+- `return_item(db, stage_id, *, item_id, quantity) -> None` — under the item lock, `allocate_return`, bump `returned_quantity`, add stock back with **no** transaction row.
+
 ---
 
 ## Routers
@@ -412,6 +509,26 @@ Filters combine with AND, and voided rows are excluded (`voided_at IS NULL`). `w
 | POST | `/transactions/adjust` | Admin+ | `CorrectionCreate` | `TransactionResponse` |
 | DELETE | `/transactions/{transaction_id}` | Supervisor+ | path id | `204` |
 | GET | `/transactions/` | Supervisor+ | query filters | `TransactionHistoryPage` |
+
+### `/mass-stages`
+
+All routes Supervisor+. CRUD for stages/rooms/items plus the stock-touching
+`/load` and `/return`. See `services/mass_staging.py` and `docs/mass-staging/`.
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| POST | `/mass-stages/` | `MassStageCreate` | `MassStageSummary` |
+| GET | `/mass-stages/` (`?status=`) | — | list[`MassStageSummary`] |
+| GET | `/mass-stages/{id}` | — | `MassStageDetail` |
+| PATCH | `/mass-stages/{id}` | `MassStageUpdate` | `MassStageSummary` |
+| DELETE | `/mass-stages/{id}` | — | 204 |
+| POST | `/mass-stages/{id}/rooms` | `RoomCreate` | `RoomDetail` |
+| PATCH / DELETE | `…/rooms/{room_id}` | `RoomUpdate` / — | `RoomDetail` / 204 |
+| POST | `…/rooms/{room_id}/items` | `StageItemCreate` | `StageItemDetail` |
+| PATCH / DELETE | `…/items/{stage_item_id}` | `StageItemUpdate` / — | `StageItemDetail` / 204 |
+| POST | `/mass-stages/{id}/load` | `LoadRequest` | `MergedItem` |
+| POST | `/mass-stages/{id}/return` | `ReturnRequest` | `MergedItem` |
+| POST | `/mass-stages/{id}/reuse` | — | `MassStageSummary` (fresh planning copy) |
 
 ### `/barcodes`
 
@@ -461,6 +578,7 @@ Exports:
 - `apiCreateTransaction(payload)`
 - `apiCreateCorrection({ itemId, newQuantity, reason })`
 - `apiVoidTransaction(transactionId)`
+- Mass staging: `apiListStages(status?)`, `apiCreateStage(buildingName)`, `apiGetStage(id)`, `apiUpdateStage(id, patch)`, `apiDeleteStage(id)`, `apiAddRoom(id, {roomNumber, workOrderNumber})`, `apiUpdateRoom(id, roomId, patch)`, `apiDeleteRoom(id, roomId)`, `apiAddStageItem(id, roomId, {itemId, plannedQuantity})`, `apiUpdateStageItem(id, roomId, stageItemId, {plannedQuantity})`, `apiDeleteStageItem(id, roomId, stageItemId)`, `apiLoadStageItem(id, {itemId, quantity})`, `apiReturnStageItem(id, {itemId, quantity})`, `apiReuseStage(id)`
 
 ### `static/state.js`
 
@@ -487,6 +605,7 @@ Client mirror of the role hierarchy for UI visibility only:
 
 - `setMessage(el, text, type)`
 - `getNoteValueRaw(wrapper)`
+- `confirmDialog(message) -> Promise<boolean>` — drives the shared `#scan-confirm-overlay` modal (focus-trapped); used by scan-and-go (`views/transactions.js`) and the mass-stage load action (`views/massStage.js`)
 
 ### `static/format.js`
 
@@ -530,6 +649,20 @@ Exports:
 - `itemsScanner`
 
 Owns Create Item, Saved Items table, action dropdown, Saved Items scanner mount, and delete cleanup. `renderItems()` builds the `#items-table` header (`#items-thead-row`) and body together from a per-role column model, so column set/order can never desync. Technicians get a decluttered, quantity/location-first table (no Created / Actions columns); Supervisor+ keep the original order plus the Admin-only Price/Link columns.
+
+### `views/massStage.js`
+
+Exports:
+
+- `loadStages()`
+
+Owns the Mass Stage page (Supervisor+). Lists stages as expandable `<details>`
+cards (lazy-loading detail on expand) and dispatches by status: a planning
+renderer (rooms editor, Next Room, add-item search, Save Mass Stage) and a
+loading/completed renderer (the `merged_items` load list with Staged / Unused
+materials / Mark Completed). All actions go through one delegated `click` + `input`
+handler on `#mass-stage-list`; mutations re-fetch + re-render the stage, preserving
+open rooms. Uses `dom.confirmDialog` for the load confirmation.
 
 ### `views/itemEditor.js`
 
@@ -605,6 +738,13 @@ opt-in button `#scango-advanced-toggle` reveals the direction toggle + manual ta
 (`#txn-items-section`) / form (`#transaction-section`); by default Supervisor+ get
 the streamlined dispense-only flow (driven by the `supervisorAdvanced` flag in
 `views/transactions.js`).
+
+**Mass-staging additions (Phase 7–8):** `confirmScan(message)` now delegates to the
+shared `dom.confirmDialog` (same `#scan-confirm-overlay`). The work-order gate gained a
+Supervisor+ **by-room** picker (`#wo-gate-byroom-toggle` → `#wo-gate-building` /
+`#wo-gate-room`): it lists active mass stages and fills `#wo-gate-input` with the chosen
+room's work order, then runs the unchanged `startBatch()` — a plain dispense, not added
+to the stage.
 
 ### `views/history.js`
 

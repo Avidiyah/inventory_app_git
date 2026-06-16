@@ -14,7 +14,17 @@ through Pydantic models with `from_attributes=True`.
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, Text, Numeric, ForeignKey, DateTime
+from sqlalchemy import (
+    Column,
+    Text,
+    Numeric,
+    Integer,
+    ForeignKey,
+    DateTime,
+    UniqueConstraint,
+    Index,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -185,3 +195,134 @@ class AuthSession(Base):
     last_active_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="sessions")
+
+
+class MassStage(Base):
+    """A mass-staging plan for one building.
+
+    Supervisors batch-plan materials for an entire building rather than a
+    single work order: a stage groups several rooms (each paired with one
+    work order), and each room lists the items planned for it. Planning is
+    pure estimation -- no stock moves -- until the stage is loaded onto the
+    truck, when each load writes ordinary `dispense` transactions (one per
+    room allocation) carrying that room's work order.
+
+    `status` walks `planning -> loading -> completed` (validated in
+    `app.domain.mass_staging`; stored as Text to match `User.role` /
+    `Transaction.transaction_type` rather than a DB enum). Editing rooms /
+    items is allowed only in `planning`; loading / returning only in
+    `loading`; `completed` is read-only and terminal.
+
+    One-active-per-building is enforced at the database level by the partial
+    unique index in `__table_args__`: at most one row per `building_name`
+    whose `status` is not `completed`. `created_by_id` is a plain (nullable)
+    FK to `users`, mirroring `Transaction.user_id`.
+    """
+
+    __tablename__ = "mass_stages"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    building_name = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="planning", server_default="planning")
+    created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    rooms = relationship(
+        "MassStageRoom",
+        back_populates="stage",
+        cascade="all, delete-orphan",
+        order_by="MassStageRoom.sort_order",
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_mass_stages_active_building",
+            "building_name",
+            unique=True,
+            postgresql_where=text("status <> 'completed'"),
+        ),
+    )
+
+
+class MassStageRoom(Base):
+    """A room within a mass-staging plan, paired with exactly one work order.
+
+    Room numbers repeat across buildings, so they are distinguishable only
+    within a stage (`UNIQUE(stage_id, room_number)`). `sort_order` preserves
+    the order rooms were entered, which drives the load allocation rule
+    (`app.domain.mass_staging.allocate_load`): a merged item's loaded
+    quantity fills rooms in `sort_order`, and any overflow lands on the last
+    room. The FK is `ON DELETE CASCADE` -- a stage's rooms are owned plan
+    data, not audit records, so they vanish with the stage.
+    """
+
+    __tablename__ = "mass_stage_rooms"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    stage_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("mass_stages.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    room_number = Column(Text, nullable=False)
+    work_order_number = Column(Text, nullable=False)
+    sort_order = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    stage = relationship("MassStage", back_populates="rooms")
+    items = relationship(
+        "MassStageItem",
+        back_populates="room",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("stage_id", "room_number", name="uq_mass_stage_rooms_stage_room"),
+    )
+
+
+class MassStageItem(Base):
+    """An item planned for a room, plus what was actually loaded / returned.
+
+    `planned_quantity` is the estimate the supervisor enters while planning
+    (not a transaction). `loaded_quantity` accrues as the merged item is
+    staged onto the truck (each load writes real `dispense` rows and bumps
+    this); it may exceed planned (box-of-4 packaging), and the per-item
+    overflow is derived as `Sigma loaded - Sigma planned`. `returned_quantity`
+    accrues from the "unused materials" step, which adds stock back WITHOUT a
+    ledger row (a deliberate, isolated exception -- see
+    `docs/mass-staging/phase-1-design-record.md` section 6); net consumed is
+    `Sigma loaded - Sigma returned`.
+
+    `UNIQUE(room_id, item_id)` keeps one row per item per room (re-planning an
+    item updates its row). The `room_id` FK is `ON DELETE CASCADE` (owned plan
+    data); the `item_id` FK is plain, so a referenced item cannot be hard
+    deleted -- benign, since items are soft-deleted via `Item.archived_at`.
+    """
+
+    __tablename__ = "mass_stage_items"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    room_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("mass_stage_rooms.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    item_id = Column(UUID(as_uuid=True), ForeignKey("items.id"), nullable=False)
+    planned_quantity = Column(Numeric, nullable=False)
+    loaded_quantity = Column(Numeric, nullable=False, default=0, server_default="0")
+    returned_quantity = Column(Numeric, nullable=False, default=0, server_default="0")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    room = relationship("MassStageRoom", back_populates="items")
+    item = relationship("Item")
+
+    __table_args__ = (
+        UniqueConstraint("room_id", "item_id", name="uq_mass_stage_items_room_item"),
+    )

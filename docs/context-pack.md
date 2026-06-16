@@ -33,6 +33,7 @@ Implemented capabilities:
 - Barcode scan on Transaction and Saved Items pages:
   - Upload/still image decode through backend `pyzbar`.
   - Live camera decode through vendored `@zxing/browser`.
+- Mass staging (Supervisor+): plan materials by building → room → item, load onto the truck as per-room dispenses, return unused materials, and a by-room mid-job dispense. See `docs/mass-staging/`.
 - Docker and Render deployment blueprint with managed Postgres and automatic Alembic migration on container start.
 
 The largest remaining product gaps are soft deletes, partial/merge notes updates, broader frontend automated testing, and production observability/backups beyond the current Render setup.
@@ -95,12 +96,18 @@ Current Alembic revisions:
 | `b2d3e4f5a6c7` | Restricts transaction foreign keys |
 | `c3d4e5f6a7b8` | Adds correction reason to transactions |
 
+Later revisions (void columns, item price/link, `archived_at`, `item_barcodes`,
+and `b1f3d5a7c9e2` mass-staging tables) are listed in full in `reference.md`.
+
 Core tables:
 
 - `users`: `id`, `username`, `password_hash`, `role`, `created_at`.
 - `sessions`: opaque session `token`, `user_id`, `created_at`, `last_active_at`.
 - `items`: `id`, `barcode`, `name`, `quantity`, `location`, `notes`, `created_at`.
 - `transactions`: `id`, `item_id`, `user_id`, `transaction_type`, `quantity`, `work_order_number`, `reason`, `created_at`.
+- `mass_stages`: `id`, `building_name`, `status`, `created_by_id`, `created_at`, `updated_at`, `completed_at`.
+- `mass_stage_rooms`: `id`, `stage_id`, `room_number`, `work_order_number`, `sort_order`, `created_at`.
+- `mass_stage_items`: `id`, `room_id`, `item_id`, `planned_quantity`, `loaded_quantity`, `returned_quantity`, `created_at`.
 
 Important invariants:
 
@@ -175,6 +182,17 @@ The frontend mirrors these rules for convenience, but backend dependencies are a
 
 `GET /transactions/` supports `item_id`, `user_id`, `work_order_number`, `page`, and `page_size`.
 
+### Mass Stages (Supervisor+)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET/POST | `/mass-stages/` | List / create building stages |
+| GET/PATCH/DELETE | `/mass-stages/{id}` | Read (rooms + merged rollup) / rename+transition / delete |
+| POST/PATCH/DELETE | `/mass-stages/{id}/rooms[/{room_id}]` | Manage rooms (one work order each) |
+| POST/PATCH/DELETE | `…/rooms/{room_id}/items[/{stage_item_id}]` | Manage planned items |
+| POST | `/mass-stages/{id}/load` | Stage onto the truck (per-room dispenses) |
+| POST | `/mass-stages/{id}/return` | Return unused materials (silent stock-add) |
+
 ### Barcodes And Utility
 
 | Method | Path | Purpose |
@@ -204,6 +222,7 @@ backend/static/
     create-user.html
     saved-users.html
     transaction.html
+    mass-stage.html
     history.html
   styles.css
   main.js
@@ -224,6 +243,7 @@ backend/static/
     notes.js
     users.js
     transactions.js
+    massStage.js
     history.js
     scan.js
 ```
