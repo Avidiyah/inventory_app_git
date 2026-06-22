@@ -25,12 +25,14 @@ from app.domain.errors import DomainError, StageItemNotFoundError
 from app.models import MassStage, MassStageItem, MassStageRoom, User
 from app.routers._errors import to_http
 from app.schemas.mass_stages import (
+    ActiveRoom,
     LoadRequest,
     MassStageCreate,
     MassStageDetail,
     MassStageSummary,
     MassStageUpdate,
     MergedItem,
+    QuickRoomCreate,
     ReturnRequest,
     RoomCreate,
     RoomDetail,
@@ -165,6 +167,44 @@ def list_stages(
 ):
     """List stages newest-first, optionally filtered by `status`. Supervisor+."""
     return [_stage_summary(s) for s in ms_service.list_stages(db, status=status)]
+
+
+# Declared before the `/{stage_id}` routes so "quick-room" / "active-rooms"
+# are not captured as a stage_id path param.
+
+@router.post("/quick-room", response_model=MassStageSummary, status_code=201)
+def quick_room(
+    payload: QuickRoomCreate,
+    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
+    db: Session = Depends(get_db),
+):
+    """Save a work order with a room from the scan gate: find-or-create the
+    building's active stage and append the room. Supervisor+. Returns the parent
+    stage summary (the UI reads `room_count` to know when a building becomes a
+    Mass Stage card). 400 if the building is already loading or the room number
+    is taken."""
+    try:
+        stage = ms_service.add_room_to_building(
+            db,
+            building_name=payload.building_name,
+            room_number=payload.room_number,
+            work_order_number=payload.work_order_number,
+            created_by_id=user.id,
+        )
+        return _stage_summary(stage)
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.get(
+    "/active-rooms",
+    response_model=list[ActiveRoom],
+    dependencies=[Depends(require_min_role(roles.ROLE_SUPERVISOR))],
+)
+def list_active_rooms(db: Session = Depends(get_db)):
+    """Flat list of rooms (with work orders) across non-completed stages -- the
+    scan gate's work-order cards. Supervisor+."""
+    return [ActiveRoom(**row) for row in ms_service.list_active_rooms(db)]
 
 
 @router.get(

@@ -389,7 +389,10 @@ Requests (`schemas/mass_stages.py`): `MassStageCreate {building_name}`,
 work_order_number}`, `RoomUpdate {room_number?, work_order_number?}` (≥1),
 `StageItemCreate {item_id, planned_quantity>0}`, `StageItemUpdate
 {planned_quantity>0}`, `LoadRequest {item_id, quantity>0}`, `ReturnRequest
-{item_id, quantity>0}`.
+{item_id, quantity>0}`, `QuickRoomCreate {building_name, room_number,
+work_order_number}` (scan-gate quick-add). Response `ActiveRoom {stage_id,
+building_name, status, room_id, room_number, work_order_number, sort_order}`
+(the scan gate's work-order cards).
 
 Responses (built by the router from ORM, not `from_attributes`):
 - `StageItemDetail {id, item_id, item_name, item_barcode, item_quantity (on-hand), planned_quantity, loaded_quantity, returned_quantity}`
@@ -463,6 +466,8 @@ errors; gates editability via `domain.mass_staging.can_edit_plan` / `can_load`.
 - `update_stage(db, stage_id, *, building_name?, status?) -> MassStage` — status change via `validate_transition`; stamps `completed_at`.
 - `delete_stage(db, stage_id) -> None` (cascades rooms/items).
 - `reuse_stage(db, stage_id, *, created_by_id) -> MassStage` — clone a *completed* stage into a fresh `planning` one (rooms copied with work orders cleared to `""`, no items); `StageStateError` if not completed, `DuplicateBuildingStageError` if the building is already active. `update_stage` also blocks the `→ loading` transition while any room's work order is blank (`StageStateError`).
+- `add_room_to_building(db, *, building_name, room_number, work_order_number, created_by_id) -> MassStage` — scan-gate quick-add: find-or-create the building's active stage, then `add_room`. Returns the parent stage (caller reads `room_count`).
+- `list_active_rooms(db) -> list[dict]` — flat rooms across non-completed stages (blank work orders skipped) for the scan gate's cards.
 - `add_room` / `update_room` / `delete_room` (planning only).
 - `add_item(db, stage_id, room_id, *, item_id, planned_quantity) -> MassStageItem` — upsert by `(room, item)`; `update_item` / `delete_item` by `stage_item_id`.
 - `load_item(db, stage_id, *, item_id, quantity, user_id) -> None` — under the item `FOR UPDATE`, allocate (`allocate_load`) and write one `dispense` per room slice + bump `loaded_quantity`; rolls back on `NegativeQuantityError`.
@@ -517,6 +522,8 @@ All routes Supervisor+. CRUD for stages/rooms/items plus the stock-touching
 
 | Method | Path | Body | Response |
 |---|---|---|---|
+| POST | `/mass-stages/quick-room` | `QuickRoomCreate` | `MassStageSummary` (parent stage) |
+| GET | `/mass-stages/active-rooms` | — | list[`ActiveRoom`] |
 | POST | `/mass-stages/` | `MassStageCreate` | `MassStageSummary` |
 | GET | `/mass-stages/` (`?status=`) | — | list[`MassStageSummary`] |
 | GET | `/mass-stages/{id}` | — | `MassStageDetail` |

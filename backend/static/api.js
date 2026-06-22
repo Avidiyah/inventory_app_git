@@ -257,3 +257,21 @@ export async function apiReuseStage(stageId) {
   // work orders cleared, no items). Returns the new MassStageSummary.
   return jsonRequest(`/mass-stages/${stageId}/reuse`, "POST", {});
 }
+
+// Scan-gate quick-add: save a work order with a room. The backend find-or-creates
+// the building's active stage and appends the room. Returns the parent
+// MassStageSummary (the gate reads room_count). See
+// docs/mass-staging/phase-10-saved-workorders.md.
+export async function apiQuickAddRoom({ buildingName, roomNumber, workOrderNumber }) {
+  return jsonRequest("/mass-stages/quick-room", "POST", {
+    building_name: buildingName,
+    room_number: roomNumber,
+    work_order_number: workOrderNumber,
+  });
+}
+
+// Flat list of rooms (with work orders) across non-completed stages -- the
+// scan gate's tappable work-order cards.
+export async function apiListActiveRooms() {
+  return parseResponse(await fetch("/mass-stages/active-rooms", { credentials: "include" }));
+}

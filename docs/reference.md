@@ -338,6 +338,8 @@ All routes require Supervisor or above (`require_min_role(supervisor)`).
 
 | Method | Path | Description |
 |---|---|---|
+| POST | `/mass-stages/quick-room` | Scan-gate quick-add: find-or-create the building's active stage + append a room (building + room + work order) → parent `MassStageSummary` |
+| GET | `/mass-stages/active-rooms` | Flat rooms (with work orders) across non-completed stages — the scan gate's work-order cards |
 | POST | `/mass-stages/` | Create a `planning` stage for a building (400 if one is already active) |
 | GET | `/mass-stages/` | List stages, optional `?status=` filter |
 | GET | `/mass-stages/{id}` | Stage detail: rooms → items + the merged rollup |

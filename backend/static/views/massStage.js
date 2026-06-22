@@ -46,6 +46,14 @@ function statusBadge(status) {
   return `<span class="stage-status stage-status-${escapeHtml(status)}">${escapeHtml(status)}</span>`;
 }
 
+// Summary meta text. A building with one room is a lightweight "work order"
+// entry; two or more rooms make it a full mass-stage card (the display
+// threshold -- see docs/mass-staging/phase-10-saved-workorders.md).
+function stageMetaText(roomCount, itemCount) {
+  if (roomCount >= 2) return `${roomCount} rooms · ${itemCount} items`;
+  return roomCount === 1 ? "1 work order" : "no rooms";
+}
+
 // --- list + lazy detail --------------------------------------------------
 
 export async function loadStages() {
@@ -67,43 +75,57 @@ export async function loadStages() {
   }
 }
 
+function buildStageCard(stage, compact) {
+  const card = document.createElement("details");
+  card.className = compact ? "stage-card stage-card-compact" : "stage-card";
+  card.dataset.stageId = stage.id;
+
+  const summary = document.createElement("summary");
+  summary.className = "stage-summary";
+  summary.innerHTML =
+    `<span class="stage-title">${escapeHtml(stage.building_name)}</span>` +
+    statusBadge(stage.status) +
+    `<span class="stage-meta">${stageMetaText(stage.room_count, stage.item_count)}</span>`;
+
+  const body = document.createElement("div");
+  body.className = "stage-body";
+  body.innerHTML = `<p class="hint">Loading…</p>`;
+
+  card.appendChild(summary);
+  card.appendChild(body);
+
+  // Lazy-load the full detail the first time the card is opened.
+  card.addEventListener("toggle", () => {
+    if (card.open && !card.dataset.loaded) openStageDetail(stage.id, body, card);
+  });
+
+  if (autoOpenId && stage.id === autoOpenId) {
+    autoOpenId = null;
+    card.open = true; // fires `toggle` -> loads detail
+  }
+  return card;
+}
+
 function renderStageList(stages) {
   listEl.innerHTML = "";
   if (!stages.length) {
     listEl.innerHTML = `<p class="hint">No mass stages yet. Create one above.</p>`;
     return;
   }
-  stages.forEach((stage) => {
-    const card = document.createElement("details");
-    card.className = "stage-card";
-    card.dataset.stageId = stage.id;
+  // Display threshold: a building becomes a full card only with 2+ rooms.
+  // Single-room (or empty) buildings stay lightweight entries below.
+  const multi = stages.filter((s) => s.room_count >= 2);
+  const single = stages.filter((s) => s.room_count < 2);
 
-    const summary = document.createElement("summary");
-    summary.className = "stage-summary";
-    summary.innerHTML =
-      `<span class="stage-title">${escapeHtml(stage.building_name)}</span>` +
-      statusBadge(stage.status) +
-      `<span class="stage-meta">${stage.room_count} rooms · ${stage.item_count} items</span>`;
+  multi.forEach((stage) => listEl.appendChild(buildStageCard(stage, false)));
 
-    const body = document.createElement("div");
-    body.className = "stage-body";
-    body.innerHTML = `<p class="hint">Loading…</p>`;
-
-    card.appendChild(summary);
-    card.appendChild(body);
-
-    // Lazy-load the full detail the first time the card is opened.
-    card.addEventListener("toggle", () => {
-      if (card.open && !card.dataset.loaded) openStageDetail(stage.id, body, card);
-    });
-
-    listEl.appendChild(card);
-
-    if (autoOpenId && stage.id === autoOpenId) {
-      autoOpenId = null;
-      card.open = true; // fires `toggle` -> loads detail
-    }
-  });
+  if (single.length) {
+    const heading = document.createElement("h3");
+    heading.className = "ms-single-heading";
+    heading.textContent = "Single work orders";
+    listEl.appendChild(heading);
+    single.forEach((stage) => listEl.appendChild(buildStageCard(stage, true)));
+  }
 }
 
 async function openStageDetail(stageId, bodyEl, cardEl) {
@@ -116,7 +138,7 @@ async function openStageDetail(stageId, bodyEl, cardEl) {
       const distinct = new Set();
       stage.rooms.forEach((r) => r.items.forEach((i) => distinct.add(i.item_id)));
       const meta = cardEl.querySelector(".stage-meta");
-      if (meta) meta.textContent = `${stage.rooms.length} rooms · ${distinct.size} items`;
+      if (meta) meta.textContent = stageMetaText(stage.rooms.length, distinct.size);
     }
   } catch (err) {
     bodyEl.innerHTML = `<p class="error">${escapeHtml(friendlyError(err, "Could not load this stage."))}</p>`;
