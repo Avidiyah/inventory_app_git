@@ -179,3 +179,10 @@ class StageStateError(DomainError):
     `planning`, or (Phase 5) loading/returning before it reaches `loading`.
     A single generic state guard rather than several niche errors; the
     message states the specific rule. Maps to 400."""
+
+
+class InvalidAssigneeError(DomainError):
+    """Raised when a work order (room) is assigned to a user who does not
+    exist or is not a technician. Work orders are assigned only to
+    technicians (`domain.roles.ROLE_TECHNICIAN`); an unassigned room (None)
+    is always valid. Maps to 400."""

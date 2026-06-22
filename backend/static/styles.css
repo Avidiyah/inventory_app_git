@@ -996,6 +996,13 @@ tr:last-child td {
     color: var(--gray-500);
 }
 
+/* Assignee badge on a work-order card (Supervisor+ view only). */
+.wo-card-assignee {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-bold);
+    color: var(--color-brand);
+}
+
 /* The quick-add form: a stacked column inside the collapsible <details>. */
 #wo-gate-new { margin-top: var(--space-1); }
 .wo-gate-new-form {
@@ -1255,6 +1262,18 @@ details[open] > .room-summary::before { content: "\25BE"; /* triangle down */ }
 }
 .ms-room-wo-edit .ms-room-wo-input { flex: 1 1 160px; margin-top: 0; }
 .ms-room-wo-edit button { margin-top: 0; min-height: var(--btn-h-sm); }
+
+/* "Assign to" control on a unit (Supervisor+ room editor) -- mirrors the
+   work-order edit row: a technician select + an Assign button. */
+.ms-room-assign {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+}
+.ms-room-assign .ms-room-assignee { flex: 1 1 160px; margin-top: 0; }
+.ms-room-assign button { margin-top: 0; min-height: var(--btn-h-sm); }
 
 .ms-stage-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
 .ms-stage-message { margin-top: var(--space-2); font-size: var(--fs-sm); }

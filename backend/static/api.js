@@ -209,10 +209,18 @@ export async function apiDeleteStage(stageId) {
   return parseResponse(await fetch(`/mass-stages/${stageId}`, { method: "DELETE", credentials: "include" }));
 }
 
-export async function apiAddRoom(stageId, { roomNumber, workOrderNumber }) {
+export async function apiAddRoom(stageId, { roomNumber, workOrderNumber, assignedToId = null }) {
   return jsonRequest(`/mass-stages/${stageId}/rooms`, "POST", {
     room_number: roomNumber,
     work_order_number: workOrderNumber,
+    assigned_to_id: assignedToId,
+  });
+}
+
+// Assign a work order (room) to a technician, or clear it (assignedToId = null).
+export async function apiAssignRoom(stageId, roomId, assignedToId) {
+  return jsonRequest(`/mass-stages/${stageId}/rooms/${roomId}/assign`, "PATCH", {
+    assigned_to_id: assignedToId,
   });
 }
 
@@ -262,11 +270,12 @@ export async function apiReuseStage(stageId) {
 // the building's active stage and appends the room. Returns the parent
 // MassStageSummary (the gate reads room_count). See
 // docs/mass-staging/phase-10-saved-workorders.md.
-export async function apiQuickAddRoom({ buildingName, roomNumber, workOrderNumber }) {
+export async function apiQuickAddRoom({ buildingName, roomNumber, workOrderNumber, assignedToId = null }) {
   return jsonRequest("/mass-stages/quick-room", "POST", {
     building_name: buildingName,
     room_number: roomNumber,
     work_order_number: workOrderNumber,
+    assigned_to_id: assignedToId,
   });
 }
 

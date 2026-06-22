@@ -63,10 +63,12 @@ class MassStageUpdate(BaseModel):
 
 
 class RoomCreate(BaseModel):
-    """Payload for `POST /mass-stages/{id}/rooms`."""
+    """Payload for `POST /mass-stages/{id}/rooms`. `assigned_to_id` optionally
+    assigns the work order to a technician at creation (None = unassigned)."""
 
     room_number: str
     work_order_number: str
+    assigned_to_id: Optional[UUID] = None
 
     @field_validator("room_number")
     @classmethod
@@ -79,14 +81,24 @@ class RoomCreate(BaseModel):
         return _stripped_nonblank(v, "Work order number")
 
 
+class RoomAssign(BaseModel):
+    """Payload for `PATCH /mass-stages/{id}/rooms/{room_id}/assign`. `None`
+    clears the assignment; otherwise the id must be a technician (validated in
+    the service)."""
+
+    assigned_to_id: Optional[UUID] = None
+
+
 class QuickRoomCreate(BaseModel):
     """Payload for `POST /mass-stages/quick-room` -- the scan-gate quick-add.
     Captures building + room + work order in one shot; the service find-or-creates
-    the building's active stage and appends the room."""
+    the building's active stage and appends the room. `assigned_to_id` optionally
+    assigns the work order to a technician (None = unassigned)."""
 
     building_name: str
     room_number: str
     work_order_number: str
+    assigned_to_id: Optional[UUID] = None
 
     @field_validator("building_name")
     @classmethod
@@ -206,6 +218,8 @@ class RoomDetail(BaseModel):
     room_number: str
     work_order_number: str
     sort_order: int
+    assigned_to_id: Optional[UUID] = None
+    assigned_to_username: Optional[str] = None
     items: list[StageItemDetail] = []
 
 
@@ -252,6 +266,10 @@ class ActiveRoom(BaseModel):
     room_number: str
     work_order_number: str
     sort_order: int
+    created_by_id: Optional[UUID] = None
+    created_by_username: Optional[str] = None
+    assigned_to_id: Optional[UUID] = None
+    assigned_to_username: Optional[str] = None
 
 
 class MassStageSummary(BaseModel):

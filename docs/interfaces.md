@@ -390,9 +390,12 @@ work_order_number}`, `RoomUpdate {room_number?, work_order_number?}` (≥1),
 `StageItemCreate {item_id, planned_quantity>0}`, `StageItemUpdate
 {planned_quantity>0}`, `LoadRequest {item_id, quantity>0}`, `ReturnRequest
 {item_id, quantity>0}`, `QuickRoomCreate {building_name, room_number,
-work_order_number}` (scan-gate quick-add). Response `ActiveRoom {stage_id,
-building_name, status, room_id, room_number, work_order_number, sort_order}`
-(the scan gate's work-order cards).
+work_order_number, assigned_to_id?}` (scan-gate quick-add), `RoomAssign
+{assigned_to_id?}` (null = unassign). `RoomCreate` also takes an optional
+`assigned_to_id`. Response `ActiveRoom {stage_id, building_name, status,
+room_id, room_number, work_order_number, sort_order, created_by_id,
+created_by_username, assigned_to_id, assigned_to_username}` (the scan gate's
+work-order cards); `RoomDetail` carries `assigned_to_id` / `assigned_to_username`.
 
 Responses (built by the router from ORM, not `from_attributes`):
 - `StageItemDetail {id, item_id, item_name, item_barcode, item_quantity (on-hand), planned_quantity, loaded_quantity, returned_quantity}`
@@ -466,9 +469,10 @@ errors; gates editability via `domain.mass_staging.can_edit_plan` / `can_load`.
 - `update_stage(db, stage_id, *, building_name?, status?) -> MassStage` — status change via `validate_transition`; stamps `completed_at`.
 - `delete_stage(db, stage_id) -> None` (cascades rooms/items).
 - `reuse_stage(db, stage_id, *, created_by_id) -> MassStage` — clone a *completed* stage into a fresh `planning` one (rooms copied with work orders cleared to `""`, no items); `StageStateError` if not completed, `DuplicateBuildingStageError` if the building is already active. `update_stage` also blocks the `→ loading` transition while any room's work order is blank (`StageStateError`).
-- `add_room_to_building(db, *, building_name, room_number, work_order_number, created_by_id) -> MassStage` — scan-gate quick-add: find-or-create the building's active stage, then `add_room`. Returns the parent stage (caller reads `room_count`).
-- `list_active_rooms(db) -> list[dict]` — flat rooms across non-completed stages (blank work orders skipped) for the scan gate's cards.
-- `add_room` / `update_room` / `delete_room` (planning only).
+- `add_room_to_building(db, *, building_name, room_number, work_order_number, created_by_id, assigned_to_id=None) -> MassStage` — scan-gate quick-add: find-or-create the building's active stage, then `add_room`. Returns the parent stage (caller reads `room_count`). Validates the assignee is a technician before creating anything.
+- `list_active_rooms(db, *, user=None) -> list[dict]` — flat rooms across non-completed stages (blank work orders skipped) for the scan gate's cards, **scoped** via `_room_visible_to` (technician → assigned, supervisor → created, admin/owner → all); includes creator/assignee usernames.
+- `list_stages(db, *, status=None, user=None)` — scoped: a supervisor sees only stages they created; admin/owner all.
+- `add_room` (+ `created_by_id` / `assigned_to_id`) / `update_room` / `delete_room` (planning only); `assign_room(db, stage_id, room_id, *, assigned_to_id)` sets/clears the technician assignee (planning or loading; not completed). `_validate_assignee` rejects a non-technician (`InvalidAssigneeError`).
 - `add_item(db, stage_id, room_id, *, item_id, planned_quantity) -> MassStageItem` — upsert by `(room, item)`; `update_item` / `delete_item` by `stage_item_id`.
 - `load_item(db, stage_id, *, item_id, quantity, user_id) -> None` — under the item `FOR UPDATE`, allocate (`allocate_load`) and write one `dispense` per room slice + bump `loaded_quantity`; rolls back on `NegativeQuantityError`.
 - `return_item(db, stage_id, *, item_id, quantity) -> None` — under the item lock, `allocate_return`, bump `returned_quantity`, add stock back with **no** transaction row.
@@ -523,7 +527,8 @@ All routes Supervisor+. CRUD for stages/rooms/items plus the stock-touching
 | Method | Path | Body | Response |
 |---|---|---|---|
 | POST | `/mass-stages/quick-room` | `QuickRoomCreate` | `MassStageSummary` (parent stage) |
-| GET | `/mass-stages/active-rooms` | — | list[`ActiveRoom`] |
+| GET | `/mass-stages/active-rooms` | — | list[`ActiveRoom`] (any auth; role-scoped) |
+| PATCH | `/mass-stages/{id}/rooms/{room_id}/assign` | `RoomAssign` | `RoomDetail` |
 | POST | `/mass-stages/` | `MassStageCreate` | `MassStageSummary` |
 | GET | `/mass-stages/` (`?status=`) | — | list[`MassStageSummary`] |
 | GET | `/mass-stages/{id}` | — | `MassStageDetail` |

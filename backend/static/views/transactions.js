@@ -22,7 +22,7 @@ import {
   setSelectedItemId,
   getRole,
 } from "../state.js";
-import { apiListItems, apiCreateTransaction, apiListActiveRooms, apiQuickAddRoom } from "../api.js";
+import { apiListItems, apiCreateTransaction, apiListActiveRooms, apiQuickAddRoom, apiListUsers } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
@@ -60,15 +60,22 @@ const scangoLog = document.getElementById("scango-log");
 const txnScanSection = document.getElementById("txn-scan-section");
 const txnItemsSection = document.getElementById("txn-items-section");
 
-// Cards-first gate (Supervisor+): saved work-order cards + a quick-add form.
+// Cards-first gate: saved work-order cards (all roles, server-scoped) + a
+// Supervisor+ quick-add form (with an optional technician assignee). The
+// free-text gate is Supervisor+ only now -- technicians scan assigned cards.
 const woGateCardsSection = document.getElementById("wo-gate-cards-section");
 const woGateCards = document.getElementById("wo-gate-cards");
 const woGateCardsMessage = document.getElementById("wo-gate-cards-message");
+const woGateNew = document.getElementById("wo-gate-new");
+const woGateManual = document.getElementById("wo-gate-manual");
 const newBuilding = document.getElementById("wo-gate-new-building");
 const newRoom = document.getElementById("wo-gate-new-room");
 const newWo = document.getElementById("wo-gate-new-wo");
+const newAssignee = document.getElementById("wo-gate-new-assignee");
 const newSaveBtn = document.getElementById("wo-gate-new-save-btn");
 const newMessage = document.getElementById("wo-gate-new-message");
+// Technician list for the assignee dropdown, loaded once per session.
+let assigneesLoaded = false;
 
 // Injected by `main.js` (see `setOnTransactionSaved`) so a completed
 // stock/dispense can reset the scan UI without this module importing the
@@ -143,9 +150,13 @@ function showScanGoState() {
   if (scangoActive) scangoActive.hidden = !active;
   if (txnScanSection) txnScanSection.hidden = !active;
 
-  // Saved work-order cards: Supervisor+ only, and only on the gate (State A).
-  // Technicians (and Supervisor+ in an active batch) never see them.
-  if (woGateCardsSection) woGateCardsSection.hidden = tech || active;
+  // Saved work-order cards: shown to all roles on the gate (State A); the
+  // server scopes the list (technician -> assigned, supervisor -> created).
+  if (woGateCardsSection) woGateCardsSection.hidden = active;
+  // Quick-add + free-text gate are Supervisor+ only; a technician scans only
+  // the cards assigned to them.
+  if (woGateNew) woGateNew.hidden = tech || active;
+  if (woGateManual) woGateManual.hidden = tech || active;
 
   // Opt-in control: Supervisor+ only, and only inside an active batch.
   if (scangoAdvancedToggle) {
@@ -251,6 +262,7 @@ function resetWoCards() {
   if (newBuilding) newBuilding.value = "";
   if (newRoom) newRoom.value = "";
   if (newWo) newWo.value = "";
+  if (newAssignee) newAssignee.value = "";
   if (newMessage) setMessage(newMessage, "", "");
 }
 
@@ -258,26 +270,58 @@ function renderWoCards(rooms) {
   if (!woGateCards) return;
   woGateCards.innerHTML = "";
   if (!rooms.length) {
-    setMessage(woGateCardsMessage, "No saved work orders yet. Add one below.", "");
+    const empty = isTechnician()
+      ? "No work orders assigned to you."
+      : "No saved work orders yet. Add one below.";
+    setMessage(woGateCardsMessage, empty, "");
     return;
   }
   setMessage(woGateCardsMessage, "", "");
+  const showAssignee = !isTechnician(); // a tech's cards are all their own
   rooms.forEach((r) => {
     const card = document.createElement("button");
     card.type = "button";
     card.className = "wo-card";
     card.dataset.wo = r.work_order_number;
+    const assignee = showAssignee
+      ? `<span class="wo-card-assignee">${
+          r.assigned_to_username ? "Assigned: " + escapeHtml(r.assigned_to_username) : "Unassigned"
+        }</span>`
+      : "";
     card.innerHTML =
       `<span class="wo-card-wo">WO ${escapeHtml(r.work_order_number)}</span>` +
-      `<span class="wo-card-meta">${escapeHtml(r.building_name)} · Room ${escapeHtml(r.room_number)}</span>`;
+      `<span class="wo-card-meta">${escapeHtml(r.building_name)} · Unit ${escapeHtml(r.room_number)}</span>` +
+      assignee;
     woGateCards.appendChild(card);
   });
+}
+
+// Populate the quick-add assignee dropdown with technicians (Supervisor+ only,
+// loaded once per session). Leaves just "Unassigned" if the list can't load.
+async function loadAssignees() {
+  if (assigneesLoaded || isTechnician() || !newAssignee) return;
+  try {
+    const users = await apiListUsers();
+    newAssignee.innerHTML = `<option value="">Unassigned</option>`;
+    users
+      .filter((u) => u.role === "technician")
+      .forEach((u) => {
+        const opt = document.createElement("option");
+        opt.value = u.id;
+        opt.textContent = u.username;
+        newAssignee.appendChild(opt);
+      });
+    assigneesLoaded = true;
+  } catch {
+    /* keep just "Unassigned" until a later reload */
+  }
 }
 
 // Fetch + render the cards. Supervisor+ only, and only while the gate is
 // showing (no active batch). Called on page activation and after a quick-add.
 async function refreshWoCards() {
-  if (isTechnician() || batchWorkOrder !== null || !woGateCards) return;
+  if (batchWorkOrder !== null || !woGateCards) return;
+  loadAssignees(); // Supervisor+ quick-add dropdown (no-op for technicians)
   try {
     const rooms = await apiListActiveRooms();
     renderWoCards(rooms);
@@ -292,12 +336,13 @@ async function submitNewWorkOrder() {
   const buildingName = newBuilding ? newBuilding.value.trim() : "";
   const roomNumber = newRoom ? newRoom.value.trim() : "";
   const workOrderNumber = newWo ? newWo.value.trim() : "";
+  const assignedToId = newAssignee && newAssignee.value ? newAssignee.value : null;
   if (!buildingName || !roomNumber || !workOrderNumber) {
-    setMessage(newMessage, "Enter a building, room, and work order.", "error");
+    setMessage(newMessage, "Enter a community, unit, and work order.", "error");
     return;
   }
   try {
-    await apiQuickAddRoom({ buildingName, roomNumber, workOrderNumber });
+    await apiQuickAddRoom({ buildingName, roomNumber, workOrderNumber, assignedToId });
   } catch (err) {
     setMessage(newMessage, friendlyError(err, "Could not save the work order."), "error");
     return;
@@ -402,6 +447,7 @@ export function enterTransactionPage() {
 export function resetBatch() {
   batchWorkOrder = null;
   supervisorAdvanced = false; // every fresh login starts streamlined
+  assigneesLoaded = false; // re-fetch the technician list for the new session
   if (woGateInput) woGateInput.value = "";
   if (scangoQuantity) scangoQuantity.value = "1";
   clearBatchLog();

@@ -18,20 +18,24 @@ import pytest
 
 from app.domain.errors import (
     DuplicateBuildingStageError,
+    InvalidAssigneeError,
     NegativeQuantityError,
     ReturnExceedsLoadedError,
     StageItemNotFoundError,
     StageStateError,
 )
-from app.models import Item, MassStageItem, MassStageRoom, Transaction
+from app.models import Item, MassStageItem, MassStageRoom, Transaction, User
 from app.routers.mass_stages import _merged_items
+from app.services import auth
 from app.services.mass_staging import (
     add_item,
     add_room,
     add_room_to_building,
+    assign_room,
     create_stage,
     get_stage,
     list_active_rooms,
+    list_stages,
     load_item,
     return_item,
     reuse_stage,
@@ -333,3 +337,115 @@ def test_list_active_rooms_excludes_completed_and_blank_wo(db):
     assert all(r["work_order_number"].strip() for r in rows)
     # no rooms from the completed stage
     assert all(r["stage_id"] != completed.id for r in rows)
+
+
+# --- work-order ownership + assignment + visibility ----------------------
+
+def _seed_user(db, role):
+    user = User(
+        username=f"u-{uuid.uuid4().hex[:10]}",
+        password_hash=auth.hash_password("hunter2"),
+        role=role,
+    )
+    db.add(user)
+    db.flush()
+    return user
+
+
+def test_quick_add_records_creator_and_assignee(db):
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    stage = add_room_to_building(
+        db, building_name=f"Scholars {uuid.uuid4().hex[:6]}", room_number="1121",
+        work_order_number="WO-1", created_by_id=sup.id, assigned_to_id=tech.id,
+    )
+    room = _rooms(db, stage.id)[0]
+    assert room.created_by_id == sup.id
+    assert room.assigned_to_id == tech.id
+
+
+def test_assign_to_non_technician_rejected(db):
+    sup = _seed_user(db, "supervisor")
+    other_sup = _seed_user(db, "supervisor")
+    # On quick-add:
+    with pytest.raises(InvalidAssigneeError):
+        add_room_to_building(
+            db, building_name=f"Scholars {uuid.uuid4().hex[:6]}", room_number="1121",
+            work_order_number="WO-1", created_by_id=sup.id, assigned_to_id=other_sup.id,
+        )
+
+
+def test_assign_room_sets_and_clears(db):
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    stage = add_room_to_building(
+        db, building_name=f"Scholars {uuid.uuid4().hex[:6]}", room_number="1121",
+        work_order_number="WO-1", created_by_id=sup.id,
+    )
+    room = _rooms(db, stage.id)[0]
+    assert room.assigned_to_id is None
+
+    assign_room(db, stage.id, room.id, assigned_to_id=tech.id)
+    db.refresh(room)
+    assert room.assigned_to_id == tech.id
+
+    assign_room(db, stage.id, room.id, assigned_to_id=None)  # unassign
+    db.refresh(room)
+    assert room.assigned_to_id is None
+
+
+def test_assign_room_blocked_on_completed_stage(db):
+    item = _seed_item(db, 100)
+    tech = _seed_user(db, "technician")
+    stage = _complete(db, item)
+    room = _rooms(db, stage.id)[0]
+    with pytest.raises(StageStateError):
+        assign_room(db, stage.id, room.id, assigned_to_id=tech.id)
+
+
+def test_active_rooms_scoped_by_role(db):
+    sup_a = _seed_user(db, "supervisor")
+    sup_b = _seed_user(db, "supervisor")
+    tech1 = _seed_user(db, "technician")
+    tech2 = _seed_user(db, "technician")
+    admin = _seed_user(db, "admin")
+
+    # sup_a creates two work orders: one assigned to tech1, one unassigned.
+    sa = add_room_to_building(
+        db, building_name=f"A {uuid.uuid4().hex[:6]}", room_number="101",
+        work_order_number="WO-A1", created_by_id=sup_a.id, assigned_to_id=tech1.id,
+    )
+    add_room(
+        db, sa.id, room_number="102", work_order_number="WO-A2",
+        created_by_id=sup_a.id,  # unassigned
+    )
+    # sup_b creates one assigned to tech2.
+    add_room_to_building(
+        db, building_name=f"B {uuid.uuid4().hex[:6]}", room_number="201",
+        work_order_number="WO-B1", created_by_id=sup_b.id, assigned_to_id=tech2.id,
+    )
+
+    def wos(user):
+        return {r["work_order_number"] for r in list_active_rooms(db, user=user)}
+
+    # Technician: only work orders assigned to them.
+    assert wos(tech1) == {"WO-A1"}
+    assert wos(tech2) == {"WO-B1"}
+    # Supervisor: only work orders they created (assigned or not).
+    assert wos(sup_a) == {"WO-A1", "WO-A2"}
+    assert wos(sup_b) == {"WO-B1"}
+    # Admin: everything.
+    assert {"WO-A1", "WO-A2", "WO-B1"} <= wos(admin)
+
+
+def test_list_stages_scoped_for_supervisor(db):
+    sup_a = _seed_user(db, "supervisor")
+    sup_b = _seed_user(db, "supervisor")
+    admin = _seed_user(db, "admin")
+    a = create_stage(db, building_name=f"A {uuid.uuid4().hex[:6]}", created_by_id=sup_a.id)
+    b = create_stage(db, building_name=f"B {uuid.uuid4().hex[:6]}", created_by_id=sup_b.id)
+
+    a_ids = {s.id for s in list_stages(db, user=sup_a)}
+    assert a.id in a_ids and b.id not in a_ids  # supervisor sees only their own
+    admin_ids = {s.id for s in list_stages(db, user=admin)}
+    assert a.id in admin_ids and b.id in admin_ids  # admin sees all

@@ -18,7 +18,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.auth_deps import require_min_role
+from app.auth_deps import get_current_user, require_min_role
 from app.database import get_db
 from app.domain import roles
 from app.domain.errors import DomainError, StageItemNotFoundError
@@ -34,6 +34,7 @@ from app.schemas.mass_stages import (
     MergedItem,
     QuickRoomCreate,
     ReturnRequest,
+    RoomAssign,
     RoomCreate,
     RoomDetail,
     RoomUpdate,
@@ -67,6 +68,8 @@ def _room_detail(room: MassStageRoom) -> RoomDetail:
         room_number=room.room_number,
         work_order_number=room.work_order_number,
         sort_order=room.sort_order,
+        assigned_to_id=room.assigned_to_id,
+        assigned_to_username=room.assignee.username if room.assignee else None,
         items=[_item_detail(si) for si in room.items],
     )
 
@@ -156,17 +159,17 @@ def create_stage(
         raise to_http(exc)
 
 
-@router.get(
-    "/",
-    response_model=list[MassStageSummary],
-    dependencies=[Depends(require_min_role(roles.ROLE_SUPERVISOR))],
-)
+@router.get("/", response_model=list[MassStageSummary])
 def list_stages(
     status: Optional[str] = Query(None),
+    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
-    """List stages newest-first, optionally filtered by `status`. Supervisor+."""
-    return [_stage_summary(s) for s in ms_service.list_stages(db, status=status)]
+    """List stages newest-first, optionally filtered by `status`. Supervisor+.
+    Scoped: a supervisor sees only stages they created; admin/owner see all."""
+    return [
+        _stage_summary(s) for s in ms_service.list_stages(db, status=status, user=user)
+    ]
 
 
 # Declared before the `/{stage_id}` routes so "quick-room" / "active-rooms"
@@ -190,21 +193,22 @@ def quick_room(
             room_number=payload.room_number,
             work_order_number=payload.work_order_number,
             created_by_id=user.id,
+            assigned_to_id=payload.assigned_to_id,
         )
         return _stage_summary(stage)
     except DomainError as exc:
         raise to_http(exc)
 
 
-@router.get(
-    "/active-rooms",
-    response_model=list[ActiveRoom],
-    dependencies=[Depends(require_min_role(roles.ROLE_SUPERVISOR))],
-)
-def list_active_rooms(db: Session = Depends(get_db)):
-    """Flat list of rooms (with work orders) across non-completed stages -- the
-    scan gate's work-order cards. Supervisor+."""
-    return [ActiveRoom(**row) for row in ms_service.list_active_rooms(db)]
+@router.get("/active-rooms", response_model=list[ActiveRoom])
+def list_active_rooms(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Flat list of work-order cards across non-completed stages, **scoped to
+    the caller**: a technician sees only rooms assigned to them, a supervisor
+    only rooms they created, admin/owner all. Any authenticated user."""
+    return [ActiveRoom(**row) for row in ms_service.list_active_rooms(db, user=user)]
 
 
 @router.get(
@@ -277,21 +281,48 @@ def reuse_stage(
     "/{stage_id}/rooms",
     response_model=RoomDetail,
     status_code=201,
-    dependencies=[Depends(require_min_role(roles.ROLE_SUPERVISOR))],
 )
 def add_room(
     stage_id: uuid.UUID,
     payload: RoomCreate,
+    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
-    """Add a room (one work order) to a planning stage. Supervisor+. 400 if the
-    stage is not in planning or the room number is already used; 404 if unknown."""
+    """Add a room (one work order) to a planning stage. Supervisor+. Records the
+    creator and an optional technician assignee. 400 if the stage is not in
+    planning, the room number is already used, or the assignee is not a
+    technician; 404 if unknown."""
     try:
         room = ms_service.add_room(
             db,
             stage_id,
             room_number=payload.room_number,
             work_order_number=payload.work_order_number,
+            created_by_id=user.id,
+            assigned_to_id=payload.assigned_to_id,
+        )
+        return _room_detail(room)
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.patch(
+    "/{stage_id}/rooms/{room_id}/assign",
+    response_model=RoomDetail,
+    dependencies=[Depends(require_min_role(roles.ROLE_SUPERVISOR))],
+)
+def assign_room(
+    stage_id: uuid.UUID,
+    room_id: uuid.UUID,
+    payload: RoomAssign,
+    db: Session = Depends(get_db),
+):
+    """Assign a work order (room) to a technician, or clear it (null).
+    Supervisor+. Allowed while planning or loading, not on a completed stage.
+    400 if the assignee is not a technician; 404 if the stage/room is unknown."""
+    try:
+        room = ms_service.assign_room(
+            db, stage_id, room_id, assigned_to_id=payload.assigned_to_id
         )
         return _room_detail(room)
     except DomainError as exc:

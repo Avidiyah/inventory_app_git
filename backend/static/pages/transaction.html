@@ -27,12 +27,16 @@
                     <details id="wo-gate-new">
                         <summary>Add a new work order</summary>
                         <div class="wo-gate-new-form">
-                            <label for="wo-gate-new-building">Building</label>
-                            <input type="text" id="wo-gate-new-building" placeholder="Building name" autocomplete="off">
-                            <label for="wo-gate-new-room">Room number</label>
-                            <input type="text" id="wo-gate-new-room" placeholder="Room #" autocomplete="off">
+                            <label for="wo-gate-new-building">Community</label>
+                            <input type="text" id="wo-gate-new-building" placeholder="e.g. Scholars" autocomplete="off">
+                            <label for="wo-gate-new-room">Unit Number</label>
+                            <input type="text" id="wo-gate-new-room" placeholder="e.g. 1121" autocomplete="off">
                             <label for="wo-gate-new-wo">Work order number</label>
                             <input type="text" id="wo-gate-new-wo" placeholder="Work order #" autocomplete="off" inputmode="text">
+                            <label for="wo-gate-new-assignee">Assign to (optional)</label>
+                            <select id="wo-gate-new-assignee">
+                                <option value="">Unassigned</option>
+                            </select>
                             <button type="button" id="wo-gate-new-save-btn">Save &amp; start</button>
                             <p id="wo-gate-new-message"></p>
                         </div>

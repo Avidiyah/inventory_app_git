@@ -281,6 +281,13 @@ class MassStageRoom(Base):
     room_number = Column(Text, nullable=False)
     work_order_number = Column(Text, nullable=False)
     sort_order = Column(Integer, nullable=False)
+    # Who created this work order, and which technician (if any) it is assigned
+    # to. Both are plain nullable FKs to `users` (mirroring
+    # `MassStage.created_by_id` / `Transaction.user_id`); they drive who sees a
+    # work order: a technician sees only rooms assigned to them, a supervisor
+    # only rooms they created, admin/owner all. Assignment is optional.
+    created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    assigned_to_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     stage = relationship("MassStage", back_populates="rooms")
@@ -289,6 +296,10 @@ class MassStageRoom(Base):
         back_populates="room",
         cascade="all, delete-orphan",
     )
+    # Viewonly (no back-populates on User, like Transaction.voided_by_id): used
+    # only to surface the creator / assignee username in responses.
+    creator = relationship("User", foreign_keys=[created_by_id], viewonly=True)
+    assignee = relationship("User", foreign_keys=[assigned_to_id], viewonly=True)
 
     __table_args__ = (
         UniqueConstraint("stage_id", "room_number", name="uq_mass_stage_rooms_stage_room"),
