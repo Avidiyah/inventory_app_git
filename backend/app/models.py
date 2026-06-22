@@ -175,12 +175,20 @@ class AuthSession(Base):
     that lives in an HttpOnly cookie on the client.
 
     State is held here (not in a signed cookie) so the server is the
-    sole authority on validity: logout deletes the row, and a session
-    that has not been touched within the idle window
-    (`app.services.auth.SESSION_IDLE_TIMEOUT`) is treated as expired
-    and removed. `last_active_at` is bumped on every authenticated
-    request, giving a sliding-window timeout. The FK is ON DELETE
-    CASCADE so deleting a user also drops all of their sessions.
+    sole authority on validity: logout deletes the row. `expires_at`
+    encodes the lifetime policy and is set at login
+    (`app.services.auth.create_session`):
+
+    - **NULL** -- no server-side cap. Issued when the user did *not*
+      check "Remember this device": the cookie is a session cookie, so
+      the session ends when the browser closes (or on manual logout).
+    - **a timestamp** -- a hard absolute cap (login + `REMEMBER_LIFETIME`).
+      Issued for a remembered device; the matching persistent cookie
+      survives a browser restart, and the session is expired-and-deleted
+      on the first request after `expires_at`.
+
+    The FK is ON DELETE CASCADE so deleting a user also drops all of
+    their sessions.
     """
 
     __tablename__ = "sessions"
@@ -192,7 +200,7 @@ class AuthSession(Base):
         nullable=False,
     )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    last_active_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    expires_at = Column(DateTime(timezone=True), nullable=True)
 
     user = relationship("User", back_populates="sessions")
 

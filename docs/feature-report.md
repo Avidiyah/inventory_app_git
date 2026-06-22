@@ -76,7 +76,7 @@ Password hashes use standard-library `hashlib.scrypt`, stored in a self-describi
 scrypt$n$r$p$salt_hex$hash_hex
 ```
 
-Session tokens are opaque random strings stored in the `sessions` table and carried in an HttpOnly `session` cookie. The session has a sliding idle timeout.
+Session tokens are opaque random strings stored in the `sessions` table and carried in an HttpOnly `session` cookie. Login offers an opt-in "Remember this device": when checked, the server issues a 12-hour absolutely-capped session and a persistent cookie that survives a browser restart; when unchecked, a plain session cookie ends the session on browser close. There is no idle timeout. Manual logout deletes the session either way.
 
 ### Roles
 

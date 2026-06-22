@@ -24,7 +24,7 @@ This is a single-process inventory web app. FastAPI serves both the REST API and
 
 Implemented capabilities:
 
-- Login, logout, `/auth/me`, HttpOnly cookie sessions, and sliding idle timeout.
+- Login, logout, `/auth/me`, HttpOnly cookie sessions, and opt-in "Remember this device" (12h absolute cap + persistent cookie; otherwise browser-close session cookie). No idle timeout.
 - Four roles: `owner`, `admin`, `supervisor`, `technician`.
 - Item create, list, lookup by barcode, edit barcode/name/location, notes editing, correction, and delete.
 - User create, list, password reset, and delete with strict subordinate-management rules.
@@ -102,7 +102,7 @@ and `b1f3d5a7c9e2` mass-staging tables) are listed in full in `reference.md`.
 Core tables:
 
 - `users`: `id`, `username`, `password_hash`, `role`, `created_at`.
-- `sessions`: opaque session `token`, `user_id`, `created_at`, `last_active_at`.
+- `sessions`: opaque session `token`, `user_id`, `created_at`, `expires_at` (nullable absolute cap).
 - `items`: `id`, `barcode`, `name`, `quantity`, `location`, `notes`, `created_at`.
 - `transactions`: `id`, `item_id`, `user_id`, `transaction_type`, `quantity`, `work_order_number`, `reason`, `created_at`.
 - `mass_stages`: `id`, `building_name`, `status`, `created_by_id`, `created_at`, `updated_at`, `completed_at`.

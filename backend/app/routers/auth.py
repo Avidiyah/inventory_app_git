@@ -36,10 +36,19 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
     except DomainError as exc:
         raise to_http(exc)
 
-    token = auth_service.create_session(db, user)
+    token = auth_service.create_session(db, user, remember=payload.remember)
+    # Remembered -> a persistent cookie (max_age) that survives a browser
+    # restart, matching the session's 12h server-side cap. Otherwise a
+    # session cookie (no max_age) that the browser drops on close.
+    max_age = (
+        int(auth_service.REMEMBER_LIFETIME.total_seconds())
+        if payload.remember
+        else None
+    )
     response.set_cookie(
         key=SESSION_COOKIE,
         value=token,
+        max_age=max_age,
         httponly=True,
         samesite="lax",
         secure=COOKIE_SECURE,
