@@ -28,8 +28,10 @@ from app.routers.mass_stages import _merged_items
 from app.services.mass_staging import (
     add_item,
     add_room,
+    add_room_to_building,
     create_stage,
     get_stage,
+    list_active_rooms,
     load_item,
     return_item,
     reuse_stage,
@@ -252,3 +254,82 @@ def test_reused_stage_cannot_load_until_work_orders_set(db):
     update_room(db, fresh.id, r2.id, work_order_number="WO-NEW-2")
     update_stage(db, fresh.id, status="loading")
     assert get_stage(db, fresh.id).status == "loading"
+
+
+# --- quick-add work order (scan-gate find-or-create) ---------------------
+
+def test_quick_add_new_building_creates_planning_stage_with_room(db):
+    building = f"Maple {uuid.uuid4().hex[:6]}"
+    stage = add_room_to_building(
+        db,
+        building_name=building,
+        room_number="101",
+        work_order_number="WO-Q1",
+        created_by_id=None,
+    )
+    assert stage.building_name == building
+    assert stage.status == "planning"
+    rooms = _rooms(db, stage.id)
+    assert [(r.room_number, r.work_order_number) for r in rooms] == [("101", "WO-Q1")]
+
+
+def test_quick_add_existing_building_appends_to_same_stage(db):
+    building = f"Maple {uuid.uuid4().hex[:6]}"
+    first = add_room_to_building(
+        db, building_name=building, room_number="101",
+        work_order_number="WO-Q1", created_by_id=None,
+    )
+    second = add_room_to_building(
+        db, building_name=building, room_number="102",
+        work_order_number="WO-Q2", created_by_id=None,
+    )
+    # Same stage -- a 2nd room makes the building a Mass Stage card.
+    assert second.id == first.id
+    rooms = _rooms(db, first.id)
+    assert [r.room_number for r in rooms] == ["101", "102"]
+
+
+def test_quick_add_duplicate_room_rejected(db):
+    building = f"Maple {uuid.uuid4().hex[:6]}"
+    add_room_to_building(
+        db, building_name=building, room_number="101",
+        work_order_number="WO-Q1", created_by_id=None,
+    )
+    with pytest.raises(StageStateError):
+        add_room_to_building(
+            db, building_name=building, room_number="101",
+            work_order_number="WO-DUP", created_by_id=None,
+        )
+
+
+def test_quick_add_into_loading_building_rejected(db):
+    item = _seed_item(db, 100)
+    stage, _r1, _r2 = _seed_loading_stage(db, item)  # status == loading
+    with pytest.raises(StageStateError):
+        add_room_to_building(
+            db, building_name=stage.building_name, room_number="103",
+            work_order_number="WO-Q3", created_by_id=None,
+        )
+
+
+# --- active-rooms (scan-gate card source) --------------------------------
+
+def test_list_active_rooms_excludes_completed_and_blank_wo(db):
+    item = _seed_item(db, 100)
+    # Active stage with one valid room + one blank-WO room (reused-style).
+    active = add_room_to_building(
+        db, building_name=f"Active {uuid.uuid4().hex[:6]}", room_number="201",
+        work_order_number="WO-A1", created_by_id=None,
+    )
+    # A blank-WO room (reused-style) on the same active stage must be skipped.
+    add_room(db, active.id, room_number="202", work_order_number="")
+    # A completed stage's rooms must NOT appear.
+    completed = _complete(db, item)
+
+    rows = list_active_rooms(db)
+    keys = {(r["building_name"], r["room_number"], r["work_order_number"]) for r in rows}
+    assert (active.building_name, "201", "WO-A1") in keys
+    # blank-WO room skipped
+    assert all(r["work_order_number"].strip() for r in rows)
+    # no rooms from the completed stage
+    assert all(r["stage_id"] != completed.id for r in rows)

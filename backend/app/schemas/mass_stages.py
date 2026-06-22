@@ -79,6 +79,31 @@ class RoomCreate(BaseModel):
         return _stripped_nonblank(v, "Work order number")
 
 
+class QuickRoomCreate(BaseModel):
+    """Payload for `POST /mass-stages/quick-room` -- the scan-gate quick-add.
+    Captures building + room + work order in one shot; the service find-or-creates
+    the building's active stage and appends the room."""
+
+    building_name: str
+    room_number: str
+    work_order_number: str
+
+    @field_validator("building_name")
+    @classmethod
+    def _building_not_blank(cls, v):
+        return _stripped_nonblank(v, "Building name")
+
+    @field_validator("room_number")
+    @classmethod
+    def _room_not_blank(cls, v):
+        return _stripped_nonblank(v, "Room number")
+
+    @field_validator("work_order_number")
+    @classmethod
+    def _wo_not_blank(cls, v):
+        return _stripped_nonblank(v, "Work order number")
+
+
 class RoomUpdate(BaseModel):
     """Payload for `PATCH /mass-stages/{id}/rooms/{room_id}`."""
 
@@ -213,6 +238,20 @@ class MassStageDetail(BaseModel):
     created_at: datetime
     rooms: list[RoomDetail] = []
     merged_items: list[MergedItem] = []
+
+
+class ActiveRoom(BaseModel):
+    """One room (with its work order) on a non-completed stage -- the unit the
+    scan gate renders as a tappable card. Flat by design: the gate just needs
+    building + room + work order to start a batch, not the full stage tree."""
+
+    stage_id: UUID
+    building_name: str
+    status: str
+    room_id: UUID
+    room_number: str
+    work_order_number: str
+    sort_order: int
 
 
 class MassStageSummary(BaseModel):

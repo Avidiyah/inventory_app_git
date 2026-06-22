@@ -109,6 +109,8 @@ def _find_min_role(dependant):
         "update_stage",
         "delete_stage",
         "reuse_stage",
+        "quick_room",
+        "list_active_rooms",
         "add_room",
         "update_room",
         "delete_room",

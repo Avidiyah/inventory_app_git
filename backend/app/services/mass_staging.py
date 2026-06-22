@@ -129,6 +129,83 @@ def create_stage(
     return stage
 
 
+def add_room_to_building(
+    db: Session,
+    *,
+    building_name: str,
+    room_number: str,
+    work_order_number: str,
+    created_by_id: Optional[uuid.UUID],
+) -> MassStage:
+    """Quick-add a work order from the scan gate: find the building's active
+    (non-completed) stage or create one, then append the room. This is the
+    "save a work order with a room" entry point -- it writes the SAME
+    `mass_stages`/`mass_stage_rooms` data the Mass Stage page edits, so a
+    quick-added room and a planned one are one model (see
+    `docs/mass-staging/phase-10-saved-workorders.md`).
+
+    The stage is left in `planning` so the room is immediately scannable
+    (the by-room dispense works on any non-completed stage) without forcing the
+    truck-load workflow. Returns the parent stage (so the caller learns the new
+    `room_count` -- a 2nd room makes the building a card on the Mass Stage page).
+
+    Raises `StageStateError` if the building's active stage is already loading
+    (its plan is read-only) or the room number is already used, reusing
+    `add_room`'s guards.
+    """
+    stage = (
+        db.query(MassStage)
+        .filter(
+            MassStage.building_name == building_name,
+            MassStage.status != ms.STATUS_COMPLETED,
+        )
+        .first()
+    )
+    if stage is None:
+        stage = create_stage(
+            db, building_name=building_name, created_by_id=created_by_id
+        )
+    add_room(
+        db,
+        stage.id,
+        room_number=room_number,
+        work_order_number=work_order_number,
+    )
+    db.refresh(stage)
+    return stage
+
+
+def list_active_rooms(db: Session) -> list[dict]:
+    """Flat list of every room across non-completed stages -- the data source
+    for the scan gate's tappable work-order cards. Rooms with a blank work order
+    (reused stages clear them until re-entered) are skipped. One query via the
+    same eager-load as `list_stages`; ordered building, then room sort_order."""
+    stages = (
+        db.query(MassStage)
+        .options(selectinload(MassStage.rooms))
+        .filter(MassStage.status != ms.STATUS_COMPLETED)
+        .order_by(MassStage.building_name, MassStage.created_at.desc())
+        .all()
+    )
+    rooms: list[dict] = []
+    for stage in stages:
+        for room in sorted(stage.rooms, key=lambda r: r.sort_order):
+            if not (room.work_order_number or "").strip():
+                continue
+            rooms.append(
+                {
+                    "stage_id": stage.id,
+                    "building_name": stage.building_name,
+                    "status": stage.status,
+                    "room_id": room.id,
+                    "room_number": room.room_number,
+                    "work_order_number": room.work_order_number,
+                    "sort_order": room.sort_order,
+                }
+            )
+    return rooms
+
+
 def list_stages(db: Session, *, status: Optional[str] = None) -> Sequence[MassStage]:
     """Stages newest-first, optionally filtered by status. Rooms/items are
     eager-loaded so the summary's room/item counts need no extra queries."""

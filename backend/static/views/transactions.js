@@ -22,7 +22,7 @@ import {
   setSelectedItemId,
   getRole,
 } from "../state.js";
-import { apiListItems, apiCreateTransaction, apiListStages, apiGetStage } from "../api.js";
+import { apiListItems, apiCreateTransaction, apiListActiveRooms, apiQuickAddRoom } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
@@ -60,12 +60,15 @@ const scangoLog = document.getElementById("scango-log");
 const txnScanSection = document.getElementById("txn-scan-section");
 const txnItemsSection = document.getElementById("txn-items-section");
 
-// By-room work-order picker (Supervisor+; workflow step 13).
-const byRoomToggle = document.getElementById("wo-gate-byroom-toggle");
-const byRoomBlock = document.getElementById("wo-gate-byroom");
-const byRoomBuilding = document.getElementById("wo-gate-building");
-const byRoomRoom = document.getElementById("wo-gate-room");
-const byRoomNote = document.getElementById("wo-gate-byroom-note");
+// Cards-first gate (Supervisor+): saved work-order cards + a quick-add form.
+const woGateCardsSection = document.getElementById("wo-gate-cards-section");
+const woGateCards = document.getElementById("wo-gate-cards");
+const woGateCardsMessage = document.getElementById("wo-gate-cards-message");
+const newBuilding = document.getElementById("wo-gate-new-building");
+const newRoom = document.getElementById("wo-gate-new-room");
+const newWo = document.getElementById("wo-gate-new-wo");
+const newSaveBtn = document.getElementById("wo-gate-new-save-btn");
+const newMessage = document.getElementById("wo-gate-new-message");
 
 // Injected by `main.js` (see `setOnTransactionSaved`) so a completed
 // stock/dispense can reset the scan UI without this module importing the
@@ -140,8 +143,9 @@ function showScanGoState() {
   if (scangoActive) scangoActive.hidden = !active;
   if (txnScanSection) txnScanSection.hidden = !active;
 
-  // By-room work-order picker: Supervisor+ only, and only on the gate (State A).
-  if (byRoomToggle) byRoomToggle.hidden = tech || active;
+  // Saved work-order cards: Supervisor+ only, and only on the gate (State A).
+  // Technicians (and Supervisor+ in an active batch) never see them.
+  if (woGateCardsSection) woGateCardsSection.hidden = tech || active;
 
   // Opt-in control: Supervisor+ only, and only inside an active batch.
   if (scangoAdvancedToggle) {
@@ -227,85 +231,80 @@ function changeWorkOrder() {
   if (resetScanUi) resetScanUi(); // stop the camera + clear the scan message
   clearBatchLog();
   if (woGateInput) woGateInput.value = "";
-  resetByRoom();
+  resetWoCards();
   showScanGoState();
+  refreshWoCards();
   if (woGateInput) woGateInput.focus();
 }
 
-// --- By-room work-order picker (Supervisor+) ----------------------
-// Mid-job dispense (workflow step 13): pick a building + room from the
-// mass-staging plan to fill the work order, then start a normal scan-and-go
-// batch. The dispense is a plain transaction on that work order -- nothing is
-// written back to the stage (the stage stays the plan/load record). Room
-// numbers repeat across buildings, so the building is chosen first.
+// --- Saved work-order cards (Supervisor+) -------------------------
+// The scan gate opens on cards of the saved work orders (mass-staging rooms:
+// building + room + one work order). Tapping a card starts a scan-and-go batch
+// on that work order. "Add a new work order" quick-adds building + room + WO
+// (find-or-create the building's active stage) and starts the batch -- it then
+// persists as a card. Scanning is a plain transaction on the work order;
+// nothing is written back to the stage (the stage stays the plan/load record).
 
-function resetByRoom() {
-  if (byRoomBlock) byRoomBlock.hidden = true;
-  if (byRoomToggle) byRoomToggle.setAttribute("aria-expanded", "false");
-  if (byRoomBuilding) byRoomBuilding.innerHTML = `<option value="">Select a building…</option>`;
-  if (byRoomRoom) {
-    byRoomRoom.innerHTML = `<option value="">Select a room…</option>`;
-    byRoomRoom.disabled = true;
-  }
-  if (byRoomNote) setMessage(byRoomNote, "", "");
+function resetWoCards() {
+  if (woGateCards) woGateCards.innerHTML = "";
+  if (woGateCardsMessage) setMessage(woGateCardsMessage, "", "");
+  if (newBuilding) newBuilding.value = "";
+  if (newRoom) newRoom.value = "";
+  if (newWo) newWo.value = "";
+  if (newMessage) setMessage(newMessage, "", "");
 }
 
-async function loadBuildings() {
-  if (!byRoomBuilding) return;
-  byRoomBuilding.innerHTML = `<option value="">Select a building…</option>`;
-  try {
-    const stages = await apiListStages();
-    const active = stages.filter((s) => s.status !== "completed");
-    if (!active.length) {
-      setMessage(byRoomNote, "No active buildings. Create one on the Mass Stage page.", "");
-      return;
-    }
-    active.forEach((s) => {
-      const opt = document.createElement("option");
-      opt.value = s.id;
-      opt.textContent = `${s.building_name} (${s.status})`;
-      byRoomBuilding.appendChild(opt);
-    });
-    setMessage(byRoomNote, "", "");
-  } catch (err) {
-    setMessage(byRoomNote, friendlyError(err, "Could not load buildings."), "error");
-  }
-}
-
-async function loadRoomsForBuilding(stageId) {
-  if (!byRoomRoom) return;
-  byRoomRoom.innerHTML = `<option value="">Select a room…</option>`;
-  byRoomRoom.disabled = true;
-  if (woGateInput) woGateInput.value = "";
-  setMessage(byRoomNote, "", "");
-  if (!stageId) return;
-  try {
-    const stage = await apiGetStage(stageId);
-    if (!stage.rooms.length) {
-      setMessage(byRoomNote, "No rooms in this building yet.", "");
-      return;
-    }
-    stage.rooms.forEach((room) => {
-      const opt = document.createElement("option");
-      opt.value = room.work_order_number;
-      opt.textContent = `Room ${room.room_number} — WO ${room.work_order_number}`;
-      byRoomRoom.appendChild(opt);
-    });
-    byRoomRoom.disabled = false;
-  } catch (err) {
-    setMessage(byRoomNote, friendlyError(err, "Could not load rooms."), "error");
-  }
-}
-
-function pickRoom() {
-  const wo = byRoomRoom ? byRoomRoom.value : "";
-  if (!wo) {
-    if (woGateInput) woGateInput.value = "";
-    setMessage(byRoomNote, "", "");
+function renderWoCards(rooms) {
+  if (!woGateCards) return;
+  woGateCards.innerHTML = "";
+  if (!rooms.length) {
+    setMessage(woGateCardsMessage, "No saved work orders yet. Add one below.", "");
     return;
   }
-  if (woGateInput) woGateInput.value = wo;
-  setMessage(byRoomNote, `Using work order ${wo}. Tap Start to scan into it.`, "success");
+  setMessage(woGateCardsMessage, "", "");
+  rooms.forEach((r) => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "wo-card";
+    card.dataset.wo = r.work_order_number;
+    card.innerHTML =
+      `<span class="wo-card-wo">WO ${escapeHtml(r.work_order_number)}</span>` +
+      `<span class="wo-card-meta">${escapeHtml(r.building_name)} · Room ${escapeHtml(r.room_number)}</span>`;
+    woGateCards.appendChild(card);
+  });
+}
+
+// Fetch + render the cards. Supervisor+ only, and only while the gate is
+// showing (no active batch). Called on page activation and after a quick-add.
+async function refreshWoCards() {
+  if (isTechnician() || batchWorkOrder !== null || !woGateCards) return;
+  try {
+    const rooms = await apiListActiveRooms();
+    renderWoCards(rooms);
+  } catch (err) {
+    setMessage(woGateCardsMessage, friendlyError(err, "Could not load saved work orders."), "error");
+  }
+}
+
+// Quick-add a building + room + work order, then start the batch on it. The
+// card list refreshes when the operator returns to the gate.
+async function submitNewWorkOrder() {
+  const buildingName = newBuilding ? newBuilding.value.trim() : "";
+  const roomNumber = newRoom ? newRoom.value.trim() : "";
+  const workOrderNumber = newWo ? newWo.value.trim() : "";
+  if (!buildingName || !roomNumber || !workOrderNumber) {
+    setMessage(newMessage, "Enter a building, room, and work order.", "error");
+    return;
+  }
+  try {
+    await apiQuickAddRoom({ buildingName, roomNumber, workOrderNumber });
+  } catch (err) {
+    setMessage(newMessage, friendlyError(err, "Could not save the work order."), "error");
+    return;
+  }
+  if (woGateInput) woGateInput.value = workOrderNumber;
+  resetWoCards();
+  startBatch();
 }
 
 // Gate consulted by the scanner before it commits a decode (see
@@ -392,6 +391,9 @@ export function enterTransactionPage() {
     // is already granted by this point, so this won't prompt).
     if (scanAutoStart) scanAutoStart();
     if (!isTechnician() && supervisorAdvanced) loadTxnItems();
+  } else {
+    // At the gate: load the Supervisor+ saved work-order cards.
+    refreshWoCards();
   }
 }
 
@@ -403,7 +405,7 @@ export function resetBatch() {
   if (woGateInput) woGateInput.value = "";
   if (scangoQuantity) scangoQuantity.value = "1";
   clearBatchLog();
-  resetByRoom();
+  resetWoCards();
   showScanGoState();
 }
 
@@ -425,16 +427,20 @@ if (scangoAdvancedToggle) {
 if (scangoSegStock) scangoSegStock.addEventListener("click", () => setScangoType("stock"));
 if (scangoSegDispense) scangoSegDispense.addEventListener("click", () => setScangoType("dispense"));
 
-if (byRoomToggle) {
-  byRoomToggle.addEventListener("click", () => {
-    const opening = byRoomBlock.hidden;
-    byRoomBlock.hidden = !opening;
-    byRoomToggle.setAttribute("aria-expanded", opening ? "true" : "false");
-    if (opening) loadBuildings();
+if (woGateCards) {
+  woGateCards.addEventListener("click", (event) => {
+    const card = event.target.closest(".wo-card");
+    if (!card) return;
+    if (woGateInput) woGateInput.value = card.dataset.wo;
+    startBatch(); // reuses the gate input -> normal scan-and-go batch
   });
 }
-if (byRoomBuilding) byRoomBuilding.addEventListener("change", () => loadRoomsForBuilding(byRoomBuilding.value));
-if (byRoomRoom) byRoomRoom.addEventListener("change", pickRoom);
+if (newSaveBtn) newSaveBtn.addEventListener("click", submitNewWorkOrder);
+if (newWo) {
+  newWo.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") submitNewWorkOrder();
+  });
+}
 
 export async function loadTxnItems() {
   try {
