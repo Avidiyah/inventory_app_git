@@ -1,11 +1,13 @@
 # Mass-Staging — Roadmap & Design Anchor
 
 > **Status:** ✅ COMPLETE (P1–9), plus **Phase 10** (saved work orders /
-> cards-first scan gate, 2026-06-22). Backend (data model, domain logic,
-> planning CRUD, load/return + merged list) and full UI (planning,
-> loading/returns, by-room dispense, and the cards-first gate), with the living
-> docs reconciled. Test count 60 → 128. This remains the source-of-truth anchor.
-> See `phase-10-saved-workorders.md` for the unify-with-mass-staging work.
+> cards-first scan gate) and **Phase 11** (work-order assignment + role-scoped
+> visibility + Community/Unit relabel), both 2026-06-22. Backend (data model,
+> domain logic, planning CRUD, load/return + merged list, ownership/assignment)
+> and full UI (planning, loading/returns, by-room dispense, cards-first gate,
+> assignment), with the living docs reconciled. Test count 60 → 135. This
+> remains the source-of-truth anchor. See `phase-10-saved-workorders.md` and
+> `phase-11-workorder-assignment.md`.
 > Each of the 9 phases below gets its own doc in this folder
 > (`phase-2-data-model.md`, etc.): the Plan tool is used at the **start** of a
 > phase to plan its implementation, and the phase doc is authored **after**

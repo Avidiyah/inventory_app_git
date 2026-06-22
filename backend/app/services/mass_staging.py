@@ -22,8 +22,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.domain import mass_staging as ms
+from app.domain import roles
 from app.domain.errors import (
     DuplicateBuildingStageError,
+    InvalidAssigneeError,
     ItemNotFoundError,
     NegativeQuantityError,
     RoomNotFoundError,
@@ -32,7 +34,7 @@ from app.domain.errors import (
     StageStateError,
 )
 from app.domain.quantity import apply_delta
-from app.models import Item, MassStage, MassStageItem, MassStageRoom, Transaction
+from app.models import Item, MassStage, MassStageItem, MassStageRoom, Transaction, User
 
 
 # --- internal helpers ----------------------------------------------------
@@ -100,6 +102,30 @@ def _require_editable(stage: MassStage) -> None:
         )
 
 
+def _validate_assignee(db: Session, assigned_to_id: Optional[uuid.UUID]) -> None:
+    """A work order may be unassigned (`None`), but if assigned the target must
+    exist and be a technician -- you assign work orders to technicians. Raises
+    `InvalidAssigneeError` otherwise."""
+    if assigned_to_id is None:
+        return
+    user = db.query(User).filter(User.id == assigned_to_id).first()
+    if user is None or user.role != roles.ROLE_TECHNICIAN:
+        raise InvalidAssigneeError(
+            "Work orders can only be assigned to a technician."
+        )
+
+
+def _room_visible_to(room: MassStageRoom, user: Optional[User]) -> bool:
+    """Visibility rule for a work order (room): admin/owner see all; a
+    supervisor sees only rooms they created; a technician sees only rooms
+    assigned to them. `None` user (internal/script) sees all."""
+    if user is None or roles.role_at_least(user.role, roles.ROLE_ADMIN):
+        return True
+    if user.role == roles.ROLE_SUPERVISOR:
+        return room.created_by_id == user.id
+    return room.assigned_to_id == user.id
+
+
 # --- stages --------------------------------------------------------------
 
 def create_stage(
@@ -136,6 +162,7 @@ def add_room_to_building(
     room_number: str,
     work_order_number: str,
     created_by_id: Optional[uuid.UUID],
+    assigned_to_id: Optional[uuid.UUID] = None,
 ) -> MassStage:
     """Quick-add a work order from the scan gate: find the building's active
     (non-completed) stage or create one, then append the room. This is the
@@ -151,8 +178,10 @@ def add_room_to_building(
 
     Raises `StageStateError` if the building's active stage is already loading
     (its plan is read-only) or the room number is already used, reusing
-    `add_room`'s guards.
+    `add_room`'s guards, and `InvalidAssigneeError` if `assigned_to_id` is not a
+    technician (checked before any stage is created).
     """
+    _validate_assignee(db, assigned_to_id)  # fail before creating a stage
     stage = (
         db.query(MassStage)
         .filter(
@@ -170,19 +199,26 @@ def add_room_to_building(
         stage.id,
         room_number=room_number,
         work_order_number=work_order_number,
+        created_by_id=created_by_id,
+        assigned_to_id=assigned_to_id,
     )
     db.refresh(stage)
     return stage
 
 
-def list_active_rooms(db: Session) -> list[dict]:
-    """Flat list of every room across non-completed stages -- the data source
-    for the scan gate's tappable work-order cards. Rooms with a blank work order
-    (reused stages clear them until re-entered) are skipped. One query via the
-    same eager-load as `list_stages`; ordered building, then room sort_order."""
+def list_active_rooms(db: Session, *, user: Optional[User] = None) -> list[dict]:
+    """Flat list of work-order rooms across non-completed stages -- the data
+    source for the scan gate's tappable cards. Rooms with a blank work order
+    (reused stages clear them until re-entered) are skipped, and the list is
+    **scoped to what `user` may see** (`_room_visible_to`): a technician sees
+    only rooms assigned to them, a supervisor only rooms they created,
+    admin/owner all. Ordered building, then room sort_order."""
     stages = (
         db.query(MassStage)
-        .options(selectinload(MassStage.rooms))
+        .options(
+            selectinload(MassStage.rooms).joinedload(MassStageRoom.creator),
+            selectinload(MassStage.rooms).joinedload(MassStageRoom.assignee),
+        )
         .filter(MassStage.status != ms.STATUS_COMPLETED)
         .order_by(MassStage.building_name, MassStage.created_at.desc())
         .all()
@@ -191,6 +227,8 @@ def list_active_rooms(db: Session) -> list[dict]:
     for stage in stages:
         for room in sorted(stage.rooms, key=lambda r: r.sort_order):
             if not (room.work_order_number or "").strip():
+                continue
+            if not _room_visible_to(room, user):
                 continue
             rooms.append(
                 {
@@ -201,19 +239,31 @@ def list_active_rooms(db: Session) -> list[dict]:
                     "room_number": room.room_number,
                     "work_order_number": room.work_order_number,
                     "sort_order": room.sort_order,
+                    "created_by_id": room.created_by_id,
+                    "created_by_username": room.creator.username if room.creator else None,
+                    "assigned_to_id": room.assigned_to_id,
+                    "assigned_to_username": room.assignee.username if room.assignee else None,
                 }
             )
     return rooms
 
 
-def list_stages(db: Session, *, status: Optional[str] = None) -> Sequence[MassStage]:
+def list_stages(
+    db: Session, *, status: Optional[str] = None, user: Optional[User] = None
+) -> Sequence[MassStage]:
     """Stages newest-first, optionally filtered by status. Rooms/items are
-    eager-loaded so the summary's room/item counts need no extra queries."""
+    eager-loaded so the summary's room/item counts need no extra queries.
+
+    Scoped for the Mass Stage page: admin/owner (and `None`/internal) see every
+    stage; a supervisor sees only stages they created. (Technicians never reach
+    this page; the same created_by filter would show them nothing.)"""
     q = db.query(MassStage).options(
         selectinload(MassStage.rooms).selectinload(MassStageRoom.items)
     )
     if status is not None:
         q = q.filter(MassStage.status == status)
+    if user is not None and not roles.role_at_least(user.role, roles.ROLE_ADMIN):
+        q = q.filter(MassStage.created_by_id == user.id)
     return q.order_by(MassStage.created_at.desc()).all()
 
 
@@ -223,9 +273,10 @@ def get_stage(db: Session, stage_id: uuid.UUID) -> MassStage:
     stage = (
         db.query(MassStage)
         .options(
+            selectinload(MassStage.rooms).joinedload(MassStageRoom.assignee),
             selectinload(MassStage.rooms)
             .selectinload(MassStageRoom.items)
-            .joinedload(MassStageItem.item)
+            .joinedload(MassStageItem.item),
         )
         .filter(MassStage.id == stage_id)
         .first()
@@ -329,6 +380,8 @@ def reuse_stage(
                 room_number=room.room_number,
                 work_order_number="",  # cleared; re-entered for the new job
                 sort_order=room.sort_order,
+                created_by_id=created_by_id,  # the reusing user owns the new rooms
+                # assignment is not carried over; re-assign for the new job
             )
         )
 
@@ -346,12 +399,22 @@ def reuse_stage(
 # --- rooms ---------------------------------------------------------------
 
 def add_room(
-    db: Session, stage_id: uuid.UUID, *, room_number: str, work_order_number: str
+    db: Session,
+    stage_id: uuid.UUID,
+    *,
+    room_number: str,
+    work_order_number: str,
+    created_by_id: Optional[uuid.UUID] = None,
+    assigned_to_id: Optional[uuid.UUID] = None,
 ) -> MassStageRoom:
     """Append a room (one work order) to a planning stage. `sort_order` is the
-    current room count, so rooms keep entry order (drives load fill order)."""
+    current room count, so rooms keep entry order (drives load fill order).
+    `created_by_id` records the author (drives supervisor visibility);
+    `assigned_to_id` optionally assigns the work order to a technician
+    (validated via `_validate_assignee`)."""
     stage = _get_stage_row(db, stage_id)
     _require_editable(stage)
+    _validate_assignee(db, assigned_to_id)
     sort_order = (
         db.query(MassStageRoom).filter(MassStageRoom.stage_id == stage.id).count()
     )
@@ -360,6 +423,8 @@ def add_room(
         room_number=room_number,
         work_order_number=work_order_number,
         sort_order=sort_order,
+        created_by_id=created_by_id,
+        assigned_to_id=assigned_to_id,
     )
     db.add(room)
     try:
@@ -407,6 +472,28 @@ def delete_room(db: Session, stage_id: uuid.UUID, room_id: uuid.UUID) -> None:
     room = _get_room(db, stage, room_id)
     db.delete(room)
     db.commit()
+
+
+def assign_room(
+    db: Session,
+    stage_id: uuid.UUID,
+    room_id: uuid.UUID,
+    *,
+    assigned_to_id: Optional[uuid.UUID],
+) -> MassStageRoom:
+    """Assign a work order (room) to a technician, or clear it (`None`).
+    Unlike plan edits this is allowed in `planning` and `loading` (assignment
+    is management, not plan editing) but not on a `completed` stage. Raises
+    `InvalidAssigneeError` if the target is not a technician."""
+    stage = _get_stage_row(db, stage_id)
+    if stage.status == ms.STATUS_COMPLETED:
+        raise StageStateError("A completed stage is read-only.")
+    room = _get_room(db, stage, room_id)
+    _validate_assignee(db, assigned_to_id)
+    room.assigned_to_id = assigned_to_id
+    db.commit()
+    db.refresh(room)
+    return room
 
 
 # --- planned items -------------------------------------------------------

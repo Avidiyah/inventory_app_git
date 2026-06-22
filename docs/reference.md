@@ -218,10 +218,14 @@ A building's batch-staging plan. The partial unique index
 | `room_number` | Text | Unique within a stage |
 | `work_order_number` | Text | The room's single work order |
 | `sort_order` | Integer | Entry order; drives load fill / overflow |
+| `created_by_id` | UUID | FK to `users.id` (plain, nullable). Work-order author; a supervisor sees only rooms they created |
+| `assigned_to_id` | UUID | FK to `users.id` (plain, nullable). The technician the work order is assigned to (NULL = unassigned); a technician sees only rooms assigned to them |
 | `created_at` | timestamptz | Set on insert |
 
 A room within a stage, paired with one work order. `UNIQUE(stage_id,
-room_number)` (room numbers only distinguish within a stage).
+room_number)` (room numbers only distinguish within a stage). `created_by_id` /
+`assigned_to_id` drive role-scoped visibility (admin/owner see all); each is
+indexed.
 
 ### `mass_stage_items`
 
@@ -259,6 +263,8 @@ writes ordinary `dispense` rows, and returns write none.
 | `f6b8c0d2e4a1` | Add item `archived_at` (soft delete) |
 | `a7c9e1f3b5d2` | Add `item_barcodes` table (additional barcodes per item) |
 | `b1f3d5a7c9e2` | Add mass staging tables (`mass_stages`, `mass_stage_rooms`, `mass_stage_items`) |
+| `c7e9a1b3d5f8` | Replace `sessions.last_active_at` with `expires_at` (remember-me) |
+| `c2e4f6a8d0b1` | Add `created_by_id` + `assigned_to_id` to `mass_stage_rooms` (work-order ownership/assignment) |
 
 ---
 
@@ -334,12 +340,15 @@ owner > admin > supervisor > technician
 
 ### Mass Stages
 
-All routes require Supervisor or above (`require_min_role(supervisor)`).
+All routes require Supervisor or above (`require_min_role(supervisor)`) **except
+`GET /active-rooms`**, which any authenticated user may call (the result is
+role-scoped server-side, so technicians get only their assigned work orders).
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/mass-stages/quick-room` | Scan-gate quick-add: find-or-create the building's active stage + append a room (building + room + work order) → parent `MassStageSummary` |
-| GET | `/mass-stages/active-rooms` | Flat rooms (with work orders) across non-completed stages — the scan gate's work-order cards |
+| POST | `/mass-stages/quick-room` | Scan-gate quick-add: find-or-create the building's active stage + append a room (community + unit + work order, optional technician assignee) → parent `MassStageSummary` |
+| GET | `/mass-stages/active-rooms` | Work-order cards for the scan gate, **scoped to the caller** (technician → assigned, supervisor → created, admin/owner → all). Any authenticated user |
+| PATCH | `/mass-stages/{id}/rooms/{room_id}/assign` | Assign a work order (room) to a technician, or clear it (null). Supervisor+ |
 | POST | `/mass-stages/` | Create a `planning` stage for a building (400 if one is already active) |
 | GET | `/mass-stages/` | List stages, optional `?status=` filter |
 | GET | `/mass-stages/{id}` | Stage detail: rooms → items + the merged rollup |

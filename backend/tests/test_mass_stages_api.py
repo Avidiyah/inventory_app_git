@@ -110,8 +110,8 @@ def _find_min_role(dependant):
         "delete_stage",
         "reuse_stage",
         "quick_room",
-        "list_active_rooms",
         "add_room",
+        "assign_room",
         "update_room",
         "delete_room",
         "add_item",
@@ -122,6 +122,13 @@ def _find_min_role(dependant):
 def test_every_route_requires_supervisor(endpoint_name):
     route = _route(ms_router, endpoint_name)
     assert _find_min_role(route.dependant) == roles.ROLE_SUPERVISOR
+
+
+def test_active_rooms_requires_only_authentication():
+    """The scan-gate cards are scoped server-side, so any authenticated user
+    (incl. technicians) may call active-rooms -- not a Supervisor gate."""
+    route = _route(ms_router, "list_active_rooms")
+    assert _find_min_role(route.dependant) is None
 
 
 # --- response builders ------------------------------------------------
@@ -143,6 +150,8 @@ def _fake_room(number, wo, sort_order, items):
         room_number=number,
         work_order_number=wo,
         sort_order=sort_order,
+        assigned_to_id=None,
+        assignee=None,
         items=items,
     )
 

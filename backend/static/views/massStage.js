@@ -26,6 +26,8 @@ import {
   apiReturnStageItem,
   apiReuseStage,
   apiListItems,
+  apiListUsers,
+  apiAssignRoom,
 } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
@@ -39,6 +41,9 @@ const createMessage = document.getElementById("mass-stage-create-message");
 // Cached item list for the add-item search; loaded once per session.
 let allItems = [];
 let itemsLoaded = false;
+// Cached technician list for the room "Assign to" dropdown; loaded once.
+let allTechs = [];
+let techsLoaded = false;
 // Stage id to auto-expand after a reload (set right after creating one).
 let autoOpenId = null;
 
@@ -50,8 +55,8 @@ function statusBadge(status) {
 // entry; two or more rooms make it a full mass-stage card (the display
 // threshold -- see docs/mass-staging/phase-10-saved-workorders.md).
 function stageMetaText(roomCount, itemCount) {
-  if (roomCount >= 2) return `${roomCount} rooms · ${itemCount} items`;
-  return roomCount === 1 ? "1 work order" : "no rooms";
+  if (roomCount >= 2) return `${roomCount} units · ${itemCount} items`;
+  return roomCount === 1 ? "1 work order" : "no units";
 }
 
 // --- list + lazy detail --------------------------------------------------
@@ -63,6 +68,14 @@ export async function loadStages() {
       itemsLoaded = true;
     } catch {
       allItems = []; // search just returns nothing until a later reload
+    }
+  }
+  if (!techsLoaded) {
+    try {
+      allTechs = (await apiListUsers()).filter((u) => u.role === "technician");
+      techsLoaded = true;
+    } catch {
+      allTechs = []; // assign dropdown just shows "Unassigned" until a reload
     }
   }
   try {
@@ -158,14 +171,14 @@ function renderStageBody(stage, bodyEl) {
 
 function renderPlanningBody(stage, bodyEl) {
   const rooms = stage.rooms.map((room) => renderRoomHtml(room, true)).join("");
-  const roomsHtml = rooms || `<p class="hint">No rooms yet.</p>`;
+  const roomsHtml = rooms || `<p class="hint">No units yet.</p>`;
 
   bodyEl.innerHTML =
     `<div class="ms-rooms">${roomsHtml}</div>` +
     `<div class="ms-add-room">
-       <input type="text" class="ms-room-number" placeholder="Room #">
+       <input type="text" class="ms-room-number" placeholder="Unit #">
        <input type="text" class="ms-room-wo" placeholder="Work order #">
-       <button type="button" data-action="add-room">Next Room</button>
+       <button type="button" data-action="add-room">Next Unit</button>
      </div>` +
     `<div class="ms-stage-actions">
        <button type="button" data-action="save-stage">Save Mass Stage</button>
@@ -182,7 +195,7 @@ function renderLoadingBody(stage, bodyEl) {
     `<p class="hint">No items planned.</p>`;
   const rooms =
     stage.rooms.map((room) => renderRoomHtml(room, false)).join("") ||
-    `<p class="hint">No rooms.</p>`;
+    `<p class="hint">No units.</p>`;
   const complete = loading
     ? `<button type="button" data-action="complete-stage">Mark Completed</button>`
     : "";
@@ -195,7 +208,7 @@ function renderLoadingBody(stage, bodyEl) {
   bodyEl.innerHTML =
     `<h3 class="ms-subhead">Load list</h3>` +
     `<div class="ms-merged">${merged}</div>` +
-    `<h3 class="ms-subhead">Rooms</h3>` +
+    `<h3 class="ms-subhead">Units</h3>` +
     `<div class="ms-rooms">${rooms}</div>` +
     `<div class="ms-stage-actions">
        ${complete}
@@ -253,7 +266,7 @@ function renderRoomHtml(room, planning) {
     : "";
 
   const removeRoom = planning
-    ? `<button type="button" class="btn-danger ms-room-remove" data-action="remove-room" data-room-id="${escapeHtml(room.id)}">Remove room</button>`
+    ? `<button type="button" class="btn-danger ms-room-remove" data-action="remove-room" data-room-id="${escapeHtml(room.id)}">Remove unit</button>`
     : "";
 
   // Editable work order in planning (reused stages start with it cleared).
@@ -265,13 +278,38 @@ function renderRoomHtml(room, planning) {
        </div>`
     : "";
 
+  // Assign the work order to a technician (planning only). Options come from the
+  // cached technician list; the current assignee is preselected.
+  const assignEdit = planning
+    ? `<div class="ms-room-assign">
+         <label>Assign to</label>
+         <select class="ms-room-assignee">
+           <option value="">Unassigned</option>
+           ${allTechs
+             .map(
+               (t) =>
+                 `<option value="${escapeHtml(t.id)}"${
+                   t.id === room.assigned_to_id ? " selected" : ""
+                 }>${escapeHtml(t.username)}</option>`
+             )
+             .join("")}
+         </select>
+         <button type="button" class="secondary-btn" data-action="assign-room">Assign</button>
+       </div>`
+    : "";
+
+  const assigneeMeta = room.assigned_to_username
+    ? ` · ${escapeHtml(room.assigned_to_username)}`
+    : "";
+
   return `<details class="room-card" data-room-id="${escapeHtml(room.id)}">
             <summary class="room-summary">
-              <span class="room-title">Room ${escapeHtml(room.room_number)}</span>
-              <span class="room-meta">WO ${escapeHtml(room.work_order_number) || "—"} · ${room.items.length} items</span>
+              <span class="room-title">Unit ${escapeHtml(room.room_number)}</span>
+              <span class="room-meta">WO ${escapeHtml(room.work_order_number) || "—"} · ${room.items.length} items${assigneeMeta}</span>
             </summary>
             <div class="room-body">
               ${woEdit}
+              ${assignEdit}
               <div class="ms-items">${itemsHtml}</div>
               ${addItem}
               ${removeRoom}
@@ -411,26 +449,31 @@ listEl.addEventListener("click", async (event) => {
       const number = wrap.querySelector(".ms-room-number").value.trim();
       const wo = wrap.querySelector(".ms-room-wo").value.trim();
       if (!number || !wo) {
-        setMessage(msg, "Enter a room number and work order.", "error");
+        setMessage(msg, "Enter a unit number and work order.", "error");
         return;
       }
       await apiAddRoom(stageId, { roomNumber: number, workOrderNumber: wo });
       await refreshStage(stageCard);
     } else if (action === "remove-room") {
-      if (!window.confirm("Remove this room and its planned items?")) return;
+      if (!window.confirm("Remove this unit and its planned items?")) return;
       await apiDeleteRoom(stageId, btn.dataset.roomId);
       await refreshStage(stageCard);
     } else if (action === "update-room") {
       const roomCard = btn.closest(".room-card");
       const wo = roomCard.querySelector(".ms-room-wo-input").value.trim();
       if (!wo) {
-        setMessage(msg, "Enter a work order for the room.", "error");
+        setMessage(msg, "Enter a work order for the unit.", "error");
         return;
       }
       await apiUpdateRoom(stageId, roomCard.dataset.roomId, { work_order_number: wo });
       await refreshStage(stageCard);
+    } else if (action === "assign-room") {
+      const roomCard = btn.closest(".room-card");
+      const assignedToId = roomCard.querySelector(".ms-room-assignee").value || null;
+      await apiAssignRoom(stageId, roomCard.dataset.roomId, assignedToId);
+      await refreshStage(stageCard);
     } else if (action === "reuse-stage") {
-      if (!window.confirm("Start a new staging for this building? Rooms are copied (work orders cleared) and item lists start empty.")) return;
+      if (!window.confirm("Start a new staging for this community? Units are copied (work orders cleared) and item lists start empty.")) return;
       const fresh = await apiReuseStage(stageId);
       autoOpenId = fresh.id;
       await loadStages();
