@@ -58,8 +58,8 @@ async function jsonRequest(url, method, payload) {
 }
 
 // --- Auth --------------------------------------------------------
-export async function apiLogin({ username, password }) {
-  return jsonRequest("/auth/login", "POST", { username, password });
+export async function apiLogin({ username, password, remember = false }) {
+  return jsonRequest("/auth/login", "POST", { username, password, remember });
 }
 
 export async function apiLogout() {

@@ -26,6 +26,7 @@ const appRoot = document.getElementById("app-root");
 const loginUsername = document.getElementById("login-username");
 const loginPassword = document.getElementById("login-password");
 const loginBtn = document.getElementById("login-btn");
+const loginRemember = document.getElementById("login-remember");
 const loginMessage = document.getElementById("login-message");
 const logoutBtn = document.getElementById("logout-btn");
 const authUserIndicator = document.getElementById("auth-user-indicator");
@@ -70,6 +71,7 @@ setUnauthorizedHandler(showLoginScreen);
 loginBtn.addEventListener("click", async () => {
   const username = loginUsername.value.trim();
   const password = loginPassword.value;
+  const remember = loginRemember.checked;
   setMessage(loginMessage, "", "");
 
   if (!username || !password) {
@@ -78,7 +80,7 @@ loginBtn.addEventListener("click", async () => {
   }
 
   try {
-    const user = await apiLogin({ username, password });
+    const user = await apiLogin({ username, password, remember });
     loginUsername.value = "";
     loginPassword.value = "";
     enterApp(user);

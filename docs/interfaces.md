@@ -60,7 +60,7 @@ Inputs:
 | `token` | str | Primary key |
 | `user_id` | UUID | FK to users, cascade on delete |
 | `created_at` | datetime | tz-aware |
-| `last_active_at` | datetime | tz-aware |
+| `expires_at` | datetime \| None | tz-aware; NULL = no cap (non-remembered), else absolute cap (remembered, login + 12h) |
 | `user` | `User` | Relationship |
 
 ### `Item`

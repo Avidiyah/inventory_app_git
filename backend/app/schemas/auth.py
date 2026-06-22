@@ -19,6 +19,9 @@ class LoginRequest(BaseModel):
 
     username: str
     password: str
+    # Opt-in "Remember this device": when True the server issues a
+    # 12h-capped session and a persistent cookie. Defaults off.
+    remember: bool = False
 
 
 class MeResponse(BaseModel):

@@ -144,7 +144,7 @@ Relationships: one-to-many to `transactions`, one-to-many to `sessions`.
 | `token` | Text | Primary key, opaque random token |
 | `user_id` | UUID | FK to `users.id`, `ON DELETE CASCADE` |
 | `created_at` | timestamptz | Set on insert |
-| `last_active_at` | timestamptz | Bumped on authenticated requests |
+| `expires_at` | timestamptz | Nullable. NULL = no server cap (non-remembered, ends on browser close); a timestamp = remembered session's absolute cap (login + 12h) |
 
 ### `items`
 

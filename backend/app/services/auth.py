@@ -11,9 +11,11 @@ dependency. Hashes are stored self-describing as
 each hash and lets them be tuned later without breaking existing rows.
 
 Sessions are server-side rows (`AuthSession`). `get_active_session_user`
-is the single place that enforces the idle timeout: it is called on
-every authenticated request, expires-and-deletes a stale session, and
-otherwise slides `last_active_at` forward.
+is the single place that enforces the lifetime policy: it is called on
+every authenticated request and expires-and-deletes a remembered session
+once it passes its absolute `expires_at` cap. Non-remembered sessions
+have no server-side cap (`expires_at` is NULL) and simply end when the
+browser drops the session cookie; there is no idle timeout.
 """
 
 import hashlib
@@ -28,11 +30,12 @@ from sqlalchemy.orm import Session
 from app.domain.errors import InvalidCredentialsError
 from app.models import AuthSession, User
 
-# Idle window: a session not touched within this period is expired on
-# the next request. Set to 10 minutes so live barcode capture (where
-# the user can spend a long time aiming the phone without firing any
-# network request) does not get logged out mid-scan.
-SESSION_IDLE_TIMEOUT = timedelta(minutes=10)
+# Lifetime of a "remembered" session: an absolute cap measured from
+# login, not a sliding/idle window. A remembered device stays signed in
+# until this elapses (or the user logs out), then must sign in again.
+# Non-remembered sessions carry no server-side cap (expires_at is NULL)
+# and simply end when the browser closes -- there is no idle timeout.
+REMEMBER_LIFETIME = timedelta(hours=12)
 
 # scrypt cost parameters. n must be a power of two; these are sensible
 # interactive-login defaults that complete in a few milliseconds.
@@ -90,15 +93,20 @@ def authenticate(db: Session, *, username: str, password: str) -> User:
     return user
 
 
-def create_session(db: Session, user: User) -> str:
+def create_session(db: Session, user: User, *, remember: bool = False) -> str:
     """Open a new session for `user` and return its opaque token. The
-    token is what the caller stores in the session cookie."""
+    token is what the caller stores in the session cookie.
+
+    `remember` selects the lifetime policy: when True the session gets a
+    hard absolute cap of `REMEMBER_LIFETIME` from now (`expires_at`);
+    when False `expires_at` stays NULL (no server-side cap -- the caller
+    issues a session cookie that dies on browser close)."""
     now = datetime.now(timezone.utc)
     session = AuthSession(
         token=secrets.token_urlsafe(32),
         user_id=user.id,
         created_at=now,
-        last_active_at=now,
+        expires_at=now + REMEMBER_LIFETIME if remember else None,
     )
     db.add(session)
     db.commit()
@@ -109,31 +117,29 @@ def get_active_session_user(db: Session, token: str) -> Optional[User]:
     """Return the `User` for a valid, non-expired session token, or
     `None`.
 
-    Side effects (the heart of the timeout policy):
+    Lifetime policy:
     - If the session is missing, returns None.
-    - If it has been idle longer than `SESSION_IDLE_TIMEOUT`, the row is
-      deleted and None is returned (expired on the server).
-    - Otherwise `last_active_at` is bumped to now (sliding window) and
-      the owning user is returned.
+    - If it is a remembered session (`expires_at` set) and now is past
+      that cap, the row is deleted and None is returned (expired on the
+      server).
+    - Otherwise (no cap, or cap not yet reached) the owning user is
+      returned. There is no idle timeout and no per-request write.
     """
     session = db.query(AuthSession).filter(AuthSession.token == token).first()
     if session is None:
         return None
 
-    now = datetime.now(timezone.utc)
-    last_active = session.last_active_at
-    # Postgres returns tz-aware datetimes; guard defensively in case a
-    # naive value ever slips in so the subtraction below cannot crash.
-    if last_active.tzinfo is None:
-        last_active = last_active.replace(tzinfo=timezone.utc)
+    expires_at = session.expires_at
+    if expires_at is not None:
+        # Postgres returns tz-aware datetimes; guard defensively in case
+        # a naive value ever slips in so the comparison cannot crash.
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > expires_at:
+            db.delete(session)
+            db.commit()
+            return None
 
-    if now - last_active > SESSION_IDLE_TIMEOUT:
-        db.delete(session)
-        db.commit()
-        return None
-
-    session.last_active_at = now
-    db.commit()
     return db.query(User).filter(User.id == session.user_id).first()
 
 
