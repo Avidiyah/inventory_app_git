@@ -17,7 +17,8 @@
     - Focus states
     - Tables & row actions
     - Transaction-specific controls (stock/dispense buttons)
-    - History sub-tabs, filters, type badges, pagination
+    - In-page sub-navigation (Find Item, History)
+    - History charge column, filters, type badges, pagination
     - Notes editor grid
     - Auth (login screen + header auth bar)
     - Barcode scan controls
@@ -474,15 +475,19 @@ tr:last-child td {
     gap: var(--space-2);
 }
 
-/* =================== HISTORY SUB-TABS =================== */
-.sub-tabs {
+/* =================== IN-PAGE SUB-NAVIGATION =================== */
+/* The secondary nav that switches between *features within one page*
+   (one `.feature-panel` visible, the rest hidden) -- distinct from the
+   black header `#main-nav` that switches top-level pages. Adopters:
+   Find Item and History (views/subnav.js). Underline-tab styling. */
+.sub-nav {
     display: flex;
     gap: var(--space-1);
     border-bottom: 1px solid var(--gray-200);
     margin-bottom: var(--space-5);
 }
 
-.sub-tab-btn {
+.sub-nav-btn {
     background-color: transparent;
     color: var(--gray-700);
     padding: var(--space-2) var(--space-4);
@@ -496,12 +501,12 @@ tr:last-child td {
     margin-top: 0;
 }
 
-.sub-tab-btn:hover {
+.sub-nav-btn:hover {
     background-color: var(--gray-100);
     color: var(--color-ink);
 }
 
-.sub-tab-btn.active {
+.sub-nav-btn.active {
     color: var(--color-brand);
     border-bottom-color: var(--color-brand);
     font-weight: var(--fw-bold);
@@ -549,6 +554,99 @@ tr:last-child td {
 
 .type-badge.adjust {
     background-color: var(--status-adjust);
+}
+
+/* =================== HISTORY CHARGE COLUMN =================== */
+/* Admin/Owner-only "Charge" cell: line total, the +15% marked-up total,
+   an optional override flag, and the inline billing editor. */
+.charge-cell {
+    white-space: normal;
+}
+
+.charge-base {
+    display: block;
+    font-weight: var(--fw-bold);
+    color: var(--color-ink);
+}
+
+/* The marked-up (price x qty x 1.15) figure -- secondary to the line total. */
+.charge-marked {
+    display: block;
+    font-size: var(--fs-xs);
+    color: var(--gray-500);
+}
+
+/* Shown only when the Admin has adjusted what's billed for the row. */
+.charge-flag {
+    display: inline-block;
+    margin-top: var(--space-1);
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-pill);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    color: var(--color-white);
+    background-color: var(--gray-500);
+}
+
+/* "Not charged" reads as a removal -- give it the brand red so it stands
+   out as an intentional exclusion. */
+.charge-flag.not-charged {
+    background-color: var(--color-brand);
+}
+
+/* Compact text button to open the inline editor; understated so it does
+   not compete with the row's Delete action. */
+.edit-charge-btn {
+    display: inline-block;
+    margin-top: var(--space-1);
+    min-height: var(--space-8);
+    padding: 0 var(--space-2);
+    font-size: var(--fs-xs);
+    background-color: transparent;
+    color: var(--color-brand);
+    border: var(--border-input);
+    border-radius: var(--radius-sm);
+}
+
+.edit-charge-btn:hover {
+    background-color: var(--color-brand-tint);
+}
+
+/* Inline editor that replaces the cell content while editing. */
+.charge-editor {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.charge-editor-label {
+    font-size: var(--fs-xs);
+    color: var(--color-ink);
+}
+
+.charge-input {
+    width: 5rem;
+    margin: 0 var(--space-1);
+    min-height: var(--space-8);
+    padding: 0 var(--space-2);
+}
+
+.charge-editor-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+}
+
+.charge-editor-actions button {
+    margin-top: 0;
+    min-height: var(--space-8);
+    padding: 0 var(--space-2);
+    font-size: var(--fs-xs);
+}
+
+.charge-editor-msg {
+    margin: 0;
+    font-size: var(--fs-xs);
 }
 
 /* =================== PAGINATION =================== */

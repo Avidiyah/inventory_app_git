@@ -15,6 +15,7 @@ for exceptions whose `str(exc)` is too internal to surface (e.g.
 from fastapi import HTTPException
 
 from app.domain.errors import (
+    BillingQuantityError,
     DomainError,
     DuplicateBarcodeError,
     DuplicateBuildingStageError,
@@ -61,6 +62,7 @@ _STATUS_MAP: dict[type[DomainError], int] = {
     UserHasTransactionsError: 400,
     NegativeQuantityError: 400,
     NoChangeError: 400,
+    BillingQuantityError: 400,
     TransactionVoidError: 400,
     UnreadableImageError: 400,
     InvalidCredentialsError: 401,

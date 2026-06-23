@@ -166,6 +166,17 @@ export async function apiCreateTransaction(payload) {
   return jsonRequest("/transactions/", "POST", body);
 }
 
+export async function apiSetBillableQuantity(transactionId, billableQuantity) {
+  // Admin/Owner only on the backend. Sets how many of the row's units to
+  // charge the customer for (0 = recorded-but-not-charged), or pass `null`
+  // to clear the override and bill the full recorded quantity. Pure billing
+  // annotation -- does NOT touch the item's on-hand count. Returns the
+  // updated transaction row.
+  return jsonRequest(`/transactions/${transactionId}/billing`, "PATCH", {
+    billable_quantity: billableQuantity,
+  });
+}
+
 export async function apiVoidTransaction(transactionId) {
   // Soft-delete (void) a mis-clicked transaction. Supervisor+ on the
   // backend; reverses the row's effect on stock and hides it from

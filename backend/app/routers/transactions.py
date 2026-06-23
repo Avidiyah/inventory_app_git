@@ -24,6 +24,7 @@ from app.domain.errors import DomainError
 from app.models import User
 from app.routers._errors import to_http
 from app.schemas.transactions import (
+    BillingUpdate,
     CorrectionCreate,
     TransactionCreate,
     TransactionResponse,
@@ -89,6 +90,34 @@ def create_correction(
             new_quantity=payload.new_quantity,
             reason=payload.reason,
             user_id=user.id,
+        )
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.patch("/{transaction_id}/billing", response_model=TransactionResponse)
+def update_billing(
+    transaction_id: UUID,
+    payload: BillingUpdate,
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """Set or clear a transaction's billing override. Owner/Admin only.
+
+    Lets an Admin reviewing a work order charge for fewer units than were
+    dispensed (or not charge at all) without touching the inventory
+    record. `billable_quantity = null` clears the override (bill the full
+    recorded quantity); `0` records-but-does-not-charge; any value up to
+    the recorded quantity bills a partial count.
+
+    404 if the transaction is unknown or voided; 400 if the override is
+    negative, exceeds the recorded quantity, or targets an `adjust`
+    (correction) row (`BillingQuantityError`)."""
+    try:
+        return transactions_service.set_billable_quantity(
+            db,
+            transaction_id=transaction_id,
+            billable_quantity=payload.billable_quantity,
         )
     except DomainError as exc:
         raise to_http(exc)

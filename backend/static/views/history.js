@@ -1,13 +1,16 @@
 // View: transaction history page (all / by item / by user tabs).
 //
 // Layer: views. Owns the history page with three sub-tabs and a
-// paginated results table. The tab + filter + page are persisted
-// in `state.historyState` so switching to another page and back
-// preserves the user's place.
+// paginated results table. The sub-tabs use the shared in-page sub-nav
+// helper (`views/subnav.js`): each is a `.feature-panel`, and the
+// `#history-results` table sits outside them so it persists across all
+// three. The tab + filter + page are persisted in `state.historyState`
+// so switching to another page and back preserves the user's place.
 //
 // Public surface:
-// - `setHistoryTab(tab)` -- switch sub-tab; called by `main.js`
-//   on boot (`"all"`) and by the tab buttons here.
+// - `setHistoryTab(tab)` -- switch sub-tab; a thin wrapper over the
+//   sub-nav's `showFeature`. Called by `auth.js` to prime `"all"` on
+//   login; the tab buttons themselves are wired by `initSubNav`.
 // - `loadHistory()` -- fetch one page using current filters;
 //   called by `nav.js` on page activation and by the controls
 //   here on every state change.
@@ -23,16 +26,19 @@ import {
   getRole,
   HISTORY_PAGE_SIZE,
 } from "../state.js";
-import { apiListTransactions, apiGetItemByBarcode, apiVoidTransaction } from "../api.js";
+import {
+  apiListTransactions,
+  apiGetItemByBarcode,
+  apiVoidTransaction,
+  apiSetBillableQuantity,
+} from "../api.js";
 import { escapeHtml, friendlyError, formatMoney } from "../format.js";
 import { roleAtLeast } from "../roles.js";
 import { setMessage } from "../dom.js";
+import { initSubNav } from "./subnav.js";
 
+const historyPage = document.getElementById("history-page");
 const historyTable = document.getElementById("history-table");
-const historyTabs = document.getElementById("history-tabs");
-const historyAllPanel = document.getElementById("history-all-panel");
-const historyItemPanel = document.getElementById("history-item-panel");
-const historyUserPanel = document.getElementById("history-user-panel");
 const historyItemBarcode = document.getElementById("history-item-barcode");
 const historyItemLookupBtn = document.getElementById("history-item-lookup-btn");
 const historyItemMessage = document.getElementById("history-item-message");
@@ -55,21 +61,25 @@ const MAX_PAGE_SIZE = 100;
 // the browser. 100 pages * 100 rows = 10 000 rows.
 const COPY_MAX_PAGES = 100;
 
+// History's three sub-tabs (All / By Item / By User) are sibling features
+// switched via the shared in-page sub-nav helper. `fireInitialOnShow: false`
+// because this module is imported at app boot: the onShow hook fetches a page,
+// which must wait until the user has logged in and opened the History page
+// (nav.js calls loadHistory() on activation; auth.js primes "all" on login).
+const historySubNav = initSubNav(historyPage, {
+  fireInitialOnShow: false,
+  onShow(feature) {
+    updateHistoryState({ tab: feature, page: 1 });
+    setMessage(historyItemMessage, "", "");
+    setMessage(historyUserMessage, "", "");
+    loadHistory();
+  },
+});
+
+// Retained as a thin compatibility wrapper over the sub-nav so external
+// callers (auth.js primes "all" on login) don't need to know about the helper.
 export function setHistoryTab(tab) {
-  updateHistoryState({ tab, page: 1 });
-
-  historyTabs.querySelectorAll(".sub-tab-btn").forEach(btn => {
-    btn.classList.toggle("active", btn.dataset.tab === tab);
-  });
-
-  historyAllPanel.hidden = tab !== "all";
-  historyItemPanel.hidden = tab !== "item";
-  historyUserPanel.hidden = tab !== "user";
-
-  setMessage(historyItemMessage, "", "");
-  setMessage(historyUserMessage, "", "");
-
-  loadHistory();
+  historySubNav.showFeature(tab);
 }
 
 export async function loadHistory() {
@@ -138,15 +148,67 @@ function formatRow(txn) {
 // the visible text is humanised. TSV export keeps the raw type via formatRow.
 const TYPE_LABELS = { stock: "Added", dispense: "Taken Out", adjust: "Correction" };
 
-// Line value for the Admin/Owner-only Price column: per-unit `item_price`
-// times the row's quantity (so a dispense of N shows price*N). Returns an
-// em dash when the item has no price set. `item_price` is null for
-// non-Admin callers (backend-gated), but the column is hidden for them
-// anyway.
-function lineValueCell(txn) {
-  if (txn.item_price === null || txn.item_price === undefined) return "—";
-  const formatted = formatMoney(Number(txn.item_price) * Number(txn.quantity));
-  return formatted ? escapeHtml(formatted) : "—";
+// --- Billing / charge maths (Admin/Owner-only Charge column) -------
+//
+// Every Charge figure flows from three numbers on a row: the per-unit
+// `item_price`, the recorded `quantity`, and the Admin's optional
+// `billable_quantity` override (how many units to actually charge for).
+// All three are backend-gated to Admin/Owner, so lower roles never reach
+// this code path (the column is hidden for them).
+
+// Fixed company mark-up applied on top of the line total. 1.15 = +15%.
+const MARKUP_RATE = 1.15;
+
+// The number of units to charge for: the override when set, else the full
+// recorded quantity. `billable_quantity` is null when no override exists.
+function effectiveBillable(txn) {
+  const b = txn.billable_quantity;
+  return (b === null || b === undefined) ? Number(txn.quantity) : Number(b);
+}
+
+// Bundle the numbers the Charge cell + copy export need, or null when the
+// item has no price (nothing to charge). `editable` gates the inline
+// editor to billable row types — an `adjust` correction is not a charge.
+function chargeData(txn) {
+  const hasPrice = txn.item_price !== null && txn.item_price !== undefined;
+  const unit = hasPrice ? Number(txn.item_price) : null;
+  const quantity = Number(txn.quantity);
+  const billable = effectiveBillable(txn);
+  const base = hasPrice ? unit * billable : null;
+  const marked = hasPrice ? base * MARKUP_RATE : null;
+  const editable = hasPrice
+    && (txn.transaction_type === "stock" || txn.transaction_type === "dispense");
+  return { id: txn.id, unit, quantity, billable, base, marked, editable };
+}
+
+// Render the *display* state of the Charge cell (not the editor): the
+// line total, the marked-up total, an override flag when billable differs
+// from the recorded quantity, and the "Edit charge" button when editable.
+// Pulled out so the editor's Cancel can repaint the cell without a reload.
+function chargeDisplayHtml(c) {
+  if (c.unit === null) return "—";
+  let html =
+    `<span class="charge-base">${escapeHtml(formatMoney(c.base))}</span>` +
+    `<span class="charge-marked">+15%: ${escapeHtml(formatMoney(c.marked))}</span>`;
+  if (c.billable !== c.quantity) {
+    html += c.billable === 0
+      ? `<span class="charge-flag not-charged">Not charged</span>`
+      : `<span class="charge-flag">Billing ${escapeHtml(String(c.billable))} of ${escapeHtml(String(c.quantity))}</span>`;
+  }
+  if (c.editable) {
+    html += `<button type="button" class="edit-charge-btn" data-id="${escapeHtml(c.id)}">Edit charge</button>`;
+  }
+  return html;
+}
+
+// The full <td> for the Charge column. Carries `data-quantity` /
+// `data-billable` so the inline editor can read them without re-fetching.
+function chargeCellHtml(txn) {
+  const c = chargeData(txn);
+  return `<td class="admin-col charge-cell" data-label="Charge" ` +
+    `data-quantity="${escapeHtml(String(c.quantity))}" ` +
+    `data-billable="${escapeHtml(String(c.billable))}">` +
+    `${chargeDisplayHtml(c)}</td>`;
 }
 
 export function renderHistory(data) {
@@ -157,13 +219,14 @@ export function renderHistory(data) {
 
   const s = getHistoryState();
 
-  // Price (price-per-unit * quantity) is Admin/Owner only. Toggle the
-  // header column to match the cells we emit; the backend redacts
-  // `item_price` for lower roles, so this is presentational only.
+  // The Charge column (line total + mark-up, plus the inline billing
+  // editor) is Admin/Owner only. Toggle the header column to match the
+  // cells we emit; the backend redacts `item_price` / `billable_quantity`
+  // for lower roles, so this is presentational only.
   const canSeePrice = roleAtLeast(getRole(), "admin");
   historyTable.querySelectorAll("thead .admin-col").forEach(th => { th.hidden = !canSeePrice; });
   // Base table is 7 columns (Time, Item, Type, Qty, WO, User, Actions);
-  // the Price column adds one for Admin/Owner.
+  // the Charge column adds one for Admin/Owner.
   const colCount = canSeePrice ? 8 : 7;
 
   historyTbody.innerHTML = "";
@@ -188,7 +251,7 @@ export function renderHistory(data) {
         <td data-label="Quantity">${escapeHtml(quantity)}</td>
         <td data-label="Work Order">${escapeHtml(detail || "—")}</td>
         <td data-label="User">${escapeHtml(user || "—")}</td>
-        ${canSeePrice ? `<td class="admin-col" data-label="Price">${lineValueCell(txn)}</td>` : ""}
+        ${canSeePrice ? chargeCellHtml(txn) : ""}
         <td data-label="Actions"><button type="button" class="void-txn-btn btn-danger" data-id="${escapeHtml(txn.id)}" aria-label="${escapeHtml(voidLabel)}">Delete</button></td>
       `;
       historyTbody.appendChild(row);
@@ -202,13 +265,6 @@ export function renderHistory(data) {
 
   historyResults.hidden = false;
 }
-
-historyTabs.addEventListener("click", (event) => {
-  const target = event.target;
-  if (target.classList.contains("sub-tab-btn")) {
-    setHistoryTab(target.dataset.tab);
-  }
-});
 
 // Void (delete) a mis-clicked transaction. Delegated so it covers every
 // re-rendered row. The backend reverses the stock effect and hides the
@@ -238,6 +294,78 @@ historyTbody.addEventListener("click", async (event) => {
     btn.disabled = false;
     alert(friendlyError(err, "Could not delete the transaction. Try again."));
   }
+});
+
+// --- Inline billing editor (Admin/Owner) ------------------------
+//
+// Lets an Admin reviewing a work order charge for fewer units than were
+// dispensed, or exclude a line entirely, without disturbing the on-hand
+// count (the items were really used). The edit swaps the Charge cell for
+// a small form: Save / Don't charge call the billing endpoint and reload;
+// Cancel repaints the cell in place from the data-* it was built with.
+
+function billingEditorHtml(quantity, billable) {
+  return `
+    <div class="charge-editor">
+      <label class="charge-editor-label">Bill for
+        <input type="number" class="charge-input" min="0" max="${escapeHtml(String(quantity))}" step="any" value="${escapeHtml(String(billable))}">
+        of ${escapeHtml(String(quantity))}
+      </label>
+      <div class="charge-editor-actions">
+        <button type="button" class="charge-save">Save</button>
+        <button type="button" class="charge-zero secondary-btn">Don't charge</button>
+        <button type="button" class="charge-cancel secondary-btn">Cancel</button>
+      </div>
+      <p class="charge-editor-msg" aria-live="polite"></p>
+    </div>`;
+}
+
+historyTbody.addEventListener("click", (event) => {
+  const editBtn = event.target.closest(".edit-charge-btn");
+  if (!editBtn) return;
+
+  const cell = editBtn.closest(".charge-cell");
+  if (!cell) return;
+
+  const id = editBtn.dataset.id;
+  const quantity = Number(cell.dataset.quantity);
+  const billable = Number(cell.dataset.billable);
+  const original = cell.innerHTML;
+
+  cell.innerHTML = billingEditorHtml(quantity, billable);
+  const input = cell.querySelector(".charge-input");
+  const msg = cell.querySelector(".charge-editor-msg");
+  input.focus();
+  input.select();
+
+  function restore() { cell.innerHTML = original; }
+
+  async function submit(value) {
+    // `value` is the billable count, or null to clear the override.
+    cell.querySelectorAll("button").forEach(b => { b.disabled = true; });
+    try {
+      await apiSetBillableQuantity(id, value);
+      loadHistory();  // repaint the whole table from fresh data
+    } catch (err) {
+      cell.querySelectorAll("button").forEach(b => { b.disabled = false; });
+      setMessage(msg, friendlyError(err, "Could not update the charge."), "error");
+    }
+  }
+
+  cell.querySelector(".charge-cancel").addEventListener("click", restore);
+  cell.querySelector(".charge-zero").addEventListener("click", () => submit(0));
+  cell.querySelector(".charge-save").addEventListener("click", () => {
+    const raw = input.value.trim();
+    if (raw === "") { submit(null); return; }  // empty = charge the full amount
+    const n = Number(raw);
+    if (Number.isNaN(n) || n < 0 || n > quantity) {
+      setMessage(msg, `Enter a number between 0 and ${quantity}.`, "error");
+      return;
+    }
+    // Billing the full quantity is the same as having no override; send
+    // null so the row carries no stale "Billing N of N" annotation.
+    submit(n === quantity ? null : n);
+  });
 });
 
 historyItemLookupBtn.addEventListener("click", async () => {
@@ -321,7 +449,12 @@ historyWoClearBtn.addEventListener("click", () => {
 // We paginate the existing list endpoint at the backend's max page
 // size; no new endpoint is needed.
 
-const HISTORY_HEADERS = ["Timestamp", "Item", "Type", "Quantity", "Work Order", "User"];
+// The six columns shown to every role, mirroring `formatRow`. Admin/Owner
+// get four extra Charge columns appended (see PRICE_HEADERS) so a pasted
+// invoice worksheet carries the billable count, unit price, line total,
+// and the marked-up total.
+const BASE_HEADERS = ["Timestamp", "Item", "Type", "Quantity", "Work Order", "User"];
+const PRICE_HEADERS = ["Billable Qty", "Unit Price", "Price x Qty", "Price x Qty x 1.15"];
 
 // Strip newlines and tabs from a cell so the TSV columns stay aligned
 // when pasted into Excel / Google Sheets.
@@ -329,10 +462,24 @@ function sanitiseCell(value) {
   return String(value).replace(/[\t\r\n]+/g, " ");
 }
 
-function rowsToTsv(rows) {
-  const lines = [HISTORY_HEADERS.join("\t")];
-  for (const row of rows) {
-    lines.push(row.map(sanitiseCell).join("\t"));
+// Build the clipboard TSV. `includePrice` (Admin/Owner) appends the four
+// Charge columns; the figures use the *billable* quantity so the export
+// reflects exactly what will be charged after any line edits.
+function buildTsv(txns, includePrice) {
+  const headers = includePrice ? [...BASE_HEADERS, ...PRICE_HEADERS] : BASE_HEADERS;
+  const lines = [headers.join("\t")];
+  for (const txn of txns) {
+    let cols = formatRow(txn);
+    if (includePrice) {
+      const c = chargeData(txn);
+      cols = cols.concat([
+        String(c.billable),
+        c.unit === null ? "" : formatMoney(c.unit),
+        c.base === null ? "" : formatMoney(c.base),
+        c.marked === null ? "" : formatMoney(c.marked),
+      ]);
+    }
+    lines.push(cols.map(sanitiseCell).join("\t"));
   }
   return lines.join("\n");
 }
@@ -402,7 +549,8 @@ historyCopyBtn.addEventListener("click", async () => {
       setMessage(historyCopyMessage, "Nothing to copy.", "error");
       return;
     }
-    const tsv = rowsToTsv(rows.map(formatRow));
+    const includePrice = roleAtLeast(getRole(), "admin");
+    const tsv = buildTsv(rows, includePrice);
     const ok = await copyTextToClipboard(tsv);
     if (ok) {
       setMessage(historyCopyMessage, "Copied history.", "success");

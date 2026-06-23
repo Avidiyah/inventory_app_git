@@ -92,6 +92,14 @@ class TransactionVoidError(DomainError):
     to 400."""
 
 
+class BillingQuantityError(DomainError):
+    """Raised by `domain.billing.validate_billable_quantity` when an
+    Admin's billable-quantity override is invalid -- negative, larger than
+    the units actually recorded, or applied to an `adjust` (correction)
+    row that cannot be billed. A pure validation failure, so it maps to
+    400."""
+
+
 class NoChangeError(DomainError):
     """Raised by `services.transactions.apply_correction` when the
     requested `new_quantity` matches the item's current quantity, so

@@ -160,6 +160,13 @@ class Transaction(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     transaction_type = Column(Text, nullable=False)  # "stock" | "dispense" | "adjust"
     quantity = Column(Numeric, nullable=False)
+    # Billing override (Admin/Owner only): how many of the row's units should
+    # actually be charged to the customer. NULL means "no override -- bill the
+    # full `quantity`"; a value of 0 means "recorded but not charged". This is a
+    # pure billing annotation: it NEVER touches `Item.quantity` (the items were
+    # physically used), it only changes what the History page's price columns
+    # and copy-to-clipboard export total up. Set via PATCH /transactions/{id}/billing.
+    billable_quantity = Column(Numeric, nullable=True)
     work_order_number = Column(Text, nullable=True)
     reason = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

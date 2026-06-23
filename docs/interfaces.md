@@ -651,6 +651,38 @@ Exports:
 
 Also handles scanner lifecycle when entering/leaving scanner pages.
 
+### `views/subnav.js`
+
+Exports:
+
+- `initSubNav(pageEl, { onShow }) -> { showFeature(name) }`
+
+The page-level twin of `nav.js::showPage`, but for **features within one
+page**. See the "In-page sub-navigation" convention below. `onShow(feature,
+prevFeature)` fires after each switch (including the initial one, with
+`prevFeature = null`) for feature-specific lifecycle (stop a camera, close
+overlays). The active feature is recorded on `pageEl.dataset.activeFeature`.
+
+**In-page sub-navigation convention (2026-06-23):** a page with more than one
+sibling *feature* renders a secondary nav `<nav class="sub-nav">` of
+`.sub-nav-btn[data-feature]` buttons and one `.feature-panel[data-feature]`
+section per feature; exactly one panel is shown (`hidden` on the rest), the
+matching button carries `.active`. This is visually distinct from the black
+header `#main-nav` (top-level pages) and shares the History `.sub-tabs` look.
+**Contextual sub-flows are NOT features:** an Edit/Notes/Correct form reached
+from a row stays its own hidden `<section>` (not a `.feature-panel`) and is
+closed by the host page on a feature switch via `onShow`. `initSubNav` also
+takes `fireInitialOnShow` (default `true`): pass `false` when the host's
+`onShow` must not run at module-load time — e.g. History's hook fetches a page
+and has to wait for login.
+
+Both adopters of the helper: **Find Item** (`#saved-items-page`, Find/Scan) and
+**History** (`#history-page`, All/By-item/By-user). History's `#history-tabs`
+nav now carries `.sub-nav`; its `setHistoryTab(tab)` export is retained as a
+thin compatibility wrapper over `showFeature` (called by `auth.js` to prime
+`"all"` on login). Its shared `#history-results` table is intentionally NOT a
+`.feature-panel`, so it stays visible across all three tabs.
+
 ### `views/items.js`
 
 Exports:
@@ -661,6 +693,8 @@ Exports:
 - `itemsScanner`
 
 Owns Create Item, Saved Items table, action dropdown, Saved Items scanner mount, and delete cleanup. `renderItems()` builds the `#items-table` header (`#items-thead-row`) and body together from a per-role column model, so column set/order can never desync. Technicians get a decluttered, quantity/location-first table (no Created / Actions columns); Supervisor+ keep the original order plus the Admin-only Price/Link columns.
+
+**Sub-nav (reference implementation, 2026-06-23):** the Find Item page (`#saved-items-page`) is the first adopter of the in-page sub-navigation convention. Its two features are **Find** (`#items-section`, the search + list) and **Scan** (`#items-scan-section`), switched via `.sub-nav`. `items.js` calls `initSubNav` with an `onShow` hook that releases the camera when leaving Scan, refreshes camera permission when entering Scan, and closes the Edit/Notes/Correct/Add-barcode sub-flows on any switch. A successful scan calls `showFeature("find")` so the matched row is visible in the list.
 
 ### `views/massStage.js`
 

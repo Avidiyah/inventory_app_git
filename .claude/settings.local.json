@@ -52,7 +52,11 @@
       "Bash(./venv/Scripts/python.exe -c \"import PIL, fastapi, uvicorn; print\\('deps ok'\\)\")",
       "Bash(/c/Users/mcclu/Desktop/inventory_app_git/backend/venv/Scripts/python.exe -c \"import PIL, fastapi, uvicorn; print\\('deps ok'\\)\")",
       "Bash(git -C /c/Users/mcclu/Desktop/inventory_app_git diff --stat main...pr-a-scan-tuning -- backend/static/scan backend/static/views/scan.js)",
-      "Bash(echo \"===== spec.md \\(roles/transactions\\) =====\"; grep -niE \"technician|supervisor|dispense|stock|transaction|role|permission|land|home|after.*log\" backend/../docs/spec.md 2>/dev/null | head -60)"
+      "Bash(echo \"===== spec.md \\(roles/transactions\\) =====\"; grep -niE \"technician|supervisor|dispense|stock|transaction|role|permission|land|home|after.*log\" backend/../docs/spec.md 2>/dev/null | head -60)",
+      "Bash(xargs grep -H \"^revision\\\\|^down_revision\")",
+      "Read(//c/c/Users/mcclu/Desktop/inventory_app_git/backend/**)",
+      "Bash(node --check views/subnav.js)",
+      "Bash(node --check views/history.js)"
     ]
   }
 }

@@ -67,10 +67,11 @@ def list_history(
     types `%` matches a literal percent, not "anything". An empty /
     whitespace-only value is treated as "no filter".
 
-    `include_price` carries the per-unit `item_price` into each row only
-    when the caller is Admin/Owner; for lower roles it stays `None` so
-    cost data is never sent to the client (the router decides this from
-    the requester's role).
+    `include_price` carries the per-unit `item_price` AND the
+    `billable_quantity` billing override into each row only when the
+    caller is Admin/Owner; for lower roles both stay `None` so neither
+    cost data nor billing adjustments are sent to the client (the router
+    decides this from the requester's role).
 
     `User` is joined with an OUTER join because transactions may be
     recorded anonymously (NULL `user_id`) — an inner join would
@@ -121,6 +122,7 @@ def list_history(
             work_order_number=txn.work_order_number,
             reason=txn.reason,
             item_price=item.price if include_price else None,
+            billable_quantity=txn.billable_quantity if include_price else None,
             created_at=txn.created_at,
         )
         for txn, item, user in rows

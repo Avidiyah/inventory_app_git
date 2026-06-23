@@ -12,19 +12,22 @@
                 <button id="history-wo-clear-btn" type="button" class="secondary-btn">Clear</button>
             </div>
 
-            <div id="history-tabs" class="sub-tabs">
-                <button class="sub-tab-btn" data-tab="all">All Transactions</button>
-                <button class="sub-tab-btn" data-tab="item">By Item</button>
-                <button class="sub-tab-btn" data-tab="user">By User</button>
-            </div>
+            <!-- In-page sub-navigation (views/subnav.js): one feature panel
+                 visible at a time. The shared #history-results table below sits
+                 OUTSIDE these panels, so it stays visible across all three. -->
+            <nav id="history-tabs" class="sub-nav" aria-label="History views">
+                <button type="button" class="sub-nav-btn active" data-feature="all">All Transactions</button>
+                <button type="button" class="sub-nav-btn" data-feature="item">By Item</button>
+                <button type="button" class="sub-nav-btn" data-feature="user">By User</button>
+            </nav>
 
-            <!-- All Transactions sub-tab -->
-            <div class="sub-tab-panel" id="history-all-panel">
+            <!-- All Transactions feature -->
+            <div class="feature-panel" id="history-all-panel" data-feature="all">
                 <p class="hint">Every stock and dispense transaction, newest first.</p>
             </div>
 
-            <!-- By Item sub-tab -->
-            <div class="sub-tab-panel" id="history-item-panel" hidden>
+            <!-- By Item feature -->
+            <div class="feature-panel" id="history-item-panel" data-feature="item" hidden>
                 <div class="filter-row">
                     <label for="history-item-barcode">Item Barcode</label>
                     <input type="text" id="history-item-barcode" placeholder="Enter barcode">
@@ -33,8 +36,8 @@
                 <p id="history-item-message"></p>
             </div>
 
-            <!-- By User sub-tab -->
-            <div class="sub-tab-panel" id="history-user-panel" hidden>
+            <!-- By User feature -->
+            <div class="feature-panel" id="history-user-panel" data-feature="user" hidden>
                 <div class="filter-row">
                     <label for="history-user-select">User</label>
                     <select id="history-user-select">
@@ -59,7 +62,7 @@
                             <th>Quantity</th>
                             <th>Work Order</th>
                             <th>User</th>
-                            <th class="admin-col" hidden>Price</th>
+                            <th class="admin-col" hidden>Charge</th>
                             <th>Actions</th>
                         </tr>
                     </thead>

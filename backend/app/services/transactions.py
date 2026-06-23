@@ -27,6 +27,7 @@ from app.domain.errors import (
     TransactionNotFoundError,
     TransactionVoidError,
 )
+from app.domain.billing import validate_billable_quantity
 from app.domain.quantity import apply_delta, reverse_delta
 from app.models import Item, Transaction
 
@@ -138,6 +139,48 @@ def void_transaction(
     txn.voided_at = datetime.now(timezone.utc)
     txn.voided_by_id = user_id
     db.commit()
+
+
+def set_billable_quantity(
+    db: Session,
+    *,
+    transaction_id: uuid.UUID,
+    billable_quantity: Optional[Decimal],
+) -> Transaction:
+    """Set (or clear) a transaction's billing override.
+
+    This is a pure billing annotation -- it records how many of the row's
+    units to actually charge the customer for and NEVER touches
+    `Item.quantity` (the items were physically used; only the invoice
+    changes). `billable_quantity` of `None` clears the override (charge
+    the full recorded quantity again); `0` records the row but charges
+    nothing; any value up to the recorded quantity bills a partial count.
+
+    No row lock is taken: unlike stock/dispense/void there is no
+    read-modify-write of a shared counter, just a last-write-wins update
+    of an annotation on this one row.
+
+    Raises:
+    - `TransactionNotFoundError` if the id is unknown or already voided
+      (a voided row is not actionable from history).
+    - `BillingQuantityError` (via `validate_billable_quantity`) if the
+      override is negative, exceeds the recorded quantity, or targets an
+      `adjust` (correction) row.
+    """
+    txn = (
+        db.query(Transaction)
+        .filter(Transaction.id == transaction_id)
+        .first()
+    )
+    if txn is None or txn.voided_at is not None:
+        raise TransactionNotFoundError("Transaction not found.")
+
+    txn.billable_quantity = validate_billable_quantity(
+        txn.transaction_type, txn.quantity, billable_quantity
+    )
+    db.commit()
+    db.refresh(txn)
+    return txn
 
 
 def apply_correction(

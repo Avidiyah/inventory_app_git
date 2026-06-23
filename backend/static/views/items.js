@@ -44,7 +44,8 @@ import {
   setOnSaved as setOnCorrectionSaved,
 } from "./correction.js";
 import { mountScanner } from "./scan.js";
-import { openAddBarcode, setOnSaved as setOnAddBarcodeSaved } from "./addBarcode.js";
+import { openAddBarcode, closeAddBarcode, setOnSaved as setOnAddBarcodeSaved } from "./addBarcode.js";
+import { initSubNav } from "./subnav.js";
 
 const createItemBtn = document.getElementById("create-item-btn");
 const createItemMessage = document.getElementById("create-item-message");
@@ -291,12 +292,19 @@ const itemsScanChooser = document.getElementById("items-scan-chooser");
 const createItemNavBtnForItems = document.querySelector('.nav-btn[data-page="create-item"]');
 const createItemBarcodeInput = document.getElementById("barcode");
 
+// Assigned at the bottom of this module once the scanner exists; the
+// scanner's onItemFound reads it to flip back to the Find feature.
+let itemsSubNav = null;
+
 export const itemsScanner = mountScanner({
   inputEl: itemsScanInput,
   messageEl: itemsScanMessage,
   chooserEl: itemsScanChooser,
   allowCreate: true,
   onItemFound: (item) => {
+    // A scan resolves on the Scan feature, but the result lives in the
+    // Find list -- switch back so the match is actually visible.
+    if (itemsSubNav) itemsSubNav.showFeature("find");
     itemsSearch.value = item.barcode;
     renderItems();
     // Scroll the (now-single) matching row into view if it exists.
@@ -316,5 +324,28 @@ export const itemsScanner = mountScanner({
     uploadBtn: document.getElementById("items-scan-upload-btn"),
     torchBtn:  document.getElementById("items-scan-torch-btn"),
     aimboxEl:  document.getElementById("items-scan-aimbox"),
+  },
+});
+
+// --- Find Item sub-navigation -----------------------------------
+//
+// Find (the list) and Scan are sibling features: exactly one is shown at a
+// time via the page's `.sub-nav`. The lifecycle hook keeps the camera and
+// the contextual sub-flows honest when the feature switches:
+//   - leaving Scan releases the camera (it never lingers on a hidden panel);
+//   - entering Scan refreshes the camera-permission state (toggles the
+//     Scan button / blocked message), mirroring nav.js's page-level call;
+//   - any feature switch closes an open Edit / Notes / Correct / Add-barcode
+//     sub-flow so only one thing is ever on screen.
+itemsSubNav = initSubNav(document.getElementById("saved-items-page"), {
+  onShow(feature, prev) {
+    if (prev === "scan" && feature !== "scan") itemsScanner.stopLive();
+    if (feature === "scan") itemsScanner.refreshPermissionState();
+    if (prev && prev !== feature) {
+      closeNotesEditor();
+      closeItemEditor();
+      closeCorrection();
+      closeAddBarcode();
+    }
   },
 });

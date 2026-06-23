@@ -83,20 +83,36 @@ class CorrectionCreate(BaseModel):
         return v
 
 
+class BillingUpdate(BaseModel):
+    """Payload for `PATCH /transactions/{id}/billing` (Admin/Owner only).
+
+    `billable_quantity` is how many of the row's units to charge the
+    customer for: `0` to record-but-not-charge, a smaller number to bill
+    a partial count, or `null` to clear any override and bill the full
+    recorded quantity again. The upper bound (cannot exceed the recorded
+    quantity) and the stock/dispense-only rule are enforced in
+    `domain.billing.validate_billable_quantity`, which needs the row's
+    actual quantity and type, so they are not duplicated here.
+    """
+
+    billable_quantity: Optional[Decimal] = None
+
+
 class TransactionResponse(BaseModel):
     """Outbound shape for the row created by `POST /transactions` or
-    `POST /transactions/adjust`.
+    `POST /transactions/adjust`, and returned by the billing PATCH.
 
     `user_id` is optional because older pre-auth rows may have it as
     NULL; new rows always carry the logged-in user's id. `reason` is
-    populated only for `transaction_type = "adjust"`.
-    """
+    populated only for `transaction_type = "adjust"`. `billable_quantity`
+    is the billing override (NULL = bill the full `quantity`)."""
 
     id: UUID
     item_id: UUID
     user_id: Optional[UUID]
     transaction_type: str
     quantity: Decimal
+    billable_quantity: Optional[Decimal] = None
     work_order_number: Optional[str]
     reason: Optional[str] = None
     created_at: datetime
@@ -118,6 +134,12 @@ class TransactionHistoryItem(BaseModel):
     the frontend multiplies it by `quantity` to show the line value and
     hides the column for lower roles. It is the live item price, not a
     historical snapshot — prices are not versioned per transaction.
+
+    `billable_quantity` is the Admin's billing override (how many units
+    to actually charge for; NULL = charge the full `quantity`). Like
+    `item_price` it is included ONLY for Admin/Owner — billing is an
+    Admin-only concern — so lower roles always see `None` and the live,
+    unedited quantity in the Quantity column.
     """
 
     id: UUID
@@ -131,6 +153,7 @@ class TransactionHistoryItem(BaseModel):
     work_order_number: Optional[str]
     reason: Optional[str] = None
     item_price: Optional[Decimal] = None
+    billable_quantity: Optional[Decimal] = None
     created_at: datetime
 
 

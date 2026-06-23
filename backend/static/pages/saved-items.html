@@ -1,26 +1,18 @@
     <!-- =================== SAVED ITEMS PAGE =================== -->
     <div class="page" id="saved-items-page">
 
-        <section id="items-scan-section">
-            <h2>Scan Barcode</h2>
-            <p class="hint">Scan a barcode or search below to find an item.</p>
-            <div class="scan-controls">
-                <input type="file" id="items-scan-input" accept="image/*" capture="environment">
-                <div class="scan-viewport">
-                    <video id="items-scan-video" class="scan-video" playsinline muted autoplay></video>
-                    <div id="items-scan-aimbox" class="scan-aimbox" role="presentation" hidden></div>
-                </div>
-                <div class="scan-toolbar">
-                    <button id="items-scan-scan-btn" type="button">Scan Barcode</button>
-                    <button id="items-scan-upload-btn" type="button" class="secondary-btn">Upload Photo</button>
-                    <button id="items-scan-torch-btn" type="button" class="secondary-btn" hidden>Torch</button>
-                </div>
-            </div>
-            <div id="items-scan-chooser" class="scan-chooser" hidden></div>
-            <p id="items-scan-message"></p>
-        </section>
+        <!-- In-page sub-navigation: one feature visible at a time (Find the
+             list, or Scan a barcode). Distinct from the black header
+             #main-nav. Wired by views/subnav.js via views/items.js. The
+             Edit / Notes / Correct / Add-barcode sections below are NOT
+             features -- they are contextual sub-flows of Find, opened from a
+             row action and closed when the feature switches. -->
+        <nav class="sub-nav" aria-label="Find Item features">
+            <button type="button" class="sub-nav-btn active" data-feature="find">Find</button>
+            <button type="button" class="sub-nav-btn" data-feature="scan">Scan</button>
+        </nav>
 
-        <section id="items-section">
+        <section id="items-section" class="feature-panel" data-feature="find">
             <h2>Find Item</h2>
             <div class="filter-row">
                 <label for="items-search">Search</label>
@@ -45,6 +37,27 @@
                 <tbody id="items-tbody"></tbody>
             </table>
         </section>
+
+        <section id="items-scan-section" class="feature-panel" data-feature="scan" hidden>
+            <h2>Scan Barcode</h2>
+            <p class="hint">Scan a barcode to jump to the matching item.</p>
+            <div class="scan-controls">
+                <input type="file" id="items-scan-input" accept="image/*" capture="environment">
+                <div class="scan-viewport">
+                    <video id="items-scan-video" class="scan-video" playsinline muted autoplay></video>
+                    <div id="items-scan-aimbox" class="scan-aimbox" role="presentation" hidden></div>
+                </div>
+                <div class="scan-toolbar">
+                    <button id="items-scan-scan-btn" type="button">Scan Barcode</button>
+                    <button id="items-scan-upload-btn" type="button" class="secondary-btn">Upload Photo</button>
+                    <button id="items-scan-torch-btn" type="button" class="secondary-btn" hidden>Torch</button>
+                </div>
+            </div>
+            <div id="items-scan-chooser" class="scan-chooser" hidden></div>
+            <p id="items-scan-message"></p>
+        </section>
+
+        <!-- ----- Contextual sub-flows (opened from a Find row action) ----- -->
 
         <section id="notes-editor-section" hidden>
             <h2>Notes</h2>
@@ -135,4 +148,3 @@
         </section>
 
     </div>
-
