@@ -5,7 +5,7 @@
 
   Hand-written CSS (no preprocessor, no framework). Field-friendly UX
   overhaul: red/black/white (Belfor-style) palette driven by the design
-  tokens in `:root` -- see docs/design-spec-ux-overhaul.md section 2.
+  tokens in `:root`.
   No raw hex outside `:root`.
 
   Sections in rough top-to-bottom order:
@@ -24,7 +24,7 @@
     - Barcode scan controls
 
   Class/ID hooks that JS depends on are frozen alongside the DOM
-  contract in `docs/interfaces.md` -- in particular the state-toggling
+  contract -- in particular the state-toggling
   classes `.active`, `.success`, `.error`, and the `.type-badge.stock` /
   `.type-badge.dispense` / `.type-badge.adjust` trio set by
   `views/history.js`. Brand red is PRIMARY; destructive actions use the
@@ -741,6 +741,17 @@ tr:last-child td {
     color: var(--gray-400);
 }
 
+/* Archived (soft-deleted) user rows in the Saved Users table: dimmed so
+   they read as inactive, with a muted "(archived)" tag beside the name. */
+tr.archived-user {
+    opacity: 0.6;
+}
+
+.muted {
+    color: var(--gray-400);
+    font-size: var(--fs-sm);
+}
+
 /* Additional-barcodes editor (inside the item editor). Reuses the
    notes-row remove-button treatment; one text input + remove control. */
 #item-editor-barcodes-rows {
@@ -894,7 +905,7 @@ tr:last-child td {
 /* --- Live-mode scanner: video preview + aim-box overlay + toolbar.
    The file input is hidden but kept -- the Upload button programmatically
    clicks it so the upload path in views/scan.js stays unchanged.
-   See docs/plan-live-capture.md. */
+   See docs/current-state.md. */
 #txn-scan-input,
 #items-scan-input {
     display: none;
@@ -1029,7 +1040,7 @@ tr:last-child td {
 /* =================== SCAN-AND-GO (work-order batch) =================== */
 /* The Transaction page's primary flow: a work-order gate (#wo-gate) then
    the active batch (#scango-active) with a big direction + quantity and a
-   running log. See views/transactions.js and docs/plan-scan-and-go.md. */
+   running log. See views/transactions.js and docs/current-state.md. */
 #wo-gate,
 #scango-active {
     display: flex;
@@ -1053,7 +1064,7 @@ tr:last-child td {
 
 /* Cards-first gate (Supervisor+): saved work orders as tappable cards, then a
    collapsible "Add a new work order" quick-add form. See views/transactions.js
-   and docs/mass-staging/phase-10-saved-workorders.md. */
+   and docs/current-state.md. */
 #wo-gate-cards-section {
     display: flex;
     flex-direction: column;
@@ -1479,7 +1490,7 @@ details[open] > .room-summary::before { content: "\25BE"; /* triangle down */ }
         flex: 1 1 100%;
     }
 
-    /* --- Worker tables collapse to stacked cards (design-spec §4) --- */
+    /* --- Worker tables collapse to stacked cards --- */
     .stack-table thead { display: none; }
 
     .stack-table tr {

@@ -75,8 +75,11 @@ export async function apiListItems() {
   return parseResponse(await fetch("/items/", { credentials: "include" }));
 }
 
-export async function apiCreateItem({ barcode, name, location, quantity, price, product_link }) {
-  return jsonRequest("/items/", "POST", { barcode, name, location, quantity, price, product_link });
+export async function apiCreateItem({ barcode, name, location, quantity, price, product_link, override_archived = false }) {
+  // `override_archived` confirms reuse of a barcode held only by an archived
+  // (deleted) item: the first POST omits it (defaults false) and gets a 409;
+  // the user confirms and we re-POST with it true to free the archived holder.
+  return jsonRequest("/items/", "POST", { barcode, name, location, quantity, price, product_link, override_archived });
 }
 
 export async function apiDeleteItem(itemId) {
@@ -93,11 +96,12 @@ export async function apiUpdateNotes(itemId, notesDict) {
   return jsonRequest(`/items/${itemId}/notes`, "PATCH", { notes: notesDict });
 }
 
-export async function apiUpdateBarcodes(itemId, codes) {
+export async function apiUpdateBarcodes(itemId, codes, overrideArchived = false) {
   // `codes` is the full list of an item's *additional* barcodes (the
   // primary is edited via apiUpdateItem). Wholesale replace, mirroring
-  // apiUpdateNotes.
-  return jsonRequest(`/items/${itemId}/barcodes`, "PATCH", { barcodes: codes });
+  // apiUpdateNotes. `overrideArchived` confirms reuse of a code held only by
+  // an archived item (a 409 on the first try); see apiCreateItem.
+  return jsonRequest(`/items/${itemId}/barcodes`, "PATCH", { barcodes: codes, override_archived: overrideArchived });
 }
 
 export async function apiGetItemByBarcode(barcode) {
@@ -122,8 +126,9 @@ export async function apiDecodeBarcode(file) {
 }
 
 // --- Users -------------------------------------------------------
-export async function apiListUsers() {
-  return parseResponse(await fetch("/users/", { credentials: "include" }));
+export async function apiListUsers({ includeArchived = false } = {}) {
+  const query = includeArchived ? "?include_archived=true" : "";
+  return parseResponse(await fetch(`/users/${query}`, { credentials: "include" }));
 }
 
 export async function apiCreateUser({ username, password, role }) {
@@ -132,6 +137,14 @@ export async function apiCreateUser({ username, password, role }) {
 
 export async function apiResetPassword(userId, password) {
   return jsonRequest(`/users/${userId}/reset-password`, "POST", { password });
+}
+
+export async function apiArchiveUser(userId) {
+  return parseResponse(await fetch(`/users/${userId}/archive`, { method: "POST", credentials: "include" }));
+}
+
+export async function apiRestoreUser(userId) {
+  return parseResponse(await fetch(`/users/${userId}/restore`, { method: "POST", credentials: "include" }));
 }
 
 export async function apiDeleteUser(userId) {
@@ -262,7 +275,7 @@ export async function apiDeleteStageItem(stageId, roomId, stageItemId) {
 
 // Loading + returns (the stock-touching actions). Both return the item's
 // updated merged rollup. `load` writes per-room dispenses; `return` adds stock
-// back silently (no ledger row). See docs/mass-staging/phase-5-load-return.md.
+// back silently (no ledger row). See docs/current-state.md.
 export async function apiLoadStageItem(stageId, { itemId, quantity }) {
   return jsonRequest(`/mass-stages/${stageId}/load`, "POST", { item_id: itemId, quantity });
 }
@@ -280,7 +293,7 @@ export async function apiReuseStage(stageId) {
 // Scan-gate quick-add: save a work order with a room. The backend find-or-creates
 // the building's active stage and appends the room. Returns the parent
 // MassStageSummary (the gate reads room_count). See
-// docs/mass-staging/phase-10-saved-workorders.md.
+// docs/current-state.md.
 export async function apiQuickAddRoom({ buildingName, roomNumber, workOrderNumber, assignedToId = null }) {
   return jsonRequest("/mass-stages/quick-room", "POST", {
     building_name: buildingName,

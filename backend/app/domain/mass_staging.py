@@ -3,8 +3,8 @@
 Layer: pure domain (no SQLAlchemy, no FastAPI, no models).
 
 Owns three rules used by the mass-staging services (`app/services/
-mass_staging.py`, Phases 4-5) so they can be exercised by plain unit tests
-with no database -- exactly like `domain.quantity`:
+mass_staging.py`) so they can be exercised by plain unit tests with no database
+-- exactly like `domain.quantity`:
 
 - `allocate_load`   -- split one merged load quantity across the rooms that
   planned an item: fill rooms in `sort_order`, push any overflow onto the

@@ -56,7 +56,8 @@
       "Bash(xargs grep -H \"^revision\\\\|^down_revision\")",
       "Read(//c/c/Users/mcclu/Desktop/inventory_app_git/backend/**)",
       "Bash(node --check views/subnav.js)",
-      "Bash(node --check views/history.js)"
+      "Bash(node --check views/history.js)",
+      "Bash(git push *)"
     ]
   }
 }

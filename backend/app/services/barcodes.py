@@ -15,11 +15,11 @@ the same `format` string for the same symbology.
 Capability gap (accepted): `zbar` cannot read 2D matrix codes like
 DataMatrix, and its PDF417/QR support is weaker than the live (ZXing)
 path. So the upload fallback does **not** reach full format parity with
-live capture; live is the primary path. See docs/plan-scan-tuning.md.
+live capture; live is the primary path. See docs/current-state.md.
 
 Note for operators: on Windows, `pyzbar` needs the Visual C++ 2013
 runtime (`msvcr120.dll`); without it the import fails with a missing
-`libiconv.dll`/`libzbar-64.dll`. See `docs/reference.md`.
+`libiconv.dll`/`libzbar-64.dll`. See `docs/current-state.md`.
 """
 
 from io import BytesIO

@@ -62,9 +62,15 @@ def create_user(
     response_model=list[UserResponse],
     dependencies=[Depends(require_min_role(roles.ROLE_SUPERVISOR))],
 )
-def list_users(db: Session = Depends(get_db)):
-    """Return every user, newest first. Supervisor or above."""
-    return users_service.list_users(db)
+def list_users(
+    include_archived: bool = False,
+    db: Session = Depends(get_db),
+):
+    """Return users, newest first. Supervisor or above. By default only
+    active users are returned (the Saved Users table); pass
+    `include_archived=true` to also include archived users (the History
+    "by user" filter does this so a departed user can still be selected)."""
+    return users_service.list_users(db, include_archived=include_archived)
 
 
 @router.post("/{user_id}/reset-password", status_code=204)
@@ -89,15 +95,53 @@ def reset_password(
     )
 
 
+@router.post("/{user_id}/archive", response_model=UserResponse)
+def archive_user(
+    user_id: uuid.UUID,
+    actor: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Archive (soft-delete) a subordinate user: they can no longer log in
+    and their sessions are revoked, but the audit trail is preserved. This
+    is the normal "remove a user" action and works even for a user with
+    transactions. 404 if unknown; 403 if the actor does not outrank the
+    target."""
+    try:
+        target = users_service.get_user(db, user_id)
+        if not roles.can_manage(actor.role, target.role):
+            raise RoleManagementError("You cannot archive this user.")
+        return users_service.archive_user(db, user_id)
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.post("/{user_id}/restore", response_model=UserResponse)
+def restore_user(
+    user_id: uuid.UUID,
+    actor: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Reactivate an archived subordinate user, allowing login again. 404
+    if unknown; 403 if the actor does not outrank the target."""
+    try:
+        target = users_service.get_user(db, user_id)
+        if not roles.can_manage(actor.role, target.role):
+            raise RoleManagementError("You cannot restore this user.")
+        return users_service.restore_user(db, user_id)
+    except DomainError as exc:
+        raise to_http(exc)
+
+
 @router.delete("/{user_id}", status_code=204)
 def delete_user(
     user_id: uuid.UUID,
     actor: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Hard-delete a subordinate user. 404 if unknown; 403 if the actor
-    does not outrank the target; 400 if the user has transactions (audit
-    trail is preserved per the spec)."""
+    """Hard-delete a subordinate user. Kept for removing an unreferenced
+    user created in error; the normal removal action is archive, which
+    preserves history. 404 if unknown; 403 if the actor does not outrank
+    the target; 400 if the user has transactions (use archive instead)."""
     try:
         target = users_service.get_user(db, user_id)
         if not roles.can_manage(actor.role, target.role):

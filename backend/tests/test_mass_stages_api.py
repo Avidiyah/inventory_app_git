@@ -1,9 +1,8 @@
 """Tests for the mass-staging planning API.
 
-Pure, no DB -- consistent with the rest of this suite. The DB-bound behaviours
-(one-active-per-building, cascades, status guards, upsert) are exercised by the
-rolled-back verification script and by the Phase-5 integration harness. What is
-unit-testable lives here:
+Pure, no DB -- consistent with the rest of this suite. DB-bound behaviours
+(one-active-per-building, cascades, status guards, upsert, load/return effects)
+live in the database-backed service/API tests. What is unit-testable lives here:
 
 - request-schema validation (non-blank strings, positive planned quantity,
   at-least-one-field updates),

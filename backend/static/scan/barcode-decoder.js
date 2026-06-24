@@ -1,7 +1,6 @@
 // ZXing wrapper. The only file in the codebase that names
 // `window.ZXingBrowser`. Lets a future Web Worker / different decoder
-// swap in behind the same public API. See docs/plan-live-capture.md
-// decision #7 and docs/plan-scan-tuning.md.
+// swap in behind the same public API. See docs/current-state.md.
 //
 // Decode model: a manual `requestAnimationFrame` loop that draws the
 // aim-box region of the video into an offscreen canvas and decodes it
@@ -11,7 +10,7 @@
 //   - apply the TRY_HARDER hint affordably (smaller region),
 //   - measure/own the frame cadence.
 // The winning configuration was validated on the fleet via
-// backend/static/scan-test.html. See docs/plan-scan-tuning.md.
+// backend/static/scan-test.html. See docs/current-state.md.
 //
 // Lifecycle ownership: this class does NOT call `getUserMedia` and does
 // NOT stop `MediaStreamTrack`s. The caller (`views/scan.js`) owns stream
@@ -24,7 +23,7 @@
 // from @zxing/library's DecodeHintType). TRY_HARDER trades a little speed
 // for a more exhaustive search per frame -- affordable here because the
 // cropped region is small. No POSSIBLE_FORMATS hint: the warehouse uses
-// many symbologies, so the decoder stays all-formats (see plan-scan-tuning).
+// many symbologies, so the decoder stays all-formats.
 const HINT_TRY_HARDER = 3;
 
 // Aim-box geometry as fractions of the video frame. MUST stay in sync

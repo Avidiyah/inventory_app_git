@@ -11,14 +11,16 @@
 // - `closeAddBarcode()` hides it (cancel / success).
 // - `setOnSaved(fn)` lets the items view refresh the table after a save.
 //
-// The scanned code came back 404, so it is provably unused -- appending
-// it to any item is uniqueness-safe; the backend still backstops a race
+// The scanned code came back 404, so no *live* item owns it. It may still
+// belong to an *archived* item, in which case the append gets a 409 and
+// confirmArchivedReuse prompts ("Barcode exists but is archived. Continue?")
+// before retrying with override_archived; a genuine race still backstops
 // with DuplicateBarcodeError, surfaced via friendlyError.
 
 import { getItems } from "../state.js";
 import { apiUpdateBarcodes, apiGetItemByBarcode } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
-import { setMessage } from "../dom.js";
+import { setMessage, confirmArchivedReuse } from "../dom.js";
 
 const section = document.getElementById("add-barcode-section");
 const scannedEl = document.getElementById("add-barcode-scanned");
@@ -104,11 +106,20 @@ resultsEl.addEventListener("click", async (event) => {
     // replace, so we must send the *current* full list plus the new code.
     const fresh = await apiGetItemByBarcode(item.barcode);
     const existing = Array.isArray(fresh.barcodes) ? fresh.barcodes : [];
-    await apiUpdateBarcodes(item.id, [...existing, pendingBarcode]);
+    // A 404 lookup means no *live* item owns the code, but an *archived* one
+    // still can -- that's a 409 here, which confirmArchivedReuse prompts on
+    // and retries with override_archived to free the archived holder.
+    await confirmArchivedReuse((override) =>
+      apiUpdateBarcodes(item.id, [...existing, pendingBarcode], override)
+    );
     setMessage(messageEl, `Added ${pendingBarcode} to ${item.name}.`, "success");
     if (onSavedCallback) await onSavedCallback();
     setTimeout(closeAddBarcode, 1200);
   } catch (err) {
+    if (err && err.cancelled) {
+      setMessage(messageEl, "", "");
+      return;
+    }
     setMessage(messageEl, friendlyError(err, "Could not add the barcode. Try again."), "error");
   }
 });

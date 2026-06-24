@@ -37,6 +37,20 @@ class DuplicateBarcodeError(DomainError):
     rejects an insert because the barcode UNIQUE constraint fired."""
 
 
+class ArchivedBarcodeConflictError(DomainError):
+    """Raised when a barcode being applied (on create, primary-barcode
+    edit, or additional-barcode add) is already held by an *archived*
+    (soft-deleted) item rather than a live one.
+
+    This is a recoverable conflict, not a hard duplicate: the caller can
+    retry with `override_archived=True` to free the code -- the archived
+    holder is purged if it has no history, or has just the conflicting
+    code released (keeping its shell for the audit trail) if it does. It
+    maps to 409 Conflict so the frontend can prompt
+    "Barcode exists but is archived. Continue?" and re-submit, distinct
+    from the 400 a live-item `DuplicateBarcodeError` returns."""
+
+
 class DuplicateUsernameError(DomainError):
     """Raised by `services.users.create_user` when the username
     UNIQUE constraint fires."""
@@ -45,7 +59,7 @@ class DuplicateUsernameError(DomainError):
 class UserHasTransactionsError(DomainError):
     """Raised by `services.users.delete_user` when the FK from
     `transactions.user_id` prevents deletion. The audit trail is
-    intentionally preserved — see spec.md decisions log."""
+    intentionally preserved; see docs/current-state.md."""
 
 
 class ItemHasTransactionsError(DomainError):
@@ -184,7 +198,7 @@ class ReturnExceedsLoadedError(DomainError):
 class StageStateError(DomainError):
     """Raised when a mass-staging operation is not allowed in the stage's
     current status -- e.g. editing rooms/items once the stage has left
-    `planning`, or (Phase 5) loading/returning before it reaches `loading`.
+    `planning`, or loading/returning before it reaches `loading`.
     A single generic state guard rather than several niche errors; the
     message states the specific rule. Maps to 400."""
 

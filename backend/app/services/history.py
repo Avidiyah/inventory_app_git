@@ -121,7 +121,15 @@ def list_history(
             quantity=txn.quantity,
             work_order_number=txn.work_order_number,
             reason=txn.reason,
-            item_price=item.price if include_price else None,
+            # Prefer the per-transaction snapshot; fall back to the live
+            # item price for pre-snapshot rows (NULL `unit_price`), so the
+            # whole historical backlog behaves exactly as before while new
+            # rows reflect the price at the time of the transaction.
+            item_price=(
+                (txn.unit_price if txn.unit_price is not None else item.price)
+                if include_price
+                else None
+            ),
             billable_quantity=txn.billable_quantity if include_price else None,
             created_at=txn.created_at,
         )

@@ -29,7 +29,7 @@ import {
 } from "../state.js";
 import { apiListItems, apiCreateItem, apiDeleteItem } from "../api.js";
 import { escapeHtml, friendlyError, formatMoney, safeHttpUrl } from "../format.js";
-import { setMessage } from "../dom.js";
+import { setMessage, confirmArchivedReuse } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
 import { openNotesEditor, closeNotesEditor, renderNotesSummary, setOnSaved } from "./notes.js";
 import {
@@ -200,14 +200,17 @@ createItemBtn.addEventListener("click", async () => {
   }
 
   try {
-    const data = await apiCreateItem({
+    // On a 409 the barcode belongs to an archived item; confirmArchivedReuse
+    // prompts and re-submits with override_archived to free it.
+    await confirmArchivedReuse((override) => apiCreateItem({
       barcode,
       name,
       location,
       quantity: parseFloat(quantity) || 0,
       price: parseFloat(price) || 0,
       product_link: product_link || null,
-    });
+      override_archived: override,
+    }));
     setMessage(createItemMessage, "Item saved.", "success");
     barcodeInput.value = "";
     nameInput.value = "";
@@ -217,6 +220,10 @@ createItemBtn.addEventListener("click", async () => {
     productLinkInput.value = "";
     loadItems();
   } catch (err) {
+    if (err && err.cancelled) {
+      setMessage(createItemMessage, "", "");
+      return;
+    }
     setMessage(createItemMessage, friendlyError(err, "Could not save the item. Try again."), "error");
   }
 });

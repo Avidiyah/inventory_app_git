@@ -5,10 +5,9 @@
 // (planning -> loading). Stages and rooms are expandable one-line cards
 // (<details>); planned items are rows inside a room with inline qty edit.
 //
-// Self-contained UI state (a cached item list for the add-item search) lives
-// in this module, like transactions.js's batch state -- it is not shared with
-// other views, so it does not belong in state.js. The loading/returns UI
-// (merged list, Staged, Unused materials) is added in Phase 7.
+// Self-contained UI state (cached item and technician lists) lives in this
+// module, like transactions.js's batch state -- it is not shared with other
+// views, so it does not belong in state.js.
 
 import {
   apiListStages,
@@ -53,7 +52,7 @@ function statusBadge(status) {
 
 // Summary meta text. A building with one room is a lightweight "work order"
 // entry; two or more rooms make it a full mass-stage card (the display
-// threshold -- see docs/mass-staging/phase-10-saved-workorders.md).
+// threshold -- see docs/current-state.md).
 function stageMetaText(roomCount, itemCount) {
   if (roomCount >= 2) return `${roomCount} units · ${itemCount} items`;
   return roomCount === 1 ? "1 work order" : "no units";

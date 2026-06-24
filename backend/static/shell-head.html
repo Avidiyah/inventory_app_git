@@ -19,9 +19,9 @@
   All behavior lives in `/static/main.js` and the view modules under
   `/static/views/`.
 
-  IDs used as the API contract between markup and JS are the "Frozen DOM
-  contract" in `docs/interfaces.md`. Do not rename them without updating
-  that document. The `.page` sections are toggled by
+  IDs used as the API contract between markup and JS are deliberately
+  stable. Do not rename them without updating the matching view modules.
+  The `.page` sections are toggled by
   `views/nav.js::showPage`, which adds the `active` class to the selected
   one.
 -->

@@ -6,7 +6,7 @@
 // sections via the black header nav, this swaps between *features within
 // one page* via a secondary `.sub-nav` bar.
 //
-// Convention (see docs/interfaces.md "In-page sub-navigation"):
+// Convention: page sections expose tabs as buttons with data-subpage targets.
 //   <div class="page" id="x-page">
 //     <nav class="sub-nav" aria-label="…">
 //       <button class="sub-nav-btn active" data-feature="a">A</button>

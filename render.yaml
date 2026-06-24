@@ -1,8 +1,8 @@
 # Render Blueprint: one Docker web service + one managed Postgres.
 # Create both at once via the Render dashboard -> "New" -> "Blueprint",
 # pointed at this repo. After the first deploy creates the empty schema,
-# load your existing data once with scripts/import_local_data.ps1
-# (see docs/deploy-render.md).
+# load your existing data once with scripts/import_local_data.ps1.
+# Current deployment notes live in docs/current-state.md.
 
 databases:
   - name: inventory-db

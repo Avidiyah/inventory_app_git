@@ -5,7 +5,7 @@
         <!-- Scan-and-go batch flow. Two states share this section:
              #wo-gate (enter a work order) then #scango-active (pick a
              direction + quantity, then scan items into the work order).
-             Driven by views/transactions.js; see docs/plan-scan-and-go.md. -->
+             Driven by views/transactions.js; see docs/current-state.md. -->
         <section id="txn-scango-section">
             <div id="wo-gate">
                 <h2>Start a work order</h2>
@@ -18,7 +18,7 @@
                      building's active stage) and starts the batch -- it persists
                      as a card for next time. Scanning is a plain transaction on
                      the work order, NOT written back to the stage. See
-                     docs/mass-staging/phase-10-saved-workorders.md. -->
+                     docs/current-state.md. -->
                 <div id="wo-gate-cards-section" hidden>
                     <p class="hint">Tap a saved work order to scan into it.</p>
                     <div id="wo-gate-cards"></div>

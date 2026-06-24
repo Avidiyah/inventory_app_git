@@ -77,7 +77,7 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 # The SPA shell, split into per-page fragments so each page's markup can
 # be edited in isolation. Concatenated in this order at request time, the
 # result is byte-identical to the former monolithic `index.html` -- the
-# frozen DOM contract (docs/interfaces.md) is unchanged because the browser
+# frontend DOM contract is unchanged because the browser
 # still receives one complete document with every page present on boot.
 # Fragments are migrated out of the shell one page at a time; pages not yet
 # extracted still live inline in `shell-head.html` / `shell-tail.html`.

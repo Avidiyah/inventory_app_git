@@ -129,11 +129,14 @@ class TransactionHistoryItem(BaseModel):
     transaction was recorded anonymously. `reason` is populated only
     for `transaction_type = "adjust"`.
 
-    `item_price` is the item's current *per-unit* price, included ONLY
-    when the requester is Admin/Owner (the service nulls it otherwise);
-    the frontend multiplies it by `quantity` to show the line value and
-    hides the column for lower roles. It is the live item price, not a
-    historical snapshot — prices are not versioned per transaction.
+    `item_price` is the *per-unit* price, included ONLY when the requester
+    is Admin/Owner (the service nulls it otherwise); the frontend
+    multiplies it by `quantity` to show the line value and hides the column
+    for lower roles. For stock/dispense rows it is the price snapshotted
+    onto the transaction when it was written (`Transaction.unit_price`), so
+    a later edit to the item's price does not rewrite history; pre-snapshot
+    rows (NULL `unit_price`) and any row without a snapshot fall back to the
+    live `Item.price`.
 
     `billable_quantity` is the Admin's billing override (how many units
     to actually charge for; NULL = charge the full `quantity`). Like

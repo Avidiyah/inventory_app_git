@@ -43,7 +43,7 @@ function showLoginScreen() {
 // are allowed to see. Every role lands on the Transaction page, which
 // opens on the work-order gate, so the first action after sign-in is to
 // start a work order and scan -- the core job for the whole crew
-// (see docs/plan-scan-and-go.md).
+// (see docs/current-state.md).
 function enterApp(user) {
   setCurrentUser(user);
   resetBatch(); // start every session at the work-order gate

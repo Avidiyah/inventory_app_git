@@ -13,6 +13,7 @@ here -- this schema only checks that the role is a recognised value.
 
 from uuid import UUID
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel, field_validator
 
@@ -54,11 +55,14 @@ class UserCreate(BaseModel):
 
 class UserResponse(BaseModel):
     """Outbound shape for any endpoint returning a user. The password
-    hash is never included."""
+    hash is never included. `archived_at` is NULL for an active user and
+    a timestamp for an archived (soft-deleted) one, so the Saved Users
+    table can mark archived rows and offer Restore."""
 
     id: UUID
     username: str
     role: str
     created_at: datetime
+    archived_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}

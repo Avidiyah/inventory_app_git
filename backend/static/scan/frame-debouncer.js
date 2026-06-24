@@ -10,8 +10,8 @@
 // `pushAndCheck` returns that same text until `reset()` is called -- this
 // prevents the live UI from re-firing on every frame after the match.
 //
-// Default threshold is 3 consecutive, per docs/plan-scan-tuning.md. This
-// superseded the earlier 5-of-10 sliding window (plan-live-capture #18):
+// Default threshold is 3 consecutive. This
+// superseded the earlier 5-of-10 sliding window:
 // cropping the decode region to the aim-box removed the background-label
 // noise that the wider window existed to suppress, so the faster
 // consecutive fast path is safe.

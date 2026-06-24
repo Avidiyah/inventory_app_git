@@ -78,7 +78,7 @@ export function mountScanner({
   // two guards stop the same label (still in frame) from being counted
   // twice: a short DWELL where every decode is ignored, plus a longer
   // COOLDOWN during which only the *just-committed* barcode is suppressed
-  // (a different item commits immediately). See docs/plan-scan-and-go.md.
+  // (a different item commits immediately). See docs/current-state.md.
   const DWELL_MS = 1200;
   const COOLDOWN_MS = 3000;
 
@@ -274,8 +274,7 @@ export function mountScanner({
   // decoded texts feed into a 3-consecutive debouncer (`FrameDebouncer`).
   // On accept we stop the camera and funnel the text through the same
   // `resolveBarcode` path the upload flow uses -- live mode never calls
-  // `/barcodes/decode`. See docs/plan-live-capture.md decision #3 and
-  // docs/plan-scan-tuning.md.
+  // `/barcodes/decode`. See docs/current-state.md.
   //
   // Mutual exclusion: clicking Upload tears the camera down first so
   // we never hold a video track while the file picker is open.
@@ -375,8 +374,8 @@ export function mountScanner({
           facingMode: { ideal: "environment" },
           // 720p, not 1080p: with the aim-box crop the cropped region has
           // ample pixels for a label that fills the box, and smaller frames
-          // decode faster. Validated on the fleet -- see docs/plan-scan-tuning.md
-          // (supersedes plan-live-capture decision #8).
+          // decode faster. Validated on the fleet; see docs/current-state.md.
+          // (supersedes the earlier full-frame decode approach).
           width: { ideal: 1280 },
           height: { ideal: 720 },
           focusMode: { ideal: "continuous" },
@@ -404,7 +403,7 @@ export function mountScanner({
 
     // Best-effort post-start retry of focusMode -- iOS ignores this
     // silently, Android Chrome accepts the call but the driver may
-    // leave the actual setting on `manual`. See Phase 1 results.
+    // leave the actual setting on `manual`.
     if (liveTrack && typeof liveTrack.applyConstraints === "function") {
       setTimeout(() => {
         if (!liveRunning || !liveTrack) return;
@@ -415,8 +414,7 @@ export function mountScanner({
     }
 
     // Expose the torch button only if the track advertises the
-    // capability. Hidden by default in Phase 3 markup; we flip it on
-    // here once we know it works.
+    // capability. Hidden by default; flip it on once we know it works.
     if (liveEls.torchBtn) {
       const caps = liveTrack && typeof liveTrack.getCapabilities === "function"
         ? liveTrack.getCapabilities()

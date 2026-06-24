@@ -15,6 +15,7 @@ for exceptions whose `str(exc)` is too internal to surface (e.g.
 from fastapi import HTTPException
 
 from app.domain.errors import (
+    ArchivedBarcodeConflictError,
     BillingQuantityError,
     DomainError,
     DuplicateBarcodeError,
@@ -52,6 +53,7 @@ _STATUS_MAP: dict[type[DomainError], int] = {
     RoomNotFoundError: 404,
     StageItemNotFoundError: 404,
     DuplicateBarcodeError: 400,
+    ArchivedBarcodeConflictError: 409,
     DuplicateUsernameError: 400,
     DuplicateBuildingStageError: 400,
     InvalidStageTransitionError: 400,

@@ -33,6 +33,10 @@ class ItemCreate(BaseModel):
     location: str
     price: Optional[Decimal] = None
     product_link: Optional[str] = None
+    # When the barcode is held only by an archived (deleted) item, the
+    # service raises a 409 the user can confirm; the retry sends this True to
+    # free that archived holder and proceed. Defaults False (the first try).
+    override_archived: bool = False
 
     @field_validator("quantity")
     @classmethod
@@ -116,6 +120,11 @@ class ItemBarcodesUpdate(BaseModel):
     """
 
     barcodes: list[str]
+    # See `ItemCreate.override_archived`: confirms reuse of a code currently
+    # held by an archived item, freeing that holder. Only the *added* codes
+    # are checked, so this matters when a newly-added code hits an archived
+    # owner; retained codes are already known-valid.
+    override_archived: bool = False
 
     @field_validator("barcodes")
     @classmethod
@@ -134,14 +143,24 @@ class ItemBarcodesUpdate(BaseModel):
 
 
 class ItemUpdate(BaseModel):
-    """Payload for `PATCH /items/{id}` — edit barcode, name, or location.
+    """Payload for `PATCH /items/{id}` — a partial edit of any subset of
+    barcode, name, location, price, or product_link.
 
-    All three fields are optional; at least one must be present (a
-    no-field request is treated as a client bug, not a no-op). Quantity
-    is deliberately not editable here — direct quantity changes go
-    through `POST /transactions/adjust` so the audit trail is preserved.
-    Barcode uniqueness is a database concern, surfaced as
-    `DuplicateBarcodeError` by the service layer.
+    Partial-update semantics rely on Pydantic v2's `model_fields_set`,
+    which distinguishes "field omitted" from "field explicitly sent"
+    (including an explicit `null`). At least one field must be sent — an
+    empty body is a client bug, not a no-op. The router forwards only the
+    fields actually sent (`model_dump(exclude_unset=True)`), so an omitted
+    field is never confused with "set to null".
+
+    `barcode` / `name` / `location` back NOT NULL columns, so sending any
+    of them as `null` or blank is rejected. `price` / `product_link` are
+    nullable, so an explicit `null` clears the stored value (this is how a
+    price or product link is removed). Quantity is deliberately not
+    editable here — direct quantity changes go through
+    `POST /transactions/adjust` so the audit trail is preserved. Barcode
+    uniqueness is a database concern, surfaced as `DuplicateBarcodeError`
+    by the service layer.
     """
 
     barcode: Optional[str] = None
@@ -149,21 +168,33 @@ class ItemUpdate(BaseModel):
     location: Optional[str] = None
     price: Optional[Decimal] = None
     product_link: Optional[str] = None
+    # See `ItemCreate.override_archived`: confirms reuse of a new primary
+    # barcode currently held by an archived item. Not one of the editable
+    # columns -- it is a flag the router forwards to the service, so it is
+    # excluded from the "at least one field" / NOT NULL checks below.
+    override_archived: bool = False
 
     @field_validator("barcode", "name", "location")
     @classmethod
-    def _not_blank_if_present(cls, v):
+    def _strip_if_present(cls, v):
+        # Trim non-null values; the not-null / not-blank rule for these
+        # three NOT NULL columns is enforced in `_check`, where the
+        # "explicitly sent" signal (`model_fields_set`) is available to
+        # tell an explicit null apart from an omitted field.
         if v is None:
             return v
-        v = v.strip()
-        if not v:
-            raise ValueError("Field cannot be blank.")
-        return v
+        return v.strip()
 
     @model_validator(mode="after")
-    def _at_least_one_field(self):
-        if self.barcode is None and self.name is None and self.location is None:
-            raise ValueError(
-                "At least one of barcode, name, or location is required."
-            )
+    def _check(self):
+        # `override_archived` is a control flag, not an edit, so it does not
+        # by itself satisfy the "at least one field" rule.
+        if not (self.model_fields_set - {"override_archived"}):
+            raise ValueError("At least one field is required.")
+        # NOT NULL columns: a field that was sent must be a non-blank
+        # string (an explicit null or blank is rejected). An omitted field
+        # is fine — it simply will not be forwarded to the service.
+        for field in ("barcode", "name", "location"):
+            if field in self.model_fields_set and not getattr(self, field):
+                raise ValueError(f"{field} cannot be blank.")
         return self

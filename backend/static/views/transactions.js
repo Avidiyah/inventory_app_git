@@ -96,7 +96,7 @@ export function setOnTransactionSaved(fn) {
 // (see views/scan.js continuous mode) and is appended to a running log.
 // Technicians are dispense-only and never see the manual items table /
 // form; Supervisor+ keep those below as a fallback. See
-// docs/plan-scan-and-go.md.
+// docs/current-state.md.
 
 // Active work order, or null while the gate (State A) is showing.
 let batchWorkOrder = null;
@@ -364,7 +364,7 @@ export function scanGoArmed() {
 // Per-scan confirmation. Resolves true (Yes) or false (No / Esc / backdrop).
 // The live decoder stays paused while this is open because handleLiveAccept
 // awaits the whole resolve+commit chain before starting its dwell timer (see
-// docs/plan-scan-and-go.md), so there are never stacked modals. The modal
+// docs/current-state.md), so there are never stacked modals. The modal
 // itself is the shared `dom.confirmDialog` (also used by the mass-stage load
 // action); this wrapper keeps the scan-and-go call sites unchanged.
 function confirmScan(message) {

@@ -1,12 +1,11 @@
-"""Mass-staging CRUD service (planning half).
+"""Mass-staging CRUD service.
 
 Layer: services. Owns the session and translates DB / state violations into
 the domain vocabulary so routers stay thin -- mirrors `services/items.py`.
 
-This module covers PLANNING: stages, rooms, and planned items. Planning never
-moves stock. Loading (real `dispense` rows) and returns are a Phase-5 addition
-to this module; the `loaded_quantity` / `returned_quantity` columns stay 0
-until then.
+This module covers stages, rooms, planned items, loading, and unused-material
+returns. Planning never moves stock; loading writes real `dispense` rows, and
+returns add stock back through the stage tables without writing ledger rows.
 
 Editability is gated by the stage's status via `domain.mass_staging`:
 rooms/items may only be changed while `planning` (`StageStateError` otherwise),
@@ -169,7 +168,7 @@ def add_room_to_building(
     "save a work order with a room" entry point -- it writes the SAME
     `mass_stages`/`mass_stage_rooms` data the Mass Stage page edits, so a
     quick-added room and a planned one are one model (see
-    `docs/mass-staging/phase-10-saved-workorders.md`).
+    `docs/current-state.md`).
 
     The stage is left in `planning` so the room is immediately scannable
     (the by-room dispense works on any non-completed stage) without forcing the
@@ -633,6 +632,10 @@ def load_item(
                     user_id=user_id,
                     transaction_type="dispense",
                     quantity=alloc.quantity,
+                    # Snapshot the price under the item row lock, matching
+                    # the ordinary stock/dispense path in
+                    # `services.transactions.apply_transaction`.
+                    unit_price=item.price,
                     work_order_number=room.work_order_number,
                     reason=None,
                 )
@@ -656,7 +659,7 @@ def return_item(
 
     Adds the quantity back to the item under the same item row lock, WITHOUT
     writing a transaction row (the deliberate, isolated exception -- see
-    `docs/mass-staging/phase-1-design-record.md` section 6), and reverse-fills
+    `docs/current-state.md`), and reverse-fills
     the per-room `returned_quantity` (last-loaded room first).
 
     Raises `StageStateError` unless loading, `ItemNotFoundError` /

@@ -62,7 +62,9 @@ def create_item(
     user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ):
-    """Create an item. Owner/Admin only. 400 on duplicate barcode."""
+    """Create an item. Owner/Admin only. 400 on a live duplicate barcode;
+    409 when the barcode is held only by an archived item (the client
+    confirms and retries with `override_archived` to free it)."""
     try:
         item = items_service.create_item(
             db,
@@ -72,6 +74,7 @@ def create_item(
             location=payload.location,
             price=payload.price,
             product_link=payload.product_link,
+            override_archived=payload.override_archived,
         )
         return _item_response(item, user.role)
     except DomainError as exc:
@@ -150,9 +153,16 @@ def update_item_barcodes(
     only (same gate as the structural `PATCH /items/{item_id}` edit). The
     canonical `barcode` is unchanged -- it is edited via that route. 404 if
     the item does not exist; 400 if a submitted code is already in use by
-    another item or equals this item's own primary barcode."""
+    another live item or equals this item's own primary barcode; 409 if a
+    submitted code is held only by an archived item (the client confirms and
+    retries with `override_archived` to free it)."""
     try:
-        item = items_service.replace_barcodes(db, item_id, payload.barcodes)
+        item = items_service.replace_barcodes(
+            db,
+            item_id,
+            payload.barcodes,
+            override_archived=payload.override_archived,
+        )
         return _item_response(item, user.role)
     except DomainError as exc:
         raise to_http(exc)
@@ -168,18 +178,21 @@ def update_item(
     user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ):
-    """Edit barcode, name, and/or location. Owner/Admin only. 404 if the
-    item does not exist; 400 on duplicate barcode. Quantity is not
-    editable here — corrections go through `POST /transactions/adjust`."""
+    """Partially edit barcode, name, location, price, and/or product link.
+    Owner/Admin only. Only the fields present in the request body are
+    written; an explicit `null` clears `price` / `product_link`. 404 if the
+    item does not exist; 400 on a live duplicate barcode; 409 when the new
+    barcode is held only by an archived item (the client confirms and
+    retries with `override_archived` to free it). Quantity is not editable
+    here — corrections go through `POST /transactions/adjust`."""
     try:
+        # `exclude_unset` forwards only the fields the client actually sent,
+        # so an omitted field is left untouched while an explicit `null`
+        # reaches the service and clears the nullable column.
         item = items_service.update_item(
             db,
             item_id,
-            barcode=payload.barcode,
-            name=payload.name,
-            location=payload.location,
-            price=payload.price,
-            product_link=payload.product_link,
+            **payload.model_dump(exclude_unset=True),
         )
         return _item_response(item, user.role)
     except DomainError as exc:

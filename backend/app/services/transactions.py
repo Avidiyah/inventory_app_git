@@ -66,6 +66,10 @@ def apply_transaction(
         user_id=user_id,
         transaction_type=transaction_type,
         quantity=quantity,
+        # Snapshot the price under the same row lock that guards the
+        # quantity update, so History reflects the price at this moment
+        # rather than the item's current price.
+        unit_price=item.price,
         work_order_number=work_order_number,
         reason=None,
     )

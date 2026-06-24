@@ -6,7 +6,7 @@
 # start (Render's free tier spins the service down when idle and back
 # up on the next request). On the very first deploy it creates the
 # empty schema; your existing data is loaded once, separately, via
-# scripts/import_local_data.ps1 (see docs/deploy-render.md).
+# scripts/import_local_data.ps1 (see docs/current-state.md).
 #
 # Migrations on a single free instance cannot race; revisit if you ever
 # scale to multiple instances.

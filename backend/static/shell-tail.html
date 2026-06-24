@@ -21,9 +21,8 @@
       Vendored @zxing/browser UMD. Loaded as a plain (non-module)
       script so it attaches `ZXingBrowser` to `window` synchronously
       before the deferred `main.js` module evaluates. The only
-      consumer is `scan/barcode-decoder.js`. See docs/reference.md
-      for the pinned version and hash, and docs/plan-live-capture.md
-      for why this is loaded globally.
+      consumer is `scan/barcode-decoder.js`. See docs/current-state.md
+      for the pinned dependency and why this is loaded globally.
     -->
     <script src="/static/vendor/zxing-browser-0.2.0.umd.min.js"></script>
     <script type="module" src="/static/main.js"></script>

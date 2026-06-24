@@ -6,9 +6,8 @@
   <title>Scan Test (Reliability/Speed Harness)</title>
   <!--
     Live-decoder experiment harness. Not part of the SPA, not linked
-    from the app UI, not authenticated. Originally the Phase 1 decoder
-    spike (deleted in the Phase 3 ship PR); restored and repurposed to
-    A/B the reliability/speed levers before they touch production:
+    from the app UI, not authenticated. Used to A/B the reliability/speed
+    levers before they touch production:
 
       - Restrict ZXing to the 5 supported formats (POSSIBLE_FORMATS hint)
       - Decode only the aim-box region (crop) instead of the full frame
@@ -19,7 +18,7 @@
     Unlike the production path (`decodeFromStream`), this harness drives
     its own requestAnimationFrame loop and decodes via `decodeFromCanvas`,
     which is what makes cropping and a TRUE per-frame decode-success rate
-    measurable. See docs/plan-live-capture.md "reliability/speed" levers.
+    measurable. See docs/current-state.md.
 
     Inline styles allowed *only* in this file -- scoped to the harness and
     isolated from the real frontend's no-inline-style convention.

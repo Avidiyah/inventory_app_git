@@ -34,7 +34,15 @@ class User(Base):
     """A person who can log in and act on the system. `username` is the
     login identifier and must be unique; `password_hash` stores a salted
     scrypt digest (see `app.services.auth`); `role` is one of the four
-    values in `app.domain.roles` and drives authorization."""
+    values in `app.domain.roles` and drives authorization.
+
+    Soft delete: a user is archived rather than hard-deleted, so the
+    transaction history -- which resolves the acting user's name via a
+    live join (`services.history.list_history`) -- stays intact after a
+    departure. `archived_at` is NULL for an active user; a timestamp means
+    the user is hidden from the active Saved Users list and can no longer
+    authenticate (`services.auth.authenticate` and `get_active_session_user`
+    both reject archived users). This mirrors `Item.archived_at`."""
 
     __tablename__ = "users"
 
@@ -43,6 +51,7 @@ class User(Base):
     password_hash = Column(Text, nullable=False)
     role = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    archived_at = Column(DateTime(timezone=True), nullable=True)
 
     transactions = relationship("Transaction", back_populates="user")
     sessions = relationship("AuthSession", back_populates="user", cascade="all, delete-orphan")
@@ -101,7 +110,7 @@ class ItemBarcode(Base):
     `code` is globally UNIQUE, which guarantees alt-vs-alt codes never
     collide across items. The remaining cross-table rule -- an alternate
     must not equal any item's *primary* `Item.barcode` -- is enforced by
-    a service pre-check (`services.items._barcode_in_use`), since a single
+    a service pre-check (`services.items._barcode_holder`), since a single
     column UNIQUE constraint cannot span two tables.
 
     The FK is `ON DELETE CASCADE` (deliberately NOT the `RESTRICT` used by
@@ -160,6 +169,14 @@ class Transaction(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     transaction_type = Column(Text, nullable=False)  # "stock" | "dispense" | "adjust"
     quantity = Column(Numeric, nullable=False)
+    # Per-unit price snapshotted from `Item.price` when the row is written,
+    # so History line values / invoice totals reflect the price at the time
+    # of the transaction rather than the item's current price. Set for
+    # stock / dispense (the item row is already locked when these are
+    # written); left NULL for `adjust` (corrections carry no billing
+    # meaning) and for every pre-snapshot row. `services.history` falls back
+    # to the live `Item.price` when this is NULL.
+    unit_price = Column(Numeric, nullable=True)
     # Billing override (Admin/Owner only): how many of the row's units should
     # actually be charged to the customer. NULL means "no override -- bill the
     # full `quantity`"; a value of 0 means "recorded but not charged". This is a
@@ -322,9 +339,8 @@ class MassStageItem(Base):
     this); it may exceed planned (box-of-4 packaging), and the per-item
     overflow is derived as `Sigma loaded - Sigma planned`. `returned_quantity`
     accrues from the "unused materials" step, which adds stock back WITHOUT a
-    ledger row (a deliberate, isolated exception -- see
-    `docs/mass-staging/phase-1-design-record.md` section 6); net consumed is
-    `Sigma loaded - Sigma returned`.
+    ledger row (a deliberate, isolated exception documented in
+    `docs/current-state.md`); net consumed is `Sigma loaded - Sigma returned`.
 
     `UNIQUE(room_id, item_id)` keeps one row per item per room (re-planning an
     item updates its row). The `room_id` FK is `ON DELETE CASCADE` (owned plan

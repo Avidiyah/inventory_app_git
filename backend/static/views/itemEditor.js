@@ -31,7 +31,7 @@
 import { getEditingItemId, setEditingItemId } from "../state.js";
 import { apiUpdateItem, apiUpdateBarcodes } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
-import { setMessage } from "../dom.js";
+import { setMessage, confirmArchivedReuse } from "../dom.js";
 
 const itemEditorSection = document.getElementById("item-editor-section");
 const itemEditorSelected = document.getElementById("item-editor-selected");
@@ -161,21 +161,32 @@ itemEditorSaveBtn.addEventListener("click", async () => {
   // writes are idempotent wholesale replacements, so re-saving reconciles
   // any partial application.
   try {
-    if (barcodesChanged) {
-      await apiUpdateBarcodes(editingId, codes);
-      originalBarcodes = [...codes];
-    }
-    await apiUpdateItem(editingId, {
-      barcode,
-      name,
-      location,
-      price: price ? parseFloat(price) : null,
-      product_link: productLink ? productLink : null,
+    // Both writes ride one confirmArchivedReuse: if either the additional
+    // barcodes or the new primary collide with an *archived* item, the backend
+    // answers 409, we prompt once, and re-run the whole (idempotent) sequence
+    // with override_archived to free the archived holder.
+    await confirmArchivedReuse(async (override) => {
+      if (barcodesChanged) {
+        await apiUpdateBarcodes(editingId, codes, override);
+      }
+      await apiUpdateItem(editingId, {
+        barcode,
+        name,
+        location,
+        price: price ? parseFloat(price) : null,
+        product_link: productLink ? productLink : null,
+        override_archived: override,
+      });
     });
+    originalBarcodes = [...codes];
     setMessage(itemEditorMessage, "Item saved.", "success");
     if (onSavedCallback) await onSavedCallback();
     setTimeout(closeItemEditor, 1000);
   } catch (err) {
+    if (err && err.cancelled) {
+      setMessage(itemEditorMessage, "", "");
+      return;
+    }
     setMessage(itemEditorMessage, friendlyError(err, "Could not save the changes. Try again."), "error");
   }
 });

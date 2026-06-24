@@ -200,8 +200,7 @@ class ReturnRequest(BaseModel):
 # --- Responses (router builder fills nested fields) ----------------------
 
 class StageItemDetail(BaseModel):
-    """One planned item on a room, with its actuals. `loaded_quantity` /
-    `returned_quantity` stay 0 until Phase 5 wires loading/returns."""
+    """One planned item on a room, with its loaded/returned actuals."""
 
     id: UUID
     item_id: UUID

@@ -14,7 +14,8 @@ import { getUsers, setUsers, getRole } from "../state.js";
 import {
   apiListUsers,
   apiCreateUser,
-  apiDeleteUser,
+  apiArchiveUser,
+  apiRestoreUser,
   apiResetPassword,
 } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
@@ -48,7 +49,10 @@ if (userRoleSelect) userRoleSelect.addEventListener("change", updateRoleHelp);
 
 export async function loadUsers() {
   try {
-    const users = await apiListUsers();
+    // Include archived users so the History "by user" filter can still
+    // select a departed user; the Saved Users table marks archived rows
+    // and offers Restore instead of the active-user actions.
+    const users = await apiListUsers({ includeArchived: true });
     setUsers(users);
     renderUsersTable();
     populateRoleSelect();
@@ -65,16 +69,27 @@ function renderUsersTable() {
   getUsers().forEach(user => {
     const row = document.createElement("tr");
     const createdAt = new Date(user.created_at).toLocaleString();
+    const isArchived = Boolean(user.archived_at);
+    if (isArchived) row.classList.add("archived-user");
     // Actions appear only for rows the current user outranks; otherwise
-    // the cell is an empty placeholder (hidden, not disabled).
-    const actions = canManage(actorRole, user.role)
-      ? `<div class="row-actions">
+    // the cell is an empty placeholder (hidden, not disabled). An archived
+    // user offers Restore; an active one offers Reset Password + Archive.
+    let actions;
+    if (!canManage(actorRole, user.role)) {
+      actions = `<span class="empty">—</span>`;
+    } else if (isArchived) {
+      actions = `<div class="row-actions">
+           <button class="restore-user-btn secondary-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">Restore</button>
+         </div>`;
+    } else {
+      actions = `<div class="row-actions">
            <button class="reset-pw-btn secondary-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">Reset Password</button>
-           <button class="delete-user-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">🗑️</button>
-         </div>`
-      : `<span class="empty">—</span>`;
+           <button class="archive-user-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">🗑️</button>
+         </div>`;
+    }
+    const archivedTag = isArchived ? ` <span class="muted">(archived)</span>` : "";
     row.innerHTML = `
-      <td>${escapeHtml(user.username)}</td>
+      <td>${escapeHtml(user.username)}${archivedTag}</td>
       <td>${escapeHtml(user.role)}</td>
       <td>${escapeHtml(createdAt)}</td>
       <td>${actions}</td>
@@ -168,17 +183,31 @@ usersTbody.addEventListener("click", async (event) => {
     return;
   }
 
-  if (!target.classList.contains("delete-user-btn")) return;
+  if (target.classList.contains("restore-user-btn")) {
+    const userId = target.dataset.id;
+    const userName = target.dataset.name;
+    try {
+      await apiRestoreUser(userId);
+      loadUsers();
+    } catch (err) {
+      alert(friendlyError(err, "Could not restore the user. Try again."));
+    }
+    return;
+  }
+
+  if (!target.classList.contains("archive-user-btn")) return;
 
   const userId = target.dataset.id;
   const userName = target.dataset.name;
 
-  if (!confirm(`Are you sure you want to delete user "${userName}"?`)) return;
+  // Archive (soft delete): the user can no longer log in, but their
+  // history is preserved and they can be restored later.
+  if (!confirm(`Archive user "${userName}"? They will no longer be able to log in, but their history is kept and they can be restored.`)) return;
 
   try {
-    await apiDeleteUser(userId);
+    await apiArchiveUser(userId);
     loadUsers();
   } catch (err) {
-    alert(friendlyError(err, "Could not delete the user. Try again."));
+    alert(friendlyError(err, "Could not archive the user. Try again."));
   }
 });

@@ -1,7 +1,6 @@
 // Live-decoder reliability/speed experiment harness. Pairs with
-// scan-test.html. Originally the Phase 1 spike (deleted in the Phase 3
-// ship PR); restored and repurposed to measure the reliability/speed
-// levers before they touch production. See docs/plan-live-capture.md.
+// scan-test.html. Used to measure scanner reliability/speed levers before
+// they touch production. See docs/current-state.md.
 //
 // Difference from production (`views/scan.js` + `scan/barcode-decoder.js`):
 // production uses ZXing's `decodeFromStream`, which owns its own canvas

@@ -19,8 +19,7 @@ const pages = document.querySelectorAll(".page");
 
 // Page-scoped scanners. Drives camera-lifecycle hooks below: stop on
 // page-leave / tab-hide, refresh permission state on page-enter. Add
-// new entries here as more pages adopt live capture (Saved Items in
-// Phase 3 PR2). See docs/plan-live-capture.md.
+// new entries here as more pages adopt live capture. See docs/current-state.md.
 const SCANNERS_BY_PAGE = {
   "transaction": txnScanner,
   "saved-items": itemsScanner,

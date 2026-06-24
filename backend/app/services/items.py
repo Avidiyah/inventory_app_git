@@ -16,36 +16,124 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain.errors import (
+    ArchivedBarcodeConflictError,
     DuplicateBarcodeError,
     ItemNotFoundError,
 )
-from app.models import Item, ItemBarcode
+from app.models import Item, ItemBarcode, MassStageItem, Transaction
 
 
-def _barcode_in_use(
+def _barcode_holder(
     db: Session, code: str, *, exclude_item_id: uuid.UUID | None = None
-) -> bool:
-    """Is `code` already claimed -- as a primary `items.barcode` OR an
-    additional `item_barcodes.code` -- by some item other than
-    `exclude_item_id`?
+) -> Item | None:
+    """Return the item currently claiming `code` -- as a primary
+    `items.barcode` OR an additional `item_barcodes.code` -- other than
+    `exclude_item_id`, or `None` if the code is free.
 
     This is the single home for the cross-table uniqueness rule. The DB
     UNIQUE constraints only guard primary-vs-primary and alt-vs-alt; the
     primary-vs-alt overlap (and the "another item already has this") check
-    cannot be expressed as a single-column constraint, so it lives here
-    and callers translate a True result into `DuplicateBarcodeError`.
-    `exclude_item_id` lets an item keep/move its own codes without
-    self-colliding."""
-    primary_q = db.query(Item.id).filter(Item.barcode == code)
+    cannot be expressed as a single-column constraint, so it lives here.
+    Unlike a barcode lookup, this DELIBERATELY includes archived items:
+    a soft-deleted item still owns its codes, and the caller
+    (`_ensure_barcode_free`) decides whether that is a hard duplicate (live
+    holder) or a recoverable archived conflict. `exclude_item_id` lets an
+    item keep/move its own codes without self-colliding."""
+    primary_q = db.query(Item).filter(Item.barcode == code)
     if exclude_item_id is not None:
         primary_q = primary_q.filter(Item.id != exclude_item_id)
-    if db.query(primary_q.exists()).scalar():
-        return True
+    holder = primary_q.first()
+    if holder is not None:
+        return holder
 
-    alt_q = db.query(ItemBarcode.id).filter(ItemBarcode.code == code)
+    alt_q = (
+        db.query(Item)
+        .join(ItemBarcode, ItemBarcode.item_id == Item.id)
+        .filter(ItemBarcode.code == code)
+    )
     if exclude_item_id is not None:
-        alt_q = alt_q.filter(ItemBarcode.item_id != exclude_item_id)
-    return bool(db.query(alt_q.exists()).scalar())
+        alt_q = alt_q.filter(Item.id != exclude_item_id)
+    return alt_q.first()
+
+
+def _item_has_history(db: Session, item: Item) -> bool:
+    """Does `item` have any audit references that must outlive it -- a
+    `transactions` row (the ledger / billing trail) or a `mass_stage_items`
+    row (a staging plan)? Both FKs are effectively RESTRICT, and the
+    history view resolves an item's name/barcode/price via a live join, so
+    an item with either cannot be hard-deleted without orphaning records."""
+    if db.query(Transaction.id).filter(Transaction.item_id == item.id).first():
+        return True
+    return (
+        db.query(MassStageItem.id).filter(MassStageItem.item_id == item.id).first()
+        is not None
+    )
+
+
+def _retire_barcode(item: Item) -> str:
+    """A unique, clearly-retired replacement for an archived item's primary
+    `barcode`, used to free its code for a live item without dropping the
+    row the History join still reads. The item id (the PK, globally unique)
+    guarantees the replacement can never collide with a real code; the
+    original code stays up front so History stays recognisable."""
+    return f"{item.barcode} (retired {item.id})"
+
+
+def _free_archived_holder(db: Session, holder: Item, code: str) -> None:
+    """Release `code` from an archived `holder` so a live item can claim it.
+
+    Two paths, decided by whether the holder has history:
+    - No history -> nothing to preserve, so purge the whole archived item
+      (its `item_barcodes` cascade away with the row). This clears the
+      clutter the user is trying to consolidate.
+    - Has history -> the audit trail wins: keep the archived shell so the
+      History join still resolves, and release only the conflicting code --
+      retire the primary `barcode` if `code` is it, else drop the matching
+      additional-barcode row.
+
+    Flushes so the code is actually free before the caller re-applies it."""
+    if _item_has_history(db, holder):
+        if holder.barcode == code:
+            holder.barcode = _retire_barcode(holder)
+        else:
+            for bc in list(holder.alt_barcodes):
+                if bc.code == code:
+                    holder.alt_barcodes.remove(bc)
+                    break
+    else:
+        db.delete(holder)
+    db.flush()
+
+
+def _ensure_barcode_free(
+    db: Session,
+    code: str,
+    *,
+    exclude_item_id: uuid.UUID | None = None,
+    override_archived: bool = False,
+) -> None:
+    """Enforce the cross-table uniqueness rule for `code`, distinguishing a
+    live holder from an archived one:
+
+    - free            -> returns, the caller may apply the code.
+    - live holder     -> `DuplicateBarcodeError` (a hard 400 duplicate).
+    - archived holder -> `ArchivedBarcodeConflictError` (a 409 the user can
+                         confirm) unless `override_archived` is set, in which
+                         case the holder is freed via `_free_archived_holder`
+                         and the caller may apply the code.
+
+    `override_archived` NEVER bypasses a live holder -- only an archived
+    one -- so a confirmed reuse can still not steal a code in active use."""
+    holder = _barcode_holder(db, code, exclude_item_id=exclude_item_id)
+    if holder is None:
+        return
+    if holder.archived_at is None:
+        raise DuplicateBarcodeError("An item with this barcode already exists.")
+    if not override_archived:
+        raise ArchivedBarcodeConflictError(
+            "This barcode belongs to a deleted item."
+        )
+    _free_archived_holder(db, holder, code)
 
 
 def create_item(
@@ -57,14 +145,17 @@ def create_item(
     location: str,
     price: Decimal | None = None,
     product_link: str | None = None,
+    override_archived: bool = False,
 ) -> Item:
     """Insert a new item. Raises `DuplicateBarcodeError` if the barcode is
-    already taken -- either as another item's primary barcode (the
-    `items.barcode` UNIQUE constraint) or as an additional code on some
-    item (the cross-table pre-check, which a single UNIQUE constraint
-    cannot cover)."""
-    if _barcode_in_use(db, barcode):
-        raise DuplicateBarcodeError("An item with this barcode already exists.")
+    taken by a *live* item -- either as its primary barcode (the
+    `items.barcode` UNIQUE constraint) or as an additional code (the
+    cross-table pre-check, which a single UNIQUE constraint cannot cover).
+    If the barcode is held only by an *archived* item, raises
+    `ArchivedBarcodeConflictError` so the caller can confirm reuse; passing
+    `override_archived=True` frees that archived holder first (see
+    `_free_archived_holder`)."""
+    _ensure_barcode_free(db, barcode, override_archived=override_archived)
     new_item = Item(
         barcode=barcode,
         name=name,
@@ -120,44 +211,63 @@ def get_item_by_barcode(db: Session, barcode: str) -> Item:
     return item
 
 
+# Sentinel marking "caller did not pass this field" — distinct from a
+# caller explicitly passing `None` to clear a nullable column. The router
+# forwards only the fields the client actually sent (via
+# `ItemUpdate.model_dump(exclude_unset=True)`), so an omitted field keeps
+# this default and is left untouched, while an explicit `None` reaches the
+# function and clears the column.
+_UNSET = object()
+
+
 def update_item(
     db: Session,
     item_id: uuid.UUID,
     *,
-    barcode: str | None = None,
-    name: str | None = None,
-    location: str | None = None,
-    price: Decimal | None = None,
-    product_link: str | None = None,
+    barcode=_UNSET,
+    name=_UNSET,
+    location=_UNSET,
+    price=_UNSET,
+    product_link=_UNSET,
+    override_archived: bool = False,
 ) -> Item:
-    """Edit any of `barcode`, `name`, `location`, `price`, or `product_link` on an existing item.
-    Only fields passed as non-`None` are written; the schema guarantees
-    at least one is set. Raises `ItemNotFoundError` if the id is
-    unknown, or `DuplicateBarcodeError` if a new barcode collides with
-    another item. Quantity is intentionally not editable here — direct
-    corrections go through `services.transactions.apply_correction`.
+    """Partially edit `barcode`, `name`, `location`, `price`, or
+    `product_link` on an existing item. Only the fields the caller passes
+    are written; an omitted field (left as `_UNSET`) is untouched, while an
+    explicit `None` for the nullable `price` / `product_link` columns
+    clears them. `barcode` / `name` / `location` are NOT NULL and the
+    schema rejects a null/blank for them before they reach here. Raises
+    `ItemNotFoundError` if the id is unknown, `DuplicateBarcodeError` if a
+    new barcode collides with a *live* item, or
+    `ArchivedBarcodeConflictError` if it collides only with an *archived*
+    one (pass `override_archived=True` to free that holder and proceed).
+    Quantity is intentionally not editable here — direct corrections go
+    through `services.transactions.apply_correction`.
     """
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item:
         raise ItemNotFoundError("Item not found.")
-    if barcode is not None:
+    if barcode is not _UNSET:
         # Cross-table pre-check: the new primary must not collide with
         # another item's primary OR with any item's additional code (the
-        # `items.barcode` UNIQUE constraint only catches the former).
-        if barcode != item.barcode and _barcode_in_use(
-            db, barcode, exclude_item_id=item_id
-        ):
-            raise DuplicateBarcodeError(
-                "An item with this barcode already exists."
+        # `items.barcode` UNIQUE constraint only catches the former). A live
+        # collision is a hard duplicate; an archived one is a confirmable
+        # conflict that `override_archived` resolves by freeing the holder.
+        if barcode != item.barcode:
+            _ensure_barcode_free(
+                db,
+                barcode,
+                exclude_item_id=item_id,
+                override_archived=override_archived,
             )
         item.barcode = barcode
-    if name is not None:
+    if name is not _UNSET:
         item.name = name
-    if location is not None:
+    if location is not _UNSET:
         item.location = location
-    if price is not None:
+    if price is not _UNSET:
         item.price = price
-    if product_link is not None:
+    if product_link is not _UNSET:
         item.product_link = product_link
     try:
         db.commit()
@@ -187,7 +297,11 @@ def delete_item(db: Session, item_id: uuid.UUID) -> None:
 
 
 def replace_barcodes(
-    db: Session, item_id: uuid.UUID, codes: Sequence[str]
+    db: Session,
+    item_id: uuid.UUID,
+    codes: Sequence[str],
+    *,
+    override_archived: bool = False,
 ) -> Item:
     """Replace an item's *additional* barcodes wholesale with `codes`.
 
@@ -197,11 +311,14 @@ def replace_barcodes(
     only the `item_barcodes` child rows are swapped.
 
     Each code is validated against the cross-table uniqueness rule before
-    anything is written: it must not be in use by another item (primary or
-    additional) and must not equal this item's own primary barcode (which
-    would be a redundant duplicate). Any violation raises
-    `DuplicateBarcodeError` and leaves the existing codes intact. Raises
-    `ItemNotFoundError` if the id is unknown."""
+    anything is written: it must not be in use by another *live* item
+    (primary or additional) and must not equal this item's own primary
+    barcode (which would be a redundant duplicate). A live collision raises
+    `DuplicateBarcodeError` and leaves the existing codes intact. A code
+    held only by an *archived* item raises `ArchivedBarcodeConflictError`
+    unless `override_archived=True`, which frees that archived holder
+    (purged if it has no history, else its conflicting code released) before
+    the code is appended. Raises `ItemNotFoundError` if the id is unknown."""
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item:
         raise ItemNotFoundError("Item not found.")
@@ -216,10 +333,13 @@ def replace_barcodes(
     for code in desired:
         if code in existing:
             continue
-        if code == item.barcode or _barcode_in_use(
-            db, code, exclude_item_id=item_id
-        ):
+        if code == item.barcode:
             raise DuplicateBarcodeError(f"Barcode '{code}' is already in use.")
+        # A live holder is a hard duplicate; an archived one is a confirmable
+        # conflict that `override_archived` frees before we append the code.
+        _ensure_barcode_free(
+            db, code, exclude_item_id=item_id, override_archived=override_archived
+        )
 
     # Diff rather than reassign the whole collection: deleting and
     # re-inserting a *retained* code in the same flush would collide on the

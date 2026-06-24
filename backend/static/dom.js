@@ -91,3 +91,25 @@ export function confirmDialog(message) {
     document.addEventListener("keydown", onKey);
   });
 }
+
+// --- Archived-barcode reuse confirm/retry -----------------------------
+// Runs `action(override)` -- an async API call that takes the backend's
+// `override_archived` flag. The first attempt passes false; if the backend
+// answers 409 (the barcode is held only by an archived/deleted item, not a
+// live one) it shows the standard confirm modal and, on Yes, retries once
+// with override=true so the service frees that archived holder and proceeds.
+//
+// Returns the action's resolved value on success. Throws `{ cancelled: true }`
+// if the user declines (so callers can clear their status line without
+// surfacing an error), and rethrows any other error unchanged so existing
+// `friendlyError` handling still applies (including a live-item 400 duplicate).
+export async function confirmArchivedReuse(action) {
+  try {
+    return await action(false);
+  } catch (err) {
+    if (!(err && err.status === 409)) throw err;
+    const ok = await confirmDialog("Barcode exists but is archived. Continue?");
+    if (!ok) throw { cancelled: true };
+    return await action(true);
+  }
+}

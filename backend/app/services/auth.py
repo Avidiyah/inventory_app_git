@@ -85,10 +85,16 @@ def verify_password(password: str, stored: str) -> bool:
 
 def authenticate(db: Session, *, username: str, password: str) -> User:
     """Resolve a username + password to a `User`. Raises
-    `InvalidCredentialsError` for both "no such user" and "wrong
-    password" so the two cases are indistinguishable to a caller."""
+    `InvalidCredentialsError` for "no such user", "wrong password", AND
+    "archived user" so all three are indistinguishable to a caller: an
+    archived (soft-deleted) user can no longer log in, but we do not leak
+    that the account exists."""
     user = db.query(User).filter(User.username == username).first()
-    if user is None or not verify_password(password, user.password_hash):
+    if (
+        user is None
+        or user.archived_at is not None
+        or not verify_password(password, user.password_hash)
+    ):
         raise InvalidCredentialsError("Invalid username or password.")
     return user
 
@@ -123,7 +129,10 @@ def get_active_session_user(db: Session, token: str) -> Optional[User]:
       that cap, the row is deleted and None is returned (expired on the
       server).
     - Otherwise (no cap, or cap not yet reached) the owning user is
-      returned. There is no idle timeout and no per-request write.
+      returned, unless that user has since been archived -- an archived
+      user is treated as having no valid session (defense in depth: the
+      archive path also deletes the user's sessions, but this guards any
+      that slip through). There is no idle timeout and no per-request write.
     """
     session = db.query(AuthSession).filter(AuthSession.token == token).first()
     if session is None:
@@ -140,7 +149,11 @@ def get_active_session_user(db: Session, token: str) -> Optional[User]:
             db.commit()
             return None
 
-    return db.query(User).filter(User.id == session.user_id).first()
+    return (
+        db.query(User)
+        .filter(User.id == session.user_id, User.archived_at.is_(None))
+        .first()
+    )
 
 
 def delete_session(db: Session, token: str) -> None:

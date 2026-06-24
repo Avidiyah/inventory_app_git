@@ -7,7 +7,7 @@
 # NOTE on pyzbar: it wraps the native `zbar` library. The wheel bundles the
 # DLLs, but on Windows they require the Visual C++ 2013 Redistributable
 # (msvcr120.dll); without it the import fails with a missing libiconv.dll.
-# See docs/reference.md.
+# See docs/current-state.md.
 
 fastapi==0.136.3
 uvicorn==0.48.0
