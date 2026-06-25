@@ -22,7 +22,7 @@ import {
   setSelectedItemId,
   getRole,
 } from "../state.js";
-import { apiListItems, apiCreateTransaction, apiListActiveRooms, apiQuickAddRoom, apiListUsers } from "../api.js";
+import { apiListItems, apiCreateTransaction, apiListWorkOrders, apiCreateWorkOrder, apiListUsers } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
@@ -69,6 +69,7 @@ const woGateCardsMessage = document.getElementById("wo-gate-cards-message");
 const woGateNew = document.getElementById("wo-gate-new");
 const woGateManual = document.getElementById("wo-gate-manual");
 const newBuilding = document.getElementById("wo-gate-new-building");
+const newBuildingNo = document.getElementById("wo-gate-new-buildingno");
 const newRoom = document.getElementById("wo-gate-new-room");
 const newWo = document.getElementById("wo-gate-new-wo");
 const newAssignee = document.getElementById("wo-gate-new-assignee");
@@ -98,7 +99,7 @@ export function setOnTransactionSaved(fn) {
 // form; Supervisor+ keep those below as a fallback. See
 // docs/current-state.md.
 
-// Active work order, or null while the gate (State A) is showing.
+// Active work order `{id, number}`, or null while the gate (State A) is showing.
 let batchWorkOrder = null;
 // Running tallies for the current work order's on-screen summary.
 let batchScanCount = 0;
@@ -207,16 +208,13 @@ function updateSummary() {
   scangoSummary.hidden = false;
 }
 
-function startBatch() {
-  const workOrder = woGateInput ? woGateInput.value.trim() : "";
-  if (!workOrder) {
-    setMessage(woGateMessage, "Enter a work order number to start.", "error");
-    return;
-  }
+// Start a batch on an already-resolved work order `{id, number}` (a tapped card
+// or a freshly created one).
+function startBatchFor(workOrder) {
   batchWorkOrder = workOrder;
   clearBatchLog();
   setMessage(woGateMessage, "", "");
-  if (scangoWoLabel) scangoWoLabel.textContent = `Work order: ${workOrder}`;
+  if (scangoWoLabel) scangoWoLabel.textContent = `Work order: ${workOrder.number}`;
   // Quantity defaults to 1 so the batch is armed without typing; the operator
   // taps the field only to opt into a different amount.
   if (scangoQuantity) scangoQuantity.value = "1";
@@ -229,6 +227,22 @@ function startBatch() {
   // is a live scanner (only if permission is already granted; otherwise the
   // manual "Scan Barcode" button remains).
   if (scanAutoStart) scanAutoStart();
+}
+
+// Free-text gate (Supervisor+): resolve the typed number to a work order
+// (find-or-create), then start a batch on it.
+async function startBatch() {
+  const number = woGateInput ? woGateInput.value.trim() : "";
+  if (!number) {
+    setMessage(woGateMessage, "Enter a work order number to start.", "error");
+    return;
+  }
+  try {
+    const wo = await apiCreateWorkOrder({ number });
+    startBatchFor({ id: wo.id, number: wo.number });
+  } catch (err) {
+    setMessage(woGateMessage, friendlyError(err, "Could not start that work order."), "error");
+  }
 }
 
 function changeWorkOrder() {
@@ -260,37 +274,46 @@ function resetWoCards() {
   if (woGateCards) woGateCards.innerHTML = "";
   if (woGateCardsMessage) setMessage(woGateCardsMessage, "", "");
   if (newBuilding) newBuilding.value = "";
+  if (newBuildingNo) newBuildingNo.value = "";
   if (newRoom) newRoom.value = "";
   if (newWo) newWo.value = "";
   if (newAssignee) newAssignee.value = "";
   if (newMessage) setMessage(newMessage, "", "");
 }
 
-function renderWoCards(rooms) {
+function renderWoCards(workOrders) {
   if (!woGateCards) return;
   woGateCards.innerHTML = "";
-  if (!rooms.length) {
+  if (!workOrders.length) {
     const empty = isTechnician()
       ? "No work orders assigned to you."
-      : "No saved work orders yet. Add one below.";
+      : "No active work orders yet. Add one below.";
     setMessage(woGateCardsMessage, empty, "");
     return;
   }
   setMessage(woGateCardsMessage, "", "");
   const showAssignee = !isTechnician(); // a tech's cards are all their own
-  rooms.forEach((r) => {
+  workOrders.forEach((w) => {
     const card = document.createElement("button");
     card.type = "button";
     card.className = "wo-card";
-    card.dataset.wo = r.work_order_number;
+    card.dataset.wo = w.number;
+    card.dataset.woId = w.id;
     const assignee = showAssignee
       ? `<span class="wo-card-assignee">${
-          r.assigned_to_username ? "Assigned: " + escapeHtml(r.assigned_to_username) : "Unassigned"
+          w.assigned_to_username ? "Assigned: " + escapeHtml(w.assigned_to_username) : "Unassigned"
         }</span>`
       : "";
+    const place = [
+      w.community,
+      w.building_number ? `Bldg ${w.building_number}` : "",
+      w.unit_number ? `Unit ${w.unit_number}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
     card.innerHTML =
-      `<span class="wo-card-wo">WO ${escapeHtml(r.work_order_number)}</span>` +
-      `<span class="wo-card-meta">${escapeHtml(r.building_name)} · Unit ${escapeHtml(r.room_number)}</span>` +
+      `<span class="wo-card-wo">WO ${escapeHtml(w.number)}</span>` +
+      `<span class="wo-card-meta">${escapeHtml(place || "—")}</span>` +
       assignee;
     woGateCards.appendChild(card);
   });
@@ -323,33 +346,40 @@ async function refreshWoCards() {
   if (batchWorkOrder !== null || !woGateCards) return;
   loadAssignees(); // Supervisor+ quick-add dropdown (no-op for technicians)
   try {
-    const rooms = await apiListActiveRooms();
-    renderWoCards(rooms);
+    const workOrders = await apiListWorkOrders({ status: "in_progress" });
+    renderWoCards(workOrders);
   } catch (err) {
-    setMessage(woGateCardsMessage, friendlyError(err, "Could not load saved work orders."), "error");
+    setMessage(woGateCardsMessage, friendlyError(err, "Could not load work orders."), "error");
   }
 }
 
 // Quick-add a building + room + work order, then start the batch on it. The
 // card list refreshes when the operator returns to the gate.
 async function submitNewWorkOrder() {
-  const buildingName = newBuilding ? newBuilding.value.trim() : "";
-  const roomNumber = newRoom ? newRoom.value.trim() : "";
-  const workOrderNumber = newWo ? newWo.value.trim() : "";
+  const community = newBuilding ? newBuilding.value.trim() : "";
+  const buildingNumber = newBuildingNo ? newBuildingNo.value.trim() : "";
+  const unitNumber = newRoom ? newRoom.value.trim() : "";
+  const number = newWo ? newWo.value.trim() : "";
   const assignedToId = newAssignee && newAssignee.value ? newAssignee.value : null;
-  if (!buildingName || !roomNumber || !workOrderNumber) {
-    setMessage(newMessage, "Enter a community, unit, and work order.", "error");
+  if (!number) {
+    setMessage(newMessage, "Enter a work order number.", "error");
     return;
   }
+  let wo;
   try {
-    await apiQuickAddRoom({ buildingName, roomNumber, workOrderNumber, assignedToId });
+    wo = await apiCreateWorkOrder({
+      number,
+      community: community || null,
+      buildingNumber: buildingNumber || null,
+      unitNumber: unitNumber || null,
+      assignedToId,
+    });
   } catch (err) {
     setMessage(newMessage, friendlyError(err, "Could not save the work order."), "error");
     return;
   }
-  if (woGateInput) woGateInput.value = workOrderNumber;
   resetWoCards();
-  startBatch();
+  startBatchFor({ id: wo.id, number: wo.number });
 }
 
 // Gate consulted by the scanner before it commits a decode (see
@@ -394,7 +424,8 @@ export async function commitScannedItem(item) {
       item_id: item.id,
       transaction_type: type,
       quantity,
-      work_order_number: batchWorkOrder,
+      work_order_id: batchWorkOrder.id,
+      work_order_number: batchWorkOrder.number,
     });
   } catch (err) {
     appendLogLine(`✗ ${item.name}: ${friendlyError(err, "Could not save. Try again.")}`, false);
@@ -477,8 +508,7 @@ if (woGateCards) {
   woGateCards.addEventListener("click", (event) => {
     const card = event.target.closest(".wo-card");
     if (!card) return;
-    if (woGateInput) woGateInput.value = card.dataset.wo;
-    startBatch(); // reuses the gate input -> normal scan-and-go batch
+    startBatchFor({ id: card.dataset.woId, number: card.dataset.wo });
   });
 }
 if (newSaveBtn) newSaveBtn.addEventListener("click", submitNewWorkOrder);

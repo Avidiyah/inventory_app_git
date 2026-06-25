@@ -40,8 +40,13 @@ def apply_transaction(
     quantity: Decimal,
     user_id: Optional[uuid.UUID],
     work_order_number: Optional[str],
+    work_order_id: Optional[uuid.UUID] = None,
 ) -> Transaction:
     """Apply a stock/dispense and append the audit row.
+
+    `work_order_id` links the standalone work order (the router resolves it from
+    a scanned card or by find-or-create); `work_order_number` is the denormalized
+    snapshot kept for History.
 
     Raises `ItemNotFoundError` if the item id is unknown, and
     `NegativeQuantityError` (from `apply_delta`) if a dispense
@@ -71,6 +76,7 @@ def apply_transaction(
         # rather than the item's current price.
         unit_price=item.price,
         work_order_number=work_order_number,
+        work_order_id=work_order_id,
         reason=None,
     )
     db.add(new_txn)
@@ -115,30 +121,34 @@ def void_transaction(
     if txn is None or txn.voided_at is not None:
         raise TransactionNotFoundError("Transaction not found.")
 
-    # Lock the item row before the read-modify-write of its quantity, so
-    # a void racing a stock/dispense/correction can never lose an update.
-    item = (
-        db.query(Item)
-        .filter(Item.id == txn.item_id)
-        .with_for_update()
-        .first()
-    )
-    if item is None:
-        # The item_id FK is RESTRICT, so a live transaction always has a
-        # live item; this is a defensive guard, not an expected path.
-        raise ItemNotFoundError("Item not found.")
-
-    try:
-        item.quantity = reverse_delta(
-            item.quantity, txn.transaction_type, txn.quantity
+    # Stock-neutral rows (retroactive work-order backfill) never moved on-hand,
+    # so undoing them must NOT move it either -- just soft-delete the row so it
+    # leaves History. Skip the item lock + reversal entirely for them.
+    if txn.affects_stock:
+        # Lock the item row before the read-modify-write of its quantity, so
+        # a void racing a stock/dispense/correction can never lose an update.
+        item = (
+            db.query(Item)
+            .filter(Item.id == txn.item_id)
+            .with_for_update()
+            .first()
         )
-    except NegativeQuantityError as exc:
-        # Translate the low-level overdraft into a void-specific message;
-        # SQLAlchemy rolls back the (untouched) transaction on raise.
-        raise TransactionVoidError(
-            "Cannot void this entry — it would make the on-hand count "
-            "negative. Make a correction instead."
-        ) from exc
+        if item is None:
+            # The item_id FK is RESTRICT, so a live transaction always has a
+            # live item; this is a defensive guard, not an expected path.
+            raise ItemNotFoundError("Item not found.")
+
+        try:
+            item.quantity = reverse_delta(
+                item.quantity, txn.transaction_type, txn.quantity
+            )
+        except NegativeQuantityError as exc:
+            # Translate the low-level overdraft into a void-specific message;
+            # SQLAlchemy rolls back the (untouched) transaction on raise.
+            raise TransactionVoidError(
+                "Cannot void this entry — it would make the on-hand count "
+                "negative. Make a correction instead."
+            ) from exc
 
     txn.voided_at = datetime.now(timezone.utc)
     txn.voided_by_id = user_id

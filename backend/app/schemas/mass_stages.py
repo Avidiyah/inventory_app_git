@@ -1,12 +1,10 @@
-"""Mass-staging request/response schemas (planning).
+"""Mass-staging request/response schemas (truck planning).
 
-Layer: schemas. Consumed by `app/routers/mass_stages.py`. Request validators
-mirror `schemas/items.py` (strip-non-blank strings, positive `Decimal`).
-
-The response models are plain `BaseModel`s that the router builder fills,
-NOT `from_attributes` shapes: a stage item's `item_name` / `item_barcode`
-come from the joined `Item`, which `from_attributes` cannot pull into renamed
-fields. See `routers/mass_stages.py::_stage_detail`.
+Layer: schemas. Consumed by `app/routers/mass_stages.py`. A Mass Stage groups a
+building's work orders into truck-load slots; it references standalone
+`WorkOrder`s rather than owning them. Response models are plain `BaseModel`s the
+router builder fills (a slot's `work_order_number` / a line's `item_name` come
+from joined rows).
 """
 
 from datetime import datetime
@@ -24,124 +22,86 @@ def _stripped_nonblank(v: str, label: str) -> str:
     return v
 
 
+def _stripped_or_none(v):
+    if v is None:
+        return None
+    v = v.strip()
+    return v or None
+
+
 # --- Requests ------------------------------------------------------------
 
 class MassStageCreate(BaseModel):
-    """Payload for `POST /mass-stages`."""
+    """Payload for `POST /mass-stages`. `building_name` carries the building
+    *number* (column name kept); `community` is the grouping above it."""
 
+    community: str
     building_name: str
+
+    @field_validator("community")
+    @classmethod
+    def _community_not_blank(cls, v):
+        return _stripped_nonblank(v, "Community")
 
     @field_validator("building_name")
     @classmethod
     def _building_not_blank(cls, v):
-        return _stripped_nonblank(v, "Building name")
+        return _stripped_nonblank(v, "Building number")
 
 
 class MassStageUpdate(BaseModel):
     """Payload for `PATCH /mass-stages/{id}` -- rename and/or change status.
+    Status transitions are policed by `domain.mass_staging.validate_transition`."""
 
-    `status` is left to the service's `domain.mass_staging.validate_transition`
-    to police (a bad target raises `InvalidStageTransitionError`), so it is
-    accepted as a free string here. At least one field must be present.
-    """
-
+    community: Optional[str] = None
     building_name: Optional[str] = None
     status: Optional[str] = None
 
+    @field_validator("community")
+    @classmethod
+    def _community_not_blank(cls, v):
+        if v is None:
+            return v
+        return _stripped_nonblank(v, "Community")
+
     @field_validator("building_name")
     @classmethod
     def _building_not_blank(cls, v):
         if v is None:
             return v
-        return _stripped_nonblank(v, "Building name")
+        return _stripped_nonblank(v, "Building number")
 
     @model_validator(mode="after")
     def _at_least_one(self):
-        if self.building_name is None and self.status is None:
-            raise ValueError("Provide building_name or status to update.")
+        if self.community is None and self.building_name is None and self.status is None:
+            raise ValueError("Provide community, building_name, or status to update.")
         return self
 
 
-class RoomCreate(BaseModel):
-    """Payload for `POST /mass-stages/{id}/rooms`. `assigned_to_id` optionally
-    assigns the work order to a technician at creation (None = unassigned)."""
+class StageWorkOrderCreate(BaseModel):
+    """Payload for `POST /mass-stages/{id}/work-orders` -- add a work order to a
+    stage's truck plan. The service find-or-creates the `WorkOrder` by number
+    (community/building come from the stage; enforced to match), records the
+    `unit_number`, optional technician assignee, and links it as a slot."""
 
-    room_number: str
     work_order_number: str
+    unit_number: Optional[str] = None
     assigned_to_id: Optional[UUID] = None
-
-    @field_validator("room_number")
-    @classmethod
-    def _room_not_blank(cls, v):
-        return _stripped_nonblank(v, "Room number")
 
     @field_validator("work_order_number")
     @classmethod
     def _wo_not_blank(cls, v):
         return _stripped_nonblank(v, "Work order number")
 
-
-class RoomAssign(BaseModel):
-    """Payload for `PATCH /mass-stages/{id}/rooms/{room_id}/assign`. `None`
-    clears the assignment; otherwise the id must be a technician (validated in
-    the service)."""
-
-    assigned_to_id: Optional[UUID] = None
-
-
-class QuickRoomCreate(BaseModel):
-    """Payload for `POST /mass-stages/quick-room` -- the scan-gate quick-add.
-    Captures building + room + work order in one shot; the service find-or-creates
-    the building's active stage and appends the room. `assigned_to_id` optionally
-    assigns the work order to a technician (None = unassigned)."""
-
-    building_name: str
-    room_number: str
-    work_order_number: str
-    assigned_to_id: Optional[UUID] = None
-
-    @field_validator("building_name")
+    @field_validator("unit_number")
     @classmethod
-    def _building_not_blank(cls, v):
-        return _stripped_nonblank(v, "Building name")
-
-    @field_validator("room_number")
-    @classmethod
-    def _room_not_blank(cls, v):
-        return _stripped_nonblank(v, "Room number")
-
-    @field_validator("work_order_number")
-    @classmethod
-    def _wo_not_blank(cls, v):
-        return _stripped_nonblank(v, "Work order number")
-
-
-class RoomUpdate(BaseModel):
-    """Payload for `PATCH /mass-stages/{id}/rooms/{room_id}`."""
-
-    room_number: Optional[str] = None
-    work_order_number: Optional[str] = None
-
-    @field_validator("room_number", "work_order_number")
-    @classmethod
-    def _not_blank_if_present(cls, v):
-        if v is None:
-            return v
-        v = v.strip()
-        if not v:
-            raise ValueError("Field cannot be blank.")
-        return v
-
-    @model_validator(mode="after")
-    def _at_least_one(self):
-        if self.room_number is None and self.work_order_number is None:
-            raise ValueError("Provide room_number or work_order_number to update.")
-        return self
+    def _unit_trim(cls, v):
+        return _stripped_or_none(v)
 
 
 class StageItemCreate(BaseModel):
-    """Payload for `POST /mass-stages/{id}/rooms/{room_id}/items`. Planning is
-    estimation, so this records an intended quantity -- it is NOT a transaction."""
+    """Payload for `POST /mass-stages/{id}/work-orders/{slot_id}/items`. Planning
+    is estimation, so this records an intended quantity -- NOT a transaction."""
 
     item_id: UUID
     planned_quantity: Decimal
@@ -155,7 +115,7 @@ class StageItemCreate(BaseModel):
 
 
 class StageItemUpdate(BaseModel):
-    """Payload for `PATCH /mass-stages/{id}/rooms/{room_id}/items/{stage_item_id}`."""
+    """Payload for `PATCH .../work-orders/{slot_id}/items/{stage_item_id}`."""
 
     planned_quantity: Decimal
 
@@ -169,7 +129,7 @@ class StageItemUpdate(BaseModel):
 
 class LoadRequest(BaseModel):
     """Payload for `POST /mass-stages/{id}/load` -- stage `quantity` of one
-    merged item onto the truck (split into per-room dispenses by the service)."""
+    merged item onto the truck (split into per-slot dispenses by the service)."""
 
     item_id: UUID
     quantity: Decimal
@@ -184,7 +144,7 @@ class LoadRequest(BaseModel):
 
 class ReturnRequest(BaseModel):
     """Payload for `POST /mass-stages/{id}/return` -- add `quantity` of one item
-    back to stock (silent stock-add, reverse-filled across the item's rooms)."""
+    back to stock (silent stock-add, reverse-filled across the item's slots)."""
 
     item_id: UUID
     quantity: Decimal
@@ -200,7 +160,7 @@ class ReturnRequest(BaseModel):
 # --- Responses (router builder fills nested fields) ----------------------
 
 class StageItemDetail(BaseModel):
-    """One planned item on a room, with its loaded/returned actuals."""
+    """One planned item on a slot, with its loaded/returned actuals."""
 
     id: UUID
     item_id: UUID
@@ -212,10 +172,15 @@ class StageItemDetail(BaseModel):
     returned_quantity: Decimal
 
 
-class RoomDetail(BaseModel):
-    id: UUID
-    room_number: str
+class StageWorkOrderDetail(BaseModel):
+    """A work order's slot in a stage: the slot id plus the referenced work
+    order's number/unit/status/assignee and the slot's planned items."""
+
+    id: UUID  # slot id (mass_stage_work_orders.id)
+    work_order_id: UUID
     work_order_number: str
+    unit_number: Optional[str] = None
+    status: str  # the work order's status (in_progress | completed)
     sort_order: int
     assigned_to_id: Optional[UUID] = None
     assigned_to_username: Optional[str] = None
@@ -224,15 +189,13 @@ class RoomDetail(BaseModel):
 
 class MergedItem(BaseModel):
     """One item rolled up across the whole stage -- the unit the supervisor
-    loads onto the truck. `overflow` = loaded beyond planned (e.g. box-of-4
-    packaging); `net_consumed` = loaded minus returned; `remaining_to_load` =
-    planned still not loaded. Returned by `/load` and `/return`, and listed on
-    the stage detail."""
+    loads onto the truck. `overflow` = loaded beyond planned; `net_consumed` =
+    loaded minus returned; `remaining_to_load` = planned still not loaded."""
 
     item_id: UUID
     item_name: str
     item_barcode: str
-    on_hand: Decimal  # the item's current on-hand stock (coverage check)
+    on_hand: Decimal
     planned_total: Decimal
     loaded_total: Decimal
     returned_total: Decimal
@@ -242,42 +205,26 @@ class MergedItem(BaseModel):
 
 
 class MassStageDetail(BaseModel):
-    """Full stage view: rooms (each with their planned items) plus the
+    """Full stage view: work-order slots (each with planned items) plus the
     per-item merged rollup used by the loading screen."""
 
     id: UUID
+    community: str
     building_name: str
     status: str
     created_at: datetime
-    rooms: list[RoomDetail] = []
+    work_orders: list[StageWorkOrderDetail] = []
     merged_items: list[MergedItem] = []
 
 
-class ActiveRoom(BaseModel):
-    """One room (with its work order) on a non-completed stage -- the unit the
-    scan gate renders as a tappable card. Flat by design: the gate just needs
-    building + room + work order to start a batch, not the full stage tree."""
-
-    stage_id: UUID
-    building_name: str
-    status: str
-    room_id: UUID
-    room_number: str
-    work_order_number: str
-    sort_order: int
-    created_by_id: Optional[UUID] = None
-    created_by_username: Optional[str] = None
-    assigned_to_id: Optional[UUID] = None
-    assigned_to_username: Optional[str] = None
-
-
 class MassStageSummary(BaseModel):
-    """One-line card data for the stage list. `item_count` is the number of
-    DISTINCT items across the stage's rooms (design-record R3)."""
+    """One-line card data for the stage list. `unit_count` = work-order slots;
+    `item_count` = DISTINCT items planned across them."""
 
     id: UUID
+    community: str
     building_name: str
     status: str
-    room_count: int
+    unit_count: int
     item_count: int
     created_at: datetime

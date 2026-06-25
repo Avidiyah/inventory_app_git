@@ -208,3 +208,19 @@ class InvalidAssigneeError(DomainError):
     exist or is not a technician. Work orders are assigned only to
     technicians (`domain.roles.ROLE_TECHNICIAN`); an unassigned room (None)
     is always valid. Maps to 400."""
+
+
+class WorkOrderNotFoundError(DomainError):
+    """Raised when the Work Orders page is asked to operate on a work order
+    (a `mass_stage_rooms` row) that does not exist, is still in `planning`
+    (so it lives only inside Mass Stage, not the Work Orders page), or is not
+    visible to the caller. Visibility failures deliberately surface as
+    not-found rather than 403 so the API does not reveal the existence of work
+    orders a user may not see (`domain.work_orders.can_view_work_order`). Maps
+    to 404."""
+
+
+class WorkOrderStateError(DomainError):
+    """Raised by the Work Orders service for an invalid status or entry mode --
+    e.g. a status that is not `in_progress` / `completed`, or a mode that is
+    not `dispense` / `retroactive`. A pure validation failure; maps to 400."""

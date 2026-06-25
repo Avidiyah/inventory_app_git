@@ -11,6 +11,7 @@ import { loadHistory } from "./history.js";
 import { loadItems } from "./items.js";
 import { loadUsers } from "./users.js";
 import { loadStages } from "./massStage.js";
+import { loadWorkOrders } from "./workOrders.js";
 import { txnScanner } from "./scan.js";
 import { itemsScanner } from "./items.js";
 
@@ -50,6 +51,8 @@ export const PAGE_ACCESS = {
   // in roles.can_transact; the UI hides the Stock toggle for them).
   "transaction": ["owner", "admin", "supervisor", "technician"],
   "mass-stage": ["owner", "admin", "supervisor"],
+  // Work Orders is technician-facing (server scopes to assigned/created/all).
+  "work-orders": ["owner", "admin", "supervisor", "technician"],
   "history": ["owner", "admin", "supervisor"],
 };
 
@@ -93,6 +96,8 @@ export function showPage(pageName) {
     loadUsers();
   } else if (pageName === "mass-stage") {
     loadStages();
+  } else if (pageName === "work-orders") {
+    loadWorkOrders();
   }
 }
 

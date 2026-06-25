@@ -1,0 +1,46 @@
+    <!-- =================== WORK ORDERS PAGE =================== -->
+    <!-- Technician-facing work-order log. Static shell only: the collapsible
+         work-order cards and their material rows are built by
+         views/workOrders.js and toggled by views/nav.js (`.page.active`).
+         Server-scoped (technician -> assigned, supervisor -> created,
+         admin/owner -> all). See docs/current-state.md. -->
+    <div class="page" id="work-orders-page">
+
+        <!-- Supervisor+ only; views/workOrders.js reveals it by role. -->
+        <section id="work-orders-create-section" hidden>
+            <h2>New Work Order</h2>
+            <p class="hint">The number is the identity. Re-using an existing number opens that work order.</p>
+            <div class="filter-row">
+                <input type="text" id="wo-create-number" placeholder="Work order #" autocomplete="off">
+                <input type="text" id="wo-create-community" placeholder="Community (optional)" autocomplete="off">
+                <input type="text" id="wo-create-building" placeholder="Building # (optional)" autocomplete="off">
+                <input type="text" id="wo-create-unit" placeholder="Unit # (optional)" autocomplete="off">
+                <select id="wo-create-assignee" aria-label="Assign to">
+                    <option value="">Unassigned</option>
+                </select>
+                <button id="wo-create-btn" type="button">Create</button>
+            </div>
+            <p id="wo-create-message"></p>
+        </section>
+
+        <section id="work-orders-controls-section">
+            <h2>Work Orders</h2>
+            <p class="hint">Log materials against a work order. Switch a work
+               order between current-dispense and retroactive (paper sheet) mode.</p>
+            <div class="filter-row">
+                <select id="work-orders-status-filter" aria-label="Filter by status">
+                    <option value="in_progress">In progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="">All</option>
+                </select>
+                <input type="text" id="work-orders-search" placeholder="Search work order #">
+                <button id="work-orders-search-btn" type="button">Search</button>
+            </div>
+        </section>
+
+        <section id="work-orders-list-section">
+            <div id="work-orders-list"></div>
+            <p id="work-orders-list-message"></p>
+        </section>
+
+    </div>

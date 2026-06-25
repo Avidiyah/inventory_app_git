@@ -19,6 +19,7 @@ from sqlalchemy import (
     Text,
     Numeric,
     Integer,
+    Boolean,
     ForeignKey,
     DateTime,
     UniqueConstraint,
@@ -185,7 +186,21 @@ class Transaction(Base):
     # and copy-to-clipboard export total up. Set via PATCH /transactions/{id}/billing.
     billable_quantity = Column(Numeric, nullable=True)
     work_order_number = Column(Text, nullable=True)
+    # FK link to the standalone work order this transaction belongs to (the
+    # `work_order_number` above is kept as a denormalized snapshot for History /
+    # audit stability). Nullable: legacy rows and corrections carry no work order.
+    work_order_id = Column(
+        UUID(as_uuid=True), ForeignKey("work_orders.id"), nullable=True, index=True
+    )
     reason = Column(Text, nullable=True)
+    # Whether this row actually moved `Item.quantity`. TRUE for every ordinary
+    # stock/dispense/adjust. FALSE only for a *retroactive* work-order entry (a
+    # paper material-sheet backfill logged on the Work Orders page in retroactive
+    # mode): it is recorded so History shows "item taken" identically to a real
+    # dispense, but the stock was already consumed off-app, so the row must NOT
+    # decrement on-hand on create, and `void_transaction` must NOT add it back
+    # on void. See `services.work_orders` and docs/current-state.md.
+    affects_stock = Column(Boolean, nullable=False, default=True, server_default="true")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     voided_at = Column(DateTime(timezone=True), nullable=True)
     voided_by_id = Column(UUID(as_uuid=True), nullable=True)
@@ -229,32 +244,90 @@ class AuthSession(Base):
     user = relationship("User", back_populates="sessions")
 
 
+class WorkOrder(Base):
+    """A work order -- the first-class unit of field work.
+
+    Identity is the work-order `number`, unique **case-insensitively + trimmed**
+    via the functional index `uq_work_orders_number_ci` (`lower(btrim(number))`);
+    the surrogate `id` keeps FKs uniform with the rest of the schema. Everything
+    else -- community / building / unit, description, status, entry mode,
+    assignee -- is an attribute, so this single row is the source of truth that
+    scan-and-go, Mass Stage, the Work Orders page, and History all reference (a
+    work-order number used anywhere find-or-creates this row; see
+    `services.work_orders.get_or_create_work_order`).
+
+    `status` is two-state (`in_progress -> completed`, reopenable). `entry_mode`
+    (`dispense` | `retroactive`) is the default mode for newly logged materials:
+    dispense moves stock, retroactive is a stock-neutral paper backfill.
+    `assigned_to_id` (must be a technician) and `created_by_id` drive visibility
+    scope. Soft delete via `archived_at`, mirroring `Item` / `User`; an archived
+    number stays reserved and is restored if referenced again.
+    """
+
+    __tablename__ = "work_orders"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    number = Column(Text, nullable=False)
+    community = Column(Text, nullable=True)
+    building_number = Column(Text, nullable=True)
+    unit_number = Column(Text, nullable=True)
+    description = Column(Text, nullable=True)
+    status = Column(Text, nullable=False, default="in_progress", server_default="in_progress")
+    entry_mode = Column(Text, nullable=False, default="dispense", server_default="dispense")
+    assigned_to_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
+
+    items = relationship(
+        "WorkOrderItem",
+        back_populates="work_order",
+        cascade="all, delete-orphan",
+    )
+    # Viewonly (no back-populates on User): surface usernames in responses only.
+    creator = relationship("User", foreign_keys=[created_by_id], viewonly=True)
+    assignee = relationship("User", foreign_keys=[assigned_to_id], viewonly=True)
+
+    __table_args__ = (
+        # Case-insensitive + trimmed uniqueness: "WO-1", " wo-1 " collide.
+        Index("uq_work_orders_number_ci", text("lower(btrim(number))"), unique=True),
+        Index("ix_work_orders_assigned_to_id", "assigned_to_id"),
+        Index("ix_work_orders_created_by_id", "created_by_id"),
+        Index("ix_work_orders_status", "status"),
+    )
+
+
 class MassStage(Base):
-    """A mass-staging plan for one building.
+    """A truck-staging plan for one building.
 
-    Supervisors batch-plan materials for an entire building rather than a
-    single work order: a stage groups several rooms (each paired with one
-    work order), and each room lists the items planned for it. Planning is
-    pure estimation -- no stock moves -- until the stage is loaded onto the
-    truck, when each load writes ordinary `dispense` transactions (one per
-    room allocation) carrying that room's work order.
+    Supervisors batch-plan materials for an entire building: a stage groups the
+    building's work orders (via `MassStageWorkOrder` slots), each carrying the
+    items planned for it. Planning is pure estimation -- no stock moves -- until
+    the stage is loaded onto the truck, when each load writes ordinary `dispense`
+    transactions (one per slot allocation) carrying that slot's work order.
 
-    `status` walks `planning -> loading -> completed` (validated in
-    `app.domain.mass_staging`; stored as Text to match `User.role` /
-    `Transaction.transaction_type` rather than a DB enum). Editing rooms /
-    items is allowed only in `planning`; loading / returning only in
-    `loading`; `completed` is read-only and terminal.
+    A stage no longer *owns* work orders: a `WorkOrder` is a standalone entity,
+    and a slot just references one. `community` / `building_name` (the building
+    *number*) are the truck-plan's grouping key, and adding a work order enforces
+    that its community/building match the stage.
 
-    One-active-per-building is enforced at the database level by the partial
-    unique index in `__table_args__`: at most one row per `building_name`
-    whose `status` is not `completed`. `created_by_id` is a plain (nullable)
-    FK to `users`, mirroring `Transaction.user_id`.
+    `status` walks `planning -> loading -> completed`. Editing slots / items is
+    allowed only in `planning`; loading / returning only in `loading`;
+    `completed` is read-only. One active (non-completed) stage per
+    `(community, building_name)` via the partial unique index.
     """
 
     __tablename__ = "mass_stages"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    building_name = Column(Text, nullable=False)
+    community = Column(Text, nullable=False, server_default="")
+    building_name = Column(Text, nullable=False)  # building number
     status = Column(Text, nullable=False, default="planning", server_default="planning")
     created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -265,16 +338,17 @@ class MassStage(Base):
     )
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
-    rooms = relationship(
-        "MassStageRoom",
+    work_order_slots = relationship(
+        "MassStageWorkOrder",
         back_populates="stage",
         cascade="all, delete-orphan",
-        order_by="MassStageRoom.sort_order",
+        order_by="MassStageWorkOrder.sort_order",
     )
 
     __table_args__ = (
         Index(
-            "uq_mass_stages_active_building",
+            "uq_mass_stages_active_community_building",
+            "community",
             "building_name",
             unique=True,
             postgresql_where=text("status <> 'completed'"),
@@ -282,19 +356,23 @@ class MassStage(Base):
     )
 
 
-class MassStageRoom(Base):
-    """A room within a mass-staging plan, paired with exactly one work order.
+class MassStageWorkOrder(Base):
+    """A work order's slot in a building's truck-staging plan.
 
-    Room numbers repeat across buildings, so they are distinguishable only
-    within a stage (`UNIQUE(stage_id, room_number)`). `sort_order` preserves
-    the order rooms were entered, which drives the load allocation rule
-    (`app.domain.mass_staging.allocate_load`): a merged item's loaded
-    quantity fills rooms in `sort_order`, and any overflow lands on the last
-    room. The FK is `ON DELETE CASCADE` -- a stage's rooms are owned plan
-    data, not audit records, so they vanish with the stage.
+    A Mass Stage groups the work orders for one building; this thin join row
+    places a `WorkOrder` in a stage with a `sort_order` that drives the truck
+    load/return allocation (`app.domain.mass_staging.allocate_load`): a merged
+    item's loaded quantity fills slots in `sort_order`, overflow on the last.
+
+    The work order owns its number / location / status / assignee -- the slot
+    only records membership + order, so the same work order's identity is shared
+    with the Work Orders page and History. `stage_id` is `ON DELETE CASCADE`
+    (the slot is owned by the plan); `work_order_id` is a plain FK (the work
+    order is independent and outlives the plan). `UNIQUE(stage_id, work_order_id)`
+    keeps a work order in a stage at most once.
     """
 
-    __tablename__ = "mass_stage_rooms"
+    __tablename__ = "mass_stage_work_orders"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     stage_id = Column(
@@ -302,36 +380,29 @@ class MassStageRoom(Base):
         ForeignKey("mass_stages.id", ondelete="CASCADE"),
         nullable=False,
     )
-    room_number = Column(Text, nullable=False)
-    work_order_number = Column(Text, nullable=False)
+    work_order_id = Column(
+        UUID(as_uuid=True), ForeignKey("work_orders.id"), nullable=False
+    )
     sort_order = Column(Integer, nullable=False)
-    # Who created this work order, and which technician (if any) it is assigned
-    # to. Both are plain nullable FKs to `users` (mirroring
-    # `MassStage.created_by_id` / `Transaction.user_id`); they drive who sees a
-    # work order: a technician sees only rooms assigned to them, a supervisor
-    # only rooms they created, admin/owner all. Assignment is optional.
-    created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    assigned_to_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
-    stage = relationship("MassStage", back_populates="rooms")
+    stage = relationship("MassStage", back_populates="work_order_slots")
+    work_order = relationship("WorkOrder")
     items = relationship(
         "MassStageItem",
-        back_populates="room",
+        back_populates="slot",
         cascade="all, delete-orphan",
     )
-    # Viewonly (no back-populates on User, like Transaction.voided_by_id): used
-    # only to surface the creator / assignee username in responses.
-    creator = relationship("User", foreign_keys=[created_by_id], viewonly=True)
-    assignee = relationship("User", foreign_keys=[assigned_to_id], viewonly=True)
 
     __table_args__ = (
-        UniqueConstraint("stage_id", "room_number", name="uq_mass_stage_rooms_stage_room"),
+        UniqueConstraint(
+            "stage_id", "work_order_id", name="uq_mass_stage_work_orders_stage_wo"
+        ),
     )
 
 
 class MassStageItem(Base):
-    """An item planned for a room, plus what was actually loaded / returned.
+    """An item planned for a work-order slot, plus what was loaded / returned.
 
     `planned_quantity` is the estimate the supervisor enters while planning
     (not a transaction). `loaded_quantity` accrues as the merged item is
@@ -342,18 +413,19 @@ class MassStageItem(Base):
     ledger row (a deliberate, isolated exception documented in
     `docs/current-state.md`); net consumed is `Sigma loaded - Sigma returned`.
 
-    `UNIQUE(room_id, item_id)` keeps one row per item per room (re-planning an
-    item updates its row). The `room_id` FK is `ON DELETE CASCADE` (owned plan
-    data); the `item_id` FK is plain, so a referenced item cannot be hard
-    deleted -- benign, since items are soft-deleted via `Item.archived_at`.
+    These are the truck-plan ESTIMATES, deliberately separate from the actuals
+    a worker logs on the Work Orders page (`WorkOrderItem`). `UNIQUE(
+    stage_work_order_id, item_id)` keeps one row per item per slot. The
+    `stage_work_order_id` FK is `ON DELETE CASCADE` (owned plan data); `item_id`
+    is plain (items are soft-deleted).
     """
 
     __tablename__ = "mass_stage_items"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    room_id = Column(
+    stage_work_order_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("mass_stage_rooms.id", ondelete="CASCADE"),
+        ForeignKey("mass_stage_work_orders.id", ondelete="CASCADE"),
         nullable=False,
     )
     item_id = Column(UUID(as_uuid=True), ForeignKey("items.id"), nullable=False)
@@ -362,9 +434,66 @@ class MassStageItem(Base):
     returned_quantity = Column(Numeric, nullable=False, default=0, server_default="0")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
-    room = relationship("MassStageRoom", back_populates="items")
+    slot = relationship("MassStageWorkOrder", back_populates="items")
     item = relationship("Item")
 
     __table_args__ = (
-        UniqueConstraint("room_id", "item_id", name="uq_mass_stage_items_room_item"),
+        UniqueConstraint(
+            "stage_work_order_id", "item_id", name="uq_mass_stage_items_slot_item"
+        ),
+    )
+
+
+class WorkOrderItem(Base):
+    """A material logged against a work order (the editable "actually used" list).
+
+    Deliberately separate from `MassStageItem` (truck-plan estimate): this is the
+    field/technician surface. One row per item per work order
+    (`UNIQUE(work_order_id, item_id)`); re-adding an item updates its row.
+
+    Each row links to the `Transaction` it produced (`transaction_id`) so that
+    History shows the entry. The work order's `entry_mode` at logging time is
+    snapshotted in `mode`:
+
+    - `dispense`   -- the linked transaction moved stock (`affects_stock=True`);
+      editing this row's quantity auto-corrects stock by the delta, and deleting
+      it reverses the stock and voids the transaction.
+    - `retroactive` -- the linked transaction is stock-neutral
+      (`affects_stock=False`): it appears in History identically to a dispense
+      but never moved on-hand, so edits/deletes touch no stock.
+
+    The `work_order_id` FK is `ON DELETE CASCADE` (owned data); `item_id` is plain
+    (items are soft-deleted). `transaction_id` is a plain nullable FK -- the
+    transaction is the audit record and outlives an edit.
+    """
+
+    __tablename__ = "work_order_items"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    work_order_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("work_orders.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    item_id = Column(UUID(as_uuid=True), ForeignKey("items.id"), nullable=False)
+    quantity = Column(Numeric, nullable=False)
+    mode = Column(Text, nullable=False)  # 'dispense' | 'retroactive'
+    transaction_id = Column(
+        UUID(as_uuid=True), ForeignKey("transactions.id"), nullable=True
+    )
+    created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    work_order = relationship("WorkOrder", back_populates="items")
+    item = relationship("Item")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "work_order_id", "item_id", name="uq_work_order_items_wo_item"
+        ),
     )

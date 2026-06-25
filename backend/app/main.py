@@ -24,7 +24,15 @@ from app.auth_deps import require_min_role
 from starlette.types import Scope
 from app.database import test_connection
 from app.domain import roles
-from app.routers import auth, barcodes, items, mass_stages, transactions, users
+from app.routers import (
+    auth,
+    barcodes,
+    items,
+    mass_stages,
+    transactions,
+    users,
+    work_orders,
+)
 
 class NoCacheStaticFiles(StaticFiles):
     """StaticFiles that tells browsers to revalidate every asset.
@@ -63,6 +71,7 @@ app.include_router(items.router)
 app.include_router(mass_stages.router)
 app.include_router(transactions.router)
 app.include_router(users.router)
+app.include_router(work_orders.router)
 
 # The frontend is a static SPA served from `backend/static/`.
 # The shell document is assembled at request time from per-page
@@ -89,6 +98,7 @@ SHELL_PARTS = (
     "pages/saved-users.html",
     "pages/transaction.html",
     "pages/mass-stage.html",
+    "pages/work-orders.html",
     "pages/history.html",
     "shell-tail.html",          # </main>, scan-confirm overlay, scripts, </body></html>
 )

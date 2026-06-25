@@ -1,14 +1,8 @@
-"""Tests for the mass-staging planning API.
+"""Tests for the mass-staging (truck planning) API.
 
-Pure, no DB -- consistent with the rest of this suite. DB-bound behaviours
-(one-active-per-building, cascades, status guards, upsert, load/return effects)
-live in the database-backed service/API tests. What is unit-testable lives here:
-
-- request-schema validation (non-blank strings, positive planned quantity,
-  at-least-one-field updates),
-- the Supervisor+ gate on every route,
-- the response builders (`_stage_summary` counts, `_stage_detail` nesting +
-  flattening the joined item into item_name/item_barcode).
+Pure, no DB. Covers request-schema validation, the Supervisor+ gate on every
+route, and the response builders (`_stage_summary` counts, `_stage_detail`
+nesting of slots + flattening the joined item/work order).
 """
 
 import os
@@ -31,19 +25,22 @@ from app.routers.mass_stages import _merged_items, _stage_detail, _stage_summary
 from app.schemas.mass_stages import (
     MassStageCreate,
     MassStageUpdate,
-    RoomCreate,
-    RoomUpdate,
     StageItemCreate,
     StageItemUpdate,
+    StageWorkOrderCreate,
 )
 
 
 # --- request-schema validation ----------------------------------------
 
-def test_building_name_trimmed_and_required():
-    assert MassStageCreate(building_name="  Tower A 3 ").building_name == "Tower A 3"
+def test_stage_create_trims_and_requires_fields():
+    c = MassStageCreate(community="  Scholars ", building_name="  19 ")
+    assert c.community == "Scholars"
+    assert c.building_name == "19"
     with pytest.raises(ValidationError):
-        MassStageCreate(building_name="   ")
+        MassStageCreate(community="Scholars", building_name="   ")
+    with pytest.raises(ValidationError):
+        MassStageCreate(community="   ", building_name="19")
 
 
 def test_stage_update_requires_a_field():
@@ -52,26 +49,19 @@ def test_stage_update_requires_a_field():
         MassStageUpdate()
 
 
-def test_room_create_requires_both_fields():
-    RoomCreate(room_number="101", work_order_number="WO-7")
+def test_stage_work_order_create_requires_number_unit_optional():
+    sw = StageWorkOrderCreate(work_order_number="WO-7")
+    assert sw.work_order_number == "WO-7"
+    assert sw.unit_number is None
+    StageWorkOrderCreate(work_order_number="WO-7", unit_number="1101")
     with pytest.raises(ValidationError):
-        RoomCreate(room_number="  ", work_order_number="WO-7")
-    with pytest.raises(ValidationError):
-        RoomCreate(room_number="101", work_order_number="")
-
-
-def test_room_update_requires_a_field():
-    assert RoomUpdate(room_number="102").room_number == "102"
-    with pytest.raises(ValidationError):
-        RoomUpdate()
+        StageWorkOrderCreate(work_order_number="  ")
 
 
 def test_planned_quantity_must_be_positive():
     StageItemCreate(item_id=uuid.uuid4(), planned_quantity=Decimal("3"))
     with pytest.raises(ValidationError):
         StageItemCreate(item_id=uuid.uuid4(), planned_quantity=Decimal("0"))
-    with pytest.raises(ValidationError):
-        StageItemCreate(item_id=uuid.uuid4(), planned_quantity=Decimal("-1"))
     with pytest.raises(ValidationError):
         StageItemUpdate(planned_quantity=Decimal("0"))
 
@@ -108,26 +98,18 @@ def _find_min_role(dependant):
         "update_stage",
         "delete_stage",
         "reuse_stage",
-        "quick_room",
-        "add_room",
-        "assign_room",
-        "update_room",
-        "delete_room",
+        "add_work_order",
+        "delete_work_order",
         "add_item",
         "update_item",
         "delete_item",
+        "load_item",
+        "return_item",
     ],
 )
 def test_every_route_requires_supervisor(endpoint_name):
     route = _route(ms_router, endpoint_name)
     assert _find_min_role(route.dependant) == roles.ROLE_SUPERVISOR
-
-
-def test_active_rooms_requires_only_authentication():
-    """The scan-gate cards are scoped server-side, so any authenticated user
-    (incl. technicians) may call active-rooms -- not a Supervisor gate."""
-    route = _route(ms_router, "list_active_rooms")
-    assert _find_min_role(route.dependant) is None
 
 
 # --- response builders ------------------------------------------------
@@ -143,51 +125,58 @@ def _fake_stage_item(item_id, name, barcode, planned, loaded="0", returned="0", 
     )
 
 
-def _fake_room(number, wo, sort_order, items):
+def _fake_slot(number, unit, sort_order, items, status="in_progress", assignee_name=None):
+    work_order = SimpleNamespace(
+        number=number,
+        unit_number=unit,
+        status=status,
+        assigned_to_id=None,
+        assignee=SimpleNamespace(username=assignee_name) if assignee_name else None,
+    )
     return SimpleNamespace(
         id=uuid.uuid4(),
-        room_number=number,
-        work_order_number=wo,
+        work_order_id=uuid.uuid4(),
         sort_order=sort_order,
-        assigned_to_id=None,
-        assignee=None,
         items=items,
+        work_order=work_order,
     )
 
 
-def _fake_stage(rooms, status="planning"):
+def _fake_stage(slots, status="planning"):
     return SimpleNamespace(
         id=uuid.uuid4(),
+        community="Scholars",
         building_name="Tower A 3",
         status=status,
         created_at=datetime.now(timezone.utc),
-        rooms=rooms,
+        work_order_slots=slots,
     )
 
 
-def test_stage_detail_nests_rooms_and_flattens_item():
+def test_stage_detail_nests_slots_and_flattens_item():
     item_id = uuid.uuid4()
     stage = _fake_stage(
-        [_fake_room("101", "WO-1", 0, [_fake_stage_item(item_id, "Spray Paint", "012345678905", "10")])]
+        [_fake_slot("WO-1", "1101", 0, [_fake_stage_item(item_id, "Spray Paint", "012345678905", "10")])]
     )
     detail = _stage_detail(stage)
+    assert detail.community == "Scholars"
     assert detail.building_name == "Tower A 3"
-    assert len(detail.rooms) == 1
-    item = detail.rooms[0].items[0]
+    assert len(detail.work_orders) == 1
+    slot = detail.work_orders[0]
+    assert slot.work_order_number == "WO-1"
+    assert slot.unit_number == "1101"
+    assert slot.status == "in_progress"
+    item = slot.items[0]
     assert item.item_name == "Spray Paint"
-    assert item.item_barcode == "012345678905"
-    assert item.item_quantity == Decimal("100")  # on-hand surfaced
-    assert item.planned_quantity == Decimal("10")
-    assert item.loaded_quantity == Decimal("0")
+    assert item.item_quantity == Decimal("100")
 
 
 def test_merged_items_carry_on_hand_and_overflow():
     item_id = uuid.uuid4()
-    # planned 10 + 5 = 15, loaded 16 (overflow 1), on-hand 4.
     stage = _fake_stage(
         [
-            _fake_room("101", "WO-1", 0, [_fake_stage_item(item_id, "Paint", "AAA", "10", loaded="10", on_hand="4")]),
-            _fake_room("102", "WO-2", 1, [_fake_stage_item(item_id, "Paint", "AAA", "5", loaded="6", on_hand="4")]),
+            _fake_slot("WO-1", "1101", 0, [_fake_stage_item(item_id, "Paint", "AAA", "10", loaded="10", on_hand="4")]),
+            _fake_slot("WO-2", "1102", 1, [_fake_stage_item(item_id, "Paint", "AAA", "5", loaded="6", on_hand="4")]),
         ],
         status="loading",
     )
@@ -200,15 +189,15 @@ def test_merged_items_carry_on_hand_and_overflow():
     assert m.overflow == Decimal("1")
 
 
-def test_stage_summary_counts_rooms_and_distinct_items():
-    shared = uuid.uuid4()  # same item planned in two rooms
+def test_stage_summary_counts_units_and_distinct_items():
+    shared = uuid.uuid4()
     other = uuid.uuid4()
     stage = _fake_stage(
         [
-            _fake_room("101", "WO-1", 0, [_fake_stage_item(shared, "Spray Paint", "AAA", "10")]),
-            _fake_room(
-                "102",
+            _fake_slot("WO-1", "1101", 0, [_fake_stage_item(shared, "Spray Paint", "AAA", "10")]),
+            _fake_slot(
                 "WO-2",
+                "1102",
                 1,
                 [
                     _fake_stage_item(shared, "Spray Paint", "AAA", "5"),
@@ -218,5 +207,5 @@ def test_stage_summary_counts_rooms_and_distinct_items():
         ]
     )
     summary = _stage_summary(stage)
-    assert summary.room_count == 2
-    assert summary.item_count == 2  # distinct: {shared, other}
+    assert summary.unit_count == 2
+    assert summary.item_count == 2

@@ -1,13 +1,10 @@
-// View: Mass Stage page (planning).
+// View: Mass Stage page (truck planning).
 //
-// Layer: views. Owns the Mass Stage page: create a stage for a building, then
-// add rooms (each with one work order) and planned items per room, and Save
-// (planning -> loading). Stages and rooms are expandable one-line cards
-// (<details>); planned items are rows inside a room with inline qty edit.
-//
-// Self-contained UI state (cached item and technician lists) lives in this
-// module, like transactions.js's batch state -- it is not shared with other
-// views, so it does not belong in state.js.
+// Layer: views. Owns the Mass Stage page: a Community -> Building -> Unit tree.
+// Create a stage for a community + building, add work orders (each a unit slot
+// referencing a standalone work order) and planned items, then Save
+// (planning -> loading) and load onto the truck. A unit links out to the Work
+// Orders page (the work order owns its number / status / assignee).
 
 import {
   apiListStages,
@@ -15,9 +12,8 @@ import {
   apiGetStage,
   apiUpdateStage,
   apiDeleteStage,
-  apiAddRoom,
-  apiUpdateRoom,
-  apiDeleteRoom,
+  apiAddStageWorkOrder,
+  apiDeleteStageWorkOrder,
   apiAddStageItem,
   apiUpdateStageItem,
   apiDeleteStageItem,
@@ -26,36 +22,49 @@ import {
   apiReuseStage,
   apiListItems,
   apiListUsers,
-  apiAssignRoom,
 } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
+import { showPage } from "./nav.js";
+import { focusWorkOrder } from "./workOrders.js";
 
 const listEl = document.getElementById("mass-stage-list");
 const listMessage = document.getElementById("mass-stage-list-message");
+const communitySelect = document.getElementById("mass-stage-community-select");
+const communityNewInput = document.getElementById("mass-stage-community-new");
 const createInput = document.getElementById("mass-stage-building-input");
 const createBtn = document.getElementById("mass-stage-create-btn");
 const createMessage = document.getElementById("mass-stage-create-message");
 
-// Cached item list for the add-item search; loaded once per session.
+const COMMUNITY_SEEDS = ["Scholars", "Centennial", "Cimarron"];
+const NEW_COMMUNITY = "__new__";
+
 let allItems = [];
 let itemsLoaded = false;
-// Cached technician list for the room "Assign to" dropdown; loaded once.
 let allTechs = [];
 let techsLoaded = false;
-// Stage id to auto-expand after a reload (set right after creating one).
 let autoOpenId = null;
+let autoOpenCommunity = null;
 
 function statusBadge(status) {
   return `<span class="stage-status stage-status-${escapeHtml(status)}">${escapeHtml(status)}</span>`;
 }
 
-// Summary meta text. A building with one room is a lightweight "work order"
-// entry; two or more rooms make it a full mass-stage card (the display
-// threshold -- see docs/current-state.md).
-function stageMetaText(roomCount, itemCount) {
-  if (roomCount >= 2) return `${roomCount} units · ${itemCount} items`;
-  return roomCount === 1 ? "1 work order" : "no units";
+function stageMetaText(unitCount, itemCount) {
+  if (!unitCount) return "no units";
+  return `${unitCount} ${unitCount === 1 ? "unit" : "units"} · ${itemCount} items`;
+}
+
+function techOptions(selectedId) {
+  return (
+    `<option value="">Unassigned</option>` +
+    allTechs
+      .map(
+        (t) =>
+          `<option value="${escapeHtml(t.id)}"${t.id === selectedId ? " selected" : ""}>${escapeHtml(t.username)}</option>`
+      )
+      .join("")
+  );
 }
 
 // --- list + lazy detail --------------------------------------------------
@@ -66,7 +75,7 @@ export async function loadStages() {
       allItems = await apiListItems();
       itemsLoaded = true;
     } catch {
-      allItems = []; // search just returns nothing until a later reload
+      allItems = [];
     }
   }
   if (!techsLoaded) {
@@ -74,7 +83,7 @@ export async function loadStages() {
       allTechs = (await apiListUsers()).filter((u) => u.role === "technician");
       techsLoaded = true;
     } catch {
-      allTechs = []; // assign dropdown just shows "Unassigned" until a reload
+      allTechs = [];
     }
   }
   try {
@@ -87,9 +96,9 @@ export async function loadStages() {
   }
 }
 
-function buildStageCard(stage, compact) {
+function buildStageCard(stage) {
   const card = document.createElement("details");
-  card.className = compact ? "stage-card stage-card-compact" : "stage-card";
+  card.className = "stage-card";
   card.dataset.stageId = stage.id;
 
   const summary = document.createElement("summary");
@@ -97,7 +106,7 @@ function buildStageCard(stage, compact) {
   summary.innerHTML =
     `<span class="stage-title">${escapeHtml(stage.building_name)}</span>` +
     statusBadge(stage.status) +
-    `<span class="stage-meta">${stageMetaText(stage.room_count, stage.item_count)}</span>`;
+    `<span class="stage-meta">${stageMetaText(stage.unit_count, stage.item_count)}</span>`;
 
   const body = document.createElement("div");
   body.className = "stage-body";
@@ -106,38 +115,57 @@ function buildStageCard(stage, compact) {
   card.appendChild(summary);
   card.appendChild(body);
 
-  // Lazy-load the full detail the first time the card is opened.
   card.addEventListener("toggle", () => {
     if (card.open && !card.dataset.loaded) openStageDetail(stage.id, body, card);
   });
 
   if (autoOpenId && stage.id === autoOpenId) {
     autoOpenId = null;
-    card.open = true; // fires `toggle` -> loads detail
+    card.open = true;
   }
   return card;
 }
 
 function renderStageList(stages) {
+  refreshCommunityOptions(stages);
   listEl.innerHTML = "";
   if (!stages.length) {
     listEl.innerHTML = `<p class="hint">No mass stages yet. Create one above.</p>`;
     return;
   }
-  // Display threshold: a building becomes a full card only with 2+ rooms.
-  // Single-room (or empty) buildings stay lightweight entries below.
-  const multi = stages.filter((s) => s.room_count >= 2);
-  const single = stages.filter((s) => s.room_count < 2);
 
-  multi.forEach((stage) => listEl.appendChild(buildStageCard(stage, false)));
+  // Tier 1: group buildings by community.
+  const byCommunity = new Map();
+  stages.forEach((s) => {
+    const key = s.community || "Unfiled";
+    if (!byCommunity.has(key)) byCommunity.set(key, []);
+    byCommunity.get(key).push(s);
+  });
 
-  if (single.length) {
-    const heading = document.createElement("h3");
-    heading.className = "ms-single-heading";
-    heading.textContent = "Single work orders";
-    listEl.appendChild(heading);
-    single.forEach((stage) => listEl.appendChild(buildStageCard(stage, true)));
-  }
+  [...byCommunity.keys()]
+    .sort((a, b) => a.localeCompare(b))
+    .forEach((community) => {
+      const group = document.createElement("details");
+      group.className = "community-group";
+      group.dataset.community = community;
+      const buildings = byCommunity.get(community);
+
+      const summary = document.createElement("summary");
+      summary.className = "community-summary";
+      summary.innerHTML =
+        `<span class="community-title">${escapeHtml(community)}</span>` +
+        `<span class="community-meta">${buildings.length} ${buildings.length === 1 ? "building" : "buildings"}</span>`;
+      group.appendChild(summary);
+
+      // Tier 2: building (stage) cards.
+      buildings.forEach((stage) => group.appendChild(buildStageCard(stage)));
+
+      if (autoOpenCommunity && community === autoOpenCommunity) {
+        autoOpenCommunity = null;
+        group.open = true;
+      }
+      listEl.appendChild(group);
+    });
 }
 
 async function openStageDetail(stageId, bodyEl, cardEl) {
@@ -146,11 +174,10 @@ async function openStageDetail(stageId, bodyEl, cardEl) {
     renderStageBody(stage, bodyEl);
     if (cardEl) {
       cardEl.dataset.loaded = "1";
-      // Keep the summary counts fresh after edits.
       const distinct = new Set();
-      stage.rooms.forEach((r) => r.items.forEach((i) => distinct.add(i.item_id)));
+      stage.work_orders.forEach((s) => s.items.forEach((i) => distinct.add(i.item_id)));
       const meta = cardEl.querySelector(".stage-meta");
-      if (meta) meta.textContent = stageMetaText(stage.rooms.length, distinct.size);
+      if (meta) meta.textContent = stageMetaText(stage.work_orders.length, distinct.size);
     }
   } catch (err) {
     bodyEl.innerHTML = `<p class="error">${escapeHtml(friendlyError(err, "Could not load this stage."))}</p>`;
@@ -160,7 +187,6 @@ async function openStageDetail(stageId, bodyEl, cardEl) {
 // --- detail rendering ----------------------------------------------------
 
 function renderStageBody(stage, bodyEl) {
-  // Planning = editable rooms/items; loading/completed = the load list.
   if (stage.status === "planning") {
     renderPlanningBody(stage, bodyEl);
   } else {
@@ -169,15 +195,16 @@ function renderStageBody(stage, bodyEl) {
 }
 
 function renderPlanningBody(stage, bodyEl) {
-  const rooms = stage.rooms.map((room) => renderRoomHtml(room, true)).join("");
-  const roomsHtml = rooms || `<p class="hint">No units yet.</p>`;
+  const slots = stage.work_orders.map((slot) => renderSlotHtml(slot, true)).join("");
+  const slotsHtml = slots || `<p class="hint">No units yet.</p>`;
 
   bodyEl.innerHTML =
-    `<div class="ms-rooms">${roomsHtml}</div>` +
+    `<div class="ms-rooms">${slotsHtml}</div>` +
     `<div class="ms-add-room">
-       <input type="text" class="ms-room-number" placeholder="Unit #">
+       <input type="text" class="ms-unit-number" placeholder="Unit # (optional)">
        <input type="text" class="ms-room-wo" placeholder="Work order #">
-       <button type="button" data-action="add-room">Next Unit</button>
+       <select class="ms-add-assignee">${techOptions("")}</select>
+       <button type="button" data-action="add-work-order">Add work order</button>
      </div>` +
     `<div class="ms-stage-actions">
        <button type="button" data-action="save-stage">Save Mass Stage</button>
@@ -186,20 +213,17 @@ function renderPlanningBody(stage, bodyEl) {
     `<p class="ms-stage-message"></p>`;
 }
 
-// Loading + completed: the per-item merged load list plus read-only rooms.
 function renderLoadingBody(stage, bodyEl) {
   const loading = stage.status === "loading";
   const merged =
     (stage.merged_items || []).map((m) => renderMergedHtml(m, loading)).join("") ||
     `<p class="hint">No items planned.</p>`;
-  const rooms =
-    stage.rooms.map((room) => renderRoomHtml(room, false)).join("") ||
+  const slots =
+    stage.work_orders.map((slot) => renderSlotHtml(slot, false)).join("") ||
     `<p class="hint">No units.</p>`;
   const complete = loading
     ? `<button type="button" data-action="complete-stage">Mark Completed</button>`
     : "";
-  // A completed stage can be reused: copies the building + rooms (work orders
-  // cleared) into a fresh planning stage. The completed one stays as the record.
   const reuse = !loading
     ? `<button type="button" data-action="reuse-stage">Stage again</button>`
     : "";
@@ -208,7 +232,7 @@ function renderLoadingBody(stage, bodyEl) {
     `<h3 class="ms-subhead">Load list</h3>` +
     `<div class="ms-merged">${merged}</div>` +
     `<h3 class="ms-subhead">Units</h3>` +
-    `<div class="ms-rooms">${rooms}</div>` +
+    `<div class="ms-rooms">${slots}</div>` +
     `<div class="ms-stage-actions">
        ${complete}
        ${reuse}
@@ -217,14 +241,11 @@ function renderLoadingBody(stage, bodyEl) {
     `<p class="ms-stage-message"></p>`;
 }
 
-// A merged-item row (the unit loaded onto the truck). `m` is a MergedItem.
 function renderMergedHtml(m, loading) {
   const overflow =
     Number(m.overflow) > 0
       ? `<span class="ms-overflow">+${escapeHtml(m.overflow)} over</span>`
       : "";
-  // Coverage: while loading, the concern is the remaining-to-load vs stock;
-  // otherwise compare the full plan vs stock.
   const need = loading ? m.remaining_to_load : m.planned_total;
   const short = shortBy(need, m.on_hand);
   const shortFlag = short > 0 ? `<span class="ms-short">short by ${escapeHtml(short)}</span>` : "";
@@ -249,12 +270,14 @@ function renderMergedHtml(m, loading) {
           </div>`;
 }
 
-function renderRoomHtml(room, planning) {
-  const items = room.items.map((it) => renderItemHtml(it, planning)).join("");
+// `slot` is a StageWorkOrderDetail: id (slot id), work_order_id, work_order_number,
+// unit_number, status, assigned_to_username, items[].
+function renderSlotHtml(slot, planning) {
+  const items = slot.items.map((it) => renderItemHtml(it, planning)).join("");
   const itemsHtml = items || `<p class="hint">No items yet.</p>`;
 
   const addItem = planning
-    ? `<div class="ms-add-item" data-room-id="${escapeHtml(room.id)}">
+    ? `<div class="ms-add-item" data-slot-id="${escapeHtml(slot.id)}">
          <div class="ms-add-item-row">
            <input type="text" class="ms-item-search" placeholder="Search item by name or barcode">
            <input type="number" class="ms-item-qty" placeholder="Qty" min="0" step="any">
@@ -264,74 +287,42 @@ function renderRoomHtml(room, planning) {
        </div>`
     : "";
 
-  const removeRoom = planning
-    ? `<button type="button" class="btn-danger ms-room-remove" data-action="remove-room" data-room-id="${escapeHtml(room.id)}">Remove unit</button>`
+  const removeSlot = planning
+    ? `<button type="button" class="btn-danger ms-room-remove" data-action="remove-slot" data-slot-id="${escapeHtml(slot.id)}">Remove unit</button>`
     : "";
 
-  // Editable work order in planning (reused stages start with it cleared).
-  const woEdit = planning
-    ? `<div class="ms-room-wo-edit">
-         <label>Work order</label>
-         <input type="text" class="ms-room-wo-input" value="${escapeHtml(room.work_order_number)}" placeholder="Work order #">
-         <button type="button" class="secondary-btn" data-action="update-room">Update</button>
-       </div>`
-    : "";
+  // The work order owns its number / status / assignee -- a unit always links
+  // out to the Work Orders page to edit those.
+  const openWo = `<button type="button" class="secondary-btn wo-open-btn" data-action="open-wo" data-wo-id="${escapeHtml(slot.work_order_id)}">Open work order →</button>`;
 
-  // Assign the work order to a technician (planning only). Options come from the
-  // cached technician list; the current assignee is preselected.
-  const assignEdit = planning
-    ? `<div class="ms-room-assign">
-         <label>Assign to</label>
-         <select class="ms-room-assignee">
-           <option value="">Unassigned</option>
-           ${allTechs
-             .map(
-               (t) =>
-                 `<option value="${escapeHtml(t.id)}"${
-                   t.id === room.assigned_to_id ? " selected" : ""
-                 }>${escapeHtml(t.username)}</option>`
-             )
-             .join("")}
-         </select>
-         <button type="button" class="secondary-btn" data-action="assign-room">Assign</button>
-       </div>`
-    : "";
+  const assigneeMeta = slot.assigned_to_username ? ` · ${escapeHtml(slot.assigned_to_username)}` : "";
+  const unit = slot.unit_number ? escapeHtml(slot.unit_number) : "—";
 
-  const assigneeMeta = room.assigned_to_username
-    ? ` · ${escapeHtml(room.assigned_to_username)}`
-    : "";
-
-  return `<details class="room-card" data-room-id="${escapeHtml(room.id)}">
+  return `<details class="room-card" data-slot-id="${escapeHtml(slot.id)}">
             <summary class="room-summary">
-              <span class="room-title">Unit ${escapeHtml(room.room_number)}</span>
-              <span class="room-meta">WO ${escapeHtml(room.work_order_number) || "—"} · ${room.items.length} items${assigneeMeta}</span>
+              <span class="room-title">Unit ${unit}</span>
+              <span class="room-meta">WO ${escapeHtml(slot.work_order_number)} · ${slot.items.length} items${assigneeMeta}</span>
             </summary>
             <div class="room-body">
-              ${woEdit}
-              ${assignEdit}
+              ${openWo}
               <div class="ms-items">${itemsHtml}</div>
               ${addItem}
-              ${removeRoom}
+              ${removeSlot}
             </div>
           </details>`;
 }
 
-// How much `need` exceeds `onHand` (0 when covered). Values may arrive as
-// numbers or strings, so coerce.
 function shortBy(need, onHand) {
   const diff = Number(need) - Number(onHand);
   return diff > 0 ? diff : 0;
 }
 
-// On-hand label + a shortfall flag when `need` can't be covered by stock.
 function coverageHtml(need, onHand) {
   const short = shortBy(need, onHand);
   const flag = short > 0 ? ` <span class="ms-short">short by ${escapeHtml(short)}</span>` : "";
   return `<span class="ms-onhand">On hand: ${escapeHtml(onHand)}</span>${flag}`;
 }
 
-// `it` is a StageItemDetail: `id` is the stage-item id, `item_id` the inventory
-// item, plus item_name / item_barcode / planned_quantity / item_quantity (on-hand).
 function renderItemHtml(it, planning) {
   const head =
     `<span class="ms-item-name">${escapeHtml(it.item_name)}</span>` +
@@ -345,33 +336,64 @@ function renderItemHtml(it, planning) {
   return `<div class="ms-item" data-item-id="${escapeHtml(it.id)}">${head}${tail}</div>`;
 }
 
-// Re-fetch one stage's detail and re-render its body, preserving which rooms
-// were open (a mutation rebuilds the body HTML).
+// Re-fetch one stage's detail and re-render its body, preserving open slots.
 async function refreshStage(stageCard) {
   const body = stageCard.querySelector(".stage-body");
-  const openRooms = new Set(
-    [...body.querySelectorAll("details.room-card[open]")].map((d) => d.dataset.roomId)
+  const openSlots = new Set(
+    [...body.querySelectorAll("details.room-card[open]")].map((d) => d.dataset.slotId)
   );
   await openStageDetail(stageCard.dataset.stageId, body, stageCard);
-  openRooms.forEach((rid) => {
-    const d = body.querySelector(`details.room-card[data-room-id="${rid}"]`);
+  openSlots.forEach((sid) => {
+    const d = body.querySelector(`details.room-card[data-slot-id="${sid}"]`);
     if (d) d.open = true;
   });
 }
 
-// --- create --------------------------------------------------------------
+// --- create stage --------------------------------------------------------
+
+function selectedCommunity() {
+  if (!communitySelect) return "";
+  if (communitySelect.value === NEW_COMMUNITY) {
+    return communityNewInput ? communityNewInput.value.trim() : "";
+  }
+  return communitySelect.value;
+}
+
+function refreshCommunityOptions(stages) {
+  if (!communitySelect) return;
+  const prev = communitySelect.value;
+  const used = stages.map((s) => s.community).filter(Boolean);
+  const names = [...new Set([...COMMUNITY_SEEDS, ...used])].sort((a, b) => a.localeCompare(b));
+  communitySelect.innerHTML =
+    names.map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join("") +
+    `<option value="${NEW_COMMUNITY}">+ New community…</option>`;
+  if (prev && [...names, NEW_COMMUNITY].includes(prev)) communitySelect.value = prev;
+  toggleNewCommunity();
+}
+
+function toggleNewCommunity() {
+  if (!communityNewInput || !communitySelect) return;
+  communityNewInput.hidden = communitySelect.value !== NEW_COMMUNITY;
+}
 
 async function createStage() {
-  const name = createInput.value.trim();
+  const community = selectedCommunity();
+  const building = createInput.value.trim();
   setMessage(createMessage, "", "");
-  if (!name) {
-    setMessage(createMessage, "Enter a building name.", "error");
+  if (!community) {
+    setMessage(createMessage, "Choose or enter a community.", "error");
+    return;
+  }
+  if (!building) {
+    setMessage(createMessage, "Enter a building number.", "error");
     return;
   }
   try {
-    const stage = await apiCreateStage(name);
+    const stage = await apiCreateStage(community, building);
     createInput.value = "";
-    autoOpenId = stage.id; // expand the new card after the reload
+    if (communityNewInput) communityNewInput.value = "";
+    autoOpenId = stage.id;
+    autoOpenCommunity = community;
     await loadStages();
     setMessage(createMessage, "Mass stage created.", "success");
   } catch (err) {
@@ -379,6 +401,7 @@ async function createStage() {
   }
 }
 
+if (communitySelect) communitySelect.addEventListener("change", toggleNewCommunity);
 createBtn.addEventListener("click", createStage);
 createInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") createStage();
@@ -391,7 +414,6 @@ listEl.addEventListener("input", (event) => {
   if (!input.classList.contains("ms-item-search")) return;
   const container = input.closest(".ms-add-item");
   const results = container.querySelector(".ms-item-results");
-  // Typing invalidates a previous pick.
   delete container.dataset.itemId;
   const q = input.value.trim().toLowerCase();
   if (!q) {
@@ -424,7 +446,6 @@ listEl.addEventListener("click", async (event) => {
   if (!btn) return;
   const action = btn.dataset.action;
 
-  // Picking a search result doesn't need a stage context.
   if (action === "pick-item") {
     const container = btn.closest(".ms-add-item");
     container.dataset.itemId = btn.dataset.itemId;
@@ -436,6 +457,13 @@ listEl.addEventListener("click", async (event) => {
     return;
   }
 
+  // Open a unit's work order on the Work Orders page (tier-3). No stage context.
+  if (action === "open-wo") {
+    focusWorkOrder(btn.dataset.woId);
+    showPage("work-orders");
+    return;
+  }
+
   const stageCard = btn.closest(".stage-card");
   if (!stageCard) return;
   const stageId = stageCard.dataset.stageId;
@@ -443,42 +471,29 @@ listEl.addEventListener("click", async (event) => {
   setMessage(msg, "", "");
 
   try {
-    if (action === "add-room") {
+    if (action === "add-work-order") {
       const wrap = btn.closest(".ms-add-room");
-      const number = wrap.querySelector(".ms-room-number").value.trim();
+      const unit = wrap.querySelector(".ms-unit-number").value.trim();
       const wo = wrap.querySelector(".ms-room-wo").value.trim();
-      if (!number || !wo) {
-        setMessage(msg, "Enter a unit number and work order.", "error");
-        return;
-      }
-      await apiAddRoom(stageId, { roomNumber: number, workOrderNumber: wo });
-      await refreshStage(stageCard);
-    } else if (action === "remove-room") {
-      if (!window.confirm("Remove this unit and its planned items?")) return;
-      await apiDeleteRoom(stageId, btn.dataset.roomId);
-      await refreshStage(stageCard);
-    } else if (action === "update-room") {
-      const roomCard = btn.closest(".room-card");
-      const wo = roomCard.querySelector(".ms-room-wo-input").value.trim();
+      const assignedToId = wrap.querySelector(".ms-add-assignee").value || null;
       if (!wo) {
-        setMessage(msg, "Enter a work order for the unit.", "error");
+        setMessage(msg, "Enter a work order number.", "error");
         return;
       }
-      await apiUpdateRoom(stageId, roomCard.dataset.roomId, { work_order_number: wo });
+      await apiAddStageWorkOrder(stageId, { workOrderNumber: wo, unitNumber: unit || null, assignedToId });
       await refreshStage(stageCard);
-    } else if (action === "assign-room") {
-      const roomCard = btn.closest(".room-card");
-      const assignedToId = roomCard.querySelector(".ms-room-assignee").value || null;
-      await apiAssignRoom(stageId, roomCard.dataset.roomId, assignedToId);
+    } else if (action === "remove-slot") {
+      if (!window.confirm("Remove this unit from the plan? (The work order itself is kept.)")) return;
+      await apiDeleteStageWorkOrder(stageId, btn.dataset.slotId);
       await refreshStage(stageCard);
     } else if (action === "reuse-stage") {
-      if (!window.confirm("Start a new staging for this community? Units are copied (work orders cleared) and item lists start empty.")) return;
+      if (!window.confirm("Start a new staging for this community + building? Item lists start empty.")) return;
       const fresh = await apiReuseStage(stageId);
       autoOpenId = fresh.id;
       await loadStages();
     } else if (action === "add-item") {
       const container = btn.closest(".ms-add-item");
-      const roomId = container.dataset.roomId;
+      const slotId = container.dataset.slotId;
       const itemId = container.dataset.itemId;
       const qty = parseFloat(container.querySelector(".ms-item-qty").value);
       if (!itemId) {
@@ -489,22 +504,22 @@ listEl.addEventListener("click", async (event) => {
         setMessage(msg, "Enter a quantity greater than zero.", "error");
         return;
       }
-      await apiAddStageItem(stageId, roomId, { itemId, plannedQuantity: qty });
+      await apiAddStageItem(stageId, slotId, { itemId, plannedQuantity: qty });
       await refreshStage(stageCard);
     } else if (action === "edit-item") {
-      const roomId = btn.closest(".room-card").dataset.roomId;
+      const slotId = btn.closest(".room-card").dataset.slotId;
       const row = btn.closest(".ms-item");
       const qty = parseFloat(row.querySelector(".ms-item-planned").value);
       if (!Number.isFinite(qty) || qty <= 0) {
         setMessage(msg, "Enter a quantity greater than zero.", "error");
         return;
       }
-      await apiUpdateStageItem(stageId, roomId, row.dataset.itemId, { plannedQuantity: qty });
+      await apiUpdateStageItem(stageId, slotId, row.dataset.itemId, { plannedQuantity: qty });
       await refreshStage(stageCard);
     } else if (action === "remove-item") {
-      const roomId = btn.closest(".room-card").dataset.roomId;
+      const slotId = btn.closest(".room-card").dataset.slotId;
       const row = btn.closest(".ms-item");
-      await apiDeleteStageItem(stageId, roomId, row.dataset.itemId);
+      await apiDeleteStageItem(stageId, slotId, row.dataset.itemId);
       await refreshStage(stageCard);
     } else if (action === "load-item") {
       const row = btn.closest(".ms-merged-item");
@@ -540,7 +555,6 @@ listEl.addEventListener("click", async (event) => {
       await loadStages();
     }
   } catch (err) {
-    // `msg` may be detached after a full list reload (save/delete) -- harmless.
     setMessage(msg, friendlyError(err, "That action did not work."), "error");
   }
 });

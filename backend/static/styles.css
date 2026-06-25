@@ -1403,6 +1403,150 @@ details[open] > .room-summary::before { content: "\25BE"; /* triangle down */ }
 .stage-status-loading { background-color: var(--status-dispense); }
 .stage-status-completed { background-color: var(--status-stock); }
 
+/* ---- Community tree (tier 1 of the Mass Stage tree) ---- */
+.community-group { margin-bottom: var(--space-3); }
+.community-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    padding: var(--space-2) var(--space-3);
+    cursor: pointer;
+    font-weight: var(--fw-bold);
+    list-style: none;
+    border-bottom: var(--border);
+}
+.community-summary::-webkit-details-marker { display: none; }
+.community-summary::before {
+    content: "\25B8"; /* triangle right */
+    color: var(--gray-500);
+    font-size: var(--fs-sm);
+}
+details[open] > .community-summary::before { content: "\25BE"; }
+.community-title { font-size: var(--fs-lg); text-transform: capitalize; }
+.community-meta {
+    margin-left: auto;
+    color: var(--gray-500);
+    font-weight: var(--fw-regular);
+    font-size: var(--fs-sm);
+}
+.community-group > .stage-card { margin: var(--space-2) 0 0 var(--space-3); }
+
+/* Tier-3 unit -> Work Orders page link. */
+.wo-open-btn { margin: 0 0 var(--space-3); min-height: var(--btn-h-sm); }
+
+/* ---- Work Orders page ---- */
+.wo-card {
+    border: var(--border);
+    border-radius: var(--radius-md);
+    background-color: var(--color-white);
+    box-shadow: var(--shadow-card);
+    margin-bottom: var(--space-2);
+}
+.wo-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4);
+    cursor: pointer;
+    font-weight: var(--fw-bold);
+    list-style: none;
+}
+.wo-summary::-webkit-details-marker { display: none; }
+.wo-summary::before {
+    content: "\25B8";
+    color: var(--gray-500);
+    font-size: var(--fs-sm);
+}
+details[open] > .wo-summary::before { content: "\25BE"; }
+.wo-title { font-size: var(--fs-base); }
+.wo-meta {
+    margin-left: auto;
+    color: var(--gray-500);
+    font-weight: var(--fw-regular);
+    font-size: var(--fs-sm);
+}
+.wo-body { padding: 0 var(--space-4) var(--space-4); }
+
+/* Work-order status pill. */
+.wo-status {
+    display: inline-block;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-pill);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    color: var(--color-white);
+}
+.wo-status-in_progress { background-color: var(--status-dispense); }
+.wo-status-completed { background-color: var(--status-stock); }
+
+/* Controls row: mode selector + complete/reopen. */
+.wo-controls {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+}
+.wo-mode-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.wo-mode-select { margin-top: 0; min-height: var(--btn-h-sm); }
+.wo-controls button { margin-top: 0; min-height: var(--btn-h-sm); }
+
+/* Supervisor+ attribute editor (community / building / unit / assignee). */
+.wo-edit {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+}
+.wo-edit input { flex: 1 1 120px; margin-top: 0; }
+.wo-edit select { margin-top: 0; }
+.wo-edit button { margin-top: 0; min-height: var(--btn-h-sm); }
+
+.wo-items {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+}
+.wo-item {
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+}
+.wo-item-head { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.wo-onhand { color: var(--gray-500); font-size: var(--fs-sm); margin-left: auto; }
+.wo-item-actions { display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-2); }
+.wo-line-qty { flex: 0 0 90px; width: 90px; margin-top: 0; }
+.wo-item-actions .secondary-btn,
+.wo-item-actions .btn-danger { margin-top: 0; min-height: var(--btn-h-sm); padding: 0 var(--space-3); font-size: var(--fs-sm); }
+
+/* Per-line mode tag. */
+.wo-line-mode {
+    display: inline-block;
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-pill);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    border: 1px solid var(--gray-300);
+    color: var(--gray-700);
+}
+.wo-line-mode-retroactive { color: var(--status-adjust); border-color: var(--status-adjust); }
+
+.wo-add-item-row {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: var(--space-2);
+}
+.wo-add-item-row .ms-item-search { flex: 1 1 160px; margin-top: 0; }
+.wo-add-item-row .wo-item-qty { flex: 0 0 90px; width: 90px; margin-top: 0; }
+.wo-add-item-row button { margin-top: 0; min-height: var(--control-h); }
+.wo-message { margin-top: var(--space-2); font-size: var(--fs-sm); }
+
 /* Loading view: merged load list + per-item Staged / Unused controls. */
 .ms-subhead {
     font-size: var(--fs-base);

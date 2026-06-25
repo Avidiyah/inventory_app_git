@@ -175,6 +175,9 @@ export async function apiCreateTransaction(payload) {
     transaction_type: payload.transaction_type,
     quantity: payload.quantity,
   };
+  // A scan from a work-order card sends `work_order_id`; manual/free-text sends
+  // `work_order_number` (the backend find-or-creates it for Supervisor+).
+  if (payload.work_order_id) body.work_order_id = payload.work_order_id;
   if (payload.work_order_number) body.work_order_number = payload.work_order_number;
   return jsonRequest("/transactions/", "POST", body);
 }
@@ -216,8 +219,13 @@ export async function apiListStages(status) {
   return parseResponse(await fetch(`/mass-stages/${qs}`, { credentials: "include" }));
 }
 
-export async function apiCreateStage(buildingName) {
-  return jsonRequest("/mass-stages/", "POST", { building_name: buildingName });
+export async function apiCreateStage(community, buildingName) {
+  // `building_name` carries the building number (DB column name kept);
+  // `community` is the new top tree level.
+  return jsonRequest("/mass-stages/", "POST", {
+    community,
+    building_name: buildingName,
+  });
 }
 
 export async function apiGetStage(stageId) {
@@ -225,7 +233,7 @@ export async function apiGetStage(stageId) {
 }
 
 export async function apiUpdateStage(stageId, patch) {
-  // `patch` is `{building_name?, status?}` — at least one.
+  // `patch` is `{community?, building_name?, status?}` — at least one.
   return jsonRequest(`/mass-stages/${stageId}`, "PATCH", patch);
 }
 
@@ -233,48 +241,40 @@ export async function apiDeleteStage(stageId) {
   return parseResponse(await fetch(`/mass-stages/${stageId}`, { method: "DELETE", credentials: "include" }));
 }
 
-export async function apiAddRoom(stageId, { roomNumber, workOrderNumber, assignedToId = null }) {
-  return jsonRequest(`/mass-stages/${stageId}/rooms`, "POST", {
-    room_number: roomNumber,
+// Add a work order to a stage's truck plan. The backend find-or-creates the
+// work order by number (community/building from the stage), records its unit +
+// optional technician assignee, and links it as a slot. Returns the slot detail.
+export async function apiAddStageWorkOrder(stageId, { workOrderNumber, unitNumber = null, assignedToId = null }) {
+  return jsonRequest(`/mass-stages/${stageId}/work-orders`, "POST", {
     work_order_number: workOrderNumber,
+    unit_number: unitNumber,
     assigned_to_id: assignedToId,
   });
 }
 
-// Assign a work order (room) to a technician, or clear it (assignedToId = null).
-export async function apiAssignRoom(stageId, roomId, assignedToId) {
-  return jsonRequest(`/mass-stages/${stageId}/rooms/${roomId}/assign`, "PATCH", {
-    assigned_to_id: assignedToId,
-  });
+export async function apiDeleteStageWorkOrder(stageId, slotId) {
+  return parseResponse(await fetch(`/mass-stages/${stageId}/work-orders/${slotId}`, { method: "DELETE", credentials: "include" }));
 }
 
-export async function apiUpdateRoom(stageId, roomId, patch) {
-  return jsonRequest(`/mass-stages/${stageId}/rooms/${roomId}`, "PATCH", patch);
-}
-
-export async function apiDeleteRoom(stageId, roomId) {
-  return parseResponse(await fetch(`/mass-stages/${stageId}/rooms/${roomId}`, { method: "DELETE", credentials: "include" }));
-}
-
-export async function apiAddStageItem(stageId, roomId, { itemId, plannedQuantity }) {
-  return jsonRequest(`/mass-stages/${stageId}/rooms/${roomId}/items`, "POST", {
+export async function apiAddStageItem(stageId, slotId, { itemId, plannedQuantity }) {
+  return jsonRequest(`/mass-stages/${stageId}/work-orders/${slotId}/items`, "POST", {
     item_id: itemId,
     planned_quantity: plannedQuantity,
   });
 }
 
-export async function apiUpdateStageItem(stageId, roomId, stageItemId, { plannedQuantity }) {
-  return jsonRequest(`/mass-stages/${stageId}/rooms/${roomId}/items/${stageItemId}`, "PATCH", {
+export async function apiUpdateStageItem(stageId, slotId, stageItemId, { plannedQuantity }) {
+  return jsonRequest(`/mass-stages/${stageId}/work-orders/${slotId}/items/${stageItemId}`, "PATCH", {
     planned_quantity: plannedQuantity,
   });
 }
 
-export async function apiDeleteStageItem(stageId, roomId, stageItemId) {
-  return parseResponse(await fetch(`/mass-stages/${stageId}/rooms/${roomId}/items/${stageItemId}`, { method: "DELETE", credentials: "include" }));
+export async function apiDeleteStageItem(stageId, slotId, stageItemId) {
+  return parseResponse(await fetch(`/mass-stages/${stageId}/work-orders/${slotId}/items/${stageItemId}`, { method: "DELETE", credentials: "include" }));
 }
 
 // Loading + returns (the stock-touching actions). Both return the item's
-// updated merged rollup. `load` writes per-room dispenses; `return` adds stock
+// updated merged rollup. `load` writes per-slot dispenses; `return` adds stock
 // back silently (no ledger row). See docs/current-state.md.
 export async function apiLoadStageItem(stageId, { itemId, quantity }) {
   return jsonRequest(`/mass-stages/${stageId}/load`, "POST", { item_id: itemId, quantity });
@@ -285,26 +285,62 @@ export async function apiReturnStageItem(stageId, { itemId, quantity }) {
 }
 
 export async function apiReuseStage(stageId) {
-  // Spin off a fresh planning stage from a completed one (same building + rooms,
-  // work orders cleared, no items). Returns the new MassStageSummary.
+  // Fresh planning stage for the same community + building as a completed one.
   return jsonRequest(`/mass-stages/${stageId}/reuse`, "POST", {});
 }
 
-// Scan-gate quick-add: save a work order with a room. The backend find-or-creates
-// the building's active stage and appends the room. Returns the parent
-// MassStageSummary (the gate reads room_count). See
-// docs/current-state.md.
-export async function apiQuickAddRoom({ buildingName, roomNumber, workOrderNumber, assignedToId = null }) {
-  return jsonRequest("/mass-stages/quick-room", "POST", {
-    building_name: buildingName,
-    room_number: roomNumber,
-    work_order_number: workOrderNumber,
+// --- Work Orders -------------------------------------------------------
+// A work order is the standalone entity (identity = number). List/get/items are
+// open to any authenticated user but server-scoped (technician -> assigned,
+// supervisor -> created, admin/owner -> all). Create / attribute edits / archive
+// are Supervisor+.
+export async function apiListWorkOrders({ status = null, q = null } = {}) {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (q) params.set("q", q);
+  const qs = params.toString();
+  return parseResponse(await fetch(`/work-orders/${qs ? `?${qs}` : ""}`, { credentials: "include" }));
+}
+
+export async function apiGetWorkOrder(workOrderId) {
+  return parseResponse(await fetch(`/work-orders/${workOrderId}`, { credentials: "include" }));
+}
+
+// Create (or open, on number match) a work order. Supervisor+. Returns the
+// WorkOrderDetail. Attributes are optional; the number is required.
+export async function apiCreateWorkOrder({ number, community = null, buildingNumber = null, unitNumber = null, description = null, assignedToId = null }) {
+  return jsonRequest("/work-orders/", "POST", {
+    number,
+    community,
+    building_number: buildingNumber,
+    unit_number: unitNumber,
+    description,
     assigned_to_id: assignedToId,
   });
 }
 
-// Flat list of rooms (with work orders) across non-completed stages -- the
-// scan gate's tappable work-order cards.
-export async function apiListActiveRooms() {
-  return parseResponse(await fetch("/mass-stages/active-rooms", { credentials: "include" }));
+// `patch` is any subset of {status, entry_mode, number, community,
+// building_number, unit_number, description, assigned_to_id}. status/entry_mode
+// are editable by any in-scope user; the rest are Supervisor+.
+export async function apiUpdateWorkOrder(workOrderId, patch) {
+  return jsonRequest(`/work-orders/${workOrderId}`, "PATCH", patch);
+}
+
+export async function apiArchiveWorkOrder(workOrderId) {
+  return parseResponse(await fetch(`/work-orders/${workOrderId}/archive`, { method: "POST", credentials: "include" }));
+}
+
+export async function apiAddWorkOrderItem(workOrderId, { itemId, quantity }) {
+  return jsonRequest(`/work-orders/${workOrderId}/items`, "POST", {
+    item_id: itemId,
+    quantity,
+  });
+}
+
+export async function apiUpdateWorkOrderItem(workOrderId, woItemId, { quantity }) {
+  return jsonRequest(`/work-orders/${workOrderId}/items/${woItemId}`, "PATCH", { quantity });
+}
+
+export async function apiDeleteWorkOrderItem(workOrderId, woItemId) {
+  return parseResponse(await fetch(`/work-orders/${workOrderId}/items/${woItemId}`, { method: "DELETE", credentials: "include" }));
 }

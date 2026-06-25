@@ -42,7 +42,11 @@ class TransactionCreate(BaseModel):
     item_id: UUID
     transaction_type: Literal["stock", "dispense"]
     quantity: Decimal
+    # A scan from a work-order card passes `work_order_id` directly; a Supervisor+
+    # free-text entry passes `work_order_number`, which the router find-or-creates
+    # into a work order. The router stores both (the number is denormalized).
     work_order_number: Optional[str] = None
+    work_order_id: Optional[UUID] = None
 
     @field_validator("quantity")
     @classmethod

@@ -1,6 +1,6 @@
 # Inventory App Current State
 
-Last reviewed: 2026-06-23
+Last reviewed: 2026-06-25
 
 Purpose of this file: give an AI or developer enough current-state context to
 make technical changes without rereading the whole repository. Start here, then
@@ -48,8 +48,9 @@ Core workflows:
 - Find/create/edit inventory items by barcode.
 - Stock, dispense, correct, void, and bill transaction rows.
 - Scan items into work-order batches.
-- Save work-order cards from mass-stage rooms.
-- Plan/load/return materials for a community/building by unit.
+- Create/assign/log standalone work orders (identity = number); dispense or
+  retroactively backfill materials.
+- Plan/load/return materials for a community/building by unit (truck staging).
 - Review/copy transaction history.
 - Manage users and role-scoped access.
 
@@ -100,7 +101,9 @@ Path shorthand:
 | Live camera scan | `static/scan/barcode-decoder.js`, `static/scan/frame-debouncer.js`, `static/views/scan.js`, `static/scan-test.html`, `static/scan-test.js` | manual browser/device check; unit tests cover backend decode only |
 | Scan-and-go work-order batch | `static/views/transactions.js`, `static/views/scan.js`, `routers/transactions.py`, `services/transactions.py`, `static/pages/transaction.html` | transaction/domain tests plus manual UI check |
 | Mass staging API/domain | `domain/mass_staging.py`, `services/mass_staging.py`, `routers/mass_stages.py`, `schemas/mass_stages.py`, `models.py` | `test_mass_staging.py`, `test_mass_staging_load.py`, `test_mass_stages_api.py` |
-| Mass staging UI | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | mass-stage tests plus manual UI check |
+| Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | mass-stage tests plus manual UI check |
+| Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_route_role_gates.py` |
+| Work Orders UI | `static/views/workOrders.js`, `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | work-order tests plus manual UI check |
 | Deployment/runtime | `backend/Dockerfile`, `backend/entrypoint.sh`, `backend/alembic.ini`, `backend/app/database.py`, `render.yaml`, `requirements*.txt` | `git diff --check`; run tests if runtime deps change |
 | Frontend navigation/layout | `static/shell-head.html`, `static/shell-tail.html`, `static/pages/*.html`, `static/views/nav.js`, `static/styles.css` | manual browser check; no frontend test harness |
 | Database schema/migration | `models.py`, matching schemas/services, `backend/alembic/versions`, `database.py` | targeted DB-backed tests, then full pytest |
@@ -115,9 +118,12 @@ backend/app/auth_deps.py         cookie/session dependency and role gates
 backend/app/database.py          engine/session setup and URL normalization
 backend/app/models.py            SQLAlchemy schema model
 backend/app/domain/*.py          pure business rules and domain errors
+backend/app/domain/work_orders.py work-order status/mode/visibility rules
 backend/app/routers/*.py         route handlers and auth gates
+backend/app/routers/work_orders.py Work Orders page routes (server-scoped)
 backend/app/schemas/*.py         request/response contracts
 backend/app/services/*.py        DB-backed application logic
+backend/app/services/work_orders.py Work Orders materials log (dispense/retro)
 backend/alembic/versions/*.py    migrations
 backend/scripts/create_owner.py  owner bootstrap
 backend/scripts/import_local_data.ps1 local data import helper
@@ -133,7 +139,9 @@ backend/static/roles.js          frontend mirror of role hierarchy
 backend/static/format.js         display/error/safe-url helpers
 backend/static/dom.js            DOM helpers and confirm dialog
 backend/static/views/*.js        page/view modules
+backend/static/views/workOrders.js Work Orders page view
 backend/static/pages/*.html      SPA page fragments
+backend/static/pages/work-orders.html Work Orders page fragment
 backend/static/shell-*.html      shell fragments
 backend/static/styles.css        global styles
 backend/static/scan/*.js         live scanner wrapper/debouncer
@@ -206,6 +214,11 @@ Inventory/transactions:
   history prefers the snapshot over the live price.
 - Mass-stage unused returns add stock without transaction rows. This is the one
   deliberate silent stock change.
+- `transactions.affects_stock` is TRUE for every ordinary stock/dispense/adjust.
+  It is FALSE only for a *retroactive* work-order entry: such a row shows in
+  History identically to a real dispense but did NOT move on-hand, so both its
+  creation and its void skip the stock change. `void_transaction` branches on
+  this flag (a stock-neutral void only soft-deletes the row).
 
 Security/access:
 
@@ -218,17 +231,39 @@ Security/access:
 - Owner is bootstrap-only; API users cannot manage an owner.
 - Admin/Owner cost fields are redacted server-side for lower roles.
 
+Work orders:
+
+- A work order is a standalone entity; **identity is its `number`**, unique
+  case-insensitively + trimmed. Any surface using a number find-or-creates the
+  one row (`services.work_orders.get_or_create_work_order`); references fill
+  blank attributes but never overwrite non-blank ones.
+- Status is two-state (`in_progress` / `completed`, reopenable; completed stays
+  editable). Soft-archive via `archived_at`; an archived number stays reserved
+  and is restored on reference.
+- Logging a material writes a `dispense` transaction carrying `work_order_id` +
+  number. `entry_mode` decides `affects_stock`: `dispense` moves stock,
+  `retroactive` is stock-neutral (still shown in History). Mode is snapshotted
+  per line; switching mode only affects subsequent entries.
+- Editing a dispense-mode line auto-corrects stock by the delta and rewrites the
+  linked transaction in place; deleting it returns the stock and voids the
+  transaction. A deliberate, scoped exception to the append-only ledger, limited
+  to work-order-originated rows (`work_order_items.transaction_id`).
+- List/get/items are scoped server-side by
+  `domain.work_orders.can_view_work_order`; out-of-scope/archived/unknown
+  surface as 404. Create / attribute edits / archive are Supervisor+; an
+  assignee must be a technician.
+
 Mass staging:
 
 - Stage status moves only `planning -> loading -> completed`.
-- Rooms/items are editable only in `planning`.
-- Loading and returning are allowed only in `loading`.
-- A stage cannot move to `loading` until every room has a non-blank work order.
-- Only one active non-completed stage may exist per building/community.
-- Stage loading writes real per-room `dispense` transactions.
-- Stage returns reverse-fill returned quantity across rooms and write no ledger
-  transaction.
-- Work-order assignment target must be a technician.
+- Slots/items are editable only in `planning`; loading/returning only in
+  `loading`.
+- Only one active non-completed stage per `(community, building_name)`.
+- A stage references work orders through `mass_stage_work_orders` slots; adding
+  one enforces the work order's community/building match the stage.
+- Stage loading writes real per-slot `dispense` transactions carrying the slot's
+  work order; returns reverse-fill across slots and write no ledger row.
+- DB column names kept: `mass_stages.building_name` holds the building *number*.
 
 Barcode:
 
@@ -267,15 +302,19 @@ owner > admin > supervisor > technician
 | List users | supervisor+ |
 | Create/reset/archive/restore/delete user | actor must outrank target |
 | Mass-stage page/API | supervisor+ |
-| Active work-order cards | any authenticated user, server-scoped |
+| Work Orders list/get/items | any authenticated user, server-scoped (technician: assigned; supervisor: created; admin/owner: all) |
+| Create work order / edit attributes / assign / archive | supervisor+ (scoped) |
+| Scan-gate work-order cards | any authenticated user (`GET /work-orders/?status=in_progress`, scoped) |
 
-Mass-stage scoping nuance:
+Scoping nuance:
 
-- `GET /mass-stages/active-rooms` is scoped by role.
 - `GET /mass-stages/` list is scoped: supervisor sees own stages, admin/owner
-  all.
-- Direct stage-by-ID routes are currently only supervisor+ gated. They do not
-  add creator/assignee scope checks once the caller has a stage id.
+  all. Direct stage-by-ID routes are supervisor+ gated but not additionally
+  creator-scoped once the caller has a stage id.
+- The `/work-orders` routes DO add real per-row creator/assignee scope checks
+  (`services.work_orders`), because technicians reach them. A work order's
+  `status`/`entry_mode`/materials are editable by any in-scope user; identity,
+  location, and assignment edits require supervisor+.
 
 ## Data Model
 
@@ -353,8 +392,8 @@ Rules:
 ### `transactions`
 
 Fields: `id`, `item_id`, `user_id`, `transaction_type`, `quantity`,
-`unit_price`, `billable_quantity`, `work_order_number`, `reason`,
-`created_at`, `voided_at`, `voided_by_id`.
+`unit_price`, `billable_quantity`, `work_order_number`, `work_order_id`,
+`reason`, `affects_stock`, `created_at`, `voided_at`, `voided_by_id`.
 
 Rules:
 
@@ -362,7 +401,9 @@ Rules:
 - Stock/dispense quantity is positive.
 - Adjust quantity is signed delta.
 - `reason` required for adjust.
-- `work_order_number` used by stock/dispense.
+- `work_order_id` is the FK link to the standalone work order;
+  `work_order_number` is the denormalized snapshot kept for History (the router
+  resolves both from a scanned card or by find-or-create).
 - `unit_price` snapshots `Item.price` when a stock/dispense row is written
   (NULL for `adjust` and pre-snapshot rows). History reads this snapshot,
   falling back to live `Item.price` only when it is NULL, so editing an
@@ -371,43 +412,84 @@ Rules:
 - `billable_quantity = 0` means record but do not charge.
 - Billing override cannot exceed recorded quantity and cannot target `adjust`.
 - `voided_by_id` is a plain UUID, not a second FK to users.
+- `affects_stock` defaults TRUE. FALSE marks a retroactive work-order entry
+  that shows in History like a dispense but never moved on-hand; create and
+  void both skip the stock change for it.
+
+### `work_orders`
+
+Fields: `id`, `number`, `community`, `building_number`, `unit_number`,
+`description`, `status`, `entry_mode`, `assigned_to_id`, `created_by_id`,
+`created_at`, `updated_at`, `completed_at`, `archived_at`.
+
+Rules:
+
+- The standalone first-class entity. **Identity is `number`**, unique
+  case-insensitively + trimmed via the functional index
+  `uq_work_orders_number_ci` (`lower(btrim(number))`). Every surface
+  find-or-creates by number through `services.work_orders.get_or_create_work_order`.
+- `status` is two-state (`in_progress` / `completed`, reopenable).
+- `entry_mode` (`dispense` / `retroactive`) is the default mode for newly logged
+  materials.
+- `assigned_to_id` (must be a technician) and `created_by_id` drive visibility
+  scope (`domain.work_orders.can_view_work_order`).
+- Soft delete via `archived_at`; an archived number stays reserved and is
+  restored when referenced again.
+- References fill blank attributes but never overwrite non-blank ones; explicit
+  edits (`update_work_order`) overwrite.
+
+### `work_order_items`
+
+Fields: `id`, `work_order_id`, `item_id`, `quantity`, `mode`, `transaction_id`,
+`created_by_id`, `created_at`, `updated_at`.
+
+Rules:
+
+- The editable "materials actually used" list for a work order, separate from
+  `mass_stage_items` (truck planning). One row per item per work order
+  (`UNIQUE(work_order_id, item_id)`); re-adding an item updates its row.
+- `mode` snapshots the work order's `entry_mode` at logging time.
+- `transaction_id` links the `Transaction` the line produced (so the entry shows
+  in History). `work_order_id` FK is `ON DELETE CASCADE`; `item_id` is plain.
 
 ### `mass_stages`
 
-Fields: `id`, `building_name`, `status`, `created_by_id`, `created_at`,
-`updated_at`, `completed_at`.
+Fields: `id`, `community`, `building_name`, `status`, `created_by_id`,
+`created_at`, `updated_at`, `completed_at`.
 
 Rules:
 
-- `building_name` is the community/building label.
-- `status`: `planning`, `loading`, `completed`.
-- Partial unique index permits only one active non-completed stage per building.
+- A building's truck-staging plan; it **references** work orders (does not own
+  them). `community` is the top tree level; `building_name` holds the building
+  *number* (column name kept). `status`: `planning`, `loading`, `completed`.
+- Partial unique index `uq_mass_stages_active_community_building` permits only
+  one active non-completed stage per `(community, building_name)`.
 
-### `mass_stage_rooms`
+### `mass_stage_work_orders`
 
-Fields: `id`, `stage_id`, `room_number`, `work_order_number`, `sort_order`,
-`created_by_id`, `assigned_to_id`, `created_at`.
+Fields: `id`, `stage_id`, `work_order_id`, `sort_order`, `created_at`.
 
 Rules:
 
-- One room/unit has one work order.
-- `sort_order` drives load allocation order.
-- Room number is unique within a stage.
-- `created_by_id` drives supervisor list/card scope.
-- `assigned_to_id` drives technician active-card scope.
+- A work order's ordered slot in a stage's truck plan (replaces the old
+  `mass_stage_rooms`). `UNIQUE(stage_id, work_order_id)`. `sort_order` drives
+  load allocation. `stage_id` FK is `ON DELETE CASCADE`; `work_order_id` is a
+  plain FK (the work order is independent).
+- Adding a work order enforces its community/building match the stage.
 
 ### `mass_stage_items`
 
-Fields: `id`, `room_id`, `item_id`, `planned_quantity`, `loaded_quantity`,
-`returned_quantity`, `created_at`.
+Fields: `id`, `stage_work_order_id`, `item_id`, `planned_quantity`,
+`loaded_quantity`, `returned_quantity`, `created_at`.
 
 Rules:
 
-- One planned item row per room/item pair.
+- One planned item row per slot/item pair (`UNIQUE(stage_work_order_id, item_id)`).
+  Truck-plan estimates, distinct from `work_order_items` actuals.
 - Planning does not move stock.
-- Loading increments `loaded_quantity` and writes transactions.
-- Returning increments `returned_quantity` and silently adds stock back.
-- Net consumed is `loaded_quantity - returned_quantity`.
+- Loading increments `loaded_quantity` and writes per-slot dispenses carrying
+  the slot's work order; Returning increments `returned_quantity` and silently
+  adds stock back. Net consumed is `loaded_quantity - returned_quantity`.
 
 ## API Surface
 
@@ -491,23 +573,44 @@ Unreadable image returns 400.
 
 | Method | Path | Gate | Behavior |
 | --- | --- | --- | --- |
-| POST | `/mass-stages/` | supervisor+ | create planning stage |
+| POST | `/mass-stages/` | supervisor+ | create planning stage (community + building) |
 | GET | `/mass-stages/` | supervisor+ scoped | list stages, optional `status` |
-| POST | `/mass-stages/quick-room` | supervisor+ | find/create active stage and append work-order room |
-| GET | `/mass-stages/active-rooms` | session scoped | work-order cards for scan gate |
-| GET | `/mass-stages/{stage_id}` | supervisor+ | full stage detail |
-| PATCH | `/mass-stages/{stage_id}` | supervisor+ | rename and/or transition status |
+| GET | `/mass-stages/{stage_id}` | supervisor+ | full stage detail (slots + planned items) |
+| PATCH | `/mass-stages/{stage_id}` | supervisor+ | rename (community/building) and/or transition status |
 | DELETE | `/mass-stages/{stage_id}` | supervisor+ | delete stage; does not reverse dispenses |
-| POST | `/mass-stages/{stage_id}/reuse` | supervisor+ | fresh planning copy from completed stage |
-| POST | `/mass-stages/{stage_id}/rooms` | supervisor+ | add room/work order |
-| PATCH | `/mass-stages/{stage_id}/rooms/{room_id}/assign` | supervisor+ | assign/clear technician |
-| PATCH | `/mass-stages/{stage_id}/rooms/{room_id}` | supervisor+ | edit room/work order |
-| DELETE | `/mass-stages/{stage_id}/rooms/{room_id}` | supervisor+ | remove room |
-| POST | `/mass-stages/{stage_id}/rooms/{room_id}/items` | supervisor+ | add/upsert planned item |
-| PATCH | `/mass-stages/{stage_id}/rooms/{room_id}/items/{stage_item_id}` | supervisor+ | edit planned quantity |
-| DELETE | `/mass-stages/{stage_id}/rooms/{room_id}/items/{stage_item_id}` | supervisor+ | remove planned item |
-| POST | `/mass-stages/{stage_id}/load` | supervisor+ | load merged item as per-room dispenses |
+| POST | `/mass-stages/{stage_id}/reuse` | supervisor+ | fresh empty planning stage for the same building |
+| POST | `/mass-stages/{stage_id}/work-orders` | supervisor+ | add a work order to the plan (find-or-create + enforce match) |
+| DELETE | `/mass-stages/{stage_id}/work-orders/{slot_id}` | supervisor+ | remove a work order from the plan |
+| POST | `/mass-stages/{stage_id}/work-orders/{slot_id}/items` | supervisor+ | add/upsert planned item |
+| PATCH | `/mass-stages/{stage_id}/work-orders/{slot_id}/items/{stage_item_id}` | supervisor+ | edit planned quantity |
+| DELETE | `/mass-stages/{stage_id}/work-orders/{slot_id}/items/{stage_item_id}` | supervisor+ | remove planned item |
+| POST | `/mass-stages/{stage_id}/load` | supervisor+ | load merged item as per-slot dispenses |
 | POST | `/mass-stages/{stage_id}/return` | supervisor+ | return unused material silently to stock |
+
+The old `/quick-room`, `/active-rooms`, and per-room assign/edit routes are gone:
+the scan gate lists `/work-orders/?status=in_progress` and creates via
+`POST /work-orders/`; assignment/edits live on the work order.
+
+### Work Orders
+
+List/get/items are open to any authenticated user but **server-scoped**: a
+technician sees/acts on only work orders assigned to them, a supervisor only
+ones they created, admin/owner all. Create / attribute edits / archive are
+Supervisor+. Out-of-scope, archived, or unknown work orders return 404.
+
+| Method | Path | Gate | Behavior |
+| --- | --- | --- | --- |
+| GET | `/work-orders/` | session scoped | list in_progress/completed work orders; `status`, `q` (WO# search) filters |
+| POST | `/work-orders/` | supervisor+ | create (or open, on number match) a work order |
+| GET | `/work-orders/{id}` | session scoped | work-order detail + logged materials |
+| PATCH | `/work-orders/{id}` | session scoped; attr/assignee/number edits supervisor+ | set status/entry_mode and/or attributes |
+| POST | `/work-orders/{id}/archive` | supervisor+ scoped | soft-archive (number stays reserved) |
+| POST | `/work-orders/{id}/items` | session scoped | log a material (mode = work order's entry_mode); upsert by item |
+| PATCH | `/work-orders/{id}/items/{wo_item_id}` | session scoped | edit a material's quantity (dispense lines auto-correct stock) |
+| DELETE | `/work-orders/{id}/items/{wo_item_id}` | session scoped | remove a material (dispense lines return stock; voids the linked txn) |
+
+The `POST /transactions/` body now also accepts `work_order_id` (from a scanned
+card); a free-text `work_order_number` from a Supervisor+ is find-or-created.
 
 ## Frontend Feature Context
 
@@ -551,10 +654,13 @@ Files: `views/transactions.js`, `views/scan.js`, `pages/transaction.html`,
 Behavior:
 
 - Every role lands here after login.
-- Gate shows active work-order cards from `/mass-stages/active-rooms`.
+- Gate shows active work-order cards from `/work-orders/?status=in_progress`
+  (scoped). Tapping a card starts a batch on that work order (id + number).
 - Technician sees only assigned cards and cannot free-type a work order.
-- Supervisor+ can quick-add community/unit/work-order with optional technician.
-- Supervisor+ also has free-text fallback.
+- Supervisor+ can quick-add a work order (number + optional community/building/
+  unit/technician) which find-or-creates it, then starts the batch.
+- Supervisor+ also has a free-text fallback (the typed number is find-or-created).
+- Each committed scan carries `work_order_id` (+ number) on the transaction.
 - Batch starts with quantity `1`.
 - Default flow is dispense-only for every role.
 - Supervisor+ can reveal manual entry and stock options.
@@ -572,21 +678,48 @@ mass-stage router/service/domain/schema/model.
 Behavior:
 
 1. Create stage for community/building.
-2. Add units/rooms, one work order each, optional technician assignment.
-3. Add planned items and quantities.
-4. Save stage: `planning -> loading`; every room must have a work order.
-5. Load merged item quantities. Loads split across rooms by `sort_order` and
-   create real dispense transactions.
-6. Return unused material. Returns add stock and update stage tables only.
+2. Add work orders (each a unit slot referencing a standalone work order;
+   community/building come from the stage, optional unit + technician). Adding
+   find-or-creates the work order and enforces a building match.
+3. Add planned items and quantities per slot.
+4. Save stage: `planning -> loading`.
+5. Load merged item quantities. Loads split across slots by `sort_order` and
+   create real dispense transactions carrying each slot's work order.
+6. Return unused material. Returns add stock and update slot tables only.
 7. Mark completed.
-8. Stage again from completed: copy building and rooms, clear work orders, no
-   items, no assignments carried over.
+8. Stage again from completed: a fresh empty planning stage for the same
+   community + building (no slots copied).
 
-UI display:
+UI display (community tree):
 
-- stages with 2+ units render as full cards
-- 0/1-unit entries render under "Single work orders"
+- the list is a three-tier collapsing tree: Community -> Building -> Unit
+- the create row is a Community dropdown (3 seeds + in-use names + "+ New
+  community…") plus a Building # input
+- each unit shows an "Open work order →" link that navigates to the Work Orders
+  page for its work order (`focusWorkOrder` + `showPage`); planned items are
+  still edited inline in planning
 - completed stages are read-only and terminal
+
+### Work Orders
+
+Files: `views/workOrders.js`, `pages/work-orders.html`, `api.js`, backend
+work-order router/service/domain/schema/model.
+
+Behavior:
+
+- Any authenticated role, server-scoped (technician sees assigned, supervisor
+  created, admin/owner all). Reached via the nav button or a Unit click in the
+  Mass Stage tree.
+- Supervisor+ get a "New work order" form (number + optional community/building/
+  unit/assignee); re-using an existing number opens it.
+- Filter by status (In progress / Completed / All), then search by number.
+- Cards are collapsible; the body has a mode selector (Dispense / Retroactive),
+  Mark completed / Reopen, a Supervisor+ attribute editor (community/building/
+  unit/assignee) + Archive, and the logged materials with inline-editable
+  quantities, add (search-and-pick), and remove.
+- Dispense entries move stock and show in History like a Scan/Stock dispense;
+  retroactive entries show in History identically but move no stock.
+- Completed work orders stay fully editable (status is a flag + filter).
 
 ### History
 
@@ -694,6 +827,25 @@ Behavior:
   `include_price=True` for Admin/Owner; `item_price` is the row's
   `unit_price` snapshot, falling back to live `Item.price` when NULL.
 
+### Work Orders
+
+Files: `domain/work_orders.py`, `services/work_orders.py`,
+`routers/work_orders.py`, `schemas/work_orders.py`, `models.py`.
+
+Behavior:
+
+- `get_or_create_work_order` resolves a number (case-insensitive + trimmed) to
+  the one row: fills blank attributes, restores an archived match, validates the
+  assignee is a technician. The single home for find-or-create, used by the WO
+  page, the scan gate, and Mass Stage.
+- `list_work_orders` is scoped (technician/supervisor/admin), excludes archived,
+  filters by status, and searches the number case-insensitively.
+- `update_work_order` overwrites the supplied fields; completing stamps
+  `completed_at`, reopening clears it; a number collision raises 400.
+- `add/update/delete_work_order_item` lock the item row, write/rewrite/void the
+  linked `dispense` transaction (`affects_stock` per the work order's mode), and
+  auto-correct stock for dispense-mode edits/deletes.
+
 ### Mass Staging
 
 Files: `domain/mass_staging.py`, `services/mass_staging.py`,
@@ -701,23 +853,22 @@ Files: `domain/mass_staging.py`, `services/mass_staging.py`,
 
 Behavior:
 
-- `create_stage` enforces one active stage per building.
-- `add_room_to_building` is quick-add path from scan gate.
-- `list_active_rooms` returns non-completed rooms with non-blank work orders,
-  scoped by role.
-- `list_stages` is scoped for supervisor vs admin/owner.
-- `get_stage` is not additionally scoped beyond Supervisor+.
-- `reuse_stage` requires completed source and clears work orders.
-- `add_item` upserts planned quantity by room/item.
-- `load_item` locks item, allocates quantity across room plans, writes
-  dispense transaction rows (with `unit_price` snapshotted from the locked
-  item), increments loaded quantities.
-- `return_item` locks item, reverse-allocates returns, increments returned
+- `create_stage` enforces one active stage per (community, building).
+- `add_work_order_to_stage` enforce-matches the work order's community/building
+  to the stage, find-or-creates it via `services.work_orders`, and links a slot.
+- `list_stages` is scoped for supervisor vs admin/owner; `get_stage` is not
+  additionally scoped beyond Supervisor+.
+- `reuse_stage` requires a completed source and makes a fresh empty stage for
+  the same community + building.
+- `add_item` upserts planned quantity by slot/item.
+- `load_item` locks the item, allocates across slot plans, writes dispense rows
+  carrying each slot's `work_order_id` + number, increments loaded quantities.
+- `return_item` locks the item, reverse-allocates returns, increments returned
   quantities, adds stock without transaction rows.
 
 ## Migration History
 
-Alembic head: `f1a3c5e7b9d4`.
+Alembic head: `b3d5f7a9c1e4`.
 
 | Revision | Meaning |
 | --- | --- |
@@ -737,6 +888,7 @@ Alembic head: `f1a3c5e7b9d4`.
 | `e7f9a1c3b5d2` | transaction billable_quantity |
 | `d8b2f4a6c1e3` | transaction unit_price (historical price snapshot) |
 | `f1a3c5e7b9d4` | user archived_at (soft delete) |
+| `b3d5f7a9c1e4` | standalone `work_orders` (number identity) + `work_order_items` + transaction `affects_stock`/`work_order_id` + `mass_stages.community` + `mass_stage_work_orders` slots (replaces rooms) |
 
 ## Test Map
 
@@ -775,7 +927,9 @@ Coverage map:
 | `test_quantity_reverse.py` | stock delta reversal for voids |
 | `test_mass_staging.py` | pure mass-stage allocation/lifecycle rules |
 | `test_mass_stages_api.py` | schemas, route gates, response builders |
-| `test_mass_staging_load.py` | DB-backed load/return behavior |
+| `test_mass_staging_load.py` | DB-backed slot load/return, add-work-order enforce-match, reuse |
+| `test_work_orders_domain.py` | pure number normalization, 2-state validators, fill-blanks, visibility scope |
+| `test_work_orders_service.py` | DB-backed find-or-create (case-insensitive/fill-blanks/restore), dispense/retroactive logging, edit auto-correct, delete reversal, stock-neutral void, archive, scoping |
 
 No frontend test harness exists. For UI behavior, run backend tests plus manual
 browser checks for changed pages.
@@ -792,6 +946,19 @@ Do not "fix" these accidentally unless the task asks for it.
 - Completed mass stages cannot be reopened.
 - Stage deletion does not reverse load transactions already written.
 - Frontend has no bundler/type checker; ID and module contract drift is manual.
+- Work-order entries bend the append-only ledger on purpose: editing a
+  dispense-mode line rewrites its linked transaction in place and auto-corrects
+  stock (scoped to `work_order_items`-originated rows only).
+- The `b3d5f7a9c1e4` migration is a clean rebuild: it WIPES all prior
+  mass-stage/work-order data (stages, slots, planned items, logged materials).
+  Inventory `items` and historical `transactions` are preserved (old txns keep
+  their `work_order_number` string with `work_order_id` NULL).
+- Work-order numbers are a single global namespace, unique case-insensitively;
+  there is no per-community/building number scoping.
+- A free-text work-order number on a transaction is find-or-created only for
+  Supervisor+; a technician's scan must carry a `work_order_id` (from a card).
+- Deferred work-order attributes not yet built: `priority`, `due_date`,
+  `external_ref`/`source` (for future real-world WO integration).
 
 ## Documentation Policy
 

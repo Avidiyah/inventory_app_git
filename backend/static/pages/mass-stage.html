@@ -6,16 +6,18 @@
 
         <section id="mass-stage-create-section">
             <h2>New Mass Stage</h2>
-            <p class="hint">Start a staging list for a community.</p>
+            <p class="hint">Pick a community and enter the building number. Options are populated by views/massStage.js.</p>
             <div class="filter-row">
-                <input type="text" id="mass-stage-building-input" placeholder="Community (e.g. Scholars)">
+                <select id="mass-stage-community-select" aria-label="Community"></select>
+                <input type="text" id="mass-stage-community-new" placeholder="New community" hidden>
+                <input type="text" id="mass-stage-building-input" placeholder="Building # (e.g. 19)">
                 <button id="mass-stage-create-btn" type="button">Create</button>
             </div>
             <p id="mass-stage-create-message"></p>
         </section>
 
         <section id="mass-stage-list-section">
-            <h2>Mass Stages</h2>
+            <h2>Communities</h2>
             <div id="mass-stage-list"></div>
             <p id="mass-stage-list-message"></p>
         </section>

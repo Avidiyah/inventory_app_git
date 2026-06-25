@@ -1,14 +1,13 @@
-"""HTTP routes for the `/mass-stages` resource (planning).
+"""HTTP routes for the `/mass-stages` resource (truck planning).
 
-Layer: routers (FastAPI). Thin handlers: parse via a Pydantic schema,
-delegate to `app.services.mass_staging`, and translate any `DomainError`
-through the shared `to_http`. Every route is Supervisor+.
+Layer: routers (FastAPI). Thin handlers: parse via a Pydantic schema, delegate
+to `app.services.mass_staging`, translate `DomainError` via `to_http`. Every
+route is Supervisor+.
 
-Response bodies are assembled by the builder helpers below (not
-`from_attributes`), because a planned item's `item_name` / `item_barcode`
-come from the joined `Item`. Mirrors `routers/items.py::_item_response`.
-
-Mounted by `app/main.py` under the root prefix.
+A stage references standalone work orders through ordered slots
+(`mass_stage_work_orders`); response bodies are assembled by the builders below
+because a slot's `work_order_number` / unit / status come from the joined
+`WorkOrder` and a planned item's `item_name` from the joined `Item`.
 """
 
 import uuid
@@ -18,29 +17,25 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.auth_deps import get_current_user, require_min_role
+from app.auth_deps import require_min_role
 from app.database import get_db
 from app.domain import roles
 from app.domain.errors import DomainError, StageItemNotFoundError
-from app.models import MassStage, MassStageItem, MassStageRoom, User
+from app.models import MassStage, MassStageItem, MassStageWorkOrder, User
 from app.routers._errors import to_http
 from app.schemas.mass_stages import (
-    ActiveRoom,
     LoadRequest,
     MassStageCreate,
     MassStageDetail,
     MassStageSummary,
     MassStageUpdate,
     MergedItem,
-    QuickRoomCreate,
     ReturnRequest,
-    RoomAssign,
-    RoomCreate,
-    RoomDetail,
-    RoomUpdate,
     StageItemCreate,
     StageItemDetail,
     StageItemUpdate,
+    StageWorkOrderCreate,
+    StageWorkOrderDetail,
 )
 from app.services import mass_staging as ms_service
 
@@ -62,25 +57,28 @@ def _item_detail(stage_item: MassStageItem) -> StageItemDetail:
     )
 
 
-def _room_detail(room: MassStageRoom) -> RoomDetail:
-    return RoomDetail(
-        id=room.id,
-        room_number=room.room_number,
-        work_order_number=room.work_order_number,
-        sort_order=room.sort_order,
-        assigned_to_id=room.assigned_to_id,
-        assigned_to_username=room.assignee.username if room.assignee else None,
-        items=[_item_detail(si) for si in room.items],
+def _slot_detail(slot: MassStageWorkOrder) -> StageWorkOrderDetail:
+    w = slot.work_order
+    return StageWorkOrderDetail(
+        id=slot.id,
+        work_order_id=slot.work_order_id,
+        work_order_number=w.number,
+        unit_number=w.unit_number,
+        status=w.status,
+        sort_order=slot.sort_order,
+        assigned_to_id=w.assigned_to_id,
+        assigned_to_username=w.assignee.username if w.assignee else None,
+        items=[_item_detail(si) for si in slot.items],
     )
 
 
 def _merged_items(stage: MassStage) -> list[MergedItem]:
     """Roll the stage's planned items up by item_id (the unit the supervisor
-    loads). First-seen order is preserved across rooms."""
+    loads). First-seen order is preserved across slots."""
     agg: dict = {}
     order: list = []
-    for room in stage.rooms:
-        for si in room.items:
+    for slot in stage.work_order_slots:
+        for si in slot.items:
             if si.item_id not in agg:
                 agg[si.item_id] = {
                     "name": si.item.name,
@@ -120,21 +118,23 @@ def _merged_items(stage: MassStage) -> list[MergedItem]:
 def _stage_detail(stage: MassStage) -> MassStageDetail:
     return MassStageDetail(
         id=stage.id,
+        community=stage.community,
         building_name=stage.building_name,
         status=stage.status,
         created_at=stage.created_at,
-        rooms=[_room_detail(r) for r in stage.rooms],
+        work_orders=[_slot_detail(s) for s in stage.work_order_slots],
         merged_items=_merged_items(stage),
     )
 
 
 def _stage_summary(stage: MassStage) -> MassStageSummary:
-    item_ids = {si.item_id for room in stage.rooms for si in room.items}
+    item_ids = {si.item_id for slot in stage.work_order_slots for si in slot.items}
     return MassStageSummary(
         id=stage.id,
+        community=stage.community,
         building_name=stage.building_name,
         status=stage.status,
-        room_count=len(stage.rooms),
+        unit_count=len(stage.work_order_slots),
         item_count=len(item_ids),
         created_at=stage.created_at,
     )
@@ -148,11 +148,13 @@ def create_stage(
     user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
-    """Create a planning stage for a building. Supervisor+. 400 if an active
-    stage already exists for that building."""
+    """Create a planning stage for a community + building. Supervisor+."""
     try:
         stage = ms_service.create_stage(
-            db, building_name=payload.building_name, created_by_id=user.id
+            db,
+            community=payload.community,
+            building_name=payload.building_name,
+            created_by_id=user.id,
         )
         return _stage_summary(stage)
     except DomainError as exc:
@@ -172,52 +174,13 @@ def list_stages(
     ]
 
 
-# Declared before the `/{stage_id}` routes so "quick-room" / "active-rooms"
-# are not captured as a stage_id path param.
-
-@router.post("/quick-room", response_model=MassStageSummary, status_code=201)
-def quick_room(
-    payload: QuickRoomCreate,
-    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
-    db: Session = Depends(get_db),
-):
-    """Save a work order with a room from the scan gate: find-or-create the
-    building's active stage and append the room. Supervisor+. Returns the parent
-    stage summary (the UI reads `room_count` to know when a building becomes a
-    Mass Stage card). 400 if the building is already loading or the room number
-    is taken."""
-    try:
-        stage = ms_service.add_room_to_building(
-            db,
-            building_name=payload.building_name,
-            room_number=payload.room_number,
-            work_order_number=payload.work_order_number,
-            created_by_id=user.id,
-            assigned_to_id=payload.assigned_to_id,
-        )
-        return _stage_summary(stage)
-    except DomainError as exc:
-        raise to_http(exc)
-
-
-@router.get("/active-rooms", response_model=list[ActiveRoom])
-def list_active_rooms(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Flat list of work-order cards across non-completed stages, **scoped to
-    the caller**: a technician sees only rooms assigned to them, a supervisor
-    only rooms they created, admin/owner all. Any authenticated user."""
-    return [ActiveRoom(**row) for row in ms_service.list_active_rooms(db, user=user)]
-
-
 @router.get(
     "/{stage_id}",
     response_model=MassStageDetail,
     dependencies=[Depends(require_min_role(roles.ROLE_SUPERVISOR))],
 )
 def get_stage(stage_id: uuid.UUID, db: Session = Depends(get_db)):
-    """Full stage detail (rooms + planned items). Supervisor+. 404 if unknown."""
+    """Full stage detail (slots + planned items). Supervisor+. 404 if unknown."""
     try:
         return _stage_detail(ms_service.get_stage(db, stage_id))
     except DomainError as exc:
@@ -234,11 +197,14 @@ def update_stage(
     payload: MassStageUpdate,
     db: Session = Depends(get_db),
 ):
-    """Rename and/or change status. Supervisor+. 400 on an invalid status
-    transition or a building-name collision; 404 if unknown."""
+    """Rename (community/building) and/or change status. Supervisor+."""
     try:
         stage = ms_service.update_stage(
-            db, stage_id, building_name=payload.building_name, status=payload.status
+            db,
+            stage_id,
+            community=payload.community,
+            building_name=payload.building_name,
+            status=payload.status,
         )
         return _stage_summary(stage)
     except DomainError as exc:
@@ -251,8 +217,8 @@ def update_stage(
     dependencies=[Depends(require_min_role(roles.ROLE_SUPERVISOR))],
 )
 def delete_stage(stage_id: uuid.UUID, db: Session = Depends(get_db)):
-    """Delete a stage (rooms/items cascade). Supervisor+. Does not reverse
-    dispenses already written by loading. 404 if unknown."""
+    """Delete a stage (slots/items cascade; referenced work orders untouched).
+    Supervisor+."""
     try:
         ms_service.delete_stage(db, stage_id)
     except DomainError as exc:
@@ -265,9 +231,9 @@ def reuse_stage(
     user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
-    """Spin off a fresh planning stage from a completed one — same building +
-    rooms (work orders cleared), empty item lists. Supervisor+. 400 if the
-    source is not completed or the building already has an active stage."""
+    """Start a fresh planning stage for the same community + building as a
+    completed one. Supervisor+. 400 if the source is not completed or the
+    building already has an active stage."""
     try:
         stage = ms_service.reuse_stage(db, stage_id, created_by_id=user.id)
         return _stage_summary(stage)
@@ -275,99 +241,54 @@ def reuse_stage(
         raise to_http(exc)
 
 
-# --- rooms ---------------------------------------------------------------
+# --- work-order slots ----------------------------------------------------
 
 @router.post(
-    "/{stage_id}/rooms",
-    response_model=RoomDetail,
+    "/{stage_id}/work-orders",
+    response_model=StageWorkOrderDetail,
     status_code=201,
 )
-def add_room(
+def add_work_order(
     stage_id: uuid.UUID,
-    payload: RoomCreate,
+    payload: StageWorkOrderCreate,
     user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
-    """Add a room (one work order) to a planning stage. Supervisor+. Records the
-    creator and an optional technician assignee. 400 if the stage is not in
-    planning, the room number is already used, or the assignee is not a
-    technician; 404 if unknown."""
+    """Add a work order to the stage's truck plan (find-or-create by number,
+    community/building enforced to match the stage). Supervisor+, planning only.
+    400 if the work order belongs to a different building or the assignee is not
+    a technician."""
     try:
-        room = ms_service.add_room(
+        slot = ms_service.add_work_order_to_stage(
             db,
             stage_id,
-            room_number=payload.room_number,
             work_order_number=payload.work_order_number,
-            created_by_id=user.id,
+            unit_number=payload.unit_number,
             assigned_to_id=payload.assigned_to_id,
+            created_by_id=user.id,
         )
-        return _room_detail(room)
-    except DomainError as exc:
-        raise to_http(exc)
-
-
-@router.patch(
-    "/{stage_id}/rooms/{room_id}/assign",
-    response_model=RoomDetail,
-    dependencies=[Depends(require_min_role(roles.ROLE_SUPERVISOR))],
-)
-def assign_room(
-    stage_id: uuid.UUID,
-    room_id: uuid.UUID,
-    payload: RoomAssign,
-    db: Session = Depends(get_db),
-):
-    """Assign a work order (room) to a technician, or clear it (null).
-    Supervisor+. Allowed while planning or loading, not on a completed stage.
-    400 if the assignee is not a technician; 404 if the stage/room is unknown."""
-    try:
-        room = ms_service.assign_room(
-            db, stage_id, room_id, assigned_to_id=payload.assigned_to_id
-        )
-        return _room_detail(room)
-    except DomainError as exc:
-        raise to_http(exc)
-
-
-@router.patch(
-    "/{stage_id}/rooms/{room_id}",
-    response_model=RoomDetail,
-    dependencies=[Depends(require_min_role(roles.ROLE_SUPERVISOR))],
-)
-def update_room(
-    stage_id: uuid.UUID,
-    room_id: uuid.UUID,
-    payload: RoomUpdate,
-    db: Session = Depends(get_db),
-):
-    """Edit a room's number/work order. Supervisor+, planning only. 404 if the
-    stage or room is unknown."""
-    try:
-        room = ms_service.update_room(
-            db,
-            stage_id,
-            room_id,
-            room_number=payload.room_number,
-            work_order_number=payload.work_order_number,
-        )
-        return _room_detail(room)
+        # Re-fetch the stage so the slot's joined work order is loaded.
+        stage = ms_service.get_stage(db, stage_id)
+        slot = next(s for s in stage.work_order_slots if s.id == slot.id)
+        return _slot_detail(slot)
     except DomainError as exc:
         raise to_http(exc)
 
 
 @router.delete(
-    "/{stage_id}/rooms/{room_id}",
+    "/{stage_id}/work-orders/{slot_id}",
     status_code=204,
     dependencies=[Depends(require_min_role(roles.ROLE_SUPERVISOR))],
 )
-def delete_room(
+def delete_work_order(
     stage_id: uuid.UUID,
-    room_id: uuid.UUID,
+    slot_id: uuid.UUID,
     db: Session = Depends(get_db),
 ):
-    """Remove a room (its planned items cascade). Supervisor+, planning only."""
+    """Remove a work order from the stage's plan (its planned items cascade).
+    Supervisor+, planning only."""
     try:
-        ms_service.delete_room(db, stage_id, room_id)
+        ms_service.delete_slot(db, stage_id, slot_id)
     except DomainError as exc:
         raise to_http(exc)
 
@@ -375,25 +296,24 @@ def delete_room(
 # --- planned items -------------------------------------------------------
 
 @router.post(
-    "/{stage_id}/rooms/{room_id}/items",
+    "/{stage_id}/work-orders/{slot_id}/items",
     response_model=StageItemDetail,
     status_code=201,
     dependencies=[Depends(require_min_role(roles.ROLE_SUPERVISOR))],
 )
 def add_item(
     stage_id: uuid.UUID,
-    room_id: uuid.UUID,
+    slot_id: uuid.UUID,
     payload: StageItemCreate,
     db: Session = Depends(get_db),
 ):
-    """Plan an item for a room (estimate, not a transaction). Supervisor+,
-    planning only. Upserts by (room, item). 404 if the stage/room/item is
-    unknown (or the item is archived)."""
+    """Plan an item for a slot (estimate, not a transaction). Supervisor+,
+    planning only. Upserts by (slot, item)."""
     try:
         stage_item = ms_service.add_item(
             db,
             stage_id,
-            room_id,
+            slot_id,
             item_id=payload.item_id,
             planned_quantity=payload.planned_quantity,
         )
@@ -403,19 +323,18 @@ def add_item(
 
 
 @router.patch(
-    "/{stage_id}/rooms/{room_id}/items/{stage_item_id}",
+    "/{stage_id}/work-orders/{slot_id}/items/{stage_item_id}",
     response_model=StageItemDetail,
     dependencies=[Depends(require_min_role(roles.ROLE_SUPERVISOR))],
 )
 def update_item(
     stage_id: uuid.UUID,
-    room_id: uuid.UUID,
+    slot_id: uuid.UUID,
     stage_item_id: uuid.UUID,
     payload: StageItemUpdate,
     db: Session = Depends(get_db),
 ):
-    """Edit a planned item's quantity. Supervisor+, planning only. 404 if the
-    stage or planned item is unknown."""
+    """Edit a planned item's quantity. Supervisor+, planning only."""
     try:
         stage_item = ms_service.update_item(
             db, stage_id, stage_item_id, planned_quantity=payload.planned_quantity
@@ -426,13 +345,13 @@ def update_item(
 
 
 @router.delete(
-    "/{stage_id}/rooms/{room_id}/items/{stage_item_id}",
+    "/{stage_id}/work-orders/{slot_id}/items/{stage_item_id}",
     status_code=204,
     dependencies=[Depends(require_min_role(roles.ROLE_SUPERVISOR))],
 )
 def delete_item(
     stage_id: uuid.UUID,
-    room_id: uuid.UUID,
+    slot_id: uuid.UUID,
     stage_item_id: uuid.UUID,
     db: Session = Depends(get_db),
 ):
@@ -446,28 +365,21 @@ def delete_item(
 # --- loading + returns ---------------------------------------------------
 
 def _merged_for(stage: MassStage, item_id: uuid.UUID) -> MergedItem:
-    """The merged rollup row for one item (the load/return response). The
-    service guarantees the item is planned, so the fallback is defensive."""
     for merged in _merged_items(stage):
         if merged.item_id == item_id:
             return merged
     raise StageItemNotFoundError("This item is not planned in this stage.")
 
 
-@router.post(
-    "/{stage_id}/load",
-    response_model=MergedItem,
-)
+@router.post("/{stage_id}/load", response_model=MergedItem)
 def load_item(
     stage_id: uuid.UUID,
     payload: LoadRequest,
     user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
-    """Stage an item onto the truck: split into per-room dispenses on each
-    room's work order. Supervisor+, loading only. 400 if the stage is not
-    loading or stock would overdraw; 404 if the item is unknown or not planned.
-    Returns the item's updated merged rollup."""
+    """Stage an item onto the truck: split into per-slot dispenses on each slot's
+    work order. Supervisor+, loading only."""
     try:
         ms_service.load_item(
             db, stage_id, item_id=payload.item_id, quantity=payload.quantity, user_id=user.id
@@ -489,9 +401,7 @@ def return_item(
     db: Session = Depends(get_db),
 ):
     """Return unused materials to stock (silent stock-add, no ledger row).
-    Supervisor+, loading only. 400 if the stage is not loading or the amount
-    exceeds net loaded; 404 if the item is unknown or not planned. Returns the
-    item's updated merged rollup."""
+    Supervisor+, loading only."""
     try:
         ms_service.return_item(
             db, stage_id, item_id=payload.item_id, quantity=payload.quantity

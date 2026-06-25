@@ -19,9 +19,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi.routing import APIRoute
 
+import pytest
+
 from app.domain import roles
 from app.routers import items as items_router
 from app.routers import transactions as transactions_router
+from app.routers import work_orders as work_orders_router
 
 
 def _route(router, endpoint_name):
@@ -85,3 +88,22 @@ def test_create_transaction_has_no_static_min_role():
     # `roles.can_transact` (covered by test_roles.py), not a
     # `require_min_role` gate. So no static minimum should be discoverable.
     assert _min_role_for(transactions_router, "create_transaction") is None
+
+
+@pytest.mark.parametrize(
+    "endpoint_name",
+    [
+        "list_work_orders",
+        "get_work_order",
+        "update_work_order",
+        "add_work_order_item",
+        "update_work_order_item",
+        "delete_work_order_item",
+    ],
+)
+def test_work_order_routes_have_no_static_min_role(endpoint_name):
+    # The Work Orders page is open to any authenticated user (technicians
+    # included) at the route level; visibility is scoped *server-side* in
+    # `services.work_orders` (covered by test_work_orders_service.py), not by a
+    # `require_min_role` gate. So no static minimum should be discoverable.
+    assert _min_role_for(work_orders_router, endpoint_name) is None

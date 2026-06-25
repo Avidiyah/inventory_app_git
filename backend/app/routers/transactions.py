@@ -21,7 +21,7 @@ from app.auth_deps import get_current_user, require_min_role
 from app.database import get_db
 from app.domain import roles
 from app.domain.errors import DomainError
-from app.models import User
+from app.models import User, WorkOrder
 from app.routers._errors import to_http
 from app.schemas.transactions import (
     BillingUpdate,
@@ -32,6 +32,7 @@ from app.schemas.transactions import (
 )
 from app.services import history as history_service
 from app.services import transactions as transactions_service
+from app.services import work_orders as wo_service
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -55,14 +56,39 @@ def create_transaction(
             status_code=403,
             detail="You do not have permission to perform this action.",
         )
+    # Resolve the work order. A scan from a card supplies `work_order_id` (its
+    # number is read back as the authoritative snapshot); a Supervisor+ free-text
+    # number find-or-creates the work order. The number string is always stored
+    # denormalized on the row for History.
+    work_order_id = payload.work_order_id
+    work_order_number = payload.work_order_number
     try:
+        if work_order_id is not None:
+            wo_row = (
+                db.query(WorkOrder)
+                .filter(WorkOrder.id == work_order_id)
+                .first()
+            )
+            if wo_row is None:
+                work_order_id = None
+            else:
+                work_order_number = wo_row.number
+        elif work_order_number and work_order_number.strip():
+            if roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
+                wo_row = wo_service.get_or_create_work_order(
+                    db, number=work_order_number, created_by_id=user.id
+                )
+                work_order_id = wo_row.id
+                work_order_number = wo_row.number
+
         return transactions_service.apply_transaction(
             db,
             item_id=payload.item_id,
             transaction_type=payload.transaction_type,
             quantity=payload.quantity,
             user_id=user.id,
-            work_order_number=payload.work_order_number,
+            work_order_number=work_order_number,
+            work_order_id=work_order_id,
         )
     except DomainError as exc:
         raise to_http(exc)
