@@ -460,17 +460,27 @@ def load_item(
         for alloc in allocations:
             si, _slot, work_order = by_id[alloc.key]
             item.quantity = apply_delta(item.quantity, "dispense", alloc.quantity)
-            db.add(
-                Transaction(
-                    item_id=item.id,
-                    user_id=user_id,
-                    transaction_type="dispense",
-                    quantity=alloc.quantity,
-                    unit_price=item.price,
-                    work_order_number=work_order.number,
-                    work_order_id=work_order.id,
-                    reason=None,
-                )
+            txn = Transaction(
+                item_id=item.id,
+                user_id=user_id,
+                transaction_type="dispense",
+                quantity=alloc.quantity,
+                unit_price=item.price,
+                work_order_number=work_order.number,
+                work_order_id=work_order.id,
+                reason=None,
+            )
+            db.add(txn)
+            db.flush()  # assign txn.id so the work order's line can reference it
+            # Loading onto the truck is a real dispense against the slot's work
+            # order, so it shows on that work order's materials list too.
+            wo_service.attach_dispense_line(
+                db,
+                work_order_id=work_order.id,
+                item_id=item.id,
+                quantity=alloc.quantity,
+                transaction_id=txn.id,
+                user_id=user_id,
             )
             si.loaded_quantity = si.loaded_quantity + alloc.quantity
         db.commit()
@@ -488,7 +498,10 @@ def return_item(
 ) -> None:
     """Return `quantity` of one item to stock as "unused materials": add it back
     under the item row lock WITHOUT a transaction row, reverse-filling each
-    slot's `returned_quantity` (last-loaded first).
+    slot's `returned_quantity` (last-loaded first). Each returned slice also
+    decrements the slot's work-order materials line, so a loaded-then-returned
+    item reflects NET consumption on the Work Orders page (the load wrote the
+    line; the return walks it back).
 
     Raises `StageStateError` unless loading, `ItemNotFoundError` /
     `StageItemNotFoundError` as for load, and `ReturnExceedsLoadedError` if
@@ -512,10 +525,15 @@ def return_item(
         ],
         quantity,
     )
-    by_id = {si.id: si for si, _slot, _w in rows}
+    by_id = {si.id: (si, work_order) for si, _slot, work_order in rows}
     for alloc in allocations:
-        by_id[alloc.key].returned_quantity = (
-            by_id[alloc.key].returned_quantity + alloc.quantity
+        si, work_order = by_id[alloc.key]
+        si.returned_quantity = si.returned_quantity + alloc.quantity
+        wo_service.reduce_dispense_line(
+            db,
+            work_order_id=work_order.id,
+            item_id=item_id,
+            quantity=alloc.quantity,
         )
 
     item.quantity = item.quantity + quantity

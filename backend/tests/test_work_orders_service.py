@@ -149,10 +149,22 @@ def test_dispense_edit_auto_corrects_stock(db):
     w = _wo(db, created_by=sup, assigned_to=tech)
     line = wos.add_work_order_item(db, w.id, user=tech, item_id=item.id, quantity=Decimal(4))
 
-    wos.update_work_order_item(db, w.id, line.id, user=tech, quantity=Decimal(10))
+    edited = wos.update_work_order_item(db, w.id, line.id, user=tech, quantity=Decimal(10))
     db.refresh(item)
     assert item.quantity == Decimal(90)
-    assert _txn(db, line.transaction_id).quantity == Decimal(10)
+    # The line reflects the new total; the original dispense row is NOT rewritten
+    # (the ledger stays append-only). A reconciling `adjust` carries the delta.
+    assert edited.quantity == Decimal(10)
+    assert _txn(db, line.transaction_id).quantity == Decimal(4)
+    adjusts = (
+        db.query(Transaction)
+        .filter(
+            Transaction.work_order_id == w.id,
+            Transaction.transaction_type == "adjust",
+        )
+        .all()
+    )
+    assert [a.quantity for a in adjusts] == [Decimal(-6)]  # old(4) - new(10)
 
     wos.update_work_order_item(db, w.id, line.id, user=tech, quantity=Decimal(1))
     db.refresh(item)
@@ -173,17 +185,29 @@ def test_dispense_delete_returns_stock_and_voids_txn(db):
     assert _txn(db, txn_id).voided_at is not None
 
 
-def test_readd_same_item_replaces_quantity(db):
+def test_readd_same_item_accumulates_quantity(db):
     sup = _seed_user(db, "supervisor")
     tech = _seed_user(db, "technician")
     item = _seed_item(db, 100)
     w = _wo(db, created_by=sup, assigned_to=tech)
     first = wos.add_work_order_item(db, w.id, user=tech, item_id=item.id, quantity=Decimal(4))
     second = wos.add_work_order_item(db, w.id, user=tech, item_id=item.id, quantity=Decimal(7))
+    # Re-logging an item ADDS to its one line (each add is its own ledger row).
     assert second.id == first.id
-    assert second.quantity == Decimal(7)
+    assert second.quantity == Decimal(11)
     db.refresh(item)
-    assert item.quantity == Decimal(93)
+    assert item.quantity == Decimal(89)
+    # Two distinct dispense rows back the single line.
+    dispenses = (
+        db.query(Transaction)
+        .filter(
+            Transaction.work_order_id == w.id,
+            Transaction.transaction_type == "dispense",
+            Transaction.voided_at.is_(None),
+        )
+        .all()
+    )
+    assert sorted(d.quantity for d in dispenses) == [Decimal(4), Decimal(7)]
 
 
 # --- retroactive mode (stock-neutral, still in History) ------------------

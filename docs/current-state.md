@@ -244,10 +244,23 @@ Work orders:
   number. `entry_mode` decides `affects_stock`: `dispense` moves stock,
   `retroactive` is stock-neutral (still shown in History). Mode is snapshotted
   per line; switching mode only affects subsequent entries.
-- Editing a dispense-mode line auto-corrects stock by the delta and rewrites the
-  linked transaction in place; deleting it returns the stock and voids the
-  transaction. A deliberate, scoped exception to the append-only ledger, limited
-  to work-order-originated rows (`work_order_items.transaction_id`).
+- A `work_order_items` line is the **aggregate** of its dispenses for one item:
+  `services.work_orders.attach_dispense_line` is the single home that every
+  stock-out funnels through -- the Work Orders page button, the Scan/Stock page
+  and scan-and-go (`services.transactions.apply_transaction`), and a Mass Stage
+  truck-load (`services.mass_staging.load_item`). Re-logging an item ADDS to its
+  one line (each scan is its own ledger row); membership is derived by
+  `(work_order_id, item_id)`, not a single FK. A stock-in never creates a line
+  (it is not "material used").
+- `line.quantity` is the authoritative stored total. Editing it corrects stock by
+  the delta and appends a single reconciling `adjust` transaction (the original
+  scan rows stay intact -- the ledger stays append-only). Deleting a line returns
+  its net units and voids every transaction it aggregated. Voiding a work-order
+  dispense from History walks the line back (drops it at zero); a Mass Stage
+  return (`reduce_dispense_line`) does the same so a loaded-then-returned item
+  reflects net consumption. `get_work_order` lazily self-heals any orphaned
+  linked dispense into a line (companion to the one-time backfill migration
+  `c4e6a8b0d2f5`).
 - List/get/items are scoped server-side by
   `domain.work_orders.can_view_work_order`; out-of-scope/archived/unknown
   surface as 404. Create / attribute edits / archive are Supervisor+; an
@@ -262,7 +275,9 @@ Mass staging:
 - A stage references work orders through `mass_stage_work_orders` slots; adding
   one enforces the work order's community/building match the stage.
 - Stage loading writes real per-slot `dispense` transactions carrying the slot's
-  work order; returns reverse-fill across slots and write no ledger row.
+  work order (and shows them on that work order's materials list); returns
+  reverse-fill across slots, write no ledger row, and walk the work order's line
+  back so it reflects net consumption.
 - DB column names kept: `mass_stages.building_name` holds the building *number*.
 
 Barcode:
@@ -447,10 +462,15 @@ Rules:
 
 - The editable "materials actually used" list for a work order, separate from
   `mass_stage_items` (truck planning). One row per item per work order
-  (`UNIQUE(work_order_id, item_id)`); re-adding an item updates its row.
-- `mode` snapshots the work order's `entry_mode` at logging time.
-- `transaction_id` links the `Transaction` the line produced (so the entry shows
-  in History). `work_order_id` FK is `ON DELETE CASCADE`; `item_id` is plain.
+  (`UNIQUE(work_order_id, item_id)`); re-logging an item ADDS to its row -- the
+  line is the aggregate of that item's dispenses, written by every stock-out path
+  via `attach_dispense_line`.
+- `mode` snapshots the work order's `entry_mode` at logging time (a stock-moving
+  entry joining a `retroactive` line surfaces it as `dispense`).
+- `transaction_id` references the most recent contributing `Transaction` (the
+  line aggregates many, found by `(work_order_id, item_id)`); it may be NULL on a
+  backfilled / self-healed line. `work_order_id` FK is `ON DELETE CASCADE`;
+  `item_id` is plain.
 
 ### `mass_stages`
 

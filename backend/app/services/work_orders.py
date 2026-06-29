@@ -218,11 +218,54 @@ def list_work_orders(
     return query.order_by(WorkOrder.created_at.desc()).all()
 
 
+def _heal_orphan_lines(db: Session, work_order: WorkOrder) -> bool:
+    """Lazily absorb any work-order-linked dispenses that have no materials line
+    into real `WorkOrderItem` rows, so a straggler from before this model (or any
+    path that ever skipped the line) still shows on the page and stays editable.
+
+    The companion to the one-time backfill migration: a no-op once every linked
+    dispense has a line (the common case). Stock-neutral -- the dispense already
+    moved on-hand when it was written -- so this only reconciles the display, and
+    takes no item lock. Returns whether anything was created."""
+    existing_item_ids = {line.item_id for line in work_order.items}
+    totals = (
+        db.query(Transaction.item_id, func.sum(Transaction.quantity))
+        .filter(
+            Transaction.work_order_id == work_order.id,
+            Transaction.transaction_type == "dispense",
+            Transaction.voided_at.is_(None),
+        )
+        .group_by(Transaction.item_id)
+        .all()
+    )
+    created = False
+    for item_id, total in totals:
+        if item_id in existing_item_ids:
+            continue
+        db.add(
+            WorkOrderItem(
+                work_order_id=work_order.id,
+                item_id=item_id,
+                quantity=total,
+                mode=wo.MODE_DISPENSE,
+                transaction_id=None,
+                created_by_id=None,
+            )
+        )
+        created = True
+    return created
+
+
 def get_work_order(
     db: Session, work_order_id: uuid.UUID, *, user: Optional[User]
 ) -> WorkOrder:
-    """Full work-order detail (with logged materials), scope-checked."""
-    return _get_visible(db, work_order_id, user)
+    """Full work-order detail (with logged materials), scope-checked. Lazily
+    self-heals any orphaned linked dispenses into materials lines on the way out."""
+    work_order = _get_visible(db, work_order_id, user)
+    if _heal_orphan_lines(db, work_order):
+        db.commit()
+        work_order = _get_visible(db, work_order_id, user)
+    return work_order
 
 
 # --- create / update / archive ------------------------------------------
@@ -322,26 +365,95 @@ def _locked_live_item(db: Session, item_id: uuid.UUID) -> Item:
     return item
 
 
-def _reconcile_quantity(
-    db: Session, line: WorkOrderItem, item: Item, new_quantity: Decimal
+def attach_dispense_line(
+    db: Session,
+    *,
+    work_order_id: uuid.UUID,
+    item_id: uuid.UUID,
+    quantity: Decimal,
+    mode: str = wo.MODE_DISPENSE,
+    transaction_id: Optional[uuid.UUID] = None,
+    user_id: Optional[uuid.UUID] = None,
+) -> WorkOrderItem:
+    """Reflect a dispense logged against a work order on its materials list,
+    ADDING `quantity` to the item's line.
+
+    The single home for "stock was taken out against a work order, show it on the
+    Work Orders page". Every stock-moving surface funnels through here -- the
+    Work Orders page button (`add_work_order_item`), the Scan/Stock page and
+    scan-and-go (`services.transactions.apply_transaction`), and a Mass Stage
+    truck-load (`services.mass_staging.load_item`) -- so a work order's materials
+    stay in sync with its dispensing transactions no matter where the scan came
+    from.
+
+    Aggregates by `(work_order_id, item_id)`: re-logging an item ADDS to its line
+    (the `UNIQUE(work_order_id, item_id)` row), because a scan is inherently
+    additive (each scan is its own ledger row). This NEVER touches `Item.quantity`
+    -- the caller already moved stock and owns the row lock. That lock serialises
+    concurrent dispenses of the same item, so this find-or-add needs no race guard
+    of its own.
+
+    `mode` sets a NEW line's display/stock semantics (the Work Orders page may log
+    in `retroactive`). When a stock-moving (`dispense`) entry joins an existing
+    `retroactive` line, the line is surfaced as `dispense` -- the rare mixed case;
+    stock correctness comes from each transaction's `affects_stock`, not this tag.
+    """
+    line = (
+        db.query(WorkOrderItem)
+        .filter(
+            WorkOrderItem.work_order_id == work_order_id,
+            WorkOrderItem.item_id == item_id,
+        )
+        .first()
+    )
+    if line is not None:
+        line.quantity = line.quantity + quantity
+        if transaction_id is not None:
+            # Keep a reference to the most recent contributing transaction; the
+            # line's full membership is derived by (work_order_id, item_id).
+            line.transaction_id = transaction_id
+        if mode == wo.MODE_DISPENSE and line.mode != wo.MODE_DISPENSE:
+            line.mode = wo.MODE_DISPENSE
+        return line
+
+    line = WorkOrderItem(
+        work_order_id=work_order_id,
+        item_id=item_id,
+        quantity=quantity,
+        mode=mode,
+        transaction_id=transaction_id,
+        created_by_id=user_id,
+    )
+    db.add(line)
+    return line
+
+
+def reduce_dispense_line(
+    db: Session,
+    *,
+    work_order_id: uuid.UUID,
+    item_id: uuid.UUID,
+    quantity: Decimal,
 ) -> None:
-    """Set an existing line to `new_quantity`, reconciling stock + the linked
-    transaction. `item` must already be locked by the caller. A dispense-mode
-    line keeps the mode it was logged under and corrects stock by the delta
-    (on-hand changes by `old - new`); a retroactive line moves no stock."""
-    if wo.affects_stock(line.mode):
-        item.quantity = apply_delta(
-            item.quantity, "adjust", line.quantity - new_quantity
+    """Walk a work order's materials line back by `quantity` (the inverse of
+    `attach_dispense_line`). Used when units logged against a work order are
+    returned without a ledger row -- a Mass Stage "unused materials" return -- so
+    the line reflects net consumption. Stock-neutral and lock-free for the same
+    reasons as the attach side; drops the line once nothing is left. A no-op if no
+    line exists (nothing was logged here)."""
+    line = (
+        db.query(WorkOrderItem)
+        .filter(
+            WorkOrderItem.work_order_id == work_order_id,
+            WorkOrderItem.item_id == item_id,
         )
-    line.quantity = new_quantity
-    if line.transaction_id is not None:
-        txn = (
-            db.query(Transaction)
-            .filter(Transaction.id == line.transaction_id)
-            .first()
-        )
-        if txn is not None:
-            txn.quantity = new_quantity
+        .first()
+    )
+    if line is None:
+        return
+    line.quantity = line.quantity - quantity
+    if line.quantity <= 0:
+        db.delete(line)
 
 
 def _get_line(
@@ -369,26 +481,13 @@ def add_work_order_item(
     quantity: Decimal,
 ) -> WorkOrderItem:
     """Log a material against a work order using its current `entry_mode`.
-    Re-adding an item replaces its quantity. Writes the History transaction
-    (`work_order_id` + number, `affects_stock` per mode). Raises
+    Re-adding an item ADDS to its line (each add is its own ledger row). Writes
+    the History transaction (`work_order_id` + number, `affects_stock` per mode)
+    and reflects it on the materials list via `attach_dispense_line`. Raises
     `WorkOrderNotFoundError` / `ItemNotFoundError`, and `NegativeQuantityError`
     if a dispense-mode add overdraws stock."""
     work_order = _get_visible(db, work_order_id, user)
     item = _locked_live_item(db, item_id)
-
-    existing = (
-        db.query(WorkOrderItem)
-        .filter(
-            WorkOrderItem.work_order_id == work_order.id,
-            WorkOrderItem.item_id == item_id,
-        )
-        .first()
-    )
-    if existing is not None:
-        _reconcile_quantity(db, existing, item, quantity)
-        db.commit()
-        db.refresh(existing)
-        return existing
 
     mode = work_order.entry_mode
     moves_stock = wo.affects_stock(mode)
@@ -409,15 +508,15 @@ def add_work_order_item(
     db.add(txn)
     db.flush()
 
-    line = WorkOrderItem(
+    line = attach_dispense_line(
+        db,
         work_order_id=work_order.id,
         item_id=item_id,
         quantity=quantity,
         mode=mode,
         transaction_id=txn.id,
-        created_by_id=user.id if user else None,
+        user_id=user.id if user else None,
     )
-    db.add(line)
     db.commit()
     db.refresh(line)
     return line
@@ -431,11 +530,37 @@ def update_work_order_item(
     user: Optional[User],
     quantity: Decimal,
 ) -> WorkOrderItem:
-    """Edit a logged material's quantity (dispense lines auto-correct stock)."""
+    """Edit a logged material's total to `quantity`.
+
+    The line is the aggregate of many dispenses, so editing it does NOT rewrite
+    those rows: a dispense-mode line corrects stock by the delta and appends a
+    single `adjust` transaction recording the correction (the original scan rows
+    stay intact in History). A retroactive line moves no stock. Raises
+    `NegativeQuantityError` if reducing on-hand would drive it below zero."""
     work_order = _get_visible(db, work_order_id, user)
     line = _get_line(db, work_order, wo_item_id)
     item = _locked_live_item(db, line.item_id)
-    _reconcile_quantity(db, line, item, quantity)
+
+    # Signed delta applied to stock: dispensing more (new > old) lowers on-hand,
+    # so the stock delta is `old - new`. Matches the `adjust` convention where the
+    # stored quantity is the signed amount added to stock.
+    stock_delta = line.quantity - quantity
+    if stock_delta != 0 and wo.affects_stock(line.mode):
+        item.quantity = apply_delta(item.quantity, "adjust", stock_delta)
+        db.add(
+            Transaction(
+                item_id=item.id,
+                user_id=user.id if user else None,
+                transaction_type="adjust",
+                quantity=stock_delta,
+                work_order_number=work_order.number,
+                work_order_id=work_order.id,
+                affects_stock=True,
+                reason="Work order material quantity adjusted.",
+            )
+        )
+
+    line.quantity = quantity
     db.commit()
     db.refresh(line)
     return line
@@ -448,8 +573,10 @@ def delete_work_order_item(
     *,
     user: Optional[User],
 ) -> None:
-    """Remove a logged material. A dispense-mode line returns its units to stock;
-    either way the linked History transaction is voided so it leaves History."""
+    """Remove a logged material. A dispense-mode line returns its net units to
+    stock (the line's authoritative total, already net of any Mass Stage returns);
+    every transaction it aggregated -- the dispenses and any edit `adjust` -- is
+    voided so the line leaves History too."""
     work_order = _get_visible(db, work_order_id, user)
     line = _get_line(db, work_order, wo_item_id)
     item = _locked_live_item(db, line.item_id)
@@ -457,18 +584,22 @@ def delete_work_order_item(
     if wo.affects_stock(line.mode):
         item.quantity = apply_delta(item.quantity, "stock", line.quantity)
 
-    if line.transaction_id is not None:
-        txn = (
-            db.query(Transaction)
-            .filter(
-                Transaction.id == line.transaction_id,
-                Transaction.voided_at.is_(None),
-            )
-            .first()
+    # Void the line's whole contributing set, located by (work_order, item) -- the
+    # stock is already squared by the net return above, so these are voided purely
+    # to drop them from History, NOT reversed a second time.
+    now = datetime.now(timezone.utc)
+    contributors = (
+        db.query(Transaction)
+        .filter(
+            Transaction.work_order_id == work_order.id,
+            Transaction.item_id == line.item_id,
+            Transaction.voided_at.is_(None),
         )
-        if txn is not None:
-            txn.voided_at = datetime.now(timezone.utc)
-            txn.voided_by_id = user.id if user else None
+        .all()
+    )
+    for txn in contributors:
+        txn.voided_at = now
+        txn.voided_by_id = user.id if user else None
 
     db.delete(line)
     db.commit()

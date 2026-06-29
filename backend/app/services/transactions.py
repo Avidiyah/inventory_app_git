@@ -29,7 +29,8 @@ from app.domain.errors import (
 )
 from app.domain.billing import validate_billable_quantity
 from app.domain.quantity import apply_delta, reverse_delta
-from app.models import Item, Transaction
+from app.models import Item, Transaction, WorkOrderItem
+from app.services import work_orders as wo_service
 
 
 def apply_transaction(
@@ -80,6 +81,21 @@ def apply_transaction(
         reason=None,
     )
     db.add(new_txn)
+
+    # Reflect a stock-out on the work order's materials list, the same as the
+    # Work Orders page button. Only a dispense against a real work order creates a
+    # line -- a stock-in (restocking) is not "material used" and stays ledger-only.
+    if transaction_type == "dispense" and work_order_id is not None:
+        db.flush()  # assign new_txn.id so the line can reference it
+        wo_service.attach_dispense_line(
+            db,
+            work_order_id=work_order_id,
+            item_id=item_id,
+            quantity=quantity,
+            transaction_id=new_txn.id,
+            user_id=user_id,
+        )
+
     db.commit()
     db.refresh(new_txn)
     return new_txn
@@ -149,6 +165,29 @@ def void_transaction(
                 "Cannot void this entry — it would make the on-hand count "
                 "negative. Make a correction instead."
             ) from exc
+
+    # Keep the work order's materials list in step with History: a line is the
+    # aggregate of its work-order transactions, so voiding one reverses that row's
+    # contribution. A `dispense` contributed +qty to the line; a reconciling
+    # `adjust` from a line edit contributed -qty (its stored quantity is the signed
+    # stock delta). Found by (work_order, item); the line drops out at zero. Only
+    # work-order-linked rows qualify -- an Admin correction carries no work_order_id.
+    if txn.work_order_id is not None and txn.transaction_type in ("dispense", "adjust"):
+        line = (
+            db.query(WorkOrderItem)
+            .filter(
+                WorkOrderItem.work_order_id == txn.work_order_id,
+                WorkOrderItem.item_id == txn.item_id,
+            )
+            .first()
+        )
+        if line is not None:
+            if txn.transaction_type == "dispense":
+                line.quantity = line.quantity - txn.quantity
+            else:
+                line.quantity = line.quantity + txn.quantity
+            if line.quantity <= 0:
+                db.delete(line)
 
     txn.voided_at = datetime.now(timezone.utc)
     txn.voided_by_id = user_id

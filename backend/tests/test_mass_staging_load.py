@@ -24,7 +24,7 @@ from app.domain.errors import (
     StageStateError,
     WorkOrderStateError,
 )
-from app.models import Item, MassStageItem, Transaction, User, WorkOrder
+from app.models import Item, MassStageItem, Transaction, User, WorkOrder, WorkOrderItem
 from app.routers.mass_stages import _merged_items
 from app.services import auth
 from app.services import work_orders as wo_service
@@ -105,6 +105,17 @@ def _stage_item(db, slot_id, item_id):
     )
 
 
+def _wo_line(db, work_order_id, item_id):
+    return (
+        db.query(WorkOrderItem)
+        .filter(
+            WorkOrderItem.work_order_id == work_order_id,
+            WorkOrderItem.item_id == item_id,
+        )
+        .first()
+    )
+
+
 # --- load ----------------------------------------------------------------
 
 def test_load_splits_across_slots_with_work_orders(db):
@@ -167,6 +178,29 @@ def test_return_adds_stock_without_transaction(db):
     assert len(_dispenses(db, item.id)) == before
     assert _stage_item(db, s2.id, item.id).returned_quantity == Decimal(4)
     assert _stage_item(db, s1.id, item.id).returned_quantity == Decimal(0)
+
+
+def test_load_appears_on_each_work_order(db):
+    item = _seed_item(db, 100)
+    stage, s1, s2, n1, n2 = _seed_loading_stage(db, item)  # planned 10 + 5
+
+    load_item(db, stage.id, item_id=item.id, quantity=Decimal(16), user_id=None)
+
+    # Each slot's work order shows the units loaded against it.
+    assert _wo_line(db, s1.work_order_id, item.id).quantity == Decimal(10)
+    assert _wo_line(db, s2.work_order_id, item.id).quantity == Decimal(6)
+
+
+def test_return_walks_back_work_order_line(db):
+    item = _seed_item(db, 100)
+    stage, s1, s2, *_ = _seed_loading_stage(db, item)
+    load_item(db, stage.id, item_id=item.id, quantity=Decimal(16), user_id=None)  # s1=10, s2=6
+
+    # Returns reverse-fill last-loaded first, so 4 comes off slot 2's work order.
+    return_item(db, stage.id, item_id=item.id, quantity=Decimal(4))
+
+    assert _wo_line(db, s1.work_order_id, item.id).quantity == Decimal(10)
+    assert _wo_line(db, s2.work_order_id, item.id).quantity == Decimal(2)  # 6 - 4
 
 
 def test_return_exceeds_loaded_refused(db):
