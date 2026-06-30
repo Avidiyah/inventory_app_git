@@ -121,12 +121,19 @@ def list_history(
             quantity=txn.quantity,
             work_order_number=txn.work_order_number,
             reason=txn.reason,
-            # Prefer the per-transaction snapshot; fall back to the live
-            # item price for pre-snapshot rows (NULL `unit_price`), so the
-            # whole historical backlog behaves exactly as before while new
-            # rows reflect the price at the time of the transaction.
+            # History is frozen to the price snapshotted when the row was
+            # written, so editing an item price does NOT rewrite past line
+            # values. The single exception: a row recorded while the item was
+            # free (snapshot `unit_price` of 0) was never a real price, so it
+            # tracks the live `Item.price` -- giving a previously-free item a
+            # real price DOES flow onto its past rows. A NULL snapshot
+            # (legacy/adjust rows) likewise falls back to the live price.
             item_price=(
-                (txn.unit_price if txn.unit_price is not None else item.price)
+                (
+                    item.price
+                    if txn.unit_price is None or txn.unit_price == 0
+                    else txn.unit_price
+                )
                 if include_price
                 else None
             ),

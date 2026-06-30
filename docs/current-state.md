@@ -211,7 +211,11 @@ Inventory/transactions:
   cannot log in, sessions are revoked, and the row is retained for history.
   Hard delete still exists but is blocked if transactions reference the user.
 - Stock/dispense snapshot `Item.price` into `transactions.unit_price`;
-  history prefers the snapshot over the live price.
+  History reports that frozen snapshot, so editing an item price does NOT
+  rewrite past line values. The single exception: a row snapshotted at 0 (a
+  free dispense) tracks the live `Item.price`, so giving a previously-free
+  item a real price DOES flow onto its past rows. A NULL snapshot
+  (legacy/adjust) likewise falls back to the live price.
 - Mass-stage unused returns add stock without transaction rows. This is the one
   deliberate silent stock change.
 - `transactions.affects_stock` is TRUE for every ordinary stock/dispense/adjust.
@@ -420,9 +424,11 @@ Rules:
   `work_order_number` is the denormalized snapshot kept for History (the router
   resolves both from a scanned card or by find-or-create).
 - `unit_price` snapshots `Item.price` when a stock/dispense row is written
-  (NULL for `adjust` and pre-snapshot rows). History reads this snapshot,
-  falling back to live `Item.price` only when it is NULL, so editing an
-  item price does not rewrite past line values.
+  (NULL for `adjust` and pre-snapshot rows). History reads this snapshot
+  (frozen), so editing an item price does not rewrite past line values --
+  EXCEPT a row snapshotted at 0, which falls back to the live `Item.price`
+  (so a free item later given a real price reflects on its past rows). A NULL
+  snapshot also falls back to live.
 - `billable_quantity = NULL` means bill full recorded quantity.
 - `billable_quantity = 0` means record but do not charge.
 - Billing override cannot exceed recorded quantity and cannot target `adjust`.
@@ -844,8 +850,10 @@ Behavior:
 - `set_billable_quantity` validates override and updates row only.
 - `list_history` joins transactions/items/users, filters voided rows, paginates.
 - History cost/billing fields are populated only when router passes
-  `include_price=True` for Admin/Owner; `item_price` is the row's
-  `unit_price` snapshot, falling back to live `Item.price` when NULL.
+  `include_price=True` for Admin/Owner; `item_price` is the row's frozen
+  `unit_price` snapshot, falling back to the live `Item.price` only when the
+  snapshot is NULL or 0 (so a price edit leaves real recorded prices intact
+  but flows onto previously-free rows).
 
 ### Work Orders
 
@@ -936,7 +944,7 @@ Coverage map:
 | `test_auth_session_lifetime.py` | remembered/non-remembered session lifecycle |
 | `test_user_archive.py` | user archive blocks login, revokes sessions, list scoping |
 | `test_item_update_partial.py` | partial item PATCH + clear price/link to null |
-| `test_history_price_snapshot.py` | per-transaction unit_price snapshot + fallback |
+| `test_history_price_snapshot.py` | frozen `unit_price` snapshot; non-zero rows unchanged by price edits; snapshot 0 / NULL falls back to live price |
 | `test_roles.py` | role hierarchy and transaction/user-management rules |
 | `test_route_role_gates.py` | important route minimum-role gates |
 | `test_barcodes.py` | backend image decode and supported formats |
