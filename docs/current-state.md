@@ -793,11 +793,17 @@ Behavior:
 - Copy table exports all matching rows, not just visible page.
 - Export cap: 100 pages * 100 rows.
 - Admin/Owner export includes billable qty, unit price, base value, marked-up
-  value (per-row figures are blank for work-order rows -- they bill via the line).
+  value. Work-order rows suppress `item_price` on screen (charge lives on the
+  line), so the export fills each work-order stock/dispense row's per-row pricing
+  from the work order's line `unit_price` (fetched via `apiGetWorkOrder`); `adjust`
+  corrections stay blank. This is export-only -- the on-screen History charge
+  column is unchanged.
 - Admin/Owner export also appends a "Work Order Summary" block: one line per
   distinct work order in the export with its authoritative total (`materials_total`,
-  fetched per work order via `apiGetWorkOrder`) and that total `+15%`. Sourced from
-  the work order's line totals, not by summing rows; needs the row's `work_order_id`.
+  override-aware) and that total `+15%`. Sourced from the work order's line totals,
+  not by summing rows; both this and the per-row fill use the row's `work_order_id`.
+  Per-row figures can diverge from the summary when a line was edited or has a
+  billing override -- the summary is authoritative.
 
 ### Users
 

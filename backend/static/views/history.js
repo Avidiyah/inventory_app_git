@@ -32,6 +32,7 @@ import {
   apiVoidTransaction,
   apiSetBillableQuantity,
   apiGetWorkOrder,
+  apiListWorkOrders,
 } from "../api.js";
 import { escapeHtml, friendlyError, formatMoney } from "../format.js";
 import { roleAtLeast } from "../roles.js";
@@ -463,16 +464,31 @@ function sanitiseCell(value) {
   return String(value).replace(/[\t\r\n]+/g, " ");
 }
 
-// Build the clipboard TSV. `includePrice` (Admin/Owner) appends the four
-// Charge columns; the figures use the *billable* quantity so the export
-// reflects exactly what will be charged after any line edits.
-function buildTsv(txns, includePrice) {
+// Build the clipboard TSV. `includePrice` (Admin/Owner) appends the four Charge
+// columns. `woPrices` (workOrderId -> itemId -> unit price) fills per-row pricing
+// for work-order rows: the history row suppresses `item_price` so the on-screen
+// charge stays on the line, but the export still wants a price on every line.
+// Only material-out rows (stock/dispense) are priced this way -- an `adjust`
+// correction is a signed inventory delta, not a charge, so it stays blank.
+function buildTsv(txns, includePrice, woPrices) {
   const headers = includePrice ? [...BASE_HEADERS, ...PRICE_HEADERS] : BASE_HEADERS;
   const lines = [headers.join("\t")];
   for (const txn of txns) {
     let cols = formatRow(txn);
     if (includePrice) {
-      const c = chargeData(txn);
+      let c = chargeData(txn);
+      if (
+        c.unit === null
+        && txn.work_order_id
+        && (txn.transaction_type === "stock" || txn.transaction_type === "dispense")
+        && woPrices
+      ) {
+        const unit = woPrices.get(txn.work_order_id)?.get(txn.item_id);
+        if (unit !== undefined) {
+          const qty = Number(txn.quantity);
+          c = { ...c, unit, billable: qty, base: unit * qty, marked: unit * qty * MARKUP_RATE };
+        }
+      }
       cols = cols.concat([
         String(c.billable),
         c.unit === null ? "" : formatMoney(c.unit),
@@ -485,42 +501,78 @@ function buildTsv(txns, includePrice) {
   return lines.join("\n");
 }
 
-// Build a "Work Order Summary" TSV block (Admin/Owner only) appended after the
-// rows: one line per distinct work order in the export with its authoritative
-// billing total and the +15% mark-up. The total comes from each work order's
-// line totals (`materials_total`), NOT from summing History rows -- work-order
-// rows carry no per-row charge (the line is the billing unit), and summing
-// signed `adjust` rows would be wrong. Returns "" when there is nothing to add.
-async function buildWorkOrderSummary(txns) {
-  // Distinct linked work orders, in first-seen order for a stable layout.
-  const ids = [];
-  const seen = new Set();
+// Fetch each distinct work order referenced by the export (Admin/Owner only) and
+// derive two things from its authoritative line data:
+//   - `prices`: workOrderId -> (itemId -> current unit price), used to fill
+//     per-row pricing for work-order rows (the history row itself suppresses
+//     `item_price` so the on-screen charge lives on the line, not the row).
+//   - `summary`: a "Work Order Summary" TSV block, one line per work order with
+//     its `materials_total` (override-aware) and that total +15%.
+// A work order that can't be loaded (e.g. archived since) is skipped rather than
+// failing the whole copy.
+async function fetchWorkOrderBilling(txns) {
+  // Group the referenced work orders by NUMBER (always present on a history row).
+  // A row's `work_order_id` is kept when available as a fast path, but resolving
+  // by number is what lets the summary cover rows that carry only a number --
+  // legacy/pre-rebuild dispenses whose `work_order_id` is NULL.
+  const groups = new Map(); // numberKey -> { number, id }
   for (const t of txns) {
-    if (t.work_order_id && !seen.has(t.work_order_id)) {
-      seen.add(t.work_order_id);
-      ids.push(t.work_order_id);
-    }
+    const num = (t.work_order_number || "").trim();
+    if (!num) continue;
+    const key = num.toLowerCase();
+    const g = groups.get(key) || { number: num, id: null };
+    if (!g.id && t.work_order_id) g.id = t.work_order_id;
+    groups.set(key, g);
   }
-  if (ids.length === 0) return "";
 
-  const rows = [];
-  for (const id of ids) {
+  const prices = new Map(); // work_order_id -> (item_id -> unit price)
+  const summaryRows = [];
+  for (const { number, id } of groups.values()) {
     try {
-      const wo = await apiGetWorkOrder(id);
-      if (wo.materials_total === null || wo.materials_total === undefined) continue;
-      const base = Number(wo.materials_total);
-      rows.push([wo.number, formatMoney(base), formatMoney(base * MARKUP_RATE)]);
+      let woId = id;
+      if (!woId) {
+        // Resolve the number to its work order (identity is the number).
+        const matches = await apiListWorkOrders({ q: number });
+        const exact = (matches || []).find(
+          (w) => (w.number || "").trim().toLowerCase() === number.toLowerCase()
+        );
+        if (!exact) continue;
+        woId = exact.id;
+      }
+      const wo = await apiGetWorkOrder(woId);
+
+      const itemPrices = new Map();
+      for (const li of wo.items || []) {
+        if (li.unit_price !== null && li.unit_price !== undefined) {
+          itemPrices.set(li.item_id, Number(li.unit_price));
+        }
+      }
+      prices.set(woId, itemPrices);
+
+      // Prefer the server's authoritative total; fall back to summing the lines
+      // (effective billable * unit price) if it wasn't provided.
+      let base = wo.materials_total;
+      base = (base === null || base === undefined)
+        ? (wo.items || []).reduce((sum, li) => {
+            const price = (li.unit_price === null || li.unit_price === undefined) ? 0 : Number(li.unit_price);
+            const qty = (li.billable_quantity === null || li.billable_quantity === undefined)
+              ? Number(li.quantity) : Number(li.billable_quantity);
+            return sum + price * qty;
+          }, 0)
+        : Number(base);
+      summaryRows.push([wo.number, formatMoney(base), formatMoney(base * MARKUP_RATE)]);
     } catch (err) {
-      // A work order that can't be loaded (e.g. archived since) is skipped
-      // rather than failing the whole copy.
-      console.warn(`Work order summary: could not load ${id}`, err);
+      console.warn(`Work order billing: could not load "${number}"`, err);
     }
   }
-  if (rows.length === 0) return "";
 
-  const header = ["Work Order", "Total", "Total +15%"].join("\t");
-  const body = rows.map((r) => r.map(sanitiseCell).join("\t")).join("\n");
-  return `\n\nWork Order Summary\n${header}\n${body}`;
+  let summary = "";
+  if (summaryRows.length > 0) {
+    const header = ["Work Order", "Total", "Total +15%"].join("\t");
+    const body = summaryRows.map((r) => r.map(sanitiseCell).join("\t")).join("\n");
+    summary = `\n\nWork Order Summary\n${header}\n${body}`;
+  }
+  return { prices, summary };
 }
 
 async function fetchAllMatchingRows() {
@@ -589,12 +641,12 @@ historyCopyBtn.addEventListener("click", async () => {
       return;
     }
     const includePrice = roleAtLeast(getRole(), "admin");
-    let tsv = buildTsv(rows, includePrice);
-    // Admin/Owner exports get a per-work-order billing summary appended, sourced
-    // from each work order's authoritative line total.
-    if (includePrice) {
-      tsv += await buildWorkOrderSummary(rows);
-    }
+    // Admin/Owner exports: fetch each referenced work order once for per-row
+    // pricing (work-order rows suppress `item_price`) and the appended summary.
+    const woBilling = includePrice
+      ? await fetchWorkOrderBilling(rows)
+      : { prices: null, summary: "" };
+    const tsv = buildTsv(rows, includePrice, woBilling.prices) + woBilling.summary;
     const ok = await copyTextToClipboard(tsv);
     if (ok) {
       setMessage(historyCopyMessage, "Copied history.", "success");
