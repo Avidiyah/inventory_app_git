@@ -31,6 +31,7 @@ import {
   apiGetItemByBarcode,
   apiVoidTransaction,
   apiSetBillableQuantity,
+  apiGetWorkOrder,
 } from "../api.js";
 import { escapeHtml, friendlyError, formatMoney } from "../format.js";
 import { roleAtLeast } from "../roles.js";
@@ -484,6 +485,44 @@ function buildTsv(txns, includePrice) {
   return lines.join("\n");
 }
 
+// Build a "Work Order Summary" TSV block (Admin/Owner only) appended after the
+// rows: one line per distinct work order in the export with its authoritative
+// billing total and the +15% mark-up. The total comes from each work order's
+// line totals (`materials_total`), NOT from summing History rows -- work-order
+// rows carry no per-row charge (the line is the billing unit), and summing
+// signed `adjust` rows would be wrong. Returns "" when there is nothing to add.
+async function buildWorkOrderSummary(txns) {
+  // Distinct linked work orders, in first-seen order for a stable layout.
+  const ids = [];
+  const seen = new Set();
+  for (const t of txns) {
+    if (t.work_order_id && !seen.has(t.work_order_id)) {
+      seen.add(t.work_order_id);
+      ids.push(t.work_order_id);
+    }
+  }
+  if (ids.length === 0) return "";
+
+  const rows = [];
+  for (const id of ids) {
+    try {
+      const wo = await apiGetWorkOrder(id);
+      if (wo.materials_total === null || wo.materials_total === undefined) continue;
+      const base = Number(wo.materials_total);
+      rows.push([wo.number, formatMoney(base), formatMoney(base * MARKUP_RATE)]);
+    } catch (err) {
+      // A work order that can't be loaded (e.g. archived since) is skipped
+      // rather than failing the whole copy.
+      console.warn(`Work order summary: could not load ${id}`, err);
+    }
+  }
+  if (rows.length === 0) return "";
+
+  const header = ["Work Order", "Total", "Total +15%"].join("\t");
+  const body = rows.map((r) => r.map(sanitiseCell).join("\t")).join("\n");
+  return `\n\nWork Order Summary\n${header}\n${body}`;
+}
+
 async function fetchAllMatchingRows() {
   const s = getHistoryState();
   const all = [];
@@ -550,7 +589,12 @@ historyCopyBtn.addEventListener("click", async () => {
       return;
     }
     const includePrice = roleAtLeast(getRole(), "admin");
-    const tsv = buildTsv(rows, includePrice);
+    let tsv = buildTsv(rows, includePrice);
+    // Admin/Owner exports get a per-work-order billing summary appended, sourced
+    // from each work order's authoritative line total.
+    if (includePrice) {
+      tsv += await buildWorkOrderSummary(rows);
+    }
     const ok = await copyTextToClipboard(tsv);
     if (ok) {
       setMessage(historyCopyMessage, "Copied history.", "success");

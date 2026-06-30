@@ -793,7 +793,11 @@ Behavior:
 - Copy table exports all matching rows, not just visible page.
 - Export cap: 100 pages * 100 rows.
 - Admin/Owner export includes billable qty, unit price, base value, marked-up
-  value.
+  value (per-row figures are blank for work-order rows -- they bill via the line).
+- Admin/Owner export also appends a "Work Order Summary" block: one line per
+  distinct work order in the export with its authoritative total (`materials_total`,
+  fetched per work order via `apiGetWorkOrder`) and that total `+15%`. Sourced from
+  the work order's line totals, not by summing rows; needs the row's `work_order_id`.
 
 ### Users
 
@@ -993,7 +997,7 @@ Coverage map:
 | `test_work_orders_domain.py` | pure number normalization, 2-state validators, fill-blanks, visibility scope |
 | `test_work_orders_service.py` | DB-backed find-or-create (case-insensitive/fill-blanks/restore), dispense/retroactive logging, edit auto-correct, delete reversal, stock-neutral void, archive, scoping |
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
-| `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin |
+| `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin; history row exposes `work_order_id` |
 
 No frontend test harness exists. For UI behavior, run backend tests plus manual
 browser checks for changed pages.

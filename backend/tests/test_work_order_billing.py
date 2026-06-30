@@ -81,6 +81,29 @@ def test_work_order_dispense_not_billed_per_row(db):
     assert row.billable_quantity is None
 
 
+def test_history_row_carries_work_order_id(db):
+    # The copy-table work-order summary resolves each row to its work order by
+    # id, so the history read must expose it (NULL for ad-hoc rows).
+    sup = _seed_user(db, "supervisor")
+    item = _seed_item(db, 100, price="3.27")
+    w = _wo(db, sup)
+
+    apply_transaction(
+        db, item_id=item.id, transaction_type="dispense", quantity=Decimal(2),
+        user_id=sup.id, work_order_number=w.number, work_order_id=w.id,
+    )
+    apply_transaction(
+        db, item_id=item.id, transaction_type="dispense", quantity=Decimal(1),
+        user_id=sup.id, work_order_number=None, work_order_id=None,
+    )
+
+    rows = _rows_for(db, item.id)
+    linked = next(r for r in rows if r.work_order_number == w.number)
+    adhoc = next(r for r in rows if r.work_order_number is None)
+    assert linked.work_order_id == w.id
+    assert adhoc.work_order_id is None
+
+
 def test_non_work_order_dispense_still_billed(db):
     sup = _seed_user(db, "supervisor")
     item = _seed_item(db, 100, price="3.27")

@@ -120,6 +120,7 @@ def list_history(
             transaction_type=txn.transaction_type,
             quantity=txn.quantity,
             work_order_number=txn.work_order_number,
+            work_order_id=txn.work_order_id,
             reason=txn.reason,
             # Per-row charges are emitted only for ad-hoc (non-work-order)
             # transactions. A row linked to a work order (`work_order_id`) bills

@@ -158,6 +158,11 @@ class TransactionHistoryItem(BaseModel):
     transaction_type: str
     quantity: Decimal
     work_order_number: Optional[str]
+    # The linked work order's id (NULL for ad-hoc rows and legacy
+    # number-only rows). Not cost data, so never redacted -- it lets the
+    # client resolve a row to its work order (e.g. the copy-table summary
+    # fetches each work order's authoritative billing total).
+    work_order_id: Optional[UUID] = None
     reason: Optional[str] = None
     item_price: Optional[Decimal] = None
     billable_quantity: Optional[Decimal] = None
