@@ -1,13 +1,15 @@
 # Inventory App Current State
 
-Last reviewed: 2026-06-25
+Last reviewed: 2026-06-30
 
 Purpose of this file: give an AI or developer enough current-state context to
 make technical changes without rereading the whole repository. Start here, then
 open only the files named for the task.
 
-This is the single durable repo documentation artifact. It replaces the previous
-scattered docs.
+This is the single durable repo documentation artifact for contracts and
+invariants. Its companion `docs/endpoint-map.md` traces every endpoint
+Database ↔ User View (router → service → table, and `api.js` → view) — use it to
+locate the files for an endpoint without searching.
 
 ## How To Use This Doc
 
@@ -95,14 +97,14 @@ Path shorthand:
 | Item notes | `domain/notes_validation.py`, `services/notes.py`, `schemas/items.py`, `routers/items.py`, `static/views/notes.js` | add/extend focused tests if behavior changes |
 | Alternate barcodes | `models.py`, `services/items.py`, `schemas/items.py`, `routers/items.py`, `static/views/itemEditor.js`, `static/views/addBarcode.js` | `test_item_barcodes.py` |
 | Stock/dispense/correction/void | `domain/quantity.py`, `services/transactions.py`, `routers/transactions.py`, `schemas/transactions.py`, `static/views/transactions.js`, `static/views/correction.js` | `test_quantity_reverse.py`, route-gate tests |
-| Billing/charge override | `domain/billing.py`, `services/transactions.py`, `services/history.py`, `routers/transactions.py`, `schemas/transactions.py`, `static/views/history.js` | `test_billing_validation.py`, `test_item_price_gating.py` |
+| Billing/charge override | `domain/billing.py`, `services/transactions.py`, `services/work_orders.py`, `services/history.py`, `routers/transactions.py`, `routers/work_orders.py`, `static/views/history.js`, `static/views/workOrders.js` | `test_billing_validation.py`, `test_work_order_billing.py`, `test_history_price_snapshot.py`, `test_item_price_gating.py` |
 | History filters/export | `services/history.py`, `routers/transactions.py`, `schemas/transactions.py`, `static/views/history.js`, `static/api.js` | `test_history_wo_filter.py` |
 | Barcode upload decode | `services/barcodes.py`, `routers/barcodes.py`, `schemas/barcodes.py`, `static/views/scan.js`, `static/api.js` | `test_barcodes.py` |
 | Live camera scan | `static/scan/barcode-decoder.js`, `static/scan/frame-debouncer.js`, `static/views/scan.js`, `static/scan-test.html`, `static/scan-test.js` | manual browser/device check; unit tests cover backend decode only |
 | Scan-and-go work-order batch | `static/views/transactions.js`, `static/views/scan.js`, `routers/transactions.py`, `services/transactions.py`, `static/pages/transaction.html` | transaction/domain tests plus manual UI check |
 | Mass staging API/domain | `domain/mass_staging.py`, `services/mass_staging.py`, `routers/mass_stages.py`, `schemas/mass_stages.py`, `models.py` | `test_mass_staging.py`, `test_mass_staging_load.py`, `test_mass_stages_api.py` |
 | Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | mass-stage tests plus manual UI check |
-| Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_route_role_gates.py` |
+| Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
 | Work Orders UI | `static/views/workOrders.js`, `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | work-order tests plus manual UI check |
 | Deployment/runtime | `backend/Dockerfile`, `backend/entrypoint.sh`, `backend/alembic.ini`, `backend/app/database.py`, `render.yaml`, `requirements*.txt` | `git diff --check`; run tests if runtime deps change |
 | Frontend navigation/layout | `static/shell-head.html`, `static/shell-tail.html`, `static/pages/*.html`, `static/views/nav.js`, `static/styles.css` | manual browser check; no frontend test harness |
@@ -440,14 +442,17 @@ Rules:
   `work_order_number` is the denormalized snapshot kept for History (the router
   resolves both from a scanned card or by find-or-create).
 - `unit_price` snapshots `Item.price` when a stock/dispense row is written
-  (NULL for `adjust` and pre-snapshot rows). History reads this snapshot
-  (frozen), so editing an item price does not rewrite past line values --
-  EXCEPT a row snapshotted at 0, which falls back to the live `Item.price`
-  (so a free item later given a real price reflects on its past rows). A NULL
-  snapshot also falls back to live.
-- `billable_quantity = NULL` means bill full recorded quantity.
-- `billable_quantity = 0` means record but do not charge.
-- Billing override cannot exceed recorded quantity and cannot target `adjust`.
+  (NULL for `adjust` and pre-snapshot rows). For an **ad-hoc** (non-work-order)
+  row History reads this snapshot (frozen), so editing an item price does not
+  rewrite past line values -- EXCEPT a row snapshotted at 0, which falls back to
+  the live `Item.price` (so a free item later given a real price reflects on its
+  past rows); a NULL snapshot also falls back to live. For a **work-order** row
+  (`work_order_id` set) History forces `item_price` NULL: that material bills via
+  its `work_order_items` line, not the row (see Work orders invariants).
+- `transactions.billable_quantity` is the per-transaction (ad-hoc) override:
+  NULL bills the full recorded quantity, `0` records but does not charge, and it
+  cannot exceed the recorded quantity or target an `adjust`. Work-order rows are
+  not billed per-row, so their override lives on the line, not here.
 - `voided_by_id` is a plain UUID, not a second FK to users.
 - `affects_stock` defaults TRUE. FALSE marks a retroactive work-order entry
   that shows in History like a dispense but never moved on-hand; create and
@@ -487,9 +492,13 @@ Rules:
   (`UNIQUE(work_order_id, item_id)`); re-logging an item ADDS to its row -- the
   line is the aggregate of that item's dispenses, written by every stock-out path
   via `attach_dispense_line`. The line is also the **billing unit**: the
-  Admin/Owner charge is `quantity * current Item.price` (exposed as the response
-  `unit_price`, redacted below Admin), so work-order-linked transaction rows carry
-  no per-row charge in History.
+  Admin/Owner charge is `effective_billable * current Item.price` (exposed as the
+  response `unit_price`, redacted below Admin), so work-order-linked transaction
+  rows carry no per-row charge in History.
+- `billable_quantity` is the per-line billing override: NULL bills the full
+  `quantity`, `0` records but does not charge, a value <= `quantity` bills a
+  partial count (`effective_billable` = override when set else `quantity`). Never
+  moves stock; cleared automatically if a line edit lowers `quantity` below it.
 - `mode` snapshots the work order's `entry_mode` at logging time (a stock-moving
   entry joining a `retroactive` line surfaces it as `dispense`).
 - `transaction_id` references the most recent contributing `Transaction` (the
@@ -602,8 +611,12 @@ Filter behavior:
 - filters combine with AND
 - work-order filter is case-sensitive substring match
 - SQL `%`, `_`, and escape characters are escaped
-- Admin/Owner rows include `item_price` and `billable_quantity`
+- Admin/Owner rows include `item_price` and `billable_quantity`, EXCEPT
+  work-order rows (`work_order_id` set) which null both -- that material bills
+  via its work-order line, not the row
 - Supervisor rows receive null for cost/billing fields
+- every row carries `work_order_id` (NULL for ad-hoc / legacy number-only rows)
+  so the client can resolve a row to its work order (e.g. the copy-table summary)
 
 ### Barcodes
 
@@ -801,9 +814,11 @@ Behavior:
 - Admin/Owner export also appends a "Work Order Summary" block: one line per
   distinct work order in the export with its authoritative total (`materials_total`,
   override-aware) and that total `+15%`. Sourced from the work order's line totals,
-  not by summing rows; both this and the per-row fill use the row's `work_order_id`.
-  Per-row figures can diverge from the summary when a line was edited or has a
-  billing override -- the summary is authoritative.
+  not by summing rows. Work orders are resolved by `work_order_number` (always
+  present on a row) via `apiListWorkOrders`, with the row's `work_order_id` as a
+  fast path -- so legacy rows that carry only a number are covered too; the per-row
+  fill uses `work_order_id`. Per-row figures can diverge from the summary when a
+  line was edited or has a billing override -- the summary is authoritative.
 
 ### Users
 
@@ -912,9 +927,18 @@ Behavior:
   filters by status, and searches the number case-insensitively.
 - `update_work_order` overwrites the supplied fields; completing stamps
   `completed_at`, reopening clears it; a number collision raises 400.
-- `add/update/delete_work_order_item` lock the item row, write/rewrite/void the
-  linked `dispense` transaction (`affects_stock` per the work order's mode), and
-  auto-correct stock for dispense-mode edits/deletes.
+- `add_work_order_item` locks the item row, writes a `dispense` transaction
+  (`affects_stock` per the work order's mode) and the matching line via
+  `attach_dispense_line`. `update_work_order_item` corrects stock by the delta
+  and appends one reconciling `adjust` (the original scan rows stay intact -- it
+  does NOT rewrite them); it clears a now-too-large `billable_quantity` override.
+  `delete_work_order_item` returns the line's net units and voids its whole
+  contributing transaction set.
+- `set_work_order_item_billable` sets/clears a line's `billable_quantity`
+  override (validated by `domain.billing.validate_billable_value`); it never
+  touches stock. The router builds `materials_total` (sum of
+  `effective_billable * unit_price`) and per-line `unit_price`/`billable_quantity`
+  for Admin/Owner, redacted below.
 
 ### Mass Staging
 
@@ -993,6 +1017,7 @@ Coverage map:
 | `test_route_role_gates.py` | important route minimum-role gates |
 | `test_barcodes.py` | backend image decode and supported formats |
 | `test_item_barcodes.py` | additional barcode uniqueness/lookup/update |
+| `test_archived_barcode_reuse.py` | reusing a barcode held by an archived item (with confirmation) |
 | `test_item_price_gating.py` | item price/link server redaction |
 | `test_billing_validation.py` | pure billable quantity rules (per-transaction `validate_billable_quantity` + type-agnostic `validate_billable_value` for lines) |
 | `test_history_wo_filter.py` | work-order history filter escaping/combination |
