@@ -477,6 +477,10 @@ class WorkOrderItem(Base):
     )
     item_id = Column(UUID(as_uuid=True), ForeignKey("items.id"), nullable=False)
     quantity = Column(Numeric, nullable=False)
+    # Line-level billing override (the line is the billing unit for work-order
+    # materials). NULL = bill the full `quantity`; 0 = recorded but not charged;
+    # a value <= quantity bills a partial count. Never touches stock.
+    billable_quantity = Column(Numeric, nullable=True)
     mode = Column(Text, nullable=False)  # 'dispense' | 'retroactive'
     transaction_id = Column(
         UUID(as_uuid=True), ForeignKey("transactions.id"), nullable=True

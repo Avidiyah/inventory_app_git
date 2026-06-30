@@ -117,6 +117,22 @@ class WorkOrderItemUpdate(BaseModel):
         return v
 
 
+class WorkOrderItemBilling(BaseModel):
+    """Payload for `PATCH /work-orders/{id}/items/{wo_item_id}/billing` -- set or
+    clear a line's billing override. `null` clears (bill the full quantity); `0`
+    records but does not charge; a value up to the line quantity bills a partial
+    count. Bounds against the line quantity are enforced server-side."""
+
+    billable_quantity: Optional[Decimal] = None
+
+    @field_validator("billable_quantity")
+    @classmethod
+    def _non_negative(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("Billed quantity cannot be negative.")
+        return v
+
+
 # --- Responses (router builder fills nested fields) ----------------------
 
 class WorkOrderItemDetail(BaseModel):
@@ -129,6 +145,12 @@ class WorkOrderItemDetail(BaseModel):
     item_quantity: Decimal  # the item's current on-hand stock
     quantity: Decimal
     mode: str  # 'dispense' | 'retroactive' (mode when logged)
+    # The line is the billing unit for work-order materials: the customer
+    # charge is `effective_billable * unit_price`, where `effective_billable`
+    # is `billable_quantity` when set else `quantity`. Both cost fields are
+    # Admin/Owner only (None when redacted for lower roles).
+    unit_price: Optional[Decimal] = None
+    billable_quantity: Optional[Decimal] = None
 
 
 class WorkOrderCard(BaseModel):
@@ -152,3 +174,6 @@ class WorkOrderDetail(WorkOrderCard):
     """A work-order card plus its logged materials."""
 
     items: list[WorkOrderItemDetail] = []
+    # Base materials charge = sum over lines of (effective_billable * unit_price),
+    # before the +15% mark-up. Admin/Owner only (None when redacted).
+    materials_total: Optional[Decimal] = None

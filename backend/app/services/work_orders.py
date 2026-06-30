@@ -35,6 +35,7 @@ from app.domain.errors import (
     WorkOrderNotFoundError,
     WorkOrderStateError,
 )
+from app.domain.billing import validate_billable_value
 from app.domain.quantity import apply_delta
 from app.models import Item, Transaction, User, WorkOrder, WorkOrderItem
 
@@ -561,6 +562,35 @@ def update_work_order_item(
         )
 
     line.quantity = quantity
+    # A stored billing override is a partial count; if the new total drops below
+    # it the override no longer makes sense, so clear it (revert to full).
+    if line.billable_quantity is not None and line.billable_quantity > quantity:
+        line.billable_quantity = None
+    db.commit()
+    db.refresh(line)
+    return line
+
+
+def set_work_order_item_billable(
+    db: Session,
+    work_order_id: uuid.UUID,
+    wo_item_id: uuid.UUID,
+    *,
+    user: Optional[User],
+    billable_quantity: Optional[Decimal],
+) -> WorkOrderItem:
+    """Set (or clear) a material line's billing override -- the per-line analogue
+    of `services.transactions.set_billable_quantity`.
+
+    The line is the billing unit for work-order materials, so this records how
+    many of its units to actually charge for and NEVER touches `Item.quantity`
+    (the materials were physically used; only the invoice changes). `None` clears
+    the override (charge the full `quantity`); `0` records but charges nothing; a
+    value up to `quantity` bills a partial count. Raises `BillingQuantityError`
+    if negative or above the recorded quantity."""
+    work_order = _get_visible(db, work_order_id, user)
+    line = _get_line(db, work_order, wo_item_id)
+    line.billable_quantity = validate_billable_value(line.quantity, billable_quantity)
     db.commit()
     db.refresh(line)
     return line

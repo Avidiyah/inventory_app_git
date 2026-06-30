@@ -341,6 +341,14 @@ export async function apiUpdateWorkOrderItem(workOrderId, woItemId, { quantity }
   return jsonRequest(`/work-orders/${workOrderId}/items/${woItemId}`, "PATCH", { quantity });
 }
 
+// Set or clear a material line's billing override (Admin/Owner). `billableQuantity`
+// of null clears it (bill the full quantity); 0 bills nothing.
+export async function apiSetWorkOrderItemBilling(workOrderId, woItemId, billableQuantity) {
+  return jsonRequest(`/work-orders/${workOrderId}/items/${woItemId}/billing`, "PATCH", {
+    billable_quantity: billableQuantity,
+  });
+}
+
 export async function apiDeleteWorkOrderItem(workOrderId, woItemId) {
   return parseResponse(await fetch(`/work-orders/${workOrderId}/items/${woItemId}`, { method: "DELETE", credentials: "include" }));
 }

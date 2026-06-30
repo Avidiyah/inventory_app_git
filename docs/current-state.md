@@ -265,6 +265,21 @@ Work orders:
   reflects net consumption. `get_work_order` lazily self-heals any orphaned
   linked dispense into a line (companion to the one-time backfill migration
   `c4e6a8b0d2f5`).
+- The line is the **billing unit** for work-order materials: the customer charge
+  is `effective_billable * current Item.price` (Admin/Owner only), where
+  `effective_billable` is `work_order_items.billable_quantity` when set else the
+  line `quantity`. Shown per line and summed into `materials_total` on the Work
+  Orders page. Work-order-linked transaction rows (`work_order_id` set) are a pure
+  inventory record -- History suppresses their per-row charge -- so editing a line
+  never double-bills and a line-edit's signed `adjust` (the stock delta, e.g. `-6`
+  when a line goes 2->8) is never billed as a negative. Ad-hoc (non-work-order)
+  transactions keep their per-row History charge.
+- `work_order_items.billable_quantity` is the per-line billing override
+  (Admin/Owner, `PATCH .../items/{id}/billing`): NULL bills the full `quantity`,
+  `0` records but does not charge, a value <= quantity bills a partial count. It
+  never moves stock. Lowering a line's `quantity` below an existing override
+  clears the override (reverts to full). (Phase 2. A dedicated invoice /
+  charge-type layer -- labor, fees, tax, discounts -- is deferred to a later phase.)
 - List/get/items are scoped server-side by
   `domain.work_orders.can_view_work_order`; out-of-scope/archived/unknown
   surface as 404. Create / attribute edits / archive are Supervisor+; an
@@ -323,6 +338,7 @@ owner > admin > supervisor > technician
 | Mass-stage page/API | supervisor+ |
 | Work Orders list/get/items | any authenticated user, server-scoped (technician: assigned; supervisor: created; admin/owner: all) |
 | Create work order / edit attributes / assign / archive | supervisor+ (scoped) |
+| Set work-order line billing override | admin+ (scoped) |
 | Scan-gate work-order cards | any authenticated user (`GET /work-orders/?status=in_progress`, scoped) |
 
 Scoping nuance:
@@ -461,8 +477,8 @@ Rules:
 
 ### `work_order_items`
 
-Fields: `id`, `work_order_id`, `item_id`, `quantity`, `mode`, `transaction_id`,
-`created_by_id`, `created_at`, `updated_at`.
+Fields: `id`, `work_order_id`, `item_id`, `quantity`, `billable_quantity`,
+`mode`, `transaction_id`, `created_by_id`, `created_at`, `updated_at`.
 
 Rules:
 
@@ -470,7 +486,10 @@ Rules:
   `mass_stage_items` (truck planning). One row per item per work order
   (`UNIQUE(work_order_id, item_id)`); re-logging an item ADDS to its row -- the
   line is the aggregate of that item's dispenses, written by every stock-out path
-  via `attach_dispense_line`.
+  via `attach_dispense_line`. The line is also the **billing unit**: the
+  Admin/Owner charge is `quantity * current Item.price` (exposed as the response
+  `unit_price`, redacted below Admin), so work-order-linked transaction rows carry
+  no per-row charge in History.
 - `mode` snapshots the work order's `entry_mode` at logging time (a stock-moving
   entry joining a `retroactive` line surfaces it as `dispense`).
 - `transaction_id` references the most recent contributing `Transaction` (the
@@ -633,6 +652,7 @@ Supervisor+. Out-of-scope, archived, or unknown work orders return 404.
 | POST | `/work-orders/{id}/archive` | supervisor+ scoped | soft-archive (number stays reserved) |
 | POST | `/work-orders/{id}/items` | session scoped | log a material (mode = work order's entry_mode); upsert by item |
 | PATCH | `/work-orders/{id}/items/{wo_item_id}` | session scoped | edit a material's quantity (dispense lines auto-correct stock) |
+| PATCH | `/work-orders/{id}/items/{wo_item_id}/billing` | admin+ scoped | set/clear the line's billing override (bill partial / zero / full) |
 | DELETE | `/work-orders/{id}/items/{wo_item_id}` | session scoped | remove a material (dispense lines return stock; voids the linked txn) |
 
 The `POST /transactions/` body now also accepts `work_order_id` (from a scanned
@@ -745,6 +765,12 @@ Behavior:
   quantities, add (search-and-pick), and remove.
 - Dispense entries move stock and show in History like a Scan/Stock dispense;
   retroactive entries show in History identically but move no stock.
+- Each material line shows an Admin/Owner-only charge (`effective billable *
+  current price`, plus the `+15%` mark-up): the line is the billing unit, so the
+  customer cost lives here, not on the individual History rows (the backend
+  redacts the line's `unit_price`/`billable_quantity` below Admin). An inline
+  "Edit charge" editor (mirroring History's) bills a partial count or zero per
+  line; a `materials_total` (base + mark-up) sums the card.
 - Completed work orders stay fully editable (status is a flag + filter).
 
 ### History
@@ -759,8 +785,11 @@ Behavior:
 - Work-order filter overlays all tabs and combines with tab filters.
 - Voided rows are hidden.
 - Any row visible in History can be voided by the same role set.
-- Admin/Owner Charge column shows base line value and `+15%` marked-up value.
-- Billing editor can bill partial count, bill zero, or clear override.
+- Admin/Owner Charge column shows base line value and `+15%` marked-up value
+  for ad-hoc rows; a work-order-linked row shows no charge (`—`) because that
+  material bills through its work-order line on the Work Orders page.
+- Billing editor (partial / zero / clear override) appears only on ad-hoc
+  stock/dispense rows; work-order rows have no per-row charge to edit.
 - Copy table exports all matching rows, not just visible page.
 - Export cap: 100 pages * 100 rows.
 - Admin/Owner export includes billable qty, unit price, base value, marked-up
@@ -853,7 +882,10 @@ Behavior:
   `include_price=True` for Admin/Owner; `item_price` is the row's frozen
   `unit_price` snapshot, falling back to the live `Item.price` only when the
   snapshot is NULL or 0 (so a price edit leaves real recorded prices intact
-  but flows onto previously-free rows).
+  but flows onto previously-free rows). A work-order-linked row
+  (`work_order_id` set) is the exception: `item_price`/`billable_quantity` are
+  forced NULL because that material bills through its work-order line, not the
+  ledger row (avoids double-billing and the signed-`adjust` negative charge).
 
 ### Work Orders
 
@@ -896,7 +928,7 @@ Behavior:
 
 ## Migration History
 
-Alembic head: `b3d5f7a9c1e4`.
+Alembic head: `a9d1f3b7c2e8`.
 
 | Revision | Meaning |
 | --- | --- |
@@ -917,6 +949,8 @@ Alembic head: `b3d5f7a9c1e4`.
 | `d8b2f4a6c1e3` | transaction unit_price (historical price snapshot) |
 | `f1a3c5e7b9d4` | user archived_at (soft delete) |
 | `b3d5f7a9c1e4` | standalone `work_orders` (number identity) + `work_order_items` + transaction `affects_stock`/`work_order_id` + `mass_stages.community` + `mass_stage_work_orders` slots (replaces rooms) |
+| `c4e6a8b0d2f5` | backfill `work_order_items` lines from existing linked dispenses |
+| `a9d1f3b7c2e8` | `work_order_items.billable_quantity` (per-line billing override) |
 
 ## Test Map
 
@@ -950,7 +984,7 @@ Coverage map:
 | `test_barcodes.py` | backend image decode and supported formats |
 | `test_item_barcodes.py` | additional barcode uniqueness/lookup/update |
 | `test_item_price_gating.py` | item price/link server redaction |
-| `test_billing_validation.py` | pure billable quantity rules |
+| `test_billing_validation.py` | pure billable quantity rules (per-transaction `validate_billable_quantity` + type-agnostic `validate_billable_value` for lines) |
 | `test_history_wo_filter.py` | work-order history filter escaping/combination |
 | `test_quantity_reverse.py` | stock delta reversal for voids |
 | `test_mass_staging.py` | pure mass-stage allocation/lifecycle rules |
@@ -958,6 +992,8 @@ Coverage map:
 | `test_mass_staging_load.py` | DB-backed slot load/return, add-work-order enforce-match, reuse |
 | `test_work_orders_domain.py` | pure number normalization, 2-state validators, fill-blanks, visibility scope |
 | `test_work_orders_service.py` | DB-backed find-or-create (case-insensitive/fill-blanks/restore), dispense/retroactive logging, edit auto-correct, delete reversal, stock-neutral void, archive, scoping |
+| `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
+| `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin |
 
 No frontend test harness exists. For UI behavior, run backend tests plus manual
 browser checks for changed pages.
@@ -974,9 +1010,11 @@ Do not "fix" these accidentally unless the task asks for it.
 - Completed mass stages cannot be reopened.
 - Stage deletion does not reverse load transactions already written.
 - Frontend has no bundler/type checker; ID and module contract drift is manual.
-- Work-order entries bend the append-only ledger on purpose: editing a
-  dispense-mode line rewrites its linked transaction in place and auto-corrects
-  stock (scoped to `work_order_items`-originated rows only).
+- Editing a dispense-mode work-order line auto-corrects stock by the delta and
+  appends one reconciling `adjust` transaction (signed stock delta; the original
+  scan rows stay intact). That `adjust` is an inventory record only -- it is not
+  billed, because work-order materials bill off the line total, not per-row (see
+  Work orders invariants). Scoped to `work_order_items`-originated rows.
 - The `b3d5f7a9c1e4` migration is a clean rebuild: it WIPES all prior
   mass-stage/work-order data (stages, slots, planned items, logged materials).
   Inventory `items` and historical `transactions` are preserved (old txns keep

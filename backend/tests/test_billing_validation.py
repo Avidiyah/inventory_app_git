@@ -16,7 +16,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.domain.billing import validate_billable_quantity
+from app.domain.billing import validate_billable_quantity, validate_billable_value
 from app.domain.errors import BillingQuantityError
 
 
@@ -56,3 +56,25 @@ def test_adjust_row_cannot_be_billed():
 def test_unknown_type_cannot_be_billed():
     with pytest.raises(BillingQuantityError):
         validate_billable_quantity("mystery", Decimal("5"), Decimal("1"))
+
+
+# --- validate_billable_value (the type-agnostic core, used by work-order lines)
+
+def test_value_none_clears_and_passes():
+    assert validate_billable_value(Decimal("5"), None) is None
+
+
+def test_value_zero_and_partial_and_full_allowed():
+    assert validate_billable_value(Decimal("8"), Decimal("0")) == Decimal("0")
+    assert validate_billable_value(Decimal("8"), Decimal("3")) == Decimal("3")
+    assert validate_billable_value(Decimal("8"), Decimal("8")) == Decimal("8")
+
+
+def test_value_negative_rejected():
+    with pytest.raises(BillingQuantityError):
+        validate_billable_value(Decimal("8"), Decimal("-1"))
+
+
+def test_value_exceeding_quantity_rejected():
+    with pytest.raises(BillingQuantityError):
+        validate_billable_value(Decimal("8"), Decimal("9"))

@@ -11,6 +11,7 @@ Out-of-scope, archived, or unknown work orders surface as 404.
 """
 
 import uuid
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -26,6 +27,7 @@ from app.schemas.work_orders import (
     WorkOrderCard,
     WorkOrderCreate,
     WorkOrderDetail,
+    WorkOrderItemBilling,
     WorkOrderItemCreate,
     WorkOrderItemDetail,
     WorkOrderItemUpdate,
@@ -49,7 +51,13 @@ _PRIVILEGED_FIELDS = {
 
 # --- response builders ---------------------------------------------------
 
-def _line_detail(line: WorkOrderItem) -> WorkOrderItemDetail:
+def _effective_billable(line: WorkOrderItem) -> Decimal:
+    """Units actually charged on a line: the override when set, else the full
+    recorded quantity."""
+    return line.quantity if line.billable_quantity is None else line.billable_quantity
+
+
+def _line_detail(line: WorkOrderItem, *, include_price: bool) -> WorkOrderItemDetail:
     return WorkOrderItemDetail(
         id=line.id,
         item_id=line.item_id,
@@ -58,6 +66,10 @@ def _line_detail(line: WorkOrderItem) -> WorkOrderItemDetail:
         item_quantity=line.item.quantity,
         quantity=line.quantity,
         mode=line.mode,
+        # The line bills at the item's current price; both cost fields are
+        # redacted below Admin.
+        unit_price=line.item.price if include_price else None,
+        billable_quantity=line.billable_quantity if include_price else None,
     )
 
 
@@ -78,11 +90,28 @@ def _card(work_order: WorkOrder) -> WorkOrderCard:
     )
 
 
-def _detail(work_order: WorkOrder) -> WorkOrderDetail:
+def _materials_total(work_order: WorkOrder) -> Decimal:
+    """Base materials charge (pre-mark-up): sum of each line's effective billable
+    units times the item's current price."""
+    total = Decimal(0)
+    for line in work_order.items:
+        price = line.item.price or Decimal(0)
+        total += price * _effective_billable(line)
+    return total
+
+
+def _detail(work_order: WorkOrder, *, include_price: bool) -> WorkOrderDetail:
     return WorkOrderDetail(
         **_card(work_order).model_dump(),
-        items=[_line_detail(line) for line in work_order.items],
+        items=[_line_detail(line, include_price=include_price) for line in work_order.items],
+        materials_total=_materials_total(work_order) if include_price else None,
     )
+
+
+def _can_see_price(user: User) -> bool:
+    """Cost fields (line unit price) are Admin/Owner only, mirroring item /
+    history price redaction."""
+    return roles.role_at_least(user.role, roles.ROLE_ADMIN)
 
 
 # --- routes --------------------------------------------------------------
@@ -128,7 +157,10 @@ def create_work_order(
             assigned_to_id=payload.assigned_to_id,
         )
         # Re-fetch through the scoped loader so the response carries items/assignee.
-        return _detail(wo_service.get_work_order(db, work_order.id, user=user))
+        return _detail(
+            wo_service.get_work_order(db, work_order.id, user=user),
+            include_price=_can_see_price(user),
+        )
     except DomainError as exc:
         raise to_http(exc)
 
@@ -142,7 +174,10 @@ def get_work_order(
     """Full work-order detail with logged materials. 404 if unknown, archived,
     or not visible to the caller."""
     try:
-        return _detail(wo_service.get_work_order(db, work_order_id, user=user))
+        return _detail(
+            wo_service.get_work_order(db, work_order_id, user=user),
+            include_price=_can_see_price(user),
+        )
     except DomainError as exc:
         raise to_http(exc)
 
@@ -163,7 +198,10 @@ def update_work_order(
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
     try:
         work_order = wo_service.update_work_order(db, work_order_id, user=user, fields=fields)
-        return _detail(wo_service.get_work_order(db, work_order.id, user=user))
+        return _detail(
+            wo_service.get_work_order(db, work_order.id, user=user),
+            include_price=_can_see_price(user),
+        )
     except DomainError as exc:
         raise to_http(exc)
 
@@ -197,7 +235,7 @@ def add_work_order_item(
         line = wo_service.add_work_order_item(
             db, work_order_id, user=user, item_id=payload.item_id, quantity=payload.quantity
         )
-        return _line_detail(line)
+        return _line_detail(line, include_price=_can_see_price(user))
     except DomainError as exc:
         raise to_http(exc)
 
@@ -215,7 +253,34 @@ def update_work_order_item(
         line = wo_service.update_work_order_item(
             db, work_order_id, wo_item_id, user=user, quantity=payload.quantity
         )
-        return _line_detail(line)
+        return _line_detail(line, include_price=_can_see_price(user))
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.patch(
+    "/{work_order_id}/items/{wo_item_id}/billing",
+    response_model=WorkOrderItemDetail,
+)
+def set_work_order_item_billing(
+    work_order_id: uuid.UUID,
+    wo_item_id: uuid.UUID,
+    payload: WorkOrderItemBilling,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Set or clear a material line's billing override (Admin/Owner). The line is
+    the billing unit for work-order materials, so this charges fewer units than
+    were consumed (or none) without touching stock. `null` clears the override;
+    `0` records but does not charge; a value up to the line quantity bills a
+    partial count. 403 below Admin; 400 if the value exceeds the line quantity."""
+    if not _can_see_price(user):
+        raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
+    try:
+        line = wo_service.set_work_order_item_billable(
+            db, work_order_id, wo_item_id, user=user, billable_quantity=payload.billable_quantity
+        )
+        return _line_detail(line, include_price=True)
     except DomainError as exc:
         raise to_http(exc)
 

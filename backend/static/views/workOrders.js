@@ -15,11 +15,12 @@ import {
   apiArchiveWorkOrder,
   apiAddWorkOrderItem,
   apiUpdateWorkOrderItem,
+  apiSetWorkOrderItemBilling,
   apiDeleteWorkOrderItem,
   apiListItems,
   apiListUsers,
 } from "../api.js";
-import { escapeHtml, friendlyError } from "../format.js";
+import { escapeHtml, friendlyError, formatMoney } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
 import { getRole } from "../state.js";
 import { roleAtLeast } from "../roles.js";
@@ -53,6 +54,70 @@ export function focusWorkOrder(workOrderId) {
 
 function isSupervisorPlus() {
   return roleAtLeast(getRole(), "supervisor");
+}
+
+// Fixed company mark-up on the line total (mirrors history.js MARKUP_RATE).
+// A work-order material line is the billing unit: charge = effective billable
+// units * price, where effective billable is the override when set else the
+// full quantity.
+const MARKUP_RATE = 1.15;
+
+function effectiveBillable(it) {
+  const b = it.billable_quantity;
+  return (b === null || b === undefined) ? Number(it.quantity) : Number(b);
+}
+
+// The Admin/Owner-only charge cell for a material line, or "" when no price is
+// visible (backend redacts `unit_price` to null below Admin, so this renders
+// only for those who may see cost). Carries `data-*` so the inline editor can
+// read the line quantity / current override without re-fetching.
+function lineChargeHtml(it) {
+  if (it.unit_price === null || it.unit_price === undefined) return "";
+  const quantity = Number(it.quantity);
+  const billable = effectiveBillable(it);
+  const base = billable * Number(it.unit_price);
+  const marked = base * MARKUP_RATE;
+  let flag = "";
+  if (billable !== quantity) {
+    flag = billable === 0
+      ? `<span class="charge-flag not-charged">Not charged</span>`
+      : `<span class="charge-flag">Billing ${escapeHtml(String(billable))} of ${escapeHtml(String(quantity))}</span>`;
+  }
+  return `<span class="wo-line-charge" data-quantity="${escapeHtml(String(quantity))}" data-billable="${escapeHtml(String(billable))}">` +
+    `<span class="charge-base">${escapeHtml(formatMoney(base))}</span>` +
+    `<span class="charge-marked">+15%: ${escapeHtml(formatMoney(marked))}</span>` +
+    flag +
+    `<button type="button" class="wo-edit-charge-btn">Edit charge</button>` +
+    `</span>`;
+}
+
+// Inline billing editor markup (mirrors the History charge editor): bill a
+// partial count, bill zero, or cancel.
+function billingEditorHtml(quantity, billable) {
+  return `
+    <div class="charge-editor">
+      <label class="charge-editor-label">Bill for
+        <input type="number" class="charge-input" min="0" max="${escapeHtml(String(quantity))}" step="any" value="${escapeHtml(String(billable))}">
+        of ${escapeHtml(String(quantity))}
+      </label>
+      <div class="charge-editor-actions">
+        <button type="button" class="charge-save">Save</button>
+        <button type="button" class="charge-zero secondary-btn">Don't charge</button>
+        <button type="button" class="charge-cancel secondary-btn">Cancel</button>
+      </div>
+      <p class="charge-editor-msg" aria-live="polite"></p>
+    </div>`;
+}
+
+// The Admin/Owner-only work-order materials total (base + mark-up), or "" when
+// the backend redacted the figure (below Admin).
+function materialsTotalHtml(detail) {
+  if (detail.materials_total === null || detail.materials_total === undefined) return "";
+  const base = Number(detail.materials_total);
+  const marked = base * MARKUP_RATE;
+  return `<div class="wo-materials-total">Materials total: ` +
+    `<strong>${escapeHtml(formatMoney(base))}</strong> ` +
+    `<span class="charge-marked">+15%: ${escapeHtml(formatMoney(marked))}</span></div>`;
 }
 
 function statusLabel(status) {
@@ -233,6 +298,7 @@ function renderBody(detail, bodyEl) {
     `<div class="wo-controls">${modeControl}${statusAction}${archive}</div>` +
     details +
     `<div class="wo-items">${items}</div>` +
+    materialsTotalHtml(detail) +
     `<div class="wo-add-item">
        <div class="wo-add-item-row">
          <input type="text" class="ms-item-search" placeholder="Search item by name or barcode">
@@ -252,6 +318,7 @@ function renderLineHtml(it) {
               <span class="ms-item-barcode">${escapeHtml(it.item_barcode)}</span>
               ${modeTag}
               <span class="wo-onhand">On hand: ${escapeHtml(it.item_quantity)}</span>
+              ${lineChargeHtml(it)}
             </div>
             <div class="wo-item-actions">
               <input type="number" class="wo-line-qty" value="${escapeHtml(it.quantity)}" min="0" step="any" aria-label="Quantity">
@@ -374,6 +441,61 @@ listEl.addEventListener("click", async (event) => {
   } catch (err) {
     if (msg) setMessage(msg, friendlyError(err, "That action did not work."), "error");
   }
+});
+
+// --- Inline line-billing editor (Admin/Owner) ----------------------------
+//
+// Swaps a line's charge cell for a small form: Save / Don't charge call the
+// per-line billing endpoint and refresh the card; Cancel restores the cell in
+// place. Mirrors the History charge editor. The "Edit charge" button only
+// renders for those who may see cost, so no extra role check is needed.
+listEl.addEventListener("click", (event) => {
+  const editBtn = event.target.closest(".wo-edit-charge-btn");
+  if (!editBtn) return;
+
+  const cell = editBtn.closest(".wo-line-charge");
+  const row = editBtn.closest(".wo-item");
+  const cardEl = editBtn.closest(".wo-card");
+  if (!cell || !row || !cardEl) return;
+
+  const workOrderId = cardEl.dataset.id;
+  const woItemId = row.dataset.woItemId;
+  const quantity = Number(cell.dataset.quantity);
+  const billable = Number(cell.dataset.billable);
+  const original = cell.innerHTML;
+
+  cell.innerHTML = billingEditorHtml(quantity, billable);
+  const input = cell.querySelector(".charge-input");
+  const editorMsg = cell.querySelector(".charge-editor-msg");
+  input.focus();
+  input.select();
+
+  async function submit(value) {
+    // `value` is the billable count, or null to clear the override.
+    cell.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+    try {
+      await apiSetWorkOrderItemBilling(workOrderId, woItemId, value);
+      await refreshCard(cardEl);  // repaint the card (line charge + total)
+    } catch (err) {
+      cell.querySelectorAll("button").forEach((b) => { b.disabled = false; });
+      setMessage(editorMsg, friendlyError(err, "Could not update the charge."), "error");
+    }
+  }
+
+  cell.querySelector(".charge-cancel").addEventListener("click", () => { cell.innerHTML = original; });
+  cell.querySelector(".charge-zero").addEventListener("click", () => submit(0));
+  cell.querySelector(".charge-save").addEventListener("click", () => {
+    const raw = input.value.trim();
+    if (raw === "") { submit(null); return; }  // empty = charge the full amount
+    const n = Number(raw);
+    if (Number.isNaN(n) || n < 0 || n > quantity) {
+      setMessage(editorMsg, `Enter a number between 0 and ${quantity}.`, "error");
+      return;
+    }
+    // Billing the full quantity is the same as no override; send null so the
+    // line carries no stale "Billing N of N" annotation.
+    submit(n === quantity ? null : n);
+  });
 });
 
 // Mode select change.

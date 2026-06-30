@@ -121,23 +121,34 @@ def list_history(
             quantity=txn.quantity,
             work_order_number=txn.work_order_number,
             reason=txn.reason,
-            # History is frozen to the price snapshotted when the row was
-            # written, so editing an item price does NOT rewrite past line
-            # values. The single exception: a row recorded while the item was
-            # free (snapshot `unit_price` of 0) was never a real price, so it
-            # tracks the live `Item.price` -- giving a previously-free item a
-            # real price DOES flow onto its past rows. A NULL snapshot
-            # (legacy/adjust rows) likewise falls back to the live price.
+            # Per-row charges are emitted only for ad-hoc (non-work-order)
+            # transactions. A row linked to a work order (`work_order_id`) bills
+            # through its `work_order_items` LINE -- the authoritative
+            # "materials used" total shown on the Work Orders page -- so
+            # charging it here too would double-count, and a line edit's signed
+            # stock-correction `adjust` would bill as a nonsensical negative.
+            # Such rows stay a pure inventory record here (price suppressed).
+            #
+            # For an ad-hoc row the price is frozen to the snapshot taken when
+            # it was written, so editing an item price does NOT rewrite past
+            # values. The single exception: a row written while the item was
+            # free (snapshot 0) was never a real price and tracks the live
+            # `Item.price`; a NULL snapshot (legacy/adjust) likewise falls back
+            # to live.
             item_price=(
-                (
+                None
+                if not include_price or txn.work_order_id is not None
+                else (
                     item.price
                     if txn.unit_price is None or txn.unit_price == 0
                     else txn.unit_price
                 )
-                if include_price
+            ),
+            billable_quantity=(
+                txn.billable_quantity
+                if include_price and txn.work_order_id is None
                 else None
             ),
-            billable_quantity=txn.billable_quantity if include_price else None,
             created_at=txn.created_at,
         )
         for txn, item, user in rows
