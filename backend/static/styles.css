@@ -691,6 +691,22 @@ tr:last-child td {
     color: var(--gray-500);
 }
 
+/* The pricing list is laid out for a fixed 41-char-wide text box, so it is
+   shown in a monospace font with wrapping off -- what you see is exactly
+   what gets pasted into the company tool. */
+.pricing-output {
+    display: block;
+    width: 100%;
+    max-width: 46ch;
+    margin-bottom: var(--space-3);
+    padding: var(--space-3);
+    font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: var(--fs-sm);
+    line-height: 1.4;
+    white-space: pre;
+    overflow-x: auto;
+}
+
 /* =================== NOTES EDITOR =================== */
 #notes-rows {
     display: flex;

@@ -50,9 +50,10 @@
             <!-- Shared results table -->
             <div id="history-results" hidden>
                 <div class="history-results-toolbar">
-                    <button id="history-copy-btn" type="button" class="secondary-btn" disabled>Copy table</button>
-                    <p id="history-copy-message"></p>
+                    <button id="history-pricing-btn" type="button" class="secondary-btn" disabled>Pricing list</button>
+                    <p id="history-pricing-message"></p>
                 </div>
+                <textarea id="history-pricing-output" class="pricing-output" rows="12" wrap="off" readonly hidden aria-label="Pricing list"></textarea>
                 <table id="history-table" class="stack-table">
                     <thead>
                         <tr>

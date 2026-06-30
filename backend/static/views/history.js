@@ -53,8 +53,9 @@ const historyNextBtn = document.getElementById("history-next-btn");
 const historyPageInfo = document.getElementById("history-page-info");
 const historyWoFilter = document.getElementById("history-wo-filter");
 const historyWoClearBtn = document.getElementById("history-wo-clear-btn");
-const historyCopyBtn = document.getElementById("history-copy-btn");
-const historyCopyMessage = document.getElementById("history-copy-message");
+const historyPricingBtn = document.getElementById("history-pricing-btn");
+const historyPricingMessage = document.getElementById("history-pricing-message");
+const historyPricingOutput = document.getElementById("history-pricing-output");
 
 // Backend cap (see app/routers/transactions.py) -- the copy-all path
 // uses this to minimise round-trips.
@@ -263,7 +264,16 @@ export function renderHistory(data) {
   historyPageInfo.textContent = `Page ${s.page} of ${totalPages}`;
   historyPrevBtn.disabled = s.page <= 1;
   historyNextBtn.disabled = s.page >= totalPages;
-  historyCopyBtn.disabled = items.length === 0;
+  // The pricing list is built from marked-up charges, which only Admin/Owner
+  // can see (`item_price` is redacted for lower roles), so hide the button
+  // entirely for them rather than offer one that produces an empty list.
+  historyPricingBtn.hidden = !canSeePrice;
+  historyPricingBtn.disabled = items.length === 0;
+  // A re-render means the filters/page changed, so any previously built
+  // pricing list is now stale -- hide it rather than show mismatched totals.
+  historyPricingOutput.hidden = true;
+  historyPricingOutput.value = "";
+  setMessage(historyPricingMessage, "", "");
 
   historyResults.hidden = false;
 }
@@ -444,77 +454,97 @@ historyWoClearBtn.addEventListener("click", () => {
   applyWoFilter("");
 });
 
-// --- Copy table to clipboard ------------------------------------
+// --- Pricing list (Admin/Owner) ---------------------------------
 //
-// Copies *all* rows matching the current filters (not just the visible
-// page) so a spreadsheet paste reflects what the user is filtering on.
-// We paginate the existing list endpoint at the backend's max page
-// size; no new endpoint is needed.
+// Our pricing totals are relayed by pasting into a primitive company text
+// box that hard-wraps at the 42nd character, so every line must stay <= 41
+// chars or it folds. Each priced row across *all* rows matching the current
+// filters (not just the visible page) becomes one line: quantity, item name,
+// and the marked-up charge (price x 1.15), with the price flush-right at
+// column 41. A name too long to fit is cut with "..." so the price still
+// lands on the line. A final Total sums the lines shown. There are no column
+// labels -- the text box has no room and the columns are self-evident.
 
-// The six columns shown to every role, mirroring `formatRow`. Admin/Owner
-// get four extra Charge columns appended (see PRICE_HEADERS) so a pasted
-// invoice worksheet carries the billable count, unit price, line total,
-// and the marked-up total.
-const BASE_HEADERS = ["Timestamp", "Item", "Type", "Quantity", "Work Order", "User"];
-const PRICE_HEADERS = ["Billable Qty", "Unit Price", "Price x Qty", "Price x Qty x 1.15"];
+// The company text box folds at the 42nd character; keep every line within 41.
+const PRICING_LINE_WIDTH = 41;
 
-// Strip newlines and tabs from a cell so the TSV columns stay aligned
-// when pasted into Excel / Google Sheets.
-function sanitiseCell(value) {
-  return String(value).replace(/[\t\r\n]+/g, " ");
+// Shortest form of a Decimal-ish quantity for display ("3.00" -> "3").
+function formatQty(quantity) {
+  return String(Number(quantity));
 }
 
-// Build the clipboard TSV. `includePrice` (Admin/Owner) appends the four Charge
-// columns. `woPrices` (workOrderId -> itemId -> unit price) fills per-row pricing
-// for work-order rows: the history row suppresses `item_price` so the on-screen
-// charge stays on the line, but the export still wants a price on every line.
-// Only material-out rows (stock/dispense) are priced this way -- an `adjust`
-// correction is a signed inventory delta, not a charge, so it stays blank.
-function buildTsv(txns, includePrice, woPrices) {
-  const headers = includePrice ? [...BASE_HEADERS, ...PRICE_HEADERS] : BASE_HEADERS;
-  const lines = [headers.join("\t")];
-  for (const txn of txns) {
-    let cols = formatRow(txn);
-    if (includePrice) {
-      let c = chargeData(txn);
-      if (
-        c.unit === null
-        && txn.work_order_id
-        && (txn.transaction_type === "stock" || txn.transaction_type === "dispense")
-        && woPrices
-      ) {
-        const unit = woPrices.get(txn.work_order_id)?.get(txn.item_id);
-        if (unit !== undefined) {
-          const qty = Number(txn.quantity);
-          c = { ...c, unit, billable: qty, base: unit * qty, marked: unit * qty * MARKUP_RATE };
-        }
-      }
-      cols = cols.concat([
-        String(c.billable),
-        c.unit === null ? "" : formatMoney(c.unit),
-        c.base === null ? "" : formatMoney(c.base),
-        c.marked === null ? "" : formatMoney(c.marked),
-      ]);
-    }
-    lines.push(cols.map(sanitiseCell).join("\t"));
+// Collapse tabs/newlines in an item name to single spaces so a stray
+// character can't break the one-row-per-line layout.
+function sanitiseName(name) {
+  return String(name).replace(/[\t\r\n]+/g, " ");
+}
+
+// Build one <= 41-char line: "<qty> <name>...<price>" with the price flush
+// right. When the name + price would overflow, the name is truncated with
+// "..." and butts up against the price (no gap) -- the box has no room to
+// spare. When it fits, the gap before the price is padded so prices align.
+function pricingLine(qty, name, priceStr) {
+  const prefix = `${qty} `;
+  // Columns left for the name once the qty prefix and price are placed.
+  const nameWidth = PRICING_LINE_WIDTH - prefix.length - priceStr.length;
+  if (nameWidth < 1) {
+    // Pathological: qty + price already fill the line. Show them, clipped.
+    return `${prefix}${priceStr}`.slice(0, PRICING_LINE_WIDTH);
   }
-  return lines.join("\n");
+  if (name.length <= nameWidth) {
+    return prefix + name.padEnd(nameWidth) + priceStr;
+  }
+  // Too long: reserve three chars for the ellipsis, then the price.
+  const cut = nameWidth - 3;
+  const trimmed = cut > 0 ? name.slice(0, cut) + "..." : ".".repeat(nameWidth);
+  return prefix + trimmed + priceStr;
 }
 
-// Fetch each distinct work order referenced by the export (Admin/Owner only) and
-// derive two things from its authoritative line data:
-//   - `prices`: workOrderId -> (itemId -> current unit price), used to fill
-//     per-row pricing for work-order rows (the history row itself suppresses
-//     `item_price` so the on-screen charge lives on the line, not the row).
-//   - `summary`: a "Work Order Summary" TSV block, one line per work order with
-//     its `materials_total` (override-aware) and that total +15%.
-// A work order that can't be loaded (e.g. archived since) is skipped rather than
-// failing the whole copy.
-async function fetchWorkOrderBilling(txns) {
-  // Group the referenced work orders by NUMBER (always present on a history row).
-  // A row's `work_order_id` is kept when available as a fast path, but resolving
-  // by number is what lets the summary cover rows that carry only a number --
-  // legacy/pre-rebuild dispenses whose `work_order_id` is NULL.
+// Resolve a row's marked-up charge, applying the work-order unit-price
+// fallback (work-order rows suppress `item_price` -- the price lives on the
+// WO line). Returns null when the row has no charge (adjust corrections,
+// priceless items) so the caller skips it.
+function markedCharge(txn, woPrices) {
+  const c = chargeData(txn);
+  if (c.marked !== null) return c.marked;
+  if (
+    woPrices
+    && txn.work_order_id
+    && (txn.transaction_type === "stock" || txn.transaction_type === "dispense")
+  ) {
+    const unit = woPrices.get(txn.work_order_id)?.get(txn.item_id);
+    if (unit !== undefined) return unit * Number(txn.quantity) * MARKUP_RATE;
+  }
+  return null;
+}
+
+// Build the text-box payload: one line per priced row, a blank separator,
+// then a right-aligned Total of the lines shown. Returns "" when nothing
+// is priceable so the caller can show a message instead of an empty box.
+function buildPricingText(txns, woPrices) {
+  const lines = [];
+  let total = 0;
+  for (const txn of txns) {
+    const marked = markedCharge(txn, woPrices);
+    if (marked === null) continue;
+    total += marked;
+    lines.push(pricingLine(formatQty(txn.quantity), sanitiseName(txn.item_name), formatMoney(marked)));
+  }
+  if (lines.length === 0) return "";
+  const totalStr = formatMoney(total);
+  const totalLine = "Total".padEnd(PRICING_LINE_WIDTH - totalStr.length) + totalStr;
+  return [...lines, "", totalLine].join("\n");
+}
+
+// Fetch each distinct work order referenced by the pricing list (Admin/Owner
+// only) and map its current per-unit prices: workOrderId -> (itemId -> unit
+// price). The history row for a work-order line suppresses `item_price` (the
+// charge lives on the WO line, not the row), so the pricing list relies on
+// this to price those rows. A work order that can't be loaded (e.g. archived
+// since) is skipped rather than failing the whole list.
+async function fetchWorkOrderPrices(txns) {
+  // Group the referenced work orders by NUMBER (always present on a history
+  // row). A row's `work_order_id` is kept when available as a fast path.
   const groups = new Map(); // numberKey -> { number, id }
   for (const t of txns) {
     const num = (t.work_order_number || "").trim();
@@ -526,7 +556,6 @@ async function fetchWorkOrderBilling(txns) {
   }
 
   const prices = new Map(); // work_order_id -> (item_id -> unit price)
-  const summaryRows = [];
   for (const { number, id } of groups.values()) {
     try {
       let woId = id;
@@ -540,7 +569,6 @@ async function fetchWorkOrderBilling(txns) {
         woId = exact.id;
       }
       const wo = await apiGetWorkOrder(woId);
-
       const itemPrices = new Map();
       for (const li of wo.items || []) {
         if (li.unit_price !== null && li.unit_price !== undefined) {
@@ -548,31 +576,11 @@ async function fetchWorkOrderBilling(txns) {
         }
       }
       prices.set(woId, itemPrices);
-
-      // Prefer the server's authoritative total; fall back to summing the lines
-      // (effective billable * unit price) if it wasn't provided.
-      let base = wo.materials_total;
-      base = (base === null || base === undefined)
-        ? (wo.items || []).reduce((sum, li) => {
-            const price = (li.unit_price === null || li.unit_price === undefined) ? 0 : Number(li.unit_price);
-            const qty = (li.billable_quantity === null || li.billable_quantity === undefined)
-              ? Number(li.quantity) : Number(li.billable_quantity);
-            return sum + price * qty;
-          }, 0)
-        : Number(base);
-      summaryRows.push([wo.number, formatMoney(base), formatMoney(base * MARKUP_RATE)]);
     } catch (err) {
-      console.warn(`Work order billing: could not load "${number}"`, err);
+      console.warn(`Work order pricing: could not load "${number}"`, err);
     }
   }
-
-  let summary = "";
-  if (summaryRows.length > 0) {
-    const header = ["Work Order", "Total", "Total +15%"].join("\t");
-    const body = summaryRows.map((r) => r.map(sanitiseCell).join("\t")).join("\n");
-    summary = `\n\nWork Order Summary\n${header}\n${body}`;
-  }
-  return { prices, summary };
+  return prices;
 }
 
 async function fetchAllMatchingRows() {
@@ -602,66 +610,38 @@ async function fetchAllMatchingRows() {
   return all;
 }
 
-async function copyTextToClipboard(text) {
-  // Prefer the async Clipboard API; it only works in secure contexts
-  // (https / localhost), so fall back to a hidden textarea + execCommand
-  // when it's blocked or absent.
-  if (navigator.clipboard && window.isSecureContext) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch (err) {
-      console.warn("navigator.clipboard.writeText failed; falling back.", err);
-    }
-  }
-  const ta = document.createElement("textarea");
-  ta.value = text;
-  ta.setAttribute("readonly", "");
-  ta.style.position = "fixed";
-  ta.style.top = "-1000px";
-  document.body.appendChild(ta);
-  ta.select();
-  let ok = false;
-  try {
-    ok = document.execCommand("copy");
-  } catch (err) {
-    console.warn("execCommand('copy') threw.", err);
-  }
-  document.body.removeChild(ta);
-  return ok;
-}
-
-historyCopyBtn.addEventListener("click", async () => {
-  setMessage(historyCopyMessage, "Copying…", "");
-  historyCopyBtn.disabled = true;
+historyPricingBtn.addEventListener("click", async () => {
+  setMessage(historyPricingMessage, "Building…", "");
+  historyPricingBtn.disabled = true;
   try {
     const rows = await fetchAllMatchingRows();
-    if (rows.length === 0) {
-      setMessage(historyCopyMessage, "Nothing to copy.", "error");
+    // Work-order rows suppress `item_price`, so fetch each referenced work
+    // order once to price them. The button is Admin/Owner-only (see
+    // renderHistory), so reaching this path already implies price access.
+    const woPrices = await fetchWorkOrderPrices(rows);
+    const text = buildPricingText(rows, woPrices);
+    if (!text) {
+      historyPricingOutput.hidden = true;
+      setMessage(historyPricingMessage, "No priced rows for these filters.", "error");
       return;
     }
-    const includePrice = roleAtLeast(getRole(), "admin");
-    // Admin/Owner exports: fetch each referenced work order once for per-row
-    // pricing (work-order rows suppress `item_price`) and the appended summary.
-    const woBilling = includePrice
-      ? await fetchWorkOrderBilling(rows)
-      : { prices: null, summary: "" };
-    const tsv = buildTsv(rows, includePrice, woBilling.prices) + woBilling.summary;
-    const ok = await copyTextToClipboard(tsv);
-    if (ok) {
-      setMessage(historyCopyMessage, "Copied history.", "success");
-    } else {
-      setMessage(historyCopyMessage, "Copy failed — your browser blocked clipboard access.", "error");
-    }
+    historyPricingOutput.value = text;
+    historyPricingOutput.hidden = false;
+    historyPricingOutput.focus();
+    historyPricingOutput.select();
+    // select() scrolls to the caret (end); snap back so the box opens showing
+    // the start of each line, not the right-hand price column.
+    historyPricingOutput.scrollLeft = 0;
+    historyPricingOutput.scrollTop = 0;
+    setMessage(historyPricingMessage, "Pricing ready — select all and copy.", "success");
   } catch (err) {
-    console.error("Copy table failed:", err);
-    setMessage(historyCopyMessage, "Copy failed — could not fetch all rows.", "error");
+    console.error("Pricing list failed:", err);
+    setMessage(historyPricingMessage, "Could not build the pricing list — try again.", "error");
   } finally {
-    // Re-enable based on whether the visible table has any rows; the
-    // button being disabled forever after a transient failure would
-    // be a confusing dead end.
-    historyCopyBtn.disabled = historyTbody.children.length === 0
-      || (historyTbody.children.length === 1
+    // Re-enable based on whether the visible table has any rows; the button
+    // being disabled forever after a transient failure would be a dead end.
+    historyPricingBtn.disabled = historyTbody.children.length === 0
+      || !!(historyTbody.children.length === 1
           && historyTbody.firstElementChild.querySelector("td[colspan]"));
   }
 });
