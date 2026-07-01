@@ -39,6 +39,7 @@ from app.domain.errors import (
     UnreadableImageError,
     UserHasTransactionsError,
     UserNotFoundError,
+    WorkOrderArchivedError,
     WorkOrderNotFoundError,
     WorkOrderStateError,
 )
@@ -56,6 +57,7 @@ _STATUS_MAP: dict[type[DomainError], int] = {
     StageItemNotFoundError: 404,
     WorkOrderNotFoundError: 404,
     WorkOrderStateError: 400,
+    WorkOrderArchivedError: 409,
     DuplicateBarcodeError: 400,
     ArchivedBarcodeConflictError: 409,
     DuplicateUsernameError: 400,

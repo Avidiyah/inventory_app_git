@@ -32,6 +32,7 @@ from app.domain import work_orders as wo
 from app.domain.errors import (
     InvalidAssigneeError,
     ItemNotFoundError,
+    WorkOrderArchivedError,
     WorkOrderNotFoundError,
     WorkOrderStateError,
 )
@@ -281,10 +282,23 @@ def create_work_order(
     unit_number: Optional[str] = None,
     description: Optional[str] = None,
     assigned_to_id: Optional[uuid.UUID] = None,
+    restore_archived: bool = False,
 ) -> WorkOrder:
     """Work Orders page "New work order" (Supervisor+). Find-or-create by number
-    (re-using an existing number opens it, fill-blanks), attributing creation to
-    `user` for a brand-new one."""
+    (re-using an existing LIVE number opens it, fill-blanks), attributing creation
+    to `user` for a brand-new one.
+
+    Unlike the shared `get_or_create_work_order` -- which silently un-archives a
+    reserved number for scan-and-go / Mass Stage -- this deliberate create path
+    refuses to resurrect an archived number on its own: if the number matches an
+    *archived* work order and `restore_archived` is False it raises
+    `WorkOrderArchivedError` (409) so the page can prompt "restore it?". The
+    caller re-submits with `restore_archived=True` to confirm, which then falls
+    through to the fill-blanks restore."""
+    if not restore_archived:
+        existing = find_by_number(db, number)
+        if existing is not None and existing.archived_at is not None:
+            raise WorkOrderArchivedError("Work order is archived.")
     return get_or_create_work_order(
         db,
         number=number,

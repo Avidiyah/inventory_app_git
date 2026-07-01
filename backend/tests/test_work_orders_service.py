@@ -21,6 +21,7 @@ from app.domain.errors import (
     InvalidAssigneeError,
     ItemNotFoundError,
     NegativeQuantityError,
+    WorkOrderArchivedError,
     WorkOrderNotFoundError,
     WorkOrderStateError,
 )
@@ -100,6 +101,50 @@ def test_archived_number_is_restored_on_reference(db):
     b = wos.get_or_create_work_order(db, number=a.number.lower(), created_by_id=sup.id)
     assert b.id == a.id
     assert b.archived_at is None
+
+
+def test_create_refuses_archived_number_without_restore(db):
+    # The deliberate "New work order" path must NOT silently resurrect an
+    # archived number -- it raises so the page can prompt "restore it?".
+    sup = _seed_user(db, "supervisor")
+    a = _wo(db, created_by=sup)
+    wos.archive_work_order(db, a.id, user=sup)
+    with pytest.raises(WorkOrderArchivedError):
+        wos.create_work_order(db, user=sup, number=a.number.lower())
+    # Still archived: the refused create changed nothing.
+    db.refresh(a)
+    assert a.archived_at is not None
+
+
+def test_create_restores_archived_number_with_flag(db):
+    # Re-submitting with restore_archived=True (the user confirmed the prompt)
+    # un-archives and re-opens the reserved number.
+    sup = _seed_user(db, "supervisor")
+    a = _wo(db, created_by=sup, number="WO-RESTORE")
+    wos.archive_work_order(db, a.id, user=sup)
+    b = wos.create_work_order(
+        db, user=sup, number="wo-restore", restore_archived=True
+    )
+    assert b.id == a.id
+    assert b.archived_at is None
+
+
+def test_create_live_number_reopens_without_prompt(db):
+    # A number that is merely LIVE (not archived) is fill-blanks re-opened with
+    # no conflict, even without the restore flag.
+    sup = _seed_user(db, "supervisor")
+    a = wos.create_work_order(db, user=sup, number="WO-LIVE")
+    b = wos.create_work_order(db, user=sup, number="wo-live", community="Scholars")
+    assert b.id == a.id
+    assert b.community == "Scholars"
+
+
+def test_create_new_number_needs_no_restore_flag(db):
+    # A brand-new number is unaffected by the archived gate.
+    sup = _seed_user(db, "supervisor")
+    w = wos.create_work_order(db, user=sup, number="WO-BRANDNEW")
+    assert w.archived_at is None
+    assert w.status == "in_progress"
 
 
 def test_assignee_must_be_technician(db):

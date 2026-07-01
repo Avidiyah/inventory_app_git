@@ -224,3 +224,16 @@ class WorkOrderStateError(DomainError):
     """Raised by the Work Orders service for an invalid status or entry mode --
     e.g. a status that is not `in_progress` / `completed`, or a mode that is
     not `dispense` / `retroactive`. A pure validation failure; maps to 400."""
+
+
+class WorkOrderArchivedError(DomainError):
+    """Raised by `services.work_orders.create_work_order` when the submitted
+    number matches an *archived* work order rather than a live or new one.
+
+    A recoverable conflict, not a hard failure: the archived number stays
+    reserved, so the caller can retry with `restore_archived=True` to un-archive
+    and re-open it. Maps to 409 Conflict so the Work Orders page can prompt
+    "Work order exists in the archive. Restore it?" and re-submit -- mirroring
+    `ArchivedBarcodeConflictError`. (Scan-and-go and Mass Stage still restore
+    silently via `get_or_create_work_order`; only the deliberate "New work
+    order" create asks first.)"""
