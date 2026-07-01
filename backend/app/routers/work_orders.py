@@ -141,8 +141,10 @@ def create_work_order(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Create a work order (Supervisor+). Re-using an existing number opens that
-    work order (fill-blanks), not an error."""
+    """Create a work order (Supervisor+). Re-using an existing LIVE number opens
+    that work order (fill-blanks), not an error. A number matching an *archived*
+    work order returns 409 unless `restore_archived` is set, so the page can
+    confirm the restore and re-submit."""
     if not roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
     try:
@@ -155,6 +157,7 @@ def create_work_order(
             unit_number=payload.unit_number,
             description=payload.description,
             assigned_to_id=payload.assigned_to_id,
+            restore_archived=payload.restore_archived,
         )
         # Re-fetch through the scoped loader so the response carries items/assignee.
         return _detail(

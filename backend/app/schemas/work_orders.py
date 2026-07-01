@@ -32,8 +32,13 @@ def _stripped_or_none(v):
 
 class WorkOrderCreate(BaseModel):
     """Payload for `POST /work-orders` (Supervisor+). `number` is the identity;
-    everything else is an optional attribute. Re-using an existing number opens
-    that work order (fill-blanks), it is not an error."""
+    everything else is an optional attribute. Re-using an existing LIVE number
+    opens that work order (fill-blanks), it is not an error.
+
+    A number that matches an *archived* work order is refused with 409 unless
+    `restore_archived` is True: the first POST omits it (defaults False) and gets
+    the conflict, the user confirms the restore, and we re-POST with it True to
+    un-archive and re-open the work order (mirrors `override_archived` on items)."""
 
     number: str
     community: Optional[str] = None
@@ -41,6 +46,7 @@ class WorkOrderCreate(BaseModel):
     unit_number: Optional[str] = None
     description: Optional[str] = None
     assigned_to_id: Optional[UUID] = None
+    restore_archived: bool = False
 
     @field_validator("number")
     @classmethod

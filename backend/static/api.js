@@ -306,9 +306,13 @@ export async function apiGetWorkOrder(workOrderId) {
   return parseResponse(await fetch(`/work-orders/${workOrderId}`, { credentials: "include" }));
 }
 
-// Create (or open, on number match) a work order. Supervisor+. Returns the
+// Create (or open, on LIVE number match) a work order. Supervisor+. Returns the
 // WorkOrderDetail. Attributes are optional; the number is required.
-export async function apiCreateWorkOrder({ number, community = null, buildingNumber = null, unitNumber = null, description = null, assignedToId = null }) {
+// `restoreArchived` confirms re-opening a number held only by an *archived* work
+// order: the first POST omits it (defaults false) and gets a 409; the user
+// confirms and we re-POST with it true to un-archive and re-open it (mirrors
+// apiCreateItem's `override_archived`).
+export async function apiCreateWorkOrder({ number, community = null, buildingNumber = null, unitNumber = null, description = null, assignedToId = null, restoreArchived = false }) {
   return jsonRequest("/work-orders/", "POST", {
     number,
     community,
@@ -316,6 +320,7 @@ export async function apiCreateWorkOrder({ number, community = null, buildingNum
     unit_number: unitNumber,
     description,
     assigned_to_id: assignedToId,
+    restore_archived: restoreArchived,
   });
 }
 

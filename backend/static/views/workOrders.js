@@ -21,7 +21,7 @@ import {
   apiListUsers,
 } from "../api.js";
 import { escapeHtml, friendlyError, formatMoney } from "../format.js";
-import { setMessage, confirmDialog } from "../dom.js";
+import { setMessage, confirmDialog, confirmArchivedReuse } from "../dom.js";
 import { getRole } from "../state.js";
 import { roleAtLeast } from "../roles.js";
 
@@ -523,21 +523,38 @@ async function createWorkOrder() {
     return;
   }
   try {
-    await apiCreateWorkOrder({
-      number,
-      community: createCommunity.value.trim() || null,
-      buildingNumber: createBuilding.value.trim() || null,
-      unitNumber: createUnit.value.trim() || null,
-      assignedToId: createAssignee.value || null,
-    });
+    // A number that belongs to an *archived* work order comes back 409 on the
+    // first try; confirmArchivedReuse prompts to restore it and re-submits with
+    // `restore_archived` to un-archive and re-open it. A brand-new or live
+    // number succeeds on the first attempt with no prompt.
+    const created = await confirmArchivedReuse(
+      (restore) => apiCreateWorkOrder({
+        number,
+        community: createCommunity.value.trim() || null,
+        buildingNumber: createBuilding.value.trim() || null,
+        unitNumber: createUnit.value.trim() || null,
+        assignedToId: createAssignee.value || null,
+        restoreArchived: restore,
+      }),
+      `Work order ${number} is in the archive. Restore it?`
+    );
     createNumber.value = "";
     createCommunity.value = "";
     createBuilding.value = "";
     createUnit.value = "";
     createAssignee.value = "";
+    // Jump to the saved/restored work order: a restore keeps its original
+    // created_at, so it can land far down the newest-first list -- focusing it
+    // expands and scrolls it into view (and widens the status filter if needed).
+    if (created && created.id) focusWorkOrder(created.id);
     await loadWorkOrders();
     setMessage(createMessage, "Work order saved.", "success");
   } catch (err) {
+    // The user declined the restore prompt: no work order, no error to show.
+    if (err && err.cancelled) {
+      setMessage(createMessage, "", "");
+      return;
+    }
     setMessage(createMessage, friendlyError(err, "Could not create the work order."), "error");
   }
 }
