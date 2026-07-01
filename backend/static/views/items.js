@@ -11,18 +11,12 @@
 // 3. Handle row actions: "Edit Notes" delegates to the notes view,
 //    delete confirms and calls `apiDeleteItem`.
 //
-// `setOnDeletedSelectedItem` is set by `main.js` to point at
-// `transactions.closeTransactionForm`, so deleting the item that
-// is currently selected for a transaction cancels that form
-// instead of leaving it pointing at a missing row.
-//
 // `setOnSaved(loadItems)` registers this view with the notes
 // editor so a successful notes save refreshes the table.
 
 import {
   getItems,
   setItems,
-  getSelectedItemId,
   getEditingNotesItemId,
   getEditingItemId,
   getRole,
@@ -66,11 +60,6 @@ const nameInput = document.getElementById("name");
 const quantityInput = document.getElementById("quantity");
 const priceInput = document.getElementById("price");
 const productLinkInput = document.getElementById("product-link");
-let onDeletedSelectedItem = null;
-
-export function setOnDeletedSelectedItem(fn) {
-  onDeletedSelectedItem = fn;
-}
 
 export async function loadItems() {
   try {
@@ -262,9 +251,6 @@ itemsTbody.addEventListener("change", async (event) => {
     if (!confirm(`Are you sure you want to delete "${item.name}"?`)) return;
     try {
       await apiDeleteItem(itemId);
-      if (getSelectedItemId() === itemId && onDeletedSelectedItem) {
-        onDeletedSelectedItem();
-      }
       if (getEditingNotesItemId() === itemId) {
         closeNotesEditor();
       }

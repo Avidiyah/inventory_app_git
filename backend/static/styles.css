@@ -315,7 +315,6 @@ button:disabled {
 /* Messages */
 #create-item-message,
 #create-user-message,
-#transaction-message,
 #txn-scan-message,
 #history-item-message,
 #history-user-message {
@@ -431,43 +430,6 @@ tr:last-child td {
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border: 0;
-}
-
-/* =================== STOCK / DISPENSE AFFORDANCES =================== */
-/* Accent-exempt: these carry inventory-direction meaning. */
-.stock-btn,
-.dispense-btn {
-    padding: 0 var(--space-3);
-    min-height: var(--btn-h-sm);
-    font-size: var(--fs-sm);
-    font-weight: var(--fw-bold);
-    margin-top: 0;
-    color: var(--color-white);
-    border: none;
-    border-radius: var(--radius-md);
-    cursor: pointer;
-}
-
-.stock-btn {
-    background-color: var(--status-stock);
-}
-
-.stock-btn:hover {
-    background-color: var(--status-stock-hover);
-}
-
-.dispense-btn {
-    background-color: var(--status-dispense);
-}
-
-.dispense-btn:hover {
-    background-color: var(--status-dispense-hover);
-}
-
-#transaction-selected {
-    font-size: var(--fs-base);
-    font-weight: var(--fw-bold);
-    color: var(--color-ink);
 }
 
 .form-buttons {
@@ -975,9 +937,9 @@ tr.archived-user {
 }
 
 /* =================== SEGMENTED CONTROL (Scan / Stock type) =================== */
-/* Two equal cells backing the hidden #transaction-type input. Selected
-   state uses the inventory-direction accents (accent-exempt): green for
-   Add Stock, amber for Take Out. */
+/* Two equal cells backing the hidden #scango-type input (advanced-mode
+   direction toggle). Selected state uses the inventory-direction accents
+   (accent-exempt): green for Add Stock, amber for Take Out. */
 .segmented {
     display: flex;
 }
@@ -1011,46 +973,24 @@ tr.archived-user {
     border-bottom-right-radius: var(--radius-md);
 }
 
-.seg-stock.active {
+.scango-seg-stock.active {
     background-color: var(--status-stock);
     border-color: var(--status-stock);
     color: var(--color-white);
 }
 
-.seg-stock.active:hover {
+.scango-seg-stock.active:hover {
     background-color: var(--status-stock-hover);
 }
 
-.seg-dispense.active {
+.scango-seg-dispense.active {
     background-color: var(--status-dispense);
     border-color: var(--status-dispense);
     color: var(--color-white);
 }
 
-.seg-dispense.active:hover {
+.scango-seg-dispense.active:hover {
     background-color: var(--status-dispense-hover);
-}
-
-/* =================== POST-SCAN CONFIRMATION =================== */
-/* #transaction-selected carries the scanned item: a large name plus a
-   quiet meta line (on-hand + location). Also used as a plain bold label
-   when a transaction is started from a row button (name only). */
-#transaction-selected {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-#transaction-selected .confirm-name {
-    font-size: var(--fs-xl);
-    font-weight: var(--fw-bold);
-    color: var(--color-ink);
-}
-
-#transaction-selected .confirm-meta {
-    font-size: var(--fs-sm);
-    font-weight: var(--fw-regular);
-    color: var(--gray-500);
 }
 
 /* =================== SCAN-AND-GO (work-order batch) =================== */
@@ -1405,6 +1345,66 @@ details[open] > .room-summary::before { content: "\25BE"; /* triangle down */ }
 .ms-item-results { margin-top: var(--space-2); }
 .ms-pick-barcode { color: var(--gray-500); font-size: var(--fs-xs); margin-left: var(--space-2); }
 
+/* =================== MANUAL ENTRY (Scan/Stock fallback) =================== */
+/* #txn-manual-section: search-and-pick (every role) plus browse-all (an
+   opted-in Supervisor+, empty search) for the active work-order batch.
+   Results render as tappable cards -- name as the primary line, barcode/
+   on-hand/location as a quiet meta line -- mirroring the .wo-card /
+   .wo-item look used elsewhere on this page. See views/transactions.js
+   renderManualResults(). */
+.manual-search-input {
+    max-width: 480px;
+}
+
+.manual-results {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    max-width: 480px;
+    max-height: 360px;
+    overflow-y: auto;
+}
+
+.manual-results[hidden] {
+    display: none;
+}
+
+.manual-item-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+    width: 100%;
+    text-align: left;
+    padding: var(--space-3);
+    min-height: var(--control-h);
+    margin-top: 0;
+    background-color: var(--color-white);
+    border: var(--border-input);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+}
+
+.manual-item-card:hover,
+.manual-item-card:focus-visible {
+    border-color: var(--color-brand);
+}
+
+.manual-item-name {
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    color: var(--color-ink);
+}
+
+.manual-item-meta {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    font-size: var(--fs-sm);
+    color: var(--gray-500);
+}
+
 /* Stage status pill (reuses the type-badge look). */
 .stage-status {
     display: inline-block;
@@ -1674,6 +1674,8 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     .scan-controls,
     .scan-viewport,
     .scan-chooser,
+    .manual-search-input,
+    .manual-results,
     #wo-gate,
     #scango-active {
         max-width: none;

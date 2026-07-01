@@ -722,7 +722,12 @@ Behavior:
 - Each committed scan carries `work_order_id` (+ number) on the transaction.
 - Batch starts with quantity `1`.
 - Default flow is dispense-only for every role.
-- Supervisor+ can reveal manual entry and stock options.
+- A manual entry panel (search by name/barcode) sits alongside the scanner
+  for every role: picking a result commits it into the active batch through
+  the same `commitScannedItem` path a scan uses (same confirmation, same
+  `work_order_id` attach) -- there is no separate ad-hoc/free-text-work-order
+  form. Supervisor+ can reveal an advanced mode that also toggles Add
+  Stock/Take Out and lets an empty search browse the full item list.
 - Live camera auto-starts only if permission is already granted.
 - Scan resolves barcode, asks confirmation, then commits transaction.
 - Unknown barcode does not offer create-item shortcut in this flow.

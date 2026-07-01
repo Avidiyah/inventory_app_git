@@ -118,7 +118,8 @@ What populates each screen. Format: **table → … → view → what the user s
 ### Items
 - **items** → `list_items` → `GET /items/` → `apiListItems` →
   - `items.js`: the Find Item table (Admin/Owner see price/link columns).
-  - `transactions.js`: the Supervisor+ manual stock table.
+  - `transactions.js`: the manual entry search-and-pick panel (every role;
+    Supervisor+ additionally browse-all with an empty search).
   - `massStage.js` / `workOrders.js`: the "search and pick an item" picker.
 - **items + item_barcodes** → `get_item_by_barcode` → `GET /items/{barcode}` →
   `apiGetItemByBarcode` →

@@ -523,7 +523,7 @@ export function mountScanner({
 //
 // Preserves the existing `import "./views/scan.js"` side-effect plus
 // the `resetScan` named export `main.js` wires into
-// `setOnTransactionSaved`.
+// `setScanResetter`.
 
 const txnScanInput = document.getElementById("txn-scan-input");
 const txnScanMessage = document.getElementById("txn-scan-message");

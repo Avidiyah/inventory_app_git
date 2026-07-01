@@ -7,12 +7,11 @@
 //    DOM-event wiring (`addEventListener`, button handlers) runs
 //    exactly once at startup.
 // 2. Wire the cross-view callbacks that would otherwise create
-//    import cycles -- in particular, the items view needs to
-//    close the transaction form when the selected item is
-//    deleted, but importing `transactions` from `items` would
-//    pull the transaction module's DOM wiring into the Entry
-//    page lifecycle. Injecting `closeTransactionForm` here keeps
-//    the dependency one-way.
+//    import cycles -- in particular, the scan view needs to reset
+//    itself when the scan-and-go batch changes, but importing
+//    `scan` from `transactions` would pull the scanner's DOM
+//    wiring into the transaction module. Injecting the callbacks
+//    here keeps the dependency one-way.
 // 3. Trigger the initial data loads and page state.
 //
 // No business logic lives in this file; it should never grow
@@ -32,20 +31,9 @@ import "./views/massStage.js";
 import "./views/auth.js";
 
 // --- Named imports for bootstrap calls ---------------------------
-import { setOnDeletedSelectedItem } from "./views/items.js";
-import { closeTransactionForm, setOnTransactionSaved, setScanResetter, setScanAutostarter } from "./views/transactions.js";
+import { setScanResetter, setScanAutostarter } from "./views/transactions.js";
 import { resetScan, autoStartTxnScan } from "./views/scan.js";
 import { initAuth } from "./views/auth.js";
-
-// Cross-view wiring: deleting the selected item from the Entry
-// page must also dismiss the transaction form on the Transaction
-// page (otherwise it would point at a now-missing row).
-setOnDeletedSelectedItem(closeTransactionForm);
-
-// After a completed manual stock/dispense, reset the scan UI so the next
-// scan starts clean. Injected here (rather than imported by
-// transactions.js) to keep the view dependency one-way: scan -> transactions.
-setOnTransactionSaved(resetScan);
 
 // Let the scan-and-go flow stop the live camera + clear the scan UI when
 // the operator changes the work order. Same one-way-dependency reasoning.

@@ -12,7 +12,6 @@
 
 let itemsCache = [];
 let usersCache = [];
-let selectedItemId = null;
 let editingNotesItemId = null;
 let editingItemId = null;
 
@@ -46,9 +45,6 @@ export function setItems(arr) { itemsCache = arr; }
 
 export function getUsers() { return usersCache; }
 export function setUsers(arr) { usersCache = arr; }
-
-export function getSelectedItemId() { return selectedItemId; }
-export function setSelectedItemId(id) { selectedItemId = id; }
 
 export function getEditingNotesItemId() { return editingNotesItemId; }
 export function setEditingNotesItemId(id) { editingNotesItemId = id; }

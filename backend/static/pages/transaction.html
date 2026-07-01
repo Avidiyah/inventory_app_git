@@ -66,8 +66,9 @@
                 <!-- Opt-in for Supervisor+ only (hidden for Technicians and
                      until shown by views/transactions.js). By default
                      Supervisor+ get the streamlined dispense-only flow; this
-                     reveals the direction toggle + manual items table + form. -->
-                <button type="button" id="scango-advanced-toggle" class="secondary-btn" hidden aria-expanded="false" aria-controls="txn-items-section">Manual entry &amp; stock options</button>
+                     reveals the direction toggle plus the "browse all items"
+                     mode of the manual-entry panel below. -->
+                <button type="button" id="scango-advanced-toggle" class="secondary-btn" hidden aria-expanded="false" aria-controls="txn-manual-section">Manual entry &amp; stock options</button>
 
                 <p id="scango-summary" class="scango-summary" hidden></p>
                 <div id="scango-log" class="scango-log" hidden></div>
@@ -113,46 +114,17 @@
             <p id="txn-scan-message"></p>
         </section>
 
-        <section id="txn-items-section">
-            <h2>Items</h2>
-            <p class="hint">Tap Add Stock or Take Out on an item.</p>
-            <table id="txn-items-table" class="stack-table">
-                <thead>
-                    <tr>
-                        <th>Barcode</th>
-                        <th>Name</th>
-                        <th>Quantity</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="txn-items-tbody"></tbody>
-            </table>
-        </section>
-
-        <section id="transaction-section" hidden>
-            <h2>New Transaction</h2>
-            <div id="transaction-form" class="form-stack">
-                <p id="transaction-selected"></p>
-
-                <label for="transaction-type">Type</label>
-                <input type="hidden" id="transaction-type" value="stock">
-                <div class="segmented" role="group" aria-label="Transaction type">
-                    <button type="button" class="seg-btn seg-stock active" data-value="stock">Add Stock</button>
-                    <button type="button" class="seg-btn seg-dispense" data-value="dispense">Take Out Stock</button>
-                </div>
-
-                <label for="transaction-quantity">Quantity</label>
-                <input type="number" id="transaction-quantity" placeholder="0" min="0" step="any" inputmode="decimal" value="0">
-
-                <label for="transaction-work-order">Work Order Number (optional)</label>
-                <input type="text" id="transaction-work-order" placeholder="Enter work order number">
-
-                <div class="form-buttons">
-                    <button id="save-transaction-btn">Save Transaction</button>
-                    <button id="cancel-transaction-btn" type="button" class="secondary-btn">Cancel</button>
-                </div>
-                <p id="transaction-message"></p>
-            </div>
+        <!-- Manual entry: find an item by name/barcode (or, for an
+             opted-in Supervisor+, browse the full list) and tap a card to
+             commit it straight into the active work order at the current
+             quantity/direction above -- the same commit path a scan uses
+             (views/transactions.js: commitScannedItem). Available to every
+             role; this is the fallback for when scanning isn't practical,
+             not a separate ad-hoc flow. -->
+        <section id="txn-manual-section">
+            <h2>Add item manually</h2>
+            <input type="text" id="txn-item-search" class="manual-search-input" placeholder="Search by name or barcode" autocomplete="off">
+            <div id="txn-item-search-results" class="manual-results" hidden></div>
         </section>
 
     </div>

@@ -1,44 +1,18 @@
 // View: transaction (stock/dispense) page.
 //
-// Layer: views. Owns the items table on the Transaction page and
-// the stock/dispense form that opens below it on row click.
-//
-// Public surface:
-// - `loadTxnItems()` repaints the items table; called by `nav.js`
-//   on page activation and after a successful save.
-// - `openTransactionForm(itemId, itemName, action)` reveals the
-//   form pre-filled for "stock" or "dispense"; chosen via the
-//   row-action buttons.
-// - `closeTransactionForm()` hides the form; `main.js` wires it as
-//   `items.onDeletedSelectedItem` so deleting the selected item
-//   from the Entry page also dismisses a stale form.
-//
-// On successful save, both `loadTxnItems` and `loadItems` are
-// called so the Entry table reflects the new stock level
-// immediately without page navigation.
+// Layer: views. Owns the Transaction page's scan-and-go batch flow:
+// a work-order gate, then an active batch where items are added
+// either by camera/upload scan (views/scan.js) or by the manual
+// entry panel below (search-and-pick, or browse-all for an
+// opted-in Supervisor+). Both paths funnel through the single
+// `commitScannedItem` commit function so every addition -- scanned
+// or manual -- posts to the same active work order the same way.
 
-import {
-  getSelectedItemId,
-  setSelectedItemId,
-  getRole,
-} from "../state.js";
+import { getRole } from "../state.js";
 import { apiListItems, apiCreateTransaction, apiListWorkOrders, apiCreateWorkOrder, apiListUsers } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
-import { loadItems } from "./items.js";
-
-const txnItemsTbody = document.getElementById("txn-items-tbody");
-const transactionSection = document.getElementById("transaction-section");
-const transactionSelected = document.getElementById("transaction-selected");
-const transactionType = document.getElementById("transaction-type");
-const segStockBtn = document.querySelector(".seg-stock");
-const segDispenseBtn = document.querySelector(".seg-dispense");
-const transactionQuantity = document.getElementById("transaction-quantity");
-const transactionWorkOrder = document.getElementById("transaction-work-order");
-const transactionMessage = document.getElementById("transaction-message");
-const saveTransactionBtn = document.getElementById("save-transaction-btn");
-const cancelTransactionBtn = document.getElementById("cancel-transaction-btn");
 
 // --- Scan-and-go (work-order batch) elements --------------------
 const woGate = document.getElementById("wo-gate");
@@ -58,7 +32,8 @@ const scangoQuantity = document.getElementById("scango-quantity");
 const scangoSummary = document.getElementById("scango-summary");
 const scangoLog = document.getElementById("scango-log");
 const txnScanSection = document.getElementById("txn-scan-section");
-const txnItemsSection = document.getElementById("txn-items-section");
+const txnItemSearch = document.getElementById("txn-item-search");
+const txnItemSearchResults = document.getElementById("txn-item-search-results");
 
 // Cards-first gate: saved work-order cards (all roles, server-scoped) + a
 // Supervisor+ quick-add form (with an optional technician assignee). The
@@ -77,37 +52,11 @@ const newSaveBtn = document.getElementById("wo-gate-new-save-btn");
 const newMessage = document.getElementById("wo-gate-new-message");
 // Technician list for the assignee dropdown, loaded once per session.
 let assigneesLoaded = false;
-
-// Injected by `main.js` (see `setOnTransactionSaved`) so a completed
-// stock/dispense can reset the scan UI without this module importing the
-// scan view -- keeping the dependency one-way (scan -> transactions).
-let onTransactionSaved = null;
-
-export function setOnTransactionSaved(fn) {
-  onTransactionSaved = fn;
-}
-
-// =================================================================
-// Scan-and-go (work-order batch flow)
-// =================================================================
-//
-// The Transaction page opens on a work-order gate. Once a work order is
-// entered, the operator picks a direction + quantity and scans items;
-// each scan commits a transaction straight into the active work order
-// (see views/scan.js continuous mode) and is appended to a running log.
-// Technicians are dispense-only and never see the manual items table /
-// form; Supervisor+ keep those below as a fallback. See
-// docs/current-state.md.
-
-// Active work order `{id, number}`, or null while the gate (State A) is showing.
-let batchWorkOrder = null;
-// Running tallies for the current work order's on-screen summary.
-let batchScanCount = 0;
-let batchUnitCount = 0;
-// Supervisor+ opt-in: false = same streamlined dispense-only flow as a
-// Technician; true = reveal the direction toggle + manual items table / form.
-// Technicians can never flip this. Reset to false on each fresh login.
-let supervisorAdvanced = false;
+// Item list for the manual entry panel (search, or browse-all in advanced
+// mode), loaded once per session and kept in sync with committed quantities
+// (see commitScannedItem) so it never needs a refetch mid-batch.
+let searchItems = [];
+let searchItemsLoaded = false;
 
 // Injected by main.js so changing the work order can stop the live camera
 // without this module importing the scan view (keeps the dependency
@@ -139,7 +88,7 @@ function setScangoType(value) {
 // Show the gate or the active batch, and apply role visibility. By default
 // Supervisor+ get the same streamlined dispense-only flow as a Technician; the
 // `#scango-advanced-toggle` opt-in (Supervisor+ only) reveals the Stock/Dispense
-// toggle plus the manual items table / form.
+// toggle plus browse-all in the manual entry panel.
 function showScanGoState() {
   const tech = isTechnician();
   const active = batchWorkOrder !== null;
@@ -172,10 +121,69 @@ function showScanGoState() {
   if (scangoDirectionFixed) scangoDirectionFixed.hidden = advanced;
   if (!advanced) setScangoType("dispense");
 
-  // Manual fallback table + form: advanced mode only. The form stays hidden
-  // until a row button opens it.
-  if (txnItemsSection) txnItemsSection.hidden = !advanced || !active;
-  if (!advanced && transactionSection) transactionSection.hidden = true;
+  // The manual entry panel itself is always visible inside an active batch
+  // (every role can search); only its browse-all behavior depends on
+  // `advanced`, handled by renderManualResults().
+  renderManualResults();
+}
+
+// Load the item list once per session for the manual entry panel.
+async function loadSearchItems() {
+  if (searchItemsLoaded) return;
+  try {
+    searchItems = await apiListItems();
+    searchItemsLoaded = true;
+  } catch {
+    searchItems = [];
+  }
+}
+
+// Render the manual entry results: a name/barcode search filter for every
+// role, plus a browse-all list (empty search) for an opted-in Supervisor+.
+// Called on every keystroke, on advanced-mode toggle, and on batch state
+// changes -- always safe to call, self-gates on current state.
+function renderManualResults() {
+  if (!txnItemSearch || !txnItemSearchResults) return;
+  const query = txnItemSearch.value.trim().toLowerCase();
+  const advanced = !isTechnician() && supervisorAdvanced;
+
+  let matches;
+  if (query) {
+    matches = searchItems
+      .filter(
+        (it) =>
+          it.name.toLowerCase().includes(query) ||
+          (it.barcode && it.barcode.toLowerCase().includes(query))
+      )
+      .slice(0, 8);
+  } else if (advanced) {
+    matches = [...searchItems].sort((a, b) => a.name.localeCompare(b.name));
+  } else {
+    matches = [];
+  }
+
+  if (!matches.length) {
+    txnItemSearchResults.innerHTML = query ? `<p class="hint">No matching items.</p>` : "";
+    txnItemSearchResults.hidden = !query;
+    return;
+  }
+
+  txnItemSearchResults.innerHTML = matches
+    .map((it) => {
+      const meta = [`Barcode: ${escapeHtml(it.barcode)}`, `On hand: ${escapeHtml(it.quantity)}`];
+      if (it.location) meta.push(`Location: ${escapeHtml(it.location)}`);
+      return `<button type="button" class="manual-item-card" data-item-id="${escapeHtml(it.id)}">
+                <span class="manual-item-name">${escapeHtml(it.name)}</span>
+                <span class="manual-item-meta">${meta.map((m) => `<span>${m}</span>`).join("")}</span>
+              </button>`;
+    })
+    .join("");
+  txnItemSearchResults.hidden = false;
+}
+
+function clearItemSearch() {
+  if (txnItemSearch) txnItemSearch.value = "";
+  renderManualResults();
 }
 
 function clearBatchLog() {
@@ -208,6 +216,16 @@ function updateSummary() {
   scangoSummary.hidden = false;
 }
 
+// Active work order `{id, number}`, or null while the gate (State A) is showing.
+let batchWorkOrder = null;
+// Running tallies for the current work order's on-screen summary.
+let batchScanCount = 0;
+let batchUnitCount = 0;
+// Supervisor+ opt-in: false = same streamlined dispense-only flow as a
+// Technician; true = reveal the direction toggle + manual entry browse-all.
+// Technicians can never flip this. Reset to false on each fresh login.
+let supervisorAdvanced = false;
+
 // Start a batch on an already-resolved work order `{id, number}` (a tapped card
 // or a freshly created one).
 function startBatchFor(workOrder) {
@@ -222,6 +240,8 @@ function startBatchFor(workOrder) {
   // Supervisor+ can toggle to Add Stock. Techs are forced to dispense in
   // showScanGoState regardless.
   setScangoType("dispense");
+  clearItemSearch();
+  loadSearchItems().then(renderManualResults);
   showScanGoState();
   // Bring the camera up immediately so the first thing after the work order
   // is a live scanner (only if permission is already granted; otherwise the
@@ -255,6 +275,7 @@ function changeWorkOrder() {
   batchWorkOrder = null;
   if (resetScanUi) resetScanUi(); // stop the camera + clear the scan message
   clearBatchLog();
+  clearItemSearch();
   if (woGateInput) woGateInput.value = "";
   resetWoCards();
   showScanGoState();
@@ -401,10 +422,10 @@ function confirmScan(message) {
   return confirmDialog(message);
 }
 
-// Commit a scanned item into the active work order. Returns
-// `{committed, declined}` so the scanner knows whether to start its
-// same-barcode cooldown (set on either) and whether to buzz. Never throws --
-// failures are surfaced in the log and the camera keeps running.
+// Commit an item (scanned or manually picked) into the active work order.
+// Returns `{committed, declined}` so callers know whether to start a
+// same-barcode cooldown (scan.js) and whether to buzz. Never throws --
+// failures are surfaced in the log and the camera/panel stay usable.
 export async function commitScannedItem(item) {
   const quantity = scangoQuantity ? parseFloat(scangoQuantity.value) : NaN;
   if (batchWorkOrder === null || !Number.isFinite(quantity) || quantity <= 0) {
@@ -451,22 +472,29 @@ export async function commitScannedItem(item) {
   // Don't focus the field -- on mobile that pops the keyboard mid-batch.
   if (scangoQuantity) scangoQuantity.value = "1";
 
-  // Keep the manual table's on-hand numbers fresh -- only when it's actually
-  // visible (a Supervisor+ who has opted in).
-  if (!isTechnician() && supervisorAdvanced) loadTxnItems();
+  // Keep the manual entry panel's on-hand numbers fresh in place -- cheaper
+  // than a refetch, and correct whether the commit came from a scan (a
+  // freshly-fetched item, not the cached object) or a manual pick (the
+  // cached object itself).
+  if (after !== null) {
+    item.quantity = after;
+    const cached = searchItems.find((it) => it.id === item.id);
+    if (cached) cached.quantity = after;
+  }
+  renderManualResults();
 
   return { committed: true };
 }
 
 // Called by nav.js when the Transaction page activates: paint the right
-// state and, for an opted-in Supervisor+, load the manual table.
+// state and, for an active batch, load the manual entry item cache.
 export function enterTransactionPage() {
   showScanGoState();
   if (batchWorkOrder !== null) {
     // Returning to an in-progress batch: bring the camera back up (permission
     // is already granted by this point, so this won't prompt).
     if (scanAutoStart) scanAutoStart();
-    if (!isTechnician() && supervisorAdvanced) loadTxnItems();
+    loadSearchItems().then(renderManualResults);
   } else {
     // At the gate: load the Supervisor+ saved work-order cards.
     refreshWoCards();
@@ -479,9 +507,11 @@ export function resetBatch() {
   batchWorkOrder = null;
   supervisorAdvanced = false; // every fresh login starts streamlined
   assigneesLoaded = false; // re-fetch the technician list for the new session
+  searchItemsLoaded = false; // re-fetch the item list for the new session
   if (woGateInput) woGateInput.value = "";
   if (scangoQuantity) scangoQuantity.value = "1";
   clearBatchLog();
+  clearItemSearch();
   resetWoCards();
   showScanGoState();
 }
@@ -497,8 +527,6 @@ if (scangoAdvancedToggle) {
   scangoAdvancedToggle.addEventListener("click", () => {
     supervisorAdvanced = !supervisorAdvanced;
     showScanGoState();
-    // Populate the now-visible manual table when opting in.
-    if (supervisorAdvanced && batchWorkOrder !== null) loadTxnItems();
   });
 }
 if (scangoSegStock) scangoSegStock.addEventListener("click", () => setScangoType("stock"));
@@ -518,128 +546,22 @@ if (newWo) {
   });
 }
 
-export async function loadTxnItems() {
-  try {
-    const items = await apiListItems();
-    txnItemsTbody.innerHTML = "";
-    items.forEach(item => {
-      const row = document.createElement("tr");
-      row.innerHTML = `
-        <td data-label="Barcode">${escapeHtml(item.barcode)}</td>
-        <td data-primary>${escapeHtml(item.name)}</td>
-        <td data-label="Quantity"><strong>${escapeHtml(item.quantity)}</strong></td>
-        <td data-label="Actions">
-          <div class="row-actions">
-            <button class="stock-btn" data-id="${item.id}" data-name="${escapeHtml(item.name)}" data-action="stock" data-quantity="${escapeHtml(item.quantity)}" data-location="${escapeHtml(item.location)}">Add Stock</button>
-            <button class="dispense-btn" data-id="${item.id}" data-name="${escapeHtml(item.name)}" data-action="dispense" data-quantity="${escapeHtml(item.quantity)}" data-location="${escapeHtml(item.location)}">Take Out</button>
-          </div>
-        </td>
-      `;
-      txnItemsTbody.appendChild(row);
-    });
-  } catch (error) {
-    console.error("Failed to load items:", error);
-  }
+// --- Manual entry panel (all roles) ---------------------------------
+// Filters the cached item list client-side (same pattern as the Find Item
+// page and the Work Orders "add material" picker) so an operator can find
+// an item by name/barcode -- or, for an opted-in Supervisor+, browse the
+// full list -- and commit it into the active batch without a camera. Every
+// pick funnels through commitScannedItem, the same path a scan uses.
+if (txnItemSearch) {
+  txnItemSearch.addEventListener("input", renderManualResults);
 }
 
-// Set the (hidden) transaction_type and reflect it in the segmented
-// control. The submitted value stays "stock" | "dispense" -- only the
-// presentation changed (select -> two big buttons).
-function setTxnType(value) {
-  transactionType.value = value;
-  if (segStockBtn) segStockBtn.classList.toggle("active", value === "stock");
-  if (segDispenseBtn) segDispenseBtn.classList.toggle("active", value === "dispense");
+if (txnItemSearchResults) {
+  txnItemSearchResults.addEventListener("click", async (event) => {
+    const btn = event.target.closest("[data-item-id]");
+    if (!btn) return;
+    const item = searchItems.find((it) => it.id === btn.dataset.itemId);
+    clearItemSearch();
+    if (item) await commitScannedItem(item);
+  });
 }
-
-// Render the selected/scanned item: a large name plus an optional quiet
-// meta line (on-hand + location). `meta` is supplied when we know the
-// item's quantity/location (row button or scan); omitted callers get the
-// name alone.
-function renderSelected(name, meta) {
-  const parts = [];
-  if (meta) {
-    if (meta.quantity !== undefined && meta.quantity !== null && meta.quantity !== "") {
-      parts.push(`On hand: ${meta.quantity}`);
-    }
-    if (meta.location) parts.push(`Location: ${meta.location}`);
-  }
-  transactionSelected.innerHTML =
-    `<span class="confirm-name">${escapeHtml(name)}</span>` +
-    (parts.length ? `<span class="confirm-meta">${escapeHtml(parts.join(" · "))}</span>` : "");
-}
-
-export function openTransactionForm(itemId, itemName, action, meta) {
-  setSelectedItemId(itemId);
-  setTxnType(action);
-  transactionQuantity.value = "0";
-  transactionWorkOrder.value = "";
-  setMessage(transactionMessage, "", "");
-  renderSelected(itemName, meta);
-  transactionSection.hidden = false;
-  transactionSection.scrollIntoView({ behavior: "smooth", block: "start" });
-
-  // The transaction is attributed to the logged-in user server-side, so
-  // there is no user to pick here -- just focus the quantity field.
-  saveTransactionBtn.disabled = false;
-  transactionQuantity.focus();
-  transactionQuantity.select();
-}
-
-export function closeTransactionForm() {
-  setSelectedItemId(null);
-  transactionSection.hidden = true;
-  setMessage(transactionMessage, "", "");
-}
-
-txnItemsTbody.addEventListener("click", (event) => {
-  const target = event.target;
-  if (target.classList.contains("stock-btn") || target.classList.contains("dispense-btn")) {
-    openTransactionForm(target.dataset.id, target.dataset.name, target.dataset.action, {
-      quantity: target.dataset.quantity,
-      location: target.dataset.location,
-    });
-  }
-});
-
-// Segmented Add Stock / Take Out Stock control (replaces the type select).
-if (segStockBtn) segStockBtn.addEventListener("click", () => setTxnType("stock"));
-if (segDispenseBtn) segDispenseBtn.addEventListener("click", () => setTxnType("dispense"));
-
-cancelTransactionBtn.addEventListener("click", closeTransactionForm);
-
-saveTransactionBtn.addEventListener("click", async () => {
-  setMessage(transactionMessage, "", "");
-
-  const selectedId = getSelectedItemId();
-  if (!selectedId) {
-    setMessage(transactionMessage, "No item selected.", "error");
-    return;
-  }
-
-  const quantity = parseFloat(transactionQuantity.value);
-  if (!Number.isFinite(quantity) || quantity <= 0) {
-    setMessage(transactionMessage, "Enter a quantity greater than zero.", "error");
-    return;
-  }
-
-  const workOrder = transactionWorkOrder.value.trim();
-
-  try {
-    const data = await apiCreateTransaction({
-      item_id: selectedId,
-      transaction_type: transactionType.value,
-      quantity,
-      work_order_number: workOrder || null,
-    });
-    const savedMsg = data.transaction_type === "dispense" ? "Stock taken out." : "Stock added.";
-    setMessage(transactionMessage, savedMsg, "success");
-    // Auto-reset the scan UI so the next scan starts clean (no-op if the
-    // transaction was started manually rather than by a scan).
-    if (onTransactionSaved) onTransactionSaved();
-    loadTxnItems();
-    loadItems();
-    setTimeout(closeTransactionForm, 1200);
-  } catch (err) {
-    setMessage(transactionMessage, friendlyError(err, "Something went wrong. Try again."), "error");
-  }
-});
