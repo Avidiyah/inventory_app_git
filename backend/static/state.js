@@ -36,6 +36,11 @@ const historyState = {
   itemLabel: null,
   userId: null,
   workOrder: null,
+  // Date-range overlay filter (like `workOrder`): `YYYY-MM-DD` strings from
+  // the date inputs, or null for an open side. Survives sub-tab switches and
+  // combines with the other filters via AND.
+  dateFrom: null,
+  dateTo: null,
   page: 1,
   totalPages: 1,
 };

@@ -47,10 +47,13 @@
                 <input type="text" id="login-username" autocomplete="username" placeholder="Enter username">
 
                 <label for="login-password">Password</label>
-                <input type="password" id="login-password" autocomplete="current-password" placeholder="Enter password">
+                <div class="password-field">
+                    <input type="password" id="login-password" autocomplete="current-password" placeholder="Enter password">
+                    <button type="button" id="login-password-toggle" class="password-toggle-btn" aria-pressed="false" aria-label="Show password">Show</button>
+                </div>
 
                 <label class="checkbox-row" for="login-remember">
-                    <input type="checkbox" id="login-remember"> Remember this device
+                    <input type="checkbox" id="login-remember"> Stay signed in for this shift
                 </label>
 
                 <button id="login-btn">Sign In</button>

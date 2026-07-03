@@ -31,7 +31,7 @@
 import { getEditingItemId, setEditingItemId } from "../state.js";
 import { apiUpdateItem, apiUpdateBarcodes } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
-import { setMessage, confirmArchivedReuse } from "../dom.js";
+import { setMessage, confirmArchivedReuse, confirmDialog } from "../dom.js";
 
 const itemEditorSection = document.getElementById("item-editor-section");
 const itemEditorSelected = document.getElementById("item-editor-selected");
@@ -145,7 +145,7 @@ itemEditorSaveBtn.addEventListener("click", async () => {
   if (codes === null) return; // duplicate in the list; message already shown
 
   if (barcode !== originalBarcode) {
-    const ok = confirm(
+    const ok = await confirmDialog(
       "Changing this barcode breaks any scanner labels still pointing at this row. Continue?"
     );
     if (!ok) return;

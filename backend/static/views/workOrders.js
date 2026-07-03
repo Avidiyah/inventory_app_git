@@ -24,6 +24,7 @@ import { escapeHtml, friendlyError, formatMoney } from "../format.js";
 import { setMessage, confirmDialog, confirmArchivedReuse } from "../dom.js";
 import { getRole } from "../state.js";
 import { roleAtLeast } from "../roles.js";
+import { openBillingEditor } from "./billingEditor.js";
 
 const listEl = document.getElementById("work-orders-list");
 const listMessage = document.getElementById("work-orders-list-message");
@@ -89,24 +90,6 @@ function lineChargeHtml(it) {
     flag +
     `<button type="button" class="wo-edit-charge-btn">Edit charge</button>` +
     `</span>`;
-}
-
-// Inline billing editor markup (mirrors the History charge editor): bill a
-// partial count, bill zero, or cancel.
-function billingEditorHtml(quantity, billable) {
-  return `
-    <div class="charge-editor">
-      <label class="charge-editor-label">Bill for
-        <input type="number" class="charge-input" min="0" max="${escapeHtml(String(quantity))}" step="any" value="${escapeHtml(String(billable))}">
-        of ${escapeHtml(String(quantity))}
-      </label>
-      <div class="charge-editor-actions">
-        <button type="button" class="charge-save">Save</button>
-        <button type="button" class="charge-zero secondary-btn">Don't charge</button>
-        <button type="button" class="charge-cancel secondary-btn">Cancel</button>
-      </div>
-      <p class="charge-editor-msg" aria-live="polite"></p>
-    </div>`;
 }
 
 // The Admin/Owner-only work-order materials total (base + mark-up), or "" when
@@ -284,12 +267,15 @@ function renderBody(detail, bodyEl) {
      </div>`;
 
   // Supervisor+ attribute editor (community / building / unit / assignee).
+  // This inline editor stays compact (its fields are prefilled with visible
+  // values, so the "placeholder disappears when filled" problem doesn't
+  // apply). #17: give the otherwise-nameless controls accessible names.
   const details = sup
     ? `<div class="wo-edit">
-         <input type="text" class="wo-edit-community" value="${escapeHtml(detail.community || "")}" placeholder="Community">
-         <input type="text" class="wo-edit-building" value="${escapeHtml(detail.building_number || "")}" placeholder="Building #">
-         <input type="text" class="wo-edit-unit" value="${escapeHtml(detail.unit_number || "")}" placeholder="Unit #">
-         <select class="wo-edit-assignee">${techOptions(detail.assigned_to_id || "")}</select>
+         <input type="text" class="wo-edit-community" value="${escapeHtml(detail.community || "")}" placeholder="Community" aria-label="Community">
+         <input type="text" class="wo-edit-building" value="${escapeHtml(detail.building_number || "")}" placeholder="Building #" aria-label="Building number">
+         <input type="text" class="wo-edit-unit" value="${escapeHtml(detail.unit_number || "")}" placeholder="Unit #" aria-label="Unit number">
+         <select class="wo-edit-assignee" aria-label="Assign to">${techOptions(detail.assigned_to_id || "")}</select>
          <button type="button" class="secondary-btn" data-action="save-details">Save details</button>
        </div>`
     : "";
@@ -445,10 +431,10 @@ listEl.addEventListener("click", async (event) => {
 
 // --- Inline line-billing editor (Admin/Owner) ----------------------------
 //
-// Swaps a line's charge cell for a small form: Save / Don't charge call the
-// per-line billing endpoint and refresh the card; Cancel restores the cell in
-// place. Mirrors the History charge editor. The "Edit charge" button only
-// renders for those who may see cost, so no extra role check is needed.
+// The editor UI is shared with History (`views/billingEditor.js`); here we
+// just supply the line's numbers and how to persist the change, then refresh
+// the card. The "Edit charge" button only renders for those who may see cost,
+// so no extra role check is needed.
 listEl.addEventListener("click", (event) => {
   const editBtn = event.target.closest(".wo-edit-charge-btn");
   if (!editBtn) return;
@@ -460,41 +446,13 @@ listEl.addEventListener("click", (event) => {
 
   const workOrderId = cardEl.dataset.id;
   const woItemId = row.dataset.woItemId;
-  const quantity = Number(cell.dataset.quantity);
-  const billable = Number(cell.dataset.billable);
-  const original = cell.innerHTML;
-
-  cell.innerHTML = billingEditorHtml(quantity, billable);
-  const input = cell.querySelector(".charge-input");
-  const editorMsg = cell.querySelector(".charge-editor-msg");
-  input.focus();
-  input.select();
-
-  async function submit(value) {
-    // `value` is the billable count, or null to clear the override.
-    cell.querySelectorAll("button").forEach((b) => { b.disabled = true; });
-    try {
+  openBillingEditor(cell, {
+    quantity: Number(cell.dataset.quantity),
+    billable: Number(cell.dataset.billable),
+    onSave: async (value) => {
       await apiSetWorkOrderItemBilling(workOrderId, woItemId, value);
       await refreshCard(cardEl);  // repaint the card (line charge + total)
-    } catch (err) {
-      cell.querySelectorAll("button").forEach((b) => { b.disabled = false; });
-      setMessage(editorMsg, friendlyError(err, "Could not update the charge."), "error");
-    }
-  }
-
-  cell.querySelector(".charge-cancel").addEventListener("click", () => { cell.innerHTML = original; });
-  cell.querySelector(".charge-zero").addEventListener("click", () => submit(0));
-  cell.querySelector(".charge-save").addEventListener("click", () => {
-    const raw = input.value.trim();
-    if (raw === "") { submit(null); return; }  // empty = charge the full amount
-    const n = Number(raw);
-    if (Number.isNaN(n) || n < 0 || n > quantity) {
-      setMessage(editorMsg, `Enter a number between 0 and ${quantity}.`, "error");
-      return;
-    }
-    // Billing the full quantity is the same as no override; send null so the
-    // line carries no stale "Billing N of N" annotation.
-    submit(n === quantity ? null : n);
+    },
   });
 });
 
@@ -568,10 +526,22 @@ if (createNumber) {
 
 // --- filter / search controls --------------------------------------------
 
+// #16: search live-updates as you type (250 ms debounce), matching the
+// History work-order filter so the two sibling pages behave the same way.
+// The Search button and Enter stay as redundant explicit triggers -- nothing
+// is removed, so no one loses the click-to-search workflow.
+let woSearchDebounce = null;
 if (searchBtn) searchBtn.addEventListener("click", loadWorkOrders);
 if (searchInput) {
+  searchInput.addEventListener("input", () => {
+    clearTimeout(woSearchDebounce);
+    woSearchDebounce = setTimeout(loadWorkOrders, 250);
+  });
   searchInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") loadWorkOrders();
+    if (event.key === "Enter") {
+      clearTimeout(woSearchDebounce);
+      loadWorkOrders();
+    }
   });
 }
 if (statusFilter) statusFilter.addEventListener("change", loadWorkOrders);

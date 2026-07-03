@@ -7,10 +7,12 @@
         <section id="mass-stage-create-section">
             <h2>New Mass Stage</h2>
             <p class="hint">Pick a community and enter the building number. Options are populated by views/massStage.js.</p>
-            <div class="filter-row">
-                <select id="mass-stage-community-select" aria-label="Community"></select>
-                <input type="text" id="mass-stage-community-new" placeholder="New community" hidden>
-                <input type="text" id="mass-stage-building-input" placeholder="Building # (e.g. 19)">
+            <div class="form-stack">
+                <label for="mass-stage-community-select">Community</label>
+                <select id="mass-stage-community-select"></select>
+                <input type="text" id="mass-stage-community-new" placeholder="New community name" aria-label="New community name" hidden>
+                <label for="mass-stage-building-input">Building number</label>
+                <input type="text" id="mass-stage-building-input" placeholder="e.g. 19">
                 <button id="mass-stage-create-btn" type="button">Create</button>
             </div>
             <p id="mass-stage-create-message"></p>

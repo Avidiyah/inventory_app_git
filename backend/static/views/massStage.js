@@ -236,7 +236,7 @@ function renderLoadingBody(stage, bodyEl) {
     `<div class="ms-stage-actions">
        ${complete}
        ${reuse}
-       <button type="button" class="btn-danger" data-action="delete-stage">Delete</button>
+       <button type="button" class="btn-danger" data-action="delete-stage" data-stage-loaded="1">Delete</button>
      </div>` +
     `<p class="ms-stage-message"></p>`;
 }
@@ -483,11 +483,11 @@ listEl.addEventListener("click", async (event) => {
       await apiAddStageWorkOrder(stageId, { workOrderNumber: wo, unitNumber: unit || null, assignedToId });
       await refreshStage(stageCard);
     } else if (action === "remove-slot") {
-      if (!window.confirm("Remove this unit from the plan? (The work order itself is kept.)")) return;
+      if (!(await confirmDialog("Remove this unit from the plan? (The work order itself is kept.)"))) return;
       await apiDeleteStageWorkOrder(stageId, btn.dataset.slotId);
       await refreshStage(stageCard);
     } else if (action === "reuse-stage") {
-      if (!window.confirm("Start a new staging for this community + building? Item lists start empty.")) return;
+      if (!(await confirmDialog("Start a new staging for this community + building? Item lists start empty."))) return;
       const fresh = await apiReuseStage(stageId);
       autoOpenId = fresh.id;
       await loadStages();
@@ -542,15 +542,18 @@ listEl.addEventListener("click", async (event) => {
       await apiReturnStageItem(stageId, { itemId: btn.dataset.itemId, quantity: qty });
       await refreshStage(stageCard);
     } else if (action === "complete-stage") {
-      if (!window.confirm("Mark this building complete? The stage becomes read-only.")) return;
+      if (!(await confirmDialog("Mark this building complete? The stage becomes read-only."))) return;
       await apiUpdateStage(stageId, { status: "completed" });
       await loadStages();
     } else if (action === "save-stage") {
-      if (!window.confirm("Save this mass stage? It moves to loading and the plan is locked.")) return;
+      if (!(await confirmDialog("Save this mass stage? It moves to loading and the plan is locked."))) return;
       await apiUpdateStage(stageId, { status: "loading" });
       await loadStages();
     } else if (action === "delete-stage") {
-      if (!window.confirm("Delete this mass stage? This cannot be undone.")) return;
+      const message = btn.dataset.stageLoaded
+        ? "Delete this mass stage? Items already loaded stay dispensed — this does not return them to stock. This cannot be undone."
+        : "Delete this mass stage? This cannot be undone.";
+      if (!(await confirmDialog(message))) return;
       await apiDeleteStage(stageId);
       await loadStages();
     }

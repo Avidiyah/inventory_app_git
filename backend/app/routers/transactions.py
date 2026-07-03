@@ -11,6 +11,7 @@ filters that match nothing simply return an empty page.
 Mounted by `app/main.py` under the root prefix.
 """
 
+from datetime import date
 from typing import Optional
 from uuid import UUID
 
@@ -180,17 +181,21 @@ def list_transactions(
     item_id: Optional[UUID] = None,
     user_id: Optional[UUID] = None,
     work_order_number: Optional[str] = None,
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
     user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
     """Paginated history. Supervisor or above. Optional `item_id`,
-    `user_id`, and `work_order_number` filters combine with AND.
-    `work_order_number` is a case-sensitive substring match against
-    `Transaction.work_order_number`; an empty / whitespace-only value
-    is treated as "no filter". `page_size` is capped at 100 to bound
-    the join cost.
+    `user_id`, `work_order_number`, `date_from`, and `date_to` filters
+    combine with AND. `work_order_number` is a case-sensitive substring
+    match against `Transaction.work_order_number`; an empty /
+    whitespace-only value is treated as "no filter". `date_from` /
+    `date_to` are `YYYY-MM-DD` calendar dates bounding `created_at`
+    (inclusive of `date_to`'s full day, in UTC). `page_size` is capped at
+    100 to bound the join cost.
 
     The per-unit `item_price` is included in each row only for
     Admin/Owner; Supervisors get `None` so cost data stays gated."""
@@ -199,6 +204,8 @@ def list_transactions(
         item_id=item_id,
         user_id=user_id,
         work_order_number=work_order_number,
+        date_from=date_from,
+        date_to=date_to,
         page=page,
         page_size=page_size,
         include_price=roles.role_at_least(user.role, roles.ROLE_ADMIN),

@@ -23,7 +23,7 @@ import {
 } from "../state.js";
 import { apiListItems, apiCreateItem, apiDeleteItem } from "../api.js";
 import { escapeHtml, friendlyError, formatMoney, safeHttpUrl } from "../format.js";
-import { setMessage, confirmArchivedReuse } from "../dom.js";
+import { setMessage, confirmArchivedReuse, confirmDialog } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
 import { openNotesEditor, closeNotesEditor, renderNotesSummary, setOnSaved } from "./notes.js";
 import {
@@ -46,6 +46,7 @@ const createItemMessage = document.getElementById("create-item-message");
 const itemsTheadRow = document.getElementById("items-thead-row");
 const itemsTbody = document.getElementById("items-tbody");
 const itemsSearch = document.getElementById("items-search");
+const itemsMessage = document.getElementById("items-message");
 
 // Product-link cell: a safe http(s) link renders as an "Open" anchor;
 // anything else (missing, or a non-http scheme) shows an em dash.
@@ -62,12 +63,22 @@ const priceInput = document.getElementById("price");
 const productLinkInput = document.getElementById("product-link");
 
 export async function loadItems() {
+  // #9: show an in-progress placeholder so a slow fetch reads as "working"
+  // rather than an empty table. Kept in the table body (not the
+  // #items-message slot) so it never wipes a row-action success message
+  // like "Archived ...", which is set just before a reload. colspan is a
+  // safe over-estimate -- an extra span past the real column count is a
+  // no-op. This flashes briefly on a post-action reload over existing rows,
+  // which reads as "refreshing" and is preferable to a silent swap.
+  itemsTbody.innerHTML = `<tr><td colspan="8" class="hint">Loading…</td></tr>`;
   try {
     const items = await apiListItems();
     setItems(items);
     renderItems();
   } catch (error) {
-    console.error("Failed to load items:", error);
+    // #6: surface the failure instead of a silent console log + blank table.
+    itemsTbody.innerHTML =
+      `<tr><td colspan="8" class="error">${escapeHtml(friendlyError(error, "Could not load items. Try again."))}</td></tr>`;
   }
 }
 
@@ -100,7 +111,7 @@ export function renderItems() {
     if (canNotes) options.push(`<option value="notes">Notes</option>`);
     if (canAdmin) {
       options.push(`<option value="correct">Correct Count</option>`);
-      options.push(`<option value="delete">Delete Item</option>`);
+      options.push(`<option value="delete">Archive Item</option>`);
     }
     if (options.length === 0) return "";
     const ariaLabel = `Actions for ${item.name}`;
@@ -248,7 +259,8 @@ itemsTbody.addEventListener("change", async (event) => {
   }
 
   if (action === "delete") {
-    if (!confirm(`Are you sure you want to delete "${item.name}"?`)) return;
+    setMessage(itemsMessage, "", "");
+    if (!(await confirmDialog(`Archive "${item.name}"? It will be hidden from lookup and lists, but its history is kept.`))) return;
     try {
       await apiDeleteItem(itemId);
       if (getEditingNotesItemId() === itemId) {
@@ -260,9 +272,10 @@ itemsTbody.addEventListener("change", async (event) => {
       if (getEditingCorrectionItemId() === itemId) {
         closeCorrection();
       }
+      setMessage(itemsMessage, `Archived "${item.name}".`, "success");
       loadItems();
     } catch (err) {
-      alert(friendlyError(err, "Could not delete the item. Try again."));
+      setMessage(itemsMessage, friendlyError(err, "Could not archive the item. Try again."), "error");
     }
   }
 });

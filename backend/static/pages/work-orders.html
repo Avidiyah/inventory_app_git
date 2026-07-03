@@ -10,12 +10,17 @@
         <section id="work-orders-create-section" hidden>
             <h2>New Work Order</h2>
             <p class="hint">The number is the identity. Re-using an existing number opens that work order.</p>
-            <div class="filter-row">
+            <div class="form-stack">
+                <label for="wo-create-number">Work order number</label>
                 <input type="text" id="wo-create-number" placeholder="Work order #" autocomplete="off">
-                <input type="text" id="wo-create-community" placeholder="Community (optional)" autocomplete="off">
-                <input type="text" id="wo-create-building" placeholder="Building # (optional)" autocomplete="off">
-                <input type="text" id="wo-create-unit" placeholder="Unit # (optional)" autocomplete="off">
-                <select id="wo-create-assignee" aria-label="Assign to">
+                <label for="wo-create-community">Community (optional)</label>
+                <input type="text" id="wo-create-community" placeholder="e.g. Scholars" autocomplete="off">
+                <label for="wo-create-building">Building number (optional)</label>
+                <input type="text" id="wo-create-building" placeholder="e.g. 19" autocomplete="off">
+                <label for="wo-create-unit">Unit number (optional)</label>
+                <input type="text" id="wo-create-unit" placeholder="e.g. 1121" autocomplete="off">
+                <label for="wo-create-assignee">Assign to (optional)</label>
+                <select id="wo-create-assignee">
                     <option value="">Unassigned</option>
                 </select>
                 <button id="wo-create-btn" type="button">Create</button>

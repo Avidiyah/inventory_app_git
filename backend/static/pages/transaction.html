@@ -63,6 +63,15 @@
                     <button id="scango-change-wo-btn" type="button" class="secondary-btn">Change work order</button>
                 </div>
 
+                <!-- Every role can opt in: commits a dispense scan immediately
+                     instead of showing the confirm dialog. Stock (Add Stock
+                     direction) always keeps the confirm dialog regardless --
+                     a mistake there is costlier to reverse. Supervisor+ get an
+                     Undo button on each quick-mode log line (views/transactions.js);
+                     other roles get the speed without the safety net, same as
+                     today (a mis-scan already required flagging a supervisor). -->
+                <button type="button" id="scango-quickmode-toggle" class="secondary-btn" hidden aria-pressed="false">Quick mode: Off</button>
+
                 <!-- Opt-in for Supervisor+ only (hidden for Technicians and
                      until shown by views/transactions.js). By default
                      Supervisor+ get the streamlined dispense-only flow; this
@@ -72,6 +81,7 @@
 
                 <p id="scango-summary" class="scango-summary" hidden></p>
                 <div id="scango-log" class="scango-log" hidden></div>
+                <p id="scango-message"></p>
             </div>
         </section>
 

@@ -92,6 +92,52 @@ export function mountScanner({
       /* vibrate can throw if the document is not focused; nothing actionable */
     }
   }
+
+  // Audible confirmation alongside buzz(). The Vibration API is a documented
+  // no-op on iOS Safari, so on an iPhone a committed scan otherwise produces
+  // zero physical feedback; a short WebAudio blip works on both platforms.
+  // The context is created lazily and resumed from a user gesture (the Scan /
+  // Upload tap, see primeAudio) so autoplay policies don't block it.
+  let audioCtx = null;
+  function primeAudio() {
+    const Ctx = typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext);
+    if (!Ctx) return;
+    try {
+      if (!audioCtx) audioCtx = new Ctx();
+      if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+    } catch (_err) {
+      audioCtx = null; // audio unavailable; buzz()/visual feedback still apply
+    }
+  }
+  function beep(ok) {
+    if (!audioCtx) return; // never primed (no gesture yet) or unsupported
+    if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+    try {
+      const ctx = audioCtx;
+      const blip = (freq, start, dur) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "square";
+        osc.frequency.value = freq;
+        // Tiny attack + exponential decay so it clicks rather than pops.
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(0.15, start + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + dur);
+      };
+      const now = ctx.currentTime;
+      if (ok) {
+        blip(880, now, 0.12); // one bright blip on success
+      } else {
+        blip(300, now, 0.12); // two low blips on failure
+        blip(300, now + 0.16, 0.12);
+      }
+    } catch (_err) {
+      /* audio can fail if the context is interrupted; nothing actionable */
+    }
+  }
   function reset() {
     inputEl.value = "";
     chooserEl.innerHTML = "";
@@ -181,6 +227,7 @@ export function mountScanner({
     if (canScan && !canScan()) {
       setMessage(messageEl, "Enter a quantity first, then scan.", "error");
       buzz(false);
+      beep(false);
       return { committed: false };
     }
 
@@ -200,16 +247,19 @@ export function mountScanner({
         "error",
       );
       buzz(false);
+      beep(false);
       return { committed: false };
     }
 
     const result = onCommit ? await onCommit(item) : { committed: false };
-    // Buzz success on a commit and the error pattern on a real failure (e.g.
+    // Confirm success on a commit and the error pattern on a real failure (e.g.
     // overdraw), but stay silent on a user decline -- saying No is not an error.
     if (result && result.committed) {
       buzz(true);
+      beep(true);
     } else if (!(result && result.declined)) {
       buzz(false);
+      beep(false);
     }
     return result;
   }
@@ -459,6 +509,9 @@ export function mountScanner({
   if (liveEls) {
     if (liveEls.scanBtn) {
       liveEls.scanBtn.addEventListener("click", () => {
+        // Create/resume the audio context here, inside a user gesture, so the
+        // per-scan beep() can play later without tripping autoplay policies.
+        primeAudio();
         if (liveRunning) {
           stopLive();
           setMessage(messageEl, "", "");
@@ -469,6 +522,7 @@ export function mountScanner({
     }
     if (liveEls.uploadBtn) {
       liveEls.uploadBtn.addEventListener("click", () => {
+        primeAudio();
         if (liveRunning) stopLive();
         inputEl.click();
       });

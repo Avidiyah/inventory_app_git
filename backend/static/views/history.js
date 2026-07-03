@@ -16,9 +16,9 @@
 //   here on every state change.
 // - `renderHistory(data)` -- paint the table from a fetched page.
 //
-// The "by item" tab looks up the item by barcode first, so a 404
-// from `apiGetItemByBarcode` is rendered as a friendly message
-// rather than a generic error.
+// The "by item" tab filters the client-side item cache by name or
+// barcode (the same search-and-pick pattern the transaction and
+// work-order views use); picking a result sets the item filter.
 
 import {
   getHistoryState,
@@ -28,7 +28,7 @@ import {
 } from "../state.js";
 import {
   apiListTransactions,
-  apiGetItemByBarcode,
+  apiListItems,
   apiVoidTransaction,
   apiSetBillableQuantity,
   apiGetWorkOrder,
@@ -36,13 +36,14 @@ import {
 } from "../api.js";
 import { escapeHtml, friendlyError, formatMoney } from "../format.js";
 import { roleAtLeast } from "../roles.js";
-import { setMessage } from "../dom.js";
+import { setMessage, confirmDialog } from "../dom.js";
 import { initSubNav } from "./subnav.js";
+import { openBillingEditor } from "./billingEditor.js";
 
 const historyPage = document.getElementById("history-page");
 const historyTable = document.getElementById("history-table");
-const historyItemBarcode = document.getElementById("history-item-barcode");
-const historyItemLookupBtn = document.getElementById("history-item-lookup-btn");
+const historyItemSearch = document.getElementById("history-item-search");
+const historyItemResults = document.getElementById("history-item-results");
 const historyItemMessage = document.getElementById("history-item-message");
 const historyUserSelect = document.getElementById("history-user-select");
 const historyUserMessage = document.getElementById("history-user-message");
@@ -53,9 +54,13 @@ const historyNextBtn = document.getElementById("history-next-btn");
 const historyPageInfo = document.getElementById("history-page-info");
 const historyWoFilter = document.getElementById("history-wo-filter");
 const historyWoClearBtn = document.getElementById("history-wo-clear-btn");
+const historyDateFrom = document.getElementById("history-date-from");
+const historyDateTo = document.getElementById("history-date-to");
+const historyDateClearBtn = document.getElementById("history-date-clear-btn");
 const historyPricingBtn = document.getElementById("history-pricing-btn");
 const historyPricingMessage = document.getElementById("history-pricing-message");
 const historyPricingOutput = document.getElementById("history-pricing-output");
+const historyResultsMessage = document.getElementById("history-results-message");
 
 // Backend cap (see app/routers/transactions.py) -- the copy-all path
 // uses this to minimise round-trips.
@@ -75,6 +80,9 @@ const historySubNav = initSubNav(historyPage, {
     updateHistoryState({ tab: feature, page: 1 });
     setMessage(historyItemMessage, "", "");
     setMessage(historyUserMessage, "", "");
+    // Warm the item cache so the By Item search responds on the first
+    // keystroke instead of after a round-trip.
+    if (feature === "item") loadHistoryItems();
     loadHistory();
   },
 });
@@ -97,6 +105,15 @@ export async function loadHistory() {
     return;
   }
 
+  // #9: show a loading row only when results aren't already on screen (first
+  // open, or after a tab with no selection hid them). Skipping it while a
+  // table is already visible avoids a flicker on the debounced work-order /
+  // date filters, which reload on every change.
+  if (historyResults.hidden) {
+    historyTbody.innerHTML = `<tr><td colspan="8" class="hint">Loading…</td></tr>`;
+    historyResults.hidden = false;
+  }
+
   try {
     const data = await apiListTransactions({
       page: s.page,
@@ -104,10 +121,15 @@ export async function loadHistory() {
       itemId: s.tab === "item" ? s.itemId : null,
       userId: s.tab === "user" ? s.userId : null,
       workOrder: s.workOrder,
+      dateFrom: s.dateFrom,
+      dateTo: s.dateTo,
     });
     renderHistory(data);
   } catch (error) {
-    console.error("Failed to load transactions:", error);
+    // #6: surface the failure in the table instead of a silent console log.
+    historyResults.hidden = false;
+    historyTbody.innerHTML =
+      `<tr><td colspan="8" class="error">${escapeHtml(friendlyError(error, "Could not load history. Try again."))}</td></tr>`;
   }
 }
 
@@ -122,6 +144,9 @@ function emptyStateMessage(s) {
     const label = historyUserSelect.selectedOptions[0].textContent;
     if (label && historyUserSelect.value) clauses.push(`user ${label}`);
   }
+  if (s.dateFrom && s.dateTo) clauses.push(`${s.dateFrom} to ${s.dateTo}`);
+  else if (s.dateFrom) clauses.push(`on/after ${s.dateFrom}`);
+  else if (s.dateTo) clauses.push(`on/before ${s.dateTo}`);
   if (clauses.length === 0) return "No history found for those filters.";
   return `No history matches ${clauses.join(" and ")}.`;
 }
@@ -252,10 +277,10 @@ export function renderHistory(data) {
         <td data-primary>${escapeHtml(itemLabel)}</td>
         <td data-label="Type"><span class="type-badge ${escapeHtml(type)}">${escapeHtml(TYPE_LABELS[type] || type)}</span></td>
         <td data-label="Quantity">${escapeHtml(quantity)}</td>
-        <td data-label="Work Order">${escapeHtml(detail || "—")}</td>
+        <td data-label="WO / Reason">${escapeHtml(detail || "—")}</td>
         <td data-label="User">${escapeHtml(user || "—")}</td>
         ${canSeePrice ? chargeCellHtml(txn) : ""}
-        <td data-label="Actions"><button type="button" class="void-txn-btn btn-danger" data-id="${escapeHtml(txn.id)}" aria-label="${escapeHtml(voidLabel)}">Delete</button></td>
+        <td data-label="Actions"><button type="button" class="void-txn-btn btn-danger" data-id="${escapeHtml(txn.id)}" aria-label="${escapeHtml(voidLabel)}">Void</button></td>
       `;
       historyTbody.appendChild(row);
     });
@@ -274,22 +299,24 @@ export function renderHistory(data) {
   historyPricingOutput.hidden = true;
   historyPricingOutput.value = "";
   setMessage(historyPricingMessage, "", "");
+  setMessage(historyResultsMessage, "", "");
 
   historyResults.hidden = false;
 }
 
-// Void (delete) a mis-clicked transaction. Delegated so it covers every
-// re-rendered row. The backend reverses the stock effect and hides the
-// row from history; we just confirm and reload the current view.
+// Void a mis-clicked transaction. Delegated so it covers every re-rendered
+// row. The backend reverses the stock effect and hides the row from
+// history; we just confirm and reload the current view.
 historyTbody.addEventListener("click", async (event) => {
   const btn = event.target.closest(".void-txn-btn");
   if (!btn) return;
   const id = btn.dataset.id;
   if (!id) return;
 
-  if (!confirm(
-    "Delete this transaction?\n\nThis undoes its effect on the on-hand count and removes it from history."
-  )) return;
+  setMessage(historyResultsMessage, "", "");
+  if (!(await confirmDialog(
+    "Void this transaction? This undoes its effect on the on-hand count and removes it from history."
+  ))) return;
 
   btn.disabled = true;
   try {
@@ -304,7 +331,7 @@ historyTbody.addEventListener("click", async (event) => {
     loadHistory();
   } catch (err) {
     btn.disabled = false;
-    alert(friendlyError(err, "Could not delete the transaction. Try again."));
+    setMessage(historyResultsMessage, friendlyError(err, "Could not void the transaction. Try again."), "error");
   }
 });
 
@@ -312,26 +339,9 @@ historyTbody.addEventListener("click", async (event) => {
 //
 // Lets an Admin reviewing a work order charge for fewer units than were
 // dispensed, or exclude a line entirely, without disturbing the on-hand
-// count (the items were really used). The edit swaps the Charge cell for
-// a small form: Save / Don't charge call the billing endpoint and reload;
-// Cancel repaints the cell in place from the data-* it was built with.
-
-function billingEditorHtml(quantity, billable) {
-  return `
-    <div class="charge-editor">
-      <label class="charge-editor-label">Bill for
-        <input type="number" class="charge-input" min="0" max="${escapeHtml(String(quantity))}" step="any" value="${escapeHtml(String(billable))}">
-        of ${escapeHtml(String(quantity))}
-      </label>
-      <div class="charge-editor-actions">
-        <button type="button" class="charge-save">Save</button>
-        <button type="button" class="charge-zero secondary-btn">Don't charge</button>
-        <button type="button" class="charge-cancel secondary-btn">Cancel</button>
-      </div>
-      <p class="charge-editor-msg" aria-live="polite"></p>
-    </div>`;
-}
-
+// count (the items were really used). The editor UI lives in
+// `views/billingEditor.js` (shared with the Work Orders line editor); here we
+// just supply the row's numbers and how to persist the change, then repaint.
 historyTbody.addEventListener("click", (event) => {
   const editBtn = event.target.closest(".edit-charge-btn");
   if (!editBtn) return;
@@ -340,73 +350,96 @@ historyTbody.addEventListener("click", (event) => {
   if (!cell) return;
 
   const id = editBtn.dataset.id;
-  const quantity = Number(cell.dataset.quantity);
-  const billable = Number(cell.dataset.billable);
-  const original = cell.innerHTML;
-
-  cell.innerHTML = billingEditorHtml(quantity, billable);
-  const input = cell.querySelector(".charge-input");
-  const msg = cell.querySelector(".charge-editor-msg");
-  input.focus();
-  input.select();
-
-  function restore() { cell.innerHTML = original; }
-
-  async function submit(value) {
-    // `value` is the billable count, or null to clear the override.
-    cell.querySelectorAll("button").forEach(b => { b.disabled = true; });
-    try {
+  openBillingEditor(cell, {
+    quantity: Number(cell.dataset.quantity),
+    billable: Number(cell.dataset.billable),
+    onSave: async (value) => {
       await apiSetBillableQuantity(id, value);
       loadHistory();  // repaint the whole table from fresh data
-    } catch (err) {
-      cell.querySelectorAll("button").forEach(b => { b.disabled = false; });
-      setMessage(msg, friendlyError(err, "Could not update the charge."), "error");
-    }
-  }
-
-  cell.querySelector(".charge-cancel").addEventListener("click", restore);
-  cell.querySelector(".charge-zero").addEventListener("click", () => submit(0));
-  cell.querySelector(".charge-save").addEventListener("click", () => {
-    const raw = input.value.trim();
-    if (raw === "") { submit(null); return; }  // empty = charge the full amount
-    const n = Number(raw);
-    if (Number.isNaN(n) || n < 0 || n > quantity) {
-      setMessage(msg, `Enter a number between 0 and ${quantity}.`, "error");
-      return;
-    }
-    // Billing the full quantity is the same as having no override; send
-    // null so the row carries no stale "Billing N of N" annotation.
-    submit(n === quantity ? null : n);
+    },
   });
 });
 
-historyItemLookupBtn.addEventListener("click", async () => {
-  const barcode = historyItemBarcode.value.trim();
-  setMessage(historyItemMessage, "", "");
+// --- By Item search-and-pick ------------------------------------------
+//
+// Replaces the old exact-barcode lookup with the name-or-barcode search
+// used everywhere else (manual entry, Work Orders / Mass Stage add-item):
+// the item list is cached once and filtered client-side, and picking a
+// result sets the history filter. Only live items are searchable -- the
+// same limit the old barcode lookup had (archived items are hidden from
+// lookup), so this is not a behavior change.
 
-  if (!barcode) {
-    setMessage(historyItemMessage, "Enter a barcode to look up.", "error");
+let historyItems = [];
+let historyItemsLoaded = false;
+
+async function loadHistoryItems() {
+  if (historyItemsLoaded) return;
+  try {
+    historyItems = await apiListItems();
+    historyItemsLoaded = true;
+  } catch {
+    historyItems = [];
+  }
+}
+
+function renderItemResults() {
+  const query = historyItemSearch.value.trim().toLowerCase();
+  if (!query) {
+    historyItemResults.innerHTML = "";
+    historyItemResults.hidden = true;
+    return;
+  }
+  const matches = historyItems
+    .filter(
+      (it) =>
+        it.name.toLowerCase().includes(query) ||
+        (it.barcode && it.barcode.toLowerCase().includes(query))
+    )
+    .slice(0, 8);
+
+  if (!matches.length) {
+    historyItemResults.innerHTML = `<p class="hint">No matching items.</p>`;
+    historyItemResults.hidden = false;
     return;
   }
 
-  try {
-    const item = await apiGetItemByBarcode(barcode);
-    updateHistoryState({
-      itemId: item.id,
-      itemLabel: `${item.name} (${item.barcode})`,
-      page: 1,
-    });
-    setMessage(historyItemMessage, `Showing transactions for "${item.name}".`, "success");
-    loadHistory();
-  } catch (err) {
-    updateHistoryState({ itemId: null, itemLabel: null });
-    historyResults.hidden = true;
-    if (err && err.status === 404) {
-      setMessage(historyItemMessage, "No item found with that barcode.", "error");
-    } else {
-      setMessage(historyItemMessage, friendlyError(err, "Look-up failed. Try again."), "error");
-    }
-  }
+  historyItemResults.innerHTML = matches
+    .map((it) => {
+      const meta = [`Barcode: ${escapeHtml(it.barcode)}`];
+      if (it.location) meta.push(`Location: ${escapeHtml(it.location)}`);
+      return `<button type="button" class="manual-item-card" data-item-id="${escapeHtml(it.id)}">
+                <span class="manual-item-name">${escapeHtml(it.name)}</span>
+                <span class="manual-item-meta">${meta.map((m) => `<span>${m}</span>`).join("")}</span>
+              </button>`;
+    })
+    .join("");
+  historyItemResults.hidden = false;
+}
+
+historyItemSearch.addEventListener("input", async () => {
+  await loadHistoryItems();
+  renderItemResults();
+});
+
+historyItemResults.addEventListener("click", (event) => {
+  const btn = event.target.closest("[data-item-id]");
+  if (!btn) return;
+  const item = historyItems.find((it) => it.id === btn.dataset.itemId);
+  if (!item) return;
+
+  // Reflect the chosen item in the box, collapse the results, and apply
+  // the filter (an explicit pick is what commits it -- editing the text
+  // afterward just searches again, it doesn't change the active filter).
+  historyItemSearch.value = item.name;
+  historyItemResults.innerHTML = "";
+  historyItemResults.hidden = true;
+  updateHistoryState({
+    itemId: item.id,
+    itemLabel: `${item.name} (${item.barcode})`,
+    page: 1,
+  });
+  setMessage(historyItemMessage, `Showing transactions for "${item.name}".`, "success");
+  loadHistory();
 });
 
 historyUserSelect.addEventListener("change", () => {
@@ -452,6 +485,29 @@ historyWoClearBtn.addEventListener("click", () => {
   clearTimeout(woDebounceTimer);
   historyWoFilter.value = "";
   applyWoFilter("");
+});
+
+// --- Date-range overlay filter ----------------------------------
+// A date input fires `change` on a committed pick (or clear), so no debounce
+// is needed. Either side may be blank for an open range; the two combine
+// with every other active filter via AND.
+
+function applyDateFilter() {
+  updateHistoryState({
+    dateFrom: historyDateFrom.value || null,
+    dateTo: historyDateTo.value || null,
+    page: 1,
+  });
+  loadHistory();
+}
+
+historyDateFrom.addEventListener("change", applyDateFilter);
+historyDateTo.addEventListener("change", applyDateFilter);
+
+historyDateClearBtn.addEventListener("click", () => {
+  historyDateFrom.value = "";
+  historyDateTo.value = "";
+  applyDateFilter();
 });
 
 // --- Pricing list (Admin/Owner) ---------------------------------
@@ -595,6 +651,8 @@ async function fetchAllMatchingRows() {
       itemId: s.tab === "item" ? s.itemId : null,
       userId: s.tab === "user" ? s.userId : null,
       workOrder: s.workOrder,
+      dateFrom: s.dateFrom,
+      dateTo: s.dateTo,
     });
     const batch = data.items || [];
     all.push(...batch);
@@ -602,19 +660,20 @@ async function fetchAllMatchingRows() {
     if (batch.length === 0) break;  // safety: avoid infinite loop
     page += 1;
   }
-  if (page > COPY_MAX_PAGES && all.length < total) {
+  const truncated = page > COPY_MAX_PAGES && all.length < total;
+  if (truncated) {
     console.warn(
       `Copy stopped at ${all.length}/${total} rows (capped at ${COPY_MAX_PAGES} pages).`
     );
   }
-  return all;
+  return { rows: all, total, truncated };
 }
 
 historyPricingBtn.addEventListener("click", async () => {
   setMessage(historyPricingMessage, "Building…", "");
   historyPricingBtn.disabled = true;
   try {
-    const rows = await fetchAllMatchingRows();
+    const { rows, total, truncated } = await fetchAllMatchingRows();
     // Work-order rows suppress `item_price`, so fetch each referenced work
     // order once to price them. The button is Admin/Owner-only (see
     // renderHistory), so reaching this path already implies price access.
@@ -633,7 +692,15 @@ historyPricingBtn.addEventListener("click", async () => {
     // the start of each line, not the right-hand price column.
     historyPricingOutput.scrollLeft = 0;
     historyPricingOutput.scrollTop = 0;
-    setMessage(historyPricingMessage, "Pricing ready — select all and copy.", "success");
+    if (truncated) {
+      setMessage(
+        historyPricingMessage,
+        `Pricing incomplete — showing ${rows.length} of ${total} matching rows. Narrow the filters for a complete list.`,
+        "error"
+      );
+    } else {
+      setMessage(historyPricingMessage, "Pricing ready — select all and copy.", "success");
+    }
   } catch (err) {
     console.error("Pricing list failed:", err);
     setMessage(historyPricingMessage, "Could not build the pricing list — try again.", "error");

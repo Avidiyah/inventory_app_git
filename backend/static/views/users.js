@@ -19,12 +19,13 @@ import {
   apiResetPassword,
 } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
-import { setMessage } from "../dom.js";
+import { setMessage, confirmDialog, promptPasswordReset } from "../dom.js";
 import { assignableRoles, canManage } from "../roles.js";
 
 const createUserBtn = document.getElementById("create-user-btn");
 const createUserMessage = document.getElementById("create-user-message");
 const usersTbody = document.getElementById("users-tbody");
+const usersMessage = document.getElementById("users-message");
 const usernameInput = document.getElementById("username");
 const userRoleSelect = document.getElementById("user-role");
 const userPasswordInput = document.getElementById("user-password");
@@ -48,6 +49,10 @@ function updateRoleHelp() {
 if (userRoleSelect) userRoleSelect.addEventListener("change", updateRoleHelp);
 
 export async function loadUsers() {
+  // #9: in-progress placeholder (see loadItems for why this lives in the
+  // table body rather than the #users-message slot, which carries
+  // archive/restore/reset success text set just before a reload).
+  usersTbody.innerHTML = `<tr><td colspan="4" class="hint">Loading…</td></tr>`;
   try {
     // Include archived users so the History "by user" filter can still
     // select a departed user; the Saved Users table marks archived rows
@@ -58,7 +63,11 @@ export async function loadUsers() {
     populateRoleSelect();
     populateUserSelects();
   } catch (error) {
-    console.error("Failed to load users:", error);
+    // #6: surface the failure rather than logging to a console no field
+    // user sees. This also runs on the post-login boot load (Users page
+    // hidden) -- harmless, and the page refreshes on activation.
+    usersTbody.innerHTML =
+      `<tr><td colspan="4" class="error">${escapeHtml(friendlyError(error, "Could not load users. Try again."))}</td></tr>`;
   }
 }
 
@@ -84,7 +93,7 @@ function renderUsersTable() {
     } else {
       actions = `<div class="row-actions">
            <button class="reset-pw-btn secondary-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">Reset Password</button>
-           <button class="archive-user-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">🗑️</button>
+           <button class="archive-user-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}" title="Archive user" aria-label="${escapeHtml(`Archive user ${user.username}`)}">🗑️</button>
          </div>`;
     }
     const archivedTag = isArchived ? ` <span class="muted">(archived)</span>` : "";
@@ -168,17 +177,16 @@ usersTbody.addEventListener("click", async (event) => {
   if (target.classList.contains("reset-pw-btn")) {
     const userId = target.dataset.id;
     const userName = target.dataset.name;
-    const newPassword = prompt(`New password for "${userName}" (at least 4 characters):`);
+    setMessage(usersMessage, "", "");
+    // The modal validates length and confirmation before resolving, so a
+    // returned value is always a valid password; null means cancelled.
+    const newPassword = await promptPasswordReset(userName);
     if (newPassword === null) return; // cancelled
-    if (newPassword.length < 4) {
-      alert("Password must be at least 4 characters.");
-      return;
-    }
     try {
       await apiResetPassword(userId, newPassword);
-      alert(`Password reset for "${userName}".`);
+      setMessage(usersMessage, `Password reset for "${userName}".`, "success");
     } catch (err) {
-      alert(friendlyError(err, "Could not reset the password. Try again."));
+      setMessage(usersMessage, friendlyError(err, "Could not reset the password. Try again."), "error");
     }
     return;
   }
@@ -186,11 +194,13 @@ usersTbody.addEventListener("click", async (event) => {
   if (target.classList.contains("restore-user-btn")) {
     const userId = target.dataset.id;
     const userName = target.dataset.name;
+    setMessage(usersMessage, "", "");
     try {
       await apiRestoreUser(userId);
+      setMessage(usersMessage, `Restored "${userName}".`, "success");
       loadUsers();
     } catch (err) {
-      alert(friendlyError(err, "Could not restore the user. Try again."));
+      setMessage(usersMessage, friendlyError(err, "Could not restore the user. Try again."), "error");
     }
     return;
   }
@@ -199,15 +209,17 @@ usersTbody.addEventListener("click", async (event) => {
 
   const userId = target.dataset.id;
   const userName = target.dataset.name;
+  setMessage(usersMessage, "", "");
 
   // Archive (soft delete): the user can no longer log in, but their
   // history is preserved and they can be restored later.
-  if (!confirm(`Archive user "${userName}"? They will no longer be able to log in, but their history is kept and they can be restored.`)) return;
+  if (!(await confirmDialog(`Archive user "${userName}"? They will no longer be able to log in, but their history is kept and they can be restored.`))) return;
 
   try {
     await apiArchiveUser(userId);
+    setMessage(usersMessage, `Archived "${userName}".`, "success");
     loadUsers();
   } catch (err) {
-    alert(friendlyError(err, "Could not archive the user. Try again."));
+    setMessage(usersMessage, friendlyError(err, "Could not archive the user. Try again."), "error");
   }
 });

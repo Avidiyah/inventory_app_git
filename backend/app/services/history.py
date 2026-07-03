@@ -13,6 +13,7 @@ remains acceptable.
 """
 
 import uuid
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -48,24 +49,62 @@ def _build_wo_like_pattern(value):
     return f"%{escaped}%", _LIKE_ESCAPE
 
 
+def _date_range_bounds(
+    date_from: Optional[date], date_to: Optional[date]
+) -> tuple[Optional[datetime], Optional[datetime]]:
+    """Return `(start, end)` tz-aware UTC datetime bounds for a history
+    date-range filter, with `None` for an absent side.
+
+    The client sends calendar dates (`YYYY-MM-DD`, from a date input).
+    `start` is midnight UTC on `date_from`; `end` is midnight UTC on the day
+    AFTER `date_to`, so the filter is `created_at >= start` AND
+    `created_at < end` and `date_to` is therefore included in full (a
+    half-open interval avoids the "23:59:59 vs microseconds" edge cases of an
+    inclusive upper bound). Bounds are interpreted in UTC -- how `created_at`
+    is stored -- so near local midnight a row can land on the adjacent UTC
+    day; this is a filter convenience, not a billing boundary.
+
+    A reversed range (`date_from` after `date_to`) yields `start >= end`,
+    which matches no rows -- an empty page, not an error.
+    """
+    start = (
+        datetime.combine(date_from, time.min, tzinfo=timezone.utc)
+        if date_from is not None
+        else None
+    )
+    end = (
+        datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=timezone.utc)
+        if date_to is not None
+        else None
+    )
+    return start, end
+
+
 def list_history(
     db: Session,
     *,
     item_id: Optional[uuid.UUID],
     user_id: Optional[uuid.UUID],
     work_order_number: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     page: int,
     page_size: int,
     include_price: bool = False,
 ) -> TransactionHistoryPage:
     """Return one page of transaction history, newest first.
 
-    Filters `item_id`, `user_id`, and `work_order_number` are optional
-    and combine with AND. `work_order_number` is a case-sensitive
-    substring match (`LIKE %value%`); literal `%` and `_` in the input
-    are escaped with `\\` and the matching ESCAPE clause so a user who
-    types `%` matches a literal percent, not "anything". An empty /
+    Filters `item_id`, `user_id`, `work_order_number`, `date_from`, and
+    `date_to` are optional and combine with AND. `work_order_number` is a
+    case-sensitive substring match (`LIKE %value%`); literal `%` and `_` in
+    the input are escaped with `\\` and the matching ESCAPE clause so a user
+    who types `%` matches a literal percent, not "anything". An empty /
     whitespace-only value is treated as "no filter".
+
+    `date_from` / `date_to` are calendar dates bounding `created_at`. The
+    range is half-open in UTC (`>= midnight(date_from)` AND
+    `< midnight(date_to + 1 day)`) so `date_to` is included in full; see
+    `_date_range_bounds` for the UTC-boundary caveat.
 
     `include_price` carries the per-unit `item_price` AND the
     `billable_quantity` billing override into each row only when the
@@ -99,6 +138,11 @@ def list_history(
         query = query.filter(
             Transaction.work_order_number.like(pattern, escape=escape_char)
         )
+    start, end = _date_range_bounds(date_from, date_to)
+    if start is not None:
+        query = query.filter(Transaction.created_at >= start)
+    if end is not None:
+        query = query.filter(Transaction.created_at < end)
 
     total = query.count()
 

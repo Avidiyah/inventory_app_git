@@ -20,7 +20,7 @@
 import { getItems } from "../state.js";
 import { apiUpdateBarcodes, apiGetItemByBarcode } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
-import { setMessage, confirmArchivedReuse } from "../dom.js";
+import { setMessage, confirmArchivedReuse, confirmDialog } from "../dom.js";
 
 const section = document.getElementById("add-barcode-section");
 const scannedEl = document.getElementById("add-barcode-scanned");
@@ -97,7 +97,7 @@ resultsEl.addEventListener("click", async (event) => {
   const item = getItems().find(i => i.id === btn.dataset.id);
   if (!item || !pendingBarcode) return;
 
-  if (!confirm(`Add barcode ${pendingBarcode} to "${item.name}"?`)) return;
+  if (!(await confirmDialog(`Add barcode ${pendingBarcode} to "${item.name}"?`))) return;
   setMessage(messageEl, "Adding…", "");
 
   try {

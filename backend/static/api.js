@@ -152,7 +152,7 @@ export async function apiDeleteUser(userId) {
 }
 
 // --- Transactions ------------------------------------------------
-export async function apiListTransactions({ page, pageSize, itemId, userId, workOrder }) {
+export async function apiListTransactions({ page, pageSize, itemId, userId, workOrder, dateFrom, dateTo }) {
   const params = new URLSearchParams();
   params.set("page", page);
   params.set("page_size", pageSize);
@@ -161,6 +161,9 @@ export async function apiListTransactions({ page, pageSize, itemId, userId, work
   if (itemId) params.set("item_id", itemId);
   if (userId) params.set("user_id", userId);
   if (workOrder) params.set("work_order_number", workOrder);
+  // `YYYY-MM-DD` calendar dates; the backend bounds `created_at` inclusively.
+  if (dateFrom) params.set("date_from", dateFrom);
+  if (dateTo) params.set("date_to", dateTo);
   return parseResponse(await fetch(`/transactions/?${params.toString()}`, { credentials: "include" }));
 }
 

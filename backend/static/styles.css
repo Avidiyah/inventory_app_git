@@ -230,7 +230,7 @@ select {
     background-color: var(--color-white);
 }
 
-/* Inline "Remember this device" toggle on the login form: checkbox
+/* Inline "Stay signed in for this shift" toggle on the login form: checkbox
    beside its caption. Overrides the bold/block `label` and the full-size
    `input` defaults above so the box renders at its native size. */
 .checkbox-row {
@@ -247,6 +247,44 @@ select {
     padding: 0;
     margin: 0;
     cursor: pointer;
+}
+
+/* Password field + inline show/hide toggle (login form). The toggle sits
+   inside the input's right edge, so the input needs right padding to keep
+   typed text from running under it. */
+.password-field {
+    position: relative;
+}
+
+.password-field input {
+    width: 100%;
+    padding-right: 64px;
+}
+
+.password-toggle-btn {
+    position: absolute;
+    top: 50%;
+    right: var(--space-2);
+    transform: translateY(-50%);
+    min-height: 32px;
+    margin-top: 0;
+    padding: 0 var(--space-2);
+    background-color: transparent;
+    color: var(--gray-500);
+    border: none;
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    cursor: pointer;
+}
+
+.password-toggle-btn:hover {
+    background-color: transparent;
+    color: var(--color-ink);
+}
+
+.password-toggle-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
 }
 
 /* Primary button = solid brand red ("go"). */
@@ -606,7 +644,11 @@ tr:last-child td {
     font-size: var(--fs-xs);
 }
 
-.charge-editor-msg {
+/* Structural selector, not just the class: setMessage() replaces the
+   element's className wholesale (e.g. with "error"), which would strip a
+   class-based rule after the first validation message. */
+.charge-editor-msg,
+.charge-editor p {
     margin: 0;
     font-size: var(--fs-xs);
 }
@@ -1134,10 +1176,35 @@ tr.archived-user {
 }
 
 .scango-log-line {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-sm);
     font-size: var(--fs-sm);
     border-left: 4px solid transparent;
+}
+
+.scango-log-text {
+    flex: 1;
+}
+
+/* Quick-mode Undo (Supervisor+ only -- see views/transactions.js) and the
+   failed-commit Retry button (#7). Compact, matching the sizing of History's
+   row-action void button. */
+.scango-log-undo-btn,
+.scango-log-retry-btn {
+    flex-shrink: 0;
+    min-height: var(--space-8);
+    padding: 0 var(--space-3);
+    margin-top: 0;
+    font-size: var(--fs-sm);
+}
+
+.scango-log-undone {
+    opacity: 0.6;
+    text-decoration: line-through;
 }
 
 .scango-log-ok {
@@ -1194,6 +1261,33 @@ tr.archived-user {
 .modal-buttons button {
     flex: 1 1 0;
     margin-top: 0;
+}
+
+/* Quantity stepper inside the scan-and-go confirm (#11). Two large tap
+   targets flank a centered count, sized for gloved one-handed use. */
+.scan-confirm-qty {
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    gap: var(--space-2);
+}
+
+.qty-step-btn {
+    flex: 0 0 auto;
+    width: 56px;
+    min-height: 56px;
+    margin-top: 0;
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-bold);
+    line-height: 1;
+}
+
+.qty-step-input {
+    flex: 1 1 0;
+    max-width: 120px;
+    text-align: center;
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-bold);
 }
 
 /* =================== MASS STAGE =================== */

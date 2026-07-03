@@ -12,6 +12,17 @@
                 <button id="history-wo-clear-btn" type="button" class="secondary-btn">Clear</button>
             </div>
 
+            <!-- Date-range overlay filter: also visible on every sub-tab and
+                 combines via AND. Either side may be left blank for an open
+                 range; the To date is included in full. -->
+            <div class="filter-row">
+                <label for="history-date-from">From</label>
+                <input type="date" id="history-date-from">
+                <label for="history-date-to">To</label>
+                <input type="date" id="history-date-to">
+                <button id="history-date-clear-btn" type="button" class="secondary-btn">Clear</button>
+            </div>
+
             <!-- In-page sub-navigation (views/subnav.js): one feature panel
                  visible at a time. The shared #history-results table below sits
                  OUTSIDE these panels, so it stays visible across all three. -->
@@ -29,10 +40,10 @@
             <!-- By Item feature -->
             <div class="feature-panel" id="history-item-panel" data-feature="item" hidden>
                 <div class="filter-row">
-                    <label for="history-item-barcode">Item Barcode</label>
-                    <input type="text" id="history-item-barcode" placeholder="Enter barcode">
-                    <button id="history-item-lookup-btn">Look Up</button>
+                    <label for="history-item-search">Item</label>
+                    <input type="text" id="history-item-search" placeholder="Search by name or barcode" autocomplete="off">
                 </div>
+                <div id="history-item-results" class="manual-results" hidden></div>
                 <p id="history-item-message"></p>
             </div>
 
@@ -53,6 +64,7 @@
                     <button id="history-pricing-btn" type="button" class="secondary-btn" disabled>Pricing list</button>
                     <p id="history-pricing-message"></p>
                 </div>
+                <p id="history-results-message"></p>
                 <textarea id="history-pricing-output" class="pricing-output" rows="12" wrap="off" readonly hidden aria-label="Pricing list"></textarea>
                 <table id="history-table" class="stack-table">
                     <thead>
@@ -61,7 +73,7 @@
                             <th>Item</th>
                             <th>Type</th>
                             <th>Quantity</th>
-                            <th>Work Order</th>
+                            <th>WO / Reason</th>
                             <th>User</th>
                             <th class="admin-col" hidden>Charge</th>
                             <th>Actions</th>
