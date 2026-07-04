@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -382,6 +382,31 @@ def test_status_filter_and_search(db):
     frag = a.number[-4:]
     found = {w.id for w in wos.list_work_orders(db, user=sup, search=frag)}
     assert a.id in found
+
+
+def test_list_limit_returns_newest(db):
+    sup = _seed_user(db, "supervisor")
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    created = []
+    for i in range(13):
+        w = _wo(db, created_by=sup)
+        # Explicit strictly-increasing created_at so the newest-first ordering (and
+        # thus which rows the cap keeps) is deterministic regardless of insert speed
+        # -- the model default is a Python-side now() and can collide in a tight loop.
+        w.created_at = base + timedelta(minutes=i)
+        created.append(w)
+    db.flush()
+
+    # Uncapped: every work order, newest-first.
+    assert len(wos.list_work_orders(db, user=sup)) == 13
+
+    # Capped at 10: exactly the 10 newest-created, in newest-first order.
+    capped = wos.list_work_orders(db, user=sup, limit=10)
+    assert len(capped) == 10
+    newest_10 = [
+        w.id for w in sorted(created, key=lambda x: x.created_at, reverse=True)[:10]
+    ]
+    assert [w.id for w in capped] == newest_10
 
 
 def test_archived_work_order_hidden(db):

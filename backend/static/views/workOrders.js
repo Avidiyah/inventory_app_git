@@ -31,6 +31,7 @@ const listMessage = document.getElementById("work-orders-list-message");
 const statusFilter = document.getElementById("work-orders-status-filter");
 const searchInput = document.getElementById("work-orders-search");
 const searchBtn = document.getElementById("work-orders-search-btn");
+const moreEl = document.getElementById("work-orders-more");
 
 const createSection = document.getElementById("work-orders-create-section");
 const createNumber = document.getElementById("wo-create-number");
@@ -48,6 +49,13 @@ let allTechs = [];
 let techsLoaded = false;
 // Work order id to expand once the list renders (set by a Mass Stage tree click).
 let pendingFocusId = null;
+
+// The default browse shows only the RECENT_LIMIT newest work orders to keep the
+// page fast as the archive grows; `showAll` (flipped by the "Show all" control)
+// drops the cap. A search always queries the full set, and a status-filter change
+// resets back to the capped browse. See loadWorkOrders / renderMoreControl.
+const RECENT_LIMIT = 10;
+let showAll = false;
 
 export function focusWorkOrder(workOrderId) {
   pendingFocusId = workOrderId;
@@ -160,13 +168,19 @@ export async function loadWorkOrders() {
 
   const status = statusFilter.value;
   const q = searchInput.value.trim();
+  // The cap applies only to a plain browse. A search must reach the full set (so an
+  // old work order stays findable); "Show all" and a pending focus-jump also need
+  // the full set. Otherwise cap at the RECENT_LIMIT newest.
+  const capped = !q && !showAll && !pendingFocusId;
+  const limit = capped ? RECENT_LIMIT : null;
   try {
-    let cards = await apiListWorkOrders({ status, q });
+    let cards = await apiListWorkOrders({ status, q, limit });
     if (pendingFocusId && !cards.some((c) => c.id === pendingFocusId)) {
       statusFilter.value = "";
-      cards = await apiListWorkOrders({ status: "", q });
+      cards = await apiListWorkOrders({ status: "", q, limit: null });
     }
     renderCards(cards);
+    renderMoreControl(capped, cards.length);
     setMessage(listMessage, "", "");
     if (pendingFocusId) {
       const card = listEl.querySelector(`details.wo-card[data-id="${pendingFocusId}"]`);
@@ -178,6 +192,10 @@ export async function loadWorkOrders() {
     }
   } catch (err) {
     listEl.innerHTML = "";
+    if (moreEl) {
+      moreEl.hidden = true;
+      moreEl.innerHTML = "";
+    }
     setMessage(listMessage, friendlyError(err, "Could not load work orders."), "error");
   }
 }
@@ -189,6 +207,40 @@ function renderCards(cards) {
     return;
   }
   cards.forEach((c) => listEl.appendChild(buildCard(c)));
+}
+
+// The "Show all" / "Show recent only" control beneath the list. Only meaningful on
+// a plain (not search-driven) browse:
+//  - a capped browse that filled the page (>= RECENT_LIMIT rows) may have more
+//    beyond the cap, so offer "Show all". (An exact-RECENT_LIMIT total just reloads
+//    the same rows on click -- harmless.)
+//  - when showing all, offer "Show recent only" to return to the fast view.
+//  - during a search, or a short capped page, show nothing.
+function renderMoreControl(capped, shownCount) {
+  if (!moreEl) return;
+  if (showAll && !searchInput.value.trim()) {
+    moreEl.innerHTML =
+      `<button type="button" class="secondary-btn" id="wo-show-recent">Show recent only</button>`;
+    moreEl.hidden = false;
+  } else if (capped && shownCount >= RECENT_LIMIT) {
+    moreEl.innerHTML = `<button type="button" id="wo-show-all">Show all work orders</button>`;
+    moreEl.hidden = false;
+  } else {
+    moreEl.innerHTML = "";
+    moreEl.hidden = true;
+  }
+}
+
+if (moreEl) {
+  moreEl.addEventListener("click", (event) => {
+    if (event.target.id === "wo-show-all") {
+      showAll = true;
+      loadWorkOrders();
+    } else if (event.target.id === "wo-show-recent") {
+      showAll = false;
+      loadWorkOrders();
+    }
+  });
 }
 
 function buildCard(card) {
@@ -544,4 +596,9 @@ if (searchInput) {
     }
   });
 }
-if (statusFilter) statusFilter.addEventListener("change", loadWorkOrders);
+if (statusFilter) {
+  statusFilter.addEventListener("change", () => {
+    showAll = false;  // each filter view starts at the fast, capped browse
+    loadWorkOrders();
+  });
+}

@@ -658,7 +658,7 @@ Supervisor+. Out-of-scope, archived, or unknown work orders return 404.
 
 | Method | Path | Gate | Behavior |
 | --- | --- | --- | --- |
-| GET | `/work-orders/` | session scoped | list in_progress/completed work orders; `status`, `q` (WO# search) filters |
+| GET | `/work-orders/` | session scoped | list in_progress/completed work orders; `status`, `q` (WO# search), `limit` (cap to N newest) filters |
 | POST | `/work-orders/` | supervisor+ | create (or open, on number match) a work order |
 | GET | `/work-orders/{id}` | session scoped | work-order detail + logged materials |
 | PATCH | `/work-orders/{id}` | session scoped; attr/assignee/number edits supervisor+ | set status/entry_mode and/or attributes |
@@ -777,6 +777,10 @@ Behavior:
 - Supervisor+ get a "New work order" form (number + optional community/building/
   unit/assignee); re-using an existing number opens it.
 - Filter by status (In progress / Completed / All), then search by number.
+- The list shows only the 10 most-recently-created work orders by default (keeps
+  the page fast as the archive grows); a "Show all" control drops the cap and a
+  "Show recent only" control restores it. A search always queries the full set, and
+  a status-filter change resets to the capped browse (the cap is browse-only).
 - Cards are collapsible; the body has a mode selector (Dispense / Retroactive),
   Mark completed / Reopen, a Supervisor+ attribute editor (community/building/
   unit/assignee) + Archive, and the logged materials with inline-editable
@@ -1031,7 +1035,7 @@ Coverage map:
 | `test_mass_stages_api.py` | schemas, route gates, response builders |
 | `test_mass_staging_load.py` | DB-backed slot load/return, add-work-order enforce-match, reuse |
 | `test_work_orders_domain.py` | pure number normalization, 2-state validators, fill-blanks, visibility scope |
-| `test_work_orders_service.py` | DB-backed find-or-create (case-insensitive/fill-blanks/restore), dispense/retroactive logging, edit auto-correct, delete reversal, stock-neutral void, archive, scoping |
+| `test_work_orders_service.py` | DB-backed find-or-create (case-insensitive/fill-blanks/restore), dispense/retroactive logging, edit auto-correct, delete reversal, stock-neutral void, archive, scoping; list `limit` newest-N cap |
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
 | `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin; history row exposes `work_order_id` |
 

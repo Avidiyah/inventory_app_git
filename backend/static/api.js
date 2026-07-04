@@ -297,10 +297,11 @@ export async function apiReuseStage(stageId) {
 // open to any authenticated user but server-scoped (technician -> assigned,
 // supervisor -> created, admin/owner -> all). Create / attribute edits / archive
 // are Supervisor+.
-export async function apiListWorkOrders({ status = null, q = null } = {}) {
+export async function apiListWorkOrders({ status = null, q = null, limit = null } = {}) {
   const params = new URLSearchParams();
   if (status) params.set("status", status);
   if (q) params.set("q", q);
+  if (limit != null) params.set("limit", limit);
   const qs = params.toString();
   return parseResponse(await fetch(`/work-orders/${qs ? `?${qs}` : ""}`, { credentials: "include" }));
 }

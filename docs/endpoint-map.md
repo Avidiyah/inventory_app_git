@@ -619,8 +619,10 @@ read-modify-write guard for `items.quantity`).
   each attr, set assignee only if currently unassigned; commit. New: insert
   `in_progress`. Race on the unique index → rollback + reuse. The single
   find-or-create home (scan gate, free-text txn, Mass Stage all funnel here).
-- `list_work_orders(user, status?, search?)` → newest first, archived excluded,
-  scoped by `can_view_work_order` (supervisor → created, technician → assigned).
+- `list_work_orders(user, status?, search?, limit?)` → newest first, archived
+  excluded, scoped by `can_view_work_order` (supervisor → created, technician →
+  assigned); `limit` caps to the N newest (the page browses 10 by default and omits
+  `limit` to show all / to search).
 - `get_work_order(id, user)` → scoped load (`WorkOrderNotFoundError` if unknown/
   archived/out-of-scope); **`_heal_orphan_lines`**: sum non-voided linked dispenses
   per item with no line and create the missing `work_order_items` rows (lazy

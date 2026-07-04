@@ -120,16 +120,20 @@ def _can_see_price(user: User) -> bool:
 def list_work_orders(
     status: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
+    limit: Optional[int] = Query(None, ge=1),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """List the caller's work orders, newest-first. `status` filters by
-    in_progress|completed; `q` is a case-insensitive number search. Any
-    authenticated user; server-scoped."""
+    in_progress|completed; `q` is a case-insensitive number search; `limit` caps
+    the result to the N newest (the page browses the 10 most recent by default and
+    omits `limit` to show all / to search). Any authenticated user; server-scoped."""
     try:
         return [
             _card(w)
-            for w in wo_service.list_work_orders(db, user=user, status=status, search=q)
+            for w in wo_service.list_work_orders(
+                db, user=user, status=status, search=q, limit=limit
+            )
         ]
     except DomainError as exc:
         raise to_http(exc)

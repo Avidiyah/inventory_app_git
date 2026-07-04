@@ -192,10 +192,14 @@ def list_work_orders(
     user: Optional[User],
     status: Optional[str] = None,
     search: Optional[str] = None,
+    limit: Optional[int] = None,
 ) -> Sequence[WorkOrder]:
     """Live work orders newest-first, scoped to `user` (technician -> assigned,
     supervisor -> created, admin/owner -> all). `status` narrows to
-    in_progress|completed; `search` is a case-insensitive number substring."""
+    in_progress|completed; `search` is a case-insensitive number substring.
+    `limit`, when set, caps the result to the N most-recently-created work orders:
+    the Work Orders page browses the 10 newest by default and drops the cap to show
+    all (or to search, which must reach the full set)."""
     query = (
         db.query(WorkOrder)
         .options(joinedload(WorkOrder.assignee), selectinload(WorkOrder.items))
@@ -217,7 +221,10 @@ def list_work_orders(
         else:
             query = query.filter(WorkOrder.assigned_to_id == user.id)
 
-    return query.order_by(WorkOrder.created_at.desc()).all()
+    query = query.order_by(WorkOrder.created_at.desc())
+    if limit is not None:
+        query = query.limit(limit)
+    return query.all()
 
 
 def _heal_orphan_lines(db: Session, work_order: WorkOrder) -> bool:
