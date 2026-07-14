@@ -1,6 +1,6 @@
 # Inventory App Current State
 
-Last reviewed: 2026-06-30
+Last reviewed: 2026-07-14
 
 Purpose of this file: give an AI or developer enough current-state context to
 make technical changes without rereading the whole repository. Start here, then
@@ -55,6 +55,9 @@ Core workflows:
 - Plan/load/return materials for a community/building by unit (truck staging).
 - Review/copy transaction history.
 - Manage users and role-scoped access.
+- Add tools by barcode and track custody: check a tool out to a user
+  (Admin+) and return it (any role), including a bulk (quantity > 1)
+  tool split across multiple holders.
 
 ## Architecture Rules
 
@@ -106,6 +109,8 @@ Path shorthand:
 | Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | mass-stage tests plus manual UI check |
 | Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
 | Work Orders UI | `static/views/workOrders.js`, `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | work-order tests plus manual UI check |
+| Tools API/domain/service (custody) | `domain/tools.py`, `domain/quantity.py` (reused), `services/tools.py`, `routers/tools.py`, `schemas/tools.py`, `models.py` | `test_tools_domain.py`, `test_tools_service.py`, `test_route_role_gates.py` |
+| Tools UI (Add Tools card + Tools page) | `static/views/tools.js`, `static/views/toolCheckout.js`, `static/views/toolReturn.js`, `static/pages/tools.html`, `static/pages/create-item.html`, `static/api.js` | manual UI check (no frontend test harness) |
 | Deployment/runtime | `backend/Dockerfile`, `backend/entrypoint.sh`, `backend/alembic.ini`, `backend/app/database.py`, `render.yaml`, `requirements*.txt` | `git diff --check`; run tests if runtime deps change |
 | Frontend navigation/layout | `static/shell-head.html`, `static/shell-tail.html`, `static/pages/*.html`, `static/views/nav.js`, `static/styles.css` | manual browser check; no frontend test harness |
 | Database schema/migration | `models.py`, matching schemas/services, `backend/alembic/versions`, `database.py` | targeted DB-backed tests, then full pytest |
@@ -121,11 +126,14 @@ backend/app/database.py          engine/session setup and URL normalization
 backend/app/models.py            SQLAlchemy schema model
 backend/app/domain/*.py          pure business rules and domain errors
 backend/app/domain/work_orders.py work-order status/mode/visibility rules
+backend/app/domain/tools.py      tool-return outstanding-balance cap (validate_return)
 backend/app/routers/*.py         route handlers and auth gates
 backend/app/routers/work_orders.py Work Orders page routes (server-scoped)
+backend/app/routers/tools.py     Tools CRUD + checkout/return routes
 backend/app/schemas/*.py         request/response contracts
 backend/app/services/*.py        DB-backed application logic
 backend/app/services/work_orders.py Work Orders materials log (dispense/retro)
+backend/app/services/tools.py    Tool CRUD + checkout/return + custody aggregate
 backend/alembic/versions/*.py    migrations
 backend/scripts/create_owner.py  owner bootstrap
 backend/scripts/import_local_data.ps1 local data import helper
@@ -142,8 +150,12 @@ backend/static/format.js         display/error/safe-url helpers
 backend/static/dom.js            DOM helpers and confirm dialog
 backend/static/views/*.js        page/view modules
 backend/static/views/workOrders.js Work Orders page view
+backend/static/views/tools.js    Tools page (list/search/scan) + Add Tool form binding
+backend/static/views/toolCheckout.js Tool checkout sub-flow (Admin+)
+backend/static/views/toolReturn.js Tool return sub-flow (any role)
 backend/static/pages/*.html      SPA page fragments
 backend/static/pages/work-orders.html Work Orders page fragment
+backend/static/pages/tools.html  Tools page fragment
 backend/static/shell-*.html      shell fragments
 backend/static/styles.css        global styles
 backend/static/scan/*.js         live scanner wrapper/debouncer
@@ -342,6 +354,8 @@ owner > admin > supervisor > technician
 | Create work order / edit attributes / assign / archive | supervisor+ (scoped) |
 | Set work-order line billing override | admin+ (scoped) |
 | Scan-gate work-order cards | any authenticated user (`GET /work-orders/?status=in_progress`, scoped) |
+| Tools: view list/lookup, return | any authenticated user |
+| Tools: create, edit, archive, checkout | admin+ |
 
 Scoping nuance:
 
@@ -506,6 +520,63 @@ Rules:
   backfilled / self-healed line. `work_order_id` FK is `ON DELETE CASCADE`;
   `item_id` is plain.
 
+### `tools`
+
+Fields: `id`, `barcode`, `name`, `quantity`, `created_at`, `archived_at`.
+
+Rules:
+
+- Parallel to `items` but deliberately smaller: no `location`, `price`, or
+  `product_link` (tools are not billed or shelved like consumable
+  materials).
+- `quantity` is the on-hand/available count -- identical semantics to
+  `items.quantity`. A checkout decrements it, a return increments it, via
+  the same `domain.quantity.apply_delta` items use.
+- A row may represent one specific serialized unit (`quantity` effectively
+  1, its own barcode) or an unserialized bulk batch (`quantity` > 1, one
+  shared barcode, fungible units) -- both valid; there is no schema
+  distinction. "Serializing" a batch later is a manual data-entry pattern
+  (shrink the bulk row's quantity, create individual rows with their own
+  barcode as units get labeled), not a conversion feature.
+- `archived_at` hides the tool from `list_tools` / barcode lookup but keeps
+  the row so `tool_transactions` history still resolves it, mirroring
+  `Item.archived_at`.
+- Barcode uniqueness is a **partial** unique index scoped to live rows
+  (`archived_at IS NULL`), not a plain column UNIQUE like `items.barcode`
+  -- an archived tool's barcode is simply free to reuse with no retire/
+  confirm dance (unlike items' archived-barcode-conflict/override flow).
+
+### `tool_transactions`
+
+Fields: `id`, `tool_id`, `transaction_type`, `quantity`, `assigned_to_id`,
+`performed_by_id`, `work_order_id`, `work_order_number`, `created_at`.
+
+Rules:
+
+- Append-only checkout/return ledger -- the custody-tracking analogue of
+  `transactions`, kept as a separate table because the vocabulary
+  (`checkout`/`return`, not `stock`/`dispense`/`adjust`) and the mandatory
+  custody field have no equivalent on `transactions`, which is tightly
+  coupled to billing/work-order logic.
+- Carries two distinct user references: `assigned_to_id` (who has/had
+  custody -- required, a tool must be assigned to a user before a checkout
+  is recorded) and `performed_by_id` (who was logged in and processed the
+  action, nullable, mirrors `Transaction.user_id`). They may differ -- an
+  Admin can check a tool out to a technician.
+- "Who currently has a tool" is **derived, not stored**: for a given
+  `(tool_id, assigned_to_id)` pair, outstanding =
+  Sum(checkout.quantity) - Sum(return.quantity)
+  (`services.tools.tool_custody` / `_outstanding_for_user`). A bulk tool
+  can be split across multiple holders.
+- A return may never exceed that user's current outstanding balance for
+  the tool (`domain.tools.validate_return`, raises
+  `ToolReturnExceedsCheckedOutError`).
+- `work_order_id` / `work_order_number` are an optional, **never required**
+  linkage -- unlike `transactions.work_order_id`, there is no find-or-create
+  behavior; a free-text number is stored as-is, denormalized.
+- No void/undo exists for a tool_transactions row in this phase (unlike
+  `transactions.voided_at`) -- see Known Gaps.
+
 ### `mass_stages`
 
 Fields: `id`, `community`, `building_name`, `status`, `created_by_id`,
@@ -626,6 +697,23 @@ Filter behavior:
 
 Readable image with no barcode returns `200 {"barcodes": []}`.
 Unreadable image returns 400.
+
+### Tools
+
+| Method | Path | Gate | Behavior |
+| --- | --- | --- | --- |
+| POST | `/tools/` | admin+ | create tool |
+| GET | `/tools/` | session | list live tools, each with current custody breakdown |
+| GET | `/tools/{barcode}` | session | lookup live tool by barcode |
+| PATCH | `/tools/{tool_id}` | admin+ | partial edit of barcode/name |
+| DELETE | `/tools/{tool_id}` | admin+ | archive tool |
+| POST | `/tools/{tool_id}/checkout` | admin+ | check out to `assigned_to_id`; decrements on-hand |
+| POST | `/tools/{tool_id}/return` | session | return from `assigned_to_id`'s custody; increments on-hand |
+
+`work_order_id`/`work_order_number` on checkout/return are optional and
+never required, with no find-or-create behavior (a free-text number is
+stored as-is). Every response includes `custody: [{user_id, username,
+quantity}]`, the tool's current outstanding balances (net > 0 only).
 
 ### Mass Stages
 
@@ -795,6 +883,36 @@ Behavior:
   line; a `materials_total` (base + mark-up) sums the card.
 - Completed work orders stay fully editable (status is a flag + filter).
 
+### Tools
+
+Files: `views/tools.js`, `views/toolCheckout.js`, `views/toolReturn.js`,
+`pages/tools.html`, `pages/create-item.html`, `api.js`, backend tools
+router/service/domain/schema/model.
+
+Behavior:
+
+- Add Tool is a second card ("Add Tool") on the Add Item page, below Add
+  Item; Admin+ (inherits the page's gate). Barcode + name + quantity only
+  -- no location/price/product-link.
+- Tools page is reached via its own nav button (any authenticated role).
+  Sub-nav mirrors Find Item: Find (table) / Scan (barcode lookup, reuses
+  `mountScanner` with a `lookupFn`/`notFoundLabel` pointed at
+  `apiGetToolByBarcode` -- no create-from-scan shortcut).
+- Table columns: Barcode, Name, On Hand, Checked Out (each custody entry
+  as `username: quantity`, one per line), Actions.
+- Admin+ row actions: Check Out, Edit, Archive. Any role additionally sees
+  Return, but only on a tool they currently hold (client-side
+  convenience; the backend gate is "any session").
+- Checkout (Admin+) populates the assigned-to picker from the app's
+  existing users cache (`state.getUsers()`, already loaded at login for
+  Supervisor+/Admin/Owner). Return does the same for Supervisor+, but a
+  Technician cannot call `GET /users/` (Supervisor+ gated) -- so for a
+  Technician the picker falls back to a single option built from their
+  own outstanding custody entry (`toolReturn.js`'s `custody` param),
+  never an empty/broken dropdown.
+- Both panels have an optional free-text work-order-number field (no
+  find-or-create; stored as-is).
+
 ### History
 
 Files: `views/history.js`, `pages/history.html`, `services/history.py`,
@@ -949,6 +1067,34 @@ Behavior:
   `effective_billable * unit_price`) and per-line `unit_price`/`billable_quantity`
   for Admin/Owner, redacted below.
 
+### Tools
+
+Files: `domain/tools.py`, `domain/quantity.py` (reused), `services/tools.py`,
+`routers/tools.py`, `schemas/tools.py`, `models.py`.
+
+Behavior:
+
+- `create_tool` / `update_tool` check barcode uniqueness against **live**
+  tools only (`services.tools._ensure_barcode_free`) -- no archived-
+  conflict/override flow like items; an archived tool's barcode is simply
+  free.
+- `checkout_tool` / `return_tool` both 🔒 lock the `Tool` row (mirrors
+  `services.transactions.apply_transaction`) and reuse
+  `domain.quantity.apply_delta` directly: checkout calls it with
+  `"dispense"`, return with `"stock"`. No new arithmetic exists for tools.
+- `return_tool` computes the target user's current outstanding balance
+  (`_outstanding_for_user`, the same aggregate query as `tool_custody`
+  scoped to one user) and calls `domain.tools.validate_return` before
+  applying the quantity change, raising `ToolReturnExceedsCheckedOutError`
+  if the return would exceed it.
+- `tool_custody` is the shared aggregate (`SUM` grouped by
+  `assigned_to_id`, `HAVING net > 0`) both the router (for display) and
+  `return_tool` (for the cap) use -- custody is always derived from
+  `tool_transactions`, never stored.
+- `_tool_response` (router) sets `custody` explicitly from `tool_custody`,
+  the same pattern `routers/items.py::_item_response` uses for
+  `barcodes`.
+
 ### Mass Staging
 
 Files: `domain/mass_staging.py`, `services/mass_staging.py`,
@@ -994,6 +1140,7 @@ Alembic head: `a9d1f3b7c2e8`.
 | `b3d5f7a9c1e4` | standalone `work_orders` (number identity) + `work_order_items` + transaction `affects_stock`/`work_order_id` + `mass_stages.community` + `mass_stage_work_orders` slots (replaces rooms) |
 | `c4e6a8b0d2f5` | backfill `work_order_items` lines from existing linked dispenses |
 | `a9d1f3b7c2e8` | `work_order_items.billable_quantity` (per-line billing override) |
+| `d2f4b6a8c0e3` | `tools` + `tool_transactions` tables (tool custody tracking) |
 
 ## Test Map
 
@@ -1038,6 +1185,8 @@ Coverage map:
 | `test_work_orders_service.py` | DB-backed find-or-create (case-insensitive/fill-blanks/restore), dispense/retroactive logging, edit auto-correct, delete reversal, stock-neutral void, archive, scoping; list `limit` newest-N cap |
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
 | `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin; history row exposes `work_order_id` |
+| `test_tools_domain.py` | pure `domain.tools.validate_return` outstanding-balance cap |
+| `test_tools_service.py` | DB-backed: create/duplicate-live-barcode, archived-barcode reuse, checkout/return round-trip incl. `apply_delta` reuse, checkout overdraft (`NegativeQuantityError`), return-beyond-outstanding (`ToolReturnExceedsCheckedOutError`), multi-user custody split on a bulk tool, archive hides from list |
 
 No frontend test harness exists. For UI behavior, run backend tests plus manual
 browser checks for changed pages.
@@ -1069,6 +1218,22 @@ Do not "fix" these accidentally unless the task asks for it.
   Supervisor+; a technician's scan must carry a `work_order_id` (from a card).
 - Deferred work-order attributes not yet built: `priority`, `due_date`,
   `external_ref`/`source` (for future real-world WO integration).
+- Tools: no restock endpoint -- `tools.quantity` only decreases via
+  checkout and increases via return; adding more units to an existing bulk
+  tool isn't built (a natural follow-up: `POST /tools/{id}/restock`
+  reusing `apply_delta(qty, "stock", n)`).
+- Tools: no void/undo for a checkout or return -- mis-clicks are not
+  reversible (unlike `transactions.voided_at`).
+- Tools: no cross-namespace barcode uniqueness check against
+  `items.barcode` -- a tool and an item could theoretically share the same
+  barcode string with no error (low risk, scanned on different pages).
+- Tools: no dedicated history/ledger page -- `tool_transactions` rows are
+  the audit trail, but only the current derived custody balance is
+  exposed via the API, not the full event log.
+- Tools: any authenticated user may submit a return for any
+  `assigned_to_id` on any tool (no self-scope restriction) -- matches the
+  confirmed "any role can return" rule, but means a technician could
+  technically check in a tool on someone else's behalf.
 
 ## Documentation Policy
 

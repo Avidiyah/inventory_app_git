@@ -12,6 +12,7 @@ import { loadItems } from "./items.js";
 import { loadUsers } from "./users.js";
 import { loadStages } from "./massStage.js";
 import { loadWorkOrders } from "./workOrders.js";
+import { loadTools, toolsScanner } from "./tools.js";
 import { txnScanner } from "./scan.js";
 import { itemsScanner } from "./items.js";
 
@@ -24,6 +25,7 @@ const pages = document.querySelectorAll(".page");
 const SCANNERS_BY_PAGE = {
   "transaction": txnScanner,
   "saved-items": itemsScanner,
+  "tools": toolsScanner,
 };
 
 let activePage = null;
@@ -53,6 +55,9 @@ export const PAGE_ACCESS = {
   "mass-stage": ["owner", "admin", "supervisor"],
   // Work Orders is technician-facing (server scopes to assigned/created/all).
   "work-orders": ["owner", "admin", "supervisor", "technician"],
+  // Tools: any authenticated role may view/return; checkout is Admin+
+  // (enforced server-side, hidden client-side via actionsCell in tools.js).
+  "tools": ["owner", "admin", "supervisor", "technician"],
   "history": ["owner", "admin", "supervisor"],
 };
 
@@ -98,6 +103,8 @@ export function showPage(pageName) {
     loadStages();
   } else if (pageName === "work-orders") {
     loadWorkOrders();
+  } else if (pageName === "tools") {
+    loadTools();
   }
 }
 

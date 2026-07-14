@@ -23,6 +23,7 @@ import pytest
 
 from app.domain import roles
 from app.routers import items as items_router
+from app.routers import tools as tools_router
 from app.routers import transactions as transactions_router
 from app.routers import work_orders as work_orders_router
 
@@ -107,3 +108,29 @@ def test_work_order_routes_have_no_static_min_role(endpoint_name):
     # `services.work_orders` (covered by test_work_orders_service.py), not by a
     # `require_min_role` gate. So no static minimum should be discoverable.
     assert _min_role_for(work_orders_router, endpoint_name) is None
+
+
+def test_create_tool_requires_admin():
+    assert _min_role_for(tools_router, "create_tool") == roles.ROLE_ADMIN
+
+
+def test_update_tool_requires_admin():
+    assert _min_role_for(tools_router, "update_tool") == roles.ROLE_ADMIN
+
+
+def test_delete_tool_requires_admin():
+    assert _min_role_for(tools_router, "delete_tool") == roles.ROLE_ADMIN
+
+
+def test_checkout_tool_requires_admin():
+    assert _min_role_for(tools_router, "checkout_tool") == roles.ROLE_ADMIN
+
+
+@pytest.mark.parametrize(
+    "endpoint_name",
+    ["list_tools", "get_tool_by_barcode", "return_tool"],
+)
+def test_tool_routes_open_to_any_session_have_no_static_min_role(endpoint_name):
+    # Viewing the Tools page/lookup and processing a return are open to any
+    # authenticated role -- only checkout/create/edit/archive are Admin+.
+    assert _min_role_for(tools_router, endpoint_name) is None

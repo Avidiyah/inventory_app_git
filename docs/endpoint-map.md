@@ -1,6 +1,6 @@
 # Endpoint Map: Database ↔ User View
 
-Last reviewed: 2026-06-30
+Last reviewed: 2026-07-14
 
 Purpose: a complete, self-contained trace of every endpoint — wiring, contracts,
 rules, error behavior, and service algorithms — so an AI or developer can answer
@@ -95,6 +95,13 @@ writes (w).
 | 44 | DELETE | `/mass-stages/{id}/work-orders/{slot}/items/{sid}` | supervisor+ | `mass_stages.py` → `mass_staging.delete_item` | mass_stage_items (w) | `apiDeleteStageItem` | `massStage.js` |
 | 45 | POST | `/mass-stages/{id}/load` | supervisor+ | `mass_stages.py` → `mass_staging.load_item` | items (w), transactions (w), work_order_items (w), mass_stage_items (w) | `apiLoadStageItem` | `massStage.js` |
 | 46 | POST | `/mass-stages/{id}/return` | supervisor+ | `mass_stages.py` → `mass_staging.return_item` | items (w, silent), work_order_items (w), mass_stage_items (w) | `apiReturnStageItem` | `massStage.js` |
+| 47 | POST | `/tools/` | admin+ | `tools.py` → `tools_service.create_tool` | tools (w) | `apiCreateTool` | `tools.js` |
+| 48 | GET | `/tools/` | session | `tools.py` → `tools_service.list_tools` + `tool_custody` | tools (r), tool_transactions (r), users (r) | `apiListTools` | `tools.js` |
+| 49 | GET | `/tools/{barcode}` | session | `tools.py` → `tools_service.get_tool_by_barcode` + `tool_custody` | tools (r), tool_transactions (r), users (r) | `apiGetToolByBarcode` | `tools.js` |
+| 50 | PATCH | `/tools/{tool_id}` | admin+ | `tools.py` → `tools_service.update_tool` | tools (w) | `apiUpdateTool` | `tools.js` |
+| 51 | DELETE | `/tools/{tool_id}` | admin+ | `tools.py` → `tools_service.delete_tool` | tools (w, archive) | `apiDeleteTool` | `tools.js` |
+| 52 | POST | `/tools/{tool_id}/checkout` | admin+ | `tools.py` → `tools_service.checkout_tool` | tools (w), tool_transactions (w) | `apiCheckoutTool` | `toolCheckout.js` |
+| 53 | POST | `/tools/{tool_id}/return` | session | `tools.py` → `tools_service.return_tool` | tools (w), tool_transactions (w, r for cap check) | `apiReturnTool` | `toolReturn.js` |
 
 Footnotes:
 1. `POST /transactions/`: dispense = any authenticated user; stock = supervisor+ (`domain.roles.can_transact`).
@@ -157,6 +164,14 @@ What populates each screen. Format: **table → … → view → what the user s
 - **mass_stages ⋈ slots ⋈ items ⋈ work_orders** → `get_stage` →
   `GET /mass-stages/{id}` → `apiGetStage` → `massStage.js`: stage detail (slots,
   planned/loaded/returned quantities).
+
+### Tools
+- **tools ⋈ tool_transactions ⋈ users** → `list_tools` + `tool_custody` →
+  `GET /tools/` → `apiListTools` → `tools.js`: the Tools table (On Hand +
+  Checked Out columns; the latter from each tool's `custody` breakdown).
+- **tools ⋈ tool_transactions ⋈ users** → `get_tool_by_barcode` +
+  `tool_custody` → `GET /tools/{barcode}` → `apiGetToolByBarcode` →
+  `tools.js`: the resolved tool after a Tools-page scan.
 
 ### Cross-feature read (copy-table billing summary)
 `history.js` copy button reads `GET /transactions/` (all matching rows) **and**,
@@ -264,6 +279,23 @@ service → table effect**.
   → `return_item` → **items.quantity** + (silent, no transaction row),
   **work_order_items** line reduced, **mass_stage_items.returned_quantity** +.
 
+### Tools
+- `tools.js` (Add Tool, on the Add Item page) → `apiCreateTool` →
+  `POST /tools/` → `create_tool` → **tools** insert (barcode checked
+  against live tools only, via a partial unique index).
+- `tools.js` (Edit) → `apiUpdateTool` → `PATCH /tools/{id}` →
+  `update_tool` → **tools** partial update.
+- `tools.js` (Archive) → `apiDeleteTool` → `DELETE /tools/{id}` →
+  `delete_tool` → **tools.archived_at** set (soft delete).
+- `toolCheckout.js` (Check Out) → `apiCheckoutTool` →
+  `POST /tools/{id}/checkout` → `checkout_tool` → **tools.quantity** −
+  (via `domain.quantity.apply_delta`, `"dispense"`), **tool_transactions**
+  insert (`checkout`).
+- `toolReturn.js` (Return) → `apiReturnTool` → `POST /tools/{id}/return`
+  → `return_tool` → **tools.quantity** + (`apply_delta`, `"stock"`, after
+  `domain.tools.validate_return` caps it to the user's outstanding
+  balance), **tool_transactions** insert (`return`).
+
 ---
 
 ## Per-Table Index (who reads / who writes)
@@ -282,6 +314,8 @@ Quick reverse lookup: "which endpoints touch table X?"
 | `mass_stages` | 34, 37, 38, 39 | 35, 36 |
 | `mass_stage_work_orders` | 40, 41 | 36 |
 | `mass_stage_items` | 42, 43, 44, 45, 46 | 36 |
+| `tools` | 47, 50, 51, 52, 53 | 48, 49, 52, 53 |
+| `tool_transactions` | 52, 53 | 48, 49, 53 (outstanding-balance check) |
 
 f-o-c = find-or-create.
 
@@ -430,6 +464,30 @@ id), `work_order_id`, `work_order_number`, `unit_number?`, `status`, `sort_order
 `loaded_total`, `returned_total`, `overflow` (loaded beyond planned),
 `net_consumed` (loaded − returned), `remaining_to_load` (planned − loaded).
 
+### Tools (`schemas/tools.py`)
+
+**`ToolCreate`** — `POST /tools/`: `barcode: str` (non-blank, trimmed),
+`name: str` (non-blank, trimmed), `quantity: Decimal = 1` (≥ 0 — defaults to
+1, not 0 like `ItemCreate`, since a tool is usually added because you have
+one in hand).
+
+**`ToolUpdate`** — `PATCH /tools/{id}` (partial): `barcode?`, `name?`; ≥ 1
+field required, non-blank if sent. `quantity` is NOT editable here — only
+via checkout/return.
+
+**`ToolCustodyEntry`**: `user_id`, `username`, `quantity` — one user's
+current outstanding balance for a tool (net > 0).
+
+**`ToolResponse`** — any tool return: `id`, `barcode`, `name`, `quantity`,
+`created_at`, `custody: list[ToolCustodyEntry] = []`. `custody` is
+computed (`services.tools.tool_custody`) and set explicitly by the router,
+not an ORM-mapped field — mirrors `ItemResponse.barcodes`.
+
+**`ToolCheckoutCreate`** / **`ToolReturnCreate`** — same shape: `quantity:
+Decimal` (> 0), `assigned_to_id: UUID` (required — the custody holder),
+`work_order_id: UUID? = null`, `work_order_number: str? = null` (optional,
+never required; no find-or-create — stored as-is).
+
 ---
 
 ## Error Catalog
@@ -450,6 +508,9 @@ non-domain exceptions become FastAPI's default 500.
 | `StageItemNotFoundError` | 404 | planned stage item not found (incl. loading an unplanned item) |
 | `WorkOrderNotFoundError` | 404 | work order unknown, archived, or **out of visibility scope** (404 hides existence) |
 | `WorkOrderStateError` | 400 | invalid `status` (not in_progress/completed) or `entry_mode` (not dispense/retroactive); number collision on edit |
+| `ToolNotFoundError` | 404 | tool id/barcode unknown or archived |
+| `DuplicateToolBarcodeError` | 400 | barcode held by a **live** tool (no archived-conflict/override flow, unlike items) |
+| `ToolReturnExceedsCheckedOutError` | 400 | return quantity exceeds that user's current outstanding balance for the tool |
 | `DuplicateBarcodeError` | 400 | barcode held by a **live** item (primary or additional) |
 | `ArchivedBarcodeConflictError` | **409** | barcode held only by an **archived** item; retry with `override_archived=true` |
 | `DuplicateUsernameError` | 400 | username UNIQUE constraint fired |
@@ -517,6 +578,15 @@ Pure functions (no DB) in `domain/*.py` — the business rules, testable in isol
   billable ≤ qty`, raise `BillingQuantityError`. Used by **work-order lines**.
 - `validate_billable_quantity(type, qty, billable)` — same, plus only `stock`/
   `dispense` rows may be overridden (an `adjust` cannot). Used by **transactions**.
+
+### Tool custody (`domain/tools.py`)
+- `validate_return(outstanding, requested)` — raises
+  `ToolReturnExceedsCheckedOutError` if `requested > outstanding`; the
+  caller (`services.tools.return_tool`) computes `outstanding` via the
+  same aggregate query `tool_custody` uses, scoped to one user. This is
+  the only new arithmetic for tools — the on-hand quantity math itself
+  directly reuses `domain.quantity.apply_delta` (checkout = `"dispense"`,
+  return = `"stock"`), no tool-specific version exists.
 
 ### Mass-stage lifecycle (`domain/mass_staging.py`)
 - Status is forward-only: `planning → loading → completed`
@@ -648,6 +718,32 @@ read-modify-write guard for `items.quantity`).
   Mass Stage return): `quantity −= qty`, delete at ≤ 0. No lock, no stock. No-op if
   no line.
 
+### `services/tools.py`
+- `_ensure_barcode_free(code, exclude?)` → checks **live** tools only
+  (`Tool.barcode == code AND archived_at IS NULL`); a match raises
+  `DuplicateToolBarcodeError`. No archived-conflict/override flow like
+  items — an archived tool's barcode is simply free (backed by the
+  partial unique index `uq_tools_barcode_live`).
+- `create_tool` / `update_tool` / `delete_tool` / `list_tools` /
+  `get_tool_by_barcode` / `get_tool` → mirror the equivalent
+  `services.items` functions (partial update via `_UNSET`, soft-delete
+  archive), minus `location`/`price`/`product_link`.
+- `_custody_query(tool_id)` → the shared aggregate: per `assigned_to_id`,
+  `SUM(CASE WHEN transaction_type='checkout' THEN quantity ELSE -quantity
+  END)`, `HAVING net > 0`. `tool_custody(tool_id)` runs it unscoped (every
+  holder); `_outstanding_for_user(tool_id, assigned_to_id)` filters to one
+  user (used by `return_tool`'s cap check).
+- `checkout_tool(tool_id, qty, assigned_to_id, performed_by_id, ...)` →
+  🔒 lock `Tool` row → `apply_delta(qty, "dispense", n)` (raises
+  `NegativeQuantityError`, reused as-is from `domain.quantity`, if
+  insufficient on-hand) → insert `ToolTransaction(type="checkout")` →
+  commit.
+- `return_tool(tool_id, qty, assigned_to_id, performed_by_id, ...)` →
+  🔒 lock `Tool` row → `_outstanding_for_user` → `domain.tools
+  .validate_return` (raises `ToolReturnExceedsCheckedOutError`) →
+  `apply_delta(qty, "stock", n)` → insert `ToolTransaction(type="return")`
+  → commit.
+
 ### `services/history.py`
 - `list_history(item_id?, user_id?, work_order_number?, page, page_size,
   include_price)` → join `transactions ⋈ items ⋈ (outer) users`, exclude voided,
@@ -702,3 +798,7 @@ read-modify-write guard for `items.quantity`).
   stock change with no transaction row is mass-stage **return** (#46).
 - **Cost/billing fields** (`item_price`, `billable_quantity`, `unit_price`,
   `materials_total`) are redacted server-side below Admin on #20, #25, #26.
+- **Tools (#47–53)** is the reference example of reusing
+  `domain.quantity.apply_delta` for a *different* on-hand counter (tool
+  custody instead of item stock) rather than writing new arithmetic —
+  see `domain/tools.py` and `services/tools.py`.

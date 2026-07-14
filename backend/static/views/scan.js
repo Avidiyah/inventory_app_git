@@ -52,6 +52,13 @@ import { FrameDebouncer } from "../scan/frame-debouncer.js";
  *                                              whether it was actually committed.
  * @param {() => boolean} [opts.canScan]       - continuous-mode gate: return false to refuse a scan
  *                                              (e.g. no quantity entered yet) with a prompt.
+ * @param {(barcode: string) => Promise<object>} [opts.lookupFn=apiGetItemByBarcode] - the barcode
+ *                                              lookup call; defaults to the item lookup so every
+ *                                              existing call site is unchanged. Pass e.g.
+ *                                              `apiGetToolByBarcode` to mount the same widget
+ *                                              against a different resource.
+ * @param {string} [opts.notFoundLabel="item"] - noun used in the "No {label} matches that barcode."
+ *                                              message on a 404, so a non-item mount reads correctly.
  * @param {Object} [opts.liveEls]             - optional live-camera DOM handles; when omitted the
  *                                              widget is upload-only (existing behaviour).
  * @param {HTMLVideoElement} opts.liveEls.videoEl
@@ -73,6 +80,8 @@ export function mountScanner({
   continuous = false,
   onCommit,
   canScan,
+  lookupFn = apiGetItemByBarcode,
+  notFoundLabel = "item",
 }) {
   // Scan-and-go tuning. After a commit the live decoder keeps running, so
   // two guards stop the same label (still in frame) from being counted
@@ -205,7 +214,7 @@ export function mountScanner({
 
     let item;
     try {
-      item = await apiGetItemByBarcode(barcode);
+      item = await lookupFn(barcode);
     } catch (err) {
       if (err && err.status === 404) {
         handleUnknownBarcode(barcode);
@@ -235,14 +244,14 @@ export function mountScanner({
 
     let item;
     try {
-      item = await apiGetItemByBarcode(barcode);
+      item = await lookupFn(barcode);
     } catch (err) {
       // No Create-Item shortcut in scan-and-go: it would derail a hands-busy
       // batch, and the floor crew cannot create items anyway.
       setMessage(
         messageEl,
         err && err.status === 404
-          ? "No item matches that barcode."
+          ? `No ${notFoundLabel} matches that barcode.`
           : friendlyError(err, "Lookup failed. Try again."),
         "error",
       );
@@ -265,7 +274,7 @@ export function mountScanner({
   }
 
   function handleUnknownBarcode(barcode) {
-    setMessage(messageEl, "No item matches that barcode.", "error");
+    setMessage(messageEl, `No ${notFoundLabel} matches that barcode.`, "error");
 
     // Both shortcuts (Create Item, Add Barcode) hit Owner/Admin-only
     // backend routes, so gate the whole chooser to Admin+. Lower roles

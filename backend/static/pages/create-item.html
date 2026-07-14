@@ -29,5 +29,24 @@
             </div>
         </section>
 
+        <section id="create-tool-section">
+            <h2>Add Tool</h2>
+            <div class="form-stack">
+                <label for="tool-barcode">Barcode</label>
+                <input type="text" id="tool-barcode" placeholder="Scan or enter barcode">
+                <p class="hint">Scan or type the label number.</p>
+
+                <label for="tool-name">Tool Name</label>
+                <input type="text" id="tool-name" placeholder="Enter tool name">
+
+                <label for="tool-quantity">Quantity</label>
+                <input type="number" id="tool-quantity" placeholder="1" min="0" value="1">
+                <p class="hint">Use 1 for a single serialized tool, or a higher count for an unserialized batch.</p>
+
+                <button id="create-tool-btn">Save Tool</button>
+                <p id="create-tool-message"></p>
+            </div>
+        </section>
+
     </div>
 

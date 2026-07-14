@@ -29,6 +29,7 @@ from app.routers import (
     barcodes,
     items,
     mass_stages,
+    tools,
     transactions,
     users,
     work_orders,
@@ -69,6 +70,7 @@ app.include_router(auth.router)
 app.include_router(barcodes.router)
 app.include_router(items.router)
 app.include_router(mass_stages.router)
+app.include_router(tools.router)
 app.include_router(transactions.router)
 app.include_router(users.router)
 app.include_router(work_orders.router)
@@ -99,6 +101,7 @@ SHELL_PARTS = (
     "pages/transaction.html",
     "pages/mass-stage.html",
     "pages/work-orders.html",
+    "pages/tools.html",
     "pages/history.html",
     "shell-tail.html",          # </main>, scan-confirm overlay, scripts, </body></html>
 )

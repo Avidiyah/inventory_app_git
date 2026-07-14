@@ -501,3 +501,88 @@ class WorkOrderItem(Base):
             "work_order_id", "item_id", name="uq_work_order_items_wo_item"
         ),
     )
+
+
+class Tool(Base):
+    """A tracked tool -- parallel to `Item` but deliberately smaller: no
+    `location`, `price`, or `product_link` (tools are not billed or shelved
+    like consumable materials). `quantity` is the on-hand/available count,
+    identical semantics to `Item.quantity`: a checkout decrements it, a
+    return increments it, via the same `domain.quantity.apply_delta`.
+
+    A tool row may represent one specific serialized unit (`quantity`
+    effectively 1, its own barcode) or an unserialized bulk batch
+    (`quantity` > 1, one shared barcode, fungible units) -- both are valid;
+    serializing a batch later is just data entry (shrink the bulk row,
+    create individual rows), not a schema concept.
+
+    Soft delete mirrors `Item.archived_at`: `archived_at` NULL means live;
+    a timestamp hides the tool from `list_tools` / barcode lookup but keeps
+    the row so `tool_transactions` history still resolves it. Unlike
+    `Item.barcode` (a plain global UNIQUE, with a retire/free dance for
+    archived-holder reuse), `barcode` uniqueness here is a **partial**
+    unique index scoped to live rows (`archived_at IS NULL`) -- an archived
+    tool's barcode is simply free to reuse with no confirmation, matching
+    `services.tools._ensure_barcode_free`'s live-only check."""
+
+    __tablename__ = "tools"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    barcode = Column(Text, nullable=False)
+    name = Column(Text, nullable=False)
+    quantity = Column(Numeric, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    archived_at = Column(DateTime(timezone=True), nullable=True)
+
+    checkouts = relationship("ToolTransaction", back_populates="tool")
+
+    __table_args__ = (
+        Index(
+            "uq_tools_barcode_live",
+            "barcode",
+            unique=True,
+            postgresql_where=text("archived_at IS NULL"),
+        ),
+    )
+
+
+class ToolTransaction(Base):
+    """Append-only audit row for a tool checkout or return -- the
+    custody-tracking analogue of `Transaction`, kept as a separate table
+    because the vocabulary (`checkout`/`return`) and the mandatory custody
+    field have no equivalent on the billing/work-order-coupled `transactions`
+    table.
+
+    Carries two distinct user references: `assigned_to_id` is who has/had
+    custody of the tool (required -- a tool must be assigned to a user
+    before a checkout is recorded), and `performed_by_id` is who was
+    logged in and processed the action (mirrors `Transaction.user_id`).
+    They may differ -- an Admin can check a tool out to a technician.
+
+    "Who currently has this tool" is derived, not stored: for a given
+    `(tool_id, assigned_to_id)` pair, outstanding = Sum(checkout.quantity) -
+    Sum(return.quantity) (see `services.tools.tool_custody`).
+
+    `work_order_id` / `work_order_number` are an optional linkage, never
+    required -- mirrors `Transaction.work_order_id` /
+    `Transaction.work_order_number` but nullable with no find-or-create
+    behavior attached."""
+
+    __tablename__ = "tool_transactions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tool_id = Column(UUID(as_uuid=True), ForeignKey("tools.id"), nullable=False)
+    transaction_type = Column(Text, nullable=False)  # "checkout" | "return"
+    quantity = Column(Numeric, nullable=False)
+    assigned_to_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    performed_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    work_order_id = Column(
+        UUID(as_uuid=True), ForeignKey("work_orders.id"), nullable=True, index=True
+    )
+    work_order_number = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    tool = relationship("Tool", back_populates="checkouts")
+    # Viewonly (no back-populates on User): surface usernames in responses only.
+    assigned_to = relationship("User", foreign_keys=[assigned_to_id], viewonly=True)
+    performed_by = relationship("User", foreign_keys=[performed_by_id], viewonly=True)

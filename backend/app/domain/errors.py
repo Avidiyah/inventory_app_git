@@ -237,3 +237,29 @@ class WorkOrderArchivedError(DomainError):
     `ArchivedBarcodeConflictError`. (Scan-and-go and Mass Stage still restore
     silently via `get_or_create_work_order`; only the deliberate "New work
     order" create asks first.)"""
+
+
+class ToolNotFoundError(DomainError):
+    """Raised when a service is asked to operate on a tool (by id or
+    barcode) that does not exist, or is archived. Maps to 404."""
+
+
+class DuplicateToolBarcodeError(DomainError):
+    """Raised by `services.tools.create_tool` / `update_tool` when the
+    barcode is already held by a *live* tool. Unlike items, tools have no
+    archived-conflict/override flow -- an archived tool's barcode is simply
+    free to reuse. Maps to 400."""
+
+
+class ToolReturnExceedsCheckedOutError(DomainError):
+    """Raised by `services.tools.return_tool` when the quantity being
+    returned exceeds what that user currently has checked out for this tool
+    (`domain.tools.validate_return`). Carries both numbers for tests and
+    messaging, mirroring `ReturnExceedsLoadedError`. Maps to 400."""
+
+    def __init__(self, requested: Decimal, outstanding: Decimal):
+        self.requested = requested
+        self.outstanding = outstanding
+        super().__init__(
+            f"Cannot return {requested}: only {outstanding} checked out."
+        )

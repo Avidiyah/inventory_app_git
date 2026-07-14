@@ -1,0 +1,120 @@
+    <!-- =================== TOOLS PAGE =================== -->
+    <div class="page" id="tools-page">
+
+        <!-- In-page sub-navigation, mirrors Find Item's Find/Scan pattern
+             (views/subnav.js via views/tools.js). -->
+        <nav class="sub-nav" aria-label="Tools features">
+            <button type="button" class="sub-nav-btn active" data-feature="find">Find</button>
+            <button type="button" class="sub-nav-btn" data-feature="scan">Scan</button>
+        </nav>
+
+        <section id="tools-section" class="feature-panel" data-feature="find">
+            <h2>Tools</h2>
+            <div class="filter-row">
+                <label for="tools-search">Search</label>
+                <input type="text" id="tools-search" placeholder="Search name or barcode">
+            </div>
+            <table id="tools-table" class="stack-table">
+                <thead>
+                    <tr id="tools-thead-row">
+                        <th>Barcode</th>
+                        <th>Name</th>
+                        <th>On Hand</th>
+                        <th>Checked Out</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="tools-tbody"></tbody>
+            </table>
+            <p id="tools-message"></p>
+        </section>
+
+        <section id="tools-scan-section" class="feature-panel" data-feature="scan" hidden>
+            <h2>Scan Barcode</h2>
+            <p class="hint">Scan a tool's barcode to jump to the matching row.</p>
+            <div class="scan-controls">
+                <input type="file" id="tools-scan-input" accept="image/*" capture="environment">
+                <div class="scan-viewport">
+                    <video id="tools-scan-video" class="scan-video" playsinline muted autoplay></video>
+                    <div id="tools-scan-aimbox" class="scan-aimbox" role="presentation" hidden></div>
+                </div>
+                <div class="scan-toolbar">
+                    <button id="tools-scan-scan-btn" type="button">Scan Barcode</button>
+                    <button id="tools-scan-upload-btn" type="button" class="secondary-btn">Upload Photo</button>
+                    <button id="tools-scan-torch-btn" type="button" class="secondary-btn" hidden>Torch</button>
+                </div>
+            </div>
+            <div id="tools-scan-chooser" class="scan-chooser" hidden></div>
+            <p id="tools-scan-message"></p>
+        </section>
+
+        <!-- ----- Contextual sub-flows (opened from a Tools row action) ----- -->
+
+        <section id="tool-editor-section" hidden>
+            <h2>Edit Tool</h2>
+            <div class="form-stack">
+                <p id="tool-editor-selected"></p>
+
+                <label for="tool-editor-barcode">Barcode</label>
+                <input type="text" id="tool-editor-barcode" placeholder="Barcode">
+
+                <label for="tool-editor-name">Name</label>
+                <input type="text" id="tool-editor-name" placeholder="Tool name">
+
+                <div class="form-buttons">
+                    <button id="tool-editor-save-btn">Save Changes</button>
+                    <button id="tool-editor-cancel-btn" type="button" class="secondary-btn">Cancel</button>
+                </div>
+                <p id="tool-editor-message"></p>
+            </div>
+        </section>
+
+        <section id="tool-checkout-section" hidden>
+            <h2>Check Out Tool</h2>
+            <div class="form-stack">
+                <p id="tool-checkout-selected"></p>
+
+                <label for="tool-checkout-quantity">Quantity</label>
+                <input type="number" id="tool-checkout-quantity" step="any" min="0" placeholder="1" value="1">
+
+                <label for="tool-checkout-user">Assign To</label>
+                <select id="tool-checkout-user">
+                    <option value="" disabled selected>Select a user</option>
+                </select>
+
+                <label for="tool-checkout-work-order">Work Order (optional)</label>
+                <input type="text" id="tool-checkout-work-order" placeholder="Work order number">
+
+                <div class="form-buttons">
+                    <button id="tool-checkout-save-btn">Check Out</button>
+                    <button id="tool-checkout-cancel-btn" type="button" class="secondary-btn">Cancel</button>
+                </div>
+                <p id="tool-checkout-message"></p>
+            </div>
+        </section>
+
+        <section id="tool-return-section" hidden>
+            <h2>Return Tool</h2>
+            <div class="form-stack">
+                <p id="tool-return-selected"></p>
+
+                <label for="tool-return-quantity">Quantity</label>
+                <input type="number" id="tool-return-quantity" step="any" min="0" placeholder="1" value="1">
+
+                <label for="tool-return-user">Returning For</label>
+                <select id="tool-return-user">
+                    <option value="" disabled selected>Select a user</option>
+                </select>
+
+                <label for="tool-return-work-order">Work Order (optional)</label>
+                <input type="text" id="tool-return-work-order" placeholder="Work order number">
+
+                <div class="form-buttons">
+                    <button id="tool-return-save-btn">Return</button>
+                    <button id="tool-return-cancel-btn" type="button" class="secondary-btn">Cancel</button>
+                </div>
+                <p id="tool-return-message"></p>
+            </div>
+        </section>
+
+    </div>

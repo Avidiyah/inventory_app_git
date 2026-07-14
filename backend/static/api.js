@@ -110,6 +110,46 @@ export async function apiGetItemByBarcode(barcode) {
   return parseResponse(await fetch(`/items/${encodeURIComponent(barcode)}`, { credentials: "include" }));
 }
 
+// --- Tools ---------------------------------------------------------
+// A tool is parallel to an item but smaller (no location/price/link) and
+// tracks custody (checkout/return) instead of one-way consumption.
+export async function apiListTools() {
+  return parseResponse(await fetch("/tools/", { credentials: "include" }));
+}
+
+export async function apiCreateTool({ barcode, name, quantity }) {
+  return jsonRequest("/tools/", "POST", { barcode, name, quantity });
+}
+
+export async function apiGetToolByBarcode(barcode) {
+  return parseResponse(await fetch(`/tools/${encodeURIComponent(barcode)}`, { credentials: "include" }));
+}
+
+export async function apiUpdateTool(toolId, payload) {
+  // `payload` is `{barcode?, name?}` -- only fields the caller wants to change.
+  return jsonRequest(`/tools/${toolId}`, "PATCH", payload);
+}
+
+export async function apiDeleteTool(toolId) {
+  return parseResponse(await fetch(`/tools/${toolId}`, { method: "DELETE", credentials: "include" }));
+}
+
+export async function apiCheckoutTool(toolId, { quantity, assignedToId, workOrderNumber = null }) {
+  return jsonRequest(`/tools/${toolId}/checkout`, "POST", {
+    quantity,
+    assigned_to_id: assignedToId,
+    work_order_number: workOrderNumber,
+  });
+}
+
+export async function apiReturnTool(toolId, { quantity, assignedToId, workOrderNumber = null }) {
+  return jsonRequest(`/tools/${toolId}/return`, "POST", {
+    quantity,
+    assigned_to_id: assignedToId,
+    work_order_number: workOrderNumber,
+  });
+}
+
 // --- Barcodes ----------------------------------------------------
 export async function apiDecodeBarcode(file) {
   // multipart/form-data upload -- do NOT set Content-Type by hand; the
