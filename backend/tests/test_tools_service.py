@@ -20,6 +20,7 @@ import pytest
 from app.domain.errors import (
     DuplicateToolBarcodeError,
     NegativeQuantityError,
+    NoChangeError,
     ToolNotFoundError,
     ToolReturnExceedsCheckedOutError,
 )
@@ -214,4 +215,69 @@ def test_checkout_unknown_tool_raises_not_found(db):
             quantity=Decimal(1),
             assigned_to_id=user.id,
             performed_by_id=None,
+        )
+
+
+# --- adjust_tool_quantity ("Correct Count") -------------------------------
+
+def test_adjust_increases_quantity(db):
+    tool = _seed_tool(db, quantity=5)
+    admin = _seed_user(db, role="admin")
+
+    tools_service.adjust_tool_quantity(
+        db, tool.id, new_quantity=Decimal(8), reason="Bought 3 more", performed_by_id=admin.id
+    )
+
+    refreshed = tools_service.get_tool(db, tool.id)
+    assert refreshed.quantity == Decimal(8)
+
+
+def test_adjust_decreases_quantity(db):
+    tool = _seed_tool(db, quantity=5)
+    admin = _seed_user(db, role="admin")
+
+    tools_service.adjust_tool_quantity(
+        db, tool.id, new_quantity=Decimal(2), reason="Miscount", performed_by_id=admin.id
+    )
+
+    refreshed = tools_service.get_tool(db, tool.id)
+    assert refreshed.quantity == Decimal(2)
+
+
+def test_adjust_no_change_raises(db):
+    tool = _seed_tool(db, quantity=5)
+    admin = _seed_user(db, role="admin")
+
+    with pytest.raises(NoChangeError):
+        tools_service.adjust_tool_quantity(
+            db, tool.id, new_quantity=Decimal(5), reason="No-op", performed_by_id=admin.id
+        )
+
+
+def test_adjust_does_not_affect_custody(db):
+    # Regression: an `adjust` row must never be counted by the custody
+    # aggregate (it carries no assigned_to_id / is not checkout|return).
+    tool = _seed_tool(db, quantity=5)
+    user = _seed_user(db)
+    admin = _seed_user(db, role="admin")
+
+    tools_service.checkout_tool(
+        db, tool.id, quantity=Decimal(2), assigned_to_id=user.id, performed_by_id=admin.id
+    )
+    tools_service.adjust_tool_quantity(
+        db, tool.id, new_quantity=Decimal(10), reason="Found more", performed_by_id=admin.id
+    )
+
+    refreshed = tools_service.get_tool(db, tool.id)
+    assert refreshed.quantity == Decimal(10)
+
+    custody = tools_service.tool_custody(db, tool.id)
+    assert custody == [(user.id, user.username, Decimal(2))]
+
+
+def test_adjust_unknown_tool_raises_not_found(db):
+    admin = _seed_user(db, role="admin")
+    with pytest.raises(ToolNotFoundError):
+        tools_service.adjust_tool_quantity(
+            db, uuid.uuid4(), new_quantity=Decimal(1), reason="x", performed_by_id=admin.id
         )

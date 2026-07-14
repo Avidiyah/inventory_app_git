@@ -554,14 +554,24 @@ class ToolTransaction(Base):
     table.
 
     Carries two distinct user references: `assigned_to_id` is who has/had
-    custody of the tool (required -- a tool must be assigned to a user
-    before a checkout is recorded), and `performed_by_id` is who was
-    logged in and processed the action (mirrors `Transaction.user_id`).
-    They may differ -- an Admin can check a tool out to a technician.
+    custody of the tool (required for `checkout`/`return` -- a tool must be
+    assigned to a user before a checkout is recorded; NULL for `adjust`,
+    which has no custody holder), and `performed_by_id` is who was logged
+    in and processed the action (mirrors `Transaction.user_id`).
+    `assigned_to_id` and `performed_by_id` may differ -- an Admin can check
+    a tool out to a technician.
 
     "Who currently has this tool" is derived, not stored: for a given
     `(tool_id, assigned_to_id)` pair, outstanding = Sum(checkout.quantity) -
-    Sum(return.quantity) (see `services.tools.tool_custody`).
+    Sum(return.quantity) (see `services.tools.tool_custody`), filtered to
+    `transaction_type IN ('checkout', 'return')` so an `adjust` row never
+    contributes to a custody balance.
+
+    `transaction_type = "adjust"` is the "Correct Count" action (mirrors
+    `Transaction`'s `adjust`): `quantity` is the *signed delta* applied to
+    `Tool.quantity` (not a positive count like `checkout`/`return`), and
+    `reason` is required for it -- both mirror `Transaction.quantity` /
+    `Transaction.reason`.
 
     `work_order_id` / `work_order_number` are an optional linkage, never
     required -- mirrors `Transaction.work_order_id` /
@@ -572,14 +582,15 @@ class ToolTransaction(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tool_id = Column(UUID(as_uuid=True), ForeignKey("tools.id"), nullable=False)
-    transaction_type = Column(Text, nullable=False)  # "checkout" | "return"
+    transaction_type = Column(Text, nullable=False)  # "checkout" | "return" | "adjust"
     quantity = Column(Numeric, nullable=False)
-    assigned_to_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    assigned_to_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     performed_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     work_order_id = Column(
         UUID(as_uuid=True), ForeignKey("work_orders.id"), nullable=True, index=True
     )
     work_order_number = Column(Text, nullable=True)
+    reason = Column(Text, nullable=True)  # required (schema-level) for "adjust" only
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     tool = relationship("Tool", back_populates="checkouts")

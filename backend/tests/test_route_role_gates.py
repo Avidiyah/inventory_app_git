@@ -126,6 +126,10 @@ def test_checkout_tool_requires_admin():
     assert _min_role_for(tools_router, "checkout_tool") == roles.ROLE_ADMIN
 
 
+def test_adjust_tool_requires_admin():
+    assert _min_role_for(tools_router, "adjust_tool") == roles.ROLE_ADMIN
+
+
 @pytest.mark.parametrize(
     "endpoint_name",
     ["list_tools", "get_tool_by_barcode", "return_tool"],

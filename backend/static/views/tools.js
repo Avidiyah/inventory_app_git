@@ -35,6 +35,12 @@ import {
   getReturningToolId,
   setOnSaved as setOnReturnSaved,
 } from "./toolReturn.js";
+import {
+  openToolCorrection,
+  closeToolCorrection,
+  getCorrectingToolId,
+  setOnSaved as setOnCorrectionSaved,
+} from "./toolCorrection.js";
 
 // --- Add Tool form (elements live on the Add Item page) ----------------
 
@@ -113,6 +119,7 @@ function actionsCell(tool) {
   }
   if (canAdmin) {
     options.push(`<option value="edit">Edit</option>`);
+    options.push(`<option value="correct">Correct Count</option>`);
     options.push(`<option value="delete">Archive</option>`);
   }
   if (options.length === 0) return "";
@@ -167,6 +174,7 @@ toolsSearch.addEventListener("input", renderTools);
 
 setOnCheckoutSaved(loadTools);
 setOnReturnSaved(loadTools);
+setOnCorrectionSaved(loadTools);
 
 toolsTbody.addEventListener("change", async (event) => {
   const target = event.target;
@@ -203,6 +211,11 @@ toolsTbody.addEventListener("change", async (event) => {
     return;
   }
 
+  if (action === "correct") {
+    openToolCorrection(tool);
+    return;
+  }
+
   if (action === "delete") {
     setMessage(toolsMessage, "", "");
     if (!(await confirmDialog(`Archive "${tool.name}"? It will be hidden from lookup and lists, but its history is kept.`))) return;
@@ -210,6 +223,7 @@ toolsTbody.addEventListener("change", async (event) => {
       await apiDeleteTool(toolId);
       if (getEditingToolId() === toolId) closeToolEditor();
       if (getReturningToolId() === toolId) closeToolReturn();
+      if (getCorrectingToolId() === toolId) closeToolCorrection();
       setMessage(toolsMessage, `Archived "${tool.name}".`, "success");
       loadTools();
     } catch (err) {
@@ -314,6 +328,7 @@ toolsSubNav = initSubNav(document.getElementById("tools-page"), {
       closeToolEditor();
       closeToolCheckout();
       closeToolReturn();
+      closeToolCorrection();
     }
   },
 });

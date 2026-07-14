@@ -21,6 +21,7 @@ from app.domain.errors import DomainError
 from app.models import Tool, User
 from app.routers._errors import to_http
 from app.schemas.tools import (
+    ToolAdjustCreate,
     ToolCheckoutCreate,
     ToolCreate,
     ToolCustodyEntry,
@@ -136,6 +137,30 @@ def checkout_tool(
             performed_by_id=user.id,
             work_order_id=payload.work_order_id,
             work_order_number=payload.work_order_number,
+        )
+        return _tool_response(db, tools_service.get_tool(db, tool_id))
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.post("/{tool_id}/adjust", response_model=ToolResponse, status_code=201)
+def adjust_tool(
+    tool_id: uuid.UUID,
+    payload: ToolAdjustCreate,
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """"Correct Count": set the tool's on-hand quantity to an absolute
+    value with a required reason. Admin+ only, mirrors
+    `POST /transactions/adjust`. 404 if unknown; 400 if `new_quantity`
+    equals the current quantity (no-op)."""
+    try:
+        tools_service.adjust_tool_quantity(
+            db,
+            tool_id,
+            new_quantity=payload.new_quantity,
+            reason=payload.reason,
+            performed_by_id=user.id,
         )
         return _tool_response(db, tools_service.get_tool(db, tool_id))
     except DomainError as exc:

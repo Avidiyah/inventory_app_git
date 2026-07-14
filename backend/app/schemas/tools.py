@@ -138,3 +138,31 @@ class ToolReturnCreate(BaseModel):
         if v <= 0:
             raise ValueError("Quantity must be greater than zero.")
         return v
+
+
+class ToolAdjustCreate(BaseModel):
+    """Payload for `POST /tools/{id}/adjust` -- the "Correct Count" action,
+    mirroring `CorrectionCreate` (`POST /transactions/adjust`). The client
+    sends the **absolute** new on-hand quantity the tool should end up at;
+    the service computes the signed delta under the row lock. Unlike
+    checkout/return, this has no custody holder -- it's a pure inventory
+    correction (e.g. fixing a miscount, or adding more units of a bulk
+    tool)."""
+
+    new_quantity: Decimal
+    reason: str
+
+    @field_validator("new_quantity")
+    @classmethod
+    def _new_quantity_not_negative(cls, v):
+        if v < 0:
+            raise ValueError("New quantity cannot be negative.")
+        return v
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_not_blank(cls, v):
+        v = v.strip()
+        if not v:
+            raise ValueError("Reason is required for a correction.")
+        return v

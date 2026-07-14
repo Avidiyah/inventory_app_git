@@ -1,17 +1,19 @@
-"""Tool CRUD + checkout/return service.
+"""Tool CRUD + checkout/return/adjust service.
 
 Layer: services. Called by `app/routers/tools.py`. CRUD mirrors
 `app.services.items` (barcode uniqueness, partial update via `_UNSET`,
-soft-delete archive). Checkout/return mirror the row-locking pattern in
-`app.services.transactions.apply_transaction`: lock the `Tool` row, apply
-the on-hand quantity delta via the same `app.domain.quantity.apply_delta`
-items use (checkout -> "dispense", return -> "stock"), then append a
-`ToolTransaction` audit row.
+soft-delete archive). Checkout/return/adjust mirror the row-locking pattern
+in `app.services.transactions`: lock the `Tool` row, apply the on-hand
+quantity delta via the same `app.domain.quantity.apply_delta` items use
+(checkout -> "dispense", return -> "stock", adjust -> "adjust"), then
+append a `ToolTransaction` audit row.
 
 Custody ("who currently has this tool") is never stored -- it's derived by
-summing `tool_transactions` per `(tool_id, assigned_to_id)`. `tool_custody`
-is the shared aggregate query both the router (for display) and
-`return_tool` (for the outstanding-balance cap) use.
+summing `tool_transactions` per `(tool_id, assigned_to_id)`, scoped to
+`checkout`/`return` rows only (an `adjust`/Correct Count row has no
+custody holder). `tool_custody` is the shared aggregate query both the
+router (for display) and `return_tool` (for the outstanding-balance cap)
+use.
 """
 
 import uuid
@@ -23,7 +25,7 @@ from sqlalchemy import case, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.domain.errors import DuplicateToolBarcodeError, ToolNotFoundError
+from app.domain.errors import DuplicateToolBarcodeError, NoChangeError, ToolNotFoundError
 from app.domain.quantity import apply_delta
 from app.domain.tools import validate_return
 from app.models import Tool, ToolTransaction, User
@@ -137,7 +139,11 @@ def delete_tool(db: Session, tool_id: uuid.UUID) -> None:
 
 def _custody_query(db: Session, tool_id: uuid.UUID):
     """Shared aggregate: per `assigned_to_id`, net = Sum(checkout) -
-    Sum(return) for this tool, filtered to positive balances only."""
+    Sum(return) for this tool, filtered to positive balances only.
+
+    Explicitly scoped to `transaction_type IN ('checkout', 'return')` --
+    an `adjust` row (Correct Count) carries no custody holder
+    (`assigned_to_id` NULL) and must never enter this sum."""
     net = func.sum(
         case(
             (ToolTransaction.transaction_type == "checkout", ToolTransaction.quantity),
@@ -147,7 +153,10 @@ def _custody_query(db: Session, tool_id: uuid.UUID):
     return (
         db.query(ToolTransaction.assigned_to_id, User.username, net)
         .join(User, User.id == ToolTransaction.assigned_to_id)
-        .filter(ToolTransaction.tool_id == tool_id)
+        .filter(
+            ToolTransaction.tool_id == tool_id,
+            ToolTransaction.transaction_type.in_(("checkout", "return")),
+        )
         .group_by(ToolTransaction.assigned_to_id, User.username)
         .having(net > 0)
     )
@@ -206,6 +215,50 @@ def checkout_tool(
         performed_by_id=performed_by_id,
         work_order_id=work_order_id,
         work_order_number=work_order_number,
+    )
+    db.add(new_txn)
+    db.commit()
+    db.refresh(new_txn)
+    return new_txn
+
+
+def adjust_tool_quantity(
+    db: Session,
+    tool_id: uuid.UUID,
+    *,
+    new_quantity: Decimal,
+    reason: str,
+    performed_by_id: Optional[uuid.UUID],
+) -> ToolTransaction:
+    """"Correct Count": set the tool's on-hand quantity to the absolute
+    `new_quantity`, mirroring `services.transactions.apply_correction`. No
+    custody holder is involved (`assigned_to_id` is NULL on the inserted
+    row) -- this is a pure inventory correction, e.g. fixing a miscount or
+    adding more units of a bulk tool. Raises `ToolNotFoundError` if unknown/
+    archived, `NoChangeError` if `new_quantity` equals the current
+    quantity (no audit row for a no-op)."""
+    tool = (
+        db.query(Tool)
+        .filter(Tool.id == tool_id, Tool.archived_at.is_(None))
+        .with_for_update()
+        .first()
+    )
+    if not tool:
+        raise ToolNotFoundError("Tool not found.")
+
+    delta = new_quantity - tool.quantity
+    if delta == 0:
+        raise NoChangeError("No change to apply.")
+
+    tool.quantity = apply_delta(tool.quantity, "adjust", delta)
+
+    new_txn = ToolTransaction(
+        tool_id=tool_id,
+        transaction_type="adjust",
+        quantity=delta,
+        assigned_to_id=None,
+        performed_by_id=performed_by_id,
+        reason=reason,
     )
     db.add(new_txn)
     db.commit()

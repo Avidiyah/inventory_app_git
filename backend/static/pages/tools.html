@@ -69,6 +69,27 @@
             </div>
         </section>
 
+        <section id="tool-correction-section" hidden>
+            <h2>Correct Count</h2>
+            <p class="hint">Use this to fix a miscount or add more units of a bulk tool.</p>
+            <div class="form-stack">
+                <p id="tool-correction-selected"></p>
+                <p id="tool-correction-current"></p>
+
+                <label for="tool-correction-new-quantity">New Count</label>
+                <input type="number" id="tool-correction-new-quantity" step="any" min="0" placeholder="0">
+
+                <label for="tool-correction-reason">Why are you changing it?</label>
+                <input type="text" id="tool-correction-reason" placeholder="Reason for the correction">
+
+                <div class="form-buttons">
+                    <button id="tool-correction-save-btn">Save Correct Count</button>
+                    <button id="tool-correction-cancel-btn" type="button" class="secondary-btn">Cancel</button>
+                </div>
+                <p id="tool-correction-message"></p>
+            </div>
+        </section>
+
         <section id="tool-checkout-section" hidden>
             <h2>Check Out Tool</h2>
             <div class="form-stack">

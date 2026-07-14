@@ -150,6 +150,15 @@ export async function apiReturnTool(toolId, { quantity, assignedToId, workOrderN
   });
 }
 
+export async function apiAdjustTool(toolId, { newQuantity, reason }) {
+  // "Correct Count": sets the absolute on-hand quantity with a required
+  // reason (Admin+). Sibling of apiCreateCorrection for items.
+  return jsonRequest(`/tools/${toolId}/adjust`, "POST", {
+    new_quantity: newQuantity,
+    reason,
+  });
+}
+
 // --- Barcodes ----------------------------------------------------
 export async function apiDecodeBarcode(file) {
   // multipart/form-data upload -- do NOT set Content-Type by hand; the

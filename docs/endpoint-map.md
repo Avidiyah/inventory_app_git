@@ -102,6 +102,7 @@ writes (w).
 | 51 | DELETE | `/tools/{tool_id}` | admin+ | `tools.py` → `tools_service.delete_tool` | tools (w, archive) | `apiDeleteTool` | `tools.js` |
 | 52 | POST | `/tools/{tool_id}/checkout` | admin+ | `tools.py` → `tools_service.checkout_tool` | tools (w), tool_transactions (w) | `apiCheckoutTool` | `toolCheckout.js` |
 | 53 | POST | `/tools/{tool_id}/return` | session | `tools.py` → `tools_service.return_tool` | tools (w), tool_transactions (w, r for cap check) | `apiReturnTool` | `toolReturn.js` |
+| 54 | POST | `/tools/{tool_id}/adjust` | admin+ | `tools.py` → `tools_service.adjust_tool_quantity` | tools (w), tool_transactions (w) | `apiAdjustTool` | `toolCorrection.js` |
 
 Footnotes:
 1. `POST /transactions/`: dispense = any authenticated user; stock = supervisor+ (`domain.roles.can_transact`).
@@ -295,6 +296,10 @@ service → table effect**.
   → `return_tool` → **tools.quantity** + (`apply_delta`, `"stock"`, after
   `domain.tools.validate_return` caps it to the user's outstanding
   balance), **tool_transactions** insert (`return`).
+- `toolCorrection.js` (Correct Count) → `apiAdjustTool` →
+  `POST /tools/{id}/adjust` → `adjust_tool_quantity` → **tools.quantity**
+  set (via `apply_delta`, `"adjust"`, signed delta), **tool_transactions**
+  insert (`adjust`, `assigned_to_id` NULL, `reason` required).
 
 ---
 
@@ -314,8 +319,8 @@ Quick reverse lookup: "which endpoints touch table X?"
 | `mass_stages` | 34, 37, 38, 39 | 35, 36 |
 | `mass_stage_work_orders` | 40, 41 | 36 |
 | `mass_stage_items` | 42, 43, 44, 45, 46 | 36 |
-| `tools` | 47, 50, 51, 52, 53 | 48, 49, 52, 53 |
-| `tool_transactions` | 52, 53 | 48, 49, 53 (outstanding-balance check) |
+| `tools` | 47, 50, 51, 52, 53, 54 | 48, 49, 52, 53, 54 |
+| `tool_transactions` | 52, 53, 54 | 48, 49, 53 (outstanding-balance check) |
 
 f-o-c = find-or-create.
 
@@ -487,6 +492,11 @@ not an ORM-mapped field — mirrors `ItemResponse.barcodes`.
 Decimal` (> 0), `assigned_to_id: UUID` (required — the custody holder),
 `work_order_id: UUID? = null`, `work_order_number: str? = null` (optional,
 never required; no find-or-create — stored as-is).
+
+**`ToolAdjustCreate`** — `POST /tools/{id}/adjust` ("Correct Count",
+mirrors `CorrectionCreate`): `new_quantity: Decimal` (≥ 0, **absolute**
+target — the service computes the signed delta), `reason: str` (non-blank).
+No custody holder involved.
 
 ---
 
@@ -730,9 +740,11 @@ read-modify-write guard for `items.quantity`).
   archive), minus `location`/`price`/`product_link`.
 - `_custody_query(tool_id)` → the shared aggregate: per `assigned_to_id`,
   `SUM(CASE WHEN transaction_type='checkout' THEN quantity ELSE -quantity
-  END)`, `HAVING net > 0`. `tool_custody(tool_id)` runs it unscoped (every
-  holder); `_outstanding_for_user(tool_id, assigned_to_id)` filters to one
-  user (used by `return_tool`'s cap check).
+  END)`, filtered to `transaction_type IN ('checkout', 'return')`
+  (excludes `adjust` rows, which carry no custody holder), `HAVING net >
+  0`. `tool_custody(tool_id)` runs it unscoped (every holder);
+  `_outstanding_for_user(tool_id, assigned_to_id)` filters to one user
+  (used by `return_tool`'s cap check).
 - `checkout_tool(tool_id, qty, assigned_to_id, performed_by_id, ...)` →
   🔒 lock `Tool` row → `apply_delta(qty, "dispense", n)` (raises
   `NegativeQuantityError`, reused as-is from `domain.quantity`, if
@@ -743,6 +755,13 @@ read-modify-write guard for `items.quantity`).
   .validate_return` (raises `ToolReturnExceedsCheckedOutError`) →
   `apply_delta(qty, "stock", n)` → insert `ToolTransaction(type="return")`
   → commit.
+- `adjust_tool_quantity(tool_id, new_quantity, reason, performed_by_id)`
+  ("Correct Count") → 🔒 lock `Tool` row → `delta = new_quantity -
+  current`; `NoChangeError` if 0 (reused as-is from the items-correction
+  vocabulary) → `apply_delta(qty, "adjust", delta)` → insert
+  `ToolTransaction(type="adjust", assigned_to_id=None, reason=reason)` →
+  commit. The only way to increase a bulk tool's on-hand count (no
+  separate stock-in endpoint).
 
 ### `services/history.py`
 - `list_history(item_id?, user_id?, work_order_number?, page, page_size,

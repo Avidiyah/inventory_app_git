@@ -549,31 +549,45 @@ Rules:
 ### `tool_transactions`
 
 Fields: `id`, `tool_id`, `transaction_type`, `quantity`, `assigned_to_id`,
-`performed_by_id`, `work_order_id`, `work_order_number`, `created_at`.
+`performed_by_id`, `work_order_id`, `work_order_number`, `reason`,
+`created_at`.
 
 Rules:
 
-- Append-only checkout/return ledger -- the custody-tracking analogue of
-  `transactions`, kept as a separate table because the vocabulary
-  (`checkout`/`return`, not `stock`/`dispense`/`adjust`) and the mandatory
-  custody field have no equivalent on `transactions`, which is tightly
-  coupled to billing/work-order logic.
+- Append-only checkout/return/adjust ledger -- the custody-tracking
+  analogue of `transactions`, kept as a separate table because the
+  vocabulary and the custody field have no equivalent on `transactions`,
+  which is tightly coupled to billing/work-order logic.
+- `transaction_type`: `checkout`, `return`, or `adjust`. Checkout/return
+  `quantity` is positive; `adjust` `quantity` is a **signed delta** (mirrors
+  `transactions.quantity`'s convention for `adjust` rows).
 - Carries two distinct user references: `assigned_to_id` (who has/had
-  custody -- required, a tool must be assigned to a user before a checkout
-  is recorded) and `performed_by_id` (who was logged in and processed the
-  action, nullable, mirrors `Transaction.user_id`). They may differ -- an
-  Admin can check a tool out to a technician.
+  custody -- required for `checkout`/`return`; **NULL for `adjust`**, which
+  has no custody holder) and `performed_by_id` (who was logged in and
+  processed the action, nullable, mirrors `Transaction.user_id`).
+  `assigned_to_id` and `performed_by_id` may differ -- an Admin can check a
+  tool out to a technician.
 - "Who currently has a tool" is **derived, not stored**: for a given
   `(tool_id, assigned_to_id)` pair, outstanding =
-  Sum(checkout.quantity) - Sum(return.quantity)
-  (`services.tools.tool_custody` / `_outstanding_for_user`). A bulk tool
-  can be split across multiple holders.
+  Sum(checkout.quantity) - Sum(return.quantity), computed **only** over
+  `checkout`/`return` rows (`services.tools.tool_custody` /
+  `_outstanding_for_user` / `_custody_query`) -- an `adjust` row is
+  explicitly excluded so a count correction never corrupts a custody
+  balance. A bulk tool can be split across multiple holders.
 - A return may never exceed that user's current outstanding balance for
   the tool (`domain.tools.validate_return`, raises
   `ToolReturnExceedsCheckedOutError`).
+- `adjust` is the "Correct Count" action (`POST /tools/{id}/adjust`,
+  Admin+, mirrors `POST /transactions/adjust`): the client sends the
+  **absolute** new on-hand quantity, the service computes the signed delta
+  under the row lock via `domain.quantity.apply_delta(qty, "adjust",
+  delta)`, and `reason` is required (schema-validated non-blank). This is
+  also how a bulk tool gets "restocked" -- there is no separate stock-in
+  endpoint, a correction that raises the count serves both purposes.
 - `work_order_id` / `work_order_number` are an optional, **never required**
-  linkage -- unlike `transactions.work_order_id`, there is no find-or-create
-  behavior; a free-text number is stored as-is, denormalized.
+  linkage on checkout/return -- unlike `transactions.work_order_id`, there
+  is no find-or-create behavior; a free-text number is stored as-is,
+  denormalized. Not applicable to `adjust`.
 - No void/undo exists for a tool_transactions row in this phase (unlike
   `transactions.voided_at`) -- see Known Gaps.
 
@@ -709,6 +723,7 @@ Unreadable image returns 400.
 | DELETE | `/tools/{tool_id}` | admin+ | archive tool |
 | POST | `/tools/{tool_id}/checkout` | admin+ | check out to `assigned_to_id`; decrements on-hand |
 | POST | `/tools/{tool_id}/return` | session | return from `assigned_to_id`'s custody; increments on-hand |
+| POST | `/tools/{tool_id}/adjust` | admin+ | "Correct Count": set on-hand to an absolute value with a required reason; no custody holder |
 
 `work_order_id`/`work_order_number` on checkout/return are optional and
 never required, with no find-or-create behavior (a free-text number is
@@ -900,9 +915,14 @@ Behavior:
   `apiGetToolByBarcode` -- no create-from-scan shortcut).
 - Table columns: Barcode, Name, On Hand, Checked Out (each custody entry
   as `username: quantity`, one per line), Actions.
-- Admin+ row actions: Check Out, Edit, Archive. Any role additionally sees
-  Return, but only on a tool they currently hold (client-side
-  convenience; the backend gate is "any session").
+- Admin+ row actions: Check Out, Edit, Correct Count, Archive. Any role
+  additionally sees Return, but only on a tool they currently hold
+  (client-side convenience; the backend gate is "any session").
+- Correct Count (`views/toolCorrection.js`) sets the absolute on-hand
+  quantity with a required reason -- mirrors Find Item's Correct Count
+  exactly, just posting to `POST /tools/{id}/adjust`. This is also how a
+  bulk tool's on-hand count is increased ("restocked") -- there is no
+  separate stock-in action.
 - Checkout (Admin+) populates the assigned-to picker from the app's
   existing users cache (`state.getUsers()`, already loaded at login for
   Supervisor+/Admin/Owner). Return does the same for Supervisor+, but a
@@ -1087,10 +1107,19 @@ Behavior:
   scoped to one user) and calls `domain.tools.validate_return` before
   applying the quantity change, raising `ToolReturnExceedsCheckedOutError`
   if the return would exceed it.
+- `adjust_tool_quantity` ("Correct Count") mirrors
+  `services.transactions.apply_correction`: 🔒 lock the `Tool` row, compute
+  `delta = new_quantity - current`, `NoChangeError` if 0, apply via
+  `domain.quantity.apply_delta(qty, "adjust", delta)`, insert an `adjust`
+  row with `assigned_to_id=None` and the required `reason`. This is also
+  the only way to increase a bulk tool's on-hand count (no separate
+  stock-in endpoint).
 - `tool_custody` is the shared aggregate (`SUM` grouped by
-  `assigned_to_id`, `HAVING net > 0`) both the router (for display) and
-  `return_tool` (for the cap) use -- custody is always derived from
-  `tool_transactions`, never stored.
+  `assigned_to_id`, `HAVING net > 0`, **filtered to
+  `transaction_type IN ('checkout', 'return')`**) both the router (for
+  display) and `return_tool` (for the cap) use -- custody is always
+  derived from `tool_transactions`, never stored, and an `adjust` row is
+  explicitly excluded so a correction never corrupts a custody balance.
 - `_tool_response` (router) sets `custody` explicitly from `tool_custody`,
   the same pattern `routers/items.py::_item_response` uses for
   `barcodes`.
@@ -1141,6 +1170,7 @@ Alembic head: `a9d1f3b7c2e8`.
 | `c4e6a8b0d2f5` | backfill `work_order_items` lines from existing linked dispenses |
 | `a9d1f3b7c2e8` | `work_order_items.billable_quantity` (per-line billing override) |
 | `d2f4b6a8c0e3` | `tools` + `tool_transactions` tables (tool custody tracking) |
+| `e4a6c8b0d2f7` | `tool_transactions.reason` + nullable `assigned_to_id` (Correct Count / `adjust`) |
 
 ## Test Map
 
@@ -1186,7 +1216,7 @@ Coverage map:
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
 | `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin; history row exposes `work_order_id` |
 | `test_tools_domain.py` | pure `domain.tools.validate_return` outstanding-balance cap |
-| `test_tools_service.py` | DB-backed: create/duplicate-live-barcode, archived-barcode reuse, checkout/return round-trip incl. `apply_delta` reuse, checkout overdraft (`NegativeQuantityError`), return-beyond-outstanding (`ToolReturnExceedsCheckedOutError`), multi-user custody split on a bulk tool, archive hides from list |
+| `test_tools_service.py` | DB-backed: create/duplicate-live-barcode, archived-barcode reuse, checkout/return round-trip incl. `apply_delta` reuse, checkout overdraft (`NegativeQuantityError`), return-beyond-outstanding (`ToolReturnExceedsCheckedOutError`), multi-user custody split on a bulk tool, archive hides from list, Correct Count increase/decrease/no-op (`NoChangeError`), and the regression that an `adjust` row never enters a custody balance |
 
 No frontend test harness exists. For UI behavior, run backend tests plus manual
 browser checks for changed pages.
@@ -1218,10 +1248,6 @@ Do not "fix" these accidentally unless the task asks for it.
   Supervisor+; a technician's scan must carry a `work_order_id` (from a card).
 - Deferred work-order attributes not yet built: `priority`, `due_date`,
   `external_ref`/`source` (for future real-world WO integration).
-- Tools: no restock endpoint -- `tools.quantity` only decreases via
-  checkout and increases via return; adding more units to an existing bulk
-  tool isn't built (a natural follow-up: `POST /tools/{id}/restock`
-  reusing `apply_delta(qty, "stock", n)`).
 - Tools: no void/undo for a checkout or return -- mis-clicks are not
   reversible (unlike `transactions.voided_at`).
 - Tools: no cross-namespace barcode uniqueness check against
