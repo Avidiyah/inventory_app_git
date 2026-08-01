@@ -1,37 +1,163 @@
     <!-- =================== TOOLS PAGE =================== -->
     <div class="page" id="tools-page">
 
-        <!-- In-page sub-navigation, mirrors Find Item's Find/Scan pattern
-             (views/subnav.js via views/tools.js). -->
         <nav class="sub-nav" aria-label="Tools features">
-            <button type="button" class="sub-nav-btn active" data-feature="find">Find</button>
+            <button type="button" class="sub-nav-btn active" data-feature="custody">Custody</button>
+            <button type="button" class="sub-nav-btn" data-feature="inventory">Inventory</button>
             <button type="button" class="sub-nav-btn" data-feature="scan">Scan</button>
         </nav>
 
-        <section id="tools-section" class="feature-panel" data-feature="find">
-            <h2>Tools</h2>
+        <!-- User-first checkout / check-in workflow. -->
+        <section id="tool-custody-section" class="feature-panel" data-feature="custody">
+            <h2>Tool Custody</h2>
+            <p class="hint">Choose a user to see their checked-out tools and record a checkout or check-in.</p>
+
+            <div id="tool-user-picker" class="tool-picker">
+                <label for="tool-user-search">User</label>
+                <input
+                    type="text"
+                    id="tool-user-search"
+                    class="manual-search-input"
+                    placeholder="Search users"
+                    autocomplete="off"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-controls="tool-user-results"
+                    aria-expanded="false"
+                >
+                <div id="tool-user-results" class="manual-results" role="listbox" hidden></div>
+            </div>
+            <p id="tool-custody-message"></p>
+
+            <article id="tool-user-card" class="tool-user-card" tabindex="-1" hidden>
+                <div class="tool-user-card-header">
+                    <div>
+                        <h3 id="tool-user-name"></h3>
+                        <p id="tool-user-meta" class="hint"></p>
+                    </div>
+                    <span id="tool-user-status" class="tool-user-status">Active</span>
+                </div>
+
+                <p id="tool-user-custody-count" class="tool-custody-count"></p>
+                <div id="tool-user-holdings" class="tool-holdings"></div>
+
+                <div id="tool-checkout-controls" class="tool-checkout-controls" hidden>
+                    <h3>Check Out a Tool</h3>
+                    <p class="hint">Search by tool name or barcode, or scan the tool label.</p>
+                    <label for="tool-checkout-search">Tool</label>
+                    <input
+                        type="text"
+                        id="tool-checkout-search"
+                        class="manual-search-input"
+                        placeholder="Search tools"
+                        autocomplete="off"
+                    >
+                    <div id="tool-checkout-results" class="manual-results" hidden></div>
+                    <button id="tool-checkout-scan-btn" type="button" class="secondary-btn">Scan Tool to Check Out</button>
+                    <p id="tool-checkout-picker-message"></p>
+                </div>
+            </article>
+
+            <div id="tool-checkout-section" class="tool-flow-card" hidden>
+                <h3>Check Out Tool</h3>
+                <div class="form-stack">
+                    <p id="tool-checkout-selected"></p>
+                    <p id="tool-checkout-user-summary" class="hint"></p>
+
+                    <label for="tool-checkout-quantity">Quantity</label>
+                    <input type="number" id="tool-checkout-quantity" step="any" min="0" placeholder="1" value="1">
+
+                    <label for="tool-checkout-work-order">Work Order (optional)</label>
+                    <input type="text" id="tool-checkout-work-order" placeholder="Work order number">
+
+                    <div class="form-buttons">
+                        <button id="tool-checkout-save-btn">Check Out</button>
+                        <button id="tool-checkout-cancel-btn" type="button" class="secondary-btn">Cancel</button>
+                    </div>
+                    <p id="tool-checkout-message"></p>
+                </div>
+            </div>
+
+            <div id="tool-return-section" class="tool-flow-card" hidden>
+                <h3>Check In Tool</h3>
+                <div class="form-stack">
+                    <p id="tool-return-selected"></p>
+                    <p id="tool-return-user-summary" class="hint"></p>
+
+                    <label for="tool-return-quantity">Quantity</label>
+                    <input type="number" id="tool-return-quantity" step="any" min="0" placeholder="1" value="1">
+
+                    <label for="tool-return-work-order">Work Order (optional)</label>
+                    <input type="text" id="tool-return-work-order" placeholder="Work order number">
+
+                    <div class="form-buttons">
+                        <button id="tool-return-save-btn">Check In</button>
+                        <button id="tool-return-cancel-btn" type="button" class="secondary-btn">Cancel</button>
+                    </div>
+                    <p id="tool-return-message"></p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Existing tool lookup and maintenance, retained as a secondary view. -->
+        <section id="tools-section" class="feature-panel" data-feature="inventory" hidden>
+            <h2>Tool Inventory</h2>
             <div class="filter-row">
                 <label for="tools-search">Search</label>
                 <input type="text" id="tools-search" placeholder="Search name or barcode">
             </div>
             <table id="tools-table" class="stack-table">
                 <thead>
-                    <tr id="tools-thead-row">
-                        <th>Barcode</th>
-                        <th>Name</th>
-                        <th>On Hand</th>
-                        <th>Checked Out</th>
-                        <th>Actions</th>
-                    </tr>
+                    <tr id="tools-thead-row"></tr>
                 </thead>
                 <tbody id="tools-tbody"></tbody>
             </table>
             <p id="tools-message"></p>
+
+            <div id="tool-editor-section" class="tool-flow-card" hidden>
+                <h3>Edit Tool</h3>
+                <div class="form-stack">
+                    <p id="tool-editor-selected"></p>
+
+                    <label for="tool-editor-barcode">Barcode</label>
+                    <input type="text" id="tool-editor-barcode" placeholder="Barcode">
+
+                    <label for="tool-editor-name">Name</label>
+                    <input type="text" id="tool-editor-name" placeholder="Tool name">
+
+                    <div class="form-buttons">
+                        <button id="tool-editor-save-btn">Save Changes</button>
+                        <button id="tool-editor-cancel-btn" type="button" class="secondary-btn">Cancel</button>
+                    </div>
+                    <p id="tool-editor-message"></p>
+                </div>
+            </div>
+
+            <div id="tool-correction-section" class="tool-flow-card" hidden>
+                <h3>Correct Count</h3>
+                <p class="hint">Use this to fix a miscount or add more units of a bulk tool.</p>
+                <div class="form-stack">
+                    <p id="tool-correction-selected"></p>
+                    <p id="tool-correction-current"></p>
+
+                    <label for="tool-correction-new-quantity">New Count</label>
+                    <input type="number" id="tool-correction-new-quantity" step="any" min="0" placeholder="0">
+
+                    <label for="tool-correction-reason">Why are you changing it?</label>
+                    <input type="text" id="tool-correction-reason" placeholder="Reason for the correction">
+
+                    <div class="form-buttons">
+                        <button id="tool-correction-save-btn">Save Correct Count</button>
+                        <button id="tool-correction-cancel-btn" type="button" class="secondary-btn">Cancel</button>
+                    </div>
+                    <p id="tool-correction-message"></p>
+                </div>
+            </div>
         </section>
 
         <section id="tools-scan-section" class="feature-panel" data-feature="scan" hidden>
-            <h2>Scan Barcode</h2>
-            <p class="hint">Scan a tool's barcode to jump to the matching row.</p>
+            <h2 id="tools-scan-heading">Scan Tool Inventory</h2>
+            <p id="tools-scan-hint" class="hint">Scan a tool's barcode to find it in Inventory.</p>
             <div class="scan-controls">
                 <input type="file" id="tools-scan-input" accept="image/*" capture="environment">
                 <div class="scan-viewport">
@@ -46,96 +172,6 @@
             </div>
             <div id="tools-scan-chooser" class="scan-chooser" hidden></div>
             <p id="tools-scan-message"></p>
-        </section>
-
-        <!-- ----- Contextual sub-flows (opened from a Tools row action) ----- -->
-
-        <section id="tool-editor-section" hidden>
-            <h2>Edit Tool</h2>
-            <div class="form-stack">
-                <p id="tool-editor-selected"></p>
-
-                <label for="tool-editor-barcode">Barcode</label>
-                <input type="text" id="tool-editor-barcode" placeholder="Barcode">
-
-                <label for="tool-editor-name">Name</label>
-                <input type="text" id="tool-editor-name" placeholder="Tool name">
-
-                <div class="form-buttons">
-                    <button id="tool-editor-save-btn">Save Changes</button>
-                    <button id="tool-editor-cancel-btn" type="button" class="secondary-btn">Cancel</button>
-                </div>
-                <p id="tool-editor-message"></p>
-            </div>
-        </section>
-
-        <section id="tool-correction-section" hidden>
-            <h2>Correct Count</h2>
-            <p class="hint">Use this to fix a miscount or add more units of a bulk tool.</p>
-            <div class="form-stack">
-                <p id="tool-correction-selected"></p>
-                <p id="tool-correction-current"></p>
-
-                <label for="tool-correction-new-quantity">New Count</label>
-                <input type="number" id="tool-correction-new-quantity" step="any" min="0" placeholder="0">
-
-                <label for="tool-correction-reason">Why are you changing it?</label>
-                <input type="text" id="tool-correction-reason" placeholder="Reason for the correction">
-
-                <div class="form-buttons">
-                    <button id="tool-correction-save-btn">Save Correct Count</button>
-                    <button id="tool-correction-cancel-btn" type="button" class="secondary-btn">Cancel</button>
-                </div>
-                <p id="tool-correction-message"></p>
-            </div>
-        </section>
-
-        <section id="tool-checkout-section" hidden>
-            <h2>Check Out Tool</h2>
-            <div class="form-stack">
-                <p id="tool-checkout-selected"></p>
-
-                <label for="tool-checkout-quantity">Quantity</label>
-                <input type="number" id="tool-checkout-quantity" step="any" min="0" placeholder="1" value="1">
-
-                <label for="tool-checkout-user">Assign To</label>
-                <select id="tool-checkout-user">
-                    <option value="" disabled selected>Select a user</option>
-                </select>
-
-                <label for="tool-checkout-work-order">Work Order (optional)</label>
-                <input type="text" id="tool-checkout-work-order" placeholder="Work order number">
-
-                <div class="form-buttons">
-                    <button id="tool-checkout-save-btn">Check Out</button>
-                    <button id="tool-checkout-cancel-btn" type="button" class="secondary-btn">Cancel</button>
-                </div>
-                <p id="tool-checkout-message"></p>
-            </div>
-        </section>
-
-        <section id="tool-return-section" hidden>
-            <h2>Return Tool</h2>
-            <div class="form-stack">
-                <p id="tool-return-selected"></p>
-
-                <label for="tool-return-quantity">Quantity</label>
-                <input type="number" id="tool-return-quantity" step="any" min="0" placeholder="1" value="1">
-
-                <label for="tool-return-user">Returning For</label>
-                <select id="tool-return-user">
-                    <option value="" disabled selected>Select a user</option>
-                </select>
-
-                <label for="tool-return-work-order">Work Order (optional)</label>
-                <input type="text" id="tool-return-work-order" placeholder="Work order number">
-
-                <div class="form-buttons">
-                    <button id="tool-return-save-btn">Return</button>
-                    <button id="tool-return-cancel-btn" type="button" class="secondary-btn">Cancel</button>
-                </div>
-                <p id="tool-return-message"></p>
-            </div>
         </section>
 
     </div>

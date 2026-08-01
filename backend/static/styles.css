@@ -927,7 +927,8 @@ tr.archived-user {
    clicks it so the upload path in views/scan.js stays unchanged.
    See docs/current-state.md. */
 #txn-scan-input,
-#items-scan-input {
+#items-scan-input,
+#tools-scan-input {
     display: none;
 }
 
@@ -1499,6 +1500,135 @@ details[open] > .room-summary::before { content: "\25BE"; /* triangle down */ }
     color: var(--gray-500);
 }
 
+/* =================== TOOL CUSTODY =================== */
+/* User-first Tools workflow: searchable user/tool pickers feed one selected
+   user card; transactions remain explicit confirmation sub-flows. */
+.tool-picker {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    max-width: 480px;
+}
+
+.tool-user-option.is-active {
+    border-color: var(--color-brand);
+    background-color: var(--color-brand-tint);
+}
+
+.tool-user-card {
+    margin-top: var(--space-5);
+    padding: var(--space-5);
+    border: var(--border);
+    border-radius: var(--radius-md);
+    background-color: var(--gray-50);
+}
+
+.tool-user-card:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+.tool-user-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.tool-user-card-header h3,
+.tool-checkout-controls h3,
+.tool-flow-card h3 {
+    font-size: var(--fs-lg);
+    line-height: var(--lh-heading);
+    margin-bottom: var(--space-2);
+}
+
+.tool-user-card-header .hint {
+    margin-bottom: 0;
+}
+
+.tool-user-status {
+    display: inline-block;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-pill);
+    background-color: var(--status-stock);
+    color: var(--color-white);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+}
+
+.tool-custody-count {
+    margin-bottom: var(--space-3);
+    color: var(--gray-700);
+    font-weight: var(--fw-semibold);
+}
+
+.tool-holdings {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.tool-holding-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border: var(--border);
+    border-radius: var(--radius-sm);
+    background-color: var(--color-white);
+}
+
+.tool-holding-detail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.tool-holding-detail span,
+.tool-empty-state {
+    color: var(--gray-500);
+    font-size: var(--fs-sm);
+}
+
+.tool-checkin-btn {
+    flex: 0 0 auto;
+    min-height: var(--btn-h-sm);
+    margin-top: 0;
+    padding: 0 var(--space-3);
+    font-size: var(--fs-sm);
+}
+
+.tool-checkout-controls {
+    margin-top: var(--space-5);
+    padding-top: var(--space-4);
+    border-top: var(--border);
+}
+
+.tool-checkout-controls > label,
+.tool-checkout-controls > input,
+.tool-checkout-controls > button {
+    display: block;
+}
+
+.tool-checkout-controls > input {
+    width: 100%;
+}
+
+.tool-checkout-controls > button {
+    margin-top: var(--space-3);
+}
+
+.tool-flow-card {
+    margin-top: var(--space-5);
+    padding: var(--space-5);
+    border: var(--border);
+    border-radius: var(--radius-md);
+    background-color: var(--color-white);
+}
+
 /* Stage status pill (reuses the type-badge look). */
 .stage-status {
     display: inline-block;
@@ -1770,9 +1900,25 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     .scan-chooser,
     .manual-search-input,
     .manual-results,
+    .tool-picker,
     #wo-gate,
     #scango-active {
         max-width: none;
+    }
+
+    .tool-user-card,
+    .tool-flow-card {
+        padding: var(--space-4);
+    }
+
+    .tool-user-card-header,
+    .tool-holding-row {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .tool-checkin-btn {
+        width: 100%;
     }
 
     .filter-row input,

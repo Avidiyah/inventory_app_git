@@ -20,6 +20,7 @@ import { applyRoleVisibility, canAccessPage, showPage } from "./nav.js";
 import { loadUsers } from "./users.js";
 import { setHistoryTab } from "./history.js";
 import { resetBatch, tryResumeBatch } from "./transactions.js";
+import { resetToolsView } from "./tools.js";
 
 const loginScreen = document.getElementById("login-screen");
 const appRoot = document.getElementById("app-root");
@@ -49,6 +50,7 @@ function setPasswordVisible(visible) {
 function showLoginScreen({ expired = false } = {}) {
   const wasInApp = !appRoot.hidden;
   setCurrentUser(null);
+  resetToolsView();
   // On a timeout, keep the batch snapshot so a re-login by the same operator
   // can resume the work order (see enterApp). A deliberate logout clears it.
   resetBatch({ keepSaved: expired });

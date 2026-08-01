@@ -13,12 +13,14 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import uuid
+from decimal import Decimal
 
 import pytest
 
-from app.domain.errors import InvalidCredentialsError
+from app.domain.errors import InvalidCredentialsError, UserHasCheckedOutToolsError
 from app.models import AuthSession, User
 from app.services import auth
+from app.services import tools as tools_service
 from app.services import users as users_service
 
 
@@ -74,3 +76,37 @@ def test_restore_reactivates_login(db):
 
     assert auth.authenticate(db, username=user.username, password="hunter2").id == user.id
     assert user.archived_at is None
+
+
+def test_archive_user_blocked_until_tools_are_returned(db):
+    user = _seed_user(db)
+    admin = _seed_user(db, role="admin")
+    tool = tools_service.create_tool(
+        db,
+        barcode=f"TOOL-{uuid.uuid4().hex[:10]}",
+        name="Cordless Drill",
+        quantity=Decimal(2),
+    )
+    tools_service.checkout_tool(
+        db,
+        tool.id,
+        quantity=Decimal(1),
+        assigned_to_id=user.id,
+        performed_by_id=admin.id,
+    )
+
+    with pytest.raises(UserHasCheckedOutToolsError):
+        users_service.archive_user(db, user.id)
+
+    db.refresh(user)
+    assert user.archived_at is None
+
+    tools_service.return_tool(
+        db,
+        tool.id,
+        quantity=Decimal(1),
+        assigned_to_id=user.id,
+        performed_by_id=admin.id,
+    )
+    users_service.archive_user(db, user.id)
+    assert user.archived_at is not None

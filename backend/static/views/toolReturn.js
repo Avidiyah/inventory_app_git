@@ -1,26 +1,9 @@
-// View: tool return editor on the Tools page.
+// View: user-fixed tool check-in editor on the Tools > Custody feature.
 //
-// Layer: views. Sibling of `toolCheckout.js` / `correction.js`. Opens an
-// inline panel when any role picks "Return" on a tool row they currently
-// hold, captures a quantity and the user whose custody is being reduced,
-// and posts to `POST /tools/{id}/return`.
-//
-// Unlike checkout (Admin+, which always has the full user list cached via
-// the boot-time `loadUsers()` call), a Technician cannot call `GET
-// /users/` (Supervisor+ gated) -- so `openToolReturn` accepts an already-
-// resolved `users` list that tools.js decides: Supervisor+ pass the full
-// cached list (any holder returnable), a Technician passes an empty array
-// and this module falls back to a single option built from `custody` (the
-// caller's own outstanding balance on this tool -- tools.js only offers
-// Return when that's non-null).
-//
-// Public surface:
-// - `openToolReturn(tool, users, custody)` populates and reveals the panel.
-// - `closeToolReturn()` hides it.
-// - `getReturningToolId()` lets tools.js close this panel if the tool it's
-//   open for gets archived from elsewhere.
-// - `setOnSaved(fn)` lets tools.js register a callback so the table
-//   refreshes after a successful return.
+// The host derives a selected user's current holding and calls
+// openToolReturn(tool, user, custodyEntry). This module keeps the existing
+// return endpoint and outstanding-balance semantics while removing the old
+// second user-selection step.
 
 import { apiReturnTool } from "../api.js";
 import { friendlyError } from "../format.js";
@@ -28,82 +11,85 @@ import { setMessage } from "../dom.js";
 
 const returnSection = document.getElementById("tool-return-section");
 const returnSelected = document.getElementById("tool-return-selected");
+const returnUserSummary = document.getElementById("tool-return-user-summary");
 const returnQuantity = document.getElementById("tool-return-quantity");
-const returnUserSelect = document.getElementById("tool-return-user");
 const returnWorkOrder = document.getElementById("tool-return-work-order");
 const returnSaveBtn = document.getElementById("tool-return-save-btn");
 const returnCancelBtn = document.getElementById("tool-return-cancel-btn");
 const returnMessage = document.getElementById("tool-return-message");
 
-let returningToolId = null;
+let returningTool = null;
+let returnUser = null;
+let returnCustody = null;
 let onSavedCallback = null;
 
 export function setOnSaved(fn) {
   onSavedCallback = fn;
 }
 
-function populateUserSelect(users, custody) {
-  returnUserSelect.innerHTML = '<option value="" disabled selected>Select a user</option>';
-  const list = users.length > 0 ? users : (custody ? [{ id: custody.user_id, username: custody.username }] : []);
-  list.forEach(user => {
-    const option = document.createElement("option");
-    option.value = user.id;
-    option.textContent = user.username;
-    returnUserSelect.appendChild(option);
-  });
-  if (custody && list.some(u => u.id === custody.user_id)) {
-    returnUserSelect.value = custody.user_id;
-  }
-}
-
-export function openToolReturn(tool, users, custody) {
-  returningToolId = tool.id;
-  returnSelected.textContent = `Returning: ${tool.name} (${tool.barcode}) — ${tool.quantity} on hand`;
-  populateUserSelect(users, custody);
-  returnQuantity.value = custody ? String(custody.quantity) : "1";
+export function openToolReturn(tool, user, custodyEntry) {
+  returningTool = tool;
+  returnUser = user;
+  returnCustody = custodyEntry;
+  returnSelected.textContent = tool.name + " (" + tool.barcode + ")";
+  returnUserSummary.textContent = user.username + " has " + custodyEntry.quantity + " checked out";
+  returnQuantity.value = String(custodyEntry.quantity);
+  returnQuantity.max = String(custodyEntry.quantity);
   returnWorkOrder.value = "";
   setMessage(returnMessage, "", "");
   returnSection.hidden = false;
   returnSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  returnQuantity.focus();
+  returnQuantity.select();
 }
 
 export function closeToolReturn() {
-  returningToolId = null;
+  returningTool = null;
+  returnUser = null;
+  returnCustody = null;
   returnSection.hidden = true;
+  returnQuantity.value = "1";
+  returnQuantity.removeAttribute("max");
+  returnWorkOrder.value = "";
   setMessage(returnMessage, "", "");
-}
-
-export function getReturningToolId() {
-  return returningToolId;
 }
 
 returnCancelBtn.addEventListener("click", closeToolReturn);
 
 returnSaveBtn.addEventListener("click", async () => {
-  if (!returningToolId) {
-    setMessage(returnMessage, "No tool selected.", "error");
+  if (!returningTool || !returnUser || !returnCustody) {
+    setMessage(returnMessage, "Select a checked-out tool first.", "error");
     return;
   }
   setMessage(returnMessage, "", "");
 
   const quantity = Number(returnQuantity.value);
+  const outstanding = Number(returnCustody.quantity);
   if (!returnQuantity.value || !Number.isFinite(quantity) || quantity <= 0) {
     setMessage(returnMessage, "Enter a quantity greater than zero.", "error");
     return;
   }
-  const assignedToId = returnUserSelect.value;
-  if (!assignedToId) {
-    setMessage(returnMessage, "Select who is returning the tool.", "error");
+  if (Number.isFinite(outstanding) && quantity > outstanding) {
+    setMessage(returnMessage, "Only " + returnCustody.quantity + " checked out.", "error");
     return;
   }
+
   const workOrderNumber = returnWorkOrder.value.trim() || null;
 
   try {
-    await apiReturnTool(returningToolId, { quantity, assignedToId, workOrderNumber });
-    setMessage(returnMessage, "Returned.", "success");
+    await apiReturnTool(returningTool.id, {
+      quantity,
+      assignedToId: returnUser.id,
+      workOrderNumber,
+    });
+    setMessage(
+      returnMessage,
+      "Checked in " + returningTool.name + " for " + returnUser.username + ".",
+      "success",
+    );
     if (onSavedCallback) await onSavedCallback();
     setTimeout(closeToolReturn, 1000);
   } catch (err) {
-    setMessage(returnMessage, friendlyError(err, "Could not record the return. Try again."), "error");
+    setMessage(returnMessage, friendlyError(err, "Could not record the check-in. Try again."), "error");
   }
 });

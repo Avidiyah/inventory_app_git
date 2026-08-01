@@ -13,6 +13,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -21,10 +22,12 @@ from app.domain.errors import (
     DuplicateToolBarcodeError,
     NegativeQuantityError,
     NoChangeError,
+    ToolHasOutstandingCustodyError,
     ToolNotFoundError,
     ToolReturnExceedsCheckedOutError,
+    UserNotFoundError,
 )
-from app.models import User
+from app.models import ToolTransaction, User
 from app.services import auth
 from app.services import tools as tools_service
 
@@ -86,6 +89,43 @@ def test_checkout_decrements_quantity_and_creates_custody(db):
 
     custody = tools_service.tool_custody(db, tool.id)
     assert custody == [(user.id, user.username, Decimal(2))]
+
+
+def test_checkout_rejects_archived_user_without_mutation(db):
+    tool = _seed_tool(db, quantity=5)
+    user = _seed_user(db)
+    user.archived_at = datetime.now(timezone.utc)
+    db.commit()
+    before_transactions = db.query(ToolTransaction).count()
+
+    with pytest.raises(UserNotFoundError):
+        tools_service.checkout_tool(
+            db,
+            tool.id,
+            quantity=Decimal(2),
+            assigned_to_id=user.id,
+            performed_by_id=None,
+        )
+
+    db.refresh(tool)
+    assert tool.quantity == Decimal(5)
+    assert db.query(ToolTransaction).count() == before_transactions
+
+
+def test_checkout_rejects_unknown_user_without_mutation(db):
+    tool = _seed_tool(db, quantity=5)
+
+    with pytest.raises(UserNotFoundError):
+        tools_service.checkout_tool(
+            db,
+            tool.id,
+            quantity=Decimal(2),
+            assigned_to_id=uuid.uuid4(),
+            performed_by_id=None,
+        )
+
+    db.refresh(tool)
+    assert tool.quantity == Decimal(5)
 
 
 def test_checkout_beyond_on_hand_raises_negative_quantity(db):
@@ -195,6 +235,31 @@ def test_bulk_tool_custody_splits_across_multiple_users(db):
     assert custody_after[bob.id] == Decimal(2)
 
 
+def test_user_custody_aggregates_tools_and_excludes_adjustments(db):
+    user = _seed_user(db)
+    first = _seed_tool(db, quantity=5)
+    second = _seed_tool(db, quantity=5)
+
+    tools_service.checkout_tool(
+        db, first.id, quantity=Decimal(2), assigned_to_id=user.id, performed_by_id=None
+    )
+    tools_service.checkout_tool(
+        db, second.id, quantity=Decimal(3), assigned_to_id=user.id, performed_by_id=None
+    )
+    tools_service.return_tool(
+        db, second.id, quantity=Decimal(1), assigned_to_id=user.id, performed_by_id=None
+    )
+    tools_service.adjust_tool_quantity(
+        db, first.id, new_quantity=Decimal(9), reason="Count fix", performed_by_id=None
+    )
+
+    custody = {
+        tool_id: quantity
+        for tool_id, _name, _barcode, quantity in tools_service.user_custody(db, user.id)
+    }
+    assert custody == {first.id: Decimal(2), second.id: Decimal(2)}
+
+
 def test_archive_hides_tool_from_list(db):
     tool = _seed_tool(db)
     before = {t.id for t in tools_service.list_tools(db)}
@@ -204,6 +269,26 @@ def test_archive_hides_tool_from_list(db):
 
     after = {t.id for t in tools_service.list_tools(db)}
     assert tool.id not in after
+
+
+def test_archive_tool_blocked_until_full_return(db):
+    tool = _seed_tool(db)
+    user = _seed_user(db)
+    tools_service.checkout_tool(
+        db, tool.id, quantity=Decimal(2), assigned_to_id=user.id, performed_by_id=None
+    )
+
+    with pytest.raises(ToolHasOutstandingCustodyError):
+        tools_service.delete_tool(db, tool.id)
+
+    db.refresh(tool)
+    assert tool.archived_at is None
+
+    tools_service.return_tool(
+        db, tool.id, quantity=Decimal(2), assigned_to_id=user.id, performed_by_id=None
+    )
+    tools_service.delete_tool(db, tool.id)
+    assert tool.archived_at is not None
 
 
 def test_checkout_unknown_tool_raises_not_found(db):

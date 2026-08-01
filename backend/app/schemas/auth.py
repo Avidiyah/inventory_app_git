@@ -6,6 +6,8 @@ minimum length only -- they are case-sensitive and intentionally not
 stripped or otherwise transformed.
 """
 
+from datetime import datetime
+from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, field_validator
@@ -25,12 +27,20 @@ class LoginRequest(BaseModel):
 
 
 class MeResponse(BaseModel):
-    """Identity returned by `POST /auth/login` and `GET /auth/me`. Only
-    the fields the frontend needs to gate UI are exposed."""
+    """Identity returned by `POST /auth/login` and `GET /auth/me`.
+
+    The timestamps let self-service pages render the same compact profile
+    information that Supervisor+ receives from `UserResponse`. An archived
+    user cannot authenticate, so `archived_at` is normally NULL here; it is
+    retained in the contract so the identity shape describes user status
+    explicitly.
+    """
 
     id: UUID
     username: str
     role: str
+    created_at: datetime
+    archived_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

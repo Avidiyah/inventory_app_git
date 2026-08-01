@@ -55,8 +55,9 @@ export const PAGE_ACCESS = {
   "mass-stage": ["owner", "admin", "supervisor"],
   // Work Orders is technician-facing (server scopes to assigned/created/all).
   "work-orders": ["owner", "admin", "supervisor", "technician"],
-  // Tools: any authenticated role may view/return; checkout is Admin+
-  // (enforced server-side, hidden client-side via actionsCell in tools.js).
+  // Tools: every role sees its user-first custody card and can check in;
+  // Admin+ can search active users and check out tools. The server retains
+  // the existing Admin+ checkout gate and authenticated-user return gate.
   "tools": ["owner", "admin", "supervisor", "technician"],
   "history": ["owner", "admin", "supervisor"],
 };

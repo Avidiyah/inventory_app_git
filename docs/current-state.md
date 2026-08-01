@@ -1,6 +1,6 @@
 # Inventory App Current State
 
-Last reviewed: 2026-07-14
+Last reviewed: 2026-08-01
 
 Purpose of this file: give an AI or developer enough current-state context to
 make technical changes without rereading the whole repository. Start here, then
@@ -55,9 +55,10 @@ Core workflows:
 - Plan/load/return materials for a community/building by unit (truck staging).
 - Review/copy transaction history.
 - Manage users and role-scoped access.
-- Add tools by barcode and track custody: check a tool out to a user
-  (Admin+) and return it (any role), including a bulk (quantity > 1)
-  tool split across multiple holders.
+- Add tools by barcode and manage custody from a user-first profile card:
+  Admin/Owner search active users and check out available tools by search or
+  scan; every role can check in its UI-selected user's holdings. Bulk tools
+  (`quantity > 1`) can still be split across multiple holders.
 
 ## Architecture Rules
 
@@ -223,7 +224,8 @@ Inventory/transactions:
 - Item archive is soft delete through `archived_at`.
 - User archive is soft delete through `users.archived_at`: archived users
   cannot log in, sessions are revoked, and the row is retained for history.
-  Hard delete still exists but is blocked if transactions reference the user.
+  Archive is rejected while the user has outstanding tool custody. Hard delete
+  still exists but is blocked if transactions reference the user.
 - Stock/dispense snapshot `Item.price` into `transactions.unit_price`;
   History reports that frozen snapshot, so editing an item price does NOT
   rewrite past line values. The single exception: a row snapshotted at 0 (a
@@ -356,6 +358,11 @@ owner > admin > supervisor > technician
 | Scan-gate work-order cards | any authenticated user (`GET /work-orders/?status=in_progress`, scoped) |
 | Tools: view list/lookup, return | any authenticated user |
 | Tools: create, edit, archive, checkout | admin+ |
+
+Tools UI nuance: Admin/Owner can search every active user and act on that
+user's custody card. Supervisor/Technician are pinned to their own card. The
+HTTP return route remains session-gated and accepts any `assigned_to_id`; this
+self-scope is a frontend workflow boundary, not a backend authorization rule.
 
 Scoping nuance:
 
@@ -540,7 +547,8 @@ Rules:
   barcode as units get labeled), not a conversion feature.
 - `archived_at` hides the tool from `list_tools` / barcode lookup but keeps
   the row so `tool_transactions` history still resolves it, mirroring
-  `Item.archived_at`.
+  `Item.archived_at`. Archiving is rejected while any user has a positive
+  outstanding custody balance for the tool.
 - Barcode uniqueness is a **partial** unique index scoped to live rows
   (`archived_at IS NULL`), not a plain column UNIQUE like `items.barcode`
   -- an archived tool's barcode is simply free to reuse with no retire/
@@ -577,6 +585,15 @@ Rules:
 - A return may never exceed that user's current outstanding balance for
   the tool (`domain.tools.validate_return`, raises
   `ToolReturnExceedsCheckedOutError`).
+- A checkout target must be an active user. `checkout_tool` rejects an unknown
+  or archived `assigned_to_id` before changing on-hand quantity or appending a
+  ledger row.
+- `services.tools.user_custody` derives one user's positive balances across all
+  tool ledger rows, including any legacy archived tool, for the user-archive
+  guard only. The frontend card instead inverts the existing
+  `ToolResponse.custody` lists. User and tool archive operations both lock
+  their primary row and reject the archive until every outstanding unit is
+  checked in.
 - `adjust` is the "Correct Count" action (`POST /tools/{id}/adjust`,
   Admin+, mirrors `POST /transactions/adjust`): the client sends the
   **absolute** new on-hand quantity, the service computes the signed delta
@@ -648,7 +665,7 @@ specified.
 | --- | --- | --- | --- |
 | POST | `/auth/login` | public | authenticate, create session, set cookie |
 | POST | `/auth/logout` | session | delete session, clear cookie |
-| GET | `/auth/me` | session | return current user identity |
+| GET | `/auth/me` | session | return current user identity plus `created_at` / `archived_at` profile timestamps |
 
 ### Items
 
@@ -910,28 +927,39 @@ Behavior:
   Item; Admin+ (inherits the page's gate). Barcode + name + quantity only
   -- no location/price/product-link.
 - Tools page is reached via its own nav button (any authenticated role).
-  Sub-nav mirrors Find Item: Find (table) / Scan (barcode lookup, reuses
-  `mountScanner` with a `lookupFn`/`notFoundLabel` pointed at
-  `apiGetToolByBarcode` -- no create-from-scan shortcut).
-- Table columns: Barcode, Name, On Hand, Checked Out (each custody entry
-  as `username: quantity`, one per line), Actions.
-- Admin+ row actions: Check Out, Edit, Correct Count, Archive. Any role
-  additionally sees Return, but only on a tool they currently hold
-  (client-side convenience; the backend gate is "any session").
+  Its default sub-view is **Custody**; Inventory and Scan remain secondary
+  sub-views.
+- Admin/Owner Custody starts with an active-user searchable combobox (up to
+  eight matching usernames, keyboard Arrow/Enter/Escape support). Selecting a
+  user opens a profile card with username, role, account-created date, active
+  status, distinct holding count, and the user's derived tool balances.
+  Archived users are excluded. Supervisor/Technician do not receive the user
+  list for this page and instead see only a card for the `/auth/me` identity.
+- Check-in starts on a holding row. Its fixed-user panel defaults to the full
+  outstanding balance and caps the quantity to that balance. Checkout is
+  Admin+ only and starts from the selected user's card: search available tools
+  by name/barcode or choose "Scan Tool to Check Out," then confirm a fixed
+  user/tool and quantity. A scan never commits automatically.
+- Inventory columns remain Barcode, Name, On Hand, Checked Out (each custody
+  entry as `username: quantity`, one per line). Admin+ row actions are limited
+  to Edit, Correct Count, and Archive; transactional Check Out/Check In actions
+  live only on the Custody card.
 - Correct Count (`views/toolCorrection.js`) sets the absolute on-hand
   quantity with a required reason -- mirrors Find Item's Correct Count
   exactly, just posting to `POST /tools/{id}/adjust`. This is also how a
   bulk tool's on-hand count is increased ("restocked") -- there is no
   separate stock-in action.
-- Checkout (Admin+) populates the assigned-to picker from the app's
-  existing users cache (`state.getUsers()`, already loaded at login for
-  Supervisor+/Admin/Owner). Return does the same for Supervisor+, but a
-  Technician cannot call `GET /users/` (Supervisor+ gated) -- so for a
-  Technician the picker falls back to a single option built from their
-  own outstanding custody entry (`toolReturn.js`'s `custody` param),
-  never an empty/broken dropdown.
-- Both panels have an optional free-text work-order-number field (no
-  find-or-create; stored as-is).
+- Direct Scan-sub-nav use remains inventory lookup: it resolves through
+  `apiGetToolByBarcode`, switches to Inventory, and filters to the barcode.
+  Card-launched scanning carries checkout context, switches back to Custody,
+  and opens checkout confirmation. There is no create-from-scan shortcut.
+- Both transaction panels retain an optional free-text work-order-number field
+  (no find-or-create; stored as-is). Saving reloads only tool data and rerenders
+  the selected card; auth reset/logout clears page-local selected-user and scan
+  context so custody state cannot leak between sessions.
+- No new tool-custody endpoint or database migration was added: the page
+  composes the existing `/tools/`, `/tools/{barcode}`, `/users/`, `/auth/me`,
+  checkout, and return contracts, and custody remains ledger-derived.
 
 ### History
 
@@ -1098,7 +1126,13 @@ Behavior:
   tools only (`services.tools._ensure_barcode_free`) -- no archived-
   conflict/override flow like items; an archived tool's barcode is simply
   free.
-- `checkout_tool` / `return_tool` both 🔒 lock the `Tool` row (mirrors
+- `delete_tool` 🔒 locks the live `Tool` row and refuses to archive it while
+  `tool_custody` reports any outstanding balance
+  (`ToolHasOutstandingCustodyError`).
+- `checkout_tool` first 🔒 locks and validates an active `User` target. An
+  unknown or archived target raises `UserNotFoundError` before the tool is
+  mutated or a ledger row is appended. `checkout_tool` / `return_tool` also
+  🔒 lock the `Tool` row (mirrors
   `services.transactions.apply_transaction`) and reuse
   `domain.quantity.apply_delta` directly: checkout calls it with
   `"dispense"`, return with `"stock"`. No new arithmetic exists for tools.
@@ -1120,6 +1154,12 @@ Behavior:
   display) and `return_tool` (for the cap) use -- custody is always
   derived from `tool_transactions`, never stored, and an `adjust` row is
   explicitly excluded so a correction never corrupts a custody balance.
+- `user_custody(assigned_to_id)` is the inverse aggregate across tools. It
+  returns tool id/name/barcode/positive quantity rows without filtering
+  archived tools, so legacy inconsistent rows cannot bypass the guard. It is
+  used only by `services.users.archive_user` to reject archiving a user who
+  still holds a tool (`UserHasCheckedOutToolsError`); the frontend card instead
+  inverts each live `ToolResponse.custody` list.
 - `_tool_response` (router) sets `custody` explicitly from `tool_custody`,
   the same pattern `routers/items.py::_item_response` uses for
   `barcodes`.
@@ -1196,7 +1236,8 @@ Coverage map:
 | --- | --- |
 | `test_auth_password.py` | scrypt password hashing/checking |
 | `test_auth_session_lifetime.py` | remembered/non-remembered session lifecycle |
-| `test_user_archive.py` | user archive blocks login, revokes sessions, list scoping |
+| `test_auth_profile_schema.py` | `/auth/me` response contract includes required `created_at` and nullable `archived_at` profile timestamps |
+| `test_user_archive.py` | user archive blocks login, revokes sessions, list scoping, and refuses archive until outstanding tool custody is returned |
 | `test_item_update_partial.py` | partial item PATCH + clear price/link to null |
 | `test_history_price_snapshot.py` | frozen `unit_price` snapshot; non-zero rows unchanged by price edits; snapshot 0 / NULL falls back to live price |
 | `test_roles.py` | role hierarchy and transaction/user-management rules |
@@ -1216,7 +1257,7 @@ Coverage map:
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
 | `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin; history row exposes `work_order_id` |
 | `test_tools_domain.py` | pure `domain.tools.validate_return` outstanding-balance cap |
-| `test_tools_service.py` | DB-backed: create/duplicate-live-barcode, archived-barcode reuse, checkout/return round-trip incl. `apply_delta` reuse, checkout overdraft (`NegativeQuantityError`), return-beyond-outstanding (`ToolReturnExceedsCheckedOutError`), multi-user custody split on a bulk tool, archive hides from list, Correct Count increase/decrease/no-op (`NoChangeError`), and the regression that an `adjust` row never enters a custody balance |
+| `test_tools_service.py` | DB-backed: create/duplicate-live-barcode, archived-barcode reuse, checkout/return round-trip incl. `apply_delta` reuse, active-target validation without stock/ledger mutation, checkout overdraft (`NegativeQuantityError`), return-beyond-outstanding (`ToolReturnExceedsCheckedOutError`), per-tool and per-user custody aggregates, multi-user custody split, archive guard until full return, Correct Count increase/decrease/no-op (`NoChangeError`), and the regression that an `adjust` row never enters a custody balance |
 
 No frontend test harness exists. For UI behavior, run backend tests plus manual
 browser checks for changed pages.

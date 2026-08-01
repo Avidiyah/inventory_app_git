@@ -105,7 +105,7 @@ def archive_user(
     and their sessions are revoked, but the audit trail is preserved. This
     is the normal "remove a user" action and works even for a user with
     transactions. 404 if unknown; 403 if the actor does not outrank the
-    target."""
+    target; 400 while the target has outstanding tool custody."""
     try:
         target = users_service.get_user(db, user_id)
         if not roles.can_manage(actor.role, target.role):

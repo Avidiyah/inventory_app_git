@@ -112,7 +112,8 @@ def update_tool(
     dependencies=[Depends(require_min_role(roles.ROLE_ADMIN))],
 )
 def delete_tool(tool_id: uuid.UUID, db: Session = Depends(get_db)):
-    """Soft-delete (archive) a tool. Admin+ only. 404 if unknown."""
+    """Soft-delete a tool. Admin+ only. 404 if unknown; 400 while any
+    user has an outstanding custody balance for the tool."""
     try:
         tools_service.delete_tool(db, tool_id)
     except DomainError as exc:
@@ -126,8 +127,9 @@ def checkout_tool(
     user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ):
-    """Check a tool out to `assigned_to_id`. Admin+ only. 404 if unknown;
-    400 if `quantity` exceeds on-hand."""
+    """Check a tool out to an active `assigned_to_id`. Admin+ only. 404 if
+    the tool or active target user is unknown; 400 if `quantity` exceeds
+    on-hand."""
     try:
         tools_service.checkout_tool(
             db,

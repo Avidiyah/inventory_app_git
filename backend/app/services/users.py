@@ -21,10 +21,12 @@ from sqlalchemy.orm import Session
 
 from app.domain.errors import (
     DuplicateUsernameError,
+    UserHasCheckedOutToolsError,
     UserHasTransactionsError,
     UserNotFoundError,
 )
 from app.models import AuthSession, User
+from app.services import tools as tools_service
 
 
 def create_user(db: Session, *, username: str, password_hash: str, role: str) -> User:
@@ -104,12 +106,22 @@ def archive_user(db: Session, user_id: uuid.UUID) -> User:
     name through a live join, so a hard delete would orphan those rows.
     Archiving keeps the audit trail intact while blocking login
     (`services.auth.authenticate` rejects archived users) and hiding the
-    user from the active Saved Users list. Raises `UserNotFoundError` if
-    the id is unknown. Idempotent: archiving an already-archived user
-    refreshes the timestamp and re-clears any sessions."""
-    user = db.query(User).filter(User.id == user_id).first()
+    user from the active Saved Users list. A user with outstanding tool
+    custody cannot be archived because the user-first Tools UI deliberately
+    hides archived users. Raises `UserNotFoundError` if the id is unknown and
+    `UserHasCheckedOutToolsError` while any positive custody balance remains.
+
+    The row lock coordinates with checkout's active-user lock, preventing a
+    checkout and archive from crossing between the validation and commit.
+    Idempotent for users who are already archived and have no custody.
+    """
+    user = db.query(User).filter(User.id == user_id).with_for_update().first()
     if not user:
         raise UserNotFoundError("User not found.")
+    if tools_service.user_custody(db, user_id):
+        raise UserHasCheckedOutToolsError(
+            "Check in all tools before archiving this user."
+        )
     user.archived_at = datetime.now(timezone.utc)
     # Revoke active sessions now rather than waiting for them to lapse, so
     # archiving immediately locks the user out.

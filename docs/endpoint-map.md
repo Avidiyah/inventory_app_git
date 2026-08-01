@@ -1,6 +1,6 @@
 # Endpoint Map: Database ↔ User View
 
-Last reviewed: 2026-07-14
+Last reviewed: 2026-08-01
 
 Purpose: a complete, self-contained trace of every endpoint — wiring, contracts,
 rules, error behavior, and service algorithms — so an AI or developer can answer
@@ -53,7 +53,7 @@ writes (w).
 | 2 | GET | `/db-test` | admin+ | `main.py` → `database.test_connection` | — | — | (diagnostic) |
 | 3 | POST | `/auth/login` | public | `auth.py` → `auth.authenticate` + `create_session` | users (r), sessions (w) | `apiLogin` | `auth.js` |
 | 4 | POST | `/auth/logout` | session | `auth.py` → `auth.delete_session` | sessions (w) | `apiLogout` | `auth.js` |
-| 5 | GET | `/auth/me` | session | `auth_deps.get_current_user` | sessions (r), users (r) | `apiMe` | `auth.js` |
+| 5 | GET | `/auth/me` | session | `auth_deps.get_current_user` | sessions (r), users (r) | `apiMe` | `auth.js`, `tools.js` (self profile) |
 | 6 | GET | `/items/` | session | `items.py` → `items.list_items` | items (r) | `apiListItems` | `items.js`, `transactions.js`, `massStage.js`, `workOrders.js` |
 | 7 | GET | `/items/{barcode}` | session | `items.py` → `items.get_item_by_barcode` | items (r), item_barcodes (r) | `apiGetItemByBarcode` | `scan.js`, `addBarcode.js`, `history.js` |
 | 8 | POST | `/items/` | admin+ | `items.py` → `items.create_item` | items (w), item_barcodes (r) | `apiCreateItem` | `items.js` |
@@ -62,10 +62,10 @@ writes (w).
 | 11 | PATCH | `/items/{id}/barcodes` | admin+ | `items.py` → `items.replace_barcodes` | item_barcodes (w), items (r) | `apiUpdateBarcodes` | `itemEditor.js`, `addBarcode.js` |
 | 12 | DELETE | `/items/{id}` | admin+ | `items.py` → `items.delete_item` | items (w, archive) | `apiDeleteItem` | `items.js` |
 | 13 | POST | `/barcodes/decode` | session | `barcodes.py` → `barcodes.decode_image` | — (no persistence) | `apiDecodeBarcode` | `scan.js` |
-| 14 | GET | `/users/` | supervisor+ | `users.py` → `users.list_users` | users (r) | `apiListUsers` | `users.js`, `transactions.js`, `massStage.js`, `workOrders.js` |
+| 14 | GET | `/users/` | supervisor+ | `users.py` → `users.list_users` | users (r) | `apiListUsers` | `users.js`, `transactions.js`, `massStage.js`, `workOrders.js`, `tools.js` (Admin/Owner only) |
 | 15 | POST | `/users/` | outranks target | `users.py` → `users.create_user` | users (w) | `apiCreateUser` | `users.js` |
 | 16 | POST | `/users/{id}/reset-password` | outranks target | `users.py` → `users.reset_password` | users (w) | `apiResetPassword` | `users.js` |
-| 17 | POST | `/users/{id}/archive` | outranks target | `users.py` → `users.archive_user` | users (w), sessions (w, revoke) | `apiArchiveUser` | `users.js` |
+| 17 | POST | `/users/{id}/archive` | outranks target | `users.py` → `users.archive_user` + `tools.user_custody` | users (w), sessions (w, revoke), tools/tool_transactions (r, custody guard) | `apiArchiveUser` | `users.js` |
 | 18 | POST | `/users/{id}/restore` | outranks target | `users.py` → `users.restore_user` | users (w) | `apiRestoreUser` | `users.js` |
 | 19 | DELETE | `/users/{id}` | outranks target | `users.py` → `users.delete_user` | users (w, hard) | `apiDeleteUser` | **API-only** (no UI; UI uses archive) |
 | 20 | GET | `/transactions/` | supervisor+ | `transactions.py` → `history.list_history` | transactions (r), items (r), users (r) | `apiListTransactions` | `history.js` |
@@ -99,8 +99,8 @@ writes (w).
 | 48 | GET | `/tools/` | session | `tools.py` → `tools_service.list_tools` + `tool_custody` | tools (r), tool_transactions (r), users (r) | `apiListTools` | `tools.js` |
 | 49 | GET | `/tools/{barcode}` | session | `tools.py` → `tools_service.get_tool_by_barcode` + `tool_custody` | tools (r), tool_transactions (r), users (r) | `apiGetToolByBarcode` | `tools.js` |
 | 50 | PATCH | `/tools/{tool_id}` | admin+ | `tools.py` → `tools_service.update_tool` | tools (w) | `apiUpdateTool` | `tools.js` |
-| 51 | DELETE | `/tools/{tool_id}` | admin+ | `tools.py` → `tools_service.delete_tool` | tools (w, archive) | `apiDeleteTool` | `tools.js` |
-| 52 | POST | `/tools/{tool_id}/checkout` | admin+ | `tools.py` → `tools_service.checkout_tool` | tools (w), tool_transactions (w) | `apiCheckoutTool` | `toolCheckout.js` |
+| 51 | DELETE | `/tools/{tool_id}` | admin+ | `tools.py` → `tools_service.delete_tool` + `tool_custody` | tools (r/w, archive), tool_transactions (r, custody guard) | `apiDeleteTool` | `tools.js` |
+| 52 | POST | `/tools/{tool_id}/checkout` | admin+ | `tools.py` → `tools_service.checkout_tool` | users (r, active-target guard), tools (w), tool_transactions (w) | `apiCheckoutTool` | `toolCheckout.js` |
 | 53 | POST | `/tools/{tool_id}/return` | session | `tools.py` → `tools_service.return_tool` | tools (w), tool_transactions (w, r for cap check) | `apiReturnTool` | `toolReturn.js` |
 | 54 | POST | `/tools/{tool_id}/adjust` | admin+ | `tools.py` → `tools_service.adjust_tool_quantity` | tools (w), tool_transactions (w) | `apiAdjustTool` | `toolCorrection.js` |
 
@@ -120,6 +120,8 @@ What populates each screen. Format: **table → … → view → what the user s
 ### Boot / session
 - **sessions, users** → `auth_deps.get_current_user` → `GET /auth/me` → `apiMe` →
   `auth.js`: on load, 200 ⇒ enter app (nav visibility applied); 401 ⇒ login screen.
+  The identity includes `created_at` / `archived_at`; `tools.js` uses those
+  fields to render a self-only custody profile for Supervisor/Technician.
 - **(static fragments)** → `main.py` shell assembly → `GET /` → browser: the SPA
   shell (`shell-head.html` + `pages/*.html` + `shell-tail.html`).
 
@@ -140,6 +142,7 @@ What populates each screen. Format: **table → … → view → what the user s
   - `users.js`: the user table (archived included, dimmed).
   - `transactions.js` / `workOrders.js` / `massStage.js`: technician dropdowns
     for assignment; `history.js` uses it for the "by user" filter.
+  - `tools.js`: Admin/Owner's active-user custody search (archived excluded).
 
 ### Transaction history
 - **transactions ⋈ items ⋈ users** → `list_history` → `GET /transactions/` →
@@ -168,11 +171,17 @@ What populates each screen. Format: **table → … → view → what the user s
 
 ### Tools
 - **tools ⋈ tool_transactions ⋈ users** → `list_tools` + `tool_custody` →
-  `GET /tools/` → `apiListTools` → `tools.js`: the Tools table (On Hand +
-  Checked Out columns; the latter from each tool's `custody` breakdown).
+  `GET /tools/` → `apiListTools` → `tools.js`: the Inventory table and the
+  selected user's custody-card holdings (both derived from each tool's
+  `custody` breakdown).
+- **users** → `list_users(include_archived=false)` → `GET /users/` →
+  `apiListUsers` → `tools.js`: Admin/Owner's searchable active-user picker.
+  Supervisor/Technician skip this request and use `/auth/me` for a self-only
+  card.
 - **tools ⋈ tool_transactions ⋈ users** → `get_tool_by_barcode` +
   `tool_custody` → `GET /tools/{barcode}` → `apiGetToolByBarcode` →
-  `tools.js`: the resolved tool after a Tools-page scan.
+  `tools.js`: either an Inventory lookup or a selected-user checkout
+  confirmation, depending on scanner context.
 
 ### Cross-feature read (copy-table billing summary)
 `history.js` copy button reads `GET /transactions/` (all matching rows) **and**,
@@ -287,12 +296,14 @@ service → table effect**.
 - `tools.js` (Edit) → `apiUpdateTool` → `PATCH /tools/{id}` →
   `update_tool` → **tools** partial update.
 - `tools.js` (Archive) → `apiDeleteTool` → `DELETE /tools/{id}` →
-  `delete_tool` → **tools.archived_at** set (soft delete).
+  `delete_tool` → read **tool_transactions** custody aggregate; if clear,
+  **tools.archived_at** set (soft delete), otherwise 400.
 - `toolCheckout.js` (Check Out) → `apiCheckoutTool` →
-  `POST /tools/{id}/checkout` → `checkout_tool` → **tools.quantity** −
-  (via `domain.quantity.apply_delta`, `"dispense"`), **tool_transactions**
-  insert (`checkout`).
-- `toolReturn.js` (Return) → `apiReturnTool` → `POST /tools/{id}/return`
+  `POST /tools/{id}/checkout` → `checkout_tool` → validate/lock active
+  **users** target → **tools.quantity** − (via
+  `domain.quantity.apply_delta`, `"dispense"`), **tool_transactions** insert
+  (`checkout`). Unknown/archived targets fail before either write.
+- `toolReturn.js` (Check In) → `apiReturnTool` → `POST /tools/{id}/return`
   → `return_tool` → **tools.quantity** + (`apply_delta`, `"stock"`, after
   `domain.tools.validate_return` caps it to the user's outstanding
   balance), **tool_transactions** insert (`return`).
@@ -342,7 +353,10 @@ Source: `app/schemas/*.py`.
 | `remember` | bool=False | True ⇒ 12h-capped persistent session |
 
 **`MeResponse`** — `POST /auth/login`, `GET /auth/me` return: `id: UUID`,
-`username: str`, `role: str`. (Only what the frontend needs to gate UI.)
+`username: str`, `role: str`, `created_at: datetime`, `archived_at:
+datetime? = null`. The profile timestamps support self-service cards; an
+authenticated user is normally active, but the nullable archive field keeps
+the identity/status contract explicit.
 
 **`PasswordResetRequest`** — body of `POST /users/{id}/reset-password`:
 `password: str` (≥ 4 chars, `MIN_PASSWORD_LENGTH`).
@@ -511,7 +525,7 @@ non-domain exceptions become FastAPI's default 500.
 | Exception | HTTP | Raised when |
 |-----------|------|-------------|
 | `ItemNotFoundError` | 404 | item id/barcode unknown, or archived on a barcode lookup |
-| `UserNotFoundError` | 404 | user id unknown |
+| `UserNotFoundError` | 404 | user id unknown; tool checkout also uses it when the target is archived (not an active checkout target) |
 | `TransactionNotFoundError` | 404 | txn id unknown or already voided |
 | `StageNotFoundError` | 404 | mass-stage id unknown |
 | `RoomNotFoundError` | 404 | stage **slot** not found / not in the stage (name retains old "room") |
@@ -521,6 +535,7 @@ non-domain exceptions become FastAPI's default 500.
 | `ToolNotFoundError` | 404 | tool id/barcode unknown or archived |
 | `DuplicateToolBarcodeError` | 400 | barcode held by a **live** tool (no archived-conflict/override flow, unlike items) |
 | `ToolReturnExceedsCheckedOutError` | 400 | return quantity exceeds that user's current outstanding balance for the tool |
+| `ToolHasOutstandingCustodyError` | 400 | archiving a tool while any user still has a positive outstanding balance |
 | `DuplicateBarcodeError` | 400 | barcode held by a **live** item (primary or additional) |
 | `ArchivedBarcodeConflictError` | **409** | barcode held only by an **archived** item; retry with `override_archived=true` |
 | `DuplicateUsernameError` | 400 | username UNIQUE constraint fired |
@@ -531,6 +546,7 @@ non-domain exceptions become FastAPI's default 500.
 | `StageStateError` | 400 | mass-stage op illegal for current status (edit after planning, load before loading) |
 | `ItemHasTransactionsError` | 400 | hard-deleting an item with txns/stage rows (FK RESTRICT) |
 | `UserHasTransactionsError` | 400 | hard-deleting a user referenced by txns (FK RESTRICT) |
+| `UserHasCheckedOutToolsError` | 400 | archiving a user before all outstanding tool custody is returned |
 | `NegativeQuantityError` | 400 | a dispense/adjust/void would drive on-hand < 0 |
 | `NoChangeError` | 400 | correction `new_quantity` equals current (empty audit row) |
 | `BillingQuantityError` | 400 | billing override negative, > recorded qty, or targets an `adjust` |
@@ -671,8 +687,10 @@ read-modify-write guard for `items.quantity`).
   (History "by user" passes True).
 - `get_user(id)` → one or `UserNotFoundError` (router inspects role before acting).
 - `reset_password(id, hash)` → overwrite hash; sessions left intact.
-- `archive_user(id)` → set `archived_at` **and delete all the user's sessions**
-  (immediate lockout). Idempotent.
+- `archive_user(id)` → 🔒 lock the user → query `tools.user_custody`; raise
+  `UserHasCheckedOutToolsError` while any balance remains, otherwise set
+  `archived_at` **and delete all the user's sessions** (immediate lockout).
+  Idempotent once archived.
 - `restore_user(id)` → clear `archived_at`.
 - `delete_user(id)` → hard delete; `IntegrityError` (FK from `transactions.user_id`,
   RESTRICT) → `UserHasTransactionsError`. (API-only; UI uses archive.)
@@ -734,10 +752,12 @@ read-modify-write guard for `items.quantity`).
   `DuplicateToolBarcodeError`. No archived-conflict/override flow like
   items — an archived tool's barcode is simply free (backed by the
   partial unique index `uq_tools_barcode_live`).
-- `create_tool` / `update_tool` / `delete_tool` / `list_tools` /
-  `get_tool_by_barcode` / `get_tool` → mirror the equivalent
-  `services.items` functions (partial update via `_UNSET`, soft-delete
-  archive), minus `location`/`price`/`product_link`.
+- `create_tool` / `update_tool` / `list_tools` / `get_tool_by_barcode` /
+  `get_tool` → mirror the equivalent `services.items` functions (partial
+  update via `_UNSET`), minus `location`/`price`/`product_link`.
+- `delete_tool(id)` → 🔒 lock a live Tool → query `tool_custody`; raise
+  `ToolHasOutstandingCustodyError` while any balance remains, otherwise set
+  `archived_at` (soft delete).
 - `_custody_query(tool_id)` → the shared aggregate: per `assigned_to_id`,
   `SUM(CASE WHEN transaction_type='checkout' THEN quantity ELSE -quantity
   END)`, filtered to `transaction_type IN ('checkout', 'return')`
@@ -745,8 +765,15 @@ read-modify-write guard for `items.quantity`).
   0`. `tool_custody(tool_id)` runs it unscoped (every holder);
   `_outstanding_for_user(tool_id, assigned_to_id)` filters to one user
   (used by `return_tool`'s cap check).
+- `user_custody(assigned_to_id)` → inverse aggregate across all tool ledger
+  rows (no `Tool.archived_at` filter), returning `(tool_id, name, barcode, net
+  quantity)` for positive balances. It is used only by the user-archive guard,
+  including protection against legacy custody on an archived tool; the
+  frontend card independently inverts the existing live
+  `ToolResponse.custody` lists.
 - `checkout_tool(tool_id, qty, assigned_to_id, performed_by_id, ...)` →
-  🔒 lock `Tool` row → `apply_delta(qty, "dispense", n)` (raises
+  🔒 lock and require an active `User` target (`UserNotFoundError` if missing
+  or archived) → 🔒 lock `Tool` row → `apply_delta(qty, "dispense", n)` (raises
   `NegativeQuantityError`, reused as-is from `domain.quantity`, if
   insufficient on-hand) → insert `ToolTransaction(type="checkout")` →
   commit.

@@ -25,7 +25,13 @@ from sqlalchemy import case, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.domain.errors import DuplicateToolBarcodeError, NoChangeError, ToolNotFoundError
+from app.domain.errors import (
+    DuplicateToolBarcodeError,
+    NoChangeError,
+    ToolHasOutstandingCustodyError,
+    ToolNotFoundError,
+    UserNotFoundError,
+)
 from app.domain.quantity import apply_delta
 from app.domain.tools import validate_return
 from app.models import Tool, ToolTransaction, User
@@ -131,8 +137,23 @@ def update_tool(
 
 
 def delete_tool(db: Session, tool_id: uuid.UUID) -> None:
-    """Archive (soft-delete) a tool. Raises `ToolNotFoundError` if unknown."""
-    tool = get_tool(db, tool_id)
+    """Archive a tool only when no user still has custody.
+
+    The row lock serialises this check with checkout/return, which lock the
+    same `Tool` row before changing the ledger and on-hand quantity.
+    """
+    tool = (
+        db.query(Tool)
+        .filter(Tool.id == tool_id, Tool.archived_at.is_(None))
+        .with_for_update()
+        .first()
+    )
+    if not tool:
+        raise ToolNotFoundError("Tool not found.")
+    if tool_custody(db, tool_id):
+        raise ToolHasOutstandingCustodyError(
+            "Check in all outstanding units before archiving this tool."
+        )
     tool.archived_at = datetime.now(timezone.utc)
     db.commit()
 
@@ -170,6 +191,40 @@ def tool_custody(
     return [(uid, uname, net) for uid, uname, net in _custody_query(db, tool_id).all()]
 
 
+def user_custody(
+    db: Session, assigned_to_id: uuid.UUID
+) -> list[tuple[uuid.UUID, str, str, Decimal]]:
+    """Current custody for one user across tools.
+
+    Returns `(tool_id, tool_name, barcode, quantity)` tuples for every
+    positive checkout-minus-return balance. `adjust` rows are excluded for
+    the same reason they are excluded from `tool_custody`. This service-level
+    read is used by user archival; the frontend continues to invert the
+    existing `ToolResponse.custody` data and does not need another endpoint.
+    """
+    net = func.sum(
+        case(
+            (ToolTransaction.transaction_type == "checkout", ToolTransaction.quantity),
+            else_=-ToolTransaction.quantity,
+        )
+    ).label("net")
+    rows = (
+        db.query(Tool.id, Tool.name, Tool.barcode, net)
+        .join(ToolTransaction, ToolTransaction.tool_id == Tool.id)
+        .filter(
+            ToolTransaction.assigned_to_id == assigned_to_id,
+            ToolTransaction.transaction_type.in_(("checkout", "return")),
+        )
+        .group_by(Tool.id, Tool.name, Tool.barcode)
+        .having(net > 0)
+        .all()
+    )
+    return [
+        (tool_id, name, barcode, quantity)
+        for tool_id, name, barcode, quantity in rows
+    ]
+
+
 def _outstanding_for_user(
     db: Session, tool_id: uuid.UUID, assigned_to_id: uuid.UUID
 ) -> Decimal:
@@ -194,8 +249,23 @@ def checkout_tool(
     work_order_number: Optional[str] = None,
 ) -> ToolTransaction:
     """Check a tool out to `assigned_to_id`, decrementing on-hand quantity.
-    Raises `ToolNotFoundError` if unknown/archived, `NegativeQuantityError`
-    (reused from `domain.quantity`) if `quantity` exceeds on-hand."""
+    Raises `UserNotFoundError` if the custody target is unknown/archived,
+    `ToolNotFoundError` if the tool is unknown/archived, or
+    `NegativeQuantityError` (reused from `domain.quantity`) if `quantity`
+    exceeds on-hand.
+
+    Lock the target user before the tool so a concurrent archive cannot make
+    a new checkout invisible from the user-first custody workflow.
+    """
+    assigned_to = (
+        db.query(User)
+        .filter(User.id == assigned_to_id, User.archived_at.is_(None))
+        .with_for_update()
+        .first()
+    )
+    if not assigned_to:
+        raise UserNotFoundError("Active user not found.")
+
     tool = (
         db.query(Tool)
         .filter(Tool.id == tool_id, Tool.archived_at.is_(None))

@@ -74,7 +74,7 @@ def logout(
 
 @router.get("/me", response_model=MeResponse)
 def me(user: User = Depends(get_current_user)):
-    """Return the currently logged-in user's identity and role. The
-    frontend calls this on boot to decide whether to show the app or
-    the login screen, and to gate the UI by role."""
+    """Return the logged-in user's identity, role, and profile timestamps.
+    The frontend calls this on boot to decide whether to show the app, gate
+    the UI by role, and populate self-service profile cards."""
     return user

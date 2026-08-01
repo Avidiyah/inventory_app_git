@@ -62,6 +62,12 @@ class UserHasTransactionsError(DomainError):
     intentionally preserved; see docs/current-state.md."""
 
 
+class UserHasCheckedOutToolsError(DomainError):
+    """Raised when an archive would hide a user who still has positive
+    tool custody. Every checked-out tool must be returned first so the
+    custody workflow remains reachable. Maps to 400."""
+
+
 class ItemHasTransactionsError(DomainError):
     """Raised by `services.items.delete_item` when the item is
     referenced by one or more rows in `transactions`. Mirrors
@@ -249,6 +255,11 @@ class DuplicateToolBarcodeError(DomainError):
     barcode is already held by a *live* tool. Unlike items, tools have no
     archived-conflict/override flow -- an archived tool's barcode is simply
     free to reuse. Maps to 400."""
+
+
+class ToolHasOutstandingCustodyError(DomainError):
+    """Raised when an archive would hide a tool that still has a positive
+    outstanding balance for one or more users. Maps to 400."""
 
 
 class ToolReturnExceedsCheckedOutError(DomainError):

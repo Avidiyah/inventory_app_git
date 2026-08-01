@@ -1,23 +1,14 @@
-// View: tools list, Add Tool form, and the Tools page (Find/Scan/Edit).
+// View: Add Tool form plus the user-first Tools page.
 //
-// Layer: views. Owns two physically separate DOM regions:
-//
-// 1. The "Add Tool" card on the Add Item page (`create-item.html`) --
-//    mirrors `items.js`'s create-item form binding, just for a different
-//    section on the same page.
-// 2. The Tools page itself (`tools.html`): the table (with each tool's
-//    on-hand count and current custody breakdown), search filtering, row
-//    actions (Checkout / Edit / Archive for Admin+, Return for any role
-//    that currently holds the tool), and the Tools-page scanner.
-//
-// Checkout and Return each have their own contextual sub-flow module
-// (`toolCheckout.js` / `toolReturn.js`, mirroring `correction.js`'s
-// open/close/save shape); the Edit Tool sub-flow is small enough to live
-// here alongside the table it belongs to.
+// Custody is the default feature: Admin/Owner searches active users, while
+// Supervisor/Technician opens their own card. Checkout starts from that card
+// by tool search or contextual scan; check-in starts from one of the selected
+// user's current holdings. Inventory retains lookup and Admin+ maintenance.
 
-import { getTools, setTools, getRole, getUsers, getCurrentUser } from "../state.js";
+import { getTools, setTools, getRole, getCurrentUser } from "../state.js";
 import {
   apiListTools,
+  apiListUsers,
   apiCreateTool,
   apiUpdateTool,
   apiDeleteTool,
@@ -28,11 +19,14 @@ import { setMessage, confirmDialog } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
 import { mountScanner } from "./scan.js";
 import { initSubNav } from "./subnav.js";
-import { openToolCheckout, closeToolCheckout, setOnSaved as setOnCheckoutSaved } from "./toolCheckout.js";
+import {
+  openToolCheckout,
+  closeToolCheckout,
+  setOnSaved as setOnCheckoutSaved,
+} from "./toolCheckout.js";
 import {
   openToolReturn,
   closeToolReturn,
-  getReturningToolId,
   setOnSaved as setOnReturnSaved,
 } from "./toolReturn.js";
 import {
@@ -76,105 +70,386 @@ createToolBtn.addEventListener("click", async () => {
   }
 });
 
-// --- Tools page table ---------------------------------------------------
+// --- User-first custody state -------------------------------------------
+
+const toolsPage = document.getElementById("tools-page");
+const userPicker = document.getElementById("tool-user-picker");
+const userSearch = document.getElementById("tool-user-search");
+const userResults = document.getElementById("tool-user-results");
+const custodyMessage = document.getElementById("tool-custody-message");
+const userCard = document.getElementById("tool-user-card");
+const userName = document.getElementById("tool-user-name");
+const userMeta = document.getElementById("tool-user-meta");
+const userStatus = document.getElementById("tool-user-status");
+const custodyCount = document.getElementById("tool-user-custody-count");
+const holdingsEl = document.getElementById("tool-user-holdings");
+const checkoutControls = document.getElementById("tool-checkout-controls");
+const checkoutToolSearch = document.getElementById("tool-checkout-search");
+const checkoutToolResults = document.getElementById("tool-checkout-results");
+const checkoutScanBtn = document.getElementById("tool-checkout-scan-btn");
+const checkoutPickerMessage = document.getElementById("tool-checkout-picker-message");
+
+let custodyUsers = [];
+let selectedUserId = null;
+let activeUserResultIndex = -1;
+let visibleUserIds = [];
+let scanPurpose = "lookup";
+let checkoutScanUserId = null;
+let toolsSubNav = null;
+
+function canManageCustody() {
+  return roleAtLeast(getRole(), "admin");
+}
+
+function selectedUser() {
+  return custodyUsers.find((user) => user.id === selectedUserId) || null;
+}
+
+function roleLabel(role) {
+  return role ? role.charAt(0).toUpperCase() + role.slice(1) : "Unknown role";
+}
+
+function formattedCreatedAt(value) {
+  if (!value) return "Created date unavailable";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Created date unavailable" : "Created " + date.toLocaleString();
+}
+
+function holdingsForUser(userId) {
+  return getTools().flatMap((tool) => {
+    const custody = (tool.custody || []).find((entry) => entry.user_id === userId);
+    return custody ? [{ tool, custody }] : [];
+  });
+}
+
+function hideUserResults() {
+  activeUserResultIndex = -1;
+  visibleUserIds = [];
+  userResults.innerHTML = "";
+  userResults.hidden = true;
+  userSearch.setAttribute("aria-expanded", "false");
+  userSearch.removeAttribute("aria-activedescendant");
+}
+
+function clearCheckoutPicker() {
+  checkoutToolSearch.value = "";
+  checkoutToolResults.innerHTML = "";
+  checkoutToolResults.hidden = true;
+  setMessage(checkoutPickerMessage, "", "");
+}
+
+function clearSelectedUser() {
+  selectedUserId = null;
+  userCard.hidden = true;
+  holdingsEl.innerHTML = "";
+  clearCheckoutPicker();
+  closeToolCheckout();
+  closeToolReturn();
+}
+
+function renderUserCard() {
+  const user = selectedUser();
+  if (!user) {
+    userCard.hidden = true;
+    return;
+  }
+
+  const holdings = holdingsForUser(user.id);
+  userName.textContent = user.username;
+  userMeta.textContent = roleLabel(user.role) + " · " + formattedCreatedAt(user.created_at);
+  userStatus.textContent = "Active";
+  custodyCount.textContent =
+    holdings.length === 1
+      ? "1 tool record currently checked out"
+      : holdings.length + " tool records currently checked out";
+
+  if (holdings.length === 0) {
+    holdingsEl.innerHTML = '<p class="tool-empty-state">No tools currently checked out.</p>';
+  } else {
+    holdingsEl.innerHTML = holdings
+      .map(({ tool, custody }) =>
+        '<div class="tool-holding-row">' +
+          '<div class="tool-holding-detail">' +
+            '<strong>' + escapeHtml(tool.name) + '</strong>' +
+            '<span>Barcode: ' + escapeHtml(tool.barcode) + '</span>' +
+            '<span>Checked out: ' + escapeHtml(custody.quantity) + '</span>' +
+          '</div>' +
+          '<button type="button" class="tool-checkin-btn secondary-btn" data-tool-id="' +
+            escapeHtml(tool.id) + '">Check In</button>' +
+        '</div>'
+      )
+      .join("");
+  }
+
+  checkoutControls.hidden = !canManageCustody();
+  userCard.hidden = false;
+}
+
+function chooseUser(user) {
+  selectedUserId = user.id;
+  userSearch.value = user.username;
+  hideUserResults();
+  clearCheckoutPicker();
+  closeToolCheckout();
+  closeToolReturn();
+  setMessage(custodyMessage, "", "");
+  renderUserCard();
+  userCard.focus();
+}
+
+function matchingUsers() {
+  const query = userSearch.value.trim().toLowerCase();
+  return custodyUsers
+    .filter((user) => !query || user.username.toLowerCase().includes(query))
+    .slice(0, 8);
+}
+
+function setActiveUserOption(index) {
+  const options = Array.from(userResults.querySelectorAll(".tool-user-option"));
+  if (options.length === 0) {
+    activeUserResultIndex = -1;
+    userSearch.removeAttribute("aria-activedescendant");
+    return;
+  }
+  activeUserResultIndex = (index + options.length) % options.length;
+  options.forEach((option, optionIndex) => {
+    const isActive = optionIndex === activeUserResultIndex;
+    option.classList.toggle("is-active", isActive);
+    option.setAttribute("aria-selected", String(isActive));
+  });
+  const active = options[activeUserResultIndex];
+  userSearch.setAttribute("aria-activedescendant", active.id);
+  active.scrollIntoView({ block: "nearest" });
+}
+
+function renderUserResults() {
+  const matches = matchingUsers();
+  visibleUserIds = matches.map((user) => user.id);
+  activeUserResultIndex = -1;
+  userSearch.removeAttribute("aria-activedescendant");
+
+  if (matches.length === 0) {
+    userResults.innerHTML = '<p class="hint">No matching active users.</p>';
+  } else {
+    userResults.innerHTML = matches
+      .map((user) =>
+        '<button type="button" id="tool-user-option-' + escapeHtml(user.id) +
+          '" class="manual-item-card tool-user-option" role="option" aria-selected="false" data-user-id="' +
+          escapeHtml(user.id) + '">' +
+          '<span class="manual-item-name">' + escapeHtml(user.username) + '</span>' +
+          '<span class="manual-item-meta"><span>' + escapeHtml(roleLabel(user.role)) + '</span></span>' +
+        '</button>'
+      )
+      .join("");
+  }
+  userResults.hidden = false;
+  userSearch.setAttribute("aria-expanded", "true");
+}
+
+userSearch.addEventListener("focus", renderUserResults);
+
+userSearch.addEventListener("input", () => {
+  const current = selectedUser();
+  if (current && userSearch.value !== current.username) clearSelectedUser();
+  renderUserResults();
+});
+
+userSearch.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    hideUserResults();
+    return;
+  }
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Enter") return;
+  if (userResults.hidden) renderUserResults();
+
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    setActiveUserOption(activeUserResultIndex + 1);
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    setActiveUserOption(activeUserResultIndex - 1);
+  } else if (event.key === "Enter" && activeUserResultIndex >= 0) {
+    event.preventDefault();
+    const user = custodyUsers.find((candidate) => candidate.id === visibleUserIds[activeUserResultIndex]);
+    if (user) chooseUser(user);
+  }
+});
+
+userResults.addEventListener("click", (event) => {
+  const option = event.target.closest("[data-user-id]");
+  if (!option) return;
+  const user = custodyUsers.find((candidate) => candidate.id === option.dataset.userId);
+  if (user) chooseUser(user);
+});
+
+document.addEventListener("click", (event) => {
+  if (!userPicker.contains(event.target)) hideUserResults();
+  if (!checkoutControls.contains(event.target)) checkoutToolResults.hidden = true;
+});
+
+holdingsEl.addEventListener("click", (event) => {
+  const button = event.target.closest(".tool-checkin-btn");
+  if (!button) return;
+  const user = selectedUser();
+  const tool = getTools().find((candidate) => candidate.id === button.dataset.toolId);
+  const custody = tool && (tool.custody || []).find((entry) => entry.user_id === selectedUserId);
+  if (!user || !tool || !custody) return;
+  closeToolCheckout();
+  openToolReturn(tool, user, custody);
+});
+
+// --- Checkout tool search ------------------------------------------------
+
+function availableCheckoutTools() {
+  const query = checkoutToolSearch.value.trim().toLowerCase();
+  return getTools()
+    .filter((tool) => Number(tool.quantity) > 0)
+    .filter((tool) =>
+      !query ||
+      tool.name.toLowerCase().includes(query) ||
+      tool.barcode.toLowerCase().includes(query)
+    )
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .slice(0, 8);
+}
+
+function renderCheckoutToolResults() {
+  const tools = availableCheckoutTools();
+  if (tools.length === 0) {
+    checkoutToolResults.innerHTML =
+      '<p class="hint">' +
+      (checkoutToolSearch.value.trim() ? "No available tools match that search." : "No tools are currently available.") +
+      '</p>';
+  } else {
+    checkoutToolResults.innerHTML = tools
+      .map((tool) =>
+        '<button type="button" class="manual-item-card" data-checkout-tool-id="' +
+          escapeHtml(tool.id) + '">' +
+          '<span class="manual-item-name">' + escapeHtml(tool.name) + '</span>' +
+          '<span class="manual-item-meta">' +
+            '<span>Barcode: ' + escapeHtml(tool.barcode) + '</span>' +
+            '<span>On hand: ' + escapeHtml(tool.quantity) + '</span>' +
+          '</span>' +
+        '</button>'
+      )
+      .join("");
+  }
+  checkoutToolResults.hidden = false;
+}
+
+checkoutToolSearch.addEventListener("focus", renderCheckoutToolResults);
+checkoutToolSearch.addEventListener("input", () => {
+  closeToolCheckout();
+  renderCheckoutToolResults();
+});
+checkoutToolSearch.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") checkoutToolResults.hidden = true;
+  if (event.key === "Enter") {
+    const first = checkoutToolResults.querySelector("[data-checkout-tool-id]");
+    if (first) {
+      event.preventDefault();
+      first.click();
+    }
+  }
+});
+
+checkoutToolResults.addEventListener("click", (event) => {
+  const option = event.target.closest("[data-checkout-tool-id]");
+  if (!option) return;
+  const user = selectedUser();
+  const tool = getTools().find((candidate) => candidate.id === option.dataset.checkoutToolId);
+  if (!user || !tool || Number(tool.quantity) <= 0) return;
+  checkoutToolSearch.value = tool.name;
+  checkoutToolResults.hidden = true;
+  closeToolReturn();
+  openToolCheckout(tool, user);
+});
+
+// --- Inventory table -----------------------------------------------------
 
 const toolsTheadRow = document.getElementById("tools-thead-row");
 const toolsTbody = document.getElementById("tools-tbody");
 const toolsSearch = document.getElementById("tools-search");
 const toolsMessage = document.getElementById("tools-message");
 
-export async function loadTools() {
-  toolsTbody.innerHTML = `<tr><td colspan="5" class="hint">Loading…</td></tr>`;
-  try {
-    const tools = await apiListTools();
-    setTools(tools);
-    renderTools();
-  } catch (error) {
-    toolsTbody.innerHTML =
-      `<tr><td colspan="5" class="error">${escapeHtml(friendlyError(error, "Could not load tools. Try again."))}</td></tr>`;
-  }
-}
-
 function custodyCell(tool) {
   if (!tool.custody || tool.custody.length === 0) return "—";
   return tool.custody
-    .map(c => `${escapeHtml(c.username)}: ${escapeHtml(c.quantity)}`)
+    .map((entry) => escapeHtml(entry.username) + ": " + escapeHtml(entry.quantity))
     .join("<br>");
 }
 
-function currentUserCustody(tool) {
-  const me = getCurrentUser();
-  if (!me || !tool.custody) return null;
-  return tool.custody.find(c => c.user_id === me.id) || null;
-}
-
 function actionsCell(tool) {
-  const canAdmin = roleAtLeast(getRole(), "admin");
-  const options = [];
-  if (canAdmin) {
-    options.push(`<option value="checkout">Check Out</option>`);
-  }
-  if (currentUserCustody(tool)) {
-    options.push(`<option value="return">Return</option>`);
-  }
-  if (canAdmin) {
-    options.push(`<option value="edit">Edit</option>`);
-    options.push(`<option value="correct">Correct Count</option>`);
-    options.push(`<option value="delete">Archive</option>`);
-  }
-  if (options.length === 0) return "";
-  const ariaLabel = `Actions for ${tool.name}`;
-  return `<label class="sr-only" for="tool-row-actions-${tool.id}">${escapeHtml(ariaLabel)}</label>
-     <select id="tool-row-actions-${tool.id}" class="row-actions-select" data-id="${tool.id}" aria-label="${escapeHtml(ariaLabel)}">
-       <option value="" disabled selected>Actions</option>
-       ${options.join("")}
-     </select>`;
+  if (!canManageCustody()) return "";
+  const ariaLabel = "Actions for " + tool.name;
+  return '<label class="sr-only" for="tool-row-actions-' + escapeHtml(tool.id) + '">' +
+      escapeHtml(ariaLabel) + '</label>' +
+    '<select id="tool-row-actions-' + escapeHtml(tool.id) +
+      '" class="row-actions-select" data-id="' + escapeHtml(tool.id) +
+      '" aria-label="' + escapeHtml(ariaLabel) + '">' +
+      '<option value="" disabled selected>Actions</option>' +
+      '<option value="edit">Edit</option>' +
+      '<option value="correct">Correct Count</option>' +
+      '<option value="delete">Archive</option>' +
+    '</select>';
 }
 
 export function renderTools() {
   const term = toolsSearch.value.trim().toLowerCase();
   const all = getTools();
-  const tools = term
-    ? all.filter(tool =>
+  const filtered = term
+    ? all.filter((tool) =>
         tool.name.toLowerCase().includes(term) ||
         tool.barcode.toLowerCase().includes(term))
     : all;
+  const showActions = canManageCustody();
+  const columnCount = showActions ? 5 : 4;
 
-  toolsTheadRow.innerHTML = `
-    <th>Barcode</th>
-    <th>Name</th>
-    <th>On Hand</th>
-    <th>Checked Out</th>
-    <th>Actions</th>
-  `;
-
+  toolsTheadRow.innerHTML =
+    "<th>Barcode</th><th>Name</th><th>On Hand</th><th>Checked Out</th>" +
+    (showActions ? "<th>Actions</th>" : "");
   toolsTbody.innerHTML = "";
-  if (tools.length === 0) {
+
+  if (filtered.length === 0) {
     const row = document.createElement("tr");
-    const text = term ? "No tools match that search." : "No tools yet.";
-    row.innerHTML = `<td colspan="5">${escapeHtml(text)}</td>`;
+    row.innerHTML = '<td colspan="' + columnCount + '">' +
+      escapeHtml(term ? "No tools match that search." : "No tools yet.") + '</td>';
     toolsTbody.appendChild(row);
     return;
   }
 
-  tools.forEach(tool => {
+  filtered.forEach((tool) => {
     const row = document.createElement("tr");
-    row.innerHTML = `
-      <td data-label="Barcode">${escapeHtml(tool.barcode)}</td>
-      <td data-primary>${escapeHtml(tool.name)}</td>
-      <td data-label="On Hand"><strong>${escapeHtml(tool.quantity)}</strong></td>
-      <td data-label="Checked Out">${custodyCell(tool)}</td>
-      <td data-label="Actions">${actionsCell(tool)}</td>
-    `;
+    row.innerHTML =
+      '<td data-label="Barcode">' + escapeHtml(tool.barcode) + '</td>' +
+      '<td data-primary>' + escapeHtml(tool.name) + '</td>' +
+      '<td data-label="On Hand"><strong>' + escapeHtml(tool.quantity) + '</strong></td>' +
+      '<td data-label="Checked Out">' + custodyCell(tool) + '</td>' +
+      (showActions ? '<td data-label="Actions">' + actionsCell(tool) + '</td>' : "");
     toolsTbody.appendChild(row);
   });
 }
 
 toolsSearch.addEventListener("input", renderTools);
 
-setOnCheckoutSaved(loadTools);
-setOnReturnSaved(loadTools);
-setOnCorrectionSaved(loadTools);
+async function refreshTools() {
+  try {
+    const tools = await apiListTools();
+    setTools(tools);
+    renderTools();
+    renderUserCard();
+    return true;
+  } catch (error) {
+    const message = friendlyError(error, "The change was saved, but tool data could not be refreshed.");
+    setMessage(toolsMessage, message, "error");
+    setMessage(custodyMessage, message, "error");
+    return false;
+  }
+}
+
+setOnCheckoutSaved(refreshTools);
+setOnReturnSaved(refreshTools);
+setOnCorrectionSaved(refreshTools);
 
 toolsTbody.addEventListener("change", async (event) => {
   const target = event.target;
@@ -183,56 +458,35 @@ toolsTbody.addEventListener("change", async (event) => {
   const action = target.value;
   const toolId = target.dataset.id;
   target.value = "";
-
   if (!action || !toolId) return;
-  const tool = getTools().find(t => t.id === toolId);
+
+  const tool = getTools().find((candidate) => candidate.id === toolId);
   if (!tool) return;
-
-  if (action === "checkout") {
-    // Admin+ only (gated by actionsCell); assigned-to picker uses the
-    // full users cache since Admin always has it loaded.
-    openToolCheckout(tool, getUsers());
-    return;
-  }
-
-  if (action === "return") {
-    const custody = currentUserCustody(tool);
-    // Supervisor+ can pick any holder (their users cache is loaded);
-    // a Technician only ever sees themselves here (actionsCell already
-    // restricts the option to a tool they hold), so toolReturn.js falls
-    // back to the current user when the picker is empty.
-    const canPickAnyUser = roleAtLeast(getRole(), "supervisor");
-    openToolReturn(tool, canPickAnyUser ? getUsers() : [], custody);
-    return;
-  }
 
   if (action === "edit") {
     openToolEditor(tool);
     return;
   }
-
   if (action === "correct") {
     openToolCorrection(tool);
     return;
   }
+  if (action !== "delete") return;
 
-  if (action === "delete") {
-    setMessage(toolsMessage, "", "");
-    if (!(await confirmDialog(`Archive "${tool.name}"? It will be hidden from lookup and lists, but its history is kept.`))) return;
-    try {
-      await apiDeleteTool(toolId);
-      if (getEditingToolId() === toolId) closeToolEditor();
-      if (getReturningToolId() === toolId) closeToolReturn();
-      if (getCorrectingToolId() === toolId) closeToolCorrection();
-      setMessage(toolsMessage, `Archived "${tool.name}".`, "success");
-      loadTools();
-    } catch (err) {
-      setMessage(toolsMessage, friendlyError(err, "Could not archive the tool. Try again."), "error");
-    }
+  setMessage(toolsMessage, "", "");
+  if (!(await confirmDialog('Archive "' + tool.name + '"? Its history will be kept.'))) return;
+  try {
+    await apiDeleteTool(toolId);
+    if (getEditingToolId() === toolId) closeToolEditor();
+    if (getCorrectingToolId() === toolId) closeToolCorrection();
+    setMessage(toolsMessage, 'Archived "' + tool.name + '".', "success");
+    await refreshTools();
+  } catch (err) {
+    setMessage(toolsMessage, friendlyError(err, "Could not archive the tool. Try again."), "error");
   }
 });
 
-// --- Edit Tool sub-flow ---------------------------------------------------
+// --- Edit Tool sub-flow --------------------------------------------------
 
 const toolEditorSection = document.getElementById("tool-editor-section");
 const toolEditorSelected = document.getElementById("tool-editor-selected");
@@ -250,7 +504,7 @@ function getEditingToolId() {
 
 function openToolEditor(tool) {
   editingToolId = tool.id;
-  toolEditorSelected.textContent = `Editing: ${tool.name} (${tool.barcode})`;
+  toolEditorSelected.textContent = "Editing: " + tool.name + " (" + tool.barcode + ")";
   toolEditorBarcode.value = tool.barcode;
   toolEditorName.value = tool.name;
   setMessage(toolEditorMessage, "", "");
@@ -280,30 +534,62 @@ toolEditorSaveBtn.addEventListener("click", async () => {
   try {
     await apiUpdateTool(editingToolId, { barcode, name });
     setMessage(toolEditorMessage, "Tool updated.", "success");
-    loadTools();
+    await refreshTools();
     setTimeout(closeToolEditor, 1000);
   } catch (err) {
     setMessage(toolEditorMessage, friendlyError(err, "Could not save the tool. Try again."), "error");
   }
 });
 
-// --- Tools-page scanner ---------------------------------------------------
+// --- Contextual scanner --------------------------------------------------
 
 const toolsScanInput = document.getElementById("tools-scan-input");
 const toolsScanMessage = document.getElementById("tools-scan-message");
 const toolsScanChooser = document.getElementById("tools-scan-chooser");
+const toolsScanHeading = document.getElementById("tools-scan-heading");
+const toolsScanHint = document.getElementById("tools-scan-hint");
+const scanNavButton = toolsPage.querySelector('.sub-nav-btn[data-feature="scan"]');
 
-let toolsSubNav = null;
+function setLookupScanContext() {
+  scanPurpose = "lookup";
+  checkoutScanUserId = null;
+  toolsScanHeading.textContent = "Scan Tool Inventory";
+  toolsScanHint.textContent = "Scan a tool's barcode to find it in Inventory.";
+}
+
+function setCheckoutScanContext(user) {
+  scanPurpose = "checkout";
+  checkoutScanUserId = user.id;
+  toolsScanHeading.textContent = "Scan Tool for Checkout";
+  toolsScanHint.textContent = "Scan a tool to check out to " + user.username + ". You will confirm the quantity before saving.";
+}
 
 export const toolsScanner = mountScanner({
   inputEl: toolsScanInput,
   messageEl: toolsScanMessage,
   chooserEl: toolsScanChooser,
-  allowCreate: false, // Add Tool only lives on the Add Item page.
+  allowCreate: false,
   lookupFn: apiGetToolByBarcode,
   notFoundLabel: "tool",
   onItemFound: (tool) => {
-    if (toolsSubNav) toolsSubNav.showFeature("find");
+    if (scanPurpose === "checkout") {
+      const user = custodyUsers.find((candidate) => candidate.id === checkoutScanUserId);
+      if (!canManageCustody() || !user) {
+        setMessage(toolsScanMessage, "Select an active user before scanning for checkout.", "error");
+        return;
+      }
+      if (Number(tool.quantity) <= 0) {
+        setMessage(toolsScanMessage, tool.name + " has no units on hand.", "error");
+        return;
+      }
+      setLookupScanContext();
+      toolsSubNav.showFeature("custody");
+      closeToolReturn();
+      openToolCheckout(tool, user);
+      return;
+    }
+
+    toolsSubNav.showFeature("inventory");
     toolsSearch.value = tool.barcode;
     renderTools();
     const row = toolsTbody.querySelector("tr");
@@ -320,15 +606,108 @@ export const toolsScanner = mountScanner({
   },
 });
 
-toolsSubNav = initSubNav(document.getElementById("tools-page"), {
-  onShow(feature, prev) {
-    if (prev === "scan" && feature !== "scan") toolsScanner.stopLive();
+checkoutScanBtn.addEventListener("click", () => {
+  const user = selectedUser();
+  if (!canManageCustody() || !user) {
+    setMessage(checkoutPickerMessage, "Select an active user first.", "error");
+    return;
+  }
+  closeToolCheckout();
+  closeToolReturn();
+  setCheckoutScanContext(user);
+  toolsScanner.reset();
+  toolsSubNav.showFeature("scan");
+  toolsScanner.refreshPermissionState();
+});
+
+scanNavButton.addEventListener("click", () => {
+  setLookupScanContext();
+  toolsScanner.reset();
+  toolsScanner.refreshPermissionState();
+});
+
+toolsSubNav = initSubNav(toolsPage, {
+  onShow(feature, previous) {
+    if (previous === "scan" && feature !== "scan") {
+      toolsScanner.stopLive();
+      setLookupScanContext();
+    }
     if (feature === "scan") toolsScanner.refreshPermissionState();
-    if (prev && prev !== feature) {
-      closeToolEditor();
+    if (feature !== "custody") {
       closeToolCheckout();
       closeToolReturn();
+      checkoutToolResults.hidden = true;
+    }
+    if (feature !== "inventory") {
+      closeToolEditor();
       closeToolCorrection();
     }
   },
 });
+
+// --- Page load / auth reset ---------------------------------------------
+
+export async function loadTools() {
+  toolsTbody.innerHTML = '<tr><td colspan="5" class="hint">Loading…</td></tr>';
+  setMessage(toolsMessage, "", "");
+  setMessage(custodyMessage, "Loading tool custody…", "");
+
+  const adminPlus = canManageCustody();
+  let toolsLoadFailed = false;
+  userPicker.hidden = !adminPlus;
+  const currentUser = getCurrentUser();
+  const results = await Promise.allSettled([
+    apiListTools(),
+    adminPlus ? apiListUsers() : Promise.resolve(currentUser ? [currentUser] : []),
+  ]);
+
+  if (results[0].status === "fulfilled") {
+    setTools(results[0].value);
+    renderTools();
+  } else {
+    toolsLoadFailed = true;
+    setTools([]);
+    const message = friendlyError(results[0].reason, "Could not load tools. Try again.");
+    toolsTbody.innerHTML = '<tr><td colspan="5" class="error">' + escapeHtml(message) + '</td></tr>';
+    setMessage(custodyMessage, message, "error");
+  }
+
+  if (results[1].status === "fulfilled") {
+    custodyUsers = results[1].value
+      .filter((user) => !user.archived_at)
+      .sort((left, right) => left.username.localeCompare(right.username));
+    if (adminPlus) {
+      if (selectedUserId && !custodyUsers.some((user) => user.id === selectedUserId)) {
+        clearSelectedUser();
+      }
+      if (!toolsLoadFailed) {
+        setMessage(custodyMessage, selectedUserId ? "" : "Search for a user to view tool custody.", "");
+      }
+    } else if (custodyUsers.length > 0) {
+      selectedUserId = custodyUsers[0].id;
+      if (!toolsLoadFailed) setMessage(custodyMessage, "", "");
+    }
+    renderUserCard();
+  } else {
+    custodyUsers = [];
+    clearSelectedUser();
+    setMessage(custodyMessage, friendlyError(results[1].reason, "Could not load active users. Try again."), "error");
+  }
+}
+
+export function resetToolsView() {
+  custodyUsers = [];
+  selectedUserId = null;
+  setTools([]);
+  userSearch.value = "";
+  toolsSearch.value = "";
+  hideUserResults();
+  clearSelectedUser();
+  closeToolEditor();
+  closeToolCorrection();
+  setLookupScanContext();
+  toolsScanner.reset();
+  if (toolsSubNav) toolsSubNav.showFeature("custody");
+  setMessage(custodyMessage, "", "");
+  setMessage(toolsMessage, "", "");
+}
