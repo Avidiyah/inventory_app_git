@@ -65,7 +65,7 @@ writes (w).
 | 14 | GET | `/users/` | supervisor+ | `users.py` → `users.list_users` | users (r) | `apiListUsers` | `users.js`, `transactions.js`, `massStage.js`, `workOrders.js`, `tools.js` (Admin/Owner only) |
 | 15 | POST | `/users/` | outranks target | `users.py` → `users.create_user` | users (w) | `apiCreateUser` | `users.js` |
 | 16 | POST | `/users/{id}/reset-password` | outranks target | `users.py` → `users.reset_password` | users (w) | `apiResetPassword` | `users.js` |
-| 17 | POST | `/users/{id}/archive` | outranks target | `users.py` → `users.archive_user` + `tools.user_custody` | users (w), sessions (w, revoke), tools/tool_transactions (r, custody guard) | `apiArchiveUser` | `users.js` |
+| 17 | POST | `/users/{id}/archive` | outranks target | `users.py` → `users.archive_user` + `tools.user_custody` (+ `tools.return_all_for_user` when `?force_return_tools=true`) | users (w), sessions (w, revoke), tools/tool_transactions (r, custody guard; w on force check-in) | `apiArchiveUser` | `users.js` |
 | 18 | POST | `/users/{id}/restore` | outranks target | `users.py` → `users.restore_user` | users (w) | `apiRestoreUser` | `users.js` |
 | 19 | DELETE | `/users/{id}` | outranks target | `users.py` → `users.delete_user` | users (w, hard) | `apiDeleteUser` | **API-only** (no UI; UI uses archive) |
 | 20 | GET | `/transactions/` | supervisor+ | `transactions.py` → `history.list_history` | transactions (r), items (r), users (r) | `apiListTransactions` | `history.js` |
@@ -106,10 +106,11 @@ writes (w).
 | 55 | POST | `/work-orders/import` | admin+ | `work_orders.py` → `work_orders.import_work_orders` | work_orders (r/w, find-or-create — **the only create path**), users (r, supervisor name-match) | `apiImportWorkOrders` | `workOrders.js` |
 | 56 | POST | `/work-orders/{id}/restore` | supervisor+ scoped | `work_orders.py` → `work_orders.restore_work_order` | work_orders (w, un-archive) | `apiRestoreWorkOrder` | `history.js` |
 | 57 | GET | `/items/search-index` | session | `items.py` → `items.list_item_search_index` | items (r; name/barcode projection only) | `apiListItemSearchIndex` | `items.js` |
-| 58 | PATCH | `/users/{id}/name` | self or outranks target | `users.py` → `users.update_name` | users (w) | `apiUpdateUserName` | `users.js` |
+| 58 | PATCH | `/users/{id}/name` | self or outranks target | `users.py` → `users.update_name` | users (w; first/last name + optional `username`) | `apiUpdateUserName` | `users.js` |
 | 59 | POST | `/work-orders/{id}/labor` | session scoped; technician self-only | `work_orders.py` → `work_orders.add_work_order_labor` | work_orders (r/w status), work_order_technicians (r), work_order_labor (w), users (r) | `apiAddWorkOrderLabor` | `workOrders.js` |
 | 60 | PATCH | `/work-orders/{id}/labor/{labor_id}` | session scoped; technician self-only | `work_orders.py` → `work_orders.update_work_order_labor` | work_order_labor (r/w) | `apiUpdateWorkOrderLabor` | `workOrders.js` |
 | 61 | DELETE | `/work-orders/{id}/labor/{labor_id}` | session scoped; technician self-only | `work_orders.py` → `work_orders.delete_work_order_labor` | work_order_labor (r/w) | `apiDeleteWorkOrderLabor` | `workOrders.js` |
+| 62 | PATCH | `/users/{id}/role` | admin+ AND outranks both current and new role | `users.py` → `users.update_role` | users (w), sessions (w, revoke) | `apiUpdateUserRole` | `users.js` |
 
 (Rows 55–61 were appended out of resource order to keep the existing #1–54
 numbering — and the footnote / per-table references to it — stable.)
@@ -255,12 +256,18 @@ service → table effect**.
 
 ### Users
 - `users.js` (Create) → `apiCreateUser` → `POST /users/` → **users** insert.
-- `users.js` (Edit Name) → `apiUpdateUserName` → `PATCH /users/{id}/name` →
-  **users.first_name/last_name** update (self or manageable subordinate).
+- `users.js` (Edit Details) → `apiUpdateUserName` → `PATCH /users/{id}/name` →
+  **users.first_name/last_name/username** update (self or manageable
+  subordinate; a duplicate username is a 400).
+- `users.js` (Edit Role) → `apiUpdateUserRole` → `PATCH /users/{id}/role` →
+  **users.role** update + **sessions** delete (Admin+, and only for roles the
+  actor outranks — so nobody promotes to their own level).
 - `users.js` (Reset password) → `apiResetPassword` →
   `POST /users/{id}/reset-password` → **users.password_hash** update.
 - `users.js` (🗑️ Archive) → `apiArchiveUser` → `POST /users/{id}/archive` →
-  **users.archived_at** set + **sessions** delete (revoke).
+  **users.archived_at** set + **sessions** delete (revoke). 409 while the user
+  holds tools; the retry (`?force_return_tools=true`) writes a **return** row
+  per held tool and restores their **tools.quantity** before archiving.
 - `users.js` (Restore) → `apiRestoreUser` → `POST /users/{id}/restore` →
   **users.archived_at** cleared.
 - *(API-only)* `apiDeleteUser` → `DELETE /users/{id}` → hard delete (blocked if

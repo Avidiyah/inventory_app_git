@@ -280,28 +280,46 @@ export function promptPasswordReset(username) {
   });
 }
 
-// Explicit first/last-name editor used by the Users page. Legacy accounts have
-// NULL names after migration, so this is the remediation path that avoids
-// inventing identity from a login username.
+// Explicit first/last-name (and optionally username) editor used by the Users
+// page. Legacy accounts have NULL names after migration, so this is the
+// remediation path that avoids inventing identity from a login username.
+//
+// Pass `{ allowUsername: true }` to also expose the login username; the
+// resolved object then carries `username`, and omits it otherwise so callers
+// can leave the login name untouched.
 const userNameOverlay = document.getElementById("user-name-overlay");
 const userNameTitle = document.getElementById("user-name-title");
 const userNameFirst = document.getElementById("user-name-first");
 const userNameLast = document.getElementById("user-name-last");
+const userNameUsername = document.getElementById("user-name-username");
+const userNameUsernameLabel = document.getElementById("user-name-username-label");
+const userNameUsernameHelp = document.getElementById("user-name-username-help");
 const userNameMessage = document.getElementById("user-name-message");
 const userNameSave = document.getElementById("user-name-save");
 const userNameCancel = document.getElementById("user-name-cancel");
 
-export function promptUserName(user) {
+export function promptUserName(user, { allowUsername = false } = {}) {
   return new Promise((resolve) => {
     if (!userNameOverlay) {
       resolve(null);
       return;
     }
+    const editUsername = allowUsername && Boolean(userNameUsername);
     const previouslyFocused = document.activeElement;
-    const focusables = [userNameFirst, userNameLast, userNameSave, userNameCancel];
-    userNameTitle.textContent = `Edit name for "${user.username}"`;
+    const focusables = [userNameFirst, userNameLast];
+    if (editUsername) focusables.push(userNameUsername);
+    focusables.push(userNameSave, userNameCancel);
+    userNameTitle.textContent = editUsername
+      ? `Edit "${user.username}"`
+      : `Edit name for "${user.username}"`;
     userNameFirst.value = user.first_name || "";
     userNameLast.value = user.last_name || "";
+    if (userNameUsername) {
+      userNameUsername.value = user.username || "";
+      userNameUsername.hidden = !editUsername;
+      if (userNameUsernameLabel) userNameUsernameLabel.hidden = !editUsername;
+      if (userNameUsernameHelp) userNameUsernameHelp.hidden = !editUsername;
+    }
     setMessage(userNameMessage, "", "");
     userNameOverlay.hidden = false;
     userNameFirst.focus();
@@ -327,14 +345,23 @@ export function promptUserName(user) {
         setMessage(userNameMessage, "First name and last name are required.", "error");
         return;
       }
-      done({ firstName, lastName });
+      if (!editUsername) {
+        done({ firstName, lastName });
+        return;
+      }
+      const username = userNameUsername.value.trim();
+      if (!username) {
+        setMessage(userNameMessage, "Username is required.", "error");
+        return;
+      }
+      done({ firstName, lastName, username });
     }
     function onSave() { submit(); }
     function onCancel() { done(null); }
     function onBackdrop(event) { if (event.target === userNameOverlay) done(null); }
     function onKey(event) {
       if (event.key === "Escape") { done(null); return; }
-      if (event.key === "Enter" && (event.target === userNameFirst || event.target === userNameLast)) {
+      if (event.key === "Enter" && focusables.includes(event.target) && event.target.tagName === "INPUT") {
         event.preventDefault();
         submit();
         return;
@@ -355,6 +382,105 @@ export function promptUserName(user) {
     userNameSave.addEventListener("click", onSave);
     userNameCancel.addEventListener("click", onCancel);
     userNameOverlay.addEventListener("click", onBackdrop);
+    document.addEventListener("keydown", onKey);
+  });
+}
+
+// Role editor used by the Users page (Admin+ only). `options` is the list of
+// roles the caller is allowed to assign, most-senior first, as
+// `{ value, label, description }` -- built by the view so this module stays
+// free of the role vocabulary. Resolves the chosen role, or null on
+// Cancel / Esc / backdrop / no assignable roles / unchanged selection.
+const userRoleOverlay = document.getElementById("user-role-overlay");
+const userRoleTitle = document.getElementById("user-role-title");
+const userRoleSelect = document.getElementById("user-role-select");
+// Distinct from the create-user form's own #user-role-help.
+const userRoleHelp = document.getElementById("user-role-modal-help");
+const userRoleMessage = document.getElementById("user-role-message");
+const userRoleSave = document.getElementById("user-role-save");
+const userRoleCancel = document.getElementById("user-role-cancel");
+
+export function promptUserRole(user, options = []) {
+  return new Promise((resolve) => {
+    if (!userRoleOverlay || !options.length) {
+      resolve(null);
+      return;
+    }
+    const previouslyFocused = document.activeElement;
+    const focusables = [userRoleSelect, userRoleSave, userRoleCancel];
+
+    userRoleTitle.textContent = `Change role for "${user.username}"`;
+    userRoleSelect.innerHTML = "";
+    options.forEach(({ value, label }) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      userRoleSelect.appendChild(option);
+    });
+    // Start on the role the user already holds when it is assignable, so
+    // Save is a deliberate change rather than a default one.
+    if (options.some(o => o.value === user.role)) userRoleSelect.value = user.role;
+    setMessage(userRoleMessage, "", "");
+    updateHelp();
+    userRoleOverlay.hidden = false;
+    userRoleSelect.focus();
+
+    function updateHelp() {
+      const chosen = options.find(o => o.value === userRoleSelect.value);
+      userRoleHelp.textContent = chosen ? chosen.description || "" : "";
+    }
+    function cleanup() {
+      userRoleSave.removeEventListener("click", onSave);
+      userRoleCancel.removeEventListener("click", onCancel);
+      userRoleSelect.removeEventListener("change", updateHelp);
+      userRoleOverlay.removeEventListener("click", onBackdrop);
+      document.removeEventListener("keydown", onKey);
+    }
+    function done(value) {
+      userRoleOverlay.hidden = true;
+      cleanup();
+      if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+        try { previouslyFocused.focus(); } catch (_err) { /* element removed */ }
+      }
+      resolve(value);
+    }
+    function submit() {
+      const role = userRoleSelect.value;
+      if (!role) {
+        setMessage(userRoleMessage, "Select a role.", "error");
+        return;
+      }
+      // Saving the current role would revoke the user's sessions for no
+      // change, so treat it as a cancel.
+      done(role === user.role ? null : role);
+    }
+    function onSave() { submit(); }
+    function onCancel() { done(null); }
+    function onBackdrop(event) { if (event.target === userRoleOverlay) done(null); }
+    function onKey(event) {
+      if (event.key === "Escape") { done(null); return; }
+      if (event.key === "Enter" && event.target === userRoleSelect) {
+        event.preventDefault();
+        submit();
+        return;
+      }
+      if (event.key === "Tab") {
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    }
+
+    userRoleSave.addEventListener("click", onSave);
+    userRoleCancel.addEventListener("click", onCancel);
+    userRoleSelect.addEventListener("change", updateHelp);
+    userRoleOverlay.addEventListener("click", onBackdrop);
     document.addEventListener("keydown", onKey);
   });
 }

@@ -6,9 +6,12 @@
 // repopulates the History user filter via `populateUserSelects()`.
 //
 // Authorization is mirrored from the backend for UX only: the create
-// form offers just the roles the current user may assign, and each row
+// form offers just the roles the current user may assign, each row
 // shows Reset Password / Delete only when the current user outranks
-// that row's role. The backend re-checks everything.
+// that row's role, and Edit Role appears only for an Admin or Owner
+// acting on someone they outrank. Edit Details (name + login username)
+// is offered for yourself or anyone you outrank. The backend re-checks
+// everything.
 
 import { getUsers, setUsers, getRole, getCurrentUser, setCurrentUser } from "../state.js";
 import {
@@ -18,10 +21,18 @@ import {
   apiRestoreUser,
   apiResetPassword,
   apiUpdateUserName,
+  apiUpdateUserRole,
 } from "../api.js";
 import { escapeHtml, friendlyError, formatUserName } from "../format.js";
-import { setMessage, confirmDialog, promptPasswordReset, promptUserName } from "../dom.js";
-import { assignableRoles, canManage } from "../roles.js";
+import {
+  setMessage,
+  confirmDialog,
+  confirmArchivedReuse,
+  promptPasswordReset,
+  promptUserName,
+  promptUserRole,
+} from "../dom.js";
+import { assignableRoles, canManage, roleAtLeast } from "../roles.js";
 
 const createUserBtn = document.getElementById("create-user-btn");
 const createUserMessage = document.getElementById("create-user-message");
@@ -86,6 +97,10 @@ function renderUsersTable() {
     if (isArchived) row.classList.add("archived-user");
     const canManageUser = canManage(actorRole, user.role);
     const canEditName = actorId === user.id || canManageUser;
+    // Role changes are Admin+ only (on top of the usual outranks-the-target
+    // rule), and pointless for an archived user, who cannot log in at all.
+    const canEditRole =
+      canManageUser && !isArchived && roleAtLeast(actorRole, "admin");
     let lifecycleActions = "";
     if (canManageUser && isArchived) {
       lifecycleActions = `<button class="restore-user-btn secondary-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">Restore</button>`;
@@ -95,10 +110,13 @@ function renderUsersTable() {
         `<button class="archive-user-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}" title="Archive user" aria-label="${escapeHtml(`Archive user ${user.username}`)}">🗑️</button>`;
     }
     const editNameAction = canEditName
-      ? `<button class="edit-user-name-btn secondary-btn" data-id="${user.id}">Edit Name</button>`
+      ? `<button class="edit-user-name-btn secondary-btn" data-id="${user.id}">Edit Details</button>`
       : "";
-    const actions = editNameAction || lifecycleActions
-      ? `<div class="row-actions">${editNameAction}${lifecycleActions}</div>`
+    const editRoleAction = canEditRole
+      ? `<button class="edit-user-role-btn secondary-btn" data-id="${user.id}">Edit Role</button>`
+      : "";
+    const actions = editNameAction || editRoleAction || lifecycleActions
+      ? `<div class="row-actions">${editNameAction}${editRoleAction}${lifecycleActions}</div>`
       : `<span class="empty">—</span>`;
     const archivedTag = isArchived ? ` <span class="muted">(archived)</span>` : "";
     row.innerHTML = `
@@ -192,20 +210,49 @@ usersTbody.addEventListener("click", async (event) => {
     const user = getUsers().find((candidate) => candidate.id === target.dataset.id);
     if (!user) return;
     setMessage(usersMessage, "", "");
-    const names = await promptUserName(user);
-    if (!names) return;
+    const details = await promptUserName(user, { allowUsername: true });
+    if (!details) return;
     try {
-      const updated = await apiUpdateUserName(user.id, names);
+      const updated = await apiUpdateUserName(user.id, details);
       if (getCurrentUser()?.id === user.id) {
         setCurrentUser(updated);
         const indicator = document.getElementById("auth-user-indicator");
         if (indicator) indicator.textContent = `${formatUserName(updated)} (${updated.role})`;
       }
       document.dispatchEvent(new Event("user-names-updated"));
-      setMessage(usersMessage, `Updated the name for "${user.username}".`, "success");
+      // Name the account by its *new* username: after a username change the
+      // old one no longer identifies anything.
+      setMessage(usersMessage, `Updated "${updated.username}".`, "success");
       loadUsers();
     } catch (err) {
-      setMessage(usersMessage, friendlyError(err, "Could not update the user's name."), "error");
+      setMessage(usersMessage, friendlyError(err, "Could not update the user's details."), "error");
+    }
+    return;
+  }
+
+  if (target.classList.contains("edit-user-role-btn")) {
+    const user = getUsers().find((candidate) => candidate.id === target.dataset.id);
+    if (!user) return;
+    setMessage(usersMessage, "", "");
+    // Same set the create form offers -- the roles this actor outranks --
+    // which is also exactly what the backend will accept.
+    const options = assignableRoles(getRole()).map(role => ({
+      value: role,
+      label: role.charAt(0).toUpperCase() + role.slice(1),
+      description: ROLE_DESCRIPTIONS[role] || "",
+    }));
+    const role = await promptUserRole(user, options);
+    if (!role) return; // cancelled, or unchanged
+    try {
+      const updated = await apiUpdateUserRole(user.id, role);
+      setMessage(
+        usersMessage,
+        `"${updated.username}" is now ${updated.role}. They will need to sign in again.`,
+        "success",
+      );
+      loadUsers();
+    } catch (err) {
+      setMessage(usersMessage, friendlyError(err, "Could not change the user's role."), "error");
     }
     return;
   }
@@ -252,10 +299,20 @@ usersTbody.addEventListener("click", async (event) => {
   if (!(await confirmDialog(`Archive user "${userName}"? They will no longer be able to log in, but their history is kept and they can be restored.`))) return;
 
   try {
-    await apiArchiveUser(userId);
+    // The server refuses with 409 while the user still holds tools (an
+    // archived user disappears from the custody workflow). Confirming the
+    // second prompt retries with force, checking those tools in first.
+    await confirmArchivedReuse(
+      (force) => apiArchiveUser(userId, { forceReturnTools: force }),
+      `"${userName}" still has tools checked out. Check them all in now and archive?`,
+    );
     setMessage(usersMessage, `Archived "${userName}".`, "success");
     loadUsers();
   } catch (err) {
+    if (err && err.cancelled) {
+      setMessage(usersMessage, "", "");
+      return;
+    }
     setMessage(usersMessage, friendlyError(err, "Could not archive the user. Try again."), "error");
   }
 });

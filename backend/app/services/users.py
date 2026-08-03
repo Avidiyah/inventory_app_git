@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.domain.errors import (
     DuplicateUsernameError,
     InvalidUserNameError,
+    InvalidUsernameError,
     UserHasCheckedOutToolsError,
     UserHasTransactionsError,
     UserNotFoundError,
@@ -98,12 +99,50 @@ def update_name(
     *,
     first_name: str,
     last_name: str,
+    username: str | None = None,
 ) -> User:
-    """Replace a user's display/import identity with explicitly supplied names."""
+    """Replace a user's display/import identity with explicitly supplied
+    names, and optionally their login `username` (left unchanged when
+    None). Raises `InvalidUserNameError` on a blank name part,
+    `InvalidUsernameError` on a blank username, and
+    `DuplicateUsernameError` if the new username is taken -- the same
+    UNIQUE constraint `create_user` relies on."""
     first_name, last_name = _clean_name(first_name, last_name)
     user = get_user(db, user_id)
     user.first_name = first_name
     user.last_name = last_name
+    if username is not None:
+        username = username.strip()
+        if not username:
+            raise InvalidUsernameError("Username is required.")
+        user.username = username
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise DuplicateUsernameError(
+            "A user with this username already exists."
+        ) from exc
+    db.refresh(user)
+    return user
+
+
+def update_role(db: Session, user_id: uuid.UUID, *, role: str) -> User:
+    """Replace a user's role and revoke their sessions.
+
+    The caller (router) decides whether the actor may manage the target and
+    may hand out `role`; this layer stays unaware of who is calling.
+
+    Sessions are revoked for the same reason as `archive_user`: the frontend
+    caches the role it saw at login to decide which pages and buttons to
+    show, so a role change mid-session would leave that UI disagreeing with
+    the backend (which reads the role live on every request and would start
+    refusing, or silently keep hiding, things). Forcing a fresh login is the
+    simplest way to keep the two in step. No-op sessions-wise if the user is
+    not logged in. Raises `UserNotFoundError` if the id is unknown."""
+    user = get_user(db, user_id)
+    user.role = role
+    db.query(AuthSession).filter(AuthSession.user_id == user_id).delete()
     db.commit()
     db.refresh(user)
     return user
@@ -141,7 +180,13 @@ def delete_user(db: Session, user_id: uuid.UUID) -> None:
         ) from exc
 
 
-def archive_user(db: Session, user_id: uuid.UUID) -> User:
+def archive_user(
+    db: Session,
+    user_id: uuid.UUID,
+    *,
+    force_return_tools: bool = False,
+    performed_by_id: uuid.UUID | None = None,
+) -> User:
     """Soft-delete (archive) a user by setting `archived_at`, and revoke
     all of their sessions so any active login ends immediately. The row is
     deliberately retained: the history view resolves the acting user's
@@ -149,9 +194,17 @@ def archive_user(db: Session, user_id: uuid.UUID) -> User:
     Archiving keeps the audit trail intact while blocking login
     (`services.auth.authenticate` rejects archived users) and hiding the
     user from the active Saved Users list. A user with outstanding tool
-    custody cannot be archived because the user-first Tools UI deliberately
-    hides archived users. Raises `UserNotFoundError` if the id is unknown and
+    custody is not archived silently, because the user-first Tools UI
+    deliberately hides archived users -- their tools would become
+    unreachable. Raises `UserNotFoundError` if the id is unknown and
     `UserHasCheckedOutToolsError` while any positive custody balance remains.
+
+    `force_return_tools` is the deliberate override for the common real case
+    (someone leaves without handing their tools back): every outstanding tool
+    is checked in first, attributed to `performed_by_id` (the archiving
+    admin), and the archive proceeds. Those returns share this function's
+    transaction and row lock, so they cannot be crossed by a concurrent
+    checkout that would leave a tool stranded on an archived user.
 
     The row lock coordinates with checkout's active-user lock, preventing a
     checkout and archive from crossing between the validation and commit.
@@ -160,9 +213,15 @@ def archive_user(db: Session, user_id: uuid.UUID) -> User:
     user = db.query(User).filter(User.id == user_id).with_for_update().first()
     if not user:
         raise UserNotFoundError("User not found.")
-    if tools_service.user_custody(db, user_id):
+    custody = tools_service.user_custody(db, user_id)
+    if custody and not force_return_tools:
         raise UserHasCheckedOutToolsError(
-            "Check in all tools before archiving this user."
+            f"{user.full_name} still has {len(custody)} "
+            f"tool{'' if len(custody) == 1 else 's'} checked out."
+        )
+    if custody:
+        tools_service.return_all_for_user(
+            db, user_id, performed_by_id=performed_by_id
         )
     user.archived_at = datetime.now(timezone.utc)
     # Revoke active sessions now rather than waiting for them to lapse, so

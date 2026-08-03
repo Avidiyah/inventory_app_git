@@ -207,19 +207,30 @@ export async function apiCreateUser({ username, firstName, lastName, password, r
   });
 }
 
-export async function apiUpdateUserName(userId, { firstName, lastName }) {
-  return jsonRequest(`/users/${userId}/name`, "PATCH", {
+export async function apiUpdateUserName(userId, { firstName, lastName, username }) {
+  const payload = {
     first_name: firstName,
     last_name: lastName,
-  });
+  };
+  // Omitted entirely (rather than sent as null) when the caller is only
+  // editing the human name, so the server leaves the login name alone.
+  if (username !== undefined) payload.username = username;
+  return jsonRequest(`/users/${userId}/name`, "PATCH", payload);
+}
+
+export async function apiUpdateUserRole(userId, role) {
+  return jsonRequest(`/users/${userId}/role`, "PATCH", { role });
 }
 
 export async function apiResetPassword(userId, password) {
   return jsonRequest(`/users/${userId}/reset-password`, "POST", { password });
 }
 
-export async function apiArchiveUser(userId) {
-  return parseResponse(await fetch(`/users/${userId}/archive`, { method: "POST", credentials: "include" }));
+// `forceReturnTools` retries an archive the server refused with 409 because
+// the user still holds tools, checking those tools in as part of the archive.
+export async function apiArchiveUser(userId, { forceReturnTools = false } = {}) {
+  const query = forceReturnTools ? "?force_return_tools=true" : "";
+  return parseResponse(await fetch(`/users/${userId}/archive${query}`, { method: "POST", credentials: "include" }));
 }
 
 export async function apiRestoreUser(userId) {

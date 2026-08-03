@@ -58,10 +58,15 @@ class UserCreate(BaseModel):
 
 
 class UserNameUpdate(BaseModel):
-    """Payload for `PATCH /users/{id}/name` (legacy-name remediation)."""
+    """Payload for `PATCH /users/{id}/name` (legacy-name remediation and
+    later identity corrections). `username` is optional so a client that
+    only knows about the human-name fields keeps working; when present it
+    replaces the login name and must still be unique (enforced by the
+    database, surfaced as `DuplicateUsernameError`)."""
 
     first_name: str
     last_name: str
+    username: Optional[str] = None
 
     @field_validator("first_name", "last_name")
     @classmethod
@@ -70,6 +75,31 @@ class UserNameUpdate(BaseModel):
         if not v:
             label = info.field_name.replace("_", " ").title()
             raise ValueError(f"{label} cannot be blank.")
+        return v
+
+    @field_validator("username")
+    @classmethod
+    def username_not_blank(cls, v):
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            raise ValueError("Username cannot be blank.")
+        return v
+
+
+class UserRoleUpdate(BaseModel):
+    """Payload for `PATCH /users/{id}/role`. Only checks that the role is a
+    recognised value; whether the caller may assign it (and may manage the
+    target) is decided in the router via `app.domain.roles`."""
+
+    role: str
+
+    @field_validator("role")
+    @classmethod
+    def role_recognised(cls, v):
+        if not is_valid_role(v):
+            raise ValueError("Unknown role.")
         return v
 
 

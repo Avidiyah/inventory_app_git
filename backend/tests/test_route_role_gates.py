@@ -27,6 +27,7 @@ import pytest
 from app.domain import roles
 from app.routers import items as items_router
 from app.routers import tools as tools_router
+from app.routers import users as users_router
 from app.routers import transactions as transactions_router
 from app.routers import work_orders as work_orders_router
 from app.schemas.work_orders import WorkOrderUpdate
@@ -66,6 +67,19 @@ def _min_role_for(router, endpoint_name):
 def test_update_item_notes_requires_supervisor():
     # Notes are operational, not administrative.
     assert _min_role_for(items_router, "update_item_notes") == roles.ROLE_SUPERVISOR
+
+
+def test_update_user_role_requires_admin():
+    # Changing someone's role is Admin+; the outranks-the-target rule inside
+    # the handler is additional, not a substitute (a Supervisor outranks a
+    # Technician but still may not re-role them).
+    assert _min_role_for(users_router, "update_user_role") == roles.ROLE_ADMIN
+
+
+def test_update_user_name_has_no_static_min_role():
+    # Editing name/username is self-or-manager, decided per target inside the
+    # handler, so no static minimum should be discoverable.
+    assert _min_role_for(users_router, "update_user_name") is None
 
 
 def test_update_item_requires_admin():

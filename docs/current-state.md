@@ -225,8 +225,12 @@ Inventory/transactions:
 - Item archive is soft delete through `archived_at`.
 - User archive is soft delete through `users.archived_at`: archived users
   cannot log in, sessions are revoked, and the row is retained for history.
-  Archive is rejected while the user has outstanding tool custody. Hard delete
-  still exists but is blocked if transactions reference the user.
+  Archive is refused with 409 while the user has outstanding tool custody;
+  retrying with `force_return_tools=true` checks every held tool in first
+  (ordinary `return` rows attributed to the archiving admin) and then
+  archives, in one transaction. The Users page offers that retry as a second
+  confirm. Hard delete still exists but is blocked if transactions reference
+  the user.
 - Stock/dispense snapshot `Item.price` into `transactions.unit_price`;
   History reports that frozen snapshot, so editing an item price does NOT
   rewrite past line values. The single exception: a row snapshotted at 0 (a
@@ -375,6 +379,8 @@ owner > admin > supervisor > technician
 | Set billing override | admin+ |
 | List users | supervisor+ |
 | Create/reset/archive/restore/delete user | actor must outrank target |
+| Edit user name + username | self, or actor outranks target |
+| Change a user's role | admin+ AND actor outranks both the current and the new role |
 | Mass-stage page/API | supervisor+ |
 | Work Orders list/get/items | any authenticated user, server-scoped (technician: assigned; supervisor: created OR routed via `supervisor_id`; admin/owner: all) |
 | Edit Work Order notes / entry mode / Set In-Progress / Mark Completed | any authenticated in-scope user |
@@ -428,7 +434,13 @@ Rules:
   pages render `full_name` (derived from first + last) instead. New users require
   both names. The columns remain nullable only for accounts that predate
   `f3b5d7a9c1e2`; those accounts render `Name unavailable` and cannot auto-route
-  a CSV work order until the Users-page Edit Name action records real values.
+  a CSV work order until the Users-page Edit Details action records real values.
+- `username` is editable after creation through that same Edit Details action
+  (`PATCH /users/{id}/name`, self or a manageable subordinate); uniqueness is
+  still the database's call, surfaced as a 400. The password is unaffected,
+  and sessions survive because they key on the user id, not the login name.
+- `role` is editable by Admin+ through `PATCH /users/{id}/role`, which revokes
+  the target's sessions so the role-shaped frontend cannot outlive the change.
 - Full names are not unique. Two active supervisors with the same normalized
   first + last name are intentionally ambiguous during CSV routing.
 

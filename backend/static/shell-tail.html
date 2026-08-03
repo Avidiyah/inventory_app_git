@@ -49,7 +49,9 @@
         </div>
     </div>
 
-    <!-- Explicit name editor for legacy accounts and later corrections. -->
+    <!-- Explicit name/username editor for legacy accounts and later
+         corrections. The username field changes the login name, so it is
+         shown only to callers dom.js is told may edit it. -->
     <div id="user-name-overlay" class="modal-overlay" hidden>
         <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="user-name-title">
             <p id="user-name-title" class="modal-title">Edit user name</p>
@@ -58,11 +60,33 @@
                 <input type="text" id="user-name-first" autocomplete="given-name">
                 <label for="user-name-last">Last Name</label>
                 <input type="text" id="user-name-last" autocomplete="family-name">
+                <label for="user-name-username" id="user-name-username-label">Username</label>
+                <input type="text" id="user-name-username" autocomplete="username">
+                <p id="user-name-username-help" class="hint">Used to sign in. Changing it does not change the password.</p>
                 <p id="user-name-message" aria-live="polite"></p>
             </div>
             <div class="modal-buttons">
                 <button id="user-name-save">Save name</button>
                 <button id="user-name-cancel" type="button" class="secondary-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Role editor for the Users page (Admin+). The select is filled by
+         dom.js promptUserRole() with only the roles the current user may
+         assign; the backend re-checks. -->
+    <div id="user-role-overlay" class="modal-overlay" hidden>
+        <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="user-role-title">
+            <p id="user-role-title" class="modal-title">Edit user role</p>
+            <div class="form-stack">
+                <label for="user-role-select">Role</label>
+                <select id="user-role-select"></select>
+                <p id="user-role-modal-help" class="hint"></p>
+                <p id="user-role-message" aria-live="polite"></p>
+            </div>
+            <div class="modal-buttons">
+                <button id="user-role-save">Save role</button>
+                <button id="user-role-cancel" type="button" class="secondary-btn">Cancel</button>
             </div>
         </div>
     </div>

@@ -11,7 +11,12 @@ from pydantic import ValidationError
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.domain import roles
-from app.domain.errors import InvalidUserNameError
+from app.domain.errors import (
+    DuplicateUsernameError,
+    InvalidCredentialsError,
+    InvalidUserNameError,
+    InvalidUsernameError,
+)
 from app.models import User
 from app.schemas.users import UserCreate, UserNameUpdate, UserResponse
 from app.routers.users import update_user_name as update_user_name_route
@@ -121,6 +126,76 @@ def test_user_can_update_own_name(db):
         db=db,
     )
     assert updated.full_name == "Self Service"
+
+
+def test_name_update_accepts_and_trims_an_optional_username():
+    # Omitted entirely -> the login name is left alone.
+    assert UserNameUpdate(first_name="Jamie", last_name="Rivera").username is None
+    payload = UserNameUpdate(
+        first_name="Jamie",
+        last_name="Rivera",
+        username="  field-tech  ",
+    )
+    assert payload.username == "field-tech"
+    with pytest.raises(ValidationError):
+        UserNameUpdate(first_name="Jamie", last_name="Rivera", username="   ")
+
+
+def test_update_name_changes_the_login_username(db):
+    user = _create_user(db, roles.ROLE_TECHNICIAN)
+    original = user.username
+    new_username = f"u-{uuid.uuid4().hex[:10]}"
+
+    updated = users_service.update_name(
+        db,
+        user.id,
+        first_name="Jamie",
+        last_name="Rivera",
+        username=new_username,
+    )
+    assert updated.username == new_username
+
+    # The new name is the one that authenticates; the old one is free again.
+    assert auth.authenticate(db, username=new_username, password="hunter2").id == user.id
+    with pytest.raises(InvalidCredentialsError):
+        auth.authenticate(db, username=original, password="hunter2")
+
+
+def test_update_name_leaves_username_alone_when_omitted(db):
+    user = _create_user(db, roles.ROLE_TECHNICIAN)
+    original = user.username
+
+    updated = users_service.update_name(
+        db, user.id, first_name="Jamie", last_name="Rivera"
+    )
+    assert updated.username == original
+
+
+def test_username_change_rejects_a_duplicate(db):
+    taken = _create_user(db, roles.ROLE_TECHNICIAN)
+    user = _create_user(db, roles.ROLE_TECHNICIAN)
+
+    with pytest.raises(DuplicateUsernameError):
+        users_service.update_name(
+            db,
+            user.id,
+            first_name="Jamie",
+            last_name="Rivera",
+            username=taken.username,
+        )
+
+    # The rollback leaves the account usable under its original name.
+    db.refresh(user)
+    assert auth.authenticate(db, username=user.username, password="hunter2").id == user.id
+
+
+def test_username_change_rejects_blank(db):
+    user = _create_user(db, roles.ROLE_TECHNICIAN)
+
+    with pytest.raises(InvalidUsernameError):
+        users_service.update_name(
+            db, user.id, first_name="Jamie", last_name="Rivera", username="   "
+        )
 
 
 def test_manager_can_update_subordinate_name_but_peer_cannot(db):

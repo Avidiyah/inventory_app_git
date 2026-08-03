@@ -60,6 +60,12 @@ class InvalidUserNameError(DomainError):
     """Raised when a first or last name is blank after trimming."""
 
 
+class InvalidUsernameError(DomainError):
+    """Raised when a login username is blank after trimming. Separate from
+    `InvalidUserNameError` (the human name) so the message can name the
+    right field. Maps to 400."""
+
+
 class UserHasTransactionsError(DomainError):
     """Raised by `services.users.delete_user` when the FK from
     `transactions.user_id` prevents deletion. The audit trail is
@@ -68,8 +74,14 @@ class UserHasTransactionsError(DomainError):
 
 class UserHasCheckedOutToolsError(DomainError):
     """Raised when an archive would hide a user who still has positive
-    tool custody. Every checked-out tool must be returned first so the
-    custody workflow remains reachable. Maps to 400."""
+    tool custody, since the user-first custody workflow could no longer
+    reach those tools.
+
+    Like `ArchivedBarcodeConflictError`, this is a recoverable conflict
+    rather than a dead end: the caller can retry with
+    `force_return_tools=True` to check every outstanding tool in first.
+    It maps to 409 so the frontend can tell it apart from a plain 400 and
+    offer that retry."""
 
 
 class ItemHasTransactionsError(DomainError):

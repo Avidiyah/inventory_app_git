@@ -18,7 +18,7 @@ from decimal import Decimal
 import pytest
 
 from app.domain.errors import InvalidCredentialsError, UserHasCheckedOutToolsError
-from app.models import AuthSession, User
+from app.models import AuthSession, ToolTransaction, User
 from app.services import auth
 from app.services import tools as tools_service
 from app.services import users as users_service
@@ -110,3 +110,78 @@ def test_archive_user_blocked_until_tools_are_returned(db):
     )
     users_service.archive_user(db, user.id)
     assert user.archived_at is not None
+
+
+def test_archive_force_returns_every_outstanding_tool(db):
+    user = _seed_user(db)
+    admin = _seed_user(db, role="admin")
+    drill = tools_service.create_tool(
+        db,
+        barcode=f"TOOL-{uuid.uuid4().hex[:10]}",
+        name="Cordless Drill",
+        quantity=Decimal(2),
+    )
+    meter = tools_service.create_tool(
+        db,
+        barcode=f"TOOL-{uuid.uuid4().hex[:10]}",
+        name="Moisture Meter",
+        quantity=Decimal(5),
+    )
+    for tool, quantity in ((drill, Decimal(1)), (meter, Decimal(3))):
+        tools_service.checkout_tool(
+            db,
+            tool.id,
+            quantity=quantity,
+            assigned_to_id=user.id,
+            performed_by_id=admin.id,
+        )
+    assert drill.quantity == Decimal(1)
+    assert meter.quantity == Decimal(2)
+
+    users_service.archive_user(
+        db, user.id, force_return_tools=True, performed_by_id=admin.id
+    )
+
+    # Custody is cleared and the units are back on the shelf.
+    assert tools_service.user_custody(db, user.id) == []
+    db.refresh(drill)
+    db.refresh(meter)
+    assert drill.quantity == Decimal(2)
+    assert meter.quantity == Decimal(5)
+    assert user.archived_at is not None
+
+    # The forced check-ins are ordinary `return` rows attributed to the
+    # archiving admin, so the custody audit trail still reads correctly.
+    returns = [
+        (txn.tool_id, txn.quantity, txn.performed_by_id)
+        for txn in db.query(ToolTransaction)
+        .filter(
+            ToolTransaction.assigned_to_id == user.id,
+            ToolTransaction.transaction_type == "return",
+        )
+        .all()
+    ]
+    assert sorted(returns, key=lambda row: str(row[0])) == sorted(
+        [
+            (drill.id, Decimal(1), admin.id),
+            (meter.id, Decimal(3), admin.id),
+        ],
+        key=lambda row: str(row[0]),
+    )
+
+
+def test_archive_force_is_harmless_without_custody(db):
+    user = _seed_user(db)
+    admin = _seed_user(db, role="admin")
+
+    users_service.archive_user(
+        db, user.id, force_return_tools=True, performed_by_id=admin.id
+    )
+
+    assert user.archived_at is not None
+    assert (
+        db.query(ToolTransaction)
+        .filter(ToolTransaction.assigned_to_id == user.id)
+        .count()
+        == 0
+    )

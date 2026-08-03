@@ -241,6 +241,42 @@ def user_custody(
     ]
 
 
+def return_all_for_user(
+    db: Session,
+    assigned_to_id: uuid.UUID,
+    *,
+    performed_by_id: Optional[uuid.UUID],
+) -> list[tuple[str, Decimal]]:
+    """Force check-in: return every tool `assigned_to_id` still holds, as
+    `(tool_name, quantity)` rows describing what was returned.
+
+    Writes the same `return` transactions `return_tool` writes -- one per
+    tool, for that user's whole outstanding balance -- so the custody audit
+    trail reads the same whether the return was done at the counter or
+    forced. Deliberately does NOT commit: the caller (user archival) owns
+    the transaction, so the returns and the archive land together or not at
+    all, and the caller's row lock stays held throughout.
+    """
+    returned: list[tuple[str, Decimal]] = []
+    for tool_id, name, _barcode, quantity in user_custody(db, assigned_to_id):
+        tool = db.query(Tool).filter(Tool.id == tool_id).with_for_update().first()
+        if not tool:  # pragma: no cover - custody rows come from a Tool join
+            continue
+        tool.quantity = apply_delta(tool.quantity, "stock", quantity)
+        db.add(
+            ToolTransaction(
+                tool_id=tool_id,
+                transaction_type="return",
+                quantity=quantity,
+                assigned_to_id=assigned_to_id,
+                performed_by_id=performed_by_id,
+            )
+        )
+        returned.append((name, quantity))
+    db.flush()
+    return returned
+
+
 def _outstanding_for_user(
     db: Session, tool_id: uuid.UUID, assigned_to_id: uuid.UUID
 ) -> Decimal:
