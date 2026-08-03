@@ -7,7 +7,7 @@ sibling route that records a quantity correction (signed delta
 computed by the service from `new_quantity - current`).
 `TransactionHistoryItem` / `TransactionHistoryPage` are the
 denormalised, paginated shapes served by `GET /transactions/`
-— they carry item barcode/name and username so the frontend history
+— they carry item barcode/name and the user's display name so history
 view does not need a second round-trip per row.
 """
 
@@ -129,7 +129,7 @@ class TransactionHistoryItem(BaseModel):
 
     Built by `services.history.list_history` from a JOIN across
     transactions / items / users so the frontend can render the
-    table without further lookups. `username` is `None` when the
+    table without further lookups. `user_name` is `None` when the
     transaction was recorded anonymously. `reason` is populated only
     for `transaction_type = "adjust"`.
 
@@ -154,7 +154,7 @@ class TransactionHistoryItem(BaseModel):
     item_barcode: str
     item_name: str
     user_id: Optional[UUID]
-    username: Optional[str]
+    user_name: Optional[str] = None
     transaction_type: str
     quantity: Decimal
     work_order_number: Optional[str]

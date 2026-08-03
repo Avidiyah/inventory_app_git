@@ -59,8 +59,10 @@ def create_transaction(
         )
     # Resolve the work order. A scan from a card supplies `work_order_id` (its
     # number is read back as the authoritative snapshot); a Supervisor+ free-text
-    # number find-or-creates the work order. The number string is always stored
-    # denormalized on the row for History.
+    # number attaches to an already-imported work order. Work orders are
+    # import-only, so an unknown number is a 404 -- it can no longer bring a work
+    # order into existence. The number string is always stored denormalized on
+    # the row for History.
     work_order_id = payload.work_order_id
     work_order_number = payload.work_order_number
     try:
@@ -76,9 +78,7 @@ def create_transaction(
                 work_order_number = wo_row.number
         elif work_order_number and work_order_number.strip():
             if roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
-                wo_row = wo_service.get_or_create_work_order(
-                    db, number=work_order_number, created_by_id=user.id
-                )
+                wo_row = wo_service.resolve_work_order(db, number=work_order_number)
                 work_order_id = wo_row.id
                 work_order_number = wo_row.number
 

@@ -16,7 +16,8 @@ let toolsCache = [];
 let editingNotesItemId = null;
 let editingItemId = null;
 
-// The logged-in user: `{ id, username, role }` or null when logged out.
+// The logged-in user: `{ id, username, first_name, last_name, full_name, role }`
+// or null when logged out.
 // Auth itself lives in the HttpOnly session cookie (not readable here);
 // this is only the identity the views need to gate the UI. Deliberately
 // NOT persisted to localStorage -- a page reload re-checks `/auth/me`.

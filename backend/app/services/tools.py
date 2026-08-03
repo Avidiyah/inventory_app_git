@@ -172,13 +172,22 @@ def _custody_query(db: Session, tool_id: uuid.UUID):
         )
     ).label("net")
     return (
-        db.query(ToolTransaction.assigned_to_id, User.username, net)
+        db.query(
+            ToolTransaction.assigned_to_id,
+            User.first_name,
+            User.last_name,
+            net,
+        )
         .join(User, User.id == ToolTransaction.assigned_to_id)
         .filter(
             ToolTransaction.tool_id == tool_id,
             ToolTransaction.transaction_type.in_(("checkout", "return")),
         )
-        .group_by(ToolTransaction.assigned_to_id, User.username)
+        .group_by(
+            ToolTransaction.assigned_to_id,
+            User.first_name,
+            User.last_name,
+        )
         .having(net > 0)
     )
 
@@ -186,9 +195,16 @@ def _custody_query(db: Session, tool_id: uuid.UUID):
 def tool_custody(
     db: Session, tool_id: uuid.UUID
 ) -> list[tuple[uuid.UUID, str, Decimal]]:
-    """Current outstanding custody for a tool: one `(user_id, username,
-    quantity)` tuple per user who has a net-positive balance."""
-    return [(uid, uname, net) for uid, uname, net in _custody_query(db, tool_id).all()]
+    """Current custody as `(user_id, display_name, quantity)` rows."""
+    return [
+        (
+            uid,
+            " ".join(part.strip() for part in (first_name, last_name) if part and part.strip())
+            or "Name unavailable",
+            net,
+        )
+        for uid, first_name, last_name, net in _custody_query(db, tool_id).all()
+    ]
 
 
 def user_custody(
@@ -235,7 +251,7 @@ def _outstanding_for_user(
         .filter(ToolTransaction.assigned_to_id == assigned_to_id)
         .first()
     )
-    return row[2] if row else Decimal(0)
+    return row[-1] if row else Decimal(0)
 
 
 def checkout_tool(

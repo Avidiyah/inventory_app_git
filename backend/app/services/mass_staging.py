@@ -259,21 +259,22 @@ def add_work_order_to_stage(
     work_order_number: str,
     unit_number: Optional[str] = None,
     assigned_to_id: Optional[uuid.UUID] = None,
-    created_by_id: Optional[uuid.UUID] = None,
 ) -> MassStageWorkOrder:
-    """Add a work order to a stage's truck plan. Find-or-creates the `WorkOrder`
-    by number (community/building taken from the stage and **enforced to match**
-    a pre-existing one), records its unit/assignee, and links it as a slot.
+    """Add a work order to a stage's truck plan. Resolves the `WorkOrder` by
+    number -- it must already have been imported -- fills its blank
+    community/building from the stage (**enforced to match** where the work order
+    already carries one), records its unit/assignee, and links it as a slot.
 
-    Raises `StageStateError` if the stage is not planning, `WorkOrderStateError`
-    if the work order belongs to a different community/building, and
-    `InvalidAssigneeError` (from the work-order service) if the assignee is not a
-    technician."""
+    Raises `StageStateError` if the stage is not planning, `WorkOrderNotFoundError`
+    if no live work order carries that number (work orders are import-only, so a
+    stage cannot conjure one), `WorkOrderStateError` if the work order belongs to
+    a different community/building, and `InvalidAssigneeError` (from the
+    work-order service) if the assignee is not a technician."""
     stage = _get_stage_row(db, stage_id)
     _require_editable(stage)
 
-    # Enforce-match before mutating: a pre-existing work order's non-blank
-    # community/building must match this stage's.
+    # Enforce-match before mutating: the work order's non-blank community/building
+    # must match this stage's.
     existing = wo_service.find_by_number(db, work_order_number)
     if existing is not None and existing.archived_at is None:
         if (existing.community and existing.community != stage.community) or (
@@ -285,14 +286,13 @@ def add_work_order_to_stage(
                 f"community/building."
             )
 
-    work_order = wo_service.get_or_create_work_order(
+    work_order = wo_service.resolve_work_order(
         db,
         number=work_order_number,
         community=stage.community,
         building_number=stage.building_name,
         unit_number=unit_number,
         assigned_to_id=assigned_to_id,
-        created_by_id=created_by_id,
     )
 
     sort_order = (

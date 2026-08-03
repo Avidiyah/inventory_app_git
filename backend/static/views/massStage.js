@@ -23,7 +23,7 @@ import {
   apiListItems,
   apiListUsers,
 } from "../api.js";
-import { escapeHtml, friendlyError } from "../format.js";
+import { escapeHtml, friendlyError, formatUserName } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
 import { showPage } from "./nav.js";
 import { focusWorkOrder } from "./workOrders.js";
@@ -43,6 +43,10 @@ let allItems = [];
 let itemsLoaded = false;
 let allTechs = [];
 let techsLoaded = false;
+document.addEventListener("user-names-updated", () => {
+  allTechs = [];
+  techsLoaded = false;
+});
 let autoOpenId = null;
 let autoOpenCommunity = null;
 
@@ -61,7 +65,7 @@ function techOptions(selectedId) {
     allTechs
       .map(
         (t) =>
-          `<option value="${escapeHtml(t.id)}"${t.id === selectedId ? " selected" : ""}>${escapeHtml(t.username)}</option>`
+          `<option value="${escapeHtml(t.id)}"${t.id === selectedId ? " selected" : ""}>${escapeHtml(formatUserName(t))}</option>`
       )
       .join("")
   );
@@ -69,8 +73,8 @@ function techOptions(selectedId) {
 
 // --- list + lazy detail --------------------------------------------------
 
-export async function loadStages() {
-  if (!itemsLoaded) {
+export async function loadStages({ refreshReferenceData = false } = {}) {
+  if (refreshReferenceData || !itemsLoaded) {
     try {
       allItems = await apiListItems();
       itemsLoaded = true;
@@ -78,7 +82,7 @@ export async function loadStages() {
       allItems = [];
     }
   }
-  if (!techsLoaded) {
+  if (refreshReferenceData || !techsLoaded) {
     try {
       allTechs = (await apiListUsers()).filter((u) => u.role === "technician");
       techsLoaded = true;
@@ -200,9 +204,12 @@ function renderPlanningBody(stage, bodyEl) {
 
   bodyEl.innerHTML =
     `<div class="ms-rooms">${slotsHtml}</div>` +
+    // The work order must already have been imported -- a stage plans around
+    // existing work orders, it cannot create one. An unknown number comes back
+    // 404 and is surfaced in the stage message.
     `<div class="ms-add-room">
        <input type="text" class="ms-unit-number" placeholder="Unit # (optional)">
-       <input type="text" class="ms-room-wo" placeholder="Work order #">
+       <input type="text" class="ms-room-wo" placeholder="Imported work order #">
        <select class="ms-add-assignee">${techOptions("")}</select>
        <button type="button" data-action="add-work-order">Add work order</button>
      </div>` +
@@ -271,7 +278,7 @@ function renderMergedHtml(m, loading) {
 }
 
 // `slot` is a StageWorkOrderDetail: id (slot id), work_order_id, work_order_number,
-// unit_number, status, assigned_to_username, items[].
+// unit_number, status, assigned_to_name, items[].
 function renderSlotHtml(slot, planning) {
   const items = slot.items.map((it) => renderItemHtml(it, planning)).join("");
   const itemsHtml = items || `<p class="hint">No items yet.</p>`;
@@ -295,7 +302,7 @@ function renderSlotHtml(slot, planning) {
   // out to the Work Orders page to edit those.
   const openWo = `<button type="button" class="secondary-btn wo-open-btn" data-action="open-wo" data-wo-id="${escapeHtml(slot.work_order_id)}">Open work order →</button>`;
 
-  const assigneeMeta = slot.assigned_to_username ? ` · ${escapeHtml(slot.assigned_to_username)}` : "";
+  const assigneeMeta = slot.assigned_to_name ? ` · ${escapeHtml(slot.assigned_to_name)}` : "";
   const unit = slot.unit_number ? escapeHtml(slot.unit_number) : "—";
 
   return `<details class="room-card" data-slot-id="${escapeHtml(slot.id)}">

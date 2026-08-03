@@ -1,14 +1,20 @@
 """Work order service -- the standalone first-class entity.
 
-Layer: services. Backs `/work-orders` and is the single home for
-find-or-create-by-number, so every surface (scan-and-go, Mass Stage, the Work
-Orders page) resolves a number to the one `work_orders` row.
+Layer: services. Backs `/work-orders` and is the single home for resolving a
+number to the one `work_orders` row, so every surface (scan-and-go, Mass Stage,
+the Work Orders page) agrees on what "that work order" means.
+
+**Work orders are import-only.** The CSV import (`import_work_orders` ->
+`get_or_create_work_order`) is the sole path that creates a row; every other
+surface goes through `resolve_work_order`, which attaches to an already-imported
+number and refuses an unknown one. There is no "new work order" form.
 
 Identity is the number, unique case-insensitively + trimmed
 (`domain.work_orders.normalize_number`). References fill blank attributes but
 never overwrite non-blank ones; explicit edits (`update_work_order`) overwrite.
-A work order soft-archives (`archived_at`); an archived number stays reserved
-and is restored when referenced again.
+A work order soft-archives (`archived_at`); an archived number stays reserved --
+re-importing a CSV row for that number is what restores it (a plain reference
+no longer resurrects it, since references can no longer create).
 
 Materials logged against a work order write a `dispense` transaction carrying
 `work_order_id` + the number; the work order's `entry_mode` decides
@@ -18,12 +24,14 @@ rewrites the linked transaction in place -- the scoped exception to the
 append-only ledger.
 """
 
+import csv
+import io
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional, Sequence
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -32,20 +40,42 @@ from app.domain import work_orders as wo
 from app.domain.errors import (
     InvalidAssigneeError,
     ItemNotFoundError,
-    WorkOrderArchivedError,
+    RoleManagementError,
     WorkOrderNotFoundError,
     WorkOrderStateError,
 )
 from app.domain.billing import validate_billable_value
 from app.domain.quantity import apply_delta
-from app.models import Item, Transaction, User, WorkOrder, WorkOrderItem
+from app.models import (
+    Item,
+    Transaction,
+    User,
+    WorkOrder,
+    WorkOrderItem,
+    WorkOrderLabor,
+    WorkOrderTechnician,
+)
 
 
 # Backslash is the LIKE escape char (mirrors services.history).
 _LIKE_ESCAPE = "\\"
 
 # Editable attribute fields (used by fill-blanks references + explicit edits).
-_ATTR_FIELDS = ("community", "building_number", "unit_number", "description")
+# The CSV-import columns join the original location/description set; every one is
+# fill-blank on a reference so scan-and-go / Mass Stage never clobber import data
+# (they simply pass None for the new fields, and fill_blank(current, None) keeps
+# current).
+_ATTR_FIELDS = (
+    "community",
+    "building_number",
+    "unit_number",
+    "description",
+    "location",
+    "output_to",
+    "vendor_assignee",
+    "service_type",
+    "schedule_date",
+)
 
 
 # --- helpers -------------------------------------------------------------
@@ -76,12 +106,90 @@ def _validate_assignee(db: Session, assigned_to_id: Optional[uuid.UUID]) -> None
         )
 
 
+def _validate_assignees(
+    db: Session, assigned_to_ids: Sequence[uuid.UUID]
+) -> list[uuid.UUID]:
+    """Validate and de-duplicate a complete technician assignment set."""
+    normalized = list(dict.fromkeys(assigned_to_ids))
+    if not normalized:
+        return []
+    valid_ids = {
+        row.id
+        for row in db.query(User.id)
+        .filter(
+            User.id.in_(normalized),
+            User.role == roles.ROLE_TECHNICIAN,
+            User.archived_at.is_(None),
+        )
+        .all()
+    }
+    if len(valid_ids) != len(normalized):
+        raise InvalidAssigneeError(
+            "Work orders can only be assigned to active technicians."
+        )
+    return normalized
+
+
+def _assigned_technician_ids(work_order: WorkOrder) -> list[uuid.UUID]:
+    """Plural assignment ids with a legacy-column fallback."""
+    assigned = [
+        row.technician_id
+        for row in (getattr(work_order, "technician_assignments", None) or ())
+    ]
+    legacy_id = getattr(work_order, "assigned_to_id", None)
+    if legacy_id is not None and legacy_id not in assigned:
+        assigned.insert(0, legacy_id)
+    return assigned
+
+
+def assigned_technicians(work_order: WorkOrder) -> list[User]:
+    """Assigned technician users, including a legacy singular fallback."""
+    technicians = list(getattr(work_order, "technicians", None) or ())
+    assignee = getattr(work_order, "assignee", None)
+    if assignee is not None and all(
+        technician.id != assignee.id for technician in technicians
+    ):
+        technicians.insert(0, assignee)
+    return technicians
+
+
+def _sync_technician_assignments(
+    db: Session,
+    work_order: WorkOrder,
+    technician_ids: Sequence[uuid.UUID],
+    *,
+    assigned_by_id: Optional[uuid.UUID],
+) -> None:
+    """Replace a work order's normalized assignment set and legacy mirror."""
+    desired = list(dict.fromkeys(technician_ids))
+    existing = {
+        assignment.technician_id: assignment
+        for assignment in work_order.technician_assignments
+    }
+    for technician_id, assignment in existing.items():
+        if technician_id not in desired:
+            db.delete(assignment)
+    for technician_id in desired:
+        if technician_id not in existing:
+            db.add(
+                WorkOrderTechnician(
+                    work_order_id=work_order.id,
+                    technician_id=technician_id,
+                    assigned_by_id=assigned_by_id,
+                )
+            )
+    # Compatibility for Mass Stage and old response consumers.
+    work_order.assigned_to_id = desired[0] if desired else None
+
+
 def _visible(work_order: WorkOrder, user: Optional[User]) -> bool:
     return wo.can_view_work_order(
         user.role if user else None,
         created_by_id=work_order.created_by_id,
         assigned_to_id=work_order.assigned_to_id,
         user_id=user.id if user else None,
+        supervisor_id=work_order.supervisor_id,
+        assigned_to_ids=_assigned_technician_ids(work_order),
     )
 
 
@@ -107,6 +215,10 @@ def _get_visible(
         db.query(WorkOrder)
         .options(
             joinedload(WorkOrder.assignee),
+            joinedload(WorkOrder.supervisor),
+            selectinload(WorkOrder.technician_assignments),
+            selectinload(WorkOrder.technicians),
+            selectinload(WorkOrder.labor_entries).joinedload(WorkOrderLabor.technician),
             selectinload(WorkOrder.items).joinedload(WorkOrderItem.item),
         )
         .filter(WorkOrder.id == work_order_id)
@@ -121,7 +233,105 @@ def _get_visible(
     return work_order
 
 
-# --- find-or-create ------------------------------------------------------
+# --- resolve / import-create ---------------------------------------------
+
+def _merge_reference(
+    db: Session,
+    existing: WorkOrder,
+    *,
+    incoming: dict,
+    assigned_to_id: Optional[uuid.UUID],
+    supervisor_id: Optional[uuid.UUID],
+) -> WorkOrder:
+    """Fill-blanks merge of a reference's attributes into an existing work order:
+    a blank column takes the incoming value, a non-blank one is left alone. A
+    non-blank assignee applies only if currently unassigned, a `supervisor_id`
+    only if currently unrouted. Commits and returns the refreshed row."""
+    for field in _ATTR_FIELDS:
+        setattr(existing, field, wo.fill_blank(getattr(existing, field), incoming[field]))
+    if assigned_to_id is not None and not _assigned_technician_ids(existing):
+        _sync_technician_assignments(
+            db,
+            existing,
+            [assigned_to_id],
+            assigned_by_id=None,
+        )
+    if supervisor_id is not None and existing.supervisor_id is None:
+        existing.supervisor_id = supervisor_id
+    existing.status = wo.reconcile_assignment_status(
+        existing.status, _assigned_technician_ids(existing)
+    )
+    db.commit()
+    db.refresh(existing)
+    return existing
+
+
+def _incoming_attrs(**kwargs) -> dict:
+    """The `_ATTR_FIELDS` subset of a reference's kwargs, defaulting to None."""
+    return {field: kwargs.get(field) for field in _ATTR_FIELDS}
+
+
+def resolve_work_order(
+    db: Session,
+    *,
+    number: str,
+    community: Optional[str] = None,
+    building_number: Optional[str] = None,
+    unit_number: Optional[str] = None,
+    description: Optional[str] = None,
+    location: Optional[str] = None,
+    output_to: Optional[str] = None,
+    vendor_assignee: Optional[str] = None,
+    service_type: Optional[str] = None,
+    schedule_date: Optional[str] = None,
+    assigned_to_id: Optional[uuid.UUID] = None,
+    supervisor_id: Optional[uuid.UUID] = None,
+) -> WorkOrder:
+    """Attach to the work order `number` already names -- never create one.
+
+    This is how every non-import surface (scan-and-go, Mass Stage) reaches a work
+    order: work orders enter the system through the CSV import, so a number that
+    is unknown -- or held only by an *archived* work order -- raises
+    `WorkOrderNotFoundError` instead of quietly bringing a row into existence.
+    (Re-importing a CSV row for an archived number is what restores it.)
+
+    A resolved work order takes the same fill-blanks merge a reference has always
+    applied, so a stage still fills in blank location/assignee data without
+    clobbering imported values. Raises `InvalidAssigneeError` if an assignee is
+    not a technician."""
+    _validate_assignee(db, assigned_to_id)
+    existing = find_by_number(db, number)
+    if existing is not None and existing.archived_at is not None:
+        # Distinguish the two dead ends: an archived number is recoverable
+        # (restore it from the Work Orders page or History), an unknown one needs
+        # an import.
+        raise WorkOrderNotFoundError(
+            f"Work order {number.strip()} is archived. Restore it before "
+            f"logging against it."
+        )
+    if existing is None:
+        raise WorkOrderNotFoundError(
+            f"Work order {number.strip()} was not found. Work orders are added by "
+            f"importing the work-order CSV."
+        )
+    return _merge_reference(
+        db,
+        existing,
+        incoming=_incoming_attrs(
+            community=community,
+            building_number=building_number,
+            unit_number=unit_number,
+            description=description,
+            location=location,
+            output_to=output_to,
+            vendor_assignee=vendor_assignee,
+            service_type=service_type,
+            schedule_date=schedule_date,
+        ),
+        assigned_to_id=assigned_to_id,
+        supervisor_id=supervisor_id,
+    )
+
 
 def get_or_create_work_order(
     db: Session,
@@ -131,46 +341,70 @@ def get_or_create_work_order(
     building_number: Optional[str] = None,
     unit_number: Optional[str] = None,
     description: Optional[str] = None,
+    location: Optional[str] = None,
+    output_to: Optional[str] = None,
+    vendor_assignee: Optional[str] = None,
+    service_type: Optional[str] = None,
+    schedule_date: Optional[str] = None,
     assigned_to_id: Optional[uuid.UUID] = None,
+    supervisor_id: Optional[uuid.UUID] = None,
     created_by_id: Optional[uuid.UUID] = None,
 ) -> WorkOrder:
     """Resolve `number` to the one work order, creating it if new.
 
-    Existing (incl. archived -> restored): fill-blanks merge of the supplied
-    attributes; a non-blank assignee is validated + applied only if currently
-    unassigned. New: created `in_progress` with the supplied attributes. Raises
-    `InvalidAssigneeError` if an assignee is not a technician."""
+    **Import path only** -- `import_work_orders` is the sole caller, because the
+    CSV is the only thing allowed to bring a work order into existence. Every
+    other surface uses `resolve_work_order`.
+
+    Existing (incl. archived -> restored, so a re-import revives an archived
+    number): fill-blanks merge of the supplied attributes; a non-blank assignee is
+    validated + applied only if currently unassigned, and a `supervisor_id` is
+    applied only if currently unrouted. New: starts `assigned` only when a
+    technician is supplied, otherwise `created`; supervisor routing does not
+    change lifecycle status. Raises `InvalidAssigneeError` if an assignee is not
+    a technician."""
     _validate_assignee(db, assigned_to_id)
-    incoming = {
-        "community": community,
-        "building_number": building_number,
-        "unit_number": unit_number,
-        "description": description,
-    }
+    incoming = _incoming_attrs(
+        community=community,
+        building_number=building_number,
+        unit_number=unit_number,
+        description=description,
+        location=location,
+        output_to=output_to,
+        vendor_assignee=vendor_assignee,
+        service_type=service_type,
+        schedule_date=schedule_date,
+    )
 
     existing = find_by_number(db, number)
     if existing is not None:
         if existing.archived_at is not None:
             existing.archived_at = None  # restore -- numbers are permanent
-        for field in _ATTR_FIELDS:
-            setattr(existing, field, wo.fill_blank(getattr(existing, field), incoming[field]))
-        if assigned_to_id is not None and existing.assigned_to_id is None:
-            existing.assigned_to_id = assigned_to_id
-        db.commit()
-        db.refresh(existing)
-        return existing
+        return _merge_reference(
+            db,
+            existing,
+            incoming=incoming,
+            assigned_to_id=assigned_to_id,
+            supervisor_id=supervisor_id,
+        )
 
     work_order = WorkOrder(
+        id=uuid.uuid4(),
         number=number.strip(),
-        community=wo.fill_blank(None, community),
-        building_number=wo.fill_blank(None, building_number),
-        unit_number=wo.fill_blank(None, unit_number),
-        description=wo.fill_blank(None, description),
-        status=wo.STATUS_IN_PROGRESS,
+        status=wo.initial_status(assigned_to_id),
         assigned_to_id=assigned_to_id,
+        supervisor_id=supervisor_id,
         created_by_id=created_by_id,
+        **{field: wo.fill_blank(None, incoming[field]) for field in _ATTR_FIELDS},
     )
     db.add(work_order)
+    if assigned_to_id is not None:
+        _sync_technician_assignments(
+            db,
+            work_order,
+            [assigned_to_id],
+            assigned_by_id=created_by_id,
+        )
     try:
         db.commit()
     except IntegrityError as exc:
@@ -184,6 +418,90 @@ def get_or_create_work_order(
     return work_order
 
 
+# --- CSV import ----------------------------------------------------------
+
+def _supervisor_lookup(db: Session) -> dict[str, Optional[uuid.UUID]]:
+    """Map unambiguous active-supervisor full names to ids for CSV routing.
+
+    Missing names are deliberately unmatchable. Duplicate normalized names are
+    stored as ``None`` so import leaves the relationship unassigned instead of
+    routing nondeterministically to whichever row the database returned last.
+    """
+    lookup: dict[str, Optional[uuid.UUID]] = {}
+    supervisors = (
+        db.query(User)
+        .filter(User.role == roles.ROLE_SUPERVISOR, User.archived_at.is_(None))
+        .all()
+    )
+    for supervisor in supervisors:
+        if not (supervisor.first_name and supervisor.first_name.strip()):
+            continue
+        if not (supervisor.last_name and supervisor.last_name.strip()):
+            continue
+        key = wo.normalize_assignee_name(
+            f"{supervisor.first_name} {supervisor.last_name}"
+        )
+        if key is not None:
+            lookup[key] = None if key in lookup else supervisor.id
+    return lookup
+
+
+def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
+    """Import the mass work-order CSV export (the new default schema).
+
+    Each row funnels through `get_or_create_work_order` by number, so a re-upload
+    is idempotent (fill-blanks -- an already-imported number is opened, never
+    duplicated, and manual edits survive). The `ASSIGNED TO` vendor name is stored
+    raw AND matched to an active system supervisor (by normalized first + last
+    name) to set
+    `supervisor_id`; an unmatched name imports cleanly (admin routes it later).
+    Rows with a blank work-order number are skipped.
+
+    Returns a summary dict (`total`, `created`, `opened`, `supervisors_matched`,
+    `supervisors_unmatched`, `skipped`)."""
+    text = csv_bytes.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    supervisors = _supervisor_lookup(db)
+
+    created = opened = matched = unmatched = skipped = 0
+    for row in reader:
+        attrs = wo.parse_import_row(row)
+        number = attrs.pop("number")
+        if number is None:
+            skipped += 1
+            continue
+
+        key = wo.normalize_assignee_name(attrs.get("vendor_assignee"))
+        supervisor_id = supervisors.get(key) if key else None
+        if attrs.get("vendor_assignee") is not None:
+            if supervisor_id is not None:
+                matched += 1
+            else:
+                unmatched += 1
+
+        existed = find_by_number(db, number) is not None
+        get_or_create_work_order(
+            db,
+            number=number,
+            created_by_id=user.id,
+            supervisor_id=supervisor_id,
+            **attrs,
+        )
+        if existed:
+            opened += 1
+        else:
+            created += 1
+
+    return {
+        "total": created + opened + skipped,
+        "created": created,
+        "opened": opened,
+        "supervisors_matched": matched,
+        "supervisors_unmatched": unmatched,
+        "skipped": skipped,
+    }
+
+
 # --- list + detail -------------------------------------------------------
 
 def list_work_orders(
@@ -195,14 +513,21 @@ def list_work_orders(
     limit: Optional[int] = None,
 ) -> Sequence[WorkOrder]:
     """Live work orders newest-first, scoped to `user` (technician -> assigned,
-    supervisor -> created, admin/owner -> all). `status` narrows to
-    in_progress|completed; `search` is a case-insensitive number substring.
+    supervisor -> created/routed, admin/owner -> all). `status` narrows to one
+    live state (created, assigned, in_progress, on_hold, completed, or review); `search`
+    is a case-insensitive number substring.
     `limit`, when set, caps the result to the N most-recently-created work orders:
     the Work Orders page browses the 10 newest by default and drops the cap to show
     all (or to search, which must reach the full set)."""
     query = (
         db.query(WorkOrder)
-        .options(joinedload(WorkOrder.assignee), selectinload(WorkOrder.items))
+        .options(
+            joinedload(WorkOrder.assignee),
+            joinedload(WorkOrder.supervisor),
+            selectinload(WorkOrder.technician_assignments),
+            selectinload(WorkOrder.technicians),
+            selectinload(WorkOrder.items),
+        )
         .filter(WorkOrder.archived_at.is_(None))
     )
 
@@ -217,9 +542,23 @@ def list_work_orders(
 
     if user is not None and not roles.role_at_least(user.role, roles.ROLE_ADMIN):
         if user.role == roles.ROLE_SUPERVISOR:
-            query = query.filter(WorkOrder.created_by_id == user.id)
+            # A supervisor sees work orders they created OR are routed to them
+            # (the CSV import's name-match target). Mirrors can_view_work_order.
+            query = query.filter(
+                or_(
+                    WorkOrder.created_by_id == user.id,
+                    WorkOrder.supervisor_id == user.id,
+                )
+            )
         else:
-            query = query.filter(WorkOrder.assigned_to_id == user.id)
+            query = query.filter(
+                or_(
+                    WorkOrder.assigned_to_id == user.id,
+                    WorkOrder.technician_assignments.any(
+                        WorkOrderTechnician.technician_id == user.id
+                    ),
+                )
+            )
 
     query = query.order_by(WorkOrder.created_at.desc())
     if limit is not None:
@@ -277,46 +616,7 @@ def get_work_order(
     return work_order
 
 
-# --- create / update / archive ------------------------------------------
-
-def create_work_order(
-    db: Session,
-    *,
-    user: User,
-    number: str,
-    community: Optional[str] = None,
-    building_number: Optional[str] = None,
-    unit_number: Optional[str] = None,
-    description: Optional[str] = None,
-    assigned_to_id: Optional[uuid.UUID] = None,
-    restore_archived: bool = False,
-) -> WorkOrder:
-    """Work Orders page "New work order" (Supervisor+). Find-or-create by number
-    (re-using an existing LIVE number opens it, fill-blanks), attributing creation
-    to `user` for a brand-new one.
-
-    Unlike the shared `get_or_create_work_order` -- which silently un-archives a
-    reserved number for scan-and-go / Mass Stage -- this deliberate create path
-    refuses to resurrect an archived number on its own: if the number matches an
-    *archived* work order and `restore_archived` is False it raises
-    `WorkOrderArchivedError` (409) so the page can prompt "restore it?". The
-    caller re-submits with `restore_archived=True` to confirm, which then falls
-    through to the fill-blanks restore."""
-    if not restore_archived:
-        existing = find_by_number(db, number)
-        if existing is not None and existing.archived_at is not None:
-            raise WorkOrderArchivedError("Work order is archived.")
-    return get_or_create_work_order(
-        db,
-        number=number,
-        community=community,
-        building_number=building_number,
-        unit_number=unit_number,
-        description=description,
-        assigned_to_id=assigned_to_id,
-        created_by_id=user.id,
-    )
-
+# --- update / archive ----------------------------------------------------
 
 def update_work_order(
     db: Session,
@@ -326,26 +626,71 @@ def update_work_order(
     fields: dict,
 ) -> WorkOrder:
     """Explicit edit (overwrite) of the fields present in `fields` -- any of
-    number / community / building_number / unit_number / description / status /
-    entry_mode / assigned_to_id. Validates status / mode / assignee. Completing
-    stamps `completed_at`; reopening clears it. A number collision raises
-    `WorkOrderStateError`."""
+    number / community / building_number / unit_number / description / notes /
+    status / entry_mode / assigned_to_ids. Validates status / mode / assignees.
+    The legacy singular `assigned_to_id` is accepted for old clients. Technician
+    assignment moves Created/Assigned automatically; explicit status wins when
+    both are patched. Supervisor routing is independent of lifecycle status.
+    Completed/Review retain `completed_at`, while reopening to an earlier state
+    clears it. A number collision raises `WorkOrderStateError`."""
     work_order = _get_visible(db, work_order_id, user)
 
-    if "status" in fields:
-        wo.validate_status(fields["status"])
-        work_order.status = fields["status"]
-        work_order.completed_at = (
-            datetime.now(timezone.utc)
-            if fields["status"] == wo.STATUS_COMPLETED
-            else None
-        )
     if "entry_mode" in fields:
         wo.validate_mode(fields["entry_mode"])
         work_order.entry_mode = fields["entry_mode"]
-    if "assigned_to_id" in fields:
-        _validate_assignee(db, fields["assigned_to_id"])
-        work_order.assigned_to_id = fields["assigned_to_id"]
+    if "assigned_to_ids" in fields and "assigned_to_id" in fields:
+        raise WorkOrderStateError(
+            "Provide assigned_to_ids or assigned_to_id, not both."
+        )
+    assignment_changed = False
+    if "assigned_to_ids" in fields:
+        technician_ids = _validate_assignees(db, fields["assigned_to_ids"] or [])
+        _sync_technician_assignments(
+            db,
+            work_order,
+            technician_ids,
+            assigned_by_id=user.id if user else None,
+        )
+        assignment_changed = True
+    elif "assigned_to_id" in fields:
+        technician_ids = (
+            _validate_assignees(db, [fields["assigned_to_id"]])
+            if fields["assigned_to_id"] is not None
+            else []
+        )
+        _sync_technician_assignments(
+            db,
+            work_order,
+            technician_ids,
+            assigned_by_id=user.id if user else None,
+        )
+        assignment_changed = True
+
+    if assignment_changed:
+        if "status" not in fields:
+            work_order.status = wo.reconcile_assignment_status(
+                work_order.status, technician_ids
+            )
+    if "supervisor_id" in fields:
+        # No technician check: any user may be the routed supervisor (the FK
+        # guarantees the id exists). Admins use this to route an unmatched import.
+        work_order.supervisor_id = fields["supervisor_id"]
+    if "status" in fields:
+        # Created/Assigned is an assignment-derived pair even for a manual
+        # rollback. This prevents a selected technician from coexisting with
+        # Created (or an unassigned row from coexisting with Assigned).
+        work_order.status = wo.reconcile_assignment_status(
+            fields["status"],
+            technician_ids if assignment_changed else _assigned_technician_ids(work_order),
+        )
+        if work_order.status in (wo.STATUS_COMPLETED, wo.STATUS_REVIEW):
+            work_order.completed_at = (
+                work_order.completed_at or datetime.now(timezone.utc)
+            )
+        else:
+            work_order.completed_at = None
+    if "notes" in fields:
+        work_order.notes = fields["notes"]
     if "number" in fields and fields["number"] is not None:
         work_order.number = fields["number"].strip()
     for field in _ATTR_FIELDS:
@@ -366,10 +711,150 @@ def update_work_order(
 def archive_work_order(
     db: Session, work_order_id: uuid.UUID, *, user: Optional[User]
 ) -> None:
-    """Soft-delete a work order (hidden from lists; the number stays reserved
-    and is restored if referenced again)."""
+    """Close a Review work order by soft-archiving it.
+
+    The row and its material lines stay put and the number stays reserved.
+    Reversible through `restore_work_order` (or a re-import of that number).
+    Transactions already logged against it are untouched -- History reads them
+    from the denormalized `work_order_number` on each transaction row, so a
+    closed work order's past dispenses stay searchable."""
     work_order = _get_visible(db, work_order_id, user)
+    if work_order.status != wo.STATUS_REVIEW:
+        raise WorkOrderStateError(
+            "Only a work order in Review can be closed."
+        )
     work_order.archived_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+def lookup_work_order(
+    db: Session, *, number: str, user: Optional[User]
+) -> Optional[WorkOrder]:
+    """The work order carrying `number` **including an archived one**, or `None`
+    if unknown or not visible to `user`.
+
+    The deliberate counterpart to the scoped loaders, which hide archived work
+    orders entirely: this is how a caller (History's work-order search) discovers
+    that a number it can see in the transaction ledger belongs to a work order
+    that has been archived, and so can offer to restore it."""
+    work_order = find_by_number(db, number)
+    if work_order is None or not _visible(work_order, user):
+        return None
+    return work_order
+
+
+def restore_work_order(
+    db: Session, work_order_id: uuid.UUID, *, user: Optional[User]
+) -> WorkOrder:
+    """Un-archive a work order, putting it back on the Work Orders page with its
+    materials intact. The counterpart to `archive_work_order`, and -- now that
+    work orders are import-only and there is no "create it again" path -- the way
+    an archived work order comes back without re-importing. Already-live work
+    orders pass through unchanged. Raises `WorkOrderNotFoundError` if unknown or
+    not visible to `user`."""
+    work_order = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
+    if work_order is None or not _visible(work_order, user):
+        raise WorkOrderNotFoundError("Work order not found.")
+    if work_order.archived_at is not None:
+        work_order.archived_at = None
+        db.commit()
+        db.refresh(work_order)
+    return work_order
+
+
+# --- labor entries -------------------------------------------------------
+
+def _get_labor_entry(
+    db: Session, work_order: WorkOrder, labor_id: uuid.UUID
+) -> WorkOrderLabor:
+    entry = (
+        db.query(WorkOrderLabor)
+        .options(joinedload(WorkOrderLabor.technician))
+        .filter(
+            WorkOrderLabor.id == labor_id,
+            WorkOrderLabor.work_order_id == work_order.id,
+        )
+        .first()
+    )
+    if entry is None:
+        raise WorkOrderNotFoundError("Work order labor entry not found.")
+    return entry
+
+
+def _require_labor_actor(user: Optional[User], technician_id: uuid.UUID) -> None:
+    """Technicians may write only their own labor; Supervisor+ may write any."""
+    if user is not None and user.role == roles.ROLE_TECHNICIAN and user.id != technician_id:
+        raise RoleManagementError(
+            "Technicians can only add, edit, or remove their own labor."
+        )
+
+
+def add_work_order_labor(
+    db: Session,
+    work_order_id: uuid.UUID,
+    *,
+    user: Optional[User],
+    technician_id: uuid.UUID,
+    minutes: int,
+) -> WorkOrderLabor:
+    """Record actual labor for one assigned technician.
+
+    The duration is stored without rounding. Billing is derived from the sum of
+    every entry on the work order, rounded upward once to the next 30 minutes.
+    The first labor entry advances Created/Assigned to In-Progress through the
+    same domain rule used by committed material activity.
+    """
+    work_order = _get_visible(db, work_order_id, user)
+    wo.validate_labor_minutes(minutes)
+    _require_labor_actor(user, technician_id)
+    if technician_id not in _assigned_technician_ids(work_order):
+        raise InvalidAssigneeError(
+            "Labor can only be recorded for a technician assigned to this work order."
+        )
+
+    entry = WorkOrderLabor(
+        id=uuid.uuid4(),
+        work_order_id=work_order.id,
+        technician_id=technician_id,
+        minutes=minutes,
+        recorded_by_id=user.id if user else None,
+    )
+    db.add(entry)
+    work_order.status = wo.status_after_activity(work_order.status)
+    db.commit()
+    return _get_labor_entry(db, work_order, entry.id)
+
+
+def update_work_order_labor(
+    db: Session,
+    work_order_id: uuid.UUID,
+    labor_id: uuid.UUID,
+    *,
+    user: Optional[User],
+    minutes: int,
+) -> WorkOrderLabor:
+    """Replace one labor entry's actual duration without re-rounding it."""
+    work_order = _get_visible(db, work_order_id, user)
+    entry = _get_labor_entry(db, work_order, labor_id)
+    wo.validate_labor_minutes(minutes)
+    _require_labor_actor(user, entry.technician_id)
+    entry.minutes = minutes
+    db.commit()
+    return _get_labor_entry(db, work_order, entry.id)
+
+
+def delete_work_order_labor(
+    db: Session,
+    work_order_id: uuid.UUID,
+    labor_id: uuid.UUID,
+    *,
+    user: Optional[User],
+) -> None:
+    """Remove one labor entry. Lifecycle status is not rolled backward."""
+    work_order = _get_visible(db, work_order_id, user)
+    entry = _get_labor_entry(db, work_order, labor_id)
+    _require_labor_actor(user, entry.technician_id)
+    db.delete(entry)
     db.commit()
 
 
@@ -420,6 +905,13 @@ def attach_dispense_line(
     `retroactive` line, the line is surfaced as `dispense` -- the rare mixed case;
     stock correctness comes from each transaction's `affects_stock`, not this tag.
     """
+    # The first real work activity starts the job. This shared line-attachment
+    # path covers Work Orders, Scan/Stock, and Mass Stage materials. IMP-006's
+    # future labor write should call the same domain helper when it records labor.
+    work_order = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
+    if work_order is not None:
+        work_order.status = wo.status_after_activity(work_order.status)
+
     line = (
         db.query(WorkOrderItem)
         .filter(

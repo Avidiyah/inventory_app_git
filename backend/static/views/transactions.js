@@ -9,15 +9,16 @@
 // or manual -- posts to the same active work order the same way.
 
 import { getRole, getCurrentUser } from "../state.js";
-import { apiListItems, apiCreateTransaction, apiListWorkOrders, apiCreateWorkOrder, apiListUsers, apiGetWorkOrder, apiVoidTransaction } from "../api.js";
+import { apiListItems, apiCreateTransaction, apiListWorkOrders, apiGetWorkOrder, apiVoidTransaction } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
+import { showPage } from "./nav.js";
+import { focusWorkOrder } from "./workOrders.js";
 
 // --- Scan-and-go (work-order batch) elements --------------------
 const woGate = document.getElementById("wo-gate");
 const woGateInput = document.getElementById("wo-gate-input");
-const woGateStartBtn = document.getElementById("wo-gate-start-btn");
 const woGateMessage = document.getElementById("wo-gate-message");
 const scangoActive = document.getElementById("scango-active");
 const scangoWoLabel = document.getElementById("scango-wo-label");
@@ -34,26 +35,19 @@ const scangoSummary = document.getElementById("scango-summary");
 const scangoLog = document.getElementById("scango-log");
 const scangoMessage = document.getElementById("scango-message");
 const txnScanSection = document.getElementById("txn-scan-section");
+const txnManualSection = document.getElementById("txn-manual-section");
 const txnItemSearch = document.getElementById("txn-item-search");
 const txnItemSearchResults = document.getElementById("txn-item-search-results");
 
-// Cards-first gate: saved work-order cards (all roles, server-scoped) + a
-// Supervisor+ quick-add form (with an optional technician assignee). The
-// free-text gate is Supervisor+ only now -- technicians scan assigned cards.
+// Cards-first gate: saved work-order cards (all roles, server-scoped) plus a
+// Supervisor+ number filter -- technicians scan only assigned cards.
+// Work orders are import-only, so both surfaces ATTACH to an existing work
+// order; neither can bring one into existence (the quick-add form that used to
+// live here is gone).
 const woGateCardsSection = document.getElementById("wo-gate-cards-section");
 const woGateCards = document.getElementById("wo-gate-cards");
 const woGateCardsMessage = document.getElementById("wo-gate-cards-message");
-const woGateNew = document.getElementById("wo-gate-new");
-const woGateManual = document.getElementById("wo-gate-manual");
-const newBuilding = document.getElementById("wo-gate-new-building");
-const newBuildingNo = document.getElementById("wo-gate-new-buildingno");
-const newRoom = document.getElementById("wo-gate-new-room");
-const newWo = document.getElementById("wo-gate-new-wo");
-const newAssignee = document.getElementById("wo-gate-new-assignee");
-const newSaveBtn = document.getElementById("wo-gate-new-save-btn");
-const newMessage = document.getElementById("wo-gate-new-message");
-// Technician list for the assignee dropdown, loaded once per session.
-let assigneesLoaded = false;
+const woGateSearchCard = document.getElementById("wo-gate-search-card");
 // Item list for the manual entry panel (search, or browse-all in advanced
 // mode), loaded once per session and kept in sync with committed quantities
 // (see commitScannedItem) so it never needs a refetch mid-batch.
@@ -102,14 +96,14 @@ function showScanGoState() {
   if (woGate) woGate.hidden = active;
   if (scangoActive) scangoActive.hidden = !active;
   if (txnScanSection) txnScanSection.hidden = !active;
+  if (txnManualSection) txnManualSection.hidden = !active;
 
   // Saved work-order cards: shown to all roles on the gate (State A); the
   // server scopes the list (technician -> assigned, supervisor -> created).
   if (woGateCardsSection) woGateCardsSection.hidden = active;
-  // Quick-add + free-text gate are Supervisor+ only; a technician scans only
-  // the cards assigned to them.
-  if (woGateNew) woGateNew.hidden = tech || active;
-  if (woGateManual) woGateManual.hidden = tech || active;
+  // The live number filter is Supervisor+ only; a technician selects from the
+  // server-scoped cards assigned to them.
+  if (woGateSearchCard) woGateSearchCard.hidden = tech || active;
 
   // Opt-in control: Supervisor+ only, and only inside an active batch.
   if (scangoAdvancedToggle) {
@@ -336,9 +330,14 @@ function readSavedBatch() {
   }
 }
 
-// Start a batch on an already-resolved work order `{id, number}` (a tapped card
-// or a freshly created one).
+// Start a batch on an already-resolved In-Progress work order
+// `{id, number, status}` from a tapped card. Created/Assigned cards are still
+// visible for discovery, but selecting one prompts the operator to open its Work
+// Order card and explicitly set In-Progress before scanning. The search field
+// only filters cards.
 function startBatchFor(workOrder) {
+  cancelWoSearch();
+  woCardsRequestId += 1; // ignore a filter response that was already in flight
   batchWorkOrder = workOrder;
   clearBatchLog();
   setMessage(woGateMessage, "", "");
@@ -359,20 +358,17 @@ function startBatchFor(workOrder) {
   if (scanAutoStart) scanAutoStart();
 }
 
-// Free-text gate (Supervisor+): resolve the typed number to a work order
-// (find-or-create), then start a batch on it.
-async function startBatch() {
-  const number = woGateInput ? woGateInput.value.trim() : "";
-  if (!number) {
-    setMessage(woGateMessage, "Enter a work order number to start.", "error");
+async function selectWorkOrderForBatch(workOrder) {
+  if (workOrder.status === "in_progress") {
+    startBatchFor(workOrder);
     return;
   }
-  try {
-    const wo = await apiCreateWorkOrder({ number });
-    startBatchFor({ id: wo.id, number: wo.number });
-  } catch (err) {
-    setMessage(woGateMessage, friendlyError(err, "Could not start that work order."), "error");
-  }
+  const goToWorkOrder = await confirmDialog(
+    `WO ${workOrder.number} is not In-Progress. Go to Work Orders to set it In-Progress?`
+  );
+  if (!goToWorkOrder) return;
+  focusWorkOrder(workOrder.id);
+  showPage("work-orders");
 }
 
 async function changeWorkOrder() {
@@ -392,35 +388,43 @@ async function changeWorkOrder() {
   resetWoCards();
   showScanGoState();
   refreshWoCards();
-  if (woGateInput) woGateInput.focus();
+  if (woGateInput && !isTechnician()) woGateInput.focus();
 }
 
-// --- Saved work-order cards (Supervisor+) -------------------------
-// The scan gate opens on cards of the saved work orders (mass-staging rooms:
-// building + room + one work order). Tapping a card starts a scan-and-go batch
-// on that work order. "Add a new work order" quick-adds building + room + WO
-// (find-or-create the building's active stage) and starts the batch -- it then
-// persists as a card. Scanning is a plain transaction on the work order;
-// nothing is written back to the stage (the stage stays the plan/load record).
+// --- Saved work-order cards ---------------------------------------
+// The scan gate shows Created/Assigned/In-Progress cards this user can see
+// (server-scoped). Supervisor+ can filter those cards by number as they type.
+// Tapping In-Progress starts a batch; earlier states prompt a trip to Work Orders.
+// Scanning is a plain transaction on the work order; nothing is written back to
+// a mass stage (the stage stays the plan/load record). Every card here came from
+// the work-order CSV import -- the gate can only attach to what was imported.
+
+let woCardsRequestId = 0;
+let woSearchTimer = null;
+
+function cancelWoSearch() {
+  if (woSearchTimer !== null) {
+    clearTimeout(woSearchTimer);
+    woSearchTimer = null;
+  }
+}
 
 function resetWoCards() {
+  woCardsRequestId += 1;
   if (woGateCards) woGateCards.innerHTML = "";
   if (woGateCardsMessage) setMessage(woGateCardsMessage, "", "");
-  if (newBuilding) newBuilding.value = "";
-  if (newBuildingNo) newBuildingNo.value = "";
-  if (newRoom) newRoom.value = "";
-  if (newWo) newWo.value = "";
-  if (newAssignee) newAssignee.value = "";
-  if (newMessage) setMessage(newMessage, "", "");
+  if (woGateMessage) setMessage(woGateMessage, "", "");
 }
 
-function renderWoCards(workOrders) {
+function renderWoCards(workOrders, query = "") {
   if (!woGateCards) return;
   woGateCards.innerHTML = "";
   if (!workOrders.length) {
-    const empty = isTechnician()
-      ? "No work orders assigned to you."
-      : "No active work orders yet. Add one below.";
+    const empty = query
+      ? `No work orders match “${query}”.`
+      : isTechnician()
+        ? "No work orders assigned to you."
+        : "No ready work orders. Import the work-order CSV to add them.";
     setMessage(woGateCardsMessage, empty, "");
     return;
   }
@@ -429,12 +433,13 @@ function renderWoCards(workOrders) {
   workOrders.forEach((w) => {
     const card = document.createElement("button");
     card.type = "button";
-    card.className = "wo-card";
+    card.className = `wo-card wo-card-status-${w.status}`;
     card.dataset.wo = w.number;
     card.dataset.woId = w.id;
+    card.dataset.woStatus = w.status;
     const assignee = showAssignee
       ? `<span class="wo-card-assignee">${
-          w.assigned_to_username ? "Assigned: " + escapeHtml(w.assigned_to_username) : "Unassigned"
+          w.assigned_to_name ? "Assigned: " + escapeHtml(w.assigned_to_name) : "Unassigned"
         }</span>`
       : "";
     const place = [
@@ -446,73 +451,43 @@ function renderWoCards(workOrders) {
       .join(" · ");
     card.innerHTML =
       `<span class="wo-card-wo">WO ${escapeHtml(w.number)}</span>` +
+      `<span class="wo-card-status-label">${escapeHtml({ created: "Created", assigned: "Assigned", in_progress: "In-Progress" }[w.status] || w.status)}</span>` +
       `<span class="wo-card-meta">${escapeHtml(place || "—")}</span>` +
       assignee;
     woGateCards.appendChild(card);
   });
 }
 
-// Populate the quick-add assignee dropdown with technicians (Supervisor+ only,
-// loaded once per session). Leaves just "Unassigned" if the list can't load.
-async function loadAssignees() {
-  if (assigneesLoaded || isTechnician() || !newAssignee) return;
-  try {
-    const users = await apiListUsers();
-    newAssignee.innerHTML = `<option value="">Unassigned</option>`;
-    users
-      .filter((u) => u.role === "technician")
-      .forEach((u) => {
-        const opt = document.createElement("option");
-        opt.value = u.id;
-        opt.textContent = u.username;
-        newAssignee.appendChild(opt);
-      });
-    assigneesLoaded = true;
-  } catch {
-    /* keep just "Unassigned" until a later reload */
-  }
-}
-
-// Fetch + render the cards. Supervisor+ only, and only while the gate is
-// showing (no active batch). Called on page activation and after a quick-add.
+// Fetch + render the cards, only while the gate is showing (no active batch).
+// Supervisor+ sends the trimmed number filter through the existing server-side
+// `q` contract. A request id prevents a slow earlier response from repainting a
+// newer search. Called on page activation, live filter input, and gate return.
 async function refreshWoCards() {
   if (batchWorkOrder !== null || !woGateCards) return;
-  loadAssignees(); // Supervisor+ quick-add dropdown (no-op for technicians)
+  const query = !isTechnician() && woGateInput ? woGateInput.value.trim() : "";
+  const requestId = ++woCardsRequestId;
+  setMessage(woGateCardsMessage, query ? "Searching…" : "Loading work orders…", "");
   try {
-    const workOrders = await apiListWorkOrders({ status: "in_progress" });
-    renderWoCards(workOrders);
+    const workOrders = (await apiListWorkOrders({ q: query || null })).filter(
+      (workOrder) => ["created", "assigned", "in_progress"].includes(workOrder.status)
+    );
+    if (requestId !== woCardsRequestId || batchWorkOrder !== null) return;
+    renderWoCards(workOrders, query);
   } catch (err) {
+    if (requestId !== woCardsRequestId || batchWorkOrder !== null) return;
     setMessage(woGateCardsMessage, friendlyError(err, "Could not load work orders."), "error");
   }
 }
 
-// Quick-add a building + room + work order, then start the batch on it. The
-// card list refreshes when the operator returns to the gate.
-async function submitNewWorkOrder() {
-  const community = newBuilding ? newBuilding.value.trim() : "";
-  const buildingNumber = newBuildingNo ? newBuildingNo.value.trim() : "";
-  const unitNumber = newRoom ? newRoom.value.trim() : "";
-  const number = newWo ? newWo.value.trim() : "";
-  const assignedToId = newAssignee && newAssignee.value ? newAssignee.value : null;
-  if (!number) {
-    setMessage(newMessage, "Enter a work order number.", "error");
-    return;
-  }
-  let wo;
-  try {
-    wo = await apiCreateWorkOrder({
-      number,
-      community: community || null,
-      buildingNumber: buildingNumber || null,
-      unitNumber: unitNumber || null,
-      assignedToId,
-    });
-  } catch (err) {
-    setMessage(newMessage, friendlyError(err, "Could not save the work order."), "error");
-    return;
-  }
-  resetWoCards();
-  startBatchFor({ id: wo.id, number: wo.number });
+function scheduleWoSearch({ immediate = false } = {}) {
+  cancelWoSearch();
+  woCardsRequestId += 1; // invalidate any response for the previous input value
+  if (woGateMessage) setMessage(woGateMessage, "", "");
+  const delay = immediate || !woGateInput || !woGateInput.value.trim() ? 0 : 250;
+  woSearchTimer = setTimeout(() => {
+    woSearchTimer = null;
+    refreshWoCards();
+  }, delay);
 }
 
 // Gate consulted by the scanner before it commits a decode (see
@@ -650,11 +625,11 @@ export function enterTransactionPage() {
 // only tears down module state + UI; it never writes the snapshot (batchWorkOrder
 // is nulled first, so the persistBatch inside showScanGoState is a no-op).
 export function resetBatch({ keepSaved = false } = {}) {
+  cancelWoSearch();
   batchWorkOrder = null;
   if (!keepSaved) clearSavedBatch();
   supervisorAdvanced = false; // every fresh login starts streamlined
   quickMode = false; // every fresh login starts with the confirm dialog on
-  assigneesLoaded = false; // re-fetch the technician list for the new session
   searchItemsLoaded = false; // re-fetch the item list for the new session
   if (woGateInput) woGateInput.value = "";
   if (scangoQuantity) scangoQuantity.value = "1";
@@ -708,7 +683,7 @@ export async function tryResumeBatch(userId) {
     return false;
   }
 
-  if (wo.status !== "in_progress") {
+  if (!["created", "assigned", "in_progress"].includes(wo.status)) {
     clearSavedBatch();
     setMessage(woGateMessage, "Your previous work order is no longer active — pick another to continue.", "error");
     return false;
@@ -718,10 +693,12 @@ export async function tryResumeBatch(userId) {
   return true;
 }
 
-if (woGateStartBtn) woGateStartBtn.addEventListener("click", startBatch);
 if (woGateInput) {
+  woGateInput.addEventListener("input", () => scheduleWoSearch());
   woGateInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") startBatch();
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    scheduleWoSearch({ immediate: true });
   });
 }
 if (scangoChangeWoBtn) scangoChangeWoBtn.addEventListener("click", changeWorkOrder);
@@ -863,19 +840,16 @@ if (scangoLog) {
 }
 
 if (woGateCards) {
-  woGateCards.addEventListener("click", (event) => {
+  woGateCards.addEventListener("click", async (event) => {
     const card = event.target.closest(".wo-card");
     if (!card) return;
-    startBatchFor({ id: card.dataset.woId, number: card.dataset.wo });
+    await selectWorkOrderForBatch({
+      id: card.dataset.woId,
+      number: card.dataset.wo,
+      status: card.dataset.woStatus,
+    });
   });
 }
-if (newSaveBtn) newSaveBtn.addEventListener("click", submitNewWorkOrder);
-if (newWo) {
-  newWo.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") submitNewWorkOrder();
-  });
-}
-
 // --- Manual entry panel (all roles) ---------------------------------
 // Filters the cached item list client-side (same pattern as the Find Item
 // page and the Work Orders "add material" picker) so an operator can find

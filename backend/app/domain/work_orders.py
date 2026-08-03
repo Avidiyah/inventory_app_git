@@ -4,13 +4,18 @@ Layer: pure domain (no SQLAlchemy, no FastAPI, no models) -- exercised by plain
 unit tests, like `domain.mass_staging` and `domain.roles`.
 
 A work order is a standalone entity whose identity is its `number` (unique
-case-insensitively + trimmed). Its lifecycle is two-state -- `in_progress ->
-completed` (reopenable); "planning" is a Mass Stage *stage* concept, not a
-work-order state. `entry_mode` is the default mode for newly logged materials:
-`dispense` moves stock, `retroactive` is a stock-neutral paper backfill.
+case-insensitively + trimmed). Its live lifecycle is `created -> assigned ->
+in_progress -> completed -> review`, with `on_hold` as a supervisor-controlled
+pause: technician assignment derives `assigned`, and the first material/labor
+activity derives `in_progress`. `closed` is the row's `archived_at`, not
+duplicated in `status`. `entry_mode` is the default mode
+for newly logged materials: `dispense` moves stock, `retroactive` is a
+stock-neutral paper backfill.
 """
 
-from typing import Optional
+import re
+from decimal import Decimal
+from typing import Optional, Sequence
 from uuid import UUID
 
 from app.domain import roles
@@ -27,13 +32,25 @@ def normalize_number(number: str) -> str:
     return number.strip().lower()
 
 
-# --- status vocabulary (two-state) ---------------------------------------
+# --- status vocabulary ---------------------------------------------------
 
+STATUS_CREATED = "created"
+STATUS_ASSIGNED = "assigned"
 STATUS_IN_PROGRESS = "in_progress"
+STATUS_ON_HOLD = "on_hold"
 STATUS_COMPLETED = "completed"
+STATUS_REVIEW = "review"
 
-ALL_STATUSES: tuple[str, ...] = (STATUS_IN_PROGRESS, STATUS_COMPLETED)
-# Both states are live work orders shown on the Work Orders page.
+ALL_STATUSES: tuple[str, ...] = (
+    STATUS_CREATED,
+    STATUS_ASSIGNED,
+    STATUS_IN_PROGRESS,
+    STATUS_ON_HOLD,
+    STATUS_COMPLETED,
+    STATUS_REVIEW,
+)
+# Every stored status is live. Closed work orders are archived and therefore do
+# not carry a sixth status value.
 ACTIVE_STATUSES: tuple[str, ...] = ALL_STATUSES
 
 
@@ -45,19 +62,80 @@ MODE_RETROACTIVE = "retroactive"
 ALL_MODES: tuple[str, ...] = (MODE_DISPENSE, MODE_RETROACTIVE)
 
 
+# --- labor billing -------------------------------------------------------
+
+LABOR_RATE = Decimal("62.50")
+LABOR_INCREMENT_MINUTES = 30
+
+
+def validate_labor_minutes(minutes: int) -> None:
+    """Labor entries are positive, whole-minute durations."""
+    if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes <= 0:
+        raise WorkOrderStateError("Labor minutes must be a positive whole number.")
+
+
+def billed_labor_minutes(total_minutes: int) -> int:
+    """Round combined work-order labor up to the next 30-minute increment."""
+    if isinstance(total_minutes, bool) or not isinstance(total_minutes, int) or total_minutes < 0:
+        raise WorkOrderStateError("Total labor minutes cannot be negative.")
+    if total_minutes == 0:
+        return 0
+    return (
+        (total_minutes + LABOR_INCREMENT_MINUTES - 1) // LABOR_INCREMENT_MINUTES
+    ) * LABOR_INCREMENT_MINUTES
+
+
+def labor_charge(total_minutes: int) -> Decimal:
+    """Charge combined labor at $62.50/hour after increment rounding."""
+    billed = billed_labor_minutes(total_minutes)
+    return LABOR_RATE * Decimal(billed) / Decimal(60)
+
+
 # --- validators ----------------------------------------------------------
 
 def validate_status(status: str) -> None:
-    """Raise `WorkOrderStateError` unless `status` is `in_progress` or
-    `completed`."""
+    """Raise `WorkOrderStateError` unless `status` is a live workflow state."""
     if status not in ALL_STATUSES:
         raise WorkOrderStateError(
-            "A work order can only be in_progress or completed."
+            "Status must be created, assigned, in_progress, on_hold, completed, or review."
         )
 
 
-# Back-compat alias: the only settable statuses ARE the active ones.
+# Back-compat alias: the only stored/settable statuses are the active ones.
 validate_active_status = validate_status
+
+
+def initial_status(assigned_to_id: object) -> str:
+    """Status for a new work order: Assigned only when it has technicians.
+
+    The argument accepts the legacy singular UUID or a plural collection; both
+    have the same truthiness contract.
+    """
+    return STATUS_ASSIGNED if assigned_to_id else STATUS_CREATED
+
+
+def reconcile_assignment_status(current_status: str, assigned_to_id: object) -> str:
+    """Keep Created/Assigned aligned with technician assignment.
+
+    Once work has advanced to In-Progress, On-Hold, or later, changing the technician
+    must not silently move the lifecycle backward.
+    """
+    validate_status(current_status)
+    if current_status in (STATUS_CREATED, STATUS_ASSIGNED):
+        return initial_status(assigned_to_id)
+    return current_status
+
+
+def status_after_activity(current_status: str) -> str:
+    """Advance a pre-work row when its first material or labor activity lands.
+
+    On-Hold is intentionally stable: activity may still be recorded, but only a
+    supervisor's explicit status edit resumes the lifecycle.
+    """
+    validate_status(current_status)
+    if current_status in (STATUS_CREATED, STATUS_ASSIGNED):
+        return STATUS_IN_PROGRESS
+    return current_status
 
 
 def validate_mode(mode: str) -> None:
@@ -87,6 +165,56 @@ def fill_blank(current, incoming):
     return current if not is_blank(current) else incoming
 
 
+# --- CSV import ----------------------------------------------------------
+
+# The mass work-order export's column headers, in order. `WORK ORDER` is the
+# identity; `SYMPTOM/TASK` is the description; the rest map to new columns.
+IMPORT_HEADERS: tuple[str, ...] = (
+    "WORK ORDER",
+    "LOCATION",
+    "OUTPUT TO",
+    "ASSIGNED TO",
+    "SERVICE TYPE",
+    "SCHEDULE DATE",
+    "SYMPTOM/TASK",
+)
+
+_VENDOR_TAG_RE = re.compile(r"\s*\([^)]*\)\s*$")
+
+
+def normalize_assignee_name(raw: Optional[str]) -> Optional[str]:
+    """Canonical comparison form of a CSV `ASSIGNED TO` name for matching it to a
+    system user: drop a trailing parenthetical vendor tag, collapse internal
+    whitespace, trim, lowercase. `"Hayden Hurst (Belfor)"` -> `"hayden hurst"`.
+    Returns `None` for a blank/absent name (nothing to match)."""
+    if is_blank(raw):
+        return None
+    without_tag = _VENDOR_TAG_RE.sub("", raw)
+    collapsed = " ".join(without_tag.split())
+    return collapsed.lower() or None
+
+
+def parse_import_row(row: dict) -> dict:
+    """Map one CSV export row (a `csv.DictReader` dict) to work-order attributes.
+
+    Trims every value, turning blanks into `None`. Returns `number` plus the
+    attribute kwargs `get_or_create_work_order` accepts. A row whose `number` is
+    blank is a no-op the caller should skip (its `number` comes back `None`)."""
+    def cell(header: str) -> Optional[str]:
+        value = row.get(header)
+        return value.strip() if isinstance(value, str) and value.strip() else None
+
+    return {
+        "number": cell("WORK ORDER"),
+        "location": cell("LOCATION"),
+        "output_to": cell("OUTPUT TO"),
+        "vendor_assignee": cell("ASSIGNED TO"),
+        "service_type": cell("SERVICE TYPE"),
+        "schedule_date": cell("SCHEDULE DATE"),
+        "description": cell("SYMPTOM/TASK"),
+    }
+
+
 # --- visibility scope ----------------------------------------------------
 
 def can_view_work_order(
@@ -95,15 +223,21 @@ def can_view_work_order(
     created_by_id: Optional[UUID],
     assigned_to_id: Optional[UUID],
     user_id: Optional[UUID],
+    supervisor_id: Optional[UUID] = None,
+    assigned_to_ids: Optional[Sequence[UUID]] = None,
 ) -> bool:
     """Whether a user of `role` may see/act on a work order.
 
     Admin/owner (and a `None`-role internal caller) see all; a supervisor sees
-    only work orders they created; a technician sees only work orders assigned
-    to them.
+    work orders they created OR are routed to them (`supervisor_id`, the CSV
+    import's name-match target); a technician sees only work orders assigned to
+    them.
     """
     if role is None or roles.role_at_least(role, roles.ROLE_ADMIN):
         return True
     if role == roles.ROLE_SUPERVISOR:
-        return created_by_id is not None and created_by_id == user_id
-    return assigned_to_id is not None and assigned_to_id == user_id
+        return user_id is not None and user_id in (created_by_id, supervisor_id)
+    technician_ids = tuple(assigned_to_ids or ())
+    if assigned_to_id is not None and assigned_to_id not in technician_ids:
+        technician_ids += (assigned_to_id,)
+    return user_id is not None and user_id in technician_ids

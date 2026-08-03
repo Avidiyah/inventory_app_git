@@ -10,16 +10,17 @@
 // shows Reset Password / Delete only when the current user outranks
 // that row's role. The backend re-checks everything.
 
-import { getUsers, setUsers, getRole } from "../state.js";
+import { getUsers, setUsers, getRole, getCurrentUser, setCurrentUser } from "../state.js";
 import {
   apiListUsers,
   apiCreateUser,
   apiArchiveUser,
   apiRestoreUser,
   apiResetPassword,
+  apiUpdateUserName,
 } from "../api.js";
-import { escapeHtml, friendlyError } from "../format.js";
-import { setMessage, confirmDialog, promptPasswordReset } from "../dom.js";
+import { escapeHtml, friendlyError, formatUserName } from "../format.js";
+import { setMessage, confirmDialog, promptPasswordReset, promptUserName } from "../dom.js";
 import { assignableRoles, canManage } from "../roles.js";
 
 const createUserBtn = document.getElementById("create-user-btn");
@@ -27,6 +28,8 @@ const createUserMessage = document.getElementById("create-user-message");
 const usersTbody = document.getElementById("users-tbody");
 const usersMessage = document.getElementById("users-message");
 const usernameInput = document.getElementById("username");
+const firstNameInput = document.getElementById("user-first-name");
+const lastNameInput = document.getElementById("user-last-name");
 const userRoleSelect = document.getElementById("user-role");
 const userPasswordInput = document.getElementById("user-password");
 const userRoleHelp = document.getElementById("user-role-help");
@@ -52,7 +55,7 @@ export async function loadUsers() {
   // #9: in-progress placeholder (see loadItems for why this lives in the
   // table body rather than the #users-message slot, which carries
   // archive/restore/reset success text set just before a reload).
-  usersTbody.innerHTML = `<tr><td colspan="4" class="hint">Loading…</td></tr>`;
+  usersTbody.innerHTML = `<tr><td colspan="6" class="hint">Loading…</td></tr>`;
   try {
     // Include archived users so the History "by user" filter can still
     // select a departed user; the Saved Users table marks archived rows
@@ -67,12 +70,13 @@ export async function loadUsers() {
     // user sees. This also runs on the post-login boot load (Users page
     // hidden) -- harmless, and the page refreshes on activation.
     usersTbody.innerHTML =
-      `<tr><td colspan="4" class="error">${escapeHtml(friendlyError(error, "Could not load users. Try again."))}</td></tr>`;
+      `<tr><td colspan="6" class="error">${escapeHtml(friendlyError(error, "Could not load users. Try again."))}</td></tr>`;
   }
 }
 
 function renderUsersTable() {
   const actorRole = getRole();
+  const actorId = getCurrentUser()?.id;
   usersTbody.innerHTML = "";
 
   getUsers().forEach(user => {
@@ -80,28 +84,30 @@ function renderUsersTable() {
     const createdAt = new Date(user.created_at).toLocaleString();
     const isArchived = Boolean(user.archived_at);
     if (isArchived) row.classList.add("archived-user");
-    // Actions appear only for rows the current user outranks; otherwise
-    // the cell is an empty placeholder (hidden, not disabled). An archived
-    // user offers Restore; an active one offers Reset Password + Archive.
-    let actions;
-    if (!canManage(actorRole, user.role)) {
-      actions = `<span class="empty">—</span>`;
-    } else if (isArchived) {
-      actions = `<div class="row-actions">
-           <button class="restore-user-btn secondary-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">Restore</button>
-         </div>`;
-    } else {
-      actions = `<div class="row-actions">
-           <button class="reset-pw-btn secondary-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">Reset Password</button>
-           <button class="archive-user-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}" title="Archive user" aria-label="${escapeHtml(`Archive user ${user.username}`)}">🗑️</button>
-         </div>`;
+    const canManageUser = canManage(actorRole, user.role);
+    const canEditName = actorId === user.id || canManageUser;
+    let lifecycleActions = "";
+    if (canManageUser && isArchived) {
+      lifecycleActions = `<button class="restore-user-btn secondary-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">Restore</button>`;
+    } else if (canManageUser) {
+      lifecycleActions =
+        `<button class="reset-pw-btn secondary-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">Reset Password</button>` +
+        `<button class="archive-user-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}" title="Archive user" aria-label="${escapeHtml(`Archive user ${user.username}`)}">🗑️</button>`;
     }
+    const editNameAction = canEditName
+      ? `<button class="edit-user-name-btn secondary-btn" data-id="${user.id}">Edit Name</button>`
+      : "";
+    const actions = editNameAction || lifecycleActions
+      ? `<div class="row-actions">${editNameAction}${lifecycleActions}</div>`
+      : `<span class="empty">—</span>`;
     const archivedTag = isArchived ? ` <span class="muted">(archived)</span>` : "";
     row.innerHTML = `
-      <td>${escapeHtml(user.username)}${archivedTag}</td>
-      <td>${escapeHtml(user.role)}</td>
-      <td>${escapeHtml(createdAt)}</td>
-      <td>${actions}</td>
+      <td data-label="First Name">${escapeHtml(user.first_name || "Name unavailable")}${archivedTag}</td>
+      <td data-label="Last Name">${escapeHtml(user.last_name || "Name unavailable")}</td>
+      <td data-label="Username">${escapeHtml(user.username)}</td>
+      <td data-label="Role">${escapeHtml(user.role)}</td>
+      <td data-label="Created At">${escapeHtml(createdAt)}</td>
+      <td data-label="Actions">${actions}</td>
     `;
     usersTbody.appendChild(row);
   });
@@ -133,7 +139,7 @@ export function populateUserSelects() {
   getUsers().forEach(user => {
     const option = document.createElement("option");
     option.value = user.id;
-    option.textContent = user.username;
+    option.textContent = formatUserName(user);
     historyUserSelect.appendChild(option);
   });
   if (previousValue && getUsers().some(u => u.id === previousValue)) {
@@ -143,10 +149,16 @@ export function populateUserSelects() {
 
 createUserBtn.addEventListener("click", async () => {
   const username = usernameInput.value.trim();
+  const firstName = firstNameInput.value.trim();
+  const lastName = lastNameInput.value.trim();
   const role = userRoleSelect ? userRoleSelect.value : "";
   const password = userPasswordInput.value;
   setMessage(createUserMessage, "", "");
 
+  if (!firstName || !lastName) {
+    setMessage(createUserMessage, "First name and last name are required.", "error");
+    return;
+  }
   if (!username) {
     setMessage(createUserMessage, "Username is required.", "error");
     return;
@@ -161,8 +173,10 @@ createUserBtn.addEventListener("click", async () => {
   }
 
   try {
-    const data = await apiCreateUser({ username, password, role });
-    setMessage(createUserMessage, `User "${data.username}" created as ${data.role}.`, "success");
+    const data = await apiCreateUser({ username, firstName, lastName, password, role });
+    setMessage(createUserMessage, `${formatUserName(data)} created as ${data.role}.`, "success");
+    firstNameInput.value = "";
+    lastNameInput.value = "";
     usernameInput.value = "";
     userPasswordInput.value = "";
     loadUsers();
@@ -173,6 +187,28 @@ createUserBtn.addEventListener("click", async () => {
 
 usersTbody.addEventListener("click", async (event) => {
   const target = event.target;
+
+  if (target.classList.contains("edit-user-name-btn")) {
+    const user = getUsers().find((candidate) => candidate.id === target.dataset.id);
+    if (!user) return;
+    setMessage(usersMessage, "", "");
+    const names = await promptUserName(user);
+    if (!names) return;
+    try {
+      const updated = await apiUpdateUserName(user.id, names);
+      if (getCurrentUser()?.id === user.id) {
+        setCurrentUser(updated);
+        const indicator = document.getElementById("auth-user-indicator");
+        if (indicator) indicator.textContent = `${formatUserName(updated)} (${updated.role})`;
+      }
+      document.dispatchEvent(new Event("user-names-updated"));
+      setMessage(usersMessage, `Updated the name for "${user.username}".`, "success");
+      loadUsers();
+    } catch (err) {
+      setMessage(usersMessage, friendlyError(err, "Could not update the user's name."), "error");
+    }
+    return;
+  }
 
   if (target.classList.contains("reset-pw-btn")) {
     const userId = target.dataset.id;

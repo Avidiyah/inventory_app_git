@@ -14,9 +14,12 @@ Matches the "pure, no DB" style of the rest of the suite
 
 import os
 import sys
+import uuid
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from fastapi import HTTPException
 from fastapi.routing import APIRoute
 
 import pytest
@@ -26,6 +29,7 @@ from app.routers import items as items_router
 from app.routers import tools as tools_router
 from app.routers import transactions as transactions_router
 from app.routers import work_orders as work_orders_router
+from app.schemas.work_orders import WorkOrderUpdate
 
 
 def _route(router, endpoint_name):
@@ -108,6 +112,110 @@ def test_work_order_routes_have_no_static_min_role(endpoint_name):
     # `services.work_orders` (covered by test_work_orders_service.py), not by a
     # `require_min_role` gate. So no static minimum should be discoverable.
     assert _min_role_for(work_orders_router, endpoint_name) is None
+
+
+def test_close_work_order_requires_admin():
+    assert _min_role_for(work_orders_router, "archive_work_order") == roles.ROLE_ADMIN
+
+
+@pytest.mark.parametrize(
+    "status", ["created", "assigned", "on_hold", "review"]
+)
+def test_technician_cannot_manually_change_work_order_status(status):
+    with pytest.raises(HTTPException) as exc:
+        work_orders_router.update_work_order(
+            uuid.uuid4(),
+            WorkOrderUpdate(status=status),
+            user=SimpleNamespace(role=roles.ROLE_TECHNICIAN),
+            db=None,
+        )
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.parametrize("status", ["in_progress", "completed"])
+def test_technician_can_start_or_complete_work_order(monkeypatch, status):
+    work_order_id = uuid.uuid4()
+    saved = SimpleNamespace(id=work_order_id, status="assigned")
+    user = SimpleNamespace(role=roles.ROLE_TECHNICIAN)
+
+    monkeypatch.setattr(
+        work_orders_router.wo_service,
+        "update_work_order",
+        lambda db, incoming_id, *, user, fields: saved,
+    )
+    monkeypatch.setattr(
+        work_orders_router.wo_service,
+        "get_work_order",
+        lambda db, incoming_id, *, user: saved,
+    )
+    monkeypatch.setattr(
+        work_orders_router,
+        "_detail",
+        lambda work_order, *, include_price: work_order,
+    )
+
+    result = work_orders_router.update_work_order(
+        work_order_id,
+        WorkOrderUpdate(status=status),
+        user=user,
+        db=None,
+    )
+
+    assert result is saved
+
+
+def test_technician_cannot_reopen_completed_work_order(monkeypatch):
+    work_order_id = uuid.uuid4()
+    current = SimpleNamespace(id=work_order_id, status="completed")
+    user = SimpleNamespace(role=roles.ROLE_TECHNICIAN)
+    monkeypatch.setattr(
+        work_orders_router.wo_service,
+        "get_work_order",
+        lambda db, incoming_id, *, user: current,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        work_orders_router.update_work_order(
+            work_order_id,
+            WorkOrderUpdate(status="in_progress"),
+            user=user,
+            db=None,
+        )
+
+    assert exc.value.status_code == 403
+
+
+def test_technician_can_save_work_order_notes(monkeypatch):
+    work_order_id = uuid.uuid4()
+    saved = SimpleNamespace(id=work_order_id)
+    user = SimpleNamespace(role=roles.ROLE_TECHNICIAN)
+    captured = {}
+
+    def save(db, incoming_id, *, user, fields):
+        captured.update(fields)
+        return saved
+
+    monkeypatch.setattr(work_orders_router.wo_service, "update_work_order", save)
+    monkeypatch.setattr(
+        work_orders_router.wo_service,
+        "get_work_order",
+        lambda db, incoming_id, *, user: saved,
+    )
+    monkeypatch.setattr(
+        work_orders_router,
+        "_detail",
+        lambda work_order, *, include_price: work_order,
+    )
+
+    result = work_orders_router.update_work_order(
+        work_order_id,
+        WorkOrderUpdate(notes="  Gate code is 4123.  "),
+        user=user,
+        db=None,
+    )
+
+    assert result is saved
+    assert captured == {"notes": "Gate code is 4123."}
 
 
 def test_create_tool_requires_admin():

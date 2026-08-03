@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.domain.errors import (
     DuplicateUsernameError,
+    InvalidUserNameError,
     UserHasCheckedOutToolsError,
     UserHasTransactionsError,
     UserNotFoundError,
@@ -29,13 +30,37 @@ from app.models import AuthSession, User
 from app.services import tools as tools_service
 
 
-def create_user(db: Session, *, username: str, password_hash: str, role: str) -> User:
+def _clean_name(first_name: str, last_name: str) -> tuple[str, str]:
+    """Trim and require both human-name parts at the service boundary."""
+    first_name = first_name.strip()
+    last_name = last_name.strip()
+    if not first_name or not last_name:
+        raise InvalidUserNameError("First name and last name are required.")
+    return first_name, last_name
+
+
+def create_user(
+    db: Session,
+    *,
+    username: str,
+    first_name: str,
+    last_name: str,
+    password_hash: str,
+    role: str,
+) -> User:
     """Insert a new user with a pre-hashed password and a role. The
     caller (router) is responsible for hashing the password and for
     checking that it is allowed to assign `role`. Raises
     `DuplicateUsernameError` if the UNIQUE constraint on `username`
     fires."""
-    new_user = User(username=username, password_hash=password_hash, role=role)
+    first_name, last_name = _clean_name(first_name, last_name)
+    new_user = User(
+        username=username,
+        first_name=first_name,
+        last_name=last_name,
+        password_hash=password_hash,
+        role=role,
+    )
     db.add(new_user)
     try:
         db.commit()
@@ -64,6 +89,23 @@ def get_user(db: Session, user_id: uuid.UUID) -> User:
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise UserNotFoundError("User not found.")
+    return user
+
+
+def update_name(
+    db: Session,
+    user_id: uuid.UUID,
+    *,
+    first_name: str,
+    last_name: str,
+) -> User:
+    """Replace a user's display/import identity with explicitly supplied names."""
+    first_name, last_name = _clean_name(first_name, last_name)
+    user = get_user(db, user_id)
+    user.first_name = first_name
+    user.last_name = last_name
+    db.commit()
+    db.refresh(user)
     return user
 
 

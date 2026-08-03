@@ -141,8 +141,7 @@ export function confirmDialog(message, { quantity = null } = {}) {
 // --- Archived-record reuse confirm/retry ------------------------------
 // Runs `action(override)` -- an async API call that takes a backend "confirm
 // the archived record" flag (`override_archived` for a barcode held by an
-// archived item; `restore_archived` for a number held by an archived work
-// order). The first attempt passes false; if the backend answers 409 (the
+// archived item). The first attempt passes false; if the backend answers 409 (the
 // record exists only in an archived/deleted form, not a live one) it shows the
 // confirm modal with `message` and, on Yes, retries once with the flag true so
 // the service frees / restores that archived holder and proceeds.
@@ -277,6 +276,85 @@ export function promptPasswordReset(username) {
     pwResetCancelBtn.addEventListener("click", onCancel);
     if (pwResetToggle) pwResetToggle.addEventListener("click", onToggle);
     pwResetOverlay.addEventListener("click", onBackdrop);
+    document.addEventListener("keydown", onKey);
+  });
+}
+
+// Explicit first/last-name editor used by the Users page. Legacy accounts have
+// NULL names after migration, so this is the remediation path that avoids
+// inventing identity from a login username.
+const userNameOverlay = document.getElementById("user-name-overlay");
+const userNameTitle = document.getElementById("user-name-title");
+const userNameFirst = document.getElementById("user-name-first");
+const userNameLast = document.getElementById("user-name-last");
+const userNameMessage = document.getElementById("user-name-message");
+const userNameSave = document.getElementById("user-name-save");
+const userNameCancel = document.getElementById("user-name-cancel");
+
+export function promptUserName(user) {
+  return new Promise((resolve) => {
+    if (!userNameOverlay) {
+      resolve(null);
+      return;
+    }
+    const previouslyFocused = document.activeElement;
+    const focusables = [userNameFirst, userNameLast, userNameSave, userNameCancel];
+    userNameTitle.textContent = `Edit name for "${user.username}"`;
+    userNameFirst.value = user.first_name || "";
+    userNameLast.value = user.last_name || "";
+    setMessage(userNameMessage, "", "");
+    userNameOverlay.hidden = false;
+    userNameFirst.focus();
+
+    function cleanup() {
+      userNameSave.removeEventListener("click", onSave);
+      userNameCancel.removeEventListener("click", onCancel);
+      userNameOverlay.removeEventListener("click", onBackdrop);
+      document.removeEventListener("keydown", onKey);
+    }
+    function done(value) {
+      userNameOverlay.hidden = true;
+      cleanup();
+      if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+        try { previouslyFocused.focus(); } catch (_err) { /* element removed */ }
+      }
+      resolve(value);
+    }
+    function submit() {
+      const firstName = userNameFirst.value.trim();
+      const lastName = userNameLast.value.trim();
+      if (!firstName || !lastName) {
+        setMessage(userNameMessage, "First name and last name are required.", "error");
+        return;
+      }
+      done({ firstName, lastName });
+    }
+    function onSave() { submit(); }
+    function onCancel() { done(null); }
+    function onBackdrop(event) { if (event.target === userNameOverlay) done(null); }
+    function onKey(event) {
+      if (event.key === "Escape") { done(null); return; }
+      if (event.key === "Enter" && (event.target === userNameFirst || event.target === userNameLast)) {
+        event.preventDefault();
+        submit();
+        return;
+      }
+      if (event.key === "Tab") {
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    }
+
+    userNameSave.addEventListener("click", onSave);
+    userNameCancel.addEventListener("click", onCancel);
+    userNameOverlay.addEventListener("click", onBackdrop);
     document.addEventListener("keydown", onKey);
   });
 }

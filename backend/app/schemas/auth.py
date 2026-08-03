@@ -38,6 +38,9 @@ class MeResponse(BaseModel):
 
     id: UUID
     username: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    full_name: str
     role: str
     created_at: datetime
     archived_at: Optional[datetime] = None

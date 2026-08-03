@@ -4,8 +4,14 @@
         <section id="create-user-section">
             <h2>Add User</h2>
             <div class="form-stack">
+                <label for="user-first-name">First Name</label>
+                <input type="text" id="user-first-name" autocomplete="given-name" placeholder="Enter first name">
+
+                <label for="user-last-name">Last Name</label>
+                <input type="text" id="user-last-name" autocomplete="family-name" placeholder="Enter last name">
+
                 <label for="username">Username</label>
-                <input type="text" id="username" placeholder="Enter username">
+                <input type="text" id="username" autocomplete="username" placeholder="Enter username">
 
                 <label for="user-role">Role</label>
                 <select id="user-role">

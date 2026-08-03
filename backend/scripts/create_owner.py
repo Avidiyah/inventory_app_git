@@ -7,7 +7,8 @@ against the database.
 
 Run from the `backend/` directory with the project virtualenv:
 
-    ./venv/Scripts/python.exe -m scripts.create_owner --username owner
+    ./venv/Scripts/python.exe -m scripts.create_owner --username owner \
+        --first-name Jane --last-name Owner
 
 You will be prompted for the password (entered twice, hidden). It must
 be at least 4 characters, matching the application's password rule.
@@ -53,11 +54,18 @@ def _prompt_password() -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Create the initial Owner user.")
     parser.add_argument("--username", required=True, help="Owner username.")
+    parser.add_argument("--first-name", required=True, help="Owner first name.")
+    parser.add_argument("--last-name", required=True, help="Owner last name.")
     args = parser.parse_args()
 
     username = args.username.strip()
+    first_name = args.first_name.strip()
+    last_name = args.last_name.strip()
     if not username:
         print("Username cannot be blank.", file=sys.stderr)
+        return 1
+    if not first_name or not last_name:
+        print("First name and last name cannot be blank.", file=sys.stderr)
         return 1
 
     password = _prompt_password()
@@ -67,6 +75,8 @@ def main() -> int:
         user = users_service.create_user(
             db,
             username=username,
+            first_name=first_name,
+            last_name=last_name,
             password_hash=auth_service.hash_password(password),
             role=ROLE_OWNER,
         )

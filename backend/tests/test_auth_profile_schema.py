@@ -16,6 +16,9 @@ def test_me_response_exposes_existing_profile_timestamps():
     user = SimpleNamespace(
         id=uuid4(),
         username="field-tech",
+        first_name="Field",
+        last_name="Technician",
+        full_name="Field Technician",
         role="technician",
         created_at=created_at,
         archived_at=None,
@@ -25,3 +28,6 @@ def test_me_response_exposes_existing_profile_timestamps():
 
     assert response.created_at == created_at
     assert response.archived_at is None
+    assert response.first_name == "Field"
+    assert response.last_name == "Technician"
+    assert response.full_name == "Field Technician"

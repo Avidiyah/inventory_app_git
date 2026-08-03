@@ -9,7 +9,7 @@ to know about the database driver's exception classes.
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Sequence
+from typing import Optional, Sequence
 
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
@@ -174,14 +174,52 @@ def create_item(
     return new_item
 
 
-def list_items(db: Session) -> Sequence[Item]:
-    """Return every live item, newest first. Archived (soft-deleted)
-    items are excluded. The full table is small enough that pagination
-    is unnecessary at this stage."""
+_LIKE_ESCAPE = "\\"
+
+
+def _search_pattern(search: Optional[str]) -> Optional[str]:
+    """Build a literal case-insensitive substring pattern for item search."""
+    if search is None:
+        return None
+    trimmed = search.strip()
+    if not trimmed:
+        return ""
+    escaped = (
+        trimmed.replace(_LIKE_ESCAPE, _LIKE_ESCAPE * 2)
+        .replace("%", _LIKE_ESCAPE + "%")
+        .replace("_", _LIKE_ESCAPE + "_")
+    )
+    return f"%{escaped}%"
+
+
+def list_items(db: Session, *, search: Optional[str] = None) -> Sequence[Item]:
+    """Return live items, newest first, optionally filtered across the full
+    dataset by a case-insensitive name or primary-barcode substring.
+
+    Omitting `search` preserves the existing full-list contract used by other
+    frontend views. A blank explicit search returns no rows rather than
+    accidentally loading the complete catalogue.
+    """
+    query = db.query(Item).filter(Item.archived_at.is_(None))
+    pattern = _search_pattern(search)
+    if pattern == "":
+        return []
+    if pattern is not None:
+        query = query.filter(
+            or_(
+                Item.name.ilike(pattern, escape=_LIKE_ESCAPE),
+                Item.barcode.ilike(pattern, escape=_LIKE_ESCAPE),
+            )
+        )
+    return query.order_by(Item.created_at.desc()).all()
+
+
+def list_item_search_index(db: Session):
+    """Return only live item names and primary barcodes for Find Item hints."""
     return (
-        db.query(Item)
+        db.query(Item.name, Item.barcode)
         .filter(Item.archived_at.is_(None))
-        .order_by(Item.created_at.desc())
+        .order_by(Item.name.asc(), Item.barcode.asc())
         .all()
     )
 

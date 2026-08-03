@@ -1,0 +1,27 @@
+    <!-- =================== ADMIN REVIEW PAGE =================== -->
+    <!-- Final billing review for Admin/Owner. Review cards are loaded through
+         the existing work-order list/detail endpoints; Close uses the existing
+         Review-only soft-archive action. The receipt stays mounted when the
+         queue refreshes so it remains available for copying after an action. -->
+    <div class="page" id="admin-review-page">
+
+        <section id="admin-review-queue-section">
+            <h2>Admin Review</h2>
+            <p class="hint">Select a Review work order to build its 41-character
+               receipt. Verify the material and billed labor charges, then close
+               it or return it to In-Progress for corrections.</p>
+            <div id="admin-review-list" class="admin-review-grid"></div>
+            <p id="admin-review-list-message" aria-live="polite"></p>
+        </section>
+
+        <section id="admin-review-receipt-section" hidden>
+            <h3 id="admin-review-receipt-title">Work Order Receipt</h3>
+            <textarea id="admin-review-receipt-output" class="pricing-output admin-review-receipt-output" rows="14" wrap="off" readonly aria-label="Selected work order receipt"></textarea>
+            <p id="admin-review-receipt-message" aria-live="polite"></p>
+            <div class="admin-review-actions">
+                <button id="admin-review-reopen-btn" type="button" class="secondary-btn">Return to In-Progress</button>
+                <button id="admin-review-close-btn" type="button" class="btn-danger">Close Work Order</button>
+            </div>
+        </section>
+
+    </div>

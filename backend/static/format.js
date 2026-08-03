@@ -44,6 +44,18 @@ export function formatMoney(value) {
   return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
 }
 
+// Human-facing identity. Usernames are login/account-management identifiers
+// and must not leak onto operational pages.
+export function formatUserName(user) {
+  if (!user) return "Name unavailable";
+  const fullName = typeof user.full_name === "string" ? user.full_name.trim() : "";
+  if (fullName) return fullName;
+  const parts = [user.first_name, user.last_name]
+    .filter((part) => typeof part === "string" && part.trim())
+    .map((part) => part.trim());
+  return parts.join(" ") || "Name unavailable";
+}
+
 // Return `url` only if it is a safe http(s) link, else "". Guards the
 // product-link cell against `javascript:` / `data:` URLs being placed in
 // an href. The value is still passed through `escapeHtml` by the caller.

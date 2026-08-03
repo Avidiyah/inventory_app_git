@@ -14,7 +14,7 @@ import {
   apiDeleteTool,
   apiGetToolByBarcode,
 } from "../api.js";
-import { escapeHtml, friendlyError } from "../format.js";
+import { escapeHtml, friendlyError, formatUserName } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
 import { mountScanner } from "./scan.js";
@@ -155,7 +155,7 @@ function renderUserCard() {
   }
 
   const holdings = holdingsForUser(user.id);
-  userName.textContent = user.username;
+  userName.textContent = formatUserName(user);
   userMeta.textContent = roleLabel(user.role) + " · " + formattedCreatedAt(user.created_at);
   userStatus.textContent = "Active";
   custodyCount.textContent =
@@ -187,7 +187,7 @@ function renderUserCard() {
 
 function chooseUser(user) {
   selectedUserId = user.id;
-  userSearch.value = user.username;
+  userSearch.value = formatUserName(user);
   hideUserResults();
   clearCheckoutPicker();
   closeToolCheckout();
@@ -200,7 +200,7 @@ function chooseUser(user) {
 function matchingUsers() {
   const query = userSearch.value.trim().toLowerCase();
   return custodyUsers
-    .filter((user) => !query || user.username.toLowerCase().includes(query))
+    .filter((user) => !query || formatUserName(user).toLowerCase().includes(query))
     .slice(0, 8);
 }
 
@@ -236,7 +236,7 @@ function renderUserResults() {
         '<button type="button" id="tool-user-option-' + escapeHtml(user.id) +
           '" class="manual-item-card tool-user-option" role="option" aria-selected="false" data-user-id="' +
           escapeHtml(user.id) + '">' +
-          '<span class="manual-item-name">' + escapeHtml(user.username) + '</span>' +
+          '<span class="manual-item-name">' + escapeHtml(formatUserName(user)) + '</span>' +
           '<span class="manual-item-meta"><span>' + escapeHtml(roleLabel(user.role)) + '</span></span>' +
         '</button>'
       )
@@ -250,7 +250,7 @@ userSearch.addEventListener("focus", renderUserResults);
 
 userSearch.addEventListener("input", () => {
   const current = selectedUser();
-  if (current && userSearch.value !== current.username) clearSelectedUser();
+  if (current && userSearch.value !== formatUserName(current)) clearSelectedUser();
   renderUserResults();
 });
 
@@ -375,7 +375,7 @@ const toolsMessage = document.getElementById("tools-message");
 function custodyCell(tool) {
   if (!tool.custody || tool.custody.length === 0) return "—";
   return tool.custody
-    .map((entry) => escapeHtml(entry.username) + ": " + escapeHtml(entry.quantity))
+    .map((entry) => escapeHtml(entry.user_name) + ": " + escapeHtml(entry.quantity))
     .join("<br>");
 }
 
@@ -561,7 +561,7 @@ function setCheckoutScanContext(user) {
   scanPurpose = "checkout";
   checkoutScanUserId = user.id;
   toolsScanHeading.textContent = "Scan Tool for Checkout";
-  toolsScanHint.textContent = "Scan a tool to check out to " + user.username + ". You will confirm the quantity before saving.";
+  toolsScanHint.textContent = "Scan a tool to check out to " + formatUserName(user) + ". You will confirm the quantity before saving.";
 }
 
 export const toolsScanner = mountScanner({
@@ -675,7 +675,7 @@ export async function loadTools() {
   if (results[1].status === "fulfilled") {
     custodyUsers = results[1].value
       .filter((user) => !user.archived_at)
-      .sort((left, right) => left.username.localeCompare(right.username));
+      .sort((left, right) => formatUserName(left).localeCompare(formatUserName(right)));
     if (adminPlus) {
       if (selectedUserId && !custodyUsers.some((user) => user.id === selectedUserId)) {
         clearSelectedUser();

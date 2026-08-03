@@ -35,6 +35,8 @@ from app.services import tools as tools_service
 def _seed_user(db, role="technician"):
     user = User(
         username=f"u-{uuid.uuid4().hex[:10]}",
+        first_name="Tool",
+        last_name=f"User-{uuid.uuid4().hex[:6]}",
         password_hash=auth.hash_password("hunter2"),
         role=role,
     )
@@ -88,7 +90,7 @@ def test_checkout_decrements_quantity_and_creates_custody(db):
     assert refreshed.quantity == Decimal(3)
 
     custody = tools_service.tool_custody(db, tool.id)
-    assert custody == [(user.id, user.username, Decimal(2))]
+    assert custody == [(user.id, user.full_name, Decimal(2))]
 
 
 def test_checkout_rejects_archived_user_without_mutation(db):
@@ -157,7 +159,7 @@ def test_return_increments_quantity_and_reduces_custody(db):
     assert refreshed.quantity == Decimal(4)  # 5 - 3 + 2
 
     custody = tools_service.tool_custody(db, tool.id)
-    assert custody == [(user.id, user.username, Decimal(1))]
+    assert custody == [(user.id, user.full_name, Decimal(1))]
 
 
 def test_full_return_clears_custody_entry(db):
@@ -220,7 +222,7 @@ def test_bulk_tool_custody_splits_across_multiple_users(db):
     refreshed = tools_service.get_tool(db, tool.id)
     assert refreshed.quantity == Decimal(0)
 
-    custody = {uid: qty for uid, _uname, qty in tools_service.tool_custody(db, tool.id)}
+    custody = {uid: qty for uid, _name, qty in tools_service.tool_custody(db, tool.id)}
     assert custody[alice.id] == Decimal(3)
     assert custody[bob.id] == Decimal(2)
 
@@ -229,7 +231,7 @@ def test_bulk_tool_custody_splits_across_multiple_users(db):
         db, tool.id, quantity=Decimal(3), assigned_to_id=alice.id, performed_by_id=None
     )
     custody_after = {
-        uid: qty for uid, _uname, qty in tools_service.tool_custody(db, tool.id)
+        uid: qty for uid, _name, qty in tools_service.tool_custody(db, tool.id)
     }
     assert alice.id not in custody_after
     assert custody_after[bob.id] == Decimal(2)
@@ -357,7 +359,7 @@ def test_adjust_does_not_affect_custody(db):
     assert refreshed.quantity == Decimal(10)
 
     custody = tools_service.tool_custody(db, tool.id)
-    assert custody == [(user.id, user.username, Decimal(2))]
+    assert custody == [(user.id, user.full_name, Decimal(2))]
 
 
 def test_adjust_unknown_tool_raises_not_found(db):

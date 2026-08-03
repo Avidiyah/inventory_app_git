@@ -59,7 +59,8 @@
       "Bash(node --check views/history.js)",
       "Bash(git push *)",
       "Bash(git fetch *)",
-      "Bash(git rev-list *)"
+      "Bash(git rev-list *)",
+      "Bash(python -m pytest tests/ -x -q)"
     ]
   }
 }

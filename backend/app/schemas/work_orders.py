@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 def _stripped_nonblank(v: str, label: str) -> str:
@@ -30,51 +30,35 @@ def _stripped_or_none(v):
 
 # --- Requests ------------------------------------------------------------
 
-class WorkOrderCreate(BaseModel):
-    """Payload for `POST /work-orders` (Supervisor+). `number` is the identity;
-    everything else is an optional attribute. Re-using an existing LIVE number
-    opens that work order (fill-blanks), it is not an error.
-
-    A number that matches an *archived* work order is refused with 409 unless
-    `restore_archived` is True: the first POST omits it (defaults False) and gets
-    the conflict, the user confirms the restore, and we re-POST with it True to
-    un-archive and re-open the work order (mirrors `override_archived` on items)."""
-
-    number: str
-    community: Optional[str] = None
-    building_number: Optional[str] = None
-    unit_number: Optional[str] = None
-    description: Optional[str] = None
-    assigned_to_id: Optional[UUID] = None
-    restore_archived: bool = False
-
-    @field_validator("number")
-    @classmethod
-    def _number_not_blank(cls, v):
-        return _stripped_nonblank(v, "Work order number")
-
-    @field_validator("community", "building_number", "unit_number", "description")
-    @classmethod
-    def _trim(cls, v):
-        return _stripped_or_none(v)
-
-
 class WorkOrderUpdate(BaseModel):
     """Payload for `PATCH /work-orders/{id}` -- explicit edits (overwrite, unlike
     find-or-create's fill-blanks). Any subset; an explicit `null` for
-    `assigned_to_id` clears the assignment. At least one field required.
+    `assigned_to_ids` replaces the technician set; an empty list clears it.
+    `assigned_to_id` remains accepted for compatibility with older clients.
+    At least one field required.
 
-    `status` (in_progress|completed) and `entry_mode` (dispense|retroactive) are
-    validated in the service."""
+    `status` (created|assigned|in_progress|on_hold|completed|review) and `entry_mode`
+    (dispense|retroactive) are validated in the service. Closed is archive state,
+    never a PATCH status value."""
 
     number: Optional[str] = None
     community: Optional[str] = None
     building_number: Optional[str] = None
     unit_number: Optional[str] = None
     description: Optional[str] = None
+    notes: Optional[str] = None
     status: Optional[str] = None
     entry_mode: Optional[str] = None
     assigned_to_id: Optional[UUID] = None
+    assigned_to_ids: Optional[list[UUID]] = None
+    # CSV-import attributes, editable after import. `supervisor_id` is how an
+    # Admin routes a work order whose vendor name did not auto-match a user.
+    location: Optional[str] = None
+    output_to: Optional[str] = None
+    vendor_assignee: Optional[str] = None
+    service_type: Optional[str] = None
+    schedule_date: Optional[str] = None
+    supervisor_id: Optional[UUID] = None
 
     @field_validator("number")
     @classmethod
@@ -83,7 +67,18 @@ class WorkOrderUpdate(BaseModel):
             return v
         return _stripped_nonblank(v, "Work order number")
 
-    @field_validator("community", "building_number", "unit_number", "description")
+    @field_validator(
+        "community",
+        "building_number",
+        "unit_number",
+        "description",
+        "notes",
+        "location",
+        "output_to",
+        "vendor_assignee",
+        "service_type",
+        "schedule_date",
+    )
     @classmethod
     def _trim(cls, v):
         return _stripped_or_none(v)
@@ -139,6 +134,34 @@ class WorkOrderItemBilling(BaseModel):
         return v
 
 
+class WorkOrderLaborCreate(BaseModel):
+    """Payload for `POST /work-orders/{id}/labor`. Durations are whole minutes;
+    billing rounds the combined work-order total to the next half hour."""
+
+    technician_id: UUID
+    minutes: int
+
+    @field_validator("minutes")
+    @classmethod
+    def _positive_minutes(cls, v):
+        if v <= 0:
+            raise ValueError("Labor minutes must be greater than zero.")
+        return v
+
+
+class WorkOrderLaborUpdate(BaseModel):
+    """Payload for `PATCH /work-orders/{id}/labor/{labor_id}`."""
+
+    minutes: int
+
+    @field_validator("minutes")
+    @classmethod
+    def _positive_minutes(cls, v):
+        if v <= 0:
+            raise ValueError("Labor minutes must be greater than zero.")
+        return v
+
+
 # --- Responses (router builder fills nested fields) ----------------------
 
 class WorkOrderItemDetail(BaseModel):
@@ -159,6 +182,15 @@ class WorkOrderItemDetail(BaseModel):
     billable_quantity: Optional[Decimal] = None
 
 
+class WorkOrderLaborDetail(BaseModel):
+    """One actual labor entry attributed to a technician."""
+
+    id: UUID
+    technician_id: UUID
+    technician_name: str
+    minutes: int
+
+
 class WorkOrderCard(BaseModel):
     """One collapsible work-order card on the Work Orders page list."""
 
@@ -172,14 +204,64 @@ class WorkOrderCard(BaseModel):
     entry_mode: str
     created_by_id: Optional[UUID] = None
     assigned_to_id: Optional[UUID] = None
-    assigned_to_username: Optional[str] = None
+    assigned_to_name: Optional[str] = None
+    assigned_to_ids: list[UUID] = Field(default_factory=list)
+    assigned_to_names: list[str] = Field(default_factory=list)
     item_count: int
+    # CSV-import schema (the new default). `vendor_assignee` is the raw export
+    # name; `supervisor_id` / `supervisor_name` identify the routed system user;
+    # `legacy` flags a pre-import work order (kept for search, empty new fields).
+    location: Optional[str] = None
+    output_to: Optional[str] = None
+    vendor_assignee: Optional[str] = None
+    service_type: Optional[str] = None
+    schedule_date: Optional[str] = None
+    supervisor_id: Optional[UUID] = None
+    supervisor_name: Optional[str] = None
+    legacy: bool = False
+
+
+class WorkOrderLookup(BaseModel):
+    """Result of `GET /work-orders/lookup?number=` -- "does this number name a
+    work order, and is it archived?".
+
+    Unlike the list/detail routes, this deliberately reports an *archived* work
+    order (which those routes hide), so History can spot a searched number whose
+    work order has been archived and offer to restore it. Reports `found=False`
+    for a number the caller may not see, so it leaks nothing the list would not."""
+
+    found: bool
+    archived: bool = False
+    id: Optional[UUID] = None
+    number: Optional[str] = None
+
+
+class WorkOrderImportResult(BaseModel):
+    """Summary of a `POST /work-orders/import` CSV upload. `created` are new work
+    orders, `opened` matched an existing number (fill-blanks, no duplicate);
+    `supervisors_matched`/`supervisors_unmatched` count rows whose vendor name did
+    / did not resolve to a system supervisor; `skipped` had a blank number."""
+
+    total: int
+    created: int
+    opened: int
+    supervisors_matched: int
+    supervisors_unmatched: int
+    skipped: int
 
 
 class WorkOrderDetail(WorkOrderCard):
-    """A work-order card plus its logged materials."""
+    """A work-order card plus notes, logged materials, and labor."""
 
-    items: list[WorkOrderItemDetail] = []
+    notes: Optional[str] = None
+    items: list[WorkOrderItemDetail] = Field(default_factory=list)
+    labor: list[WorkOrderLaborDetail] = Field(default_factory=list)
     # Base materials charge = sum over lines of (effective_billable * unit_price),
     # before the +15% mark-up. Admin/Owner only (None when redacted).
     materials_total: Optional[Decimal] = None
+    labor_minutes: int = 0
+    labor_billed_minutes: int = 0
+    # Labor bills at the fixed domain rate after total-duration rounding. Both
+    # cost fields are Admin/Owner only (None when redacted).
+    labor_rate: Optional[Decimal] = None
+    labor_total: Optional[Decimal] = None

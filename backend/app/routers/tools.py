@@ -41,8 +41,8 @@ def _tool_response(db: Session, tool: Tool) -> ToolResponse:
     `alt_barcodes` relationship."""
     resp = ToolResponse.model_validate(tool)
     resp.custody = [
-        ToolCustodyEntry(user_id=uid, username=uname, quantity=qty)
-        for uid, uname, qty in tools_service.tool_custody(db, tool.id)
+        ToolCustodyEntry(user_id=uid, user_name=name, quantity=qty)
+        for uid, name, qty in tools_service.tool_custody(db, tool.id)
     ]
     return resp
 

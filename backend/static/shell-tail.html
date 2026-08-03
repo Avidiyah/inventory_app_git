@@ -49,6 +49,24 @@
         </div>
     </div>
 
+    <!-- Explicit name editor for legacy accounts and later corrections. -->
+    <div id="user-name-overlay" class="modal-overlay" hidden>
+        <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="user-name-title">
+            <p id="user-name-title" class="modal-title">Edit user name</p>
+            <div class="form-stack">
+                <label for="user-name-first">First Name</label>
+                <input type="text" id="user-name-first" autocomplete="given-name">
+                <label for="user-name-last">Last Name</label>
+                <input type="text" id="user-name-last" autocomplete="family-name">
+                <p id="user-name-message" aria-live="polite"></p>
+            </div>
+            <div class="modal-buttons">
+                <button id="user-name-save">Save name</button>
+                <button id="user-name-cancel" type="button" class="secondary-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     </div><!-- /#app-root -->
 
     <!--

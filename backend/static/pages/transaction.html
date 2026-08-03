@@ -3,58 +3,40 @@
     <div class="page" id="transaction-page">
 
         <!-- Scan-and-go batch flow. Two states share this section:
-             #wo-gate (enter a work order) then #scango-active (pick a
+             #wo-gate (select a work order) then #scango-active (pick a
              direction + quantity, then scan items into the work order).
              Driven by views/transactions.js; see docs/current-state.md. -->
         <section id="txn-scango-section">
             <div id="wo-gate">
-                <h2>Start a work order</h2>
+                <h2>Select a work order</h2>
 
-                <!-- Cards-first surface (Supervisor+; revealed by
-                     views/transactions.js). Saved work orders are mass-staging
-                     rooms (building + room + work order); tapping one starts a
-                     scan-and-go batch on that work order. "Add a new work order"
-                     quick-adds building + room + WO (find-or-create the
-                     building's active stage) and starts the batch -- it persists
-                     as a card for next time. Scanning is a plain transaction on
-                     the work order, NOT written back to the stage. See
+                <!-- Supervisor+ number search. This is a live filter over the
+                     server-scoped, imported work orders below; typing never
+                     creates or directly starts a work order. The operator
+                     selects one of the filtered cards to begin scanning. -->
+                <div id="wo-gate-search-card" class="wo-filter-card" hidden>
+                    <label for="wo-gate-input">Search work orders</label>
+                    <input type="search" id="wo-gate-input" class="wo-gate-input" placeholder="Search by work order number" autocomplete="off" inputmode="search" aria-controls="wo-gate-cards" aria-describedby="wo-gate-search-help">
+                    <p id="wo-gate-search-help" class="hint">Type a work order number to filter the cards.</p>
+                </div>
+
+                <!-- Shared gate/resume feedback stays outside the Supervisor+
+                     search card so Technicians can see it too. -->
+                <p id="wo-gate-message" aria-live="polite"></p>
+
+                <!-- Cards-first surface (revealed by views/transactions.js).
+                     Saved work orders are the in-progress ones this user can see
+                     (server-scoped); tapping one starts a scan-and-go batch on
+                     that work order. Scanning is a plain transaction on the work
+                     order, NOT written back to any stage. Work orders themselves
+                     are import-only -- there is no quick-add here; a number that
+                     hasn't been imported cannot be scanned into. See
                      docs/current-state.md. -->
                 <div id="wo-gate-cards-section" hidden>
-                    <p class="hint">Tap a saved work order to scan into it.</p>
+                    <p class="hint">Select a work order to begin scanning.</p>
                     <div id="wo-gate-cards"></div>
-                    <p id="wo-gate-cards-message" class="hint"></p>
-
-                    <details id="wo-gate-new">
-                        <summary>Add a new work order</summary>
-                        <div class="wo-gate-new-form">
-                            <label for="wo-gate-new-building">Community</label>
-                            <input type="text" id="wo-gate-new-building" placeholder="e.g. Scholars" autocomplete="off">
-                            <label for="wo-gate-new-buildingno">Building Number</label>
-                            <input type="text" id="wo-gate-new-buildingno" placeholder="e.g. 19" autocomplete="off">
-                            <label for="wo-gate-new-room">Unit Number</label>
-                            <input type="text" id="wo-gate-new-room" placeholder="e.g. 1121" autocomplete="off">
-                            <label for="wo-gate-new-wo">Work order number</label>
-                            <input type="text" id="wo-gate-new-wo" placeholder="Work order #" autocomplete="off" inputmode="text">
-                            <label for="wo-gate-new-assignee">Assign to (optional)</label>
-                            <select id="wo-gate-new-assignee">
-                                <option value="">Unassigned</option>
-                            </select>
-                            <button type="button" id="wo-gate-new-save-btn">Save &amp; start</button>
-                            <p id="wo-gate-new-message"></p>
-                        </div>
-                    </details>
+                    <p id="wo-gate-cards-message" class="hint" aria-live="polite"></p>
                 </div>
-
-                <!-- Free-text gate: the Technician surface, and a Supervisor+
-                     ad-hoc fallback for a one-off work order not tied to a
-                     building/room. -->
-                <div id="wo-gate-manual">
-                    <label for="wo-gate-input">Work Order Number</label>
-                    <input type="text" id="wo-gate-input" class="wo-gate-input" placeholder="Enter work order number" autocomplete="off" inputmode="text">
-                    <button id="wo-gate-start-btn">Start</button>
-                </div>
-
-                <p id="wo-gate-message"></p>
             </div>
 
             <div id="scango-active" hidden>
@@ -131,7 +113,7 @@
              (views/transactions.js: commitScannedItem). Available to every
              role; this is the fallback for when scanning isn't practical,
              not a separate ad-hoc flow. -->
-        <section id="txn-manual-section">
+        <section id="txn-manual-section" hidden>
             <h2>Add item manually</h2>
             <input type="text" id="txn-item-search" class="manual-search-input" placeholder="Search by name or barcode" autocomplete="off">
             <div id="txn-item-search-results" class="manual-results" hidden></div>

@@ -5,7 +5,7 @@
 // quantity/work-order confirmation and the existing checkout API call.
 
 import { apiCheckoutTool } from "../api.js";
-import { friendlyError } from "../format.js";
+import { friendlyError, formatUserName } from "../format.js";
 import { setMessage } from "../dom.js";
 
 const checkoutSection = document.getElementById("tool-checkout-section");
@@ -29,7 +29,7 @@ export function openToolCheckout(tool, user) {
   checkingOutTool = tool;
   checkoutUser = user;
   checkoutSelected.textContent = tool.name + " (" + tool.barcode + ") — " + tool.quantity + " on hand";
-  checkoutUserSummary.textContent = "Checking out to " + user.username;
+  checkoutUserSummary.textContent = "Checking out to " + formatUserName(user);
   checkoutQuantity.value = "1";
   checkoutQuantity.max = String(tool.quantity);
   checkoutWorkOrder.value = "";
@@ -80,7 +80,7 @@ checkoutSaveBtn.addEventListener("click", async () => {
     });
     setMessage(
       checkoutMessage,
-      "Checked out " + checkingOutTool.name + " to " + checkoutUser.username + ".",
+      "Checked out " + checkingOutTool.name + " to " + formatUserName(checkoutUser) + ".",
       "success",
     );
     if (onSavedCallback) await onSavedCallback();

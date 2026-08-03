@@ -78,7 +78,7 @@ class ToolCustodyEntry(BaseModel):
     they have checked out right now (Sum(checkout) - Sum(return) > 0)."""
 
     user_id: UUID
-    username: str
+    user_name: str
     quantity: Decimal
 
 

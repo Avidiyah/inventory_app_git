@@ -4,41 +4,55 @@ Layer: routers (FastAPI). Thin handlers: parse via a Pydantic schema, delegate
 to `app.services.work_orders`, translate `DomainError` via `to_http`.
 
 Most routes are open to any authenticated user but **server-scoped** (technician
--> assigned, supervisor -> created, admin/owner -> all). Creating a work order,
-editing its attributes/assignee, and archiving are Supervisor+ (a technician may
-only log/edit materials and flip status/mode on a work order assigned to them).
+-> assigned, supervisor -> created/routed, admin/owner -> all). Editing a work
+order's attributes/assignee and manual status rollback/On-Hold are Supervisor+;
+notes and entry mode are available in-scope, and an assigned technician may Mark
+Completed. Sending to Review remains Supervisor+.
+Closing (the archive operation) is Admin+ and only valid from Review so the Admin
+Review workflow is the sole UI entry point.
 Out-of-scope, archived, or unknown work orders surface as 404.
+
+There is no create route: work orders are import-only, so `POST /work-orders/
+import` (Admin+) is the one way a work order enters the system. Everything else
+here operates on an already-imported work order.
 """
 
 import uuid
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
-from app.auth_deps import get_current_user
+from app.auth_deps import get_current_user, require_min_role
 from app.database import get_db
 from app.domain import roles
+from app.domain import work_orders as wo
 from app.domain.errors import DomainError
-from app.models import User, WorkOrder, WorkOrderItem
+from app.models import User, WorkOrder, WorkOrderItem, WorkOrderLabor
 from app.routers._errors import to_http
 from app.schemas.work_orders import (
     WorkOrderCard,
-    WorkOrderCreate,
     WorkOrderDetail,
+    WorkOrderImportResult,
     WorkOrderItemBilling,
     WorkOrderItemCreate,
     WorkOrderItemDetail,
     WorkOrderItemUpdate,
+    WorkOrderLaborCreate,
+    WorkOrderLaborDetail,
+    WorkOrderLaborUpdate,
+    WorkOrderLookup,
     WorkOrderUpdate,
 )
 from app.services import work_orders as wo_service
 
 router = APIRouter(prefix="/work-orders", tags=["work-orders"])
 
-# Fields only a Supervisor+ may edit (identity / location / assignment). Status
-# and entry_mode may be changed by any in-scope user (incl. an assigned tech).
+# Fields only a Supervisor+ may edit (identity / location / assignment). Notes
+# and entry_mode are available in-scope; the route's dynamic status gate lets an
+    # assigned technician set In-Progress or Mark Completed but reserves every
+    # other manual status change for Supervisor+.
 _PRIVILEGED_FIELDS = {
     "number",
     "community",
@@ -46,6 +60,13 @@ _PRIVILEGED_FIELDS = {
     "unit_number",
     "description",
     "assigned_to_id",
+    "assigned_to_ids",
+    "supervisor_id",
+    "location",
+    "output_to",
+    "vendor_assignee",
+    "service_type",
+    "schedule_date",
 }
 
 
@@ -74,6 +95,19 @@ def _line_detail(line: WorkOrderItem, *, include_price: bool) -> WorkOrderItemDe
 
 
 def _card(work_order: WorkOrder) -> WorkOrderCard:
+    technicians = wo_service.assigned_technicians(work_order)
+    legacy_id = getattr(work_order, "assigned_to_id", None)
+    technician_pairs = [
+        (getattr(technician, "id", legacy_id if index == 0 else None), technician)
+        for index, technician in enumerate(technicians)
+    ]
+    technician_pairs = [(tech_id, tech) for tech_id, tech in technician_pairs if tech_id]
+    technician_ids = [tech_id for tech_id, _ in technician_pairs]
+    technician_names = [technician.full_name for _, technician in technician_pairs]
+    primary_pair = next(
+        ((tech_id, tech) for tech_id, tech in technician_pairs if tech_id == legacy_id),
+        technician_pairs[0] if technician_pairs else None,
+    )
     return WorkOrderCard(
         id=work_order.id,
         number=work_order.number,
@@ -84,9 +118,19 @@ def _card(work_order: WorkOrder) -> WorkOrderCard:
         status=work_order.status,
         entry_mode=work_order.entry_mode,
         created_by_id=work_order.created_by_id,
-        assigned_to_id=work_order.assigned_to_id,
-        assigned_to_username=work_order.assignee.username if work_order.assignee else None,
+        assigned_to_id=primary_pair[0] if primary_pair else None,
+        assigned_to_name=primary_pair[1].full_name if primary_pair else None,
+        assigned_to_ids=technician_ids,
+        assigned_to_names=technician_names,
         item_count=len(work_order.items),
+        location=work_order.location,
+        output_to=work_order.output_to,
+        vendor_assignee=work_order.vendor_assignee,
+        service_type=work_order.service_type,
+        schedule_date=work_order.schedule_date,
+        supervisor_id=work_order.supervisor_id,
+        supervisor_name=work_order.supervisor.full_name if work_order.supervisor else None,
+        legacy=work_order.legacy,
     )
 
 
@@ -100,11 +144,28 @@ def _materials_total(work_order: WorkOrder) -> Decimal:
     return total
 
 
+def _labor_detail(entry: WorkOrderLabor) -> WorkOrderLaborDetail:
+    return WorkOrderLaborDetail(
+        id=entry.id,
+        technician_id=entry.technician_id,
+        technician_name=entry.technician.full_name,
+        minutes=entry.minutes,
+    )
+
+
 def _detail(work_order: WorkOrder, *, include_price: bool) -> WorkOrderDetail:
+    labor_entries = list(getattr(work_order, "labor_entries", None) or ())
+    labor_minutes = sum(entry.minutes for entry in labor_entries)
     return WorkOrderDetail(
         **_card(work_order).model_dump(),
+        notes=work_order.notes,
         items=[_line_detail(line, include_price=include_price) for line in work_order.items],
+        labor=[_labor_detail(entry) for entry in labor_entries],
         materials_total=_materials_total(work_order) if include_price else None,
+        labor_minutes=labor_minutes,
+        labor_billed_minutes=wo.billed_labor_minutes(labor_minutes),
+        labor_rate=wo.LABOR_RATE if include_price else None,
+        labor_total=wo.labor_charge(labor_minutes) if include_price else None,
     )
 
 
@@ -124,10 +185,11 @@ def list_work_orders(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List the caller's work orders, newest-first. `status` filters by
-    in_progress|completed; `q` is a case-insensitive number search; `limit` caps
-    the result to the N newest (the page browses the 10 most recent by default and
-    omits `limit` to show all / to search). Any authenticated user; server-scoped."""
+    """List the caller's work orders, newest-first. `status` filters one live
+    state including On-Hold; `q` is a case-insensitive number search;
+    `limit` caps the result to the N newest (the page browses the 10 most recent
+    by default and omits `limit` to show all / to search). Any authenticated user;
+    server-scoped."""
     try:
         return [
             _card(w)
@@ -139,37 +201,51 @@ def list_work_orders(
         raise to_http(exc)
 
 
-@router.post("/", response_model=WorkOrderDetail, status_code=201)
-def create_work_order(
-    payload: WorkOrderCreate,
+@router.post("/import", response_model=WorkOrderImportResult)
+async def import_work_orders(
+    file: UploadFile = File(...),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Create a work order (Supervisor+). Re-using an existing LIVE number opens
-    that work order (fill-blanks), not an error. A number matching an *archived*
-    work order returns 409 unless `restore_archived` is set, so the page can
-    confirm the restore and re-submit."""
-    if not roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
+    """Bulk-import work orders from the mass CSV export (Admin+). Each row
+    find-or-creates by number (idempotent re-upload), stores the new-schema
+    columns, and matches the vendor `ASSIGNED TO` name to a supervisor to route
+    visibility. Returns a summary of created/opened/matched/skipped counts."""
+    if not roles.role_at_least(user.role, roles.ROLE_ADMIN):
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
+    data = await file.read()
     try:
-        work_order = wo_service.create_work_order(
-            db,
-            user=user,
-            number=payload.number,
-            community=payload.community,
-            building_number=payload.building_number,
-            unit_number=payload.unit_number,
-            description=payload.description,
-            assigned_to_id=payload.assigned_to_id,
-            restore_archived=payload.restore_archived,
-        )
-        # Re-fetch through the scoped loader so the response carries items/assignee.
-        return _detail(
-            wo_service.get_work_order(db, work_order.id, user=user),
-            include_price=_can_see_price(user),
-        )
+        summary = wo_service.import_work_orders(db, csv_bytes=data, user=user)
     except DomainError as exc:
         raise to_http(exc)
+    return WorkOrderImportResult(**summary)
+
+
+@router.get("/lookup", response_model=WorkOrderLookup)
+def lookup_work_order(
+    number: str = Query(..., min_length=1),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Report whether `number` names a work order the caller can see, and whether
+    it is archived (Supervisor+).
+
+    Declared before `/{work_order_id}` so "lookup" is not parsed as an id. This is
+    the one read that sees through the archive: the list and detail routes hide
+    archived work orders, which leaves a number that appears all over History with
+    no visible work order. History uses this to offer a restore. A number the
+    caller may not see reports `found=False`, same as the list would show."""
+    if not roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
+        raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
+    work_order = wo_service.lookup_work_order(db, number=number, user=user)
+    if work_order is None:
+        return WorkOrderLookup(found=False)
+    return WorkOrderLookup(
+        found=True,
+        archived=work_order.archived_at is not None,
+        id=work_order.id,
+        number=work_order.number,
+    )
 
 
 @router.get("/{work_order_id}", response_model=WorkOrderDetail)
@@ -196,13 +272,31 @@ def update_work_order(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Edit a work order. Status / entry_mode are editable by any in-scope user;
-    identity / location / assignment require Supervisor+. Server-scoped."""
+    """Edit a work order. Notes and entry mode are available to an in-scope
+    user, and an assigned technician may set In-Progress or Mark Completed.
+    Manual rollback, On-Hold, Review, and identity/location/assignment require
+    Supervisor+. Server-scoped."""
     fields = payload.model_dump(exclude_unset=True)
     if _PRIVILEGED_FIELDS & fields.keys() and not roles.role_at_least(
         user.role, roles.ROLE_SUPERVISOR
     ):
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
+    requested_status = fields.get("status")
+    if requested_status is not None and not roles.role_at_least(
+        user.role, roles.ROLE_SUPERVISOR
+    ):
+        if requested_status == wo.STATUS_IN_PROGRESS:
+            # A technician may start pre-work, but must not use this allowance
+            # to roll Completed/On-Hold/Review backward. Those transitions stay
+            # inside the Supervisor+ Edit Details workflow.
+            try:
+                current = wo_service.get_work_order(db, work_order_id, user=user)
+            except DomainError as exc:
+                raise to_http(exc)
+            if current.status not in (wo.STATUS_CREATED, wo.STATUS_ASSIGNED):
+                raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
+        elif requested_status != wo.STATUS_COMPLETED:
+            raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
     try:
         work_order = wo_service.update_work_order(db, work_order_id, user=user, fields=fields)
         return _detail(
@@ -216,14 +310,39 @@ def update_work_order(
 @router.post("/{work_order_id}/archive", status_code=204)
 def archive_work_order(
     work_order_id: uuid.UUID,
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """Close a Review work order (Admin+, scoped) by soft-archiving it.
+
+    The ordinary Work Orders page deliberately has no close action; the future
+    Admin Review page is the intended caller for this existing endpoint.
+    """
+    try:
+        wo_service.archive_work_order(db, work_order_id, user=user)
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.post("/{work_order_id}/restore", response_model=WorkOrderDetail)
+def restore_work_order(
+    work_order_id: uuid.UUID,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Soft-archive a work order (Supervisor+, scoped)."""
+    """Un-archive a work order (Supervisor+, scoped), bringing it back onto the
+    Work Orders page with its materials intact. The undo for `/archive`, and the
+    only way back for an archived work order short of re-importing its CSV row --
+    work orders are import-only, so it cannot simply be created again. 404 if
+    unknown or not visible to the caller."""
     if not roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
     try:
-        wo_service.archive_work_order(db, work_order_id, user=user)
+        work_order = wo_service.restore_work_order(db, work_order_id, user=user)
+        return _detail(
+            wo_service.get_work_order(db, work_order.id, user=user),
+            include_price=_can_see_price(user),
+        )
     except DomainError as exc:
         raise to_http(exc)
 
@@ -303,5 +422,78 @@ def delete_work_order_item(
     row is voided). Server-scoped."""
     try:
         wo_service.delete_work_order_item(db, work_order_id, wo_item_id, user=user)
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.post(
+    "/{work_order_id}/labor",
+    response_model=WorkOrderLaborDetail,
+    status_code=201,
+)
+def add_work_order_labor(
+    work_order_id: uuid.UUID,
+    payload: WorkOrderLaborCreate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Record actual labor for an assigned technician.
+
+    Technicians may record only themselves; Supervisor+ may record any assigned
+    technician. The first entry starts pre-work, and billing rounds the combined
+    work-order duration upward to the next 30 minutes.
+    """
+    try:
+        return _labor_detail(
+            wo_service.add_work_order_labor(
+                db,
+                work_order_id,
+                user=user,
+                technician_id=payload.technician_id,
+                minutes=payload.minutes,
+            )
+        )
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.patch(
+    "/{work_order_id}/labor/{labor_id}",
+    response_model=WorkOrderLaborDetail,
+)
+def update_work_order_labor(
+    work_order_id: uuid.UUID,
+    labor_id: uuid.UUID,
+    payload: WorkOrderLaborUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Replace an in-scope labor entry's actual duration."""
+    try:
+        return _labor_detail(
+            wo_service.update_work_order_labor(
+                db,
+                work_order_id,
+                labor_id,
+                user=user,
+                minutes=payload.minutes,
+            )
+        )
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.delete("/{work_order_id}/labor/{labor_id}", status_code=204)
+def delete_work_order_labor(
+    work_order_id: uuid.UUID,
+    labor_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Remove an in-scope labor entry without rolling lifecycle status back."""
+    try:
+        wo_service.delete_work_order_labor(
+            db, work_order_id, labor_id, user=user
+        )
     except DomainError as exc:
         raise to_http(exc)

@@ -22,6 +22,7 @@ from app.domain.errors import (
     ReturnExceedsLoadedError,
     StageItemNotFoundError,
     StageStateError,
+    WorkOrderNotFoundError,
     WorkOrderStateError,
 )
 from app.models import Item, MassStageItem, Transaction, User, WorkOrder, WorkOrderItem
@@ -70,13 +71,21 @@ def _building():
     return f"B-{uuid.uuid4().hex[:6]}"
 
 
+def _import_wo(db, number=None, **attrs):
+    """Bring a work order into existence the only way anything can -- the import
+    path. A stage can then reference it; it may no longer create one itself."""
+    number = number or f"WO-{uuid.uuid4().hex[:8]}"
+    wo_service.get_or_create_work_order(db, number=number, **attrs)
+    return number
+
+
 def _seed_loading_stage(db, item, planned1=10, planned2=5):
     """A loading-status stage with the item planned in two slots (n1, n2)."""
     stage = create_stage(db, community="Scholars", building_name=_building(), created_by_id=None)
-    n1 = f"WO-A-{uuid.uuid4().hex[:5]}"
-    n2 = f"WO-B-{uuid.uuid4().hex[:5]}"
-    s1 = add_work_order_to_stage(db, stage.id, work_order_number=n1, created_by_id=None)
-    s2 = add_work_order_to_stage(db, stage.id, work_order_number=n2, created_by_id=None)
+    n1 = _import_wo(db, f"WO-A-{uuid.uuid4().hex[:5]}")
+    n2 = _import_wo(db, f"WO-B-{uuid.uuid4().hex[:5]}")
+    s1 = add_work_order_to_stage(db, stage.id, work_order_number=n1)
+    s2 = add_work_order_to_stage(db, stage.id, work_order_number=n2)
     add_item(db, stage.id, s1.id, item_id=item.id, planned_quantity=Decimal(planned1))
     add_item(db, stage.id, s2.id, item_id=item.id, planned_quantity=Decimal(planned2))
     update_stage(db, stage.id, status="loading")
@@ -149,7 +158,7 @@ def test_load_overdraft_refused_leaves_db_clean(db):
 def test_load_refused_when_not_loading(db):
     item = _seed_item(db, 100)
     stage = create_stage(db, community="Scholars", building_name=_building(), created_by_id=None)
-    s1 = add_work_order_to_stage(db, stage.id, work_order_number=f"WO-{uuid.uuid4().hex[:5]}", created_by_id=None)
+    s1 = add_work_order_to_stage(db, stage.id, work_order_number=_import_wo(db))
     add_item(db, stage.id, s1.id, item_id=item.id, planned_quantity=Decimal(10))
     with pytest.raises(StageStateError):
         load_item(db, stage.id, item_id=item.id, quantity=Decimal(1), user_id=None)
@@ -234,10 +243,11 @@ def test_add_work_order_records_location_and_assignee(db):
     sup = _seed_user(db, "supervisor")
     tech = _seed_user(db, "technician")
     building = _building()
+    number = _import_wo(db, "WO-ASSIGN", created_by_id=sup.id)
     stage = create_stage(db, community="Scholars", building_name=building, created_by_id=sup.id)
     slot = add_work_order_to_stage(
-        db, stage.id, work_order_number="WO-ASSIGN", unit_number="1101",
-        assigned_to_id=tech.id, created_by_id=sup.id,
+        db, stage.id, work_order_number=number, unit_number="1101",
+        assigned_to_id=tech.id,
     )
     w = db.get(WorkOrder, slot.work_order_id)
     assert w.community == "Scholars"
@@ -249,13 +259,24 @@ def test_add_work_order_records_location_and_assignee(db):
 def test_add_work_order_enforces_community_building_match(db):
     sup = _seed_user(db, "supervisor")
     # A work order already filed under a different building.
-    wo_service.get_or_create_work_order(
-        db, number="WO-ELSEWHERE", community="Centennial", building_number="9",
+    _import_wo(
+        db, "WO-ELSEWHERE", community="Centennial", building_number="9",
         created_by_id=sup.id,
     )
     stage = create_stage(db, community="Scholars", building_name="19", created_by_id=sup.id)
     with pytest.raises(WorkOrderStateError):
-        add_work_order_to_stage(db, stage.id, work_order_number="WO-ELSEWHERE", created_by_id=sup.id)
+        add_work_order_to_stage(db, stage.id, work_order_number="WO-ELSEWHERE")
+
+
+def test_add_work_order_refuses_an_unimported_number(db):
+    # Work orders are import-only: a stage plans around work orders that already
+    # exist and can no longer bring one into being by naming it.
+    sup = _seed_user(db, "supervisor")
+    stage = create_stage(db, community="Scholars", building_name=_building(), created_by_id=sup.id)
+    number = f"WO-{uuid.uuid4().hex[:8]}"
+    with pytest.raises(WorkOrderNotFoundError):
+        add_work_order_to_stage(db, stage.id, work_order_number=number)
+    assert wo_service.find_by_number(db, number) is None
 
 
 # --- reuse (Stage again) -------------------------------------------------

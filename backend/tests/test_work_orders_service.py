@@ -1,8 +1,9 @@
 """Database integration tests for the standalone work-order service.
 
-Exercises find-or-create-by-number (case-insensitive, fill-blanks,
-restore-on-archived), dispense vs retroactive logging, edit auto-correction,
-delete reversal, the stock-neutral void, archive, and role scoping. Skip if no
+Exercises find-or-create-by-number (the import path: case-insensitive,
+fill-blanks, restore-on-archived), resolve-by-number (every other surface, which
+may not create), dispense vs retroactive logging, edit auto-correction, delete
+reversal, the stock-neutral void, archive/restore, and role scoping. Skip if no
 DB.
 """
 
@@ -21,7 +22,7 @@ from app.domain.errors import (
     InvalidAssigneeError,
     ItemNotFoundError,
     NegativeQuantityError,
-    WorkOrderArchivedError,
+    RoleManagementError,
     WorkOrderNotFoundError,
     WorkOrderStateError,
 )
@@ -67,19 +68,134 @@ def _wo(db, *, created_by, assigned_to=None, number=None):
     )
 
 
+def _close(db, work_order, *, user):
+    """Move a fixture through Review before exercising Closed/archive behavior."""
+    wos.update_work_order(
+        db, work_order.id, user=user, fields={"status": "review"}
+    )
+    wos.archive_work_order(db, work_order.id, user=user)
+
+
 def _txn(db, txn_id):
     return db.query(Transaction).filter(Transaction.id == txn_id).one()
 
 
-# --- find-or-create ------------------------------------------------------
+# --- find-or-create (the import path) ------------------------------------
 
-def test_create_is_in_progress_with_number_identity(db):
+def test_import_create_is_created_with_number_identity(db):
     sup = _seed_user(db, "supervisor")
-    w = wos.create_work_order(db, user=sup, number="WO-100", community="Scholars")
-    assert w.status == "in_progress"
+    w = wos.get_or_create_work_order(
+        db, number="WO-100", community="Scholars", created_by_id=sup.id
+    )
+    assert w.status == "created"
     assert w.entry_mode == "dispense"
     assert w.community == "Scholars"
     assert w.created_by_id == sup.id
+
+
+def test_technician_assignment_derives_only_prework_status(db):
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup)
+    assert w.status == "created"
+
+    assigned = wos.update_work_order(
+        db, w.id, user=sup, fields={"assigned_to_id": tech.id}
+    )
+    assert assigned.status == "assigned"
+
+    unassigned = wos.update_work_order(
+        db, w.id, user=sup, fields={"assigned_to_id": None}
+    )
+    assert unassigned.status == "created"
+
+    wos.update_work_order(
+        db, w.id, user=sup, fields={"status": "in_progress"}
+    )
+    reassigned = wos.update_work_order(
+        db, w.id, user=sup, fields={"assigned_to_id": tech.id}
+    )
+    assert reassigned.status == "in_progress"
+
+
+def test_multiple_technician_assignments_drive_status_and_scope(db):
+    sup = _seed_user(db, "supervisor")
+    tech1 = _seed_user(db, "technician")
+    tech2 = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup)
+
+    assigned = wos.update_work_order(
+        db,
+        w.id,
+        user=sup,
+        fields={"assigned_to_ids": [tech1.id, tech2.id]},
+    )
+
+    assert assigned.status == "assigned"
+    assert assigned.assigned_to_id == tech1.id
+    detail = wos.get_work_order(db, w.id, user=tech2)
+    assert {tech.id for tech in wos.assigned_technicians(detail)} == {
+        tech1.id,
+        tech2.id,
+    }
+    assert w.id in {row.id for row in wos.list_work_orders(db, user=tech2)}
+
+    cleared = wos.update_work_order(
+        db, w.id, user=sup, fields={"assigned_to_ids": []}
+    )
+    assert cleared.status == "created"
+    assert cleared.assigned_to_id is None
+
+
+def test_labor_tracks_technician_and_advances_first_activity(db):
+    sup = _seed_user(db, "supervisor")
+    tech1 = _seed_user(db, "technician")
+    tech2 = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup)
+    wos.update_work_order(
+        db,
+        w.id,
+        user=sup,
+        fields={"assigned_to_ids": [tech1.id, tech2.id]},
+    )
+
+    first = wos.add_work_order_labor(
+        db, w.id, user=tech1, technician_id=tech1.id, minutes=35
+    )
+    second = wos.add_work_order_labor(
+        db, w.id, user=sup, technician_id=tech2.id, minutes=40
+    )
+    detail = wos.get_work_order(db, w.id, user=tech2)
+
+    assert detail.status == "in_progress"
+    assert {entry.id for entry in detail.labor_entries} == {first.id, second.id}
+    assert sum(entry.minutes for entry in detail.labor_entries) == 75
+
+    updated = wos.update_work_order_labor(
+        db, w.id, first.id, user=tech1, minutes=50
+    )
+    assert updated.minutes == 50
+
+    with pytest.raises(RoleManagementError):
+        wos.update_work_order_labor(
+            db, w.id, second.id, user=tech1, minutes=60
+        )
+
+    wos.delete_work_order_labor(db, w.id, first.id, user=tech1)
+    detail = wos.get_work_order(db, w.id, user=tech2)
+    assert [entry.id for entry in detail.labor_entries] == [second.id]
+    assert detail.status == "in_progress"
+
+
+def test_labor_requires_current_technician_assignment(db):
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup)
+
+    with pytest.raises(InvalidAssigneeError):
+        wos.add_work_order_labor(
+            db, w.id, user=sup, technician_id=tech.id, minutes=30
+        )
 
 
 def test_find_or_create_case_insensitive_and_fill_blanks(db):
@@ -94,57 +210,15 @@ def test_find_or_create_case_insensitive_and_fill_blanks(db):
     assert c.community == "Scholars"
 
 
-def test_archived_number_is_restored_on_reference(db):
+def test_archived_number_is_restored_on_reimport(db):
+    # A re-import of an archived number revives it -- the import is the one path
+    # that may create, so it is also the one reference that un-archives.
     sup = _seed_user(db, "supervisor")
     a = _wo(db, created_by=sup)
-    wos.archive_work_order(db, a.id, user=sup)
+    _close(db, a, user=sup)
     b = wos.get_or_create_work_order(db, number=a.number.lower(), created_by_id=sup.id)
     assert b.id == a.id
     assert b.archived_at is None
-
-
-def test_create_refuses_archived_number_without_restore(db):
-    # The deliberate "New work order" path must NOT silently resurrect an
-    # archived number -- it raises so the page can prompt "restore it?".
-    sup = _seed_user(db, "supervisor")
-    a = _wo(db, created_by=sup)
-    wos.archive_work_order(db, a.id, user=sup)
-    with pytest.raises(WorkOrderArchivedError):
-        wos.create_work_order(db, user=sup, number=a.number.lower())
-    # Still archived: the refused create changed nothing.
-    db.refresh(a)
-    assert a.archived_at is not None
-
-
-def test_create_restores_archived_number_with_flag(db):
-    # Re-submitting with restore_archived=True (the user confirmed the prompt)
-    # un-archives and re-opens the reserved number.
-    sup = _seed_user(db, "supervisor")
-    a = _wo(db, created_by=sup, number="WO-RESTORE")
-    wos.archive_work_order(db, a.id, user=sup)
-    b = wos.create_work_order(
-        db, user=sup, number="wo-restore", restore_archived=True
-    )
-    assert b.id == a.id
-    assert b.archived_at is None
-
-
-def test_create_live_number_reopens_without_prompt(db):
-    # A number that is merely LIVE (not archived) is fill-blanks re-opened with
-    # no conflict, even without the restore flag.
-    sup = _seed_user(db, "supervisor")
-    a = wos.create_work_order(db, user=sup, number="WO-LIVE")
-    b = wos.create_work_order(db, user=sup, number="wo-live", community="Scholars")
-    assert b.id == a.id
-    assert b.community == "Scholars"
-
-
-def test_create_new_number_needs_no_restore_flag(db):
-    # A brand-new number is unaffected by the archived gate.
-    sup = _seed_user(db, "supervisor")
-    w = wos.create_work_order(db, user=sup, number="WO-BRANDNEW")
-    assert w.archived_at is None
-    assert w.status == "in_progress"
 
 
 def test_assignee_must_be_technician(db):
@@ -156,6 +230,131 @@ def test_assignee_must_be_technician(db):
         )
 
 
+# --- resolve (every non-import surface) ----------------------------------
+#
+# Work orders are import-only: scan-and-go and Mass Stage attach to a number the
+# import already brought in, and cannot conjure one.
+
+def test_resolve_unknown_number_raises(db):
+    with pytest.raises(WorkOrderNotFoundError):
+        wos.resolve_work_order(db, number=f"WO-{uuid.uuid4().hex[:8]}")
+
+
+def test_resolve_creates_nothing_on_a_miss(db):
+    number = f"WO-{uuid.uuid4().hex[:8]}"
+    with pytest.raises(WorkOrderNotFoundError):
+        wos.resolve_work_order(db, number=number)
+    assert wos.find_by_number(db, number) is None
+
+
+def test_resolve_matches_case_insensitively_and_fills_blanks(db):
+    sup = _seed_user(db, "supervisor")
+    a = _wo(db, created_by=sup)
+    b = wos.resolve_work_order(db, number=f"  {a.number.lower()} ", community="Scholars")
+    assert b.id == a.id
+    assert b.community == "Scholars"  # blank filled, as a reference always has
+    # ...but a resolve never overwrites a value that is already set.
+    c = wos.resolve_work_order(db, number=a.number, community="Centennial")
+    assert c.community == "Scholars"
+
+
+def test_resolve_refuses_an_archived_number(db):
+    # Archived is a dead end for a reference now: only an explicit restore (or a
+    # re-import) brings the work order back, so scanning cannot silently revive
+    # something someone deliberately archived.
+    sup = _seed_user(db, "supervisor")
+    a = _wo(db, created_by=sup)
+    _close(db, a, user=sup)
+    with pytest.raises(WorkOrderNotFoundError):
+        wos.resolve_work_order(db, number=a.number.lower())
+    db.refresh(a)
+    assert a.archived_at is not None  # the refused resolve changed nothing
+
+
+# --- lookup / restore ----------------------------------------------------
+
+def test_lookup_reports_an_archived_work_order(db):
+    # The one read that sees through the archive, so History can offer a restore
+    # for a number whose work order has been archived.
+    sup = _seed_user(db, "supervisor")
+    a = _wo(db, created_by=sup)
+    assert wos.lookup_work_order(db, number=a.number, user=sup).archived_at is None
+    _close(db, a, user=sup)
+    found = wos.lookup_work_order(db, number=a.number.lower(), user=sup)
+    assert found is not None and found.archived_at is not None
+
+
+def test_lookup_hides_a_work_order_out_of_scope(db):
+    # Scoping still applies: a supervisor may not discover another's work order.
+    mine = _seed_user(db, "supervisor")
+    theirs = _seed_user(db, "supervisor")
+    a = _wo(db, created_by=theirs)
+    assert wos.lookup_work_order(db, number=a.number, user=mine) is None
+
+
+def test_lookup_unknown_number_is_none(db):
+    sup = _seed_user(db, "supervisor")
+    assert wos.lookup_work_order(db, number=f"WO-{uuid.uuid4().hex[:8]}", user=sup) is None
+
+
+def test_restore_unarchives_and_resolve_works_again(db):
+    sup = _seed_user(db, "supervisor")
+    a = _wo(db, created_by=sup)
+    _close(db, a, user=sup)
+    restored = wos.restore_work_order(db, a.id, user=sup)
+    assert restored.id == a.id
+    assert restored.archived_at is None
+    # Back in scope for the loaders and for a reference.
+    assert wos.get_work_order(db, a.id, user=sup).id == a.id
+    assert wos.resolve_work_order(db, number=a.number).id == a.id
+
+
+def test_restore_keeps_material_lines(db):
+    # Archiving hides a work order; it never dropped its materials, and restoring
+    # brings them back intact.
+    sup = _seed_user(db, "supervisor")
+    item = _seed_item(db, 100)
+    a = _wo(db, created_by=sup)
+    wos.add_work_order_item(db, a.id, user=sup, item_id=item.id, quantity=Decimal(3))
+    _close(db, a, user=sup)
+    wos.restore_work_order(db, a.id, user=sup)
+    detail = wos.get_work_order(db, a.id, user=sup)
+    assert [line.quantity for line in detail.items] == [Decimal(3)]
+
+
+def test_archiving_keeps_the_work_orders_history_searchable(db):
+    # Archiving hides the work order, never its ledger: each transaction carries
+    # its own `work_order_number`, so History still finds every dispense logged
+    # against an archived (or later restored) work order.
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    item = _seed_item(db, 100)
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.add_work_order_item(db, w.id, user=tech, item_id=item.id, quantity=Decimal(6))
+    number = w.number
+
+    def history_rows():
+        return list_history(
+            db, item_id=None, user_id=None, work_order_number=number,
+            page=1, page_size=10, include_price=True,
+        ).items
+
+    assert len(history_rows()) == 1
+    _close(db, w, user=sup)
+    assert len(history_rows()) == 1  # still there while archived
+    wos.restore_work_order(db, w.id, user=sup)
+    assert len(history_rows()) == 1  # and unchanged by the restore
+
+
+def test_restore_is_scoped(db):
+    mine = _seed_user(db, "supervisor")
+    theirs = _seed_user(db, "supervisor")
+    a = _wo(db, created_by=theirs)
+    _close(db, a, user=theirs)
+    with pytest.raises(WorkOrderNotFoundError):
+        wos.restore_work_order(db, a.id, user=mine)
+
+
 # --- dispense mode (moves stock) -----------------------------------------
 
 def test_dispense_add_moves_stock_and_writes_history_row(db):
@@ -163,8 +362,11 @@ def test_dispense_add_moves_stock_and_writes_history_row(db):
     tech = _seed_user(db, "technician")
     item = _seed_item(db, 100, price="3.00")
     w = _wo(db, created_by=sup, assigned_to=tech)  # default dispense
+    assert w.status == "assigned"
 
     line = wos.add_work_order_item(db, w.id, user=tech, item_id=item.id, quantity=Decimal(4))
+    db.refresh(w)
+    assert w.status == "in_progress"
 
     db.refresh(item)
     assert item.quantity == Decimal(96)
@@ -174,6 +376,20 @@ def test_dispense_add_moves_stock_and_writes_history_row(db):
     assert txn.work_order_id == w.id
     assert txn.work_order_number == w.number
     assert txn.unit_price == Decimal("3.00")
+
+
+def test_material_activity_does_not_resume_on_hold_work_order(db):
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    item = _seed_item(db, 100)
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.update_work_order(db, w.id, user=sup, fields={"status": "on_hold"})
+
+    wos.add_work_order_item(
+        db, w.id, user=tech, item_id=item.id, quantity=Decimal(1)
+    )
+    db.refresh(w)
+    assert w.status == "on_hold"
 
 
 def test_dispense_overdraft_refused(db):
@@ -315,7 +531,7 @@ def test_mode_switch_only_affects_new_lines(db):
     assert other.quantity == Decimal(100)
 
 
-# --- status / completed-stays-editable -----------------------------------
+# --- lifecycle / completed-stays-editable -------------------------------
 
 def test_completed_work_order_still_editable(db):
     sup = _seed_user(db, "supervisor")
@@ -329,6 +545,87 @@ def test_completed_work_order_still_editable(db):
 
     line = wos.add_work_order_item(db, w.id, user=tech, item_id=item.id, quantity=Decimal(2))
     assert line.quantity == Decimal(2)
+
+
+def test_review_retains_completion_time_and_reopen_clears_it(db):
+    sup = _seed_user(db, "supervisor")
+    w = _wo(db, created_by=sup)
+
+    completed = wos.update_work_order(
+        db, w.id, user=sup, fields={"status": "completed"}
+    )
+    completed_at = completed.completed_at
+    review = wos.update_work_order(
+        db, w.id, user=sup, fields={"status": "review"}
+    )
+    assert review.completed_at == completed_at
+
+    reopened = wos.update_work_order(
+        db, w.id, user=sup, fields={"status": "in_progress"}
+    )
+    assert reopened.completed_at is None
+
+
+def test_completed_can_roll_back_to_on_hold_and_clear_completion_time(db):
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+
+    completed = wos.update_work_order(
+        db, w.id, user=sup, fields={"status": "completed"}
+    )
+    assert completed.completed_at is not None
+
+    held = wos.update_work_order(
+        db, w.id, user=sup, fields={"status": "on_hold"}
+    )
+    assert held.status == "on_hold"
+    assert held.completed_at is None
+
+
+def test_manual_prework_rollback_stays_aligned_with_technician(db):
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.update_work_order(db, w.id, user=sup, fields={"status": "completed"})
+
+    assigned = wos.update_work_order(
+        db, w.id, user=sup, fields={"status": "created"}
+    )
+    assert assigned.status == "assigned"
+
+    created = wos.update_work_order(
+        db,
+        w.id,
+        user=sup,
+        fields={"assigned_to_id": None, "status": "assigned"},
+    )
+    assert created.status == "created"
+
+
+def test_work_order_notes_can_be_saved_and_cleared_by_in_scope_user(db):
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+
+    saved = wos.update_work_order(
+        db, w.id, user=tech, fields={"notes": "Call resident before arrival."}
+    )
+    assert saved.notes == "Call resident before arrival."
+
+    cleared = wos.update_work_order(
+        db, w.id, user=tech, fields={"notes": None}
+    )
+    assert cleared.notes is None
+
+
+def test_close_requires_review(db):
+    sup = _seed_user(db, "supervisor")
+    w = _wo(db, created_by=sup)
+    with pytest.raises(WorkOrderStateError, match="Review"):
+        wos.archive_work_order(db, w.id, user=sup)
+    db.refresh(w)
+    assert w.archived_at is None
 
 
 def test_set_invalid_status_rejected(db):
@@ -371,12 +668,17 @@ def test_status_filter_and_search(db):
     tech = _seed_user(db, "technician")
     a = _wo(db, created_by=sup, assigned_to=tech)
     b = _wo(db, created_by=sup, assigned_to=tech)
+    wos.update_work_order(db, a.id, user=sup, fields={"status": "in_progress"})
     wos.update_work_order(db, b.id, user=sup, fields={"status": "completed"})
+    held = _wo(db, created_by=sup, assigned_to=tech)
+    wos.update_work_order(db, held.id, user=sup, fields={"status": "on_hold"})
 
     in_prog = {w.id for w in wos.list_work_orders(db, user=sup, status="in_progress")}
     done = {w.id for w in wos.list_work_orders(db, user=sup, status="completed")}
+    on_hold = {w.id for w in wos.list_work_orders(db, user=sup, status="on_hold")}
     assert a.id in in_prog and b.id not in in_prog
     assert b.id in done and a.id not in done
+    assert held.id in on_hold and a.id not in on_hold
 
     db.refresh(a)
     frag = a.number[-4:]
@@ -412,7 +714,7 @@ def test_list_limit_returns_newest(db):
 def test_archived_work_order_hidden(db):
     sup = _seed_user(db, "supervisor")
     w = _wo(db, created_by=sup)
-    wos.archive_work_order(db, w.id, user=sup)
+    _close(db, w, user=sup)
     assert w.id not in {x.id for x in wos.list_work_orders(db, user=sup)}
     with pytest.raises(WorkOrderNotFoundError):
         wos.get_work_order(db, w.id, user=sup)

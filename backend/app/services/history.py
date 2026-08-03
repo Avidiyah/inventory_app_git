@@ -160,7 +160,7 @@ def list_history(
             item_barcode=item.barcode,
             item_name=item.name,
             user_id=txn.user_id,
-            username=user.username if user is not None else None,
+            user_name=user.full_name if user is not None else None,
             transaction_type=txn.transaction_type,
             quantity=txn.quantity,
             work_order_number=txn.work_order_number,

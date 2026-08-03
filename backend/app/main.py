@@ -101,6 +101,7 @@ SHELL_PARTS = (
     "pages/transaction.html",
     "pages/mass-stage.html",
     "pages/work-orders.html",
+    "pages/admin-review.html",
     "pages/tools.html",
     "pages/history.html",
     "shell-tail.html",          # </main>, scan-confirm overlay, scripts, </body></html>

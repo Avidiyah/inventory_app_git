@@ -33,9 +33,11 @@ from app.database import Base
 
 class User(Base):
     """A person who can log in and act on the system. `username` is the
-    login identifier and must be unique; `password_hash` stores a salted
-    scrypt digest (see `app.services.auth`); `role` is one of the four
-    values in `app.domain.roles` and drives authorization.
+    login identifier and must be unique; `first_name` / `last_name` are the
+    human-facing identity used everywhere outside login and account management;
+    `password_hash` stores a salted scrypt digest (see `app.services.auth`);
+    `role` is one of the four values in `app.domain.roles` and drives
+    authorization.
 
     Soft delete: a user is archived rather than hard-deleted, so the
     transaction history -- which resolves the acting user's name via a
@@ -49,6 +51,10 @@ class User(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     username = Column(Text, nullable=False, unique=True)
+    # Legacy accounts may be NULL until a user/manager fills their name on the
+    # Users page; POST /users requires both names through UserCreate.
+    first_name = Column(Text, nullable=True)
+    last_name = Column(Text, nullable=True)
     password_hash = Column(Text, nullable=False)
     role = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -56,6 +62,14 @@ class User(Base):
 
     transactions = relationship("Transaction", back_populates="user")
     sessions = relationship("AuthSession", back_populates="user", cascade="all, delete-orphan")
+
+    @property
+    def full_name(self) -> str:
+        """Trimmed display identity without exposing the login username."""
+        full_name = " ".join(
+            part.strip() for part in (self.first_name, self.last_name) if part and part.strip()
+        )
+        return full_name or "Name unavailable"
 
 
 class Item(Base):
@@ -252,16 +266,27 @@ class WorkOrder(Base):
     the surrogate `id` keeps FKs uniform with the rest of the schema. Everything
     else -- community / building / unit, description, status, entry mode,
     assignee -- is an attribute, so this single row is the source of truth that
-    scan-and-go, Mass Stage, the Work Orders page, and History all reference (a
-    work-order number used anywhere find-or-creates this row; see
-    `services.work_orders.get_or_create_work_order`).
+    scan-and-go, Mass Stage, the Work Orders page, and History all reference.
 
-    `status` is two-state (`in_progress -> completed`, reopenable). `entry_mode`
-    (`dispense` | `retroactive`) is the default mode for newly logged materials:
-    dispense moves stock, retroactive is a stock-neutral paper backfill.
-    `assigned_to_id` (must be a technician) and `created_by_id` drive visibility
-    scope. Soft delete via `archived_at`, mirroring `Item` / `User`; an archived
-    number stays reserved and is restored if referenced again.
+    Rows are **import-only**: the work-order CSV import
+    (`services.work_orders.get_or_create_work_order`) is the only thing that
+    creates one. Everywhere else a number is used, it must already name a row
+    (`services.work_orders.resolve_work_order`).
+
+    Live `status` follows `created -> assigned -> in_progress -> completed ->
+    review`, with `on_hold` as a supervisor-controlled pause state: technician
+    assignment derives Assigned and first material/labor activity derives
+    In-Progress. Closed is represented by `archived_at`.
+    `entry_mode` (`dispense` |
+    `retroactive`) is the default mode for newly logged materials: dispense moves
+    stock, retroactive is a stock-neutral paper backfill.
+    Technician scope comes from `work_order_technicians`. `assigned_to_id` is
+    retained as a primary/legacy mirror for older clients and Mass Stage, while
+    Work Orders may carry any number of technician assignments. Soft delete via
+    `archived_at`, mirroring `Item` / `User`; an archived
+    number stays reserved, its material lines are kept, and it comes back through
+    `restore_work_order` or a re-import. Transactions carry their own
+    `work_order_number`, so archiving never hides a work order's history.
     """
 
     __tablename__ = "work_orders"
@@ -272,7 +297,8 @@ class WorkOrder(Base):
     building_number = Column(Text, nullable=True)
     unit_number = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
-    status = Column(Text, nullable=False, default="in_progress", server_default="in_progress")
+    notes = Column(Text, nullable=True)
+    status = Column(Text, nullable=False, default="created", server_default="created")
     entry_mode = Column(Text, nullable=False, default="dispense", server_default="dispense")
     assigned_to_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -285,21 +311,131 @@ class WorkOrder(Base):
     completed_at = Column(DateTime(timezone=True), nullable=True)
     archived_at = Column(DateTime(timezone=True), nullable=True)
 
+    # --- CSV-import schema (the new default source of truth) -------------
+    # These mirror the mass work-order export columns. `location` holds the raw
+    # LOCATION string (deliberately unparsed -- the export format is
+    # inconsistent / multi-line). `vendor_assignee` is the raw "ASSIGNED TO"
+    # name (a vendor contact, NOT a system user); the import separately maps it
+    # to `supervisor_id` by name. `schedule_date` is raw text (some rows carry a
+    # time). All nullable: a hand-created or legacy work order simply leaves them
+    # empty.
+    location = Column(Text, nullable=True)
+    output_to = Column(Text, nullable=True)
+    vendor_assignee = Column(Text, nullable=True)
+    service_type = Column(Text, nullable=True)
+    schedule_date = Column(Text, nullable=True)
+    # The supervisor a work order is routed to (drives visibility alongside
+    # `created_by_id`). Set by name-match at import or manually by an Admin.
+    supervisor_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    # A pre-import (old-schema) work order: kept for search so already-priced-out
+    # work orders stay findable, but its old descriptive attributes were dropped.
+    legacy = Column(Boolean, nullable=False, default=False, server_default="false")
+
     items = relationship(
         "WorkOrderItem",
         back_populates="work_order",
         cascade="all, delete-orphan",
     )
-    # Viewonly (no back-populates on User): surface usernames in responses only.
+    technician_assignments = relationship(
+        "WorkOrderTechnician",
+        back_populates="work_order",
+        cascade="all, delete-orphan",
+        order_by="WorkOrderTechnician.created_at",
+    )
+    technicians = relationship(
+        "User",
+        secondary="work_order_technicians",
+        primaryjoin="WorkOrder.id == WorkOrderTechnician.work_order_id",
+        secondaryjoin="User.id == WorkOrderTechnician.technician_id",
+        viewonly=True,
+        order_by="User.first_name, User.last_name, User.id",
+    )
+    labor_entries = relationship(
+        "WorkOrderLabor",
+        back_populates="work_order",
+        cascade="all, delete-orphan",
+        order_by="WorkOrderLabor.created_at",
+    )
+    # Viewonly (no back-populates on User): surface account + display identity.
     creator = relationship("User", foreign_keys=[created_by_id], viewonly=True)
     assignee = relationship("User", foreign_keys=[assigned_to_id], viewonly=True)
+    supervisor = relationship("User", foreign_keys=[supervisor_id], viewonly=True)
 
     __table_args__ = (
         # Case-insensitive + trimmed uniqueness: "WO-1", " wo-1 " collide.
         Index("uq_work_orders_number_ci", text("lower(btrim(number))"), unique=True),
         Index("ix_work_orders_assigned_to_id", "assigned_to_id"),
         Index("ix_work_orders_created_by_id", "created_by_id"),
+        Index("ix_work_orders_supervisor_id", "supervisor_id"),
         Index("ix_work_orders_status", "status"),
+    )
+
+
+class WorkOrderTechnician(Base):
+    """One technician assignment on a work order.
+
+    The join table is the source of truth for Work Orders visibility and permits
+    multiple technicians on a job. `WorkOrder.assigned_to_id` remains a
+    compatibility mirror of the first selected technician while older callers
+    migrate to the plural API.
+    """
+
+    __tablename__ = "work_order_technicians"
+
+    work_order_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("work_orders.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    technician_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True, nullable=False
+    )
+    assigned_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    work_order = relationship("WorkOrder", back_populates="technician_assignments")
+    technician = relationship("User", foreign_keys=[technician_id], viewonly=True)
+
+    __table_args__ = (
+        Index("ix_work_order_technicians_technician_id", "technician_id"),
+    )
+
+
+class WorkOrderLabor(Base):
+    """An actual labor-duration entry attributed to an assigned technician.
+
+    Durations are stored as whole minutes so billing can deterministically round
+    the work order's combined labor upward to a 30-minute increment. The rate is
+    a domain constant rather than copied onto each row; IMP-006 fixes it at
+    $62.50/hour. Labor survives later technician unassignment as historical work.
+    """
+
+    __tablename__ = "work_order_labor"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    work_order_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("work_orders.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    technician_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    minutes = Column(Integer, nullable=False)
+    recorded_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    work_order = relationship("WorkOrder", back_populates="labor_entries")
+    technician = relationship("User", foreign_keys=[technician_id], viewonly=True)
+    recorded_by = relationship("User", foreign_keys=[recorded_by_id], viewonly=True)
+
+    __table_args__ = (
+        Index("ix_work_order_labor_work_order_id", "work_order_id"),
+        Index("ix_work_order_labor_technician_id", "technician_id"),
     )
 
 
@@ -594,6 +730,6 @@ class ToolTransaction(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     tool = relationship("Tool", back_populates="checkouts")
-    # Viewonly (no back-populates on User): surface usernames in responses only.
+    # Viewonly (no back-populates on User): surface account + display identity.
     assigned_to = relationship("User", foreign_keys=[assigned_to_id], viewonly=True)
     performed_by = relationship("User", foreign_keys=[performed_by_id], viewonly=True)

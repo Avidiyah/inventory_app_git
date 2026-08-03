@@ -6,7 +6,7 @@
 // second user-selection step.
 
 import { apiReturnTool } from "../api.js";
-import { friendlyError } from "../format.js";
+import { friendlyError, formatUserName } from "../format.js";
 import { setMessage } from "../dom.js";
 
 const returnSection = document.getElementById("tool-return-section");
@@ -32,7 +32,7 @@ export function openToolReturn(tool, user, custodyEntry) {
   returnUser = user;
   returnCustody = custodyEntry;
   returnSelected.textContent = tool.name + " (" + tool.barcode + ")";
-  returnUserSummary.textContent = user.username + " has " + custodyEntry.quantity + " checked out";
+  returnUserSummary.textContent = formatUserName(user) + " has " + custodyEntry.quantity + " checked out";
   returnQuantity.value = String(custodyEntry.quantity);
   returnQuantity.max = String(custodyEntry.quantity);
   returnWorkOrder.value = "";
@@ -84,7 +84,7 @@ returnSaveBtn.addEventListener("click", async () => {
     });
     setMessage(
       returnMessage,
-      "Checked in " + returningTool.name + " for " + returnUser.username + ".",
+      "Checked in " + returningTool.name + " for " + formatUserName(returnUser) + ".",
       "success",
     );
     if (onSavedCallback) await onSavedCallback();

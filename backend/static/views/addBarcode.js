@@ -17,8 +17,7 @@
 // before retrying with override_archived; a genuine race still backstops
 // with DuplicateBarcodeError, surfaced via friendlyError.
 
-import { getItems } from "../state.js";
-import { apiUpdateBarcodes, apiGetItemByBarcode } from "../api.js";
+import { apiListItems, apiUpdateBarcodes, apiGetItemByBarcode } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage, confirmArchivedReuse, confirmDialog } from "../dom.js";
 
@@ -33,12 +32,18 @@ const MAX_RESULTS = 8;
 
 let pendingBarcode = null;
 let onSavedCallback = null;
+let candidateItems = [];
+let searchTimer = null;
+let searchRequestId = 0;
 
 export function setOnSaved(fn) {
   onSavedCallback = fn;
 }
 
 export function openAddBarcode(barcode) {
+  searchRequestId += 1;
+  clearTimeout(searchTimer);
+  candidateItems = [];
   pendingBarcode = barcode;
   scannedEl.innerHTML = `Scanned code: <strong>${escapeHtml(barcode)}</strong>`;
   searchEl.value = "";
@@ -50,6 +55,9 @@ export function openAddBarcode(barcode) {
 }
 
 export function closeAddBarcode() {
+  searchRequestId += 1;
+  clearTimeout(searchTimer);
+  candidateItems = [];
   pendingBarcode = null;
   section.hidden = true;
   resultsEl.innerHTML = "";
@@ -57,35 +65,51 @@ export function closeAddBarcode() {
   setMessage(messageEl, "", "");
 }
 
-// Render up to MAX_RESULTS items whose name matches the search term. No
-// term -> hide the list entirely (avoid dumping the whole catalogue).
+// Search by name without depending on Find Item's result cache. The API may
+// also match barcodes, so the returned rows are narrowed to name matches here.
 function renderResults() {
   const term = searchEl.value.trim().toLowerCase();
+  clearTimeout(searchTimer);
+  const requestId = ++searchRequestId;
+  candidateItems = [];
   resultsEl.innerHTML = "";
   if (!term) {
     resultsEl.hidden = true;
     return;
   }
-  const matches = getItems()
-    .filter(item => item.name.toLowerCase().includes(term))
-    .slice(0, MAX_RESULTS);
 
-  if (matches.length === 0) {
-    resultsEl.innerHTML = `<p class="hint">No items match that name.</p>`;
-    resultsEl.hidden = false;
-    return;
-  }
-
-  matches.forEach(item => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "scan-choice-btn";
-    btn.dataset.id = item.id;
-    // textContent (not innerHTML): item fields are user-supplied.
-    btn.textContent = `${item.name}  ·  ${item.barcode}  ·  ${item.location}`;
-    resultsEl.appendChild(btn);
-  });
+  resultsEl.innerHTML = `<p class="hint">Loading…</p>`;
   resultsEl.hidden = false;
+  searchTimer = setTimeout(() => loadResults(term, requestId), 200);
+}
+
+async function loadResults(term, requestId) {
+  try {
+    const items = await apiListItems({ query: term });
+    if (requestId !== searchRequestId) return;
+    candidateItems = items
+      .filter(item => item.name.toLowerCase().includes(term))
+      .slice(0, MAX_RESULTS);
+    resultsEl.innerHTML = "";
+
+    if (candidateItems.length === 0) {
+      resultsEl.innerHTML = `<p class="hint">No items match that name.</p>`;
+      return;
+    }
+
+    candidateItems.forEach(item => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "scan-choice-btn";
+      btn.dataset.id = item.id;
+      // textContent (not innerHTML): item fields are user-supplied.
+      btn.textContent = `${item.name}  ·  ${item.barcode}  ·  ${item.location}`;
+      resultsEl.appendChild(btn);
+    });
+  } catch (error) {
+    if (requestId !== searchRequestId) return;
+    resultsEl.innerHTML = `<p class="error">${escapeHtml(friendlyError(error, "Could not search items. Try again."))}</p>`;
+  }
 }
 
 searchEl.addEventListener("input", renderResults);
@@ -94,7 +118,7 @@ cancelBtn.addEventListener("click", closeAddBarcode);
 resultsEl.addEventListener("click", async (event) => {
   const btn = event.target.closest(".scan-choice-btn");
   if (!btn) return;
-  const item = getItems().find(i => i.id === btn.dataset.id);
+  const item = candidateItems.find(i => i.id === btn.dataset.id);
   if (!item || !pendingBarcode) return;
 
   if (!(await confirmDialog(`Add barcode ${pendingBarcode} to "${item.name}"?`))) return;

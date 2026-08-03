@@ -26,7 +26,7 @@ from app.domain.errors import DomainError, RoleManagementError
 from app.models import User
 from app.routers._errors import to_http
 from app.schemas.auth import PasswordResetRequest
-from app.schemas.users import UserCreate, UserResponse
+from app.schemas.users import UserCreate, UserNameUpdate, UserResponse
 from app.services import auth as auth_service
 from app.services import users as users_service
 
@@ -50,6 +50,8 @@ def create_user(
         return users_service.create_user(
             db,
             username=payload.username,
+            first_name=payload.first_name,
+            last_name=payload.last_name,
             password_hash=password_hash,
             role=payload.role,
         )
@@ -71,6 +73,30 @@ def list_users(
     `include_archived=true` to also include archived users (the History
     "by user" filter does this so a departed user can still be selected)."""
     return users_service.list_users(db, include_archived=include_archived)
+
+
+@router.patch("/{user_id}/name", response_model=UserResponse)
+def update_user_name(
+    user_id: uuid.UUID,
+    payload: UserNameUpdate,
+    actor: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Set a user's human-facing name. Users may update themselves; managers
+    may update a subordinate. This gives pre-name-migration accounts a safe,
+    explicit remediation path without guessing identity from usernames."""
+    try:
+        target = users_service.get_user(db, user_id)
+        if actor.id != target.id and not roles.can_manage(actor.role, target.role):
+            raise RoleManagementError("You cannot edit this user's name.")
+        return users_service.update_name(
+            db,
+            user_id,
+            first_name=payload.first_name,
+            last_name=payload.last_name,
+        )
+    except DomainError as exc:
+        raise to_http(exc)
 
 
 @router.post("/{user_id}/reset-password", status_code=204)

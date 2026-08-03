@@ -1,28 +1,36 @@
 // View: Work Orders page.
 //
 // Layer: views. Owns the Work Orders page: a server-scoped list of standalone
-// work orders (identity = number). Supervisor+ can create work orders and edit
-// their attributes / assignee / archive; any in-scope user (incl. an assigned
-// technician) can switch entry mode, mark complete/reopen, and log / edit /
-// remove materials. Reached via the nav button or a Unit click in the Mass
-// Stage tree (which calls `focusWorkOrder` before switching pages).
+// work orders (identity = number). Work orders are IMPORT-ONLY -- the Admin+ CSV
+// import is the only way one appears; there is no create form. Supervisor+ can
+// edit an imported work order's fields / assignee, but only after
+// clicking "Edit details" on the card (the editor stays collapsed so the card
+// reads as a clean summary); any in-scope user (incl. an assigned technician) can
+// switch entry mode, set pre-work jobs In-Progress, mark work completed, and
+// log/edit/remove materials and save free-form Work Order notes. Only Supervisor+ can manually
+// roll status back, place it On-Hold, send Completed work to Review, or reopen it.
+// Closing is intentionally absent: it belongs only on the Admin Review page.
+// Reached via the nav button or a Unit click in the Mass Stage tree (which calls
+// `focusWorkOrder` before switching pages).
 
 import {
   apiListWorkOrders,
   apiGetWorkOrder,
-  apiCreateWorkOrder,
   apiUpdateWorkOrder,
-  apiArchiveWorkOrder,
   apiAddWorkOrderItem,
   apiUpdateWorkOrderItem,
   apiSetWorkOrderItemBilling,
   apiDeleteWorkOrderItem,
+  apiAddWorkOrderLabor,
+  apiUpdateWorkOrderLabor,
+  apiDeleteWorkOrderLabor,
+  apiImportWorkOrders,
   apiListItems,
   apiListUsers,
 } from "../api.js";
-import { escapeHtml, friendlyError, formatMoney } from "../format.js";
-import { setMessage, confirmDialog, confirmArchivedReuse } from "../dom.js";
-import { getRole } from "../state.js";
+import { escapeHtml, friendlyError, formatMoney, formatUserName } from "../format.js";
+import { setMessage, confirmDialog } from "../dom.js";
+import { getCurrentUser, getRole } from "../state.js";
 import { roleAtLeast } from "../roles.js";
 import { openBillingEditor } from "./billingEditor.js";
 
@@ -33,20 +41,24 @@ const searchInput = document.getElementById("work-orders-search");
 const searchBtn = document.getElementById("work-orders-search-btn");
 const moreEl = document.getElementById("work-orders-more");
 
-const createSection = document.getElementById("work-orders-create-section");
-const createNumber = document.getElementById("wo-create-number");
-const createCommunity = document.getElementById("wo-create-community");
-const createBuilding = document.getElementById("wo-create-building");
-const createUnit = document.getElementById("wo-create-unit");
-const createAssignee = document.getElementById("wo-create-assignee");
-const createBtn = document.getElementById("wo-create-btn");
-const createMessage = document.getElementById("wo-create-message");
+const importSection = document.getElementById("work-orders-import-section");
+const importFile = document.getElementById("wo-import-file");
+const importBtn = document.getElementById("wo-import-btn");
+const importMessage = document.getElementById("wo-import-message");
 
-// Cached lists; loaded once per session.
+// Reference lists are reused during interactions within one visit (for example,
+// debounced Work Order searches), then refreshed when nav.js activates the page
+// again so item and user changes made elsewhere cannot remain stale.
 let allItems = [];
 let itemsLoaded = false;
 let allTechs = [];
-let techsLoaded = false;
+let allSupers = [];
+let usersLoaded = false;
+document.addEventListener("user-names-updated", () => {
+  allTechs = [];
+  allSupers = [];
+  usersLoaded = false;
+});
 // Work order id to expand once the list renders (set by a Mass Stage tree click).
 let pendingFocusId = null;
 
@@ -63,6 +75,10 @@ export function focusWorkOrder(workOrderId) {
 
 function isSupervisorPlus() {
   return roleAtLeast(getRole(), "supervisor");
+}
+
+function isAdminPlus() {
+  return roleAtLeast(getRole(), "admin");
 }
 
 // Fixed company mark-up on the line total (mirrors history.js MARKUP_RATE).
@@ -111,8 +127,96 @@ function materialsTotalHtml(detail) {
     `<span class="charge-marked">+15%: ${escapeHtml(formatMoney(marked))}</span></div>`;
 }
 
+function formatMinutes(minutes) {
+  const total = Number(minutes) || 0;
+  const hours = Math.floor(total / 60);
+  const remainder = total % 60;
+  if (!hours) return `${remainder} min`;
+  if (!remainder) return `${hours} hr${hours === 1 ? "" : "s"}`;
+  return `${hours} hr ${remainder} min`;
+}
+
+function hoursInputValue(minutes) {
+  return String(Math.round((Number(minutes) / 60) * 100) / 100);
+}
+
+function hoursToMinutes(value) {
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0) return null;
+  return Math.max(1, Math.round(hours * 60));
+}
+
+function laborSummaryHtml(detail) {
+  const actual = formatMinutes(detail.labor_minutes || 0);
+  const billed = formatMinutes(detail.labor_billed_minutes || 0);
+  const charge = detail.labor_total === null || detail.labor_total === undefined
+    ? ""
+    : `<span class="wo-labor-charge">${escapeHtml(formatMoney(detail.labor_total))} at ${escapeHtml(formatMoney(detail.labor_rate))}/hr</span>`;
+  return `<div class="wo-labor-summary"><span>Actual: <strong>${escapeHtml(actual)}</strong></span><span>Billed: <strong>${escapeHtml(billed)}</strong></span>${charge}</div>`;
+}
+
+function canEditLabor(entry) {
+  const user = getCurrentUser();
+  return isSupervisorPlus() || Boolean(user && user.id === entry.technician_id);
+}
+
+function renderLaborEntryHtml(entry) {
+  const actions = canEditLabor(entry)
+    ? `<div class="wo-labor-actions">
+         <input type="number" class="wo-labor-hours" value="${escapeHtml(hoursInputValue(entry.minutes))}" min="0.01" step="0.01" aria-label="Actual labor hours">
+         <button type="button" class="secondary-btn" data-action="edit-labor">Update</button>
+         <button type="button" class="btn-danger" data-action="remove-labor">Remove</button>
+       </div>`
+    : "";
+  return `<div class="wo-labor-entry" data-labor-id="${escapeHtml(entry.id)}" data-technician-id="${escapeHtml(entry.technician_id)}">
+            <div><strong>${escapeHtml(entry.technician_name)}</strong><span class="hint">${escapeHtml(formatMinutes(entry.minutes))} actual</span></div>
+            ${actions}
+          </div>`;
+}
+
+function laborTechnicianControl(detail) {
+  const ids = assignedIds(detail);
+  const names = assignedNames(detail);
+  if (!ids.length) {
+    return `<p class="hint">Assign at least one technician before recording labor.</p>`;
+  }
+  if (!isSupervisorPlus()) {
+    return `<input type="hidden" class="wo-labor-technician" value="${escapeHtml(getCurrentUser()?.id || ids[0])}">`;
+  }
+  const options = ids
+    .map((id, index) => `<option value="${escapeHtml(id)}">${escapeHtml(names[index] || "Assigned technician")}</option>`)
+    .join("");
+  return `<label><span>Technician</span><select class="wo-labor-technician">${options}</select></label>`;
+}
+
+function laborSectionHtml(detail) {
+  const entries = (detail.labor || []).map(renderLaborEntryHtml).join("") ||
+    `<p class="hint">No labor recorded yet.</p>`;
+  const hasAssignments = assignedIds(detail).length > 0;
+  const rateText = detail.labor_rate === null || detail.labor_rate === undefined
+    ? "The combined actual time is rounded up to the next 30 minutes for billing."
+    : `Labor is billed at ${formatMoney(detail.labor_rate)}/hour. The combined actual time is rounded up to the next 30 minutes.`;
+  return `<section class="wo-labor-section">
+            <h4>Labor</h4>
+            <p class="hint">${escapeHtml(rateText)}</p>
+            <div class="wo-labor-list">${entries}</div>
+            ${laborSummaryHtml(detail)}
+            <div class="wo-add-labor">
+              ${laborTechnicianControl(detail)}
+              ${hasAssignments ? `<label><span>Actual hours</span><input type="number" class="wo-new-labor-hours" min="0.01" step="0.01" placeholder="e.g. 1.25"></label><button type="button" data-action="add-labor">Add labor</button>` : ""}
+            </div>
+          </section>`;
+}
+
 function statusLabel(status) {
-  return status === "in_progress" ? "In progress" : "Completed";
+  return {
+    created: "Created",
+    assigned: "Assigned",
+    in_progress: "In-Progress",
+    on_hold: "On-Hold",
+    completed: "Completed",
+    review: "Review",
+  }[status] || status;
 }
 
 function statusBadge(status) {
@@ -124,30 +228,193 @@ function modeLabel(mode) {
 }
 
 // Location meta string from a card/detail (any of the parts may be blank).
+// Imported work orders carry a single free-text `location` instead of the older
+// community/building/unit trio, so fall back to it -- otherwise an imported
+// card's summary would show nothing but the item count.
 function placeMeta(c) {
   const parts = [];
   if (c.community) parts.push(c.community);
   if (c.building_number) parts.push(`Bldg ${c.building_number}`);
   if (c.unit_number) parts.push(`Unit ${c.unit_number}`);
-  return parts.join(" · ");
+  if (parts.length) return parts.join(" · ");
+  return c.location || "";
 }
 
-function techOptions(selectedId) {
+function assignedIds(detail) {
+  if (Array.isArray(detail.assigned_to_ids)) return detail.assigned_to_ids;
+  return detail.assigned_to_id ? [detail.assigned_to_id] : [];
+}
+
+function assignedNames(detail) {
+  if (Array.isArray(detail.assigned_to_names) && detail.assigned_to_names.length) {
+    return detail.assigned_to_names;
+  }
+  return detail.assigned_to_name ? [detail.assigned_to_name] : [];
+}
+
+function techCheckboxes(selectedIds) {
+  const selected = new Set(selectedIds || []);
+  if (!allTechs.length) return `<p class="hint">No active technicians are available.</p>`;
+  return allTechs
+    .map(
+      (t) =>
+        `<label class="wo-tech-choice"><input type="checkbox" class="wo-edit-assignee" value="${escapeHtml(t.id)}"${selected.has(t.id) ? " checked" : ""}> <span>${escapeHtml(formatUserName(t))}</span></label>`
+    )
+    .join("");
+}
+
+function supervisorOptions(selectedId) {
   return (
     `<option value="">Unassigned</option>` +
-    allTechs
+    allSupers
       .map(
-        (t) =>
-          `<option value="${escapeHtml(t.id)}"${t.id === selectedId ? " selected" : ""}>${escapeHtml(t.username)}</option>`
+        (s) =>
+          `<option value="${escapeHtml(s.id)}"${s.id === selectedId ? " selected" : ""}>${escapeHtml(formatUserName(s))}</option>`
       )
       .join("")
   );
 }
 
+// True when a work order still carries the pre-import community/building/unit
+// attributes. Those fields are dead weight on an imported work order (which
+// describes its place in the free-text `location`), so they are shown and
+// offered for editing only where they actually hold something.
+function hasLegacyPlace(detail) {
+  return Boolean(
+    detail.legacy || detail.community || detail.building_number || detail.unit_number
+  );
+}
+
+// The read-only field block shown in a card body: the imported CSV fields plus
+// routing, and only the ones that are actually filled in. This is the default,
+// uncluttered face of a card -- the matching inputs live in the editor below,
+// which stays collapsed until "Edit details" is clicked.
+function detailsViewHtml(detail) {
+  const rows = [
+    ["Location", detail.location],
+    ["Service type", detail.service_type],
+    ["Scheduled", detail.schedule_date],
+    ["Output to", detail.output_to],
+    ["Vendor contact", detail.vendor_assignee],
+    ["Symptom / task", detail.description],
+    ["Supervisor", detail.supervisor_name],
+    ["Technicians", assignedNames(detail).join(", ")],
+  ];
+  if (hasLegacyPlace(detail)) {
+    rows.push(
+      ["Community", detail.community],
+      ["Building", detail.building_number],
+      ["Unit", detail.unit_number]
+    );
+  }
+  const filled = rows.filter(([, v]) => v);
+  if (!filled.length) return `<p class="hint wo-details-empty">No details on this work order yet.</p>`;
+  return (
+    `<dl class="wo-import-meta">` +
+    filled
+      .map(
+        ([label, value]) =>
+          `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`
+      )
+      .join("") +
+    `</dl>`
+  );
+}
+
+// One labelled text input in the editor. `field` is the API field name, which
+// doubles as the class the save handler reads back.
+function editField(field, label, value) {
+  return `<label class="wo-edit-field">
+            <span>${escapeHtml(label)}</span>
+            <input type="text" class="wo-edit-${escapeHtml(field)}" value="${escapeHtml(value || "")}">
+          </label>`;
+}
+
+// Manual status changes live inside the Supervisor+ editor. The choices never
+// advance a normal lifecycle beyond its current state; On-Hold is always
+// available as a pause. Created/Assigned remains one assignment-derived
+// pre-work choice so the status cannot contradict the technician field.
+function editableStatusOptions(detail) {
+  const prework = assignedIds(detail).length ? "assigned" : "created";
+  let statuses;
+  if (detail.status === "on_hold") {
+    // A hold does not remember which step it paused. Let the supervisor resume
+    // at the appropriate non-Review step or leave it held.
+    statuses = [prework, "in_progress", "on_hold", "completed"];
+  } else {
+    const rank = { created: 0, assigned: 1, in_progress: 2, completed: 3 }[detail.status];
+    statuses = [prework];
+    if (rank >= 2) statuses.push("in_progress");
+    statuses.push("on_hold");
+    if (rank >= 3) statuses.push("completed");
+  }
+  return [...new Set(statuses)]
+    .map(
+      (status) =>
+        `<option value="${escapeHtml(status)}"${status === detail.status ? " selected" : ""}>${escapeHtml(statusLabel(status))}</option>`
+    )
+    .join("");
+}
+
+function statusEditorHtml(detail) {
+  if (detail.status === "review") {
+    return `<label class="wo-edit-field">
+              <span>Status</span>
+              <input type="text" value="Review" disabled>
+            </label>`;
+  }
+  return `<label class="wo-edit-field wo-edit-status-field">
+            <span>Status</span>
+            <select class="wo-edit-status">${editableStatusOptions(detail)}</select>
+            <small class="hint">Roll back to an earlier step or place this work order On-Hold. Created/Assigned follows technician assignment.</small>
+          </label>`;
+}
+
+// The Supervisor+ editor for an imported work order's fields, rendered hidden.
+// "Edit details" reveals it (see the toggle-edit action) so the card stays a
+// clean read-only summary until someone deliberately asks to change something.
+// The number is deliberately absent: it is the identity the CSV import matches
+// on, so renaming it here would split the work order in two on the next import.
+function detailsEditorHtml(detail) {
+  const legacy = hasLegacyPlace(detail)
+    ? editField("community", "Community", detail.community) +
+      editField("building", "Building number", detail.building_number) +
+      editField("unit", "Unit number", detail.unit_number)
+    : "";
+  return `<div class="wo-edit" hidden>
+            <p class="hint">Editing the imported details for WO ${escapeHtml(detail.number)}. A re-import will not overwrite what you save here.</p>
+            <div class="wo-edit-grid">
+              ${editField("location", "Location", detail.location)}
+              ${editField("service-type", "Service type", detail.service_type)}
+              ${editField("schedule-date", "Schedule date", detail.schedule_date)}
+              ${editField("output-to", "Output to", detail.output_to)}
+              ${editField("vendor", "Vendor contact", detail.vendor_assignee)}
+              ${legacy}
+              <label class="wo-edit-field wo-edit-wide">
+                <span>Symptom / task</span>
+                <textarea class="wo-edit-description" rows="2">${escapeHtml(detail.description || "")}</textarea>
+              </label>
+              <label class="wo-edit-field">
+                <span>Supervisor</span>
+                <select class="wo-edit-supervisor">${supervisorOptions(detail.supervisor_id || "")}</select>
+              </label>
+              <fieldset class="wo-edit-field wo-edit-technicians">
+                <legend>Assigned technicians</legend>
+                <div class="wo-tech-choices">${techCheckboxes(assignedIds(detail))}</div>
+              </fieldset>
+              ${statusEditorHtml(detail)}
+            </div>
+            <div class="wo-edit-actions">
+              <button type="button" data-action="save-details">Save details</button>
+              <button type="button" class="secondary-btn" data-action="cancel-edit">Cancel</button>
+            </div>
+          </div>`;
+}
+
 // --- list ----------------------------------------------------------------
 
-export async function loadWorkOrders() {
-  if (!itemsLoaded) {
+export async function loadWorkOrders({ refreshReferenceData = false } = {}) {
+  if (refreshReferenceData || !itemsLoaded) {
     try {
       allItems = await apiListItems();
       itemsLoaded = true;
@@ -155,16 +422,18 @@ export async function loadWorkOrders() {
       allItems = [];
     }
   }
-  if (!techsLoaded && isSupervisorPlus()) {
+  if ((refreshReferenceData || !usersLoaded) && isSupervisorPlus()) {
     try {
-      allTechs = (await apiListUsers()).filter((u) => u.role === "technician");
-      techsLoaded = true;
-      if (createAssignee) createAssignee.innerHTML = techOptions("");
+      const users = await apiListUsers();
+      allTechs = users.filter((u) => u.role === "technician");
+      allSupers = users.filter((u) => u.role === "supervisor");
+      usersLoaded = true;
     } catch {
       allTechs = [];
+      allSupers = [];
     }
   }
-  if (createSection) createSection.hidden = !isSupervisorPlus();
+  if (importSection) importSection.hidden = !isAdminPlus();
 
   const status = statusFilter.value;
   const q = searchInput.value.trim();
@@ -245,16 +514,21 @@ if (moreEl) {
 
 function buildCard(card) {
   const el = document.createElement("details");
-  el.className = "wo-card";
+  el.className = `wo-card wo-card-status-${card.status}`;
   el.dataset.id = card.id;
 
   const summary = document.createElement("summary");
   summary.className = "wo-summary";
   const place = placeMeta(card);
-  const assignee = card.assigned_to_username ? ` · ${escapeHtml(card.assigned_to_username)}` : "";
+  const technicianNames = assignedNames(card);
+  const assignee = technicianNames.length
+    ? ` · ${escapeHtml(technicianNames.join(", "))}`
+    : "";
+  const legacyTag = card.legacy ? `<span class="wo-legacy-tag">Legacy</span>` : "";
   summary.innerHTML =
     `<span class="wo-title">WO ${escapeHtml(card.number)}</span>` +
     statusBadge(card.status) +
+    legacyTag +
     `<span class="wo-meta">${place ? escapeHtml(place) + " · " : ""}${card.item_count} items${assignee}</span>`;
 
   const body = document.createElement("div");
@@ -275,6 +549,7 @@ async function openDetail(workOrderId, bodyEl, cardEl) {
     renderBody(detail, bodyEl);
     if (cardEl) {
       cardEl.dataset.loaded = "1";
+      cardEl.className = `wo-card wo-card-status-${detail.status}`;
       const badge = cardEl.querySelector(".wo-status");
       if (badge) {
         badge.className = `wo-status wo-status-${detail.status}`;
@@ -283,7 +558,8 @@ async function openDetail(workOrderId, bodyEl, cardEl) {
       const meta = cardEl.querySelector(".wo-meta");
       if (meta) {
         const place = placeMeta(detail);
-        const assignee = detail.assigned_to_username ? ` · ${detail.assigned_to_username}` : "";
+        const technicianNames = assignedNames(detail);
+        const assignee = technicianNames.length ? ` · ${technicianNames.join(", ")}` : "";
         meta.textContent = `${place ? place + " · " : ""}${detail.items.length} items${assignee}`;
       }
     }
@@ -300,14 +576,25 @@ function renderBody(detail, bodyEl) {
     detail.items.map((it) => renderLineHtml(it)).join("") ||
     `<p class="hint">No materials logged yet.</p>`;
 
-  const statusAction =
-    detail.status === "in_progress"
-      ? `<button type="button" data-action="complete-wo">Mark completed</button>`
-      : `<button type="button" class="secondary-btn" data-action="reopen-wo">Reopen</button>`;
-
-  const archive = sup
-    ? `<button type="button" class="btn-danger" data-action="archive-wo">Archive</button>`
-    : "";
+  let statusActions = "";
+  if (detail.status === "created" || detail.status === "assigned") {
+    statusActions =
+      `<button type="button" data-action="progress-wo">Set In-Progress</button>` +
+      `<span class="hint wo-status-note">Material or labor activity also starts work automatically.</span>`;
+  } else if (detail.status === "in_progress") {
+    statusActions = `<button type="button" data-action="complete-wo">Mark completed</button>`;
+  } else if (detail.status === "on_hold") {
+    statusActions = `<span class="hint wo-status-note">On-Hold — a supervisor can resume or roll back this work order in Edit details.</span>`;
+  } else if (detail.status === "completed") {
+    statusActions = sup
+      ? `<button type="button" data-action="review-wo">Send to Review</button>` +
+        `<button type="button" class="secondary-btn" data-action="reopen-wo">Reopen</button>`
+      : `<span class="hint wo-status-note">Completed — waiting for a supervisor to send it to Review.</span>`;
+  } else if (detail.status === "review") {
+    statusActions =
+      `<span class="wo-review-ready">Ready for Admin Review</span>` +
+      (sup ? `<button type="button" class="secondary-btn" data-action="reopen-wo">Reopen</button>` : "");
+  }
 
   const modeControl =
     `<div class="wo-mode-row">
@@ -318,23 +605,25 @@ function renderBody(detail, bodyEl) {
        </select>
      </div>`;
 
-  // Supervisor+ attribute editor (community / building / unit / assignee).
-  // This inline editor stays compact (its fields are prefilled with visible
-  // values, so the "placeholder disappears when filled" problem doesn't
-  // apply). #17: give the otherwise-nameless controls accessible names.
-  const details = sup
-    ? `<div class="wo-edit">
-         <input type="text" class="wo-edit-community" value="${escapeHtml(detail.community || "")}" placeholder="Community" aria-label="Community">
-         <input type="text" class="wo-edit-building" value="${escapeHtml(detail.building_number || "")}" placeholder="Building #" aria-label="Building number">
-         <input type="text" class="wo-edit-unit" value="${escapeHtml(detail.unit_number || "")}" placeholder="Unit #" aria-label="Unit number">
-         <select class="wo-edit-assignee" aria-label="Assign to">${techOptions(detail.assigned_to_id || "")}</select>
-         <button type="button" class="secondary-btn" data-action="save-details">Save details</button>
-       </div>`
+  // The imported fields are read-only by default and the editor is collapsed;
+  // Supervisor+ gets an "Edit details" button that swaps one for the other, so
+  // nothing but a summary is on screen until an edit is actually intended.
+  const editToggle = sup
+    ? `<button type="button" class="secondary-btn" data-action="toggle-edit">Edit details</button>`
     : "";
 
   bodyEl.innerHTML =
-    `<div class="wo-controls">${modeControl}${statusAction}${archive}</div>` +
-    details +
+    `<div class="wo-controls">${modeControl}${statusActions}${editToggle}</div>` +
+    `<div class="wo-details">${detailsViewHtml(detail)}</div>` +
+    (sup ? detailsEditorHtml(detail) : "") +
+    `<section class="wo-notes-section">
+       <h4>Notes</h4>
+       <textarea class="wo-notes-input" rows="4" aria-label="Work order notes" placeholder="Add notes for this work order…">${escapeHtml(detail.notes || "")}</textarea>
+       <div class="wo-notes-actions">
+         <button type="button" data-action="save-notes">Save notes</button>
+       </div>
+       <p class="wo-notes-message" aria-live="polite"></p>
+     </section>` +
     `<div class="wo-items">${items}</div>` +
     materialsTotalHtml(detail) +
     `<div class="wo-add-item">
@@ -345,6 +634,7 @@ function renderBody(detail, bodyEl) {
        </div>
        <div class="ms-item-results scan-chooser" hidden></div>
      </div>` +
+    laborSectionHtml(detail) +
     `<p class="wo-message"></p>`;
 }
 
@@ -369,6 +659,21 @@ function renderLineHtml(it) {
 async function refreshCard(cardEl) {
   const body = cardEl.querySelector(".wo-body");
   await openDetail(cardEl.dataset.id, body, cardEl);
+}
+
+// Swap a card between its read-only summary and the details editor. Only one is
+// on screen at a time, so opening the editor does not double the card's height.
+function setEditing(cardEl, editing) {
+  const editor = cardEl.querySelector(".wo-edit");
+  const view = cardEl.querySelector(".wo-details");
+  const toggle = cardEl.querySelector('[data-action="toggle-edit"]');
+  if (!editor || !view) return;
+  editor.hidden = !editing;
+  view.hidden = editing;
+  // "Close editor", not "Done" -- this button only hides the panel; Save is the
+  // one that writes.
+  if (toggle) toggle.textContent = editing ? "Close editor" : "Edit details";
+  if (editing) editor.querySelector("input, textarea, select")?.focus();
 }
 
 // --- add-material search (input delegation) ------------------------------
@@ -431,21 +736,82 @@ listEl.addEventListener("click", async (event) => {
     if (action === "complete-wo") {
       await apiUpdateWorkOrder(workOrderId, { status: "completed" });
       await refreshCard(cardEl);
+    } else if (action === "progress-wo") {
+      await apiUpdateWorkOrder(workOrderId, { status: "in_progress" });
+      await refreshCard(cardEl);
+    } else if (action === "review-wo") {
+      if (!(await confirmDialog("Are you sure this work order is ready for Review?"))) return;
+      await apiUpdateWorkOrder(workOrderId, { status: "review" });
+      await refreshCard(cardEl);
     } else if (action === "reopen-wo") {
       await apiUpdateWorkOrder(workOrderId, { status: "in_progress" });
       await refreshCard(cardEl);
-    } else if (action === "archive-wo") {
-      if (!(await confirmDialog("Archive this work order? It is hidden but the number stays reserved."))) return;
-      await apiArchiveWorkOrder(workOrderId);
-      await loadWorkOrders();
+    } else if (action === "toggle-edit") {
+      setEditing(cardEl, cardEl.querySelector(".wo-edit")?.hidden !== false);
+    } else if (action === "cancel-edit") {
+      // Re-fetch rather than just re-hiding: the simplest way to throw away
+      // whatever was typed and put the inputs back on the saved values.
+      await refreshCard(cardEl);
     } else if (action === "save-details") {
       const body = cardEl.querySelector(".wo-body");
-      await apiUpdateWorkOrder(workOrderId, {
-        community: body.querySelector(".wo-edit-community").value.trim() || null,
-        building_number: body.querySelector(".wo-edit-building").value.trim() || null,
-        unit_number: body.querySelector(".wo-edit-unit").value.trim() || null,
-        assigned_to_id: body.querySelector(".wo-edit-assignee").value || null,
-      });
+      // Only the fields the editor actually rendered: the legacy
+      // community/building/unit inputs are absent on an imported work order,
+      // and sending them as null would wipe values the editor never showed.
+      const value = (selector) => {
+        const el = body.querySelector(selector);
+        return el ? el.value.trim() || null : undefined;
+      };
+      const patch = {
+        status: value(".wo-edit-status"),
+        location: value(".wo-edit-location"),
+        service_type: value(".wo-edit-service-type"),
+        schedule_date: value(".wo-edit-schedule-date"),
+        output_to: value(".wo-edit-output-to"),
+        vendor_assignee: value(".wo-edit-vendor"),
+        description: value(".wo-edit-description"),
+        community: value(".wo-edit-community"),
+        building_number: value(".wo-edit-building"),
+        unit_number: value(".wo-edit-unit"),
+        supervisor_id: body.querySelector(".wo-edit-supervisor").value || null,
+        assigned_to_ids: Array.from(body.querySelectorAll(".wo-edit-assignee:checked")).map((input) => input.value),
+      };
+      Object.keys(patch).forEach((k) => patch[k] === undefined && delete patch[k]);
+      await apiUpdateWorkOrder(workOrderId, patch);
+      await refreshCard(cardEl);
+    } else if (action === "save-notes") {
+      const notesInput = cardEl.querySelector(".wo-notes-input");
+      const notesMessage = cardEl.querySelector(".wo-notes-message");
+      const notes = notesInput.value.trim() || null;
+      await apiUpdateWorkOrder(workOrderId, { notes });
+      notesInput.value = notes || "";
+      setMessage(notesMessage, "Notes saved.", "success");
+    } else if (action === "add-labor") {
+      const section = btn.closest(".wo-labor-section");
+      const technicianId = section.querySelector(".wo-labor-technician")?.value;
+      const minutes = hoursToMinutes(section.querySelector(".wo-new-labor-hours")?.value);
+      if (!technicianId) {
+        setMessage(msg, "Assign and select a technician first.", "error");
+        return;
+      }
+      if (!minutes) {
+        setMessage(msg, "Enter actual labor hours greater than zero.", "error");
+        return;
+      }
+      await apiAddWorkOrderLabor(workOrderId, { technicianId, minutes });
+      await refreshCard(cardEl);
+    } else if (action === "edit-labor") {
+      const row = btn.closest(".wo-labor-entry");
+      const minutes = hoursToMinutes(row.querySelector(".wo-labor-hours")?.value);
+      if (!minutes) {
+        setMessage(msg, "Enter actual labor hours greater than zero.", "error");
+        return;
+      }
+      await apiUpdateWorkOrderLabor(workOrderId, row.dataset.laborId, { minutes });
+      await refreshCard(cardEl);
+    } else if (action === "remove-labor") {
+      const row = btn.closest(".wo-labor-entry");
+      if (!(await confirmDialog("Remove this labor entry from the work order?"))) return;
+      await apiDeleteWorkOrderLabor(workOrderId, row.dataset.laborId);
       await refreshCard(cardEl);
     } else if (action === "add-item") {
       const container = btn.closest(".wo-add-item");
@@ -523,58 +889,37 @@ listEl.addEventListener("change", async (event) => {
   }
 });
 
-// --- create (Supervisor+) ------------------------------------------------
+// --- CSV import (Admin+) --------------------------------------------------
 
-async function createWorkOrder() {
-  const number = createNumber.value.trim();
-  setMessage(createMessage, "", "");
-  if (!number) {
-    setMessage(createMessage, "Enter a work order number.", "error");
-    return;
-  }
+async function handleImport() {
+  const file = importFile.files && importFile.files[0];
+  if (!file) return;
+  setMessage(importMessage, "Importing…", "");
+  importBtn.disabled = true;
   try {
-    // A number that belongs to an *archived* work order comes back 409 on the
-    // first try; confirmArchivedReuse prompts to restore it and re-submits with
-    // `restore_archived` to un-archive and re-open it. A brand-new or live
-    // number succeeds on the first attempt with no prompt.
-    const created = await confirmArchivedReuse(
-      (restore) => apiCreateWorkOrder({
-        number,
-        community: createCommunity.value.trim() || null,
-        buildingNumber: createBuilding.value.trim() || null,
-        unitNumber: createUnit.value.trim() || null,
-        assignedToId: createAssignee.value || null,
-        restoreArchived: restore,
-      }),
-      `Work order ${number} is in the archive. Restore it?`
-    );
-    createNumber.value = "";
-    createCommunity.value = "";
-    createBuilding.value = "";
-    createUnit.value = "";
-    createAssignee.value = "";
-    // Jump to the saved/restored work order: a restore keeps its original
-    // created_at, so it can land far down the newest-first list -- focusing it
-    // expands and scrolls it into view (and widens the status filter if needed).
-    if (created && created.id) focusWorkOrder(created.id);
-    await loadWorkOrders();
-    setMessage(createMessage, "Work order saved.", "success");
-  } catch (err) {
-    // The user declined the restore prompt: no work order, no error to show.
-    if (err && err.cancelled) {
-      setMessage(createMessage, "", "");
-      return;
+    const r = await apiImportWorkOrders(file);
+    const parts = [
+      `Imported ${r.total} work order${r.total === 1 ? "" : "s"}`,
+      `${r.created} new, ${r.opened} updated`,
+    ];
+    if (r.supervisors_matched || r.supervisors_unmatched) {
+      parts.push(`${r.supervisors_matched} routed to a supervisor, ${r.supervisors_unmatched} unmatched`);
     }
-    setMessage(createMessage, friendlyError(err, "Could not create the work order."), "error");
+    if (r.skipped) parts.push(`${r.skipped} skipped (no number)`);
+    setMessage(importMessage, parts.join(" · ") + ".", "success");
+    // Reset caches so a re-import reflects fresh data, then reload the list.
+    usersLoaded = false;
+    await loadWorkOrders();
+  } catch (err) {
+    setMessage(importMessage, friendlyError(err, "Could not import that file."), "error");
+  } finally {
+    importBtn.disabled = false;
+    importFile.value = "";  // allow re-selecting the same file
   }
 }
 
-if (createBtn) createBtn.addEventListener("click", createWorkOrder);
-if (createNumber) {
-  createNumber.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") createWorkOrder();
-  });
-}
+if (importBtn) importBtn.addEventListener("click", () => importFile && importFile.click());
+if (importFile) importFile.addEventListener("change", handleImport);
 
 // --- filter / search controls --------------------------------------------
 

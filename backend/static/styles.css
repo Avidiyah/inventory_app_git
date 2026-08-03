@@ -711,6 +711,43 @@ tr:last-child td {
     overflow-x: auto;
 }
 
+/* IMP-007 Admin Review: green Review cards feed one persistent fixed-width
+   receipt. The receipt section is intentionally separate from the queue so a
+   close/reopen refresh cannot clear text that still needs to be copied. */
+.admin-review-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: var(--space-2);
+}
+
+.admin-review-card {
+    width: 100%;
+    margin-bottom: 0;
+}
+
+.admin-review-card.selected {
+    outline: 3px solid var(--color-brand);
+    outline-offset: 2px;
+}
+
+#admin-review-receipt-section {
+    margin-top: var(--space-4);
+}
+
+.admin-review-receipt-output {
+    min-height: 18rem;
+}
+
+.admin-review-actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+.admin-review-actions button {
+    margin-top: 0;
+}
+
 /* =================== NOTES EDITOR =================== */
 #notes-rows {
     display: flex;
@@ -1048,7 +1085,7 @@ tr.archived-user {
     max-width: 480px;
 }
 
-/* The work-order entry and the per-item quantity are the two fields the
+/* The work-order search and the per-item quantity are the two fields the
    crew touches most -- make them large and unmissable. */
 .wo-gate-input,
 .scango-quantity {
@@ -1057,13 +1094,34 @@ tr.archived-user {
     font-weight: var(--fw-bold);
 }
 
-#wo-gate-start-btn {
+/* Number search is a compact filter card above the saved work-order cards.
+   The input filters server-scoped cards as the user types; selecting a card,
+   not submitting this control, starts the batch. */
+.wo-filter-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    width: 100%;
+    max-width: 360px;
+    padding: var(--space-3);
+    border: var(--border);
+    border-radius: var(--radius-md);
+    background-color: var(--gray-50);
+    box-shadow: var(--shadow-sm);
+}
+
+.wo-filter-card .wo-gate-input {
+    min-height: var(--control-h);
     font-size: var(--fs-lg);
 }
 
-/* Cards-first gate (Supervisor+): saved work orders as tappable cards, then a
-   collapsible "Add a new work order" quick-add form. See views/transactions.js
-   and docs/current-state.md. */
+.wo-filter-card .hint {
+    margin: 0;
+}
+
+/* Cards-first gate: saved work orders render as tappable cards below the
+   optional Supervisor+ filter. See views/transactions.js and
+   docs/current-state.md. */
 #wo-gate-cards-section {
     display: flex;
     flex-direction: column;
@@ -1099,6 +1157,13 @@ tr.archived-user {
     color: var(--color-ink);
 }
 
+.wo-card-status-label {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
 .wo-card-meta {
     font-size: var(--fs-sm);
     color: var(--gray-500);
@@ -1109,23 +1174,6 @@ tr.archived-user {
     font-size: var(--fs-sm);
     font-weight: var(--fw-bold);
     color: var(--color-brand);
-}
-
-/* The quick-add form: a stacked column inside the collapsible <details>. */
-#wo-gate-new { margin-top: var(--space-1); }
-.wo-gate-new-form {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    padding-top: var(--space-2);
-}
-
-/* Separate the manual one-off gate from the cards above it (Supervisor+ see
-   both; Technicians see only the manual block). */
-#wo-gate-manual {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
 }
 
 /* Active work-order header: bold label on the left, quiet "Change" on
@@ -1683,6 +1731,93 @@ details[open] > .community-summary::before { content: "\25BE"; }
     box-shadow: var(--shadow-card);
     margin-bottom: var(--space-2);
 }
+/* IMP-005: the whole collapsed card communicates lifecycle state. Dark states
+   use white text; Created/In-Progress use ink. Expanded detail bodies return to
+   a white reading surface so forms, item rows, and helper text retain their
+   established contrast. These classes also color the tappable Scan/Stock cards. */
+.wo-card-status-created {
+    background-color: #D1D5DB;
+    border-color: #9CA3AF;
+    color: #111827;
+}
+.wo-card-status-assigned {
+    background-color: #B91C1C;
+    border-color: #991B1B;
+    color: var(--color-white);
+}
+.wo-card-status-in_progress {
+    background-color: #FACC15;
+    border-color: #CA8A04;
+    color: #111827;
+}
+.wo-card-status-on_hold {
+    background-color: #C2410C;
+    border-color: #9A3412;
+    color: var(--color-white);
+}
+.wo-card-status-completed {
+    background-color: #2563EB;
+    border-color: #1D4ED8;
+    color: var(--color-white);
+}
+.wo-card-status-review {
+    background-color: #15803D;
+    border-color: #166534;
+    color: var(--color-white);
+}
+button.wo-card-status-created:hover,
+button.wo-card-status-created:active { background-color: #D1D5DB; }
+button.wo-card-status-assigned:hover,
+button.wo-card-status-assigned:active { background-color: #B91C1C; }
+button.wo-card-status-in_progress:hover,
+button.wo-card-status-in_progress:active { background-color: #FACC15; }
+button.wo-card-status-on_hold:hover,
+button.wo-card-status-on_hold:active { background-color: #C2410C; }
+button.wo-card-status-completed:hover,
+button.wo-card-status-completed:active { background-color: #2563EB; }
+button.wo-card-status-review:hover,
+button.wo-card-status-review:active { background-color: #15803D; }
+.wo-card-status-assigned .wo-title,
+.wo-card-status-assigned .wo-meta,
+.wo-card-status-assigned .wo-card-wo,
+.wo-card-status-assigned .wo-card-meta,
+.wo-card-status-assigned .wo-card-assignee,
+.wo-card-status-on_hold .wo-title,
+.wo-card-status-on_hold .wo-meta,
+.wo-card-status-on_hold .wo-card-wo,
+.wo-card-status-on_hold .wo-card-meta,
+.wo-card-status-on_hold .wo-card-assignee,
+.wo-card-status-completed .wo-title,
+.wo-card-status-completed .wo-meta,
+.wo-card-status-completed .wo-card-wo,
+.wo-card-status-completed .wo-card-meta,
+.wo-card-status-completed .wo-card-assignee,
+.wo-card-status-review .wo-title,
+.wo-card-status-review .wo-meta,
+.wo-card-status-review .wo-card-wo,
+.wo-card-status-review .wo-card-meta,
+.wo-card-status-review .wo-card-assignee {
+    color: var(--color-white);
+}
+.wo-card-status-assigned > .wo-summary::before,
+.wo-card-status-on_hold > .wo-summary::before,
+.wo-card-status-completed > .wo-summary::before,
+.wo-card-status-review > .wo-summary::before {
+    color: var(--color-white);
+}
+.wo-card-status-created .wo-card-wo,
+.wo-card-status-created .wo-card-meta,
+.wo-card-status-created .wo-card-assignee,
+.wo-card-status-in_progress .wo-card-wo,
+.wo-card-status-in_progress .wo-card-meta,
+.wo-card-status-in_progress .wo-card-assignee {
+    color: #111827;
+}
+.wo-card > .wo-body {
+    background-color: var(--color-white);
+    color: var(--color-ink);
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
 .wo-summary {
     display: flex;
     align-items: center;
@@ -1718,8 +1853,42 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     font-weight: var(--fw-bold);
     color: var(--color-white);
 }
-.wo-status-in_progress { background-color: var(--status-dispense); }
-.wo-status-completed { background-color: var(--status-stock); }
+.wo-status-created { background-color: #4B5563; }
+.wo-status-assigned { background-color: #7F1D1D; }
+.wo-status-in_progress { background-color: #854D0E; }
+.wo-status-on_hold { background-color: #9A3412; }
+.wo-status-completed { background-color: #1E3A8A; }
+.wo-status-review { background-color: #14532D; }
+
+/* Pre-import (legacy) work order: kept for search, old attributes dropped. A
+   muted outline pill so it reads as a state marker, not an action. */
+.wo-legacy-tag {
+    display: inline-block;
+    padding: 2px var(--space-2);
+    border: 1px solid var(--gray-400);
+    border-radius: var(--radius-pill);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+/* Read-only CSV-import fields (service type / schedule / vendor / location) in a
+   card body. A two-column label/value list. */
+.wo-import-meta {
+    margin: 0 0 var(--space-3);
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-1) var(--space-3);
+    font-size: var(--fs-sm);
+}
+.wo-import-meta dt { color: var(--gray-500); font-weight: var(--fw-bold); }
+.wo-import-meta dd { margin: 0; white-space: pre-wrap; }
+
+/* Import work orders section (Admin+). */
+#work-orders-import-section { margin-bottom: var(--space-4); }
+#wo-import-message:not(:empty) { margin-top: var(--space-2); }
 
 /* Controls row: mode selector + complete/reopen. */
 .wo-controls {
@@ -1732,18 +1901,74 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-mode-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 .wo-mode-select { margin-top: 0; min-height: var(--btn-h-sm); }
 .wo-controls button { margin-top: 0; min-height: var(--btn-h-sm); }
+.wo-review-ready { font-weight: var(--fw-bold); color: var(--color-success); }
+.wo-status-note { margin: 0; }
 
-/* Supervisor+ attribute editor (community / building / unit / assignee). */
+/* Supervisor+ details editor for an imported work order. Hidden until "Edit
+   details" is clicked (see views/workOrders.js setEditing), which also hides the
+   read-only .wo-details block -- one or the other is on screen, never both, so a
+   card stays a compact summary by default. */
 .wo-edit {
+    margin-bottom: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    background-color: var(--gray-50, transparent);
+}
+.wo-edit > .hint { margin-top: 0; }
+.wo-edit-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--space-2) var(--space-3);
+}
+.wo-edit-field { display: flex; flex-direction: column; gap: var(--space-1); }
+.wo-edit-field > span {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    color: var(--gray-500);
+}
+.wo-edit-field input,
+.wo-edit-field select,
+.wo-edit-field textarea { margin-top: 0; width: 100%; }
+.wo-edit-field textarea { resize: vertical; }
+.wo-edit-status-field .hint { margin: 0; font-weight: var(--fw-normal); }
+.wo-edit-technicians {
+    margin: 0;
+    padding: var(--space-2);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+}
+.wo-edit-technicians legend {
+    padding: 0 var(--space-1);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    color: var(--gray-500);
+}
+.wo-tech-choices { display: flex; flex-direction: column; gap: var(--space-1); }
+.wo-tech-choice { display: flex; align-items: center; gap: var(--space-2); }
+.wo-tech-choice input { width: auto; margin: 0; }
+/* The free-text symptom/task spans the grid rather than sitting in one column. */
+.wo-edit-wide { grid-column: 1 / -1; }
+.wo-edit-actions {
     display: flex;
     gap: var(--space-2);
-    align-items: center;
     flex-wrap: wrap;
-    margin-bottom: var(--space-3);
+    margin-top: var(--space-3);
 }
-.wo-edit input { flex: 1 1 120px; margin-top: 0; }
-.wo-edit select { margin-top: 0; }
-.wo-edit button { margin-top: 0; min-height: var(--btn-h-sm); }
+.wo-edit-actions button { margin-top: 0; min-height: var(--btn-h-sm); }
+
+.wo-notes-section {
+    margin-bottom: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    background-color: var(--gray-50, transparent);
+}
+.wo-notes-section h4 { margin: 0 0 var(--space-2); }
+.wo-notes-input { width: 100%; margin-top: 0; resize: vertical; }
+.wo-notes-actions { display: flex; margin-top: var(--space-2); }
+.wo-notes-actions button { margin-top: 0; min-height: var(--btn-h-sm); }
+.wo-notes-message { margin-bottom: 0; }
 
 .wo-items {
     display: flex;
@@ -1820,7 +2045,49 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-add-item-row .ms-item-search { flex: 1 1 160px; margin-top: 0; }
 .wo-add-item-row .wo-item-qty { flex: 0 0 90px; width: 90px; margin-top: 0; }
 .wo-add-item-row button { margin-top: 0; min-height: var(--control-h); }
+.wo-labor-section {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--gray-200);
+}
+.wo-labor-section h4 { margin: 0 0 var(--space-1); }
+.wo-labor-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.wo-labor-entry {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+}
+.wo-labor-entry > div:first-child { display: flex; flex-direction: column; gap: var(--space-1); }
+.wo-labor-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.wo-labor-actions input { width: 90px; margin-top: 0; }
+.wo-labor-actions button { margin-top: 0; min-height: var(--btn-h-sm); }
+.wo-labor-summary {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin: var(--space-3) 0;
+    font-size: var(--fs-sm);
+}
+.wo-labor-charge { font-weight: var(--fw-bold); }
+.wo-add-labor { display: flex; align-items: end; gap: var(--space-2); flex-wrap: wrap; }
+.wo-add-labor label { display: flex; flex-direction: column; gap: var(--space-1); }
+.wo-add-labor label > span { font-size: var(--fs-xs); font-weight: var(--fw-bold); color: var(--gray-500); }
+.wo-add-labor select,
+.wo-add-labor input { margin-top: 0; }
+.wo-add-labor input { width: 120px; }
+.wo-add-labor button { margin-top: 0; min-height: var(--control-h); }
 .wo-message { margin-top: var(--space-2); font-size: var(--fs-sm); }
+
+@media (max-width: 640px) {
+    .wo-labor-entry { align-items: stretch; flex-direction: column; }
+    .wo-labor-actions { align-items: stretch; }
+    .wo-labor-actions input { width: 100%; }
+}
 
 /* Loading view: merged load list + per-item Staged / Unused controls. */
 .ms-subhead {

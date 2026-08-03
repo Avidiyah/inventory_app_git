@@ -21,7 +21,7 @@ from app.schemas.transactions import (
     TransactionHistoryItem,
     TransactionHistoryPage,
 )
-from app.schemas.users import UserCreate, UserResponse
+from app.schemas.users import UserCreate, UserNameUpdate, UserResponse
 
 __all__ = [
     "BarcodeMatch",
@@ -36,5 +36,6 @@ __all__ = [
     "TransactionHistoryItem",
     "TransactionHistoryPage",
     "UserCreate",
+    "UserNameUpdate",
     "UserResponse",
 ]

@@ -56,6 +56,10 @@ class DuplicateUsernameError(DomainError):
     UNIQUE constraint fires."""
 
 
+class InvalidUserNameError(DomainError):
+    """Raised when a first or last name is blank after trimming."""
+
+
 class UserHasTransactionsError(DomainError):
     """Raised by `services.users.delete_user` when the FK from
     `transactions.user_id` prevents deletion. The audit trail is
@@ -217,32 +221,22 @@ class InvalidAssigneeError(DomainError):
 
 
 class WorkOrderNotFoundError(DomainError):
-    """Raised when the Work Orders page is asked to operate on a work order
-    (a `mass_stage_rooms` row) that does not exist, is still in `planning`
-    (so it lives only inside Mass Stage, not the Work Orders page), or is not
-    visible to the caller. Visibility failures deliberately surface as
-    not-found rather than 403 so the API does not reveal the existence of work
-    orders a user may not see (`domain.work_orders.can_view_work_order`). Maps
-    to 404."""
+    """Raised when a service is asked to operate on a work order that does not
+    exist, is archived, or is not visible to the caller. Visibility failures
+    deliberately surface as not-found rather than 403 so the API does not reveal
+    the existence of work orders a user may not see
+    (`domain.work_orders.can_view_work_order`).
+
+    Also raised by `services.work_orders.resolve_work_order` when a scan-and-go
+    or Mass Stage reference names a number no import has brought in: work orders
+    are import-only, so an unknown number is a dead end, not a new work order.
+    Maps to 404."""
 
 
 class WorkOrderStateError(DomainError):
-    """Raised by the Work Orders service for an invalid status or entry mode --
-    e.g. a status that is not `in_progress` / `completed`, or a mode that is
-    not `dispense` / `retroactive`. A pure validation failure; maps to 400."""
-
-
-class WorkOrderArchivedError(DomainError):
-    """Raised by `services.work_orders.create_work_order` when the submitted
-    number matches an *archived* work order rather than a live or new one.
-
-    A recoverable conflict, not a hard failure: the archived number stays
-    reserved, so the caller can retry with `restore_archived=True` to un-archive
-    and re-open it. Maps to 409 Conflict so the Work Orders page can prompt
-    "Work order exists in the archive. Restore it?" and re-submit -- mirroring
-    `ArchivedBarcodeConflictError`. (Scan-and-go and Mass Stage still restore
-    silently via `get_or_create_work_order`; only the deliberate "New work
-    order" create asks first.)"""
+    """Raised for a work-order lifecycle or mode violation -- for example, a
+    status outside the live Created-to-Review workflow, closing before Review,
+    or a mode outside `dispense` / `retroactive`. Maps to 400."""
 
 
 class ToolNotFoundError(DomainError):

@@ -2,8 +2,9 @@
 
 Layer: schemas. Used by `app/routers/users.py`. A user now carries a
 login `password` (write-only, never echoed back) and a `role`. The
-password rule is "at least 4 characters, case-sensitive"; the username
-rule is "non-blank after stripping". Uniqueness is enforced by the
+password rule is "at least 4 characters, case-sensitive"; username and
+human-name fields are non-blank after stripping. Username uniqueness is
+enforced by the
 database and surfaced via `DuplicateUsernameError` from the service.
 
 Whether the *caller* is allowed to assign the requested role is an
@@ -25,15 +26,18 @@ class UserCreate(BaseModel):
     """Payload for `POST /users`."""
 
     username: str
+    first_name: str
+    last_name: str
     password: str
     role: str
 
-    @field_validator("username")
+    @field_validator("username", "first_name", "last_name")
     @classmethod
-    def username_not_blank(cls, v):
+    def identity_field_not_blank(cls, v, info):
         v = v.strip()
         if not v:
-            raise ValueError("Username cannot be blank.")
+            label = info.field_name.replace("_", " ").title()
+            raise ValueError(f"{label} cannot be blank.")
         return v
 
     @field_validator("password")
@@ -53,6 +57,22 @@ class UserCreate(BaseModel):
         return v
 
 
+class UserNameUpdate(BaseModel):
+    """Payload for `PATCH /users/{id}/name` (legacy-name remediation)."""
+
+    first_name: str
+    last_name: str
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def name_not_blank(cls, v, info):
+        v = v.strip()
+        if not v:
+            label = info.field_name.replace("_", " ").title()
+            raise ValueError(f"{label} cannot be blank.")
+        return v
+
+
 class UserResponse(BaseModel):
     """Outbound shape for any endpoint returning a user. The password
     hash is never included. `archived_at` is NULL for an active user and
@@ -61,6 +81,9 @@ class UserResponse(BaseModel):
 
     id: UUID
     username: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    full_name: str
     role: str
     created_at: datetime
     archived_at: Optional[datetime] = None

@@ -12,6 +12,7 @@ import { loadItems } from "./items.js";
 import { loadUsers } from "./users.js";
 import { loadStages } from "./massStage.js";
 import { loadWorkOrders } from "./workOrders.js";
+import { loadAdminReview } from "./adminReview.js";
 import { loadTools, toolsScanner } from "./tools.js";
 import { txnScanner } from "./scan.js";
 import { itemsScanner } from "./items.js";
@@ -55,6 +56,8 @@ export const PAGE_ACCESS = {
   "mass-stage": ["owner", "admin", "supervisor"],
   // Work Orders is technician-facing (server scopes to assigned/created/all).
   "work-orders": ["owner", "admin", "supervisor", "technician"],
+  // Final billing/close queue. Cost detail and archive are Admin/Owner-only.
+  "admin-review": ["owner", "admin"],
   // Tools: every role sees its user-first custody card and can check in;
   // Admin+ can search active users and check out tools. The server retains
   // the existing Admin+ checkout gate and authenticated-user return gate.
@@ -64,6 +67,28 @@ export const PAGE_ACCESS = {
 
 export function canAccessPage(role, pageName) {
   return (PAGE_ACCESS[pageName] || []).includes(role);
+}
+
+// Where each role lands right after sign-in, chosen so the first screen is
+// that role's usual first job: technicians scan (Transaction), supervisors
+// run the board (Work Orders), admins/owners review activity (History).
+// Consumed by `auth.js`; every entry must also be allowed by PAGE_ACCESS
+// above (landingPageForRole falls back if it is not).
+const LANDING_PAGE_BY_ROLE = {
+  technician: "transaction",
+  supervisor: "work-orders",
+  admin: "history",
+  owner: "history",
+};
+
+const DEFAULT_LANDING_PAGE = "transaction";
+
+// The post-login page for `role`, guarded so an unknown role -- or a landing
+// page the role cannot actually reach -- still opens somewhere usable.
+export function landingPageForRole(role) {
+  const page = LANDING_PAGE_BY_ROLE[role];
+  if (page && canAccessPage(role, page)) return page;
+  return DEFAULT_LANDING_PAGE;
 }
 
 // Hide (not disable) every nav button the role may not use. Forbidden
@@ -97,13 +122,17 @@ export function showPage(pageName) {
   } else if (pageName === "history") {
     loadHistory();
   } else if (pageName === "saved-items") {
+    // Find Item resets its visible results and reloads the lightweight search
+    // index on every activation; full rows still require Search / Load All.
     loadItems();
   } else if (pageName === "saved-users") {
     loadUsers();
   } else if (pageName === "mass-stage") {
-    loadStages();
+    loadStages({ refreshReferenceData: true });
   } else if (pageName === "work-orders") {
-    loadWorkOrders();
+    loadWorkOrders({ refreshReferenceData: true });
+  } else if (pageName === "admin-review") {
+    loadAdminReview();
   } else if (pageName === "tools") {
     loadTools();
   }

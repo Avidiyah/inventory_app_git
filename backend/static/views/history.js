@@ -33,8 +33,16 @@ import {
   apiSetBillableQuantity,
   apiGetWorkOrder,
   apiListWorkOrders,
+  apiLookupWorkOrder,
+  apiRestoreWorkOrder,
 } from "../api.js";
 import { escapeHtml, friendlyError, formatMoney } from "../format.js";
+import {
+  formatPricingQuantity,
+  pricingAmountLine,
+  pricingLine,
+  sanitisePricingText,
+} from "../pricingText.js";
 import { roleAtLeast } from "../roles.js";
 import { setMessage, confirmDialog } from "../dom.js";
 import { initSubNav } from "./subnav.js";
@@ -54,6 +62,7 @@ const historyNextBtn = document.getElementById("history-next-btn");
 const historyPageInfo = document.getElementById("history-page-info");
 const historyWoFilter = document.getElementById("history-wo-filter");
 const historyWoClearBtn = document.getElementById("history-wo-clear-btn");
+const historyWoMessage = document.getElementById("history-wo-message");
 const historyDateFrom = document.getElementById("history-date-from");
 const historyDateTo = document.getElementById("history-date-to");
 const historyDateClearBtn = document.getElementById("history-date-clear-btn");
@@ -167,7 +176,7 @@ function formatRow(txn) {
   const detail = type === "adjust"
     ? (txn.reason || txn.work_order_number || "")
     : (txn.work_order_number || "");
-  const user = txn.username || "";
+  const user = txn.user_name || "Name unavailable";
   return [timestamp, item, type, quantity, detail, user];
 }
 
@@ -468,10 +477,51 @@ historyNextBtn.addEventListener("click", () => {
 
 let woDebounceTimer = null;
 
+// Numbers already offered for restore this session, so a debounced re-search or
+// a second visit to the same filter doesn't re-prompt for one the user declined.
+const woRestoreAsked = new Set();
+
+// A work order's transactions stay in History forever -- they carry their own
+// `work_order_number`, independent of the work_orders table -- so searching an
+// archived work order's number still lists every dispense against it. The work
+// order itself, though, is hidden from the Work Orders page while archived,
+// which is invisible and confusing from here. So when the typed number names an
+// archived work order, offer to bring it back (Supervisor+; the restore route is
+// theirs). Purely additive: declining leaves the history exactly as it is.
+async function offerRestoreIfArchived(number) {
+  if (!number || !roleAtLeast(getRole(), "supervisor")) return;
+  const key = number.toLowerCase();
+  if (woRestoreAsked.has(key)) return;
+  let info;
+  try {
+    info = await apiLookupWorkOrder(number);
+  } catch {
+    return;  // the lookup is a courtesy -- never let it disturb the search
+  }
+  if (!info || !info.found || !info.archived) return;
+  woRestoreAsked.add(key);
+  const restore = await confirmDialog(
+    `Work order ${info.number} is archived, so it no longer shows on the Work Orders page. ` +
+      `Its transactions below are unaffected. Restore the work order?`
+  );
+  if (!restore) return;
+  try {
+    await apiRestoreWorkOrder(info.id);
+    woRestoreAsked.delete(key);  // it's live again; a later re-archive may re-ask
+    setMessage(historyWoMessage, `Work order ${info.number} restored.`, "success");
+  } catch (err) {
+    setMessage(historyWoMessage, friendlyError(err, "Could not restore that work order."), "error");
+  }
+}
+
 function applyWoFilter(value) {
   const trimmed = (value || "").trim();
+  setMessage(historyWoMessage, "", "");
   updateHistoryState({ workOrder: trimmed || null, page: 1 });
   loadHistory();
+  // After the results, not before: the history is what was asked for, the
+  // restore prompt is an aside.
+  offerRestoreIfArchived(trimmed);
 }
 
 historyWoFilter.addEventListener("input", () => {
@@ -521,41 +571,6 @@ historyDateClearBtn.addEventListener("click", () => {
 // lands on the line. A final Total sums the lines shown. There are no column
 // labels -- the text box has no room and the columns are self-evident.
 
-// The company text box folds at the 42nd character; keep every line within 41.
-const PRICING_LINE_WIDTH = 41;
-
-// Shortest form of a Decimal-ish quantity for display ("3.00" -> "3").
-function formatQty(quantity) {
-  return String(Number(quantity));
-}
-
-// Collapse tabs/newlines in an item name to single spaces so a stray
-// character can't break the one-row-per-line layout.
-function sanitiseName(name) {
-  return String(name).replace(/[\t\r\n]+/g, " ");
-}
-
-// Build one <= 41-char line: "<qty> <name>...<price>" with the price flush
-// right. When the name + price would overflow, the name is truncated with
-// "..." and butts up against the price (no gap) -- the box has no room to
-// spare. When it fits, the gap before the price is padded so prices align.
-function pricingLine(qty, name, priceStr) {
-  const prefix = `${qty} `;
-  // Columns left for the name once the qty prefix and price are placed.
-  const nameWidth = PRICING_LINE_WIDTH - prefix.length - priceStr.length;
-  if (nameWidth < 1) {
-    // Pathological: qty + price already fill the line. Show them, clipped.
-    return `${prefix}${priceStr}`.slice(0, PRICING_LINE_WIDTH);
-  }
-  if (name.length <= nameWidth) {
-    return prefix + name.padEnd(nameWidth) + priceStr;
-  }
-  // Too long: reserve three chars for the ellipsis, then the price.
-  const cut = nameWidth - 3;
-  const trimmed = cut > 0 ? name.slice(0, cut) + "..." : ".".repeat(nameWidth);
-  return prefix + trimmed + priceStr;
-}
-
 // Resolve a row's marked-up charge, applying the work-order unit-price
 // fallback (work-order rows suppress `item_price` -- the price lives on the
 // WO line). Returns null when the row has no charge (adjust corrections,
@@ -584,11 +599,15 @@ function buildPricingText(txns, woPrices) {
     const marked = markedCharge(txn, woPrices);
     if (marked === null) continue;
     total += marked;
-    lines.push(pricingLine(formatQty(txn.quantity), sanitiseName(txn.item_name), formatMoney(marked)));
+    lines.push(pricingLine(
+      formatPricingQuantity(txn.quantity),
+      sanitisePricingText(txn.item_name),
+      formatMoney(marked)
+    ));
   }
   if (lines.length === 0) return "";
   const totalStr = formatMoney(total);
-  const totalLine = "Total".padEnd(PRICING_LINE_WIDTH - totalStr.length) + totalStr;
+  const totalLine = pricingAmountLine("Total", totalStr);
   return [...lines, "", totalLine].join("\n");
 }
 

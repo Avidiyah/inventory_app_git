@@ -57,6 +57,16 @@ async function jsonRequest(url, method, payload) {
   return parseResponse(response);
 }
 
+// Dynamic authenticated list data should always reflect the server. These
+// feeds back pages that explicitly refresh on activation, so bypass the
+// browser HTTP cache while retaining the session cookie.
+async function liveGet(url) {
+  return parseResponse(await fetch(url, {
+    credentials: "include",
+    cache: "no-store",
+  }));
+}
+
 // --- Auth --------------------------------------------------------
 export async function apiLogin({ username, password, remember = false }) {
   return jsonRequest("/auth/login", "POST", { username, password, remember });
@@ -71,8 +81,15 @@ export async function apiMe() {
 }
 
 // --- Items -------------------------------------------------------
-export async function apiListItems() {
-  return parseResponse(await fetch("/items/", { credentials: "include" }));
+export async function apiListItems({ query = null } = {}) {
+  const params = new URLSearchParams();
+  if (query !== null) params.set("q", query);
+  const qs = params.toString();
+  return liveGet(`/items/${qs ? `?${qs}` : ""}`);
+}
+
+export async function apiListItemSearchIndex() {
+  return liveGet("/items/search-index");
 }
 
 export async function apiCreateItem({ barcode, name, location, quantity, price, product_link, override_archived = false }) {
@@ -177,11 +194,24 @@ export async function apiDecodeBarcode(file) {
 // --- Users -------------------------------------------------------
 export async function apiListUsers({ includeArchived = false } = {}) {
   const query = includeArchived ? "?include_archived=true" : "";
-  return parseResponse(await fetch(`/users/${query}`, { credentials: "include" }));
+  return liveGet(`/users/${query}`);
 }
 
-export async function apiCreateUser({ username, password, role }) {
-  return jsonRequest("/users/", "POST", { username, password, role });
+export async function apiCreateUser({ username, firstName, lastName, password, role }) {
+  return jsonRequest("/users/", "POST", {
+    username,
+    first_name: firstName,
+    last_name: lastName,
+    password,
+    role,
+  });
+}
+
+export async function apiUpdateUserName(userId, { firstName, lastName }) {
+  return jsonRequest(`/users/${userId}/name`, "PATCH", {
+    first_name: firstName,
+    last_name: lastName,
+  });
 }
 
 export async function apiResetPassword(userId, password) {
@@ -268,7 +298,7 @@ export async function apiCreateCorrection({ itemId, newQuantity, reason }) {
 // schemas expect; callers pass camelCase.
 export async function apiListStages(status) {
   const qs = status ? `?status=${encodeURIComponent(status)}` : "";
-  return parseResponse(await fetch(`/mass-stages/${qs}`, { credentials: "include" }));
+  return liveGet(`/mass-stages/${qs}`);
 }
 
 export async function apiCreateStage(community, buildingName) {
@@ -344,48 +374,69 @@ export async function apiReuseStage(stageId) {
 // --- Work Orders -------------------------------------------------------
 // A work order is the standalone entity (identity = number). List/get/items are
 // open to any authenticated user but server-scoped (technician -> assigned,
-// supervisor -> created, admin/owner -> all). Create / attribute edits / archive
-// are Supervisor+.
+// supervisor -> created/routed, admin/owner -> all). Attribute edits / restore
+// are Supervisor+; close/archive is Admin+ and only valid from Review.
+//
+// There is no create call: work orders are import-only, so apiImportWorkOrders
+// is the only thing that brings one into existence. Every other surface looks an
+// existing number up (apiListWorkOrders with `q`, or apiLookupWorkOrder).
 export async function apiListWorkOrders({ status = null, q = null, limit = null } = {}) {
   const params = new URLSearchParams();
   if (status) params.set("status", status);
   if (q) params.set("q", q);
   if (limit != null) params.set("limit", limit);
   const qs = params.toString();
-  return parseResponse(await fetch(`/work-orders/${qs ? `?${qs}` : ""}`, { credentials: "include" }));
+  return liveGet(`/work-orders/${qs ? `?${qs}` : ""}`);
 }
 
 export async function apiGetWorkOrder(workOrderId) {
   return parseResponse(await fetch(`/work-orders/${workOrderId}`, { credentials: "include" }));
 }
 
-// Create (or open, on LIVE number match) a work order. Supervisor+. Returns the
-// WorkOrderDetail. Attributes are optional; the number is required.
-// `restoreArchived` confirms re-opening a number held only by an *archived* work
-// order: the first POST omits it (defaults false) and gets a 409; the user
-// confirms and we re-POST with it true to un-archive and re-open it (mirrors
-// apiCreateItem's `override_archived`).
-export async function apiCreateWorkOrder({ number, community = null, buildingNumber = null, unitNumber = null, description = null, assignedToId = null, restoreArchived = false }) {
-  return jsonRequest("/work-orders/", "POST", {
-    number,
-    community,
-    building_number: buildingNumber,
-    unit_number: unitNumber,
-    description,
-    assigned_to_id: assignedToId,
-    restore_archived: restoreArchived,
+// Bulk-import work orders from the mass CSV export (Admin+). multipart upload --
+// do NOT set Content-Type by hand (the browser adds the multipart boundary),
+// mirroring apiDecodeBarcode. Returns the WorkOrderImportResult summary.
+export async function apiImportWorkOrders(file) {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await fetch("/work-orders/import", {
+    method: "POST",
+    body: form,
+    credentials: "include",
   });
+  return parseResponse(response);
 }
 
 // `patch` is any subset of {status, entry_mode, number, community,
-// building_number, unit_number, description, assigned_to_id}. status/entry_mode
-// are editable by any in-scope user; the rest are Supervisor+.
+// building_number, unit_number, description, notes, location, output_to,
+// vendor_assignee, service_type, schedule_date, supervisor_id,
+// assigned_to_ids}. `assigned_to_id` remains accepted by the backend for older
+// clients, but this UI writes the plural assignment set.
+// Notes / entry_mode / Set In-Progress / Mark Completed are available in-scope;
+// manual rollback, On-Hold, Review, and the remaining fields are Supervisor+.
 export async function apiUpdateWorkOrder(workOrderId, patch) {
   return jsonRequest(`/work-orders/${workOrderId}`, "PATCH", patch);
 }
 
 export async function apiArchiveWorkOrder(workOrderId) {
+  // Close a Review work order. Kept as the archive URL because Closed is the
+  // existing soft-archive state rather than a sixth stored status.
   return parseResponse(await fetch(`/work-orders/${workOrderId}/archive`, { method: "POST", credentials: "include" }));
+}
+
+// Does this number name a work order, and is it archived? Supervisor+. Returns
+// {found, archived, id, number}. The only read that sees archived work orders --
+// list/get hide them -- so History can spot a searched number whose work order
+// has been archived and offer apiRestoreWorkOrder.
+export async function apiLookupWorkOrder(number) {
+  const qs = new URLSearchParams({ number }).toString();
+  return parseResponse(await fetch(`/work-orders/lookup?${qs}`, { credentials: "include" }));
+}
+
+// Un-archive a work order (Supervisor+). The undo for apiArchiveWorkOrder;
+// returns the restored WorkOrderDetail.
+export async function apiRestoreWorkOrder(workOrderId) {
+  return parseResponse(await fetch(`/work-orders/${workOrderId}/restore`, { method: "POST", credentials: "include" }));
 }
 
 export async function apiAddWorkOrderItem(workOrderId, { itemId, quantity }) {
@@ -409,4 +460,24 @@ export async function apiSetWorkOrderItemBilling(workOrderId, woItemId, billable
 
 export async function apiDeleteWorkOrderItem(workOrderId, woItemId) {
   return parseResponse(await fetch(`/work-orders/${workOrderId}/items/${woItemId}`, { method: "DELETE", credentials: "include" }));
+}
+
+// Labor is stored in whole minutes and billed from the combined work-order
+// duration at $62.50/hour, rounded upward once to the next 30 minutes.
+export async function apiAddWorkOrderLabor(workOrderId, { technicianId, minutes }) {
+  return jsonRequest(`/work-orders/${workOrderId}/labor`, "POST", {
+    technician_id: technicianId,
+    minutes,
+  });
+}
+
+export async function apiUpdateWorkOrderLabor(workOrderId, laborId, { minutes }) {
+  return jsonRequest(`/work-orders/${workOrderId}/labor/${laborId}`, "PATCH", { minutes });
+}
+
+export async function apiDeleteWorkOrderLabor(workOrderId, laborId) {
+  return parseResponse(await fetch(`/work-orders/${workOrderId}/labor/${laborId}`, {
+    method: "DELETE",
+    credentials: "include",
+  }));
 }

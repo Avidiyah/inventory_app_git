@@ -11,8 +11,9 @@ Mounted by `app/main.py` under the root prefix.
 """
 
 import uuid
+from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.auth_deps import get_current_user, require_min_role
@@ -26,6 +27,7 @@ from app.schemas.items import (
     ItemCreate,
     ItemNotesUpdate,
     ItemResponse,
+    ItemSearchIndexEntry,
     ItemUpdate,
 )
 from app.services import items as items_service
@@ -86,13 +88,33 @@ def create_item(
     response_model=list[ItemResponse],
 )
 def list_items(
+    q: Optional[str] = Query(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return every item, newest first. Any logged-in user (this is the
-    Technician item-lookup feed). No filtering or pagination. `price` /
-    `product_link` are redacted for non-Admin callers."""
-    return [_item_response(item, user.role) for item in items_service.list_items(db)]
+    """Return live items, optionally filtered by a literal name/barcode
+    substring. Any logged-in user. `price` / `product_link` are redacted for
+    non-Admin callers."""
+    return [
+        _item_response(item, user.role)
+        for item in items_service.list_items(db, search=q)
+    ]
+
+
+@router.get(
+    "/search-index",
+    response_model=list[ItemSearchIndexEntry],
+)
+def list_item_search_index(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return only live item names and primary barcodes for Find Item input
+    suggestions. Full item details remain behind an explicit list search."""
+    return [
+        ItemSearchIndexEntry(name=row.name, barcode=row.barcode)
+        for row in items_service.list_item_search_index(db)
+    ]
 
 
 @router.get(

@@ -90,6 +90,18 @@ class ItemResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ItemSearchIndexEntry(BaseModel):
+    """Lightweight Find Item autocomplete entry.
+
+    The initial Find Item load needs only the two searchable/display values.
+    Full item details are returned only after an explicit search, load-all, or
+    barcode lookup request.
+    """
+
+    name: str
+    barcode: str
+
+
 class ItemNotesUpdate(BaseModel):
     """Payload for `PATCH /items/{id}/notes` — a full replacement.
 

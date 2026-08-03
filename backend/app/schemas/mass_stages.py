@@ -180,10 +180,10 @@ class StageWorkOrderDetail(BaseModel):
     work_order_id: UUID
     work_order_number: str
     unit_number: Optional[str] = None
-    status: str  # the work order's status (in_progress | completed)
+    status: str  # work-order live status (created through review; Closed archives)
     sort_order: int
     assigned_to_id: Optional[UUID] = None
-    assigned_to_username: Optional[str] = None
+    assigned_to_name: Optional[str] = None
     items: list[StageItemDetail] = []
 
 

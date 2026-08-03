@@ -3,40 +3,46 @@
          work-order cards and their material rows are built by
          views/workOrders.js and toggled by views/nav.js (`.page.active`).
          Server-scoped (technician -> assigned, supervisor -> created,
-         admin/owner -> all). See docs/current-state.md. -->
+         admin/owner -> all).
+
+         Work orders are IMPORT-ONLY -- there is no create form here (or
+         anywhere else). The CSV import below is how a work order enters the
+         system; its imported fields are then editable per card behind the
+         "Edit details" button. See docs/current-state.md. -->
     <div class="page" id="work-orders-page">
 
-        <!-- Supervisor+ only; views/workOrders.js reveals it by role. -->
-        <section id="work-orders-create-section" hidden>
-            <h2>New Work Order</h2>
-            <p class="hint">The number is the identity. Re-using an existing number opens that work order.</p>
-            <div class="form-stack">
-                <label for="wo-create-number">Work order number</label>
-                <input type="text" id="wo-create-number" placeholder="Work order #" autocomplete="off">
-                <label for="wo-create-community">Community (optional)</label>
-                <input type="text" id="wo-create-community" placeholder="e.g. Scholars" autocomplete="off">
-                <label for="wo-create-building">Building number (optional)</label>
-                <input type="text" id="wo-create-building" placeholder="e.g. 19" autocomplete="off">
-                <label for="wo-create-unit">Unit number (optional)</label>
-                <input type="text" id="wo-create-unit" placeholder="e.g. 1121" autocomplete="off">
-                <label for="wo-create-assignee">Assign to (optional)</label>
-                <select id="wo-create-assignee">
-                    <option value="">Unassigned</option>
-                </select>
-                <button id="wo-create-btn" type="button">Create</button>
-            </div>
-            <p id="wo-create-message"></p>
+        <!-- Admin+ only; views/workOrders.js reveals it by role. Bulk-imports the
+             mass work-order CSV export -- the only way work orders are added. -->
+        <section id="work-orders-import-section" hidden>
+            <h2>Import work orders</h2>
+            <p class="hint">Work orders come from the CSV export — upload the
+               latest one. Existing numbers are updated in place, so nothing is
+               duplicated and edits made here survive a re-import.</p>
+            <input type="file" id="wo-import-file" accept=".csv,text/csv" hidden>
+            <button id="wo-import-btn" type="button">Import from CSV…</button>
+            <p id="wo-import-message"></p>
         </section>
 
         <section id="work-orders-controls-section">
             <h2>Work Orders</h2>
-            <p class="hint">Log materials against a work order. Switch a work
-               order between current-dispense and retroactive (paper sheet) mode.</p>
+            <p class="hint">Work orders start Created, become Assigned when one
+               or more technicians are selected, and move to In-Progress when material or
+               labor is added or an in-scope user clicks Set In-Progress.
+               Technicians and supervisors can mark work completed; supervisors
+               confirm when it is ready for Review.
+               Supervisors can roll back status or place work On-Hold in Edit
+               details. Every expanded card has free-form Notes and labor tracking
+               billed in rounded-up 30-minute increments. Closed work
+               orders are handled from Admin Review.</p>
             <div class="filter-row">
                 <select id="work-orders-status-filter" aria-label="Filter by status">
-                    <option value="in_progress">In progress</option>
-                    <option value="completed">Completed</option>
                     <option value="">All</option>
+                    <option value="created">Created</option>
+                    <option value="assigned">Assigned</option>
+                    <option value="in_progress">In-Progress</option>
+                    <option value="on_hold">On-Hold</option>
+                    <option value="completed">Completed</option>
+                    <option value="review">Review</option>
                 </select>
                 <input type="text" id="work-orders-search" placeholder="Search work order #">
                 <button id="work-orders-search-btn" type="button">Search</button>

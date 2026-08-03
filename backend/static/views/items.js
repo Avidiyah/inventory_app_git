@@ -3,16 +3,15 @@
 // Layer: views. Owns the items table on the Entry page and the
 // "Create Item" form above it. Three responsibilities:
 //
-// 1. Fetch items via `apiListItems`, cache in `state`, render the
-//    table with client-side search filtering.
+// 1. Load lightweight name/barcode suggestions, then fetch and render full
+//    item rows only after an explicit search, load-all action, or scan.
 // 2. Handle the create-item submit (with cheap client-side checks
 //    before round-tripping to the backend, which is the source of
 //    truth for uniqueness and validation).
 // 3. Handle row actions: "Edit Notes" delegates to the notes view,
 //    delete confirms and calls `apiDeleteItem`.
 //
-// `setOnSaved(loadItems)` registers this view with the notes
-// editor so a successful notes save refreshes the table.
+// Row-editor callbacks refresh only the currently displayed result set.
 
 import {
   getItems,
@@ -21,7 +20,12 @@ import {
   getEditingItemId,
   getRole,
 } from "../state.js";
-import { apiListItems, apiCreateItem, apiDeleteItem } from "../api.js";
+import {
+  apiListItems,
+  apiListItemSearchIndex,
+  apiCreateItem,
+  apiDeleteItem,
+} from "../api.js";
 import { escapeHtml, friendlyError, formatMoney, safeHttpUrl } from "../format.js";
 import { setMessage, confirmArchivedReuse, confirmDialog } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
@@ -43,10 +47,19 @@ import { initSubNav } from "./subnav.js";
 
 const createItemBtn = document.getElementById("create-item-btn");
 const createItemMessage = document.getElementById("create-item-message");
+const itemsTable = document.getElementById("items-table");
 const itemsTheadRow = document.getElementById("items-thead-row");
 const itemsTbody = document.getElementById("items-tbody");
 const itemsSearch = document.getElementById("items-search");
+const itemsSearchList = document.getElementById("items-search-list");
+const itemsSearchBtn = document.getElementById("items-search-btn");
+const itemsLoadAllBtn = document.getElementById("items-load-all-btn");
 const itemsMessage = document.getElementById("items-message");
+
+let resultMode = "none";
+let resultQuery = "";
+let resultRequestId = 0;
+let searchIndexRequestId = 0;
 
 // Product-link cell: a safe http(s) link renders as an "Open" anchor;
 // anything else (missing, or a non-http scheme) shows an em dash.
@@ -63,33 +76,107 @@ const priceInput = document.getElementById("price");
 const productLinkInput = document.getElementById("product-link");
 
 export async function loadItems() {
-  // #9: show an in-progress placeholder so a slow fetch reads as "working"
-  // rather than an empty table. Kept in the table body (not the
-  // #items-message slot) so it never wipes a row-action success message
-  // like "Archived ...", which is set just before a reload. colspan is a
-  // safe over-estimate -- an extra span past the real column count is a
-  // no-op. This flashes briefly on a post-action reload over existing rows,
-  // which reads as "refreshing" and is preferable to a silent swap.
-  itemsTbody.innerHTML = `<tr><td colspan="8" class="hint">Loading…</td></tr>`;
+  // Opening Find Item intentionally does not fetch full item records. The
+  // autocomplete index carries only names/barcodes and never renders cards.
+  resultRequestId += 1;
+  resultMode = "none";
+  resultQuery = "";
+  setItems([]);
+  itemsSearch.value = "";
+  itemsTable.hidden = true;
+  itemsTbody.innerHTML = "";
+  setResultsBusy(false);
+  setMessage(itemsMessage, "Search by name or barcode, or load all items.", "");
+  await loadSearchIndex();
+}
+
+async function loadSearchIndex() {
+  const requestId = ++searchIndexRequestId;
   try {
-    const items = await apiListItems();
-    setItems(items);
-    renderItems();
+    const entries = await apiListItemSearchIndex();
+    if (requestId !== searchIndexRequestId) return;
+
+    const values = new Set();
+    entries.forEach(entry => {
+      if (entry.name) values.add(entry.name);
+      if (entry.barcode) values.add(entry.barcode);
+    });
+    const fragment = document.createDocumentFragment();
+    values.forEach(value => {
+      const option = document.createElement("option");
+      option.value = value;
+      fragment.appendChild(option);
+    });
+    itemsSearchList.replaceChildren(fragment);
   } catch (error) {
-    // #6: surface the failure instead of a silent console log + blank table.
-    itemsTbody.innerHTML =
-      `<tr><td colspan="8" class="error">${escapeHtml(friendlyError(error, "Could not load items. Try again."))}</td></tr>`;
+    if (requestId === searchIndexRequestId && resultMode === "none") {
+      setMessage(itemsMessage, friendlyError(error, "Could not load search suggestions. You can still search."), "error");
+    }
   }
 }
 
-export function renderItems() {
-  const term = itemsSearch.value.trim().toLowerCase();
-  const all = getItems();
-  const items = term
-    ? all.filter(item =>
-        item.name.toLowerCase().includes(term) ||
-        item.barcode.toLowerCase().includes(term))
-    : all;
+function setResultsBusy(busy) {
+  itemsSearchBtn.disabled = busy;
+  itemsLoadAllBtn.disabled = busy;
+}
+
+async function loadItemResults({ query = null, emptyMessage }) {
+  const requestId = ++resultRequestId;
+  setResultsBusy(true);
+  itemsTable.hidden = false;
+  itemsTbody.innerHTML = `<tr><td colspan="8" class="hint">Loading…</td></tr>`;
+
+  try {
+    const items = query === null
+      ? await apiListItems()
+      : await apiListItems({ query });
+    if (requestId !== resultRequestId) return;
+    setItems(items);
+    renderItems(emptyMessage);
+  } catch (error) {
+    if (requestId !== resultRequestId) return;
+    setItems([]);
+    itemsTbody.innerHTML =
+      `<tr><td colspan="8" class="error">${escapeHtml(friendlyError(error, "Could not load items. Try again."))}</td></tr>`;
+  } finally {
+    if (requestId === resultRequestId) setResultsBusy(false);
+  }
+}
+
+async function searchItems() {
+  const term = itemsSearch.value.trim();
+  if (!term) {
+    setMessage(itemsMessage, "Enter a name or barcode to search.", "error");
+    itemsSearch.focus();
+    return;
+  }
+  setMessage(itemsMessage, "", "");
+  resultMode = "search";
+  resultQuery = term;
+  await loadItemResults({ query: term, emptyMessage: "No items match that search." });
+}
+
+async function loadAllItems() {
+  itemsSearch.value = "";
+  setMessage(itemsMessage, "", "");
+  resultMode = "all";
+  resultQuery = "";
+  await loadItemResults({ emptyMessage: "No items yet." });
+}
+
+async function refreshDisplayedItems() {
+  const indexRefresh = loadSearchIndex();
+  if (resultMode === "search" || resultMode === "scan") {
+    await loadItemResults({ query: resultQuery, emptyMessage: "No items match that search." });
+  } else if (resultMode === "all") {
+    await loadItemResults({ emptyMessage: "No items yet." });
+  }
+  await indexRefresh;
+}
+
+export function renderItems(emptyMessage = "No items match that search.") {
+  const items = getItems();
+  itemsTable.hidden = false;
 
   // Items are read/write for Owner/Admin; Supervisor may edit notes
   // only; Technician is read-only. The backend is still the source of
@@ -157,8 +244,7 @@ export function renderItems() {
   itemsTbody.innerHTML = "";
   if (items.length === 0) {
     const row = document.createElement("tr");
-    const text = term ? "No items match that search." : "No items yet.";
-    row.innerHTML = `<td colspan="${columns.length}">${escapeHtml(text)}</td>`;
+    row.innerHTML = `<td colspan="${columns.length}">${escapeHtml(emptyMessage)}</td>`;
     itemsTbody.appendChild(row);
     return;
   }
@@ -174,12 +260,18 @@ export function renderItems() {
   });
 }
 
-itemsSearch.addEventListener("input", renderItems);
+itemsSearchBtn.addEventListener("click", searchItems);
+itemsLoadAllBtn.addEventListener("click", loadAllItems);
+itemsSearch.addEventListener("keydown", event => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  searchItems();
+});
 
-setOnSaved(loadItems);
-setOnItemSaved(loadItems);
-setOnCorrectionSaved(loadItems);
-setOnAddBarcodeSaved(loadItems);
+setOnSaved(refreshDisplayedItems);
+setOnItemSaved(refreshDisplayedItems);
+setOnCorrectionSaved(refreshDisplayedItems);
+setOnAddBarcodeSaved(refreshDisplayedItems);
 
 createItemBtn.addEventListener("click", async () => {
   const barcode = barcodeInput.value.trim();
@@ -218,7 +310,7 @@ createItemBtn.addEventListener("click", async () => {
     quantityInput.value = "";
     priceInput.value = "";
     productLinkInput.value = "";
-    loadItems();
+    loadSearchIndex();
   } catch (err) {
     if (err && err.cancelled) {
       setMessage(createItemMessage, "", "");
@@ -273,7 +365,7 @@ itemsTbody.addEventListener("change", async (event) => {
         closeCorrection();
       }
       setMessage(itemsMessage, `Archived "${item.name}".`, "success");
-      loadItems();
+      await refreshDisplayedItems();
     } catch (err) {
       setMessage(itemsMessage, friendlyError(err, "Could not archive the item. Try again."), "error");
     }
@@ -284,8 +376,8 @@ itemsTbody.addEventListener("change", async (event) => {
 //
 // Same widget as the Transaction page (see views/scan.js). Visible to
 // all roles -- it's a read-only lookup aid. On a successful match we
-// filter the items table by the scanned barcode and scroll the
-// matching row into view. On a 404 the Create-Item shortcut inside
+// render the returned item directly and scroll the matching row into view.
+// On a 404 the Create-Item shortcut inside
 // the chooser is gated to Owner/Admin by `mountScanner` itself.
 
 const itemsScanInput = document.getElementById("items-scan-input");
@@ -311,8 +403,14 @@ export const itemsScanner = mountScanner({
     // A scan resolves on the Scan feature, but the result lives in the
     // Find list -- switch back so the match is actually visible.
     if (itemsSubNav) itemsSubNav.showFeature("find");
+    resultRequestId += 1;
+    resultMode = "scan";
+    resultQuery = item.barcode;
+    setResultsBusy(false);
+    setItems([item]);
     itemsSearch.value = item.barcode;
-    renderItems();
+    setMessage(itemsMessage, "", "");
+    renderItems("No items match that barcode.");
     // Scroll the (now-single) matching row into view if it exists.
     const row = itemsTbody.querySelector("tr");
     if (row && typeof row.scrollIntoView === "function") {

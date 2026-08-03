@@ -1,7 +1,7 @@
 """Pure tests for work-order domain rules (no DB).
 
-Covers number normalization, the two-state status/mode validators, the
-fill-blanks merge, and the visibility scope.
+Covers number normalization, the six-state live workflow/mode validators,
+multi-technician assignment, labor billing, fill-blanks, and visibility scope.
 """
 
 import os
@@ -10,6 +10,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import uuid
+from decimal import Decimal
 
 import pytest
 
@@ -29,19 +30,73 @@ def test_normalize_number_trims_and_lowercases():
 
 # --- status / mode validators --------------------------------------------
 
-def test_validate_status_accepts_two_states():
-    wo.validate_status(wo.STATUS_IN_PROGRESS)
-    wo.validate_status(wo.STATUS_COMPLETED)
+def test_validate_status_accepts_six_live_states():
+    for status in (
+        wo.STATUS_CREATED,
+        wo.STATUS_ASSIGNED,
+        wo.STATUS_IN_PROGRESS,
+        wo.STATUS_ON_HOLD,
+        wo.STATUS_COMPLETED,
+        wo.STATUS_REVIEW,
+    ):
+        wo.validate_status(status)
     # alias used by the router is the same function
     assert wo.validate_active_status is wo.validate_status
 
 
-def test_validate_status_rejects_planning_and_junk():
+def test_validate_status_rejects_planning_closed_and_junk():
     # planning is a Mass Stage stage concept, not a work-order state anymore.
     with pytest.raises(WorkOrderStateError):
         wo.validate_status("planning")
     with pytest.raises(WorkOrderStateError):
+        wo.validate_status("closed")
+    with pytest.raises(WorkOrderStateError):
         wo.validate_status("archived")
+
+
+def test_initial_status_and_technician_assignment_reconciliation():
+    technician_id = uuid.uuid4()
+    assert wo.initial_status(None) == wo.STATUS_CREATED
+    assert wo.initial_status(technician_id) == wo.STATUS_ASSIGNED
+    assert (
+        wo.reconcile_assignment_status(wo.STATUS_CREATED, technician_id)
+        == wo.STATUS_ASSIGNED
+    )
+    assert (
+        wo.reconcile_assignment_status(wo.STATUS_ASSIGNED, None)
+        == wo.STATUS_CREATED
+    )
+    # Reassigning work already underway never rewinds the lifecycle.
+    assert (
+        wo.reconcile_assignment_status(wo.STATUS_IN_PROGRESS, None)
+        == wo.STATUS_IN_PROGRESS
+    )
+    assert (
+        wo.reconcile_assignment_status(wo.STATUS_ON_HOLD, None)
+        == wo.STATUS_ON_HOLD
+    )
+
+
+def test_first_activity_advances_only_prework_states():
+    assert wo.status_after_activity(wo.STATUS_CREATED) == wo.STATUS_IN_PROGRESS
+    assert wo.status_after_activity(wo.STATUS_ASSIGNED) == wo.STATUS_IN_PROGRESS
+    assert wo.status_after_activity(wo.STATUS_IN_PROGRESS) == wo.STATUS_IN_PROGRESS
+    assert wo.status_after_activity(wo.STATUS_ON_HOLD) == wo.STATUS_ON_HOLD
+    assert wo.status_after_activity(wo.STATUS_COMPLETED) == wo.STATUS_COMPLETED
+    assert wo.status_after_activity(wo.STATUS_REVIEW) == wo.STATUS_REVIEW
+
+
+def test_labor_billing_rounds_combined_minutes_up_to_half_hour():
+    assert wo.billed_labor_minutes(0) == 0
+    assert wo.billed_labor_minutes(1) == 30
+    assert wo.billed_labor_minutes(30) == 30
+    assert wo.billed_labor_minutes(31) == 60
+    assert wo.billed_labor_minutes(75) == 90
+    assert wo.labor_charge(75) == Decimal("93.75")
+    with pytest.raises(WorkOrderStateError):
+        wo.billed_labor_minutes(-1)
+    with pytest.raises(WorkOrderStateError):
+        wo.validate_labor_minutes(0)
 
 
 def test_validate_mode_and_affects_stock():
@@ -89,6 +144,28 @@ def test_supervisor_sees_only_what_they_created():
     )
 
 
+def test_supervisor_also_sees_work_orders_routed_to_them():
+    # The CSV import routes a work order to a supervisor via `supervisor_id`
+    # (they did not create it -- an Admin's import did). That supervisor still
+    # sees it, additively with the created-by rule.
+    me, importer, tech = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    assert wo.can_view_work_order(
+        roles.ROLE_SUPERVISOR,
+        created_by_id=importer,
+        assigned_to_id=tech,
+        user_id=me,
+        supervisor_id=me,
+    )
+    # Routed to someone else and not created by me -> hidden.
+    assert not wo.can_view_work_order(
+        roles.ROLE_SUPERVISOR,
+        created_by_id=importer,
+        assigned_to_id=tech,
+        user_id=me,
+        supervisor_id=uuid.uuid4(),
+    )
+
+
 def test_technician_sees_only_what_is_assigned_to_them():
     me, creator, other = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     assert wo.can_view_work_order(
@@ -99,4 +176,15 @@ def test_technician_sees_only_what_is_assigned_to_them():
     )
     assert not wo.can_view_work_order(
         roles.ROLE_TECHNICIAN, created_by_id=creator, assigned_to_id=None, user_id=me
+    )
+
+
+def test_technician_visibility_accepts_any_plural_assignment():
+    me, primary, creator = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    assert wo.can_view_work_order(
+        roles.ROLE_TECHNICIAN,
+        created_by_id=creator,
+        assigned_to_id=primary,
+        assigned_to_ids=[primary, me],
+        user_id=me,
     )

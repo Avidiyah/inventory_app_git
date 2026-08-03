@@ -131,7 +131,7 @@ def _fake_slot(number, unit, sort_order, items, status="in_progress", assignee_n
         unit_number=unit,
         status=status,
         assigned_to_id=None,
-        assignee=SimpleNamespace(username=assignee_name) if assignee_name else None,
+        assignee=SimpleNamespace(username="private-login", full_name=assignee_name) if assignee_name else None,
     )
     return SimpleNamespace(
         id=uuid.uuid4(),
@@ -156,7 +156,13 @@ def _fake_stage(slots, status="planning"):
 def test_stage_detail_nests_slots_and_flattens_item():
     item_id = uuid.uuid4()
     stage = _fake_stage(
-        [_fake_slot("WO-1", "1101", 0, [_fake_stage_item(item_id, "Spray Paint", "012345678905", "10")])]
+        [_fake_slot(
+            "WO-1",
+            "1101",
+            0,
+            [_fake_stage_item(item_id, "Spray Paint", "012345678905", "10")],
+            assignee_name="Jamie Rivera",
+        )]
     )
     detail = _stage_detail(stage)
     assert detail.community == "Scholars"
@@ -166,6 +172,7 @@ def test_stage_detail_nests_slots_and_flattens_item():
     assert slot.work_order_number == "WO-1"
     assert slot.unit_number == "1101"
     assert slot.status == "in_progress"
+    assert slot.assigned_to_name == "Jamie Rivera"
     item = slot.items[0]
     assert item.item_name == "Spray Paint"
     assert item.item_quantity == Decimal("100")

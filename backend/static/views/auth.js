@@ -15,8 +15,8 @@
 import { apiLogin, apiLogout, apiMe, setUnauthorizedHandler } from "../api.js";
 import { setCurrentUser } from "../state.js";
 import { setMessage } from "../dom.js";
-import { friendlyError } from "../format.js";
-import { applyRoleVisibility, canAccessPage, showPage } from "./nav.js";
+import { friendlyError, formatUserName } from "../format.js";
+import { applyRoleVisibility, canAccessPage, landingPageForRole, showPage } from "./nav.js";
 import { loadUsers } from "./users.js";
 import { setHistoryTab } from "./history.js";
 import { resetBatch, tryResumeBatch } from "./transactions.js";
@@ -69,10 +69,14 @@ function showLoginScreen({ expired = false } = {}) {
 }
 
 // Reveal the app for a logged-in user and run the initial loads they
-// are allowed to see. Every role lands on the Transaction page, which
-// opens on the work-order gate, so the first action after sign-in is to
-// start a work order and scan -- the core job for the whole crew
-// (see docs/current-state.md).
+// are allowed to see. The landing page is role-specific (see
+// landingPageForRole in nav.js): technicians open on Transaction and its
+// work-order gate so their first action is to start a work order and scan,
+// supervisors open on Work Orders, admins/owners on History.
+//
+// A resumed batch overrides that -- the operator was mid-scan when the
+// session dropped, so drop them straight back on Transaction regardless
+// of role (see docs/current-state.md).
 //
 // `resume: true` is passed from the boot-check path (initAuth, a still-valid
 // session cookie after a reload/tab-eviction/phone-sleep) and from an explicit
@@ -89,7 +93,7 @@ async function enterApp(user, { resume = false } = {}) {
   }
   loginScreen.hidden = true;
   appRoot.hidden = false;
-  authUserIndicator.textContent = `${user.username} (${user.role})`;
+  authUserIndicator.textContent = `${formatUserName(user)} (${user.role})`;
   applyRoleVisibility(user.role);
 
   // History keeps its "All" sub-tab primed (and the user dropdown
@@ -101,7 +105,7 @@ async function enterApp(user, { resume = false } = {}) {
     loadUsers();
   }
 
-  showPage("transaction");
+  showPage(resumed ? "transaction" : landingPageForRole(user.role));
 }
 
 // Any 401 anywhere -> back to login. The login form's own catch still

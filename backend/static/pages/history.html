@@ -5,12 +5,17 @@
             <h2>Transaction History</h2>
 
             <!-- Work-order overlay filter: visible on every sub-tab, composes
-                 with item / user filters via AND. -->
+                 with item / user filters via AND. Filters on the work-order
+                 number stored on each transaction row, so a work order's history
+                 survives the work order being archived. When the number typed
+                 here names an ARCHIVED work order, views/history.js offers to
+                 restore it (Supervisor+) -- see #history-wo-message. -->
             <div class="filter-row">
                 <label for="history-wo-filter">Filter by Work Order</label>
                 <input type="text" id="history-wo-filter" placeholder="Filter by work order number">
                 <button id="history-wo-clear-btn" type="button" class="secondary-btn">Clear</button>
             </div>
+            <p id="history-wo-message"></p>
 
             <!-- Date-range overlay filter: also visible on every sub-tab and
                  combines via AND. Either side may be left blank for an open

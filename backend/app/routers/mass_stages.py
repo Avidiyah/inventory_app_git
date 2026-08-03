@@ -67,7 +67,7 @@ def _slot_detail(slot: MassStageWorkOrder) -> StageWorkOrderDetail:
         status=w.status,
         sort_order=slot.sort_order,
         assigned_to_id=w.assigned_to_id,
-        assigned_to_username=w.assignee.username if w.assignee else None,
+        assigned_to_name=w.assignee.full_name if w.assignee else None,
         items=[_item_detail(si) for si in slot.items],
     )
 
@@ -254,10 +254,11 @@ def add_work_order(
     user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
-    """Add a work order to the stage's truck plan (find-or-create by number,
-    community/building enforced to match the stage). Supervisor+, planning only.
-    400 if the work order belongs to a different building or the assignee is not
-    a technician."""
+    """Add an already-imported work order to the stage's truck plan (resolved by
+    number, community/building enforced to match the stage). Supervisor+, planning
+    only. 404 if no live work order carries that number -- work orders are
+    import-only, so a stage cannot create one. 400 if the work order belongs to a
+    different building or the assignee is not a technician."""
     try:
         slot = ms_service.add_work_order_to_stage(
             db,
@@ -265,7 +266,6 @@ def add_work_order(
             work_order_number=payload.work_order_number,
             unit_number=payload.unit_number,
             assigned_to_id=payload.assigned_to_id,
-            created_by_id=user.id,
         )
         # Re-fetch the stage so the slot's joined work order is loaded.
         stage = ms_service.get_stage(db, stage_id)
