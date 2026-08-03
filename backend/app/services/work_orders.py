@@ -35,6 +35,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.domain import receipt
 from app.domain import roles
 from app.domain import work_orders as wo
 from app.domain.errors import (
@@ -540,30 +541,197 @@ def list_work_orders(
         like, escape = pattern
         query = query.filter(WorkOrder.number.ilike(like, escape=escape))
 
-    if user is not None and not roles.role_at_least(user.role, roles.ROLE_ADMIN):
-        if user.role == roles.ROLE_SUPERVISOR:
-            # A supervisor sees work orders they created OR are routed to them
-            # (the CSV import's name-match target). Mirrors can_view_work_order.
-            query = query.filter(
-                or_(
-                    WorkOrder.created_by_id == user.id,
-                    WorkOrder.supervisor_id == user.id,
-                )
-            )
-        else:
-            query = query.filter(
-                or_(
-                    WorkOrder.assigned_to_id == user.id,
-                    WorkOrder.technician_assignments.any(
-                        WorkOrderTechnician.technician_id == user.id
-                    ),
-                )
-            )
+    query = _scoped_to_user(query, user)
 
     query = query.order_by(WorkOrder.created_at.desc())
     if limit is not None:
         query = query.limit(limit)
     return query.all()
+
+
+def _scoped_to_user(query, user: Optional[User]):
+    """Narrow a `WorkOrder` query to what `user` may see. Admin/owner (and a
+    `None` internal caller) see everything, so the query is returned unchanged.
+    Mirrors `domain.work_orders.can_view_work_order`; shared by the list and the
+    CSV export so neither can drift into showing more than the other."""
+    if user is None or roles.role_at_least(user.role, roles.ROLE_ADMIN):
+        return query
+    if user.role == roles.ROLE_SUPERVISOR:
+        # A supervisor sees work orders they created OR are routed to them
+        # (the CSV import's name-match target).
+        return query.filter(
+            or_(
+                WorkOrder.created_by_id == user.id,
+                WorkOrder.supervisor_id == user.id,
+            )
+        )
+    return query.filter(
+        or_(
+            WorkOrder.assigned_to_id == user.id,
+            WorkOrder.technician_assignments.any(
+                WorkOrderTechnician.technician_id == user.id
+            ),
+        )
+    )
+
+
+# --- CSV export ----------------------------------------------------------
+
+def list_work_orders_for_export(
+    db: Session,
+    *,
+    user: Optional[User],
+    scope: str,
+) -> Sequence[WorkOrder]:
+    """Work orders for the CSV export, newest-first and scoped to `user` exactly
+    as the page list is.
+
+    `scope` is `all` (every live work order), `archived` (the closed ones the
+    list hides), or one live status. Unlike the list there is no `limit`: an
+    export is meant to be the whole set."""
+    wo.validate_export_scope(scope)
+    query = db.query(WorkOrder).options(
+        joinedload(WorkOrder.supervisor),
+        selectinload(WorkOrder.technicians),
+        selectinload(WorkOrder.items).joinedload(WorkOrderItem.item),
+        selectinload(WorkOrder.labor_entries),
+    )
+
+    if scope == wo.EXPORT_SCOPE_ARCHIVED:
+        query = query.filter(WorkOrder.archived_at.is_not(None))
+    else:
+        query = query.filter(WorkOrder.archived_at.is_(None))
+        if scope != wo.EXPORT_SCOPE_ALL:
+            query = query.filter(WorkOrder.status == scope)
+
+    return (
+        _scoped_to_user(query, user).order_by(WorkOrder.created_at.desc()).all()
+    )
+
+
+def _csv_timestamp(value: Optional[datetime]) -> str:
+    """Timestamps as `YYYY-MM-DD HH:MM` UTC -- sortable in a spreadsheet and
+    unambiguous, unlike a locale-formatted date."""
+    if value is None:
+        return ""
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc)
+    return value.strftime("%Y-%m-%d %H:%M")
+
+
+def _export_row(work_order: WorkOrder) -> list:
+    """One work order as a row of `domain.work_orders.EXPORT_HEADERS` values."""
+    materials_total = Decimal(0)
+    for line in work_order.items:
+        price = line.item.price or Decimal(0)
+        materials_total += price * wo.effective_billable(
+            line.quantity, line.billable_quantity
+        )
+    labor_minutes = sum(entry.minutes for entry in work_order.labor_entries)
+    labor_total = wo.labor_charge(labor_minutes)
+
+    return [
+        work_order.number,
+        work_order.location or "",
+        work_order.output_to or "",
+        # The raw vendor name, matching what the import reads back.
+        work_order.vendor_assignee or "",
+        work_order.service_type or "",
+        work_order.schedule_date or "",
+        work_order.description or "",
+        work_order.status,
+        # Multi-technician work orders collapse to one semicolon-joined cell;
+        # a comma would fight the CSV itself in every spreadsheet.
+        "; ".join(technician.full_name for technician in work_order.technicians),
+        work_order.supervisor.full_name if work_order.supervisor else "",
+        work_order.community or "",
+        work_order.building_number or "",
+        work_order.unit_number or "",
+        work_order.entry_mode,
+        len(work_order.items),
+        f"{materials_total:.2f}",
+        labor_minutes,
+        wo.billed_labor_minutes(labor_minutes),
+        f"{labor_total:.2f}",
+        f"{materials_total + labor_total:.2f}",
+        work_order.notes or "",
+        _csv_timestamp(work_order.created_at),
+        _csv_timestamp(work_order.updated_at),
+        _csv_timestamp(work_order.completed_at),
+        _csv_timestamp(work_order.archived_at),
+    ]
+
+
+def _receipt_lines(work_order: WorkOrder) -> list[receipt.ReceiptLine]:
+    """A work order's materials in the receipt builder's own vocabulary."""
+    return [
+        receipt.ReceiptLine(
+            name=line.item.name,
+            quantity=line.quantity,
+            billable_quantity=line.billable_quantity,
+            unit_price=line.item.price,
+        )
+        for line in work_order.items
+    ]
+
+
+def _client_export_row(work_order: WorkOrder) -> list:
+    """One work order as the client-facing row: number, the two billed totals,
+    and the receipt exactly as Admin Review renders it.
+
+    Both totals are what the customer is charged -- materials carry the receipt's
+    mark-up, labor is the labor charge -- so the row adds up to the receipt in
+    the last cell. An unpriced item contributes nothing to the material total
+    and shows as `NO PRICE` in the receipt, which also relabels its Total
+    `(incomplete)`; that is deliberately visible rather than silently rounded
+    away."""
+    lines = _receipt_lines(work_order)
+    labor_minutes = sum(entry.minutes for entry in work_order.labor_entries)
+    labor_total = wo.labor_charge(labor_minutes)
+    document = receipt.build_receipt(
+        lines=lines,
+        labor_billed_minutes=wo.billed_labor_minutes(labor_minutes),
+        labor_total=labor_total,
+    )
+    material_total = sum(
+        (charge for charge in map(receipt.marked_material_charge, lines) if charge is not None),
+        Decimal(0),
+    )
+    return [
+        work_order.number,
+        receipt.format_money(material_total),
+        receipt.format_money(labor_total),
+        document.text,
+    ]
+
+
+def export_work_orders_csv(
+    db: Session,
+    *,
+    user: Optional[User],
+    scope: str,
+    variant: str = wo.EXPORT_VARIANT_FULL,
+) -> str:
+    """The `scope` work orders as CSV text, one row each.
+
+    Written with `\\r\\n` line endings (the CSV standard, and what Excel expects)
+    and a header row.
+
+    `full` is the operational export: every column, led by the import's own
+    headers, so the file round-trips -- re-importing it is the idempotent
+    fill-blanks path, not a duplicate. `client` is the billing export: the
+    work-order number, the billed material and labor totals, and the full
+    receipt text in one cell (its embedded newlines survive CSV quoting, so the
+    receipt stays readable in a spreadsheet cell)."""
+    wo.validate_export_variant(variant)
+    is_client = variant == wo.EXPORT_VARIANT_CLIENT
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\r\n")
+    writer.writerow(wo.CLIENT_EXPORT_HEADERS if is_client else wo.EXPORT_HEADERS)
+    build_row = _client_export_row if is_client else _export_row
+    for work_order in list_work_orders_for_export(db, user=user, scope=scope):
+        writer.writerow(build_row(work_order))
+    return buffer.getvalue()
 
 
 def _heal_orphan_lines(db: Session, work_order: WorkOrder) -> bool:

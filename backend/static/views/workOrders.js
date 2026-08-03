@@ -2,7 +2,9 @@
 //
 // Layer: views. Owns the Work Orders page: a server-scoped list of standalone
 // work orders (identity = number). Work orders are IMPORT-ONLY -- the Admin+ CSV
-// import is the only way one appears; there is no create form. Supervisor+ can
+// import is the only way one appears; there is no create form. The same Admin+
+// card exports work orders back out as CSV, filtered by status (plus "all" and
+// the archived/closed ones the list hides). Supervisor+ can
 // edit an imported work order's fields / assignee, but only after
 // clicking "Edit details" on the card (the editor stays collapsed so the card
 // reads as a clean summary); any in-scope user (incl. an assigned technician) can
@@ -25,6 +27,7 @@ import {
   apiUpdateWorkOrderLabor,
   apiDeleteWorkOrderLabor,
   apiImportWorkOrders,
+  apiExportWorkOrders,
   apiListItems,
   apiListUsers,
 } from "../api.js";
@@ -45,6 +48,9 @@ const importSection = document.getElementById("work-orders-import-section");
 const importFile = document.getElementById("wo-import-file");
 const importBtn = document.getElementById("wo-import-btn");
 const importMessage = document.getElementById("wo-import-message");
+const exportScope = document.getElementById("wo-export-scope");
+const exportBtn = document.getElementById("wo-export-btn");
+const exportClientBtn = document.getElementById("wo-export-client-btn");
 
 // Reference lists are reused during interactions within one visit (for example,
 // debounced Work Order searches), then refreshed when nav.js activates the page
@@ -920,6 +926,55 @@ async function handleImport() {
 
 if (importBtn) importBtn.addEventListener("click", () => importFile && importFile.click());
 if (importFile) importFile.addEventListener("change", handleImport);
+
+// --- CSV export (Admin+) --------------------------------------------------
+
+// Label for the status the export dropdown is set to, for the result message.
+function exportScopeLabel(scope) {
+  const option = exportScope && [...exportScope.options].find(o => o.value === scope);
+  return option ? option.textContent : scope;
+}
+
+// Both export buttons share the status dropdown and this handler; `variant`
+// is the only difference -- "full" is the operational, re-importable sheet and
+// "client" is the billing one (number, billed totals, full receipt).
+async function handleExport(variant) {
+  const scope = exportScope ? exportScope.value : "all";
+  const buttons = [exportBtn, exportClientBtn].filter(Boolean);
+  setMessage(importMessage, "Preparing export…", "");
+  buttons.forEach(button => { button.disabled = true; });
+  try {
+    const { blob, filename } = await apiExportWorkOrders(scope, { variant });
+    // An empty scope still returns a header-only file; say so rather than
+    // handing over a CSV that looks broken.
+    const headerOnly = blob.size > 0 && (await blob.text()).trim().split("\n").length <= 1;
+    // Anchor + object URL is the only way to name a downloaded blob; revoke on
+    // the next tick so the click has already consumed the URL.
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    const what = variant === "client" ? "client receipts" : "work orders";
+    setMessage(
+      importMessage,
+      headerOnly
+        ? `No work orders matched "${exportScopeLabel(scope)}" — downloaded an empty file.`
+        : `Exported ${exportScopeLabel(scope)} ${what} to ${filename}.`,
+      headerOnly ? "" : "success",
+    );
+  } catch (err) {
+    setMessage(importMessage, friendlyError(err, "Could not export work orders."), "error");
+  } finally {
+    buttons.forEach(button => { button.disabled = false; });
+  }
+}
+
+if (exportBtn) exportBtn.addEventListener("click", () => handleExport("full"));
+if (exportClientBtn) exportClientBtn.addEventListener("click", () => handleExport("client"));
 
 // --- filter / search controls --------------------------------------------
 

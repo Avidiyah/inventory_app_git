@@ -418,6 +418,29 @@ export async function apiImportWorkOrders(file) {
   return parseResponse(response);
 }
 
+// Download work orders as CSV (Admin+). `scope` is "all", "archived", or one
+// live status; `variant` is "full" (every column, re-importable) or "client"
+// (number + billed totals + receipt). Returns `{ blob, filename }` -- the
+// response is a file, not JSON, so this cannot go through `parseResponse`;
+// error bodies still do, so a 403 / 400 surfaces as the usual
+// `{status, detail}` throw.
+export async function apiExportWorkOrders(scope = "all", { variant = "full" } = {}) {
+  const params = new URLSearchParams({ scope, variant });
+  const response = await fetch(`/work-orders/export?${params}`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!response.ok) return parseResponse(response); // always throws
+  // Prefer the server's filename (it carries the scope and export date), and
+  // fall back if the header is ever stripped by a proxy.
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="?([^"]+)"?/i);
+  return {
+    blob: await response.blob(),
+    filename: match ? match[1] : `work-orders-${variant}-${scope}.csv`,
+  };
+}
+
 // `patch` is any subset of {status, entry_mode, number, community,
 // building_number, unit_number, description, notes, location, output_to,
 // vendor_assignee, service_type, schedule_date, supervisor_id,

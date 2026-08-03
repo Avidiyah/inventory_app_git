@@ -91,6 +91,14 @@ def labor_charge(total_minutes: int) -> Decimal:
     return LABOR_RATE * Decimal(billed) / Decimal(60)
 
 
+def effective_billable(quantity: Decimal, billable_quantity: Optional[Decimal]) -> Decimal:
+    """Units actually charged on a material line: the Admin override when one is
+    set, otherwise the full recorded quantity. Shared by the card/detail
+    responses and the CSV export so a work order's materials total is the same
+    number wherever it is read."""
+    return quantity if billable_quantity is None else billable_quantity
+
+
 # --- validators ----------------------------------------------------------
 
 def validate_status(status: str) -> None:
@@ -178,6 +186,76 @@ IMPORT_HEADERS: tuple[str, ...] = (
     "SCHEDULE DATE",
     "SYMPTOM/TASK",
 )
+
+# --- CSV export ----------------------------------------------------------
+
+# One row per work order. The seven `IMPORT_HEADERS` come first, spelled
+# exactly as the import expects them, so an exported file can be fed straight
+# back into `POST /work-orders/import` -- `parse_import_row` reads those by name
+# and ignores everything after them. The remaining columns are what the app
+# knows that the vendor CSV does not (status, assignment, billing, timestamps).
+EXPORT_HEADERS: tuple[str, ...] = IMPORT_HEADERS + (
+    "STATUS",
+    "TECHNICIANS",
+    "SUPERVISOR",
+    "COMMUNITY",
+    "BUILDING",
+    "UNIT",
+    "ENTRY MODE",
+    "MATERIAL LINES",
+    "MATERIALS TOTAL",
+    "LABOR MINUTES",
+    "BILLED LABOR MINUTES",
+    "LABOR TOTAL",
+    "TOTAL",
+    "NOTES",
+    "CREATED AT",
+    "UPDATED AT",
+    "COMPLETED AT",
+    "ARCHIVED AT",
+)
+
+# The client-facing export: what a customer is billed, and nothing else. One
+# row per work order carrying the number, the two charge totals, and the full
+# receipt text (`domain.receipt`) in a single cell. Both totals are the BILLED
+# amounts -- materials marked up, labor at the labor rate -- so they sum to the
+# receipt's own Total line rather than disagreeing with the document beside
+# them.
+CLIENT_EXPORT_HEADERS: tuple[str, ...] = (
+    "WORK ORDER",
+    "MATERIAL TOTAL",
+    "LABOR TOTAL",
+    "RECEIPT",
+)
+
+EXPORT_VARIANT_FULL = "full"
+EXPORT_VARIANT_CLIENT = "client"
+
+ALL_EXPORT_VARIANTS: tuple[str, ...] = (EXPORT_VARIANT_FULL, EXPORT_VARIANT_CLIENT)
+
+
+def validate_export_variant(variant: str) -> None:
+    """Raise `WorkOrderStateError` unless `variant` is `full` (every column,
+    re-importable) or `client` (number + charges + receipt)."""
+    if variant not in ALL_EXPORT_VARIANTS:
+        raise WorkOrderStateError("Export variant must be full or client.")
+
+
+# Export scopes that are not one of `ALL_STATUSES`: every live work order, and
+# the closed (archived) ones the live list deliberately hides.
+EXPORT_SCOPE_ALL = "all"
+EXPORT_SCOPE_ARCHIVED = "archived"
+
+
+def validate_export_scope(scope: str) -> None:
+    """Raise `WorkOrderStateError` unless `scope` is `all`, `archived`, or one
+    live status. Keeps a typo'd query string from silently exporting
+    everything."""
+    if scope not in ALL_STATUSES + (EXPORT_SCOPE_ALL, EXPORT_SCOPE_ARCHIVED):
+        raise WorkOrderStateError(
+            "Export filter must be all, archived, or a live status."
+        )
+
 
 _VENDOR_TAG_RE = re.compile(r"\s*\([^)]*\)\s*$")
 

@@ -266,6 +266,25 @@ Work orders:
   surface calls `resolve_work_order`, which attaches to an existing number and
   404s on one no import has brought in. References still fill blank attributes
   but never overwrite non-blank ones.
+- The same Admin+ card exports them back out: `GET /work-orders/export?scope=`
+  writes one CSV row per work order, filtered to `all` (live), `archived`
+  (closed), or one live status, and scoped to the caller like the list. Two
+  variants share that filter:
+  - `variant=full` (the "Export to CSV" button) leads with the seven import
+    headers and then adds what the vendor CSV does not carry (status,
+    technicians, supervisor, billing totals, timestamps), so a downloaded file
+    re-imports as the idempotent fill-blanks path.
+  - `variant=client` (the "For Client" button) is the billing sheet: `WORK
+    ORDER`, `MATERIAL TOTAL`, `LABOR TOTAL`, `RECEIPT`. Both totals are the
+    billed figures — materials carry the 15% mark-up, labor is the labor charge
+    — so they add up to the receipt's own Total rather than disagreeing with the
+    document next to them. `RECEIPT` holds the full Admin Review receipt text.
+- The receipt has two implementations: `static/adminReviewReceipt.js` renders it
+  for the Admin Review copy box, and `app/domain/receipt.py` renders the same
+  characters for the client export. They must stay identical — the mark-up rate,
+  the 41-character line width, name truncation, `NO PRICE` /
+  `Total (incomplete)`, and money/quantity formatting all match, pinned by
+  `tests/test_receipt.py`. Change one and the other has to move with it.
 - Live status is `created` → `assigned` → `in_progress` → `completed` →
   `review`, with `on_hold` as a Supervisor-controlled pause state. Every new
   import starts Created. Assigning one or more technicians advances a
@@ -385,6 +404,7 @@ owner > admin > supervisor > technician
 | Work Orders list/get/items | any authenticated user, server-scoped (technician: assigned; supervisor: created OR routed via `supervisor_id`; admin/owner: all) |
 | Edit Work Order notes / entry mode / Set In-Progress / Mark Completed | any authenticated in-scope user |
 | Import work orders (CSV) | admin+ |
+| Export work orders (CSV, full or For Client) | admin+, server-scoped |
 | Edit work-order attributes / assign / rollback / On-Hold | supervisor+ (scoped); creation is import-only |
 | Admin Review page / receipt | admin+; lists every live Review work order |
 | Close/archive a work order | admin+ (scoped), Review status only; UI action lives in Admin Review |

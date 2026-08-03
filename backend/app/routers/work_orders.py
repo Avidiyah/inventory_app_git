@@ -18,10 +18,12 @@ here operates on an already-imported work order.
 """
 
 import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.auth_deps import get_current_user, require_min_role
@@ -74,8 +76,9 @@ _PRIVILEGED_FIELDS = {
 
 def _effective_billable(line: WorkOrderItem) -> Decimal:
     """Units actually charged on a line: the override when set, else the full
-    recorded quantity."""
-    return line.quantity if line.billable_quantity is None else line.billable_quantity
+    recorded quantity. The rule itself lives in the domain so the CSV export
+    bills identically."""
+    return wo.effective_billable(line.quantity, line.billable_quantity)
 
 
 def _line_detail(line: WorkOrderItem, *, include_price: bool) -> WorkOrderItemDetail:
@@ -219,6 +222,45 @@ async def import_work_orders(
     except DomainError as exc:
         raise to_http(exc)
     return WorkOrderImportResult(**summary)
+
+
+@router.get("/export")
+def export_work_orders(
+    scope: str = Query(wo.EXPORT_SCOPE_ALL),
+    variant: str = Query(wo.EXPORT_VARIANT_FULL),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Download the caller's work orders as CSV, one row per work order
+    (Admin+).
+
+    `scope` is `all`, `archived`, or one live status -- the same vocabulary the
+    page's status filter uses, plus the closed work orders the list hides.
+
+    `variant` picks the shape: `full` leads with the import's own column
+    headers, so an export can be re-imported (idempotently) rather than being a
+    dead end; `client` is the billing sheet -- number, billed material and labor
+    totals, and the full receipt text. 400 on an unrecognised scope or variant.
+
+    Declared before `/{work_order_id}` so "export" is not parsed as an id."""
+    if not roles.role_at_least(user.role, roles.ROLE_ADMIN):
+        raise HTTPException(
+            status_code=403, detail="You do not have permission to perform this action."
+        )
+    try:
+        body = wo_service.export_work_orders_csv(
+            db, user=user, scope=scope, variant=variant
+        )
+    except DomainError as exc:
+        raise to_http(exc)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    label = "client-" if variant == wo.EXPORT_VARIANT_CLIENT else ""
+    filename = f"work-orders-{label}{scope}-{stamp}.csv"
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/lookup", response_model=WorkOrderLookup)

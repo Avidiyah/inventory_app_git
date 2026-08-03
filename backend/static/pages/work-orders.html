@@ -12,14 +12,33 @@
     <div class="page" id="work-orders-page">
 
         <!-- Admin+ only; views/workOrders.js reveals it by role. Bulk-imports the
-             mass work-order CSV export -- the only way work orders are added. -->
+             mass work-order CSV export -- the only way work orders are added --
+             and exports the work orders back out, filtered by status. -->
         <section id="work-orders-import-section" hidden>
-            <h2>Import work orders</h2>
+            <h2>Import / Export</h2>
             <p class="hint">Work orders come from the CSV export — upload the
                latest one. Existing numbers are updated in place, so nothing is
-               duplicated and edits made here survive a re-import.</p>
+               duplicated and edits made here survive a re-import. Export writes
+               one row per work order, leading with the same columns the import
+               reads, so a downloaded file can be uploaded back. For Client
+               writes the billing sheet instead: work order number, material and
+               labor totals, and the full receipt.</p>
             <input type="file" id="wo-import-file" accept=".csv,text/csv" hidden>
-            <button id="wo-import-btn" type="button">Import from CSV…</button>
+            <div class="filter-row">
+                <button id="wo-import-btn" type="button">Import from CSV…</button>
+                <select id="wo-export-scope" aria-label="Work orders to export">
+                    <option value="all">All (live)</option>
+                    <option value="created">Created</option>
+                    <option value="assigned">Assigned</option>
+                    <option value="in_progress">In-Progress</option>
+                    <option value="on_hold">On-Hold</option>
+                    <option value="completed">Completed</option>
+                    <option value="review">Review</option>
+                    <option value="archived">Archived (closed)</option>
+                </select>
+                <button id="wo-export-btn" type="button" class="secondary-btn">Export to CSV…</button>
+                <button id="wo-export-client-btn" type="button" class="secondary-btn">For Client</button>
+            </div>
             <p id="wo-import-message"></p>
         </section>
 

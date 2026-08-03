@@ -111,6 +111,7 @@ writes (w).
 | 60 | PATCH | `/work-orders/{id}/labor/{labor_id}` | session scoped; technician self-only | `work_orders.py` → `work_orders.update_work_order_labor` | work_order_labor (r/w) | `apiUpdateWorkOrderLabor` | `workOrders.js` |
 | 61 | DELETE | `/work-orders/{id}/labor/{labor_id}` | session scoped; technician self-only | `work_orders.py` → `work_orders.delete_work_order_labor` | work_order_labor (r/w) | `apiDeleteWorkOrderLabor` | `workOrders.js` |
 | 62 | PATCH | `/users/{id}/role` | admin+ AND outranks both current and new role | `users.py` → `users.update_role` | users (w), sessions (w, revoke) | `apiUpdateUserRole` | `users.js` |
+| 63 | GET | `/work-orders/export` | admin+, server-scoped | `work_orders.py` → `work_orders.export_work_orders_csv` (+ `domain.receipt` for `variant=client`) | work_orders (r), work_order_items (r), items (r), work_order_labor (r), users (r) | `apiExportWorkOrders` | `workOrders.js` |
 
 (Rows 55–61 were appended out of resource order to keep the existing #1–54
 numbering — and the footnote / per-table references to it — stable.)
@@ -284,6 +285,19 @@ one no import has brought in.
   find-or-create by number (idempotent fill-blanks; also un-archives an archived
   number), reading **users** to name-match the vendor `ASSIGNED TO` to a
   supervisor (`supervisor_id`). *The only path that creates a work order.*
+- `workOrders.js` (Export to CSV, Admin+) → `apiExportWorkOrders` →
+  `GET /work-orders/export?scope=…&variant=full` → `export_work_orders_csv` →
+  reads **work_orders** (+ lines, items, labor, users) and returns a `text/csv`
+  attachment, one row per work order. `scope` is `all`, `archived`, or one live
+  status; results are scoped to the caller exactly as the list is. The first
+  seven columns are the import's own headers, so an export re-imports cleanly.
+- `workOrders.js` (For Client, Admin+) → same route with `variant=client` →
+  four columns only: `WORK ORDER`, `MATERIAL TOTAL`, `LABOR TOTAL`, `RECEIPT`.
+  Both totals are the BILLED figures (materials marked up 15%, labor at the
+  labor rate), so they sum to the receipt in the last cell. `RECEIPT` is the
+  full Admin Review receipt text, built by `domain.receipt` — the Python port of
+  `static/adminReviewReceipt.js`, pinned character-for-character by
+  `tests/test_receipt.py`.
 - `workOrders.js` (Edit details → Save, Supervisor+) → `apiUpdateWorkOrder` →
   `PATCH /work-orders/{id}` → `update_work_order` → **work_orders** update. The
   card's editor is collapsed until "Edit details" is clicked; it writes the
