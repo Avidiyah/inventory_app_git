@@ -149,7 +149,12 @@ def test_dispense_without_work_order_creates_no_line(db):
         work_order_number=None,
         work_order_id=None,
     )
-    assert db.query(WorkOrderItem).count() == 0
+    # Scoped to this test's item: the `db` fixture rolls back rather than
+    # truncating, so a global count also sees whatever live rows the
+    # developer's database already holds.
+    assert (
+        db.query(WorkOrderItem).filter(WorkOrderItem.item_id == item.id).count() == 0
+    )
 
 
 # --- void from History reconciles the line -------------------------------
