@@ -383,14 +383,15 @@ def can_view_work_order(
     """Whether a user of `role` may see/act on a work order.
 
     Admin/owner (and a `None`-role internal caller) see all; a supervisor sees
-    work orders they created OR are routed to them (`supervisor_id`, the CSV
-    import's name-match target); a technician sees only work orders assigned to
-    them.
+    unrouted work orders available to pick up plus work orders routed to them;
+    a technician sees only work orders assigned to them.
     """
     if role is None or roles.role_at_least(role, roles.ROLE_ADMIN):
         return True
     if role == roles.ROLE_SUPERVISOR:
-        return user_id is not None and user_id in (created_by_id, supervisor_id)
+        return user_id is not None and (
+            supervisor_id is None or supervisor_id == user_id
+        )
     technician_ids = tuple(assigned_to_ids or ())
     if assigned_to_id is not None and assigned_to_id not in technician_ids:
         technician_ids += (assigned_to_id,)

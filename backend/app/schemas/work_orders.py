@@ -59,6 +59,10 @@ class WorkOrderUpdate(BaseModel):
     service_type: Optional[str] = None
     schedule_date: Optional[str] = None
     supervisor_id: Optional[UUID] = None
+    # Optimistic precondition for routing changes. The browser sends the value
+    # it originally rendered (including an explicit null) so a stale pickup
+    # cannot overwrite a supervisor selected in another request or by import.
+    expected_supervisor_id: Optional[UUID] = None
 
     @field_validator("number")
     @classmethod
@@ -85,7 +89,7 @@ class WorkOrderUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _at_least_one(self):
-        if not self.model_fields_set:
+        if not (self.model_fields_set - {"expected_supervisor_id"}):
             raise ValueError("Provide at least one field to update.")
         return self
 

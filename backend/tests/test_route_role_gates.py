@@ -26,11 +26,13 @@ from fastapi.routing import APIRoute
 import pytest
 
 from app.domain import roles
+from app.domain.errors import WorkOrderAssignmentConflictError
 from app.routers import items as items_router
 from app.routers import tools as tools_router
 from app.routers import users as users_router
 from app.routers import transactions as transactions_router
 from app.routers import work_orders as work_orders_router
+from app.routers._errors import to_http
 from app.schemas.work_orders import WorkOrderUpdate
 
 
@@ -228,6 +230,56 @@ def test_technician_can_save_work_order_notes(monkeypatch):
 
     assert result is saved
     assert captured == {"notes": "Gate code is 4123."}
+
+
+def test_work_order_route_passes_precondition_and_returns_internal_detail(monkeypatch):
+    work_order_id = uuid.uuid4()
+    target_id = uuid.uuid4()
+    saved = SimpleNamespace(id=work_order_id)
+    user = SimpleNamespace(role=roles.ROLE_SUPERVISOR)
+    captured = {}
+
+    def save(db, incoming_id, *, user, fields, expected_supervisor_id):
+        captured["fields"] = fields
+        captured["expected"] = expected_supervisor_id
+        return saved
+
+    def get(db, incoming_id, *, user):
+        captured["detail_user"] = user
+        return saved
+
+    monkeypatch.setattr(work_orders_router.wo_service, "update_work_order", save)
+    monkeypatch.setattr(work_orders_router.wo_service, "get_work_order", get)
+    monkeypatch.setattr(
+        work_orders_router,
+        "_detail",
+        lambda work_order, *, include_price: work_order,
+    )
+
+    result = work_orders_router.update_work_order(
+        work_order_id,
+        WorkOrderUpdate(
+            supervisor_id=target_id,
+            expected_supervisor_id=None,
+        ),
+        user=user,
+        db=None,
+    )
+
+    assert result is saved
+    assert captured == {
+        "fields": {"supervisor_id": target_id},
+        "expected": None,
+        "detail_user": None,
+    }
+
+
+def test_stale_work_order_assignment_maps_to_named_http_409():
+    error = to_http(WorkOrderAssignmentConflictError("Avery Anderson"))
+    assert error.status_code == 409
+    assert error.detail == (
+        "This Work Order was already assigned to Avery Anderson"
+    )
 
 
 def test_create_tool_requires_admin():

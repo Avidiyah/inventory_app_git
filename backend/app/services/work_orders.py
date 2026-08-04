@@ -40,8 +40,10 @@ from app.domain import roles
 from app.domain import work_orders as wo
 from app.domain.errors import (
     InvalidAssigneeError,
+    InvalidSupervisorError,
     ItemNotFoundError,
     RoleManagementError,
+    WorkOrderAssignmentConflictError,
     WorkOrderNotFoundError,
     WorkOrderStateError,
 )
@@ -60,6 +62,7 @@ from app.models import (
 
 # Backslash is the LIKE escape char (mirrors services.history).
 _LIKE_ESCAPE = "\\"
+_UNSET = object()
 
 # Editable attribute fields (used by fill-blanks references + explicit edits).
 # The CSV-import columns join the original location/description set; every one is
@@ -193,6 +196,27 @@ def _validate_assignees(
     return normalized
 
 
+def _validate_supervisor(
+    db: Session, supervisor_id: Optional[uuid.UUID]
+) -> None:
+    """A routed work order must target an active Supervisor account."""
+    if supervisor_id is None:
+        return
+    supervisor = (
+        db.query(User.id)
+        .filter(
+            User.id == supervisor_id,
+            User.role == roles.ROLE_SUPERVISOR,
+            User.archived_at.is_(None),
+        )
+        .first()
+    )
+    if supervisor is None:
+        raise InvalidSupervisorError(
+            "Work orders can only be routed to an active Supervisor."
+        )
+
+
 def _assigned_technician_ids(work_order: WorkOrder) -> list[uuid.UUID]:
     """Plural assignment ids with a legacy-column fallback."""
     assigned = [
@@ -256,14 +280,33 @@ def _visible(work_order: WorkOrder, user: Optional[User]) -> bool:
     )
 
 
+def _find_by_number(
+    db: Session, number: str, *, for_update: bool = False
+) -> Optional[WorkOrder]:
+    """Internal number lookup, optionally locking and refreshing the row."""
+    norm = wo.normalize_number(number)
+    query = db.query(WorkOrder).filter(
+        func.lower(func.btrim(WorkOrder.number)) == norm
+    )
+    if for_update:
+        query = query.populate_existing().with_for_update()
+    return query.first()
+
+
 def find_by_number(db: Session, number: str) -> Optional[WorkOrder]:
     """The work order whose number matches `number` case-insensitively +
     trimmed, including an archived one (numbers stay reserved). `None` if
     unknown."""
-    norm = wo.normalize_number(number)
+    return _find_by_number(db, number)
+
+
+def _get_locked(db: Session, work_order_id: uuid.UUID) -> Optional[WorkOrder]:
+    """Lock and refresh a work-order row without applying caller visibility."""
     return (
         db.query(WorkOrder)
-        .filter(func.lower(func.btrim(WorkOrder.number)) == norm)
+        .populate_existing()
+        .filter(WorkOrder.id == work_order_id)
+        .with_for_update()
         .first()
     )
 
@@ -306,10 +349,12 @@ def _merge_reference(
     assigned_to_id: Optional[uuid.UUID],
     supervisor_id: Optional[uuid.UUID],
 ) -> WorkOrder:
-    """Fill-blanks merge of a reference's attributes into an existing work order:
-    a blank column takes the incoming value, a non-blank one is left alone. A
-    non-blank assignee applies only if currently unassigned, a `supervisor_id`
-    only if currently unrouted. Commits and returns the refreshed row."""
+    """Merge into an existing row already locked by the caller.
+
+    A blank column takes the incoming value and a non-blank one is left alone.
+    An assignee applies only if currently unassigned, and supervisor routing
+    applies only if the freshly locked row is still unrouted. Commits and
+    returns the refreshed row."""
     for field in _ATTR_FIELDS:
         setattr(existing, field, wo.fill_blank(getattr(existing, field), incoming[field]))
     if assigned_to_id is not None and not _assigned_technician_ids(existing):
@@ -320,6 +365,7 @@ def _merge_reference(
             assigned_by_id=None,
         )
     if supervisor_id is not None and existing.supervisor_id is None:
+        _validate_supervisor(db, supervisor_id)
         existing.supervisor_id = supervisor_id
     existing.status = wo.reconcile_assignment_status(
         existing.status, _assigned_technician_ids(existing)
@@ -363,7 +409,7 @@ def resolve_work_order(
     clobbering imported values. Raises `InvalidAssigneeError` if an assignee is
     not a technician."""
     _validate_assignee(db, assigned_to_id)
-    existing = find_by_number(db, number)
+    existing = _find_by_number(db, number, for_update=True)
     if existing is not None and existing.archived_at is not None:
         # Distinguish the two dead ends: an archived number is recoverable
         # (restore it from the Work Orders page or History), an unknown one needs
@@ -426,7 +472,7 @@ def get_or_create_work_order(
     `assigned` only when a technician is supplied, otherwise `created`;
     supervisor routing does not change lifecycle status. Raises
     `InvalidAssigneeError` if an assignee is not a technician."""
-    existing = find_by_number(db, number)
+    existing = _find_by_number(db, number, for_update=True)
     if existing is not None and existing.archived_at is not None:
         return existing
 
@@ -452,6 +498,7 @@ def get_or_create_work_order(
             supervisor_id=supervisor_id,
         )
 
+    _validate_supervisor(db, supervisor_id)
     work_order = WorkOrder(
         id=uuid.uuid4(),
         number=number.strip(),
@@ -472,12 +519,21 @@ def get_or_create_work_order(
     try:
         db.commit()
     except IntegrityError as exc:
-        # Raced another insert of the same normalized number -- reuse it.
+        # Raced another insert of the same normalized number. Lock the winner
+        # and apply this row's fill-blank merge instead of dropping its data.
         db.rollback()
-        existing = find_by_number(db, number)
+        existing = _find_by_number(db, number, for_update=True)
         if existing is None:
             raise WorkOrderStateError("Could not create the work order.") from exc
-        return existing
+        if existing.archived_at is not None:
+            return existing
+        return _merge_reference(
+            db,
+            existing,
+            incoming=incoming,
+            assigned_to_id=assigned_to_id,
+            supervisor_id=supervisor_id,
+        )
     db.refresh(work_order)
     return work_order
 
@@ -698,11 +754,11 @@ def _scoped_to_user(query, user: Optional[User]):
     if user is None or roles.role_at_least(user.role, roles.ROLE_ADMIN):
         return query
     if user.role == roles.ROLE_SUPERVISOR:
-        # A supervisor sees work orders they created OR are routed to them
-        # (the CSV import's name-match target).
+        # Unrouted work orders are the shared pickup queue; once routed, only
+        # the selected supervisor (plus Admin/Owner above) retains visibility.
         return query.filter(
             or_(
-                WorkOrder.created_by_id == user.id,
+                WorkOrder.supervisor_id.is_(None),
                 WorkOrder.supervisor_id == user.id,
             )
         )
@@ -1011,19 +1067,46 @@ def update_work_order(
     *,
     user: Optional[User],
     fields: dict,
+    expected_supervisor_id: object = _UNSET,
 ) -> WorkOrder:
     """Explicit edit (overwrite) of the fields present in `fields` -- any of
     number / community / building_number / unit_number / description / notes /
     status / entry_mode / assigned_to_ids. Validates status / mode / assignees.
     Notes are Technician+; operational fields require Supervisor+; imported and
-    legacy metadata requires Admin+.
+    legacy metadata requires Admin+. When `expected_supervisor_id` is supplied,
+    routing changes use it as an optimistic precondition while the work-order
+    row is locked.
     The legacy singular `assigned_to_id` is accepted for old clients. Technician
     assignment moves Created/Assigned automatically; explicit status wins when
     both are patched. Supervisor routing is independent of lifecycle status.
     Completed/Review retain `completed_at`, while reopening to an earlier state
     clears it. A number collision raises `WorkOrderStateError`."""
     _require_update_permissions(user, fields)
-    work_order = _get_visible(db, work_order_id, user)
+    work_order = _get_locked(db, work_order_id)
+    if work_order is None or work_order.archived_at is not None:
+        raise WorkOrderNotFoundError("Work order not found.")
+
+    # Check the stale routing value before current visibility: a supervisor who
+    # loaded this row while it was unrouted must receive the named 409 after
+    # another supervisor picks it up, even though the new routing now hides it.
+    if (
+        "supervisor_id" in fields
+        and expected_supervisor_id is not _UNSET
+        and work_order.supervisor_id != expected_supervisor_id
+    ):
+        supervisor_name = None
+        if work_order.supervisor_id is not None:
+            current_supervisor = (
+                db.query(User)
+                .filter(User.id == work_order.supervisor_id)
+                .first()
+            )
+            if current_supervisor is not None:
+                supervisor_name = current_supervisor.full_name
+        raise WorkOrderAssignmentConflictError(supervisor_name)
+
+    if not _visible(work_order, user):
+        raise WorkOrderNotFoundError("Work order not found.")
 
     if "entry_mode" in fields:
         wo.validate_mode(fields["entry_mode"])
@@ -1062,8 +1145,7 @@ def update_work_order(
                 work_order.status, technician_ids
             )
     if "supervisor_id" in fields:
-        # No technician check: any user may be the routed supervisor (the FK
-        # guarantees the id exists). Admins use this to route an unmatched import.
+        _validate_supervisor(db, fields["supervisor_id"])
         work_order.supervisor_id = fields["supervisor_id"]
     if "status" in fields:
         # Created/Assigned is an assignment-derived pair even for a manual

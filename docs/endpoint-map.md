@@ -76,7 +76,7 @@ writes (w).
 | 25 | GET | `/work-orders/` | session scoped | `work_orders.py` → `work_orders.list_work_orders` (scheduled-date descending; joinable status/service/supervisor/community/date/number filters) | work_orders (r), work_order_items (r), work_order_technicians (r), users (r) | `apiListWorkOrders` | `workOrders.js`, `transactions.js`, `history.js`, `adminReview.js` |
 | 26 | GET | `/work-orders/{id}` | session scoped | `work_orders.py` → `work_orders.get_work_order` | work_orders (r), work_order_items (r/w⁵), work_order_technicians (r), work_order_labor (r), items (r), users (r) | `apiGetWorkOrder` | `workOrders.js`, `history.js`, `adminReview.js` |
 | 27 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | `work_orders.py` → `work_orders.lookup_work_order` | work_orders (r, **incl. archived**) | `apiLookupWorkOrder` | `history.js` |
-| 28 | PATCH | `/work-orders/{id}` | scoped; notes→tech+, operations→sup+, metadata→admin+ | `work_orders.py` → `work_orders.update_work_order` | work_orders (w, incl. notes/primary mirror), work_order_technicians (w), users (r) | `apiUpdateWorkOrder` | `workOrders.js`, `adminReview.js` (Return to In-Progress) |
+| 28 | PATCH | `/work-orders/{id}` | scoped; notes→tech+, operations→sup+, metadata→admin+; stale supervisor precondition→409 | `work_orders.py` → `work_orders.update_work_order` | work_orders (r/w, row lock; incl. notes/primary mirror), work_order_technicians (w), users (r) | `apiUpdateWorkOrder` | `workOrders.js`, `adminReview.js` (Return to In-Progress) |
 | 29 | POST | `/work-orders/{id}/archive` | admin+ scoped; any live status | `work_orders.py` → `work_orders.archive_work_order` | work_orders (w, Closed/archive) | `apiArchiveWorkOrder` | `workOrders.js`, `adminReview.js` |
 | 30 | POST | `/work-orders/{id}/items` | session scoped | `work_orders.py` → `work_orders.add_work_order_item` | items (w), transactions (w), work_order_items (w) | `apiAddWorkOrderItem` | `workOrders.js` |
 | 31 | PATCH | `/work-orders/{id}/items/{wid}` | supervisor+ scoped | `work_orders.py` → `work_orders.update_work_order_item` | items (w), transactions (w, adjust), work_order_items (w) | `apiUpdateWorkOrderItem` | `workOrders.js` |
@@ -103,7 +103,7 @@ writes (w).
 | 52 | POST | `/tools/{tool_id}/checkout` | admin+ | `tools.py` → `tools_service.checkout_tool` | users (r, active-target guard), tools (w), tool_transactions (w) | `apiCheckoutTool` | `toolCheckout.js` |
 | 53 | POST | `/tools/{tool_id}/return` | session | `tools.py` → `tools_service.return_tool` | tools (w), tool_transactions (w, r for cap check) | `apiReturnTool` | `toolReturn.js` |
 | 54 | POST | `/tools/{tool_id}/adjust` | admin+ | `tools.py` → `tools_service.adjust_tool_quantity` | tools (w), tool_transactions (w) | `apiAdjustTool` | `toolCorrection.js` |
-| 55 | POST | `/work-orders/import` | admin+ | `work_orders.py` → `work_orders.import_work_orders` | work_orders (r/w, find-or-create — **the only create path**), users (r, supervisor name-match) | `apiImportWorkOrders` | `workOrders.js` |
+| 55 | POST | `/work-orders/import` | admin+ | `work_orders.py` → `work_orders.import_work_orders` | work_orders (r/w, locked find-or-create — **the only create path**), users (r, active-supervisor name-match) | `apiImportWorkOrders` | `workOrders.js` |
 | 56 | POST | `/work-orders/{id}/restore` | supervisor+ scoped | `work_orders.py` → `work_orders.restore_work_order` | work_orders (w, un-archive) | `apiRestoreWorkOrder` | `history.js` |
 | 57 | GET | `/items/search-index` | session | `items.py` → `items.list_item_search_index` | items (r; name/barcode projection only) | `apiListItemSearchIndex` | `items.js` |
 | 58 | PATCH | `/users/{id}/name` | self or outranks target | `users.py` → `users.update_name` | users (w; first/last name + optional `username`) | `apiUpdateUserName` | `users.js` |
@@ -291,8 +291,10 @@ one no import has brought in.
   known community term. The final rows sort by parsed scheduled date descending.
 - `workOrders.js` (Import from CSV, Admin+) → `apiImportWorkOrders` →
   `POST /work-orders/import` → `import_work_orders` → per row **work_orders**
-  find-or-create live numbers with idempotent fill-blanks; an archived match is
-  counted as closed and ignored before merge/routing. Reads **users** to
+  lock/find-or-create live numbers with idempotent fill-blanks; supervisor
+  routing fills only while the locked row is still NULL, so a manual reroute
+  wins over a later or concurrent import. An archived match is counted as
+  closed and ignored before merge/routing. Reads **users** to
   name-match the vendor `ASSIGNED TO` to a supervisor (`supervisor_id`) for live
   rows. *The only path that creates a work order.*
 - `workOrders.js` (Export filtered CSV beside Search, Admin+) →
@@ -324,7 +326,12 @@ one no import has brought in.
   selector offers current/earlier steps plus On-Hold; On-Hold can resume to a
   non-Review step. Created/Assigned is normalized from technician presence.
   Review remains outside this selector. `number` is not editable — the import
-  matches on it.
+  matches on it. The patch includes the editor's original `supervisor_id` as
+  `expected_supervisor_id`; the service locks the row before comparing it. If a
+  different supervisor already picked it up, the API returns 409 with `This
+  Work Order was already assigned to [First] [Last]`; the one-button prompt
+  reloads the page when dismissed. A successful transfer is returned through
+  internal response scope so routing it away does not become a false 404.
 - `workOrders.js` (mode / lifecycle actions, Supervisor+) →
   `apiUpdateWorkOrder` → same route. Only Supervisor+ receives Set In-Progress,
   Mark completed, mode, Reopen, or Send to Review controls. Send to Review on a
@@ -612,6 +619,9 @@ validated in the service. Live statuses are `created`, `assigned`, `in_progress`
 Notes are trimmed nullable free-form text; every in-scope user may save them.
 `status`, `entry_mode`, supervisor, and technician assignment require
 Supervisor+; imported/legacy text metadata and number require Admin+.
+`supervisor_id?` may be paired with `expected_supervisor_id?`, including an
+explicit NULL expectation for pickup. The expectation is a concurrency
+precondition, not a stored field and not an update by itself.
 
 **`WorkOrderLookup`** — return of `GET /work-orders/lookup?number=`: `found: bool`,
 `archived: bool`, `id: UUID?`, `number: str?`. Deliberately reports an *archived*
@@ -720,6 +730,7 @@ non-domain exceptions become FastAPI's default 500.
 | `RoomNotFoundError` | 404 | stage **slot** not found / not in the stage (name retains old "room") |
 | `StageItemNotFoundError` | 404 | planned stage item not found (incl. loading an unplanned item) |
 | `WorkOrderNotFoundError` | 404 | work order unknown, archived, or **out of visibility scope** (404 hides existence) |
+| `WorkOrderAssignmentConflictError` | **409** | a routing patch's `expected_supervisor_id` differs from the freshly locked row; names its current supervisor when assigned |
 | `WorkOrderStateError` | 400 | invalid live status/mode, close before Review, or number collision on edit |
 | `ToolNotFoundError` | 404 | tool id/barcode unknown or archived |
 | `DuplicateToolBarcodeError` | 400 | barcode held by a **live** tool (no archived-conflict/override flow, unlike items) |
@@ -731,6 +742,7 @@ non-domain exceptions become FastAPI's default 500.
 | `DuplicateBuildingStageError` | 400 | a (community, building) already has an active stage |
 | `InvalidStageTransitionError` | 400 | stage status move not `planning→loading→completed` |
 | `InvalidAssigneeError` | 400 | work-order assignee missing or not a technician |
+| `InvalidSupervisorError` | 400 | work-order routing target missing, archived, or not a Supervisor |
 | `ReturnExceedsLoadedError` | 400 | mass-stage return > net loaded |
 | `StageStateError` | 400 | mass-stage op illegal for current status (edit after planning, load before loading) |
 | `ItemHasTransactionsError` | 400 | hard-deleting an item with txns/stage rows (FK RESTRICT) |
@@ -790,8 +802,8 @@ Pure functions (no DB) in `domain/*.py` — the business rules, testable in isol
 - `fill_blank(current, incoming)` = keep non-blank `current`, else `incoming`
   (the find-or-create merge; `is_blank` = None or all-whitespace).
 - `can_view_work_order(role, created_by_id, assigned_to_id, assigned_to_ids,
-  user_id)`: admin/owner (and `None` internal role) → all; supervisor → created
-  by/routed to them; technician → present in the plural assignment set (with the
+  user_id, supervisor_id)`: admin/owner (and `None` internal role) → all;
+  supervisor → unrouted or routed to them; technician → present in the plural assignment set (with the
   singular compatibility fallback).
 - Labor constants/rules: `LABOR_RATE = Decimal("62.50")`, increment = 30 minutes;
   `billed_labor_minutes(total)` rounds the combined duration upward once and
@@ -943,15 +955,16 @@ attaches to an existing number and refuses an unknown one. Both share the
 `_merge_reference` fill-blanks merge.
 
 - `get_or_create_work_order(number, **attrs, assigned_to_id, supervisor_id,
-  created_by_id)` → **import path only.** `find_by_number` (case-insensitive,
+  created_by_id)` → **import path only.** Locked `find_by_number` (case-insensitive,
   includes archived). Archived exists: return untouched so import counts/ignores
   it. Live exists: `_merge_reference` fill-blanks (the `_ATTR_FIELDS` set also
   covers the CSV-import columns `location`/`output_to`/`vendor_assignee`/
   `service_type`/`schedule_date`), set assignee only if currently unassigned and
   `supervisor_id` only if currently unrouted; reconcile Created/Assigned from
   technician assignment. New: insert `assigned` only when a technician is
-  supplied, otherwise `created`; supervisor routing is status-neutral. Race on
-  the unique index → rollback + reuse.
+  supplied, otherwise `created`; supervisor routing is status-neutral and must
+  target an active Supervisor. Race on the unique index → rollback, lock the
+  winner, and apply the same fill-blank merge.
 - `resolve_work_order(number, **attrs, assigned_to_id, supervisor_id)` → attach to
   an existing work order, never create. `find_by_number`; `WorkOrderNotFoundError`
   if unknown ("added by importing the CSV") or archived ("restore it first") — two
@@ -975,7 +988,9 @@ attaches to an existing number and refuses an unknown one. Both share the
   match; otherwise resolve `supervisor_id` by name-matching the `vendor_assignee`
   (miss/ambiguity stays unassigned) and funnel through `get_or_create_work_order`.
   Tally created/opened/closed/matched/unmatched/skipped. Idempotent for live rows
-  (fill-blanks); each created/opened row commits inside get-or-create.
+  (fill-blanks); the existing row is refreshed under `FOR UPDATE`, and imported
+  routing fills only a still-NULL `supervisor_id`. Each created/opened row
+  commits inside get-or-create.
 - `list_work_orders_for_export(user, scope, service_type?, supervisor_id?,
   community?, scheduled_date?, search?)` → validate scope, select live/all, one
   live status, or archived rows, apply the shared predicates and caller scope,
@@ -987,22 +1002,26 @@ attaches to an existing number and refuses an unknown one. Both share the
   `CLIENT_EXPORT_HEADERS`/receipt behavior.
 - `list_work_orders(user, status?, service_type?, supervisor_id?, community?,
   scheduled_date?, search?, limit?)` → archived excluded. Every supplied filter
-  is combined with AND, then `_scoped_to_user` enforces supervisor created/routed
-  or technician assignment visibility. Community searches structured/raw
+  is combined with AND, then `_scoped_to_user` enforces supervisor
+  unassigned/self-routed or technician assignment visibility. Community searches structured/raw
   location text; scheduled date parses leading vendor/ISO dates exactly. Results
   sort by parsed schedule descending, invalid/blank values last, before `limit`.
 - `get_work_order_filter_options(user)` → two scoped distinct queries over live
   work orders: normalized service type values and routed supervisor identities;
   returns those plus the stable community choices without exposing `/users` to
   technicians.
-- `update_work_order(id, fields)` → explicit overwrite, including nullable
+- `update_work_order(id, fields, expected_supervisor_id?)` → explicit overwrite,
+  including nullable
   free-form `notes`, after `_require_update_permissions` applies notes =
   Technician+, status/mode/routing/assignment = Supervisor+, and imported/legacy
   metadata = Admin+. `assigned_to_ids` synchronizes **work_order_technicians**
   and the singular compatibility mirror. Plural technician assignment reconciles
   Created/Assigned; an
   explicit pre-work rollback is normalized after assignment so those states
-  cannot contradict technician presence. Supervisor routing is independent.
+  cannot contradict technician presence. The work-order row is refreshed and
+  locked before visibility/write checks. Supervisor routing is independent,
+  targets only an active Supervisor, and compares an optional expected value;
+  a stale value raises the named `WorkOrderAssignmentConflictError` (409).
   Completed/Review preserve `completed_at`; On-Hold/rollback/reopen clear it.
 - `archive_work_order(id)` → require Admin+ in the service, scoped-load any live
   status, then set `archived_at` (Closed). Rows/lines/transactions remain.

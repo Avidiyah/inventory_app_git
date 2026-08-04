@@ -467,6 +467,7 @@ export async function apiExportWorkOrders(
 // `patch` is any subset of {status, entry_mode, number, community,
 // building_number, unit_number, description, notes, location, output_to,
 // vendor_assignee, service_type, schedule_date, supervisor_id,
+// expected_supervisor_id,
 // assigned_to_ids}. `assigned_to_id` remains accepted by the backend for older
 // clients, but this UI writes the plural assignment set.
 // Role matrix: notes = Technician+; status/entry mode/routing/assignment =

@@ -11,7 +11,7 @@ A **self-hosted inventory + work-order staging system** for physical materials t
 ## Core domains
 
 - **Items & transactions** — find/create/edit items by barcode; Find Item initially loads only a name/barcode suggestion index, then explicit Search or Load All retrieves full records. Stock, dispense, correct (append-only `adjust` rows), and void (soft delete, reverses stock). Prices/links are cost-sensitive and redacted below Admin. Row locks guard every quantity change; money is `Decimal`.
-- **Work orders** — first-class standalone, import-only entities whose case-insensitive identity is the **number**. Live workflow is Created → Assigned → In-Progress → Completed → Review, with supervisor-controlled On-Hold; Closed is the archived state. Work orders support multiple technician assignments, free-form Notes, aggregate material billing, and per-technician labor billed at $62.50/hour after the combined duration rounds upward to 30 minutes. Edit permissions are least-privilege: Technician = notes/add material; Supervisor+ = routing/status/mode/labor/material corrections; Admin+ = imported metadata and archive from any live status. CSV re-import fills only blank metadata on live matches and leaves all operational data untouched; archived matches are counted as closed and ignored. The server-side list composes status, service type, routed supervisor, derived community, exact scheduled date, and number filters with AND, then sorts by parsed Scheduled Date descending. Admin+ can export that uncapped filtered set as a re-importable operational CSV; the client billing/receipt CSV remains scope-based. Everything is server-scoped by role (technician→any assignment, supervisor→created/routed, admin/owner→all).
+- **Work orders** — first-class standalone, import-only entities whose case-insensitive identity is the **number**. Live workflow is Created → Assigned → In-Progress → Completed → Review, with supervisor-controlled On-Hold; Closed is the archived state. Work orders support multiple technician assignments, free-form Notes, aggregate material billing, and per-technician labor billed at $62.50/hour after the combined duration rounds upward to 30 minutes. Edit permissions are least-privilege: Technician = notes/add material; Supervisor+ = routing/status/mode/labor/material corrections; Admin+ = imported metadata and archive from any live status. Supervisors see the shared unassigned pickup queue plus work routed to themselves. Pickup and import merges lock the same row; a stale pickup receives a named 409, while import fills supervisor routing only when the locked row is still unassigned, preserving manual reroutes. Routing targets must be active Supervisors. Archived import matches are counted as closed and ignored. The server-side list composes status, service type, routed supervisor, derived community, exact scheduled date, and number filters with AND, then sorts by parsed Scheduled Date descending. Admin+ can export that uncapped filtered set as a re-importable operational CSV; the client billing/receipt CSV remains scope-based. Everything is server-scoped by role (technician→any assignment, supervisor→unassigned/self-routed, admin/owner→all).
 - **Mass staging** — truck-loading plans per community/building/unit that *reference* work orders; forward-only lifecycle planning→loading→completed.
 - **Tools** — parallel to items but smaller (no price/location); ledger-derived custody ("who has what" is computed, never stored). Checkout is Admin+, check-in any role.
 - **Users/roles** — `owner > admin > supervisor > technician`; unique usernames
@@ -36,7 +36,7 @@ work-order/QoL batch and its follow-up user-management and export work are
 committed; older documents that call that feature set uncommitted are historical.
 OpenAPI exposes 64 operations and Alembic head is `f7a9b1c3d5e6`.
 
-IMP-001 through IMP-003 and IMP-005 through IMP-011 are implemented and marked
+IMP-001 through IMP-003 and IMP-005 through IMP-018 are implemented and marked
 Done. IMP-004 (the Mass Stage redesign) is the only open requested improvement
 and remains very low priority. See `docs/improvement-tracker.md` for the original
 requests and implementation notes.
@@ -64,12 +64,19 @@ The two capabilities added after the improvement batch are:
   supervisor, technicians, and status plus separate mode/labor/material-correction
   controls; Technician sees Notes and Add Item only. Admin/Owner additionally
   receives a confirmed Archive action on every expanded live-status card.
+- Supervisors share unassigned Work Orders as a pickup queue. Edit Details sends
+  the originally rendered supervisor as an optimistic precondition; a competing
+  pickup returns the current supervisor's full name in a 409 prompt and reloads
+  the page after dismissal. Import and manual routing serialize on a row lock,
+  so import assigns only a still-unassigned row and never overwrites a manual
+  reroute.
 
 ## Verification baseline
 
-- Full backend suite on 2026-08-04: 428 passed, including the Excel `sep=,`
-  and closed-row import regressions, joined Work Orders/date filtering, scheduled ordering, and
-  filtered operational export, plus the Work Orders field/action/archive role matrix.
+- Full backend suite on 2026-08-04: 432 passed, including the Excel `sep=,`
+  and closed-row/import-routing regressions, joined Work Orders/date filtering,
+  scheduled ordering, filtered operational export, stale-pickup conflicts, and
+  the Work Orders field/action/archive role matrix.
 - All 32 frontend JavaScript files pass `node --check`.
 - OpenAPI reports 64 operations; Alembic reports `f7a9b1c3d5e6 (head)`.
 - `git diff --check` passes apart from the existing line-ending warning on the

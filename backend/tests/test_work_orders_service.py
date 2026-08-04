@@ -21,9 +21,11 @@ import pytest
 from app.domain import work_orders as wo
 from app.domain.errors import (
     InvalidAssigneeError,
+    InvalidSupervisorError,
     ItemNotFoundError,
     NegativeQuantityError,
     RoleManagementError,
+    WorkOrderAssignmentConflictError,
     WorkOrderNotFoundError,
     WorkOrderStateError,
 )
@@ -62,12 +64,13 @@ def _seed_user(db, role, *, first_name=None, last_name=None):
     return user
 
 
-def _wo(db, *, created_by, assigned_to=None, number=None):
+def _wo(db, *, created_by, assigned_to=None, supervisor=None, number=None):
     return wos.get_or_create_work_order(
         db,
         number=number or f"WO-{uuid.uuid4().hex[:8]}",
         created_by_id=created_by.id,
         assigned_to_id=assigned_to.id if assigned_to else None,
+        supervisor_id=supervisor.id if supervisor else None,
     )
 
 
@@ -300,10 +303,10 @@ def test_lookup_reports_an_archived_work_order(db):
 
 
 def test_lookup_hides_a_work_order_out_of_scope(db):
-    # Scoping still applies: a supervisor may not discover another's work order.
+    # Scoping still applies after a work order leaves the shared pickup queue.
     mine = _seed_user(db, "supervisor")
     theirs = _seed_user(db, "supervisor")
-    a = _wo(db, created_by=theirs)
+    a = _wo(db, created_by=mine, supervisor=theirs)
     assert wos.lookup_work_order(db, number=a.number, user=mine) is None
 
 
@@ -364,7 +367,7 @@ def test_archiving_keeps_the_work_orders_history_searchable(db):
 def test_restore_is_scoped(db):
     mine = _seed_user(db, "supervisor")
     theirs = _seed_user(db, "supervisor")
-    a = _wo(db, created_by=theirs)
+    a = _wo(db, created_by=mine, supervisor=theirs)
     _close(db, a, user=theirs)
     with pytest.raises(WorkOrderNotFoundError):
         wos.restore_work_order(db, a.id, user=mine)
@@ -731,6 +734,70 @@ def test_set_invalid_status_rejected(db):
         wos.update_work_order(db, w.id, user=sup, fields={"status": "planning"})
 
 
+def test_stale_supervisor_pickup_reports_current_assignee_and_preserves_it(db):
+    admin = _seed_user(db, "admin")
+    first = _seed_user(
+        db, "supervisor", first_name="Avery", last_name="Anderson"
+    )
+    second = _seed_user(
+        db, "supervisor", first_name="Blake", last_name="Bennett"
+    )
+    work_order = _wo(db, created_by=admin)
+
+    claimed = wos.update_work_order(
+        db,
+        work_order.id,
+        user=first,
+        fields={"supervisor_id": first.id},
+        expected_supervisor_id=None,
+    )
+    assert claimed.supervisor_id == first.id
+
+    with pytest.raises(
+        WorkOrderAssignmentConflictError,
+        match=r"^This Work Order was already assigned to Avery Anderson$",
+    ):
+        wos.update_work_order(
+            db,
+            work_order.id,
+            user=second,
+            fields={"supervisor_id": second.id},
+            expected_supervisor_id=None,
+        )
+    db.rollback()
+    db.refresh(work_order)
+    assert work_order.supervisor_id == first.id
+
+
+def test_work_order_routing_requires_an_active_supervisor(db):
+    admin = _seed_user(db, "admin")
+    technician = _seed_user(db, "technician")
+    archived = _seed_user(db, "supervisor")
+    archived.archived_at = datetime.now(timezone.utc)
+    work_order = _wo(db, created_by=admin)
+    db.commit()
+
+    with pytest.raises(InvalidSupervisorError, match="active Supervisor"):
+        wos.update_work_order(
+            db,
+            work_order.id,
+            user=admin,
+            fields={"supervisor_id": technician.id},
+            expected_supervisor_id=None,
+        )
+    db.rollback()
+
+    with pytest.raises(InvalidSupervisorError, match="active Supervisor"):
+        wos.update_work_order(
+            db,
+            work_order.id,
+            user=admin,
+            fields={"supervisor_id": archived.id},
+            expected_supervisor_id=None,
+        )
+    db.rollback()
+
+
 # --- scoping -------------------------------------------------------------
 
 def test_scoping_list_and_access(db):
@@ -740,15 +807,19 @@ def test_scoping_list_and_access(db):
     tech2 = _seed_user(db, "technician")
     admin = _seed_user(db, "admin")
 
-    a = _wo(db, created_by=sup_a, assigned_to=tech1)
-    b = _wo(db, created_by=sup_b, assigned_to=tech2)
+    a = _wo(db, created_by=sup_b, assigned_to=tech1, supervisor=sup_a)
+    b = _wo(db, created_by=sup_a, assigned_to=tech2, supervisor=sup_b)
+    pickup = _wo(db, created_by=admin)
 
     def ids(user, **kw):
         return {w.id for w in wos.list_work_orders(db, user=user, **kw)}
 
     assert ids(tech1) == {a.id}
     assert ids(tech2) == {b.id}
-    assert ids(sup_a) == {a.id}
+    assert {a.id, pickup.id} <= ids(sup_a)
+    assert b.id not in ids(sup_a)
+    assert {b.id, pickup.id} <= ids(sup_b)
+    assert a.id not in ids(sup_b)
     assert {a.id, b.id} <= ids(admin)
 
     with pytest.raises(WorkOrderNotFoundError):
@@ -973,9 +1044,15 @@ def test_filter_options_are_distinct_and_server_scoped(db):
 def test_list_limit_applies_after_scheduled_date_sort(db):
     sup = _seed_user(db, "supervisor")
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    number_prefix = f"WO-LIMIT-{uuid.uuid4().hex[:8]}"
     created = []
     for i in range(13):
-        w = _wo(db, created_by=sup)
+        w = _wo(
+            db,
+            created_by=sup,
+            supervisor=sup,
+            number=f"{number_prefix}-{i:02d}",
+        )
         # Creation order intentionally opposes schedule order, proving the cap is
         # applied only after scheduled-date sorting.
         w.created_at = base + timedelta(minutes=i)
@@ -983,14 +1060,16 @@ def test_list_limit_applies_after_scheduled_date_sort(db):
         created.append(w)
     db.flush()
 
-    uncapped = wos.list_work_orders(db, user=sup)
+    uncapped = wos.list_work_orders(db, user=sup, search=number_prefix)
     assert len(uncapped) == 13
     assert [work_order.id for work_order in uncapped] == [
         work_order.id for work_order in created
     ]
 
     # Capped at 10: exactly the first 10 in scheduled-date order.
-    capped = wos.list_work_orders(db, user=sup, limit=10)
+    capped = wos.list_work_orders(
+        db, user=sup, search=number_prefix, limit=10
+    )
     assert len(capped) == 10
     assert [work_order.id for work_order in capped] == [
         work_order.id for work_order in created[:10]

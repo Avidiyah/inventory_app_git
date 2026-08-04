@@ -155,32 +155,31 @@ def test_admin_and_owner_see_everything():
     )
 
 
-def test_supervisor_sees_only_what_they_created():
+def test_supervisor_sees_unassigned_and_self_routed_work_orders():
     me, other, tech = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    assert wo.can_view_work_order(
-        roles.ROLE_SUPERVISOR, created_by_id=me, assigned_to_id=tech, user_id=me
-    )
-    assert not wo.can_view_work_order(
-        roles.ROLE_SUPERVISOR, created_by_id=other, assigned_to_id=me, user_id=me
-    )
-
-
-def test_supervisor_also_sees_work_orders_routed_to_them():
-    # The CSV import routes a work order to a supervisor via `supervisor_id`
-    # (they did not create it -- an Admin's import did). That supervisor still
-    # sees it, additively with the created-by rule.
-    me, importer, tech = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    # Creator identity no longer controls supervisor visibility: an unrouted
+    # row is the shared pickup queue.
     assert wo.can_view_work_order(
         roles.ROLE_SUPERVISOR,
-        created_by_id=importer,
+        created_by_id=other,
+        assigned_to_id=tech,
+        user_id=me,
+        supervisor_id=None,
+    )
+    assert wo.can_view_work_order(
+        roles.ROLE_SUPERVISOR,
+        created_by_id=other,
         assigned_to_id=tech,
         user_id=me,
         supervisor_id=me,
     )
-    # Routed to someone else and not created by me -> hidden.
+
+
+def test_supervisor_does_not_see_work_orders_routed_to_someone_else():
+    me, importer, tech = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     assert not wo.can_view_work_order(
         roles.ROLE_SUPERVISOR,
-        created_by_id=importer,
+        created_by_id=me,
         assigned_to_id=tech,
         user_id=me,
         supervisor_id=uuid.uuid4(),

@@ -36,10 +36,9 @@ const confirmQtyDec = document.getElementById("scan-confirm-qty-dec");
 const confirmQtyInc = document.getElementById("scan-confirm-qty-inc");
 
 // `options.quantity` (a positive number) turns this into a quantity-confirm
-// (#11): the +/- stepper is shown, and the promise resolves the chosen count
-// on Yes (or false on decline) instead of a bare boolean. Callers that omit it
-// get the plain yes/no behavior unchanged.
-export function confirmDialog(message, { quantity = null } = {}) {
+// (#11). `options.dismissOnly` reuses the same accessible modal as a one-button
+// message. Callers that omit both get the plain yes/no behavior unchanged.
+export function confirmDialog(message, { quantity = null, dismissOnly = false } = {}) {
   // `qtyRequested` fixes the resolve contract (a number on Yes, false on No)
   // whenever the caller asked for a quantity; `wantsQty` additionally requires
   // the stepper markup to be present before showing/reading it. Keeping them
@@ -56,9 +55,13 @@ export function confirmDialog(message, { quantity = null } = {}) {
     }
     // Remember focus so we can restore it on close (a11y).
     const previouslyFocused = document.activeElement;
+    const originalYesText = confirmYesBtn?.textContent;
+    const originalNoHidden = confirmNoBtn?.hidden;
+    if (confirmYesBtn && dismissOnly) confirmYesBtn.textContent = "Close";
+    if (confirmNoBtn) confirmNoBtn.hidden = dismissOnly;
     const focusables = (wantsQty
       ? [confirmQtyDec, confirmQtyInput, confirmQtyInc, confirmYesBtn, confirmNoBtn]
-      : [confirmYesBtn, confirmNoBtn]).filter(Boolean);
+      : [confirmYesBtn, dismissOnly ? null : confirmNoBtn]).filter(Boolean);
 
     confirmTitle.textContent = message; // textContent: item name is untrusted
     if (confirmQtyWrap) confirmQtyWrap.hidden = !wantsQty;
@@ -99,6 +102,10 @@ export function confirmDialog(message, { quantity = null } = {}) {
     function done(ok) {
       confirmOverlay.hidden = true;
       if (confirmQtyWrap) confirmQtyWrap.hidden = true; // reset for generic reuse
+      if (confirmYesBtn && originalYesText !== undefined) {
+        confirmYesBtn.textContent = originalYesText;
+      }
+      if (confirmNoBtn) confirmNoBtn.hidden = originalNoHidden;
       cleanup();
       restoreFocus();
       if (!qtyRequested) { resolve(ok); return; }
@@ -136,6 +143,12 @@ export function confirmDialog(message, { quantity = null } = {}) {
       if (confirmQtyInc) confirmQtyInc.addEventListener("click", onInc);
     }
   });
+}
+
+// A one-button informational prompt. Closing by button, Esc, or backdrop all
+// resolve the same way so callers can perform a single follow-up action.
+export async function messageDialog(message) {
+  await confirmDialog(message, { dismissOnly: true });
 }
 
 // --- Archived-record reuse confirm/retry ------------------------------

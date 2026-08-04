@@ -277,7 +277,10 @@ Work orders:
   one; there is no create endpoint and no "new work order" form. Every other
   surface calls `resolve_work_order`, which attaches to an existing number and
   404s on one no import has brought in. References still fill blank attributes
-  but never overwrite non-blank ones.
+  but never overwrite non-blank ones. Existing rows are locked before an import
+  merge: incoming supervisor routing applies only while the freshly locked row
+  is still unassigned, so a manual reroute survives both later and concurrent
+  re-imports.
 - `GET /work-orders/export?scope=` writes one CSV row per work order and remains
   scoped to the caller like the list. Its two variants intentionally use
   different controls:
@@ -364,7 +367,12 @@ Work orders:
   additional fee, tax, and discount layers remain deferred.
 - List/get/items are scoped server-side by
   `domain.work_orders.can_view_work_order`; out-of-scope/archived/unknown
-  surface as 404. Notes and adding materials are Technician+; operational
+  surface as 404. Supervisors see the shared unassigned pickup queue plus rows
+  routed to themselves; creator identity does not grant visibility after a row
+  is routed elsewhere. A routing edit may target only an active Supervisor. The
+  editor sends its original `supervisor_id`; the service locks the row and
+  returns a named 409 conflict if another request assigned it first. Notes and
+  adding materials are Technician+; operational
   routing/status/mode, labor, and material corrections are Supervisor+;
   imported/legacy metadata and close/archive are Admin+; archive accepts any
   live status.
@@ -422,7 +430,7 @@ owner > admin > supervisor > technician
 | Edit user name + username | self, or actor outranks target |
 | Change a user's role | admin+ AND actor outranks both the current and the new role |
 | Mass-stage page/API | supervisor+ |
-| Work Orders list/get/items | any authenticated user, server-scoped (technician: assigned; supervisor: created OR routed via `supervisor_id`; admin/owner: all) |
+| Work Orders list/get/items | any authenticated user, server-scoped (technician: assigned; supervisor: unassigned OR routed to self via `supervisor_id`; admin/owner: all) |
 | Edit Work Order notes / add material | any authenticated in-scope user |
 | Edit Work Order supervisor / technicians / status / entry mode / labor / logged-material quantity or removal | supervisor+ (scoped) |
 | Edit imported Work Order metadata (Location, Service, Schedule Date, Output to, Vendor Contact, Symptom/Task) | admin+ (scoped) |
@@ -445,8 +453,10 @@ Scoping nuance:
 - `GET /mass-stages/` list is scoped: supervisor sees own stages, admin/owner
   all. Direct stage-by-ID routes are supervisor+ gated but not additionally
   creator-scoped once the caller has a stage id.
-- The `/work-orders` routes DO add real per-row creator/assignee scope checks
-  (`services.work_orders`), because technicians reach them. The service also
+- The `/work-orders` routes DO add real per-row assignment scope checks
+  (`services.work_orders`), because technicians reach them. Unassigned rows are
+  the shared Supervisor pickup queue; a routed row is visible only to its
+  selected Supervisor and Admin/Owner. The service also
   enforces the edit matrix: Technician = notes/add material; Supervisor+ =
   operations/labor/material corrections; Admin+ = imported/legacy metadata.
 
@@ -612,7 +622,10 @@ Rules:
   references leave it archived. `lookup_work_order` is the one read that reports a closed
   work order so History can offer restore.
 - References fill blank attributes but never overwrite non-blank ones; explicit
-  edits (`update_work_order`) overwrite.
+  edits (`update_work_order`) overwrite. Reference/import merges lock the row;
+  `supervisor_id` fills only when the locked value is NULL. Explicit routing
+  locks the same row, validates an active Supervisor target, and can compare the
+  caller's `expected_supervisor_id` to reject stale pickup attempts with 409.
 - **CSV-import schema (the new default source of truth).** The mass work-order
   export is bulk-imported via `POST /work-orders/import` (Admin+). Its columns
   land on `location` (raw LOCATION string, deliberately unparsed), `output_to`,
@@ -633,10 +646,11 @@ Rules:
   `update_work_order`. Supervisor routing does not change lifecycle status.
   The plural technician set advances a Created row to Assigned when non-empty
   and returns an Assigned row to Created when cleared, while later lifecycle
-  states never rewind automatically. `supervisor_id` drives
-  visibility additively with `created_by_id` (see
-  `can_view_work_order`): a supervisor sees work orders they created OR are
-  routed to them.
+  states never rewind automatically. `supervisor_id` drives Supervisor
+  visibility directly (see `can_view_work_order`): NULL is the shared pickup
+  queue, and a routed row is visible to that Supervisor. Import and explicit
+  routing lock the same row so import fills only NULL routing and a stale pickup
+  cannot overwrite a winner.
 - `legacy` marks a pre-import work order. The import migration
   (`f2a4c6b8d0e1`) set `legacy=true` on every then-existing row and NULLed its
   old descriptive attributes (`community`/`building_number`/`unit_number`/
@@ -961,7 +975,8 @@ Order card so the user can set it In-Progress first.
 
 List/get/items are open to any authenticated user but **server-scoped**: a
 technician sees/acts on only work orders assigned to them, a supervisor only
-ones they created or routed to them, admin/owner all. Notes/add-material are
+unassigned work orders or ones routed to them, admin/owner all.
+Notes/add-material are
 Technician+; operations/labor/material corrections and restore are Supervisor+;
 metadata and closing are Admin+. Archive accepts every live status. Out-of-scope, closed, or
 unknown work orders return 404. **There is no create route** — the CSV import is
@@ -971,11 +986,11 @@ the only way in.
 | --- | --- | --- | --- |
 | GET | `/work-orders/` | session scoped | list live Created through Review work orders by scheduled date descending; joinable `status`, `service_type`, `supervisor_id`, `community`, `scheduled_date`, `q` filters plus `limit` |
 | GET | `/work-orders/filter-options` | session scoped | distinct service types and routed supervisors from caller-visible live work orders plus stable community choices |
-| POST | `/work-orders/import` | admin+ | bulk-import the mass CSV export (multipart); find-or-create live numbers and ignore archived matches; **the only path that creates a work order**; returns created/opened/closed/matched/skipped counts |
+| POST | `/work-orders/import` | admin+ | bulk-import the mass CSV export (multipart); locked find-or-create fills supervisor only while NULL and ignores archived matches; **the only path that creates a work order**; returns created/opened/closed/matched/skipped counts |
 | GET | `/work-orders/export` | admin+ scoped | export `scope=all|archived|<live-status>` as `variant=full` (re-importable operational CSV; accepts the live page's service/supervisor/community/date/number filters) or `variant=client` (unchanged scope-only billing totals + fixed-width receipt) |
 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | does this number name a work order, and is it archived? the one read that reports an archived one, so History can offer a restore |
 | GET | `/work-orders/{id}` | session scoped | work-order detail + free-form notes + logged materials + labor totals |
-| PATCH | `/work-orders/{id}` | session scoped; field-sensitive | notes = Technician+; supervisor/technicians/status/entry mode = Supervisor+; imported/legacy metadata = Admin+ |
+| PATCH | `/work-orders/{id}` | session scoped; field-sensitive | notes = Technician+; supervisor/technicians/status/entry mode = Supervisor+; imported/legacy metadata = Admin+; optional original supervisor precondition returns a named 409 on stale pickup |
 | POST | `/work-orders/{id}/archive` | admin+ scoped | close a work order from any live status via soft archive (number reserved, lines kept, transactions untouched) |
 | POST | `/work-orders/{id}/restore` | supervisor+ scoped | explicit un-archive; the only way to return a closed work order to live views |
 | POST | `/work-orders/{id}/items` | session scoped | log a material (mode = work order's entry_mode); upsert by item |

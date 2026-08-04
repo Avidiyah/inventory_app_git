@@ -400,10 +400,25 @@ def update_work_order(
     mode. Admin+: imported/legacy metadata as well. Server-scoped.
     """
     fields = payload.model_dump(exclude_unset=True)
+    has_supervisor_precondition = "expected_supervisor_id" in fields
+    expected_supervisor_id = fields.pop("expected_supervisor_id", None)
     try:
-        work_order = wo_service.update_work_order(db, work_order_id, user=user, fields=fields)
+        update_kwargs = {}
+        if has_supervisor_precondition:
+            update_kwargs["expected_supervisor_id"] = expected_supervisor_id
+        work_order = wo_service.update_work_order(
+            db,
+            work_order_id,
+            user=user,
+            fields=fields,
+            **update_kwargs,
+        )
         return _detail(
-            wo_service.get_work_order(db, work_order.id, user=user),
+            # The caller may just have routed the row to somebody else. The
+            # write was already authorized above, so build its response through
+            # the internal scope instead of turning a successful transfer into
+            # a false 404.
+            wo_service.get_work_order(db, work_order.id, user=None),
             include_price=_can_see_price(user),
         )
     except DomainError as exc:

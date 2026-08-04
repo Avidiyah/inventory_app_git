@@ -125,25 +125,36 @@ def test_import_creates_work_orders_with_new_fields(db):
     assert row.created_by_id == admin.id
 
 
-def test_reimport_is_idempotent_and_preserves_manual_edits(db):
+def test_reimport_preserves_a_manual_supervisor_change(db):
     admin = _seed_user(db, roles.ROLE_ADMIN)
+    imported_supervisor, csv_name = _seed_named_supervisor(db)
+    manual_supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
     n1 = _num()
-    csv_bytes = _csv([[n1, "Loc", "Belfor", "", "SMR27", "7/1/2026", "Task"]])
+    csv_bytes = _csv([[
+        n1, "Loc", "Belfor", csv_name, "SMR27", "7/1/2026", "Task"
+    ]])
 
     first = wos.import_work_orders(db, csv_bytes=csv_bytes, user=admin)
     assert first["created"] == 1
-
-    # A manual edit between imports: route it to a supervisor by hand.
-    sup = _seed_user(db, roles.ROLE_SUPERVISOR)
     row = wos.find_by_number(db, n1)
-    wos.update_work_order(db, row.id, user=admin, fields={"supervisor_id": sup.id})
+    assert row.supervisor_id == imported_supervisor.id
+
+    # A manual reroute between imports must be authoritative, even though the
+    # repeated CSV still matches the original supervisor.
+    wos.update_work_order(
+        db,
+        row.id,
+        user=admin,
+        fields={"supervisor_id": manual_supervisor.id},
+        expected_supervisor_id=imported_supervisor.id,
+    )
 
     second = wos.import_work_orders(db, csv_bytes=csv_bytes, user=admin)
     assert second["created"] == 0
     assert second["opened"] == 1
     # Fill-blank re-import never clobbered the manual routing.
     routed = wos.find_by_number(db, n1)
-    assert routed.supervisor_id == sup.id
+    assert routed.supervisor_id == manual_supervisor.id
     assert routed.status == "created"  # supervisor routing is not tech assignment
 
 

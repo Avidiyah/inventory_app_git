@@ -15,6 +15,7 @@ through to FastAPI's default 500 handler.
 """
 
 from decimal import Decimal
+from typing import Optional
 
 
 class DomainError(Exception):
@@ -232,6 +233,12 @@ class InvalidAssigneeError(DomainError):
     is always valid. Maps to 400."""
 
 
+class InvalidSupervisorError(DomainError):
+    """Raised when work-order routing targets a missing, archived, or
+    non-Supervisor user. An unrouted work order (None) is always valid. Maps to
+    400."""
+
+
 class WorkOrderNotFoundError(DomainError):
     """Raised when a service is asked to operate on a work order that does not
     exist, is archived, or is not visible to the caller. Visibility failures
@@ -243,6 +250,23 @@ class WorkOrderNotFoundError(DomainError):
     or Mass Stage reference names a number no import has brought in: work orders
     are import-only, so an unknown number is a dead end, not a new work order.
     Maps to 404."""
+
+
+class WorkOrderAssignmentConflictError(DomainError):
+    """Raised when a work-order routing write is based on a stale supervisor
+    value. Carries the current supervisor's display name when one is assigned
+    and maps to 409."""
+
+    def __init__(self, supervisor_name: Optional[str] = None):
+        self.supervisor_name = supervisor_name
+        if supervisor_name:
+            message = (
+                "This Work Order was already assigned to "
+                f"{supervisor_name}"
+            )
+        else:
+            message = "This Work Order assignment changed. Refresh and try again."
+        super().__init__(message)
 
 
 class WorkOrderStateError(DomainError):

@@ -31,7 +31,7 @@ import {
   apiListUsers,
 } from "../api.js";
 import { escapeHtml, friendlyError, formatMoney, formatUserName } from "../format.js";
-import { setMessage, confirmDialog } from "../dom.js";
+import { setMessage, confirmDialog, messageDialog } from "../dom.js";
 import { getRole } from "../state.js";
 import { roleAtLeast } from "../roles.js";
 import { openBillingEditor } from "./billingEditor.js";
@@ -454,7 +454,7 @@ function detailsEditorHtml(detail) {
   const hint = isAdminPlus()
     ? `Edit imported metadata and operations for WO ${escapeHtml(detail.number)}.`
     : `Edit assignment and status for WO ${escapeHtml(detail.number)}.`;
-  return `<div class="wo-edit" hidden>
+  return `<div class="wo-edit" data-original-supervisor-id="${escapeHtml(detail.supervisor_id || "")}" hidden>
             <p class="hint">${hint}</p>
             <div class="wo-edit-grid">
               ${adminMetadata}
@@ -856,6 +856,8 @@ listEl.addEventListener("click", async (event) => {
         vendor_assignee: value(".wo-edit-vendor"),
         description: value(".wo-edit-description"),
         supervisor_id: body.querySelector(".wo-edit-supervisor")?.value || null,
+        expected_supervisor_id:
+          body.querySelector(".wo-edit")?.dataset.originalSupervisorId || null,
         assigned_to_ids: Array.from(body.querySelectorAll(".wo-edit-assignee:checked")).map((input) => input.value),
       };
       Object.keys(patch).forEach((k) => patch[k] === undefined && delete patch[k]);
@@ -926,6 +928,15 @@ listEl.addEventListener("click", async (event) => {
       await refreshCard(cardEl);
     }
   } catch (err) {
+    if (
+      err?.status === 409 &&
+      typeof err.detail === "string" &&
+      err.detail.startsWith("This Work Order was already assigned to ")
+    ) {
+      await messageDialog(err.detail);
+      window.location.reload();
+      return;
+    }
     if (msg) setMessage(msg, friendlyError(err, "That action did not work."), "error");
   }
 });
@@ -987,7 +998,7 @@ async function handleImport() {
       `${r.closed} closed work order${r.closed === 1 ? "" : "s"} ignored`,
     ];
     if (r.supervisors_matched || r.supervisors_unmatched) {
-      parts.push(`${r.supervisors_matched} routed to a supervisor, ${r.supervisors_unmatched} unmatched`);
+      parts.push(`${r.supervisors_matched} supervisor name matches, ${r.supervisors_unmatched} unmatched`);
     }
     if (r.skipped) parts.push(`${r.skipped} skipped (no number)`);
     setMessage(importMessage, parts.join(" · ") + ".", "success");
