@@ -13,11 +13,12 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
 
+from app.domain import work_orders as wo
 from app.domain.errors import (
     InvalidAssigneeError,
     ItemNotFoundError,
@@ -48,9 +49,11 @@ def _seed_item(db, qty=100, price="2.50"):
     return item
 
 
-def _seed_user(db, role):
+def _seed_user(db, role, *, first_name=None, last_name=None):
     user = User(
         username=f"u-{uuid.uuid4().hex[:10]}",
+        first_name=first_name,
+        last_name=last_name,
         password_hash=auth.hash_password("hunter2"),
         role=role,
     )
@@ -69,11 +72,8 @@ def _wo(db, *, created_by, assigned_to=None, number=None):
 
 
 def _close(db, work_order, *, user):
-    """Move a fixture through Review before exercising Closed/archive behavior."""
-    wos.update_work_order(
-        db, work_order.id, user=user, fields={"status": "review"}
-    )
-    wos.archive_work_order(db, work_order.id, user=user)
+    """Archive a fixture internally before exercising Closed behavior."""
+    wos.archive_work_order(db, work_order.id, user=None)
 
 
 def _txn(db, txn_id):
@@ -159,8 +159,13 @@ def test_labor_tracks_technician_and_advances_first_activity(db):
         fields={"assigned_to_ids": [tech1.id, tech2.id]},
     )
 
+    with pytest.raises(RoleManagementError):
+        wos.add_work_order_labor(
+            db, w.id, user=tech1, technician_id=tech1.id, minutes=35
+        )
+
     first = wos.add_work_order_labor(
-        db, w.id, user=tech1, technician_id=tech1.id, minutes=35
+        db, w.id, user=sup, technician_id=tech1.id, minutes=35
     )
     second = wos.add_work_order_labor(
         db, w.id, user=sup, technician_id=tech2.id, minutes=40
@@ -172,16 +177,19 @@ def test_labor_tracks_technician_and_advances_first_activity(db):
     assert sum(entry.minutes for entry in detail.labor_entries) == 75
 
     updated = wos.update_work_order_labor(
-        db, w.id, first.id, user=tech1, minutes=50
+        db, w.id, first.id, user=sup, minutes=50
     )
     assert updated.minutes == 50
 
     with pytest.raises(RoleManagementError):
         wos.update_work_order_labor(
-            db, w.id, second.id, user=tech1, minutes=60
+            db, w.id, first.id, user=tech1, minutes=60
         )
 
-    wos.delete_work_order_labor(db, w.id, first.id, user=tech1)
+    with pytest.raises(RoleManagementError):
+        wos.delete_work_order_labor(db, w.id, first.id, user=tech1)
+
+    wos.delete_work_order_labor(db, w.id, first.id, user=sup)
     detail = wos.get_work_order(db, w.id, user=tech2)
     assert [entry.id for entry in detail.labor_entries] == [second.id]
     assert detail.status == "in_progress"
@@ -210,15 +218,22 @@ def test_find_or_create_case_insensitive_and_fill_blanks(db):
     assert c.community == "Scholars"
 
 
-def test_archived_number_is_restored_on_reimport(db):
-    # A re-import of an archived number revives it -- the import is the one path
-    # that may create, so it is also the one reference that un-archives.
-    sup = _seed_user(db, "supervisor")
-    a = _wo(db, created_by=sup)
-    _close(db, a, user=sup)
-    b = wos.get_or_create_work_order(db, number=a.number.lower(), created_by_id=sup.id)
-    assert b.id == a.id
-    assert b.archived_at is None
+def test_import_resolver_leaves_archived_number_untouched(db):
+    admin = _seed_user(db, "admin")
+    work_order = _wo(db, created_by=admin)
+    wos.archive_work_order(db, work_order.id, user=admin)
+    archived_at = work_order.archived_at
+
+    found = wos.get_or_create_work_order(
+        db,
+        number=work_order.number.lower(),
+        created_by_id=admin.id,
+        location="Replacement location",
+    )
+
+    assert found.id == work_order.id
+    assert found.archived_at == archived_at
+    assert found.location is None
 
 
 def test_assignee_must_be_technician(db):
@@ -410,7 +425,12 @@ def test_dispense_edit_auto_corrects_stock(db):
     w = _wo(db, created_by=sup, assigned_to=tech)
     line = wos.add_work_order_item(db, w.id, user=tech, item_id=item.id, quantity=Decimal(4))
 
-    edited = wos.update_work_order_item(db, w.id, line.id, user=tech, quantity=Decimal(10))
+    with pytest.raises(RoleManagementError):
+        wos.update_work_order_item(
+            db, w.id, line.id, user=tech, quantity=Decimal(10)
+        )
+
+    edited = wos.update_work_order_item(db, w.id, line.id, user=sup, quantity=Decimal(10))
     db.refresh(item)
     assert item.quantity == Decimal(90)
     # The line reflects the new total; the original dispense row is NOT rewritten
@@ -427,7 +447,7 @@ def test_dispense_edit_auto_corrects_stock(db):
     )
     assert [a.quantity for a in adjusts] == [Decimal(-6)]  # old(4) - new(10)
 
-    wos.update_work_order_item(db, w.id, line.id, user=tech, quantity=Decimal(1))
+    wos.update_work_order_item(db, w.id, line.id, user=sup, quantity=Decimal(1))
     db.refresh(item)
     assert item.quantity == Decimal(99)
 
@@ -440,7 +460,10 @@ def test_dispense_delete_returns_stock_and_voids_txn(db):
     line = wos.add_work_order_item(db, w.id, user=tech, item_id=item.id, quantity=Decimal(4))
     txn_id = line.transaction_id
 
-    wos.delete_work_order_item(db, w.id, line.id, user=tech)
+    with pytest.raises(RoleManagementError):
+        wos.delete_work_order_item(db, w.id, line.id, user=tech)
+
+    wos.delete_work_order_item(db, w.id, line.id, user=sup)
     db.refresh(item)
     assert item.quantity == Decimal(100)
     assert _txn(db, txn_id).voided_at is not None
@@ -524,7 +547,7 @@ def test_mode_switch_only_affects_new_lines(db):
     assert disp.mode == "dispense"
     assert retro.mode == "retroactive"
 
-    wos.update_work_order_item(db, w.id, disp.id, user=tech, quantity=Decimal(6))
+    wos.update_work_order_item(db, w.id, disp.id, user=sup, quantity=Decimal(6))
     db.refresh(item)
     assert item.quantity == Decimal(94)
     db.refresh(other)
@@ -539,7 +562,12 @@ def test_completed_work_order_still_editable(db):
     item = _seed_item(db, 100)
     w = _wo(db, created_by=sup, assigned_to=tech)
 
-    completed = wos.update_work_order(db, w.id, user=tech, fields={"status": "completed"})
+    with pytest.raises(RoleManagementError):
+        wos.update_work_order(
+            db, w.id, user=tech, fields={"status": "completed"}
+        )
+
+    completed = wos.update_work_order(db, w.id, user=sup, fields={"status": "completed"})
     assert completed.status == "completed"
     assert completed.completed_at is not None
 
@@ -619,13 +647,80 @@ def test_work_order_notes_can_be_saved_and_cleared_by_in_scope_user(db):
     assert cleared.notes is None
 
 
-def test_close_requires_review(db):
-    sup = _seed_user(db, "supervisor")
-    w = _wo(db, created_by=sup)
-    with pytest.raises(WorkOrderStateError, match="Review"):
-        wos.archive_work_order(db, w.id, user=sup)
-    db.refresh(w)
-    assert w.archived_at is None
+def test_work_order_update_role_matrix_separates_metadata_and_operations(db):
+    admin = _seed_user(db, "admin")
+    supervisor = _seed_user(db, "supervisor")
+    technician = _seed_user(db, "technician")
+    work_order = wos.get_or_create_work_order(
+        db,
+        number=f"WO-ROLE-{uuid.uuid4().hex[:8]}",
+        created_by_id=admin.id,
+        supervisor_id=supervisor.id,
+        assigned_to_id=technician.id,
+    )
+
+    with pytest.raises(RoleManagementError, match="Admin"):
+        wos.update_work_order(
+            db,
+            work_order.id,
+            user=supervisor,
+            fields={"location": "Commons 101", "description": "Leaking sink"},
+        )
+    with pytest.raises(RoleManagementError, match="Supervisor"):
+        wos.update_work_order(
+            db,
+            work_order.id,
+            user=technician,
+            fields={"status": "in_progress"},
+        )
+
+    metadata = wos.update_work_order(
+        db,
+        work_order.id,
+        user=admin,
+        fields={
+            "location": "Commons 101",
+            "service_type": "Plumbing",
+            "schedule_date": "8/4/2026",
+            "output_to": "Facilities",
+            "vendor_assignee": "Vendor Contact",
+            "description": "Leaking sink",
+        },
+    )
+    assert metadata.location == "Commons 101"
+    assert metadata.description == "Leaking sink"
+
+    operational = wos.update_work_order(
+        db,
+        work_order.id,
+        user=supervisor,
+        fields={"status": "in_progress", "entry_mode": "retroactive"},
+    )
+    assert operational.status == "in_progress"
+    assert operational.entry_mode == "retroactive"
+
+
+@pytest.mark.parametrize("role", ["admin", "owner"])
+@pytest.mark.parametrize("status", wo.ALL_STATUSES)
+def test_admin_plus_can_archive_from_any_live_status(db, role, status):
+    actor = _seed_user(db, role)
+    work_order = _wo(db, created_by=actor)
+    work_order.status = status
+    db.commit()
+
+    wos.archive_work_order(db, work_order.id, user=actor)
+
+    db.refresh(work_order)
+    assert work_order.archived_at is not None
+
+
+def test_supervisor_cannot_archive_work_order(db):
+    supervisor = _seed_user(db, "supervisor")
+    work_order = _wo(db, created_by=supervisor)
+    with pytest.raises(RoleManagementError, match="Admin or Owner"):
+        wos.archive_work_order(db, work_order.id, user=supervisor)
+    db.refresh(work_order)
+    assert work_order.archived_at is None
 
 
 def test_set_invalid_status_rejected(db):
@@ -633,7 +728,7 @@ def test_set_invalid_status_rejected(db):
     tech = _seed_user(db, "technician")
     w = _wo(db, created_by=sup, assigned_to=tech)
     with pytest.raises(WorkOrderStateError):
-        wos.update_work_order(db, w.id, user=tech, fields={"status": "planning"})
+        wos.update_work_order(db, w.id, user=sup, fields={"status": "planning"})
 
 
 # --- scoping -------------------------------------------------------------
@@ -686,29 +781,220 @@ def test_status_filter_and_search(db):
     assert a.id in found
 
 
-def test_list_limit_returns_newest(db):
+def test_advanced_filters_combine_with_and(db):
+    admin = _seed_user(db, "admin")
+    sup_a = _seed_user(db, "supervisor", first_name="Avery", last_name="Able")
+    sup_b = _seed_user(db, "supervisor", first_name="Blake", last_name="Baker")
+
+    def make(
+        *, supervisor, service, location, status="in_progress",
+        schedule_date="7/28/2026"
+    ):
+        work_order = wos.get_or_create_work_order(
+            db,
+            number=f"WO-FILTER-{uuid.uuid4().hex[:8]}",
+            created_by_id=admin.id,
+            supervisor_id=supervisor.id,
+            service_type=service,
+            location=location,
+            schedule_date=schedule_date,
+        )
+        wos.update_work_order(
+            db, work_order.id, user=admin, fields={"status": status}
+        )
+        return work_order
+
+    target = make(
+        supervisor=sup_a,
+        service="SMR27 - Belfor",
+        location="Commons Apartments: 8B",
+    )
+    make(
+        supervisor=sup_b,
+        service="SMR27 - Belfor",
+        location="Commons Apartments: 9B",
+    )
+    make(
+        supervisor=sup_a,
+        service="SMR27 - Belfor Re-Work",
+        location="Commons Apartments: 10B",
+    )
+    make(
+        supervisor=sup_a,
+        service="SMR27 - Belfor",
+        location="Centennial Courts Apartments: 112",
+    )
+    make(
+        supervisor=sup_a,
+        service="SMR27 - Belfor",
+        location="Commons Apartments: 11B",
+        status="completed",
+    )
+    make(
+        supervisor=sup_a,
+        service="SMR27 - Belfor",
+        location="Commons Apartments: 12B",
+        schedule_date="7/27/2026",
+    )
+
+    matches = wos.list_work_orders(
+        db,
+        user=admin,
+        status="in_progress",
+        service_type="  smr27 - BELFOR ",
+        supervisor_id=sup_a.id,
+        community="commons",
+        scheduled_date=date(2026, 7, 28),
+        search="WO-FILTER-",
+    )
+
+    assert [work_order.id for work_order in matches] == [target.id]
+
+
+def test_list_sorts_by_scheduled_date_descending_and_filters_exact_date(db):
+    admin = _seed_user(db, "admin")
+    prefix = f"WO-SCHEDULE-{uuid.uuid4().hex[:8]}"
+
+    def make(suffix, schedule_date):
+        return wos.get_or_create_work_order(
+            db,
+            number=f"{prefix}-{suffix}",
+            created_by_id=admin.id,
+            schedule_date=schedule_date,
+        )
+
+    older = make("OLDER", "7/1/2026")
+    newest = make("NEWEST", "8/2/2026 13:35")
+    invalid = make("INVALID", "shifted description text")
+    blank = make("BLANK", None)
+
+    ordered = wos.list_work_orders(db, user=admin, search=prefix)
+    assert [work_order.id for work_order in ordered[:2]] == [newest.id, older.id]
+    assert {work_order.id for work_order in ordered[2:]} == {invalid.id, blank.id}
+
+    filtered = wos.list_work_orders(
+        db,
+        user=admin,
+        search=prefix,
+        scheduled_date=date(2026, 8, 2),
+    )
+    assert [work_order.id for work_order in filtered] == [newest.id]
+
+
+def test_community_filters_are_membership_based_with_academics_fallback(db):
+    admin = _seed_user(db, "admin")
+
+    def make(location=None, *, community=None):
+        return wos.get_or_create_work_order(
+            db,
+            number=f"WO-COMMUNITY-{uuid.uuid4().hex[:8]}",
+            created_by_id=admin.id,
+            location=location,
+            community=community,
+        )
+
+    scholars = make("Scholars Inn Apartments: 1813")
+    centennial = make("Centennial Courts Apartments: 1123")
+    commons = make("Commons Apartments: 8B")
+    cimarron = make("Cimarron Village: 1A")
+    cimmarron = make("Cimmarron Village: 2A")
+    young_hall = make("Young Hall: 201")
+    structured = make(None, community="Scholars")
+    multiple = make(
+        "Multiple Locations: Scholars, Commons, Centennial, and Young Hall"
+    )
+    academic = make("Moore Hall - School of Business: 202")
+    blank = make(None)
+
+    def ids(value):
+        return {
+            work_order.id
+            for work_order in wos.list_work_orders(
+                db, user=admin, community=value
+            )
+        }
+
+    assert {scholars.id, structured.id, multiple.id} <= ids("scholars")
+    assert {centennial.id, multiple.id} <= ids("centennial")
+    assert {commons.id, cimarron.id, cimmarron.id, multiple.id} <= ids("commons")
+    assert {young_hall.id, multiple.id} <= ids("young_hall")
+    academics = ids("academics")
+    assert {academic.id, blank.id} <= academics
+    assert multiple.id not in academics
+
+
+def test_filter_options_are_distinct_and_server_scoped(db):
+    admin = _seed_user(db, "admin")
+    tech = _seed_user(db, "technician")
+    other_tech = _seed_user(db, "technician")
+    visible_sup = _seed_user(
+        db, "supervisor", first_name="Visible", last_name="Supervisor"
+    )
+    hidden_sup = _seed_user(
+        db, "supervisor", first_name="Hidden", last_name="Supervisor"
+    )
+
+    wos.get_or_create_work_order(
+        db,
+        number=f"WO-OPTION-{uuid.uuid4().hex[:8]}",
+        created_by_id=admin.id,
+        assigned_to_id=tech.id,
+        supervisor_id=visible_sup.id,
+        service_type="SMR27 - Belfor",
+    )
+    wos.get_or_create_work_order(
+        db,
+        number=f"WO-OPTION-{uuid.uuid4().hex[:8]}",
+        created_by_id=admin.id,
+        assigned_to_id=tech.id,
+        supervisor_id=visible_sup.id,
+        service_type="smr27 - belfor",
+    )
+    wos.get_or_create_work_order(
+        db,
+        number=f"WO-OPTION-{uuid.uuid4().hex[:8]}",
+        created_by_id=admin.id,
+        assigned_to_id=other_tech.id,
+        supervisor_id=hidden_sup.id,
+        service_type="SMR27 - Belfor Re-Work",
+    )
+
+    options = wos.get_work_order_filter_options(db, user=tech)
+
+    assert options["service_types"] == ["SMR27 - Belfor"]
+    assert options["supervisors"] == [
+        {"id": visible_sup.id, "name": "Visible Supervisor"}
+    ]
+    assert [option["value"] for option in options["communities"]] == list(
+        wo.ALL_COMMUNITY_FILTERS
+    )
+
+
+def test_list_limit_applies_after_scheduled_date_sort(db):
     sup = _seed_user(db, "supervisor")
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
     created = []
     for i in range(13):
         w = _wo(db, created_by=sup)
-        # Explicit strictly-increasing created_at so the newest-first ordering (and
-        # thus which rows the cap keeps) is deterministic regardless of insert speed
-        # -- the model default is a Python-side now() and can collide in a tight loop.
+        # Creation order intentionally opposes schedule order, proving the cap is
+        # applied only after scheduled-date sorting.
         w.created_at = base + timedelta(minutes=i)
+        w.schedule_date = f"7/{13 - i}/2026"
         created.append(w)
     db.flush()
 
-    # Uncapped: every work order, newest-first.
-    assert len(wos.list_work_orders(db, user=sup)) == 13
+    uncapped = wos.list_work_orders(db, user=sup)
+    assert len(uncapped) == 13
+    assert [work_order.id for work_order in uncapped] == [
+        work_order.id for work_order in created
+    ]
 
-    # Capped at 10: exactly the 10 newest-created, in newest-first order.
+    # Capped at 10: exactly the first 10 in scheduled-date order.
     capped = wos.list_work_orders(db, user=sup, limit=10)
     assert len(capped) == 10
-    newest_10 = [
-        w.id for w in sorted(created, key=lambda x: x.created_at, reverse=True)[:10]
+    assert [work_order.id for work_order in capped] == [
+        work_order.id for work_order in created[:10]
     ]
-    assert [w.id for w in capped] == newest_10
 
 
 def test_archived_work_order_hidden(db):

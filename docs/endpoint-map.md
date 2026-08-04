@@ -1,8 +1,8 @@
 # Endpoint Map: Database ↔ User View
 
-Last reviewed: 2026-08-02
+Last reviewed: 2026-08-04
 
-Purpose: a complete, self-contained trace of every endpoint — wiring, contracts,
+Purpose: a complete, self-contained trace of all 64 endpoints — wiring, contracts,
 rules, error behavior, and service algorithms — so an AI or developer can answer
 "what does this endpoint send/return/do?" **without opening the source**. If you
 find yourself about to read `schemas/`, `services/`, `domain/`, or `routers/`,
@@ -73,15 +73,15 @@ writes (w).
 | 22 | POST | `/transactions/adjust` | admin+ | `transactions.py` → `transactions.apply_correction` | items (w), transactions (w) | `apiCreateCorrection` | `correction.js` |
 | 23 | PATCH | `/transactions/{id}/billing` | admin+ | `transactions.py` → `transactions.set_billable_quantity` | transactions (w) | `apiSetBillableQuantity` | `history.js` |
 | 24 | DELETE | `/transactions/{id}` | supervisor+ | `transactions.py` → `transactions.void_transaction` | transactions (w, soft), items (w), work_order_items (w⁴) | `apiVoidTransaction` | `history.js` |
-| 25 | GET | `/work-orders/` | session scoped | `work_orders.py` → `work_orders.list_work_orders` | work_orders (r), work_order_items (r), work_order_technicians (r), users (r) | `apiListWorkOrders` | `workOrders.js`, `transactions.js`, `history.js`, `adminReview.js` |
+| 25 | GET | `/work-orders/` | session scoped | `work_orders.py` → `work_orders.list_work_orders` (scheduled-date descending; joinable status/service/supervisor/community/date/number filters) | work_orders (r), work_order_items (r), work_order_technicians (r), users (r) | `apiListWorkOrders` | `workOrders.js`, `transactions.js`, `history.js`, `adminReview.js` |
 | 26 | GET | `/work-orders/{id}` | session scoped | `work_orders.py` → `work_orders.get_work_order` | work_orders (r), work_order_items (r/w⁵), work_order_technicians (r), work_order_labor (r), items (r), users (r) | `apiGetWorkOrder` | `workOrders.js`, `history.js`, `adminReview.js` |
 | 27 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | `work_orders.py` → `work_orders.lookup_work_order` | work_orders (r, **incl. archived**) | `apiLookupWorkOrder` | `history.js` |
-| 28 | PATCH | `/work-orders/{id}` | scoped; rollback/hold/review/priv→sup+ | `work_orders.py` → `work_orders.update_work_order` | work_orders (w, incl. notes/primary mirror), work_order_technicians (w), users (r) | `apiUpdateWorkOrder` | `workOrders.js`, `adminReview.js` (Return to In-Progress) |
-| 29 | POST | `/work-orders/{id}/archive` | admin+ scoped; Review only | `work_orders.py` → `work_orders.archive_work_order` | work_orders (w, Closed/archive) | `apiArchiveWorkOrder` | `adminReview.js` only (no ordinary Work Orders action) |
+| 28 | PATCH | `/work-orders/{id}` | scoped; notes→tech+, operations→sup+, metadata→admin+ | `work_orders.py` → `work_orders.update_work_order` | work_orders (w, incl. notes/primary mirror), work_order_technicians (w), users (r) | `apiUpdateWorkOrder` | `workOrders.js`, `adminReview.js` (Return to In-Progress) |
+| 29 | POST | `/work-orders/{id}/archive` | admin+ scoped; any live status | `work_orders.py` → `work_orders.archive_work_order` | work_orders (w, Closed/archive) | `apiArchiveWorkOrder` | `workOrders.js`, `adminReview.js` |
 | 30 | POST | `/work-orders/{id}/items` | session scoped | `work_orders.py` → `work_orders.add_work_order_item` | items (w), transactions (w), work_order_items (w) | `apiAddWorkOrderItem` | `workOrders.js` |
-| 31 | PATCH | `/work-orders/{id}/items/{wid}` | session scoped | `work_orders.py` → `work_orders.update_work_order_item` | items (w), transactions (w, adjust), work_order_items (w) | `apiUpdateWorkOrderItem` | `workOrders.js` |
+| 31 | PATCH | `/work-orders/{id}/items/{wid}` | supervisor+ scoped | `work_orders.py` → `work_orders.update_work_order_item` | items (w), transactions (w, adjust), work_order_items (w) | `apiUpdateWorkOrderItem` | `workOrders.js` |
 | 32 | PATCH | `/work-orders/{id}/items/{wid}/billing` | admin+ scoped | `work_orders.py` → `work_orders.set_work_order_item_billable` | work_order_items (w) | `apiSetWorkOrderItemBilling` | `workOrders.js` |
-| 33 | DELETE | `/work-orders/{id}/items/{wid}` | session scoped | `work_orders.py` → `work_orders.delete_work_order_item` | items (w), transactions (w, void), work_order_items (w) | `apiDeleteWorkOrderItem` | `workOrders.js` |
+| 33 | DELETE | `/work-orders/{id}/items/{wid}` | supervisor+ scoped | `work_orders.py` → `work_orders.delete_work_order_item` | items (w), transactions (w, void), work_order_items (w) | `apiDeleteWorkOrderItem` | `workOrders.js` |
 | 34 | POST | `/mass-stages/` | supervisor+ | `mass_stages.py` → `mass_staging.create_stage` | mass_stages (w) | `apiCreateStage` | `massStage.js` |
 | 35 | GET | `/mass-stages/` | supervisor+ scoped | `mass_stages.py` → `mass_staging.list_stages` | mass_stages (r) | `apiListStages` | `massStage.js` |
 | 36 | GET | `/mass-stages/{id}` | supervisor+ | `mass_stages.py` → `mass_staging.get_stage` | mass_stages (r), mass_stage_work_orders (r), mass_stage_items (r), work_orders (r), items (r) | `apiGetStage` | `massStage.js` |
@@ -107,13 +107,14 @@ writes (w).
 | 56 | POST | `/work-orders/{id}/restore` | supervisor+ scoped | `work_orders.py` → `work_orders.restore_work_order` | work_orders (w, un-archive) | `apiRestoreWorkOrder` | `history.js` |
 | 57 | GET | `/items/search-index` | session | `items.py` → `items.list_item_search_index` | items (r; name/barcode projection only) | `apiListItemSearchIndex` | `items.js` |
 | 58 | PATCH | `/users/{id}/name` | self or outranks target | `users.py` → `users.update_name` | users (w; first/last name + optional `username`) | `apiUpdateUserName` | `users.js` |
-| 59 | POST | `/work-orders/{id}/labor` | session scoped; technician self-only | `work_orders.py` → `work_orders.add_work_order_labor` | work_orders (r/w status), work_order_technicians (r), work_order_labor (w), users (r) | `apiAddWorkOrderLabor` | `workOrders.js` |
-| 60 | PATCH | `/work-orders/{id}/labor/{labor_id}` | session scoped; technician self-only | `work_orders.py` → `work_orders.update_work_order_labor` | work_order_labor (r/w) | `apiUpdateWorkOrderLabor` | `workOrders.js` |
-| 61 | DELETE | `/work-orders/{id}/labor/{labor_id}` | session scoped; technician self-only | `work_orders.py` → `work_orders.delete_work_order_labor` | work_order_labor (r/w) | `apiDeleteWorkOrderLabor` | `workOrders.js` |
+| 59 | POST | `/work-orders/{id}/labor` | supervisor+ scoped | `work_orders.py` → `work_orders.add_work_order_labor` | work_orders (r/w status), work_order_technicians (r), work_order_labor (w), users (r) | `apiAddWorkOrderLabor` | `workOrders.js` |
+| 60 | PATCH | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | `work_orders.py` → `work_orders.update_work_order_labor` | work_order_labor (r/w) | `apiUpdateWorkOrderLabor` | `workOrders.js` |
+| 61 | DELETE | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | `work_orders.py` → `work_orders.delete_work_order_labor` | work_order_labor (r/w) | `apiDeleteWorkOrderLabor` | `workOrders.js` |
 | 62 | PATCH | `/users/{id}/role` | admin+ AND outranks both current and new role | `users.py` → `users.update_role` | users (w), sessions (w, revoke) | `apiUpdateUserRole` | `users.js` |
-| 63 | GET | `/work-orders/export` | admin+, server-scoped | `work_orders.py` → `work_orders.export_work_orders_csv` (+ `domain.receipt` for `variant=client`) | work_orders (r), work_order_items (r), items (r), work_order_labor (r), users (r) | `apiExportWorkOrders` | `workOrders.js` |
+| 63 | GET | `/work-orders/export` | admin+, server-scoped | `work_orders.py` → `work_orders.export_work_orders_csv` (full: current live filters; client: unchanged scope dropdown; + `domain.receipt`) | work_orders (r), work_order_items (r), items (r), work_order_labor (r), users (r) | `apiExportWorkOrders` | `workOrders.js` |
+| 64 | GET | `/work-orders/filter-options` | session scoped | `work_orders.py` → `work_orders.get_work_order_filter_options` | work_orders (r), work_order_technicians (r, scope), users (r) | `apiGetWorkOrderFilterOptions` | `workOrders.js` |
 
-(Rows 55–61 were appended out of resource order to keep the existing #1–54
+(Rows 55–64 were appended out of resource order to keep the existing #1–54
 numbering — and the footnote / per-table references to it — stable.)
 
 Footnotes:
@@ -280,19 +281,34 @@ Work orders are **import-only**: the CSV import is the one write that creates a
 anywhere in the UI; every other surface resolves an existing number and 404s on
 one no import has brought in.
 
+- `workOrders.js` (advanced filters) → `apiGetWorkOrderFilterOptions` for
+  caller-scoped service/supervisor choices, then one `apiListWorkOrders` request
+  carrying any active `status`, `service_type`, `supervisor_id`, `community`,
+  `scheduled_date`, and `q`. The service adds every predicate with AND before
+  applying the normal role scope. Community is membership-based over
+  `community` + raw `location`; Commons includes Cimarron/Cimmarron,
+  multi-location rows can match several named choices, and Academics means no
+  known community term. The final rows sort by parsed scheduled date descending.
 - `workOrders.js` (Import from CSV, Admin+) → `apiImportWorkOrders` →
   `POST /work-orders/import` → `import_work_orders` → per row **work_orders**
-  find-or-create by number (idempotent fill-blanks; also un-archives an archived
-  number), reading **users** to name-match the vendor `ASSIGNED TO` to a
-  supervisor (`supervisor_id`). *The only path that creates a work order.*
-- `workOrders.js` (Export to CSV, Admin+) → `apiExportWorkOrders` →
-  `GET /work-orders/export?scope=…&variant=full` → `export_work_orders_csv` →
-  reads **work_orders** (+ lines, items, labor, users) and returns a `text/csv`
-  attachment, one row per work order. `scope` is `all`, `archived`, or one live
-  status; results are scoped to the caller exactly as the list is. The first
-  seven columns are the import's own headers, so an export re-imports cleanly.
+  find-or-create live numbers with idempotent fill-blanks; an archived match is
+  counted as closed and ignored before merge/routing. Reads **users** to
+  name-match the vendor `ASSIGNED TO` to a supervisor (`supervisor_id`) for live
+  rows. *The only path that creates a work order.*
+- `workOrders.js` (Export filtered CSV beside Search, Admin+) →
+  `apiExportWorkOrders` → `GET /work-orders/export?scope=…&variant=full&…` →
+  `export_work_orders_csv` → reads **work_orders** (+ lines, items, labor,
+  users) and returns every row matching the current live status, service type,
+  supervisor, community, scheduled date, and number filters. Predicates combine
+  with AND under the same caller scope as the card list; the display cap does not
+  apply. Rows use scheduled-date-descending order. The first seven columns are
+  the import's own headers, so live rows re-import cleanly. The response filename
+  is `MM-DD-YY_HH-MM_filter1-filter2.csv` (UTC), using every active filter value;
+  `-` replaces the requested time colon because `:` is invalid on Windows.
 - `workOrders.js` (For Client, Admin+) → same route with `variant=client` →
   four columns only: `WORK ORDER`, `MATERIAL TOTAL`, `LABOR TOTAL`, `RECEIPT`.
+  Its existing scope dropdown remains authoritative; advanced page filters are
+  not sent or applied. Its filename is `MM-DD-YY_HH-MM_client-scope.csv`.
   Both totals are the BILLED figures (materials marked up 15%, labor at the
   labor rate), so they sum to the receipt in the last cell. `RECEIPT` is the
   full Admin Review receipt text, built by `domain.receipt` — the Python port of
@@ -300,34 +316,32 @@ one no import has brought in.
   `tests/test_receipt.py`.
 - `workOrders.js` (Edit details → Save, Supervisor+) → `apiUpdateWorkOrder` →
   `PATCH /work-orders/{id}` → `update_work_order` → **work_orders** update. The
-  card's editor is collapsed until "Edit details" is clicked; it writes the
-  imported fields (`location`, `service_type`, `schedule_date`, `output_to`,
-  `vendor_assignee`, `description`), the routing (`supervisor_id`,
-  `assigned_to_ids`), the legacy community/building/unit where those still hold
-  values, and a manual status selector. From Created through Completed the
+  card's editor is collapsed until "Edit details" is clicked. Supervisor sees
+  only routing (`supervisor_id`, `assigned_to_ids`) and status. Admin/Owner also
+  receives imported metadata inputs (`location`, `service_type`,
+  `schedule_date`, `output_to`, `vendor_assignee`, `description`). Legacy place
+  fields and number are read-only. From Created through Completed the
   selector offers current/earlier steps plus On-Hold; On-Hold can resume to a
   non-Review step. Created/Assigned is normalized from technician presence.
   Review remains outside this selector. `number` is not editable — the import
   matches on it.
-- `workOrders.js` (mode / lifecycle actions) → `apiUpdateWorkOrder` → same route.
-  An in-scope technician or supervisor can Set In-Progress from Created/Assigned
-  and Mark completed from In-Progress.
-  Only Supervisor+ sees Send to Review on a Completed card after reviewing the
-  work, and a confirmation pop-up must be accepted before the Review PATCH sends
-  it to final Admin Review. Manual rollback and
-  On-Hold are Supervisor+; In-Progress and Completed are the explicit status
-  transitions available to technicians. Status-colored cards are gray/red/yellow/orange/blue/green for
+- `workOrders.js` (mode / lifecycle actions, Supervisor+) →
+  `apiUpdateWorkOrder` → same route. Only Supervisor+ receives Set In-Progress,
+  Mark completed, mode, Reopen, or Send to Review controls. Send to Review on a
+  Completed card still requires reviewing the
+  work and accepting a confirmation pop-up before the Review PATCH sends it to
+  final Admin Review. Status-colored cards are gray/red/yellow/orange/blue/green for
   Created/Assigned/In-Progress/On-Hold/Completed/Review.
 - `workOrders.js` (Save notes, any in-scope user) → `apiUpdateWorkOrder` → same
   route with `{notes}` → nullable free-form **work_orders.notes** replace. Blank
   input clears to NULL; notes are returned only with expanded detail.
-- `workOrders.js` (Add/update/remove labor beneath material selection) →
+- `workOrders.js` (Add/update/remove labor, Supervisor+ only) →
   `apiAddWorkOrderLabor` / `apiUpdateWorkOrderLabor` /
   `apiDeleteWorkOrderLabor` → `/work-orders/{id}/labor` or
   `/work-orders/{id}/labor/{labor_id}` →
   **work_order_labor**. Entries store actual whole minutes per assigned
-  technician; technicians are self-only, Supervisor+ may manage any assigned
-  technician. Detail billing sums minutes, rounds upward once to 30 minutes, and
+  technician; Supervisor+ may manage any assigned technician. Detail billing
+  sums minutes, rounds upward once to 30 minutes, and
   applies `$62.50/hour` (rate/charge Admin+ only).
 - `adminReview.js` (Admin/Owner) → `apiListWorkOrders({status: "review"})` →
   Review cards → `apiGetWorkOrder` → `adminReviewReceipt.js`. The pure receipt
@@ -340,11 +354,12 @@ one no import has brought in.
 - `adminReview.js` (Return to In-Progress) → `apiUpdateWorkOrder` → `PATCH
   /work-orders/{id}` with `{status: "in_progress"}`. The card leaves the Review
   queue while the current receipt remains visible.
-- `adminReview.js` (Close) → `apiArchiveWorkOrder` → `POST
-  /work-orders/{id}/archive` → Admin+ and Review only →
-  **work_orders.archived_at** set (Closed). No close action is rendered on Work
-  Orders. The row, lines, and transactions remain, and the receipt stays open
-  for copying after the queue refresh.
+- `workOrders.js` (Archive, Admin+ on any expanded live card) → confirm →
+  `apiArchiveWorkOrder` → `POST /work-orders/{id}/archive` → Admin+ service and
+  route gates → **work_orders.archived_at** set (Closed), then reload the active
+  list. `adminReview.js` uses the same endpoint for its receipt-aware Close
+  action on Review rows. The row, lines, and transactions remain, and Admin
+  Review keeps the receipt open for copying after its queue refresh.
 - `history.js` (work-order filter names an archived work order) →
   `apiLookupWorkOrder` → `GET /work-orders/lookup?number=` → the one read that
   reports an archived work order → confirm → `apiRestoreWorkOrder` →
@@ -359,14 +374,14 @@ one no import has brought in.
 - `workOrders.js` (Add material) → `apiAddWorkOrderItem` →
   `POST /work-orders/{id}/items` → `add_work_order_item` → **items.quantity** ∓
   (dispense mode), **transactions** insert, **work_order_items** line.
-- `workOrders.js` (Update qty) → `apiUpdateWorkOrderItem` →
+- `workOrders.js` (Update qty, Supervisor+) → `apiUpdateWorkOrderItem` →
   `PATCH /work-orders/{id}/items/{wid}` → `update_work_order_item` →
   **work_order_items.quantity** set, **items.quantity** corrected by delta,
   **transactions** insert (reconciling `adjust`); clears a now-too-large override.
 - `workOrders.js` (Edit charge) → `apiSetWorkOrderItemBilling` →
   `PATCH /work-orders/{id}/items/{wid}/billing` → `set_work_order_item_billable`
   → **work_order_items.billable_quantity** (no stock change).
-- `workOrders.js` (Remove material) → `apiDeleteWorkOrderItem` →
+- `workOrders.js` (Remove material, Supervisor+) → `apiDeleteWorkOrderItem` →
   `DELETE /work-orders/{id}/items/{wid}` → `delete_work_order_item` →
   **items.quantity** returned, **work_order_items** row delete, **transactions**
   voided (the line's whole contributing set).
@@ -429,15 +444,15 @@ Quick reverse lookup: "which endpoints touch table X?"
 
 | Table | Written by (endpoint #) | Read by (endpoint #) |
 |-------|-------------------------|----------------------|
-| `users` | 15, 16, 17, 18, 19, 58 | 3, 5, 14, 20, 25–28 (assignee validation), 40, 55 (supervisor name-match), 59–61 |
-| `sessions` | 3 (insert), 4 (delete), 17 (revoke), 19 (cascade) | every authenticated request (5 + all gated) |
-| `items` | 8, 9, 10, 12, 21, 22, 24, 30, 31, 33, 45, 46 | 6, 7, 20, 26, 36 |
+| `users` | 15, 16, 17, 18, 19, 58, 62 | 3, 5, 14, 20, 25–28 (assignee validation), 40, 55 (supervisor name-match), 59–61, 63–64 |
+| `sessions` | 3 (insert), 4 (delete), 17 (revoke), 19 (cascade), 62 (revoke) | every authenticated request (5 + all gated) |
+| `items` | 8, 9, 10, 12, 21, 22, 24, 30, 31, 33, 45, 46 | 6, 7, 20, 26, 36, 63 |
 | `item_barcodes` | 8 (check), 11 | 7, 8 (uniqueness) |
 | `transactions` | 21, 22, 23, 24, 30, 31, 33, 45 | 20, 24, 26 (self-heal) |
-| `work_orders` | 21 (activity status), 28, 29, 40 (fill-blanks), 55 (import f-o-c), 59 (activity status) | 20–21, 25–29, 36, 40, 55, 59–61 |
-| `work_order_items` | 21, 24, 30, 31, 32, 33, 45, 46 | 25, 26 |
-| `work_order_technicians` | 28, 40, 55 | 25, 26, 28, 59 |
-| `work_order_labor` | 59, 60, 61 | 26, 60, 61 |
+| `work_orders` | 21 (activity status), 28, 29, 40 (fill-blanks), 55 (import f-o-c), 59 (activity status) | 20–21, 25–29, 36, 40, 55, 59–61, 63–64 |
+| `work_order_items` | 21, 24, 30, 31, 32, 33, 45, 46 | 25, 26, 63 |
+| `work_order_technicians` | 28, 40, 55 | 25, 26, 28, 59, 64 |
+| `work_order_labor` | 59, 60, 61 | 26, 60, 61, 63 |
 | `mass_stages` | 34, 37, 38, 39 | 35, 36 |
 | `mass_stage_work_orders` | 40, 41 | 36 |
 | `mass_stage_items` | 42, 43, 44, 45, 46 | 36 |
@@ -517,7 +532,14 @@ additional barcodes, and timestamps.
 role; whether the *caller* may assign it is checked in the router, not here).
 
 **`UserNameUpdate`** — `PATCH /users/{id}/name`: required trimmed/non-blank
-`first_name` + `last_name`. The target may be self or a subordinate.
+`first_name` + `last_name`, plus optional trimmed/non-blank `username`. The
+target may be self or a subordinate; username uniqueness is enforced by the
+database and a conflict returns 400.
+
+**`UserRoleUpdate`** — `PATCH /users/{id}/role`: `role: str` (recognized role).
+The Admin+ router requires the actor to strictly outrank both the target's
+current role and the requested role; a successful service update revokes the
+target's sessions.
 
 **`UserResponse`** — `id`, `username`, nullable `first_name`/`last_name`, derived
 `full_name`, `role`, `created_at`, `archived_at?` (null = active). Password hash
@@ -560,6 +582,26 @@ unreadable image is a 400.
 There is no `WorkOrderCreate`: work orders are import-only, so the CSV upload is
 the only request that can bring one into existence.
 
+**List query** — `GET /work-orders/`: optional `status`, `service_type`,
+`supervisor_id`, `community`, `scheduled_date` (ISO calendar date), `q`, and
+`limit`. All filters combine with AND;
+`service_type` is an exact trimmed case-insensitive match, `q` is a literal
+case-insensitive number substring, and community values are `scholars`,
+`centennial`, `commons`, `young_hall`, or `academics`.
+
+**`WorkOrderFilterOptions`** — return of `GET /work-orders/filter-options`:
+`service_types: list[str]`, `supervisors: list[{id, name}]`, and
+`communities: list[{value, label}]`. Dynamic values come only from live work
+orders visible to the caller; the community vocabulary is stable.
+
+**CSV export query** — `GET /work-orders/export`: `scope=all|archived|<live
+status>` and `variant=full|client`; optional `service_type`, `supervisor_id`,
+`community`, `scheduled_date`, and `q` are applied only to `full`. Invalid values
+return 400. The response is a UTF-8 `text/csv` attachment, not a Pydantic
+response. `full` leads with the seven import headers and adds status,
+assignments, billing totals, and timestamps. `client` remains scope-only and
+returns `WORK ORDER`, `MATERIAL TOTAL`, `LABOR TOTAL`, and `RECEIPT`.
+
 **`WorkOrderUpdate`** — `PATCH /work-orders/{id}` (partial, overwrite): `number?`,
 `community?`, `building_number?`, `unit_number?`, `description?`, `notes?`, `status?`,
 `entry_mode?`, `assigned_to_ids?` (complete replacement; empty clears).
@@ -567,9 +609,9 @@ the only request that can bring one into existence.
 required; `status`/`entry_mode`
 validated in the service. Live statuses are `created`, `assigned`, `in_progress`,
 `on_hold`, `completed`, and `review`; Closed is `archived_at`, not a PATCH value.
-Notes are trimmed nullable free-form text. In-scope users may save notes/change
-entry mode/Set In-Progress/Mark Completed; every other explicit status requires
-Supervisor+.
+Notes are trimmed nullable free-form text; every in-scope user may save them.
+`status`, `entry_mode`, supervisor, and technician assignment require
+Supervisor+; imported/legacy text metadata and number require Admin+.
 
 **`WorkOrderLookup`** — return of `GET /work-orders/lookup?number=`: `found: bool`,
 `archived: bool`, `id: UUID?`, `number: str?`. Deliberately reports an *archived*
@@ -593,9 +635,10 @@ service).
 `assigned_to_ids`, `assigned_to_names`, `item_count`, plus the CSV-import
 fields `location?`, `output_to?`, `vendor_assignee?`, `service_type?`,
 `schedule_date?`, `supervisor_id?`, `supervisor_name?`, and `legacy` (bool).
-`WorkOrderUpdate` additionally accepts `supervisor_id` and those text fields (all
-Supervisor+, in `_PRIVILEGED_FIELDS`). **`WorkOrderImportResult`** (return of
-`POST /work-orders/import`): `total`, `created`, `opened`, `supervisors_matched`,
+`WorkOrderUpdate` additionally accepts `supervisor_id` and those text fields.
+The service applies the Technician-notes / Supervisor-operations / Admin-metadata
+matrix. **`WorkOrderImportResult`** (return of
+`POST /work-orders/import`): `total`, `created`, `opened`, `closed`, `supervisors_matched`,
 `supervisors_unmatched`, `skipped` (all int). The request is a `multipart/form-data`
 CSV file upload (`UploadFile`), no JSON body. **`WorkOrderItemDetail`**:
 `id`, `item_id`, `item_name`, `item_barcode`, `item_quantity` (live on-hand),
@@ -753,12 +796,23 @@ Pure functions (no DB) in `domain/*.py` — the business rules, testable in isol
 - Labor constants/rules: `LABOR_RATE = Decimal("62.50")`, increment = 30 minutes;
   `billed_labor_minutes(total)` rounds the combined duration upward once and
   `labor_charge(total)` applies the hourly rate.
+- Export constants/rules: scope is `all`, `archived`, or one live status;
+  variants are `full` and `client`. `validate_export_scope` /
+  `validate_export_variant` reject unknown values with `WorkOrderStateError`.
 
 ### Billing (`domain/billing.py`)
 - `validate_billable_value(qty, billable)` — None passes (clear); else `0 ≤
   billable ≤ qty`, raise `BillingQuantityError`. Used by **work-order lines**.
 - `validate_billable_quantity(type, qty, billable)` — same, plus only `stock`/
   `dispense` rows may be overridden (an `adjust` cannot). Used by **transactions**.
+
+### Fixed-width receipt (`domain/receipt.py`)
+- `build_work_order_receipt(materials, labor_billed_minutes, labor_total)` builds
+  the client-export receipt with the same 41-character layout as
+  `static/adminReviewReceipt.js`: effective material quantity, 15% markup,
+  quantity/name truncation, `NO PRICE` / `Total (incomplete)`, an always-present
+  labor line, and the grand total. `tests/test_receipt.py` pins the Python output
+  against the frontend contract.
 
 ### Tool custody (`domain/tools.py`)
 - `validate_return(outstanding, requested)` — raises
@@ -848,14 +902,20 @@ read-modify-write guard for `items.quantity`).
 - `list_users(include_archived?)` → newest first; archived excluded unless asked
   (History "by user" passes True).
 - `get_user(id)` → one or `UserNotFoundError` (router inspects role before acting).
-- `update_name(id, first_name, last_name)` → explicit display/import-identity
-  replacement. `PATCH /users/{id}/name` allows self or a manageable subordinate,
-  giving nullable legacy accounts a non-heuristic remediation path.
+- `update_name(id, first_name, last_name, username?)` → explicit display/import-
+  identity replacement plus optional login-name correction. `PATCH
+  /users/{id}/name` allows self or a manageable subordinate; duplicate username
+  raises `DuplicateUsernameError`.
+- `update_role(id, role)` → replace the role and delete all target sessions so
+  the next login receives matching navigation/permissions. The router owns the
+  Admin+ and strict-rank checks.
 - `reset_password(id, hash)` → overwrite hash; sessions left intact.
-- `archive_user(id)` → 🔒 lock the user → query `tools.user_custody`; raise
-  `UserHasCheckedOutToolsError` while any balance remains, otherwise set
-  `archived_at` **and delete all the user's sessions** (immediate lockout).
-  Idempotent once archived.
+- `archive_user(id, force_return_tools?, performed_by_id?)` → 🔒 lock the user →
+  query `tools.user_custody`; raise `UserHasCheckedOutToolsError` while any
+  balance remains unless force-return is explicit. The force path calls
+  `tools.return_all_for_user` in the same transaction, restoring tool on-hand and
+  recording ordinary return rows attributed to the actor. Then set `archived_at`
+  and delete all target sessions. Idempotent once archived.
 - `restore_user(id)` → clear `archived_at`.
 - `delete_user(id)` → hard delete; `IntegrityError` (FK from `transactions.user_id`,
   RESTRICT) → `UserHasTransactionsError`. (API-only; UI uses archive.)
@@ -884,8 +944,8 @@ attaches to an existing number and refuses an unknown one. Both share the
 
 - `get_or_create_work_order(number, **attrs, assigned_to_id, supervisor_id,
   created_by_id)` → **import path only.** `find_by_number` (case-insensitive,
-  includes archived). Exists: un-archive if needed (so a re-import revives an
-  archived number), `_merge_reference` fill-blanks (the `_ATTR_FIELDS` set also
+  includes archived). Archived exists: return untouched so import counts/ignores
+  it. Live exists: `_merge_reference` fill-blanks (the `_ATTR_FIELDS` set also
   covers the CSV-import columns `location`/`output_to`/`vendor_assignee`/
   `service_type`/`schedule_date`), set assignee only if currently unassigned and
   `supervisor_id` only if currently unrouted; reconcile Created/Assigned from
@@ -902,42 +962,58 @@ attaches to an existing number and refuses an unknown one. Both share the
   else `None`. The one read that sees through the archive, so History can offer a
   restore for a number it can see all over the ledger.
 - `restore_work_order(id, user)` → clear `archived_at` (scoped; a live work order
-  passes through unchanged). The undo for `archive_work_order`, and — with no
-  create path left — the way an archived work order comes back short of a
-  re-import. Material lines are still attached, so they return with it.
-- `import_work_orders(csv_bytes, user)` → decode `utf-8-sig`, `csv.DictReader`
+  passes through unchanged). The explicit undo for `archive_work_order` and the
+  only way an archived work order returns to live views; CSV import ignores it.
+  Material lines are still attached, so they return with it.
+- `import_work_orders(csv_bytes, user)` → decode `utf-8-sig`, ignore an
+  optional leading `sep=,` dialect hint, then `csv.DictReader`
   (quoted multi-line LOCATION handled natively); build a one-shot
   `_supervisor_lookup` keyed by normalized `first_name + last_name` over active
   supervisors. Missing/incomplete names do not enter the lookup; duplicate keys
   become ambiguous (`None`) instead of selecting a row. Per import row:
-  `domain.parse_import_row`; skip a blank number; resolve `supervisor_id` by
-  name-matching the `vendor_assignee` (miss/ambiguity stays unassigned); funnel through
-  `get_or_create_work_order`. Tally created/opened/matched/unmatched/skipped.
-  Idempotent (fill-blanks); each row commits inside get-or-create.
-- `list_work_orders(user, status?, search?, limit?)` → newest first, archived
-  excluded, scoped by `can_view_work_order` (supervisor → created/routed,
-  technician → any plural assignment); `limit` caps to the N newest (the page
-  browses 10 by default and omits
-  `limit` to show all / to search).
+  `domain.parse_import_row`; skip a blank number; count and ignore an archived
+  match; otherwise resolve `supervisor_id` by name-matching the `vendor_assignee`
+  (miss/ambiguity stays unassigned) and funnel through `get_or_create_work_order`.
+  Tally created/opened/closed/matched/unmatched/skipped. Idempotent for live rows
+  (fill-blanks); each created/opened row commits inside get-or-create.
+- `list_work_orders_for_export(user, scope, service_type?, supervisor_id?,
+  community?, scheduled_date?, search?)` → validate scope, select live/all, one
+  live status, or archived rows, apply the shared predicates and caller scope,
+  eager-load export relations, then sort by parsed scheduled date descending.
+- `export_work_orders_csv(user, scope, variant, …filters)` → validate variant and
+  write one CSV row per selected work order. `full` applies every supplied live
+  page filter, uses `EXPORT_HEADERS`, and `_export_row`; `client` intentionally
+  ignores the advanced predicates and keeps its scope-only
+  `CLIENT_EXPORT_HEADERS`/receipt behavior.
+- `list_work_orders(user, status?, service_type?, supervisor_id?, community?,
+  scheduled_date?, search?, limit?)` → archived excluded. Every supplied filter
+  is combined with AND, then `_scoped_to_user` enforces supervisor created/routed
+  or technician assignment visibility. Community searches structured/raw
+  location text; scheduled date parses leading vendor/ISO dates exactly. Results
+  sort by parsed schedule descending, invalid/blank values last, before `limit`.
+- `get_work_order_filter_options(user)` → two scoped distinct queries over live
+  work orders: normalized service type values and routed supervisor identities;
+  returns those plus the stable community choices without exposing `/users` to
+  technicians.
 - `update_work_order(id, fields)` → explicit overwrite, including nullable
-  free-form `notes`. `assigned_to_ids` synchronizes **work_order_technicians**
+  free-form `notes`, after `_require_update_permissions` applies notes =
+  Technician+, status/mode/routing/assignment = Supervisor+, and imported/legacy
+  metadata = Admin+. `assigned_to_ids` synchronizes **work_order_technicians**
   and the singular compatibility mirror. Plural technician assignment reconciles
   Created/Assigned; an
   explicit pre-work rollback is normalized after assignment so those states
   cannot contradict technician presence. Supervisor routing is independent.
   Completed/Review preserve `completed_at`; On-Hold/rollback/reopen clear it.
-  The router allows in-scope Notes/entry-mode/In-Progress/Completed writes and
-  rejects every other explicit status below Supervisor+.
-- `archive_work_order(id)` → require Review, then set `archived_at` (Closed); the
-  router supplies the Admin+ gate. Rows/lines/transactions remain.
+- `archive_work_order(id)` → require Admin+ in the service, scoped-load any live
+  status, then set `archived_at` (Closed). Rows/lines/transactions remain.
 - `get_work_order(id, user)` → scoped load (`WorkOrderNotFoundError` if unknown/
   archived/out-of-scope); **`_heal_orphan_lines`**: sum non-voided linked dispenses
   per item with no line and create the missing `work_order_items` rows (lazy
   backfill, stock-neutral), commit if any healed.
 - `add_work_order_labor` / `update_work_order_labor` /
   `delete_work_order_labor` → scoped CRUD over **work_order_labor**. Create
-  requires the target to be assigned and applies `status_after_activity`;
-  technician actors are restricted to their own identity. Edit/delete do not
+  requires Supervisor+, requires the target to be assigned, and applies
+  `status_after_activity`; update/delete also require Supervisor+ and do not
   rewind lifecycle status.
 - `attach_dispense_line(work_order_id, item_id, qty, mode, transaction_id, user_id)`
   → the single "show a stock-out on the work order" home. It advances a
@@ -948,13 +1024,13 @@ attaches to an existing number and refuses an unknown one. Both share the
 - `add_work_order_item(id, item_id, qty)` → scoped load → 🔒 lock item → if mode
   moves stock, `apply_delta("dispense")` → insert dispense txn (`affects_stock` per
   mode, `unit_price` snapshot) → `attach_dispense_line`.
-- `update_work_order_item(id, wid, qty)` → 🔒 lock item; `stock_delta = old − new`;
+- `update_work_order_item(id, wid, qty)` → require Supervisor+; 🔒 lock item; `stock_delta = old − new`;
   if dispense-mode and ≠ 0: `apply_delta("adjust", stock_delta)` + append one
   reconciling `adjust` txn (originals untouched). Set `line.quantity`; **clear
   `billable_quantity` if it now exceeds the new quantity**.
 - `set_work_order_item_billable(id, wid, billable)` → `validate_billable_value`
   against `line.quantity`; set `line.billable_quantity`. No stock.
-- `delete_work_order_item(id, wid)` → 🔒 lock item; if dispense-mode, return
+- `delete_work_order_item(id, wid)` → require Supervisor+; 🔒 lock item; if dispense-mode, return
   `line.quantity` to stock (`apply_delta("stock")`); **void the line's whole
   contributing txn set** (located by `(work_order, item)`); delete the line.
 - `reduce_dispense_line(work_order_id, item_id, qty)` → inverse of attach (for a

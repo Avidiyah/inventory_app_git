@@ -13,16 +13,16 @@
 
         <!-- Admin+ only; views/workOrders.js reveals it by role. Bulk-imports the
              mass work-order CSV export -- the only way work orders are added --
-             and exports the work orders back out, filtered by status. -->
+             and retains the existing scope-based client billing export. -->
         <section id="work-orders-import-section" hidden>
             <h2>Import / Export</h2>
             <p class="hint">Work orders come from the CSV export — upload the
                latest one. Existing numbers are updated in place, so nothing is
-               duplicated and edits made here survive a re-import. Export writes
-               one row per work order, leading with the same columns the import
-               reads, so a downloaded file can be uploaded back. For Client
-               writes the billing sheet instead: work order number, material and
-               labor totals, and the full receipt.</p>
+               duplicated and edits made here survive a re-import. Closed work
+               orders are counted and ignored. For Client
+               writes the billing sheet: work order number, material and labor
+               totals, and the full receipt. The operational, re-importable CSV
+               export is next to the Work Orders filters below.</p>
             <input type="file" id="wo-import-file" accept=".csv,text/csv" hidden>
             <div class="filter-row">
                 <button id="wo-import-btn" type="button">Import from CSV…</button>
@@ -36,7 +36,6 @@
                     <option value="review">Review</option>
                     <option value="archived">Archived (closed)</option>
                 </select>
-                <button id="wo-export-btn" type="button" class="secondary-btn">Export to CSV…</button>
                 <button id="wo-export-client-btn" type="button" class="secondary-btn">For Client</button>
             </div>
             <p id="wo-import-message"></p>
@@ -46,26 +45,55 @@
             <h2>Work Orders</h2>
             <p class="hint">Work orders start Created, become Assigned when one
                or more technicians are selected, and move to In-Progress when material or
-               labor is added or an in-scope user clicks Set In-Progress.
-               Technicians and supervisors can mark work completed; supervisors
-               confirm when it is ready for Review.
-               Supervisors can roll back status or place work On-Hold in Edit
-               details. Every expanded card has free-form Notes and labor tracking
-               billed in rounded-up 30-minute increments. Closed work
-               orders are handled from Admin Review.</p>
-            <div class="filter-row">
-                <select id="work-orders-status-filter" aria-label="Filter by status">
-                    <option value="">All</option>
-                    <option value="created">Created</option>
-                    <option value="assigned">Assigned</option>
-                    <option value="in_progress">In-Progress</option>
-                    <option value="on_hold">On-Hold</option>
-                    <option value="completed">Completed</option>
-                    <option value="review">Review</option>
-                </select>
+               labor is added or a supervisor starts it. Supervisors manage
+               assignment, status, and labor; Admins can also correct imported
+               details and archive a work order from any status. Technicians can
+               save Notes and add items. Labor is billed in rounded-up 30-minute
+               increments.</p>
+            <div class="wo-filter-grid" aria-label="Work order filters">
+                <div class="wo-filter-field">
+                    <label for="work-orders-status-filter">Status</label>
+                    <select id="work-orders-status-filter">
+                        <option value="">All statuses</option>
+                        <option value="created">Created</option>
+                        <option value="assigned">Assigned</option>
+                        <option value="in_progress">In-Progress</option>
+                        <option value="on_hold">On-Hold</option>
+                        <option value="completed">Completed</option>
+                        <option value="review">Review</option>
+                    </select>
+                </div>
+                <div class="wo-filter-field">
+                    <label for="work-orders-service-filter">Service type</label>
+                    <select id="work-orders-service-filter">
+                        <option value="">All service types</option>
+                    </select>
+                </div>
+                <div class="wo-filter-field">
+                    <label for="work-orders-supervisor-filter">Assigned Supervisor</label>
+                    <select id="work-orders-supervisor-filter">
+                        <option value="">All supervisors</option>
+                    </select>
+                </div>
+                <div class="wo-filter-field">
+                    <label for="work-orders-community-filter">Community</label>
+                    <select id="work-orders-community-filter">
+                        <option value="">All communities</option>
+                    </select>
+                </div>
+                <div class="wo-filter-field">
+                    <label for="work-orders-date-filter">Scheduled date</label>
+                    <input id="work-orders-date-filter" type="date">
+                </div>
+            </div>
+            <div class="filter-row wo-number-search-row">
+                <label for="work-orders-search">Work order #</label>
                 <input type="text" id="work-orders-search" placeholder="Search work order #">
                 <button id="work-orders-search-btn" type="button">Search</button>
+                <button id="work-orders-clear-filters" type="button" class="secondary-btn">Clear filters</button>
+                <button id="wo-export-btn" type="button" class="secondary-btn" hidden>Export filtered CSV…</button>
             </div>
+            <p id="work-orders-export-message"></p>
         </section>
 
         <section id="work-orders-list-section">

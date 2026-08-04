@@ -284,8 +284,8 @@ class WorkOrder(Base):
     retained as a primary/legacy mirror for older clients and Mass Stage, while
     Work Orders may carry any number of technician assignments. Soft delete via
     `archived_at`, mirroring `Item` / `User`; an archived
-    number stays reserved, its material lines are kept, and it comes back through
-    `restore_work_order` or a re-import. Transactions carry their own
+    number stays reserved, its material lines are kept, and CSV re-import ignores
+    it. An explicit `restore_work_order` can bring it back. Transactions carry their own
     `work_order_number`, so archiving never hides a work order's history.
     """
 

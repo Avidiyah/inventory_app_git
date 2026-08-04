@@ -2,8 +2,9 @@
 //
 // Review is the last live work-order state. This page lists every Review row,
 // builds the authoritative material + labor receipt from WorkOrderDetail, and
-// owns the UI for Review -> Closed (soft archive). A rejected row can be sent
-// back to In-Progress through the existing status update contract.
+// provides the receipt-aware Review -> Closed (soft archive) workflow. Admin+
+// may also archive from any status on the ordinary Work Orders page. A rejected
+// Review row can be sent back to In-Progress through the status update contract.
 
 import {
   apiArchiveWorkOrder,

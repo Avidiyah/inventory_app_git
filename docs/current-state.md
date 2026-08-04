@@ -1,6 +1,6 @@
 # Inventory App Current State
 
-Last reviewed: 2026-08-02
+Last reviewed: 2026-08-04
 
 Purpose of this file: give an AI or developer enough current-state context to
 make technical changes without rereading the whole repository. Start here, then
@@ -96,7 +96,7 @@ Path shorthand:
 | Task area | Read these first | Usual tests |
 | --- | --- | --- |
 | Auth/session/login/logout | `app/auth_deps.py`, `routers/auth.py`, `services/auth.py`, `schemas/auth.py`, `static/views/auth.js`, `static/api.js` | `test_auth_password.py`, `test_auth_session_lifetime.py` |
-| Roles/permissions/user management | `domain/roles.py`, `routers/users.py`, `services/users.py`, `schemas/users.py`, `static/roles.js`, `static/views/users.js`, `static/views/nav.js` | `test_roles.py`, `test_route_role_gates.py` |
+| Roles/permissions/user management | `domain/roles.py`, `routers/users.py`, `services/users.py`, `schemas/users.py`, `static/roles.js`, `static/views/users.js`, `static/views/nav.js` | `test_roles.py`, `test_route_role_gates.py`, `test_user_names.py`, `test_user_role_edit.py`, `test_user_archive.py` |
 | Item CRUD/lookup/archive | `routers/items.py`, `services/items.py`, `schemas/items.py`, `models.py`, `static/views/items.js`, `static/views/itemEditor.js`, `static/api.js` | `test_item_barcodes.py`, `test_item_price_gating.py`, route-gate tests |
 | Item notes | `domain/notes_validation.py`, `services/notes.py`, `schemas/items.py`, `routers/items.py`, `static/views/notes.js` | add/extend focused tests if behavior changes |
 | Alternate barcodes | `models.py`, `services/items.py`, `schemas/items.py`, `routers/items.py`, `static/views/itemEditor.js`, `static/views/addBarcode.js` | `test_item_barcodes.py` |
@@ -260,25 +260,43 @@ Work orders:
 
 - A work order is a standalone entity; **identity is its `number`**, unique
   case-insensitively + trimmed.
+- Work Orders list filters are server-side and joinable: status, exact normalized
+  service type, routed supervisor, derived community, exact scheduled date, and
+  number substring all combine with AND before the caller's normal visibility
+  scope is applied.
+  Community membership checks both `community` and raw CSV `location` for
+  Scholars, Centennial, Commons (`commons`/`cimarron`/`cimmarron`), or Young
+  Hall. A multi-location row may match several named communities; Academics is
+  the fallback when none match, including blank locations.
+- `schedule_date` remains raw imported text. A leading `M/D/YYYY` (including
+  two-digit years and optional trailing time) or ISO date is parsed for list
+  behavior. Valid dates sort descending; blank/malformed legacy values sort
+  last. The date control matches one exact calendar date.
 - **Work orders are import-only.** The CSV import
   (`services.work_orders.get_or_create_work_order`) is the only path that creates
   one; there is no create endpoint and no "new work order" form. Every other
   surface calls `resolve_work_order`, which attaches to an existing number and
   404s on one no import has brought in. References still fill blank attributes
   but never overwrite non-blank ones.
-- The same Admin+ card exports them back out: `GET /work-orders/export?scope=`
-  writes one CSV row per work order, filtered to `all` (live), `archived`
-  (closed), or one live status, and scoped to the caller like the list. Two
-  variants share that filter:
-  - `variant=full` (the "Export to CSV" button) leads with the seven import
-    headers and then adds what the vendor CSV does not carry (status,
-    technicians, supervisor, billing totals, timestamps), so a downloaded file
-    re-imports as the idempotent fill-blanks path.
+- `GET /work-orders/export?scope=` writes one CSV row per work order and remains
+  scoped to the caller like the list. Its two variants intentionally use
+  different controls:
+  - `variant=full` (the "Export filtered CSV" button beside Search) exports the
+    complete current live result set with the same status, service type,
+    supervisor, community, scheduled date, and number predicates as the cards;
+    the recent-10 display cap never applies. It leads with the seven import
+    headers and adds status, technicians, supervisor, billing totals, and
+    timestamps, so the file re-imports through the idempotent fill-blanks path.
+    The filename is a readable UTC date/time plus the active filter values, such
+    as `08-04-26_17-12_status-in-progress-community-commons.csv`; an
+    unfiltered export ends in `_all.csv`.
   - `variant=client` (the "For Client" button) is the billing sheet: `WORK
-    ORDER`, `MATERIAL TOTAL`, `LABOR TOTAL`, `RECEIPT`. Both totals are the
+    ORDER`, `MATERIAL TOTAL`, `LABOR TOTAL`, `RECEIPT`. It remains controlled
+    only by the existing `all`/status/archived scope dropdown. Both totals are the
     billed figures — materials carry the 15% mark-up, labor is the labor charge
     — so they add up to the receipt's own Total rather than disagreeing with the
     document next to them. `RECEIPT` holds the full Admin Review receipt text.
+    Its filename uses the same convention with `client-<scope>`.
 - The receipt has two implementations: `static/adminReviewReceipt.js` renders it
   for the Admin Review copy box, and `app/domain/receipt.py` renders the same
   characters for the client export. They must stay identical — the mark-up rate,
@@ -291,22 +309,23 @@ Work orders:
   pre-work row to Assigned, and clearing every technician returns an Assigned
   row to Created; later states never rewind automatically. The first committed
   material or labor activity advances Created/Assigned to In-Progress through
-  the same domain transition, and an in-scope technician or supervisor can set
-  it In-Progress explicitly from the Work Order card. Selecting a non-In-Progress
+  the same domain transition, and Supervisor+ can set it In-Progress explicitly
+  from the Work Order card. Selecting a non-In-Progress
   Scan/Stock card does not start a batch: a confirmation offers to open that Work
-  Order so the user can set it In-Progress. A technician or supervisor can mark
-  In-Progress work Completed; only
-  Supervisor+ can manually roll a status back from Completed or an earlier step,
+  Order so a supervisor can set it In-Progress. Supervisor+ can mark In-Progress
+  work Completed, manually roll a status back from Completed or an earlier step,
   place it On-Hold, resume it, or send Completed work to Review after confirming
   it is ready. Manual pre-work rollback still derives Created/Assigned from the
   technician field. Material/labor activity does not resume On-Hold. `completed_at`
   is retained through Review and cleared by rollback/reopen. Closed is not a
   stored status: it is `archived_at`.
-- Closing requires Admin+ and a Review work order, and the ordinary Work Orders
-  page intentionally exposes no close action; Admin Review is the sole intended
-  UI entry point. The row and lines remain, the number stays reserved, and it can
-  return via `restore_work_order` or re-import. Closing never touches historical
-  transactions, which retain their own `work_order_number`.
+- Closing requires Admin+ and is valid from every live status. Each expanded Work
+  Orders card exposes the confirmed Archive action to Admin/Owner; Admin Review
+  retains its receipt-aware Close action for Review rows. The row and lines
+  remain, the number stays reserved, and only the explicit `restore_work_order`
+  workflow can return it to live views. CSV import counts and ignores it. Closing
+  never touches historical transactions, which retain
+  their own `work_order_number`.
 - Logging a material writes a `dispense` transaction carrying `work_order_id` +
   number. `entry_mode` decides `affects_stock`: `dispense` moves stock,
   `retroactive` is stock-neutral (still shown in History). Mode is snapshotted
@@ -345,8 +364,10 @@ Work orders:
   additional fee, tax, and discount layers remain deferred.
 - List/get/items are scoped server-side by
   `domain.work_orders.can_view_work_order`; out-of-scope/archived/unknown
-  surface as 404. Attribute edits are Supervisor+; close/archive is Admin+ and
-  Review-only; an assignee must be a technician.
+  surface as 404. Notes and adding materials are Technician+; operational
+  routing/status/mode, labor, and material corrections are Supervisor+;
+  imported/legacy metadata and close/archive are Admin+; archive accepts any
+  live status.
 
 Mass staging:
 
@@ -402,12 +423,13 @@ owner > admin > supervisor > technician
 | Change a user's role | admin+ AND actor outranks both the current and the new role |
 | Mass-stage page/API | supervisor+ |
 | Work Orders list/get/items | any authenticated user, server-scoped (technician: assigned; supervisor: created OR routed via `supervisor_id`; admin/owner: all) |
-| Edit Work Order notes / entry mode / Set In-Progress / Mark Completed | any authenticated in-scope user |
+| Edit Work Order notes / add material | any authenticated in-scope user |
+| Edit Work Order supervisor / technicians / status / entry mode / labor / logged-material quantity or removal | supervisor+ (scoped) |
+| Edit imported Work Order metadata (Location, Service, Schedule Date, Output to, Vendor Contact, Symptom/Task) | admin+ (scoped) |
 | Import work orders (CSV) | admin+ |
 | Export work orders (CSV, full or For Client) | admin+, server-scoped |
-| Edit work-order attributes / assign / rollback / On-Hold | supervisor+ (scoped); creation is import-only |
 | Admin Review page / receipt | admin+; lists every live Review work order |
-| Close/archive a work order | admin+ (scoped), Review status only; UI action lives in Admin Review |
+| Close/archive a work order | admin+ (scoped), any live status; UI action lives on expanded Work Orders cards and remains in Admin Review for Review rows |
 | Set work-order line billing override | admin+ (scoped) |
 | Scan-gate work-order cards | any authenticated user (scoped Created/Assigned/In-Progress list); In-Progress starts a batch, earlier states prompt to open Work Orders and set In-Progress |
 | Tools: view list/lookup, return | any authenticated user |
@@ -424,9 +446,9 @@ Scoping nuance:
   all. Direct stage-by-ID routes are supervisor+ gated but not additionally
   creator-scoped once the caller has a stage id.
 - The `/work-orders` routes DO add real per-row creator/assignee scope checks
-  (`services.work_orders`), because technicians reach them. A work order's
-  `status`/`entry_mode`/materials are editable by any in-scope user; identity,
-  location, and assignment edits require supervisor+.
+  (`services.work_orders`), because technicians reach them. The service also
+  enforces the edit matrix: Technician = notes/add material; Supervisor+ =
+  operations/labor/material corrections; Admin+ = imported/legacy metadata.
 
 ## Data Model
 
@@ -583,11 +605,11 @@ Rules:
   `assigned_to_id` remains a compatibility mirror of the first selected
   technician for Mass Stage and older clients.
 - Soft delete via `archived_at` is the Closed state; the number stays reserved
-  and material lines are kept. Closing is Admin+, requires Review, and is absent
-  from the ordinary Work Orders page. A closed work order is invisible to list
-  and detail loads, so it comes back only through `restore_work_order`
-  (`POST /work-orders/{id}/restore`, Supervisor+) or re-import — referencing it
-  no longer revives it. `lookup_work_order` is the one read that reports a closed
+  and material lines are kept. Closing is Admin+ from any live status and is
+  available on expanded Work Orders cards. A closed work order is invisible to list
+  and detail loads, so it comes back only through explicit `restore_work_order`
+  (`POST /work-orders/{id}/restore`, Supervisor+). CSV import and ordinary
+  references leave it archived. `lookup_work_order` is the one read that reports a closed
   work order so History can offer restore.
 - References fill blank attributes but never overwrite non-blank ones; explicit
   edits (`update_work_order`) overwrite.
@@ -597,9 +619,12 @@ Rules:
   `vendor_assignee` (the raw "ASSIGNED TO" contact -- a vendor name, NOT a system
   user), `service_type`, `schedule_date` (raw; some rows carry a time), and
   `description` (SYMPTOM/TASK). All nullable; a hand-created work order leaves
-  them empty. Import funnels each row through `get_or_create_work_order` by
-  number, so a re-upload is idempotent (fill-blanks -- never duplicates, never
-  clobbers a manual edit).
+  them empty. Import funnels each live row through `get_or_create_work_order` by
+  number. A re-upload is idempotent: only non-blank CSV metadata can fill an
+  empty metadata field, while notes, assignments, lifecycle, materials, labor,
+  billing, and existing values remain untouched. Archived matches are counted
+  as `closed` and skipped before routing or merge, so CSV import cannot restore
+  or alter a closed work order.
 - `supervisor_id` is the supervisor a work order is routed to. Import sets it by
   matching the normalized `vendor_assignee` name to an active supervisor's
   first + last name (`services.work_orders._supervisor_lookup`). Missing,
@@ -635,6 +660,9 @@ Rules:
   Admin/Owner charge is `effective_billable * current Item.price` (exposed as the
   response `unit_price`, redacted below Admin), so work-order-linked transaction
   rows carry no per-row charge in History.
+- Every in-scope role may add a material. Editing an aggregate line quantity or
+  removing a line requires Supervisor+; the UI therefore gives Technicians a
+  read-only quantity plus only the Add Item workflow.
 - `billable_quantity` is the per-line billing override: NULL bills the full
   `quantity`, `0` records but does not charge, a value <= `quantity` bills a
   partial count (`effective_billable` = override when set else `quantity`). Never
@@ -668,8 +696,8 @@ Fields: `id`, `work_order_id`, `technician_id`, `minutes`, `recorded_by_id`,
 Rules:
 
 - Each row records positive whole-minute actual labor attributed to a technician
-  assigned to the work order. Technicians may add/edit/remove only their own
-  entries; Supervisor+ may manage entries for any assigned technician.
+  assigned to the work order. All labor create/edit/remove operations require
+  Supervisor+ and may target any assigned technician.
 - Billing sums all actual minutes on the work order, rounds the combined total
   upward once to the next 30 minutes, then charges `$62.50/hour`. Rate and total
   are returned only to Admin/Owner; actual and billed durations are visible to
@@ -837,9 +865,10 @@ specified.
 | --- | --- | --- | --- |
 | POST | `/users/` | actor outranks target role | create user; username + first/last name required |
 | GET | `/users/` | supervisor+ | list users; `include_archived` adds archived users |
-| PATCH | `/users/{user_id}/name` | self or actor outranks target | replace required first + last name; legacy-account remediation |
+| PATCH | `/users/{user_id}/name` | self or actor outranks target | replace required first + last name and, when supplied, the unique login username; legacy-account remediation |
+| PATCH | `/users/{user_id}/role` | admin+ and actor outranks current + new role | change role and revoke the target's sessions |
 | POST | `/users/{user_id}/reset-password` | actor outranks target | reset password |
-| POST | `/users/{user_id}/archive` | actor outranks target | archive (soft delete) user; revokes sessions |
+| POST | `/users/{user_id}/archive` | actor outranks target | archive (soft delete) user; revokes sessions; optional `force_return_tools=true` checks in all held tools first |
 | POST | `/users/{user_id}/restore` | actor outranks target | reactivate archived user |
 | DELETE | `/users/{user_id}` | actor outranks target | hard delete unreferenced user |
 
@@ -858,6 +887,8 @@ History filters:
 - `item_id`
 - `user_id`
 - `work_order_number`
+- `date_from`, inclusive UTC calendar date
+- `date_to`, inclusive UTC calendar date
 - `page`, default 1
 - `page_size`, default 10, max 100
 
@@ -930,27 +961,30 @@ Order card so the user can set it In-Progress first.
 
 List/get/items are open to any authenticated user but **server-scoped**: a
 technician sees/acts on only work orders assigned to them, a supervisor only
-ones they created or routed to them, admin/owner all. Attribute edits / restore
-are Supervisor+; closing is Admin+ and Review-only. Out-of-scope, closed, or
+ones they created or routed to them, admin/owner all. Notes/add-material are
+Technician+; operations/labor/material corrections and restore are Supervisor+;
+metadata and closing are Admin+. Archive accepts every live status. Out-of-scope, closed, or
 unknown work orders return 404. **There is no create route** — the CSV import is
 the only way in.
 
 | Method | Path | Gate | Behavior |
 | --- | --- | --- | --- |
-| GET | `/work-orders/` | session scoped | list live Created through Review work orders; `status`, `q` (WO# search), `limit` (cap to N newest) filters |
-| POST | `/work-orders/import` | admin+ | bulk-import the mass CSV export (multipart); find-or-create per number; **the only path that creates a work order**; returns created/opened/matched/skipped counts |
+| GET | `/work-orders/` | session scoped | list live Created through Review work orders by scheduled date descending; joinable `status`, `service_type`, `supervisor_id`, `community`, `scheduled_date`, `q` filters plus `limit` |
+| GET | `/work-orders/filter-options` | session scoped | distinct service types and routed supervisors from caller-visible live work orders plus stable community choices |
+| POST | `/work-orders/import` | admin+ | bulk-import the mass CSV export (multipart); find-or-create live numbers and ignore archived matches; **the only path that creates a work order**; returns created/opened/closed/matched/skipped counts |
+| GET | `/work-orders/export` | admin+ scoped | export `scope=all|archived|<live-status>` as `variant=full` (re-importable operational CSV; accepts the live page's service/supervisor/community/date/number filters) or `variant=client` (unchanged scope-only billing totals + fixed-width receipt) |
 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | does this number name a work order, and is it archived? the one read that reports an archived one, so History can offer a restore |
 | GET | `/work-orders/{id}` | session scoped | work-order detail + free-form notes + logged materials + labor totals |
-| PATCH | `/work-orders/{id}` | session scoped; attr/assignee/manual rollback edits supervisor+ | save notes/entry mode, Set In-Progress, Mark Completed, or write Supervisor+ rollback/On-Hold/details edits |
-| POST | `/work-orders/{id}/archive` | admin+ scoped | close a Review work order via soft archive (number reserved, lines kept, transactions untouched) |
-| POST | `/work-orders/{id}/restore` | supervisor+ scoped | un-archive; the undo for archive, and the only way back short of a re-import |
+| PATCH | `/work-orders/{id}` | session scoped; field-sensitive | notes = Technician+; supervisor/technicians/status/entry mode = Supervisor+; imported/legacy metadata = Admin+ |
+| POST | `/work-orders/{id}/archive` | admin+ scoped | close a work order from any live status via soft archive (number reserved, lines kept, transactions untouched) |
+| POST | `/work-orders/{id}/restore` | supervisor+ scoped | explicit un-archive; the only way to return a closed work order to live views |
 | POST | `/work-orders/{id}/items` | session scoped | log a material (mode = work order's entry_mode); upsert by item |
-| PATCH | `/work-orders/{id}/items/{wo_item_id}` | session scoped | edit a material's quantity (dispense lines auto-correct stock) |
+| PATCH | `/work-orders/{id}/items/{wo_item_id}` | supervisor+ scoped | edit a material's quantity (dispense lines auto-correct stock) |
 | PATCH | `/work-orders/{id}/items/{wo_item_id}/billing` | admin+ scoped | set/clear the line's billing override (bill partial / zero / full) |
-| DELETE | `/work-orders/{id}/items/{wo_item_id}` | session scoped | remove a material (dispense lines return stock; voids the linked txn) |
-| POST | `/work-orders/{id}/labor` | session scoped | add positive whole-minute labor for an assigned technician; technicians are self-only |
-| PATCH | `/work-orders/{id}/labor/{labor_id}` | session scoped | replace actual minutes; technicians are self-only |
-| DELETE | `/work-orders/{id}/labor/{labor_id}` | session scoped | remove an entry; technicians are self-only; status does not rewind |
+| DELETE | `/work-orders/{id}/items/{wo_item_id}` | supervisor+ scoped | remove a material (dispense lines return stock; voids the linked txn) |
+| POST | `/work-orders/{id}/labor` | supervisor+ scoped | add positive whole-minute labor for an assigned technician |
+| PATCH | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | replace actual minutes |
+| DELETE | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | remove an entry; status does not rewind |
 
 The `POST /transactions/` body now also accepts `work_order_id` (from a scanned
 card); a free-text `work_order_number` from a Supervisor+ is *resolved* to an
@@ -1086,7 +1120,9 @@ Behavior:
   created, admin/owner all). Reached via the nav button or a Unit click in the
   Mass Stage tree.
 - Admin+ get an "Import work orders" section (file picker → `apiImportWorkOrders`
-  → summary of created/updated/routed/skipped counts, then the list reloads). The
+  → summary of processed/new/updated/closed/routed/skipped counts, then the list
+  reloads). The closed count is always shown, including zero, and those rows are
+  ignored without mutation. The
   file input accepts `.csv`; the button re-enables and clears after each run.
 - **Import-only: there is no "New work order" form.** The CSV import is the only
   way a work order appears here or anywhere else.
@@ -1095,46 +1131,43 @@ Behavior:
   supervisor, technicians — blank ones are omitted), plus a "Legacy" tag on
   pre-import cards.
 - Supervisor+ get an **"Edit details"** button in the card's control row. The
-  editor is hidden until it is clicked, and opening it hides the read-only block,
-  so a card stays a compact summary until an edit is actually intended. It edits
-  the imported fields (location, service type, schedule date, output to, vendor
-  contact, symptom/task), routing (supervisor select + multi-technician
-  checkboxes), and
-  a status selector. For Created through Completed it offers only the current or
+  editor is hidden until clicked and replaces the read-only block. For a
+  Supervisor it contains only supervisor routing, multi-technician assignment,
+  and status. Admin/Owner additionally see Location, Service Type, Schedule
+  Date, Output To, Vendor Contact, and Symptom/Task. Legacy community/building/
+  unit and the work-order number stay read-only. For Created through Completed
+  the status selector offers only the current or
   earlier lifecycle steps plus On-Hold; an On-Hold row can resume to the
   appropriate non-Review step. Created/Assigned remains technician-derived.
   Review is read-only here and retains its existing Reopen action. Save details /
   Cancel persist or discard the editor; "Close editor" only hides the panel.
-  Community/building/unit inputs appear only on a work order that still carries
-  those legacy values. The **number is not editable** — it is what the import
-  matches on, so renaming it would split the work order in two on the next
-  import.
-- Filter by status (All / Created / Assigned / In-Progress / On-Hold / Completed / Review),
-  then search by number.
-- The list shows only the 10 most-recently-created work orders by default (keeps
-  the page fast as the archive grows); a "Show all" control drops the cap and a
-  "Show recent only" control restores it. A search always queries the full set, and
-  a status-filter change resets to the capped browse (the cap is browse-only).
+- Advanced filters cover status, dynamic service type, caller-visible assigned
+  supervisor, derived community, exact scheduled date, and the existing
+  debounced work-order number search. Every active value is sent in one request
+  and combines with AND; Clear filters resets the complete search. Admin+ also
+  sees Export filtered CSV in this card; it exports the same uncapped result set.
+- The list is ordered by parsed scheduled date descending and shows only the
+  first 10 by default; a "Show all" control drops the cap and "Show recent only"
+  restores it. Blank/malformed schedule text sorts last, with creation time as a
+  tiebreaker. Any active filter queries the complete matching set.
 - Cards are collapsible and their full collapsed background communicates status:
   Created gray, Assigned red, In-Progress yellow, On-Hold orange, Completed blue,
   Review green, with contrasting text. Expanded bodies return to a white form surface. The
-  body has a mode selector and status-appropriate actions: an in-scope user sees
-  Set In-Progress on Created/Assigned and can Mark completed from In-Progress;
-  only Supervisor+ sees Send to Review on Completed after reviewing the work and
-  must confirm readiness in a pop-up; that transition places it in the final
-  Admin Review queue. Supervisor+ can
-  also Reopen. Created/Assigned note that material/labor activity also starts
+  body has a Supervisor+ mode selector and status-appropriate actions:
+  Supervisor+ sees Set In-Progress, Mark completed, Send to Review, and Reopen as
+  applicable; Send to Review still requires confirmation. Technicians receive
+  none of those controls. The Review transition places it in the final Admin
+  Review queue. Created/Assigned note that material/labor activity also starts
   work automatically; On-Hold explains that only a supervisor can resume or roll it back. The
   body also has the Supervisor+ "Edit details" toggle, a free-form Notes section
-  with Save notes for every in-scope role, and logged materials. Directly below
-  material selection is per-technician labor tracking: actual hours are stored
-  as whole minutes, the combined duration displays its rounded 30-minute billing
-  total, technicians manage only their own rows, and Supervisor+ can select any
-  assigned technician. There is
-  deliberately no close/archive action on this page.
+  with Save notes for every in-scope role, and logged materials. Technicians can
+  add items but see existing quantities read-only; Supervisor+ may update/remove
+  lines. Directly below material selection, Supervisor+ alone sees labor tracking
+  and may manage any assigned technician. Admin/Owner additionally receives a
+  confirmed Archive action on every live-status card.
 - Closing keeps the row, material lines, and transactions, but hides the work
-  order from live views. `POST .../archive` requires Admin+ and Review; the
-  Admin Review page owns this action. History can still find transactions by
+  order from live views. `POST .../archive` requires Admin+ from any live status;
+  Admin Review keeps its receipt-aware Review close flow. History can still find transactions by
   number and offers restore for a closed work order.
 - Dispense entries move stock and show in History like a Scan/Stock dispense;
   retroactive entries show in History identically but move no stock.
@@ -1176,7 +1209,7 @@ Behavior:
   disables Close while naming the affected items. Return to In-Progress remains
   available so the work order can be corrected.
 - Return to In-Progress confirms, then PATCHes status to `in_progress`; Close
-  confirms, then calls the existing Review-only Admin+ archive endpoint. Either
+  confirms, then calls the shared any-live-status Admin+ archive endpoint. Either
   action removes the work order from this Review queue while preserving the
   receipt text for reference/copying.
 
@@ -1281,14 +1314,20 @@ Behavior:
   role. The Users table is the account-management surface that displays all
   three identity fields.
 - Edit Name is available for the signed-in user's own row and manageable
-  subordinate rows. It writes through `PATCH /users/{id}/name`; this is how
-  pre-migration accounts become eligible for full-name CSV routing.
+  subordinate rows. The same modal can replace the login username. It writes
+  through `PATCH /users/{id}/name`; this is how pre-migration accounts become
+  eligible for full-name CSV routing and how mistyped login names are corrected.
+- Admin/Owner rows expose Edit Role only for manageable subordinates. The role
+  modal offers only roles the actor strictly outranks; a successful change
+  revokes the target's sessions so their next login receives the correct UI.
 - Create-user dropdown offers only subordinate roles.
 - Row reset/archive/restore actions appear only for users the actor outranks.
-- Password reset uses prompt and requires min length 4.
+- Password reset uses the app's modal and requires min length 4.
 - The 🗑️ action archives (soft delete): the user can no longer log in but
   their history is kept and they can be restored. Archived rows render
-  dimmed with an "(archived)" tag and a Restore action.
+  dimmed with an "(archived)" tag and a Restore action. If the server refuses
+  archive because tools remain in custody, a second confirmation can check in
+  every held tool and retry the archive atomically.
 - The list loads with archived users included so the History "by user"
   filter can still select a departed user.
 
@@ -1383,8 +1422,9 @@ Files: `domain/work_orders.py`, `services/work_orders.py`,
 Behavior:
 
 - `get_or_create_work_order` resolves a number (case-insensitive + trimmed) to
-  the one row, creating it if new: fills blank attributes, restores an archived
-  match, validates the assignee is a technician. **Reached only from the CSV
+  the one row, creating it if new: fills blank attributes on a live match,
+  returns an archived match untouched for the importer to count/ignore, and
+  validates the assignee is a technician. **Reached only from the CSV
   import** — it is the single creation path in the system. Every new row starts
   Created; supervisor-name routing affects `supervisor_id`/visibility, not status.
 - `resolve_work_order` is what every other surface (the free-text transaction
@@ -1396,38 +1436,39 @@ Behavior:
   Together they back History's "this number is archived — restore it?" prompt,
   which is the undo for archive now that nothing can re-create a work order.
 - `list_work_orders` is scoped (technician/supervisor/admin), excludes archived,
-  filters by status, and searches the number case-insensitively.
-- `update_work_order` overwrites supplied fields, including nullable free-form
-  `notes`. `assigned_to_ids` replaces the normalized assignment set while
+  composes every advanced predicate with AND, filters scheduled date by parsed
+  calendar day, and sorts scheduled date descending before applying `limit`.
+- `update_work_order` checks field permissions before writing: notes require an
+  in-scope Technician+; status/entry mode/supervisor/technicians require
+  Supervisor+; imported and legacy metadata require Admin+. It overwrites
+  supplied fields, including nullable free-form `notes`. `assigned_to_ids`
+  replaces the normalized assignment set while
   maintaining the singular compatibility mirror. Setting/clearing the plural
   set reconciles Created/Assigned;
   an explicit rollback to either pre-work value is normalized again after the
   assignment edit, so the pair cannot contradict technician presence.
   Supervisor routing is independent. Completed and Review retain `completed_at`,
-  while On-Hold/rollback/reopen clears it. The router permits any in-scope user
-  to save notes, change entry mode, set In-Progress, or mark Completed, but
-  requires Supervisor+ for every other manual status change. A number collision
-  raises 400.
-- `archive_work_order` accepts only Review and sets `archived_at`; the router
-  requires Admin+. This is the stored Closed state.
+  while On-Hold/rollback/reopen clears it. A number collision raises 400.
+- `archive_work_order` requires Admin+ in the service and sets `archived_at` from
+  any live status. This is the stored Closed state.
 - `add_work_order_item` locks the item row, writes a `dispense` transaction
   (`affects_stock` per the work order's mode) and the matching line via
   `attach_dispense_line`. That shared line-attachment path advances a pre-work
   row to In-Progress; it leaves On-Hold unchanged.
-  `update_work_order_item` corrects stock by the delta
+  `update_work_order_item` (Supervisor+) corrects stock by the delta
   and appends one reconciling `adjust` (the original scan rows stay intact -- it
   does NOT rewrite them); it clears a now-too-large `billable_quantity` override.
-  `delete_work_order_item` returns the line's net units and voids its whole
+  `delete_work_order_item` (Supervisor+) returns the line's net units and voids its whole
   contributing transaction set.
 - `set_work_order_item_billable` sets/clears a line's `billable_quantity`
   override (validated by `domain.billing.validate_billable_value`); it never
   touches stock. The router builds `materials_total` (sum of
   `effective_billable * unit_price`) and per-line `unit_price`/`billable_quantity`
   for Admin/Owner, redacted below.
-- `add_work_order_labor` requires a current technician assignment, restricts a
-  technician to their own identity, stores actual whole minutes, and applies the
-  shared activity-derived status transition. Update/delete keep the technician
-  self-only rule. Response totals use `billed_labor_minutes` and `labor_charge`:
+- `add_work_order_labor` requires Supervisor+ and a current technician
+  assignment, stores actual whole minutes, and applies the shared
+  activity-derived status transition. Update/delete are Supervisor+ as well.
+  Response totals use `billed_labor_minutes` and `labor_charge`:
   sum first, round upward once to 30 minutes, then multiply by `$62.50/hour`.
 
 ### Tools
@@ -1561,7 +1602,8 @@ Coverage map:
 | `test_auth_session_lifetime.py` | remembered/non-remembered session lifecycle |
 | `test_auth_profile_schema.py` | `/auth/me` response includes first/last/full name plus profile timestamps |
 | `test_user_names.py` | required trimmed names, neutral legacy display, name persistence, and self/manager edit authorization |
-| `test_user_archive.py` | user archive blocks login, revokes sessions, list scoping, and refuses archive until outstanding tool custody is returned |
+| `test_user_role_edit.py` | Admin/Owner-only subordinate role changes, rank restrictions, session revocation, and UI/API contracts |
+| `test_user_archive.py` | user archive blocks login, revokes sessions, list scoping, refuses archive with outstanding custody, and force-returns held tools atomically |
 | `test_item_update_partial.py` | partial item PATCH + clear price/link to null |
 | `test_history_price_snapshot.py` | frozen `unit_price` snapshot; non-zero rows unchanged by price edits; snapshot 0 / NULL falls back to live price |
 | `test_roles.py` | role hierarchy and transaction/user-management rules |
@@ -1577,12 +1619,14 @@ Coverage map:
 | `test_mass_staging.py` | pure mass-stage allocation/lifecycle rules |
 | `test_mass_stages_api.py` | schemas, route gates, response builders |
 | `test_mass_staging_load.py` | DB-backed slot load/return, add-work-order enforce-match + refusal of an unimported number, reuse |
-| `test_work_orders_domain.py` | pure number normalization, six live statuses including stable On-Hold, plural technician-derived Created/Assigned state, activity-derived In-Progress, combined labor rounding/charge, fill-blanks, visibility scope |
-| `test_work_orders_service.py` | DB-backed find-or-create, resolve-only attach, plural assignment/scope, per-technician labor/self-only writes, assignment/activity lifecycle derivation, On-Hold stability, status rollback/completion timing, free-form notes, Review-only close, archived history/restore, materials, scoping, and list filters/cap |
-| `test_work_order_import.py` | CSV parsing/import, full-name supervisor routing independent of Created status, unmatched/ambiguous/archived/non-supervisor fallback, idempotence, and Admin gate |
+| `test_work_orders_domain.py` | pure number normalization, six live statuses including stable On-Hold, community-filter vocabulary/validation, plural technician-derived Created/Assigned state, activity-derived In-Progress, combined labor rounding/charge, fill-blanks, visibility scope |
+| `test_work_orders_service.py` | DB-backed find-or-create, resolve-only attach, plural assignment/scope, per-technician labor/self-only writes, lifecycle/status/notes/archive/materials, AND-composed advanced filters, community aliases/multi-membership/Academics fallback, scoped filter options, and list cap |
+| `test_work_order_import.py` | CSV parsing/import, full-name supervisor routing independent of Created status, unmatched/ambiguous/archived/non-supervisor fallback, idempotence, closed-row count/no-mutation (metadata, notes, materials, labor), and Admin gate |
 | `test_work_order_name_responses.py` | work-order response exposes plural operational names, rounded labor detail/totals, and free-form notes while omitting login usernames |
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
 | `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin; history row exposes `work_order_id` |
+| `test_work_order_export.py` | Admin+ scoped full/client CSV exports, joined operational filters (including date), unchanged client scope behavior, import-header compatibility, billing totals, and receipt cells |
+| `test_receipt.py` | backend fixed-width receipt output matches the frontend contract for markup, truncation, quantities, missing prices, and labor rounding |
 | `test_tools_domain.py` | pure `domain.tools.validate_return` outstanding-balance cap |
 | `test_tools_service.py` | DB-backed: create/duplicate-live-barcode, archived-barcode reuse, checkout/return round-trip incl. `apply_delta` reuse, active-target validation without stock/ledger mutation, checkout overdraft (`NegativeQuantityError`), return-beyond-outstanding (`ToolReturnExceedsCheckedOutError`), per-tool and per-user custody aggregates, multi-user custody split, archive guard until full return, Correct Count increase/decrease/no-op (`NoChangeError`), and the regression that an `adjust` row never enters a custody balance |
 
@@ -1612,6 +1656,9 @@ Do not "fix" these accidentally unless the task asks for it.
   their `work_order_number` string with `work_order_id` NULL).
 - Work-order numbers are a single global namespace, unique case-insensitively;
   there is no per-community/building number scoping.
+- Work-order CSV import accepts the real header row first or Excel's optional
+  UTF-8 BOM + `sep=,` dialect-hint preamble. Only that leading hint is ignored;
+  the following row remains the required import header.
 - A free-text work-order number on a transaction is *resolved* (never created,
   since work orders are import-only) and only for Supervisor+; a technician's
   scan must carry a `work_order_id` (from a card).

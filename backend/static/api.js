@@ -385,19 +385,36 @@ export async function apiReuseStage(stageId) {
 // --- Work Orders -------------------------------------------------------
 // A work order is the standalone entity (identity = number). List/get/items are
 // open to any authenticated user but server-scoped (technician -> assigned,
-// supervisor -> created/routed, admin/owner -> all). Attribute edits / restore
-// are Supervisor+; close/archive is Admin+ and only valid from Review.
+// supervisor -> created/routed, admin/owner -> all). Notes/add-item are
+// Technician+; operations/labor/material corrections are Supervisor+; imported
+// metadata and close/archive are Admin+.
 //
 // There is no create call: work orders are import-only, so apiImportWorkOrders
 // is the only thing that brings one into existence. Every other surface looks an
 // existing number up (apiListWorkOrders with `q`, or apiLookupWorkOrder).
-export async function apiListWorkOrders({ status = null, q = null, limit = null } = {}) {
+export async function apiListWorkOrders({
+  status = null,
+  serviceType = null,
+  supervisorId = null,
+  community = null,
+  scheduledDate = null,
+  q = null,
+  limit = null,
+} = {}) {
   const params = new URLSearchParams();
   if (status) params.set("status", status);
+  if (serviceType) params.set("service_type", serviceType);
+  if (supervisorId) params.set("supervisor_id", supervisorId);
+  if (community) params.set("community", community);
+  if (scheduledDate) params.set("scheduled_date", scheduledDate);
   if (q) params.set("q", q);
   if (limit != null) params.set("limit", limit);
   const qs = params.toString();
   return liveGet(`/work-orders/${qs ? `?${qs}` : ""}`);
+}
+
+export async function apiGetWorkOrderFilterOptions() {
+  return liveGet("/work-orders/filter-options");
 }
 
 export async function apiGetWorkOrder(workOrderId) {
@@ -418,21 +435,27 @@ export async function apiImportWorkOrders(file) {
   return parseResponse(response);
 }
 
-// Download work orders as CSV (Admin+). `scope` is "all", "archived", or one
-// live status; `variant` is "full" (every column, re-importable) or "client"
-// (number + billed totals + receipt). Returns `{ blob, filename }` -- the
-// response is a file, not JSON, so this cannot go through `parseResponse`;
-// error bodies still do, so a 403 / 400 surfaces as the usual
-// `{status, detail}` throw.
-export async function apiExportWorkOrders(scope = "all", { variant = "full" } = {}) {
+// Download work orders as CSV (Admin+). The operational `full` export may carry
+// the same active service/supervisor/community/number filters as the card list;
+// status remains the existing `scope`. The `client` caller deliberately omits
+// `filters`, preserving its scope-only behavior.
+export async function apiExportWorkOrders(
+  scope = "all",
+  { variant = "full", filters = {} } = {},
+) {
   const params = new URLSearchParams({ scope, variant });
+  if (filters.serviceType) params.set("service_type", filters.serviceType);
+  if (filters.supervisorId) params.set("supervisor_id", filters.supervisorId);
+  if (filters.community) params.set("community", filters.community);
+  if (filters.scheduledDate) params.set("scheduled_date", filters.scheduledDate);
+  if (filters.q) params.set("q", filters.q);
   const response = await fetch(`/work-orders/export?${params}`, {
     credentials: "include",
     cache: "no-store",
   });
   if (!response.ok) return parseResponse(response); // always throws
-  // Prefer the server's filename (it carries the scope and export date), and
-  // fall back if the header is ever stripped by a proxy.
+  // Prefer the server's TIMESTAMP_filter1-filter2 filename, and fall back if
+  // the header is ever stripped by a proxy.
   const disposition = response.headers.get("Content-Disposition") || "";
   const match = disposition.match(/filename="?([^"]+)"?/i);
   return {
@@ -446,15 +469,15 @@ export async function apiExportWorkOrders(scope = "all", { variant = "full" } = 
 // vendor_assignee, service_type, schedule_date, supervisor_id,
 // assigned_to_ids}. `assigned_to_id` remains accepted by the backend for older
 // clients, but this UI writes the plural assignment set.
-// Notes / entry_mode / Set In-Progress / Mark Completed are available in-scope;
-// manual rollback, On-Hold, Review, and the remaining fields are Supervisor+.
+// Role matrix: notes = Technician+; status/entry mode/routing/assignment =
+// Supervisor+; imported/legacy metadata = Admin+.
 export async function apiUpdateWorkOrder(workOrderId, patch) {
   return jsonRequest(`/work-orders/${workOrderId}`, "PATCH", patch);
 }
 
 export async function apiArchiveWorkOrder(workOrderId) {
-  // Close a Review work order. Kept as the archive URL because Closed is the
-  // existing soft-archive state rather than a sixth stored status.
+  // Close any live work order (Admin+). Kept as the archive URL because Closed
+  // is the existing soft-archive state rather than a stored status.
   return parseResponse(await fetch(`/work-orders/${workOrderId}/archive`, { method: "POST", credentials: "include" }));
 }
 

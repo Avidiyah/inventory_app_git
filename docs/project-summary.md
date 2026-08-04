@@ -11,98 +11,72 @@ A **self-hosted inventory + work-order staging system** for physical materials t
 ## Core domains
 
 - **Items & transactions** — find/create/edit items by barcode; Find Item initially loads only a name/barcode suggestion index, then explicit Search or Load All retrieves full records. Stock, dispense, correct (append-only `adjust` rows), and void (soft delete, reverses stock). Prices/links are cost-sensitive and redacted below Admin. Row locks guard every quantity change; money is `Decimal`.
-- **Work orders** — first-class standalone, import-only entities whose case-insensitive identity is the **number**. Live workflow is Created → Assigned → In-Progress → Completed → Review, with supervisor-controlled On-Hold; Closed is the archived state. Work orders support multiple technician assignments, free-form Notes, aggregate material billing, and per-technician labor billed at $62.50/hour after the combined duration rounds upward to 30 minutes. The source of truth is a **CSV import** (`POST /work-orders/import`, Admin+, idempotent fill-blanks); pre-import rows are marked `legacy`. Everything is server-scoped by role (technician→any assignment, supervisor→created/routed, admin/owner→all).
+- **Work orders** — first-class standalone, import-only entities whose case-insensitive identity is the **number**. Live workflow is Created → Assigned → In-Progress → Completed → Review, with supervisor-controlled On-Hold; Closed is the archived state. Work orders support multiple technician assignments, free-form Notes, aggregate material billing, and per-technician labor billed at $62.50/hour after the combined duration rounds upward to 30 minutes. Edit permissions are least-privilege: Technician = notes/add material; Supervisor+ = routing/status/mode/labor/material corrections; Admin+ = imported metadata and archive from any live status. CSV re-import fills only blank metadata on live matches and leaves all operational data untouched; archived matches are counted as closed and ignored. The server-side list composes status, service type, routed supervisor, derived community, exact scheduled date, and number filters with AND, then sorts by parsed Scheduled Date descending. Admin+ can export that uncapped filtered set as a re-importable operational CSV; the client billing/receipt CSV remains scope-based. Everything is server-scoped by role (technician→any assignment, supervisor→created/routed, admin/owner→all).
 - **Mass staging** — truck-loading plans per community/building/unit that *reference* work orders; forward-only lifecycle planning→loading→completed.
 - **Tools** — parallel to items but smaller (no price/location); ledger-derived custody ("who has what" is computed, never stored). Checkout is Admin+, check-in any role.
 - **Users/roles** — `owner > admin > supervisor > technician`; unique usernames
   stay login/account identifiers, while first + last names drive operational
   display and CSV supervisor routing. Legacy NULL names are explicitly editable
-  on Users. Scrypt sessions use an HttpOnly cookie; archive is soft-delete with a
-  tool-custody guard.
+  on Users, login usernames can be corrected in the same flow, and Admin+ may
+  change only strictly subordinate roles. Role changes revoke active sessions.
+  Scrypt sessions use an HttpOnly cookie; archive is soft-delete with a
+  tool-custody guard and an explicit force-check-in retry.
 
 ## Documentation map
 
 - **`docs/current-state.md`** — the durable contract/invariants reference (data model, hard invariants, API surface, roles). "If it conflicts with code, trust the code."
-- **`docs/endpoint-map.md`** — traces all 61 endpoints DB↔view (router→service→table, api.js→view), plus full request/response contracts, an error catalog, and service algorithms — meant to make reading source unnecessary.
-- **`docs/ux-review.md` + `docs/handoff.md`** — track a UX-improvement effort.
+- **`docs/endpoint-map.md`** — traces all 64 endpoints DB↔view (router→service→table, api.js→view), plus full request/response contracts, an error catalog, and service algorithms — meant to make reading source unnecessary.
+- **`docs/improvement-tracker.md`** — requested improvements and their current status.
+- **`docs/ux-review.md` + `docs/handoff.md`** — historical records of the July UX-improvement effort; not current-state authorities.
 
-## Current state of work
+## Current baseline
 
-The working tree contains active uncommitted feature work. IMP-001 is implemented:
-Find Item starts without item cards, loads only lightweight name/barcode
-suggestions, searches the full live dataset only on Search/Enter, and exposes an
-explicit Load All Items action.
+Last reconciled: 2026-08-04 against committed baseline `0566a64`. The large
+work-order/QoL batch and its follow-up user-management and export work are
+committed; older documents that call that feature set uncommitted are historical.
+OpenAPI exposes 64 operations and Alembic head is `f7a9b1c3d5e6`.
 
-IMP-002 is now implemented on top of the active uncommitted work-order import
-feature: migration `f3b5d7a9c1e2` adds nullable first/last names without guessing
-legacy identity; Add User requires both; Users can explicitly repair legacy
-names; CSV routing matches an unambiguous active-supervisor full name and leaves
-misses/duplicates unassigned; operational UI surfaces render full names while
-username remains limited to login/account-management views.
+IMP-001 through IMP-003 and IMP-005 through IMP-011 are implemented and marked
+Done. IMP-004 (the Mass Stage redesign) is the only open requested improvement
+and remains very low priority. See `docs/improvement-tracker.md` for the original
+requests and implementation notes.
 
-IMP-003 is implemented on Scan / Stock: Supervisor+ gets a compact
-work-order-number search card above the scoped cards; typing live-filters the
-cards through the existing API. Selecting In-Progress starts the batch, while
-IMP-011 now redirects earlier states to their Work Order card. The
-manual item picker is hidden until a work order is selected.
+The two capabilities added after the improvement batch are:
 
-IMP-005 is implemented with the corrected lifecycle: imports start Created;
-technician assignment derives Assigned; and first committed material or labor
-derives In-Progress. Selecting a
-Scan/Stock card is status-neutral. A technician or supervisor can Mark completed,
-while only Supervisor+ sees Send to Review and must confirm readiness in a
-pop-up before it enters final Admin Review. Closed uses the existing archive state, is Admin+ and Review-only, and
-has no action on ordinary Work Orders. Cards use the requested
-gray/red/yellow/blue/green status backgrounds with contrasting text. That
-lifecycle correction concluded at migration `f5d7f9b1c3e4`.
+- User administration can replace first/last/login names; Admin+ can change a
+  strictly subordinate user's role and revoke that user's sessions; user archive
+  can force-check-in outstanding tools before disabling the account.
+- Admin+ work-order export supports `variant=full`, whose import headers make the
+  CSV re-importable through the idempotent fill-blanks path, and `variant=client`,
+  whose material/labor totals and full fixed-width receipt match Admin Review.
+  Backend `domain/receipt.py` and frontend `adminReviewReceipt.js` intentionally
+  render the same 41-character contract.
+  Download names use `MM-DD-YY_HH-MM_filter1-filter2.csv` in UTC; filtered
+  exports list every active filter and client exports use `client-<scope>`.
+- Work Orders advanced search composes status, dynamic service type, assigned
+  supervisor, derived community, exact scheduled date, and number with AND.
+  Community membership is derived from structured/raw location text; Academics
+  is the fallback. Cards and operational exports sort parsed Scheduled Date
+  descending, with malformed/blank legacy values last. Export filtered CSV sits
+  beside Search and uses the full active result set; For Client is unchanged.
+- Expanded Work Order controls follow the backend role matrix. Admin/Owner Edit
+  Details includes imported metadata plus operations; Supervisor sees only
+  supervisor, technicians, and status plus separate mode/labor/material-correction
+  controls; Technician sees Notes and Add Item only. Admin/Owner additionally
+  receives a confirmed Archive action on every expanded live-status card.
 
-IMP-009 and IMP-010 are implemented. Supervisor+ Edit details now exposes a
-non-Review status selector that can roll Completed and earlier states backward
-or place work On-Hold; pre-work rollback remains derived from technician
-assignment, and activity does not resume a held order. Every expanded Work Order
-card has a free-form Notes section that any in-scope user may save or clear.
-On-Hold cards are orange. Migration `f6e8a0b2d4f5` added the nullable
-`work_orders.notes` column.
+## Verification baseline
 
-IMP-006 is implemented. Supervisor+ Edit details uses a multi-technician
-assignment set; every assigned technician receives normal server-scoped access.
-Expanded cards track actual labor as per-technician minute entries beneath item
-selection. Billing sums all entries, rounds upward once to the next 30 minutes,
-and applies $62.50/hour; rate and charge remain Admin/Owner-only. Technicians can
-manage only their own labor, while Supervisor+ can manage any assigned
-technician. Migration `f7a9b1c3d5e6` backfills existing singular assignments and
-adds the labor table while retaining `assigned_to_id` as a compatibility mirror.
+- Full backend suite on 2026-08-04: 428 passed, including the Excel `sep=,`
+  and closed-row import regressions, joined Work Orders/date filtering, scheduled ordering, and
+  filtered operational export, plus the Work Orders field/action/archive role matrix.
+- All 32 frontend JavaScript files pass `node --check`.
+- OpenAPI reports 64 operations; Alembic reports `f7a9b1c3d5e6 (head)`.
+- `git diff --check` passes apart from the existing line-ending warning on the
+  locally modified import test.
 
-IMP-007 is implemented as an Admin/Owner-only Admin Review page. It lists every
-live Review work order as a green number-titled card. Selecting one builds a
-persistent 41-character receipt from authoritative override-aware material
-lines, the `+15%` material mark-up, an always-present `[x] Labor Hours` line
-using billed hours and the unmarked-up labor charge, and the combined Total.
-The copied text intentionally has no work-order-number header. The shared pure
-formatter keeps Admin Review and History aligned; missing prices render
-`NO PRICE` and block Close. Confirmed Return to In-Progress and Review-only
-Close both remove the card from the queue while leaving the receipt visible.
+## Active follow-ups
 
-IMP-011 is implemented: Created/Assigned Work Order cards expose Set In-Progress
-to in-scope technicians and supervisors. Scan/Stock only starts a batch from an
-In-Progress card; selecting an earlier state opens a confirmation and can take
-the user directly to the expanded Work Order to set it In-Progress. Cancel keeps
-the user at the scan gate. On-Hold remains Supervisor-controlled and excluded
-from Scan/Stock.
-
-IMP-008 is implemented with explicit page-entry refresh semantics. Navbar
-navigation remains an in-memory SPA switch, while every entry to Work Orders,
-Find Item, or Mass Stage requests current server data. Work Orders and Mass Stage
-also replace their cached item/user reference lists on page entry; Find Item
-refreshes its lightweight search index and keeps full rows behind Search or Load
-All.
-
-Latest IMP-007 verification: all 32 frontend JavaScript files pass syntax checks;
-pure receipt assertions cover the no-header contract, 41-character maximum,
-long-name truncation, `[0]`/`[1.5]` labor, combined totals, and missing prices;
-53 focused backend billing/role tests pass; Python compilation, served SPA/DOM
-and changed-resource checks, and `git diff --check` pass. The full backend run
-reported 322 passed and one unrelated baseline-sensitive failure because the
-configured test database already contained one persisted `work_order_items` row
-before that test transaction. Interactive browser QA was unavailable because no
-browser backend was attached.
+- IMP-004 remains open and intentionally low priority.
+- Hardware/iPhone scanner behavior still requires real-device validation when
+  those paths change; there is no frontend test harness.

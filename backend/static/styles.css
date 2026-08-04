@@ -534,6 +534,32 @@ tr:last-child td {
     min-height: var(--btn-h-sm);
 }
 
+/* Work Orders advanced filters: four independent selects that wrap into one
+   column on narrow screens without forcing the page wider than the viewport. */
+.wo-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.wo-filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+}
+
+.wo-filter-field select,
+.wo-filter-field input {
+    width: 100%;
+    min-width: 0;
+}
+
+.wo-number-search-row input {
+    flex: 1 1 260px;
+}
+
 /* =================== TYPE BADGES =================== */
 .type-badge {
     display: inline-block;

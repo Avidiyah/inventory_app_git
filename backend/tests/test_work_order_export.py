@@ -12,8 +12,10 @@ DB-backed tests skip if no database (the `db` fixture).
 import csv
 import io
 import os
+import re
 import sys
 import uuid
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -68,11 +70,11 @@ def _wo(db, creator, **attrs):
     )
 
 
-def _rows(db, *, user, scope, numbers=None):
+def _rows(db, *, user, scope, numbers=None, **filters):
     """Parsed export rows, optionally narrowed to the numbers a test seeded --
     the fixture rolls back rather than truncating, so a developer's existing
     work orders are in the file too."""
-    text = wos.export_work_orders_csv(db, user=user, scope=scope)
+    text = wos.export_work_orders_csv(db, user=user, scope=scope, **filters)
     rows = list(csv.DictReader(io.StringIO(text)))
     if numbers is None:
         return rows
@@ -202,6 +204,53 @@ def test_status_scope_selects_only_that_status(db):
     ]
 
 
+def test_operational_export_combines_the_active_work_order_filters(db):
+    admin = _seed_user(db, "admin")
+    supervisor = _seed_user(db, "supervisor", first="Avery", last="Able")
+    other_supervisor = _seed_user(db, "supervisor", first="Blake", last="Baker")
+    prefix = f"WO-EXPORT-FILTER-{uuid.uuid4().hex[:8]}"
+
+    def make(
+        suffix,
+        *,
+        routed=supervisor,
+        service="Repair",
+        location="Commons",
+        scheduled="7/28/2026",
+    ):
+        work_order = wos.get_or_create_work_order(
+            db,
+            number=f"{prefix}-{suffix}",
+            created_by_id=admin.id,
+            supervisor_id=routed.id,
+            service_type=service,
+            location=location,
+            schedule_date=scheduled,
+        )
+        wos.update_work_order(
+            db, work_order.id, user=admin, fields={"status": "in_progress"}
+        )
+        return work_order
+
+    target = make("TARGET")
+    make("SUPERVISOR", routed=other_supervisor)
+    make("SERVICE", service="Inspection")
+    make("COMMUNITY", location="Centennial")
+    make("DATE", scheduled="7/27/2026")
+
+    rows = _rows(
+        db,
+        user=admin,
+        scope="in_progress",
+        service_type="repair",
+        supervisor_id=supervisor.id,
+        community="commons",
+        scheduled_date=date(2026, 7, 28),
+        search=prefix,
+    )
+    assert [row["WORK ORDER"] for row in rows] == [target.number]
+
+
 def test_all_scope_excludes_archived_and_archived_scope_includes_only_them(db):
     admin = _seed_user(db, "admin")
     live = _wo(db, admin)
@@ -325,6 +374,24 @@ def test_client_variant_honours_scope_and_visibility(db):
     ]
 
 
+def test_client_variant_remains_scope_only_when_operational_filters_are_supplied(db):
+    admin = _seed_user(db, "admin")
+    work_order = _wo(db, admin, service_type="Repair")
+
+    text = wos.export_work_orders_csv(
+        db,
+        user=admin,
+        scope="all",
+        variant="client",
+        service_type="does-not-match",
+        community="commons",
+        scheduled_date=date(2099, 1, 1),
+        search="does-not-match",
+    )
+    rows = list(csv.DictReader(io.StringIO(text)))
+    assert work_order.number in {row["WORK ORDER"] for row in rows}
+
+
 def test_full_variant_is_unchanged_by_the_client_one(db):
     admin = _seed_user(db, "admin")
     work_order = _wo(db, admin)
@@ -354,8 +421,50 @@ def test_route_returns_a_csv_attachment(db):
     assert response.media_type.startswith("text/csv")
     disposition = response.headers["content-disposition"]
     assert disposition.startswith("attachment;")
-    assert "work-orders-all-" in disposition
+    assert re.search(r'filename="\d{2}-\d{2}-\d{2}_\d{2}-\d{2}_all\.csv"', disposition)
     assert work_order.number in response.body.decode("utf-8")
+
+
+def test_route_forwards_operational_export_filters(db, monkeypatch):
+    admin = _seed_user(db, "admin")
+    supervisor = _seed_user(db, "supervisor", first="Avery", last="Able")
+    supervisor_id = supervisor.id
+    captured = {}
+
+    def export_filtered(db, **kwargs):
+        captured.update(kwargs)
+        return "WORK ORDER\r\n"
+
+    monkeypatch.setattr(wos, "export_work_orders_csv", export_filtered)
+    response = export_route(
+        scope="in_progress",
+        variant="full",
+        service_type="Repair",
+        supervisor_id=supervisor_id,
+        community="commons",
+        scheduled_date=date(2026, 7, 28),
+        q="WO-123",
+        user=admin,
+        db=db,
+    )
+
+    assert response.body == b"WORK ORDER\r\n"
+    assert re.search(
+        r'filename="\d{2}-\d{2}-\d{2}_\d{2}-\d{2}_status-in-progress-service-repair-'
+        r'supervisor-avery-able-community-commons-date-2026-07-28-'
+        r'number-wo-123\.csv"',
+        response.headers["content-disposition"],
+    )
+    assert captured == {
+        "user": admin,
+        "scope": "in_progress",
+        "variant": "full",
+        "service_type": "Repair",
+        "supervisor_id": supervisor_id,
+        "community": "commons",
+        "scheduled_date": date(2026, 7, 28),
+        "search": "WO-123",
+    }
 
 
 def test_route_rejects_below_admin(db):
@@ -384,8 +493,14 @@ def test_route_names_the_client_file_distinctly(db):
     full = export_route(scope="all", variant="full", user=admin, db=db)
     client = export_route(scope="all", variant="client", user=admin, db=db)
 
-    assert "work-orders-all-" in full.headers["content-disposition"]
-    assert "work-orders-client-all-" in client.headers["content-disposition"]
+    assert re.search(
+        r'filename="\d{2}-\d{2}-\d{2}_\d{2}-\d{2}_all\.csv"',
+        full.headers["content-disposition"],
+    )
+    assert re.search(
+        r'filename="\d{2}-\d{2}-\d{2}_\d{2}-\d{2}_client-all\.csv"',
+        client.headers["content-disposition"],
+    )
     assert client.body.decode("utf-8").startswith("WORK ORDER,MATERIAL TOTAL")
 
 

@@ -2,21 +2,19 @@
 //
 // Layer: views. Owns the Work Orders page: a server-scoped list of standalone
 // work orders (identity = number). Work orders are IMPORT-ONLY -- the Admin+ CSV
-// import is the only way one appears; there is no create form. The same Admin+
-// card exports work orders back out as CSV, filtered by status (plus "all" and
-// the archived/closed ones the list hides). Supervisor+ can
-// edit an imported work order's fields / assignee, but only after
-// clicking "Edit details" on the card (the editor stays collapsed so the card
-// reads as a clean summary); any in-scope user (incl. an assigned technician) can
-// switch entry mode, set pre-work jobs In-Progress, mark work completed, and
-// log/edit/remove materials and save free-form Work Order notes. Only Supervisor+ can manually
-// roll status back, place it On-Hold, send Completed work to Review, or reopen it.
-// Closing is intentionally absent: it belongs only on the Admin Review page.
+// import is the only way one appears; there is no create form. Admin+ can export
+// the current filtered list as the operational CSV; the separate client export
+// retains its scope dropdown. Admin+ Edit Details includes imported metadata;
+// Supervisor sees only routing, technicians, and status, and also manages labor,
+// entry mode, and material corrections. Technicians can save notes and add new
+// materials; every other edit control is omitted for them.
+// Admin+ can archive any live work order directly from its expanded card.
 // Reached via the nav button or a Unit click in the Mass Stage tree (which calls
 // `focusWorkOrder` before switching pages).
 
 import {
   apiListWorkOrders,
+  apiGetWorkOrderFilterOptions,
   apiGetWorkOrder,
   apiUpdateWorkOrder,
   apiAddWorkOrderItem,
@@ -26,6 +24,7 @@ import {
   apiAddWorkOrderLabor,
   apiUpdateWorkOrderLabor,
   apiDeleteWorkOrderLabor,
+  apiArchiveWorkOrder,
   apiImportWorkOrders,
   apiExportWorkOrders,
   apiListItems,
@@ -33,15 +32,21 @@ import {
 } from "../api.js";
 import { escapeHtml, friendlyError, formatMoney, formatUserName } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
-import { getCurrentUser, getRole } from "../state.js";
+import { getRole } from "../state.js";
 import { roleAtLeast } from "../roles.js";
 import { openBillingEditor } from "./billingEditor.js";
 
 const listEl = document.getElementById("work-orders-list");
 const listMessage = document.getElementById("work-orders-list-message");
 const statusFilter = document.getElementById("work-orders-status-filter");
+const serviceTypeFilter = document.getElementById("work-orders-service-filter");
+const supervisorFilter = document.getElementById("work-orders-supervisor-filter");
+const communityFilter = document.getElementById("work-orders-community-filter");
+const scheduledDateFilter = document.getElementById("work-orders-date-filter");
 const searchInput = document.getElementById("work-orders-search");
 const searchBtn = document.getElementById("work-orders-search-btn");
+const clearFiltersBtn = document.getElementById("work-orders-clear-filters");
+const exportMessage = document.getElementById("work-orders-export-message");
 const moreEl = document.getElementById("work-orders-more");
 
 const importSection = document.getElementById("work-orders-import-section");
@@ -60,18 +65,19 @@ let itemsLoaded = false;
 let allTechs = [];
 let allSupers = [];
 let usersLoaded = false;
+let filterOptionsLoaded = false;
 document.addEventListener("user-names-updated", () => {
   allTechs = [];
   allSupers = [];
   usersLoaded = false;
+  filterOptionsLoaded = false;
 });
 // Work order id to expand once the list renders (set by a Mass Stage tree click).
 let pendingFocusId = null;
 
-// The default browse shows only the RECENT_LIMIT newest work orders to keep the
-// page fast as the archive grows; `showAll` (flipped by the "Show all" control)
-// drops the cap. A search always queries the full set, and a status-filter change
-// resets back to the capped browse. See loadWorkOrders / renderMoreControl.
+// The default browse shows only the RECENT_LIMIT highest scheduled dates to keep
+// the page fast as the archive grows; `showAll` drops the cap. Any active filter
+// queries the full set. See loadWorkOrders / renderMoreControl.
 const RECENT_LIMIT = 10;
 let showAll = false;
 
@@ -85,6 +91,64 @@ function isSupervisorPlus() {
 
 function isAdminPlus() {
   return roleAtLeast(getRole(), "admin");
+}
+
+function populateFilterSelect(select, emptyLabel, options) {
+  if (!select) return;
+  const selected = select.value;
+  select.innerHTML =
+    `<option value="">${escapeHtml(emptyLabel)}</option>` +
+    options
+      .map(({ value, label }) =>
+        `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`)
+      .join("");
+  if (options.some((option) => option.value === selected)) select.value = selected;
+}
+
+async function loadFilterOptions() {
+  if (filterOptionsLoaded) return;
+  const options = await apiGetWorkOrderFilterOptions();
+  populateFilterSelect(
+    serviceTypeFilter,
+    "All service types",
+    (options.service_types || []).map((value) => ({ value, label: value }))
+  );
+  populateFilterSelect(
+    supervisorFilter,
+    "All supervisors",
+    (options.supervisors || []).map((option) => ({
+      value: option.id,
+      label: option.name,
+    }))
+  );
+  populateFilterSelect(
+    communityFilter,
+    "All communities",
+    options.communities || []
+  );
+  filterOptionsLoaded = true;
+}
+
+function currentFilters() {
+  return {
+    status: statusFilter ? statusFilter.value : "",
+    serviceType: serviceTypeFilter ? serviceTypeFilter.value : "",
+    supervisorId: supervisorFilter ? supervisorFilter.value : "",
+    community: communityFilter ? communityFilter.value : "",
+    scheduledDate: scheduledDateFilter ? scheduledDateFilter.value : "",
+    q: searchInput ? searchInput.value.trim() : "",
+  };
+}
+
+function hasActiveFilters() {
+  return Object.values(currentFilters()).some(Boolean);
+}
+
+function resetFilterControls() {
+  [statusFilter, serviceTypeFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
+    if (control) control.value = "";
+  });
+  if (searchInput) searchInput.value = "";
 }
 
 // Fixed company mark-up on the line total (mirrors history.js MARKUP_RATE).
@@ -161,13 +225,12 @@ function laborSummaryHtml(detail) {
   return `<div class="wo-labor-summary"><span>Actual: <strong>${escapeHtml(actual)}</strong></span><span>Billed: <strong>${escapeHtml(billed)}</strong></span>${charge}</div>`;
 }
 
-function canEditLabor(entry) {
-  const user = getCurrentUser();
-  return isSupervisorPlus() || Boolean(user && user.id === entry.technician_id);
+function canEditLabor() {
+  return isSupervisorPlus();
 }
 
 function renderLaborEntryHtml(entry) {
-  const actions = canEditLabor(entry)
+  const actions = canEditLabor()
     ? `<div class="wo-labor-actions">
          <input type="number" class="wo-labor-hours" value="${escapeHtml(hoursInputValue(entry.minutes))}" min="0.01" step="0.01" aria-label="Actual labor hours">
          <button type="button" class="secondary-btn" data-action="edit-labor">Update</button>
@@ -185,9 +248,6 @@ function laborTechnicianControl(detail) {
   const names = assignedNames(detail);
   if (!ids.length) {
     return `<p class="hint">Assign at least one technician before recording labor.</p>`;
-  }
-  if (!isSupervisorPlus()) {
-    return `<input type="hidden" class="wo-labor-technician" value="${escapeHtml(getCurrentUser()?.id || ids[0])}">`;
   }
   const options = ids
     .map((id, index) => `<option value="${escapeHtml(id)}">${escapeHtml(names[index] || "Assigned technician")}</option>`)
@@ -376,30 +436,28 @@ function statusEditorHtml(detail) {
           </label>`;
 }
 
-// The Supervisor+ editor for an imported work order's fields, rendered hidden.
-// "Edit details" reveals it (see the toggle-edit action) so the card stays a
-// clean read-only summary until someone deliberately asks to change something.
-// The number is deliberately absent: it is the identity the CSV import matches
-// on, so renaming it here would split the work order in two on the next import.
+// Role-specific editor: Admin+ gets imported metadata plus operational fields;
+// Supervisor gets only routing, technicians, and status. The number and legacy
+// place fields stay read-only.
 function detailsEditorHtml(detail) {
-  const legacy = hasLegacyPlace(detail)
-    ? editField("community", "Community", detail.community) +
-      editField("building", "Building number", detail.building_number) +
-      editField("unit", "Unit number", detail.unit_number)
+  const adminMetadata = isAdminPlus()
+    ? editField("location", "Location", detail.location) +
+      editField("service-type", "Service type", detail.service_type) +
+      editField("schedule-date", "Schedule date", detail.schedule_date) +
+      editField("output-to", "Output to", detail.output_to) +
+      editField("vendor", "Vendor contact", detail.vendor_assignee) +
+      `<label class="wo-edit-field wo-edit-wide">
+         <span>Symptom / task</span>
+         <textarea class="wo-edit-description" rows="2">${escapeHtml(detail.description || "")}</textarea>
+       </label>`
     : "";
+  const hint = isAdminPlus()
+    ? `Edit imported metadata and operations for WO ${escapeHtml(detail.number)}.`
+    : `Edit assignment and status for WO ${escapeHtml(detail.number)}.`;
   return `<div class="wo-edit" hidden>
-            <p class="hint">Editing the imported details for WO ${escapeHtml(detail.number)}. A re-import will not overwrite what you save here.</p>
+            <p class="hint">${hint}</p>
             <div class="wo-edit-grid">
-              ${editField("location", "Location", detail.location)}
-              ${editField("service-type", "Service type", detail.service_type)}
-              ${editField("schedule-date", "Schedule date", detail.schedule_date)}
-              ${editField("output-to", "Output to", detail.output_to)}
-              ${editField("vendor", "Vendor contact", detail.vendor_assignee)}
-              ${legacy}
-              <label class="wo-edit-field wo-edit-wide">
-                <span>Symptom / task</span>
-                <textarea class="wo-edit-description" rows="2">${escapeHtml(detail.description || "")}</textarea>
-              </label>
+              ${adminMetadata}
               <label class="wo-edit-field">
                 <span>Supervisor</span>
                 <select class="wo-edit-supervisor">${supervisorOptions(detail.supervisor_id || "")}</select>
@@ -439,20 +497,30 @@ export async function loadWorkOrders({ refreshReferenceData = false } = {}) {
       allSupers = [];
     }
   }
+  if (refreshReferenceData) filterOptionsLoaded = false;
+  if (!filterOptionsLoaded) {
+    try {
+      await loadFilterOptions();
+    } catch {
+      // The card list is still useful if the small options request fails. Keep
+      // the existing selections/placeholders and retry on the next page entry.
+      filterOptionsLoaded = false;
+    }
+  }
   if (importSection) importSection.hidden = !isAdminPlus();
+  if (exportBtn) exportBtn.hidden = !isAdminPlus();
 
-  const status = statusFilter.value;
-  const q = searchInput.value.trim();
-  // The cap applies only to a plain browse. A search must reach the full set (so an
-  // old work order stays findable); "Show all" and a pending focus-jump also need
-  // the full set. Otherwise cap at the RECENT_LIMIT newest.
-  const capped = !q && !showAll && !pendingFocusId;
+  const filters = currentFilters();
+  // The cap applies only to a completely unfiltered browse. Any advanced filter
+  // is a search and must return the complete matching set.
+  const capped = !hasActiveFilters() && !showAll && !pendingFocusId;
   const limit = capped ? RECENT_LIMIT : null;
   try {
-    let cards = await apiListWorkOrders({ status, q, limit });
+    let cards = await apiListWorkOrders({ ...filters, limit });
     if (pendingFocusId && !cards.some((c) => c.id === pendingFocusId)) {
-      statusFilter.value = "";
-      cards = await apiListWorkOrders({ status: "", q, limit: null });
+      resetFilterControls();
+      showAll = false;
+      cards = await apiListWorkOrders({ limit: null });
     }
     renderCards(cards);
     renderMoreControl(capped, cards.length);
@@ -493,7 +561,7 @@ function renderCards(cards) {
 //  - during a search, or a short capped page, show nothing.
 function renderMoreControl(capped, shownCount) {
   if (!moreEl) return;
-  if (showAll && !searchInput.value.trim()) {
+  if (showAll && !hasActiveFilters()) {
     moreEl.innerHTML =
       `<button type="button" class="secondary-btn" id="wo-show-recent">Show recent only</button>`;
     moreEl.hidden = false;
@@ -583,33 +651,36 @@ function renderBody(detail, bodyEl) {
     `<p class="hint">No materials logged yet.</p>`;
 
   let statusActions = "";
-  if (detail.status === "created" || detail.status === "assigned") {
+  if (sup && (detail.status === "created" || detail.status === "assigned")) {
     statusActions =
       `<button type="button" data-action="progress-wo">Set In-Progress</button>` +
       `<span class="hint wo-status-note">Material or labor activity also starts work automatically.</span>`;
-  } else if (detail.status === "in_progress") {
+  } else if (sup && detail.status === "in_progress") {
     statusActions = `<button type="button" data-action="complete-wo">Mark completed</button>`;
-  } else if (detail.status === "on_hold") {
+  } else if (sup && detail.status === "on_hold") {
     statusActions = `<span class="hint wo-status-note">On-Hold — a supervisor can resume or roll back this work order in Edit details.</span>`;
-  } else if (detail.status === "completed") {
-    statusActions = sup
-      ? `<button type="button" data-action="review-wo">Send to Review</button>` +
-        `<button type="button" class="secondary-btn" data-action="reopen-wo">Reopen</button>`
-      : `<span class="hint wo-status-note">Completed — waiting for a supervisor to send it to Review.</span>`;
-  } else if (detail.status === "review") {
+  } else if (sup && detail.status === "completed") {
+    statusActions =
+      `<button type="button" data-action="review-wo">Send to Review</button>` +
+      `<button type="button" class="secondary-btn" data-action="reopen-wo">Reopen</button>`;
+  } else if (sup && detail.status === "review") {
     statusActions =
       `<span class="wo-review-ready">Ready for Admin Review</span>` +
-      (sup ? `<button type="button" class="secondary-btn" data-action="reopen-wo">Reopen</button>` : "");
+      `<button type="button" class="secondary-btn" data-action="reopen-wo">Reopen</button>`;
+  }
+  if (isAdminPlus()) {
+    statusActions += `<button type="button" class="btn-danger" data-action="archive-wo">Archive</button>`;
   }
 
-  const modeControl =
-    `<div class="wo-mode-row">
+  const modeControl = sup
+    ? `<div class="wo-mode-row">
        <label>New entries:</label>
        <select class="wo-mode-select">
          <option value="dispense"${detail.entry_mode === "dispense" ? " selected" : ""}>Dispense (moves stock)</option>
          <option value="retroactive"${detail.entry_mode === "retroactive" ? " selected" : ""}>Retroactive (paper sheet, no stock)</option>
        </select>
-     </div>`;
+     </div>`
+    : "";
 
   // The imported fields are read-only by default and the editor is collapsed;
   // Supervisor+ gets an "Edit details" button that swaps one for the other, so
@@ -640,12 +711,19 @@ function renderBody(detail, bodyEl) {
        </div>
        <div class="ms-item-results scan-chooser" hidden></div>
      </div>` +
-    laborSectionHtml(detail) +
+    (sup ? laborSectionHtml(detail) : "") +
     `<p class="wo-message"></p>`;
 }
 
 function renderLineHtml(it) {
   const modeTag = `<span class="wo-line-mode wo-line-mode-${escapeHtml(it.mode)}">${escapeHtml(modeLabel(it.mode))}</span>`;
+  const actions = isSupervisorPlus()
+    ? `<div class="wo-item-actions">
+         <input type="number" class="wo-line-qty" value="${escapeHtml(it.quantity)}" min="0" step="any" aria-label="Quantity">
+         <button type="button" class="secondary-btn" data-action="edit-item">Update</button>
+         <button type="button" class="btn-danger" data-action="remove-item">Remove</button>
+       </div>`
+    : `<span class="hint">Quantity: ${escapeHtml(it.quantity)}</span>`;
   return `<div class="wo-item" data-wo-item-id="${escapeHtml(it.id)}">
             <div class="wo-item-head">
               <span class="ms-item-name">${escapeHtml(it.item_name)}</span>
@@ -654,11 +732,7 @@ function renderLineHtml(it) {
               <span class="wo-onhand">On hand: ${escapeHtml(it.item_quantity)}</span>
               ${lineChargeHtml(it)}
             </div>
-            <div class="wo-item-actions">
-              <input type="number" class="wo-line-qty" value="${escapeHtml(it.quantity)}" min="0" step="any" aria-label="Quantity">
-              <button type="button" class="secondary-btn" data-action="edit-item">Update</button>
-              <button type="button" class="btn-danger" data-action="remove-item">Remove</button>
-            </div>
+            ${actions}
           </div>`;
 }
 
@@ -752,6 +826,12 @@ listEl.addEventListener("click", async (event) => {
     } else if (action === "reopen-wo") {
       await apiUpdateWorkOrder(workOrderId, { status: "in_progress" });
       await refreshCard(cardEl);
+    } else if (action === "archive-wo") {
+      if (!(await confirmDialog(
+        "Archive this work order? It will leave the active list and can be restored from History."
+      ))) return;
+      await apiArchiveWorkOrder(workOrderId);
+      await loadWorkOrders();
     } else if (action === "toggle-edit") {
       setEditing(cardEl, cardEl.querySelector(".wo-edit")?.hidden !== false);
     } else if (action === "cancel-edit") {
@@ -775,10 +855,7 @@ listEl.addEventListener("click", async (event) => {
         output_to: value(".wo-edit-output-to"),
         vendor_assignee: value(".wo-edit-vendor"),
         description: value(".wo-edit-description"),
-        community: value(".wo-edit-community"),
-        building_number: value(".wo-edit-building"),
-        unit_number: value(".wo-edit-unit"),
-        supervisor_id: body.querySelector(".wo-edit-supervisor").value || null,
+        supervisor_id: body.querySelector(".wo-edit-supervisor")?.value || null,
         assigned_to_ids: Array.from(body.querySelectorAll(".wo-edit-assignee:checked")).map((input) => input.value),
       };
       Object.keys(patch).forEach((k) => patch[k] === undefined && delete patch[k]);
@@ -905,8 +982,9 @@ async function handleImport() {
   try {
     const r = await apiImportWorkOrders(file);
     const parts = [
-      `Imported ${r.total} work order${r.total === 1 ? "" : "s"}`,
+      `Processed ${r.total} CSV row${r.total === 1 ? "" : "s"}`,
       `${r.created} new, ${r.opened} updated`,
+      `${r.closed} closed work order${r.closed === 1 ? "" : "s"} ignored`,
     ];
     if (r.supervisors_matched || r.supervisors_unmatched) {
       parts.push(`${r.supervisors_matched} routed to a supervisor, ${r.supervisors_unmatched} unmatched`);
@@ -915,6 +993,7 @@ async function handleImport() {
     setMessage(importMessage, parts.join(" · ") + ".", "success");
     // Reset caches so a re-import reflects fresh data, then reload the list.
     usersLoaded = false;
+    filterOptionsLoaded = false;
     await loadWorkOrders();
   } catch (err) {
     setMessage(importMessage, friendlyError(err, "Could not import that file."), "error");
@@ -935,16 +1014,11 @@ function exportScopeLabel(scope) {
   return option ? option.textContent : scope;
 }
 
-// Both export buttons share the status dropdown and this handler; `variant`
-// is the only difference -- "full" is the operational, re-importable sheet and
-// "client" is the billing one (number, billed totals, full receipt).
-async function handleExport(variant) {
-  const scope = exportScope ? exportScope.value : "all";
-  const buttons = [exportBtn, exportClientBtn].filter(Boolean);
-  setMessage(importMessage, "Preparing export…", "");
-  buttons.forEach(button => { button.disabled = true; });
+async function downloadExport({ scope, variant, filters = {}, button, messageEl, label }) {
+  setMessage(messageEl, "Preparing export…", "");
+  if (button) button.disabled = true;
   try {
-    const { blob, filename } = await apiExportWorkOrders(scope, { variant });
+    const { blob, filename } = await apiExportWorkOrders(scope, { variant, filters });
     // An empty scope still returns a header-only file; say so rather than
     // handing over a CSV that looks broken.
     const headerOnly = blob.size > 0 && (await blob.text()).trim().split("\n").length <= 1;
@@ -958,23 +1032,45 @@ async function handleExport(variant) {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 0);
-    const what = variant === "client" ? "client receipts" : "work orders";
     setMessage(
-      importMessage,
+      messageEl,
       headerOnly
-        ? `No work orders matched "${exportScopeLabel(scope)}" — downloaded an empty file.`
-        : `Exported ${exportScopeLabel(scope)} ${what} to ${filename}.`,
+        ? `No work orders matched ${label} — downloaded an empty file.`
+        : `Exported ${label} to ${filename}.`,
       headerOnly ? "" : "success",
     );
   } catch (err) {
-    setMessage(importMessage, friendlyError(err, "Could not export work orders."), "error");
+    setMessage(messageEl, friendlyError(err, "Could not export work orders."), "error");
   } finally {
-    buttons.forEach(button => { button.disabled = false; });
+    if (button) button.disabled = false;
   }
 }
 
-if (exportBtn) exportBtn.addEventListener("click", () => handleExport("full"));
-if (exportClientBtn) exportClientBtn.addEventListener("click", () => handleExport("client"));
+async function handleFilteredExport() {
+  const filters = currentFilters();
+  await downloadExport({
+    scope: filters.status || "all",
+    variant: "full",
+    filters,
+    button: exportBtn,
+    messageEl: exportMessage,
+    label: "the current Work Orders filters",
+  });
+}
+
+async function handleClientExport() {
+  const scope = exportScope ? exportScope.value : "all";
+  await downloadExport({
+    scope,
+    variant: "client",
+    button: exportClientBtn,
+    messageEl: importMessage,
+    label: `${exportScopeLabel(scope)} client receipts`,
+  });
+}
+
+if (exportBtn) exportBtn.addEventListener("click", handleFilteredExport);
+if (exportClientBtn) exportClientBtn.addEventListener("click", handleClientExport);
 
 // --- filter / search controls --------------------------------------------
 
@@ -996,9 +1092,19 @@ if (searchInput) {
     }
   });
 }
-if (statusFilter) {
-  statusFilter.addEventListener("change", () => {
-    showAll = false;  // each filter view starts at the fast, capped browse
+[statusFilter, serviceTypeFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
+  if (!control) return;
+  control.addEventListener("change", () => {
+    showAll = false;
+    loadWorkOrders();
+  });
+});
+
+if (clearFiltersBtn) {
+  clearFiltersBtn.addEventListener("click", () => {
+    clearTimeout(woSearchDebounce);
+    resetFilterControls();
+    showAll = false;
     loadWorkOrders();
   });
 }

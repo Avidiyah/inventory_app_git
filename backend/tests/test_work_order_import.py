@@ -15,13 +15,14 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import uuid
+from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException, UploadFile
 
 from app.domain import roles
 from app.domain import work_orders as wo
-from app.models import User, WorkOrder
+from app.models import Item, User, WorkOrder
 from app.routers.work_orders import import_work_orders as import_route
 from app.services import auth
 from app.services import work_orders as wos
@@ -144,6 +145,84 @@ def test_reimport_is_idempotent_and_preserves_manual_edits(db):
     routed = wos.find_by_number(db, n1)
     assert routed.supervisor_id == sup.id
     assert routed.status == "created"  # supervisor routing is not tech assignment
+
+
+def test_import_counts_and_ignores_closed_work_orders(db):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    technician = _seed_user(db, roles.ROLE_TECHNICIAN)
+    item = Item(
+        id=uuid.uuid4(),
+        barcode=f"BC-{uuid.uuid4().hex[:8]}",
+        name="Closed WO material",
+        quantity=Decimal("10"),
+        location="Warehouse",
+        price=Decimal("2.50"),
+    )
+    db.add(item)
+    db.flush()
+    number = _num()
+    work_order = wos.get_or_create_work_order(
+        db,
+        number=number,
+        created_by_id=admin.id,
+        supervisor_id=supervisor.id,
+        assigned_to_id=technician.id,
+        location="Original location",
+        description="Original task",
+    )
+    wos.update_work_order(
+        db, work_order.id, user=admin, fields={"notes": "Keep this note."}
+    )
+    wos.add_work_order_item(
+        db,
+        work_order.id,
+        user=technician,
+        item_id=item.id,
+        quantity=Decimal("2"),
+    )
+    wos.add_work_order_labor(
+        db,
+        work_order.id,
+        user=supervisor,
+        technician_id=technician.id,
+        minutes=45,
+    )
+    wos.archive_work_order(db, work_order.id, user=admin)
+    archived_at = work_order.archived_at
+
+    result = wos.import_work_orders(
+        db,
+        csv_bytes=_csv([[
+            number,
+            "Replacement location",
+            "Replacement output",
+            "Replacement Vendor",
+            "Replacement service",
+            "8/4/2026",
+            "Replacement task",
+        ]]),
+        user=admin,
+    )
+
+    assert result == {
+        "total": 1,
+        "created": 0,
+        "opened": 0,
+        "closed": 1,
+        "supervisors_matched": 0,
+        "supervisors_unmatched": 0,
+        "skipped": 0,
+    }
+    db.refresh(work_order)
+    assert work_order.archived_at == archived_at
+    assert work_order.location == "Original location"
+    assert work_order.description == "Original task"
+    assert work_order.notes == "Keep this note."
+    assert len(work_order.items) == 1
+    assert work_order.items[0].quantity == Decimal("2")
+    assert len(work_order.labor_entries) == 1
+    assert work_order.labor_entries[0].minutes == 45
 
 
 def _seed_named_supervisor(db):
@@ -296,6 +375,32 @@ def test_import_ignores_archived_and_non_supervisor_name_matches(db):
     assert wos.find_by_number(db, number).supervisor_id is None
 
 
+def test_import_accepts_excel_sep_preamble(db):
+    """Excel writes an optional `sep=,` dialect hint above the header row (and a
+    BOM). The vendor's export has it; the file must still import."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    number = _num()
+    body = _csv([[
+        number,
+        "Scholars Inn: Exterior Building, Basement Storage",
+        "Belfor",
+        "Belfor Dispatch (Belfor)",
+        "Maintenance",
+        "2026-08-03",
+        "Assemble the chairs",
+    ]])
+    csv_bytes = "﻿".encode("utf-8") + b"sep=,\r\n" + body
+
+    result = wos.import_work_orders(db, csv_bytes=csv_bytes, user=admin)
+
+    assert result["skipped"] == 0
+    assert result["created"] == 1
+    row = wos.find_by_number(db, number)
+    assert row is not None
+    assert row.location == "Scholars Inn: Exterior Building, Basement Storage"
+    assert row.description == "Assemble the chairs"
+
+
 def test_import_skips_blank_number_rows(db):
     admin = _seed_user(db, roles.ROLE_ADMIN)
     good = _num()
@@ -344,3 +449,4 @@ def test_import_route_admin_succeeds(db):
     csv_bytes = _csv([[_num(), "Loc", "Belfor", "", "SMR27", "7/1/2026", "A"]])
     result = asyncio.run(import_route(file=_upload(csv_bytes), user=admin, db=db))
     assert result.created == 1
+    assert result.closed == 0

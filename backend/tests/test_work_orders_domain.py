@@ -10,6 +10,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import uuid
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -52,6 +53,26 @@ def test_validate_status_rejects_planning_closed_and_junk():
         wo.validate_status("closed")
     with pytest.raises(WorkOrderStateError):
         wo.validate_status("archived")
+
+
+def test_community_filter_normalizes_labels_and_rejects_unknown_values():
+    assert wo.normalize_community_filter(None) is None
+    assert wo.normalize_community_filter("   ") is None
+    assert wo.normalize_community_filter("Scholars") == wo.COMMUNITY_SCHOLARS
+    assert wo.normalize_community_filter("Young Hall") == wo.COMMUNITY_YOUNG_HALL
+    assert wo.normalize_community_filter("young_hall") == wo.COMMUNITY_YOUNG_HALL
+    with pytest.raises(WorkOrderStateError, match="Community"):
+        wo.normalize_community_filter("downtown")
+
+
+def test_schedule_date_parser_accepts_vendor_and_iso_dates_safely():
+    assert wo.parse_schedule_date("7/20/2026") == date(2026, 7, 20)
+    assert wo.parse_schedule_date("7/20/2026 5:40") == date(2026, 7, 20)
+    assert wo.parse_schedule_date("7/24/26 - 8:00am") == date(2026, 7, 24)
+    assert wo.parse_schedule_date("2026-08-04") == date(2026, 8, 4)
+    assert wo.parse_schedule_date(None) is None
+    assert wo.parse_schedule_date("not a date") is None
+    assert wo.parse_schedule_date("2/30/2026") is None
 
 
 def test_initial_status_and_technician_assignment_reconciliation():

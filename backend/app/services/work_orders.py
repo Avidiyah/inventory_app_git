@@ -13,8 +13,8 @@ Identity is the number, unique case-insensitively + trimmed
 (`domain.work_orders.normalize_number`). References fill blank attributes but
 never overwrite non-blank ones; explicit edits (`update_work_order`) overwrite.
 A work order soft-archives (`archived_at`); an archived number stays reserved --
-re-importing a CSV row for that number is what restores it (a plain reference
-no longer resurrects it, since references can no longer create).
+CSV re-import counts and ignores that row. Only the explicit restore workflow
+resurrects it; ordinary references cannot create or restore work orders.
 
 Materials logged against a work order write a `dispense` transaction carrying
 `work_order_id` + the number; the work order's `entry_mode` decides
@@ -27,7 +27,7 @@ append-only ledger.
 import csv
 import io
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional, Sequence
 
@@ -78,6 +78,38 @@ _ATTR_FIELDS = (
     "schedule_date",
 )
 
+# PATCH permission groups. Notes are the technician-level edit. Supervisor+
+# owns operational routing/status/mode, while imported and legacy metadata is
+# Admin+ so a supervisor's editor stays focused on daily execution.
+_ADMIN_UPDATE_FIELDS = frozenset(("number", *_ATTR_FIELDS))
+_SUPERVISOR_UPDATE_FIELDS = frozenset(
+    ("status", "entry_mode", "assigned_to_id", "assigned_to_ids", "supervisor_id")
+)
+
+
+def _require_role(
+    user: Optional[User], minimum: str, message: str
+) -> None:
+    """Allow internal callers, otherwise require the stated role floor."""
+    if user is not None and not roles.role_at_least(user.role, minimum):
+        raise RoleManagementError(message)
+
+
+def _require_update_permissions(user: Optional[User], fields: dict) -> None:
+    keys = set(fields)
+    if keys & _ADMIN_UPDATE_FIELDS:
+        _require_role(
+            user,
+            roles.ROLE_ADMIN,
+            "Only an Admin or Owner can edit imported work order details.",
+        )
+    if keys & _SUPERVISOR_UPDATE_FIELDS:
+        _require_role(
+            user,
+            roles.ROLE_SUPERVISOR,
+            "Only a Supervisor, Admin, or Owner can edit work order operations.",
+        )
+
 
 # --- helpers -------------------------------------------------------------
 
@@ -93,6 +125,36 @@ def _search_pattern(value: Optional[str]):
         .replace("_", _LIKE_ESCAPE + "_")
     )
     return f"%{escaped}%", _LIKE_ESCAPE
+
+
+def _community_match(terms: Sequence[str]):
+    """SQL predicate for community membership across structured and raw text."""
+    location = func.lower(func.coalesce(WorkOrder.location, ""))
+    community = func.lower(func.coalesce(WorkOrder.community, ""))
+    return or_(
+        *(
+            column.like(f"%{term}%")
+            for term in terms
+            for column in (location, community)
+        )
+    )
+
+
+def _apply_community_filter(query, value: Optional[str]):
+    """Apply one named community membership filter or the Academics fallback."""
+    community = wo.normalize_community_filter(value)
+    if community is None:
+        return query
+    known_match = _community_match(
+        tuple(
+            term
+            for terms in wo.COMMUNITY_SEARCH_TERMS.values()
+            for term in terms
+        )
+    )
+    if community == wo.COMMUNITY_ACADEMICS:
+        return query.filter(~known_match)
+    return query.filter(_community_match(wo.COMMUNITY_SEARCH_TERMS[community]))
 
 
 def _validate_assignee(db: Session, assigned_to_id: Optional[uuid.UUID]) -> None:
@@ -294,7 +356,7 @@ def resolve_work_order(
     order: work orders enter the system through the CSV import, so a number that
     is unknown -- or held only by an *archived* work order -- raises
     `WorkOrderNotFoundError` instead of quietly bringing a row into existence.
-    (Re-importing a CSV row for an archived number is what restores it.)
+    (CSV import also ignores archived matches rather than restoring them.)
 
     A resolved work order takes the same fill-blanks merge a reference has always
     applied, so a stage still fills in blank location/assignee data without
@@ -357,13 +419,17 @@ def get_or_create_work_order(
     CSV is the only thing allowed to bring a work order into existence. Every
     other surface uses `resolve_work_order`.
 
-    Existing (incl. archived -> restored, so a re-import revives an archived
-    number): fill-blanks merge of the supplied attributes; a non-blank assignee is
-    validated + applied only if currently unassigned, and a `supervisor_id` is
-    applied only if currently unrouted. New: starts `assigned` only when a
-    technician is supplied, otherwise `created`; supervisor routing does not
-    change lifecycle status. Raises `InvalidAssigneeError` if an assignee is not
-    a technician."""
+    Existing live row: fill-blanks merge of only the supplied attributes; a
+    non-blank assignee is validated + applied only if currently unassigned, and
+    a `supervisor_id` is applied only if currently unrouted. An archived match is
+    returned untouched so CSV import can count and ignore it. New: starts
+    `assigned` only when a technician is supplied, otherwise `created`;
+    supervisor routing does not change lifecycle status. Raises
+    `InvalidAssigneeError` if an assignee is not a technician."""
+    existing = find_by_number(db, number)
+    if existing is not None and existing.archived_at is not None:
+        return existing
+
     _validate_assignee(db, assigned_to_id)
     incoming = _incoming_attrs(
         community=community,
@@ -377,10 +443,7 @@ def get_or_create_work_order(
         schedule_date=schedule_date,
     )
 
-    existing = find_by_number(db, number)
     if existing is not None:
-        if existing.archived_at is not None:
-            existing.archived_at = None  # restore -- numbers are permanent
         return _merge_reference(
             db,
             existing,
@@ -450,21 +513,25 @@ def _supervisor_lookup(db: Session) -> dict[str, Optional[uuid.UUID]]:
 def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
     """Import the mass work-order CSV export (the new default schema).
 
-    Each row funnels through `get_or_create_work_order` by number, so a re-upload
-    is idempotent (fill-blanks -- an already-imported number is opened, never
-    duplicated, and manual edits survive). The `ASSIGNED TO` vendor name is stored
-    raw AND matched to an active system supervisor (by normalized first + last
-    name) to set
+    Each live row funnels through `get_or_create_work_order` by number, so a
+    re-upload is idempotent (fill-blanks -- only supplied metadata can fill an
+    empty field; operational data and manual edits survive). Archived matches are
+    counted as closed and ignored without restoring or mutating them. The
+    `ASSIGNED TO` vendor name is stored raw AND matched to an active system
+    supervisor (by normalized first + last name) to set
     `supervisor_id`; an unmatched name imports cleanly (admin routes it later).
     Rows with a blank work-order number are skipped.
 
-    Returns a summary dict (`total`, `created`, `opened`, `supervisors_matched`,
-    `supervisors_unmatched`, `skipped`)."""
+    Returns a summary dict (`total`, `created`, `opened`, `closed`,
+    `supervisors_matched`, `supervisors_unmatched`, `skipped`)."""
     text = csv_bytes.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text))
+    stream = io.StringIO(text)
+    if stream.readline().strip().casefold() != "sep=,":
+        stream.seek(0)
+    reader = csv.DictReader(stream)
     supervisors = _supervisor_lookup(db)
 
-    created = opened = matched = unmatched = skipped = 0
+    created = opened = closed = matched = unmatched = skipped = 0
     for row in reader:
         attrs = wo.parse_import_row(row)
         number = attrs.pop("number")
@@ -472,31 +539,42 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
             skipped += 1
             continue
 
+        existing = find_by_number(db, number)
+        if existing is not None and existing.archived_at is not None:
+            closed += 1
+            continue
+
         key = wo.normalize_assignee_name(attrs.get("vendor_assignee"))
         supervisor_id = supervisors.get(key) if key else None
-        if attrs.get("vendor_assignee") is not None:
-            if supervisor_id is not None:
-                matched += 1
-            else:
-                unmatched += 1
-
-        existed = find_by_number(db, number) is not None
-        get_or_create_work_order(
+        existed = existing is not None
+        work_order = get_or_create_work_order(
             db,
             number=number,
             created_by_id=user.id,
             supervisor_id=supervisor_id,
             **attrs,
         )
+        # A concurrent archive after the first lookup still wins: the import-only
+        # resolver returns that row untouched, and this row is reported as closed.
+        if work_order.archived_at is not None:
+            closed += 1
+            continue
+
+        if attrs.get("vendor_assignee") is not None:
+            if supervisor_id is not None:
+                matched += 1
+            else:
+                unmatched += 1
         if existed:
             opened += 1
         else:
             created += 1
 
     return {
-        "total": created + opened + skipped,
+        "total": created + opened + closed + skipped,
         "created": created,
         "opened": opened,
+        "closed": closed,
         "supervisors_matched": matched,
         "supervisors_unmatched": unmatched,
         "skipped": skipped,
@@ -505,21 +583,86 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
 
 # --- list + detail -------------------------------------------------------
 
+def _apply_work_order_filters(
+    query,
+    *,
+    status: Optional[str] = None,
+    service_type: Optional[str] = None,
+    supervisor_id: Optional[uuid.UUID] = None,
+    community: Optional[str] = None,
+    search: Optional[str] = None,
+):
+    """Apply the joinable Work Orders predicates shared by list and export."""
+    if status is not None:
+        wo.validate_status(status)
+        query = query.filter(WorkOrder.status == status)
+
+    if service_type is not None and service_type.strip():
+        normalized_service_type = service_type.strip().casefold()
+        query = query.filter(
+            func.lower(func.btrim(WorkOrder.service_type)) == normalized_service_type
+        )
+
+    if supervisor_id is not None:
+        query = query.filter(WorkOrder.supervisor_id == supervisor_id)
+
+    query = _apply_community_filter(query, community)
+
+    pattern = _search_pattern(search)
+    if pattern is not None:
+        like, escape = pattern
+        query = query.filter(WorkOrder.number.ilike(like, escape=escape))
+
+    return query
+
+
+def _filter_and_sort_by_schedule(
+    work_orders: Sequence[WorkOrder], scheduled_date: Optional[date] = None
+) -> list[WorkOrder]:
+    """Apply the exact calendar-date filter and sort newest scheduled first.
+
+    The source field is intentionally raw text, so parsing happens after the SQL
+    predicates. Blank or malformed legacy values sort below valid dates; ties
+    keep newest-created work orders first.
+    """
+    if scheduled_date is not None:
+        work_orders = [
+            work_order
+            for work_order in work_orders
+            if wo.parse_schedule_date(work_order.schedule_date) == scheduled_date
+        ]
+
+    def sort_key(work_order: WorkOrder):
+        parsed = wo.parse_schedule_date(work_order.schedule_date)
+        created_timestamp = (
+            work_order.created_at.timestamp() if work_order.created_at else 0
+        )
+        return (parsed is not None, parsed or date.min, created_timestamp)
+
+    return sorted(work_orders, key=sort_key, reverse=True)
+
+
 def list_work_orders(
     db: Session,
     *,
     user: Optional[User],
     status: Optional[str] = None,
+    service_type: Optional[str] = None,
+    supervisor_id: Optional[uuid.UUID] = None,
+    community: Optional[str] = None,
+    scheduled_date: Optional[date] = None,
     search: Optional[str] = None,
     limit: Optional[int] = None,
 ) -> Sequence[WorkOrder]:
-    """Live work orders newest-first, scoped to `user` (technician -> assigned,
-    supervisor -> created/routed, admin/owner -> all). `status` narrows to one
-    live state (created, assigned, in_progress, on_hold, completed, or review); `search`
-    is a case-insensitive number substring.
-    `limit`, when set, caps the result to the N most-recently-created work orders:
-    the Work Orders page browses the 10 newest by default and drops the cap to show
-    all (or to search, which must reach the full set)."""
+    """Live work orders by scheduled date descending, scoped to `user`
+    (technician -> assigned, supervisor -> created/routed, admin/owner -> all).
+    Optional status, service type, routed supervisor, derived community, exact
+    scheduled date, and number-substring filters combine with AND. Community
+    membership searches both structured `community` and raw CSV `location`;
+    Academics means no known term appears in either. Blank or malformed schedule
+    values sort last, with creation time breaking ties. `limit`, when set, caps
+    this ordering; filters and Show all omit it to reach the full matching set.
+    """
     query = (
         db.query(WorkOrder)
         .options(
@@ -532,21 +675,19 @@ def list_work_orders(
         .filter(WorkOrder.archived_at.is_(None))
     )
 
-    if status is not None:
-        wo.validate_status(status)
-        query = query.filter(WorkOrder.status == status)
-
-    pattern = _search_pattern(search)
-    if pattern is not None:
-        like, escape = pattern
-        query = query.filter(WorkOrder.number.ilike(like, escape=escape))
+    query = _apply_work_order_filters(
+        query,
+        status=status,
+        service_type=service_type,
+        supervisor_id=supervisor_id,
+        community=community,
+        search=search,
+    )
 
     query = _scoped_to_user(query, user)
 
-    query = query.order_by(WorkOrder.created_at.desc())
-    if limit is not None:
-        query = query.limit(limit)
-    return query.all()
+    rows = _filter_and_sort_by_schedule(query.all(), scheduled_date)
+    return rows[:limit] if limit is not None else rows
 
 
 def _scoped_to_user(query, user: Optional[User]):
@@ -575,6 +716,53 @@ def _scoped_to_user(query, user: Optional[User]):
     )
 
 
+def get_work_order_filter_options(
+    db: Session, *, user: Optional[User]
+) -> dict:
+    """Distinct list-filter values from live work orders visible to `user`.
+
+    This keeps technicians from needing access to the full Users endpoint and
+    avoids deriving options from the page's intentionally capped card list.
+    """
+    live = WorkOrder.archived_at.is_(None)
+    service_rows = _scoped_to_user(
+        db.query(WorkOrder.service_type).filter(live), user
+    ).all()
+    service_types_by_key: dict[str, str] = {}
+    for (raw_value,) in service_rows:
+        value = raw_value.strip() if raw_value else ""
+        if value:
+            service_types_by_key.setdefault(value.casefold(), value)
+
+    supervisor_rows = (
+        _scoped_to_user(
+            db.query(User)
+            .join(WorkOrder, WorkOrder.supervisor_id == User.id)
+            .filter(live),
+            user,
+        )
+        .distinct()
+        .all()
+    )
+
+    return {
+        "service_types": sorted(
+            service_types_by_key.values(), key=lambda value: value.casefold()
+        ),
+        "supervisors": sorted(
+            (
+                {"id": supervisor.id, "name": supervisor.full_name}
+                for supervisor in supervisor_rows
+            ),
+            key=lambda option: (option["name"].casefold(), str(option["id"])),
+        ),
+        "communities": [
+            {"value": value, "label": wo.COMMUNITY_LABELS[value]}
+            for value in wo.ALL_COMMUNITY_FILTERS
+        ],
+    }
+
+
 # --- CSV export ----------------------------------------------------------
 
 def list_work_orders_for_export(
@@ -582,13 +770,19 @@ def list_work_orders_for_export(
     *,
     user: Optional[User],
     scope: str,
+    service_type: Optional[str] = None,
+    supervisor_id: Optional[uuid.UUID] = None,
+    community: Optional[str] = None,
+    scheduled_date: Optional[date] = None,
+    search: Optional[str] = None,
 ) -> Sequence[WorkOrder]:
-    """Work orders for the CSV export, newest-first and scoped to `user` exactly
-    as the page list is.
+    """Work orders for the CSV export in the page's scheduled-date ordering and
+    scoped to `user` exactly as the page list is.
 
     `scope` is `all` (every live work order), `archived` (the closed ones the
-    list hides), or one live status. Unlike the list there is no `limit`: an
-    export is meant to be the whole set."""
+    list hides), or one live status. The remaining predicates mirror the Work
+    Orders controls and combine with that scope using AND. Unlike the list there
+    is no `limit`: an export is meant to be the whole matching set."""
     wo.validate_export_scope(scope)
     query = db.query(WorkOrder).options(
         joinedload(WorkOrder.supervisor),
@@ -599,13 +793,22 @@ def list_work_orders_for_export(
 
     if scope == wo.EXPORT_SCOPE_ARCHIVED:
         query = query.filter(WorkOrder.archived_at.is_not(None))
+        status = None
     else:
         query = query.filter(WorkOrder.archived_at.is_(None))
-        if scope != wo.EXPORT_SCOPE_ALL:
-            query = query.filter(WorkOrder.status == scope)
+        status = None if scope == wo.EXPORT_SCOPE_ALL else scope
 
-    return (
-        _scoped_to_user(query, user).order_by(WorkOrder.created_at.desc()).all()
+    query = _apply_work_order_filters(
+        query,
+        status=status,
+        service_type=service_type,
+        supervisor_id=supervisor_id,
+        community=community,
+        search=search,
+    )
+
+    return _filter_and_sort_by_schedule(
+        _scoped_to_user(query, user).all(), scheduled_date
     )
 
 
@@ -711,6 +914,11 @@ def export_work_orders_csv(
     user: Optional[User],
     scope: str,
     variant: str = wo.EXPORT_VARIANT_FULL,
+    service_type: Optional[str] = None,
+    supervisor_id: Optional[uuid.UUID] = None,
+    community: Optional[str] = None,
+    scheduled_date: Optional[date] = None,
+    search: Optional[str] = None,
 ) -> str:
     """The `scope` work orders as CSV text, one row each.
 
@@ -722,14 +930,25 @@ def export_work_orders_csv(
     fill-blanks path, not a duplicate. `client` is the billing export: the
     work-order number, the billed material and labor totals, and the full
     receipt text in one cell (its embedded newlines survive CSV quoting, so the
-    receipt stays readable in a spreadsheet cell)."""
+    receipt stays readable in a spreadsheet cell). Advanced predicates apply to
+    the operational export only; the client variant intentionally keeps its
+    existing scope-only behavior."""
     wo.validate_export_variant(variant)
     is_client = variant == wo.EXPORT_VARIANT_CLIENT
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\r\n")
     writer.writerow(wo.CLIENT_EXPORT_HEADERS if is_client else wo.EXPORT_HEADERS)
     build_row = _client_export_row if is_client else _export_row
-    for work_order in list_work_orders_for_export(db, user=user, scope=scope):
+    export_filters = {} if is_client else {
+        "service_type": service_type,
+        "supervisor_id": supervisor_id,
+        "community": community,
+        "scheduled_date": scheduled_date,
+        "search": search,
+    }
+    for work_order in list_work_orders_for_export(
+        db, user=user, scope=scope, **export_filters
+    ):
         writer.writerow(build_row(work_order))
     return buffer.getvalue()
 
@@ -796,11 +1015,14 @@ def update_work_order(
     """Explicit edit (overwrite) of the fields present in `fields` -- any of
     number / community / building_number / unit_number / description / notes /
     status / entry_mode / assigned_to_ids. Validates status / mode / assignees.
+    Notes are Technician+; operational fields require Supervisor+; imported and
+    legacy metadata requires Admin+.
     The legacy singular `assigned_to_id` is accepted for old clients. Technician
     assignment moves Created/Assigned automatically; explicit status wins when
     both are patched. Supervisor routing is independent of lifecycle status.
     Completed/Review retain `completed_at`, while reopening to an earlier state
     clears it. A number collision raises `WorkOrderStateError`."""
+    _require_update_permissions(user, fields)
     work_order = _get_visible(db, work_order_id, user)
 
     if "entry_mode" in fields:
@@ -879,18 +1101,19 @@ def update_work_order(
 def archive_work_order(
     db: Session, work_order_id: uuid.UUID, *, user: Optional[User]
 ) -> None:
-    """Close a Review work order by soft-archiving it.
+    """Close any live work order by soft-archiving it (Admin+).
 
     The row and its material lines stay put and the number stays reserved.
-    Reversible through `restore_work_order` (or a re-import of that number).
+    Reversible only through the explicit `restore_work_order` workflow.
     Transactions already logged against it are untouched -- History reads them
     from the denormalized `work_order_number` on each transaction row, so a
     closed work order's past dispenses stay searchable."""
+    _require_role(
+        user,
+        roles.ROLE_ADMIN,
+        "Only an Admin or Owner can archive a work order.",
+    )
     work_order = _get_visible(db, work_order_id, user)
-    if work_order.status != wo.STATUS_REVIEW:
-        raise WorkOrderStateError(
-            "Only a work order in Review can be closed."
-        )
     work_order.archived_at = datetime.now(timezone.utc)
     db.commit()
 
@@ -949,12 +1172,13 @@ def _get_labor_entry(
     return entry
 
 
-def _require_labor_actor(user: Optional[User], technician_id: uuid.UUID) -> None:
-    """Technicians may write only their own labor; Supervisor+ may write any."""
-    if user is not None and user.role == roles.ROLE_TECHNICIAN and user.id != technician_id:
-        raise RoleManagementError(
-            "Technicians can only add, edit, or remove their own labor."
-        )
+def _require_labor_actor(user: Optional[User]) -> None:
+    """Labor management belongs to Supervisor+ for every technician row."""
+    _require_role(
+        user,
+        roles.ROLE_SUPERVISOR,
+        "Only a Supervisor, Admin, or Owner can manage work order labor.",
+    )
 
 
 def add_work_order_labor(
@@ -965,7 +1189,7 @@ def add_work_order_labor(
     technician_id: uuid.UUID,
     minutes: int,
 ) -> WorkOrderLabor:
-    """Record actual labor for one assigned technician.
+    """Record actual labor for one assigned technician (Supervisor+).
 
     The duration is stored without rounding. Billing is derived from the sum of
     every entry on the work order, rounded upward once to the next 30 minutes.
@@ -974,7 +1198,7 @@ def add_work_order_labor(
     """
     work_order = _get_visible(db, work_order_id, user)
     wo.validate_labor_minutes(minutes)
-    _require_labor_actor(user, technician_id)
+    _require_labor_actor(user)
     if technician_id not in _assigned_technician_ids(work_order):
         raise InvalidAssigneeError(
             "Labor can only be recorded for a technician assigned to this work order."
@@ -1005,7 +1229,7 @@ def update_work_order_labor(
     work_order = _get_visible(db, work_order_id, user)
     entry = _get_labor_entry(db, work_order, labor_id)
     wo.validate_labor_minutes(minutes)
-    _require_labor_actor(user, entry.technician_id)
+    _require_labor_actor(user)
     entry.minutes = minutes
     db.commit()
     return _get_labor_entry(db, work_order, entry.id)
@@ -1021,7 +1245,7 @@ def delete_work_order_labor(
     """Remove one labor entry. Lifecycle status is not rolled backward."""
     work_order = _get_visible(db, work_order_id, user)
     entry = _get_labor_entry(db, work_order, labor_id)
-    _require_labor_actor(user, entry.technician_id)
+    _require_labor_actor(user)
     db.delete(entry)
     db.commit()
 
@@ -1212,7 +1436,7 @@ def update_work_order_item(
     user: Optional[User],
     quantity: Decimal,
 ) -> WorkOrderItem:
-    """Edit a logged material's total to `quantity`.
+    """Edit a logged material's total to `quantity` (Supervisor+).
 
     The line is the aggregate of many dispenses, so editing it does NOT rewrite
     those rows: a dispense-mode line corrects stock by the delta and appends a
@@ -1220,6 +1444,11 @@ def update_work_order_item(
     stay intact in History). A retroactive line moves no stock. Raises
     `NegativeQuantityError` if reducing on-hand would drive it below zero."""
     work_order = _get_visible(db, work_order_id, user)
+    _require_role(
+        user,
+        roles.ROLE_SUPERVISOR,
+        "Only a Supervisor, Admin, or Owner can edit logged materials.",
+    )
     line = _get_line(db, work_order, wo_item_id)
     item = _locked_live_item(db, line.item_id)
 
@@ -1284,11 +1513,16 @@ def delete_work_order_item(
     *,
     user: Optional[User],
 ) -> None:
-    """Remove a logged material. A dispense-mode line returns its net units to
+    """Remove a logged material (Supervisor+). A dispense-mode line returns its net units to
     stock (the line's authoritative total, already net of any Mass Stage returns);
     every transaction it aggregated -- the dispenses and any edit `adjust` -- is
     voided so the line leaves History too."""
     work_order = _get_visible(db, work_order_id, user)
+    _require_role(
+        user,
+        roles.ROLE_SUPERVISOR,
+        "Only a Supervisor, Admin, or Owner can remove logged materials.",
+    )
     line = _get_line(db, work_order, wo_item_id)
     item = _locked_live_item(db, line.item_id)
 

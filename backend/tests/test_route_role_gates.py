@@ -15,6 +15,7 @@ Matches the "pure, no DB" style of the rest of the suite
 import os
 import sys
 import uuid
+from datetime import date
 from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -113,6 +114,7 @@ def test_create_transaction_has_no_static_min_role():
     "endpoint_name",
     [
         "list_work_orders",
+        "work_order_filter_options",
         "get_work_order",
         "update_work_order",
         "add_work_order_item",
@@ -128,14 +130,52 @@ def test_work_order_routes_have_no_static_min_role(endpoint_name):
     assert _min_role_for(work_orders_router, endpoint_name) is None
 
 
-def test_close_work_order_requires_admin():
+def test_work_order_list_forwards_joinable_filters(monkeypatch):
+    supervisor_id = uuid.uuid4()
+    user = SimpleNamespace(role=roles.ROLE_ADMIN)
+    captured = {}
+
+    def list_filtered(db, **kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(
+        work_orders_router.wo_service, "list_work_orders", list_filtered
+    )
+
+    result = work_orders_router.list_work_orders(
+        status="in_progress",
+        service_type="SMR27 - Belfor",
+        supervisor_id=supervisor_id,
+        community="commons",
+        scheduled_date=date(2026, 7, 28),
+        q="2349",
+        limit=None,
+        user=user,
+        db=None,
+    )
+
+    assert result == []
+    assert captured == {
+        "user": user,
+        "status": "in_progress",
+        "service_type": "SMR27 - Belfor",
+        "supervisor_id": supervisor_id,
+        "community": "commons",
+        "scheduled_date": date(2026, 7, 28),
+        "search": "2349",
+        "limit": None,
+    }
+
+
+def test_archive_work_order_requires_admin():
     assert _min_role_for(work_orders_router, "archive_work_order") == roles.ROLE_ADMIN
 
 
 @pytest.mark.parametrize(
-    "status", ["created", "assigned", "on_hold", "review"]
+    "status", ["created", "assigned", "in_progress", "on_hold", "completed", "review"]
 )
-def test_technician_cannot_manually_change_work_order_status(status):
+def test_technician_cannot_change_work_order_status(status):
     with pytest.raises(HTTPException) as exc:
         work_orders_router.update_work_order(
             uuid.uuid4(),
@@ -146,56 +186,14 @@ def test_technician_cannot_manually_change_work_order_status(status):
     assert exc.value.status_code == 403
 
 
-@pytest.mark.parametrize("status", ["in_progress", "completed"])
-def test_technician_can_start_or_complete_work_order(monkeypatch, status):
-    work_order_id = uuid.uuid4()
-    saved = SimpleNamespace(id=work_order_id, status="assigned")
-    user = SimpleNamespace(role=roles.ROLE_TECHNICIAN)
-
-    monkeypatch.setattr(
-        work_orders_router.wo_service,
-        "update_work_order",
-        lambda db, incoming_id, *, user, fields: saved,
-    )
-    monkeypatch.setattr(
-        work_orders_router.wo_service,
-        "get_work_order",
-        lambda db, incoming_id, *, user: saved,
-    )
-    monkeypatch.setattr(
-        work_orders_router,
-        "_detail",
-        lambda work_order, *, include_price: work_order,
-    )
-
-    result = work_orders_router.update_work_order(
-        work_order_id,
-        WorkOrderUpdate(status=status),
-        user=user,
-        db=None,
-    )
-
-    assert result is saved
-
-
-def test_technician_cannot_reopen_completed_work_order(monkeypatch):
-    work_order_id = uuid.uuid4()
-    current = SimpleNamespace(id=work_order_id, status="completed")
-    user = SimpleNamespace(role=roles.ROLE_TECHNICIAN)
-    monkeypatch.setattr(
-        work_orders_router.wo_service,
-        "get_work_order",
-        lambda db, incoming_id, *, user: current,
-    )
-
+def test_supervisor_cannot_edit_imported_work_order_metadata():
     with pytest.raises(HTTPException) as exc:
         work_orders_router.update_work_order(
-            work_order_id,
-            WorkOrderUpdate(status="in_progress"),
-            user=user,
+            uuid.uuid4(),
+            WorkOrderUpdate(location="Commons 101"),
+            user=SimpleNamespace(role=roles.ROLE_SUPERVISOR),
             db=None,
         )
-
     assert exc.value.status_code == 403
 
 

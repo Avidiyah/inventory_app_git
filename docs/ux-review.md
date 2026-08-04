@@ -1,11 +1,13 @@
-# UX Review — Proposed Changes
+# Historical UX Review — Proposed Changes
 
-Last reviewed: 2026-07-01
+Review period: 2026-07-01 through 2026-07-03
 
-Purpose: a standing list of user-experience findings from a code-level review
-of the frontend (no behavior changed by this review itself). Organized by
-impact for the primary user — a field crew scanning items on a phone, plus
-supervisors/admins doing office-side review and billing.
+Reconciled as historical: 2026-08-04
+
+Purpose: preserve the findings, implementation notes, and validation evidence
+from the July frontend review. This is no longer the current project backlog;
+use `docs/current-state.md`, `docs/project-summary.md`, and
+`docs/improvement-tracker.md` for current behavior and priorities.
 
 Each item names the file(s) involved so a future change can go straight to
 the relevant view. Update or remove entries here as they're addressed or as
@@ -428,13 +430,13 @@ discoverability tradeoff is intended, not accidental.
 Files: `backend/static/pages/transaction.html`,
 `backend/static/views/transactions.js`.
 
-### 22. No search on the Supervisor/Admin work-order gate cards
+### 22. Work-order gate card search (addressed later)
 
-Technicians see only their assigned cards, but a Supervisor/Admin/Owner's
-gate (`transactions.js` `refreshWoCards`) lists every in-progress work
-order as an unfiltered card grid. Past roughly 20 work orders this becomes
-a wall of cards; the Work Orders page already has a working search pattern
-that could be reused above the grid.
+This July finding is no longer open. IMP-003 added a compact Supervisor+
+work-order-number search card above the scoped Scan / Stock cards with debounced
+server-side filtering. Selecting a result card, rather than typing a number,
+starts the batch; Created/Assigned selections now redirect through the IMP-011
+In-Progress gate.
 
 Files: `backend/static/views/transactions.js`,
 `backend/static/pages/transaction.html`.
@@ -461,14 +463,9 @@ reorder-point field.
 
 Files: `backend/static/views/items.js`, `backend/static/pages/saved-items.html`.
 
-## Suggested starting point
+## Historical close-out
 
-**Tier 1 and Tier 2 are fully cleared** (#6+#9, #12, #13, #16, #17, #18, and
-the scan-loop cluster #7, #8, #10, #11 — including #8's resume-after-re-login).
-What remains is **Tier 3 polish** (#19 nav icons, #21/#22 discoverability, #23
-hardware/keyboard-wedge scanner, #24 low-stock signal on Find Item) — none of
-it discussed with the user yet.
-
-Note: the whole effort is still uncommitted on `main` and none of Tier 2 has
-been manually validated. Suggested before Tier 3: a hands-on pass over the
-scan-loop cluster, then a commit to checkpoint the batch.
+Tier 1 and Tier 2 were browser-validated on 2026-07-03 and later committed.
+IMP-003 subsequently resolved #22. The remaining historical Tier 3 observations
+(#19, #21, #23, and #24) have not been re-audited as current priorities; promote
+one into `docs/improvement-tracker.md` before treating it as active work.

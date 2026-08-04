@@ -51,8 +51,8 @@ class WorkOrderUpdate(BaseModel):
     entry_mode: Optional[str] = None
     assigned_to_id: Optional[UUID] = None
     assigned_to_ids: Optional[list[UUID]] = None
-    # CSV-import attributes, editable after import. `supervisor_id` is how an
-    # Admin routes a work order whose vendor name did not auto-match a user.
+    # CSV-import attributes, editable after import by Admin+. `supervisor_id` is
+    # operational routing and remains Supervisor+.
     location: Optional[str] = None
     output_to: Optional[str] = None
     vendor_assignee: Optional[str] = None
@@ -221,6 +221,28 @@ class WorkOrderCard(BaseModel):
     legacy: bool = False
 
 
+class WorkOrderFilterChoice(BaseModel):
+    """A stable value/label pair for a Work Orders select control."""
+
+    value: str
+    label: str
+
+
+class WorkOrderSupervisorFilterChoice(BaseModel):
+    """A routed supervisor present on at least one caller-visible work order."""
+
+    id: UUID
+    name: str
+
+
+class WorkOrderFilterOptions(BaseModel):
+    """Scoped dynamic values used by the Work Orders advanced filters."""
+
+    service_types: list[str] = Field(default_factory=list)
+    supervisors: list[WorkOrderSupervisorFilterChoice] = Field(default_factory=list)
+    communities: list[WorkOrderFilterChoice] = Field(default_factory=list)
+
+
 class WorkOrderLookup(BaseModel):
     """Result of `GET /work-orders/lookup?number=` -- "does this number name a
     work order, and is it archived?".
@@ -239,12 +261,14 @@ class WorkOrderLookup(BaseModel):
 class WorkOrderImportResult(BaseModel):
     """Summary of a `POST /work-orders/import` CSV upload. `created` are new work
     orders, `opened` matched an existing number (fill-blanks, no duplicate);
+    `closed` matched an archived number and was ignored without mutation;
     `supervisors_matched`/`supervisors_unmatched` count rows whose vendor name did
     / did not resolve to a system supervisor; `skipped` had a blank number."""
 
     total: int
     created: int
     opened: int
+    closed: int
     supervisors_matched: int
     supervisors_unmatched: int
     skipped: int

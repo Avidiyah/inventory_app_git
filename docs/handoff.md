@@ -1,23 +1,23 @@
-# UX Review — Session Hand-off
+# Historical UX Review — Session Hand-off
 
-Last updated: 2026-07-03
+Snapshot date: 2026-07-03
 
-Read this first if you're picking up the UX-improvement work cold. It
-points at the living list and states exactly where things stopped —
-verified directly against `git diff`, not assumed from any summary.
+Reconciled as historical: 2026-08-04
+
+This file preserves the July 2026 UX session hand-off. It is not a current
+working-tree or next-step authority. For current behavior and status, start with
+`docs/current-state.md`, `docs/project-summary.md`, and
+`docs/improvement-tracker.md`.
 
 ## Start here
 
-`docs/ux-review.md` is the authoritative, continuously-updated list of UX
-findings for this app. It is kept current as items ship — check its
-`Completed` section before assuming what's already done, and check the
-tier lists for what's still open. This hand-off file summarizes status and
-working conventions; `docs/ux-review.md` is the source of truth for the
-actual findings and their detail.
+`docs/ux-review.md` is the detailed companion record for this historical effort.
+Its Completed section and validation notes remain useful evidence, but later
+work may supersede its open findings.
 
 ## Status as of this hand-off
 
-**Nothing is committed yet.** Everything below is sitting uncommitted in
+**At the time of this hand-off, nothing was committed yet.** Everything below was sitting uncommitted in
 the working tree (`git status` shows 10 modified files plus the untracked
 `docs/ux-review.md` / `docs/handoff.md`). See `consolidate-work-to-one-
 branch` in memory — work lands on `main` in one go at the end, not
@@ -139,13 +139,13 @@ detail on each — confirmed present via `git diff`, not just described):
     Retry flow, an iPhone beep, the stepper (incl. quick-mode still using the
     page field), the expiry message, and expiry→re-login resuming the batch.
 
-**Not started — next in queue:**
+**At this snapshot, not started — next in queue:**
 
-**Tier 1 and Tier 2 are fully cleared.** What's left is **Tier 3 polish** (#19
-nav icons, #21/#22 discoverability, #23 hardware/keyboard-wedge scanner, #24
-low-stock signal) — none discussed with the user yet. Per the user's last call:
-**paused for manual validation of the scan-loop cluster before anything else**;
-the whole effort is still uncommitted on `main`. Ask or let them pick.
+Tier 1 and Tier 2 were considered cleared. The remaining list was Tier 3 polish
+(#19 nav icons, #21/#22 discoverability, #23 hardware/keyboard-wedge scanner,
+#24 low-stock signal). The session paused for manual validation while the batch
+was still uncommitted. The later validation and commit history supersede this
+snapshot; IMP-003 subsequently addressed #22.
 
 ## Working rhythm established this session
 
@@ -222,11 +222,10 @@ back to 39), the WO 44 test material line removed and its entry mode
 restored to dispense, billing overrides cleared, no passwords changed.
 Backend suite re-run after the fixes: **226 passed**.
 
-## Suggested next step
+## Historical suggested next step
 
-Everything shipped is now browser-validated; the field-only checks left are
-the iPhone beep/vibration and live camera scanning. **Tier 1 and Tier 2 are
-fully cleared.** Next: commit the batch (the user decides when), then Tier 3
-polish (#19 nav icons, #21/#22 discoverability, #23 hardware scanner, #24
-low-stock signal) — nothing in Tier 3 has been discussed or agreed with the
-user yet. Ask or let them pick.
+At the time, the recommendation was to commit the browser-validated Tier 1/Tier
+2 batch and then discuss Tier 3. That batch was subsequently committed, and the
+later IMP-003 work addressed the old #22 work-order-gate search finding. Use the
+current project summary and improvement tracker for present-day next steps;
+iPhone audio/vibration and live camera scanning still require real-device checks.

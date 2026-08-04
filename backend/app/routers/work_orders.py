@@ -4,12 +4,12 @@ Layer: routers (FastAPI). Thin handlers: parse via a Pydantic schema, delegate
 to `app.services.work_orders`, translate `DomainError` via `to_http`.
 
 Most routes are open to any authenticated user but **server-scoped** (technician
--> assigned, supervisor -> created/routed, admin/owner -> all). Editing a work
-order's attributes/assignee and manual status rollback/On-Hold are Supervisor+;
-notes and entry mode are available in-scope, and an assigned technician may Mark
-Completed. Sending to Review remains Supervisor+.
-Closing (the archive operation) is Admin+ and only valid from Review so the Admin
-Review workflow is the sole UI entry point.
+-> assigned, supervisor -> created/routed, admin/owner -> all). Technicians may
+save notes and add materials. Supervisor+ owns operational routing, status,
+entry mode, labor, and material corrections. Admin+ additionally owns imported
+and legacy metadata edits.
+Closing (the archive operation) is Admin+ from any live status. Both an expanded
+Work Orders card and the Review queue may call the same endpoint.
 Out-of-scope, archived, or unknown work orders surface as 404.
 
 There is no create route: work orders are import-only, so `POST /work-orders/
@@ -17,8 +17,9 @@ import` (Admin+) is the one way a work order enters the system. Everything else
 here operates on an already-imported work order.
 """
 
+import re
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -36,6 +37,7 @@ from app.routers._errors import to_http
 from app.schemas.work_orders import (
     WorkOrderCard,
     WorkOrderDetail,
+    WorkOrderFilterOptions,
     WorkOrderImportResult,
     WorkOrderItemBilling,
     WorkOrderItemCreate,
@@ -51,28 +53,52 @@ from app.services import work_orders as wo_service
 
 router = APIRouter(prefix="/work-orders", tags=["work-orders"])
 
-# Fields only a Supervisor+ may edit (identity / location / assignment). Notes
-# and entry_mode are available in-scope; the route's dynamic status gate lets an
-    # assigned technician set In-Progress or Mark Completed but reserves every
-    # other manual status change for Supervisor+.
-_PRIVILEGED_FIELDS = {
-    "number",
-    "community",
-    "building_number",
-    "unit_number",
-    "description",
-    "assigned_to_id",
-    "assigned_to_ids",
-    "supervisor_id",
-    "location",
-    "output_to",
-    "vendor_assignee",
-    "service_type",
-    "schedule_date",
-}
-
 
 # --- response builders ---------------------------------------------------
+
+def _filename_slug(value) -> str:
+    """Short filesystem-safe token for one active export filter value."""
+    return re.sub(r"[^a-z0-9]+", "-", str(value).strip().casefold()).strip("-")[:24]
+
+
+def _export_filename(
+    db: Session,
+    *,
+    scope: str,
+    variant: str,
+    service_type: Optional[str],
+    supervisor_id: Optional[uuid.UUID],
+    community: Optional[str],
+    scheduled_date: Optional[date],
+    search: Optional[str],
+) -> str:
+    """`MM-DD-YY_HH-MM_filter1-filter2.csv` for the honored filters.
+
+    A hyphen separates hour/minute because Windows filenames cannot contain `:`.
+    """
+    stamp = datetime.now(timezone.utc).strftime("%m-%d-%y_%H-%M")
+    parts: list[str] = []
+    if variant == wo.EXPORT_VARIANT_CLIENT:
+        parts = ["client", scope]
+    else:
+        if scope != wo.EXPORT_SCOPE_ALL:
+            parts.extend(("status", scope))
+        if service_type and service_type.strip():
+            parts.extend(("service", service_type))
+        if supervisor_id is not None:
+            supervisor = db.query(User).filter(User.id == supervisor_id).first()
+            parts.extend(
+                ("supervisor", supervisor.full_name if supervisor else supervisor_id)
+            )
+        if community and community.strip():
+            parts.extend(("community", community))
+        if scheduled_date is not None:
+            parts.extend(("date", scheduled_date.isoformat()))
+        if search and search.strip():
+            parts.extend(("number", search))
+    tokens = [_filename_slug(part) for part in parts]
+    filters = "-".join(token for token in tokens if token) or "all"
+    return f"{stamp}_{filters}.csv"
 
 def _effective_billable(line: WorkOrderItem) -> Decimal:
     """Units actually charged on a line: the override when set, else the full
@@ -183,25 +209,56 @@ def _can_see_price(user: User) -> bool:
 @router.get("/", response_model=list[WorkOrderCard])
 def list_work_orders(
     status: Optional[str] = Query(None),
+    service_type: Optional[str] = Query(None),
+    supervisor_id: Optional[uuid.UUID] = Query(None),
+    community: Optional[str] = Query(None),
+    scheduled_date: Optional[date] = Query(None),
     q: Optional[str] = Query(None),
     limit: Optional[int] = Query(None, ge=1),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List the caller's work orders, newest-first. `status` filters one live
-    state including On-Hold; `q` is a case-insensitive number search;
-    `limit` caps the result to the N newest (the page browses the 10 most recent
-    by default and omits `limit` to show all / to search). Any authenticated user;
+    """List the caller's work orders, newest scheduled date first. Optional `status`, exact
+    `service_type`, routed `supervisor_id`, derived `community`, exact
+    `scheduled_date`, and number `q` filters combine with AND. Community is
+    membership-based over structured community plus raw CSV location; Academics
+    is the no-known-term fallback. `limit` caps that scheduled-date ordering (the
+    page browses the first 10 by default and omits `limit` for Show all / search).
+    Blank or malformed schedule values sort last. Any authenticated user;
     server-scoped."""
     try:
         return [
             _card(w)
             for w in wo_service.list_work_orders(
-                db, user=user, status=status, search=q, limit=limit
+                db,
+                user=user,
+                status=status,
+                service_type=service_type,
+                supervisor_id=supervisor_id,
+                community=community,
+                scheduled_date=scheduled_date,
+                search=q,
+                limit=limit,
             )
         ]
     except DomainError as exc:
         raise to_http(exc)
+
+
+@router.get("/filter-options", response_model=WorkOrderFilterOptions)
+def work_order_filter_options(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Distinct service types and supervisors from caller-visible live work
+    orders, plus the stable derived-community choices. Any authenticated user;
+    server-scoped exactly like the card list.
+
+    Declared before `/{work_order_id}` so "filter-options" is not parsed as an id.
+    """
+    return WorkOrderFilterOptions(
+        **wo_service.get_work_order_filter_options(db, user=user)
+    )
 
 
 @router.post("/import", response_model=WorkOrderImportResult)
@@ -213,7 +270,8 @@ async def import_work_orders(
     """Bulk-import work orders from the mass CSV export (Admin+). Each row
     find-or-creates by number (idempotent re-upload), stores the new-schema
     columns, and matches the vendor `ASSIGNED TO` name to a supervisor to route
-    visibility. Returns a summary of created/opened/matched/skipped counts."""
+    visibility. Archived matches are counted as closed and left untouched.
+    Returns a summary of created/opened/closed/matched/skipped counts."""
     if not roles.role_at_least(user.role, roles.ROLE_ADMIN):
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
     data = await file.read()
@@ -228,6 +286,11 @@ async def import_work_orders(
 def export_work_orders(
     scope: str = Query(wo.EXPORT_SCOPE_ALL),
     variant: str = Query(wo.EXPORT_VARIANT_FULL),
+    service_type: Optional[str] = None,
+    supervisor_id: Optional[uuid.UUID] = None,
+    community: Optional[str] = None,
+    scheduled_date: Optional[date] = None,
+    q: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -237,10 +300,12 @@ def export_work_orders(
     `scope` is `all`, `archived`, or one live status -- the same vocabulary the
     page's status filter uses, plus the closed work orders the list hides.
 
-    `variant` picks the shape: `full` leads with the import's own column
-    headers, so an export can be re-imported (idempotently) rather than being a
-    dead end; `client` is the billing sheet -- number, billed material and labor
-    totals, and the full receipt text. 400 on an unrecognised scope or variant.
+    `variant=full` leads with the import's own headers and also accepts the Work
+    Orders page's exact `service_type`, routed `supervisor_id`, derived
+    `community`, exact `scheduled_date`, and number `q` filters. They combine
+    with `scope` using AND and have no result cap. `variant=client` remains the
+    existing scope-only billing sheet. 400 on an unrecognised scope, community,
+    or variant.
 
     Declared before `/{work_order_id}` so "export" is not parsed as an id."""
     if not roles.role_at_least(user.role, roles.ROLE_ADMIN):
@@ -249,13 +314,28 @@ def export_work_orders(
         )
     try:
         body = wo_service.export_work_orders_csv(
-            db, user=user, scope=scope, variant=variant
+            db,
+            user=user,
+            scope=scope,
+            variant=variant,
+            service_type=service_type,
+            supervisor_id=supervisor_id,
+            community=community,
+            scheduled_date=scheduled_date,
+            search=q,
         )
     except DomainError as exc:
         raise to_http(exc)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
-    label = "client-" if variant == wo.EXPORT_VARIANT_CLIENT else ""
-    filename = f"work-orders-{label}{scope}-{stamp}.csv"
+    filename = _export_filename(
+        db,
+        scope=scope,
+        variant=variant,
+        service_type=service_type,
+        supervisor_id=supervisor_id,
+        community=community,
+        scheduled_date=scheduled_date,
+        search=q,
+    )
     return Response(
         content=body,
         media_type="text/csv; charset=utf-8",
@@ -314,31 +394,12 @@ def update_work_order(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Edit a work order. Notes and entry mode are available to an in-scope
-    user, and an assigned technician may set In-Progress or Mark Completed.
-    Manual rollback, On-Hold, Review, and identity/location/assignment require
-    Supervisor+. Server-scoped."""
+    """Edit a scoped work order under the service's role matrix.
+
+    Technician: notes only. Supervisor+: routing, technicians, status, and entry
+    mode. Admin+: imported/legacy metadata as well. Server-scoped.
+    """
     fields = payload.model_dump(exclude_unset=True)
-    if _PRIVILEGED_FIELDS & fields.keys() and not roles.role_at_least(
-        user.role, roles.ROLE_SUPERVISOR
-    ):
-        raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
-    requested_status = fields.get("status")
-    if requested_status is not None and not roles.role_at_least(
-        user.role, roles.ROLE_SUPERVISOR
-    ):
-        if requested_status == wo.STATUS_IN_PROGRESS:
-            # A technician may start pre-work, but must not use this allowance
-            # to roll Completed/On-Hold/Review backward. Those transitions stay
-            # inside the Supervisor+ Edit Details workflow.
-            try:
-                current = wo_service.get_work_order(db, work_order_id, user=user)
-            except DomainError as exc:
-                raise to_http(exc)
-            if current.status not in (wo.STATUS_CREATED, wo.STATUS_ASSIGNED):
-                raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
-        elif requested_status != wo.STATUS_COMPLETED:
-            raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
     try:
         work_order = wo_service.update_work_order(db, work_order_id, user=user, fields=fields)
         return _detail(
@@ -355,11 +416,7 @@ def archive_work_order(
     user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ):
-    """Close a Review work order (Admin+, scoped) by soft-archiving it.
-
-    The ordinary Work Orders page deliberately has no close action; the future
-    Admin Review page is the intended caller for this existing endpoint.
-    """
+    """Close any live work order (Admin+, scoped) by soft-archiving it."""
     try:
         wo_service.archive_work_order(db, work_order_id, user=user)
     except DomainError as exc:
@@ -373,10 +430,9 @@ def restore_work_order(
     db: Session = Depends(get_db),
 ):
     """Un-archive a work order (Supervisor+, scoped), bringing it back onto the
-    Work Orders page with its materials intact. The undo for `/archive`, and the
-    only way back for an archived work order short of re-importing its CSV row --
-    work orders are import-only, so it cannot simply be created again. 404 if
-    unknown or not visible to the caller."""
+    Work Orders page with its materials intact. This explicit undo is the only
+    way back; CSV import counts and ignores archived matches. 404 if unknown or
+    not visible to the caller."""
     if not roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
     try:
@@ -416,7 +472,7 @@ def update_work_order_item(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Edit a logged material's quantity (dispense lines auto-correct stock)."""
+    """Edit a logged material's quantity (Supervisor+; stock auto-corrects)."""
     try:
         line = wo_service.update_work_order_item(
             db, work_order_id, wo_item_id, user=user, quantity=payload.quantity
@@ -460,8 +516,7 @@ def delete_work_order_item(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Remove a logged material (dispense lines return stock; the linked History
-    row is voided). Server-scoped."""
+    """Remove a logged material (Supervisor+; stock returns and History voids)."""
     try:
         wo_service.delete_work_order_item(db, work_order_id, wo_item_id, user=user)
     except DomainError as exc:
@@ -481,9 +536,9 @@ def add_work_order_labor(
 ):
     """Record actual labor for an assigned technician.
 
-    Technicians may record only themselves; Supervisor+ may record any assigned
-    technician. The first entry starts pre-work, and billing rounds the combined
-    work-order duration upward to the next 30 minutes.
+    Supervisor+ may record any assigned technician. The first entry starts
+    pre-work, and billing rounds the combined work-order duration upward to the
+    next 30 minutes.
     """
     try:
         return _labor_detail(
@@ -510,7 +565,7 @@ def update_work_order_labor(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Replace an in-scope labor entry's actual duration."""
+    """Replace a labor entry's actual duration (Supervisor+; server-scoped)."""
     try:
         return _labor_detail(
             wo_service.update_work_order_labor(
@@ -532,7 +587,7 @@ def delete_work_order_labor(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Remove an in-scope labor entry without rolling lifecycle status back."""
+    """Remove labor (Supervisor+) without rolling lifecycle status back."""
     try:
         wo_service.delete_work_order_labor(
             db, work_order_id, labor_id, user=user

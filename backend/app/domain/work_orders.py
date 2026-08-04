@@ -14,6 +14,7 @@ stock-neutral paper backfill.
 """
 
 import re
+from datetime import date
 from decimal import Decimal
 from typing import Optional, Sequence
 from uuid import UUID
@@ -60,6 +61,81 @@ MODE_DISPENSE = "dispense"
 MODE_RETROACTIVE = "retroactive"
 
 ALL_MODES: tuple[str, ...] = (MODE_DISPENSE, MODE_RETROACTIVE)
+
+
+# --- list-filter vocabulary ----------------------------------------------
+
+COMMUNITY_SCHOLARS = "scholars"
+COMMUNITY_CENTENNIAL = "centennial"
+COMMUNITY_COMMONS = "commons"
+COMMUNITY_YOUNG_HALL = "young_hall"
+COMMUNITY_ACADEMICS = "academics"
+
+COMMUNITY_LABELS: dict[str, str] = {
+    COMMUNITY_SCHOLARS: "Scholars",
+    COMMUNITY_CENTENNIAL: "Centennial",
+    COMMUNITY_COMMONS: "Commons",
+    COMMUNITY_YOUNG_HALL: "Young Hall",
+    COMMUNITY_ACADEMICS: "Academics",
+}
+
+# A work order may mention several communities in one raw LOCATION value. Each
+# named filter is therefore membership-based rather than an exclusive tag.
+# Academics is the fallback for rows containing none of these known terms.
+COMMUNITY_SEARCH_TERMS: dict[str, tuple[str, ...]] = {
+    COMMUNITY_SCHOLARS: ("scholars",),
+    COMMUNITY_CENTENNIAL: ("centennial",),
+    COMMUNITY_COMMONS: ("commons", "cimarron", "cimmarron"),
+    COMMUNITY_YOUNG_HALL: ("young hall",),
+}
+
+ALL_COMMUNITY_FILTERS: tuple[str, ...] = tuple(COMMUNITY_LABELS)
+
+
+def normalize_community_filter(value: Optional[str]) -> Optional[str]:
+    """Normalize and validate the Work Orders community query value.
+
+    Blank means no community filter. Values are API identifiers, but accepting
+    spaces as underscores keeps a hand-written ``Young Hall`` query friendly.
+    """
+    if value is None or not value.strip():
+        return None
+    normalized = value.strip().casefold().replace(" ", "_")
+    if normalized not in ALL_COMMUNITY_FILTERS:
+        raise WorkOrderStateError(
+            "Community must be scholars, centennial, commons, young_hall, or academics."
+        )
+    return normalized
+
+
+def parse_schedule_date(value: Optional[str]) -> Optional[date]:
+    """Parse the leading date from the import's raw schedule text.
+
+    Vendor rows primarily use M/D/YYYY and sometimes append a time. ISO dates
+    are accepted for explicit edits. Blank, malformed, and shifted CSV values
+    stay valid raw metadata but are treated as unscheduled for filtering and
+    ordering.
+    """
+    if value is None or not value.strip():
+        return None
+    raw = value.strip()
+    slash = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{2}|\d{4})(?:\s|$)", raw)
+    if slash:
+        month, day, year = (int(part) for part in slash.groups())
+        if year < 100:
+            year += 2000
+        try:
+            return date(year, month, day)
+        except ValueError:
+            return None
+    iso = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s|$)", raw)
+    if iso:
+        year, month, day = (int(part) for part in iso.groups())
+        try:
+            return date(year, month, day)
+        except ValueError:
+            return None
+    return None
 
 
 # --- labor billing -------------------------------------------------------
