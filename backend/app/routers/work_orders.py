@@ -35,6 +35,8 @@ from app.domain.errors import DomainError
 from app.models import User, WorkOrder, WorkOrderItem, WorkOrderLabor
 from app.routers._errors import to_http
 from app.schemas.work_orders import (
+    LegacyWorkOrderArchivePreview,
+    LegacyWorkOrderArchiveResult,
     WorkOrderCard,
     WorkOrderDetail,
     WorkOrderFilterOptions,
@@ -368,6 +370,32 @@ def lookup_work_order(
         id=work_order.id,
         number=work_order.number,
     )
+
+
+@router.get("/legacy/archive", response_model=LegacyWorkOrderArchivePreview)
+def preview_legacy_work_order_archive(
+    user: User = Depends(require_min_role(roles.ROLE_OWNER)),
+    db: Session = Depends(get_db),
+):
+    """Count live legacy work orders before the Owner confirms re-archive."""
+    try:
+        count = wo_service.count_live_legacy_work_orders(db, user=user)
+    except DomainError as exc:
+        raise to_http(exc)
+    return LegacyWorkOrderArchivePreview(count=count)
+
+
+@router.post("/legacy/archive", response_model=LegacyWorkOrderArchiveResult)
+def archive_legacy_work_orders(
+    user: User = Depends(require_min_role(roles.ROLE_OWNER)),
+    db: Session = Depends(get_db),
+):
+    """Soft-archive every currently live legacy work order (Owner only)."""
+    try:
+        archived = wo_service.archive_live_legacy_work_orders(db, user=user)
+    except DomainError as exc:
+        raise to_http(exc)
+    return LegacyWorkOrderArchiveResult(archived=archived)
 
 
 @router.get("/{work_order_id}", response_model=WorkOrderDetail)

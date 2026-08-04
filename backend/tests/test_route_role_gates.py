@@ -175,6 +175,14 @@ def test_archive_work_order_requires_admin():
 
 
 @pytest.mark.parametrize(
+    "endpoint_name",
+    ["preview_legacy_work_order_archive", "archive_legacy_work_orders"],
+)
+def test_legacy_work_order_rearchive_requires_owner(endpoint_name):
+    assert _min_role_for(work_orders_router, endpoint_name) == roles.ROLE_OWNER
+
+
+@pytest.mark.parametrize(
     "status", ["created", "assigned", "in_progress", "on_hold", "completed", "review"]
 )
 def test_technician_cannot_change_work_order_status(status):

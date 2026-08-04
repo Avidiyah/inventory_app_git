@@ -436,6 +436,7 @@ owner > admin > supervisor > technician
 | Edit imported Work Order metadata (Location, Service, Schedule Date, Output to, Vendor Contact, Symptom/Task) | admin+ (scoped) |
 | Import work orders (CSV) | admin+ |
 | Export work orders (CSV, full or For Client) | admin+, server-scoped |
+| Preview/re-archive all live legacy work orders | owner exactly; server gate and service check |
 | Admin Review page / receipt | admin+; lists every live Review work order |
 | Close/archive a work order | admin+ (scoped), any live status; UI action lives on expanded Work Orders cards and remains in Admin Review for Review rows |
 | Set work-order line billing override | admin+ (scoped) |
@@ -658,6 +659,9 @@ Rules:
   `work_order_items` -- so an already-priced-out work order stays fully
   searchable, just with empty new-schema fields. Unlike `archived_at`, `legacy`
   does NOT hide the row from lists/search.
+- The Owner-only legacy re-archive action counts and soft-archives only rows
+  where `legacy=true` and `archived_at IS NULL`. Its bulk update is atomic;
+  already archived legacy rows and live current-schema rows are untouched.
 
 ### `work_order_items`
 
@@ -986,6 +990,8 @@ the only way in.
 | --- | --- | --- | --- |
 | GET | `/work-orders/` | session scoped | list live Created through Review work orders by scheduled date descending; joinable `status`, `service_type`, `supervisor_id`, `community`, `scheduled_date`, `q` filters plus `limit` |
 | GET | `/work-orders/filter-options` | session scoped | distinct service types and routed supervisors from caller-visible live work orders plus stable community choices |
+| GET | `/work-orders/legacy/archive` | owner exactly | count currently live legacy work orders (`legacy=true`, `archived_at IS NULL`) before confirmation; returns `{count}` |
+| POST | `/work-orders/legacy/archive` | owner exactly | atomically soft-archive every currently live legacy work order and return the actual `{archived}` count |
 | POST | `/work-orders/import` | admin+ | bulk-import the mass CSV export (multipart); locked find-or-create fills supervisor only while NULL and ignores archived matches; **the only path that creates a work order**; returns created/opened/closed/matched/skipped counts |
 | GET | `/work-orders/export` | admin+ scoped | export `scope=all|archived|<live-status>` as `variant=full` (re-importable operational CSV; accepts the live page's service/supervisor/community/date/number filters) or `variant=client` (unchanged scope-only billing totals + fixed-width receipt) |
 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | does this number name a work order, and is it archived? the one read that reports an archived one, so History can offer a restore |
@@ -1139,6 +1145,13 @@ Behavior:
   reloads). The closed count is always shown, including zero, and those rows are
   ignored without mutation. The
   file input accepts `.csv`; the button re-enables and clears after each run.
+- The same section contains a hidden-by-default **Re-archive legacy work
+  orders...** button revealed only when `getRole() === "owner"`. Clicking it
+  fetches the live legacy count and opens the shared modal: zero uses a
+  message-only dialog; a positive count asks for confirmation and explains that
+  History can restore the rows. Confirmation posts the bulk action, reports the
+  actual archived count (which can differ from the preview), refreshes filter
+  options, and reloads the Work Orders list.
 - **Import-only: there is no "New work order" form.** The CSV import is the only
   way a work order appears here or anywhere else.
 - A card body opens on a read-only block of the work order's filled-in fields
@@ -1466,6 +1479,10 @@ Behavior:
   while On-Hold/rollback/reopen clears it. A number collision raises 400.
 - `archive_work_order` requires Admin+ in the service and sets `archived_at` from
   any live status. This is the stored Closed state.
+- `count_live_legacy_work_orders` and `archive_live_legacy_work_orders` both
+  require Owner exactly in the service. They select only `legacy=true` live
+  rows; the archive function performs one bulk `UPDATE`, commits atomically, and
+  returns the affected-row count.
 - `add_work_order_item` locks the item row, writes a `dispense` transaction
   (`affects_stock` per the work order's mode) and the matching line via
   `attach_dispense_line`. That shared line-attachment path advances a pre-work
@@ -1635,7 +1652,7 @@ Coverage map:
 | `test_mass_stages_api.py` | schemas, route gates, response builders |
 | `test_mass_staging_load.py` | DB-backed slot load/return, add-work-order enforce-match + refusal of an unimported number, reuse |
 | `test_work_orders_domain.py` | pure number normalization, six live statuses including stable On-Hold, community-filter vocabulary/validation, plural technician-derived Created/Assigned state, activity-derived In-Progress, combined labor rounding/charge, fill-blanks, visibility scope |
-| `test_work_orders_service.py` | DB-backed find-or-create, resolve-only attach, plural assignment/scope, per-technician labor/self-only writes, lifecycle/status/notes/archive/materials, AND-composed advanced filters, community aliases/multi-membership/Academics fallback, scoped filter options, and list cap |
+| `test_work_orders_service.py` | DB-backed find-or-create, resolve-only attach, plural assignment/scope, per-technician labor/self-only writes, lifecycle/status/notes/archive/materials, Owner-only live-legacy preview/re-archive selection, AND-composed advanced filters, community aliases/multi-membership/Academics fallback, scoped filter options, and list cap |
 | `test_work_order_import.py` | CSV parsing/import, full-name supervisor routing independent of Created status, unmatched/ambiguous/archived/non-supervisor fallback, idempotence, closed-row count/no-mutation (metadata, notes, materials, labor), and Admin gate |
 | `test_work_order_name_responses.py` | work-order response exposes plural operational names, rounded labor detail/totals, and free-form notes while omitting login usernames |
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |

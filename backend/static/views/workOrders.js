@@ -25,6 +25,8 @@ import {
   apiUpdateWorkOrderLabor,
   apiDeleteWorkOrderLabor,
   apiArchiveWorkOrder,
+  apiGetLegacyWorkOrderArchivePreview,
+  apiArchiveLegacyWorkOrders,
   apiImportWorkOrders,
   apiExportWorkOrders,
   apiListItems,
@@ -56,6 +58,7 @@ const importMessage = document.getElementById("wo-import-message");
 const exportScope = document.getElementById("wo-export-scope");
 const exportBtn = document.getElementById("wo-export-btn");
 const exportClientBtn = document.getElementById("wo-export-client-btn");
+const archiveLegacyBtn = document.getElementById("wo-archive-legacy-btn");
 
 // Reference lists are reused during interactions within one visit (for example,
 // debounced Work Order searches), then refreshed when nav.js activates the page
@@ -91,6 +94,10 @@ function isSupervisorPlus() {
 
 function isAdminPlus() {
   return roleAtLeast(getRole(), "admin");
+}
+
+function isOwner() {
+  return getRole() === "owner";
 }
 
 function populateFilterSelect(select, emptyLabel, options) {
@@ -509,6 +516,7 @@ export async function loadWorkOrders({ refreshReferenceData = false } = {}) {
   }
   if (importSection) importSection.hidden = !isAdminPlus();
   if (exportBtn) exportBtn.hidden = !isAdminPlus();
+  if (archiveLegacyBtn) archiveLegacyBtn.hidden = !isOwner();
 
   const filters = currentFilters();
   // The cap applies only to a completely unfiltered browse. Any advanced filter
@@ -1016,6 +1024,54 @@ async function handleImport() {
 
 if (importBtn) importBtn.addEventListener("click", () => importFile && importFile.click());
 if (importFile) importFile.addEventListener("change", handleImport);
+
+// --- Legacy work-order re-archive (Owner only) ---------------------------
+
+async function handleArchiveLegacyWorkOrders() {
+  setMessage(importMessage, "Checking legacy work orders...", "");
+  archiveLegacyBtn.disabled = true;
+  try {
+    const preview = await apiGetLegacyWorkOrderArchivePreview();
+    const count = preview.count || 0;
+    setMessage(importMessage, "", "");
+
+    if (count === 0) {
+      await messageDialog("There are 0 live legacy work orders to archive.");
+      return;
+    }
+
+    const noun = count === 1 ? "work order" : "work orders";
+    const approved = await confirmDialog(
+      `There ${count === 1 ? "is" : "are"} ${count} live legacy ${noun}. ` +
+      `Re-archive ${count === 1 ? "it" : "all of them"}? ` +
+      "They will leave the active list and can still be restored from History."
+    );
+    if (!approved) return;
+
+    setMessage(importMessage, "Archiving legacy work orders...", "");
+    const result = await apiArchiveLegacyWorkOrders();
+    const archived = result.archived || 0;
+    setMessage(
+      importMessage,
+      `Archived ${archived} legacy work order${archived === 1 ? "" : "s"}.`,
+      "success"
+    );
+    filterOptionsLoaded = false;
+    await loadWorkOrders();
+  } catch (err) {
+    setMessage(
+      importMessage,
+      friendlyError(err, "Could not archive legacy work orders."),
+      "error"
+    );
+  } finally {
+    archiveLegacyBtn.disabled = false;
+  }
+}
+
+if (archiveLegacyBtn) {
+  archiveLegacyBtn.addEventListener("click", handleArchiveLegacyWorkOrders);
+}
 
 // --- CSV export (Admin+) --------------------------------------------------
 

@@ -1200,6 +1200,59 @@ def archive_work_order(
     db.commit()
 
 
+def count_live_legacy_work_orders(
+    db: Session, *, user: Optional[User]
+) -> int:
+    """Return the legacy work orders that are currently live (Owner only).
+
+    The count is the preview for the owner's bulk re-archive confirmation. An
+    already archived legacy row is deliberately excluded because the action
+    has nothing left to do to it.
+    """
+    _require_role(
+        user,
+        roles.ROLE_OWNER,
+        "Only the Owner can re-archive legacy work orders.",
+    )
+    return (
+        db.query(WorkOrder)
+        .filter(
+            WorkOrder.legacy.is_(True),
+            WorkOrder.archived_at.is_(None),
+        )
+        .count()
+    )
+
+
+def archive_live_legacy_work_orders(
+    db: Session, *, user: Optional[User]
+) -> int:
+    """Soft-archive every currently live legacy work order (Owner only).
+
+    A single bulk UPDATE keeps the operation atomic and returns the actual
+    number archived, which may differ from an earlier preview if another
+    session restored or archived a legacy row in between.
+    """
+    _require_role(
+        user,
+        roles.ROLE_OWNER,
+        "Only the Owner can re-archive legacy work orders.",
+    )
+    archived = (
+        db.query(WorkOrder)
+        .filter(
+            WorkOrder.legacy.is_(True),
+            WorkOrder.archived_at.is_(None),
+        )
+        .update(
+            {WorkOrder.archived_at: datetime.now(timezone.utc)},
+            synchronize_session=False,
+        )
+    )
+    db.commit()
+    return archived
+
+
 def lookup_work_order(
     db: Session, *, number: str, user: Optional[User]
 ) -> Optional[WorkOrder]:

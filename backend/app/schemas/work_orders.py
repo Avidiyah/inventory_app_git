@@ -262,6 +262,18 @@ class WorkOrderLookup(BaseModel):
     number: Optional[str] = None
 
 
+class LegacyWorkOrderArchivePreview(BaseModel):
+    """Number of currently live legacy work orders eligible for re-archive."""
+
+    count: int
+
+
+class LegacyWorkOrderArchiveResult(BaseModel):
+    """Actual number of legacy work orders archived by the bulk action."""
+
+    archived: int
+
+
 class WorkOrderImportResult(BaseModel):
     """Summary of a `POST /work-orders/import` CSV upload. `created` are new work
     orders, `opened` matched an existing number (fill-blanks, no duplicate);

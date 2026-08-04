@@ -726,6 +726,52 @@ def test_supervisor_cannot_archive_work_order(db):
     assert work_order.archived_at is None
 
 
+def test_owner_can_preview_and_rearchive_only_live_legacy_work_orders(db):
+    owner = _seed_user(db, "owner")
+    baseline = wos.count_live_legacy_work_orders(db, user=owner)
+    live_legacy_a = _wo(db, created_by=owner)
+    live_legacy_b = _wo(db, created_by=owner)
+    already_archived_legacy = _wo(db, created_by=owner)
+    live_current = _wo(db, created_by=owner)
+
+    for work_order in (
+        live_legacy_a,
+        live_legacy_b,
+        already_archived_legacy,
+    ):
+        work_order.legacy = True
+    db.commit()
+    wos.archive_work_order(db, already_archived_legacy.id, user=owner)
+    db.refresh(already_archived_legacy)
+    already_archived_at = already_archived_legacy.archived_at
+
+    assert wos.count_live_legacy_work_orders(db, user=owner) == baseline + 2
+    assert wos.archive_live_legacy_work_orders(db, user=owner) == baseline + 2
+    assert wos.count_live_legacy_work_orders(db, user=owner) == 0
+
+    for work_order in (live_legacy_a, live_legacy_b, already_archived_legacy):
+        db.refresh(work_order)
+        assert work_order.archived_at is not None
+    assert already_archived_legacy.archived_at == already_archived_at
+    db.refresh(live_current)
+    assert live_current.archived_at is None
+
+
+def test_admin_cannot_preview_or_rearchive_legacy_work_orders(db):
+    admin = _seed_user(db, "admin")
+    work_order = _wo(db, created_by=admin)
+    work_order.legacy = True
+    db.commit()
+
+    with pytest.raises(RoleManagementError, match="Owner"):
+        wos.count_live_legacy_work_orders(db, user=admin)
+    with pytest.raises(RoleManagementError, match="Owner"):
+        wos.archive_live_legacy_work_orders(db, user=admin)
+
+    db.refresh(work_order)
+    assert work_order.archived_at is None
+
+
 def test_set_invalid_status_rejected(db):
     sup = _seed_user(db, "supervisor")
     tech = _seed_user(db, "technician")

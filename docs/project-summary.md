@@ -25,23 +25,24 @@ A **self-hosted inventory + work-order staging system** for physical materials t
 ## Documentation map
 
 - **`docs/current-state.md`** — the durable contract/invariants reference (data model, hard invariants, API surface, roles). "If it conflicts with code, trust the code."
-- **`docs/endpoint-map.md`** — traces all 64 endpoints DB↔view (router→service→table, api.js→view), plus full request/response contracts, an error catalog, and service algorithms — meant to make reading source unnecessary.
+- **`docs/endpoint-map.md`** — traces all 66 endpoints DB↔view (router→service→table, api.js→view), plus full request/response contracts, an error catalog, and service algorithms — meant to make reading source unnecessary.
 - **`docs/improvement-tracker.md`** — requested improvements and their current status.
 - **`docs/ux-review.md` + `docs/handoff.md`** — historical records of the July UX-improvement effort; not current-state authorities.
 
 ## Current baseline
 
-Last reconciled: 2026-08-04 against committed baseline `0566a64`. The large
+Last reconciled: 2026-08-04 against the current worktree based on committed
+baseline `0566a64`. The large
 work-order/QoL batch and its follow-up user-management and export work are
 committed; older documents that call that feature set uncommitted are historical.
-OpenAPI exposes 64 operations and Alembic head is `f7a9b1c3d5e6`.
+OpenAPI exposes 66 operations and Alembic head is `f7a9b1c3d5e6`.
 
 IMP-001 through IMP-003 and IMP-005 through IMP-018 are implemented and marked
 Done. IMP-004 (the Mass Stage redesign) is the only open requested improvement
 and remains very low priority. See `docs/improvement-tracker.md` for the original
 requests and implementation notes.
 
-The two capabilities added after the improvement batch are:
+Capabilities added after the improvement batch include:
 
 - User administration can replace first/last/login names; Admin+ can change a
   strictly subordinate user's role and revoke that user's sessions; user archive
@@ -70,17 +71,23 @@ The two capabilities added after the improvement batch are:
   the page after dismissal. Import and manual routing serialize on a row lock,
   so import assigns only a still-unassigned row and never overwrites a manual
   reroute.
+- Owner-only legacy cleanup exposes a hidden-by-default Re-archive button in the
+  Work Orders import/export section. It previews the number of live
+  `legacy=true` rows in the existing modal, atomically soft-archives them after
+  confirmation, reports the actual affected count, and reloads the list. Both
+  route and service gates require Owner exactly.
 
 ## Verification baseline
 
-- Full backend suite on 2026-08-04: 432 passed, including the Excel `sep=,`
+- Full backend suite on 2026-08-04: 436 passed, including the Excel `sep=,`
   and closed-row/import-routing regressions, joined Work Orders/date filtering,
   scheduled ordering, filtered operational export, stale-pickup conflicts, and
   the Work Orders field/action/archive role matrix.
 - All 32 frontend JavaScript files pass `node --check`.
-- OpenAPI reports 64 operations; Alembic reports `f7a9b1c3d5e6 (head)`.
-- `git diff --check` passes apart from the existing line-ending warning on the
-  locally modified import test.
+- OpenAPI reports 66 operations, including GET+POST on
+  `/work-orders/legacy/archive`; Alembic reports `f7a9b1c3d5e6 (head)`.
+- `git diff --check` passes; Git reports only expected LF-to-CRLF working-copy
+  conversion warnings for modified files.
 
 ## Active follow-ups
 

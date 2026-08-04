@@ -464,6 +464,19 @@ export async function apiExportWorkOrders(
   };
 }
 
+// Owner-only bulk re-archive. The GET powers the confirmation count; the POST
+// returns the actual number archived in case the live set changed meanwhile.
+export async function apiGetLegacyWorkOrderArchivePreview() {
+  return liveGet("/work-orders/legacy/archive");
+}
+
+export async function apiArchiveLegacyWorkOrders() {
+  return parseResponse(await fetch("/work-orders/legacy/archive", {
+    method: "POST",
+    credentials: "include",
+  }));
+}
+
 // `patch` is any subset of {status, entry_mode, number, community,
 // building_number, unit_number, description, notes, location, output_to,
 // vendor_assignee, service_type, schedule_date, supervisor_id,

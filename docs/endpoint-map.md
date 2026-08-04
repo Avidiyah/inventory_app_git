@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-08-04
 
-Purpose: a complete, self-contained trace of all 64 endpoints — wiring, contracts,
+Purpose: a complete, self-contained trace of all 66 endpoints — wiring, contracts,
 rules, error behavior, and service algorithms — so an AI or developer can answer
 "what does this endpoint send/return/do?" **without opening the source**. If you
 find yourself about to read `schemas/`, `services/`, `domain/`, or `routers/`,
@@ -113,8 +113,10 @@ writes (w).
 | 62 | PATCH | `/users/{id}/role` | admin+ AND outranks both current and new role | `users.py` → `users.update_role` | users (w), sessions (w, revoke) | `apiUpdateUserRole` | `users.js` |
 | 63 | GET | `/work-orders/export` | admin+, server-scoped | `work_orders.py` → `work_orders.export_work_orders_csv` (full: current live filters; client: unchanged scope dropdown; + `domain.receipt`) | work_orders (r), work_order_items (r), items (r), work_order_labor (r), users (r) | `apiExportWorkOrders` | `workOrders.js` |
 | 64 | GET | `/work-orders/filter-options` | session scoped | `work_orders.py` → `work_orders.get_work_order_filter_options` | work_orders (r), work_order_technicians (r, scope), users (r) | `apiGetWorkOrderFilterOptions` | `workOrders.js` |
+| 65 | GET | `/work-orders/legacy/archive` | owner exactly | `work_orders.py` → `work_orders.count_live_legacy_work_orders` | work_orders (r; live legacy count) | `apiGetLegacyWorkOrderArchivePreview` | `workOrders.js` |
+| 66 | POST | `/work-orders/legacy/archive` | owner exactly | `work_orders.py` → `work_orders.archive_live_legacy_work_orders` | work_orders (w; atomic bulk soft-archive) | `apiArchiveLegacyWorkOrders` | `workOrders.js` |
 
-(Rows 55–64 were appended out of resource order to keep the existing #1–54
+(Rows 55–66 were appended out of resource order to keep the existing #1–54
 numbering — and the footnote / per-table references to it — stable.)
 
 Footnotes:
@@ -297,6 +299,11 @@ one no import has brought in.
   closed and ignored before merge/routing. Reads **users** to
   name-match the vendor `ASSIGNED TO` to a supervisor (`supervisor_id`) for live
   rows. *The only path that creates a work order.*
+- `workOrders.js` (Re-archive legacy work orders..., Owner only) first calls
+  `apiGetLegacyWorkOrderArchivePreview` → `GET /work-orders/legacy/archive` →
+  `count_live_legacy_work_orders` and shows the returned live-row count in the
+  shared modal. A zero count uses a message-only dialog; otherwise confirmation
+  proceeds to the write flow below.
 - `workOrders.js` (Export filtered CSV beside Search, Admin+) →
   `apiExportWorkOrders` → `GET /work-orders/export?scope=…&variant=full&…` →
   `export_work_orders_csv` → reads **work_orders** (+ lines, items, labor,
@@ -367,6 +374,12 @@ one no import has brought in.
   list. `adminReview.js` uses the same endpoint for its receipt-aware Close
   action on Review rows. The row, lines, and transactions remain, and Admin
   Review keeps the receipt open for copying after its queue refresh.
+- `workOrders.js` (Owner confirms Re-archive legacy work orders...) →
+  `apiArchiveLegacyWorkOrders` → `POST /work-orders/legacy/archive` → Owner-exact
+  route and service gates → one bulk **work_orders.archived_at** update for rows
+  with `legacy=true AND archived_at IS NULL`. The response reports the actual
+  affected count; the view shows it and reloads Work Orders. Already archived
+  legacy rows and non-legacy rows are untouched.
 - `history.js` (work-order filter names an archived work order) →
   `apiLookupWorkOrder` → `GET /work-orders/lookup?number=` → the one read that
   reports an archived work order → confirm → `apiRestoreWorkOrder` →
@@ -627,6 +640,14 @@ precondition, not a stored field and not an update by itself.
 `archived: bool`, `id: UUID?`, `number: str?`. Deliberately reports an *archived*
 work order (which the list and detail routes hide) so History can offer a restore;
 a work order the caller may not see reports `found=false`.
+
+**`LegacyWorkOrderArchivePreview`** — return of Owner-only
+`GET /work-orders/legacy/archive`: `count: int`, the number of rows currently
+matching `legacy=true AND archived_at IS NULL`.
+
+**`LegacyWorkOrderArchiveResult`** — return of Owner-only
+`POST /work-orders/legacy/archive`: `archived: int`, the bulk update's actual
+affected-row count (not a replay of the earlier preview).
 
 **`WorkOrderItemCreate`** — `POST .../items`: `item_id: UUID`, `quantity: Decimal`
 (> 0). **`WorkOrderItemUpdate`** — `PATCH .../items/{wid}`: `quantity: Decimal`
@@ -1025,6 +1046,11 @@ attaches to an existing number and refuses an unknown one. Both share the
   Completed/Review preserve `completed_at`; On-Hold/rollback/reopen clear it.
 - `archive_work_order(id)` → require Admin+ in the service, scoped-load any live
   status, then set `archived_at` (Closed). Rows/lines/transactions remain.
+- `count_live_legacy_work_orders(user)` → require Owner exactly in the service;
+  count only `legacy=true AND archived_at IS NULL` rows for confirmation.
+- `archive_live_legacy_work_orders(user)` → require Owner exactly in the
+  service; issue one bulk update against the same predicate, set one UTC
+  `archived_at` timestamp, commit atomically, and return the affected-row count.
 - `get_work_order(id, user)` → scoped load (`WorkOrderNotFoundError` if unknown/
   archived/out-of-scope); **`_heal_orphan_lines`**: sum non-voided linked dispenses
   per item with no line and create the missing `work_order_items` rows (lazy
