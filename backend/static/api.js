@@ -88,10 +88,6 @@ export async function apiListItems({ query = null } = {}) {
   return liveGet(`/items/${qs ? `?${qs}` : ""}`);
 }
 
-export async function apiListItemSearchIndex() {
-  return liveGet("/items/search-index");
-}
-
 export async function apiCreateItem({ barcode, name, location, quantity, price, product_link, override_archived = false }) {
   // `override_archived` confirms reuse of a barcode held only by an archived
   // (deleted) item: the first POST omits it (defaults false) and gets a 409;
@@ -287,10 +283,25 @@ export async function apiSetBillableQuantity(transactionId, billableQuantity) {
 }
 
 export async function apiVoidTransaction(transactionId) {
-  // Soft-delete (void) a mis-clicked transaction. Supervisor+ on the
-  // backend; reverses the row's effect on stock and hides it from
-  // history. 204 on success.
+  // Soft-delete (void) a mis-clicked transaction. Supervisor+ may void any
+  // actionable row; a Technician may remove only their own work-order dispense.
+  // Reverses stock, reconciles the work-order line, and resolves a linked recount
+  // request. 204 on success.
   return parseResponse(await fetch(`/transactions/${transactionId}`, { method: "DELETE", credentials: "include" }));
+}
+
+// --- User Requests -----------------------------------------------------
+
+export async function apiListUserRequests(status = "open") {
+  const params = new URLSearchParams({ status });
+  return liveGet(`/user-requests/?${params}`);
+}
+
+export async function apiUpdateUserRequest(requestId, { status, resolutionNote = null }) {
+  return jsonRequest(`/user-requests/${requestId}`, "PATCH", {
+    status,
+    resolution_note: resolutionNote,
+  });
 }
 
 export async function apiCreateCorrection({ itemId, newQuantity, reason }) {
@@ -483,10 +494,18 @@ export async function apiArchiveLegacyWorkOrders() {
 // expected_supervisor_id,
 // assigned_to_ids}. `assigned_to_id` remains accepted by the backend for older
 // clients, but this UI writes the plural assignment set.
-// Role matrix: notes = Technician+; status/entry mode/routing/assignment =
-// Supervisor+; imported/legacy metadata = Admin+.
+// Role matrix: a nonblank notes value appends one server-stamped/authored entry
+// at Technician+; status/entry mode/routing/assignment = Supervisor+;
+// imported/legacy metadata = Admin+.
 export async function apiUpdateWorkOrder(workOrderId, patch) {
   return jsonRequest(`/work-orders/${workOrderId}`, "PATCH", patch);
+}
+
+// Narrow Scan / Stock lifecycle action. Assigned Technicians and Supervisor+
+// may start a visible Assigned work order without receiving general status-edit
+// permission.
+export async function apiStartWorkOrder(workOrderId) {
+  return jsonRequest(`/work-orders/${workOrderId}/start`, "POST", {});
 }
 
 export async function apiArchiveWorkOrder(workOrderId) {

@@ -58,6 +58,7 @@ from app.models import (
     WorkOrderLabor,
     WorkOrderTechnician,
 )
+from app.services import user_requests as request_service
 
 
 # Backslash is the LIKE escape char (mirrors services.history).
@@ -1061,6 +1062,43 @@ def get_work_order(
 
 # --- update / archive ----------------------------------------------------
 
+def start_work_order(
+    db: Session, work_order_id: uuid.UUID, *, user: Optional[User]
+) -> WorkOrder:
+    """Move one visible Assigned work order to In-Progress.
+
+    This narrow action is shared by Supervisors and assigned Technicians from
+    the Scan / Stock confirmation. It intentionally does not grant Technicians
+    the general status-edit contract: they cannot pause, complete, review, or
+    roll back a work order through this endpoint. Repeating the start after a
+    slow/double tap is idempotent.
+    """
+    _require_role(
+        user,
+        roles.ROLE_TECHNICIAN,
+        "Only a Technician or above can start a work order.",
+    )
+    work_order = _get_locked(db, work_order_id)
+    if (
+        work_order is None
+        or work_order.archived_at is not None
+        or not _visible(work_order, user)
+    ):
+        raise WorkOrderNotFoundError("Work order not found.")
+    if work_order.status == wo.STATUS_IN_PROGRESS:
+        return work_order
+    if work_order.status != wo.STATUS_ASSIGNED:
+        raise WorkOrderStateError(
+            "Only an Assigned work order can be started from Scan / Stock."
+        )
+
+    work_order.status = wo.STATUS_IN_PROGRESS
+    work_order.completed_at = None
+    db.commit()
+    db.refresh(work_order)
+    return work_order
+
+
 def update_work_order(
     db: Session,
     work_order_id: uuid.UUID,
@@ -1072,8 +1110,9 @@ def update_work_order(
     """Explicit edit (overwrite) of the fields present in `fields` -- any of
     number / community / building_number / unit_number / description / notes /
     status / entry_mode / assigned_to_ids. Validates status / mode / assignees.
-    Notes are Technician+; operational fields require Supervisor+; imported and
-    legacy metadata requires Admin+. When `expected_supervisor_id` is supplied,
+    Nonblank notes append a server-timestamped/authored entry instead of replacing
+    prior text. Notes are Technician+; operational fields require Supervisor+;
+    imported and legacy metadata requires Admin+. When `expected_supervisor_id` is supplied,
     routing changes use it as an optimistic precondition while the work-order
     row is locked.
     The legacy singular `assigned_to_id` is accepted for old clients. Technician
@@ -1161,8 +1200,13 @@ def update_work_order(
             )
         else:
             work_order.completed_at = None
-    if "notes" in fields:
-        work_order.notes = fields["notes"]
+    if "notes" in fields and fields["notes"] is not None:
+        work_order.notes = wo.append_note_log(
+            work_order.notes,
+            fields["notes"],
+            author_name=user.full_name if user is not None else "System",
+            occurred_at=datetime.now(timezone.utc),
+        )
     if "number" in fields and fields["number"] is not None:
         work_order.number = fields["number"].strip()
     for field in _ATTR_FIELDS:
@@ -1438,6 +1482,15 @@ def attach_dispense_line(
     work_order = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
     if work_order is not None:
         work_order.status = wo.status_after_activity(work_order.status)
+        item = db.get(Item, item_id)
+        if item is not None and (item.price is None or item.price <= 0):
+            request_service.create_or_update_missing_price_request(
+                db,
+                item_id=item_id,
+                work_order_id=work_order_id,
+                work_order_number=work_order.number,
+                created_by_id=user_id,
+            )
 
     line = (
         db.query(WorkOrderItem)
@@ -1525,15 +1578,20 @@ def add_work_order_item(
     Re-adding an item ADDS to its line (each add is its own ledger row). Writes
     the History transaction (`work_order_id` + number, `affects_stock` per mode)
     and reflects it on the materials list via `attach_dispense_line`. Raises
-    `WorkOrderNotFoundError` / `ItemNotFoundError`, and `NegativeQuantityError`
-    if a dispense-mode add overdraws stock."""
+    `WorkOrderNotFoundError` / `ItemNotFoundError`. A dispense-mode shortage is
+    recorded with a negative expected balance plus an inventory-recount User
+    Request, matching Scan / Stock; retroactive mode stays stock-neutral."""
     work_order = _get_visible(db, work_order_id, user)
     item = _locked_live_item(db, item_id)
 
     mode = work_order.entry_mode
     moves_stock = wo.affects_stock(mode)
+    quantity_before = item.quantity
+    shortage_quantity = Decimal(0)
     if moves_stock:
-        item.quantity = apply_delta(item.quantity, "dispense", quantity)
+        available = max(quantity_before, Decimal(0))
+        shortage_quantity = max(quantity - available, Decimal(0))
+        item.quantity = quantity_before - quantity
 
     txn = Transaction(
         item_id=item.id,
@@ -1558,6 +1616,18 @@ def add_work_order_item(
         transaction_id=txn.id,
         user_id=user.id if user else None,
     )
+    if shortage_quantity > 0:
+        request_service.create_inventory_recount_request(
+            db,
+            item_id=item.id,
+            transaction_id=txn.id,
+            work_order_id=work_order.id,
+            work_order_number=work_order.number,
+            created_by_id=user.id if user else None,
+            recorded_quantity_before=quantity_before,
+            dispensed_quantity=quantity,
+            shortage_quantity=shortage_quantity,
+        )
     db.commit()
     db.refresh(line)
     return line
@@ -1680,6 +1750,11 @@ def delete_work_order_item(
     for txn in contributors:
         txn.voided_at = now
         txn.voided_by_id = user.id if user else None
+        request_service.resolve_for_transaction(
+            db,
+            transaction_id=txn.id,
+            resolved_by_id=user.id if user else None,
+        )
 
     db.delete(line)
     db.commit()

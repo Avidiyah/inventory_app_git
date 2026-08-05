@@ -16,8 +16,10 @@
             <h2>Find Item</h2>
             <div class="filter-row">
                 <label for="items-search">Search</label>
-                <input type="text" id="items-search" list="items-search-list" placeholder="Search name or barcode">
-                <datalist id="items-search-list"></datalist>
+                <!-- Keep this as a plain text field. Browser-native datalist
+                     popups can cover most of the screen on mobile; results
+                     should appear only after an explicit Search/Enter. -->
+                <input type="text" id="items-search" placeholder="Search name or barcode">
                 <button type="button" id="items-search-btn">Search</button>
                 <button type="button" id="items-load-all-btn" class="secondary-btn">Load All Items</button>
             </div>

@@ -1,0 +1,27 @@
+    <!-- =================== USER REQUESTS PAGE =================== -->
+    <!-- Admin/Owner operational exception queue. Inventory recounts track
+         short counts; missing-price requests collect pricing/discoverability
+         work for materials used on work orders. Requests resolve, never delete. -->
+    <div class="page" id="user-requests-page">
+
+        <section id="user-requests-section">
+            <h2>User Requests</h2>
+            <p class="hint">Track differences between real-world usage and the
+               app's expected results. Recount requests flag short stock;
+               pricing requests collect a price and product link for unpriced
+               materials used on work orders.</p>
+
+            <div class="filter-row user-requests-controls">
+                <label for="user-requests-status">Status</label>
+                <select id="user-requests-status">
+                    <option value="open">Open</option>
+                    <option value="resolved">Resolved</option>
+                </select>
+                <button id="user-requests-refresh" type="button" class="secondary-btn">Refresh</button>
+            </div>
+
+            <div id="user-requests-list" class="user-requests-grid"></div>
+            <p id="user-requests-message" aria-live="polite"></p>
+        </section>
+
+    </div>

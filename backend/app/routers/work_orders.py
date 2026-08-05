@@ -424,8 +424,10 @@ def update_work_order(
 ):
     """Edit a scoped work order under the service's role matrix.
 
-    Technician: notes only. Supervisor+: routing, technicians, status, and entry
-    mode. Admin+: imported/legacy metadata as well. Server-scoped.
+    Technician: append notes only. Supervisor+: routing, technicians, status,
+    and entry mode. Admin+: imported/legacy metadata as well. The service stamps
+    each nonblank note with server time and the authenticated user's display
+    name. Server-scoped.
     """
     fields = payload.model_dump(exclude_unset=True)
     has_supervisor_precondition = "expected_supervisor_id" in fields
@@ -447,6 +449,27 @@ def update_work_order(
             # the internal scope instead of turning a successful transfer into
             # a false 404.
             wo_service.get_work_order(db, work_order.id, user=None),
+            include_price=_can_see_price(user),
+        )
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.post("/{work_order_id}/start", response_model=WorkOrderDetail)
+def start_work_order(
+    work_order_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Start a visible Assigned work order without leaving Scan / Stock.
+
+    Available to assigned Technicians and Supervisor+ users. This does not
+    broaden the general PATCH status permission matrix.
+    """
+    try:
+        work_order = wo_service.start_work_order(db, work_order_id, user=user)
+        return _detail(
+            wo_service.get_work_order(db, work_order.id, user=user),
             include_price=_can_see_price(user),
         )
     except DomainError as exc:
@@ -496,8 +519,9 @@ def add_work_order_item(
     db: Session = Depends(get_db),
 ):
     """Log a material using the work order's current entry mode (dispense moves
-    stock; retroactive is stock-neutral). Re-adding an item replaces its
-    quantity. Server-scoped; 400 if a dispense add overdraws stock."""
+    stock; retroactive is stock-neutral). Re-adding an item adds its quantity.
+    A dispense shortage is recorded and raises a recount User Request instead
+    of failing. Server-scoped for Technician and above."""
     try:
         line = wo_service.add_work_order_item(
             db, work_order_id, user=user, item_id=payload.item_id, quantity=payload.quantity

@@ -98,9 +98,17 @@ class UserNotFoundError(DomainError):
     the given user id."""
 
 
+class UserRequestNotFoundError(DomainError):
+    """Raised when an Admin acts on a User Request that no longer exists."""
+
+
 class NegativeQuantityError(DomainError):
-    """Raised by `domain.quantity.apply_delta` when a dispense would
+    """Raised by strict `domain.quantity` arithmetic when an operation would
     drop an item's stock below zero.
+
+    Scan / Stock dispense is the intentional exception: its service records a
+    negative expected balance and opens a recount request without calling this
+    guard.
 
     Carries the offending numbers so callers (and tests) can inspect
     the exact attempted operation without parsing a message string.

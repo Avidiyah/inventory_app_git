@@ -8,6 +8,7 @@ DB.
 """
 
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -23,13 +24,12 @@ from app.domain.errors import (
     InvalidAssigneeError,
     InvalidSupervisorError,
     ItemNotFoundError,
-    NegativeQuantityError,
     RoleManagementError,
     WorkOrderAssignmentConflictError,
     WorkOrderNotFoundError,
     WorkOrderStateError,
 )
-from app.models import Item, Transaction, User
+from app.models import Item, Transaction, User, UserRequest
 from app.services import auth
 from app.services import work_orders as wos
 from app.services.history import list_history
@@ -148,6 +148,43 @@ def test_multiple_technician_assignments_drive_status_and_scope(db):
     )
     assert cleared.status == "created"
     assert cleared.assigned_to_id is None
+
+
+def test_assigned_technician_can_start_work_order(db):
+    supervisor = _seed_user(db, "supervisor")
+    technician = _seed_user(db, "technician")
+    work_order = _wo(db, created_by=supervisor)
+    wos.update_work_order(
+        db,
+        work_order.id,
+        user=supervisor,
+        fields={"assigned_to_ids": [technician.id]},
+    )
+
+    started = wos.start_work_order(db, work_order.id, user=technician)
+
+    assert started.status == "in_progress"
+    # The narrow start action is idempotent for a double tap/retry.
+    assert wos.start_work_order(db, work_order.id, user=technician).status == "in_progress"
+
+
+def test_technician_cannot_start_unassigned_or_out_of_scope_work_order(db):
+    supervisor = _seed_user(db, "supervisor")
+    technician = _seed_user(db, "technician")
+    other_technician = _seed_user(db, "technician")
+    created = _wo(db, created_by=supervisor)
+
+    with pytest.raises(WorkOrderNotFoundError):
+        wos.start_work_order(db, created.id, user=technician)
+
+    wos.update_work_order(
+        db,
+        created.id,
+        user=supervisor,
+        fields={"assigned_to_ids": [other_technician.id]},
+    )
+    with pytest.raises(WorkOrderNotFoundError):
+        wos.start_work_order(db, created.id, user=technician)
 
 
 def test_labor_tracks_technician_and_advances_first_activity(db):
@@ -410,15 +447,51 @@ def test_material_activity_does_not_resume_on_hold_work_order(db):
     assert w.status == "on_hold"
 
 
-def test_dispense_overdraft_refused(db):
+@pytest.mark.parametrize("actor_role", ["technician", "supervisor"])
+def test_dispense_shortage_is_recorded_with_recount_request(db, actor_role):
     sup = _seed_user(db, "supervisor")
     tech = _seed_user(db, "technician")
-    item = _seed_item(db, 2)
-    w = _wo(db, created_by=sup, assigned_to=tech)
-    with pytest.raises(NegativeQuantityError):
-        wos.add_work_order_item(db, w.id, user=tech, item_id=item.id, quantity=Decimal(5))
+    actor = tech if actor_role == "technician" else sup
+    item = _seed_item(db, 0, price="3.00")
+    w = _wo(
+        db,
+        created_by=sup,
+        assigned_to=tech if actor_role == "technician" else None,
+        supervisor=sup,
+    )
+
+    line = wos.add_work_order_item(
+        db,
+        w.id,
+        user=actor,
+        item_id=item.id,
+        quantity=Decimal(5),
+    )
+
     db.refresh(item)
-    assert item.quantity == Decimal(2)
+    assert item.quantity == Decimal(-5)
+    request = (
+        db.query(UserRequest)
+        .filter(UserRequest.transaction_id == line.transaction_id)
+        .one()
+    )
+    assert request.request_type == "inventory_recount"
+    assert request.status == "open"
+    assert request.created_by_id == actor.id
+    assert request.details == {
+        "recorded_quantity_before": "0",
+        "dispensed_quantity": "5",
+        "shortage_quantity": "5",
+        "work_order_number": w.number,
+    }
+
+    if actor_role == "supervisor":
+        wos.delete_work_order_item(db, w.id, line.id, user=sup)
+        db.refresh(item)
+        db.refresh(request)
+        assert item.quantity == Decimal(0)
+        assert request.status == "resolved"
+        assert request.resolved_by_id == sup.id
 
 
 def test_dispense_edit_auto_corrects_stock(db):
@@ -634,20 +707,37 @@ def test_manual_prework_rollback_stays_aligned_with_technician(db):
     assert created.status == "created"
 
 
-def test_work_order_notes_can_be_saved_and_cleared_by_in_scope_user(db):
+def test_work_order_notes_append_timestamped_authenticated_user_log(db):
     sup = _seed_user(db, "supervisor")
-    tech = _seed_user(db, "technician")
+    tech = _seed_user(
+        db,
+        "technician",
+        first_name="Jamie",
+        last_name="Rivera",
+    )
     w = _wo(db, created_by=sup, assigned_to=tech)
 
     saved = wos.update_work_order(
         db, w.id, user=tech, fields={"notes": "Call resident before arrival."}
     )
-    assert saved.notes == "Call resident before arrival."
+    assert re.fullmatch(
+        r"\[\d{1,2}:\d{2} [AP]M\] \[\d{6}\] \[Jamie Rivera\] "
+        r"Call resident before arrival\.",
+        saved.notes,
+    )
 
-    cleared = wos.update_work_order(
+    first_entry = saved.notes
+    appended = wos.update_work_order(
+        db, w.id, user=tech, fields={"notes": "Parts ordered."}
+    )
+    assert appended.notes.startswith(first_entry + "\n\n")
+    assert appended.notes.endswith("[Jamie Rivera] Parts ordered.")
+
+    # The log is append-only; an old client's null clear cannot erase history.
+    unchanged = wos.update_work_order(
         db, w.id, user=tech, fields={"notes": None}
     )
-    assert cleared.notes is None
+    assert unchanged.notes == appended.notes
 
 
 def test_work_order_update_role_matrix_separates_metadata_and_operations(db):

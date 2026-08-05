@@ -31,6 +31,7 @@ from app.routers import (
     mass_stages,
     tools,
     transactions,
+    user_requests,
     users,
     work_orders,
 )
@@ -72,6 +73,7 @@ app.include_router(items.router)
 app.include_router(mass_stages.router)
 app.include_router(tools.router)
 app.include_router(transactions.router)
+app.include_router(user_requests.router)
 app.include_router(users.router)
 app.include_router(work_orders.router)
 
@@ -101,6 +103,7 @@ SHELL_PARTS = (
     "pages/transaction.html",
     "pages/mass-stage.html",
     "pages/work-orders.html",
+    "pages/user-requests.html",
     "pages/admin-review.html",
     "pages/tools.html",
     "pages/history.html",

@@ -261,8 +261,10 @@ export function mountScanner({
     }
 
     const result = onCommit ? await onCommit(item) : { committed: false };
-    // Confirm success on a commit and the error pattern on a real failure (e.g.
-    // overdraw), but stay silent on a user decline -- saying No is not an error.
+    // Confirm success on a commit and the error pattern on a real failure, but
+    // stay silent on a user decline -- saying No is not an error. A short-count
+    // dispense is a successful commit whose red recount warning lives in the
+    // batch log.
     if (result && result.committed) {
       buzz(true);
       beep(true);

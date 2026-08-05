@@ -9,8 +9,8 @@ their full amount.
 Concurrency model: `SELECT ... FOR UPDATE` on the item row. Any
 other writer attempting the same operation blocks until this
 transaction commits, so the read–modify–write of `quantity` is
-serialised per item. The actual arithmetic and the overdraft check
-live in `app.domain.quantity.apply_delta`.
+serialised per item. Stock-ins use `domain.quantity.apply_delta`; a Scan / Stock
+dispense may cross below zero only while atomically raising a recount request.
 """
 
 import uuid
@@ -24,12 +24,15 @@ from app.domain.errors import (
     ItemNotFoundError,
     NegativeQuantityError,
     NoChangeError,
+    RoleManagementError,
     TransactionNotFoundError,
     TransactionVoidError,
 )
 from app.domain.billing import validate_billable_quantity
+from app.domain import roles
 from app.domain.quantity import apply_delta, reverse_delta
 from app.models import Item, Transaction, WorkOrderItem
+from app.services import user_requests as request_service
 from app.services import work_orders as wo_service
 
 
@@ -49,12 +52,11 @@ def apply_transaction(
     a scanned card or by find-or-create); `work_order_number` is the denormalized
     snapshot kept for History.
 
-    Raises `ItemNotFoundError` if the item id is unknown, and
-    `NegativeQuantityError` (from `apply_delta`) if a dispense
-    would drive stock below zero. Both bubble up to the router via
-    `to_http`. On `NegativeQuantityError` the implicit transaction
-    is rolled back by SQLAlchemy when the exception propagates,
-    leaving the database untouched.
+    Raises `ItemNotFoundError` if the item id is unknown. A Scan / Stock
+    dispense is deliberately allowed to move the recorded count below zero:
+    that preserves reversible ledger arithmetic while a linked open User
+    Request tells Admin+ that the physical stock needs to be re-counted. Other
+    stock-moving services retain the shared no-overdraft domain rule.
     """
     item = (
         db.query(Item)
@@ -65,7 +67,20 @@ def apply_transaction(
     if not item:
         raise ItemNotFoundError("Item not found.")
 
-    item.quantity = apply_delta(item.quantity, transaction_type, quantity)
+    quantity_before = item.quantity
+    recount_required = False
+    shortage_quantity = Decimal(0)
+    if transaction_type == "dispense":
+        # Scan / Stock records real usage even when the expected app count is
+        # short. Keeping the negative balance makes a later void the exact
+        # inverse (adding the full transaction quantity restores the original
+        # count); the User Request is the visible operational exception.
+        item.quantity = quantity_before - quantity
+        available = max(quantity_before, Decimal(0))
+        shortage_quantity = max(quantity - available, Decimal(0))
+        recount_required = shortage_quantity > 0
+    else:
+        item.quantity = apply_delta(quantity_before, transaction_type, quantity)
 
     new_txn = Transaction(
         item_id=item_id,
@@ -96,8 +111,28 @@ def apply_transaction(
             user_id=user_id,
         )
 
+    if recount_required:
+        # Assign the transaction id before creating its unique linked request.
+        db.flush()
+        request_service.create_inventory_recount_request(
+            db,
+            item_id=item_id,
+            transaction_id=new_txn.id,
+            work_order_id=work_order_id,
+            work_order_number=work_order_number,
+            created_by_id=user_id,
+            recorded_quantity_before=quantity_before,
+            dispensed_quantity=quantity,
+            shortage_quantity=shortage_quantity,
+        )
+
     db.commit()
     db.refresh(new_txn)
+    # These response-only attributes are not columns: the durable source is the
+    # linked User Request, while the scanner needs immediate feedback from this
+    # one write.
+    new_txn.recount_required = recount_required
+    new_txn.item_quantity = item.quantity
     return new_txn
 
 
@@ -106,6 +141,7 @@ def void_transaction(
     *,
     transaction_id: uuid.UUID,
     user_id: Optional[uuid.UUID],
+    user_role: Optional[str] = None,
 ) -> None:
     """Void a mis-clicked transaction (soft delete) and reverse its
     effect on the item's stock.
@@ -136,6 +172,23 @@ def void_transaction(
     )
     if txn is None or txn.voided_at is not None:
         raise TransactionNotFoundError("Transaction not found.")
+
+    # Supervisors retain the existing ability to void any ledger row. A
+    # Technician may remove only a dispense they personally recorded against a
+    # work order -- exactly the Scan / Stock mistake-recovery path, not an
+    # elevation into History-wide correction powers.
+    if user_role is not None and not roles.role_at_least(
+        user_role, roles.ROLE_SUPERVISOR
+    ):
+        if (
+            user_role != roles.ROLE_TECHNICIAN
+            or txn.user_id != user_id
+            or txn.transaction_type != "dispense"
+            or txn.work_order_id is None
+        ):
+            raise RoleManagementError(
+                "Technicians can only remove their own Scan / Stock entries."
+            )
 
     # Stock-neutral rows (retroactive work-order backfill) never moved on-hand,
     # so undoing them must NOT move it either -- just soft-delete the row so it
@@ -191,6 +244,11 @@ def void_transaction(
 
     txn.voided_at = datetime.now(timezone.utc)
     txn.voided_by_id = user_id
+    request_service.resolve_for_transaction(
+        db,
+        transaction_id=txn.id,
+        resolved_by_id=user_id,
+    )
     db.commit()
 
 

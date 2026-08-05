@@ -7,8 +7,8 @@
 
          Work orders are IMPORT-ONLY -- there is no create form here (or
          anywhere else). The CSV import below is how a work order enters the
-         system; its imported fields are then editable per card behind the
-         "Edit details" button. See docs/current-state.md. -->
+         system; its imported fields are then editable per card in the
+         collapsed "Edit details" card. See docs/current-state.md. -->
     <div class="page" id="work-orders-page">
 
         <!-- Admin+ only; views/workOrders.js reveals it by role. Bulk-imports the
@@ -46,10 +46,11 @@
             <h2>Work Orders</h2>
             <p class="hint">Work orders start Created, become Assigned when one
                or more technicians are selected, and move to In-Progress when material or
-               labor is added or a supervisor starts it. Supervisors manage
-               assignment, status, and labor; Admins can also correct imported
+               labor is added or a supervisor selects it in Edit details. Assigned work can
+               also be started from Scan / Stock. Supervisors manage assignment, status,
+               and labor; Admins can also correct imported
                details and archive a work order from any status. Technicians can
-               save Notes and add items. Labor is billed in rounded-up 30-minute
+               append timestamped Notes and add items. Labor is billed in rounded-up 30-minute
                increments.</p>
             <div class="wo-filter-grid" aria-label="Work order filters">
                 <div class="wo-filter-field">

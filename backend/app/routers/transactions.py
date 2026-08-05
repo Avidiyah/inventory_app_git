@@ -50,8 +50,8 @@ def create_transaction(
     Authorization is per-direction (see `roles.can_transact`): any
     logged-in user may *dispense* (the floor-crew action), but *stock*
     requires Supervisor or above. A Technician attempting to stock gets
-    a 403. 404 if the item is unknown, 400 if a dispense would overdraw
-    stock (`NegativeQuantityError` -> "Insufficient stock to dispense.")."""
+    a 403. 404 if the item is unknown. A dispense that exceeds recorded stock
+    is saved with a linked Admin recount request rather than rejected."""
     if not roles.can_transact(user.role, payload.transaction_type):
         raise HTTPException(
             status_code=403,
@@ -153,12 +153,13 @@ def update_billing(
 @router.delete("/{transaction_id}", status_code=204)
 def void_transaction(
     transaction_id: UUID,
-    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Void a mis-clicked transaction. Supervisor or above. This is a
-    soft delete: the row is retained (stamped with who/when) but hidden
-    from history, and its effect on the item's stock is reversed.
+    """Void a mis-clicked transaction. Supervisor+ may void any actionable
+    row; a Technician may remove only their own work-order dispense from Scan /
+    Stock. This is a soft delete: the row is retained (stamped with who/when)
+    but hidden from history, and its effect on the item's stock is reversed.
 
     404 if the transaction is unknown or already voided; 400 if undoing
     it would drive the item's stock below zero
@@ -168,6 +169,7 @@ def void_transaction(
             db,
             transaction_id=transaction_id,
             user_id=user.id,
+            user_role=user.role,
         )
     except DomainError as exc:
         raise to_http(exc)

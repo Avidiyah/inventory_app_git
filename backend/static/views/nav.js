@@ -13,6 +13,7 @@ import { loadUsers } from "./users.js";
 import { loadStages } from "./massStage.js";
 import { loadWorkOrders } from "./workOrders.js";
 import { loadAdminReview } from "./adminReview.js";
+import { loadUserRequests } from "./userRequests.js";
 import { loadTools, toolsScanner } from "./tools.js";
 import { txnScanner } from "./scan.js";
 import { itemsScanner } from "./items.js";
@@ -56,6 +57,8 @@ export const PAGE_ACCESS = {
   "mass-stage": ["owner", "admin", "supervisor"],
   // Work Orders is technician-facing (server scopes to assigned/created/all).
   "work-orders": ["owner", "admin", "supervisor", "technician"],
+  // Operational exceptions such as inventory recounts are managed by Admin+.
+  "user-requests": ["owner", "admin"],
   // Final billing/close queue. Cost detail and archive are Admin/Owner-only.
   "admin-review": ["owner", "admin"],
   // Tools: every role sees its user-first custody card and can check in;
@@ -122,8 +125,8 @@ export function showPage(pageName) {
   } else if (pageName === "history") {
     loadHistory();
   } else if (pageName === "saved-items") {
-    // Find Item resets its visible results and reloads the lightweight search
-    // index on every activation; full rows still require Search / Load All.
+    // Find Item resets its visible results on every activation. It makes no
+    // initial item request; full rows require Search / Load All / Scan.
     loadItems();
   } else if (pageName === "saved-users") {
     loadUsers();
@@ -131,6 +134,8 @@ export function showPage(pageName) {
     loadStages({ refreshReferenceData: true });
   } else if (pageName === "work-orders") {
     loadWorkOrders({ refreshReferenceData: true });
+  } else if (pageName === "user-requests") {
+    loadUserRequests();
   } else if (pageName === "admin-review") {
     loadAdminReview();
   } else if (pageName === "tools") {

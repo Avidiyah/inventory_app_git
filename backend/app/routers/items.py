@@ -214,6 +214,7 @@ def update_item(
         item = items_service.update_item(
             db,
             item_id,
+            performed_by_id=user.id,
             **payload.model_dump(exclude_unset=True),
         )
         return _item_response(item, user.role)

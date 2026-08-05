@@ -9,7 +9,7 @@
 // or manual -- posts to the same active work order the same way.
 
 import { getRole, getCurrentUser } from "../state.js";
-import { apiListItems, apiCreateTransaction, apiListWorkOrders, apiGetWorkOrder, apiVoidTransaction } from "../api.js";
+import { apiListItems, apiCreateTransaction, apiListWorkOrders, apiGetWorkOrder, apiStartWorkOrder, apiVoidTransaction } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
@@ -206,16 +206,17 @@ function clearBatchLog() {
   }
 }
 
-// `undo`, when set, is `{txnId, itemId, quantity, type}` -- present only for
-// a quick-mode commit a Supervisor+ can still void (see commitScannedItem).
-// `retry`, when set, is `{itemId, itemName, quantity, type, quickCommit}` on a
+// `undo`, when set, is `{txnId, itemId, quantity, type}` for a saved batch line.
+// The backend lets a Technician remove only their own work-order dispense;
+// Supervisor+ retain the broader void contract.
+// `retry`, when set, is `{itemId, itemName, quantity, type}` on a
 // failed line -- the payload the Retry button re-posts (see the retry handler).
 // `undone` re-applies the strike-through on a restored line -- the undo
 // handler marks the entry so the state survives the batch snapshot (the
 // "— Undone" text alone would otherwise read like a normal commit).
-function renderLogLine(text, ok, undo, retry, undone) {
+function renderLogLine(text, ok, undo, retry, undone, warning = false) {
   const line = document.createElement("div");
-  line.className = `scango-log-line ${ok ? "scango-log-ok" : "scango-log-err"}`;
+  line.className = `scango-log-line ${warning ? "scango-log-warning" : ok ? "scango-log-ok" : "scango-log-err"}`;
   if (undone) line.classList.add("scango-log-undone");
   const span = document.createElement("span");
   span.className = "scango-log-text";
@@ -226,7 +227,7 @@ function renderLogLine(text, ok, undo, retry, undone) {
     const undoBtn = document.createElement("button");
     undoBtn.type = "button";
     undoBtn.className = "scango-log-undo-btn secondary-btn";
-    undoBtn.textContent = "Undo";
+    undoBtn.textContent = "Remove";
     undoBtn.dataset.txnId = undo.txnId;
     line.appendChild(undoBtn);
   }
@@ -240,13 +241,13 @@ function renderLogLine(text, ok, undo, retry, undone) {
   return line;
 }
 
-function appendLogLine(text, ok, undo, retry) {
+function appendLogLine(text, ok, undo, retry, warning = false) {
   // Kept in parallel with the DOM (newest first, same order) so the batch
   // snapshot (see persistBatch) can restore it after a reload. The array index
   // and the DOM child index stay in lockstep -- the retry handler relies on it.
-  batchLog.unshift({ text, ok, undo: undo || null, retry: retry || null });
+  batchLog.unshift({ text, ok, undo: undo || null, retry: retry || null, warning });
   if (!scangoLog) return;
-  scangoLog.prepend(renderLogLine(text, ok, undo, retry));
+  scangoLog.prepend(renderLogLine(text, ok, undo, retry, false, warning));
   scangoLog.hidden = false;
 }
 
@@ -255,7 +256,7 @@ function restoreBatchLog(lines) {
   batchLog = Array.isArray(lines) ? lines : [];
   if (!scangoLog) return;
   scangoLog.innerHTML = "";
-  batchLog.forEach(({ text, ok, undo, retry, undone }) => scangoLog.appendChild(renderLogLine(text, ok, undo, retry, undone)));
+  batchLog.forEach(({ text, ok, undo, retry, undone, warning }) => scangoLog.appendChild(renderLogLine(text, ok, undo, retry, undone, warning)));
   scangoLog.hidden = batchLog.length === 0;
 }
 
@@ -331,14 +332,19 @@ function readSavedBatch() {
 }
 
 // Start a batch on an already-resolved In-Progress work order
-// `{id, number, status}` from a tapped card. Created/Assigned cards are still
-// visible for discovery, but selecting one prompts the operator to open its Work
-// Order card and explicitly set In-Progress before scanning. The search field
-// only filters cards.
+// `{id, number, status}` from a tapped card. Assigned cards can be started in
+// place through the narrow start endpoint; Created cards still need assignment
+// on the Work Orders page. The search field only filters cards.
 function startBatchFor(workOrder) {
   cancelWoSearch();
   woCardsRequestId += 1; // ignore a filter response that was already in flight
-  batchWorkOrder = workOrder;
+  // Keep the persisted batch snapshot small even when the start endpoint
+  // returned a full WorkOrderDetail.
+  batchWorkOrder = {
+    id: workOrder.id,
+    number: workOrder.number,
+    status: workOrder.status,
+  };
   clearBatchLog();
   setMessage(woGateMessage, "", "");
   if (scangoWoLabel) scangoWoLabel.textContent = `Work order: ${workOrder.number}`;
@@ -363,8 +369,23 @@ async function selectWorkOrderForBatch(workOrder) {
     startBatchFor(workOrder);
     return;
   }
+  if (workOrder.status === "assigned") {
+    const shouldStart = await confirmDialog(
+      `Start WO ${workOrder.number}? This will set it to In-Progress.`
+    );
+    if (!shouldStart) return;
+    setMessage(woGateMessage, "Starting work order...", "");
+    try {
+      const started = await apiStartWorkOrder(workOrder.id);
+      startBatchFor(started);
+    } catch (err) {
+      setMessage(woGateMessage, friendlyError(err, "Could not start that work order."), "error");
+      refreshWoCards();
+    }
+    return;
+  }
   const goToWorkOrder = await confirmDialog(
-    `WO ${workOrder.number} is not In-Progress. Go to Work Orders to set it In-Progress?`
+    `WO ${workOrder.number} is not assigned. Go to Work Orders to assign it?`
   );
   if (!goToWorkOrder) return;
   focusWorkOrder(workOrder.id);
@@ -394,7 +415,8 @@ async function changeWorkOrder() {
 // --- Saved work-order cards ---------------------------------------
 // The scan gate shows Created/Assigned/In-Progress cards this user can see
 // (server-scoped). Supervisor+ can filter those cards by number as they type.
-// Tapping In-Progress starts a batch; earlier states prompt a trip to Work Orders.
+// Tapping In-Progress starts a batch; Assigned confirms an in-place start;
+// Created prompts a trip to Work Orders for assignment.
 // Scanning is a plain transaction on the work order; nothing is written back to
 // a mass stage (the stage stays the plan/load record). Every card here came from
 // the work-order CSV import -- the gate can only attach to what was imported.
@@ -553,9 +575,8 @@ export async function commitScannedItem(item) {
     // #7: keep what a retry needs so a flaky-connection failure doesn't force
     // another trip to the shelf. Capture quantity/type as they were at commit
     // time -- the page field resets to 1 after each scan, so it can't be
-    // trusted later. quickCommit rides along so a retried quick-mode dispense
-    // still earns the same Supervisor+ Undo affordance a fresh one would.
-    const retry = { itemId: item.id, itemName: item.name, quantity, type, quickCommit };
+    // trusted later.
+    const retry = { itemId: item.id, itemName: item.name, quantity, type };
     appendLogLine(`✗ ${item.name}: ${friendlyError(err, "Could not save. Try again.")}`, false, null, retry);
     return { committed: false };
   }
@@ -563,21 +584,25 @@ export async function commitScannedItem(item) {
   batchScanCount += 1;
   batchUnitCount += quantity;
 
+  const responseQuantity = txn.item_quantity;
+  const authoritativeAfter = responseQuantity === null || responseQuantity === undefined
+    ? NaN
+    : Number(responseQuantity);
   const before = Number(item.quantity);
-  const after = Number.isFinite(before)
-    ? type === "stock"
-      ? before + quantity
-      : before - quantity
-    : null;
+  const after = Number.isFinite(authoritativeAfter)
+    ? authoritativeAfter
+    : Number.isFinite(before)
+      ? type === "stock"
+        ? before + quantity
+        : before - quantity
+      : null;
   const verb = type === "stock" ? "Added" : "Took out";
   const tail = after !== null ? ` (now ${after} on hand)` : "";
-  // Undo is only offered for a quick-mode commit (it's the confirm step's
-  // replacement, not a general safety net) and only to a role that can
-  // actually void a transaction -- see the Tier 1 #3 permission decision.
-  const undo = quickCommit && roleAtLeast(getRole(), "supervisor")
-    ? { txnId: txn.id, itemId: item.id, quantity, type }
-    : null;
-  appendLogLine(`✓ ${verb} ${quantity} × ${item.name}${tail}`, true, undo);
+  const warning = !!txn.recount_required;
+  const prefix = warning ? "⚠" : "✓";
+  const recountTail = warning ? " — Please re-count stock" : "";
+  const undo = { txnId: txn.id, itemId: item.id, quantity, type };
+  appendLogLine(`${prefix} ${verb} ${quantity} × ${item.name}${tail}${recountTail}`, true, undo, null, warning);
   updateSummary();
   persistBatch();
 
@@ -718,9 +743,10 @@ if (scangoQuickmodeToggle) {
 if (scangoSegStock) scangoSegStock.addEventListener("click", () => setScangoType("stock"));
 if (scangoSegDispense) scangoSegDispense.addEventListener("click", () => setScangoType("dispense"));
 
-// Undo a quick-mode commit (Supervisor+ only -- see commitScannedItem).
-// Voids the transaction, backs the tallies and the manual-entry cache out,
-// and marks the line so it can't be undone twice.
+// Remove a saved Scan / Stock entry. The backend limits a Technician to their
+// own work-order dispenses; Supervisor+ may also remove stock entries. Voids
+// the transaction, backs the tallies and cache out, resolves any linked recount
+// request, and marks the line so it cannot be removed twice.
 if (scangoLog) {
   scangoLog.addEventListener("click", async (event) => {
     const btn = event.target.closest(".scango-log-undo-btn");
@@ -747,7 +773,7 @@ if (scangoLog) {
     if (line) {
       line.classList.add("scango-log-undone");
       const span = line.querySelector(".scango-log-text");
-      if (span) span.textContent = `${entry.text} — Undone`;
+      if (span) span.textContent = `${entry.text} — Removed`;
     }
     btn.remove();
 
@@ -759,7 +785,7 @@ if (scangoLog) {
     }
     renderManualResults();
 
-    entry.text = `${entry.text} — Undone`;
+    entry.text = `${entry.text} — Removed`;
     entry.undo = null;
     entry.undone = true; // survives the snapshot so a resume re-strikes the line
     persistBatch();
@@ -769,8 +795,8 @@ if (scangoLog) {
 // Retry a failed commit (any role). The failed log line captured the item,
 // quantity, and type at commit time (see commitScannedItem); Retry re-posts
 // with those exact values and, on success, converts the line in place into a
-// normal commit -- tallies, on-hand cache, summary, and (for an eligible
-// quick-mode dispense) an Undo button. The batchLog array and the DOM child
+// normal commit -- tallies, on-hand cache, summary, warning state, and a Remove
+// button. The batchLog array and the DOM child
 // list are kept in lockstep, so the clicked line's position maps to its entry.
 if (scangoLog) {
   scangoLog.addEventListener("click", async (event) => {
@@ -783,7 +809,7 @@ if (scangoLog) {
     const entry = idx >= 0 ? batchLog[idx] : null;
     if (!entry || !entry.retry) return;
 
-    const { itemId, itemName, quantity, type, quickCommit } = entry.retry;
+    const { itemId, itemName, quantity, type } = entry.retry;
     btn.disabled = true;
 
     let txn;
@@ -809,29 +835,34 @@ if (scangoLog) {
     batchScanCount += 1;
     batchUnitCount += quantity;
 
-    // Best-effort on-hand: the failed commit never moved stock, so the item's
-    // current cached quantity is the right "before" (other commits this batch
-    // already updated it). Absent from the cache -> no on-hand tail.
     const cached = searchItems.find((it) => it.id === itemId);
+    const responseQuantity = txn.item_quantity;
+    const authoritativeAfter = responseQuantity === null || responseQuantity === undefined
+      ? NaN
+      : Number(responseQuantity);
     const before = cached ? Number(cached.quantity) : NaN;
-    const after = Number.isFinite(before)
-      ? (type === "stock" ? before + quantity : before - quantity)
-      : null;
+    const after = Number.isFinite(authoritativeAfter)
+      ? authoritativeAfter
+      : Number.isFinite(before)
+        ? (type === "stock" ? before + quantity : before - quantity)
+        : null;
     if (cached && after !== null) cached.quantity = after;
 
     const verb = type === "stock" ? "Added" : "Took out";
     const tail = after !== null ? ` (now ${after} on hand)` : "";
-    const undo = quickCommit && roleAtLeast(getRole(), "supervisor")
-      ? { txnId: txn.id, itemId, quantity, type }
-      : null;
+    const warning = !!txn.recount_required;
+    const prefix = warning ? "⚠" : "✓";
+    const recountTail = warning ? " — Please re-count stock" : "";
+    const undo = { txnId: txn.id, itemId, quantity, type };
 
     entry.ok = true;
-    entry.text = `✓ ${verb} ${quantity} × ${itemName}${tail}`;
+    entry.text = `${prefix} ${verb} ${quantity} × ${itemName}${tail}${recountTail}`;
     entry.retry = null;
     entry.undo = undo;
+    entry.warning = warning;
 
-    // Repaint just this line (err -> ok, swap Retry for Undo) in place.
-    if (line) line.replaceWith(renderLogLine(entry.text, true, undo, null));
+    // Repaint just this line (err -> success/warning, swap Retry for Remove).
+    if (line) line.replaceWith(renderLogLine(entry.text, true, undo, null, false, warning));
 
     updateSummary();
     renderManualResults();

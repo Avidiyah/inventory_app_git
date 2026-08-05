@@ -21,6 +21,7 @@ from app.domain.errors import (
     ItemNotFoundError,
 )
 from app.models import Item, ItemBarcode, MassStageItem, Transaction
+from app.services import user_requests as request_service
 
 
 def _barcode_holder(
@@ -268,6 +269,7 @@ def update_item(
     price=_UNSET,
     product_link=_UNSET,
     override_archived: bool = False,
+    performed_by_id: uuid.UUID | None = None,
 ) -> Item:
     """Partially edit `barcode`, `name`, `location`, `price`, or
     `product_link` on an existing item. Only the fields the caller passes
@@ -282,7 +284,7 @@ def update_item(
     Quantity is intentionally not editable here — direct corrections go
     through `services.transactions.apply_correction`.
     """
-    item = db.query(Item).filter(Item.id == item_id).first()
+    item = db.query(Item).filter(Item.id == item_id).with_for_update().first()
     if not item:
         raise ItemNotFoundError("Item not found.")
     if barcode is not _UNSET:
@@ -307,6 +309,17 @@ def update_item(
         item.price = price
     if product_link is not _UNSET:
         item.product_link = product_link
+    if (
+        item.price is not None
+        and item.price > 0
+        and item.product_link
+        and item.product_link.strip()
+    ):
+        request_service.resolve_missing_price_requests(
+            db,
+            item_id=item.id,
+            resolved_by_id=performed_by_id,
+        )
     try:
         db.commit()
     except IntegrityError as exc:

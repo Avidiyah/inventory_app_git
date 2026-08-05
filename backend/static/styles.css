@@ -774,6 +774,110 @@ tr:last-child td {
     margin-top: 0;
 }
 
+/* Admin/Owner operational exception queue. Cards keep the request's audit
+   context together and use the same red exception language as Scan / Stock. */
+.user-requests-controls {
+    align-items: end;
+    margin-bottom: var(--space-4);
+}
+
+.user-requests-controls button {
+    margin-top: 0;
+}
+
+.user-requests-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--space-3);
+}
+
+.user-request-card {
+    border: 1px solid var(--gray-300);
+    border-left: 5px solid var(--color-error);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    background: var(--color-white);
+}
+
+.user-request-resolved {
+    border-left-color: var(--gray-400);
+    opacity: 0.85;
+}
+
+.user-request-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.user-request-header h3 {
+    margin: var(--space-1) 0 0;
+}
+
+.user-request-type,
+.user-request-status {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-bold);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.user-request-status {
+    color: var(--color-error);
+}
+
+.user-request-resolved .user-request-status {
+    color: var(--gray-600);
+}
+
+.user-request-alert {
+    color: var(--color-error);
+    font-weight: var(--fw-bold);
+}
+
+.user-request-details,
+.user-request-resolution {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    font-size: var(--fs-sm);
+}
+
+.user-request-resolution {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--gray-200);
+}
+
+.user-request-actions {
+    margin-top: var(--space-3);
+    display: flex;
+    align-items: end;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+.user-request-actions button {
+    margin-top: 0;
+}
+
+.user-request-price-label,
+.user-request-link-label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    font-weight: var(--fw-bold);
+}
+
+.user-request-price-input {
+    width: 9rem;
+}
+
+.user-request-link-input {
+    min-width: min(22rem, 70vw);
+}
+
 /* =================== NOTES EDITOR =================== */
 #notes-rows {
     display: flex;
@@ -1265,9 +1369,8 @@ tr.archived-user {
     flex: 1;
 }
 
-/* Quick-mode Undo (Supervisor+ only -- see views/transactions.js) and the
-   failed-commit Retry button (#7). Compact, matching the sizing of History's
-   row-action void button. */
+/* Scan-entry Remove and failed-commit Retry buttons. Compact, matching the
+   sizing of History's row-action void button. */
 .scango-log-undo-btn,
 .scango-log-retry-btn {
     flex-shrink: 0;
@@ -1289,6 +1392,14 @@ tr.archived-user {
 }
 
 .scango-log-err {
+    background-color: var(--color-brand-tint);
+    border-left-color: var(--color-error);
+    color: var(--color-error);
+}
+
+/* A successful dispense whose recorded stock was short. It is saved and can
+   be removed, but must read as an operational exception rather than green. */
+.scango-log-warning {
     background-color: var(--color-brand-tint);
     border-left-color: var(--color-error);
     color: var(--color-error);
@@ -1930,17 +2041,39 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-review-ready { font-weight: var(--fw-bold); color: var(--color-success); }
 .wo-status-note { margin: 0; }
 
-/* Supervisor+ details editor for an imported work order. Hidden until "Edit
-   details" is clicked (see views/workOrders.js setEditing), which also hides the
-   read-only .wo-details block -- one or the other is on screen, never both, so a
-   card stays a compact summary by default. */
-.wo-edit {
+/* Supervisor+ details editor. It is a native nested details card, collapsed by
+   default beneath the always-visible read-only work-order overview. */
+.wo-edit-card {
     margin-bottom: var(--space-3);
-    padding: var(--space-3);
     border: 1px solid var(--gray-200);
     border-radius: var(--radius-sm);
     background-color: var(--gray-50, transparent);
 }
+.wo-edit-summary,
+.wo-section-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    cursor: pointer;
+    font-weight: var(--fw-bold);
+    list-style: none;
+}
+.wo-edit-summary::-webkit-details-marker,
+.wo-section-summary::-webkit-details-marker { display: none; }
+.wo-edit-summary::before,
+.wo-section-summary::before {
+    content: "\25B8";
+    color: var(--gray-500);
+    font-size: var(--fs-sm);
+}
+.wo-edit-card[open] > .wo-edit-summary,
+.wo-section-card[open] > .wo-section-summary {
+    border-bottom: 1px solid var(--gray-200);
+}
+.wo-edit-card[open] > .wo-edit-summary::before,
+.wo-section-card[open] > .wo-section-summary::before { content: "\25BE"; }
+.wo-edit { padding: var(--space-3); }
 .wo-edit > .hint { margin-top: 0; }
 .wo-edit-grid {
     display: grid;
@@ -1970,9 +2103,57 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     font-weight: var(--fw-bold);
     color: var(--gray-500);
 }
-.wo-tech-choices { display: flex; flex-direction: column; gap: var(--space-1); }
-.wo-tech-choice { display: flex; align-items: center; gap: var(--space-2); }
-.wo-tech-choice input { width: auto; margin: 0; }
+.wo-tech-picker { display: flex; flex-direction: column; gap: var(--space-3); }
+.wo-tech-search-wrap { position: relative; }
+.wo-tech-search-label { display: flex; flex-direction: column; gap: var(--space-1); }
+.wo-tech-search-label > span,
+.wo-tech-selected-label {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    color: var(--gray-500);
+}
+.wo-tech-search { margin-top: 0; width: 100%; }
+.wo-tech-results {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + var(--space-1));
+    right: 0;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    max-height: 240px;
+    overflow-y: auto;
+    padding: var(--space-2);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    background-color: white;
+    box-shadow: var(--shadow-md);
+}
+.wo-tech-results[hidden] { display: none; }
+.wo-tech-results .hint { margin: var(--space-1); }
+.wo-tech-result {
+    justify-content: flex-start;
+    width: 100%;
+    min-height: var(--btn-h-sm);
+    margin-top: 0;
+    text-align: left;
+}
+.wo-tech-selected { display: flex; flex-direction: column; gap: var(--space-1); }
+.wo-tech-selected-list { display: flex; flex-direction: column; gap: var(--space-1); }
+.wo-tech-selected-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    background-color: white;
+}
+.wo-tech-selected-name { min-width: 0; overflow-wrap: anywhere; }
+.wo-tech-remove { flex: 0 0 auto; min-height: var(--btn-h-sm); margin-top: 0; }
+.wo-tech-empty { margin: var(--space-1) 0 0; }
 /* The free-text symptom/task spans the grid rather than sitting in one column. */
 .wo-edit-wide { grid-column: 1 / -1; }
 .wo-edit-actions {
@@ -1983,14 +2164,31 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 }
 .wo-edit-actions button { margin-top: 0; min-height: var(--btn-h-sm); }
 
-.wo-notes-section {
+/* Notes, Materials, and Labor share one collapsed-by-default card shell. Their
+   content and existing role-specific controls remain independently owned. */
+.wo-section-card {
     margin-bottom: var(--space-3);
-    padding: var(--space-3);
     border: 1px solid var(--gray-200);
     border-radius: var(--radius-sm);
     background-color: var(--gray-50, transparent);
 }
-.wo-notes-section h4 { margin: 0 0 var(--space-2); }
+.wo-section-content { padding: var(--space-3); }
+.wo-section-content > :first-child { margin-top: 0; }
+.wo-notes-log {
+    max-height: 320px;
+    overflow-y: auto;
+    margin-bottom: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    background-color: var(--color-white);
+}
+.wo-notes-log-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+}
+.wo-notes-empty { margin: 0; }
 .wo-notes-input { width: 100%; margin-top: 0; resize: vertical; }
 .wo-notes-actions { display: flex; margin-top: var(--space-2); }
 .wo-notes-actions button { margin-top: 0; min-height: var(--btn-h-sm); }
@@ -2071,12 +2269,6 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-add-item-row .ms-item-search { flex: 1 1 160px; margin-top: 0; }
 .wo-add-item-row .wo-item-qty { flex: 0 0 90px; width: 90px; margin-top: 0; }
 .wo-add-item-row button { margin-top: 0; min-height: var(--control-h); }
-.wo-labor-section {
-    margin-top: var(--space-4);
-    padding-top: var(--space-3);
-    border-top: 1px solid var(--gray-200);
-}
-.wo-labor-section h4 { margin: 0 0 var(--space-1); }
 .wo-labor-list { display: flex; flex-direction: column; gap: var(--space-2); }
 .wo-labor-entry {
     display: flex;
@@ -2110,6 +2302,8 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-message { margin-top: var(--space-2); font-size: var(--fs-sm); }
 
 @media (max-width: 640px) {
+    .wo-tech-selected-row { align-items: stretch; flex-direction: column; }
+    .wo-tech-remove { width: 100%; }
     .wo-labor-entry { align-items: stretch; flex-direction: column; }
     .wo-labor-actions { align-items: stretch; }
     .wo-labor-actions input { width: 100%; }

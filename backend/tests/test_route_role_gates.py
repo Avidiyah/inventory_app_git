@@ -31,6 +31,7 @@ from app.routers import items as items_router
 from app.routers import tools as tools_router
 from app.routers import users as users_router
 from app.routers import transactions as transactions_router
+from app.routers import user_requests as user_requests_router
 from app.routers import work_orders as work_orders_router
 from app.routers._errors import to_http
 from app.schemas.work_orders import WorkOrderUpdate
@@ -98,10 +99,11 @@ def test_create_correction_requires_admin():
     assert _min_role_for(transactions_router, "create_correction") == roles.ROLE_ADMIN
 
 
-def test_void_transaction_requires_supervisor():
-    # `DELETE /transactions/{transaction_id}`. Owner/Admin/Supervisor may
-    # void a mis-clicked transaction; Technician may not.
-    assert _min_role_for(transactions_router, "void_transaction") == roles.ROLE_SUPERVISOR
+def test_void_transaction_has_no_static_min_role():
+    # Supervisor+ may void any actionable row; a Technician may remove only
+    # their own work-order dispense. That ownership/type decision requires the
+    # loaded transaction and therefore lives inside the service.
+    assert _min_role_for(transactions_router, "void_transaction") is None
 
 
 def test_create_transaction_has_no_static_min_role():
@@ -118,6 +120,7 @@ def test_create_transaction_has_no_static_min_role():
         "list_work_orders",
         "work_order_filter_options",
         "get_work_order",
+        "start_work_order",
         "update_work_order",
         "add_work_order_item",
         "update_work_order_item",
@@ -172,6 +175,11 @@ def test_work_order_list_forwards_joinable_filters(monkeypatch):
 
 def test_archive_work_order_requires_admin():
     assert _min_role_for(work_orders_router, "archive_work_order") == roles.ROLE_ADMIN
+
+
+@pytest.mark.parametrize("endpoint_name", ["list_user_requests", "update_user_request"])
+def test_user_request_routes_require_admin(endpoint_name):
+    assert _min_role_for(user_requests_router, endpoint_name) == roles.ROLE_ADMIN
 
 
 @pytest.mark.parametrize(

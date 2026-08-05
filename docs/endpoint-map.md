@@ -1,8 +1,8 @@
 # Endpoint Map: Database ↔ User View
 
-Last reviewed: 2026-08-04
+Last reviewed: 2026-08-05
 
-Purpose: a complete, self-contained trace of all 66 endpoints — wiring, contracts,
+Purpose: a complete, self-contained trace of all 69 endpoints — wiring, contracts,
 rules, error behavior, and service algorithms — so an AI or developer can answer
 "what does this endpoint send/return/do?" **without opening the source**. If you
 find yourself about to read `schemas/`, `services/`, `domain/`, or `routers/`,
@@ -57,7 +57,7 @@ writes (w).
 | 6 | GET | `/items/` | session | `items.py` → `items.list_items` (optional `q`) | items (r) | `apiListItems` | `items.js`, `addBarcode.js`, `transactions.js`, `massStage.js`, `workOrders.js` |
 | 7 | GET | `/items/{barcode}` | session | `items.py` → `items.get_item_by_barcode` | items (r), item_barcodes (r) | `apiGetItemByBarcode` | `scan.js`, `addBarcode.js`, `history.js` |
 | 8 | POST | `/items/` | admin+ | `items.py` → `items.create_item` | items (w), item_barcodes (r) | `apiCreateItem` | `items.js` |
-| 9 | PATCH | `/items/{id}` | admin+ | `items.py` → `items.update_item` | items (w), item_barcodes (r) | `apiUpdateItem` | `itemEditor.js` |
+| 9 | PATCH | `/items/{id}` | admin+ | `items.py` → `items.update_item` (+ `user_requests.resolve_missing_price_requests`) | items (w/lock), item_barcodes (r), user_requests (w when price+link complete) | `apiUpdateItem` | `itemEditor.js`, `userRequests.js` |
 | 10 | PATCH | `/items/{id}/notes` | supervisor+ | `items.py` → `notes.replace_notes` | items (w) | `apiUpdateNotes` | `notes.js` |
 | 11 | PATCH | `/items/{id}/barcodes` | admin+ | `items.py` → `items.replace_barcodes` | item_barcodes (w), items (r) | `apiUpdateBarcodes` | `itemEditor.js`, `addBarcode.js` |
 | 12 | DELETE | `/items/{id}` | admin+ | `items.py` → `items.delete_item` | items (w, archive) | `apiDeleteItem` | `items.js` |
@@ -69,19 +69,19 @@ writes (w).
 | 18 | POST | `/users/{id}/restore` | outranks target | `users.py` → `users.restore_user` | users (w) | `apiRestoreUser` | `users.js` |
 | 19 | DELETE | `/users/{id}` | outranks target | `users.py` → `users.delete_user` | users (w, hard) | `apiDeleteUser` | **API-only** (no UI; UI uses archive) |
 | 20 | GET | `/transactions/` | supervisor+ | `transactions.py` → `history.list_history` | transactions (r), items (r), users (r) | `apiListTransactions` | `history.js` |
-| 21 | POST | `/transactions/` | session + direction¹ | `transactions.py` → `transactions.apply_transaction` (+ `work_orders.resolve_work_order`, `attach_dispense_line`) | items (w), transactions (w), work_orders (r/w²), work_order_items (w³) | `apiCreateTransaction` | `transactions.js` |
+| 21 | POST | `/transactions/` | session + direction¹ | `transactions.py` → `transactions.apply_transaction` (+ `work_orders.resolve_work_order`, `attach_dispense_line`; User Request producers for shortage/missing price) | items (w), transactions (w), work_orders (r/w²), work_order_items (w³), user_requests (w on shortage or NULL/non-positive work-order price) | `apiCreateTransaction` | `transactions.js` |
 | 22 | POST | `/transactions/adjust` | admin+ | `transactions.py` → `transactions.apply_correction` | items (w), transactions (w) | `apiCreateCorrection` | `correction.js` |
 | 23 | PATCH | `/transactions/{id}/billing` | admin+ | `transactions.py` → `transactions.set_billable_quantity` | transactions (w) | `apiSetBillableQuantity` | `history.js` |
-| 24 | DELETE | `/transactions/{id}` | supervisor+ | `transactions.py` → `transactions.void_transaction` | transactions (w, soft), items (w), work_order_items (w⁴) | `apiVoidTransaction` | `history.js` |
+| 24 | DELETE | `/transactions/{id}` | supervisor+, or Technician's own linked dispense | `transactions.py` → `transactions.void_transaction` (+ `user_requests.resolve_for_transaction`) | transactions (w, soft), items (w), work_order_items (w⁴), user_requests (w if linked) | `apiVoidTransaction` | `history.js`, `transactions.js` |
 | 25 | GET | `/work-orders/` | session scoped | `work_orders.py` → `work_orders.list_work_orders` (scheduled-date descending; joinable status/service/supervisor/community/date/number filters) | work_orders (r), work_order_items (r), work_order_technicians (r), users (r) | `apiListWorkOrders` | `workOrders.js`, `transactions.js`, `history.js`, `adminReview.js` |
 | 26 | GET | `/work-orders/{id}` | session scoped | `work_orders.py` → `work_orders.get_work_order` | work_orders (r), work_order_items (r/w⁵), work_order_technicians (r), work_order_labor (r), items (r), users (r) | `apiGetWorkOrder` | `workOrders.js`, `history.js`, `adminReview.js` |
 | 27 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | `work_orders.py` → `work_orders.lookup_work_order` | work_orders (r, **incl. archived**) | `apiLookupWorkOrder` | `history.js` |
 | 28 | PATCH | `/work-orders/{id}` | scoped; notes→tech+, operations→sup+, metadata→admin+; stale supervisor precondition→409 | `work_orders.py` → `work_orders.update_work_order` | work_orders (r/w, row lock; incl. notes/primary mirror), work_order_technicians (w), users (r) | `apiUpdateWorkOrder` | `workOrders.js`, `adminReview.js` (Return to In-Progress) |
 | 29 | POST | `/work-orders/{id}/archive` | admin+ scoped; any live status | `work_orders.py` → `work_orders.archive_work_order` | work_orders (w, Closed/archive) | `apiArchiveWorkOrder` | `workOrders.js`, `adminReview.js` |
-| 30 | POST | `/work-orders/{id}/items` | session scoped | `work_orders.py` → `work_orders.add_work_order_item` | items (w), transactions (w), work_order_items (w) | `apiAddWorkOrderItem` | `workOrders.js` |
+| 30 | POST | `/work-orders/{id}/items` | Technician+ scoped | `work_orders.py` → `work_orders.add_work_order_item` | items (w; negative expected count allowed in dispense mode), transactions (w), work_order_items (w), user_requests (w if stock is short or item is unpriced) | `apiAddWorkOrderItem` | `workOrders.js` |
 | 31 | PATCH | `/work-orders/{id}/items/{wid}` | supervisor+ scoped | `work_orders.py` → `work_orders.update_work_order_item` | items (w), transactions (w, adjust), work_order_items (w) | `apiUpdateWorkOrderItem` | `workOrders.js` |
 | 32 | PATCH | `/work-orders/{id}/items/{wid}/billing` | admin+ scoped | `work_orders.py` → `work_orders.set_work_order_item_billable` | work_order_items (w) | `apiSetWorkOrderItemBilling` | `workOrders.js` |
-| 33 | DELETE | `/work-orders/{id}/items/{wid}` | supervisor+ scoped | `work_orders.py` → `work_orders.delete_work_order_item` | items (w), transactions (w, void), work_order_items (w) | `apiDeleteWorkOrderItem` | `workOrders.js` |
+| 33 | DELETE | `/work-orders/{id}/items/{wid}` | supervisor+ scoped | `work_orders.py` → `work_orders.delete_work_order_item` | items (w), transactions (w, void), work_order_items (w), user_requests (w, resolve source-linked) | `apiDeleteWorkOrderItem` | `workOrders.js` |
 | 34 | POST | `/mass-stages/` | supervisor+ | `mass_stages.py` → `mass_staging.create_stage` | mass_stages (w) | `apiCreateStage` | `massStage.js` |
 | 35 | GET | `/mass-stages/` | supervisor+ scoped | `mass_stages.py` → `mass_staging.list_stages` | mass_stages (r) | `apiListStages` | `massStage.js` |
 | 36 | GET | `/mass-stages/{id}` | supervisor+ | `mass_stages.py` → `mass_staging.get_stage` | mass_stages (r), mass_stage_work_orders (r), mass_stage_items (r), work_orders (r), items (r) | `apiGetStage` | `massStage.js` |
@@ -93,7 +93,7 @@ writes (w).
 | 42 | POST | `/mass-stages/{id}/work-orders/{slot}/items` | supervisor+ | `mass_stages.py` → `mass_staging.add_item` | mass_stage_items (w) | `apiAddStageItem` | `massStage.js` |
 | 43 | PATCH | `/mass-stages/{id}/work-orders/{slot}/items/{sid}` | supervisor+ | `mass_stages.py` → `mass_staging.update_item` | mass_stage_items (w) | `apiUpdateStageItem` | `massStage.js` |
 | 44 | DELETE | `/mass-stages/{id}/work-orders/{slot}/items/{sid}` | supervisor+ | `mass_stages.py` → `mass_staging.delete_item` | mass_stage_items (w) | `apiDeleteStageItem` | `massStage.js` |
-| 45 | POST | `/mass-stages/{id}/load` | supervisor+ | `mass_stages.py` → `mass_staging.load_item` | items (w), transactions (w), work_order_items (w), mass_stage_items (w) | `apiLoadStageItem` | `massStage.js` |
+| 45 | POST | `/mass-stages/{id}/load` | supervisor+ | `mass_stages.py` → `mass_staging.load_item` | items (w), transactions (w), work_order_items (w), mass_stage_items (w), user_requests (w if unpriced) | `apiLoadStageItem` | `massStage.js` |
 | 46 | POST | `/mass-stages/{id}/return` | supervisor+ | `mass_stages.py` → `mass_staging.return_item` | items (w, silent), work_order_items (w), mass_stage_items (w) | `apiReturnStageItem` | `massStage.js` |
 | 47 | POST | `/tools/` | admin+ | `tools.py` → `tools_service.create_tool` | tools (w) | `apiCreateTool` | `tools.js` |
 | 48 | GET | `/tools/` | session | `tools.py` → `tools_service.list_tools` + `tool_custody` | tools (r), tool_transactions (r), users (r) | `apiListTools` | `tools.js` |
@@ -105,7 +105,7 @@ writes (w).
 | 54 | POST | `/tools/{tool_id}/adjust` | admin+ | `tools.py` → `tools_service.adjust_tool_quantity` | tools (w), tool_transactions (w) | `apiAdjustTool` | `toolCorrection.js` |
 | 55 | POST | `/work-orders/import` | admin+ | `work_orders.py` → `work_orders.import_work_orders` | work_orders (r/w, locked find-or-create — **the only create path**), users (r, active-supervisor name-match) | `apiImportWorkOrders` | `workOrders.js` |
 | 56 | POST | `/work-orders/{id}/restore` | supervisor+ scoped | `work_orders.py` → `work_orders.restore_work_order` | work_orders (w, un-archive) | `apiRestoreWorkOrder` | `history.js` |
-| 57 | GET | `/items/search-index` | session | `items.py` → `items.list_item_search_index` | items (r; name/barcode projection only) | `apiListItemSearchIndex` | `items.js` |
+| 57 | GET | `/items/search-index` | session | `items.py` → `items.list_item_search_index` | items (r; name/barcode projection only) | — | — (retained compatibility endpoint; current Find Item does not request it) |
 | 58 | PATCH | `/users/{id}/name` | self or outranks target | `users.py` → `users.update_name` | users (w; first/last name + optional `username`) | `apiUpdateUserName` | `users.js` |
 | 59 | POST | `/work-orders/{id}/labor` | supervisor+ scoped | `work_orders.py` → `work_orders.add_work_order_labor` | work_orders (r/w status), work_order_technicians (r), work_order_labor (w), users (r) | `apiAddWorkOrderLabor` | `workOrders.js` |
 | 60 | PATCH | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | `work_orders.py` → `work_orders.update_work_order_labor` | work_order_labor (r/w) | `apiUpdateWorkOrderLabor` | `workOrders.js` |
@@ -115,15 +115,18 @@ writes (w).
 | 64 | GET | `/work-orders/filter-options` | session scoped | `work_orders.py` → `work_orders.get_work_order_filter_options` | work_orders (r), work_order_technicians (r, scope), users (r) | `apiGetWorkOrderFilterOptions` | `workOrders.js` |
 | 65 | GET | `/work-orders/legacy/archive` | owner exactly | `work_orders.py` → `work_orders.count_live_legacy_work_orders` | work_orders (r; live legacy count) | `apiGetLegacyWorkOrderArchivePreview` | `workOrders.js` |
 | 66 | POST | `/work-orders/legacy/archive` | owner exactly | `work_orders.py` → `work_orders.archive_live_legacy_work_orders` | work_orders (w; atomic bulk soft-archive) | `apiArchiveLegacyWorkOrders` | `workOrders.js` |
+| 67 | POST | `/work-orders/{id}/start` | technician+ scoped | `work_orders.py` → `work_orders.start_work_order` | work_orders (r/w, row lock) | `apiStartWorkOrder` | `transactions.js` |
+| 68 | GET | `/user-requests/` | admin+ | `user_requests.py` → `user_requests.list_user_requests` | user_requests (r), items (r), work_orders (r), users (r) | `apiListUserRequests` | `userRequests.js` |
+| 69 | PATCH | `/user-requests/{id}` | admin+ | `user_requests.py` → `user_requests.update_user_request` | user_requests (r/w), users (r) | `apiUpdateUserRequest` | `userRequests.js` |
 
-(Rows 55–66 were appended out of resource order to keep the existing #1–54
+(Rows 55–69 were appended out of resource order to keep the existing #1–54
 numbering — and the footnote / per-table references to it — stable.)
 
 Footnotes:
-1. `POST /transactions/`: dispense = any authenticated user; stock = supervisor+ (`domain.roles.can_transact`).
+1. `POST /transactions/`: dispense = any authenticated user; stock = supervisor+ (`domain.roles.can_transact`). A Scan/Stock dispense may take expected quantity below zero and opens a recount request. Work Orders Add Item has the same deliberate exception; Work Order quantity edits and the other stock-out paths retain the strict no-overdraft domain rule.
 2. work_orders: read when a scanned card passes `work_order_id`; resolved (read, plus a fill-blanks write) when a Supervisor+ passes a free-text `work_order_number` — 404 if that number was never imported.
 3. work_order_items: a line is created/accumulated only for a `dispense` carrying a `work_order_id` (a stock-in writes none).
-4. void walks the work_order_items line back (drops it at zero) when the voided row carries a `work_order_id`.
+4. void walks the work_order_items line back (drops it at zero) when the voided row carries a `work_order_id`; it also resolves any request linked to the source transaction. Supervisor+ may void any eligible row, while a Technician may remove only their own work-order-linked dispense.
 5. `get_work_order` lazily self-heals orphaned linked dispenses into lines on read (a write inside a read).
 
 ---
@@ -141,9 +144,10 @@ What populates each screen. Format: **table → … → view → what the user s
   shell (`shell-head.html` + `pages/*.html` + `shell-tail.html`).
 
 ### Items
-- **items** → `list_item_search_index` → `GET /items/search-index` →
-  `apiListItemSearchIndex` → `items.js`: name/barcode datalist suggestions on
-  initial Find Item load; no full records or cards are loaded.
+- **items** → `list_item_search_index` → `GET /items/search-index`: retained
+  lightweight name/barcode projection endpoint with no current frontend
+  consumer. Find Item makes no item request on entry and shows no native
+  suggestion popup.
 - **items** → `list_items` → `GET /items/` (optional `q`) → `apiListItems` →
   - `items.js`: explicit full-dataset Search/Enter results or Load All Items
     (Admin/Owner see price/link columns); typing alone does not render cards.
@@ -161,8 +165,11 @@ What populates each screen. Format: **table → … → view → what the user s
 - **users** → `list_users` → `GET /users/` → `apiListUsers` →
   - `users.js`: the account table (first/last/username; archived included,
     dimmed) and full-name History filter.
-  - `transactions.js` / `workOrders.js` / `massStage.js`: technician dropdowns
-    for assignment, rendered by full name.
+  - `transactions.js` / `massStage.js`: technician dropdowns rendered by full
+    name.
+  - `workOrders.js`: Edit Details locally searches the already-loaded active
+    Technicians by full name, offers only unselected matches in a dropdown, and
+    lists the draft assignment set below it. Save replaces `assigned_to_ids`.
   - `tools.js`: Admin/Owner's full-name active-user custody search (archived
     excluded).
 
@@ -184,6 +191,14 @@ What populates each screen. Format: **table → … → view → what the user s
   - `workOrders.js`: the expanded card body — materials lines, per-line charge
     (`unit_price`/`billable_quantity`, Admin/Owner), and `materials_total`.
   - `history.js`: per-work-order totals + line unit prices for the copy export.
+
+### User requests
+- **user_requests ⋈ items ⋈ work_orders ⋈ users** → `list_user_requests` →
+  `GET /user-requests/?status=open|resolved` → `apiListUserRequests` →
+  `userRequests.js`: Admin/Owner see recount disparities and missing-price/link
+  tasks with item/barcode, affected work orders, current price/link, requestor,
+  state, and resolution metadata. Missing-price cards expose both item fields
+  inline; the page remains request-type-generic.
 
 ### Mass staging
 - **mass_stages** → `list_stages` → `GET /mass-stages/` → `apiListStages` →
@@ -229,7 +244,9 @@ service → table effect**.
 - `items.js` (Create Item) → `apiCreateItem` → `POST /items/` → `create_item` →
   **items** insert (barcode uniqueness checked across **item_barcodes**).
 - `itemEditor.js` (Save) → `apiUpdateItem` → `PATCH /items/{id}` → `update_item`
-  → **items** partial update (explicit null clears price/link).
+  → **items** partial update (explicit null clears price/link). Once a positive
+  price and nonblank product link exist, all open missing-price **user_requests** for
+  that item resolve in the same commit.
 - `notes.js` (Save notes) → `apiUpdateNotes` → `PATCH /items/{id}/notes` →
   `replace_notes` → **items.notes** JSONB replace.
 - `itemEditor.js` / `addBarcode.js` (Save barcodes) → `apiUpdateBarcodes` →
@@ -241,13 +258,26 @@ service → table effect**.
 - `transactions.js` (initial gate load / live work-order-number filter) →
   `apiListWorkOrders` → `GET /work-orders/[?q=]` → client keeps scoped Created,
   Assigned, and In-Progress **work_orders** cards. Search only filters. Selecting
-  In-Progress arms the batch; selecting Created/Assigned confirms whether to open
-  and expand that Work Order so the user can explicitly Set In-Progress.
+  In-Progress arms the batch; selecting Assigned and accepting the confirmation
+  calls `apiStartWorkOrder` → `POST /work-orders/{id}/start`, atomically changes
+  **work_orders.status** to In-Progress, and arms the batch without navigation.
+  Selecting Created still confirms whether to open and expand Work Orders.
 - `transactions.js` (scan-and-go / manual Add Stock / Take Out) →
   `apiCreateTransaction` → `POST /transactions/` → `apply_transaction` →
   **items.quantity** ±, **transactions** insert; if a `dispense` carries a
-  `work_order_id`, also **work_order_items** line create/accumulate. The manual
-  item picker is hidden until a work-order card has been selected.
+  `work_order_id`, also **work_order_items** line create/accumulate. A dispense
+  beyond counted stock is committed with a negative expected count and creates
+  one linked open **user_requests** `inventory_recount` row; the UI renders the
+  result red with `Please re-count stock`. Any work-order material with a NULL
+  or non-positive price (`$0.00` included) also
+  creates or extends one item-level `missing_item_price` request with every
+  affected work-order number. The manual item picker is hidden until a
+  work-order card has been selected.
+- `transactions.js` (Remove on a successful scan) → `apiVoidTransaction` →
+  `DELETE /transactions/{id}` → `void_transaction` → reverses **items.quantity**,
+  adjusts/deletes the **work_order_items** line, soft-voids the **transaction**,
+  and resolves its linked **user_requests** row. Supervisor+ may remove eligible
+  transactions; Technician is limited to their own work-order-linked dispense.
 - `correction.js` (Correct count) → `apiCreateCorrection` →
   `POST /transactions/adjust` → `apply_correction` → **items.quantity** set,
   **transactions** insert (`adjust`, signed delta).
@@ -257,6 +287,20 @@ service → table effect**.
 - `history.js` (Delete/Void) → `apiVoidTransaction` → `DELETE /transactions/{id}`
   → `void_transaction` → **transactions.voided_at** set, **items.quantity**
   reversed; walks the **work_order_items** line back if work-order-linked.
+
+### User requests
+- `userRequests.js` (Save price & link) → `apiUpdateItem` → `PATCH /items/{id}`
+  → the inline price input uses `min="0.01"` and rejects zero or negative values,
+  then writes **items.price/product_link** together; `update_item` auto-resolves
+  the item's open missing-price **user_requests** only when a price greater than
+  zero and a nonblank link both exist, removing the
+  card from the default open queue while preserving resolved history.
+- `userRequests.js` (recount-card Mark resolved / Reopen) → `apiUpdateUserRequest` →
+  `PATCH /user-requests/{id}` → `update_user_request` → **user_requests.status**,
+  `resolved_at`, `resolved_by_id`, and optional `resolution_note` update. Admin+
+  only; reopening clears the resolution fields. Resolved missing-price cards are
+  read-only audit entries in the page, although the generic endpoint accepts a
+  reopen request from an API client.
 
 ### Users
 - `users.js` (Create) → `apiCreateUser` → `POST /users/` → **users** insert.
@@ -325,14 +369,21 @@ one no import has brought in.
   `tests/test_receipt.py`.
 - `workOrders.js` (Edit details → Save, Supervisor+) → `apiUpdateWorkOrder` →
   `PATCH /work-orders/{id}` → `update_work_order` → **work_orders** update. The
-  card's editor is collapsed until "Edit details" is clicked. Supervisor sees
-  only routing (`supervisor_id`, `assigned_to_ids`) and status. Admin/Owner also
-  receives imported metadata inputs (`location`, `service_type`,
+  editor is a nested Edit details card, collapsed by default beneath the
+  persistent read-only overview. Supervisor sees only routing (`supervisor_id`,
+  `assigned_to_ids`) and status. The technician
+  picker renders no complete user list: typing opens a case-insensitive full-name
+  result dropdown, selected users are excluded, and each choice is added to a
+  removable list below the search. The remaining row IDs are serialized as the
+  replacement `assigned_to_ids` set.
+  Admin/Owner also receives imported metadata inputs (`location`, `service_type`,
   `schedule_date`, `output_to`, `vendor_assignee`, `description`). Legacy place
-  fields and number are read-only. From Created through Completed the
-  selector offers current/earlier steps plus On-Hold; On-Hold can resume to a
+  fields and number are read-only. The existing status selector offers
+  In-Progress for Created/Assigned, so it replaces the former standalone start
+  action while retaining rollback and On-Hold choices; On-Hold can resume to a
   non-Review step. Created/Assigned is normalized from technician presence.
-  Review remains outside this selector. `number` is not editable — the import
+  Review remains outside this selector. Save and Cancel re-fetch the card and
+  restore the nested editor's default collapsed state. `number` is not editable — the import
   matches on it. The patch includes the editor's original `supervisor_id` as
   `expected_supervisor_id`; the service locks the row before comparing it. If a
   different supervisor already picked it up, the API returns 409 with `This
@@ -340,15 +391,28 @@ one no import has brought in.
   reloads the page when dismissed. A successful transfer is returned through
   internal response scope so routing it away does not become a false 404.
 - `workOrders.js` (mode / lifecycle actions, Supervisor+) →
-  `apiUpdateWorkOrder` → same route. Only Supervisor+ receives Set In-Progress,
-  Mark completed, mode, Reopen, or Send to Review controls. Send to Review on a
-  Completed card still requires reviewing the
+  `apiUpdateWorkOrder` → same route. Only Supervisor+ receives the mode, Mark
+  completed, Reopen, or Send to Review controls. Explicit Created/Assigned →
+  In-Progress now comes from the existing Edit details status dropdown; material
+  or labor activity still advances automatically, and the separate scoped Scan /
+  Stock start route remains unchanged. Send to Review on a Completed card still requires reviewing the
   work and accepting a confirmation pop-up before the Review PATCH sends it to
   final Admin Review. Status-colored cards are gray/red/yellow/orange/blue/green for
   Created/Assigned/In-Progress/On-Hold/Completed/Review.
+- `workOrders.js` renders Notes, Materials, and Supervisor+ Labor as native
+  nested cards that are collapsed by default. Materials contains logged rows,
+  the no-material state, Admin material total, and item search/quantity/Add
+  controls. Material and Labor cards reopen after their write-triggered detail
+  refreshes so changed data remains visible; Notes closes after a successful
+  save. The existing API calls and permissions are unchanged.
 - `workOrders.js` (Save notes, any in-scope user) → `apiUpdateWorkOrder` → same
-  route with `{notes}` → nullable free-form **work_orders.notes** replace. Blank
-  input clears to NULL; notes are returned only with expanded detail.
+  route with one nonblank `{notes}` entry → row-locked `append_note_log` →
+  **work_orders.notes** append. The server prefixes Central `h:mm AM/PM`,
+  `MMDDYY`, and the authenticated user's `full_name`; existing/legacy text is
+  retained. The response returns the complete log. The browser replaces the
+  visible log from that response, clears the new-note textarea, and closes the
+  nested Notes card. Blank input is rejected client-side; null cannot clear the
+  stored log.
 - `workOrders.js` (Add/update/remove labor, Supervisor+ only) →
   `apiAddWorkOrderLabor` / `apiUpdateWorkOrderLabor` /
   `apiDeleteWorkOrderLabor` → `/work-orders/{id}/labor` or
@@ -356,7 +420,8 @@ one no import has brought in.
   **work_order_labor**. Entries store actual whole minutes per assigned
   technician; Supervisor+ may manage any assigned technician. Detail billing
   sums minutes, rounds upward once to 30 minutes, and
-  applies `$62.50/hour` (rate/charge Admin+ only).
+  applies `$62.50/hour` (rate/charge Admin+ only). Add/update/remove re-fetches
+  detail and reopens the Labor card.
 - `adminReview.js` (Admin/Owner) → `apiListWorkOrders({status: "review"})` →
   Review cards → `apiGetWorkOrder` → `adminReviewReceipt.js`. The pure receipt
   builder uses authoritative override-aware work-order material lines with
@@ -387,13 +452,17 @@ one no import has brought in.
   the undo for archive now that there is no re-create path.
 - `transactions.js` (scan gate, work-order-number filter) → `apiListWorkOrders`
   with `q` → pick an In-Progress result → batch starts without a status write.
-  Picking Created/Assigned asks whether to navigate to the expanded Work Order
-  to set it In-Progress; cancel stays at the gate. An unknown
+  Picking Assigned and confirming calls the narrow start action and arms the
+  batch in place; picking Created asks whether to navigate to the expanded Work
+  Order for assignment. Cancel stays at the gate. An unknown
   number is refused in the view; a `POST /transactions/` carrying one is refused
   server-side by `resolve_work_order` (404).
 - `workOrders.js` (Add material) → `apiAddWorkOrderItem` →
   `POST /work-orders/{id}/items` → `add_work_order_item` → **items.quantity** ∓
-  (dispense mode), **transactions** insert, **work_order_items** line.
+  (dispense mode), **transactions** insert, **work_order_items** line. If stock
+  is insufficient, the expected count may become negative, one linked
+  **user_requests** recount is inserted atomically, and the card reports
+  `Please re-count stock` in red.
 - `workOrders.js` (Update qty, Supervisor+) → `apiUpdateWorkOrderItem` →
   `PATCH /work-orders/{id}/items/{wid}` → `update_work_order_item` →
   **work_order_items.quantity** set, **items.quantity** corrected by delta,
@@ -404,7 +473,8 @@ one no import has brought in.
 - `workOrders.js` (Remove material, Supervisor+) → `apiDeleteWorkOrderItem` →
   `DELETE /work-orders/{id}/items/{wid}` → `delete_work_order_item` →
   **items.quantity** returned, **work_order_items** row delete, **transactions**
-  voided (the line's whole contributing set).
+  voided (the line's whole contributing set), and source-linked
+  **user_requests** resolved.
 
 ### Mass staging
 - `massStage.js` (Create stage) → `apiCreateStage` → `POST /mass-stages/` →
@@ -464,12 +534,12 @@ Quick reverse lookup: "which endpoints touch table X?"
 
 | Table | Written by (endpoint #) | Read by (endpoint #) |
 |-------|-------------------------|----------------------|
-| `users` | 15, 16, 17, 18, 19, 58, 62 | 3, 5, 14, 20, 25–28 (assignee validation), 40, 55 (supervisor name-match), 59–61, 63–64 |
+| `users` | 15, 16, 17, 18, 19, 58, 62 | 3, 5, 14, 20, 25–28 (assignee validation), 40, 55 (supervisor name-match), 59–61, 63–64, 68–69 |
 | `sessions` | 3 (insert), 4 (delete), 17 (revoke), 19 (cascade), 62 (revoke) | every authenticated request (5 + all gated) |
-| `items` | 8, 9, 10, 12, 21, 22, 24, 30, 31, 33, 45, 46 | 6, 7, 20, 26, 36, 63 |
+| `items` | 8, 9, 10, 12, 21, 22, 24, 30, 31, 33, 45, 46 | 6, 7, 20, 26, 36, 63, 68 |
 | `item_barcodes` | 8 (check), 11 | 7, 8 (uniqueness) |
 | `transactions` | 21, 22, 23, 24, 30, 31, 33, 45 | 20, 24, 26 (self-heal) |
-| `work_orders` | 21 (activity status), 28, 29, 40 (fill-blanks), 55 (import f-o-c), 59 (activity status) | 20–21, 25–29, 36, 40, 55, 59–61, 63–64 |
+| `work_orders` | 21 (activity status), 28, 29, 40 (fill-blanks), 55 (import f-o-c), 59 (activity status), 67 (start) | 20–21, 25–29, 36, 40, 55, 59–61, 63–64, 67–68 |
 | `work_order_items` | 21, 24, 30, 31, 32, 33, 45, 46 | 25, 26, 63 |
 | `work_order_technicians` | 28, 40, 55 | 25, 26, 28, 59, 64 |
 | `work_order_labor` | 59, 60, 61 | 26, 60, 61, 63 |
@@ -478,6 +548,7 @@ Quick reverse lookup: "which endpoints touch table X?"
 | `mass_stage_items` | 42, 43, 44, 45, 46 | 36 |
 | `tools` | 47, 50, 51, 52, 53, 54 | 48, 49, 52, 53, 54 |
 | `tool_transactions` | 52, 53, 54 | 48, 49, 53 (outstanding-balance check) |
+| `user_requests` | 9 (price/link auto-resolve), 21 (shortage/unpriced), 24 (recount auto-resolve), 30/45 (unpriced), 69 | 68–69 |
 
 f-o-c = find-or-create.
 
@@ -580,7 +651,10 @@ Decimal?=null` (bounds enforced in `domain.billing`).
 
 **`TransactionResponse`** — create/adjust/billing return: `id`, `item_id`,
 `user_id?`, `transaction_type`, `quantity`, `billable_quantity?`,
-`work_order_number?`, `reason?`, `created_at`.
+`work_order_number?`, `reason?`, `created_at`, plus immediate-write fields
+`recount_required: bool=false` and `item_quantity?` (authoritative post-write
+expected stock; may be negative for an insufficient Scan/Stock or Work Orders
+Add Item dispense).
 
 **`TransactionHistoryItem`** — each row of `GET /transactions/`: `id`, `item_id`,
 `item_barcode`, `item_name`, `user_id?`, `user_name?`, `transaction_type`,
@@ -589,6 +663,19 @@ Decimal?=null` (bounds enforced in `domain.billing`).
 Owner-only **and null for work-order rows** (they bill via the line); `work_order_id`
 is always present (lets the copy-table resolve the work order). **`TransactionHistoryPage`**:
 `items: list[...]`, `total: int`, `page: int`, `page_size: int`.
+
+### User Requests (`schemas/user_requests.py`)
+
+**`UserRequestUpdate`** — `PATCH /user-requests/{id}`: `status:
+"open"|"resolved"`, `resolution_note: str?=null` (trimmed; blank becomes null).
+
+**`UserRequestResponse`** — `id`, `request_type`, `status`, `message`, nullable
+`item_id`/`item_name`/`item_barcode`/`item_price`/`item_product_link`,
+`transaction_id`, `work_order_id`/
+`work_order_number`, `created_by_id`/`created_by_name`, generic `details: dict`,
+`created_at`, nullable `resolved_at`, `resolved_by_id`/`resolved_by_name`, and
+`resolution_note`. The list endpoint returns `list[UserRequestResponse]` and
+requires `status=open|resolved` (default `open`).
 
 ### Barcodes (`schemas/barcodes.py`)
 
@@ -629,7 +716,8 @@ returns `WORK ORDER`, `MATERIAL TOTAL`, `LABOR TOTAL`, and `RECEIPT`.
 required; `status`/`entry_mode`
 validated in the service. Live statuses are `created`, `assigned`, `in_progress`,
 `on_hold`, `completed`, and `review`; Closed is `archived_at`, not a PATCH value.
-Notes are trimmed nullable free-form text; every in-scope user may save them.
+Notes are trimmed per-entry text; every in-scope user may append one. The
+service supplies timestamp/date/author metadata and preserves the prior log.
 `status`, `entry_mode`, supervisor, and technician assignment require
 Supervisor+; imported/legacy text metadata and number require Admin+.
 `supervisor_id?` may be paired with `expected_supervisor_id?`, including an
@@ -747,6 +835,7 @@ non-domain exceptions become FastAPI's default 500.
 | `ItemNotFoundError` | 404 | item id/barcode unknown, or archived on a barcode lookup |
 | `UserNotFoundError` | 404 | user id unknown; tool checkout also uses it when the target is archived (not an active checkout target) |
 | `TransactionNotFoundError` | 404 | txn id unknown or already voided |
+| `UserRequestNotFoundError` | 404 | user-request id unknown |
 | `StageNotFoundError` | 404 | mass-stage id unknown |
 | `RoomNotFoundError` | 404 | stage **slot** not found / not in the stage (name retains old "room") |
 | `StageItemNotFoundError` | 404 | planned stage item not found (incl. loading an unplanned item) |
@@ -769,13 +858,13 @@ non-domain exceptions become FastAPI's default 500.
 | `ItemHasTransactionsError` | 400 | hard-deleting an item with txns/stage rows (FK RESTRICT) |
 | `UserHasTransactionsError` | 400 | hard-deleting a user referenced by txns (FK RESTRICT) |
 | `UserHasCheckedOutToolsError` | 400 | archiving a user before all outstanding tool custody is returned |
-| `NegativeQuantityError` | 400 | a dispense/adjust/void would drive on-hand < 0 |
+| `NegativeQuantityError` | 400 | a strict stock path (Work Order quantity edit, Mass Stage, correction, or reverse) would drive on-hand < 0; Scan/Stock and Work Orders Add Item dispenses deliberately bypass this and open recount requests |
 | `NoChangeError` | 400 | correction `new_quantity` equals current (empty audit row) |
 | `BillingQuantityError` | 400 | billing override negative, > recorded qty, or targets an `adjust` |
 | `TransactionVoidError` | 400 | voiding would drive stock < 0 ("make a correction instead") |
 | `UnreadableImageError` | 400 | uploaded bytes are not a decodable image |
 | `InvalidCredentialsError` | **401** | bad username/password **or archived user** (indistinguishable) |
-| `RoleManagementError` | **403** | actor does not outrank the target user |
+| `RoleManagementError` | **403** | actor does not outrank the target user, or a Technician tries to remove a transaction other than their own work-order-linked dispense |
 
 Auth/gate errors are raised directly by `auth_deps.py` (not `DomainError`): **401**
 no/invalid/expired session (`get_current_user`); **403** valid session but role too
@@ -801,6 +890,12 @@ Pure functions (no DB) in `domain/*.py` — the business rules, testable in isol
 - `apply_delta(current, type, qty)`: `stock` → `current+qty`; `dispense` →
   `current−qty` (raise `NegativeQuantityError` if < 0); `adjust` → `current+qty`
   (signed; same < 0 guard). Inputs assumed pre-validated.
+- `services.transactions.apply_transaction` and
+  `services.work_orders.add_work_order_item` are the intentional exceptions:
+  Scan/Stock and Work Orders Add Item `dispense` operations subtract under the
+  item-row lock even when the result is negative, then record a recount
+  request. Work Order quantity edits and Mass Stage stock-outs continue to call
+  strict `apply_delta`.
 - `reverse_delta(current, type, qty)` (for void): undo `stock` = dispense, undo
   `dispense` = stock, undo `adjust` = apply negated delta. Same overdraft guard.
 
@@ -904,9 +999,12 @@ read-modify-write guard for `items.quantity`).
   <id>)"`) if `code` is primary, else drop the matching additional row. Flush.
 - `create_item(...)` → `_ensure_barcode_free` then insert; `IntegrityError` →
   `DuplicateBarcodeError`.
-- `update_item(id, **_UNSET sentinels)` → partial: only non-`_UNSET` fields written;
+- `update_item(id, **_UNSET sentinels)` → lock and partially update only
+  non-`_UNSET` fields;
   changing `barcode` runs `_ensure_barcode_free(exclude=self)`; explicit `None`
-  clears price/link. `IntegrityError` → `DuplicateBarcodeError`.
+  clears price/link. When a positive price and a nonblank product link exist, resolve
+  every open `missing_item_price` request for the item in this commit.
+  `IntegrityError` → `DuplicateBarcodeError`.
 - `replace_barcodes(id, codes, override?)` → validate only **added** codes (skip
   retained; reject one equal to the item's own primary); then **diff** the child
   rows (remove dropped, append new, leave retained) to avoid an INSERT-before-DELETE
@@ -955,19 +1053,48 @@ read-modify-write guard for `items.quantity`).
 
 ### `services/transactions.py`
 - `apply_transaction(item_id, type, qty, user_id, work_order_number, work_order_id)`
-  → 🔒 lock item → `apply_delta` (stock/dispense) → insert txn with `unit_price =
-  item.price` snapshot → **if `dispense` and `work_order_id`: `flush()` then
-  `attach_dispense_line`** → commit. (Stock-in writes no line.)
+  → 🔒 lock item. Stock uses strict `apply_delta`; dispense subtracts directly
+  so an insufficient Scan/Stock count can become negative. Insert txn with
+  `unit_price = item.price` snapshot → **if `dispense` and `work_order_id`:
+  `flush()` then `attach_dispense_line`**. If dispensed quantity exceeded the
+  non-negative recorded stock, create one transaction-linked
+  `inventory_recount` **user_request** in the same commit. Return dynamic
+  `recount_required` and authoritative `item_quantity`. (Stock-in writes no line.)
 - `apply_correction(item_id, new_quantity, reason, user_id)` → 🔒 lock → `delta =
   new − current`; `NoChangeError` if 0 → `apply_delta("adjust", delta)` → insert
   `adjust` txn (no `unit_price`) → commit.
-- `void_transaction(id, user_id)` → 🔒 lock txn row; `TransactionNotFoundError` if
-  missing/already voided. If `affects_stock`: 🔒 lock item, `reverse_delta`
+- `void_transaction(id, user_id, user_role)` → 🔒 lock txn row;
+  `TransactionNotFoundError` if missing/already voided. Supervisor+ passes;
+  Technician must own a work-order-linked dispense or receives 403. If
+  `affects_stock`: 🔒 lock item, `reverse_delta`
   (`TransactionVoidError` if it would go < 0). If `work_order_id` and type in
   (dispense, adjust): walk the `work_order_items` line back (−qty for dispense, +qty
-  for adjust), delete line at ≤ 0. Stamp `voided_at`/`voided_by_id`; commit.
+  for adjust), delete line at ≤ 0. Resolve the linked user request, stamp
+  `voided_at`/`voided_by_id`, and commit.
 - `set_billable_quantity(id, billable)` → `validate_billable_quantity`; update row
   only (no lock, no stock).
+
+### `services/user_requests.py`
+- `create_inventory_recount_request(transaction, item, work_order, user_id,
+  recorded_before, dispensed, shortage)` → insert one open, generic
+  `inventory_recount` row linked to the source transaction, item, work order, and
+  requestor; snapshot disparity facts in JSONB `details` and use the message
+  `Please re-count stock`.
+- `create_or_update_missing_price_request(item, work_order, user)` → keep one
+  open `missing_item_price` request per item and accumulate distinct affected
+  work-order numbers in JSONB details. Because `SessionLocal` disables autoflush,
+  inspect pending `Session.new` requests before querying persisted rows; this
+  prevents one multi-work-order Mass Stage load from staging duplicates before
+  its single commit.
+- `resolve_missing_price_requests(item, actor)` → resolve every open request of
+  that type with `Item price and product link added.`; caller owns the commit.
+- `list_user_requests(status)` → filter by the router-validated `open|resolved`
+  status, eager-load display relations, newest first.
+- `update_user_request(id, status, note, actor_id)` → resolve with timestamp/
+  actor/note, or reopen by clearing all resolution fields.
+- `resolve_for_transaction(transaction_id, actor_id)` → resolve an open linked
+  request with `Source transaction removed.` when its source Scan / Stock
+  transaction is voided or its Work Order material line is removed.
 
 ### `services/work_orders.py`
 **Import-only.** `get_or_create_work_order` is the sole creating path and the CSV
@@ -1031,10 +1158,12 @@ attaches to an existing number and refuses an unknown one. Both share the
   work orders: normalized service type values and routed supervisor identities;
   returns those plus the stable community choices without exposing `/users` to
   technicians.
-- `update_work_order(id, fields, expected_supervisor_id?)` → explicit overwrite,
-  including nullable
-  free-form `notes`, after `_require_update_permissions` applies notes =
-  Technician+, status/mode/routing/assignment = Supervisor+, and imported/legacy
+- `update_work_order(id, fields, expected_supervisor_id?)` → explicit overwrite
+  for ordinary fields plus row-locked append semantics for nonblank `notes`.
+  `domain.work_orders.append_note_log` adds Central time, `MMDDYY`, and the
+  authenticated `user.full_name`; null does not erase the log.
+  `_require_update_permissions` applies notes = Technician+,
+  status/mode/routing/assignment = Supervisor+, and imported/legacy
   metadata = Admin+. `assigned_to_ids` synchronizes **work_order_technicians**
   and the singular compatibility mirror. Plural technician assignment reconciles
   Created/Assigned; an
@@ -1044,6 +1173,10 @@ attaches to an existing number and refuses an unknown one. Both share the
   targets only an active Supervisor, and compares an optional expected value;
   a stale value raises the named `WorkOrderAssignmentConflictError` (409).
   Completed/Review preserve `completed_at`; On-Hold/rollback/reopen clear it.
+- `start_work_order(id, user)` → scoped-load and lock. Technician+ may move only
+  Assigned → In-Progress; In-Progress is an idempotent success. Created, On-Hold,
+  Completed, and Review reject the narrow action. Used by Scan/Stock so accepting
+  an Assigned-card confirmation does not navigate away.
 - `archive_work_order(id)` → require Admin+ in the service, scoped-load any live
   status, then set `archived_at` (Closed). Rows/lines/transactions remain.
 - `count_live_legacy_work_orders(user)` → require Owner exactly in the service;
@@ -1065,10 +1198,14 @@ attaches to an existing number and refuses an unknown one. Both share the
   Created/Assigned work order to In-Progress, leaves On-Hold unchanged, then finds the line by
   `(work_order_id, item_id)`: exists → `quantity += qty`, update `transaction_id`,
   promote `retroactive`→`dispense` if a dispense joins; else insert. **Never touches
-  `items.quantity`** (caller owns the lock).
-- `add_work_order_item(id, item_id, qty)` → scoped load → 🔒 lock item → if mode
-  moves stock, `apply_delta("dispense")` → insert dispense txn (`affects_stock` per
-  mode, `unit_price` snapshot) → `attach_dispense_line`.
+  `items.quantity`** (caller owns the lock). If the locked item has a NULL or
+  non-positive price, it
+  also creates/extends the deduplicated missing-price/link User Request.
+- `add_work_order_item(id, item_id, qty)` → Technician+ scoped load → 🔒 lock
+  item → if mode moves stock, subtract directly and calculate any shortage →
+  insert dispense txn (`affects_stock` per mode, `unit_price` snapshot) →
+  `attach_dispense_line` → if short, insert a linked `inventory_recount`
+  request. Retroactive mode remains stock-neutral. All writes commit together.
 - `update_work_order_item(id, wid, qty)` → require Supervisor+; 🔒 lock item; `stock_delta = old − new`;
   if dispense-mode and ≠ 0: `apply_delta("adjust", stock_delta)` + append one
   reconciling `adjust` txn (originals untouched). Set `line.quantity`; **clear
@@ -1077,7 +1214,9 @@ attaches to an existing number and refuses an unknown one. Both share the
   against `line.quantity`; set `line.billable_quantity`. No stock.
 - `delete_work_order_item(id, wid)` → require Supervisor+; 🔒 lock item; if dispense-mode, return
   `line.quantity` to stock (`apply_delta("stock")`); **void the line's whole
-  contributing txn set** (located by `(work_order, item)`); delete the line.
+  contributing txn set** (located by `(work_order, item)`), resolve requests
+  linked to each contributor, then delete the line. Commit the stock return,
+  voids, request resolutions, and deletion atomically.
 - `reduce_dispense_line(work_order_id, item_id, qty)` → inverse of attach (for a
   Mass Stage return): `quantity −= qty`, delete at ≤ 0. No lock, no stock. No-op if
   no line.

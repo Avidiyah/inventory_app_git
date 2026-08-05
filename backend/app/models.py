@@ -297,6 +297,8 @@ class WorkOrder(Base):
     building_number = Column(Text, nullable=True)
     unit_number = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
+    # Append-only plain-text operational log. New entries are server-formatted
+    # as [TIME] [MMDDYY] [User] text; pre-log free-form content is preserved.
     notes = Column(Text, nullable=True)
     status = Column(Text, nullable=False, default="created", server_default="created")
     entry_mode = Column(Text, nullable=False, default="dispense", server_default="dispense")
@@ -636,6 +638,57 @@ class WorkOrderItem(Base):
         UniqueConstraint(
             "work_order_id", "item_id", name="uq_work_order_items_wo_item"
         ),
+    )
+
+
+class UserRequest(Base):
+    """An operational exception raised by a user for later Admin review.
+
+    Initial request types are ``inventory_recount`` (a dispense exceeds the
+    recorded on-hand quantity) and ``missing_item_price`` (an unpriced item is
+    attached to a work order and needs both price and product link). The general
+    request/status/message/details shape lets later real-world vs. in-app
+    disparities use the same Admin queue without another table.
+
+    Requests are durable audit records. Resolving one stamps who/when rather
+    than deleting it; voiding the source transaction resolves its request with
+    a system note because the reported discrepancy was removed.
+    """
+
+    __tablename__ = "user_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    request_type = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="open", server_default="open")
+    message = Column(Text, nullable=False)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("items.id"), nullable=True)
+    transaction_id = Column(
+        UUID(as_uuid=True), ForeignKey("transactions.id"), nullable=True, unique=True
+    )
+    work_order_id = Column(
+        UUID(as_uuid=True), ForeignKey("work_orders.id"), nullable=True
+    )
+    created_by_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    details = Column(JSONB, nullable=False, default=dict, server_default="{}")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    resolved_by_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    resolution_note = Column(Text, nullable=True)
+
+    item = relationship("Item", foreign_keys=[item_id], viewonly=True)
+    transaction = relationship("Transaction", foreign_keys=[transaction_id], viewonly=True)
+    work_order = relationship("WorkOrder", foreign_keys=[work_order_id], viewonly=True)
+    creator = relationship("User", foreign_keys=[created_by_id], viewonly=True)
+    resolver = relationship("User", foreign_keys=[resolved_by_id], viewonly=True)
+
+    __table_args__ = (
+        Index("ix_user_requests_status", "status"),
+        Index("ix_user_requests_request_type", "request_type"),
+        Index("ix_user_requests_item_id", "item_id"),
     )
 
 

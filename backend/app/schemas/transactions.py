@@ -25,9 +25,9 @@ class TransactionCreate(BaseModel):
     `transaction_type` is constrained to the two literals understood
     by `domain.quantity.apply_delta` for stock/dispense. Quantity must
     be strictly positive — zero-quantity transactions are meaningless
-    and would pollute the audit log. Stock-level overdraft (`dispense`
-    larger than current quantity) is *not* checked here; that is the
-    service layer's job because it requires a row lock.
+    and would pollute the audit log. A `dispense` larger than current quantity
+    is handled under the service's row lock: the usage is recorded and an
+    inventory-recount User Request is raised.
 
     Corrections (`transaction_type = "adjust"`) live on a separate
     route (`POST /transactions/adjust`) with its own `CorrectionCreate`
@@ -120,6 +120,12 @@ class TransactionResponse(BaseModel):
     work_order_number: Optional[str]
     reason: Optional[str] = None
     created_at: datetime
+    # Immediate Scan / Stock feedback. ``recount_required`` means the dispense
+    # was recorded even though it exceeded the app's on-hand count and a User
+    # Request was created. ``item_quantity`` is the authoritative post-write
+    # count under the row lock, avoiding a stale client-side subtraction.
+    recount_required: bool = False
+    item_quantity: Optional[Decimal] = None
 
     model_config = {"from_attributes": True}
 

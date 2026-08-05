@@ -3,8 +3,8 @@
 // Layer: views. Owns the items table on the Entry page and the
 // "Create Item" form above it. Three responsibilities:
 //
-// 1. Load lightweight name/barcode suggestions, then fetch and render full
-//    item rows only after an explicit search, load-all action, or scan.
+// 1. Keep the initial view empty, then fetch and render full item rows only
+//    after an explicit search, load-all action, or scan.
 // 2. Handle the create-item submit (with cheap client-side checks
 //    before round-tripping to the backend, which is the source of
 //    truth for uniqueness and validation).
@@ -22,7 +22,6 @@ import {
 } from "../state.js";
 import {
   apiListItems,
-  apiListItemSearchIndex,
   apiCreateItem,
   apiDeleteItem,
 } from "../api.js";
@@ -51,7 +50,6 @@ const itemsTable = document.getElementById("items-table");
 const itemsTheadRow = document.getElementById("items-thead-row");
 const itemsTbody = document.getElementById("items-tbody");
 const itemsSearch = document.getElementById("items-search");
-const itemsSearchList = document.getElementById("items-search-list");
 const itemsSearchBtn = document.getElementById("items-search-btn");
 const itemsLoadAllBtn = document.getElementById("items-load-all-btn");
 const itemsMessage = document.getElementById("items-message");
@@ -59,7 +57,6 @@ const itemsMessage = document.getElementById("items-message");
 let resultMode = "none";
 let resultQuery = "";
 let resultRequestId = 0;
-let searchIndexRequestId = 0;
 
 // Product-link cell: a safe http(s) link renders as an "Open" anchor;
 // anything else (missing, or a non-http scheme) shows an em dash.
@@ -75,9 +72,10 @@ const quantityInput = document.getElementById("quantity");
 const priceInput = document.getElementById("price");
 const productLinkInput = document.getElementById("product-link");
 
-export async function loadItems() {
-  // Opening Find Item intentionally does not fetch full item records. The
-  // autocomplete index carries only names/barcodes and never renders cards.
+export function loadItems() {
+  // Opening Find Item intentionally makes no item request and renders no
+  // rows. The plain search field has no browser-native suggestion popup;
+  // results require Search / Enter, Load All Items, or a successful scan.
   resultRequestId += 1;
   resultMode = "none";
   resultQuery = "";
@@ -87,32 +85,6 @@ export async function loadItems() {
   itemsTbody.innerHTML = "";
   setResultsBusy(false);
   setMessage(itemsMessage, "Search by name or barcode, or load all items.", "");
-  await loadSearchIndex();
-}
-
-async function loadSearchIndex() {
-  const requestId = ++searchIndexRequestId;
-  try {
-    const entries = await apiListItemSearchIndex();
-    if (requestId !== searchIndexRequestId) return;
-
-    const values = new Set();
-    entries.forEach(entry => {
-      if (entry.name) values.add(entry.name);
-      if (entry.barcode) values.add(entry.barcode);
-    });
-    const fragment = document.createDocumentFragment();
-    values.forEach(value => {
-      const option = document.createElement("option");
-      option.value = value;
-      fragment.appendChild(option);
-    });
-    itemsSearchList.replaceChildren(fragment);
-  } catch (error) {
-    if (requestId === searchIndexRequestId && resultMode === "none") {
-      setMessage(itemsMessage, friendlyError(error, "Could not load search suggestions. You can still search."), "error");
-    }
-  }
 }
 
 function setResultsBusy(busy) {
@@ -165,13 +137,11 @@ async function loadAllItems() {
 }
 
 async function refreshDisplayedItems() {
-  const indexRefresh = loadSearchIndex();
   if (resultMode === "search" || resultMode === "scan") {
     await loadItemResults({ query: resultQuery, emptyMessage: "No items match that search." });
   } else if (resultMode === "all") {
     await loadItemResults({ emptyMessage: "No items yet." });
   }
-  await indexRefresh;
 }
 
 export function renderItems(emptyMessage = "No items match that search.") {
@@ -310,7 +280,6 @@ createItemBtn.addEventListener("click", async () => {
     quantityInput.value = "";
     priceInput.value = "";
     productLinkInput.value = "";
-    loadSearchIndex();
   } catch (err) {
     if (err && err.cancelled) {
       setMessage(createItemMessage, "", "");

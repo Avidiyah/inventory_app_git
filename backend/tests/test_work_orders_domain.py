@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -105,6 +105,39 @@ def test_first_activity_advances_only_prework_states():
     assert wo.status_after_activity(wo.STATUS_ON_HOLD) == wo.STATUS_ON_HOLD
     assert wo.status_after_activity(wo.STATUS_COMPLETED) == wo.STATUS_COMPLETED
     assert wo.status_after_activity(wo.STATUS_REVIEW) == wo.STATUS_REVIEW
+
+
+def test_note_log_appends_central_timestamp_date_and_author():
+    occurred_at = datetime(2026, 8, 5, 19, 7, tzinfo=timezone.utc)
+
+    first = wo.append_note_log(
+        None,
+        "  Resident requested a return visit.  ",
+        author_name="Jamie Rivera",
+        occurred_at=occurred_at,
+    )
+    assert first == (
+        "[2:07 PM] [080526] [Jamie Rivera] Resident requested a return visit."
+    )
+
+    second = wo.append_note_log(
+        "Legacy note without metadata.",
+        "Parts ordered.",
+        author_name="Alex Morgan",
+        occurred_at=occurred_at,
+    )
+    assert second == (
+        "Legacy note without metadata.\n\n"
+        "[2:07 PM] [080526] [Alex Morgan] Parts ordered."
+    )
+
+    with pytest.raises(WorkOrderStateError, match="Note text"):
+        wo.append_note_log(
+            first,
+            "   ",
+            author_name="Jamie Rivera",
+            occurred_at=occurred_at,
+        )
 
 
 def test_labor_billing_rounds_combined_minutes_up_to_half_hour():

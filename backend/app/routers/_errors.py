@@ -47,6 +47,7 @@ from app.domain.errors import (
     UserHasTransactionsError,
     UserHasCheckedOutToolsError,
     UserNotFoundError,
+    UserRequestNotFoundError,
     WorkOrderAssignmentConflictError,
     WorkOrderNotFoundError,
     WorkOrderStateError,
@@ -59,6 +60,7 @@ from app.domain.errors import (
 _STATUS_MAP: dict[type[DomainError], int] = {
     ItemNotFoundError: 404,
     UserNotFoundError: 404,
+    UserRequestNotFoundError: 404,
     TransactionNotFoundError: 404,
     StageNotFoundError: 404,
     RoomNotFoundError: 404,

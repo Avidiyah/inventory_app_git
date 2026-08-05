@@ -14,10 +14,11 @@ stock-neutral paper backfill.
 """
 
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional, Sequence
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from app.domain import roles
 from app.domain.errors import WorkOrderStateError
@@ -61,6 +62,41 @@ MODE_DISPENSE = "dispense"
 MODE_RETROACTIVE = "retroactive"
 
 ALL_MODES: tuple[str, ...] = (MODE_DISPENSE, MODE_RETROACTIVE)
+
+
+# --- append-only notes ---------------------------------------------------
+
+NOTE_TIMEZONE = ZoneInfo("America/Chicago")
+
+
+def append_note_log(
+    existing: Optional[str],
+    note: str,
+    *,
+    author_name: str,
+    occurred_at: datetime,
+) -> str:
+    """Append one server-authored plain-text entry to a Work Order note log.
+
+    New entries use the requested ``[TIME] [MMDDYY] [User] text`` shape in the
+    application's Central timezone. Existing free-form text is retained as-is,
+    so notes written before the log format was introduced are never discarded.
+    """
+    body = note.strip()
+    if not body:
+        raise WorkOrderStateError("Note text is required.")
+    author = author_name.strip() or "Name unavailable"
+    instant = occurred_at
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=timezone.utc)
+    local = instant.astimezone(NOTE_TIMEZONE)
+    hour = local.strftime("%I").lstrip("0") or "12"
+    entry = (
+        f"[{hour}:{local.strftime('%M %p')}] "
+        f"[{local.strftime('%m%d%y')}] [{author}] {body}"
+    )
+    prior = (existing or "").rstrip()
+    return f"{prior}\n\n{entry}" if prior else entry
 
 
 # --- list-filter vocabulary ----------------------------------------------

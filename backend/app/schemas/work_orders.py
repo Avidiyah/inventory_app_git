@@ -35,7 +35,9 @@ class WorkOrderUpdate(BaseModel):
     find-or-create's fill-blanks). Any subset; an explicit `null` for
     `assigned_to_ids` replaces the technician set; an empty list clears it.
     `assigned_to_id` remains accepted for compatibility with older clients.
-    At least one field required.
+    A nonblank `notes` value is one new append-only note entry; the service adds
+    its timestamp and authenticated author instead of replacing the log. At
+    least one field required.
 
     `status` (created|assigned|in_progress|on_hold|completed|review) and `entry_mode`
     (dispense|retroactive) are validated in the service. Closed is archive state,

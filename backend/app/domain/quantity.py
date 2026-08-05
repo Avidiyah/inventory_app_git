@@ -3,14 +3,14 @@
 Layer: pure domain (no SQLAlchemy, no FastAPI, no models).
 
 This module owns the single most important business rule in the
-system: a dispense may never leave an item with negative stock.
-Keeping the rule here — rather than inside the transaction route
-handler — means it can be exercised by plain unit tests with no
-database and reused by any future caller (bulk importer, scheduled
-job, CLI tool) without dragging in HTTP machinery.
+system: stock-moving workflows reject negative stock unless they explicitly
+raise a tracked operational exception. Scan / Stock is that one exception: its
+service records real usage, permits a negative expected count, and creates an
+Admin User Request. Work-order edits, Mass Stage, tools, corrections, and
+reversals continue to use this strict arithmetic.
 
-Called by `app/services/transactions.py::apply_transaction`, which
-holds the SELECT ... FOR UPDATE row lock around this call.
+Called under SELECT ... FOR UPDATE locks by the transaction stock-in path and
+the other stock-moving services.
 """
 
 from decimal import Decimal

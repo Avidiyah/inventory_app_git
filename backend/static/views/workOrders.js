@@ -4,7 +4,7 @@
 // work orders (identity = number). Work orders are IMPORT-ONLY -- the Admin+ CSV
 // import is the only way one appears; there is no create form. Admin+ can export
 // the current filtered list as the operational CSV; the separate client export
-// retains its scope dropdown. Admin+ Edit Details includes imported metadata;
+// retains its scope dropdown. Admin+ Edit details includes imported metadata;
 // Supervisor sees only routing, technicians, and status, and also manages labor,
 // entry mode, and material corrections. Technicians can save notes and add new
 // materials; every other edit control is omitted for them.
@@ -204,6 +204,13 @@ function materialsTotalHtml(detail) {
     `<span class="charge-marked">+15%: ${escapeHtml(formatMoney(marked))}</span></div>`;
 }
 
+function notesLogContentsHtml(notes) {
+  const log = String(notes || "").trim();
+  return log
+    ? `<div class="wo-notes-log-text">${escapeHtml(log)}</div>`
+    : `<p class="hint wo-notes-empty">No notes recorded yet.</p>`;
+}
+
 function formatMinutes(minutes) {
   const total = Number(minutes) || 0;
   const hours = Math.floor(total / 60);
@@ -269,16 +276,18 @@ function laborSectionHtml(detail) {
   const rateText = detail.labor_rate === null || detail.labor_rate === undefined
     ? "The combined actual time is rounded up to the next 30 minutes for billing."
     : `Labor is billed at ${formatMoney(detail.labor_rate)}/hour. The combined actual time is rounded up to the next 30 minutes.`;
-  return `<section class="wo-labor-section">
-            <h4>Labor</h4>
-            <p class="hint">${escapeHtml(rateText)}</p>
-            <div class="wo-labor-list">${entries}</div>
-            ${laborSummaryHtml(detail)}
-            <div class="wo-add-labor">
-              ${laborTechnicianControl(detail)}
-              ${hasAssignments ? `<label><span>Actual hours</span><input type="number" class="wo-new-labor-hours" min="0.01" step="0.01" placeholder="e.g. 1.25"></label><button type="button" data-action="add-labor">Add labor</button>` : ""}
+  return `<details class="wo-section-card wo-labor-section">
+            <summary class="wo-section-summary">Labor</summary>
+            <div class="wo-section-content">
+              <p class="hint">${escapeHtml(rateText)}</p>
+              <div class="wo-labor-list">${entries}</div>
+              ${laborSummaryHtml(detail)}
+              <div class="wo-add-labor">
+                ${laborTechnicianControl(detail)}
+                ${hasAssignments ? `<label><span>Actual hours</span><input type="number" class="wo-new-labor-hours" min="0.01" step="0.01" placeholder="e.g. 1.25"></label><button type="button" data-action="add-labor">Add labor</button>` : ""}
+              </div>
             </div>
-          </section>`;
+          </details>`;
 }
 
 function statusLabel(status) {
@@ -325,15 +334,91 @@ function assignedNames(detail) {
   return detail.assigned_to_name ? [detail.assigned_to_name] : [];
 }
 
-function techCheckboxes(selectedIds) {
-  const selected = new Set(selectedIds || []);
-  if (!allTechs.length) return `<p class="hint">No active technicians are available.</p>`;
-  return allTechs
-    .map(
-      (t) =>
-        `<label class="wo-tech-choice"><input type="checkbox" class="wo-edit-assignee" value="${escapeHtml(t.id)}"${selected.has(t.id) ? " checked" : ""}> <span>${escapeHtml(formatUserName(t))}</span></label>`
-    )
+function technicianSelectionHtml(id, name) {
+  return `<div class="wo-tech-selected-row" data-technician-id="${escapeHtml(id)}">
+            <span class="wo-tech-selected-name">${escapeHtml(name)}</span>
+            <button type="button" class="secondary-btn wo-tech-remove" data-action="remove-technician" aria-label="Remove ${escapeHtml(name)}">Remove</button>
+          </div>`;
+}
+
+function emptyTechnicianSelectionHtml() {
+  return `<p class="hint wo-tech-empty">No technicians assigned.</p>`;
+}
+
+function technicianPickerHtml(detail) {
+  const ids = assignedIds(detail);
+  const names = assignedNames(detail);
+  const resultsId = `wo-tech-results-${detail.id}`;
+  const selections = ids
+    .map((id, index) => {
+      const activeTechnician = allTechs.find((technician) => technician.id === id);
+      const name = names[index] || (activeTechnician ? formatUserName(activeTechnician) : "Assigned technician");
+      return technicianSelectionHtml(id, name);
+    })
     .join("");
+
+  return `<div class="wo-tech-picker">
+            <div class="wo-tech-search-wrap">
+              <label class="wo-tech-search-label">
+                <span>Search technicians</span>
+                <input type="search" class="wo-tech-search" placeholder="Search by name" autocomplete="off" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-controls="${escapeHtml(resultsId)}" aria-expanded="false">
+              </label>
+              <div class="wo-tech-results" id="${escapeHtml(resultsId)}" role="listbox" aria-label="Technician search results" hidden></div>
+            </div>
+            <div class="wo-tech-selected">
+              <span class="wo-tech-selected-label">Assigned to this work order</span>
+              <div class="wo-tech-selected-list" aria-live="polite">
+                ${selections || emptyTechnicianSelectionHtml()}
+              </div>
+            </div>
+          </div>`;
+}
+
+function closeTechnicianResults(picker) {
+  const results = picker?.querySelector(".wo-tech-results");
+  const input = picker?.querySelector(".wo-tech-search");
+  if (results) {
+    results.hidden = true;
+    results.innerHTML = "";
+  }
+  if (input) input.setAttribute("aria-expanded", "false");
+}
+
+function renderTechnicianSearch(input) {
+  const picker = input.closest(".wo-tech-picker");
+  const results = picker.querySelector(".wo-tech-results");
+  const query = input.value.trim().toLowerCase();
+  if (!query) {
+    closeTechnicianResults(picker);
+    return;
+  }
+
+  const selectedIds = new Set(
+    Array.from(picker.querySelectorAll(".wo-tech-selected-row"), (row) => row.dataset.technicianId)
+  );
+  const matches = allTechs
+    .map((technician) => ({ technician, name: formatUserName(technician) }))
+    .filter(
+      ({ technician, name }) =>
+        !selectedIds.has(technician.id) && name.toLowerCase().includes(query)
+    )
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .slice(0, 8);
+
+  if (!allTechs.length) {
+    results.innerHTML = `<p class="hint">No active technicians are available.</p>`;
+  } else if (!matches.length) {
+    results.innerHTML = `<p class="hint">No matching technicians.</p>`;
+  } else {
+    results.innerHTML = matches
+      .map(
+        ({ technician, name }) =>
+          `<button type="button" class="secondary-btn wo-tech-result" role="option" data-action="pick-technician" data-technician-id="${escapeHtml(technician.id)}" data-technician-name="${escapeHtml(name)}">${escapeHtml(name)}</button>`
+      )
+      .join("");
+  }
+  results.hidden = false;
+  input.setAttribute("aria-expanded", "true");
 }
 
 function supervisorOptions(selectedId) {
@@ -359,9 +444,9 @@ function hasLegacyPlace(detail) {
 }
 
 // The read-only field block shown in a card body: the imported CSV fields plus
-// routing, and only the ones that are actually filled in. This is the default,
-// uncluttered face of a card -- the matching inputs live in the editor below,
-// which stays collapsed until "Edit details" is clicked.
+// routing, and only the ones that are actually filled in. This stays visible as
+// the work-order overview; the matching inputs live in a separate, collapsed
+// Edit details card below it.
 function detailsViewHtml(detail) {
   const rows = [
     ["Location", detail.location],
@@ -403,10 +488,11 @@ function editField(field, label, value) {
           </label>`;
 }
 
-// Manual status changes live inside the Supervisor+ editor. The choices never
-// advance a normal lifecycle beyond its current state; On-Hold is always
-// available as a pause. Created/Assigned remains one assignment-derived
-// pre-work choice so the status cannot contradict the technician field.
+// Manual status changes live inside the Supervisor+ editor. Created/Assigned
+// can advance explicitly to In-Progress here (the same transition formerly
+// exposed as a standalone button), and On-Hold is always available as a pause.
+// Created/Assigned remains one assignment-derived pre-work choice so the status
+// cannot contradict the technician field.
 function editableStatusOptions(detail) {
   const prework = assignedIds(detail).length ? "assigned" : "created";
   let statuses;
@@ -416,8 +502,7 @@ function editableStatusOptions(detail) {
     statuses = [prework, "in_progress", "on_hold", "completed"];
   } else {
     const rank = { created: 0, assigned: 1, in_progress: 2, completed: 3 }[detail.status];
-    statuses = [prework];
-    if (rank >= 2) statuses.push("in_progress");
+    statuses = [prework, "in_progress"];
     statuses.push("on_hold");
     if (rank >= 3) statuses.push("completed");
   }
@@ -439,7 +524,7 @@ function statusEditorHtml(detail) {
   return `<label class="wo-edit-field wo-edit-status-field">
             <span>Status</span>
             <select class="wo-edit-status">${editableStatusOptions(detail)}</select>
-            <small class="hint">Roll back to an earlier step or place this work order On-Hold. Created/Assigned follows technician assignment.</small>
+            <small class="hint">Start work, roll back to an earlier step, or place this work order On-Hold. Created/Assigned follows technician assignment.</small>
           </label>`;
 }
 
@@ -461,25 +546,28 @@ function detailsEditorHtml(detail) {
   const hint = isAdminPlus()
     ? `Edit imported metadata and operations for WO ${escapeHtml(detail.number)}.`
     : `Edit assignment and status for WO ${escapeHtml(detail.number)}.`;
-  return `<div class="wo-edit" data-original-supervisor-id="${escapeHtml(detail.supervisor_id || "")}" hidden>
-            <p class="hint">${hint}</p>
-            <div class="wo-edit-grid">
-              ${adminMetadata}
-              <label class="wo-edit-field">
-                <span>Supervisor</span>
-                <select class="wo-edit-supervisor">${supervisorOptions(detail.supervisor_id || "")}</select>
-              </label>
-              <fieldset class="wo-edit-field wo-edit-technicians">
-                <legend>Assigned technicians</legend>
-                <div class="wo-tech-choices">${techCheckboxes(assignedIds(detail))}</div>
-              </fieldset>
-              ${statusEditorHtml(detail)}
+  return `<details class="wo-edit-card">
+            <summary class="wo-edit-summary">Edit details</summary>
+            <div class="wo-edit" data-original-supervisor-id="${escapeHtml(detail.supervisor_id || "")}">
+              <p class="hint">${hint}</p>
+              <div class="wo-edit-grid">
+                ${adminMetadata}
+                <label class="wo-edit-field">
+                  <span>Supervisor</span>
+                  <select class="wo-edit-supervisor">${supervisorOptions(detail.supervisor_id || "")}</select>
+                </label>
+                <fieldset class="wo-edit-field wo-edit-technicians">
+                  <legend>Assigned technicians</legend>
+                  ${technicianPickerHtml(detail)}
+                </fieldset>
+                ${statusEditorHtml(detail)}
+              </div>
+              <div class="wo-edit-actions">
+                <button type="button" data-action="save-details">Save details</button>
+                <button type="button" class="secondary-btn" data-action="cancel-edit">Cancel</button>
+              </div>
             </div>
-            <div class="wo-edit-actions">
-              <button type="button" data-action="save-details">Save details</button>
-              <button type="button" class="secondary-btn" data-action="cancel-edit">Cancel</button>
-            </div>
-          </div>`;
+          </details>`;
 }
 
 // --- list ----------------------------------------------------------------
@@ -659,14 +747,10 @@ function renderBody(detail, bodyEl) {
     `<p class="hint">No materials logged yet.</p>`;
 
   let statusActions = "";
-  if (sup && (detail.status === "created" || detail.status === "assigned")) {
-    statusActions =
-      `<button type="button" data-action="progress-wo">Set In-Progress</button>` +
-      `<span class="hint wo-status-note">Material or labor activity also starts work automatically.</span>`;
-  } else if (sup && detail.status === "in_progress") {
+  if (sup && detail.status === "in_progress") {
     statusActions = `<button type="button" data-action="complete-wo">Mark completed</button>`;
   } else if (sup && detail.status === "on_hold") {
-    statusActions = `<span class="hint wo-status-note">On-Hold — a supervisor can resume or roll back this work order in Edit details.</span>`;
+    statusActions = `<span class="hint wo-status-note">On-Hold — a supervisor can resume or roll back this work order in the Edit details card.</span>`;
   } else if (sup && detail.status === "completed") {
     statusActions =
       `<button type="button" data-action="review-wo">Send to Review</button>` +
@@ -690,35 +774,36 @@ function renderBody(detail, bodyEl) {
      </div>`
     : "";
 
-  // The imported fields are read-only by default and the editor is collapsed;
-  // Supervisor+ gets an "Edit details" button that swaps one for the other, so
-  // nothing but a summary is on screen until an edit is actually intended.
-  const editToggle = sup
-    ? `<button type="button" class="secondary-btn" data-action="toggle-edit">Edit details</button>`
-    : "";
-
   bodyEl.innerHTML =
-    `<div class="wo-controls">${modeControl}${statusActions}${editToggle}</div>` +
+    ((modeControl || statusActions) ? `<div class="wo-controls">${modeControl}${statusActions}</div>` : "") +
     `<div class="wo-details">${detailsViewHtml(detail)}</div>` +
     (sup ? detailsEditorHtml(detail) : "") +
-    `<section class="wo-notes-section">
-       <h4>Notes</h4>
-       <textarea class="wo-notes-input" rows="4" aria-label="Work order notes" placeholder="Add notes for this work order…">${escapeHtml(detail.notes || "")}</textarea>
-       <div class="wo-notes-actions">
-         <button type="button" data-action="save-notes">Save notes</button>
+    `<details class="wo-section-card wo-notes-section">
+       <summary class="wo-section-summary">Notes</summary>
+       <div class="wo-section-content">
+         <div class="wo-notes-log" aria-label="Work order note log">${notesLogContentsHtml(detail.notes)}</div>
+         <textarea class="wo-notes-input" rows="4" aria-label="Add a work order note" placeholder="Add a note…"></textarea>
+         <div class="wo-notes-actions">
+           <button type="button" data-action="save-notes">Save note</button>
+         </div>
+         <p class="wo-notes-message" aria-live="polite"></p>
        </div>
-       <p class="wo-notes-message" aria-live="polite"></p>
-     </section>` +
-    `<div class="wo-items">${items}</div>` +
-    materialsTotalHtml(detail) +
-    `<div class="wo-add-item">
-       <div class="wo-add-item-row">
-         <input type="text" class="ms-item-search" placeholder="Search item by name or barcode">
-         <input type="number" class="wo-item-qty" placeholder="Qty" min="0" step="any">
-         <button type="button" data-action="add-item">Add</button>
+     </details>` +
+    `<details class="wo-section-card wo-materials-section">
+       <summary class="wo-section-summary">Materials</summary>
+       <div class="wo-section-content">
+         <div class="wo-items">${items}</div>
+         ${materialsTotalHtml(detail)}
+         <div class="wo-add-item">
+           <div class="wo-add-item-row">
+             <input type="text" class="ms-item-search" placeholder="Search item by name or barcode">
+             <input type="number" class="wo-item-qty" placeholder="Qty" min="0" step="any">
+             <button type="button" data-action="add-item">Add</button>
+           </div>
+           <div class="ms-item-results scan-chooser" hidden></div>
+         </div>
        </div>
-       <div class="ms-item-results scan-chooser" hidden></div>
-     </div>` +
+     </details>` +
     (sup ? laborSectionHtml(detail) : "") +
     `<p class="wo-message"></p>`;
 }
@@ -744,30 +829,23 @@ function renderLineHtml(it) {
           </div>`;
 }
 
-async function refreshCard(cardEl) {
+async function refreshCard(cardEl, reopenSelector = null) {
   const body = cardEl.querySelector(".wo-body");
   await openDetail(cardEl.dataset.id, body, cardEl);
-}
-
-// Swap a card between its read-only summary and the details editor. Only one is
-// on screen at a time, so opening the editor does not double the card's height.
-function setEditing(cardEl, editing) {
-  const editor = cardEl.querySelector(".wo-edit");
-  const view = cardEl.querySelector(".wo-details");
-  const toggle = cardEl.querySelector('[data-action="toggle-edit"]');
-  if (!editor || !view) return;
-  editor.hidden = !editing;
-  view.hidden = editing;
-  // "Close editor", not "Done" -- this button only hides the panel; Save is the
-  // one that writes.
-  if (toggle) toggle.textContent = editing ? "Close editor" : "Edit details";
-  if (editing) editor.querySelector("input, textarea, select")?.focus();
+  if (reopenSelector) {
+    const section = cardEl.querySelector(reopenSelector);
+    if (section) section.open = true;
+  }
 }
 
 // --- add-material search (input delegation) ------------------------------
 
 listEl.addEventListener("input", (event) => {
   const input = event.target;
+  if (input.classList.contains("wo-tech-search")) {
+    renderTechnicianSearch(input);
+    return;
+  }
   if (!input.classList.contains("ms-item-search")) return;
   const container = input.closest(".wo-add-item");
   const results = container.querySelector(".ms-item-results");
@@ -814,6 +892,35 @@ listEl.addEventListener("click", async (event) => {
     return;
   }
 
+  if (action === "pick-technician") {
+    const picker = btn.closest(".wo-tech-picker");
+    const list = picker.querySelector(".wo-tech-selected-list");
+    const technicianId = btn.dataset.technicianId;
+    if (!list.querySelector(`[data-technician-id="${technicianId}"]`)) {
+      list.querySelector(".wo-tech-empty")?.remove();
+      list.insertAdjacentHTML(
+        "beforeend",
+        technicianSelectionHtml(technicianId, btn.dataset.technicianName)
+      );
+    }
+    const input = picker.querySelector(".wo-tech-search");
+    input.value = "";
+    closeTechnicianResults(picker);
+    input.focus();
+    return;
+  }
+
+  if (action === "remove-technician") {
+    const picker = btn.closest(".wo-tech-picker");
+    const list = picker.querySelector(".wo-tech-selected-list");
+    btn.closest(".wo-tech-selected-row")?.remove();
+    if (!list.querySelector(".wo-tech-selected-row")) {
+      list.innerHTML = emptyTechnicianSelectionHtml();
+    }
+    picker.querySelector(".wo-tech-search")?.focus();
+    return;
+  }
+
   const cardEl = btn.closest(".wo-card");
   if (!cardEl) return;
   const workOrderId = cardEl.dataset.id;
@@ -823,9 +930,6 @@ listEl.addEventListener("click", async (event) => {
   try {
     if (action === "complete-wo") {
       await apiUpdateWorkOrder(workOrderId, { status: "completed" });
-      await refreshCard(cardEl);
-    } else if (action === "progress-wo") {
-      await apiUpdateWorkOrder(workOrderId, { status: "in_progress" });
       await refreshCard(cardEl);
     } else if (action === "review-wo") {
       if (!(await confirmDialog("Are you sure this work order is ready for Review?"))) return;
@@ -840,11 +944,9 @@ listEl.addEventListener("click", async (event) => {
       ))) return;
       await apiArchiveWorkOrder(workOrderId);
       await loadWorkOrders();
-    } else if (action === "toggle-edit") {
-      setEditing(cardEl, cardEl.querySelector(".wo-edit")?.hidden !== false);
     } else if (action === "cancel-edit") {
-      // Re-fetch rather than just re-hiding: the simplest way to throw away
-      // whatever was typed and put the inputs back on the saved values.
+      // Re-fetch to throw away drafts and return the Edit details card to its
+      // default collapsed state with the saved values restored.
       await refreshCard(cardEl);
     } else if (action === "save-details") {
       const body = cardEl.querySelector(".wo-body");
@@ -866,7 +968,9 @@ listEl.addEventListener("click", async (event) => {
         supervisor_id: body.querySelector(".wo-edit-supervisor")?.value || null,
         expected_supervisor_id:
           body.querySelector(".wo-edit")?.dataset.originalSupervisorId || null,
-        assigned_to_ids: Array.from(body.querySelectorAll(".wo-edit-assignee:checked")).map((input) => input.value),
+        assigned_to_ids: Array.from(body.querySelectorAll(".wo-tech-selected-row")).map(
+          (row) => row.dataset.technicianId
+        ),
       };
       Object.keys(patch).forEach((k) => patch[k] === undefined && delete patch[k]);
       await apiUpdateWorkOrder(workOrderId, patch);
@@ -875,9 +979,18 @@ listEl.addEventListener("click", async (event) => {
       const notesInput = cardEl.querySelector(".wo-notes-input");
       const notesMessage = cardEl.querySelector(".wo-notes-message");
       const notes = notesInput.value.trim() || null;
-      await apiUpdateWorkOrder(workOrderId, { notes });
-      notesInput.value = notes || "";
-      setMessage(notesMessage, "Notes saved.", "success");
+      setMessage(notesMessage, "", "");
+      if (!notes) {
+        setMessage(notesMessage, "Enter a note before saving.", "error");
+        return;
+      }
+      const updated = await apiUpdateWorkOrder(workOrderId, { notes });
+      notesInput.value = "";
+      const notesLog = cardEl.querySelector(".wo-notes-log");
+      if (notesLog) notesLog.innerHTML = notesLogContentsHtml(updated.notes);
+      setMessage(notesMessage, "Note saved.", "success");
+      const notesSection = cardEl.querySelector(".wo-notes-section");
+      if (notesSection) notesSection.open = false;
     } else if (action === "add-labor") {
       const section = btn.closest(".wo-labor-section");
       const technicianId = section.querySelector(".wo-labor-technician")?.value;
@@ -891,7 +1004,7 @@ listEl.addEventListener("click", async (event) => {
         return;
       }
       await apiAddWorkOrderLabor(workOrderId, { technicianId, minutes });
-      await refreshCard(cardEl);
+      await refreshCard(cardEl, ".wo-labor-section");
     } else if (action === "edit-labor") {
       const row = btn.closest(".wo-labor-entry");
       const minutes = hoursToMinutes(row.querySelector(".wo-labor-hours")?.value);
@@ -900,12 +1013,12 @@ listEl.addEventListener("click", async (event) => {
         return;
       }
       await apiUpdateWorkOrderLabor(workOrderId, row.dataset.laborId, { minutes });
-      await refreshCard(cardEl);
+      await refreshCard(cardEl, ".wo-labor-section");
     } else if (action === "remove-labor") {
       const row = btn.closest(".wo-labor-entry");
       if (!(await confirmDialog("Remove this labor entry from the work order?"))) return;
       await apiDeleteWorkOrderLabor(workOrderId, row.dataset.laborId);
-      await refreshCard(cardEl);
+      await refreshCard(cardEl, ".wo-labor-section");
     } else if (action === "add-item") {
       const container = btn.closest(".wo-add-item");
       const itemId = container.dataset.itemId;
@@ -918,8 +1031,14 @@ listEl.addEventListener("click", async (event) => {
         setMessage(msg, "Enter a quantity greater than zero.", "error");
         return;
       }
-      await apiAddWorkOrderItem(workOrderId, { itemId, quantity: qty });
-      await refreshCard(cardEl);
+      const addedLine = await apiAddWorkOrderItem(workOrderId, { itemId, quantity: qty });
+      await refreshCard(cardEl, ".wo-materials-section");
+      const refreshedMessage = cardEl.querySelector(".wo-message");
+      if (Number(addedLine.item_quantity) < 0) {
+        setMessage(refreshedMessage, "Item added. Please re-count stock.", "error");
+      } else {
+        setMessage(refreshedMessage, "Item added.", "success");
+      }
     } else if (action === "edit-item") {
       const row = btn.closest(".wo-item");
       const qty = parseFloat(row.querySelector(".wo-line-qty").value);
@@ -928,12 +1047,12 @@ listEl.addEventListener("click", async (event) => {
         return;
       }
       await apiUpdateWorkOrderItem(workOrderId, row.dataset.woItemId, { quantity: qty });
-      await refreshCard(cardEl);
+      await refreshCard(cardEl, ".wo-materials-section");
     } else if (action === "remove-item") {
       const row = btn.closest(".wo-item");
       if (!(await confirmDialog("Remove this material from the work order?"))) return;
       await apiDeleteWorkOrderItem(workOrderId, row.dataset.woItemId);
-      await refreshCard(cardEl);
+      await refreshCard(cardEl, ".wo-materials-section");
     }
   } catch (err) {
     if (
@@ -947,6 +1066,19 @@ listEl.addEventListener("click", async (event) => {
     }
     if (msg) setMessage(msg, friendlyError(err, "That action did not work."), "error");
   }
+});
+
+listEl.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !event.target.classList.contains("wo-tech-search")) return;
+  closeTechnicianResults(event.target.closest(".wo-tech-picker"));
+});
+
+listEl.addEventListener("focusout", (event) => {
+  const picker = event.target.closest(".wo-tech-picker");
+  if (!picker) return;
+  setTimeout(() => {
+    if (!picker.contains(document.activeElement)) closeTechnicianResults(picker);
+  }, 0);
 });
 
 // --- Inline line-billing editor (Admin/Owner) ----------------------------
@@ -971,7 +1103,7 @@ listEl.addEventListener("click", (event) => {
     billable: Number(cell.dataset.billable),
     onSave: async (value) => {
       await apiSetWorkOrderItemBilling(workOrderId, woItemId, value);
-      await refreshCard(cardEl);  // repaint the card (line charge + total)
+      await refreshCard(cardEl, ".wo-materials-section");  // repaint the card (line charge + total)
     },
   });
 });
