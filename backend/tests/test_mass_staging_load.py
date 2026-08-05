@@ -256,6 +256,31 @@ def test_add_work_order_records_location_and_assignee(db):
     assert w.assigned_to_id == tech.id
 
 
+def test_add_work_order_accepts_supervisor_as_technician(db):
+    creator = _seed_user(db, "supervisor")
+    working_supervisor = _seed_user(db, "supervisor")
+    building = _building()
+    number = _import_wo(db, "WO-SUP-WORK", created_by_id=creator.id)
+    stage = create_stage(
+        db,
+        community="Scholars",
+        building_name=building,
+        created_by_id=creator.id,
+    )
+
+    slot = add_work_order_to_stage(
+        db,
+        stage.id,
+        work_order_number=number,
+        unit_number="1102",
+        assigned_to_id=working_supervisor.id,
+    )
+
+    work_order = db.get(WorkOrder, slot.work_order_id)
+    assert work_order.assigned_to_id == working_supervisor.id
+    assert work_order.status == "assigned"
+
+
 def test_add_work_order_enforces_community_building_match(db):
     sup = _seed_user(db, "supervisor")
     # A work order already filed under a different building.

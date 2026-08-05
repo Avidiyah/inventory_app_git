@@ -280,9 +280,10 @@ class WorkOrder(Base):
     `entry_mode` (`dispense` |
     `retroactive`) is the default mode for newly logged materials: dispense moves
     stock, retroactive is a stock-neutral paper backfill.
-    Technician scope comes from `work_order_technicians`. `assigned_to_id` is
-    retained as a primary/legacy mirror for older clients and Mass Stage, while
-    Work Orders may carry any number of technician assignments. Soft delete via
+    Worker scope comes from `work_order_technicians`; active Technician and
+    Supervisor accounts may participate. `assigned_to_id` is retained as a
+    primary/legacy mirror for older clients and Mass Stage, while Work Orders
+    may carry any number of technician assignments. Soft delete via
     `archived_at`, mirroring `Item` / `User`; an archived
     number stays reserved, its material lines are kept, and CSV re-import ignores
     it. An explicit `restore_work_order` can bring it back. Transactions carry their own
@@ -326,8 +327,9 @@ class WorkOrder(Base):
     vendor_assignee = Column(Text, nullable=True)
     service_type = Column(Text, nullable=True)
     schedule_date = Column(Text, nullable=True)
-    # The supervisor a work order is routed to (drives visibility alongside
-    # `created_by_id`). Set by name-match at import or manually by an Admin.
+    # The Admin/Supervisor a work order is routed to. Set by name-match at import
+    # or manually by Supervisor+; drives Supervisor visibility alongside worker
+    # assignment membership.
     supervisor_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     # A pre-import (old-schema) work order: kept for search so already-priced-out
     # work orders stay findable, but its old descriptive attributes were dropped.
@@ -374,12 +376,12 @@ class WorkOrder(Base):
 
 
 class WorkOrderTechnician(Base):
-    """One technician assignment on a work order.
+    """One technician-role assignment on a work order.
 
     The join table is the source of truth for Work Orders visibility and permits
-    multiple technicians on a job. `WorkOrder.assigned_to_id` remains a
-    compatibility mirror of the first selected technician while older callers
-    migrate to the plural API.
+    multiple workers on a job. Eligible accounts are active Technicians and
+    Supervisors. `WorkOrder.assigned_to_id` remains a compatibility mirror of
+    the first selected worker while older callers migrate to the plural API.
     """
 
     __tablename__ = "work_order_technicians"

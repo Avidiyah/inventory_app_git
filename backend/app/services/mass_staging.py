@@ -269,7 +269,7 @@ def add_work_order_to_stage(
     if no live work order carries that number (work orders are import-only, so a
     stage cannot conjure one), `WorkOrderStateError` if the work order belongs to
     a different community/building, and `InvalidAssigneeError` (from the
-    work-order service) if the assignee is not a technician."""
+    work-order service) if the assignee is not an active Technician or Supervisor."""
     stage = _get_stage_row(db, stage_id)
     _require_editable(stage)
 

@@ -236,15 +236,15 @@ class StageStateError(DomainError):
 
 class InvalidAssigneeError(DomainError):
     """Raised when a work order (room) is assigned to a user who does not
-    exist or is not a technician. Work orders are assigned only to
-    technicians (`domain.roles.ROLE_TECHNICIAN`); an unassigned room (None)
-    is always valid. Maps to 400."""
+    exist, is archived, or cannot perform technician work. Active Technician
+    and Supervisor accounts are eligible; an unassigned room (None) is always
+    valid. Maps to 400."""
 
 
 class InvalidSupervisorError(DomainError):
     """Raised when work-order routing targets a missing, archived, or
-    non-Supervisor user. An unrouted work order (None) is always valid. Maps to
-    400."""
+    ineligible user. Active Admin and Supervisor accounts are eligible; an
+    unrouted work order (None) is always valid. Maps to 400."""
 
 
 class WorkOrderNotFoundError(DomainError):

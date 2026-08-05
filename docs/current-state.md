@@ -29,10 +29,10 @@ For review/debugging work:
 3. Use `Test Map` to find existing coverage and missing coverage.
 
 If this file conflicts with code, trust the code and update this file as part of
-the change. The 2026-08-05 audit baseline is the current dirty worktree at
-`19e661c`: OpenAPI has 69 application operations, Alembic head is
-`faa2c4e6b8d0`, and all 452 backend tests pass. Uncommitted application
-changes are part of this documented baseline and must not be mistaken for the
+the change. The 2026-08-05 implementation baseline is current local `main`
+(`Sane Roles`): OpenAPI has 69 application operations, Alembic head is
+`faa2c4e6b8d0`, and all 457 backend tests pass. The current documentation
+reconciliation is part of this baseline and must not be mistaken for the
 older committed state.
 
 ## Fast Orientation
@@ -380,9 +380,10 @@ Work orders:
   additional fee, tax, and discount layers remain deferred.
 - List/get/items are scoped server-side by
   `domain.work_orders.can_view_work_order`; out-of-scope/archived/unknown
-  surface as 404. Supervisors see the shared unassigned pickup queue plus rows
-  routed to themselves; creator identity does not grant visibility after a row
-  is routed elsewhere. A routing edit may target only an active Supervisor. The
+  surface as 404. Supervisors see the shared unassigned pickup queue, rows
+  routed to themselves, and rows where they are assigned to perform technician
+  work; creator identity alone does not grant visibility after a row is routed
+  elsewhere. A routing edit may target an active Admin or Supervisor. The
   editor sends its original `supervisor_id`; the service locks the row and
   returns a named 409 conflict if another request assigned it first. Notes and
   adding materials are Technician+; operational
@@ -443,7 +444,7 @@ owner > admin > supervisor > technician
 | Edit user name + username | self, or actor outranks target |
 | Change a user's role | admin+ AND actor outranks both the current and the new role |
 | Mass-stage page/API | supervisor+ |
-| Work Orders list/get/items | any authenticated user, server-scoped (technician: assigned; supervisor: unassigned OR routed to self via `supervisor_id`; admin/owner: all) |
+| Work Orders list/get/items | any authenticated user, server-scoped (Technician: assigned; Supervisor: unassigned OR routed to self OR assigned as a worker; Admin/Owner: all) |
 | Edit Work Order notes / add material | any authenticated in-scope user |
 | Edit Work Order supervisor / technicians / status / entry mode / labor / logged-material quantity or removal | supervisor+ (scoped) |
 | Edit imported Work Order metadata (Location, Service, Schedule Date, Output to, Vendor Contact, Symptom/Task) | admin+ (scoped) |
@@ -508,8 +509,9 @@ Rules:
   and sessions survive because they key on the user id, not the login name.
 - `role` is editable by Admin+ through `PATCH /users/{id}/role`, which revokes
   the target's sessions so the role-shaped frontend cannot outlive the change.
-- Full names are not unique. Two active supervisors with the same normalized
-  first + last name are intentionally ambiguous during CSV routing.
+- Full names are not unique. Two active routing-eligible users (Admin or
+  Supervisor) with the same normalized first + last name are intentionally
+  ambiguous during CSV routing.
 
 Password hash format: `scrypt$n$r$p$salt_hex$hash_hex`.
 
@@ -646,7 +648,7 @@ Rules:
   `completed`, and `review`. Closed is `archived_at`, not a stored status value.
   On-Hold is stable during material/labor activity until Supervisor+ explicitly
   resumes or rolls it back. New imports
-  default to Created; technician assignment derives Assigned, and the first
+  default to Created; worker assignment derives Assigned, and the first
   material/labor activity derives In-Progress. Migration `f4c6e8a0b2d3` added
   the five-state lifecycle, while `f5d7f9b1c3e4` aligned existing pre-work rows
   with technician assignment.
@@ -657,10 +659,13 @@ Rules:
   `[h:mm AM/PM] [MMDDYY] [Full Name] note text`, using server time converted to
   `America/Chicago`. Pre-log free-form text remains intact; blank/null input
   cannot erase the history.
-- `work_order_technicians` is the authoritative plural assignment relation and
-  drives technician visibility (`domain.work_orders.can_view_work_order`).
-  `assigned_to_id` remains a compatibility mirror of the first selected
-  technician for Mass Stage and older clients.
+- `work_order_technicians` is the authoritative plural assignment relation.
+  Active Technician and Supervisor accounts are eligible workers; membership
+  drives Technician visibility and also preserves a working Supervisor's scope
+  when a different Admin/Supervisor owns routing
+  (`domain.work_orders.can_view_work_order`). `assigned_to_id` remains a
+  compatibility mirror of the first selected worker for Mass Stage and older
+  clients.
 - Soft delete via `archived_at` is the Closed state; the number stays reserved
   and material lines are kept. Closing is Admin+ from any live status and is
   available on expanded Work Orders cards. A closed work order is invisible to list
@@ -671,7 +676,7 @@ Rules:
 - References fill blank attributes but never overwrite non-blank ones; explicit
   edits (`update_work_order`) overwrite. Reference/import merges lock the row;
   `supervisor_id` fills only when the locked value is NULL. Explicit routing
-  locks the same row, validates an active Supervisor target, and can compare the
+  locks the same row, validates an active Admin or Supervisor target, and can compare the
   caller's `expected_supervisor_id` to reject stale pickup attempts with 409.
 - **CSV-import schema (the new default source of truth).** The mass work-order
   export is bulk-imported via `POST /work-orders/import` (Admin+). Its columns
@@ -685,17 +690,18 @@ Rules:
   billing, and existing values remain untouched. Archived matches are counted
   as `closed` and skipped before routing or merge, so CSV import cannot restore
   or alter a closed work order.
-- `supervisor_id` is the supervisor a work order is routed to. Import sets it by
-  matching the normalized `vendor_assignee` name to an active supervisor's
+- `supervisor_id` is the Admin/Supervisor a work order is routed to. Import sets it by
+  matching the normalized `vendor_assignee` name to an active Admin or Supervisor's
   first + last name (`services.work_orders._supervisor_lookup`). Missing,
-  unmatched, incomplete, archived, non-supervisor, or duplicate/ambiguous names
-  import cleanly as unassigned (`NULL`); an Admin can route one later via
+  unmatched, incomplete, archived, ineligible-role, or duplicate/ambiguous names
+  import cleanly as unassigned (`NULL`); Supervisor+ can route one later via
   `update_work_order`. Supervisor routing does not change lifecycle status.
-  The plural technician set advances a Created row to Assigned when non-empty
+  The plural worker set advances a Created row to Assigned when non-empty
   and returns an Assigned row to Created when cleared, while later lifecycle
   states never rewind automatically. `supervisor_id` drives Supervisor
   visibility directly (see `can_view_work_order`): NULL is the shared pickup
-  queue, and a routed row is visible to that Supervisor. Import and explicit
+  queue, a routed row is visible to that Supervisor, and an assigned Supervisor
+  retains access as a worker even under different routing. Import and explicit
   routing lock the same row so import fills only NULL routing and a stale pickup
   cannot overwrite a winner.
 - `legacy` marks a pre-import work order. The import migration
@@ -745,11 +751,12 @@ Fields: `work_order_id`, `technician_id`, `assigned_by_id`, `created_at`.
 Rules:
 
 - Composite primary key `(work_order_id, technician_id)` permits each work order
-  to carry multiple unique technicians. Work-order deletion cascades; removing
-  an assignment does not remove that technician's historical labor.
+  to carry multiple unique workers. Active Technician and Supervisor accounts
+  are eligible. Work-order deletion cascades; removing an assignment does not
+  remove that worker's historical labor.
 - Supervisor+ replaces the complete assignment set through
-  `PATCH /work-orders/{id}` with `assigned_to_ids`. Every assigned technician can
-  list and act on the work order. The legacy singular request remains accepted
+  `PATCH /work-orders/{id}` with `assigned_to_ids`. Every assigned Technician or
+  Supervisor can list and act on the work order. The legacy singular request remains accepted
   for compatibility.
 
 ### `work_order_labor`
@@ -759,9 +766,9 @@ Fields: `id`, `work_order_id`, `technician_id`, `minutes`, `recorded_by_id`,
 
 Rules:
 
-- Each row records positive whole-minute actual labor attributed to a technician
+- Each row records positive whole-minute actual labor attributed to a worker
   assigned to the work order. All labor create/edit/remove operations require
-  Supervisor+ and may target any assigned technician.
+  Supervisor+ and may target any assigned Technician or Supervisor.
 - Billing sums all actual minutes on the work order, rounds the combined total
   upward once to the next 30 minutes, then charges `$62.50/hour`. Rate and total
   are returned only to Admin/Owner; actual and billed durations are visible to
@@ -1031,8 +1038,9 @@ Created can navigate to the expanded Work Order card for assignment first.
 ### Work Orders
 
 List/get/items are open to any authenticated user but **server-scoped**: a
-technician sees/acts on only work orders assigned to them, a supervisor only
-unassigned work orders or ones routed to them, admin/owner all.
+Technician sees/acts on only work orders assigned to them; a Supervisor sees
+unassigned work orders, ones routed to them, and ones where they are assigned as
+a worker; Admin/Owner see all.
 Notes/add-material are
 Technician+; operations/labor/material corrections and restore are Supervisor+;
 metadata and closing are Admin+. Archive accepts every live status. Out-of-scope, closed, or
@@ -1251,9 +1259,11 @@ Behavior:
   It is collapsed by default and expands through its own summary instead of a
   separate button; the read-only block remains visible. For a Supervisor it
   contains only supervisor routing, multi-technician assignment, and status.
+  The Supervisor selector lists active Admin and Supervisor accounts.
   The assignment control puts a name search at the top and shows no
-  technician catalog until text is entered. Its local, case-insensitive results
-  exclude already selected Technicians; choosing a result adds it to the
+  worker catalog until text is entered. Its local, case-insensitive results
+  include active Technicians and Supervisors, exclude already selected workers,
+  and choosing a result adds it to the
   assigned list beneath the search, and Remove drops it from that draft list.
   Save sends the complete remaining set as replacement `assigned_to_ids`; Cancel
   reloads the persisted detail. Admin/Owner additionally see Location, Service
@@ -1262,7 +1272,7 @@ Behavior:
   offers In-Progress for Created/Assigned rows, making it the explicit
   Supervisor start control as well as the place to roll back or select On-Hold;
   a held row can resume to the appropriate non-Review step. Created/Assigned
-  remains technician-derived. Review is read-only here and retains its existing
+  remains worker-assignment-derived. Review is read-only here and retains its existing
   Reopen action. Save details / Cancel persist or discard the draft, re-fetch the
   card, and return Edit details to its default collapsed state.
 - Advanced filters cover status, dynamic service type, caller-visible assigned
@@ -1568,7 +1578,7 @@ Behavior:
 - `get_or_create_work_order` resolves a number (case-insensitive + trimmed) to
   the one row, creating it if new: fills blank attributes on a live match,
   returns an archived match untouched for the importer to count/ignore, and
-  validates the assignee is a technician. **Reached only from the CSV
+  validates the assignee is an active Technician or Supervisor. **Reached only from the CSV
   import** — it is the single creation path in the system. Every new row starts
   Created; supervisor-name routing affects `supervisor_id`/visibility, not status.
 - `resolve_work_order` is what every other surface (the free-text transaction
@@ -1781,10 +1791,10 @@ Coverage map:
 | `test_quantity_reverse.py` | stock delta reversal for voids |
 | `test_mass_staging.py` | pure mass-stage allocation/lifecycle rules |
 | `test_mass_stages_api.py` | schemas, route gates, response builders |
-| `test_mass_staging_load.py` | DB-backed slot load/return, add-work-order enforce-match + refusal of an unimported number, reuse |
-| `test_work_orders_domain.py` | pure number normalization, six live statuses including stable On-Hold, community-filter vocabulary/validation, plural technician-derived Created/Assigned state, activity-derived In-Progress, authored/timestamped note-log formatting, combined labor rounding/charge, fill-blanks, visibility scope |
-| `test_work_orders_service.py` | DB-backed find-or-create, resolve-only attach, plural assignment/scope, narrow Technician start action, Supervisor+-only per-technician labor writes, lifecycle/status/append-only authored notes/archive/materials, Technician/Supervisor zero-stock add with recount creation and Supervisor removal resolution, Owner-only live-legacy preview/re-archive selection, AND-composed advanced filters, community aliases/multi-membership/Academics fallback, scoped filter options, and list cap |
-| `test_work_order_import.py` | CSV parsing/import, full-name supervisor routing independent of Created status, unmatched/ambiguous/archived/non-supervisor fallback, idempotence, closed-row count/no-mutation (metadata, notes, materials, labor), and Admin gate |
+| `test_mass_staging_load.py` | DB-backed slot load/return, add-work-order enforce-match + refusal of an unimported number, Technician/Supervisor worker assignment, reuse |
+| `test_work_orders_domain.py` | pure number normalization, six live statuses including stable On-Hold, community-filter vocabulary/validation, plural worker-derived Created/Assigned state, activity-derived In-Progress, authored/timestamped note-log formatting, combined labor rounding/charge, fill-blanks, Technician/Supervisor worker visibility scope |
+| `test_work_orders_service.py` | DB-backed find-or-create, resolve-only attach, plural Technician/Supervisor assignment/scope, Admin/Supervisor routing targets, narrow Technician start action, Supervisor+-only per-worker labor writes, lifecycle/status/append-only authored notes/archive/materials, Technician/Supervisor zero-stock add with recount creation and Supervisor removal resolution, Owner-only live-legacy preview/re-archive selection, AND-composed advanced filters, community aliases/multi-membership/Academics fallback, scoped filter options, and list cap |
+| `test_work_order_import.py` | CSV parsing/import, full-name Admin/Supervisor routing independent of Created status, unmatched/ambiguous/archived/ineligible-role fallback, idempotence, closed-row count/no-mutation (metadata, notes, materials, labor), and Admin gate |
 | `test_work_order_name_responses.py` | work-order response exposes plural operational names, rounded labor detail/totals, and the note-log text while omitting login usernames |
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
 | `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin; history row exposes `work_order_id` |

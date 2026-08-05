@@ -24,6 +24,16 @@ export function roleAtLeast(role, minimum) {
   return rank(role) >= rank(minimum);
 }
 
+// Operational Work Order assignment eligibility mirrors app/domain/roles.py.
+// Owner retains full authority but is not an assignment target.
+export function canBeWorkOrderSupervisor(role) {
+  return role === "admin" || role === "supervisor";
+}
+
+export function canBeWorkOrderTechnician(role) {
+  return role === "supervisor" || role === "technician";
+}
+
 // True if an actor may create/reset/delete a user holding `targetRole`.
 export function canManage(actorRole, targetRole) {
   return rank(actorRole) > rank(targetRole) && targetRole in ROLE_RANK;

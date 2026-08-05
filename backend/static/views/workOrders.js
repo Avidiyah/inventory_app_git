@@ -35,7 +35,11 @@ import {
 import { escapeHtml, friendlyError, formatMoney, formatUserName } from "../format.js";
 import { setMessage, confirmDialog, messageDialog } from "../dom.js";
 import { getRole } from "../state.js";
-import { roleAtLeast } from "../roles.js";
+import {
+  canBeWorkOrderSupervisor,
+  canBeWorkOrderTechnician,
+  roleAtLeast,
+} from "../roles.js";
 import { openBillingEditor } from "./billingEditor.js";
 
 const listEl = document.getElementById("work-orders-list");
@@ -360,7 +364,7 @@ function technicianPickerHtml(detail) {
   return `<div class="wo-tech-picker">
             <div class="wo-tech-search-wrap">
               <label class="wo-tech-search-label">
-                <span>Search technicians</span>
+                <span>Search Technicians or Supervisors</span>
                 <input type="search" class="wo-tech-search" placeholder="Search by name" autocomplete="off" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-controls="${escapeHtml(resultsId)}" aria-expanded="false">
               </label>
               <div class="wo-tech-results" id="${escapeHtml(resultsId)}" role="listbox" aria-label="Technician search results" hidden></div>
@@ -406,7 +410,7 @@ function renderTechnicianSearch(input) {
     .slice(0, 8);
 
   if (!allTechs.length) {
-    results.innerHTML = `<p class="hint">No active technicians are available.</p>`;
+    results.innerHTML = `<p class="hint">No active Technicians or Supervisors are available.</p>`;
   } else if (!matches.length) {
     results.innerHTML = `<p class="hint">No matching technicians.</p>`;
   } else {
@@ -584,8 +588,8 @@ export async function loadWorkOrders({ refreshReferenceData = false } = {}) {
   if ((refreshReferenceData || !usersLoaded) && isSupervisorPlus()) {
     try {
       const users = await apiListUsers();
-      allTechs = users.filter((u) => u.role === "technician");
-      allSupers = users.filter((u) => u.role === "supervisor");
+      allTechs = users.filter((u) => canBeWorkOrderTechnician(u.role));
+      allSupers = users.filter((u) => canBeWorkOrderSupervisor(u.role));
       usersLoaded = true;
     } catch {
       allTechs = [];

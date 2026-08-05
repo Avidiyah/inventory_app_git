@@ -258,7 +258,7 @@ def add_work_order(
     number, community/building enforced to match the stage). Supervisor+, planning
     only. 404 if no live work order carries that number -- work orders are
     import-only, so a stage cannot create one. 400 if the work order belongs to a
-    different building or the assignee is not a technician."""
+    different building or the assignee is not an active Technician or Supervisor."""
     try:
         slot = ms_service.add_work_order_to_stage(
             db,

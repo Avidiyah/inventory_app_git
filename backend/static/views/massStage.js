@@ -25,6 +25,7 @@ import {
 } from "../api.js";
 import { escapeHtml, friendlyError, formatUserName } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
+import { canBeWorkOrderTechnician } from "../roles.js";
 import { showPage } from "./nav.js";
 import { focusWorkOrder } from "./workOrders.js";
 
@@ -84,7 +85,9 @@ export async function loadStages({ refreshReferenceData = false } = {}) {
   }
   if (refreshReferenceData || !techsLoaded) {
     try {
-      allTechs = (await apiListUsers()).filter((u) => u.role === "technician");
+      allTechs = (await apiListUsers()).filter((u) =>
+        canBeWorkOrderTechnician(u.role)
+      );
       techsLoaded = true;
     } catch {
       allTechs = [];

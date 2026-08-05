@@ -208,14 +208,23 @@ def test_supervisor_sees_unassigned_and_self_routed_work_orders():
     )
 
 
-def test_supervisor_does_not_see_work_orders_routed_to_someone_else():
+def test_supervisor_sees_other_routing_only_when_assigned_as_worker():
     me, importer, tech = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    other_supervisor = uuid.uuid4()
     assert not wo.can_view_work_order(
         roles.ROLE_SUPERVISOR,
         created_by_id=me,
         assigned_to_id=tech,
         user_id=me,
-        supervisor_id=uuid.uuid4(),
+        supervisor_id=other_supervisor,
+    )
+    assert wo.can_view_work_order(
+        roles.ROLE_SUPERVISOR,
+        created_by_id=importer,
+        assigned_to_id=tech,
+        assigned_to_ids=[tech, me],
+        user_id=me,
+        supervisor_id=other_supervisor,
     )
 
 

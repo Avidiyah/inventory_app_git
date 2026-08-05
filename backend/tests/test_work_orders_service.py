@@ -150,6 +150,46 @@ def test_multiple_technician_assignments_drive_status_and_scope(db):
     assert cleared.assigned_to_id is None
 
 
+def test_supervisor_can_assign_self_and_other_supervisor_as_technicians(db):
+    admin = _seed_user(db, "admin")
+    assigner = _seed_user(db, "supervisor")
+    other_supervisor = _seed_user(db, "supervisor")
+    work_order = _wo(db, created_by=admin)
+
+    assigned = wos.update_work_order(
+        db,
+        work_order.id,
+        user=assigner,
+        fields={
+            "assigned_to_ids": [assigner.id, other_supervisor.id],
+            "supervisor_id": admin.id,
+        },
+    )
+
+    assert assigned.status == "assigned"
+    assert assigned.supervisor_id == admin.id
+    assert {user.id for user in wos.assigned_technicians(assigned)} == {
+        assigner.id,
+        other_supervisor.id,
+    }
+    # Worker assignment keeps both Supervisors in scope even though an Admin is
+    # the routed supervisor.
+    assert wos.get_work_order(db, work_order.id, user=assigner).id == work_order.id
+    assert wos.get_work_order(db, work_order.id, user=other_supervisor).id == work_order.id
+    assert work_order.id in {
+        row.id for row in wos.list_work_orders(db, user=other_supervisor)
+    }
+
+    labor = wos.add_work_order_labor(
+        db,
+        work_order.id,
+        user=assigner,
+        technician_id=other_supervisor.id,
+        minutes=30,
+    )
+    assert labor.technician_id == other_supervisor.id
+
+
 def test_assigned_technician_can_start_work_order(db):
     supervisor = _seed_user(db, "supervisor")
     technician = _seed_user(db, "technician")
@@ -276,12 +316,34 @@ def test_import_resolver_leaves_archived_number_untouched(db):
     assert found.location is None
 
 
-def test_assignee_must_be_technician(db):
+def test_assignee_must_be_active_technician_or_supervisor(db):
     sup = _seed_user(db, "supervisor")
-    other = _seed_user(db, "supervisor")
+    admin = _seed_user(db, "admin")
+    archived_supervisor = _seed_user(db, "supervisor")
+    archived_supervisor.archived_at = datetime.now(timezone.utc)
+    db.flush()
+
+    assigned = wos.get_or_create_work_order(
+        db,
+        number=f"WO-SUP-{uuid.uuid4().hex[:8]}",
+        assigned_to_id=sup.id,
+        created_by_id=admin.id,
+    )
+    assert assigned.assigned_to_id == sup.id
+
     with pytest.raises(InvalidAssigneeError):
         wos.get_or_create_work_order(
-            db, number="WO-NT", assigned_to_id=other.id, created_by_id=sup.id
+            db,
+            number=f"WO-ADMIN-{uuid.uuid4().hex[:8]}",
+            assigned_to_id=admin.id,
+            created_by_id=admin.id,
+        )
+    with pytest.raises(InvalidAssigneeError):
+        wos.get_or_create_work_order(
+            db,
+            number=f"WO-ARCHIVED-{uuid.uuid4().hex[:8]}",
+            assigned_to_id=archived_supervisor.id,
+            created_by_id=admin.id,
         )
 
 
@@ -909,11 +971,12 @@ def test_work_order_routing_requires_an_active_supervisor(db):
     admin = _seed_user(db, "admin")
     technician = _seed_user(db, "technician")
     archived = _seed_user(db, "supervisor")
+    owner = _seed_user(db, "owner")
     archived.archived_at = datetime.now(timezone.utc)
     work_order = _wo(db, created_by=admin)
     db.commit()
 
-    with pytest.raises(InvalidSupervisorError, match="active Supervisor"):
+    with pytest.raises(InvalidSupervisorError, match="active Admin or Supervisor"):
         wos.update_work_order(
             db,
             work_order.id,
@@ -923,7 +986,7 @@ def test_work_order_routing_requires_an_active_supervisor(db):
         )
     db.rollback()
 
-    with pytest.raises(InvalidSupervisorError, match="active Supervisor"):
+    with pytest.raises(InvalidSupervisorError, match="active Admin or Supervisor"):
         wos.update_work_order(
             db,
             work_order.id,
@@ -932,6 +995,40 @@ def test_work_order_routing_requires_an_active_supervisor(db):
             expected_supervisor_id=None,
         )
     db.rollback()
+
+    with pytest.raises(InvalidSupervisorError, match="active Admin or Supervisor"):
+        wos.update_work_order(
+            db,
+            work_order.id,
+            user=admin,
+            fields={"supervisor_id": owner.id},
+            expected_supervisor_id=None,
+        )
+    db.rollback()
+
+
+def test_admin_can_route_work_order_to_self_and_another_admin(db):
+    first_admin = _seed_user(db, "admin")
+    second_admin = _seed_user(db, "admin")
+    work_order = _wo(db, created_by=first_admin)
+
+    self_routed = wos.update_work_order(
+        db,
+        work_order.id,
+        user=first_admin,
+        fields={"supervisor_id": first_admin.id},
+        expected_supervisor_id=None,
+    )
+    assert self_routed.supervisor_id == first_admin.id
+
+    rerouted = wos.update_work_order(
+        db,
+        work_order.id,
+        user=first_admin,
+        fields={"supervisor_id": second_admin.id},
+        expected_supervisor_id=first_admin.id,
+    )
+    assert rerouted.supervisor_id == second_admin.id
 
 
 # --- scoping -------------------------------------------------------------

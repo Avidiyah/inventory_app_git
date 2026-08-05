@@ -720,6 +720,9 @@ Notes are trimmed per-entry text; every in-scope user may append one. The
 service supplies timestamp/date/author metadata and preserves the prior log.
 `status`, `entry_mode`, supervisor, and technician assignment require
 Supervisor+; imported/legacy text metadata and number require Admin+.
+`supervisor_id` may target an active Admin or Supervisor; `assigned_to_ids` may
+contain active Technician or Supervisor accounts (including the acting
+Supervisor). Owners retain global authority but are not assignment targets.
 `supervisor_id?` may be paired with `expected_supervisor_id?`, including an
 explicit NULL expectation for pickup. The expectation is a concurrency
 precondition, not a stored field and not an update by itself.
@@ -851,8 +854,8 @@ non-domain exceptions become FastAPI's default 500.
 | `DuplicateUsernameError` | 400 | username UNIQUE constraint fired |
 | `DuplicateBuildingStageError` | 400 | a (community, building) already has an active stage |
 | `InvalidStageTransitionError` | 400 | stage status move not `planning→loading→completed` |
-| `InvalidAssigneeError` | 400 | work-order assignee missing or not a technician |
-| `InvalidSupervisorError` | 400 | work-order routing target missing, archived, or not a Supervisor |
+| `InvalidAssigneeError` | 400 | work-order worker missing, archived, or not a Technician/Supervisor |
+| `InvalidSupervisorError` | 400 | work-order routing target missing, archived, or not an Admin/Supervisor |
 | `ReturnExceedsLoadedError` | 400 | mass-stage return > net loaded |
 | `StageStateError` | 400 | mass-stage op illegal for current status (edit after planning, load before loading) |
 | `ItemHasTransactionsError` | 400 | hard-deleting an item with txns/stage rows (FK RESTRICT) |
@@ -881,6 +884,10 @@ Pure functions (no DB) in `domain/*.py` — the business rules, testable in isol
 ### Roles (`domain/roles.py`)
 - Ranks: `technician 0 < supervisor 1 < admin 2 < owner 3`. Unknown role → rank −1.
 - `role_at_least(role, min)` — the route-gate primitive (`>=` on rank).
+- `can_be_work_order_supervisor(role)` — true only for Admin and Supervisor.
+- `can_be_work_order_technician(role)` — true only for Supervisor and Technician.
+  These assignment predicates intentionally exclude Owner despite Owner's global
+  authority.
 - `can_transact(role, type)` — `dispense`: any valid role; `stock`: supervisor+; else False.
 - `can_manage(actor, target)` — actor rank **strictly >** target rank (so no one
   manages their own level or an owner).
@@ -1109,9 +1116,9 @@ attaches to an existing number and refuses an unknown one. Both share the
   covers the CSV-import columns `location`/`output_to`/`vendor_assignee`/
   `service_type`/`schedule_date`), set assignee only if currently unassigned and
   `supervisor_id` only if currently unrouted; reconcile Created/Assigned from
-  technician assignment. New: insert `assigned` only when a technician is
+  worker assignment. New: insert `assigned` only when a Technician/Supervisor worker is
   supplied, otherwise `created`; supervisor routing is status-neutral and must
-  target an active Supervisor. Race on the unique index → rollback, lock the
+  target an active Admin or Supervisor. Race on the unique index → rollback, lock the
   winner, and apply the same fill-blank merge.
 - `resolve_work_order(number, **attrs, assigned_to_id, supervisor_id)` → attach to
   an existing work order, never create. `find_by_number`; `WorkOrderNotFoundError`
@@ -1150,8 +1157,8 @@ attaches to an existing number and refuses an unknown one. Both share the
   `CLIENT_EXPORT_HEADERS`/receipt behavior.
 - `list_work_orders(user, status?, service_type?, supervisor_id?, community?,
   scheduled_date?, search?, limit?)` → archived excluded. Every supplied filter
-  is combined with AND, then `_scoped_to_user` enforces supervisor
-  unassigned/self-routed or technician assignment visibility. Community searches structured/raw
+  is combined with AND, then `_scoped_to_user` enforces Supervisor
+  unassigned/self-routed/worker-assigned or Technician assignment visibility. Community searches structured/raw
   location text; scheduled date parses leading vendor/ISO dates exactly. Results
   sort by parsed schedule descending, invalid/blank values last, before `limit`.
 - `get_work_order_filter_options(user)` → two scoped distinct queries over live
@@ -1165,12 +1172,12 @@ attaches to an existing number and refuses an unknown one. Both share the
   `_require_update_permissions` applies notes = Technician+,
   status/mode/routing/assignment = Supervisor+, and imported/legacy
   metadata = Admin+. `assigned_to_ids` synchronizes **work_order_technicians**
-  and the singular compatibility mirror. Plural technician assignment reconciles
+  and the singular compatibility mirror. Plural Technician/Supervisor worker assignment reconciles
   Created/Assigned; an
   explicit pre-work rollback is normalized after assignment so those states
   cannot contradict technician presence. The work-order row is refreshed and
   locked before visibility/write checks. Supervisor routing is independent,
-  targets only an active Supervisor, and compares an optional expected value;
+  targets only an active Admin or Supervisor, and compares an optional expected value;
   a stale value raises the named `WorkOrderAssignmentConflictError` (409).
   Completed/Review preserve `completed_at`; On-Hold/rollback/reopen clear it.
 - `start_work_order(id, user)` → scoped-load and lock. Technician+ may move only

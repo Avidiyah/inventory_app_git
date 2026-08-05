@@ -35,6 +35,17 @@ ALL_ROLES: tuple[str, ...] = (
     ROLE_TECHNICIAN,
 )
 
+# Work-order assignment roles are intentionally narrower than authority floors.
+# Owners retain full access but are not operational routing/worker choices.
+WORK_ORDER_SUPERVISOR_ROLES: tuple[str, ...] = (
+    ROLE_ADMIN,
+    ROLE_SUPERVISOR,
+)
+WORK_ORDER_TECHNICIAN_ROLES: tuple[str, ...] = (
+    ROLE_SUPERVISOR,
+    ROLE_TECHNICIAN,
+)
+
 
 def is_valid_role(role: str) -> bool:
     """True if `role` is one of the four recognised roles."""
@@ -51,6 +62,16 @@ def role_at_least(role: str, minimum: str) -> bool:
     """True if `role` has at least the authority of `minimum`. This is
     the backend route-gate primitive (e.g. "supervisor or above")."""
     return rank(role) >= rank(minimum)
+
+
+def can_be_work_order_supervisor(role: str) -> bool:
+    """Whether an account may be selected for work-order supervision."""
+    return role in WORK_ORDER_SUPERVISOR_ROLES
+
+
+def can_be_work_order_technician(role: str) -> bool:
+    """Whether an account may perform work as an assigned technician."""
+    return role in WORK_ORDER_TECHNICIAN_ROLES
 
 
 def can_transact(actor_role: str, transaction_type: str) -> bool:

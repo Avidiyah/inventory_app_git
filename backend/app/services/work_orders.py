@@ -163,20 +163,28 @@ def _apply_community_filter(query, value: Optional[str]):
 
 def _validate_assignee(db: Session, assigned_to_id: Optional[uuid.UUID]) -> None:
     """A work order may be unassigned, but if assigned the target must exist and
-    be a technician."""
+    be an active Technician or Supervisor account."""
     if assigned_to_id is None:
         return
-    user = db.query(User).filter(User.id == assigned_to_id).first()
-    if user is None or user.role != roles.ROLE_TECHNICIAN:
+    user = (
+        db.query(User.id)
+        .filter(
+            User.id == assigned_to_id,
+            User.role.in_(roles.WORK_ORDER_TECHNICIAN_ROLES),
+            User.archived_at.is_(None),
+        )
+        .first()
+    )
+    if user is None:
         raise InvalidAssigneeError(
-            "Work orders can only be assigned to a technician."
+            "Work orders can only be assigned to an active Technician or Supervisor."
         )
 
 
 def _validate_assignees(
     db: Session, assigned_to_ids: Sequence[uuid.UUID]
 ) -> list[uuid.UUID]:
-    """Validate and de-duplicate a complete technician assignment set."""
+    """Validate and de-duplicate a complete worker assignment set."""
     normalized = list(dict.fromkeys(assigned_to_ids))
     if not normalized:
         return []
@@ -185,14 +193,14 @@ def _validate_assignees(
         for row in db.query(User.id)
         .filter(
             User.id.in_(normalized),
-            User.role == roles.ROLE_TECHNICIAN,
+            User.role.in_(roles.WORK_ORDER_TECHNICIAN_ROLES),
             User.archived_at.is_(None),
         )
         .all()
     }
     if len(valid_ids) != len(normalized):
         raise InvalidAssigneeError(
-            "Work orders can only be assigned to active technicians."
+            "Work orders can only be assigned to active Technicians or Supervisors."
         )
     return normalized
 
@@ -200,21 +208,21 @@ def _validate_assignees(
 def _validate_supervisor(
     db: Session, supervisor_id: Optional[uuid.UUID]
 ) -> None:
-    """A routed work order must target an active Supervisor account."""
+    """A routed work order must target an active Admin or Supervisor account."""
     if supervisor_id is None:
         return
     supervisor = (
         db.query(User.id)
         .filter(
             User.id == supervisor_id,
-            User.role == roles.ROLE_SUPERVISOR,
+            User.role.in_(roles.WORK_ORDER_SUPERVISOR_ROLES),
             User.archived_at.is_(None),
         )
         .first()
     )
     if supervisor is None:
         raise InvalidSupervisorError(
-            "Work orders can only be routed to an active Supervisor."
+            "Work orders can only be routed to an active Admin or Supervisor."
         )
 
 
@@ -408,7 +416,7 @@ def resolve_work_order(
     A resolved work order takes the same fill-blanks merge a reference has always
     applied, so a stage still fills in blank location/assignee data without
     clobbering imported values. Raises `InvalidAssigneeError` if an assignee is
-    not a technician."""
+    not an active Technician or Supervisor."""
     _validate_assignee(db, assigned_to_id)
     existing = _find_by_number(db, number, for_update=True)
     if existing is not None and existing.archived_at is not None:
@@ -470,9 +478,9 @@ def get_or_create_work_order(
     non-blank assignee is validated + applied only if currently unassigned, and
     a `supervisor_id` is applied only if currently unrouted. An archived match is
     returned untouched so CSV import can count and ignore it. New: starts
-    `assigned` only when a technician is supplied, otherwise `created`;
+    `assigned` only when a Technician/Supervisor worker is supplied, otherwise `created`;
     supervisor routing does not change lifecycle status. Raises
-    `InvalidAssigneeError` if an assignee is not a technician."""
+    `InvalidAssigneeError` if an assignee is not an active Technician or Supervisor."""
     existing = _find_by_number(db, number, for_update=True)
     if existing is not None and existing.archived_at is not None:
         return existing
@@ -542,7 +550,7 @@ def get_or_create_work_order(
 # --- CSV import ----------------------------------------------------------
 
 def _supervisor_lookup(db: Session) -> dict[str, Optional[uuid.UUID]]:
-    """Map unambiguous active-supervisor full names to ids for CSV routing.
+    """Map unambiguous active Admin/Supervisor full names to ids for CSV routing.
 
     Missing names are deliberately unmatchable. Duplicate normalized names are
     stored as ``None`` so import leaves the relationship unassigned instead of
@@ -551,7 +559,10 @@ def _supervisor_lookup(db: Session) -> dict[str, Optional[uuid.UUID]]:
     lookup: dict[str, Optional[uuid.UUID]] = {}
     supervisors = (
         db.query(User)
-        .filter(User.role == roles.ROLE_SUPERVISOR, User.archived_at.is_(None))
+        .filter(
+            User.role.in_(roles.WORK_ORDER_SUPERVISOR_ROLES),
+            User.archived_at.is_(None),
+        )
         .all()
     )
     for supervisor in supervisors:
@@ -575,7 +586,7 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
     empty field; operational data and manual edits survive). Archived matches are
     counted as closed and ignored without restoring or mutating them. The
     `ASSIGNED TO` vendor name is stored raw AND matched to an active system
-    supervisor (by normalized first + last name) to set
+    Admin or Supervisor (by normalized first + last name) to set
     `supervisor_id`; an unmatched name imports cleanly (admin routes it later).
     Rows with a blank work-order number are skipped.
 
@@ -755,12 +766,17 @@ def _scoped_to_user(query, user: Optional[User]):
     if user is None or roles.role_at_least(user.role, roles.ROLE_ADMIN):
         return query
     if user.role == roles.ROLE_SUPERVISOR:
-        # Unrouted work orders are the shared pickup queue; once routed, only
-        # the selected supervisor (plus Admin/Owner above) retains visibility.
+        # Unrouted work orders are the shared pickup queue. A Supervisor also
+        # retains worker access when assigned in the technician set, even if a
+        # different Admin/Supervisor owns the routing field.
         return query.filter(
             or_(
                 WorkOrder.supervisor_id.is_(None),
                 WorkOrder.supervisor_id == user.id,
+                WorkOrder.assigned_to_id == user.id,
+                WorkOrder.technician_assignments.any(
+                    WorkOrderTechnician.technician_id == user.id
+                ),
             )
         )
     return query.filter(

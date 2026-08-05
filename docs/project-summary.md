@@ -11,7 +11,7 @@ A **self-hosted inventory + work-order staging system** for physical materials t
 ## Core domains
 
 - **Items, transactions & User Requests** — find/create/edit items by barcode; Find Item opens with no item request or native suggestion popup, then explicit Search or Load All retrieves full records. Stock, dispense, correct (append-only `adjust` rows), and void (soft delete, reverses stock). A Scan / Stock or Work Orders Add Item dispense beyond the recorded count is saved with a negative expected balance and atomically raises a durable Admin/Owner inventory-recount request; removing the source transaction/line resolves it. Prices/links are cost-sensitive and redacted below Admin. Row locks guard every quantity change; money is `Decimal`.
-- **Work orders** — first-class standalone, import-only entities whose case-insensitive identity is the **number**. Live workflow is Created → Assigned → In-Progress → Completed → Review, with supervisor-controlled On-Hold; Closed is the archived state. Work orders support multiple technician assignments, an append-only note log whose server-generated entries include Central time/date and authenticated full name, aggregate material billing, and per-technician labor billed at $62.50/hour after the combined duration rounds upward to 30 minutes. Edit permissions are least-privilege: Technician = notes/add material; Supervisor+ = routing/status/mode/labor/material corrections; Admin+ = imported metadata and archive from any live status. Supervisors see the shared unassigned pickup queue plus work routed to themselves. Pickup and import merges lock the same row; a stale pickup receives a named 409, while import fills supervisor routing only when the locked row is still unassigned, preserving manual reroutes. Routing targets must be active Supervisors. Archived import matches are counted as closed and ignored. The server-side list composes status, service type, routed supervisor, derived community, exact scheduled date, and number filters with AND, then sorts by parsed Scheduled Date descending. Admin+ can export that uncapped filtered set as a re-importable operational CSV; the client billing/receipt CSV remains scope-based. Everything is server-scoped by role (technician→any assignment, supervisor→unassigned/self-routed, admin/owner→all).
+- **Work orders** — first-class standalone, import-only entities whose case-insensitive identity is the **number**. Live workflow is Created → Assigned → In-Progress → Completed → Review, with supervisor-controlled On-Hold; Closed is the archived state. Work orders support multiple worker assignments: active Technicians and Supervisors may be assigned to perform work, while active Admins and Supervisors may be selected for supervision. An append-only note log carries server-generated Central time/date and authenticated full name; aggregate material billing and per-worker labor bill at $62.50/hour after combined duration rounds upward to 30 minutes. Edit permissions are least-privilege: Technician = notes/add material; Supervisor+ = routing/status/mode/labor/material corrections; Admin+ = imported metadata and archive from any live status. Supervisors see the shared unassigned pickup queue, work routed to themselves, and work where they are assigned as a worker. Pickup and import merges lock the same row; a stale pickup receives a named 409, while import fills supervisor routing only when the locked row is still unassigned, preserving manual reroutes. Archived import matches are counted as closed and ignored. The server-side list composes status, service type, routed supervisor, derived community, exact scheduled date, and number filters with AND, then sorts by parsed Scheduled Date descending. Admin+ can export that uncapped filtered set as a re-importable operational CSV; the client billing/receipt CSV remains scope-based. Everything is server-scoped by role (Technician→any assignment, Supervisor→unassigned/self-routed/worker-assigned, Admin/Owner→all).
 - **Mass staging** — truck-loading plans per community/building/unit that *reference* work orders; forward-only lifecycle planning→loading→completed.
 - **Tools** — parallel to items but smaller (no price/location); ledger-derived custody ("who has what" is computed, never stored). Checkout is Admin+, check-in any role.
 - **Users/roles** — `owner > admin > supervisor > technician`; unique usernames
@@ -31,15 +31,12 @@ A **self-hosted inventory + work-order staging system** for physical materials t
 
 ## Current baseline
 
-Last reconciled: 2026-08-05 against the current dirty worktree at committed
-baseline `19e661c` plus the uncommitted User Requests/short-count application,
-test, migration, frontend, and documentation changes. Those working-tree changes
-are part of this current implementation baseline and must not be collapsed back
-to older committed behavior. Older documents that use `0566a64` as the current
-baseline are historical. OpenAPI exposes 69 application operations and Alembic
-head is `faa2c4e6b8d0`.
+Last reconciled: 2026-08-05 against current local `main` (`Sane Roles`) plus
+this documentation reconciliation. Older documents that use `19e661c` or
+`0566a64` as the current baseline are historical. OpenAPI exposes 69 application
+operations, Alembic head is `faa2c4e6b8d0`, and all 457 backend tests pass.
 
-IMP-001 through IMP-003 and IMP-005 through IMP-022 are implemented and marked
+IMP-001 through IMP-003 and IMP-005 through IMP-027 are implemented and marked
 Done. IMP-004 (the Mass Stage redesign) is the only open requested improvement
 and remains very low priority. See `docs/improvement-tracker.md` for the original
 requests and implementation notes.
@@ -89,9 +86,10 @@ Capabilities added after the improvement batch include:
   card, collapsed by default beneath the persistent read-only overview. Its
   existing status dropdown is the Supervisor's explicit Created/Assigned →
   In-Progress control; the former standalone button is removed. The technician
-  assignment editor searches active Technicians by full name, shows matches only
-  while searching, and lists removable selected Technicians below the search;
-  Save replaces the complete plural assignment set. Notes, Materials, and Labor
+  assignment editor searches active Technicians and Supervisors by full name,
+  shows matches only while searching, and lists removable selected workers below the search;
+  Save replaces the complete plural assignment set. The Supervisor selector
+  lists active Admins and Supervisors. Notes, Materials, and Labor
   are also nested cards that start collapsed. Notes displays its accumulated
   text log above an empty input; Save appends `[TIME] [MMDDYY] [User]` metadata,
   clears the input, and closes the card. Materials and Labor reopen after their

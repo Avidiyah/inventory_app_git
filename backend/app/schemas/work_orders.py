@@ -33,8 +33,9 @@ def _stripped_or_none(v):
 class WorkOrderUpdate(BaseModel):
     """Payload for `PATCH /work-orders/{id}` -- explicit edits (overwrite, unlike
     find-or-create's fill-blanks). Any subset; an explicit `null` for
-    `assigned_to_ids` replaces the technician set; an empty list clears it.
-    `assigned_to_id` remains accepted for compatibility with older clients.
+    `assigned_to_ids` replaces the worker set; an empty list clears it. Active
+    Technician and Supervisor accounts may be assigned. `assigned_to_id` remains
+    accepted for compatibility with older clients.
     A nonblank `notes` value is one new append-only note entry; the service adds
     its timestamp and authenticated author instead of replacing the log. At
     least one field required.
@@ -54,7 +55,8 @@ class WorkOrderUpdate(BaseModel):
     assigned_to_id: Optional[UUID] = None
     assigned_to_ids: Optional[list[UUID]] = None
     # CSV-import attributes, editable after import by Admin+. `supervisor_id` is
-    # operational routing and remains Supervisor+.
+    # operational routing, remains Supervisor+, and may target active Admins or
+    # Supervisors.
     location: Optional[str] = None
     output_to: Optional[str] = None
     vendor_assignee: Optional[str] = None

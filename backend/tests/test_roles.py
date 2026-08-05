@@ -23,6 +23,18 @@ def test_role_at_least():
     assert roles.role_at_least("technician", "supervisor") is False
 
 
+def test_work_order_assignment_role_eligibility():
+    assert roles.can_be_work_order_supervisor("admin") is True
+    assert roles.can_be_work_order_supervisor("supervisor") is True
+    assert roles.can_be_work_order_supervisor("owner") is False
+    assert roles.can_be_work_order_supervisor("technician") is False
+
+    assert roles.can_be_work_order_technician("supervisor") is True
+    assert roles.can_be_work_order_technician("technician") is True
+    assert roles.can_be_work_order_technician("admin") is False
+    assert roles.can_be_work_order_technician("owner") is False
+
+
 def test_can_manage_requires_strictly_higher_rank():
     assert roles.can_manage("owner", "admin") is True
     assert roles.can_manage("admin", "supervisor") is True

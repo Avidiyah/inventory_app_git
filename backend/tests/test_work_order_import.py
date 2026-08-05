@@ -272,6 +272,35 @@ def test_import_matches_supervisor_by_name(db):
     assert unmatched.status == "created"
 
 
+def test_import_matches_admin_as_supervisor_by_name(db):
+    importing_admin = _seed_user(db, roles.ROLE_ADMIN)
+    routed_admin = _seed_user(
+        db,
+        roles.ROLE_ADMIN,
+        first_name="Morgan",
+        last_name=f"Admin-{uuid.uuid4().hex[:6]}",
+    )
+    number = _num()
+    csv_name = f"{routed_admin.first_name} {routed_admin.last_name} (Belfor)"
+
+    result = wos.import_work_orders(
+        db,
+        csv_bytes=_csv([[
+            number,
+            "Loc",
+            "Belfor",
+            csv_name,
+            "SMR27",
+            "7/1/2026",
+            "A",
+        ]]),
+        user=importing_admin,
+    )
+
+    assert result["supervisors_matched"] == 1
+    assert wos.find_by_number(db, number).supervisor_id == routed_admin.id
+
+
 def test_import_does_not_match_username_or_incomplete_human_name(db):
     admin = _seed_user(db, roles.ROLE_ADMIN)
     username_match = _seed_user(
