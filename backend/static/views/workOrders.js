@@ -6,8 +6,10 @@
 // the current filtered list as the operational CSV; the separate client export
 // retains its scope dropdown. Admin+ Edit details includes imported metadata;
 // Supervisor sees only routing, technicians, and status, and also manages labor,
-// entry mode, and material corrections. Technicians can save notes and add new
-// materials; every other edit control is omitted for them.
+// entry mode, and material corrections. Assigned Technicians/Supervisors get a
+// narrow Set In-Progress -> Mark Completed walkthrough plus an In-Progress-only
+// Place On-Hold action and On-Hold-only Resume In-Progress action outside the
+// unchanged editor; Technicians can also save notes and add new materials.
 // Admin+ can archive any live work order directly from its expanded card.
 // Reached via the nav button or a Unit click in the Mass Stage tree (which calls
 // `focusWorkOrder` before switching pages).
@@ -17,6 +19,10 @@ import {
   apiGetWorkOrderFilterOptions,
   apiGetWorkOrder,
   apiUpdateWorkOrder,
+  apiStartWorkOrder,
+  apiCompleteWorkOrder,
+  apiHoldWorkOrder,
+  apiResumeWorkOrder,
   apiAddWorkOrderItem,
   apiUpdateWorkOrderItem,
   apiSetWorkOrderItemBilling,
@@ -40,7 +46,7 @@ import {
   safeHttpUrl,
 } from "../format.js";
 import { setMessage, confirmDialog, messageDialog } from "../dom.js";
-import { getRole } from "../state.js";
+import { getCurrentUser, getRole } from "../state.js";
 import {
   canBeWorkOrderSupervisor,
   canBeWorkOrderTechnician,
@@ -342,6 +348,21 @@ function assignedNames(detail) {
     return detail.assigned_to_names;
   }
   return detail.assigned_to_name ? [detail.assigned_to_name] : [];
+}
+
+function isAssignedToCurrentUser(detail) {
+  const userId = getCurrentUser()?.id;
+  return Boolean(userId && assignedIds(detail).includes(userId));
+}
+
+// Review is a deliberate second-person handoff. Admin+ may review any work
+// order they are not working, while a Supervisor must be the routed supervisor
+// and must not also be one of the assigned workers.
+function canCurrentUserSendToReview(detail) {
+  const user = getCurrentUser();
+  if (!user || isAssignedToCurrentUser(detail)) return false;
+  return roleAtLeast(user.role, "admin") ||
+    (user.role === "supervisor" && detail.supervisor_id === user.id);
 }
 
 function technicianSelectionHtml(id, name) {
@@ -766,19 +787,32 @@ async function openDetail(workOrderId, bodyEl, cardEl) {
 
 function renderBody(detail, bodyEl) {
   const sup = isSupervisorPlus();
+  const assignedToCurrentUser = isAssignedToCurrentUser(detail);
+  const canSendToReview = canCurrentUserSendToReview(detail);
   const items =
     detail.items.map((it) => renderLineHtml(it)).join("") ||
     `<p class="hint">No materials logged yet.</p>`;
 
   let statusActions = "";
-  if (sup && detail.status === "in_progress") {
-    statusActions = `<button type="button" data-action="complete-wo">Mark completed</button>`;
+  if (assignedToCurrentUser && detail.status === "assigned") {
+    statusActions = `<button type="button" data-action="start-wo">Set In-Progress</button>`;
+  } else if (assignedToCurrentUser && detail.status === "in_progress") {
+    statusActions =
+      `<button type="button" data-action="complete-assigned-wo">Mark Completed</button>` +
+      `<button type="button" class="secondary-btn" data-action="hold-assigned-wo">Place On-Hold</button>`;
+  } else if (assignedToCurrentUser && detail.status === "on_hold") {
+    statusActions = `<button type="button" data-action="resume-assigned-wo">Resume In-Progress</button>`;
+  } else if (sup && detail.status === "in_progress") {
+    statusActions = `<button type="button" data-action="complete-wo">Mark Completed</button>`;
   } else if (sup && detail.status === "on_hold") {
     statusActions = `<span class="hint wo-status-note">On-Hold — a supervisor can resume or roll back this work order in the Edit details card.</span>`;
-  } else if (sup && detail.status === "completed") {
-    statusActions =
-      `<button type="button" data-action="review-wo">Send to Review</button>` +
-      `<button type="button" class="secondary-btn" data-action="reopen-wo">Reopen</button>`;
+  } else if (detail.status === "completed") {
+    if (canSendToReview) {
+      statusActions += `<button type="button" data-action="review-wo">Send to Review</button>`;
+    }
+    if (sup) {
+      statusActions += `<button type="button" class="secondary-btn" data-action="reopen-wo">Reopen</button>`;
+    }
   } else if (sup && detail.status === "review") {
     statusActions =
       `<span class="wo-review-ready">Ready for Admin Review</span>` +
@@ -952,7 +986,19 @@ listEl.addEventListener("click", async (event) => {
   if (msg) setMessage(msg, "", "");
 
   try {
-    if (action === "complete-wo") {
+    if (action === "start-wo") {
+      await apiStartWorkOrder(workOrderId);
+      await refreshCard(cardEl);
+    } else if (action === "complete-assigned-wo") {
+      await apiCompleteWorkOrder(workOrderId);
+      await refreshCard(cardEl);
+    } else if (action === "hold-assigned-wo") {
+      await apiHoldWorkOrder(workOrderId);
+      await refreshCard(cardEl);
+    } else if (action === "resume-assigned-wo") {
+      await apiResumeWorkOrder(workOrderId);
+      await refreshCard(cardEl);
+    } else if (action === "complete-wo") {
       await apiUpdateWorkOrder(workOrderId, { status: "completed" });
       await refreshCard(cardEl);
     } else if (action === "review-wo") {

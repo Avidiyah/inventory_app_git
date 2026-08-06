@@ -1,8 +1,8 @@
 # Endpoint Map: Database ↔ User View
 
-Last reviewed: 2026-08-05
+Last reviewed: 2026-08-06
 
-Purpose: a complete, self-contained trace of all 69 endpoints — wiring, contracts,
+Purpose: a complete, self-contained trace of all 72 endpoints — wiring, contracts,
 rules, error behavior, and service algorithms — so an AI or developer can answer
 "what does this endpoint send/return/do?" **without opening the source**. If you
 find yourself about to read `schemas/`, `services/`, `domain/`, or `routers/`,
@@ -115,11 +115,14 @@ writes (w).
 | 64 | GET | `/work-orders/filter-options` | session scoped | `work_orders.py` → `work_orders.get_work_order_filter_options` | work_orders (r), work_order_technicians (r, scope), users (r) | `apiGetWorkOrderFilterOptions` | `workOrders.js` |
 | 65 | GET | `/work-orders/legacy/archive` | owner exactly | `work_orders.py` → `work_orders.count_live_legacy_work_orders` | work_orders (r; live legacy count) | `apiGetLegacyWorkOrderArchivePreview` | `workOrders.js` |
 | 66 | POST | `/work-orders/legacy/archive` | owner exactly | `work_orders.py` → `work_orders.archive_live_legacy_work_orders` | work_orders (w; atomic bulk soft-archive) | `apiArchiveLegacyWorkOrders` | `workOrders.js` |
-| 67 | POST | `/work-orders/{id}/start` | technician+ scoped | `work_orders.py` → `work_orders.start_work_order` | work_orders (r/w, row lock) | `apiStartWorkOrder` | `transactions.js` |
+| 67 | POST | `/work-orders/{id}/start` | technician+ scoped | `work_orders.py` → `work_orders.start_work_order` | work_orders (r/w, row lock) | `apiStartWorkOrder` | `transactions.js`, `workOrders.js` |
 | 68 | GET | `/user-requests/` | admin+ | `user_requests.py` → `user_requests.list_user_requests` | user_requests (r), items (r), work_orders (r), users (r) | `apiListUserRequests` | `userRequests.js` |
 | 69 | PATCH | `/user-requests/{id}` | admin+ | `user_requests.py` → `user_requests.update_user_request` | user_requests (r/w), users (r) | `apiUpdateUserRequest` | `userRequests.js` |
+| 70 | POST | `/work-orders/{id}/complete` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.complete_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiCompleteWorkOrder` | `workOrders.js` |
+| 71 | POST | `/work-orders/{id}/hold` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.hold_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiHoldWorkOrder` | `workOrders.js` |
+| 72 | POST | `/work-orders/{id}/resume` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.resume_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiResumeWorkOrder` | `workOrders.js` |
 
-(Rows 55–69 were appended out of resource order to keep the existing #1–54
+(Rows 55–72 were appended out of resource order to keep the existing #1–54
 numbering — and the footnote / per-table references to it — stable.)
 
 Footnotes:
@@ -392,14 +395,24 @@ one no import has brought in.
   Work Order was already assigned to [First] [Last]`; the one-button prompt
   reloads the page when dismissed. A successful transfer is returned through
   internal response scope so routing it away does not become a false 404.
-- `workOrders.js` (mode / lifecycle actions, Supervisor+) →
-  `apiUpdateWorkOrder` → same route. Only Supervisor+ receives the mode, Mark
-  completed, Reopen, or Send to Review controls. Explicit Created/Assigned →
-  In-Progress now comes from the existing Edit details status dropdown; material
-  or labor activity still advances automatically, and the separate scoped Scan /
-  Stock start route remains unchanged. Send to Review on a Completed card still requires reviewing the
-  work and accepting a confirmation pop-up before the Review PATCH sends it to
-  final Admin Review. Status-colored cards are gray/red/yellow/orange/blue/green for
+- `workOrders.js` (assigned-worker walkthrough) → `apiStartWorkOrder` or
+  `apiCompleteWorkOrder` → `POST /work-orders/{id}/start|complete`. The one quick
+  button reads Set In-Progress while Assigned, Mark Completed while In-Progress,
+  and then disappears for the assigned Technician/Supervisor. While In-Progress,
+  a separate Place On-Hold button calls `apiHoldWorkOrder`; it is absent in every
+  other status. While On-Hold, one Resume In-Progress button calls
+  `apiResumeWorkOrder`; it is absent in every other status. These narrow routes
+  requires current assignment and grants no general status authority. Material
+  or labor activity still advances pre-work rows automatically, and Scan / Stock
+  continues using the same start route.
+- `workOrders.js` (mode / general lifecycle actions, Supervisor+) →
+  `apiUpdateWorkOrder` → same PATCH route. Supervisor+ retains mode, Mark
+  Completed, Reopen, and the unchanged Edit details status controls. Send to
+  Review appears only on Completed for Admin+ or the routed Supervisor when that
+  caller is not assigned to the work. The confirmation remains, and the service
+  enforces both Completed state and the second-person rule before the Review
+  PATCH enters final Admin Review. Status-colored cards are
+  gray/red/yellow/orange/blue/green for
   Created/Assigned/In-Progress/On-Hold/Completed/Review.
 - `workOrders.js` renders Notes, Materials, and Supervisor+ Labor as native
   nested cards that are collapsed by default. Materials contains logged rows,
@@ -725,7 +738,9 @@ validated in the service. Live statuses are `created`, `assigned`, `in_progress`
 Notes are trimmed per-entry text; every in-scope user may append one. The
 service supplies timestamp/date/author metadata and preserves the prior log.
 `status`, `entry_mode`, supervisor, and technician assignment require
-Supervisor+; imported/legacy text metadata and number require Admin+.
+Supervisor+; imported/legacy text metadata and number require Admin+. A Review
+status is accepted only while the stored row is Completed and only from Admin+
+or its routed Supervisor when the caller is not an assigned worker.
 `supervisor_id` may target an active Admin or Supervisor; `assigned_to_ids` may
 contain active Technician or Supervisor accounts (including the acting
 Supervisor). Owners retain global authority but are not assignment targets.
@@ -850,7 +865,7 @@ non-domain exceptions become FastAPI's default 500.
 | `StageItemNotFoundError` | 404 | planned stage item not found (incl. loading an unplanned item) |
 | `WorkOrderNotFoundError` | 404 | work order unknown, archived, or **out of visibility scope** (404 hides existence) |
 | `WorkOrderAssignmentConflictError` | **409** | a routing patch's `expected_supervisor_id` differs from the freshly locked row; names its current supervisor when assigned |
-| `WorkOrderStateError` | 400 | invalid live status/mode, close before Review, or number collision on edit |
+| `WorkOrderStateError` | 400 | invalid live status/mode, assigned-worker completion/hold outside In-Progress, assigned-worker resume outside On-Hold, Review before Completed, or number collision on edit |
 | `ToolNotFoundError` | 404 | tool id/barcode unknown or archived |
 | `DuplicateToolBarcodeError` | 400 | barcode held by a **live** tool (no archived-conflict/override flow, unlike items) |
 | `ToolReturnExceedsCheckedOutError` | 400 | return quantity exceeds that user's current outstanding balance for the tool |
@@ -873,7 +888,7 @@ non-domain exceptions become FastAPI's default 500.
 | `TransactionVoidError` | 400 | voiding would drive stock < 0 ("make a correction instead") |
 | `UnreadableImageError` | 400 | uploaded bytes are not a decodable image |
 | `InvalidCredentialsError` | **401** | bad username/password **or archived user** (indistinguishable) |
-| `RoleManagementError` | **403** | actor does not outrank the target user, or a Technician tries to remove a transaction other than their own work-order-linked dispense |
+| `RoleManagementError` | **403** | actor fails a role/ownership gate, including unassigned completion, assigned-worker Review, or a Technician removing a transaction other than their own work-order-linked dispense |
 
 Auth/gate errors are raised directly by `auth_deps.py` (not `DomainError`): **401**
 no/invalid/expired session (`get_current_user`); **403** valid session but role too
@@ -1191,11 +1206,24 @@ attaches to an existing number and refuses an unknown one. Both share the
   locked before visibility/write checks. Supervisor routing is independent,
   targets only an active Admin or Supervisor, and compares an optional expected value;
   a stale value raises the named `WorkOrderAssignmentConflictError` (409).
-  Completed/Review preserve `completed_at`; On-Hold/rollback/reopen clear it.
+  Review additionally requires the current status to be Completed and the caller
+  to be an unassigned Admin+ or the unassigned routed Supervisor. Completed/Review
+  preserve `completed_at`; On-Hold/rollback/reopen clear it.
 - `start_work_order(id, user)` → scoped-load and lock. Technician+ may move only
   Assigned → In-Progress; In-Progress is an idempotent success. Created, On-Hold,
   Completed, and Review reject the narrow action. Used by Scan/Stock so accepting
-  an Assigned-card confirmation does not navigate away.
+  an Assigned-card confirmation does not navigate away, and by the first Work
+  Orders walkthrough step.
+- `complete_work_order(id, user)` → scoped-load and lock, then require the caller
+  in the current plural worker assignment. It moves only In-Progress → Completed,
+  stamps `completed_at`, and treats Completed as an idempotent retry. It cannot
+  pause, roll back, or send the row to Review.
+- `hold_work_order(id, user)` → the same assignment-checked lock, but moves only
+  In-Progress → On-Hold and treats On-Hold as an idempotent retry. Resume remains
+  available separately and through the Supervisor+ general status PATCH.
+- `resume_work_order(id, user)` → the assignment-checked inverse, moving only
+  On-Hold → In-Progress and treating In-Progress as an idempotent retry. It grants
+  no other status authority.
 - `archive_work_order(id)` → require Admin+ in the service, scoped-load any live
   status, then set `archived_at` (Closed). Rows/lines/transactions remain.
 - `count_live_legacy_work_orders(user)` → require Owner exactly in the service;

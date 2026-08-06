@@ -1,6 +1,6 @@
 # Inventory App Current State
 
-Last reviewed: 2026-08-05
+Last reviewed: 2026-08-06
 
 Purpose of this file: give an AI or developer enough current-state context to
 make technical changes without rereading the whole repository. Start here, then
@@ -29,11 +29,10 @@ For review/debugging work:
 3. Use `Test Map` to find existing coverage and missing coverage.
 
 If this file conflicts with code, trust the code and update this file as part of
-the change. The 2026-08-05 implementation baseline is current local `main`
-(`Sane Roles`): OpenAPI has 69 application operations, Alembic head is
-`faa2c4e6b8d0`, and all 457 backend tests pass. The current documentation
-reconciliation is part of this baseline and must not be mistaken for the
-older committed state.
+the change. The 2026-08-06 working-tree baseline has 72 OpenAPI application
+operations, Alembic head `faa2c4e6b8d0`, and 478 passing backend tests. The
+current documentation reconciliation is part of this baseline and must not be
+mistaken for an older committed state.
 
 ## Fast Orientation
 
@@ -320,21 +319,31 @@ Work orders:
   `Total (incomplete)`, and money/quantity formatting all match, pinned by
   `tests/test_receipt.py`. Change one and the other has to move with it.
 - Live status is `created` → `assigned` → `in_progress` → `completed` →
-  `review`, with `on_hold` as a Supervisor-controlled pause state. Every new
+  `review`, with `on_hold` as a pause state that an assigned worker may enter
+  only from In-Progress and Supervisor+ may otherwise manage. Every new
   import starts Created. Assigning one or more technicians advances a
   pre-work row to Assigned, and clearing every technician returns an Assigned
   row to Created; later states never rewind automatically. The first committed
   material or labor activity advances Created/Assigned to In-Progress through
-  the same domain transition. An assigned Technician or Supervisor+ can also
-  call the narrow `POST /work-orders/{id}/start` action. Selecting an Assigned
-  Scan / Stock card confirms that transition and starts the batch in place;
-  Created still redirects to Work Orders for assignment. Supervisor+ can mark In-Progress
-  work Completed, manually roll a status back from Completed or an earlier step,
-  place it On-Hold, resume it, or send Completed work to Review after confirming
-  it is ready. Manual pre-work rollback still derives Created/Assigned from the
-  technician field. Material/labor activity does not resume On-Hold. `completed_at`
-  is retained through Review and cleared by rollback/reopen. Closed is not a
-  stored status: it is `archived_at`.
+  the same domain transition. An assigned Technician or Supervisor can use the
+  Work Orders card walkthrough: the existing narrow `POST
+  /work-orders/{id}/start` action moves Assigned to In-Progress, then the narrow
+  `POST /work-orders/{id}/complete` action moves In-Progress to Completed.
+  While In-Progress, the assigned worker also has a separate narrow `POST
+  /work-orders/{id}/hold` action that places the row On-Hold. While On-Hold, its
+  button is replaced by the assignment-checked `POST /work-orders/{id}/resume`
+  action, which returns the row to In-Progress. Supervisor+ retains the unchanged
+  general status controls as an additional management path.
+  Selecting an Assigned Scan / Stock card also confirms the start transition and
+  starts the batch in place; Created still redirects to Work Orders for
+  assignment. Supervisor+ retains general status rollback, On-Hold/resume, and
+  completion authority. Review is stricter: the row must already be Completed,
+  and the caller must be an Admin+ or its routed Supervisor who is not also an
+  assigned worker. This two-person handoff prevents an assigned Supervisor from
+  completing and reviewing the same work. Manual pre-work rollback still derives
+  Created/Assigned from the technician field. Material/labor activity does not
+  resume On-Hold. `completed_at` is retained through Review and cleared by
+  rollback/reopen. Closed is not a stored status: it is `archived_at`.
 - Closing requires Admin+ and is valid from every live status. Each expanded Work
   Orders card exposes the confirmed Archive action to Admin/Owner; Admin Review
   retains its receipt-aware Close action for Review rows. The row and lines
@@ -385,9 +394,10 @@ Work orders:
   work; creator identity alone does not grant visibility after a row is routed
   elsewhere. A routing edit may target an active Admin or Supervisor. The
   editor sends its original `supervisor_id`; the service locks the row and
-  returns a named 409 conflict if another request assigned it first. Notes and
-  adding materials are Technician+; operational
-  routing/status/mode, labor, and material corrections are Supervisor+;
+  returns a named 409 conflict if another request assigned it first. Notes,
+  adding materials, and the assignment-checked start/complete walkthrough are
+  Technician+; operational routing/general status/mode, labor, and material
+  corrections are Supervisor+; Review adds the Completed + second-person gate;
   imported/legacy metadata and close/archive are Admin+; archive accepts any
   live status.
 
@@ -1043,9 +1053,10 @@ List/get/items are open to any authenticated user but **server-scoped**: a
 Technician sees/acts on only work orders assigned to them; a Supervisor sees
 unassigned work orders, ones routed to them, and ones where they are assigned as
 a worker; Admin/Owner see all.
-Notes/add-material are
-Technician+; operations/labor/material corrections and restore are Supervisor+;
-metadata and closing are Admin+. Archive accepts every live status. Out-of-scope, closed, or
+Notes/add-material and the assigned-worker start/complete walkthrough are
+Technician+; general operations/labor/material corrections and restore are
+Supervisor+; metadata and closing are Admin+. Review additionally requires a
+Completed row and a second, unassigned responsible user. Archive accepts every live status. Out-of-scope, closed, or
 unknown work orders return 404. **There is no create route** — the CSV import is
 the only way in.
 
@@ -1059,8 +1070,11 @@ the only way in.
 | GET | `/work-orders/export` | admin+ scoped | export `scope=all|archived|<live-status>` as `variant=full` (re-importable operational CSV; accepts the live page's service/supervisor/community/date/number filters) or `variant=client` (unchanged scope-only billing totals + fixed-width receipt) |
 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | does this number name a work order, and is it archived? the one read that reports an archived one, so History can offer a restore |
 | GET | `/work-orders/{id}` | session scoped | work-order detail + append-only authored/timestamped note log + logged materials + labor totals |
-| PATCH | `/work-orders/{id}` | session scoped; field-sensitive | a nonblank note appends a server-stamped/authored log entry at Technician+; supervisor/technicians/status/entry mode = Supervisor+; imported/legacy metadata = Admin+; optional original supervisor precondition returns a named 409 on stale pickup |
+| PATCH | `/work-orders/{id}` | session scoped; field-sensitive | a nonblank note appends a server-stamped/authored log entry at Technician+; supervisor/technicians/general status/entry mode = Supervisor+; imported/legacy metadata = Admin+; Review only from Completed by an unassigned routed Supervisor or Admin+; optional original supervisor precondition returns a named 409 on stale pickup |
 | POST | `/work-orders/{id}/start` | session scoped; Technician+ | idempotently move Assigned to In-Progress; no general Technician status-edit permission |
+| POST | `/work-orders/{id}/complete` | assigned worker | idempotently move In-Progress to Completed; rejects unassigned callers and grants no general status or Review permission |
+| POST | `/work-orders/{id}/hold` | assigned worker | idempotently move In-Progress to On-Hold; rejects unassigned/non-In-Progress callers and grants no general status permission |
+| POST | `/work-orders/{id}/resume` | assigned worker | idempotently move On-Hold to In-Progress; rejects unassigned/other-state callers and grants no general status permission |
 | POST | `/work-orders/{id}/archive` | admin+ scoped | close a work order from any live status via soft archive (number reserved, lines kept, transactions untouched) |
 | POST | `/work-orders/{id}/restore` | supervisor+ scoped | explicit un-archive; the only way to return a closed work order to live views |
 | POST | `/work-orders/{id}/items` | Technician+ scoped | log/add a material (mode = work order's entry_mode); a dispense shortage may make expected stock negative and creates a linked recount request |
@@ -1290,15 +1304,22 @@ Behavior:
 - Cards are collapsible and their full collapsed background communicates status:
   Created gray, Assigned red, In-Progress yellow, On-Hold orange, Completed blue,
   Review green, with contrasting text. Expanded bodies return to a white form surface. The
-  body has a Supervisor+ mode selector and status-appropriate actions:
-  Supervisor+ sees Mark completed, Send to Review, and Reopen as applicable;
-  Send to Review still requires confirmation. The former standalone Set
-  In-Progress action is removed because the existing status dropdown now offers
-  that transition. Technicians receive none of those general controls. The
-  Review transition places it in the final Admin Review queue. Material/labor
-  activity still advances Created/Assigned automatically, and Scan/Stock retains
-  its scoped Assigned start action. On-Hold explains that only a supervisor can
-  resume or roll it back. The body also has collapsed-by-default nested cards for
+  body has a Supervisor+ mode selector and status-appropriate actions. An
+  assigned Technician or Supervisor gets one walkthrough button: Set In-Progress
+  while Assigned, then Mark Completed while In-Progress, then no Review button.
+  Only while In-Progress, a second Place On-Hold button appears beside Mark
+  Completed. While On-Hold, those controls are replaced by one Resume
+  In-Progress button; it appears in no other state.
+  A routed Supervisor who is not assigned, or any unassigned Admin+, sees Send to
+  Review on Completed work; it still requires confirmation. An assigned
+  Supervisor is deliberately excluded even when also routed, enforcing a second
+  set of eyes. Supervisor+ retains Mark Completed for visible In-Progress work
+  and Reopen as applicable, while the unchanged Edit details status dropdown
+  remains the general start/rollback/On-Hold control. The Review transition
+  places the row in final Admin Review. Material/labor activity still advances
+  Created/Assigned automatically, and Scan/Stock retains its scoped Assigned
+  start action. On-Hold explains that only a supervisor can resume or roll it
+  back. The body also has collapsed-by-default nested cards for
   Supervisor+ Edit details, Notes, Materials, and Supervisor+ Labor. Opening
   Notes shows the accumulated plain-text log above an empty new-note textarea.
   Save note rejects blank input, appends a server-generated Central-time/date and
@@ -1606,11 +1627,20 @@ Behavior:
   set reconciles Created/Assigned;
   an explicit rollback to either pre-work value is normalized again after the
   assignment edit, so the pair cannot contradict technician presence.
-  Supervisor routing is independent. Completed and Review retain `completed_at`,
+  Supervisor routing is independent. A Review request is accepted only from
+  Completed and only when the caller is an Admin+ or the routed Supervisor and
+  is not one of the assigned workers. Completed and Review retain `completed_at`,
   while On-Hold/rollback/reopen clears it. A number collision raises 400.
 - `start_work_order` is a separate idempotent Assigned -> In-Progress action for
   a visible Technician+ caller. It is intentionally narrower than the
   Supervisor+ general status patch.
+- `complete_work_order` is the matching idempotent In-Progress -> Completed
+  action, but requires the caller's ID in the current plural worker assignment.
+  It cannot pause, roll back, or send the row to Review.
+- `hold_work_order` is the separate idempotent In-Progress -> On-Hold action for
+  a currently assigned worker. It grants no general status authority.
+- `resume_work_order` is its assignment-checked idempotent inverse, On-Hold ->
+  In-Progress, and likewise grants no other status authority.
 - `archive_work_order` requires Admin+ in the service and sets `archived_at` from
   any live status. This is the stored Closed state.
 - `count_live_legacy_work_orders` and `archive_live_legacy_work_orders` both
@@ -1796,7 +1826,7 @@ Coverage map:
 | `test_mass_stages_api.py` | schemas, route gates, response builders |
 | `test_mass_staging_load.py` | DB-backed slot load/return, add-work-order enforce-match + refusal of an unimported number, Technician/Supervisor worker assignment, reuse |
 | `test_work_orders_domain.py` | pure number normalization, six live statuses including stable On-Hold, community-filter vocabulary/validation, plural worker-derived Created/Assigned state, activity-derived In-Progress, authored/timestamped note-log formatting, combined labor rounding/charge, fill-blanks, Technician/Supervisor worker visibility scope |
-| `test_work_orders_service.py` | DB-backed find-or-create, resolve-only attach, plural Technician/Supervisor assignment/scope, Admin/Supervisor routing targets, narrow Technician start action, Supervisor+-only per-worker labor writes, lifecycle/status/append-only authored notes/archive/materials, Technician/Supervisor zero-stock add with recount creation and Supervisor removal resolution, Owner-only live-legacy preview/re-archive selection, AND-composed advanced filters, community aliases/multi-membership/Academics fallback, scoped filter options, and list cap |
+| `test_work_orders_service.py` | DB-backed find-or-create, resolve-only attach, plural Technician/Supervisor assignment/scope, Admin/Supervisor routing targets, assigned-worker start/completion/On-Hold/resume actions, Completed-only two-person Review handoff, Supervisor+-only per-worker labor writes, lifecycle/status/append-only authored notes/archive/materials, Technician/Supervisor zero-stock add with recount creation and Supervisor removal resolution, Owner-only live-legacy preview/re-archive selection, AND-composed advanced filters, community aliases/multi-membership/Academics fallback, scoped filter options, and list cap |
 | `test_work_order_import.py` | CSV parsing/import, required-number-header and UTF-8 preflight, blank/missing-task NetFacilities fallback, generated-to-real replacement, duplicate-row precedence, manual-task preservation, full-name Admin/Supervisor routing independent of Created status, unmatched/ambiguous/archived/ineligible-role fallback, idempotence, closed-row count/no-mutation, and Admin gate |
 | `test_work_order_name_responses.py` | work-order response exposes plural operational names, rounded labor detail/totals, and the note-log text while omitting login usernames |
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |

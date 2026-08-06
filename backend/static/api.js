@@ -495,17 +495,36 @@ export async function apiArchiveLegacyWorkOrders() {
 // assigned_to_ids}. `assigned_to_id` remains accepted by the backend for older
 // clients, but this UI writes the plural assignment set.
 // Role matrix: a nonblank notes value appends one server-stamped/authored entry
-// at Technician+; status/entry mode/routing/assignment = Supervisor+;
-// imported/legacy metadata = Admin+.
+// at Technician+; general status/entry mode/routing/assignment = Supervisor+;
+// imported/legacy metadata = Admin+. Review additionally requires Completed
+// state and a second person who is not one of the assigned workers.
 export async function apiUpdateWorkOrder(workOrderId, patch) {
   return jsonRequest(`/work-orders/${workOrderId}`, "PATCH", patch);
 }
 
-// Narrow Scan / Stock lifecycle action. Assigned Technicians and Supervisor+
-// may start a visible Assigned work order without receiving general status-edit
-// permission.
+// Narrow lifecycle action used by Scan / Stock and the Work Orders walkthrough.
+// Assigned Technicians and Supervisor+ may start a visible Assigned work order
+// without receiving general status-edit permission.
 export async function apiStartWorkOrder(workOrderId) {
   return jsonRequest(`/work-orders/${workOrderId}/start`, "POST", {});
+}
+
+// The second Work Orders walkthrough step is narrower: the caller must be one
+// of the assigned workers. It cannot pause, roll back, or send work to Review.
+export async function apiCompleteWorkOrder(workOrderId) {
+  return jsonRequest(`/work-orders/${workOrderId}/complete`, "POST", {});
+}
+
+// Assigned workers may pause only an In-Progress row. Resuming remains part of
+// the Supervisor+ general status controls.
+export async function apiHoldWorkOrder(workOrderId) {
+  return jsonRequest(`/work-orders/${workOrderId}/hold`, "POST", {});
+}
+
+// The inverse narrow action appears only while an assigned worker's card is
+// On-Hold. It restores In-Progress without granting arbitrary status editing.
+export async function apiResumeWorkOrder(workOrderId) {
+  return jsonRequest(`/work-orders/${workOrderId}/resume`, "POST", {});
 }
 
 export async function apiArchiveWorkOrder(workOrderId) {

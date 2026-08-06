@@ -44,14 +44,16 @@
 
         <section id="work-orders-controls-section">
             <h2>Work Orders</h2>
-            <p class="hint">Work orders start Created, become Assigned when one
-               or more technicians are selected, and move to In-Progress when material or
-               labor is added or a supervisor selects it in Edit details. Assigned work can
-               also be started from Scan / Stock. Supervisors manage assignment, status,
-               and labor; Admins can also correct imported
-               details and archive a work order from any status. Technicians can
-               append timestamped Notes and add items. Labor is billed in rounded-up 30-minute
-               increments.</p>
+            <p class="hint">Work orders start Created and become Assigned only
+               when one or more Technicians or Supervisors are selected. An assigned worker
+               can use the card's Set In-Progress and Mark Completed walkthrough, with a
+               separate Place On-Hold button available only while In-Progress; sending
+               work On-Hold replaces those actions with Resume In-Progress until resumed;
+               Completed work to Review requires a second, unassigned routed Supervisor or
+               an Admin. Assigned work can also be started from Scan / Stock. Supervisors
+               manage assignment, status, and labor; Admins can also correct imported details
+               and archive a work order from any status. Technicians can append timestamped
+               Notes and add items. Labor is billed in rounded-up 30-minute increments.</p>
             <div class="wo-filter-grid" aria-label="Work order filters">
                 <div class="wo-filter-field">
                     <label for="work-orders-status-filter">Status</label>

@@ -60,7 +60,9 @@
       "Bash(git push *)",
       "Bash(git fetch *)",
       "Bash(git rev-list *)",
-      "Bash(python -m pytest tests/ -x -q)"
+      "Bash(python -m pytest tests/ -x -q)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(git remote *)"
     ]
   }
 }

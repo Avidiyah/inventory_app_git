@@ -5,9 +5,11 @@ to `app.services.work_orders`, translate `DomainError` via `to_http`.
 
 Most routes are open to any authenticated user but **server-scoped** (technician
 -> assigned, supervisor -> created/routed, admin/owner -> all). Technicians may
-save notes and add materials. Supervisor+ owns operational routing, status,
-entry mode, labor, and material corrections. Admin+ additionally owns imported
-and legacy metadata edits.
+save notes, add materials, and use narrow assigned-worker start/complete/hold/resume
+walkthrough. Supervisor+ owns operational routing, general status, entry mode,
+labor, and material corrections. Sending Completed work to Review requires a
+second person: an assigned worker is excluded even when also routed Supervisor.
+Admin+ additionally owns imported and legacy metadata edits.
 Closing (the archive operation) is Admin+ from any live status. Both an expanded
 Work Orders card and the Review queue may call the same endpoint.
 Out-of-scope, archived, or unknown work orders surface as 404.
@@ -424,10 +426,11 @@ def update_work_order(
 ):
     """Edit a scoped work order under the service's role matrix.
 
-    Technician: append notes only. Supervisor+: routing, technicians, status,
-    and entry mode. Admin+: imported/legacy metadata as well. The service stamps
-    each nonblank note with server time and the authenticated user's display
-    name. Server-scoped.
+    Technician: append notes only. Supervisor+: routing, technicians, general
+    status, and entry mode. Admin+: imported/legacy metadata as well. Review is
+    restricted further to a Completed row and a second, unassigned responsible
+    user. The service stamps each nonblank note with server time and the
+    authenticated user's display name. Server-scoped.
     """
     fields = payload.model_dump(exclude_unset=True)
     has_supervisor_precondition = "expected_supervisor_id" in fields
@@ -468,6 +471,63 @@ def start_work_order(
     """
     try:
         work_order = wo_service.start_work_order(db, work_order_id, user=user)
+        return _detail(
+            wo_service.get_work_order(db, work_order.id, user=user),
+            include_price=_can_see_price(user),
+        )
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.post("/{work_order_id}/complete", response_model=WorkOrderDetail)
+def complete_work_order(
+    work_order_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Complete an In-Progress work order as one of its assigned workers.
+
+    This is the final assigned-worker walkthrough step. It grants no general
+    status editing and cannot send the work order to Review.
+    """
+    try:
+        work_order = wo_service.complete_work_order(
+            db, work_order_id, user=user
+        )
+        return _detail(
+            wo_service.get_work_order(db, work_order.id, user=user),
+            include_price=_can_see_price(user),
+        )
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.post("/{work_order_id}/hold", response_model=WorkOrderDetail)
+def hold_work_order(
+    work_order_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Place In-Progress work On-Hold as one of its assigned workers."""
+    try:
+        work_order = wo_service.hold_work_order(db, work_order_id, user=user)
+        return _detail(
+            wo_service.get_work_order(db, work_order.id, user=user),
+            include_price=_can_see_price(user),
+        )
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.post("/{work_order_id}/resume", response_model=WorkOrderDetail)
+def resume_work_order(
+    work_order_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Resume On-Hold work as one of its assigned workers."""
+    try:
+        work_order = wo_service.resume_work_order(db, work_order_id, user=user)
         return _detail(
             wo_service.get_work_order(db, work_order.id, user=user),
             include_price=_can_see_price(user),

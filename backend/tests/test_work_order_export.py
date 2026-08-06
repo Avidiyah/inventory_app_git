@@ -286,6 +286,7 @@ def test_all_scope_excludes_archived_and_archived_scope_includes_only_them(db):
     admin = _seed_user(db, "admin")
     live = _wo(db, admin)
     closed = _wo(db, admin)
+    wos.update_work_order(db, closed.id, user=admin, fields={"status": "completed"})
     wos.update_work_order(db, closed.id, user=admin, fields={"status": "review"})
     wos.archive_work_order(db, closed.id, user=admin)
     numbers = [live.number, closed.number]

@@ -227,6 +227,120 @@ def test_technician_cannot_start_unassigned_or_out_of_scope_work_order(db):
         wos.start_work_order(db, created.id, user=technician)
 
 
+@pytest.mark.parametrize("worker_role", ["technician", "supervisor"])
+def test_assigned_worker_can_complete_only_after_start(db, worker_role):
+    manager = _seed_user(db, "admin")
+    worker = _seed_user(db, worker_role)
+    work_order = _wo(db, created_by=manager, assigned_to=worker)
+
+    with pytest.raises(WorkOrderStateError):
+        wos.complete_work_order(db, work_order.id, user=worker)
+
+    wos.start_work_order(db, work_order.id, user=worker)
+    completed = wos.complete_work_order(db, work_order.id, user=worker)
+
+    assert completed.status == "completed"
+    assert completed.completed_at is not None
+    completed_at = completed.completed_at
+    # A retry or double tap must not advance again or replace the timestamp.
+    repeated = wos.complete_work_order(db, work_order.id, user=worker)
+    assert repeated.status == "completed"
+    assert repeated.completed_at == completed_at
+
+
+@pytest.mark.parametrize("worker_role", ["technician", "supervisor"])
+def test_assigned_worker_can_hold_and_resume_only_matching_states(db, worker_role):
+    manager = _seed_user(db, "admin")
+    worker = _seed_user(db, worker_role)
+    work_order = _wo(db, created_by=manager, assigned_to=worker)
+
+    with pytest.raises(WorkOrderStateError):
+        wos.hold_work_order(db, work_order.id, user=worker)
+    with pytest.raises(WorkOrderStateError):
+        wos.resume_work_order(db, work_order.id, user=worker)
+
+    wos.start_work_order(db, work_order.id, user=worker)
+    held = wos.hold_work_order(db, work_order.id, user=worker)
+
+    assert held.status == "on_hold"
+    assert held.completed_at is None
+    assert wos.hold_work_order(db, work_order.id, user=worker).status == "on_hold"
+    resumed = wos.resume_work_order(db, work_order.id, user=worker)
+    assert resumed.status == "in_progress"
+    assert wos.resume_work_order(db, work_order.id, user=worker).status == "in_progress"
+
+
+def test_unassigned_supervisor_cannot_use_assigned_worker_completion(db):
+    manager = _seed_user(db, "admin")
+    routed_supervisor = _seed_user(db, "supervisor")
+    worker = _seed_user(db, "technician")
+    work_order = _wo(
+        db,
+        created_by=manager,
+        assigned_to=worker,
+        supervisor=routed_supervisor,
+    )
+    wos.start_work_order(db, work_order.id, user=worker)
+
+    with pytest.raises(RoleManagementError):
+        wos.complete_work_order(db, work_order.id, user=routed_supervisor)
+    with pytest.raises(RoleManagementError):
+        wos.hold_work_order(db, work_order.id, user=routed_supervisor)
+    wos.hold_work_order(db, work_order.id, user=worker)
+    with pytest.raises(RoleManagementError):
+        wos.resume_work_order(db, work_order.id, user=routed_supervisor)
+
+
+def test_review_requires_second_unassigned_responsible_user(db):
+    manager = _seed_user(db, "admin")
+    assigned_supervisor = _seed_user(db, "supervisor")
+    work_order = _wo(
+        db,
+        created_by=manager,
+        assigned_to=assigned_supervisor,
+        supervisor=assigned_supervisor,
+    )
+    with pytest.raises(WorkOrderStateError):
+        wos.update_work_order(
+            db, work_order.id, user=manager, fields={"status": "review"}
+        )
+
+    wos.start_work_order(db, work_order.id, user=assigned_supervisor)
+    wos.complete_work_order(db, work_order.id, user=assigned_supervisor)
+
+    with pytest.raises(RoleManagementError):
+        wos.update_work_order(
+            db,
+            work_order.id,
+            user=assigned_supervisor,
+            fields={"status": "review"},
+        )
+
+    reviewed = wos.update_work_order(
+        db, work_order.id, user=manager, fields={"status": "review"}
+    )
+    assert reviewed.status == "review"
+
+
+def test_unassigned_routed_supervisor_can_send_completed_work_to_review(db):
+    manager = _seed_user(db, "admin")
+    routed_supervisor = _seed_user(db, "supervisor")
+    worker = _seed_user(db, "technician")
+    work_order = _wo(
+        db,
+        created_by=manager,
+        assigned_to=worker,
+        supervisor=routed_supervisor,
+    )
+    wos.start_work_order(db, work_order.id, user=worker)
+    wos.complete_work_order(db, work_order.id, user=worker)
+
+    reviewed = wos.update_work_order(
+        db, work_order.id, user=routed_supervisor, fields={"status": "review"}
+    )
+    assert reviewed.status == "review"
+
+
 def test_labor_tracks_technician_and_advances_first_activity(db):
     sup = _seed_user(db, "supervisor")
     tech1 = _seed_user(db, "technician")
@@ -715,7 +829,7 @@ def test_completed_work_order_still_editable(db):
 
 def test_review_retains_completion_time_and_reopen_clears_it(db):
     sup = _seed_user(db, "supervisor")
-    w = _wo(db, created_by=sup)
+    w = _wo(db, created_by=sup, supervisor=sup)
 
     completed = wos.update_work_order(
         db, w.id, user=sup, fields={"status": "completed"}

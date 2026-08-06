@@ -249,6 +249,36 @@ def assigned_technicians(work_order: WorkOrder) -> list[User]:
     return technicians
 
 
+def _require_review_handoff_permission(
+    work_order: WorkOrder, user: Optional[User]
+) -> None:
+    """Require a second person before a Completed work order enters Review.
+
+    Internal callers retain their existing bypass. An authenticated caller may
+    not review work they are assigned to perform, even when they are also the
+    routed Supervisor. Otherwise Admin+ has global authority and the unassigned
+    routed Supervisor owns the operational handoff.
+    """
+    if user is None:
+        return
+    if user.id in _assigned_technician_ids(work_order):
+        raise RoleManagementError(
+            "An assigned worker cannot send their own work order to Review. "
+            "Another routed Supervisor, Admin, or Owner must review it."
+        )
+    if roles.role_at_least(user.role, roles.ROLE_ADMIN):
+        return
+    if (
+        user.role == roles.ROLE_SUPERVISOR
+        and work_order.supervisor_id == user.id
+    ):
+        return
+    raise RoleManagementError(
+        "Only the unassigned routed Supervisor, an Admin, or the Owner can "
+        "send a work order to Review."
+    )
+
+
 def _sync_technician_assignments(
     db: Session,
     work_order: WorkOrder,
@@ -1157,6 +1187,124 @@ def start_work_order(
     return work_order
 
 
+def complete_work_order(
+    db: Session, work_order_id: uuid.UUID, *, user: User
+) -> WorkOrder:
+    """Move an assigned worker's In-Progress work order to Completed.
+
+    This is the second and final assigned-worker walkthrough action. It is
+    intentionally separate from the Supervisor+ PATCH contract so a Technician
+    receives no arbitrary status authority. Repeating the completion after a
+    slow/double tap is idempotent; every other source status is rejected.
+    """
+    _require_role(
+        user,
+        roles.ROLE_TECHNICIAN,
+        "Only a Technician or above can complete assigned work.",
+    )
+    work_order = _get_locked(db, work_order_id)
+    if (
+        work_order is None
+        or work_order.archived_at is not None
+        or not _visible(work_order, user)
+    ):
+        raise WorkOrderNotFoundError("Work order not found.")
+    if user.id not in _assigned_technician_ids(work_order):
+        raise RoleManagementError(
+            "Only a worker assigned to this work order can mark it Completed."
+        )
+    if work_order.status == wo.STATUS_COMPLETED:
+        return work_order
+    if work_order.status != wo.STATUS_IN_PROGRESS:
+        raise WorkOrderStateError(
+            "Only an In-Progress work order can be marked Completed by its "
+            "assigned worker."
+        )
+
+    work_order.status = wo.STATUS_COMPLETED
+    work_order.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(work_order)
+    return work_order
+
+
+def hold_work_order(
+    db: Session, work_order_id: uuid.UUID, *, user: User
+) -> WorkOrder:
+    """Place an assigned worker's In-Progress work order On-Hold.
+
+    This narrow pause action does not grant resume, rollback, completion, or
+    Review authority. Repeating an already successful request is idempotent.
+    """
+    _require_role(
+        user,
+        roles.ROLE_TECHNICIAN,
+        "Only a Technician or above can pause assigned work.",
+    )
+    work_order = _get_locked(db, work_order_id)
+    if (
+        work_order is None
+        or work_order.archived_at is not None
+        or not _visible(work_order, user)
+    ):
+        raise WorkOrderNotFoundError("Work order not found.")
+    if user.id not in _assigned_technician_ids(work_order):
+        raise RoleManagementError(
+            "Only a worker assigned to this work order can place it On-Hold."
+        )
+    if work_order.status == wo.STATUS_ON_HOLD:
+        return work_order
+    if work_order.status != wo.STATUS_IN_PROGRESS:
+        raise WorkOrderStateError(
+            "Only an In-Progress work order can be placed On-Hold by its "
+            "assigned worker."
+        )
+
+    work_order.status = wo.STATUS_ON_HOLD
+    work_order.completed_at = None
+    db.commit()
+    db.refresh(work_order)
+    return work_order
+
+
+def resume_work_order(
+    db: Session, work_order_id: uuid.UUID, *, user: User
+) -> WorkOrder:
+    """Return an assigned worker's On-Hold work order to In-Progress.
+
+    This is the exact inverse of the narrow hold action and grants no other
+    status authority. Repeating the request after success is idempotent.
+    """
+    _require_role(
+        user,
+        roles.ROLE_TECHNICIAN,
+        "Only a Technician or above can resume assigned work.",
+    )
+    work_order = _get_locked(db, work_order_id)
+    if (
+        work_order is None
+        or work_order.archived_at is not None
+        or not _visible(work_order, user)
+    ):
+        raise WorkOrderNotFoundError("Work order not found.")
+    if user.id not in _assigned_technician_ids(work_order):
+        raise RoleManagementError(
+            "Only a worker assigned to this work order can resume it."
+        )
+    if work_order.status == wo.STATUS_IN_PROGRESS:
+        return work_order
+    if work_order.status != wo.STATUS_ON_HOLD:
+        raise WorkOrderStateError(
+            "Only an On-Hold work order can be resumed by its assigned worker."
+        )
+
+    work_order.status = wo.STATUS_IN_PROGRESS
+    work_order.completed_at = None
+    db.commit()
+    db.refresh(work_order)
+    return work_order
+
+
 def update_work_order(
     db: Session,
     work_order_id: uuid.UUID,
@@ -1170,7 +1318,9 @@ def update_work_order(
     status / entry_mode / assigned_to_ids. Validates status / mode / assignees.
     Nonblank notes append a server-timestamped/authored entry instead of replacing
     prior text. Notes are Technician+; operational fields require Supervisor+;
-    imported and legacy metadata requires Admin+. When `expected_supervisor_id` is supplied,
+    imported and legacy metadata requires Admin+. Review is the exception within
+    general status editing: the row must already be Completed and the caller must
+    be an unassigned routed Supervisor or Admin+. When `expected_supervisor_id` is supplied,
     routing changes use it as an optimistic precondition while the work-order
     row is locked.
     The legacy singular `assigned_to_id` is accepted for old clients. Technician
@@ -1204,6 +1354,13 @@ def update_work_order(
 
     if not _visible(work_order, user):
         raise WorkOrderNotFoundError("Work order not found.")
+
+    if fields.get("status") == wo.STATUS_REVIEW:
+        if work_order.status != wo.STATUS_COMPLETED:
+            raise WorkOrderStateError(
+                "Only a Completed work order can be sent to Review."
+            )
+        _require_review_handoff_permission(work_order, user)
 
     if "entry_mode" in fields:
         wo.validate_mode(fields["entry_mode"])
