@@ -336,9 +336,11 @@ one no import has brought in.
   multi-location rows can match several named choices, and Academics means no
   known community term. The final rows sort by parsed scheduled date descending.
 - `workOrders.js` (Import from CSV, Admin+) → `apiImportWorkOrders` →
-  `POST /work-orders/import` → `import_work_orders` → per row **work_orders**
-  lock/find-or-create live numbers with idempotent fill-blanks; supervisor
-  routing fills only while the locked row is still NULL, so a manual reroute
+  `POST /work-orders/import` → `import_work_orders` preflight → per row
+  **work_orders** lock/find-or-create live numbers with idempotent fill-blanks.
+  Blank/missing tasks store a canonical NetFacilities URL that remains
+  replaceable by a later real CSV task; real/manual tasks stay authoritative.
+  Supervisor routing fills only while the locked row is still NULL, so a manual reroute
   wins over a later or concurrent import. An archived match is counted as
   closed and ignored before merge/routing. Reads **users** to
   name-match the vendor `ASSIGNED TO` to a supervisor (`supervisor_id`) for live
@@ -405,6 +407,10 @@ one no import has brought in.
   controls. Material and Labor cards reopen after their write-triggered detail
   refreshes so changed data remains visible; Notes closes after a successful
   save. The existing API calls and permissions are unchanged.
+- In the read-only imported metadata block, a Symptom/Task whose complete value
+  is a safe HTTP(S) URL renders as escaped link text in a new tab with
+  `noopener noreferrer`; ordinary task text remains escaped text and long URLs
+  wrap inside the card.
 - `workOrders.js` (Save notes, any in-scope user) → `apiUpdateWorkOrder` → same
   route with one nonblank `{notes}` entry → row-locked `append_note_log` →
   **work_orders.notes** append. The server prefixes Central `h:mm AM/PM`,
@@ -1110,7 +1116,7 @@ attaches to an existing number and refuses an unknown one. Both share the
 `_merge_reference` fill-blanks merge.
 
 - `get_or_create_work_order(number, **attrs, assigned_to_id, supervisor_id,
-  created_by_id)` → **import path only.** Locked `find_by_number` (case-insensitive,
+  created_by_id, replace_generated_description)` → **import path only.** Locked `find_by_number` (case-insensitive,
   includes archived). Archived exists: return untouched so import counts/ignores
   it. Live exists: `_merge_reference` fill-blanks (the `_ATTR_FIELDS` set also
   covers the CSV-import columns `location`/`output_to`/`vendor_assignee`/
@@ -1119,7 +1125,10 @@ attaches to an existing number and refuses an unknown one. Both share the
   worker assignment. New: insert `assigned` only when a Technician/Supervisor worker is
   supplied, otherwise `created`; supervisor routing is status-neutral and must
   target an active Admin or Supervisor. Race on the unique index → rollback, lock the
-  winner, and apply the same fill-blank merge.
+  winner, and apply the same fill-blank merge. The import provenance flag permits
+  only an explicit CSV task to replace the exact canonical generated task URL;
+  it is carried through normal and insert-race merges and defaults false for
+  non-import references.
 - `resolve_work_order(number, **attrs, assigned_to_id, supervisor_id)` → attach to
   an existing work order, never create. `find_by_number`; `WorkOrderNotFoundError`
   if unknown ("added by importing the CSV") or archived ("restore it first") — two
@@ -1134,16 +1143,19 @@ attaches to an existing number and refuses an unknown one. Both share the
   only way an archived work order returns to live views; CSV import ignores it.
   Material lines are still attached, so they return with it.
 - `import_work_orders(csv_bytes, user)` → decode `utf-8-sig`, ignore an
-  optional leading `sep=,` dialect hint, then `csv.DictReader`
-  (quoted multi-line LOCATION handled natively); build a one-shot
+  optional leading `sep=,` dialect hint, then `csv.DictReader`. Before database
+  writes, require exactly one `WORK ORDER` header and materialize all records;
+  invalid UTF-8/header/delimiter/parser input becomes a 400. `SYMPTOM/TASK` is
+  optional: a blank/missing value becomes the canonical URL built from the
+  URL-encoded number. Quoted multi-line LOCATION is handled natively. Build a one-shot
   `_supervisor_lookup` keyed by normalized `first_name + last_name` over active
   supervisors. Missing/incomplete names do not enter the lookup; duplicate keys
   become ambiguous (`None`) instead of selecting a row. Per import row:
   `domain.parse_import_row`; skip a blank number; count and ignore an archived
-  match; otherwise resolve `supervisor_id` by name-matching the `vendor_assignee`
+  match before task fallback/merge; otherwise resolve `supervisor_id` by name-matching the `vendor_assignee`
   (miss/ambiguity stays unassigned) and funnel through `get_or_create_work_order`.
   Tally created/opened/closed/matched/unmatched/skipped. Idempotent for live rows
-  (fill-blanks); the existing row is refreshed under `FOR UPDATE`, and imported
+  (fill-blanks except a later real task replaces the exact generated URL); the existing row is refreshed under `FOR UPDATE`, and imported
   routing fills only a still-NULL `supervisor_id`. Each created/opened row
   commits inside get-or-create.
 - `list_work_orders_for_export(user, scope, service_type?, supervisor_id?,

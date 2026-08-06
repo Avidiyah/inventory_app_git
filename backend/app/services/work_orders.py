@@ -357,15 +357,30 @@ def _merge_reference(
     incoming: dict,
     assigned_to_id: Optional[uuid.UUID],
     supervisor_id: Optional[uuid.UUID],
+    replace_generated_description: bool = False,
 ) -> WorkOrder:
     """Merge into an existing row already locked by the caller.
 
     A blank column takes the incoming value and a non-blank one is left alone.
-    An assignee applies only if currently unassigned, and supervisor routing
-    applies only if the freshly locked row is still unrouted. Commits and
-    returns the refreshed row."""
+    The import-only exception is a canonical generated task URL: when the CSV
+    supplies a real task, ``replace_generated_description`` lets that task replace
+    the synthetic value. An assignee applies only if currently unassigned, and
+    supervisor routing applies only if the freshly locked row is still unrouted.
+    Commits and returns the refreshed row."""
     for field in _ATTR_FIELDS:
-        setattr(existing, field, wo.fill_blank(getattr(existing, field), incoming[field]))
+        current = getattr(existing, field)
+        if (
+            field == "description"
+            and replace_generated_description
+            and wo.is_work_order_task_fallback(current, existing.number)
+        ):
+            # The URL is synthetic fallback data, not an operator/vendor task.
+            # A later real CSV task may replace it; every other nonblank field
+            # keeps the normal fill-blanks contract.
+            value = incoming[field]
+        else:
+            value = wo.fill_blank(current, incoming[field])
+        setattr(existing, field, value)
     if assigned_to_id is not None and not _assigned_technician_ids(existing):
         _sync_technician_assignments(
             db,
@@ -467,6 +482,7 @@ def get_or_create_work_order(
     assigned_to_id: Optional[uuid.UUID] = None,
     supervisor_id: Optional[uuid.UUID] = None,
     created_by_id: Optional[uuid.UUID] = None,
+    replace_generated_description: bool = False,
 ) -> WorkOrder:
     """Resolve `number` to the one work order, creating it if new.
 
@@ -480,7 +496,9 @@ def get_or_create_work_order(
     returned untouched so CSV import can count and ignore it. New: starts
     `assigned` only when a Technician/Supervisor worker is supplied, otherwise `created`;
     supervisor routing does not change lifecycle status. Raises
-    `InvalidAssigneeError` if an assignee is not an active Technician or Supervisor."""
+    `replace_generated_description` is import provenance carried through both the
+    ordinary locked merge and insert-race recovery. Raises `InvalidAssigneeError`
+    if an assignee is not an active Technician or Supervisor."""
     existing = _find_by_number(db, number, for_update=True)
     if existing is not None and existing.archived_at is not None:
         return existing
@@ -505,6 +523,7 @@ def get_or_create_work_order(
             incoming=incoming,
             assigned_to_id=assigned_to_id,
             supervisor_id=supervisor_id,
+            replace_generated_description=replace_generated_description,
         )
 
     _validate_supervisor(db, supervisor_id)
@@ -542,6 +561,7 @@ def get_or_create_work_order(
             incoming=incoming,
             assigned_to_id=assigned_to_id,
             supervisor_id=supervisor_id,
+            replace_generated_description=replace_generated_description,
         )
     db.refresh(work_order)
     return work_order
@@ -588,19 +608,36 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
     `ASSIGNED TO` vendor name is stored raw AND matched to an active system
     Admin or Supervisor (by normalized first + last name) to set
     `supervisor_id`; an unmatched name imports cleanly (admin routes it later).
-    Rows with a blank work-order number are skipped.
+    A blank/missing task becomes the canonical NetFacilities URL; a later real
+    task replaces that generated value without weakening other fill-blank rules.
+    Rows with a blank work-order number are skipped. UTF-8 decoding, CSV parsing,
+    and the required `WORK ORDER` header are preflighted before row commits.
 
     Returns a summary dict (`total`, `created`, `opened`, `closed`,
     `supervisors_matched`, `supervisors_unmatched`, `skipped`)."""
-    text = csv_bytes.decode("utf-8-sig")
+    try:
+        text = csv_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise WorkOrderStateError("Work-order CSV must be UTF-8 encoded.") from exc
     stream = io.StringIO(text)
     if stream.readline().strip().casefold() != "sep=,":
         stream.seek(0)
-    reader = csv.DictReader(stream)
+    try:
+        reader = csv.DictReader(stream)
+        headers = reader.fieldnames
+        if headers is None or headers.count("WORK ORDER") != 1:
+            raise WorkOrderStateError(
+                'Work-order CSV must include exactly one "WORK ORDER" column.'
+            )
+        # Parse every CSV record before any row-level commit. Malformed CSV input
+        # therefore fails cleanly instead of leaving a partially parsed import.
+        rows = list(reader)
+    except csv.Error as exc:
+        raise WorkOrderStateError("Work-order CSV could not be parsed.") from exc
     supervisors = _supervisor_lookup(db)
 
     created = opened = closed = matched = unmatched = skipped = 0
-    for row in reader:
+    for row in rows:
         attrs = wo.parse_import_row(row)
         number = attrs.pop("number")
         if number is None:
@@ -612,6 +649,10 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
             closed += 1
             continue
 
+        task_was_explicit = attrs.get("description") is not None
+        if not task_was_explicit:
+            attrs["description"] = wo.work_order_task_fallback(number)
+
         key = wo.normalize_assignee_name(attrs.get("vendor_assignee"))
         supervisor_id = supervisors.get(key) if key else None
         existed = existing is not None
@@ -620,6 +661,7 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
             number=number,
             created_by_id=user.id,
             supervisor_id=supervisor_id,
+            replace_generated_description=task_was_explicit,
             **attrs,
         )
         # A concurrent archive after the first lookup still wins: the import-only

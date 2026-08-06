@@ -17,6 +17,7 @@ import re
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional, Sequence
+from urllib.parse import quote
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -298,6 +299,29 @@ IMPORT_HEADERS: tuple[str, ...] = (
     "SCHEDULE DATE",
     "SYMPTOM/TASK",
 )
+
+# A missing imported task remains useful: the Work Orders page can send the user
+# to the vendor's source record. Treat the number as one URL path segment, so a
+# slash/hash/space cannot change the destination. A real task imported later may
+# replace this deterministic fallback value.
+NETFACILITIES_WORK_ORDER_URL = (
+    "https://system.netfacilities.com/tools/viewworkorders"
+)
+
+
+def work_order_task_fallback(number: str) -> str:
+    """Canonical NetFacilities task URL for one nonblank work-order number."""
+    trimmed = number.strip()
+    if not trimmed:
+        raise WorkOrderStateError("Work order number is required for the task link.")
+    return f"{NETFACILITIES_WORK_ORDER_URL}/{quote(trimmed, safe='')}"
+
+
+def is_work_order_task_fallback(value: Optional[str], number: str) -> bool:
+    """Whether ``value`` is the exact generated task URL for ``number``."""
+    if is_blank(value) or is_blank(number):
+        return False
+    return value == work_order_task_fallback(number)
 
 # --- CSV export ----------------------------------------------------------
 

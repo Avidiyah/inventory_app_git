@@ -22,6 +22,7 @@ from fastapi import HTTPException, UploadFile
 
 from app.domain import roles
 from app.domain import work_orders as wo
+from app.domain.errors import WorkOrderStateError
 from app.models import Item, User, WorkOrder
 from app.routers.work_orders import import_work_orders as import_route
 from app.services import auth
@@ -69,6 +70,22 @@ def test_parse_import_row_blanks_become_none():
     assert parsed["number"] is None
     assert parsed["location"] is None
     assert parsed["description"] is None
+
+
+def test_work_order_task_fallback_builds_one_safe_url_path_segment():
+    assert wo.work_order_task_fallback("  WO 12/3 #A  ") == (
+        "https://system.netfacilities.com/tools/viewworkorders/"
+        "WO%2012%2F3%20%23A"
+    )
+
+
+def test_work_order_task_fallback_recognizes_only_the_canonical_link():
+    number = "23490253"
+    fallback = wo.work_order_task_fallback(number)
+
+    assert wo.is_work_order_task_fallback(fallback, number)
+    assert not wo.is_work_order_task_fallback("Repair the sink", number)
+    assert not wo.is_work_order_task_fallback(f"{fallback}/extra", number)
 
 
 # --- service (DB-backed) -------------------------------------------------
@@ -123,6 +140,131 @@ def test_import_creates_work_orders_with_new_fields(db):
     assert row.supervisor_id is None  # no matching supervisor
     assert row.status == "created"
     assert row.created_by_id == admin.id
+
+
+def test_import_missing_task_uses_replaceable_work_order_link(db):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    number = _num()
+    blank_task = _csv([[
+        number, "Commons: 8B", "Belfor", "", "SMR27", "7/29/2026", "   "
+    ]])
+
+    first = wos.import_work_orders(db, csv_bytes=blank_task, user=admin)
+    assert first["created"] == 1
+    work_order = wos.find_by_number(db, number)
+    assert work_order.description == wo.work_order_task_fallback(number)
+
+    real_task = _csv([[
+        number, "Commons: 8B", "Belfor", "", "SMR27", "7/29/2026", "Fix couch"
+    ]])
+    second = wos.import_work_orders(db, csv_bytes=real_task, user=admin)
+    assert second["opened"] == 1
+    db.refresh(work_order)
+    assert work_order.description == "Fix couch"
+
+    # The fallback is replaceable, but an explicit Admin edit remains authoritative.
+    wos.update_work_order(
+        db,
+        work_order.id,
+        user=admin,
+        fields={"description": "Manual task"},
+    )
+    wos.import_work_orders(db, csv_bytes=blank_task, user=admin)
+    wos.import_work_orders(
+        db,
+        csv_bytes=_csv([[
+            number, "Commons: 8B", "Belfor", "", "SMR27", "7/29/2026", "Different task"
+        ]]),
+        user=admin,
+    )
+    db.refresh(work_order)
+    assert work_order.description == "Manual task"
+
+
+def test_import_missing_task_column_uses_work_order_link(db):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    number = _num()
+    csv_bytes = (
+        f"WORK ORDER,LOCATION\r\n{number},Commons 101\r\n".encode("utf-8")
+    )
+
+    result = wos.import_work_orders(db, csv_bytes=csv_bytes, user=admin)
+
+    assert result["created"] == 1
+    assert wos.find_by_number(db, number).description == wo.work_order_task_fallback(number)
+
+
+def test_duplicate_import_rows_prefer_real_task_over_generated_link(db):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    number = _num()
+    csv_bytes = _csv([
+        [number, "Loc", "Belfor", "", "SMR27", "7/1/2026", ""],
+        [number, "Loc", "Belfor", "", "SMR27", "7/1/2026", "Real task"],
+    ])
+
+    result = wos.import_work_orders(db, csv_bytes=csv_bytes, user=admin)
+
+    assert result["created"] == 1
+    assert result["opened"] == 1
+    assert wos.find_by_number(db, number).description == "Real task"
+
+
+@pytest.mark.parametrize(
+    "csv_template",
+    (
+        "",
+        "NUMBER,LOCATION\r\n{number},Commons\r\n",
+        "WORK ORDER;LOCATION\r\n{number};Commons\r\n",
+    ),
+)
+def test_import_rejects_missing_work_order_header_before_writes(db, csv_template):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    number = _num()
+    csv_bytes = csv_template.format(number=number).encode("utf-8")
+
+    with pytest.raises(WorkOrderStateError, match="WORK ORDER"):
+        wos.import_work_orders(db, csv_bytes=csv_bytes, user=admin)
+
+    assert wos.find_by_number(db, number) is None
+
+
+def test_import_rejects_non_utf8_file_before_writes(db):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    number = _num()
+
+    with pytest.raises(WorkOrderStateError, match="UTF-8"):
+        wos.import_work_orders(
+            db,
+            csv_bytes=(
+                f"WORK ORDER,SYMPTOM/TASK\r\n{number},".encode("utf-8")
+                + b"\xff\r\n"
+            ),
+            user=admin,
+        )
+
+    assert wos.find_by_number(db, number) is None
+
+
+def test_import_does_not_add_task_link_to_closed_work_order(db):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    number = _num()
+    work_order = wos.get_or_create_work_order(
+        db,
+        number=number,
+        created_by_id=admin.id,
+        description=None,
+    )
+    wos.archive_work_order(db, work_order.id, user=admin)
+
+    result = wos.import_work_orders(
+        db,
+        csv_bytes=_csv([[number, "Loc", "Belfor", "", "SMR27", "7/1/2026", ""]]),
+        user=admin,
+    )
+
+    assert result["closed"] == 1
+    db.refresh(work_order)
+    assert work_order.description is None
 
 
 def test_reimport_preserves_a_manual_supervisor_change(db):

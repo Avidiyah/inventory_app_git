@@ -138,6 +138,37 @@ def test_export_round_trips_through_the_import_parser(db):
     }
 
 
+def test_generated_task_link_round_trips_through_operational_export(db):
+    admin = _seed_user(db, "admin")
+    number = f"WO-{uuid.uuid4().hex[:8]}"
+    csv_bytes = (
+        ",".join(wo.IMPORT_HEADERS)
+        + "\r\n"
+        + ",".join([number, "Commons", "Belfor", "", "SMR27", "7/9/2026", ""])
+        + "\r\n"
+    ).encode("utf-8")
+    wos.import_work_orders(db, csv_bytes=csv_bytes, user=admin)
+    fallback = wo.work_order_task_fallback(number)
+
+    (row,) = _rows(db, user=admin, scope="all", numbers=[number])
+
+    assert row["SYMPTOM/TASK"] == fallback
+    assert wo.parse_import_row(row)["description"] == fallback
+
+    result = wos.import_work_orders(
+        db,
+        csv_bytes=wos.export_work_orders_csv(
+            db,
+            user=admin,
+            scope="all",
+            search=number,
+        ).encode("utf-8"),
+        user=admin,
+    )
+    assert result["opened"] == 1
+    assert wos.find_by_number(db, number).description == fallback
+
+
 def test_row_carries_status_assignment_and_billing(db):
     admin = _seed_user(db, "admin")
     tech = _seed_user(db, "technician", first="Alex", last="Stone")

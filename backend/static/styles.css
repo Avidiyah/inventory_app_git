@@ -2021,7 +2021,12 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     font-size: var(--fs-sm);
 }
 .wo-import-meta dt { color: var(--gray-500); font-weight: var(--fw-bold); }
-.wo-import-meta dd { margin: 0; white-space: pre-wrap; }
+.wo-import-meta dd {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
 
 /* Import work orders section (Admin+). */
 #work-orders-import-section { margin-bottom: var(--space-4); }

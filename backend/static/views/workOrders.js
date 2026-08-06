@@ -32,7 +32,13 @@ import {
   apiListItems,
   apiListUsers,
 } from "../api.js";
-import { escapeHtml, friendlyError, formatMoney, formatUserName } from "../format.js";
+import {
+  escapeHtml,
+  friendlyError,
+  formatMoney,
+  formatUserName,
+  safeHttpUrl,
+} from "../format.js";
 import { setMessage, confirmDialog, messageDialog } from "../dom.js";
 import { getRole } from "../state.js";
 import {
@@ -447,6 +453,20 @@ function hasLegacyPlace(detail) {
   );
 }
 
+// A generated task is stored as its full NetFacilities URL. Reuse the shared
+// http(s)-only guard before placing any description in href; ordinary task text
+// remains escaped text, and the URL stays visible so users can verify where it
+// leads before opening it.
+function importedDetailValueHtml(label, value) {
+  if (label === "Symptom / task") {
+    const safe = safeHttpUrl(value);
+    if (safe) {
+      return `<a href="${escapeHtml(safe)}" target="_blank" rel="noopener noreferrer">${escapeHtml(safe)}</a>`;
+    }
+  }
+  return escapeHtml(value);
+}
+
 // The read-only field block shown in a card body: the imported CSV fields plus
 // routing, and only the ones that are actually filled in. This stays visible as
 // the work-order overview; the matching inputs live in a separate, collapsed
@@ -476,7 +496,7 @@ function detailsViewHtml(detail) {
     filled
       .map(
         ([label, value]) =>
-          `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`
+          `<dt>${escapeHtml(label)}</dt><dd>${importedDetailValueHtml(label, value)}</dd>`
       )
       .join("") +
     `</dl>`

@@ -683,11 +683,13 @@ Rules:
   land on `location` (raw LOCATION string, deliberately unparsed), `output_to`,
   `vendor_assignee` (the raw "ASSIGNED TO" contact -- a vendor name, NOT a system
   user), `service_type`, `schedule_date` (raw; some rows carry a time), and
-  `description` (SYMPTOM/TASK). All nullable; a hand-created work order leaves
-  them empty. Import funnels each live row through `get_or_create_work_order` by
-  number. A re-upload is idempotent: only non-blank CSV metadata can fill an
-  empty metadata field, while notes, assignments, lifecycle, materials, labor,
-  billing, and existing values remain untouched. Archived matches are counted
+  `description` (SYMPTOM/TASK). Import funnels each live row through
+  `get_or_create_work_order` by number. A blank/missing task becomes
+  `https://system.netfacilities.com/tools/viewworkorders/<URL-encoded number>`.
+  That exact generated URL is synthetic and replaceable by a later real CSV task;
+  every real/manual task and other non-blank metadata remains authoritative under
+  the normal fill-blanks merge. Notes, assignments, lifecycle, materials, labor,
+  billing, and existing non-blank values remain untouched. Archived matches are counted
   as `closed` and skipped before routing or merge, so CSV import cannot restore
   or alter a closed work order.
 - `supervisor_id` is the Admin/Supervisor a work order is routed to. Import sets it by
@@ -1053,7 +1055,7 @@ the only way in.
 | GET | `/work-orders/filter-options` | session scoped | distinct service types and routed supervisors from caller-visible live work orders plus stable community choices |
 | GET | `/work-orders/legacy/archive` | owner exactly | count currently live legacy work orders (`legacy=true`, `archived_at IS NULL`) before confirmation; returns `{count}` |
 | POST | `/work-orders/legacy/archive` | owner exactly | atomically soft-archive every currently live legacy work order and return the actual `{archived}` count |
-| POST | `/work-orders/import` | admin+ | bulk-import the mass CSV export (multipart); locked find-or-create fills supervisor only while NULL and ignores archived matches; **the only path that creates a work order**; returns created/opened/closed/matched/skipped counts |
+| POST | `/work-orders/import` | admin+ | preflight a UTF-8 mass CSV with exactly one `WORK ORDER` header, then locked find-or-create; blank/missing task stores a replaceable NetFacilities URL, supervisor fills only while NULL, and archived matches are ignored; **the only path that creates a work order**; returns created/opened/closed/matched/skipped counts |
 | GET | `/work-orders/export` | admin+ scoped | export `scope=all|archived|<live-status>` as `variant=full` (re-importable operational CSV; accepts the live page's service/supervisor/community/date/number filters) or `variant=client` (unchanged scope-only billing totals + fixed-width receipt) |
 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | does this number name a work order, and is it archived? the one read that reports an archived one, so History can offer a restore |
 | GET | `/work-orders/{id}` | session scoped | work-order detail + append-only authored/timestamped note log + logged materials + labor totals |
@@ -1254,7 +1256,8 @@ Behavior:
 - A card body opens on a read-only block of the work order's filled-in fields
   (location, service type, schedule, output-to, vendor contact, symptom/task,
   supervisor, technicians — blank ones are omitted), plus a "Legacy" tag on
-  pre-import cards.
+  pre-import cards. A symptom/task whose complete value is an HTTP(S) URL renders
+  as an escaped external link in a new tab; long URLs wrap within the card.
 - Supervisor+ get a nested **Edit details** card beneath the read-only overview.
   It is collapsed by default and expands through its own summary instead of a
   separate button; the read-only block remains visible. For a Supervisor it
@@ -1794,11 +1797,11 @@ Coverage map:
 | `test_mass_staging_load.py` | DB-backed slot load/return, add-work-order enforce-match + refusal of an unimported number, Technician/Supervisor worker assignment, reuse |
 | `test_work_orders_domain.py` | pure number normalization, six live statuses including stable On-Hold, community-filter vocabulary/validation, plural worker-derived Created/Assigned state, activity-derived In-Progress, authored/timestamped note-log formatting, combined labor rounding/charge, fill-blanks, Technician/Supervisor worker visibility scope |
 | `test_work_orders_service.py` | DB-backed find-or-create, resolve-only attach, plural Technician/Supervisor assignment/scope, Admin/Supervisor routing targets, narrow Technician start action, Supervisor+-only per-worker labor writes, lifecycle/status/append-only authored notes/archive/materials, Technician/Supervisor zero-stock add with recount creation and Supervisor removal resolution, Owner-only live-legacy preview/re-archive selection, AND-composed advanced filters, community aliases/multi-membership/Academics fallback, scoped filter options, and list cap |
-| `test_work_order_import.py` | CSV parsing/import, full-name Admin/Supervisor routing independent of Created status, unmatched/ambiguous/archived/ineligible-role fallback, idempotence, closed-row count/no-mutation (metadata, notes, materials, labor), and Admin gate |
+| `test_work_order_import.py` | CSV parsing/import, required-number-header and UTF-8 preflight, blank/missing-task NetFacilities fallback, generated-to-real replacement, duplicate-row precedence, manual-task preservation, full-name Admin/Supervisor routing independent of Created status, unmatched/ambiguous/archived/ineligible-role fallback, idempotence, closed-row count/no-mutation, and Admin gate |
 | `test_work_order_name_responses.py` | work-order response exposes plural operational names, rounded labor detail/totals, and the note-log text while omitting login usernames |
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
 | `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin; history row exposes `work_order_id` |
-| `test_work_order_export.py` | Admin+ scoped full/client CSV exports, joined operational filters (including date), unchanged client scope behavior, import-header compatibility, billing totals, and receipt cells |
+| `test_work_order_export.py` | Admin+ scoped full/client CSV exports, joined operational filters (including date), unchanged client scope behavior, import-header compatibility including generated-task round-trip, billing totals, and receipt cells |
 | `test_receipt.py` | backend fixed-width receipt output matches the frontend contract for markup, truncation, quantities, missing prices, and labor rounding |
 | `test_tools_domain.py` | pure `domain.tools.validate_return` outstanding-balance cap |
 | `test_tools_service.py` | DB-backed: create/duplicate-live-barcode, archived-barcode reuse, checkout/return round-trip incl. `apply_delta` reuse, active-target validation without stock/ledger mutation, checkout overdraft (`NegativeQuantityError`), return-beyond-outstanding (`ToolReturnExceedsCheckedOutError`), per-tool and per-user custody aggregates, multi-user custody split, archive guard until full return, Correct Count increase/decrease/no-op (`NoChangeError`), and the regression that an `adjust` row never enters a custody balance |
@@ -1831,7 +1834,11 @@ Do not "fix" these accidentally unless the task asks for it.
   there is no per-community/building number scoping.
 - Work-order CSV import accepts the real header row first or Excel's optional
   UTF-8 BOM + `sep=,` dialect-hint preamble. Only that leading hint is ignored;
-  the following row remains the required import header.
+  the following row must contain exactly one `WORK ORDER` header. Other vendor
+  columns remain optional; a missing `SYMPTOM/TASK` column uses the task fallback.
+  Invalid UTF-8, an empty file, a wrong delimiter, or an absent/duplicate number
+  header returns HTTP 400 before any work-order row is written. CSV records are
+  materialized before row-level commits so parser errors also fail in preflight.
 - A free-text work-order number on a transaction is *resolved* (never created,
   since work orders are import-only) and only for Supervisor+; a technician's
   scan must carry a `work_order_id` (from a card).
