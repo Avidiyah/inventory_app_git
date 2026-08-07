@@ -756,14 +756,17 @@ def _apply_work_order_filters(
     return query
 
 
-def _filter_and_sort_by_schedule(
-    work_orders: Sequence[WorkOrder], scheduled_date: Optional[date] = None
-) -> list[WorkOrder]:
+def _filter_and_sort_by_schedule(work_orders, scheduled_date: Optional[date] = None):
     """Apply the exact calendar-date filter and sort newest scheduled first.
 
     The source field is intentionally raw text, so parsing happens after the SQL
     predicates. Blank or malformed legacy values sort below valid dates; ties
     keep newest-created work orders first.
+
+    Reads only `.schedule_date` and `.created_at`, so it accepts either full
+    `WorkOrder` entities or the lightweight `(id, schedule_date, created_at)`
+    rows `list_work_orders` ranks with. Returns the same objects it was given,
+    in order.
     """
     if scheduled_date is not None:
         work_orders = [
@@ -780,6 +783,17 @@ def _filter_and_sort_by_schedule(
         return (parsed is not None, parsed or date.min, created_timestamp)
 
     return sorted(work_orders, key=sort_key, reverse=True)
+
+
+# Relationship loads the Work Orders card list needs. Named once so the
+# capped and uncapped paths in `list_work_orders` cannot drift apart.
+_LIST_EAGER_LOADS = (
+    joinedload(WorkOrder.assignee),
+    joinedload(WorkOrder.supervisor),
+    selectinload(WorkOrder.technician_assignments),
+    selectinload(WorkOrder.technicians),
+    selectinload(WorkOrder.items),
+)
 
 
 def list_work_orders(
@@ -803,31 +817,50 @@ def list_work_orders(
     values sort last, with creation time breaking ties. `limit`, when set, caps
     this ordering; filters and Show all omit it to reach the full matching set.
     """
-    query = (
-        db.query(WorkOrder)
-        .options(
-            joinedload(WorkOrder.assignee),
-            joinedload(WorkOrder.supervisor),
-            selectinload(WorkOrder.technician_assignments),
-            selectinload(WorkOrder.technicians),
-            selectinload(WorkOrder.items),
+    def scoped(*entities):
+        """Live work orders matching every filter, projected to `entities`."""
+        query = db.query(*entities).filter(WorkOrder.archived_at.is_(None))
+        query = _apply_work_order_filters(
+            query,
+            status=status,
+            service_type=service_type,
+            supervisor_id=supervisor_id,
+            community=community,
+            search=search,
         )
-        .filter(WorkOrder.archived_at.is_(None))
-    )
+        return _scoped_to_user(query, user)
 
-    query = _apply_work_order_filters(
-        query,
-        status=status,
-        service_type=service_type,
-        supervisor_id=supervisor_id,
-        community=community,
-        search=search,
-    )
+    if limit is None:
+        # Uncapped: every matching row is returned anyway, so hydrate once.
+        return _filter_and_sort_by_schedule(
+            scoped(WorkOrder).options(*_LIST_EAGER_LOADS).all(), scheduled_date
+        )
 
-    query = _scoped_to_user(query, user)
+    # Capped: `schedule_date` is raw text, so the ordering can only be
+    # decided in Python (see `_filter_and_sort_by_schedule`) and SQL cannot
+    # do the LIMIT for us. Rank a lightweight projection first, then hydrate
+    # only the rows that survive the cap -- otherwise the eager loads below
+    # fan out across the entire matching set to return `limit` cards. Same
+    # predicates, same comparison keys, same order; strictly less loaded.
+    ranked = _filter_and_sort_by_schedule(
+        scoped(WorkOrder.id, WorkOrder.schedule_date, WorkOrder.created_at).all(),
+        scheduled_date,
+    )[:limit]
 
-    rows = _filter_and_sort_by_schedule(query.all(), scheduled_date)
-    return rows[:limit] if limit is not None else rows
+    ordered_ids = [row.id for row in ranked]
+    if not ordered_ids:
+        return []
+
+    by_id = {
+        entity.id: entity
+        for entity in (
+            db.query(WorkOrder)
+            .options(*_LIST_EAGER_LOADS)
+            .filter(WorkOrder.id.in_(ordered_ids))
+            .all()
+        )
+    }
+    return [by_id[work_order_id] for work_order_id in ordered_ids]
 
 
 def _scoped_to_user(query, user: Optional[User]):
@@ -1519,9 +1552,9 @@ def lookup_work_order(
     if unknown or not visible to `user`.
 
     The deliberate counterpart to the scoped loaders, which hide archived work
-    orders entirely: this is how a caller (History's work-order search) discovers
-    that a number it can see in the transaction ledger belongs to a work order
-    that has been archived, and so can offer to restore it."""
+    orders entirely: this is how a recovery-aware search discovers that an exact
+    number belongs to a work order that has been archived, and so can offer to
+    restore it."""
     work_order = find_by_number(db, number)
     if work_order is None or not _visible(work_order, user):
         return None

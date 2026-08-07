@@ -80,6 +80,9 @@ Capabilities added after the improvement batch include:
   is the fallback. Cards and operational exports sort parsed Scheduled Date
   descending, with malformed/blank legacy values last. Export filtered CSV sits
   beside Search and uses the full active result set; For Client is unchanged.
+  When an Admin/Owner number search exactly identifies an archived row, the
+  shared modal says `Work Order has been closed.` and offers Restore or Close;
+  Restore uses the existing unarchive endpoint and reloads the matching live card.
 - Expanded Work Order controls follow the backend role matrix. Admin/Owner Edit
   details includes imported metadata plus operations; Supervisor sees only
   supervisor, technicians, and status plus separate mode/labor/material-correction

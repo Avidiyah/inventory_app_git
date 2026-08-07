@@ -6,7 +6,6 @@ Pure coverage of the two import helpers (`normalize_assignee_name`,
 Admin+ gate on the router handler. DB-backed tests skip if no database.
 """
 
-import asyncio
 import io
 import os
 import sys
@@ -624,13 +623,13 @@ def test_import_route_requires_admin(db):
     supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
     csv_bytes = _csv([[_num(), "Loc", "Belfor", "", "SMR27", "7/1/2026", "A"]])
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(import_route(file=_upload(csv_bytes), user=supervisor, db=db))
+        import_route(file=_upload(csv_bytes), user=supervisor, db=db)
     assert exc.value.status_code == 403
 
 
 def test_import_route_admin_succeeds(db):
     admin = _seed_user(db, roles.ROLE_ADMIN)
     csv_bytes = _csv([[_num(), "Loc", "Belfor", "", "SMR27", "7/1/2026", "A"]])
-    result = asyncio.run(import_route(file=_upload(csv_bytes), user=admin, db=db))
+    result = import_route(file=_upload(csv_bytes), user=admin, db=db)
     assert result.created == 1
     assert result.closed == 0

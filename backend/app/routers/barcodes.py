@@ -29,13 +29,20 @@ router = APIRouter(prefix="/barcodes", tags=["barcodes"])
     response_model=BarcodeDecodeResponse,
     dependencies=[Depends(get_current_user)],
 )
-async def decode_barcode(file: UploadFile = File(...)):
+def decode_barcode(file: UploadFile = File(...)):
     """Decode an uploaded image and return the barcodes found.
 
     Any authenticated user. The image is read into memory and never
     persisted. A readable image with no supported barcode returns
-    `200 {"barcodes": []}`; an unreadable file returns 400."""
-    data = await file.read()
+    `200 {"barcodes": []}`; an unreadable file returns 400.
+
+    Deliberately `def`, not `async def`: `decode_image` is blocking,
+    CPU-bound native work (Pillow decode + zbar across every symbology).
+    On the event loop it would stall *every* concurrent request for its
+    whole duration; as a sync handler FastAPI runs it in the threadpool,
+    like the rest of this app's routes. `file.file.read()` is the sync
+    equivalent of `await file.read()` on the same spooled upload."""
+    data = file.file.read()
     try:
         matches = barcodes_service.decode_image(data)
     except DomainError as exc:

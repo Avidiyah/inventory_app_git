@@ -37,8 +37,13 @@ const confirmQtyInc = document.getElementById("scan-confirm-qty-inc");
 
 // `options.quantity` (a positive number) turns this into a quantity-confirm
 // (#11). `options.dismissOnly` reuses the same accessible modal as a one-button
-// message. Callers that omit both get the plain yes/no behavior unchanged.
-export function confirmDialog(message, { quantity = null, dismissOnly = false } = {}) {
+// message. `confirmText` / `cancelText` let a caller name a specific action
+// without changing the boolean resolve contract. Callers that omit all options
+// get the plain yes/no behavior unchanged.
+export function confirmDialog(
+  message,
+  { quantity = null, dismissOnly = false, confirmText = null, cancelText = null } = {}
+) {
   // `qtyRequested` fixes the resolve contract (a number on Yes, false on No)
   // whenever the caller asked for a quantity; `wantsQty` additionally requires
   // the stepper markup to be present before showing/reading it. Keeping them
@@ -56,9 +61,16 @@ export function confirmDialog(message, { quantity = null, dismissOnly = false } 
     // Remember focus so we can restore it on close (a11y).
     const previouslyFocused = document.activeElement;
     const originalYesText = confirmYesBtn?.textContent;
+    const originalNoText = confirmNoBtn?.textContent;
     const originalNoHidden = confirmNoBtn?.hidden;
-    if (confirmYesBtn && dismissOnly) confirmYesBtn.textContent = "Close";
-    if (confirmNoBtn) confirmNoBtn.hidden = dismissOnly;
+    if (confirmYesBtn) {
+      if (confirmText) confirmYesBtn.textContent = confirmText;
+      else if (dismissOnly) confirmYesBtn.textContent = "Close";
+    }
+    if (confirmNoBtn) {
+      if (cancelText) confirmNoBtn.textContent = cancelText;
+      confirmNoBtn.hidden = dismissOnly;
+    }
     const focusables = (wantsQty
       ? [confirmQtyDec, confirmQtyInput, confirmQtyInc, confirmYesBtn, confirmNoBtn]
       : [confirmYesBtn, dismissOnly ? null : confirmNoBtn]).filter(Boolean);
@@ -105,7 +117,10 @@ export function confirmDialog(message, { quantity = null, dismissOnly = false } 
       if (confirmYesBtn && originalYesText !== undefined) {
         confirmYesBtn.textContent = originalYesText;
       }
-      if (confirmNoBtn) confirmNoBtn.hidden = originalNoHidden;
+      if (confirmNoBtn) {
+        if (originalNoText !== undefined) confirmNoBtn.textContent = originalNoText;
+        confirmNoBtn.hidden = originalNoHidden;
+      }
       cleanup();
       restoreFocus();
       if (!qtyRequested) { resolve(ok); return; }

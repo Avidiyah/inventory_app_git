@@ -256,9 +256,10 @@ class WorkOrderLookup(BaseModel):
     work order, and is it archived?".
 
     Unlike the list/detail routes, this deliberately reports an *archived* work
-    order (which those routes hide), so History can spot a searched number whose
-    work order has been archived and offer to restore it. Reports `found=False`
-    for a number the caller may not see, so it leaks nothing the list would not."""
+    order (which those routes hide), so recovery surfaces can spot a searched
+    number whose work order has been archived and offer to restore it. Reports
+    `found=False` for a number the caller may not see, so it leaks nothing the
+    list would not."""
 
     found: bool
     archived: bool = False

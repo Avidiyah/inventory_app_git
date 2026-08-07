@@ -1297,6 +1297,13 @@ Behavior:
   debounced work-order number search. Every active value is sent in one request
   and combines with AND; Clear filters resets the complete search. Admin+ also
   sees Export filtered CSV in this card; it exports the same uncapped result set.
+- For Admin/Owner, a work-order-number search that exactly identifies an
+  archived row performs the archive-aware lookup after the live-list search and
+  opens the shared modal with `Work Order has been closed.` plus **Restore** and
+  **Close**. Close leaves the archive untouched. Restore clears `archived_at`
+  through the existing restore endpoint and reloads the same search so the card
+  appears. Substring-only matches, live rows, and lower roles do not prompt;
+  stale lookup responses are ignored after the search text changes.
 - The list is ordered by parsed scheduled date descending and shows only the
   first 10 by default; a "Show all" control drops the cap and "Show recent only"
   restores it. Blank/malformed schedule text sorts last, with creation time as a
@@ -1611,8 +1618,9 @@ Behavior:
   message saying which. Work orders are import-only, so a reference cannot create.
 - `lookup_work_order` returns the scoped row *including an archived one* (the one
   read that sees through the archive); `restore_work_order` clears `archived_at`.
-  Together they back History's "this number is archived — restore it?" prompt,
-  which is the undo for archive now that nothing can re-create a work order.
+  Together they back History's archive prompt and Admin+'s exact-number Work
+  Orders search prompt, which are the undo paths for archive now that nothing can
+  re-create a work order.
 - `list_work_orders` is scoped (technician/supervisor/admin), excludes archived,
   composes every advanced predicate with AND, filters scheduled date by parsed
   calendar day, and sorts scheduled date descending before applying `limit`.

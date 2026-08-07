@@ -20,7 +20,7 @@ from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 
-from app.auth_deps import require_min_role
+from app.auth_deps import COOKIE_SECURE, require_min_role
 from starlette.types import Scope
 from app.database import test_connection
 from app.domain import roles
@@ -55,13 +55,55 @@ class NoCacheStaticFiles(StaticFiles):
 app = FastAPI(title="Inventory Management API")
 
 
+# Content Security Policy. Verified against the whole SPA before being
+# enabled: the shell has no inline `<script>` (both tags in
+# `shell-tail.html` use `src`), no `on*` handlers, no `<style>` blocks, no
+# inline `style=` attributes, no `eval`, and no external resource loads --
+# so `'self'` is sufficient everywhere and nothing needs an unsafe- escape.
+#
+# `blob:`/`data:` on img/media cover canvas frame grabs. The live scanner
+# is unaffected either way: it assigns a MediaStream to `video.srcObject`
+# (see `static/scan/barcode-decoder.js`), which CSP does not govern.
+#
+# Known exception: `static/scan-test.html` (a standalone dev harness, not
+# part of `SHELL_PARTS`) does use a `<style>` block and one inline
+# `style=`, so those will be blocked there. The app itself is unaffected.
+CONTENT_SECURITY_POLICY = "; ".join((
+    "default-src 'self'",
+    "img-src 'self' data: blob:",
+    "media-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+))
+
+
 @app.middleware("http")
-async def add_permissions_policy(request, call_next):
-    """Tell browsers the camera is usable on this origin and nowhere
-    else (no cross-origin iframes). Required by the live barcode
-    scanner; harmless for every other route."""
+async def add_security_headers(request, call_next):
+    """Attach the app's response security headers.
+
+    `Permissions-Policy` tells browsers the camera is usable on this
+    origin and nowhere else (no cross-origin iframes) -- required by the
+    live barcode scanner, harmless for every other route.
+
+    The rest are defence-in-depth and change no response body: a strict
+    CSP, MIME-sniffing off, referrer trimmed to the origin, and framing
+    denied. HSTS is gated on `COOKIE_SECURE` -- the same signal the
+    session cookie already uses to mean "this deployment is HTTPS" -- so
+    local http://localhost development is never sent an upgrade
+    directive it cannot honour.
+    """
     response = await call_next(request)
     response.headers["Permissions-Policy"] = "camera=(self)"
+    response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["X-Frame-Options"] = "DENY"
+    if COOKIE_SECURE:
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
     return response
 
 

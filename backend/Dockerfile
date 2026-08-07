@@ -27,6 +27,15 @@ COPY entrypoint.sh ./
 # Strip any CRLF (file may be authored on Windows) and make it runnable.
 RUN sed -i 's/\r$//' entrypoint.sh && chmod +x entrypoint.sh
 
+# Drop root. Nothing needs write access at runtime: the app only reads
+# `static/`, PYTHONDONTWRITEBYTECODE (set above) stops .pyc writes, and
+# `alembic upgrade head` writes to Postgres rather than to disk. The
+# build-time steps above still run as root, so package install and the
+# chmod are unaffected.
+RUN useradd --create-home --uid 10001 appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
 # Render injects $PORT at runtime; this is just documentation/local default.
 EXPOSE 8124
 

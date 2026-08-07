@@ -5,6 +5,14 @@
 -r requirements.txt
 
 pytest==9.0.3
+# Required by `fastapi.testclient.TestClient`. Starlette 1.2.x builds its
+# TestClient on httpx2 (NOT the older `httpx` package -- importing
+# `fastapi.testclient` without this raises "requires the httpx2 package").
+#
+# No test imports TestClient today: the suite exercises routers and services
+# by calling them directly, which is why it passes without this. Declaring it
+# is what makes the first HTTP-level test possible without a detour.
+httpx2==2.9.1
 # Only needed to (re)generate the barcode image fixtures under
 # tests/fixtures/. The committed PNGs mean the test suite itself does
 # not import this package.

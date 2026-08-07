@@ -75,7 +75,7 @@ writes (w).
 | 24 | DELETE | `/transactions/{id}` | supervisor+, or Technician's own linked dispense | `transactions.py` → `transactions.void_transaction` (+ `user_requests.resolve_for_transaction`) | transactions (w, soft), items (w), work_order_items (w⁴), user_requests (w if linked) | `apiVoidTransaction` | `history.js`, `transactions.js` |
 | 25 | GET | `/work-orders/` | session scoped | `work_orders.py` → `work_orders.list_work_orders` (scheduled-date descending; joinable status/service/supervisor/community/date/number filters) | work_orders (r), work_order_items (r), work_order_technicians (r), users (r) | `apiListWorkOrders` | `workOrders.js`, `transactions.js`, `history.js`, `adminReview.js` |
 | 26 | GET | `/work-orders/{id}` | session scoped | `work_orders.py` → `work_orders.get_work_order` | work_orders (r), work_order_items (r/w⁵), work_order_technicians (r), work_order_labor (r), items (r), users (r) | `apiGetWorkOrder` | `workOrders.js`, `history.js`, `adminReview.js` |
-| 27 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | `work_orders.py` → `work_orders.lookup_work_order` | work_orders (r, **incl. archived**) | `apiLookupWorkOrder` | `history.js` |
+| 27 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | `work_orders.py` → `work_orders.lookup_work_order` | work_orders (r, **incl. archived**) | `apiLookupWorkOrder` | `history.js`, `workOrders.js` (Admin+ exact search) |
 | 28 | PATCH | `/work-orders/{id}` | scoped; notes→tech+, operations→sup+, metadata→admin+; stale supervisor precondition→409 | `work_orders.py` → `work_orders.update_work_order` | work_orders (r/w, row lock; incl. notes/primary mirror), work_order_technicians (w), users (r) | `apiUpdateWorkOrder` | `workOrders.js`, `adminReview.js` (Return to In-Progress) |
 | 29 | POST | `/work-orders/{id}/archive` | admin+ scoped; any live status | `work_orders.py` → `work_orders.archive_work_order` | work_orders (w, Closed/archive) | `apiArchiveWorkOrder` | `workOrders.js`, `adminReview.js` |
 | 30 | POST | `/work-orders/{id}/items` | Technician+ scoped | `work_orders.py` → `work_orders.add_work_order_item` | items (w; negative expected count allowed in dispense mode), transactions (w), work_order_items (w), user_requests (w if stock is short or item is unpriced) | `apiAddWorkOrderItem` | `workOrders.js` |
@@ -104,7 +104,7 @@ writes (w).
 | 53 | POST | `/tools/{tool_id}/return` | session | `tools.py` → `tools_service.return_tool` | tools (w), tool_transactions (w, r for cap check) | `apiReturnTool` | `toolReturn.js` |
 | 54 | POST | `/tools/{tool_id}/adjust` | admin+ | `tools.py` → `tools_service.adjust_tool_quantity` | tools (w), tool_transactions (w) | `apiAdjustTool` | `toolCorrection.js` |
 | 55 | POST | `/work-orders/import` | admin+ | `work_orders.py` → `work_orders.import_work_orders` | work_orders (r/w, locked find-or-create — **the only create path**), users (r, active-supervisor name-match) | `apiImportWorkOrders` | `workOrders.js` |
-| 56 | POST | `/work-orders/{id}/restore` | supervisor+ scoped | `work_orders.py` → `work_orders.restore_work_order` | work_orders (w, un-archive) | `apiRestoreWorkOrder` | `history.js` |
+| 56 | POST | `/work-orders/{id}/restore` | supervisor+ scoped | `work_orders.py` → `work_orders.restore_work_order` | work_orders (w, un-archive) | `apiRestoreWorkOrder` | `history.js`, `workOrders.js` (Admin+ exact search) |
 | 57 | GET | `/items/search-index` | session | `items.py` → `items.list_item_search_index` | items (r; name/barcode projection only) | — | — (retained compatibility endpoint; current Find Item does not request it) |
 | 58 | PATCH | `/users/{id}/name` | self or outranks target | `users.py` → `users.update_name` | users (w; first/last name + optional `username`) | `apiUpdateUserName` | `users.js` |
 | 59 | POST | `/work-orders/{id}/labor` | supervisor+ scoped | `work_orders.py` → `work_orders.add_work_order_labor` | work_orders (r/w status), work_order_technicians (r), work_order_labor (w), users (r) | `apiAddWorkOrderLabor` | `workOrders.js` |
@@ -338,6 +338,13 @@ one no import has brought in.
   `community` + raw `location`; Commons includes Cimarron/Cimmarron,
   multi-location rows can match several named choices, and Academics means no
   known community term. The final rows sort by parsed scheduled date descending.
+- `workOrders.js` (Admin+ exact number search) additionally calls
+  `apiLookupWorkOrder` after the live-list request. Because lookup applies the
+  trimmed, case-insensitive work-order identity rule, only an exact archived
+  match opens `Work Order has been closed.` with Restore/Close actions. Restore
+  calls `apiRestoreWorkOrder` and reloads the search; Close makes no write. A
+  search-generation token prevents a stale lookup from prompting after input
+  changes.
 - `workOrders.js` (Import from CSV, Admin+) → `apiImportWorkOrders` →
   `POST /work-orders/import` → `import_work_orders` preflight → per row
   **work_orders** lock/find-or-create live numbers with idempotent fill-blanks.
@@ -464,7 +471,8 @@ one no import has brought in.
   with `legacy=true AND archived_at IS NULL`. The response reports the actual
   affected count; the view shows it and reloads Work Orders. Already archived
   legacy rows and non-legacy rows are untouched.
-- `history.js` (work-order filter names an archived work order) →
+- `history.js` (work-order filter names an archived work order) and
+  `workOrders.js` (Admin+ exact archived-number search) →
   `apiLookupWorkOrder` → `GET /work-orders/lookup?number=` → the one read that
   reports an archived work order → confirm → `apiRestoreWorkOrder` →
   `POST /work-orders/{id}/restore` → **work_orders.archived_at** cleared. This is

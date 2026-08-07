@@ -47,9 +47,19 @@ DATABASE_URL = normalize_db_url(DATABASE_URL)
 # floods the logs and can leak data. Off unless SQL_ECHO=true.
 SQL_ECHO = os.getenv("SQL_ECHO", "false").strip().lower() == "true"
 
+# `pool_pre_ping` issues a cheap `SELECT 1` before handing out a pooled
+# connection and transparently replaces it if the check fails. Render's
+# free tier spins the service down when idle and the managed Postgres
+# closes idle connections server-side, so without this the first request
+# after a quiet period can surface a dead pooled connection as a
+# user-facing error. `pool_recycle` retires connections before they get
+# old enough for that to happen in the first place. Neither affects query
+# results -- they only change which physical connection runs them.
 engine = create_engine(
     DATABASE_URL,
     echo=SQL_ECHO,
+    pool_pre_ping=True,
+    pool_recycle=300,
     connect_args={"connect_timeout": 5},
 )
 

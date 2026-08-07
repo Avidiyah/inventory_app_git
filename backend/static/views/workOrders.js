@@ -10,7 +10,8 @@
 // narrow Set In-Progress -> Mark Completed walkthrough plus an In-Progress-only
 // Place On-Hold action and On-Hold-only Resume In-Progress action outside the
 // unchanged editor; Technicians can also save notes and add new materials.
-// Admin+ can archive any live work order directly from its expanded card.
+// Admin+ can archive any live work order directly from its expanded card. An
+// exact-number search for a closed row offers the explicit restore workflow.
 // Reached via the nav button or a Unit click in the Mass Stage tree (which calls
 // `focusWorkOrder` before switching pages).
 
@@ -31,6 +32,8 @@ import {
   apiUpdateWorkOrderLabor,
   apiDeleteWorkOrderLabor,
   apiArchiveWorkOrder,
+  apiLookupWorkOrder,
+  apiRestoreWorkOrder,
   apiGetLegacyWorkOrderArchivePreview,
   apiArchiveLegacyWorkOrders,
   apiImportWorkOrders,
@@ -617,7 +620,60 @@ function detailsEditorHtml(detail) {
 
 // --- list ----------------------------------------------------------------
 
-export async function loadWorkOrders({ refreshReferenceData = false } = {}) {
+// Incremented as each list load begins so a slower lookup from an older search
+// cannot open a prompt after the operator has already typed something else.
+let archivedSearchToken = 0;
+let archivedSearchPromptOpen = false;
+
+async function offerRestoreForExactArchivedSearch(number, token) {
+  if (!isAdminPlus() || !number) return;
+
+  let info;
+  try {
+    // Lookup uses the work-order identity rule (trimmed + case-insensitive), not
+    // the list endpoint's substring match. An archived result is therefore an
+    // exact match for the number currently in the search box.
+    info = await apiLookupWorkOrder(number);
+  } catch {
+    return; // Courtesy lookup: a failure must not disturb the live list search.
+  }
+
+  const currentNumber = searchInput ? searchInput.value.trim() : "";
+  if (
+    token !== archivedSearchToken ||
+    currentNumber.toLowerCase() !== number.toLowerCase() ||
+    !info?.found ||
+    !info.archived ||
+    archivedSearchPromptOpen
+  ) {
+    return;
+  }
+
+  archivedSearchPromptOpen = true;
+  try {
+    const restore = await confirmDialog("Work Order has been closed.", {
+      confirmText: "Restore",
+      cancelText: "Close",
+    });
+    if (!restore) return;
+    await apiRestoreWorkOrder(info.id);
+    await loadWorkOrders();
+  } catch (err) {
+    setMessage(
+      listMessage,
+      friendlyError(err, "Could not restore that work order."),
+      "error"
+    );
+  } finally {
+    archivedSearchPromptOpen = false;
+  }
+}
+
+export async function loadWorkOrders({
+  refreshReferenceData = false,
+  checkArchivedSearch = false,
+} = {}) {
+  const archivedLookupToken = ++archivedSearchToken;
   if (refreshReferenceData || !itemsLoaded) {
     try {
       allItems = await apiListItems();
@@ -673,6 +729,9 @@ export async function loadWorkOrders({ refreshReferenceData = false } = {}) {
         card.scrollIntoView({ behavior: "smooth", block: "start" });
       }
       pendingFocusId = null;
+    }
+    if (checkArchivedSearch) {
+      await offerRestoreForExactArchivedSearch(filters.q, archivedLookupToken);
     }
   } catch (err) {
     listEl.innerHTML = "";
@@ -1348,16 +1407,20 @@ if (exportClientBtn) exportClientBtn.addEventListener("click", handleClientExpor
 // The Search button and Enter stay as redundant explicit triggers -- nothing
 // is removed, so no one loses the click-to-search workflow.
 let woSearchDebounce = null;
-if (searchBtn) searchBtn.addEventListener("click", loadWorkOrders);
+function runWorkOrderNumberSearch() {
+  loadWorkOrders({ checkArchivedSearch: true });
+}
+
+if (searchBtn) searchBtn.addEventListener("click", runWorkOrderNumberSearch);
 if (searchInput) {
   searchInput.addEventListener("input", () => {
     clearTimeout(woSearchDebounce);
-    woSearchDebounce = setTimeout(loadWorkOrders, 250);
+    woSearchDebounce = setTimeout(runWorkOrderNumberSearch, 250);
   });
   searchInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       clearTimeout(woSearchDebounce);
-      loadWorkOrders();
+      runWorkOrderNumberSearch();
     }
   });
 }

@@ -62,7 +62,9 @@
       "Bash(git rev-list *)",
       "Bash(python -m pytest tests/ -x -q)",
       "PowerShell(Get-ChildItem *)",
-      "PowerShell(git remote *)"
+      "PowerShell(git remote *)",
+      "Bash(grep -rn \"style='\\\\|style=\\\\`\\\\|setAttribute\\( *[\\\\\"']style\\\\|cssText\\\\|insertRule\\\\|createElement\\( *[\\\\\"']style\" backend/static/)",
+      "Bash(grep -v \"^.*//.*comment\")"
     ]
   }
 }

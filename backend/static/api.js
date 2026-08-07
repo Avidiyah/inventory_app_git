@@ -535,15 +535,16 @@ export async function apiArchiveWorkOrder(workOrderId) {
 
 // Does this number name a work order, and is it archived? Supervisor+. Returns
 // {found, archived, id, number}. The only read that sees archived work orders --
-// list/get hide them -- so History can spot a searched number whose work order
-// has been archived and offer apiRestoreWorkOrder.
+// list/get hide them -- so History and Admin+'s Work Orders search can spot an
+// exact searched number whose row has been archived and offer restoration.
 export async function apiLookupWorkOrder(number) {
   const qs = new URLSearchParams({ number }).toString();
   return parseResponse(await fetch(`/work-orders/lookup?${qs}`, { credentials: "include" }));
 }
 
-// Un-archive a work order (Supervisor+). The undo for apiArchiveWorkOrder;
-// returns the restored WorkOrderDetail.
+// Un-archive a work order (Supervisor+ endpoint; currently offered by History
+// and Admin+'s Work Orders search). The undo for apiArchiveWorkOrder; returns the
+// restored WorkOrderDetail.
 export async function apiRestoreWorkOrder(workOrderId) {
   return parseResponse(await fetch(`/work-orders/${workOrderId}/restore`, { method: "POST", credentials: "include" }));
 }

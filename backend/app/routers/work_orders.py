@@ -266,7 +266,7 @@ def work_order_filter_options(
 
 
 @router.post("/import", response_model=WorkOrderImportResult)
-async def import_work_orders(
+def import_work_orders(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -275,10 +275,17 @@ async def import_work_orders(
     find-or-creates by number (idempotent re-upload), stores the new-schema
     columns, and matches the vendor `ASSIGNED TO` name to a supervisor to route
     visibility. Archived matches are counted as closed and left untouched.
-    Returns a summary of created/opened/closed/matched/skipped counts."""
+    Returns a summary of created/opened/closed/matched/skipped counts.
+
+    Deliberately `def`, not `async def`: the import is one long synchronous
+    SQLAlchemy transaction over the whole CSV. On the event loop it would
+    stall *every* concurrent request until the import finished; as a sync
+    handler FastAPI runs it in the threadpool, like the rest of this app's
+    routes. `file.file.read()` is the sync equivalent of `await file.read()`
+    on the same spooled upload."""
     if not roles.role_at_least(user.role, roles.ROLE_ADMIN):
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
-    data = await file.read()
+    data = file.file.read()
     try:
         summary = wo_service.import_work_orders(db, csv_bytes=data, user=user)
     except DomainError as exc:
@@ -358,9 +365,10 @@ def lookup_work_order(
 
     Declared before `/{work_order_id}` so "lookup" is not parsed as an id. This is
     the one read that sees through the archive: the list and detail routes hide
-    archived work orders, which leaves a number that appears all over History with
-    no visible work order. History uses this to offer a restore. A number the
-    caller may not see reports `found=False`, same as the list would show."""
+    archived work orders, which leaves a searched number with no visible work
+    order. History and Admin+'s Work Orders search use this to offer a restore. A
+    number the caller may not see reports `found=False`, same as the list would
+    show."""
     if not roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
     work_order = wo_service.lookup_work_order(db, number=number, user=user)
