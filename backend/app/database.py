@@ -86,7 +86,26 @@ def test_connection() -> tuple[str, str]:
         result = connection.execute(text("SELECT current_database(), current_user;"))
         database_name, user_name = result.one()
         return database_name, user_name
-    
+
+
+def check_connection() -> None:
+    """Liveness probe used by `/healthz`. Executes a trivial query and
+    returns nothing; raises `SQLAlchemyError` if Postgres is unreachable.
+
+    Returning nothing is deliberate: the caller is unauthenticated, so the
+    database name, user, and version must not leave the process.
+    `test_connection` is the Admin-gated probe that does report those.
+
+    Goes through the pool rather than opening a dedicated connection, so it
+    exercises the same path a real request takes -- and since
+    `pool_pre_ping` already issues a `SELECT 1` on every checkout, the
+    marginal cost over any other request is negligible.
+    """
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1;"))
+
+
+
 def get_db():
     """FastAPI dependency: yields a session per request and
     guarantees it is closed afterward. Every router's `db:

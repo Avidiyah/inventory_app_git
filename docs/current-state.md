@@ -98,7 +98,8 @@ Path shorthand:
 
 | Task area | Read these first | Usual tests |
 | --- | --- | --- |
-| Auth/session/login/logout | `app/auth_deps.py`, `routers/auth.py`, `services/auth.py`, `schemas/auth.py`, `static/views/auth.js`, `static/api.js` | `test_auth_password.py`, `test_auth_session_lifetime.py` |
+| Auth/session/login/logout | `app/auth_deps.py`, `routers/auth.py`, `services/auth.py`, `schemas/auth.py`, `static/views/auth.js`, `static/api.js` | `test_auth_password.py`, `test_auth_session_lifetime.py`, `test_session_token_hashing.py`, `test_password_reset_revokes_sessions.py` |
+| Login throttling / lockout | `domain/login_throttle.py`, `services/login_throttle.py`, `routers/auth.py`, `models.py` (`LoginAttempt`), `backend/entrypoint.sh` (proxy headers) | `test_login_throttle.py`, `test_login_throttle_service.py` |
 | Roles/permissions/user management | `domain/roles.py`, `routers/users.py`, `services/users.py`, `schemas/users.py`, `static/roles.js`, `static/views/users.js`, `static/views/nav.js` | `test_roles.py`, `test_route_role_gates.py`, `test_user_names.py`, `test_user_role_edit.py`, `test_user_archive.py` |
 | Item CRUD/lookup/archive | `routers/items.py`, `services/items.py`, `schemas/items.py`, `models.py`, `static/views/items.js`, `static/views/itemEditor.js`, `static/api.js` | `test_item_barcodes.py`, `test_item_price_gating.py`, route-gate tests |
 | Item notes | `domain/notes_validation.py`, `services/notes.py`, `schemas/items.py`, `routers/items.py`, `static/views/notes.js` | add/extend focused tests if behavior changes |
@@ -208,6 +209,12 @@ Deployment:
 - Native package: Debian `libzbar0`.
 - Entrypoint: `alembic upgrade head`, then Uvicorn on `${PORT:-8124}`.
 - Render blueprint: `render.yaml`.
+- `healthCheckPath: /healthz` -- a real database query. It pointed at `/` until
+  2026-08-09; `/` is a filesystem-only read, so deploys went green while
+  Postgres was unreachable. A deploy that cannot reach the database now fails
+  instead of succeeding silently. Render's own health polling does **not**
+  keep a free instance awake (free services still spin down after ~15 min
+  idle), so this changed nothing about spin-down behavior.
 - Required env: `DATABASE_URL`.
 - Production env should set `COOKIE_SECURE=true` and `SQL_ECHO=false`.
 - Static assets are served with `Cache-Control: no-cache`.
@@ -262,7 +269,30 @@ Security/access:
 - Backend role gates are source of truth.
 - Frontend role hiding is only convenience.
 - Sessions are server-side rows and carried by an HttpOnly `session` cookie.
-- Passwords are case-sensitive, not stripped, minimum 4 characters.
+  The row stores only the **SHA-256 hash** of the cookie token
+  (`services.auth._hash_token`); the raw token is never persisted, so reading
+  the `sessions` table yields nothing replayable. SHA-256 rather than scrypt is
+  deliberate: the token is 256 CSPRNG bits, so there is no keyspace for a slow
+  KDF to defend, and this hash runs on every authenticated request.
+- Every session carries a hard absolute `expires_at` (NOT NULL, 12h). "Stay
+  signed in for this shift" changes only whether the *cookie* is persistent, not
+  server-side validity. There is no idle timeout — migration `c7e9a1b3d5f8`
+  removed the old sliding window on purpose. An expired row is deleted on the
+  first request that presents it; `sweep_expired_sessions` runs on every login
+  and clears the rest, which is why no scheduler or background task exists.
+- Sessions are revoked on user archive, role change, **and password reset** —
+  all three via `services.auth.revoke_user_sessions`.
+- Passwords are case-sensitive, not stripped, minimum 4 characters. The 4-char
+  floor is below every current standard (NIST 800-63B rev 4 requires 8) and is
+  a known, deliberately deferred gap — raising it invalidates existing
+  passwords.
+- `POST /auth/login` is throttled by exponential backoff, keyed on
+  (submitted username, client IP): 5 free attempts, then 5s doubling to a 15min
+  ceiling, returned as **429 + `Retry-After`**. It is never enforced by sleeping
+  — a sleeping handler would hold a threadpool slot. Keying includes the IP and
+  uses backoff rather than account lockout specifically so no one can lock a
+  crew member out by hammering their username. A wider per-IP layer exists but
+  ships disabled (`LOGIN_THROTTLE_PER_IP`); see Known Gaps.
 - User management requires strict subordinate authority: actor rank must be
   greater than target role rank.
 - Owner is bootstrap-only; API users cannot manage an owner.
@@ -527,15 +557,46 @@ Password hash format: `scrypt$n$r$p$salt_hex$hash_hex`.
 
 ### `sessions`
 
-Fields: `token`, `user_id`, `created_at`, `expires_at`.
+Fields: `token_hash`, `user_id`, `created_at`, `expires_at`.
 
 Rules:
 
-- `token` is the opaque cookie value and primary key.
+- `token_hash` is the **SHA-256 hex digest** of the opaque cookie value, and the
+  primary key. The raw token is generated in `services.auth.create_session`,
+  returned once for the cookie, and never stored — so a read of this table
+  cannot be replayed as a credential.
 - `user_id` cascades on user delete.
-- `expires_at = NULL` means browser-session lifetime.
-- remembered sessions get a 12-hour absolute cap.
-- there is no idle timeout.
+- `expires_at` is NOT NULL: every session has a hard absolute cap of 12 hours
+  (`SESSION_LIFETIME` / `REMEMBER_LIFETIME`, currently equal). Indexed for the
+  sweep.
+- "Remember this device" affects only cookie persistence (`max_age`), not
+  server-side lifetime.
+- There is no idle timeout and no per-request write.
+- Expired rows are deleted on the read that presents them, plus a
+  `sweep_expired_sessions` call on every login. No scheduler.
+- Rows are deleted wholesale by `services.auth.revoke_user_sessions` on user
+  archive, role change, and password reset.
+
+### `login_attempts`
+
+Fields: `id`, `scope`, `key`, `failure_count`, `first_failed_at`,
+`last_failed_at`, `locked_until`.
+
+Rules:
+
+- Transient failed-login counters for the throttle, **not** an audit trail:
+  deleted on a successful login and swept after
+  `domain.login_throttle.ATTEMPT_TTL` (24h).
+- `UNIQUE(scope, key)`. `scope="user_ip"` keys on
+  `"<casefolded username>|<ip>"` and is always active; `scope="ip"` keys on the
+  bare IP and is active only when `LOGIN_THROTTLE_PER_IP=true`.
+- The key uses the **submitted** username string, never a resolved user id —
+  `services.auth.authenticate` deliberately conflates "no such user" with "wrong
+  password", and keying on an id would leak account existence back out through
+  which attempts get throttled.
+- `locked_until = NULL` means "counting failures, not currently locked".
+- The backoff curve lives in `domain/login_throttle.py` (pure). A locked caller
+  is refused even with correct credentials — that is the point of a throttle.
 
 ### `items`
 
@@ -919,13 +980,14 @@ specified.
 | Method | Path | Gate | Behavior |
 | --- | --- | --- | --- |
 | GET | `/` | public | assembled SPA shell |
+| GET | `/healthz` | public | liveness probe: runs `SELECT 1`; `{"status":"ok"}` or 503 `Database unavailable.` Reports no database detail -- it is unauthenticated |
 | GET | `/db-test` | admin+ | database/user probe |
 
 ### Auth
 
 | Method | Path | Gate | Behavior |
 | --- | --- | --- | --- |
-| POST | `/auth/login` | public | authenticate, create session, set cookie |
+| POST | `/auth/login` | public | authenticate, create session, set cookie; 401 on bad credentials, **429 + `Retry-After`** while throttled |
 | POST | `/auth/logout` | session | delete session, clear cookie |
 | GET | `/auth/me` | session | return username plus first/last/full display name, role, and profile timestamps |
 
@@ -1894,6 +1956,22 @@ Do not "fix" these accidentally unless the task asks for it.
   `assigned_to_id` on any tool (no self-scope restriction) -- matches the
   confirmed "any role can return" rule, but means a technician could
   technically check in a tool on someone else's behalf.
+- Password minimum is 4 characters, below NIST 800-63B rev 4's floor of 8.
+  Raising it invalidates existing passwords, so it is a deliberate deferral
+  rather than an oversight.
+- The wider per-IP login throttle layer ships **disabled**
+  (`LOGIN_THROTTLE_PER_IP`, default false). Enabling it before confirming that
+  distinct client IPs actually reach the app would throttle the whole crew as a
+  single client. `entrypoint.sh` passes uvicorn `--proxy-headers
+  --forwarded-allow-ips='*'` so `request.client` is the real caller behind
+  Render's proxy; that setting is safe only because the container is
+  unreachable except through that proxy.
+- A throttled login is refused even when the password is correct. Intended --
+  otherwise the throttle would not stop a brute-force that guesses right -- but
+  it means a user who mistypes six times waits out the (5-second) window.
+- `login_attempts` is not an audit trail: rows are deleted on successful login
+  and swept after 24h, so it cannot answer "who tried to get in last week".
+  Pairs naturally with N1 (structured logging) if that is ever wanted.
 
 ## Documentation Policy
 

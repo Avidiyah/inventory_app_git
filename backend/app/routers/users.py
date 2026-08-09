@@ -147,7 +147,11 @@ def reset_password(
     db: Session = Depends(get_db),
 ):
     """Set a new password for a subordinate user. 404 if unknown; 403 if
-    the actor does not outrank the target."""
+    the actor does not outrank the target.
+
+    The target's sessions are revoked, so anyone signed in as that user
+    -- including whoever prompted the reset -- is signed out immediately
+    and must use the new password."""
     try:
         target = users_service.get_user(db, user_id)
     except DomainError as exc:

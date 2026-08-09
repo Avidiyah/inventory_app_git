@@ -224,21 +224,34 @@ class Transaction(Base):
 
 
 class AuthSession(Base):
-    """A server-side login session, keyed by an opaque random token
-    that lives in an HttpOnly cookie on the client.
+    """A server-side login session. The client holds an opaque random
+    token in an HttpOnly cookie; this table stores only its **SHA-256
+    hash**, never the token itself.
+
+    Hashing at rest is the point of the table's shape: the raw token is
+    a bearer credential, so storing it verbatim would make any read of
+    this table -- a backup, a read replica, a dashboard query, a
+    read-only injection -- a full account takeover for every logged-in
+    user. Storing the digest makes such a read useless, because the hash
+    cannot be replayed as a cookie. See `app.services.auth._hash_token`,
+    which is the only place the conversion happens.
+
+    SHA-256 rather than scrypt is deliberate. Slow KDFs exist because
+    passwords are low-entropy and guessable; this token is 256 bits from
+    a CSPRNG, so there is nothing to brute-force, and a slow hash would
+    add cost to *every* authenticated request.
 
     State is held here (not in a signed cookie) so the server is the
-    sole authority on validity: logout deletes the row. `expires_at`
-    encodes the lifetime policy and is set at login
-    (`app.services.auth.create_session`):
+    sole authority on validity: logout deletes the row, and
+    `services.users` deletes a user's rows on archive, role change, and
+    password reset.
 
-    - **NULL** -- no server-side cap. Issued when the user did *not*
-      check "Remember this device": the cookie is a session cookie, so
-      the session ends when the browser closes (or on manual logout).
-    - **a timestamp** -- a hard absolute cap (login + `REMEMBER_LIFETIME`).
-      Issued for a remembered device; the matching persistent cookie
-      survives a browser restart, and the session is expired-and-deleted
-      on the first request after `expires_at`.
+    `expires_at` is a hard absolute cap and is **never NULL** -- every
+    session expires (`app.services.auth.create_session`). "Remember this
+    device" no longer changes the server-side lifetime; it only decides
+    whether the *cookie* is persistent or dies with the browser. A row
+    past its cap is deleted on the first request that presents it, and
+    `sweep_expired_sessions` clears the rest.
 
     The FK is ON DELETE CASCADE so deleting a user also drops all of
     their sessions.
@@ -246,16 +259,63 @@ class AuthSession(Base):
 
     __tablename__ = "sessions"
 
-    token = Column(Text, primary_key=True)
+    # Lowercase hex SHA-256 of the cookie token (64 chars). The raw
+    # token exists only in the client's cookie and in the local variable
+    # that `create_session` returns.
+    token_hash = Column(Text, primary_key=True)
     user_id = Column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    expires_at = Column(DateTime(timezone=True), nullable=True)
+    # Absolute expiry; NOT NULL so no session can outlive its cap.
+    expires_at = Column(DateTime(timezone=True), nullable=False)
 
     user = relationship("User", back_populates="sessions")
+
+    # Supports the expired-row sweep, which is the only query that
+    # filters on this column alone.
+    __table_args__ = (Index("ix_sessions_expires_at", "expires_at"),)
+
+
+class LoginAttempt(Base):
+    """Failed-login counter backing the login throttle
+    (`app.services.login_throttle`).
+
+    One generic keyed counter serves both throttle layers rather than a
+    table each:
+
+    - `scope="user_ip"`, `key="<normalized username>|<ip>"` -- the layer
+      that actually stops credential brute-forcing.
+    - `scope="ip"`, `key="<ip>"` -- an optional wider net for username
+      enumeration, off unless `LOGIN_THROTTLE_PER_IP` is enabled.
+
+    The key deliberately uses the **submitted** username string, not a
+    resolved user id: `services.auth.authenticate` makes "no such user"
+    and "wrong password" indistinguishable on purpose, and keying on a
+    resolved id would leak account existence back out through throttle
+    behavior.
+
+    Rows are transient -- deleted on a successful login and swept after
+    `domain.login_throttle.ATTEMPT_TTL` -- so this is not an audit trail.
+    """
+
+    __tablename__ = "login_attempts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scope = Column(Text, nullable=False)
+    key = Column(Text, nullable=False)
+    failure_count = Column(Integer, nullable=False, default=0)
+    first_failed_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    last_failed_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    # NULL means "counting failures but not currently locked".
+    locked_until = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("scope", "key", name="uq_login_attempts_scope_key"),
+        Index("ix_login_attempts_last_failed_at", "last_failed_at"),
+    )
 
 
 class WorkOrder(Base):

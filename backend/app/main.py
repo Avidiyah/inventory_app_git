@@ -6,8 +6,10 @@ Layer: app entry. This file does three things and nothing else:
 2. Mount the three resource routers (`items`, `transactions`,
    `users`) and the static-files directory that serves the
    single-page frontend at `/`.
-3. Expose a `/db-test` probe used by deployment scripts to confirm
-   the database connection is reachable.
+3. Expose the two database probes: `/healthz`, the unauthenticated
+   liveness check the deployment platform polls, and `/db-test`, the
+   Admin-gated probe deployment scripts use to confirm *which*
+   database is connected.
 
 Business logic lives in `app.services`, validation in
 `app.schemas`, rules in `app.domain`. Nothing in this file should
@@ -16,13 +18,14 @@ ever grow beyond wiring.
 
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.auth_deps import COOKIE_SECURE, require_min_role
 from starlette.types import Scope
-from app.database import test_connection
+from app.database import check_connection, test_connection
 from app.domain import roles
 from app.routers import (
     auth,
@@ -168,6 +171,32 @@ def _assemble_index() -> bytes:
 def read_root():
     """Serve the SPA shell, assembled from per-page fragments."""
     return HTMLResponse(_assemble_index(), headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/healthz")
+def healthz():
+    """Unauthenticated liveness probe for the deployment platform.
+
+    `render.yaml` points `healthCheckPath` here. It previously pointed at
+    `/`, which assembles the SPA shell from disk and never touches
+    Postgres -- so the platform reported the service healthy while the
+    database was completely unreachable. This route actually runs a query.
+
+    Deliberately reports **no** database detail: not the name, user, or
+    version, and not the driver's error text (psycopg's `OperationalError`
+    routinely carries the host, port, and database name from the DSN).
+    `/db-test` is the Admin-gated route that reports those.
+
+    `SQLAlchemyError` rather than a bare `except`, so a genuine bug in this
+    handler still surfaces as a 500 instead of being laundered into a
+    plausible-looking 503.
+    """
+    try:
+        check_connection()
+    except SQLAlchemyError:
+        raise HTTPException(status_code=503, detail="Database unavailable.")
+
+    return {"status": "ok"}
 
 
 @app.get("/db-test", dependencies=[Depends(require_min_role(roles.ROLE_ADMIN))])

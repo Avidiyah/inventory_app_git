@@ -10,12 +10,20 @@ dependency. Hashes are stored self-describing as
 `scrypt$n$r$p$salt_hex$hash_hex`, which keeps the cost parameters with
 each hash and lets them be tuned later without breaking existing rows.
 
-Sessions are server-side rows (`AuthSession`). `get_active_session_user`
-is the single place that enforces the lifetime policy: it is called on
-every authenticated request and expires-and-deletes a remembered session
-once it passes its absolute `expires_at` cap. Non-remembered sessions
-have no server-side cap (`expires_at` is NULL) and simply end when the
-browser drops the session cookie; there is no idle timeout.
+Sessions are server-side rows (`AuthSession`), and the row stores only
+the **SHA-256 hash** of the cookie token -- see `_hash_token`. The raw
+token is generated in `create_session`, handed straight to the caller
+for the cookie, and never persisted, so reading the `sessions` table
+yields nothing that can be replayed as a credential.
+
+`get_active_session_user` is the single place that enforces the lifetime
+policy: it is called on every authenticated request and
+expires-and-deletes any session past its absolute `expires_at` cap.
+Every session now carries such a cap -- `expires_at` is never NULL -- so
+"remember this device" no longer changes the server-side lifetime, only
+whether the browser keeps the cookie across a restart. There is still no
+idle timeout and no per-request write (see migration `c7e9a1b3d5f8`,
+which deliberately removed the old sliding window).
 """
 
 import hashlib
@@ -30,12 +38,14 @@ from sqlalchemy.orm import Session
 from app.domain.errors import InvalidCredentialsError
 from app.models import AuthSession, User
 
-# Lifetime of a "remembered" session: an absolute cap measured from
-# login, not a sliding/idle window. A remembered device stays signed in
-# until this elapses (or the user logs out), then must sign in again.
-# Non-remembered sessions carry no server-side cap (expires_at is NULL)
-# and simply end when the browser closes -- there is no idle timeout.
+# Absolute session caps, measured from login -- not sliding/idle
+# windows. Both are 12h today: the product rule is "no session outlives
+# a shift", and whether the user ticked "remember this device" changes
+# only the cookie's persistence, not the server-side lifetime. They are
+# kept as two constants so the two policies can diverge later without
+# hunting call sites.
 REMEMBER_LIFETIME = timedelta(hours=12)
+SESSION_LIFETIME = timedelta(hours=12)
 
 # scrypt cost parameters. n must be a power of two; these are sensible
 # interactive-login defaults that complete in a few milliseconds.
@@ -99,55 +109,105 @@ def authenticate(db: Session, *, username: str, password: str) -> User:
     return user
 
 
-def create_session(db: Session, user: User, *, remember: bool = False) -> str:
-    """Open a new session for `user` and return its opaque token. The
-    token is what the caller stores in the session cookie.
+def _hash_token(token: str) -> str:
+    """Return the lowercase hex SHA-256 of a session token -- the only
+    form ever written to the database.
 
-    `remember` selects the lifetime policy: when True the session gets a
-    hard absolute cap of `REMEMBER_LIFETIME` from now (`expires_at`);
-    when False `expires_at` stays NULL (no server-side cap -- the caller
-    issues a session cookie that dies on browser close)."""
+    Plain SHA-256 (not scrypt) is correct here: the input is 256 bits of
+    CSPRNG output, so there is no guessable keyspace for a slow KDF to
+    defend, and this runs on every authenticated request."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def sweep_expired_sessions(db: Session) -> int:
+    """Delete every session past its cap and return how many went.
+
+    Called from `create_session`, which is deliberate rather than lazy:
+    rows can only accumulate at the rate of logins, so cleaning up on
+    login bounds the table without a background task or a scheduler --
+    and therefore without inheriting the multi-instance coordination
+    problem noted in the API hardening checklist (N3)."""
+    removed = (
+        db.query(AuthSession)
+        .filter(AuthSession.expires_at <= datetime.now(timezone.utc))
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    return removed
+
+
+def revoke_user_sessions(db: Session, user_id) -> int:
+    """Delete every session belonging to `user_id` and return the count.
+    Does not commit -- the caller folds this into its own transaction so
+    the revocation and the change that motivated it land together.
+
+    Shared by the three places that must not leave a live session behind
+    a credential or authority change: `services.users.archive_user`,
+    `update_role`, and `reset_password`."""
+    return (
+        db.query(AuthSession)
+        .filter(AuthSession.user_id == user_id)
+        .delete(synchronize_session=False)
+    )
+
+
+def create_session(db: Session, user: User, *, remember: bool = False) -> str:
+    """Open a new session for `user` and return its opaque token -- the
+    value the caller puts in the session cookie. Only the token's hash
+    is stored, so this return value is the one and only time the raw
+    token exists server-side.
+
+    Every session gets a hard absolute cap: `REMEMBER_LIFETIME` when the
+    user asked to be remembered, `SESSION_LIFETIME` otherwise (both 12h
+    today). `remember` no longer affects server-side validity at all --
+    the router uses it to decide whether the cookie is persistent."""
+    sweep_expired_sessions(db)
+
     now = datetime.now(timezone.utc)
+    token = secrets.token_urlsafe(32)
     session = AuthSession(
-        token=secrets.token_urlsafe(32),
+        token_hash=_hash_token(token),
         user_id=user.id,
         created_at=now,
-        expires_at=now + REMEMBER_LIFETIME if remember else None,
+        expires_at=now + (REMEMBER_LIFETIME if remember else SESSION_LIFETIME),
     )
     db.add(session)
     db.commit()
-    return session.token
+    return token
 
 
 def get_active_session_user(db: Session, token: str) -> Optional[User]:
     """Return the `User` for a valid, non-expired session token, or
-    `None`.
+    `None`. `token` is the raw cookie value; it is hashed here to find
+    the row.
 
     Lifetime policy:
-    - If the session is missing, returns None.
-    - If it is a remembered session (`expires_at` set) and now is past
-      that cap, the row is deleted and None is returned (expired on the
-      server).
-    - Otherwise (no cap, or cap not yet reached) the owning user is
-      returned, unless that user has since been archived -- an archived
-      user is treated as having no valid session (defense in depth: the
-      archive path also deletes the user's sessions, but this guards any
-      that slip through). There is no idle timeout and no per-request write.
+    - If no session matches the hash, returns None.
+    - If the session is past its `expires_at` cap, the row is deleted and
+      None is returned (expired on the server). Every session has a cap.
+    - Otherwise the owning user is returned, unless that user has since
+      been archived -- an archived user is treated as having no valid
+      session (defense in depth: the archive path also deletes the user's
+      sessions, but this guards any that slip through). There is no idle
+      timeout and no per-request write.
     """
-    session = db.query(AuthSession).filter(AuthSession.token == token).first()
+    session = (
+        db.query(AuthSession)
+        .filter(AuthSession.token_hash == _hash_token(token))
+        .first()
+    )
     if session is None:
         return None
 
     expires_at = session.expires_at
-    if expires_at is not None:
-        # Postgres returns tz-aware datetimes; guard defensively in case
-        # a naive value ever slips in so the comparison cannot crash.
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        if datetime.now(timezone.utc) > expires_at:
-            db.delete(session)
-            db.commit()
-            return None
+    # Postgres returns tz-aware datetimes; guard defensively in case
+    # a naive value ever slips in so the comparison cannot crash.
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > expires_at:
+        db.delete(session)
+        db.commit()
+        return None
 
     return (
         db.query(User)
@@ -157,7 +217,9 @@ def get_active_session_user(db: Session, token: str) -> Optional[User]:
 
 
 def delete_session(db: Session, token: str) -> None:
-    """Delete a session by token (logout). A no-op if it does not
-    exist, so double-logout is harmless."""
-    db.query(AuthSession).filter(AuthSession.token == token).delete()
+    """Delete a session by its raw cookie token (logout). A no-op if it
+    does not exist, so double-logout is harmless."""
+    db.query(AuthSession).filter(
+        AuthSession.token_hash == _hash_token(token)
+    ).delete(synchronize_session=False)
     db.commit()

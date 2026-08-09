@@ -159,6 +159,19 @@ class InvalidCredentialsError(DomainError):
     valid usernames. Maps to 401."""
 
 
+class LoginThrottledError(DomainError):
+    """Raised by `services.login_throttle.check` when too many failed
+    logins have come from this (username, IP) pair. Maps to 429.
+
+    Carries `retry_after_seconds` so the router can set a `Retry-After`
+    header. Raised *before* credentials are examined, so it says nothing
+    about whether the account exists or the password was right."""
+
+    def __init__(self, message: str, *, retry_after_seconds: int):
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
 class RoleManagementError(DomainError):
     """Raised when an actor attempts to create, reset, or delete a user
     they do not outrank (see `domain.roles.can_manage`). This is an

@@ -1,8 +1,8 @@
 # Endpoint Map: Database ↔ User View
 
-Last reviewed: 2026-08-06
+Last reviewed: 2026-08-09
 
-Purpose: a complete, self-contained trace of all 72 endpoints — wiring, contracts,
+Purpose: a complete, self-contained trace of all 73 endpoints — wiring, contracts,
 rules, error behavior, and service algorithms — so an AI or developer can answer
 "what does this endpoint send/return/do?" **without opening the source**. If you
 find yourself about to read `schemas/`, `services/`, `domain/`, or `routers/`,
@@ -50,6 +50,7 @@ writes (w).
 | # | Method | Path | Gate | Router → Service | Tables | api.js wrapper | View(s) |
 |---|--------|------|------|------------------|--------|----------------|---------|
 | 1 | GET | `/` | public | `main.py` (shell assembly) | — | — (browser) | SPA boot |
+| 1a | GET | `/healthz` | public | `main.py` → `database.check_connection` | — | — | (platform health check) |
 | 2 | GET | `/db-test` | admin+ | `main.py` → `database.test_connection` | — | — | (diagnostic) |
 | 3 | POST | `/auth/login` | public | `auth.py` → `auth.authenticate` + `create_session` | users (r), sessions (w) | `apiLogin` | `auth.js` |
 | 4 | POST | `/auth/logout` | session | `auth.py` → `auth.delete_session` | sessions (w) | `apiLogout` | `auth.js` |

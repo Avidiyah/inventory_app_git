@@ -27,7 +27,8 @@ from app.domain.errors import (
     UserHasTransactionsError,
     UserNotFoundError,
 )
-from app.models import AuthSession, User
+from app.models import User
+from app.services import auth as auth_service
 from app.services import tools as tools_service
 
 
@@ -142,18 +143,29 @@ def update_role(db: Session, user_id: uuid.UUID, *, role: str) -> User:
     not logged in. Raises `UserNotFoundError` if the id is unknown."""
     user = get_user(db, user_id)
     user.role = role
-    db.query(AuthSession).filter(AuthSession.user_id == user_id).delete()
+    auth_service.revoke_user_sessions(db, user_id)
     db.commit()
     db.refresh(user)
     return user
 
 
 def reset_password(db: Session, user_id: uuid.UUID, password_hash: str) -> None:
-    """Replace a user's password hash. Raises `UserNotFoundError` if the
-    user does not exist. Existing sessions are intentionally left
-    intact; the idle timeout will retire them."""
+    """Replace a user's password hash and revoke the user's sessions, in
+    one transaction. Raises `UserNotFoundError` if the user does not
+    exist.
+
+    Revoking is the point of a reset: an admin resetting a password
+    believes they have cut off access, so leaving live sessions behind
+    would let whoever prompted the reset keep working with the old
+    credential. This matches `archive_user` and `update_role`.
+
+    (An earlier version deliberately left sessions intact and cited an
+    idle timeout to retire them. No idle timeout exists -- see migration
+    `c7e9a1b3d5f8`, which removed the sliding window -- so those sessions
+    simply survived.)"""
     user = get_user(db, user_id)
     user.password_hash = password_hash
+    auth_service.revoke_user_sessions(db, user_id)
     db.commit()
 
 
@@ -226,7 +238,7 @@ def archive_user(
     user.archived_at = datetime.now(timezone.utc)
     # Revoke active sessions now rather than waiting for them to lapse, so
     # archiving immediately locks the user out.
-    db.query(AuthSession).filter(AuthSession.user_id == user_id).delete()
+    auth_service.revoke_user_sessions(db, user_id)
     db.commit()
     db.refresh(user)
     return user

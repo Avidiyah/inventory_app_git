@@ -6,7 +6,11 @@
 
 databases:
   - name: inventory-db
-    plan: free            # free Postgres expires after 90 days; upgrade before then
+    # Paid since 2026-08-09. The previous `free` plan expired after 90 days and
+    # took the database with it; that clock is gone. This plan also provides
+    # point-in-time recovery over a rolling 3-day window -- a recovery floor,
+    # not an archive: anything discovered more than 3 days late is outside it.
+    plan: basic-256mb
     databaseName: inventory
     user: inventory
 
@@ -18,7 +22,12 @@ services:
     rootDir: backend
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    healthCheckPath: /
+    # `/healthz` runs a trivial query against Postgres. This previously
+    # pointed at `/`, which assembles the SPA shell from disk and never
+    # touches the database -- so a deploy went green even when Postgres was
+    # unreachable. Deploys that would have silently "succeeded" while broken
+    # now fail here instead, which is the point.
+    healthCheckPath: /healthz
     autoDeploy: true
     envVars:
       - key: DATABASE_URL

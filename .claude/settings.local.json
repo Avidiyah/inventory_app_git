@@ -64,7 +64,17 @@
       "PowerShell(Get-ChildItem *)",
       "PowerShell(git remote *)",
       "Bash(grep -rn \"style='\\\\|style=\\\\`\\\\|setAttribute\\( *[\\\\\"']style\\\\|cssText\\\\|insertRule\\\\|createElement\\( *[\\\\\"']style\" backend/static/)",
-      "Bash(grep -v \"^.*//.*comment\")"
+      "Bash(grep -v \"^.*//.*comment\")",
+      "PowerShell(git fetch *)",
+      "mcp__graphify__list_repositories",
+      "mcp__graphify__graph_stats",
+      "mcp__graphify__gx_rank_files",
+      "Bash(grep -vE '\\\\.\\(md|json|lock|svg|png|ico|txt|yaml|yml|cfg|toml|ini\\)$')",
+      "Bash(xargs wc -l)",
+      "mcp__graphify__query_graph",
+      "Bash(awk -F: '{s+=$2} END {print \"test fns:\", s}')",
+      "Read(//c/Users/mcclu/Desktop/.github/**)",
+      "Read(//c/Users/mcclu/Desktop/**)"
     ]
   }
 }

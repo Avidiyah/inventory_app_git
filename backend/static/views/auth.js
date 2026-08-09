@@ -133,7 +133,13 @@ loginBtn.addEventListener("click", async () => {
     // tryResumeBatch no-ops for a clean logout / different user / stale WO.
     await enterApp(user, { resume: true });
   } catch (err) {
-    if (err && err.status === 401) {
+    if (err && err.status === 429) {
+      // Throttled after repeated failures. The backend's detail already
+      // names the wait, and it is more useful than the generic copy --
+      // show it verbatim rather than a credential error, which would
+      // read as "wrong password" and prompt another immediate attempt.
+      setMessage(loginMessage, friendlyError(err, "Too many sign-in attempts. Wait a moment and try again."), "error");
+    } else if (err && err.status === 401) {
       setMessage(loginMessage, "That sign-in did not work. Check the username and password, then try again.", "error");
     } else {
       setMessage(loginMessage, friendlyError(err, "Sign in failed."), "error");

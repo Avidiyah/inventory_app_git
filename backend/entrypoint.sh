@@ -15,5 +15,12 @@ set -e
 echo "==> alembic upgrade head"
 alembic upgrade head
 
+# --proxy-headers makes uvicorn resolve X-Forwarded-For into
+# request.client, so the login throttle keys on the real client address
+# instead of Render's proxy. --forwarded-allow-ips='*' trusts that
+# header unconditionally, which is safe *here specifically* because the
+# container is only reachable through Render's proxy -- never expose
+# this port directly with that setting.
 echo "==> starting uvicorn on port ${PORT:-8124}"
-exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8124}"
+exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8124}" \
+    --proxy-headers --forwarded-allow-ips='*'
