@@ -114,6 +114,7 @@ waiting on a decision for those items.
 | `b9c3b94` | `inventory-db-copy` re-verified — N5's guarantees hold on the live target |
 | `2cb99c9` | **C2's ordering half** — tool custody sorted by name (pushed) |
 | `775f1a2` | the hand-off rewrite that queued B3 (pushed) |
+| `11a0b42` | **B3** — 60 req/s per caller on every non-exempt route (**not pushed**) |
 
 **Tier 1 is empty.** C1, C4, C2's ordering half and B3 have all shipped; the
 rest of C2 was demoted to Tier 2 after its symptom turned out not to be
