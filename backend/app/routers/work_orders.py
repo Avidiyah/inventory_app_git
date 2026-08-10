@@ -36,6 +36,7 @@ from app.domain import work_orders as wo
 from app.domain.errors import DomainError
 from app.models import User, WorkOrder, WorkOrderItem, WorkOrderLabor
 from app.routers._errors import to_http
+from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_capped
 from app.schemas.work_orders import (
     LegacyWorkOrderArchivePreview,
     LegacyWorkOrderArchiveResult,
@@ -265,7 +266,11 @@ def work_order_filter_options(
     )
 
 
-@router.post("/import", response_model=WorkOrderImportResult)
+@router.post(
+    "/import",
+    response_model=WorkOrderImportResult,
+    responses={413: {"description": "CSV exceeds the upload size cap."}},
+)
 def import_work_orders(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
@@ -281,11 +286,15 @@ def import_work_orders(
     SQLAlchemy transaction over the whole CSV. On the event loop it would
     stall *every* concurrent request until the import finished; as a sync
     handler FastAPI runs it in the threadpool, like the rest of this app's
-    routes. `file.file.read()` is the sync equivalent of `await file.read()`
-    on the same spooled upload."""
+    routes. `read_capped` is the sync equivalent of `await file.read()`
+    on the same spooled upload, refusing anything over
+    `MAX_CSV_UPLOAD_BYTES` with a 413 before the parse begins.
+
+    The size check runs *after* the role gate, so an unauthorised caller
+    learns nothing about the cap."""
     if not roles.role_at_least(user.role, roles.ROLE_ADMIN):
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
-    data = file.file.read()
+    data = read_capped(file, limit=MAX_CSV_UPLOAD_BYTES, what="CSV file")
     try:
         summary = wo_service.import_work_orders(db, csv_bytes=data, user=user)
     except DomainError as exc:

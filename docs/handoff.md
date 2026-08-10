@@ -1,10 +1,11 @@
 # Session Hand-off
 
-Last updated: 2026-08-09, end of the session that shipped **N1** (structured
-logging) and closed B4's two loose ends. The session before shipped **B4** (the
-CVE baseline), scoped the **deploy gate** so docs pushes stop deploying, and
-fixed **Obsidian vault access** plus automated the docs mirror. Earlier the same
-day: N2 (CI), N5 (paid Postgres), B2 (DB-aware health check), X1 + C3 (auth
+Last updated: 2026-08-09, end of the session that committed **N1** (structured
+logging) and shipped **B1** (upload size caps). The session before implemented
+N1 and closed B4's two loose ends; the one before that shipped **B4** (the CVE
+baseline), scoped the **deploy gate** so docs pushes stop deploying, and fixed
+**Obsidian vault access** plus automated the docs mirror. Earlier the same day:
+N2 (CI), N5 (paid Postgres), B2 (DB-aware health check), X1 + C3 (auth
 hardening), and the checklist restructure.
 
 This file is the **live** hand-off: where the work stands and what to pick up
@@ -22,19 +23,21 @@ superseded status narrative went.
 
 ## Start here
 
-**N1 is implemented and `main` has uncommitted work** — this is real work in
-progress, not the old don't-commit posture (see *State of the tree* below). The
-previous session's three commits are all pushed and green:
+**Two commits are on local `main` and neither has been pushed. Pushing them
+deploys.** That is the single thing to decide before doing anything else — see
+*State of the tree*.
 
-| Commit | What |
-|---|---|
-| `da9a810` | Vault access fixed; `scripts/sync-obsidian.ps1` + `Stop` hook automate the docs mirror; `.claude/settings.*` untracked |
-| `c7ae670` | `deploy` job now fires only for changes that actually ship |
-| `62c32aa` | **B4** — `pillow` 12.3.0, `starlette` 1.3.1, `pip-audit` now blocking |
-| `a99ad37` | the hand-off rewrite for the post-B4 state |
+| Commit | Pushed? | What |
+|---|---|---|
+| `da9a810` | yes | Vault access fixed; `scripts/sync-obsidian.ps1` + `Stop` hook automate the docs mirror; `.claude/settings.*` untracked |
+| `c7ae670` | yes | `deploy` job now fires only for changes that actually ship |
+| `62c32aa` | yes | **B4** — `pillow` 12.3.0, `starlette` 1.3.1, `pip-audit` now blocking |
+| `a99ad37` | yes | the hand-off rewrite for the post-B4 state |
+| `a6572e3` | **no** | **N1** — structured logging, request id per request |
+| *(B1)* | **no** | **B1** — 10 MB / 25 MB upload caps on the two upload routes |
 
-**Tier 1 now starts at B1** (upload size cap, ~30 min). Full order:
-**B1 → C1 → C4 → C2 → B3.**
+**Tier 1 now starts at C1** (fold the five in-body 403 gates, ~1 hr). Full
+order: **C1 → C4 → C2 → B3.**
 
 ### B4's two loose ends are closed (2026-08-09, next session)
 
@@ -60,10 +63,19 @@ first time the `pyzbar` native dependency was handled outside a container.
 
 ### State of the tree — this changed, read it
 
-**`main` currently has the N1 diff uncommitted.** Everything through `a99ad37`
-is committed, merged, and in sync with `origin/main`; N1 itself is implemented
-and verified but not yet committed, because merging to `main` deploys and that
-is the owner's call.
+**Local `main` is two commits ahead of `origin/main`, and the tree is clean.**
+N1 (`a6572e3`) and B1 are both committed locally, both verified, and **neither
+has been pushed.** Everything through `a99ad37` is pushed and green.
+
+Both commits touch `backend/**`, so a push classifies as **deployable** and
+fires the Render hook after CI. That is why they are sitting here: the owner
+decides when production restarts. Nothing is wrong with the code — this is a
+deliberate pause at the deploy boundary, not work in progress.
+
+The previous session left N1 *uncommitted* for the same reason, which conflated
+two different things. Committing is local and free; pushing is the deploy. This
+session separated them: the work is committed so it cannot be lost or
+half-reviewed, and the push is a single explicit decision.
 
 The previous standing direction — *nothing gets committed until the roadmaps are
 done*, which this file carried for several sessions — **is no longer in force.**
@@ -71,8 +83,8 @@ It ended with N2, because CI cannot be built or verified without pushing commits
 and opening a PR. Normal commit-per-change flow now applies, and `main` is
 protected by the gate rather than by holding work back.
 
-So: a dirty `git status` here is real work in progress, not the old deliberate
-posture. Do not look for a large batched diff.
+So: a dirty `git status` here would be real work in progress, not the old
+deliberate posture. Do not look for a large batched diff.
 
 **The session-table migration has been deployed.** `fbc4e6a8d0f2` drops and
 recreates `sessions`, so every user was signed out when it landed. That was
@@ -255,15 +267,63 @@ That pattern is reusable and respects the browser-validation rule — it proved
 middleware ordering, the header, and the task-boundary behavior without a
 running service.
 
-## Next up: B1
+## Shipped 2026-08-09: B1 — the two upload routes are capped
 
-**B1 (cap upload size on both upload routes, ~30 min, Class B).** Both routes
-read the whole upload into memory unbounded — `routers/barcodes.py:45` and
-`routers/work_orders.py:288`, each a bare `file.file.read()`. Below the cap
-behavior is byte-identical; above it, a new 413 that `api.js:35-41` already
-renders through the existing error path with no new UI code.
+`routers/barcodes.py` and `routers/work_orders.py` no longer call
+`file.file.read()`. Both go through `read_capped` in the new
+`app/routers/_uploads.py`, at **10 MB** for the barcode image and **25 MB** for
+the work-order CSV. **562 passed** (548 + 14 new), OpenAPI still 73, Alembic
+head untouched, zero files under `backend/static/`. Full decision record and
+evidence table in `docs/api-hardening-checklist.md` → *Shipped* → B1.
 
-Full Tier 1 order after that: **C1 → C4 → C2 → B3.**
+Three things worth carrying forward:
+
+- **The item's own framing was half wrong, and the correction is the
+  interesting part.** It said both routes read the upload "into memory
+  unbounded". Starlette's multipart parser has already received the whole body
+  and spooled it — to **disk** past 1 MB — before any handler runs. So receiving
+  was memory-bounded already; the unbounded part was `.read()` with no argument
+  materialising that spooled file as one `bytes` object for Pillow or the CSV
+  parser. The cap closes that and **cannot** stop a large body being
+  transmitted. If a future item wants that, it needs a `Content-Length` check in
+  middleware — considered here and deliberately not done.
+- **The size check is written twice and both halves are load-bearing.**
+  `UploadFile.size` is exact and lets an oversized upload be refused without
+  reading anything, but it is `None` for any `UploadFile` the multipart parser
+  did not build. The bounded `read(limit + 1)` is the guard that cannot be
+  bypassed. Deleting either one as redundant breaks a real case;
+  `test_an_upload_with_no_declared_size_is_still_capped` is the tripwire.
+- **The role gate runs before the size check on the import route**, so an
+  unauthorised caller gets 403 and learns nothing about the cap. Pinned by
+  `test_the_role_gate_still_runs_before_the_size_check`, because transposing two
+  adjacent lines is a silent change.
+
+**Owner browser validation is outstanding** and is the only thing left on B1:
+one ordinary barcode photo upload and one ordinary work-order CSV import, both
+of which should behave exactly as they did before. Nothing below the cap
+changed.
+
+## Next up: C1
+
+**C1 (fold the five in-body 403 gates into `require_min_role`, ~1 hr, Class
+C).** All five are in `routers/work_orders.py` — now lines **296, 333, 382, 580,
+646**. Those numbers have drifted twice in one day (279/315/365/563/630 →
+286/322/372/570/636 → the current set), the last time because B1 added an import
+and a decorator argument *above* gates it never touched. That is C1's own
+argument stated by C1's own line numbers. The response body is byte-identical
+(`auth_deps.py:71-74` raises the exact same detail string). The one real
+difference is that a dependency runs before Pydantic validates the body, so a
+request that is both malformed *and* unauthorized returns 403 where it returns
+422 today — unreachable from the SPA, but a real semantic change. Safety net:
+`tests/test_route_role_gates.py`.
+
+Note the interaction with what B1 just did: the import route's Admin+ gate is
+one of the five, and B1 documented and tested that it runs *before* the size
+check. Moving it into a dependency keeps that ordering (dependencies run before
+the handler body) — but the test that pins it calls the handler directly, so it
+will need to move to the route level with the gate. Do not delete it.
+
+Full Tier 1 order after that: **C4 → C2 → B3.**
 
 ---
 

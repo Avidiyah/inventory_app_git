@@ -258,6 +258,28 @@ Logging (`app/logging_config.py`, added 2026-08-09 as N1):
   `extra={"fields": {...}}`. The request context is read at format time, so it
   attaches itself.
 
+Upload size caps (`app/routers/_uploads.py`, added 2026-08-09 as B1):
+
+- The app has exactly **two** upload routes and both are capped:
+  `POST /barcodes/decode` at **10 MB**, `POST /work-orders/import` at **25 MB**.
+  Both call `read_capped`; neither calls `file.file.read()` directly, and a
+  third upload route should call it too.
+- Over the cap is **413** with a `detail` naming the limit in MB. `api.js`
+  surfaces `detail` for any non-2xx, so this renders in the existing error UI
+  with no frontend code. Under the cap the behavior is byte-identical.
+- The caps are **constants, not env vars** -- deliberately unlike `LOG_LEVEL`.
+  Verbosity is operational; an upload limit is a contract, and one that varies
+  per environment cannot be reasoned about from the code.
+- **What the cap does not do:** Starlette's multipart parser has already
+  received the whole body and spooled it (to disk past 1 MB) before any handler
+  runs, so this bounds what is held **in memory** and what reaches Pillow or the
+  CSV parser -- it does not stop a large body being transmitted. Refusing that
+  early would need a `Content-Length` check in middleware; that was considered
+  and rejected as a global interceptor against an already-disk-bounded threat.
+- On `/work-orders/import` the Admin+ gate runs **before** the size check, so an
+  unauthorised caller gets 403 and learns nothing about the cap.
+- A refusal logs `event=upload.rejected_too_large` with `size` and `limit`.
+
 ## Hard Invariants
 
 These are the constraints most likely to break real behavior if missed.
@@ -330,6 +352,9 @@ Security/access:
   uses backoff rather than account lockout specifically so no one can lock a
   crew member out by hammering their username. A wider per-IP layer exists but
   ships disabled (`LOGIN_THROTTLE_PER_IP`); see Known Gaps.
+- Both upload routes are size-capped (10 MB image / 25 MB CSV) and return 413
+  above it; see *Upload size caps* under Runtime And Stack. On the import route
+  the role gate runs first, so an unauthorised caller never reaches the check.
 - User management requires strict subordinate authority: actor rank must be
   greater than target role rank.
 - Owner is bootstrap-only; API users cannot manage an owner.
@@ -1094,6 +1119,8 @@ Filter behavior:
 
 Readable image with no barcode returns `200 {"barcodes": []}`.
 Unreadable image returns 400.
+An image over **10 MB** returns 413 without being decoded (see *Upload size
+caps*).
 
 ### User Requests
 
@@ -1165,7 +1192,7 @@ the only way in.
 | GET | `/work-orders/filter-options` | session scoped | distinct service types and routed supervisors from caller-visible live work orders plus stable community choices |
 | GET | `/work-orders/legacy/archive` | owner exactly | count currently live legacy work orders (`legacy=true`, `archived_at IS NULL`) before confirmation; returns `{count}` |
 | POST | `/work-orders/legacy/archive` | owner exactly | atomically soft-archive every currently live legacy work order and return the actual `{archived}` count |
-| POST | `/work-orders/import` | admin+ | preflight a UTF-8 mass CSV with exactly one `WORK ORDER` header, then locked find-or-create; blank/missing task stores a replaceable NetFacilities URL, supervisor fills only while NULL, and archived matches are ignored; **the only path that creates a work order**; returns created/opened/closed/matched/skipped counts |
+| POST | `/work-orders/import` | admin+ | preflight a UTF-8 mass CSV with exactly one `WORK ORDER` header, then locked find-or-create; blank/missing task stores a replaceable NetFacilities URL, supervisor fills only while NULL, and archived matches are ignored; **the only path that creates a work order**; returns created/opened/closed/matched/skipped counts; a CSV over **25 MB** returns 413 before the parse (see *Upload size caps*) |
 | GET | `/work-orders/export` | admin+ scoped | export `scope=all|archived|<live-status>` as `variant=full` (re-importable operational CSV; accepts the live page's service/supervisor/community/date/number filters) or `variant=client` (unchanged scope-only billing totals + fixed-width receipt) |
 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | does this number name a work order, and is it archived? the one read that reports an archived one, so History can offer a restore |
 | GET | `/work-orders/{id}` | session scoped | work-order detail + append-only authored/timestamped note log + logged materials + labor totals |

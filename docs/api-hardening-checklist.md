@@ -9,8 +9,8 @@ expiry) was closed the same day by upgrading the database to a paid plan —
 and, on its first run, produced a new item: **B4**, 23 known CVEs in `pillow`
 and `starlette`. That is the gate doing its job before it had even been merged.
 **B4 shipped the same day** and `pip-audit` is now blocking rather than
-advisory. **N1 (structured logging) shipped 2026-08-09**, so **Tier 1 now
-starts at B1.**
+advisory. **N1 (structured logging) shipped 2026-08-09**, and **B1 (upload
+size caps) shipped 2026-08-09** on top of it, so **Tier 1 now starts at C1.**
 
 Re-reviewed 2026-08-09 against the promoted code graph at `d715545` (2,512 nodes
 / 5,790 edges), which covers structure the original file-by-file audit did not.
@@ -110,41 +110,25 @@ now has an external clock; the queue below is ordered purely on merit.
 
 ## Tier 1 — Do next, in this order
 
-### 1. B1 — Cap upload size on both upload routes
-
-- [ ] **Class B** · *~30 min* · **closes an unbounded memory read**
-
-No size limit exists anywhere in `backend/app/`. Both upload routes read the
-entire upload into memory unbounded: `routers/barcodes.py:45` and
-`routers/work_orders.py:288`, each a bare `file.file.read()`.
-
-Below the cap: byte-identical behavior. Above it: a new 413. `api.js:35-41`
-surfaces `body.detail` to `format.formatError`, so a 413 carrying a `detail`
-string renders through the existing error path with **no new UI code**. Set the
-cap well above any real file (10 MB image / 25 MB CSV) and no user reaches it.
-
-This is a genuine new failure mode — small, bounded, and it replaces a worse
-one (unbounded memory plus a stalled server). Now that A1 has shipped, the
-stall half is already gone.
-
-**Why it ranks above C1** (criterion 4): both are small, but B1 is roughly half
-the effort and closes a live availability hole, where C1 is structural hygiene
-against a *future* endpoint that does not exist yet.
-
-### 2. C1 — Fold the five in-body 403 gates into `require_min_role`
+### 1. C1 — Fold the five in-body 403 gates into `require_min_role`
 
 - [ ] **Class C** · *~1 hr* · **response body is byte-identical**
 
 41 endpoints use the declarative `Depends(require_min_role(...))`. Five gate
-inside the handler body, all in `routers/work_orders.py` — lines **286, 322,
-372, 570, 636** (re-verified 2026-08-09; these had drifted from the 279/315/365/
-563/630 originally recorded).
+inside the handler body, all in `routers/work_orders.py` — lines **296, 333,
+382, 580, 646**.
+
+**These have now drifted twice in one day**: 279/315/365/563/630 originally,
+then 286/322/372/570/636 at the restructure, then the numbers above once B1
+added an import and a `responses={413: ...}` decorator argument above them. B1
+did not touch a single one of the five gates. That is the item's argument
+stated by the item's own line numbers: an in-body gate has no stable anchor, so
+it cannot be located except by reading the handler, and any edit anywhere above
+it moves it.
 
 The in-body gate is invisible in the OpenAPI schema, runs after `get_db` opened
 a session and the body was parsed, and is **opt-in** — so a new `work-orders`
-endpoint inherits no protection by default. The line-number drift above is the
-same defect in miniature: an in-body gate has no stable anchor and cannot be
-located except by reading the handler.
+endpoint inherits no protection by default.
 
 **The response body is byte-identical.** `auth_deps.py:71-74` raises
 `HTTPException(403, detail="You do not have permission to perform this
@@ -160,9 +144,17 @@ unreachable in practice — but it is a real semantic change.
 Leave `items.py:51` and `transactions.py:80,213` alone: those call
 `role_at_least` for price redaction (data shaping), not gating.
 
+**Interaction with B1**, which just shipped: the import route's gate is one of
+the five, and B1 recorded and tested that it runs *before* that route's upload
+size check. A dependency preserves that ordering — FastAPI solves declared
+dependencies before it parses body parameters — but
+`test_the_role_gate_still_runs_before_the_size_check` calls the handler
+directly, so it has to move to the route level along with the gate rather than
+be deleted as broken.
+
 Safety net: `tests/test_route_role_gates.py`.
 
-### 3. C4 — Close `/docs`, `/redoc`, `/openapi.json` in production
+### 2. C4 — Close `/docs`, `/redoc`, `/openapi.json` in production
 
 - [ ] **Class C** · *~15 min* · **owner's call**
 
@@ -176,7 +168,7 @@ exposes anything to an *unauthenticated* caller, and it is 15 minutes against
 C2's half day. It needs a decision, not investigation — so it should not sit
 behind a larger item while waiting for one.
 
-### 4. C2 — Eliminate the tool-custody N+1
+### 3. C2 — Eliminate the tool-custody N+1
 
 - [ ] **Class C** · *~half day* · **one-time visible reshuffle**
 
@@ -197,7 +189,7 @@ N+1 means choosing an explicit order (user name), which is a one-time visible
 reshuffle that then stays stable forever. Not safe as a silent change; fine as a
 deliberate one.
 
-### 5. B3 — No rate limiting outside the login route
+### 4. B3 — No rate limiting outside the login route
 
 - [ ] **Class B** · *logged 2026-08-09* · **authenticated callers only**
 
@@ -317,6 +309,93 @@ Referenced by B3, which names these endpoints as the unlimited-volume surface.
 ## Shipped
 
 Kept with verification evidence intact. These no longer occupy a priority slot.
+
+### B1 — Cap upload size on both upload routes
+
+- [x] **Class B** · **shipped 2026-08-09** · closed an unbounded in-memory read
+
+No size limit existed anywhere in `backend/app/`. Both upload routes did a bare
+`file.file.read()` — `routers/barcodes.py:45` and `routers/work_orders.py:288`.
+They now call `read_capped` from the new `app/routers/_uploads.py`, at **10 MB**
+for the barcode image and **25 MB** for the work-order CSV. Below the cap the
+behavior is byte-identical; above it, a 413 whose `detail` renders through the
+existing frontend error path with **no UI change** — confirmed, zero files under
+`backend/static/` were touched.
+
+**The original item's framing was half wrong and the correction matters.** It
+said both routes "read the entire upload into memory unbounded". By the time a
+handler runs, Starlette's `MultiPartParser` has already received the whole body
+and spooled the file part to a `SpooledTemporaryFile`, which switches to **disk**
+past 1 MB. So receiving was bounded in memory already; it was unbounded on disk.
+What was genuinely unbounded in memory is the `.read()` with no argument
+materialising that spooled file as one `bytes` object and handing it to Pillow or
+the CSV parser. That is what this closes.
+
+**Consequence, stated plainly rather than left implied:** a client can still
+*transmit* an arbitrarily large body, and this change cannot stop that — a
+handler runs after the body is read. Refusing earlier would need a
+`Content-Length` check in middleware, which was considered and **not** done: it
+is a global interceptor with a misfire radius covering every route, against a
+threat that is already bounded to disk. Logged here so the next reader does not
+mistake the omission for an oversight.
+
+**Four decisions worth keeping:**
+
+1. **The size check is written twice, on purpose.** `UploadFile.size` is exact
+   (the parser increments it as the part arrives) so an oversized upload is
+   refused without reading anything — but it is `None` for any `UploadFile` not
+   built by the multipart parser, so the bounded `read(limit + 1)` is the guard
+   that cannot be bypassed. The first is an optimisation, the second is the
+   guarantee. `test_an_upload_with_no_declared_size_is_still_capped` is what
+   stops someone deleting the second as redundant.
+2. **413 is raised directly, not through `to_http`.** An upload cap is a
+   transport limit, not a business rule, and `domain/errors.py` is deliberately
+   framework-agnostic — a byte count would be the first HTTP concept in a module
+   whose entire point is not having any. `routers/work_orders.py` (403) and
+   `routers/auth.py` (429) already raise directly for the same reason. The cost,
+   accepted: this 413 is not in the `_STATUS_MAP` catalog, so
+   `docs/endpoint-map.md` records it in the same trailing paragraph that already
+   covers `auth_deps.py`'s 401/403.
+3. **Constants, not env vars.** A cap that differs per environment is a cap
+   nobody can reason about from the code. `LOG_LEVEL` set the opposite precedent
+   one item earlier and was the right call there — verbosity is genuinely
+   operational, an upload limit is a contract.
+4. **Both routes declare `responses={413: ...}`**, so the new failure mode is
+   visible in the OpenAPI schema. This is the same property C1 is about to
+   argue for with the in-body 403 gates; adding a second undocumented in-body
+   status while that item sits open would have been working against it.
+
+**The role gate still runs first on the import route.** An unauthorised caller
+gets 403 and learns nothing about the cap. That ordering is the one thing a
+future edit could transpose silently, so
+`test_the_role_gate_still_runs_before_the_size_check` pins it.
+
+A rejection is logged (`event=upload.rejected_too_large`, with `size` and
+`limit`). N1 shipping first is what made that a one-liner, and it is the reason
+B1 ranked below N1 rather than above it: a 413 with no server-side trace leaves
+"the scanner stopped working" with nothing behind it.
+
+#### Verification evidence (B1, 2026-08-09)
+
+| Check | Expected | Result |
+|---|---|---|
+| Backend test suite | 548 + new, zero failures | **562 passed in 42.97s** (548 existing + 14 new), zero skips |
+| OpenAPI operation count | 73 (no route added) | **73** |
+| 413 in the schema | documented on both upload routes | **both** present under `responses` |
+| Alembic head | unchanged, no migration | **`fbc4e6a8d0f2 (head)`**, 0 migration files touched |
+| Files touched under `backend/static/` | zero | **zero** — the 413 renders through `api.js::parseResponse` unchanged |
+| Bytes held when rejecting | never more than `limit + 1` | **`read_sizes == [65]`** for a 64-byte cap; **`[]`** (no read at all) when the size is declared |
+| Boundary | exactly `limit` accepted, `limit + 1` refused | **both** |
+| Under-cap behavior | byte-identical payload reaches the service | **identical** on both routes |
+| Role gate vs. size check order | 403 wins for a Technician | **403** |
+| Python compile | clean | clean |
+| `git diff --check` | clean | clean |
+
+Verified by calling both handlers directly with constructed `UploadFile`s, per
+the project's "the owner validates in the browser" rule. **Owner browser
+validation is still outstanding** — the two paths to click are an ordinary
+barcode photo upload and an ordinary work-order CSV import, both of which should
+behave exactly as before.
 
 ### N1 — Add structured logging
 

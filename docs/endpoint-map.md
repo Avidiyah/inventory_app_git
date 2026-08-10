@@ -707,10 +707,11 @@ requires `status=open|resolved` (default `open`).
 
 ### Barcodes (`schemas/barcodes.py`)
 
-Request is `multipart/form-data` file upload (FastAPI `UploadFile`), no JSON body.
-**`BarcodeDecodeResponse`**: `barcodes: list[BarcodeMatch]`, each `BarcodeMatch =
-{ text: str, format: str }`. Empty list = readable image, no symbol (200); an
-unreadable image is a 400.
+Request is `multipart/form-data` file upload (FastAPI `UploadFile`), no JSON body,
+capped at **10 MB** by `routers/_uploads.py::read_capped` (413 above it, before
+Pillow sees the bytes). **`BarcodeDecodeResponse`**: `barcodes: list[BarcodeMatch]`,
+each `BarcodeMatch = { text: str, format: str }`. Empty list = readable image, no
+symbol (200); an unreadable image is a 400.
 
 ### Work Orders (`schemas/work_orders.py`)
 
@@ -792,7 +793,9 @@ The service applies the Technician-notes / Supervisor-operations / Admin-metadat
 matrix. **`WorkOrderImportResult`** (return of
 `POST /work-orders/import`): `total`, `created`, `opened`, `closed`, `supervisors_matched`,
 `supervisors_unmatched`, `skipped` (all int). The request is a `multipart/form-data`
-CSV file upload (`UploadFile`), no JSON body. **`WorkOrderItemDetail`**:
+CSV file upload (`UploadFile`), no JSON body, capped at **25 MB** by
+`routers/_uploads.py::read_capped` (413 above it — but the Admin+ gate runs first,
+so an unauthorised oversized upload is a 403). **`WorkOrderItemDetail`**:
 `id`, `item_id`, `item_name`, `item_barcode`, `item_quantity` (live on-hand),
 `quantity`, `mode`, `unit_price?`, `billable_quantity?` (last two Admin/Owner-only).
 **`WorkOrderDetail`** = `WorkOrderCard` + `notes: str?` +
@@ -901,7 +904,15 @@ non-domain exceptions become FastAPI's default 500.
 
 Auth/gate errors are raised directly by `auth_deps.py` (not `DomainError`): **401**
 no/invalid/expired session (`get_current_user`); **403** valid session but role too
-low (`require_min_role`). Note: a few error class names (`RoomNotFoundError`,
+low (`require_min_role`).
+
+Upload size is also raised directly, by `routers/_uploads.py::read_capped` (not a
+`DomainError` — a byte cap is a transport limit, not a business rule, so it stays
+out of the framework-agnostic `domain/errors.py`): **413** on
+`POST /barcodes/decode` over 10 MB and `POST /work-orders/import` over 25 MB, with
+`detail` naming the limit. Both routes declare it in their OpenAPI `responses`. On
+the import route the Admin+ gate runs first, so an unauthorised oversized upload is
+a 403. Note: a few error class names (`RoomNotFoundError`,
 `DuplicateBuildingStageError`) and their docstrings retain pre-rebuild "room"/
 "building" wording but now apply to work-order slots / (community, building) stages.
 
