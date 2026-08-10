@@ -1,16 +1,19 @@
 # Session Hand-off
 
-Last updated: **2026-08-10**, after owner confirmation that the database
-rollback/cutover is successful and closed. The incident was caused by importing
-800+ work orders that did not belong to the company, requiring the first
-production Postgres rollback. Earlier the same day, **C1** (every static role
-gate in `routers/work_orders.py` is declarative now) and **C4** (FastAPI's docs
-endpoints are closed in production) were implemented on top of the
-database-target cutover and committed together, **awaiting one push**. That
-cutover — the Render Blueprint moving from `inventory-db` to `inventory-db-copy`
-after the bad work-order import — landed in `22164bb` and **is pushed**. Earlier
-the same day, N1 (structured logging) and B1 (upload size caps) were committed,
-pushed to production, and verified. The session before implemented N1 and closed B4's two loose
+Last updated: **2026-08-10**, end of the session that shipped **C1** (every
+static role gate in `routers/work_orders.py` is declarative now), **C4**
+(FastAPI's docs endpoints are closed in production), and **C2's ordering half**
+(tool custody sorted by name), then demoted the rest of C2 to Tier 2. **Tier 1
+is down to B3 alone.** C1 and C4 are deployed and validated; C2's commit
+(`2cb99c9`) is the one thing still unpushed.
+
+The same day, the database rollback/cutover closed — caused by importing 800+
+work orders that did not belong to the company, requiring the first production
+Postgres rollback. The Render Blueprint moved from `inventory-db` to
+`inventory-db-copy` in `22164bb`, and the copy's plan and PITR window were
+re-verified in the dashboard afterwards, so N5's guarantees hold on the live
+target. Earlier the same day, N1 (structured logging) and B1 (upload size caps)
+were committed, pushed to production, and verified. The session before implemented N1 and closed B4's two loose
 ends; the one before that shipped **B4** (the CVE baseline), scoped the **deploy
 gate** so docs pushes stop deploying, and fixed **Obsidian vault access** plus
 automated the docs mirror. Earlier: N2 (CI), N5 (paid Postgres), B2 (DB-aware
@@ -48,8 +51,9 @@ superseded status narrative went.
 > names, not the Render resource display name.
 
 > **C1 and C4 are both shipped, deployed, and verified. C2's ordering half
-> shipped after them and C2 itself was demoted, so Tier 1 is now just B3, and
-> nothing is waiting on a decision.**
+> shipped after them and C2 itself was demoted, so Tier 1 is now just B3.** The
+> only thing outstanding is the push of `2cb99c9` — no item is blocked on a
+> judgement call.
 >
 > C1 (`b314d06` + `eb7f4a2`) went out on its own; the owner ran all eight
 > browser checks against the deployed service and every one passed, including
@@ -66,13 +70,11 @@ superseded status narrative went.
 > harmless, but it disproves a claim this repo carried: see *CI is not the only
 > path to production* below.
 >
-> **The consequence is small but real and currently open.** C1 added
-> `responses={403: ...}` naming the role each gated route requires, and that
-> lands in `/openapi.json` — which is public until C4 ships. So the live schema
-> right now states, for eight routes, exactly which role is needed. That is
-> reconnaissance, not a breach: no rows, no credentials, no bypass, every gate
-> still enforced. But it is precisely the window the batching was supposed to
-> avoid, and **pushing C4 (`9388ed8`) closes it.** 583 passed locally.
+> **One thing is committed and not pushed: `2cb99c9`, C2's ordering half.** It
+> pins the tool-custody row order and touches `backend/**`, so pushing it
+> deploys. It is a real if small behaviour change — the custody names on the
+> Tools page settle into alphabetical order, once — so it wants a deliberate
+> push rather than being swept along with the next docs commit. **585 passed.**
 
 **N1 and B1 are shipped, pushed, green, and live in production.** Nothing is
 waiting on a decision for those items.
@@ -90,6 +92,8 @@ waiting on a decision for those items.
 | `eb7f4a2` | C1's own hash recorded in this file (pushed) |
 | `9388ed8` | **C4** — the docs endpoints are closed in production (pushed, deployed) |
 | `e11b8b0` | the correction that a dashboard deploy bypasses CI |
+| `b9c3b94` | `inventory-db-copy` re-verified — N5's guarantees hold on the live target |
+| `2cb99c9` | **C2's ordering half** — tool custody sorted by name (**not pushed**) |
 
 **Tier 1 is down to B3.** C1 and C4 shipped; C2 was demoted to Tier 2 after its
 risky half shipped and its symptom turned out not to be occurring. **Nothing
@@ -120,7 +124,13 @@ first time the `pyzbar` native dependency was handled outside a container.
 
 ### State of the tree
 
-**Clean, pushed, and in sync with `origin/main`.** C1 and C4 are both live.
+**One commit ahead of `origin/main`: `2cb99c9`, C2's ordering half.** Everything
+before it is pushed and live. Expect `[ahead 1]` and an otherwise clean tree.
+
+That commit touches `backend/**`, so its push deploys. Worth pushing on its own
+and looking at the Tools page afterwards, rather than letting it ride along with
+whatever lands next — it is the only change in the recent run that alters
+something a user can see.
 
 C1 and C4 were *planned* as one push — both Class C, both small, both touching
 what the API exposes and to whom — for one CI run, one deploy, and one
@@ -450,7 +460,7 @@ Three things worth carrying forward:
 and an ordinary work-order CSV import both behave as before against the deployed
 service. **B1 is closed with nothing outstanding.**
 
-## Shipped this session: C1 — the role gates are declarative
+## Shipped 2026-08-10: C1 — the role gates are declarative
 
 The five in-body 403 gates in `routers/work_orders.py` are now
 `Depends(require_min_role(...))`. Roles are unchanged and the response body is
@@ -491,7 +501,7 @@ browser on 2026-08-10** — all eight checks passed against the live service.
 **C1 is closed.** It shipped separately from C4 rather than with it; see *State
 of the tree* for why that mattered and what it briefly cost.
 
-## Shipped this session: C4 — the docs endpoints are closed in production
+## Shipped 2026-08-10: C4 — the docs endpoints are closed in production
 
 `main._doc_urls(production=)` returns `None` for `docs_url` / `redoc_url` /
 `openapi_url` when `COOKIE_SECURE` is true, which **un-mounts** the routes
@@ -524,7 +534,7 @@ production takes an edit and a deploy. That friction is the feature — an
 `ENABLE_DOCS` flag is exactly the kind of thing that gets switched on for an
 afternoon and left on, and CI would not notice.
 
-## Shipped this session: C2's ordering half — and C2 itself was demoted
+## Shipped 2026-08-10: C2's ordering half — and C2 itself was demoted
 
 `_custody_query` (`services/tools.py`) ended at `.having(net > 0)` with **no
 `ORDER BY`**, so the order of holders within a tool was whatever Postgres
@@ -557,13 +567,80 @@ Three things worth carrying forward:
 **C2 is now a Tier 2 standing note**, trigger: the Tools page feels slow, or the
 tool count grows enough to matter.
 
-## Next up: B3
+## Next up: B3 — the last Tier 1 item
 
-**B3 (rate limiting beyond the login route, Class B).** C3 shipped per-IP
-throttling on `POST /auth/login` and correctly stopped there; it remains the only
-limited route. The realistic failure is an accidental loop or a double-submit by
-an authenticated, named, role-checked user rather than an attack — which is why
-it ranked last. It is now the only item left in Tier 1.
+**B3 (rate limiting beyond the login route, Class B).** `POST /auth/login` is
+still the only limited route in the app. Everything else — both upload
+endpoints, the CSV import, and every unbounded collection endpoint (X3) —
+accepts unlimited authenticated request volume.
+
+### Start by questioning whether it should ship at all
+
+This is the honest first step, not a formality. B3 ranked last in Tier 1 for a
+reason that has only got stronger: an authenticated caller here is a known,
+named, role-checked user with an audit trail, so the realistic failure is an
+**accidental loop or a double-submit**, not an attack. B1 already bounds the
+expensive half (uploads) more cheaply, and N1 means a runaway client now leaves
+a diagnosable trace instead of a mystery.
+
+C2 is the cautionary example, one item earlier: its headline figure came from
+reading the code rather than from the data, and the symptom turned out not to be
+occurring. **Ask what request volume this app actually sees before designing a
+limiter for it.** N1's `event=request` lines are the evidence — Render's log
+search over `event=request` will answer it. If nothing is close to a plausible
+limit, the right outcome may be a Tier 2 note with a trigger rather than code.
+
+### What exists to reuse — and the important caveat
+
+C3 built real throttle machinery and it is worth reading first:
+
+| Piece | What it gives you |
+|---|---|
+| `domain/login_throttle.py` | pure policy — `lock_duration`, `user_ip_key`, the backoff curve |
+| `services/login_throttle.py` | `check` / `record_failure` / `clear` / `sweep`, `SCOPE_USER_IP` and `SCOPE_IP` |
+| `LoginAttempt` model | DB-backed counters, `UNIQUE(scope, key)`, swept after 24h |
+
+**But it counts failures, not requests, and that difference is the whole
+design.** `record_failure` fires on a failed login and `clear` wipes the counter
+on success, because the thing being limited is *guessing*. B3 needs to limit
+*volume*, where every request counts and success is not a reset. `current-state`
+also describes `login_attempts` as transient failed-login counters and
+explicitly not an audit trail, so widening that table's meaning is a decision,
+not a refactor.
+
+So expect to reuse the **shape** — DB-backed counters keyed by scope, a pure
+domain policy, `429` with `Retry-After`, and **never** enforcing by sleeping,
+since a sleeping handler holds one of FastAPI's 40 threadpool slots and turns
+the limiter into the exhaustion lever it exists to prevent — rather than the
+functions themselves.
+
+### The forks to raise before writing code
+
+Per *Working rhythm*, these are permission- and product-shaped, so surface them
+rather than defaulting them:
+
+1. **Who gets counted.** Per user, per IP, or per (user, route)? C3's hard-won
+   lesson applies directly: keying on the username alone made the throttle a
+   denial-of-service weapon against the crew. The same trap exists here, and
+   worse — this would refuse *ordinary work*, not just logins.
+2. **Which routes.** Everything, or only the genuinely expensive ones (import,
+   exports, the two uploads)? A global middleware has a misfire radius covering
+   every route; a per-route dependency is opt-in and matches the declarative
+   pattern C1 just established for the role gates.
+3. **What the limit is, against real field behaviour.** This is the one that can
+   hurt someone. A technician scanning a truckload moves fast, and a limit tuned
+   for a well-behaved SPA could refuse a legitimate burst mid-shift. Whatever
+   number gets chosen needs to be defended against how the crew actually works,
+   not against a guess.
+4. **Where the counters live.** The DB pattern survives Render's idle spin-down
+   and would keep working if a second instance ever appears (N3); in-memory is
+   faster and does neither.
+
+### Safety net
+
+`tests/test_login_throttle.py` and `test_login_throttle_service.py` show the
+established testing shape — pure policy tested without a database, service
+behaviour tested against one.
 
 ---
 
