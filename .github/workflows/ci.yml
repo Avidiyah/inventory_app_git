@@ -141,11 +141,13 @@ jobs:
           alembic downgrade -1
           alembic upgrade head
 
-      # Reports but does not block, until the baseline output has been
-      # triaged. Flipping continue-on-error to false is the follow-up.
+      # Blocking as of B4 (2026-08-09). It shipped advisory-only because its
+      # first run found 23 CVEs in pillow and starlette, and turning it into a
+      # gate on day one would have meant landing two dependency upgrades inside
+      # the CI change itself. That baseline is now triaged and clean, so a new
+      # advisory is a real regression and should go red.
       - name: Dependency audit
         working-directory: backend
-        continue-on-error: true
         run: |
           pip install pip-audit
           pip-audit --requirement requirements.txt --desc

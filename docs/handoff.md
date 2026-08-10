@@ -34,10 +34,11 @@ Full detail and verification evidence in `docs/api-hardening-checklist.md` →
 
 **Two things N2 produced that were not on anyone's list:**
 
-- **B4 is new and is now #1 in Tier 1.** `pip-audit`'s first run found **23
-  known CVEs** — `pillow==12.2.0` (fix 12.3.0) and `starlette==1.2.1` (fix
-  1.3.1). Pillow parses attacker-supplied image data on the barcode upload
-  path. The gate justified itself before it was even merged.
+- **B4 — found by `pip-audit`'s first run, and closed the same day.** 23 known
+  CVEs in `pillow` and `starlette`; Pillow parses attacker-supplied image data
+  on the barcode upload path. The gate justified itself before it was even
+  merged, then the finding was fixed and the gate armed. See *Shipped 2026-08-09:
+  B4* below.
 - **N7 closed incidentally.** Installing `libzbar0` in CI is the first time the
   `pyzbar` native dependency has been handled outside a container.
 
@@ -176,20 +177,25 @@ Consequence for the deploy gate: its **green path is confirmed** (the merge to
 blocked — has never been observed**, and is deliberately left to be verified for
 free on the first real red build. Do not invent a drill for it.
 
-## Next up: B4, then N1
+## Shipped 2026-08-09: B4 — the CVE baseline is clean and the gate is armed
 
-**B4 is new, and N2 found it.** The `pip-audit` gate's first run reported **23
-known CVEs across two packages**: `pillow==12.2.0` (fix 12.3.0) and
-`starlette==1.2.1` (fix 1.3.1). It ranks ahead of N1 on exposure: Pillow parses
-**attacker-supplied image data** (`routers/barcodes.py:45` →
-`services/barcodes.py:79-85`, before `pyzbar` sees it), reachable by any
-authenticated user with the upload endpoint. **B1 does not cover this** — a size
-cap bounds volume, not malformed content. Class B rather than A because a minor
-bump of the image decoder and the ASGI layer is not provably invisible; check
-A3's `httpx2==2.9.1` pin still resolves against Starlette 1.3. When it ships,
-drop `continue-on-error: true` from the *Dependency audit* step.
+`pillow` 12.2.0 → **12.3.0** and `starlette` 1.2.1 → **1.3.1**, closing all 23
+CVEs `pip-audit` found on its first run. **523 passed**, OpenAPI still 73,
+Alembic head untouched. `pip-audit` is now **blocking** — `continue-on-error`
+is gone from the *Dependency audit* step, so a new advisory goes red.
 
-**Then N1 (structured logging).** `backend/app/` contains **no logging
+Two risks this item carried both evaporated, and the reasons are worth keeping:
+`fastapi==0.136.3` declares `starlette>=0.46.0` with **no upper bound**, so
+there was never a pin to fight; and A3's `httpx2==2.9.1` worry is moot because
+**no test imports `TestClient`** (0 matches). Minimum fixing versions were used
+rather than latest — Starlette is already at 1.6.0 upstream, and three extra
+minors buy no additional CVE coverage.
+
+Full detail in `docs/api-hardening-checklist.md` → *Shipped* → B4.
+
+## Next up: N1
+
+**N1 (structured logging).** `backend/app/` contains **no logging
 whatsoever** — not one `import logging`, logger call, or `print()` (re-verified
 2026-08-09, 0 matches). Two things sharpen that: `login_attempts` is
 deliberately transient (swept at 24h, deleted on successful login) so it cannot

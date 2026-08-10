@@ -8,6 +8,8 @@ expiry) was closed the same day by upgrading the database to a paid plan —
 **Tier 0 is now empty and the deadline is gone.** N2 (CI) shipped 2026-08-09
 and, on its first run, produced a new item: **B4**, 23 known CVEs in `pillow`
 and `starlette`. That is the gate doing its job before it had even been merged.
+**B4 shipped the same day** and `pip-audit` is now blocking rather than
+advisory. **Tier 1 now starts at N1.**
 
 Re-reviewed 2026-08-09 against the promoted code graph at `d715545` (2,512 nodes
 / 5,790 edges), which covers structure the original file-by-file audit did not.
@@ -106,46 +108,7 @@ now has an external clock; the queue below is ordered purely on merit.
 
 ## Tier 1 — Do next, in this order
 
-### 1. B4 — Upgrade `pillow` and `starlette` (23 known CVEs)
-
-- [ ] **Class B** · *~1 hr + validation* · **found by N2 on its first run**
-
-**Discovered 2026-08-09 by the `pip-audit` gate N2 added**, which is precisely
-what that gate exists to do. This item did not exist before CI ran.
-
-`pip-audit` reports **23 known vulnerabilities across 2 packages**:
-
-| Package | Pinned | Fix available |
-|---|---|---|
-| `pillow` | 12.2.0 | **12.3.0** (carries most of the 23) |
-| `starlette` | 1.2.1 | **1.3.1** |
-
-**Why this outranks N1 (criterion 3, exposure).** `pillow` is the library that
-parses **attacker-supplied image data**. `routers/barcodes.py:45` reads an
-upload and `services/barcodes.py:79-85` hands it to Pillow before `pyzbar` ever
-sees it. An image-parsing CVE in that position is reachable by any
-authenticated user who can hit the upload endpoint. Note that **B1 does not
-cover this** — a size cap bounds volume, not malformed content. A 40 KB
-malicious PNG passes every check B1 would add.
-
-`starlette` is the ASGI layer under every request in the app, so its two
-advisories sit below all 89 routes rather than behind any one of them.
-
-**Why it is Class B rather than Class A.** A minor-version bump of the image
-decoder and the ASGI layer is not provably invisible: Pillow changes decode
-behavior between minors, and Starlette 1.2 → 1.3 touches the layer
-`fastapi.testclient` builds on (A3 pins `httpx2==2.9.1` against Starlette
-1.2.x — check that pin still resolves). Both are exactly the kind of change
-that should now go through CI rather than be hand-verified, which is the first
-real use of what N2 built.
-
-**When this ships, flip `pip-audit` to blocking** — remove
-`continue-on-error: true` from the *Dependency audit* step in
-`.github/workflows/ci.yml`. It ships advisory only because turning it into a
-gate on day one would have meant landing two dependency upgrades inside the CI
-change itself.
-
-### 2. N1 — Add structured logging
+### 1. N1 — Add structured logging
 
 - [ ] **Class N** · *~half day* · **the diagnostic floor for everything else**
 
@@ -169,7 +132,7 @@ rather than closing it.
 
 Logging the swallowed exception server-side is the direct companion to B2.
 
-### 3. B1 — Cap upload size on both upload routes
+### 2. B1 — Cap upload size on both upload routes
 
 - [ ] **Class B** · *~30 min* · **closes an unbounded memory read**
 
@@ -190,7 +153,7 @@ stall half is already gone.
 the effort and closes a live availability hole, where C1 is structural hygiene
 against a *future* endpoint that does not exist yet.
 
-### 4. C1 — Fold the five in-body 403 gates into `require_min_role`
+### 3. C1 — Fold the five in-body 403 gates into `require_min_role`
 
 - [ ] **Class C** · *~1 hr* · **response body is byte-identical**
 
@@ -221,7 +184,7 @@ Leave `items.py:51` and `transactions.py:80,213` alone: those call
 
 Safety net: `tests/test_route_role_gates.py`.
 
-### 5. C4 — Close `/docs`, `/redoc`, `/openapi.json` in production
+### 4. C4 — Close `/docs`, `/redoc`, `/openapi.json` in production
 
 - [ ] **Class C** · *~15 min* · **owner's call**
 
@@ -235,7 +198,7 @@ exposes anything to an *unauthenticated* caller, and it is 15 minutes against
 C2's half day. It needs a decision, not investigation — so it should not sit
 behind a larger item while waiting for one.
 
-### 6. C2 — Eliminate the tool-custody N+1
+### 5. C2 — Eliminate the tool-custody N+1
 
 - [ ] **Class C** · *~half day* · **one-time visible reshuffle**
 
@@ -256,7 +219,7 @@ N+1 means choosing an explicit order (user name), which is a one-time visible
 reshuffle that then stays stable forever. Not safe as a silent change; fine as a
 deliberate one.
 
-### 7. B3 — No rate limiting outside the login route
+### 6. B3 — No rate limiting outside the login route
 
 - [ ] **Class B** · *logged 2026-08-09* · **authenticated callers only**
 
@@ -376,6 +339,53 @@ Referenced by B3, which names these endpoints as the unlimited-volume surface.
 ## Shipped
 
 Kept with verification evidence intact. These no longer occupy a priority slot.
+
+### B4 — Upgrade `pillow` and `starlette` (23 known CVEs)
+
+**Shipped 2026-08-09**, the same day N2's first `pip-audit` run created it — the
+gate found it, and closing it was the first real use of what N2 built.
+
+`pillow==12.2.0` → **12.3.0**, `starlette==1.2.1` → **1.3.1**. Pillow parses
+attacker-supplied image data on the barcode upload path (`routers/barcodes.py`
+→ `services/barcodes.py`) before `pyzbar` ever sees it, which is why this
+outranked N1 on exposure; Starlette sits under every route in the app.
+
+**Minimum fixing versions, not latest.** Starlette was already at 1.6.0
+upstream. Three additional minors of ASGI-layer change buy no additional CVE
+coverage on a Class B item, so the bump stops at the version that closes the
+advisories. Pillow 12.3.0 happens to be both.
+
+**The compatibility risk this item flagged did not materialize, and the reason
+is worth recording.** The concern was that `fastapi==0.136.3` would pin a closed
+Starlette range and fight the bump. It does not — its metadata declares
+`starlette>=0.46.0` with **no upper bound**, so 1.3.1 is admissible. The related
+A3 worry (`httpx2==2.9.1` pinned against Starlette 1.2.x for `TestClient`) is
+also moot: **no test imports `TestClient`** — 0 matches across `backend/tests/`
+— so that pin is declared but unexercised, exactly as A3 recorded.
+
+**`pip-audit` is now blocking.** `continue-on-error: true` was removed from the
+*Dependency audit* step in `.github/workflows/ci.yml`. It only ever shipped
+advisory-only because gating on day one would have meant landing two dependency
+upgrades inside the CI change itself. The baseline is triaged and clean, so any
+new advisory is now a real regression and goes red.
+
+#### Verification evidence (B4, 2026-08-09)
+
+| Check | Expected | Result |
+|---|---|---|
+| `pip-audit` | 0 vulnerabilities | **"No known vulnerabilities found"** (was 23 across 2 packages) |
+| Backend test suite | 523 passed, zero skips | **523 passed in 43.22s**, zero skips |
+| Installed versions | pillow 12.3.0 / starlette 1.3.1 | **confirmed**, `fastapi` still 0.136.3 |
+| Import smoke test | Pillow, pyzbar, starlette, fastapi | all import; `PIL.__version__` = 12.3.0, `pyzbar` OK |
+| FastAPI ↔ Starlette constraint | no conflict | `fastapi` requires `starlette>=0.46.0`, **no upper bound** |
+| Tests importing `TestClient` | 0 (so `httpx2` pin is moot) | **0** |
+| OpenAPI operation count | 73 (unchanged) | **73**, `/healthz` present |
+| Alembic head | unchanged, no new revision | **`fbc4e6a8d0f2 (head)`**, 0 migration files touched |
+| Files touched under `backend/static/` | zero | **zero** |
+
+Note the local venv left a locked `~il` directory in `site-packages` from the
+Pillow replacement. Cosmetic and local only — `venv/` is gitignored and the
+container installs fresh from `requirements.txt`, so nothing ships with it.
 
 ### N2 — Add CI
 

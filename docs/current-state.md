@@ -192,13 +192,13 @@ backend/tests/conftest.py
 | Area | Current implementation |
 | --- | --- |
 | Python | 3.12 in Docker; local venv currently Python 3.13.7 |
-| Web/API | FastAPI 0.136.3, Starlette 1.2.1, Uvicorn 0.48.0 |
+| Web/API | FastAPI 0.136.3, Starlette 1.3.1, Uvicorn 0.48.0 |
 | ORM/database | SQLAlchemy 2.0.50, psycopg 3.3.4, PostgreSQL |
 | Migrations | Alembic 1.18.4 |
 | Validation | Pydantic 2.13.4 |
 | Env/config | python-dotenv 1.2.2 |
 | Uploads | python-multipart 0.0.32 |
-| Upload barcode decode | pyzbar 0.1.9, Pillow 12.2.0, native zbar |
+| Upload barcode decode | pyzbar 0.1.9, Pillow 12.3.0, native zbar |
 | Live barcode decode | vendored `@zxing/browser` UMD 0.2.0 |
 | Tests | pytest 9.0.3 |
 | Fixture generation only | python-barcode 0.16.1 |
