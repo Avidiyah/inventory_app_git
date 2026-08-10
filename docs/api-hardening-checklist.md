@@ -680,6 +680,14 @@ A2/B2 and never a data-loss risk. Only the database changed.
 the live instance. Left drifting, the next blueprint sync would have been an
 attempt to move a paid database back to a plan that expires.
 
+**Superseded by the 2026-08-10 database cutover.** Production is now targeted at
+the existing Render Postgres instance `inventory-db-copy` via
+`fromDatabase.name` in `render.yaml`, and the original `inventory-db` is no
+longer declared by the Blueprint. The paid-plan/PITR evidence above was recorded
+for `inventory-db`; verify the copy's plan and recovery settings in the Render
+dashboard before treating this N5 note as proof about the active production
+database.
+
 ### X1 — Hash session tokens, cap every session, revoke on password reset
 
 **Shipped 2026-08-09.** Was listed under *Excluded* because it needs a migration.

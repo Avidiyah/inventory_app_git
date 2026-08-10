@@ -1,13 +1,14 @@
 # Session Hand-off
 
-Last updated: **2026-08-10**, end of the session that committed **N1**
-(structured logging), shipped **B1** (upload size caps), **pushed both to
-production**, and settled the **C4 decision**. The session before implemented N1
-and closed B4's two loose ends; the one before that shipped **B4** (the CVE
-baseline), scoped the **deploy gate** so docs pushes stop deploying, and fixed
-**Obsidian vault access** plus automated the docs mirror. Earlier: N2 (CI), N5
-(paid Postgres), B2 (DB-aware health check), X1 + C3 (auth hardening), and the
-checklist restructure.
+Last updated: **2026-08-10**, after the Render Blueprint production database
+target was changed from `inventory-db` to `inventory-db-copy` following a bad
+work-order import. Earlier the same day, N1 (structured logging) and B1 (upload
+size caps) were committed, pushed to production, and verified; the C4 decision
+was also settled. The session before implemented N1 and closed B4's two loose
+ends; the one before that shipped **B4** (the CVE baseline), scoped the **deploy
+gate** so docs pushes stop deploying, and fixed **Obsidian vault access** plus
+automated the docs mirror. Earlier: N2 (CI), N5 (paid Postgres), B2 (DB-aware
+health check), X1 + C3 (auth hardening), and the checklist restructure.
 
 This file is the **live** hand-off: where the work stands and what to pick up
 next. It is not a history. For durable behavior and contracts start with
@@ -24,8 +25,14 @@ superseded status narrative went.
 
 ## Start here
 
+**Production database target change is staged in the repo.** `render.yaml` now
+sets `DATABASE_URL` from `fromDatabase.name: inventory-db-copy` and no longer
+declares the original `inventory-db`. This affects Render only after the change
+is committed, pushed, and the Blueprint/deploy path applies it; verify
+`GET /healthz` on the live URL after that deployment.
+
 **N1 and B1 are shipped, pushed, green, and live in production.** Nothing is
-waiting on a decision.
+waiting on a decision for those items.
 
 | Commit | What |
 |---|---|
@@ -63,10 +70,11 @@ first time the `pyzbar` native dependency was handled outside a container.
 
 ### State of the tree
 
-**Clean, pushed, and in sync with `origin/main`.** N1 (`a6572e3`) and B1
-(`5053ba2`) shipped together on 2026-08-10: CI run **31389720697** ran all three
-jobs green — Static checks, Backend suite, and Deploy to Render — and the
-deployed service came back healthy.
+Before the database-target cutover edits, the tree was clean, pushed, and in
+sync with `origin/main`. N1 (`a6572e3`) and B1 (`5053ba2`) shipped together on
+2026-08-10: CI run **31389720697** ran all three jobs green — Static checks,
+Backend suite, and Deploy to Render — and the deployed service came back
+healthy.
 
 **Production verification, done on the live service rather than inferred:**
 
@@ -214,6 +222,12 @@ rather than an archive (anything found more than three days late is outside it),
 and PITR is a *recovery* path, not a deploy gate — it does not reduce N2's
 priority. The web service is still deliberately on the free plan; that is
 latency, not data loss.
+
+**Superseded for current production targeting.** On 2026-08-10, `render.yaml`
+was changed to point `inventory-app` at the existing Render Postgres instance
+`inventory-db-copy`. The paid-plan/PITR evidence in this N5 section belongs to
+the original `inventory-db`; verify the copy's plan and recovery settings in
+Render before relying on the same operational guarantee for the active target.
 
 **Tier 0 is now empty.** Nothing left on the list has an external clock.
 

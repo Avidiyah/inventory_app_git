@@ -46,7 +46,8 @@ Runtime shape:
 - Static no-build frontend under `backend/static`.
 - Barcode upload decoding through backend `pyzbar`.
 - Live camera scanning through vendored `@zxing/browser`.
-- Render deployment: one Docker web service plus one managed Postgres.
+- Render deployment: one Docker web service wired to an existing managed
+  Postgres instance.
 
 Core workflows:
 
@@ -208,8 +209,12 @@ Deployment:
 - Docker image: `python:3.12-slim`.
 - Native package: Debian `libzbar0`.
 - Entrypoint: `alembic upgrade head`, then Uvicorn on `${PORT:-8124}`.
-- Render blueprint: `render.yaml`. Service name `inventory-app`, database
-  `inventory-db`.
+- Render blueprint: `render.yaml`. Service name `inventory-app`, production
+  database target `inventory-db-copy`.
+- `DATABASE_URL` is populated by `fromDatabase.name: inventory-db-copy` using
+  Render's internal connection string. The original `inventory-db` is no
+  longer declared in `render.yaml` after the 2026-08-10 work-order import
+  rollback cutover.
 - Production URL: `https://inventory-app-gb1c.onrender.com` (owner-supplied
   2026-08-09; verified `GET /healthz` -> 200 `{"status":"ok"}` that day, which
   is the first confirmation that the B4 deploy came up healthy). **The Render
