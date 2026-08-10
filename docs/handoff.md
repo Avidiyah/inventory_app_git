@@ -23,21 +23,20 @@ superseded status narrative went.
 
 ## Start here
 
-**Two commits are on local `main` and neither has been pushed. Pushing them
-deploys.** That is the single thing to decide before doing anything else — see
-*State of the tree*.
+**N1 and B1 are shipped, pushed, green, and live in production.** Nothing is
+waiting on a decision.
 
-| Commit | Pushed? | What |
-|---|---|---|
-| `da9a810` | yes | Vault access fixed; `scripts/sync-obsidian.ps1` + `Stop` hook automate the docs mirror; `.claude/settings.*` untracked |
-| `c7ae670` | yes | `deploy` job now fires only for changes that actually ship |
-| `62c32aa` | yes | **B4** — `pillow` 12.3.0, `starlette` 1.3.1, `pip-audit` now blocking |
-| `a99ad37` | yes | the hand-off rewrite for the post-B4 state |
-| `a6572e3` | **no** | **N1** — structured logging, request id per request |
-| `5053ba2` | **no** | **B1** — 10 MB / 25 MB upload caps on the two upload routes |
+| Commit | What |
+|---|---|
+| `62c32aa` | **B4** — `pillow` 12.3.0, `starlette` 1.3.1, `pip-audit` now blocking |
+| `a99ad37` | the hand-off rewrite for the post-B4 state |
+| `a6572e3` | **N1** — structured logging, request id per request |
+| `5053ba2` | **B1** — 10 MB / 25 MB upload caps on the two upload routes |
+| `45aa9ba` | B1's own hash recorded in this file |
+| `e5cd587` | the **C4 decision** — close the docs endpoints in production |
 
 **Tier 1 now starts at C1** (fold the five in-body 403 gates, ~1 hr). Full
-order: **C1 → C4 → C2 → B3.**
+order: **C1 → C4 → C2 → B3.** C4 no longer needs a decision (see below).
 
 ### B4's two loose ends are closed (2026-08-09, next session)
 
@@ -61,21 +60,31 @@ here rather than deleted because the *first* one has a durable lesson attached.
 **Still incidentally true:** N7 closed when N2 installed `libzbar0` in CI — the
 first time the `pyzbar` native dependency was handled outside a container.
 
-### State of the tree — this changed, read it
+### State of the tree
 
-**Local `main` is ahead of `origin/main`, and the tree is clean.** N1
-(`a6572e3`) and B1 (`5053ba2`) are both committed locally, both verified, and
-**neither has been pushed.** Everything through `a99ad37` is pushed and green.
+**Clean, pushed, and in sync with `origin/main`.** N1 (`a6572e3`) and B1
+(`5053ba2`) shipped together on 2026-08-10: CI run **31389720697** ran all three
+jobs green — Static checks, Backend suite, and Deploy to Render — and the
+deployed service came back healthy.
 
-Both commits touch `backend/**`, so a push classifies as **deployable** and
-fires the Render hook after CI. That is why they are sitting here: the owner
-decides when production restarts. Nothing is wrong with the code — this is a
-deliberate pause at the deploy boundary, not work in progress.
+**Production verification, done on the live service rather than inferred:**
 
-The previous session left N1 *uncommitted* for the same reason, which conflated
-two different things. Committing is local and free; pushing is the deploy. This
-session separated them: the work is committed so it cannot be lost or
-half-reviewed, and the push is a single explicit decision.
+| Check | Result |
+|---|---|
+| `GET /healthz` | **200 `{"status":"ok"}`** — B2's real `SELECT 1`, so Postgres is reachable from the deployed container |
+| `X-Request-ID` | **`fec6d5fa1d68`** — N1's middleware confirmed live in production, its first end-to-end proof |
+| A4 security headers | CSP, `X-Frame-Options: DENY`, HSTS all present |
+
+That HSTS header is worth noting for C4: it is emitted only when
+`COOKIE_SECURE` is true, so this response is direct evidence that the flag is
+actually set in production — which is what makes it usable as C4's
+production signal rather than a second flag.
+
+**One workflow point worth keeping.** The previous session left N1
+*uncommitted* because pushing deploys, which conflated two different things.
+Committing is local and free; pushing is the deploy. Separating them means work
+cannot be lost or half-reviewed while still leaving the deploy a single
+explicit decision.
 
 The previous standing direction — *nothing gets committed until the roadmaps are
 done*, which this file carried for several sessions — **is no longer in force.**
@@ -324,6 +333,26 @@ the handler body) — but the test that pins it calls the handler directly, so i
 will need to move to the route level with the gate. Do not delete it.
 
 Full Tier 1 order after that: **C4 → C2 → B3.**
+
+### C4's decision is made — it is implementation work now
+
+The owner decided on 2026-08-10 (recorded in `e5cd587`): **close `/docs`,
+`/redoc`, and `/openapi.json` in production**, behind an env flag so they stay
+available locally. C4 was the one item in the queue blocked on a judgement call
+rather than on effort, and it no longer is.
+
+Two things already checked so the next session does not re-derive them:
+
+- **Reuse `COOKIE_SECURE` as the production signal.** A4 already established it
+  as the "this deployment is HTTPS/production" flag when it gated HSTS on it,
+  and the live response above proves it is set in production. A second,
+  differently-named production flag would give the codebase two answers to one
+  question.
+- **The operation-count check survives.** Every verification table in the
+  checklist asserts "OpenAPI operations = 73" via `app.openapi()`, and that
+  still returns the full schema dict when `openapi_url=None` — only the three
+  routes leave `app.routes`. Verified directly against this venv's FastAPI, not
+  assumed.
 
 ---
 
