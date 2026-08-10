@@ -164,7 +164,26 @@ def _custody_query(db: Session, tool_id: uuid.UUID):
 
     Explicitly scoped to `transaction_type IN ('checkout', 'return')` --
     an `adjust` row (Correct Count) carries no custody holder
-    (`assigned_to_id` NULL) and must never enter this sum."""
+    (`assigned_to_id` NULL) and must never enter this sum.
+
+    **Ordered by name, deliberately.** This ended at `.having(...)` with no
+    `ORDER BY` until 2026-08-10, which left the order of holders within a tool
+    as whatever Postgres happened to return -- stable in practice, guaranteed
+    by nothing, and free to change after a vacuum or a plan change. The Tools
+    page renders these rows directly, so that was a user-visible list with an
+    unspecified order.
+
+    `assigned_to_id` is the final key because **full names are not unique**
+    (see `docs/current-state.md` -> `users`): two active users can share a
+    first and last name, and without it their relative order would still be
+    undefined. Legacy rows with NULL names sort last under Postgres's default
+    `NULLS LAST` for ASC, which puts `Name unavailable` at the bottom where it
+    belongs.
+
+    Pinning this also de-risks the deferred half of C2: a consolidated
+    all-tools query now returns the same order as this per-tool one, so
+    eliminating the N+1 becomes an invisible change rather than a visible
+    reshuffle."""
     net = func.sum(
         case(
             (ToolTransaction.transaction_type == "checkout", ToolTransaction.quantity),
@@ -189,6 +208,11 @@ def _custody_query(db: Session, tool_id: uuid.UUID):
             User.last_name,
         )
         .having(net > 0)
+        .order_by(
+            User.first_name,
+            User.last_name,
+            ToolTransaction.assigned_to_id,
+        )
     )
 
 

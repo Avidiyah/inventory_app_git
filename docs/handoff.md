@@ -47,8 +47,9 @@ superseded status narrative went.
 > only database reachability; Admin `/db-test` reports PostgreSQL logical
 > names, not the Render resource display name.
 
-> **C1 and C4 are both shipped, deployed, and verified. Tier 1 is now C2 → B3
-> and nothing is waiting on a decision.**
+> **C1 and C4 are both shipped, deployed, and verified. C2's ordering half
+> shipped after them and C2 itself was demoted, so Tier 1 is now just B3, and
+> nothing is waiting on a decision.**
 >
 > C1 (`b314d06` + `eb7f4a2`) went out on its own; the owner ran all eight
 > browser checks against the deployed service and every one passed, including
@@ -90,10 +91,10 @@ waiting on a decision for those items.
 | `9388ed8` | **C4** — the docs endpoints are closed in production (pushed, deployed) |
 | `e11b8b0` | the correction that a dashboard deploy bypasses CI |
 
-**Tier 1 now starts at C2** (~half day). Full order: **C2 → B3.** C1 and C4 are
-done, and **nothing left on the list exposes anything to an unauthenticated
-caller** — C4 was the last one, so the checklist's third ordering criterion has
-stopped discriminating between the remaining items.
+**Tier 1 is down to B3.** C1 and C4 shipped; C2 was demoted to Tier 2 after its
+risky half shipped and its symptom turned out not to be occurring. **Nothing
+left on the list exposes anything to an unauthenticated caller** — C4 was the
+last one.
 
 ### B4's two loose ends are closed (2026-08-09, next session)
 
@@ -523,17 +524,46 @@ production takes an edit and a deploy. That friction is the feature — an
 `ENABLE_DOCS` flag is exactly the kind of thing that gets switched on for an
 afternoon and left on, and CI would not notice.
 
-## Next up: C2
+## Shipped this session: C2's ordering half — and C2 itself was demoted
 
-**C2 (eliminate the tool-custody N+1, ~half day, Class C).** `routers/tools.py`
-calls `_tool_response` per tool and each invocation runs a `GROUP BY` aggregate,
-so an unbounded `list_tools` is 201 queries for 200 tools. Read the item before
-starting: it is riskier than a pure optimisation because `_custody_query` has no
-`ORDER BY`, so consolidating will very likely reshuffle the custody rows visible
-on the Tools page. That is a one-time visible change, fine as a deliberate one
-and not safe as a silent one.
+`_custody_query` (`services/tools.py`) ended at `.having(net > 0)` with **no
+`ORDER BY`**, so the order of holders within a tool was whatever Postgres
+returned. That is a user-visible list on the Tools page with an unspecified
+order — stable in practice, guaranteed by nothing, and free to change after a
+vacuum or a plan change. It now orders by first name, last name, then
+`assigned_to_id`. **585 passed.**
 
-Full Tier 1 order after that: **B3**, and that is the end of the tier.
+Three things worth carrying forward:
+
+- **The tiebreaker is load-bearing.** Full names are *not* unique in this system
+  (`docs/current-state.md` → `users`), so name alone would leave two same-named
+  holders undefined relative to each other. `assigned_to_id` closes that, and
+  `test_custody_order_is_deterministic_for_duplicate_full_names` pins it by
+  asserting two reads agree rather than asserting which twin wins.
+- **Splitting the item is what made it cheap.** C2 was one "~half day, Class C,
+  one-time visible reshuffle" item. It was really two changes with completely
+  different economics: a five-minute correctness fix that carried *all* the
+  visible risk, and a half-day optimisation that carried none. Doing the small
+  half first means the big half is now provably invisible — a consolidated
+  all-tools query returns the same order as the per-tool one. Worth looking for
+  this shape in other items: the expensive part and the risky part are not
+  always the same part.
+- **The symptom was never occurring.** The owner confirmed the Tools page is
+  accurate and performing as expected. The item's "200 tools = 201 queries" came
+  from reading the code, not from the data. Asking what the number actually was,
+  rather than implementing against the write-up, is what turned a half-day item
+  into a five-minute one.
+
+**C2 is now a Tier 2 standing note**, trigger: the Tools page feels slow, or the
+tool count grows enough to matter.
+
+## Next up: B3
+
+**B3 (rate limiting beyond the login route, Class B).** C3 shipped per-IP
+throttling on `POST /auth/login` and correctly stopped there; it remains the only
+limited route. The realistic failure is an accidental loop or a double-submit by
+an authenticated, named, role-checked user rather than an attack — which is why
+it ranked last. It is now the only item left in Tier 1.
 
 ---
 

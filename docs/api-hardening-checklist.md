@@ -114,28 +114,7 @@ now has an external clock; the queue below is ordered purely on merit.
 
 ## Tier 1 — Do next, in this order
 
-### 1. C2 — Eliminate the tool-custody N+1
-
-- [ ] **Class C** · *~half day* · **one-time visible reshuffle**
-
-`routers/tools.py:73` calls `_tool_response` per tool, and each invocation runs
-`_custody_query` (`services/tools.py:161-191`), a `GROUP BY` aggregate over
-`tool_transactions`. `list_tools` is unbounded, so 200 tools = **201 queries per
-page load.**
-
-**Riskier than a pure optimization.** `_custody_query` ends at `.having(net > 0)`
-with **no `ORDER BY`**, so the order of custody rows within a tool is whatever
-Postgres returns from the `GROUP BY`. Consolidating into one grouped query will
-very likely produce a different row order, which is visible in the Tools page
-custody list.
-
-Corollary: because there is no `ORDER BY` today, that order is *already*
-unspecified and could shift on its own after a vacuum or plan change. Fixing the
-N+1 means choosing an explicit order (user name), which is a one-time visible
-reshuffle that then stays stable forever. Not safe as a silent change; fine as a
-deliberate one.
-
-### 2. B3 — No rate limiting outside the login route
+### 1. B3 — No rate limiting outside the login route
 
 - [ ] **Class B** · *logged 2026-08-09* · **authenticated callers only**
 
@@ -152,9 +131,9 @@ and B1's size cap bounds the expensive half of it more cheaply.
 Worth revisiting if the API ever gains a non-SPA client (see the versioning note
 under *Verified as non-issues* — the same trigger applies to both).
 
-**Tier 1 no longer contains an unauthenticated-exposure item.** C4 was the last
-one. Both remaining items concern authenticated callers, so criterion 3 has
-stopped discriminating between them and the order is now cost-and-value only.
+**Tier 1 is down to this one item.** C4 was the last unauthenticated-exposure
+item, and C2 was demoted to Tier 2 on 2026-08-10 once its risky half shipped and
+its symptom turned out not to be occurring. B3 is what remains.
 
 ---
 
@@ -208,6 +187,50 @@ This is a standing note that **further rule-shaped logic belongs behind that
 boundary**, not a request to refactor the module wholesale. Splitting it for its
 own sake would churn the highest-traffic file in the project for no behavior
 change.
+
+### C2 — The tool-custody N+1 (its risky half is already gone)
+
+- [ ] **Class C, now effectively Class A** · **trigger: the Tools page feels
+  slow, or the tool count grows enough to matter** · *demoted from Tier 1
+  2026-08-10*
+
+`routers/tools.py:73` calls `_tool_response` per tool, and each invocation runs
+`_custody_query` (`services/tools.py`), a `GROUP BY` aggregate over
+`tool_transactions`. `list_tools` is unbounded, so N tools cost **N+1 queries
+per page load**.
+
+**Demoted because the symptom is not occurring.** The owner confirmed on
+2026-08-10 that the Tools page is accurate and performing as expected. The
+original write-up cited "200 tools = 201 queries", but that figure came from
+reading the code, not from the data — the real instance is nowhere near a
+size where this is felt. A half day spent here buys nothing today.
+
+**The ordering half shipped instead, and it was the part that carried the
+risk.** `_custody_query` ended at `.having(net > 0)` with **no `ORDER BY`**, so
+the order of holders within a tool was whatever Postgres returned — a
+user-visible list on the Tools page with an unspecified order, free to change on
+its own after a vacuum or a plan change. It is now ordered by first name, last
+name, then `assigned_to_id`. That last key is not decoration: **full names are
+not unique** (`docs/current-state.md` → `users`), so name alone would still
+leave two same-named holders undefined relative to each other. Legacy NULL names
+sort last under Postgres's default `NULLS LAST`, putting `Name unavailable` at
+the bottom.
+
+**This is why the item is now cheap and safe rather than "riskier than a pure
+optimization".** The whole reason consolidating the query was a Class C change
+is that it would reshuffle rows. With the order pinned, a consolidated all-tools
+query returns the *same* order as the per-tool one, so eliminating the N+1
+becomes provably invisible — no decision required, no reshuffle to validate,
+whenever someone wants the query count back.
+
+Pinned by `test_custody_is_ordered_by_name` and
+`test_custody_order_is_deterministic_for_duplicate_full_names`
+(`tests/test_tools_service.py`). **585 passed.**
+
+Scope note for whoever picks this up: `_custody_query` has three callers and
+only `tool_custody` cares about order. `_outstanding_for_user` filters to one
+user and takes `.first()`, and `delete_tool`'s archive guard only tests
+truthiness — so the consolidation work is confined to the list path.
 
 ### N8 — `/docs` and `/redoc` are CSP-broken wherever they are enabled
 

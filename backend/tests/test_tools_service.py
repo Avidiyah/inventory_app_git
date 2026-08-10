@@ -54,6 +54,68 @@ def _seed_tool(db, quantity=5):
     )
 
 
+def _named_user(db, first, last, role="technician"):
+    user = User(
+        username=f"u-{uuid.uuid4().hex[:10]}",
+        first_name=first,
+        last_name=last,
+        password_hash=auth.hash_password("hunter2"),
+        role=role,
+    )
+    db.add(user)
+    db.flush()
+    return user
+
+
+def test_custody_is_ordered_by_name(db):
+    # C2, ordering half (2026-08-10). `_custody_query` used to end at
+    # `.having(...)` with no ORDER BY, so the order of holders within a tool
+    # was whatever Postgres returned -- a user-visible list on the Tools page
+    # with an unspecified order, free to change after a vacuum or plan change.
+    #
+    # Checked out deliberately in reverse alphabetical order, so a query that
+    # simply preserved insertion order would fail this.
+    tool = _seed_tool(db, quantity=20)
+    admin = _seed_user(db, role="admin")
+    for first, last in (("Zoe", "Zimmer"), ("Mia", "Mercer"), ("Abe", "Archer")):
+        holder = _named_user(db, first, last)
+        tools_service.checkout_tool(
+            db,
+            tool.id,
+            quantity=Decimal(1),
+            assigned_to_id=holder.id,
+            performed_by_id=admin.id,
+        )
+
+    names = [name for _, name, _ in tools_service.tool_custody(db, tool.id)]
+
+    assert names == ["Abe Archer", "Mia Mercer", "Zoe Zimmer"]
+
+
+def test_custody_order_is_deterministic_for_duplicate_full_names(db):
+    # Full names are NOT unique (docs/current-state.md -> `users`), so sorting
+    # by name alone would leave two same-named holders in an undefined order.
+    # `assigned_to_id` is the final tiebreaker; this asserts the result is
+    # stable rather than asserting which of the two comes first.
+    tool = _seed_tool(db, quantity=20)
+    admin = _seed_user(db, role="admin")
+    for _ in range(2):
+        twin = _named_user(db, "Sam", "Rivera")
+        tools_service.checkout_tool(
+            db,
+            tool.id,
+            quantity=Decimal(1),
+            assigned_to_id=twin.id,
+            performed_by_id=admin.id,
+        )
+
+    first_read = tools_service.tool_custody(db, tool.id)
+    second_read = tools_service.tool_custody(db, tool.id)
+
+    assert [uid for uid, _, _ in first_read] == [uid for uid, _, _ in second_read]
+    assert [name for _, name, _ in first_read] == ["Sam Rivera", "Sam Rivera"]
+
+
 def test_create_tool_rejects_live_duplicate_barcode(db):
     tool = _seed_tool(db)
     with pytest.raises(DuplicateToolBarcodeError):
