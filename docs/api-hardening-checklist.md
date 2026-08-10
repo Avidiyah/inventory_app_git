@@ -466,7 +466,8 @@ it.
 | Alembic heads | 1 (`fbc4e6a8d0f2`) | **1** |
 | Migration round-trip | clean both ways | **clean** (`fbc4e6a8d0f2 → faa2c4e6b8d0 → head`) |
 | `pip-audit` baseline | recorded + decision | **23 CVEs / 2 packages → logged as B4**, gate left advisory |
-| Deploy gate | red build cannot deploy | **not drilled** — see above; verified on first real red build |
+| Deploy gate, green path | `deploy` fires after both jobs pass | **confirmed on the merge to `main`** (run 31345792740 → `dep-d9si4efavr4c73bap2c0`, healthy) |
+| Deploy gate, red path | red build cannot deploy | **not yet observed.** The merge proves `deploy` runs *after* success; it does not prove it is *blocked* by failure. That is the actual gate property and it is verified on the first real red build — deliberately not drilled, for the reason above. |
 
 ### N5 — Free-tier Postgres expiry — **resolved by upgrading to a paid plan**
 
