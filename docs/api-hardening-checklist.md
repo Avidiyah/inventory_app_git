@@ -398,6 +398,16 @@ Shipped as `.github/workflows/ci.yml`, three jobs:
   `render.yaml` is now `autoDeploy: false`, so this hook is the only path to
   production.
 
+  **Refined 2026-08-09:** the hook now fires only when `backend/**` or
+  `render.yaml` changed, so docs and tooling commits no longer restart
+  production. This is an allowlist of what `rootDir: backend` actually puts in
+  the image, not a blocklist of doc paths — a blocklist would rot the first time
+  a new top-level directory appeared. `paths-ignore` could not be used: it is a
+  workflow-level trigger filter and would have skipped `backend` and `static`
+  as well. Unclassifiable pushes deploy rather than skip, because a redundant
+  deploy is cheaper than a silent production stall. The `needs:` gate is
+  untouched.
+
 **The defect this nearly shipped with.** Running the suite in CI is *not*
 simply "run pytest". `tests/conftest.py` caught `OperationalError` and called
 `pytest.skip`, and **244 of 425 test functions take the `db` fixture**. A

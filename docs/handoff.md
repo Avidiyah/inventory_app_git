@@ -59,9 +59,24 @@ always the intent (it is what clears the accumulated plaintext credentials) and
 it has now happened — do not treat it as still-pending, and do not schedule it
 again.
 
-**Every push to `main` deploys, including docs-only commits.** A `paths-ignore`
-on `docs/**` for the `deploy` job would fix that; it was raised and not yet
-decided.
+**Docs-only pushes no longer deploy** (decided and shipped 2026-08-09). The
+`deploy` job now classifies the push before firing the hook.
+
+`paths-ignore` — the fix this was originally logged as — **does not work here.**
+It is a workflow-level *trigger* filter, so it would have skipped `backend` and
+`static` too, landing docs commits on `main` having run no checks at all. There
+is no job-level `paths-ignore`.
+
+What shipped instead is an **allowlist of what actually ships**: `render.yaml`
+sets `rootDir: backend`, so the image is built from `backend/` alone and nothing
+else in the repo can reach production. The hook fires only when `backend/**` or
+`render.yaml` changed. An allowlist was chosen over a blocklist of doc paths
+because a blocklist rots — the next new top-level directory would silently start
+deploying again.
+
+Every unclassifiable case (new branch, force push, grafted history, empty diff)
+**falls through to deploying**. That direction is deliberate: a redundant deploy
+is noise, while a skipped real change is a silent production stall.
 
 ---
 

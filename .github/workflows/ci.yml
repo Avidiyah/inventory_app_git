@@ -160,7 +160,62 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
+      - uses: actions/checkout@v4
+        with:
+          # Needed to diff against the previous tip; the default shallow
+          # checkout cannot see it.
+          fetch-depth: 0
+
+      # A docs-only push restarted production for a markdown edit. This is an
+      # ALLOWLIST of what actually ships, not a blocklist of what doesn't:
+      # render.yaml sets `rootDir: backend`, so the image is built from
+      # `backend/` alone and nothing else in the repo can reach production.
+      # An allowlist cannot be defeated by adding a new top-level directory,
+      # which is exactly how a blocklist would rot.
+      #
+      # Note this could not be done with `paths-ignore`: that is a
+      # workflow-level trigger filter, so it would skip `backend` and `static`
+      # as well and land docs commits on main having run no checks at all.
+      #
+      # Every unclassifiable case falls through to deploying. Skipping a real
+      # code change is a silent production stall; a redundant deploy is not.
+      - name: Does this push change anything that ships?
+        id: scope
+        run: |
+          before='${{ github.event.before }}'
+          if [ -z "$before" ] \
+             || [ "$before" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "${before}^{commit}" 2>/dev/null; then
+            echo "Previous tip unresolvable (new branch, force push, or grafted history)."
+            echo "Deploying rather than guessing."
+            echo "ships=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed=$(git diff --name-only "$before" '${{ github.sha }}')
+          if [ -z "$changed" ]; then
+            echo "No file changes in range; deploying."
+            echo "ships=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Changed files:"
+          echo "$changed" | sed 's/^/  /'
+
+          if echo "$changed" | grep -qE '^(backend/|render\.yaml$)'; then
+            echo "ships=true" >> "$GITHUB_OUTPUT"
+            echo "==> Deployable changes present."
+          else
+            echo "ships=false" >> "$GITHUB_OUTPUT"
+            echo "==> Nothing under backend/ or render.yaml changed; skipping deploy."
+          fi
+
       - name: Trigger Render deploy
+        if: steps.scope.outputs.ships == 'true'
         run: |
           curl --fail --silent --show-error \
             "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+
+      - name: No deploy needed
+        if: steps.scope.outputs.ships != 'true'
+        run: echo "Docs/tooling only -- production left untouched."
