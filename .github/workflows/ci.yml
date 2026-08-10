@@ -64,3 +64,79 @@ jobs:
 
       - name: Run test suite
         run: python -m pytest -q
+
+  static:
+    name: Static checks
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: inventory
+          POSTGRES_PASSWORD: inventory
+          POSTGRES_DB: inventory_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://inventory:inventory@localhost:5432/inventory_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # The manual check performed by hand after every batch so far.
+      # 32 non-vendor files; vendor/ is third-party and not ours to fix.
+      - name: JS syntax
+        run: |
+          count=$(find backend/static -name '*.js' -not -path '*/vendor/*' | wc -l)
+          echo "checking $count non-vendor JS files (32 at time of writing)"
+          # Guards vacuous success: `xargs -r` skips node entirely on empty
+          # input, so a broken find pattern would pass this step silently.
+          # A floor, not an exact count -- adding a JS file must not go red.
+          test "$count" -gt 0
+          find backend/static -name '*.js' -not -path '*/vendor/*' -print0 \
+            | xargs -0 -r -n1 node --check
+
+      - name: Install native zbar
+        run: sudo apt-get update && sudo apt-get install -y libzbar0
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Python compile
+        working-directory: backend
+        run: python -m compileall -q app
+
+      # A merge that brings in two migrations from different branches leaves
+      # two heads; `alembic upgrade head` then fails at deploy time, in the
+      # container, after the old version is already down.
+      - name: Exactly one Alembic head
+        working-directory: backend
+        run: |
+          count=$(alembic heads | grep -c '(head)')
+          echo "alembic heads: $count"
+          test "$count" -eq 1
+
+      - name: Migration round-trip
+        working-directory: backend
+        run: |
+          alembic upgrade head
+          alembic downgrade -1
+          alembic upgrade head
