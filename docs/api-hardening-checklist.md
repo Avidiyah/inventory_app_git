@@ -5,7 +5,9 @@ X1 + C3 (session token hashing, session expiry, login throttling) shipped
 2026-08-09; the no-schema-change constraint was lifted deliberately for that
 work. B2 (DB-aware health check) shipped the same day. N5 (free-Postgres
 expiry) was closed the same day by upgrading the database to a paid plan —
-**Tier 0 is now empty and the deadline is gone.**
+**Tier 0 is now empty and the deadline is gone.** N2 (CI) shipped 2026-08-09
+and, on its first run, produced a new item: **B4**, 23 known CVEs in `pillow`
+and `starlette`. That is the gate doing its job before it had even been merged.
 
 Re-reviewed 2026-08-09 against the promoted code graph at `d715545` (2,512 nodes
 / 5,790 edges), which covers structure the original file-by-file audit did not.
@@ -84,9 +86,11 @@ restructure. All still hold. One correction:
 
 Spot-checks that returned exactly what the item claims: `import logging` /
 logger / `print(` across `backend/app/` → **0 matches**; `.github/` → **absent**;
-`render.yaml` → `plan: free` and `autoDeploy: true` both still set (the
-database half of that is **no longer true** — see N5 under *Shipped*, closed
-later the same day; `autoDeploy: true` still stands and is N2's whole case);
+`render.yaml` → `plan: free` and `autoDeploy: true` both still set. **All three
+`render.yaml`/`.github` facts were overtaken later the same day**: N5 moved the
+database to a paid plan, and N2 created `.github/workflows/ci.yml` and set
+`autoDeploy: false`. Both are recorded under *Shipped*. The logging count still
+stands and is N1's case.
 `main.py:58` → `FastAPI(title="Inventory Management API")` with no URL overrides;
 `services/work_orders.py` → **2,008 lines**, `views/workOrders.js` → 1,442,
 `styles.css` → 2,489.
@@ -102,93 +106,44 @@ now has an external clock; the queue below is ordered purely on merit.
 
 ## Tier 1 — Do next, in this order
 
-### 1. N2 — Add CI
+### 1. B4 — Upgrade `pillow` and `starlette` (23 known CVEs)
 
-- [ ] **Class N** · *~1 day* · **unblocks everything below it**
+- [ ] **Class B** · *~1 hr + validation* · **found by N2 on its first run**
 
-No `.github/`. No formatter, linter, type checker, coverage enforcement, or
-dependency audit — no `pyproject.toml`, `ruff.toml`, `setup.cfg`, or
-`mypy.ini`. No `package.json`, so no frontend test harness.
+**Discovered 2026-08-09 by the `pip-audit` gate N2 added**, which is precisely
+what that gate exists to do. This item did not exist before CI ran.
 
-Wire pytest, `node --check`, Python compilation, Alembic head validation, and
-`pip-audit`. A3 unblocks any HTTP-level test this would run.
+`pip-audit` reports **23 known vulnerabilities across 2 packages**:
 
-**Sharpened 2026-08-09 (graph review).** This is worse than "no automation":
-`render.yaml` sets `autoDeploy: true`, so every push to `main` ships to
-production having run **nothing**. The 520-test suite (41 files under
-`backend/tests/`) is the single largest asset in this repo and the only thing
-that never executes on the path that matters. Until this ships,
-`autoDeploy: true` is a liability rather than a convenience.
+| Package | Pinned | Fix available |
+|---|---|---|
+| `pillow` | 12.2.0 | **12.3.0** (carries most of the 23) |
+| `starlette` | 1.2.1 | **1.3.1** |
 
-**Why it ranks first** (criterion 2): it was originally ordered *last*, on the
-assumption that it is a day of setup with no user-visible payoff. The
-`autoDeploy: true` finding inverts that. Every item shipped off this list —
-including the three shipped 2026-08-09, which touched authentication and the
-session table — is protected only by manual discipline. One workflow file
-converts an already-paid-for suite into an actual deploy gate. N2 is the item
-that makes every other item on this list safe to ship, which is exactly the
-property that should sort first among engineering work.
+**Why this outranks N1 (criterion 3, exposure).** `pillow` is the library that
+parses **attacker-supplied image data**. `routers/barcodes.py:45` reads an
+upload and `services/barcodes.py:79-85` hands it to Pillow before `pyzbar` ever
+sees it. An image-parsing CVE in that position is reachable by any
+authenticated user who can hit the upload endpoint. Note that **B1 does not
+cover this** — a size cap bounds volume, not malformed content. A 40 KB
+malicious PNG passes every check B1 would add.
 
-#### Sharpened again 2026-08-09: a naive CI job would be *worse* than none
+`starlette` is the ASGI layer under every request in the app, so its two
+advisories sit below all 89 routes rather than behind any one of them.
 
-Scoping N2 turned up a second layer this entry did not previously capture.
-Running the suite in CI is **not** simply "run pytest" — two existing facts
-combine into a false-green generator:
+**Why it is Class B rather than Class A.** A minor-version bump of the image
+decoder and the ASGI layer is not provably invisible: Pillow changes decode
+behavior between minors, and Starlette 1.2 → 1.3 touches the layer
+`fastapi.testclient` builds on (A3 pins `httpx2==2.9.1` against Starlette
+1.2.x — check that pin still resolves). Both are exactly the kind of change
+that should now go through CI rather than be hand-verified, which is the first
+real use of what N2 built.
 
-- `app/database.py:41-42` raises `RuntimeError` at **import time** when
-  `DATABASE_URL` is unset, and `tests/conftest.py:23` imports the engine. With
-  no `DATABASE_URL`, collection fails outright. This half is safe: it is loud.
-- `tests/conftest.py:28-31` catches `OperationalError` and calls
-  **`pytest.skip`**. So a *syntactically valid but unreachable* `DATABASE_URL`
-  makes every DB-backed test skip and the run report success.
-
-Measured split: **244 of 425 test functions take the `db` fixture** (19 of 39
-files). A workflow that sets a placeholder URL and runs pytest therefore goes
-green having exercised **43%** of the suite, while displaying a checkmark that
-claims otherwise. That is worse than the status quo — today there is no
-automation and everyone knows it; then there would be automation that lies.
-
-The skip is *correct* for its original purpose (a contributor without a local
-Postgres can still run the 181 pure tests). It is only wrong in CI, which is why
-the fix is conditional rather than a removal.
-
-**Decisions taken (owner-approved 2026-08-09), both the recommended option:**
-
-1. **CI gates the deploy.** `autoDeploy: true` becomes `false`, with a Render
-   deploy hook fired only after the suite passes. A red build will not reach
-   production. Reporting-only was considered and rejected: it makes the hole
-   visible without closing it.
-2. **The skip guard fails when `CI` is set.** `conftest.py` checks
-   `os.getenv("CI")` and raises instead of skipping when the database is
-   unreachable. Local behavior is byte-identical — the contributor path that
-   motivated the skip is untouched. Rejected alternative: asserting a minimum
-   collected-test count, which encodes a magic number that drifts every time a
-   test is added.
-
-**Deliberately out of scope for N2**, to keep the diff reviewable:
-
-- **No linter or formatter.** Introducing `ruff` here produces a large
-  mechanical diff that would bury the workflow itself. Its own item.
-- **`pip-audit` reports before it blocks.** It runs from day one but does not
-  fail the build until its baseline output has been seen and triaged.
-
-**Baseline `pip-audit` result, 2026-08-09 (first run):** **23 known
-vulnerabilities across 2 packages** — `pillow==12.2.0` (fix: **12.3.0**) and
-`starlette==1.2.1` (fix: **1.3.1**). Both are the majority and minority share
-respectively; pillow carries most of them.
-
-This is not a theoretical finding. `pillow` is the library that decodes
-**attacker-supplied image data**: `routers/barcodes.py` accepts an upload and
-`services/barcodes.py:79-85` hands it to Pillow before `pyzbar` ever sees it.
-An image-parsing CVE in that position is reachable by any authenticated user
-with the upload endpoint, and B1 (the size cap) does not address malformed
-content — only volume.
-
-`pip-audit` therefore stays `continue-on-error: true` for now, because turning
-it into a blocking gate today would mean landing two dependency upgrades inside
-the CI change itself. **Upgrading both pins is its own item and should be the
-next thing done after N2** — it is a larger finding than N2 expected to
-produce, and it is exactly what the gate was added to surface.
+**When this ships, flip `pip-audit` to blocking** — remove
+`continue-on-error: true` from the *Dependency audit* step in
+`.github/workflows/ci.yml`. It ships advisory only because turning it into a
+gate on day one would have meant landing two dependency upgrades inside the CI
+change itself.
 
 ### 2. N1 — Add structured logging
 
@@ -421,6 +376,97 @@ Referenced by B3, which names these endpoints as the unlimited-volume surface.
 ## Shipped
 
 Kept with verification evidence intact. These no longer occupy a priority slot.
+
+### N2 — Add CI
+
+**Shipped 2026-08-09.** `render.yaml` set `autoDeploy: true` and there was no
+`.github/`, so every push to `main` shipped to production having run
+**nothing**. The 520-test suite was the largest asset in the repo and the only
+thing that never executed on the path that mattered.
+
+Shipped as `.github/workflows/ci.yml`, three jobs:
+
+- **`backend`** — `postgres:16` service container, `alembic upgrade head`, then
+  the full suite on **Python 3.12** (matching `Dockerfile:1`, not the 3.13 in
+  the local venv — CI matches production, so local green is not automatically
+  CI green).
+- **`static`** — `node --check` across the non-vendor JS, `compileall` over
+  `app/`, a single-Alembic-head assertion, a migration round-trip
+  (`upgrade → downgrade -1 → upgrade`), and `pip-audit`.
+- **`deploy`** — `needs: [backend, static]`, restricted to pushes on `main`,
+  firing a Render deploy hook held in the `RENDER_DEPLOY_HOOK_URL` secret.
+  `render.yaml` is now `autoDeploy: false`, so this hook is the only path to
+  production.
+
+**The defect this nearly shipped with.** Running the suite in CI is *not*
+simply "run pytest". `tests/conftest.py` caught `OperationalError` and called
+`pytest.skip`, and **244 of 425 test functions take the `db` fixture**. A
+workflow with a syntactically valid but unreachable `DATABASE_URL` would have
+gone green having exercised **43%** of the suite — automation that lies, which
+is worse than the status quo of no automation that everyone knows about.
+
+Fixed by `tests/_db_availability.py`: the skip now happens only outside CI, and
+under `CI=true` an unreachable database raises. Local behavior is unchanged —
+the contributor-without-Postgres path that motivated the skip still works.
+Rejected alternative: asserting a minimum collected-test count, which encodes a
+magic number that drifts every time a test is added.
+
+**Two gates deliberately kept honest.** The JS-syntax step asserts the file
+count is `> 0` rather than `== 32`: `xargs -r` skips `node` entirely on empty
+input, so a broken `find` pattern would pass silently — but an exact count would
+turn every new JS file red, reintroducing the same drifting-constant problem
+rejected above. The Alembic head check asserts exactly `1`, because two heads
+is never correct.
+
+**Out of scope, deliberately:** no linter or formatter (introducing `ruff` here
+produces a large mechanical diff that would bury the workflow), and `pip-audit`
+runs `continue-on-error: true` until its baseline is triaged — see **B4**,
+which that baseline created.
+
+**N7 closed incidentally.** Installing `libzbar0` before `pip install` is the
+first time the `pyzbar` native dependency has been handled outside a container
+— exactly N7's named trigger ("a new dev machine, or a runtime/base-image
+change"). Without it, `import app.main` fails and takes the whole suite down.
+
+#### Two failure drills, one of which failed
+
+Both gates were tested by breaking them on purpose rather than trusting them.
+
+**The guard drill passed and was worth doing.** Overriding `DATABASE_URL` at the
+*step* level (not the job level) left migrations working and isolated the
+failure to the guard, producing `RuntimeError: Database unreachable in CI:
+... database "wrong_db" does not exist` in the real runner. A job-level override
+would have failed at `alembic upgrade head` one step earlier, proving the build
+can go red but nothing about the guard.
+
+**The deploy-gate drill was performed incorrectly and triggered a live deploy.**
+To let `deploy` run on a pull request, its condition was temporarily changed to
+`if: always()`. **`always()` overrides `needs`** — it means "run regardless of
+whether the dependencies succeeded", the exact opposite of the property under
+test. The run was cancelled, but `deploy` had already fired the hook
+(`dep-d9shtqajnfac739h7jvg`). Because Render hooks build the branch configured
+on the service, this deployed `main` at `873fef3` — already-verified code — and
+the deploy came up healthy. Reverted in `0c35eb1`.
+
+**Standing lesson, recorded because it generalizes:** any drill that requires
+weakening the condition under test is not a drill of that condition. The deploy
+gate is verified naturally on the first real red build, at no risk. `needs:`
+with no `if` override is standard documented behavior; only `always()` defeats
+it.
+
+#### Verification evidence (N2, 2026-08-09)
+
+| Check | Expected | Result |
+|---|---|---|
+| Suite in CI | 523 passed | **523 passed in 21.98s** |
+| Suite locally | 523 passed (520 + 3 new), zero skips | **523 passed in 33.97s** |
+| Guard fires on dead DB, `CI=true` | build fails | **`RuntimeError`, exit 1**, in the real runner |
+| Guard still skips locally, no `CI` | skips, exit 0 | **7 skipped in 35.43s, exit 0** |
+| Non-vendor JS files checked | 32 | **32**, `node --check` clean |
+| Alembic heads | 1 (`fbc4e6a8d0f2`) | **1** |
+| Migration round-trip | clean both ways | **clean** (`fbc4e6a8d0f2 → faa2c4e6b8d0 → head`) |
+| `pip-audit` baseline | recorded + decision | **23 CVEs / 2 packages → logged as B4**, gate left advisory |
+| Deploy gate | red build cannot deploy | **not drilled** — see above; verified on first real red build |
 
 ### N5 — Free-tier Postgres expiry — **resolved by upgrading to a paid plan**
 
