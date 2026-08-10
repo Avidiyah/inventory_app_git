@@ -27,18 +27,20 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.auth_deps import COOKIE_SECURE, require_min_role
+from app.auth_deps import COOKIE_SECURE, SESSION_COOKIE, require_min_role
 from starlette.types import Scope
 from app.database import check_connection, test_connection
+from app.domain import rate_limit as rate_limit_policy
 from app.domain import roles
 from app.logging_config import (
     configure_logging,
     new_request_context,
     request_context,
 )
+from app.services import rate_limit as rate_limit_service
 from app.routers import (
     auth,
     barcodes,
@@ -134,6 +136,63 @@ CONTENT_SECURITY_POLICY = "; ".join((
     "form-action 'self'",
     "frame-ancestors 'none'",
 ))
+
+
+@app.middleware("http")
+async def rate_limit(request, call_next):
+    """Refuse more than `MAX_REQUESTS` API requests per second per caller.
+
+    **Registered before `add_security_headers` on purpose**, which makes
+    it the *innermost* of the three: Starlette's `add_middleware` inserts
+    at the front of the list and the front is outermost, so defining this
+    first leaves both of the others wrapping it. That is what this needs
+    -- a 429 raised here still passes back out through
+    `add_security_headers` (so it carries the CSP and HSTS headers every
+    other response carries) and through `log_request` (so it gets an
+    `X-Request-ID` and appears in the log stream like any other request).
+    A limiter whose rejections were invisible to the logs would be the
+    hardest possible thing to diagnose.
+
+    Exempt paths are skipped before the counter is touched, so page loads
+    neither consume the budget nor can be refused; see
+    `domain.rate_limit.is_exempt`.
+
+    The response is built directly rather than by raising `HTTPException`
+    because exception handlers are installed around the router, inside
+    this middleware -- an exception raised here would escape as a 500.
+    """
+    path = request.url.path
+    if rate_limit_policy.is_exempt(path):
+        return await call_next(request)
+
+    # `request.client` is already the real client rather than Render's
+    # proxy: `entrypoint.sh` runs uvicorn with `--proxy-headers`, which
+    # resolves X-Forwarded-For before the app sees it. Parsing that
+    # header here instead is the usual way a spoofable address sneaks in
+    # (see `routers/auth.py:_client_ip`, which relies on the same thing).
+    client = request.client
+    key = rate_limit_service.caller_key(
+        request.cookies.get(SESSION_COOKIE),
+        client.host if client and client.host else "unknown",
+    )
+
+    retry_after = rate_limit_service.check_and_record(key, time.monotonic())
+    if retry_after is not None:
+        logger.warning(
+            "request.rate_limited",
+            extra={"fields": {
+                "method": request.method,
+                "path": path,
+                "retry_after": retry_after,
+            }},
+        )
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many requests. Please slow down."},
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    return await call_next(request)
 
 
 @app.middleware("http")

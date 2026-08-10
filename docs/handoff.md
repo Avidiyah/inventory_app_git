@@ -1,11 +1,14 @@
 # Session Hand-off
 
-Last updated: **2026-08-10**, end of the session that shipped **C1** (every
-static role gate in `routers/work_orders.py` is declarative now), **C4**
-(FastAPI's docs endpoints are closed in production), and **C2's ordering half**
-(tool custody sorted by name), then demoted the rest of C2 to Tier 2. **Tier 1
-is down to B3 alone.** C1 and C4 are deployed and validated; C2's commit
-(`2cb99c9`) is the one thing still unpushed.
+Last updated: **2026-08-10**, end of the session that shipped **B3** — every
+route in the app is rate limited now, at 60 requests/second per caller.
+**Tier 1 is empty.** B3 is committed locally and **not pushed**; nothing else is
+outstanding.
+
+The session before shipped **C1** (every static role gate in
+`routers/work_orders.py` is declarative), **C4** (FastAPI's docs endpoints are
+closed in production), and **C2's ordering half** (tool custody sorted by name),
+then demoted the rest of C2 to Tier 2. All three are pushed and live.
 
 The same day, the database rollback/cutover closed — caused by importing 800+
 work orders that did not belong to the company, requiring the first production
@@ -50,10 +53,29 @@ superseded status narrative went.
 > only database reachability; Admin `/db-test` reports PostgreSQL logical
 > names, not the Render resource display name.
 
+> **B3 shipped locally and Tier 1 is now empty.** Every non-exempt path is
+> capped at 60 requests/second per caller, returning 429 + `Retry-After: 1`.
+> **632 passed**, OpenAPI still 73, no migration. It is **committed and not
+> pushed**, and pushing it deploys — see *State of the tree*.
+>
+> **The cap was the owner's call, not a measured one, and that is worth knowing
+> before anyone tunes it.** The plan of record was to pull real volume from N1's
+> `event=request` lines first and possibly demote B3 to a Tier 2 note; the owner
+> specified 60/s per user, API routes only, before that ran. So the number is a
+> policy decision. Anyone changing it is changing a choice, not correcting an
+> estimate. The measurement was never done and the analyzer script written for
+> it was scratch-only — if the question comes back, it has to be rebuilt.
+>
+> **One measurement did land and it changed the design.** `/` and `/static/*`
+> go through the same middleware chain as the API, and a cold SPA load is ~35
+> requests fired nearly at once. A *global* 60/s would therefore have been
+> tripped by two people refreshing at a shift change, serving a 429 for a
+> JavaScript module — the blank page this app has history with. Hence per
+> caller, and hence `/`, `/static/*` and `/healthz` exempt: neither counted nor
+> refused.
+>
 > **C1 and C4 are both shipped, deployed, and verified. C2's ordering half
-> shipped after them and C2 itself was demoted, so Tier 1 is now just B3.** The
-> only thing outstanding is the push of `2cb99c9` — no item is blocked on a
-> judgement call.
+> shipped after them and C2 itself was demoted.**
 >
 > C1 (`b314d06` + `eb7f4a2`) went out on its own; the owner ran all eight
 > browser checks against the deployed service and every one passed, including
@@ -70,11 +92,8 @@ superseded status narrative went.
 > harmless, but it disproves a claim this repo carried: see *CI is not the only
 > path to production* below.
 >
-> **One thing is committed and not pushed: `2cb99c9`, C2's ordering half.** It
-> pins the tool-custody row order and touches `backend/**`, so pushing it
-> deploys. It is a real if small behaviour change — the custody names on the
-> Tools page settle into alphabetical order, once — so it wants a deliberate
-> push rather than being swept along with the next docs commit. **585 passed.**
+> `2cb99c9` (C2's ordering half) **was pushed** and is live. An earlier revision
+> of this file said it was outstanding; that was stale by the time it was read.
 
 **N1 and B1 are shipped, pushed, green, and live in production.** Nothing is
 waiting on a decision for those items.
@@ -93,12 +112,13 @@ waiting on a decision for those items.
 | `9388ed8` | **C4** — the docs endpoints are closed in production (pushed, deployed) |
 | `e11b8b0` | the correction that a dashboard deploy bypasses CI |
 | `b9c3b94` | `inventory-db-copy` re-verified — N5's guarantees hold on the live target |
-| `2cb99c9` | **C2's ordering half** — tool custody sorted by name (**not pushed**) |
+| `2cb99c9` | **C2's ordering half** — tool custody sorted by name (pushed) |
+| `775f1a2` | the hand-off rewrite that queued B3 (pushed) |
 
-**Tier 1 is down to B3.** C1 and C4 shipped; C2 was demoted to Tier 2 after its
-risky half shipped and its symptom turned out not to be occurring. **Nothing
-left on the list exposes anything to an unauthenticated caller** — C4 was the
-last one.
+**Tier 1 is empty.** C1, C4, C2's ordering half and B3 have all shipped; the
+rest of C2 was demoted to Tier 2 after its symptom turned out not to be
+occurring. **Nothing left on the list exposes anything to an unauthenticated
+caller** — C4 was the last one.
 
 ### B4's two loose ends are closed (2026-08-09, next session)
 
@@ -124,13 +144,29 @@ first time the `pyzbar` native dependency was handled outside a container.
 
 ### State of the tree
 
-**One commit ahead of `origin/main`: `2cb99c9`, C2's ordering half.** Everything
-before it is pushed and live. Expect `[ahead 1]` and an otherwise clean tree.
+**One commit ahead of `origin/main`: B3.** Everything before it is pushed and
+live. Expect `[ahead 1]` and an otherwise clean tree.
 
-That commit touches `backend/**`, so its push deploys. Worth pushing on its own
-and looking at the Tools page afterwards, rather than letting it ride along with
-whatever lands next — it is the only change in the recent run that alters
-something a user can see.
+That commit touches `backend/**`, so its push deploys, and B3 is the highest-blast-radius
+change in this whole run: it sits on **every** route in the app, in
+middleware, ahead of routing. Everything shipped before it touched one module or
+one pair of endpoints. Push it on its own, and validate in the browser
+afterwards rather than inferring from a green suite.
+
+**What to look at after it deploys.** Ordinary use should be completely
+unaffected — that is the design, not a hope — so the validation worth doing is
+the fast path: a technician scanning several items in quick succession, a
+work-order CSV import, and a page refresh immediately followed by a search. If
+any of those produces a `Too many requests. Please slow down.` banner, the cap
+is mistuned for real field behaviour and the number should move, not the
+exemption list.
+
+**The one failure mode to recognize.** A 429 on a static asset would render as a
+blank or half-styled page rather than as an error message. That should be
+impossible — `/`, `/static/*` and `/healthz` are exempt and there is a test
+firing 200 consecutive requests at each to prove it — but it is the symptom to
+connect back to this change if it ever appears, because nothing about a blank
+page says "rate limit".
 
 C1 and C4 were *planned* as one push — both Class C, both small, both touching
 what the API exposes and to whom — for one CI run, one deploy, and one
@@ -567,80 +603,83 @@ Three things worth carrying forward:
 **C2 is now a Tier 2 standing note**, trigger: the Tools page feels slow, or the
 tool count grows enough to matter.
 
-## Next up: B3 — the last Tier 1 item
+## Shipped 2026-08-10: B3 — every route is rate limited
 
-**B3 (rate limiting beyond the login route, Class B).** `POST /auth/login` is
-still the only limited route in the app. Everything else — both upload
-endpoints, the CSV import, and every unbounded collection endpoint (X3) —
-accepts unlimited authenticated request volume.
+New `rate_limit` middleware in `main.py` caps **every non-exempt path at 60
+requests/second per caller**, returning 429 with `Retry-After: 1`. Pure policy in
+`domain/rate_limit.py`, in-memory counters in `services/rate_limit.py`, three
+test files (`test_rate_limit.py`, `test_rate_limit_service.py`,
+`test_rate_limit_middleware.py`). **632 passed** (585 + 47), OpenAPI still 73,
+Alembic head untouched, no migration. Full record in
+`docs/api-hardening-checklist.md` → *Shipped* → B3.
 
-### Start by questioning whether it should ship at all
+Five things worth carrying forward:
 
-This is the honest first step, not a formality. B3 ranked last in Tier 1 for a
-reason that has only got stronger: an authenticated caller here is a known,
-named, role-checked user with an audit trail, so the realistic failure is an
-**accidental loop or a double-submit**, not an attack. B1 already bounds the
-expensive half (uploads) more cheaply, and N1 means a runaway client now leaves
-a diagnosable trace instead of a mystery.
+- **The cap is a policy decision, not a measured one, and the file should not
+  pretend otherwise.** The plan of record — written in this file the session
+  before — was to pull real volume from N1's `event=request` lines first, and to
+  treat "demote B3 to a Tier 2 note" as a legitimate outcome. The owner
+  specified 60/s per user, API routes only, before that measurement ran. Nothing
+  wrong happened; it is the owner's call to make. But it means the number has no
+  field data behind it, and **the honest thing for the next session to know is
+  that tuning it is changing a choice, not correcting an estimate.**
+- **The measurement that *did* happen is the one that shaped the design.**
+  Driving the ASGI stack showed `/` and `/static/*` emit `event=request` lines
+  through the same middleware chain as the API, and that a cold SPA load is ~35
+  requests fired nearly at once. That killed the global-cap reading of the
+  instruction: two people refreshing at a shift change is ~70, so a global 60/s
+  would have served a 429 for a JavaScript module. Worth generalizing — *the
+  instruction was ambiguous in a way that only showed up once something was
+  measured.* "60/s for all users" reads as obviously clear until you know what a
+  page load costs.
+- **It also corrects this file's own instruction from last session.** The note
+  saying "Render's log search over `event=request` will answer it" is wrong as
+  written: that search counts asset fetches, so it overstates API volume by ~35
+  per refresh. Any future volume question has to filter to API paths first.
+- **Exempt means neither counted nor refused, and both halves are load-bearing.**
+  Not counted, so page loads cannot spend the budget. *Not refused*, so an
+  over-limit caller can still load the SPA that fixes it — otherwise a client
+  that ran away once would be locked out of the page needed to recover — and so
+  a busy caller cannot fail an unrelated deploy through `healthCheckPath`.
+- **Keying had a constraint that only appears when you try to write it.**
+  Middleware runs *before* route dependencies resolve, so `get_current_user` has
+  not run and there is no user id to key on. The session cookie is the only
+  identity available that early. If a future item wants per-*user* limiting
+  rather than per-session, that is not a parameter change — it needs the limit
+  moved out of middleware into a dependency, with all the per-route wiring that
+  implies.
 
-C2 is the cautionary example, one item earlier: its headline figure came from
-reading the code rather than from the data, and the symptom turned out not to be
-occurring. **Ask what request volume this app actually sees before designing a
-limiter for it.** N1's `event=request` lines are the evidence — Render's log
-search over `event=request` will answer it. If nothing is close to a plausible
-limit, the right outcome may be a Tier 2 note with a trigger rather than code.
+**Not yet pushed, and not yet validated in a browser.** See *State of the tree*
+for what to look at once it deploys.
 
-### What exists to reuse — and the important caveat
+## Next up: nothing is queued
 
-C3 built real throttle machinery and it is worth reading first:
+**Tier 1 is empty for the first time since the checklist was restructured.** No
+item on the list has an external clock, an unauthenticated exposure, or a named
+owner decision waiting on it.
 
-| Piece | What it gives you |
-|---|---|
-| `domain/login_throttle.py` | pure policy — `lock_duration`, `user_ip_key`, the backoff curve |
-| `services/login_throttle.py` | `check` / `record_failure` / `clear` / `sweep`, `SCOPE_USER_IP` and `SCOPE_IP` |
-| `LoginAttempt` model | DB-backed counters, `UNIQUE(scope, key)`, swept after 24h |
+That is a real state, not an oversight — so the next session should not go
+looking for a Tier 1 item to take. The three honest options, in the order they
+are probably worth doing:
 
-**But it counts failures, not requests, and that difference is the whole
-design.** `record_failure` fires on a failed login and `clear` wipes the counter
-on success, because the thing being limited is *guessing*. B3 needs to limit
-*volume*, where every request counts and success is not a reset. `current-state`
-also describes `login_attempts` as transient failed-login counters and
-explicitly not an audit trail, so widening that table's meaning is a decision,
-not a refactor.
+1. **Close out B3 properly first.** It is committed, unpushed, unvalidated, and
+   sits on every route in the app. Finishing it — push, deploy, browser
+   validation, then recording the result here and in the checklist — is worth
+   more than starting anything new.
+2. **Re-read Tier 2 for a trigger that has fired.** Each standing note has a
+   named trigger rather than a priority, which only works if someone actually
+   checks. `C2` (Tools page feels slow), `N4` (a CDN is introduced), `N8`
+   (someone wants a working API explorer), `N3` (a second instance) — and note
+   that **B3 just added a second concrete item to N3**, since its counters are
+   per process.
+3. **Ask the owner what hurts.** The list is a code audit; it has never been the
+   only source of work, and `IMP-004` is still the one open requested
+   improvement.
 
-So expect to reuse the **shape** — DB-backed counters keyed by scope, a pure
-domain policy, `429` with `Retry-After`, and **never** enforcing by sleeping,
-since a sleeping handler holds one of FastAPI's 40 threadpool slots and turns
-the limiter into the exhaustion lever it exists to prevent — rather than the
-functions themselves.
-
-### The forks to raise before writing code
-
-Per *Working rhythm*, these are permission- and product-shaped, so surface them
-rather than defaulting them:
-
-1. **Who gets counted.** Per user, per IP, or per (user, route)? C3's hard-won
-   lesson applies directly: keying on the username alone made the throttle a
-   denial-of-service weapon against the crew. The same trap exists here, and
-   worse — this would refuse *ordinary work*, not just logins.
-2. **Which routes.** Everything, or only the genuinely expensive ones (import,
-   exports, the two uploads)? A global middleware has a misfire radius covering
-   every route; a per-route dependency is opt-in and matches the declarative
-   pattern C1 just established for the role gates.
-3. **What the limit is, against real field behaviour.** This is the one that can
-   hurt someone. A technician scanning a truckload moves fast, and a limit tuned
-   for a well-behaved SPA could refuse a legitimate burst mid-shift. Whatever
-   number gets chosen needs to be defended against how the crew actually works,
-   not against a guess.
-4. **Where the counters live.** The DB pattern survives Render's idle spin-down
-   and would keep working if a second instance ever appears (N3); in-memory is
-   faster and does neither.
-
-### Safety net
-
-`tests/test_login_throttle.py` and `test_login_throttle_service.py` show the
-established testing shape — pure policy tested without a database, service
-behaviour tested against one.
+**Do not invent a Tier 1 item to keep the queue populated.** The C2 demotion one
+session earlier is the precedent: an item whose symptom was not occurring cost
+five minutes once it was questioned and would have cost half a day if it had
+merely been executed.
 
 ---
 
@@ -686,9 +725,13 @@ than opening files and more complete than grep for structural questions. Start
 with `list_repositories`, then pass the id (`Avidiyah/inventory_app_git`) to the
 query tools. It also has `recall` / `remember` for durable per-repo notes.
 
-> **It re-indexes on push to `main`, and as of 2026-08-10 it is current.**
-> Check `graph_stats` → `commitSha` against `git rev-parse HEAD` every session
-> anyway; it is one call, and the failure mode is silent.
+> **It re-indexes on push to `main`, and as of 2026-08-10 it is behind again.**
+> `graph_stats` → `commitSha 22164bb`, five commits back: the graph predates
+> C1, C4 and C2's ordering half, so its view of `routers/work_orders.py` still
+> shows the in-body 403 gates C1 removed. Check `commitSha` against
+> `git rev-parse HEAD` every session; it is one call, and the failure mode is
+> silent. **Check the Graphify account's plan and usage first** — that was the
+> cause last time and nothing in this repo can fix it.
 >
 > **The one time it went stale, the cause was a plan limit, not a bug.** The
 > graph sat at `62c32aa` across six pushes on 2026-08-10 while reporting

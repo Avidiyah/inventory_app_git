@@ -101,6 +101,7 @@ Path shorthand:
 | --- | --- | --- |
 | Auth/session/login/logout | `app/auth_deps.py`, `routers/auth.py`, `services/auth.py`, `schemas/auth.py`, `static/views/auth.js`, `static/api.js` | `test_auth_password.py`, `test_auth_session_lifetime.py`, `test_session_token_hashing.py`, `test_password_reset_revokes_sessions.py` |
 | Login throttling / lockout | `domain/login_throttle.py`, `services/login_throttle.py`, `routers/auth.py`, `models.py` (`LoginAttempt`), `backend/entrypoint.sh` (proxy headers) | `test_login_throttle.py`, `test_login_throttle_service.py` |
+| Request rate limiting (all routes) | `domain/rate_limit.py`, `services/rate_limit.py`, `main.py` (`rate_limit` middleware), `backend/entrypoint.sh` (proxy headers, single process) | `test_rate_limit.py`, `test_rate_limit_service.py`, `test_rate_limit_middleware.py` |
 | Roles/permissions/user management | `domain/roles.py`, `routers/users.py`, `services/users.py`, `schemas/users.py`, `static/roles.js`, `static/views/users.js`, `static/views/nav.js` | `test_roles.py`, `test_route_role_gates.py`, `test_user_names.py`, `test_user_role_edit.py`, `test_user_archive.py` |
 | Item CRUD/lookup/archive | `routers/items.py`, `services/items.py`, `schemas/items.py`, `models.py`, `static/views/items.js`, `static/views/itemEditor.js`, `static/api.js` | `test_item_barcodes.py`, `test_item_price_gating.py`, route-gate tests |
 | Item notes | `domain/notes_validation.py`, `services/notes.py`, `schemas/items.py`, `routers/items.py`, `static/views/notes.js` | add/extend focused tests if behavior changes |
@@ -407,6 +408,20 @@ Security/access:
   uses backoff rather than account lockout specifically so no one can lock a
   crew member out by hammering their username. A wider per-IP layer exists but
   ships disabled (`LOGIN_THROTTLE_PER_IP`); see Known Gaps.
+- **Every non-exempt path is capped at 60 requests/second per caller** by the
+  `rate_limit` middleware (`main.py`), which returns **429 + `Retry-After: 1`**
+  above it. Exempt and neither counted nor refused: `/`, `/static/*`, and
+  `/healthz` — so page loads cannot consume the budget, an over-limit caller can
+  still load the SPA that fixes it, and a busy caller cannot fail a deploy
+  through `healthCheckPath`. Callers are keyed by **session** (SHA-256 of the
+  cookie, truncated), falling back to client IP when unauthenticated; the
+  middleware runs before route dependencies resolve, so no user id exists yet.
+  Counters are **in memory**, not in Postgres — the window is one second, so
+  nothing older survives being worth keeping, and a write per request would cost
+  more than the runaway client it catches. Refused requests are not themselves
+  counted, so the cap cannot become an open-ended lockout. Never enforced by
+  sleeping. This is a ceiling on malfunction, not a quota: the UI's heaviest
+  action is far below it, and a runaway `fetch` loop is far above it.
 - Both upload routes are size-capped (10 MB image / 25 MB CSV) and return 413
   above it; see *Upload size caps* under Runtime And Stack. On the import route
   the role gate runs first, so an unauthorised caller never reaches the check.

@@ -10,11 +10,12 @@ and, on its first run, produced a new item: **B4**, 23 known CVEs in `pillow`
 and `starlette`. That is the gate doing its job before it had even been merged.
 **B4 shipped the same day** and `pip-audit` is now blocking rather than
 advisory. **N1 (structured logging) shipped 2026-08-09**, and **B1 (upload
-size caps) shipped 2026-08-09** on top of it. **C1 and C4 shipped 2026-08-10** —
-every static role gate in `routers/work_orders.py` is declarative now, and
-FastAPI's docs endpoints are closed in production — so **Tier 1 starts at C2**
-and nothing left on the list exposes anything to an unauthenticated caller.
-C4's implementation also produced **N8**.
+size caps) shipped 2026-08-09** on top of it. **C1, C4, C2's ordering half and
+B3 all shipped 2026-08-10** — every static role gate in
+`routers/work_orders.py` is declarative, FastAPI's docs endpoints are closed in
+production, tool-custody row order is pinned, and every route is now rate
+limited — so **Tier 1 is empty** and nothing left on the list exposes anything
+to an unauthenticated caller. C4's implementation also produced **N8**.
 
 Re-reviewed 2026-08-09 against the promoted code graph at `d715545` (2,512 nodes
 / 5,790 edges), which covers structure the original file-by-file audit did not.
@@ -112,28 +113,15 @@ now has an external clock; the queue below is ordered purely on merit.
 
 ---
 
-## Tier 1 — Do next, in this order
+## Tier 1 — empty
 
-### 1. B3 — No rate limiting outside the login route
+B3 was the last item here and it shipped on 2026-08-10 (see *Shipped*). C4
+closed the last unauthenticated surface before it, and C2 was demoted to Tier 2
+once its risky half shipped.
 
-- [ ] **Class B** · *logged 2026-08-09* · **authenticated callers only**
-
-C3 shipped per-IP throttling on `POST /auth/login` and stopped there, correctly
-— that was the credential-stuffing surface. But it is the only limited route in
-the app: the two upload endpoints, every unbounded collection endpoint (X3), and
-the CSV import all accept unlimited authenticated request volume.
-
-**Why it ranks last in Tier 1** (criterion 3): an authenticated caller is
-already a known, named, role-checked user with an audit trail, so the realistic
-failure here is an accidental loop or a double-submit rather than an attack —
-and B1's size cap bounds the expensive half of it more cheaply.
-
-Worth revisiting if the API ever gains a non-SPA client (see the versioning note
-under *Verified as non-issues* — the same trigger applies to both).
-
-**Tier 1 is down to this one item.** C4 was the last unauthenticated-exposure
-item, and C2 was demoted to Tier 2 on 2026-08-10 once its risky half shipped and
-its symptom turned out not to be occurring. B3 is what remains.
+**Nothing is queued.** The next item to arrive should be ranked against the four
+criteria under *How this list is ordered* rather than appended, and Tier 2's
+standing notes should be re-read for a trigger that has since fired.
 
 ---
 
@@ -154,6 +142,14 @@ before adding a second. `render.yaml` is explicitly one free instance.
 Note that neither X1's session sweep nor C3's throttle inherits this problem:
 both are DB-backed and driven by login traffic rather than by a scheduler, which
 was a deliberate design choice at the time.
+
+**B3's rate limiter does inherit it, and is the first thing here that does**
+(added 2026-08-10). `services/rate_limit.py` holds its counters in process
+memory, so a second worker or instance makes the effective cap 60/s *per
+process* rather than per caller. That was a deliberate trade — a one-second
+window makes persistence worthless and a Postgres write per request would cost
+more than the runaway client it catches — but it means this note now has a
+concrete second item to revisit, not just the Alembic race.
 
 ### N4 — Reconsider serving the SPA from the API process
 
@@ -315,6 +311,91 @@ Referenced by B3, which names these endpoints as the unlimited-volume surface.
 ## Shipped
 
 Kept with verification evidence intact. These no longer occupy a priority slot.
+
+### B3 — Rate limiting beyond the login route
+
+- [x] **Class B** · **shipped 2026-08-10** · owner-specified cap
+
+`POST /auth/login` was the only limited route in the app. A new `rate_limit`
+middleware in `main.py` now caps **every non-exempt path at 60 requests per
+second per caller**, returning 429 with `Retry-After: 1`. Policy in
+`domain/rate_limit.py` (pure), counters in `services/rate_limit.py` (in memory).
+
+**The cap and its scope were the owner's call, not a derived number.** The
+original plan was to measure real volume from N1's `event=request` lines first
+and possibly demote the item to a Tier 2 note. The owner specified 60/s per
+user, API routes only, before that measurement was run. Recorded plainly because
+the number is therefore a policy decision rather than a fitted one — anyone
+tuning it later is changing a choice, not correcting an estimate.
+
+**Measurement still changed the design, in the one place it mattered.** Driving
+the ASGI stack showed that `/` and `/static/*` emit `event=request` lines
+through the same middleware chain as the API, and that a cold SPA load is ~35
+requests (33-module ES graph + `styles.css` + the 441 KB zxing bundle) fired
+nearly at once. Two of those inside one second is 70. So:
+
+- a **global** 60/s would have been tripped by two people refreshing at a shift
+  change, serving a 429 for a JavaScript module — i.e. the blank page this app
+  already has history with;
+- `/`, `/static/*` and `/healthz` are therefore **exempt: neither counted nor
+  refused**. Not counted, so page loads cannot spend the budget. Not refused, so
+  an over-limit caller can still load the page that fixes it, and a busy caller
+  cannot fail a deploy through `render.yaml`'s `healthCheckPath`.
+
+Four decisions worth not re-deriving:
+
+- **Keyed by session, not user id.** The middleware runs before route
+  dependencies resolve, so `auth_deps.get_current_user` has not run and no user
+  id exists yet; the session cookie is the only identity available that early.
+  One person on a phone and a laptop gets two budgets, which is correct for
+  catching a runaway *client*. The token is SHA-256'd before use as a dict key,
+  for the reason X1 hashed it in the database.
+- **In memory, where C3 used Postgres, and the asymmetry is the point.** A
+  failed-login counter must survive a restart or an attacker resets it by
+  waiting out a spin-down. This window is one second, so nothing older than that
+  was worth keeping and a restart loses nothing. A Postgres write per request on
+  `basic-256mb` would cost more than the runaway client it catches.
+- **Refused requests are not counted.** Otherwise a client already looping holds
+  its own window open and a one-second limit becomes an unbounded lockout.
+  Pinned by `test_a_refused_request_is_not_counted`.
+- **Registered *before* `add_security_headers`, making it innermost**, so a 429
+  passes back out through both other middlewares and carries the CSP/HSTS
+  headers and an `X-Request-ID` like any other response. A limiter whose
+  rejections were invisible to the logs would be the hardest thing here to
+  diagnose. Pinned by two ordering tests that fail if registration moves.
+
+**C3's throttle machinery was read and deliberately not reused.** It counts
+*failures* — `record_failure` fires on a failed login and `clear` wipes the
+counter on success, because the thing being limited is guessing. This limits
+*volume*, where every request counts and success is not a reset. The shape was
+reused (pure domain policy, rejection with `Retry-After`, never sleeping); the
+functions were not.
+
+**Known limit, and it belongs to N3 rather than here:** counters are per
+process. `entrypoint.sh` runs uvicorn with no `--workers`, so today that is
+exact. A second worker or a second instance makes the effective cap 60/s *per
+process* — added to N3's list rather than guarded against now, since guarding
+for it means the Postgres write this design exists to avoid.
+
+#### Verification evidence (B3, 2026-08-10)
+
+| Check | Result |
+|---|---|
+| Full backend suite | **632 passed** (585 + 47 new) |
+| New tests | 13 pure policy, 18 service, 16 middleware |
+| OpenAPI operations | **73** — unchanged; the limiter adds no route |
+| Alembic head | `fbc4e6a8d0f2` — untouched, no migration |
+| `git diff --check` | clean |
+| `compileall backend/app` | clean |
+| Exempt paths under load | 200 consecutive requests to `/`, `/healthz`, `/static/styles.css`, `/static/main.js` do not arm the limiter |
+| Ordering | a 429 carries `Content-Security-Policy`, `X-Frame-Options: DENY`, and a 12-char `X-Request-ID` |
+
+Middleware tests drive the ASGI stack directly with a stubbed clock — no server
+started (per the project's browser-validation rule) and no sleeping, so the
+sliding window is deterministic rather than raced.
+
+**Not yet validated in the browser or on the live service.** This entry records
+a local result only.
 
 ### C4 — Close `/docs`, `/redoc`, `/openapi.json` in production
 

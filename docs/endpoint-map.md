@@ -919,6 +919,15 @@ infer a 403 from a dependency that is merely able to raise one. On
 Pydantic, so a request that is both malformed and unauthorized answers **403,
 not 422**.
 
+**429 has two independent sources and neither is a `DomainError` route error.**
+`routers/auth.py` returns one on `POST /auth/login` when the login backoff is
+engaged (`LoginThrottledError`, mapped in `_STATUS_MAP` as a safety net but
+handled directly so it can carry `Retry-After`). Since B3 the `rate_limit`
+middleware in `main.py` returns the other on **any** non-exempt path, before
+routing, when one caller exceeds 60 requests/second — so a 429 can appear on a
+route whose OpenAPI `responses` do not mention it, including a 404 path. Exempt:
+`/`, `/static/*`, `/healthz`. Both carry `Retry-After` in whole seconds.
+
 Upload size is also raised directly, by `routers/_uploads.py::read_capped` (not a
 `DomainError` — a byte cap is a transport limit, not a business rule, so it stays
 out of the framework-agnostic `domain/errors.py`): **413** on
