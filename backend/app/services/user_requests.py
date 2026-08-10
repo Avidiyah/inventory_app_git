@@ -15,7 +15,9 @@ from typing import Optional
 from sqlalchemy.orm import Session, joinedload
 
 from app.domain.errors import UserRequestNotFoundError
+from app.domain.list_limits import fetch_limit
 from app.models import UserRequest
+from app.services._list_cap import capped
 
 
 REQUEST_INVENTORY_RECOUNT = "inventory_recount"
@@ -152,6 +154,13 @@ def resolve_missing_price_requests(
 def list_user_requests(
     db: Session, *, status: Optional[str] = STATUS_OPEN
 ) -> list[UserRequest]:
+    """Requests newest-first, optionally filtered by status.
+
+    Capped at `list_limits.MAX_LIST_ROWS` (X3). This is the list most likely
+    to grow without anyone watching -- requests accumulate from short counts
+    and missing prices and are only cleared by someone resolving them -- so
+    the `event=list.truncated` trigger matters more here than elsewhere.
+    """
     query = db.query(UserRequest).options(
         joinedload(UserRequest.item),
         joinedload(UserRequest.work_order),
@@ -160,7 +169,10 @@ def list_user_requests(
     )
     if status is not None:
         query = query.filter(UserRequest.status == status)
-    return query.order_by(UserRequest.created_at.desc()).all()
+    return capped(
+        query.order_by(UserRequest.created_at.desc()).limit(fetch_limit()).all(),
+        what="user_requests",
+    )
 
 
 def update_user_request(

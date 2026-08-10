@@ -48,6 +48,7 @@ from app.domain.errors import (
     WorkOrderStateError,
 )
 from app.domain.billing import validate_billable_value
+from app.domain import list_limits
 from app.domain.quantity import apply_delta
 from app.models import (
     Item,
@@ -58,6 +59,7 @@ from app.models import (
     WorkOrderLabor,
     WorkOrderTechnician,
 )
+from app.services import _list_cap
 from app.services import user_requests as request_service
 
 
@@ -816,6 +818,20 @@ def list_work_orders(
     Academics means no known term appears in either. Blank or malformed schedule
     values sort last, with creation time breaking ties. `limit`, when set, caps
     this ordering; filters and Show all omit it to reach the full matching set.
+
+    **X3's ceiling applies here differently from every other capped list, and
+    the difference is worth understanding before changing it.** `schedule_date`
+    is raw text, so the ordering can only be decided in Python (X2 ruled out
+    doing it in SQL) and there is no `LIMIT` that would preserve it. So the
+    ceiling bounds the **response**, not the query: the lightweight ranking
+    projection below still spans the whole matching set. Making it bound the
+    query too means reopening X2.
+
+    Consequence worth stating plainly: an omitted `limit` no longer takes a
+    separate uncapped branch. It now runs the same rank-then-hydrate path a set
+    `limit` takes, with `MAX_LIST_ROWS` as the effective cap. Same rows, same
+    order, strictly less loading -- that path is A6's optimization, now applied
+    universally instead of only when the caller asked for a subset.
     """
     def scoped(*entities):
         """Live work orders matching every filter, projected to `entities`."""
@@ -830,22 +846,26 @@ def list_work_orders(
         )
         return _scoped_to_user(query, user)
 
-    if limit is None:
-        # Uncapped: every matching row is returned anyway, so hydrate once.
-        return _filter_and_sort_by_schedule(
-            scoped(WorkOrder).options(*_LIST_EAGER_LOADS).all(), scheduled_date
-        )
+    ceiling = list_limits.MAX_LIST_ROWS
+    effective_limit = ceiling if limit is None else min(limit, ceiling)
 
-    # Capped: `schedule_date` is raw text, so the ordering can only be
+    # `schedule_date` is raw text, so the ordering can only be
     # decided in Python (see `_filter_and_sort_by_schedule`) and SQL cannot
     # do the LIMIT for us. Rank a lightweight projection first, then hydrate
     # only the rows that survive the cap -- otherwise the eager loads below
     # fan out across the entire matching set to return `limit` cards. Same
     # predicates, same comparison keys, same order; strictly less loaded.
-    ranked = _filter_and_sort_by_schedule(
+    all_ranked = _filter_and_sort_by_schedule(
         scoped(WorkOrder.id, WorkOrder.schedule_date, WorkOrder.created_at).all(),
         scheduled_date,
-    )[:limit]
+    )
+    ranked = all_ranked[:effective_limit]
+
+    # Only report truncation when the *ceiling* bit, not when a caller's own
+    # smaller `limit` did its job -- a page asking for 10 cards and getting 10
+    # is not a truncated list.
+    if limit is None or limit >= ceiling:
+        _list_cap.report_if_truncated(len(all_ranked), what="work_orders")
 
     ordered_ids = [row.id for row in ranked]
     if not ordered_ids:
@@ -960,7 +980,13 @@ def list_work_orders_for_export(
     `scope` is `all` (every live work order), `archived` (the closed ones the
     list hides), or one live status. The remaining predicates mirror the Work
     Orders controls and combine with that scope using AND. Unlike the list there
-    is no `limit`: an export is meant to be the whole matching set."""
+    is no `limit`: an export is meant to be the whole matching set.
+
+    **Deliberately exempt from X3's `MAX_LIST_ROWS` ceiling -- do not "fix"
+    this.** `docs/current-state.md` documents the Admin+ export as the uncapped
+    filtered set, and a CSV that silently omits rows while looking complete is a
+    billing and record-keeping problem rather than a performance one. Every
+    other list in the app is capped; this one is the considered exception."""
     wo.validate_export_scope(scope)
     query = db.query(WorkOrder).options(
         joinedload(WorkOrder.supervisor),

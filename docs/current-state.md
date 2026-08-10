@@ -102,6 +102,7 @@ Path shorthand:
 | Auth/session/login/logout | `app/auth_deps.py`, `routers/auth.py`, `services/auth.py`, `schemas/auth.py`, `static/views/auth.js`, `static/api.js` | `test_auth_password.py`, `test_auth_session_lifetime.py`, `test_session_token_hashing.py`, `test_password_reset_revokes_sessions.py` |
 | Login throttling / lockout | `domain/login_throttle.py`, `services/login_throttle.py`, `routers/auth.py`, `models.py` (`LoginAttempt`), `backend/entrypoint.sh` (proxy headers) | `test_login_throttle.py`, `test_login_throttle_service.py` |
 | Request rate limiting (all routes) | `domain/rate_limit.py`, `services/rate_limit.py`, `main.py` (`rate_limit` middleware), `backend/entrypoint.sh` (proxy headers, single process) | `test_rate_limit.py`, `test_rate_limit_service.py`, `test_rate_limit_middleware.py` |
+| List-size ceiling (all list endpoints) | `domain/list_limits.py`, `services/_list_cap.py`, the six `list_*` service functions | `test_list_limits.py`, `test_list_cap_service.py`, `test_list_caps_applied.py` |
 | Roles/permissions/user management | `domain/roles.py`, `routers/users.py`, `services/users.py`, `schemas/users.py`, `static/roles.js`, `static/views/users.js`, `static/views/nav.js` | `test_roles.py`, `test_route_role_gates.py`, `test_user_names.py`, `test_user_role_edit.py`, `test_user_archive.py` |
 | Item CRUD/lookup/archive | `routers/items.py`, `services/items.py`, `schemas/items.py`, `models.py`, `static/views/items.js`, `static/views/itemEditor.js`, `static/api.js` | `test_item_barcodes.py`, `test_item_price_gating.py`, route-gate tests |
 | Item notes | `domain/notes_validation.py`, `services/notes.py`, `schemas/items.py`, `routers/items.py`, `static/views/notes.js` | add/extend focused tests if behavior changes |
@@ -424,6 +425,27 @@ Security/access:
   action is far below it, and a runaway `fetch` loop is far above it —
   **confirmed by an owner browser pass against the deployed service on
   2026-08-10**, in which ordinary field work never approached the cap.
+- **Every list endpoint returns at most 5,000 rows** (`MAX_LIST_ROWS`,
+  `domain/list_limits.py`), applied in the service layer via
+  `services/_list_cap.py`. This is a **safety ceiling, not pagination** — there
+  are no `limit`/`offset` params and no page contract. When it bites, the list
+  is truncated and an N1 line `event=list.truncated list=<name> cap=5000` is
+  emitted; the caller receives a short list with no other signal, which is the
+  accepted trade (X3). That log line is the trigger for building real
+  pagination, and it names which list overflowed.
+  - Capped: `/items/`, `/tools/`, `/users/`, `/mass-stages/`,
+    `/user-requests/`, `/work-orders/`. The five SQL paths fetch
+    `MAX_LIST_ROWS + 1` so truncation is detectable without a `COUNT(*)`,
+    which bounds the database work as well as the response.
+  - **`GET /work-orders/` is the exception in how the cap applies.** Its
+    ordering is decided in Python because `schedule_date` is raw text (X2), so
+    the ceiling bounds the *response*, not the query. Its `limit` param also
+    gained an upper bound of `MAX_LIST_ROWS` (it was `ge=1`, unbounded), and
+    omitting `limit` no longer takes a separate uncapped code path — same rows,
+    same order, less loading.
+  - **The Admin+ work-order CSV export is deliberately exempt** and remains the
+    uncapped filtered set. A CSV that silently omits rows while looking complete
+    is a records problem, not a performance one.
 - Both upload routes are size-capped (10 MB image / 25 MB CSV) and return 413
   above it; see *Upload size caps* under Runtime And Stack. On the import route
   the role gate runs first, so an unauthorised caller never reaches the check.
@@ -1132,7 +1154,6 @@ specified.
 | --- | --- | --- | --- |
 | POST | `/items/` | admin+ | create item |
 | GET | `/items/` | session | list non-archived items newest-first; optional `q` performs case-insensitive literal substring search on name/primary barcode; blank `q` returns no rows |
-| GET | `/items/search-index` | session | lightweight live-item projection containing only name and primary barcode, ordered by name/barcode |
 | GET | `/items/{barcode}` | session | lookup live item by primary or additional barcode |
 | PATCH | `/items/{item_id}` | admin+ | partial edit of barcode/name/location/price/product link; explicit null clears price/link |
 | PATCH | `/items/{item_id}/notes` | supervisor+ | replace notes object |
@@ -1339,8 +1360,9 @@ Behavior:
   native suggestion popup, and renders no item cards. Typing alone does not
   query or render. Search/Enter calls `/items/?q=...` across the full live
   dataset; Load All Items calls the backward-compatible unfiltered `/items/`
-  feed. The lightweight `/items/search-index` endpoint remains available but
-  is not called by the current Find Item view.
+  feed. `/items/search-index` was **deleted in X3** (2026-08-10) — it had no
+  caller anywhere and returned every live name and barcode to any signed-in
+  user.
 - Technician item table is simplified: no actions/created column, quantity and
   location near name.
 - Supervisor+ can edit notes.
@@ -1759,9 +1781,6 @@ Behavior:
   search is a trimmed, case-insensitive literal substring across name and primary
   barcode; SQL wildcard/escape characters are escaped and a blank search returns
   no rows. Omitting search preserves the full-list contract for other views.
-- `list_item_search_index` projects only live item names and primary barcodes,
-  ordered by name/barcode. The compatibility endpoint remains available but
-  the current Find Item view does not request or display its suggestions.
 - `get_item_by_barcode` resolves primary or additional barcode for live items.
 - `create_item` checks barcode across primary and additional code tables.
 - `replace_barcodes` diffs child rows to avoid transient unique conflicts.

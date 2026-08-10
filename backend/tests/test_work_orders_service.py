@@ -13,12 +13,14 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import logging
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
 
+from app.domain import list_limits
 from app.domain import work_orders as wo
 from app.domain.errors import (
     InvalidAssigneeError,
@@ -1441,3 +1443,77 @@ def test_archived_item_cannot_be_logged(db):
     db.flush()
     with pytest.raises(ItemNotFoundError):
         wos.add_work_order_item(db, w.id, user=tech, item_id=item.id, quantity=Decimal(1))
+
+
+# --------------------------------------------------------------------------
+# X3: the ceiling, and the branch it changed
+# --------------------------------------------------------------------------
+
+def test_omitting_limit_still_returns_every_matching_row_in_the_same_order(db):
+    """X3 removed `list_work_orders`' separate uncapped branch.
+
+    An omitted `limit` now runs the same rank-then-hydrate path a set `limit`
+    takes, with `MAX_LIST_ROWS` as the effective cap. This is the one place the
+    change switches which code path executes, so it is pinned directly: the
+    default call must agree with an explicit large limit, row for row and in
+    order.
+    """
+    admin = _seed_user(db, "admin")
+    for index in range(5):
+        wos.get_or_create_work_order(
+            db,
+            number=f"WO-CAP-{uuid.uuid4().hex[:8]}",
+            created_by_id=admin.id,
+            schedule_date=f"7/{20 + index}/2026",
+        )
+
+    default_call = wos.list_work_orders(db, user=admin)
+    explicit_call = wos.list_work_orders(db, user=admin, limit=list_limits.MAX_LIST_ROWS)
+
+    assert [w.id for w in default_call] == [w.id for w in explicit_call]
+    assert len(default_call) >= 5
+
+
+def test_the_ceiling_caps_the_default_call_and_reports_it(db, monkeypatch, caplog):
+    monkeypatch.setattr(list_limits, "MAX_LIST_ROWS", 2)
+    caplog.set_level(logging.WARNING)
+
+    admin = _seed_user(db, "admin")
+    for index in range(4):
+        wos.get_or_create_work_order(
+            db,
+            number=f"WO-CEIL-{uuid.uuid4().hex[:8]}",
+            created_by_id=admin.id,
+            schedule_date=f"7/{20 + index}/2026",
+        )
+
+    rows = wos.list_work_orders(db, user=admin)
+
+    assert len(rows) == 2
+    truncations = [
+        r.fields["list"] for r in caplog.records if r.getMessage() == "list.truncated"
+    ]
+    assert "work_orders" in truncations
+
+
+def test_a_callers_own_smaller_limit_is_not_reported_as_truncation(db, monkeypatch, caplog):
+    """The Work Orders page browses 10 cards by default. That is the caller
+    getting exactly what it asked for, not the ceiling biting -- reporting it
+    would fill the logs with false alarms and train everyone to ignore the one
+    signal this item exists to produce."""
+    monkeypatch.setattr(list_limits, "MAX_LIST_ROWS", 100)
+    caplog.set_level(logging.WARNING)
+
+    admin = _seed_user(db, "admin")
+    for index in range(4):
+        wos.get_or_create_work_order(
+            db,
+            number=f"WO-SMALL-{uuid.uuid4().hex[:8]}",
+            created_by_id=admin.id,
+            schedule_date=f"7/{20 + index}/2026",
+        )
+
+    rows = wos.list_work_orders(db, user=admin, limit=2)
+
+    assert len(rows) == 2
+    assert [r for r in caplog.records if r.getMessage() == "list.truncated"] == []

@@ -20,8 +20,10 @@ from app.domain.errors import (
     DuplicateBarcodeError,
     ItemNotFoundError,
 )
+from app.domain.list_limits import fetch_limit
 from app.models import Item, ItemBarcode, MassStageItem, Transaction
 from app.services import user_requests as request_service
+from app.services._list_cap import capped
 
 
 def _barcode_holder(
@@ -198,8 +200,16 @@ def list_items(db: Session, *, search: Optional[str] = None) -> Sequence[Item]:
     dataset by a case-insensitive name or primary-barcode substring.
 
     Omitting `search` preserves the existing full-list contract used by other
-    frontend views. A blank explicit search returns no rows rather than
-    accidentally loading the complete catalogue.
+    frontend views -- `transactions.js` (Scan/Stock manual entry), `history.js`
+    and `massStage.js` all load the whole list once and filter it client-side,
+    so this is reference data as much as it is a list view.
+
+    A blank explicit search returns no rows rather than accidentally loading
+    the complete catalogue.
+
+    Capped at `list_limits.MAX_LIST_ROWS` (X3). The cap is far above any real
+    catalogue and exists to bound a runaway result and to emit a trigger; see
+    `domain/list_limits.py`.
     """
     query = db.query(Item).filter(Item.archived_at.is_(None))
     pattern = _search_pattern(search)
@@ -212,16 +222,9 @@ def list_items(db: Session, *, search: Optional[str] = None) -> Sequence[Item]:
                 Item.barcode.ilike(pattern, escape=_LIKE_ESCAPE),
             )
         )
-    return query.order_by(Item.created_at.desc()).all()
-
-
-def list_item_search_index(db: Session):
-    """Return only live item names and primary barcodes for Find Item hints."""
-    return (
-        db.query(Item.name, Item.barcode)
-        .filter(Item.archived_at.is_(None))
-        .order_by(Item.name.asc(), Item.barcode.asc())
-        .all()
+    return capped(
+        query.order_by(Item.created_at.desc()).limit(fetch_limit()).all(),
+        what="items",
     )
 
 

@@ -25,7 +25,7 @@ A **self-hosted inventory + work-order staging system** for physical materials t
 ## Documentation map
 
 - **`docs/current-state.md`** — the durable contract/invariants reference (data model, hard invariants, API surface, roles). "If it conflicts with code, trust the code."
-- **`docs/endpoint-map.md`** — traces all 73 endpoints DB↔view (router→service→table, api.js→view), plus full request/response contracts, an error catalog, and service algorithms — meant to make reading source unnecessary.
+- **`docs/endpoint-map.md`** — traces all 72 endpoints DB↔view (router→service→table, api.js→view), plus full request/response contracts, an error catalog, and service algorithms — meant to make reading source unnecessary.
 - **`docs/improvement-tracker.md`** — requested improvements and their current status.
 - **`docs/api-hardening-checklist.md`** — the framework/operational backlog (not user-requested features), listed in priority order. Read it top-down; the first unticked item is the next one to do.
 - **`docs/handoff.md`** — the **live** session hand-off: where work stands and what to pick up next. Not a current-state authority.

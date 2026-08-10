@@ -27,7 +27,6 @@ from app.schemas.items import (
     ItemCreate,
     ItemNotesUpdate,
     ItemResponse,
-    ItemSearchIndexEntry,
     ItemUpdate,
 )
 from app.services import items as items_service
@@ -98,22 +97,6 @@ def list_items(
     return [
         _item_response(item, user.role)
         for item in items_service.list_items(db, search=q)
-    ]
-
-
-@router.get(
-    "/search-index",
-    response_model=list[ItemSearchIndexEntry],
-)
-def list_item_search_index(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Return only live item names and primary barcodes for Find Item input
-    suggestions. Full item details remain behind an explicit list search."""
-    return [
-        ItemSearchIndexEntry(name=row.name, barcode=row.barcode)
-        for row in items_service.list_item_search_index(db)
     ]
 
 

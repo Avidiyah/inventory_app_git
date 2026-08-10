@@ -42,6 +42,7 @@ from app.database import get_db
 from app.domain import roles
 from app.domain import work_orders as wo
 from app.domain.errors import DomainError
+from app.domain.list_limits import MAX_LIST_ROWS
 from app.models import User, WorkOrder, WorkOrderItem, WorkOrderLabor
 from app.routers._errors import to_http
 from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_capped
@@ -241,7 +242,7 @@ def list_work_orders(
     community: Optional[str] = Query(None),
     scheduled_date: Optional[date] = Query(None),
     q: Optional[str] = Query(None),
-    limit: Optional[int] = Query(None, ge=1),
+    limit: Optional[int] = Query(None, ge=1, le=MAX_LIST_ROWS),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -252,7 +253,11 @@ def list_work_orders(
     is the no-known-term fallback. `limit` caps that scheduled-date ordering (the
     page browses the first 10 by default and omits `limit` for Show all / search).
     Blank or malformed schedule values sort last. Any authenticated user;
-    server-scoped."""
+    server-scoped.
+
+    `limit` gained its `le` bound in X3 -- it was `ge=1` with no upper bound, so
+    a caller could ask for any integer. Omitting it still means "the full
+    matching set", which the service now caps at `MAX_LIST_ROWS`."""
     try:
         return [
             _card(w)

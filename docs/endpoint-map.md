@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-08-09
 
-Purpose: a complete, self-contained trace of all 73 endpoints — wiring, contracts,
+Purpose: a complete, self-contained trace of all 72 endpoints — wiring, contracts,
 rules, error behavior, and service algorithms — so an AI or developer can answer
 "what does this endpoint send/return/do?" **without opening the source**. If you
 find yourself about to read `schemas/`, `services/`, `domain/`, or `routers/`,
@@ -106,22 +106,21 @@ writes (w).
 | 54 | POST | `/tools/{tool_id}/adjust` | admin+ | `tools.py` → `tools_service.adjust_tool_quantity` | tools (w), tool_transactions (w) | `apiAdjustTool` | `toolCorrection.js` |
 | 55 | POST | `/work-orders/import` | admin+ | `work_orders.py` → `work_orders.import_work_orders` | work_orders (r/w, locked find-or-create — **the only create path**), users (r, active-supervisor name-match) | `apiImportWorkOrders` | `workOrders.js` |
 | 56 | POST | `/work-orders/{id}/restore` | supervisor+ scoped | `work_orders.py` → `work_orders.restore_work_order` | work_orders (w, un-archive) | `apiRestoreWorkOrder` | `history.js`, `workOrders.js` (Admin+ exact search) |
-| 57 | GET | `/items/search-index` | session | `items.py` → `items.list_item_search_index` | items (r; name/barcode projection only) | — | — (retained compatibility endpoint; current Find Item does not request it) |
-| 58 | PATCH | `/users/{id}/name` | self or outranks target | `users.py` → `users.update_name` | users (w; first/last name + optional `username`) | `apiUpdateUserName` | `users.js` |
-| 59 | POST | `/work-orders/{id}/labor` | supervisor+ scoped | `work_orders.py` → `work_orders.add_work_order_labor` | work_orders (r/w status), work_order_technicians (r), work_order_labor (w), users (r) | `apiAddWorkOrderLabor` | `workOrders.js` |
-| 60 | PATCH | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | `work_orders.py` → `work_orders.update_work_order_labor` | work_order_labor (r/w) | `apiUpdateWorkOrderLabor` | `workOrders.js` |
-| 61 | DELETE | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | `work_orders.py` → `work_orders.delete_work_order_labor` | work_order_labor (r/w) | `apiDeleteWorkOrderLabor` | `workOrders.js` |
-| 62 | PATCH | `/users/{id}/role` | admin+ AND outranks both current and new role | `users.py` → `users.update_role` | users (w), sessions (w, revoke) | `apiUpdateUserRole` | `users.js` |
-| 63 | GET | `/work-orders/export` | admin+, server-scoped | `work_orders.py` → `work_orders.export_work_orders_csv` (full: current live filters; client: unchanged scope dropdown; + `domain.receipt`) | work_orders (r), work_order_items (r), items (r), work_order_labor (r), users (r) | `apiExportWorkOrders` | `workOrders.js` |
-| 64 | GET | `/work-orders/filter-options` | session scoped | `work_orders.py` → `work_orders.get_work_order_filter_options` | work_orders (r), work_order_technicians (r, scope), users (r) | `apiGetWorkOrderFilterOptions` | `workOrders.js` |
-| 65 | GET | `/work-orders/legacy/archive` | owner exactly | `work_orders.py` → `work_orders.count_live_legacy_work_orders` | work_orders (r; live legacy count) | `apiGetLegacyWorkOrderArchivePreview` | `workOrders.js` |
-| 66 | POST | `/work-orders/legacy/archive` | owner exactly | `work_orders.py` → `work_orders.archive_live_legacy_work_orders` | work_orders (w; atomic bulk soft-archive) | `apiArchiveLegacyWorkOrders` | `workOrders.js` |
-| 67 | POST | `/work-orders/{id}/start` | technician+ scoped | `work_orders.py` → `work_orders.start_work_order` | work_orders (r/w, row lock) | `apiStartWorkOrder` | `transactions.js`, `workOrders.js` |
-| 68 | GET | `/user-requests/` | admin+ | `user_requests.py` → `user_requests.list_user_requests` | user_requests (r), items (r), work_orders (r), users (r) | `apiListUserRequests` | `userRequests.js` |
-| 69 | PATCH | `/user-requests/{id}` | admin+ | `user_requests.py` → `user_requests.update_user_request` | user_requests (r/w), users (r) | `apiUpdateUserRequest` | `userRequests.js` |
-| 70 | POST | `/work-orders/{id}/complete` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.complete_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiCompleteWorkOrder` | `workOrders.js` |
-| 71 | POST | `/work-orders/{id}/hold` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.hold_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiHoldWorkOrder` | `workOrders.js` |
-| 72 | POST | `/work-orders/{id}/resume` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.resume_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiResumeWorkOrder` | `workOrders.js` |
+| 57 | PATCH | `/users/{id}/name` | self or outranks target | `users.py` → `users.update_name` | users (w; first/last name + optional `username`) | `apiUpdateUserName` | `users.js` |
+| 58 | POST | `/work-orders/{id}/labor` | supervisor+ scoped | `work_orders.py` → `work_orders.add_work_order_labor` | work_orders (r/w status), work_order_technicians (r), work_order_labor (w), users (r) | `apiAddWorkOrderLabor` | `workOrders.js` |
+| 59 | PATCH | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | `work_orders.py` → `work_orders.update_work_order_labor` | work_order_labor (r/w) | `apiUpdateWorkOrderLabor` | `workOrders.js` |
+| 60 | DELETE | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | `work_orders.py` → `work_orders.delete_work_order_labor` | work_order_labor (r/w) | `apiDeleteWorkOrderLabor` | `workOrders.js` |
+| 61 | PATCH | `/users/{id}/role` | admin+ AND outranks both current and new role | `users.py` → `users.update_role` | users (w), sessions (w, revoke) | `apiUpdateUserRole` | `users.js` |
+| 62 | GET | `/work-orders/export` | admin+, server-scoped | `work_orders.py` → `work_orders.export_work_orders_csv` (full: current live filters; client: unchanged scope dropdown; + `domain.receipt`) | work_orders (r), work_order_items (r), items (r), work_order_labor (r), users (r) | `apiExportWorkOrders` | `workOrders.js` |
+| 63 | GET | `/work-orders/filter-options` | session scoped | `work_orders.py` → `work_orders.get_work_order_filter_options` | work_orders (r), work_order_technicians (r, scope), users (r) | `apiGetWorkOrderFilterOptions` | `workOrders.js` |
+| 64 | GET | `/work-orders/legacy/archive` | owner exactly | `work_orders.py` → `work_orders.count_live_legacy_work_orders` | work_orders (r; live legacy count) | `apiGetLegacyWorkOrderArchivePreview` | `workOrders.js` |
+| 65 | POST | `/work-orders/legacy/archive` | owner exactly | `work_orders.py` → `work_orders.archive_live_legacy_work_orders` | work_orders (w; atomic bulk soft-archive) | `apiArchiveLegacyWorkOrders` | `workOrders.js` |
+| 66 | POST | `/work-orders/{id}/start` | technician+ scoped | `work_orders.py` → `work_orders.start_work_order` | work_orders (r/w, row lock) | `apiStartWorkOrder` | `transactions.js`, `workOrders.js` |
+| 67 | GET | `/user-requests/` | admin+ | `user_requests.py` → `user_requests.list_user_requests` | user_requests (r), items (r), work_orders (r), users (r) | `apiListUserRequests` | `userRequests.js` |
+| 68 | PATCH | `/user-requests/{id}` | admin+ | `user_requests.py` → `user_requests.update_user_request` | user_requests (r/w), users (r) | `apiUpdateUserRequest` | `userRequests.js` |
+| 69 | POST | `/work-orders/{id}/complete` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.complete_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiCompleteWorkOrder` | `workOrders.js` |
+| 70 | POST | `/work-orders/{id}/hold` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.hold_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiHoldWorkOrder` | `workOrders.js` |
+| 71 | POST | `/work-orders/{id}/resume` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.resume_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiResumeWorkOrder` | `workOrders.js` |
 
 (Rows 55–72 were appended out of resource order to keep the existing #1–54
 numbering — and the footnote / per-table references to it — stable.)
@@ -148,10 +147,9 @@ What populates each screen. Format: **table → … → view → what the user s
   shell (`shell-head.html` + `pages/*.html` + `shell-tail.html`).
 
 ### Items
-- **items** → `list_item_search_index` → `GET /items/search-index`: retained
-  lightweight name/barcode projection endpoint with no current frontend
-  consumer. Find Item makes no item request on entry and shows no native
-  suggestion popup.
+- Find Item makes no item request on entry and shows no native suggestion
+  popup. (`GET /items/search-index`, the projection endpoint that once fed it,
+  was deleted in X3 — it had no consumer at all.)
 - **items** → `list_items` → `GET /items/` (optional `q`) → `apiListItems` →
   - `items.js`: explicit full-dataset Search/Enter results or Load All Items
     (Admin/Owner see price/link columns); typing alone does not render cards.
@@ -640,7 +638,6 @@ bool=False`. Full replace of *additional* codes only.
 `price?`, `product_link?`, `created_at`. **`price`/`product_link` are nulled
 server-side below Admin** (`routers/items.py::_item_response`).
 
-**`ItemSearchIndexEntry`** — `GET /items/search-index`: `name`, `barcode`.
 This deliberately excludes IDs, quantity, location, notes, price/link,
 additional barcodes, and timestamps.
 
@@ -1086,8 +1083,6 @@ read-modify-write guard for `items.quantity`).
 - `list_items(search?)` → live items, newest first, no pagination. Omitted search
   preserves the full list; nonblank search matches name or primary barcode with
   case-insensitive substring semantics; explicit blank search returns `[]`.
-- `list_item_search_index()` → live `(name, barcode)` rows only, ordered by both
-  fields; this is the lightweight initial Find Item feed.
 - `delete_item(id)` → set `archived_at` (soft delete; never hard — History joins
   need the row). Idempotent.
 

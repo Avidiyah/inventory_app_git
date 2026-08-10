@@ -27,9 +27,11 @@ from app.domain.errors import (
     UserHasTransactionsError,
     UserNotFoundError,
 )
+from app.domain.list_limits import fetch_limit
 from app.models import User
 from app.services import auth as auth_service
 from app.services import tools as tools_service
+from app.services._list_cap import capped
 
 
 def _clean_name(first_name: str, last_name: str) -> tuple[str, str]:
@@ -77,11 +79,19 @@ def list_users(db: Session, *, include_archived: bool = False):
     """Return users, newest first. By default only active (non-archived)
     users are returned -- the Saved Users management table. The History
     "by user" filter passes `include_archived=True` so a departed user's
-    rows can still be filtered (their name still resolves in history)."""
+    rows can still be filtered (their name still resolves in history).
+
+    Capped at `list_limits.MAX_LIST_ROWS` (X3). Note this list is reference
+    data as well as a management table -- `massStage.js`, `workOrders.js` and
+    `tools.js` load it whole to back client-side pickers -- so the ceiling is
+    set far above any plausible roster rather than tuned to the Users page."""
     query = db.query(User)
     if not include_archived:
         query = query.filter(User.archived_at.is_(None))
-    return query.order_by(User.created_at.desc()).all()
+    return capped(
+        query.order_by(User.created_at.desc()).limit(fetch_limit()).all(),
+        what="users",
+    )
 
 
 def get_user(db: Session, user_id: uuid.UUID) -> User:

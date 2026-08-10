@@ -31,6 +31,7 @@ from app.domain.errors import (
     StageStateError,
     WorkOrderStateError,
 )
+from app.domain.list_limits import fetch_limit
 from app.domain.quantity import apply_delta
 from app.models import (
     Item,
@@ -41,6 +42,7 @@ from app.models import (
     WorkOrder,
 )
 from app.services import work_orders as wo_service
+from app.services._list_cap import capped
 
 
 # --- internal helpers ----------------------------------------------------
@@ -148,7 +150,11 @@ def list_stages(
 ) -> Sequence[MassStage]:
     """Stages newest-first, optionally filtered by status. Slots/items are
     eager-loaded for the summary counts. Scoped: a supervisor sees only stages
-    they created; admin/owner (and `None`) see all."""
+    they created; admin/owner (and `None`) see all.
+
+    Capped at `list_limits.MAX_LIST_ROWS` (X3). The eager loads make this the
+    heaviest row-for-row of the capped lists, which is the one place the
+    ceiling is doing something other than paranoia."""
     q = db.query(MassStage).options(
         selectinload(MassStage.work_order_slots).selectinload(
             MassStageWorkOrder.items
@@ -158,7 +164,10 @@ def list_stages(
         q = q.filter(MassStage.status == status)
     if user is not None and not roles.role_at_least(user.role, roles.ROLE_ADMIN):
         q = q.filter(MassStage.created_by_id == user.id)
-    return q.order_by(MassStage.created_at.desc()).all()
+    return capped(
+        q.order_by(MassStage.created_at.desc()).limit(fetch_limit()).all(),
+        what="mass_stages",
+    )
 
 
 def get_stage(db: Session, stage_id: uuid.UUID) -> MassStage:

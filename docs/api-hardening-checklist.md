@@ -15,9 +15,11 @@ B3 all shipped 2026-08-10** — every static role gate in
 `routers/work_orders.py` is declarative, FastAPI's docs endpoints are closed in
 production, tool-custody row order is pinned, and every route is now rate
 limited — and nothing left on the list exposes anything to an unauthenticated
-caller. C4's implementation also produced **N8**. Tier 1 emptied on that day and
-the owner refilled it by promoting **X3** out of *Not in scope*, accepting the
-frontend work it had always been parked for.
+caller. C4's implementation also produced **N8**. Tier 1 emptied on that day,
+the owner refilled it by promoting **X3** out of *Not in scope*, and **X3
+shipped the same day** — as a safety ceiling rather than the pagination it was
+logged as, because measuring showed the symptom was not occurring and that the
+endpoints in question back client-side search. **Tier 1 is empty again.**
 
 Re-reviewed 2026-08-09 against the promoted code graph at `d715545` (2,512 nodes
 / 5,790 edges), which covers structure the original file-by-file audit did not.
@@ -115,66 +117,17 @@ now has an external clock; the queue below is ordered purely on merit.
 
 ---
 
-## Tier 1 — Do next, in this order
+## Tier 1 — empty
 
-### 1. X3 — Paginate the unbounded collection endpoints
+X3 shipped on 2026-08-10 (see *Shipped*) and nothing replaced it. Every item
+on the original audit is now either shipped, a Tier 2 standing note with a
+named trigger, or ruled out of scope.
 
-- [ ] **Class X** · *promoted from "Not in scope" 2026-08-10* · **owner accepted
-  it as a feature**
-
-Six list endpoints return their entire table. Verified against the tree on
-2026-08-10:
-
-| Endpoint | Bound today | Gate |
-|---|---|---|
-| `GET /items/` | none — optional `q` substring only | any logged-in user |
-| `GET /items/search-index` | none — every live name + primary barcode | any logged-in user |
-| `GET /tools/` | none | any logged-in user |
-| `GET /users/` | none — `include_archived` widens it | Supervisor+ |
-| `GET /mass-stages/` | none | any logged-in user |
-| `GET /user-requests/` | none — open/resolved filter only | Admin+ |
-| `GET /work-orders/` | `limit: Optional[int] = Query(None, ge=1)` | scoped by role |
-
-**Only `work-orders` takes a `limit`, and it has no upper bound and no default.**
-
-**Why it moved.** It was filed under *Not in scope* because changing what these
-routes return needs matching frontend work — a scope objection, never a
-correctness one. B3 named these same endpoints as the unlimited-volume surface
-and could only put a ceiling in front of them: a rate limit bounds how *often* a
-caller asks for everything, not what one such request costs. With Tier 1 empty
-and no Tier 2 trigger fired, the owner accepted the frontend cost and promoted
-it rather than have an item invented to fill the queue.
-
-**Split it before scheduling it**, on the C2 precedent — the expensive part and
-the risky part are not the same part:
-
-- **Cheap half, no UI work:** put an upper bound on `work-orders`' existing
-  `limit`. No default changes, no current caller's response changes, no
-  frontend touch — the page passes 10 or nothing.
-- **Expensive half:** everything else, where adding a page contract changes what
-  existing callers receive. That is the part the original scope objection was
-  about.
-
-**Three things to settle first, all owner-shaped:**
-
-1. **`GET /items/` collides with IMP-001**, which asked for a *Load All Items*
-   button and got one. Paginating that route either breaks that button or turns
-   it into a paging UI. It reverses part of a shipped request.
-2. **A `limit` with a default silently truncates every existing caller** and
-   fails quietly — a truncated list looks like a short list. A `limit` without
-   one changes nothing until callers opt in, but leaves the route unbounded for
-   anyone who does not.
-3. **`/items/search-index` has zero frontend callers** (`grep` over
-   `backend/static/`, 2026-08-10). It returns every live item name and barcode
-   to any logged-in user and serves nothing. Deleting it likely beats paginating
-   it; that is a route removal, so OpenAPI goes 73 → 72.
-
-**Two interactions:** paginating `GET /tools/` also caps C2's N+1 as a side
-effect, so re-read C2's trigger afterwards rather than leaving it stale. And
-`GET /work-orders/` sorts in Python because X2 ruled out SQL ordering, so
-`LIMIT`/`OFFSET` there cannot be pushed into the query without reopening X2 —
-pagination bounds the response, not the work.
-
+**Do not invent an item to fill this.** The last two items to be questioned
+before being built — C2 and X3 — both turned out to describe symptoms that
+were not occurring, and both got materially cheaper for having been checked
+against data first. Re-read Tier 2 for a trigger that has fired, or ask the
+owner what actually hurts.
 ---
 
 ## Tier 2 — Standing notes
@@ -347,19 +300,101 @@ column. Both are schema changes, and `schedule_date` is deliberately raw text.
 **Superseded by A6**, which captures the available win (not hydrating the whole
 matching set to return 10 cards) with no behavior change at all.
 
-### X3 — **Promoted to Tier 1 on 2026-08-10.** See the top of this file.
+### X3 — **Promoted, then shipped 2026-08-10.** See *Shipped*.
 
-Left as a pointer rather than deleted, because the *reason* it sat here matters
-to whoever picks it up: it was parked as out of scope for being a feature, not
-for being unimportant. The owner accepted it as a feature and promoted it after
-Tier 1 emptied. Nothing about the item changed — only whether the project is
-willing to do frontend work for it.
+Left as a pointer rather than deleted, because the *reason* it sat here is the
+interesting part: it was parked as out of scope for being a feature, not for
+being unimportant. The owner accepted that cost and promoted it — and then
+measurement showed the feature half was not needed at all. What shipped was a
+safety ceiling with no frontend work, which is why this entry's original
+objection never had to be paid.
 
 ---
 
 ## Shipped
 
 Kept with verification evidence intact. These no longer occupy a priority slot.
+
+### X3 — Bound the unbounded list endpoints
+
+- [x] **Class X** · **shipped 2026-08-10** · *promoted from "Not in scope" the
+  same day* · **shipped as a ceiling, not as pagination**
+
+Six list endpoints returned their entire table; only `GET /work-orders/` took a
+`limit`, and it was `Query(None, ge=1)` — no upper bound, no default. Now every
+list is capped at **`MAX_LIST_ROWS = 5000`**, with truncation reported as an N1
+line. New pure policy in `domain/list_limits.py`, applied through
+`services/_list_cap.py`. **No frontend file changed.**
+
+**The item asked for pagination and pagination is deliberately not what
+shipped.** Two things found by measuring first:
+
+1. **The symptom is not occurring.** The owner confirmed production holds
+   *hundreds* of rows. The item's premise came from reading code, exactly as
+   C2's "200 tools = 201 queries" did.
+2. **`/items/` and `/users/` are not merely list views.** They are bulk
+   reference-data loads backing *client-side* search: `transactions.js:140`
+   (Scan/Stock manual entry) and `history.js:387` each fetch every item once
+   per session and filter locally on each keystroke, and `massStage.js`,
+   `workOrders.js` and `tools.js` do the same for items/users. Paginating them
+   would have meant rewriting core field workflow — to fix a problem nobody
+   has.
+
+So the ceiling is set far above anything real and does two things no caller
+notices: it bounds the blast radius of a runaway query or a bad import, and it
+**emits a trigger**. `event=list.truncated list=<name> cap=5000` is the signal
+that real pagination is finally needed, and it names *which* list fired so the
+work is scoped by evidence rather than doing all six at once.
+
+Five decisions worth not re-deriving:
+
+- **Fetch `CAP + 1`, not `CAP`.** B1's `read_capped` established this: the
+  extra row is what distinguishes "exactly at the ceiling" from "more than the
+  ceiling", so truncation is detectable without a second `COUNT(*)`. It also
+  means the five SQL paths bound the **database work**, not just the response.
+- **Exactly `MAX_LIST_ROWS` is not truncation.** That is a complete result
+  sitting on the boundary; reporting it would cry wolf and train people to
+  ignore the one signal this item produces.
+- **`GET /work-orders/` caps differently and cannot be made uniform.** Its
+  ordering is decided in Python because `schedule_date` is raw text (X2), so
+  the ceiling bounds the response, not the query. Its omitted-`limit` call also
+  no longer takes a separate uncapped branch — it now runs A6's
+  rank-then-hydrate path universally. Same rows, same order, strictly less
+  loading, pinned by
+  `test_omitting_limit_still_returns_every_matching_row_in_the_same_order`.
+- **A caller's own smaller `limit` is never reported as truncation.** The Work
+  Orders page asking for 10 cards and getting 10 is not the ceiling biting.
+- **The Admin+ CSV export is exempt, deliberately.** `current-state.md`
+  documents it as the uncapped filtered set, and a CSV silently missing rows
+  while looking complete is a records problem, not a performance one. The
+  exemption carries a comment saying so, because it looks like an oversight.
+
+**`GET /items/search-index` was deleted rather than capped** — route, schema,
+service function and its test assertions. `grep` over `backend/static/` found
+zero callers; it returned every live item name and barcode to any signed-in user
+and served nothing. **OpenAPI 73 → 72.** The cheapest fix for an unbounded
+endpoint is not having one.
+
+`MAX_LIST_ROWS` is a **chosen** number, not a fitted one — same status as B3's
+60/s. Roughly 10–50× current headroom.
+
+#### Verification evidence (X3, 2026-08-10)
+
+| Check | Result |
+|---|---|
+| Full backend suite | **659 passed** (632 + 27 new) |
+| New tests | 9 pure policy, 10 cap helper, 5 wiring (DB), 3 work-orders |
+| OpenAPI operations | **72** — was 73; `/items/search-index` unmounted |
+| Alembic head | `fbc4e6a8d0f2` — untouched, no migration |
+| `git diff --check` / `compileall` | clean |
+| Frontend changed | **none** — `git status backend/static/` empty |
+
+The wiring tests **lower the ceiling to 1** rather than inserting 5,001 rows
+(`_list_cap` and `fetch_limit` both read `MAX_LIST_ROWS` at call time), so they
+are fast and stay valid if the number ever moves.
+
+**Not yet deployed or browser-validated.** This entry records a local result
+only.
 
 ### B3 — Rate limiting beyond the login route
 

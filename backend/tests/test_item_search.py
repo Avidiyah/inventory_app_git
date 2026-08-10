@@ -67,7 +67,10 @@ def test_list_items_treats_wildcards_literally_and_rejects_blank_search(db):
     assert items_service.list_items(db, search="   ") == []
 
 
-def test_search_and_index_exclude_archived_items_while_unfiltered_list_still_works(db):
+def test_search_excludes_archived_items_while_unfiltered_list_still_works(db):
+    # Previously also covered `list_item_search_index`; that route, schema and
+    # service function were deleted in X3 (zero callers anywhere), so only the
+    # two surviving list paths are asserted here.
     token = uuid.uuid4().hex
     live = _seed_item(
         db,
@@ -83,12 +86,7 @@ def test_search_and_index_exclude_archived_items_while_unfiltered_list_still_wor
 
     unfiltered_ids = {item.id for item in items_service.list_items(db)}
     search_ids = {item.id for item in items_service.list_items(db, search=token)}
-    index_rows = items_service.list_item_search_index(db)
-    index_pairs = {(row.name, row.barcode) for row in index_rows}
 
     assert live.id in unfiltered_ids
     assert archived.id not in unfiltered_ids
     assert search_ids == {live.id}
-    assert (live.name, live.barcode) in index_pairs
-    assert (archived.name, archived.barcode) not in index_pairs
-    assert all(row._fields == ("name", "barcode") for row in index_rows)

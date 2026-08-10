@@ -32,9 +32,11 @@ from app.domain.errors import (
     ToolNotFoundError,
     UserNotFoundError,
 )
+from app.domain.list_limits import fetch_limit
 from app.domain.quantity import apply_delta
 from app.domain.tools import validate_return
 from app.models import Tool, ToolTransaction, User
+from app.services._list_cap import capped
 
 
 def _ensure_barcode_free(
@@ -69,12 +71,18 @@ def create_tool(db: Session, *, barcode: str, name: str, quantity: Decimal) -> T
 
 
 def list_tools(db: Session) -> Sequence[Tool]:
-    """Return every live tool, newest first. Archived tools are excluded."""
-    return (
+    """Return every live tool, newest first. Archived tools are excluded.
+
+    Capped at `list_limits.MAX_LIST_ROWS` (X3) -- a ceiling no real tool
+    inventory approaches, there to bound a runaway result and emit a trigger.
+    """
+    return capped(
         db.query(Tool)
         .filter(Tool.archived_at.is_(None))
         .order_by(Tool.created_at.desc())
-        .all()
+        .limit(fetch_limit())
+        .all(),
+        what="tools",
     )
 
 
