@@ -54,6 +54,7 @@ waiting on a decision for those items.
 | `45aa9ba` | B1's own hash recorded in this file |
 | `e5cd587` | the **C4 decision** — close the docs endpoints in production |
 | `22164bb` | the **database-target cutover** to `inventory-db-copy` (pushed) |
+| `b314d06` | **C1** — the five in-body 403 gates are declarative (**not pushed**) |
 
 **Tier 1 now starts at C4** (~15 min, decided, see below). Full order:
 **C4 → C2 → B3.** C1 is done.
