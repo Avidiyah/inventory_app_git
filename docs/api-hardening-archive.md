@@ -99,8 +99,16 @@ The wiring tests **lower the ceiling to 1** rather than inserting 5,001 rows
 (`_list_cap` and `fetch_limit` both read `MAX_LIST_ROWS` at call time), so they
 are fast and stay valid if the number ever moves.
 
-**Not yet deployed or browser-validated.** This entry records a local result
-only.
+**Deployed 2026-08-10** as `dep-d9t2pv3m8hqs73fhmft0` (run `31426468698`).
+**Browser validation is still outstanding.**
+
+It took two pushes. `eb268a5` carried a broken test —
+`test_users_are_capped_and_reported` asserted the database already held users
+rather than seeding them, which passed against a populated local database and
+failed in CI against an empty one. **Ambient data is not a fixture**, and the
+local suite could not have caught it. Run `31425413107` went red, the deploy was
+**skipped**, and `b4618a9` fixed it. That red build was this repo's first, and
+it is what finally verified the deploy gate's red path — see the N2 entry.
 
 ### B3 — Rate limiting beyond the login route
 
@@ -766,7 +774,7 @@ it.
 | Migration round-trip | clean both ways | **clean** (`fbc4e6a8d0f2 → faa2c4e6b8d0 → head`) |
 | `pip-audit` baseline | recorded + decision | **23 CVEs / 2 packages → logged as B4**, gate left advisory |
 | Deploy gate, green path | `deploy` fires after both jobs pass | **confirmed on the merge to `main`** (run 31345792740 → `dep-d9si4efavr4c73bap2c0`, healthy) |
-| Deploy gate, red path | red build cannot deploy | **not yet observed.** The merge proves `deploy` runs *after* success; it does not prove it is *blocked* by failure. That is the actual gate property and it is verified on the first real red build — deliberately not drilled, for the reason above. |
+| Deploy gate, red path | red build cannot deploy | **Observed 2026-08-10, run `31425413107`** — the first real red build. *Backend suite* failed and `Deploy to Render` was **skipped**, so production was untouched. The decision not to drill this was vindicated: waiting cost nothing and proved the real property. |
 
 ### N5 — Free-tier Postgres expiry — **resolved by upgrading to a paid plan**
 

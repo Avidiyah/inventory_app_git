@@ -5,7 +5,8 @@ route rate limited at 60 requests/second per caller) and then **X3** (every list
 endpoint bounded at 5,000 rows). **Tier 1 is empty and nothing is queued.**
 
 **B3 is closed** — pushed, deployed, and owner-validated in the browser.
-**X3 is committed and not pushed**, and it is the only outstanding thing.
+**X3 is pushed and deployed** (`dep-d9t2pv3m8hqs73fhmft0`); its browser pass is
+the only thing outstanding.
 
 X3 is worth reading about before touching anything list-shaped: it was logged as
 *paginate the collection endpoints* and shipped as a **safety ceiling with no
@@ -63,11 +64,22 @@ in the move, and **no item ID changed**.
 > only database reachability; Admin `/db-test` reports PostgreSQL logical
 > names, not the Render resource display name.
 
-> **X3 shipped and is the one thing not yet pushed.** Every list endpoint is
-> capped at **5,000 rows** (`MAX_LIST_ROWS`), truncation reported as
-> `event=list.truncated`. `GET /items/search-index` was deleted outright.
-> **659 passed**, OpenAPI **73 → 72**, no migration, **no frontend file
-> changed**.
+> **X3 is shipped and deployed; only its browser pass is outstanding.** Every
+> list endpoint is capped at **5,000 rows** (`MAX_LIST_ROWS`), truncation
+> reported as `event=list.truncated`. `GET /items/search-index` was deleted
+> outright. **659 passed**, OpenAPI **73 → 72**, no migration, **no frontend
+> file changed**.
+>
+> **It took two runs, and the failure is the more useful half.** `eb268a5` was
+> pushed with a broken test — `test_users_are_capped_and_reported` asserted the
+> database already held users instead of seeding them, which passed against a
+> populated local database and failed in CI against an empty one. **Ambient
+> data is not a fixture.** Run `31425413107` went red, the deploy was
+> **skipped**, and production was never touched; `b4618a9` fixed it and run
+> `31426468698` deployed as `dep-d9t2pv3m8hqs73fhmft0`.
+>
+> That red build is the first this repo has had, and it settled a question N2
+> left open — see *The one thing to read before drilling anything*.
 >
 > **It was logged as pagination and deliberately is not pagination.** Asking
 > what the row counts actually were — hundreds — plus finding that `/items/`
@@ -202,11 +214,11 @@ first time the `pyzbar` native dependency was handled outside a container.
 
 ### State of the tree
 
-**Ahead of `origin/main` by X3's commits; everything through B3 is pushed and
-deployed.** Expect an `[ahead]` marker and an otherwise clean tree.
+**Clean and in sync with `origin/main`. Everything is pushed and deployed.**
+Expect no `[ahead]` marker.
 
-**X3 touches `backend/**`, so its push deploys.** Two properties make it worth
-its own push and its own browser pass rather than riding along with anything:
+**X3's browser pass is the one thing still open**, and it is worth doing rather
+than assuming, for two reasons:
 
 - it changes **six list endpoints at once**, which is every list in the app; and
 - it **removes a route** (`/items/search-index`), taking OpenAPI 73 → 72. That
@@ -435,8 +447,10 @@ the branch tip `eb7f4a2` had already passed CI when it was pushed.
 **The hazard is the case where those two diverge.** A dashboard deploy while
 `main` carries unpushed local work ships the *last pushed* commit, not what is
 in the working tree — so it can silently roll production backwards past work
-that was never pushed. That is exactly the shape of this session's state: C4 has
-been committed locally for some time while production runs `eb7f4a2`.
+that was never pushed. That was the shape of the session this was written in,
+where C4 sat committed locally while production ran `eb7f4a2`. **The tree is
+clean now**, so the hazard is dormant rather than live — but it recurs the
+moment anything is committed and not pushed.
 
 Not a defect to fix — the dashboard is a necessary escape hatch, and the DB
 cutover needed it. Recorded so nobody re-derives it, and so the N2 evidence
@@ -464,9 +478,21 @@ migrations working and isolating the failure to the thing being tested — and i
 passed.
 
 Consequence for the deploy gate: its **green path is confirmed** (the merge to
-`main` ran both jobs, then deployed). Its **red path — a failing build being
-blocked — has never been observed**, and is deliberately left to be verified for
-free on the first real red build. Do not invent a drill for it.
+`main` ran both jobs, then deployed). Its **red path was observed for real on
+2026-08-10 and it worked.**
+
+> **Run `31425413107` is the first red build this repo has had, and the gate
+> did exactly what it was built to do.** X3 was pushed with a broken test;
+> *Backend suite* failed, and **`Deploy to Render` was `skipped`** — not run
+> and passed, *skipped* — so production was never touched. The fix
+> (`b4618a9`) went green in run `31426468698` and deployed as
+> `dep-d9t2pv3m8hqs73fhmft0`.
+>
+> This is the property N2 deliberately declined to drill, on the reasoning that
+> a drill requiring you to weaken the condition under test is not a drill of
+> that condition. **Waiting for a real red build cost nothing and proved more
+> than any drill would have.** The patience was correct; record it as settled
+> and do not re-test it.
 
 **The counter-example, from later the same day.** The deploy-scoping change
 (`c7ae670`) had both of its branches verified on *real pushes*, with nothing
@@ -768,7 +794,9 @@ Five things worth carrying forward:
   cheapest fix for an unbounded endpoint is not having one** — worth checking
   for on any future item of this shape.
 
-**Not yet pushed, deployed, or browser-validated.** See *State of the tree*.
+**Pushed and deployed** (`dep-d9t2pv3m8hqs73fhmft0`), after a red build caught a
+test that relied on ambient database rows. **Browser validation is the one
+thing still open** — see *State of the tree* for what to click.
 
 ## Next up: nothing is queued
 
@@ -780,8 +808,9 @@ built — C2 and X3 — both described symptoms that were not occurring, and bot
 got dramatically cheaper for having been checked against data first. The honest
 options, in order:
 
-1. **Finish X3.** It is committed, unpushed, and unvalidated. Push, deploy, and
-   confirm the browser pass below before starting anything new.
+1. **Close out X3's browser pass.** It is pushed and deployed; only owner
+   validation remains. Every list should look identical to before — that is the
+   whole claim — so a short or empty list is the regression to watch for.
 2. **Re-read Tier 2 for a trigger that has fired.** `C2` (Tools page feels
    slow), `N4` (a CDN is introduced), `N8` (someone wants a working API
    explorer), `N3` (a second instance — note B3's per-process rate-limit
