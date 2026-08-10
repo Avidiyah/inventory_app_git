@@ -37,6 +37,10 @@ superseded status narrative went.
 > applying the Render environment/Blueprint binding to `inventory-db-copy`; no
 > further rollback copy is needed for this incident.
 >
+> **The copy's settings were verified in the dashboard on 2026-08-10** and match
+> what N5 closed on: plan `basic-256mb` (1 GB storage), PITR up to 3 days,
+> binding confirmed and intended to stay. No follow-up remains on the database.
+>
 > Historical diagnostic note, retained because it explains the failure mode:
 > the CI deploy hook proved only that the container restarted. Render's
 > `fromDatabase` reference updates on Blueprint sync. Public `/healthz` proves
@@ -288,11 +292,19 @@ and PITR is a *recovery* path, not a deploy gate — it does not reduce N2's
 priority. The web service is still deliberately on the free plan; that is
 latency, not data loss.
 
-**Superseded for current production targeting.** On 2026-08-10, `render.yaml`
-was changed to point `inventory-app` at the existing Render Postgres instance
-`inventory-db-copy`. The paid-plan/PITR evidence in this N5 section belongs to
-the original `inventory-db`; verify the copy's plan and recovery settings in
-Render before relying on the same operational guarantee for the active target.
+**Superseded for current production targeting — and re-verified on the new
+target, so nothing reopens.** On 2026-08-10 `render.yaml` was changed to point
+`inventory-app` at the existing Render Postgres instance `inventory-db-copy`.
+The evidence in this N5 section belonged to the original `inventory-db`, so the
+copy was checked in the dashboard rather than assumed equivalent: plan
+**`basic-256mb`** (1 GB storage), **PITR up to 3 days**, binding confirmed and
+intended to stay. Same guarantees, active target. **This follow-up is closed.**
+
+One figure that had never been written down anywhere: **1 GB of storage.** Not a
+near-term concern, and structurally rather than by estimate — the app persists
+no binary data at all, so growth is rows only. It is still a hard ceiling with
+no monitoring, and `render.yaml` no longer declares the database, so nothing in
+the repo would notice it being approached. Detail in the checklist's N5 entry.
 
 **Tier 0 is now empty.** Nothing left on the list has an external clock.
 

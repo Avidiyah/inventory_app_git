@@ -893,13 +893,36 @@ A2/B2 and never a data-loss risk. Only the database changed.
 the live instance. Left drifting, the next blueprint sync would have been an
 attempt to move a paid database back to a plan that expires.
 
-**Superseded by the 2026-08-10 database cutover.** Production is now targeted at
-the existing Render Postgres instance `inventory-db-copy` via
-`fromDatabase.name` in `render.yaml`, and the original `inventory-db` is no
-longer declared by the Blueprint. The paid-plan/PITR evidence above was recorded
-for `inventory-db`; verify the copy's plan and recovery settings in the Render
-dashboard before treating this N5 note as proof about the active production
-database.
+**Superseded by the 2026-08-10 database cutover, and re-verified on the new
+target the same day.** Production runs on the existing Render Postgres instance
+`inventory-db-copy` via `fromDatabase.name` in `render.yaml`; the original
+`inventory-db` is no longer declared by the Blueprint. The evidence above was
+recorded for `inventory-db`, so it was re-checked in the Render dashboard rather
+than assumed to transfer:
+
+| Property | `inventory-db-copy` | Verdict |
+|---|---|---|
+| Plan | **`basic-256mb`** — 256 MB RAM, 0.1 CPU, **1 GB storage** | paid, so **no 90-day expiry clock** |
+| Point-in-time recovery | **available, up to 3 days** | same guarantee N5 closed on |
+| `inventory-app` binding | confirmed bound to the copy, and intended to stay | not in flux |
+
+**N5's conclusion therefore holds for the active production database**, not just
+for the instance it was written about. Nothing here reopens.
+
+**Note the one figure that had never been recorded anywhere: 1 GB of storage.**
+It is not a near-term concern and the reason is structural rather than a guess —
+**this app persists no binary data at all.** `POST /barcodes/decode` decodes
+uploaded image bytes and stores nothing, the CSV import stores parsed rows and
+discards the file, and there is no attachment or document feature. Growth is
+therefore rows only: `transactions` is the append-only table that grows forever,
+`sessions` is bounded by the 12h cap plus the login sweep, and `login_attempts`
+is swept after 24h. At this app's scale that ceiling is years away.
+
+It is still a hard ceiling with **no monitoring behind it**, and the blueprint no
+longer declares the database at all, so nothing in this repo would notice it
+being approached. Recorded here because that is now the only place it is written
+down. Worth revisiting if the app ever stores files, or if bulk imports become
+routine rather than occasional.
 
 ### X1 — Hash session tokens, cap every session, revoke on password reset
 

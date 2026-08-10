@@ -222,6 +222,21 @@ Deployment:
   that the Render environment/Blueprint binding was applied and the database
   rollback/cutover is successful and closed. The incident cause was an import
   of 800+ work orders that did not belong to the company.
+- **`inventory-db-copy`, verified in the Render dashboard 2026-08-10:** plan
+  **`basic-256mb`** (256 MB RAM, 0.1 CPU, **1 GB storage**), **point-in-time
+  recovery available up to 3 days**, and the `inventory-app` binding confirmed
+  and intended to stay. So the guarantees N5 closed on -- no expiry clock, a
+  3-day recovery floor -- apply to the *active* production database and not
+  merely to the instance N5 was written about. **`render.yaml` no longer
+  declares any `databases:` block**, so these values exist only in the Render
+  dashboard and in this line; nothing in the repo can detect them changing.
+- The 1 GB storage ceiling is years away at this app's scale, structurally
+  rather than by estimate: **no binary data is persisted anywhere.**
+  `POST /barcodes/decode` stores nothing, the CSV import keeps parsed rows and
+  discards the file, and there is no attachment feature. Growth is rows only --
+  `transactions` grows forever, `sessions` is bounded by the 12h cap and the
+  login sweep, `login_attempts` is swept after 24h. Revisit if the app ever
+  stores files or if bulk imports become routine.
 - Production URL: `https://inventory-app-gb1c.onrender.com` (owner-supplied
   2026-08-09; verified `GET /healthz` -> 200 `{"status":"ok"}` that day, which
   is the first confirmation that the B4 deploy came up healthy). **The Render
