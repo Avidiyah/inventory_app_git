@@ -156,17 +156,33 @@ Safety net: `tests/test_route_role_gates.py`.
 
 ### 2. C4 — Close `/docs`, `/redoc`, `/openapi.json` in production
 
-- [ ] **Class C** · *~15 min* · **owner's call**
+- [ ] **Class C** · *~15 min* · **decided 2026-08-10: close all three**
 
 `main.py:75` constructs `FastAPI(title="Inventory Management API")` with no
 `docs_url` / `redoc_url` / `openapi_url` override, so all three are public and
 unauthenticated. Nothing in the codebase references them, so gating them behind
 an env flag breaks no code — but it removes URLs the owner may use directly.
 
+**The decision this item was waiting on has been made.** The owner chose to
+**close all three in production**, gated on an env flag so they stay available
+locally. This is no longer an open question; the item is now ordinary
+implementation work sitting at #2 behind C1.
+
+Two things to get right when it ships. **Pick the existing signal rather than
+inventing one** — `COOKIE_SECURE` is already the flag that means "this
+deployment is HTTPS/production" and A4 reused it for HSTS on exactly that
+reasoning; adding a second, differently-named production flag would give the
+codebase two answers to one question. And **the operation-count check survives, verified rather than assumed**: every
+verification table in this file asserts "OpenAPI operations = 73" by calling
+`app.openapi()`, and that still returns the full schema dict when `openapi_url`
+is `None` — only the three *routes* disappear from `app.routes`. Checked
+directly on 2026-08-10 against this venv's FastAPI. So closing C4 costs nothing
+in verification coverage, which was the one thing that could have made a
+15-minute item expensive.
+
 **Why it ranks above C2** (criteria 3 and 4): it is the only remaining item that
 exposes anything to an *unauthenticated* caller, and it is 15 minutes against
-C2's half day. It needs a decision, not investigation — so it should not sit
-behind a larger item while waiting for one.
+C2's half day.
 
 ### 3. C2 — Eliminate the tool-custody N+1
 
