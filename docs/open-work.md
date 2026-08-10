@@ -5,7 +5,8 @@ file/line references, decision record — lives in the doc named in its row. Thi
 page exists so the answer to *"what's actually left?"* is one file rather than
 three, and so nothing open can hide inside an archive.
 
-Last reconciled: **2026-08-10**, against the working tree at X3.
+Last reconciled: **2026-08-10**, against `main` at X3 — shipped, deployed,
+and owner-validated. Nothing below has been started or scheduled.
 
 > **Keep this in sync when an item ships, is logged, or changes tier.** It is the
 > one file here that duplicates information by design, which is exactly the kind
@@ -73,11 +74,19 @@ re-audited as current priorities." Numbers are the original review's; they are
 | **23** | No hardware (keyboard-wedge) scanner support. A Bluetooth laser scanner types barcode + Enter — faster and more reliable in warehouse lighting than camera decode — but those keystrokes go nowhere unless an input happens to be focused | `views/scan.js`, `views/transactions.js` |
 | **24** | No low-stock signal until a dispense is rejected. Mass Stage already computes *short by N*; Find Item never surfaces it, so the first warning is a refusal on the floor | `views/items.js`, `pages/saved-items.html` |
 
-**#23 is the only open item that would change how the crew works day to day**,
-and it is additive rather than a rewrite of the camera path. #21 needs a yes/no
-from the owner, not implementation. Both #23 and #24 deserve the C2/B3/X3
-question first: does the crew actually have scanners, and is anyone hitting
-empty stock unexpectedly?
+Characteristics worth knowing before choosing between these, stated without a
+recommendation — **the pick is the owner's**:
+
+- **#21 is not an implementation item.** It asks the owner to confirm a
+  deliberate tradeoff, so it can be closed with a yes or a no.
+- **#23 is additive** — a keystroke accumulator feeding the existing
+  `resolveBarcode` path, not a rewrite of the camera flow.
+- **#23 and #24 both rest on an assumption worth testing first**, per the
+  C2/B3/X3 pattern in *The state of things* above: does the crew actually have
+  or want scanners, and is
+  anyone being surprised by empty stock?
+- **#19 is the only one that touches the shared shell** (`shell-head.html`,
+  `styles.css`), so its blast radius is every page rather than one view.
 
 ---
 
@@ -106,5 +115,5 @@ are not listed here because they are not work.
 | `docs/ux-review-archive.md` | the **completed** July 2026 UX items and their validation evidence |
 | `docs/current-state.md` | current behavior and contracts — **the only authority**; if it conflicts with code, trust the code |
 | `docs/endpoint-map.md` | all 72 endpoints traced DB↔view, request/response contracts, error catalog |
-| `docs/handoff.md` | the live session hand-off — where work stands, what to pick up next |
+| `docs/handoff.md` | the live session hand-off — where work stands, and the menu of open items (the next one is **not** pre-selected) |
 | `docs/project-summary.md` | what the app is, and the documentation map |

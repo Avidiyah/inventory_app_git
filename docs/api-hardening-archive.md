@@ -99,8 +99,13 @@ The wiring tests **lower the ceiling to 1** rather than inserting 5,001 rows
 (`_list_cap` and `fetch_limit` both read `MAX_LIST_ROWS` at call time), so they
 are fast and stay valid if the number ever moves.
 
-**Deployed 2026-08-10** as `dep-d9t2pv3m8hqs73fhmft0` (run `31426468698`).
-**Browser validation is still outstanding.**
+**Deployed 2026-08-10** as `dep-d9t2pv3m8hqs73fhmft0` (run `31426468698`) and
+**owner-validated in the browser the same day. X3 is closed.** The pass covered
+all six capped lists and their consumers — Work Orders default browse, *Show
+all*, number search and advanced filters, the filtered CSV export, Scan/Stock
+manual item entry, Find Item *Load All* and search, the History item filter,
+Mass Stage, Tools, Users, User Requests, and the technician/supervisor pickers.
+Everything behaved as before, which was the entire claim.
 
 It took two pushes. `eb268a5` carried a broken test —
 `test_users_are_capped_and_reported` asserted the database already held users

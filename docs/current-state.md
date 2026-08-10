@@ -446,6 +446,9 @@ Security/access:
   - **The Admin+ work-order CSV export is deliberately exempt** and remains the
     uncapped filtered set. A CSV that silently omits rows while looking complete
     is a records problem, not a performance one.
+  - **Owner-validated in the browser on 2026-08-10** across all six capped lists
+    and their consumers. Every list behaved exactly as before, which is the
+    whole claim — the ceiling sits far above any real data.
 - Both upload routes are size-capped (10 MB image / 25 MB CSV) and return 413
   above it; see *Upload size caps* under Runtime And Stack. On the import route
   the role gate runs first, so an unauthorised caller never reaches the check.

@@ -2,11 +2,15 @@
 
 Last updated: **2026-08-10**, end of the session that shipped **B3** (every
 route rate limited at 60 requests/second per caller) and then **X3** (every list
-endpoint bounded at 5,000 rows). **Tier 1 is empty and nothing is queued.**
+endpoint bounded at 5,000 rows), and then de-cluttered the documentation.
 
-**B3 is closed** — pushed, deployed, and owner-validated in the browser.
-**X3 is pushed and deployed** (`dep-d9t2pv3m8hqs73fhmft0`); its browser pass is
-the only thing outstanding.
+**Both are closed** — shipped, pushed, deployed, and owner-validated in the
+browser. **Nothing is outstanding anywhere: the tree is clean, `main` is green,
+and production matches it.**
+
+**The next item has not been chosen.** The owner will pick it from the open
+improvements at the start of the next session — see *Next up*, which is a menu
+rather than a queue. Do not pre-select one.
 
 X3 is worth reading about before touching anything list-shaped: it was logged as
 *paginate the collection endpoints* and shipped as a **safety ceiling with no
@@ -64,11 +68,12 @@ in the move, and **no item ID changed**.
 > only database reachability; Admin `/db-test` reports PostgreSQL logical
 > names, not the Render resource display name.
 
-> **X3 is shipped and deployed; only its browser pass is outstanding.** Every
-> list endpoint is capped at **5,000 rows** (`MAX_LIST_ROWS`), truncation
-> reported as `event=list.truncated`. `GET /items/search-index` was deleted
-> outright. **659 passed**, OpenAPI **73 → 72**, no migration, **no frontend
-> file changed**.
+> **X3 is shipped, deployed, and owner-validated. It is closed.** Every list
+> endpoint is capped at **5,000 rows** (`MAX_LIST_ROWS`), truncation reported as
+> `event=list.truncated`. `GET /items/search-index` was deleted outright.
+> **659 passed**, OpenAPI **73 → 72**, no migration, **no frontend file
+> changed**. The browser pass covered all six capped lists and their consumers
+> and found everything unchanged — which was the entire claim.
 >
 > **It took two runs, and the failure is the more useful half.** `eb268a5` was
 > pushed with a broken test — `test_users_are_capped_and_reported` asserted the
@@ -217,19 +222,22 @@ first time the `pyzbar` native dependency was handled outside a container.
 **Clean and in sync with `origin/main`. Everything is pushed and deployed.**
 Expect no `[ahead]` marker.
 
-**X3's browser pass is the one thing still open**, and it is worth doing rather
-than assuming, for two reasons:
+**X3 was validated rather than assumed**, which mattered for two reasons:
 
-- it changes **six list endpoints at once**, which is every list in the app; and
-- it **removes a route** (`/items/search-index`), taking OpenAPI 73 → 72. That
+- it changed **six list endpoints at once**, which is every list in the app; and
+- it **removed a route** (`/items/search-index`), taking OpenAPI 73 → 72. That
   is the only route removal in this whole run.
 
-**What to look at once it deploys.** Every list should be indistinguishable from
-today — that is the entire claim, since the ceiling sits far above any real
-data. Worth clicking: Find Item *Load All Items*, Scan/Stock manual item search,
-the History item filter, Mass Stage, Tools, Users, and Work Orders *Show all*.
-If any list comes back **short or empty**, that is the regression to look for,
-and `event=list.truncated` in the logs would confirm it immediately.
+**The browser pass is done and everything behaved as before**, which was the
+entire claim — the ceiling sits far above any real data, so no list could reach
+it. Covered: Work Orders default browse, *Show all*, number search, advanced
+filters and the filtered CSV export; Scan/Stock manual item entry; Find Item
+*Load All* and search; the History item filter; Mass Stage; Tools; Users; User
+Requests; and the technician/supervisor pickers.
+
+**The symptom to connect back to X3 if it ever appears later** is a list that
+comes back **short or empty** — not an error message. `event=list.truncated` in
+the logs confirms it instantly and names which list overflowed.
 
 B3 was the highest-blast-radius change before it: it sits on **every** route in
 the app, in middleware, ahead of routing. It went out on its own push
@@ -794,30 +802,80 @@ Five things worth carrying forward:
   cheapest fix for an unbounded endpoint is not having one** — worth checking
   for on any future item of this shape.
 
-**Pushed and deployed** (`dep-d9t2pv3m8hqs73fhmft0`), after a red build caught a
-test that relied on ambient database rows. **Browser validation is the one
-thing still open** — see *State of the tree* for what to click.
+**Pushed, deployed** (`dep-d9t2pv3m8hqs73fhmft0`) after a red build caught a test
+that relied on ambient database rows, **and owner-validated in the browser.
+X3 is closed.**
 
-## Next up: nothing is queued
+## Next up: the owner picks from the open improvements
 
-**Tier 1 is empty again.** Every item on the original audit is now shipped, a
-Tier 2 standing note with a named trigger, or ruled out of scope.
+**The next item has deliberately not been chosen.** The owner stated at the end
+of the 2026-08-10 session that they will pick it, and asked that nothing be
+pre-selected. **This section is a menu, not a queue** — do not reorder it into
+one, and do not open the next session by proposing a favourite.
 
-**Do not invent an item to fill it.** The last two items questioned before being
-built — C2 and X3 — both described symptoms that were not occurring, and both
-got dramatically cheaper for having been checked against data first. The honest
-options, in order:
+**Read `docs/open-work.md` first.** It is the single index of every named
+improvement not yet implemented, with a pointer to the doc owning each full
+write-up. What follows is the same 11 items compressed to what you need to
+choose between them.
 
-1. **Close out X3's browser pass.** It is pushed and deployed; only owner
-   validation remains. Every list should look identical to before — that is the
-   whole claim — so a short or empty list is the regression to watch for.
-2. **Re-read Tier 2 for a trigger that has fired.** `C2` (Tools page feels
-   slow), `N4` (a CDN is introduced), `N8` (someone wants a working API
-   explorer), `N3` (a second instance — note B3's per-process rate-limit
-   counters are already on its list), `N6` (boundary rule, no trigger).
-3. **Ask the owner what actually hurts.** The list is a code audit and has
-   never been the only source of work. `IMP-004` (the Mass Stage redesign)
-   remains the one open requested improvement.
+**Tier 1 of the hardening checklist is empty**, and that is a real state rather
+than an oversight — every item from the original audit is shipped, a standing
+note with a named trigger, or ruled out of scope. **Do not invent an item to
+fill it.**
+
+### The 11 open items
+
+**Requested feature** — `docs/improvement-tracker.md`
+
+| ID | What | Note |
+|---|---|---|
+| `IMP-004` | Mass Stage redesign: collapsible *New Mass Stage* card, drop the redundant Unit # field, work-order-number-first search, group work orders under Communities by Location | The only open user request. Marked *very low priority* by the owner since 2026-08-03 — that label is theirs, not an inherited guess |
+
+**Hardening standing notes** — `docs/api-hardening-checklist.md` → Tier 2. None
+of these triggers has fired; each would need promoting first.
+
+| ID | What | Trigger |
+|---|---|---|
+| `N3` | `alembic upgrade head` on every cold start races on a second instance | adding a second instance. **B3's per-process rate-limit counters are on this list too** |
+| `N4` | SPA served from the API process — blanket `no-cache`, 13 fragments re-read per `/` | introducing a CDN. *Deferred by design*; it solves the real blank-page failure |
+| `N6` | `services/work_orders.py` at 2,008 lines / 59 functions | **none — a boundary rule, not a refactor request** |
+| `C2` | Tool-custody N+1 | the Tools page feels slow. Its risky half already shipped, so the rest is now provably invisible |
+| `N7` | `pyzbar` fails as a missing `libiconv.dll` and takes the app down at import | new dev machine or runtime/base-image change |
+| `N8` | `/docs` and `/redoc` render blank everywhere — CSP blocks their CDN assets | someone wants a working API explorer |
+
+**UX observations** — `docs/ux-review.md` → Tier 3. July 2026 findings, never
+re-audited as current priorities. Numbers are the original review's.
+
+| # | What |
+|---|---|
+| 19 | Flat text-only top nav; up to 8 buttons wrap to 2–3 rows on a phone |
+| 21 | Supervisor+ *Add Stock* is one toggle deep. **Needs a yes/no, not implementation** — it was flagged to confirm the tradeoff is intended |
+| 23 | No hardware keyboard-wedge scanner support; a Bluetooth scanner's keystrokes go nowhere unless an input happens to be focused |
+| 24 | No low-stock signal until a dispense is rejected. Mass Stage already computes *short by N*; Find Item never surfaces it |
+
+### Whatever gets picked, start the same way
+
+**Ask what the number actually is before building what the item describes.**
+This is now the most reliable lesson in the file, and it has paid three times
+running:
+
+- **C2** cited "200 tools = 201 queries" from reading the code. The owner
+  confirmed the Tools page was fine. Half a day became five minutes.
+- **B3** was to be sized from real request volume. The measurement that did get
+  done — that a cold SPA load is ~35 requests through the same middleware —
+  is what ruled out a global cap that would have served 429s for JavaScript
+  modules at shift change.
+- **X3** was logged as *paginate six endpoints*, which implied a frontend
+  rewrite. Row counts in the hundreds, plus the discovery that `/items/` and
+  `/users/` back *client-side* search rather than list views, turned it into a
+  backend-only ceiling.
+
+Two of the open items are visibly exposed to this. **#23** assumes the crew has
+or wants scanners; **#24** assumes people are being surprised by empty stock.
+Both are worth one question before any code.
+
+**`#21` is not an implementation item at all** — it asks the owner to confirm a
+deliberate tradeoff. It is the cheapest thing on this list to close.
 
 ---
 
