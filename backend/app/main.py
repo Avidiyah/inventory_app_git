@@ -1,8 +1,8 @@
 """FastAPI application entrypoint -- the composition root.
 
-Layer: app entry. This file does three things and nothing else:
+Layer: app entry. This file does four things and nothing else:
 
-1. Instantiate the `FastAPI` app.
+1. Configure logging and instantiate the `FastAPI` app.
 2. Mount the three resource routers (`items`, `transactions`,
    `users`) and the static-files directory that serves the
    single-page frontend at `/`.
@@ -10,12 +10,17 @@ Layer: app entry. This file does three things and nothing else:
    liveness check the deployment platform polls, and `/db-test`, the
    Admin-gated probe deployment scripts use to confirm *which*
    database is connected.
+4. Wrap every request in the middleware pair: the security headers and
+   the logging/request-id scope.
 
 Business logic lives in `app.services`, validation in
 `app.schemas`, rules in `app.domain`. Nothing in this file should
 ever grow beyond wiring.
 """
 
+import logging
+import time
+import uuid
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -27,6 +32,11 @@ from app.auth_deps import COOKIE_SECURE, require_min_role
 from starlette.types import Scope
 from app.database import check_connection, test_connection
 from app.domain import roles
+from app.logging_config import (
+    configure_logging,
+    new_request_context,
+    request_context,
+)
 from app.routers import (
     auth,
     barcodes,
@@ -54,6 +64,13 @@ class NoCacheStaticFiles(StaticFiles):
         response.headers["Cache-Control"] = "no-cache"
         return response
 
+
+# Before the app, so anything logged during import or startup is already
+# formatted and routed. Idempotent -- the test suite imports this module
+# too. See `app/logging_config.py`.
+configure_logging()
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Inventory Management API")
 
@@ -108,6 +125,71 @@ async def add_security_headers(request, call_next):
             "max-age=31536000; includeSubDomains"
         )
     return response
+
+
+@app.middleware("http")
+async def log_request(request, call_next):
+    """Open a logging scope for the request and log its completion.
+
+    **Registered after `add_security_headers` on purpose.** Starlette's
+    `add_middleware` inserts at the front of the list and the front of
+    the list is outermost, so the last one defined here wraps everything
+    -- which is what this needs: the request id must exist before any
+    other code runs, and the duration must cover the whole stack.
+
+    The request id is echoed as `X-Request-ID` so a user reporting "it
+    broke around 2:15" can be matched to an exact line. It is always
+    generated here and never read from the incoming request: trusting a
+    caller-supplied value would let an anonymous client collide ids and
+    poison correlation.
+
+    Only the path is logged, never `request.url.query` -- a query string
+    is caller-controlled and is exactly the kind of place a token ends up
+    by accident.
+
+    Unhandled exceptions are logged with the request's context and
+    re-raised. Deliberately **without** `exc_info`: uvicorn logs the
+    traceback for the same exception a moment later (it sits outside all
+    application middleware), so including it here would print every
+    production traceback twice. The exception *type* is recorded because
+    that is the part uvicorn's line does not correlate to a request id;
+    its message is not, since a driver error routinely quotes the DSN.
+    """
+    context = new_request_context(uuid.uuid4().hex[:12])
+    token = request_context.set(context)
+    started = time.perf_counter()
+
+    def elapsed_ms() -> int:
+        return round((time.perf_counter() - started) * 1000)
+
+    try:
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            logger.error(
+                "request.error",
+                extra={"fields": {
+                    "method": request.method,
+                    "path": request.url.path,
+                    "exc_type": type(exc).__name__,
+                    "ms": elapsed_ms(),
+                }},
+            )
+            raise
+
+        response.headers["X-Request-ID"] = context["req"]
+        logger.info(
+            "request",
+            extra={"fields": {
+                "method": request.method,
+                "path": request.url.path,
+                "status": response.status_code,
+                "ms": elapsed_ms(),
+            }},
+        )
+        return response
+    finally:
+        request_context.reset(token)
 
 
 # Routers register their own prefixes (`/auth`, `/items`,
@@ -190,10 +272,17 @@ def healthz():
     `SQLAlchemyError` rather than a bare `except`, so a genuine bug in this
     handler still surfaces as a 500 instead of being laundered into a
     plausible-looking 503.
+
+    The exception is **logged with its traceback** before being discarded.
+    That is the whole point of N1 here: withholding the detail from an
+    anonymous caller is correct, but until this line existed a database
+    outage produced no diagnosable artifact anywhere in the system. The
+    log is server-side and the response body is unchanged.
     """
     try:
         check_connection()
     except SQLAlchemyError:
+        logger.error("healthz.db_unreachable", exc_info=True)
         raise HTTPException(status_code=503, detail="Database unavailable.")
 
     return {"status": "ok"}

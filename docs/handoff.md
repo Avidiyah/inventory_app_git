@@ -1,9 +1,10 @@
 # Session Hand-off
 
-Last updated: 2026-08-09, end of the session that shipped **B4** (the CVE
-baseline), scoped the **deploy gate** so docs pushes stop deploying, and fixed
-**Obsidian vault access** plus automated the docs mirror. Earlier the same day:
-N2 (CI), N5 (paid Postgres), B2 (DB-aware health check), X1 + C3 (auth
+Last updated: 2026-08-09, end of the session that shipped **N1** (structured
+logging) and closed B4's two loose ends. The session before shipped **B4** (the
+CVE baseline), scoped the **deploy gate** so docs pushes stop deploying, and
+fixed **Obsidian vault access** plus automated the docs mirror. Earlier the same
+day: N2 (CI), N5 (paid Postgres), B2 (DB-aware health check), X1 + C3 (auth
 hardening), and the checklist restructure.
 
 This file is the **live** hand-off: where the work stands and what to pick up
@@ -21,55 +22,57 @@ superseded status narrative went.
 
 ## Start here
 
-**`main` is at `62c32aa`, clean, and in sync with `origin/main`.** Three commits
-landed this session, all pushed and all green in CI:
+**N1 is implemented and `main` has uncommitted work** — this is real work in
+progress, not the old don't-commit posture (see *State of the tree* below). The
+previous session's three commits are all pushed and green:
 
 | Commit | What |
 |---|---|
 | `da9a810` | Vault access fixed; `scripts/sync-obsidian.ps1` + `Stop` hook automate the docs mirror; `.claude/settings.*` untracked |
 | `c7ae670` | `deploy` job now fires only for changes that actually ship |
 | `62c32aa` | **B4** — `pillow` 12.3.0, `starlette` 1.3.1, `pip-audit` now blocking |
+| `a99ad37` | the hand-off rewrite for the post-B4 state |
 
-**Tier 1 now starts at N1** (structured logging). Full order:
-**N1 → B1 → C1 → C4 → C2 → B3.**
+**Tier 1 now starts at B1** (upload size cap, ~30 min). Full order:
+**B1 → C1 → C4 → C2 → B3.**
 
-### Read this before picking up N1 — two things are unverified
+### B4's two loose ends are closed (2026-08-09, next session)
 
-Both are from the very end of the session and neither is a defect. They are
-loose ends someone has to actually close.
+Both were open at the end of the B4 session and both have now been shut. Kept
+here rather than deleted because the *first* one has a durable lesson attached.
 
-1. **Production was never confirmed healthy after the B4 deploy.** CI proves the
-   hook fired and Render returned a deploy id (`dep-d9sj39lbedkc73dlakug`), and
-   that is the limit of what the pipeline can show. `GET /healthz` was never
-   reached **because the production URL is recorded nowhere in this repo** —
-   not in `render.yaml`, the docs, or the README. Four candidate
-   `*.onrender.com` hostnames all returned 404 from Render's edge.
+1. **Production is confirmed healthy.** The owner supplied the URL —
+   `https://inventory-app-gb1c.onrender.com` — and `GET /healthz` returned 200
+   `{"status":"ok"}`. B4 is live and the database is reachable from the
+   deployed service. The URL is now recorded in `docs/current-state.md` →
+   *Runtime And Stack* → *Deployment*, with the caveat the owner attached: **it
+   can change**, so the Render dashboard is the authority and that line is a
+   convenience. The lesson worth keeping: B2 built a health check so a broken
+   deploy would fail loudly, and it sat unusable for a session because nobody
+   had written down where to point it.
 
-   This is worth fixing properly: B2 built a health check specifically so a
-   broken deploy fails loudly, and it is not much use if nobody can find the
-   URL. **Get the URL from the owner or the Render dashboard, verify
-   `/healthz`, and record it in `docs/current-state.md`.**
-
-2. **The barcode upload path has not been clicked through since the Pillow
-   bump.** B4 is Class B: identical on the happy path, but a minor bump of the
-   image decoder is not *provably* invisible, and image upload is the one
-   surface it could plausibly change. Browser validation is owner-performed on
-   this project, so this is a request to make, not a task to do.
+2. **The barcode upload path is validated.** The owner clicked through it after
+   the Pillow 12.2.0 → 12.3.0 bump and reports everything running as it should.
+   B4's one plausible behavior surface is clear.
 
 **Still incidentally true:** N7 closed when N2 installed `libzbar0` in CI — the
 first time the `pyzbar` native dependency was handled outside a container.
 
 ### State of the tree — this changed, read it
 
-**Everything is committed and merged. `main` is clean and in sync with
-`origin/main`.** The previous standing direction — *nothing gets committed until
-the roadmaps are done*, which this file carried for several sessions — **is no
-longer in force.** It ended with N2, because CI cannot be built or verified
-without pushing commits and opening a PR. Normal commit-per-change flow now
-applies, and `main` is protected by the gate rather than by holding work back.
+**`main` currently has the N1 diff uncommitted.** Everything through `a99ad37`
+is committed, merged, and in sync with `origin/main`; N1 itself is implemented
+and verified but not yet committed, because merging to `main` deploys and that
+is the owner's call.
 
-Do not look for a large uncommitted diff. If `git status` is dirty, that is real
-work in progress, not the old deliberate posture.
+The previous standing direction — *nothing gets committed until the roadmaps are
+done*, which this file carried for several sessions — **is no longer in force.**
+It ended with N2, because CI cannot be built or verified without pushing commits
+and opening a PR. Normal commit-per-change flow now applies, and `main` is
+protected by the gate rather than by holding work back.
+
+So: a dirty `git status` here is real work in progress, not the old deliberate
+posture. Do not look for a large batched diff.
 
 **The session-table migration has been deployed.** `fbc4e6a8d0f2` drops and
 recreates `sessions`, so every user was signed out when it landed. That was
@@ -220,19 +223,47 @@ minors buy no additional CVE coverage.
 
 Full detail in `docs/api-hardening-checklist.md` → *Shipped* → B4.
 
-## Next up: N1
+## Shipped 2026-08-09: N1 — the app can be diagnosed now
 
-**N1 (structured logging).** `backend/app/` contains **no logging
-whatsoever** — not one `import logging`, logger call, or `print()` (re-verified
-2026-08-09, 0 matches). Two things sharpen that: `login_attempts` is
-deliberately transient (swept at 24h, deleted on successful login) so it cannot
-answer "who was trying to get in", and `/healthz` now discards the driver's
-exception on purpose — correct, because it is unauthenticated, but it means a
-real database outage currently produces **no** diagnosable artifact anywhere in
-the system. Logging that swallowed exception server-side is the direct follow-on
-to B2.
+`backend/app/` went from **zero** logging of any kind to logfmt on stdout with a
+request id on every request and `user_id` on every authenticated one. New module
+`app/logging_config.py`; call sites in `main.py` (middleware + `/healthz`),
+`auth_deps.py`, and `routers/auth.py`. **548 passed** (523 + 25 new), OpenAPI
+still 73, Alembic head untouched. Full decision record and the evidence table in
+`docs/api-hardening-checklist.md` → *Shipped* → N1.
 
-Full Tier 1 order after that: **B1 → C1 → C4 → C2 → B3.**
+Three things from it worth carrying forward:
+
+- **A failed login logs the username only if the account exists.** Otherwise
+  `user=unknown`. Logging the submitted string verbatim would put a password in
+  the logs the first time someone types it into the username field. If a future
+  item wants to see which invented usernames were probed, that is a deliberate
+  reversal of a safety decision, not an oversight.
+- **`bind_user` mutates a shared dict on purpose.** Starlette's
+  `BaseHTTPMiddleware` runs the route in a separate anyio task holding a *copy*
+  of the context, so a `ContextVar.set()` in a dependency never reaches the
+  middleware. If someone "cleans that up" into a `.set()`, `user_id` silently
+  disappears from the request line and nothing outside
+  `test_bind_user_mutates_in_place_rather_than_rebinding` will notice.
+- **Uvicorn's access log was deliberately left on.** Ours is richer; uvicorn's
+  is the one that still works if our middleware breaks. Verified there is no
+  double-print: uvicorn's `LOGGING_CONFIG` declares no `root` key and sets
+  `propagate=False`.
+
+**Verification drove the ASGI stack directly rather than booting a server.**
+That pattern is reusable and respects the browser-validation rule — it proved
+middleware ordering, the header, and the task-boundary behavior without a
+running service.
+
+## Next up: B1
+
+**B1 (cap upload size on both upload routes, ~30 min, Class B).** Both routes
+read the whole upload into memory unbounded — `routers/barcodes.py:45` and
+`routers/work_orders.py:288`, each a bare `file.file.read()`. Below the cap
+behavior is byte-identical; above it, a new 413 that `api.js:35-41` already
+renders through the existing error path with no new UI code.
+
+Full Tier 1 order after that: **C1 → C4 → C2 → B3.**
 
 ---
 

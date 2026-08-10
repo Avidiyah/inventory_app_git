@@ -9,7 +9,8 @@ expiry) was closed the same day by upgrading the database to a paid plan —
 and, on its first run, produced a new item: **B4**, 23 known CVEs in `pillow`
 and `starlette`. That is the gate doing its job before it had even been merged.
 **B4 shipped the same day** and `pip-audit` is now blocking rather than
-advisory. **Tier 1 now starts at N1.**
+advisory. **N1 (structured logging) shipped 2026-08-09**, so **Tier 1 now
+starts at B1.**
 
 Re-reviewed 2026-08-09 against the promoted code graph at `d715545` (2,512 nodes
 / 5,790 edges), which covers structure the original file-by-file audit did not.
@@ -91,9 +92,10 @@ logger / `print(` across `backend/app/` → **0 matches**; `.github/` → **abse
 `render.yaml` → `plan: free` and `autoDeploy: true` both still set. **All three
 `render.yaml`/`.github` facts were overtaken later the same day**: N5 moved the
 database to a paid plan, and N2 created `.github/workflows/ci.yml` and set
-`autoDeploy: false`. Both are recorded under *Shipped*. The logging count still
-stands and is N1's case.
-`main.py:58` → `FastAPI(title="Inventory Management API")` with no URL overrides;
+`autoDeploy: false`. Both are recorded under *Shipped*. The zero-logging count
+was N1's case and **that item has since shipped**, so it no longer holds.
+`main.py:75` → `FastAPI(title="Inventory Management API")` with no URL overrides
+(was `main.py:58` before N1 added the logging setup above it);
 `services/work_orders.py` → **2,008 lines**, `views/workOrders.js` → 1,442,
 `styles.css` → 2,489.
 
@@ -108,31 +110,7 @@ now has an external clock; the queue below is ordered purely on merit.
 
 ## Tier 1 — Do next, in this order
 
-### 1. N1 — Add structured logging
-
-- [ ] **Class N** · *~half day* · **the diagnostic floor for everything else**
-
-There is **not a single `import logging`, logger call, or `print()` in the
-entire `backend/app/` tree** (re-verified 2026-08-09: 0 matches). No request IDs,
-no error logging, no metrics, no tracing. The only production artifact when
-something fails is uvicorn's access log. The grading doc's "limited
-observability" understates this: it is zero.
-
-Additive; requires only the discipline not to log secrets.
-
-**Why it ranks second** (criterion 2): two recent changes sharpened this gap
-rather than closing it.
-
-- `login_attempts` is deliberately transient — swept at 24h, deleted on
-  successful login — so it **cannot** answer "who was trying to get in."
-- `/healthz` now returns a bare 503 with the driver's error deliberately
-  discarded. That is correct for an unauthenticated caller, but it means a
-  database outage currently leaves **no diagnosable artifact anywhere in the
-  system.**
-
-Logging the swallowed exception server-side is the direct companion to B2.
-
-### 2. B1 — Cap upload size on both upload routes
+### 1. B1 — Cap upload size on both upload routes
 
 - [ ] **Class B** · *~30 min* · **closes an unbounded memory read**
 
@@ -153,7 +131,7 @@ stall half is already gone.
 the effort and closes a live availability hole, where C1 is structural hygiene
 against a *future* endpoint that does not exist yet.
 
-### 3. C1 — Fold the five in-body 403 gates into `require_min_role`
+### 2. C1 — Fold the five in-body 403 gates into `require_min_role`
 
 - [ ] **Class C** · *~1 hr* · **response body is byte-identical**
 
@@ -168,7 +146,7 @@ endpoint inherits no protection by default. The line-number drift above is the
 same defect in miniature: an in-body gate has no stable anchor and cannot be
 located except by reading the handler.
 
-**The response body is byte-identical.** `auth_deps.py:63-66` raises
+**The response body is byte-identical.** `auth_deps.py:71-74` raises
 `HTTPException(403, detail="You do not have permission to perform this
 action.")` — the exact string the inline gates use, verbatim. `api.js` surfaces
 the same message, so the UI copy is unchanged.
@@ -184,11 +162,11 @@ Leave `items.py:51` and `transactions.py:80,213` alone: those call
 
 Safety net: `tests/test_route_role_gates.py`.
 
-### 4. C4 — Close `/docs`, `/redoc`, `/openapi.json` in production
+### 3. C4 — Close `/docs`, `/redoc`, `/openapi.json` in production
 
 - [ ] **Class C** · *~15 min* · **owner's call**
 
-`main.py:58` constructs `FastAPI(title="Inventory Management API")` with no
+`main.py:75` constructs `FastAPI(title="Inventory Management API")` with no
 `docs_url` / `redoc_url` / `openapi_url` override, so all three are public and
 unauthenticated. Nothing in the codebase references them, so gating them behind
 an env flag breaks no code — but it removes URLs the owner may use directly.
@@ -198,7 +176,7 @@ exposes anything to an *unauthenticated* caller, and it is 15 minutes against
 C2's half day. It needs a decision, not investigation — so it should not sit
 behind a larger item while waiting for one.
 
-### 5. C2 — Eliminate the tool-custody N+1
+### 4. C2 — Eliminate the tool-custody N+1
 
 - [ ] **Class C** · *~half day* · **one-time visible reshuffle**
 
@@ -219,7 +197,7 @@ N+1 means choosing an explicit order (user name), which is a one-time visible
 reshuffle that then stays stable forever. Not safe as a silent change; fine as a
 deliberate one.
 
-### 6. B3 — No rate limiting outside the login route
+### 5. B3 — No rate limiting outside the login route
 
 - [ ] **Class B** · *logged 2026-08-09* · **authenticated callers only**
 
@@ -339,6 +317,80 @@ Referenced by B3, which names these endpoints as the unlimited-volume surface.
 ## Shipped
 
 Kept with verification evidence intact. These no longer occupy a priority slot.
+
+### N1 — Add structured logging
+
+- [x] **Class N** · **shipped 2026-08-09** · the diagnostic floor for everything
+  else
+
+`backend/app/` had **no `import logging`, logger call, or `print()` anywhere**.
+It now has logfmt logging on stdout, a request id on every request, and
+`user_id` on every authenticated one. New module: `app/logging_config.py`.
+
+**One claim in the original item was slightly wrong and is worth correcting
+rather than quietly dropping.** It said the only production artifact on failure
+was uvicorn's access log. Starlette's `ServerErrorMiddleware` re-raises
+(`middleware/errors.py:186`) and uvicorn's protocol logs `Exception in ASGI
+application` with `exc_info` — so unhandled-500 tracebacks *did* reach Render,
+just with no request id, user, or path. Everything **handled** was the genuinely
+silent part: every `to_http` conversion, every 401/403/429, and `/healthz`'s 503.
+The gap was correlation, not total darkness.
+
+**Six decisions were the owner's, not defaults:**
+
+1. **logfmt over JSON.** Render's log viewer is a plain text stream with
+   substring search, and logfmt reads well there while staying greppable. The
+   cost accepted: quoting/escaping is hand-rolled where `json.dumps` would be
+   free and correct — which is why `_fmt_value` has its own parametrised test.
+2. **Uvicorn's access log stays on.** Our `event=request` line is richer, but
+   uvicorn's cannot fail: if the middleware breaks, it is the fallback that
+   still shows traffic. Near-duplicate volume was judged the cheaper risk on a
+   low-traffic service. `entrypoint.sh` is unchanged.
+3. **A failed login logs the username only if the account exists**, else
+   `user=unknown` (new `services.auth.username_exists`). Logging the submitted
+   string verbatim would put a password in the logs, permanently, the first time
+   a user types it into the username field. Accepted cost: a probe against a
+   nonexistent username is logged as `unknown`, so the log shows the attempt and
+   IP but not which invented names were tried.
+4. **Infrastructure plus three call sites**, not a sweep of all 13 service
+   modules — most of which would be guesswork before anything has needed
+   debugging.
+5. **`X-Request-ID` is echoed**, and an inbound one is never trusted.
+6. **`LOG_LEVEL` env var**, default INFO, pinned in `render.yaml` beside
+   `COOKIE_SECURE` / `SQL_ECHO`.
+
+**Two implementation traps, both load-bearing:**
+
+- **The context variable holds a mutable dict that is mutated in place.**
+  Starlette's `BaseHTTPMiddleware` runs the downstream app in a separate anyio
+  task, which receives a *copy* of the context — so `ContextVar.set()` inside
+  `get_current_user` would never be visible to the middleware writing the
+  completion line. Sharing one dict object is what makes `user_id=` appear
+  there. `test_bind_user_mutates_in_place_rather_than_rebinding` guards it,
+  because switching to `.set()` breaks nothing loudly; the id just vanishes.
+- **The formatter reads the context variable directly instead of using a
+  `logging.Filter`.** A filter on a handler is skipped by every other handler
+  (pytest's `caplog` included); a filter on a logger does not run for records
+  propagating up from child loggers. Reading at format time has neither hole.
+
+#### Verification evidence (N1, 2026-08-09)
+
+| Check | Expected | Result |
+|---|---|---|
+| Backend test suite | 523 + new, zero failures | **548 passed in 44.41s** (523 existing + 25 new) |
+| OpenAPI operation count | 73 (no route added) | **73** |
+| Alembic head | unchanged | **`fbc4e6a8d0f2 (head)`**, no migration |
+| Middleware ordering | our scope outermost, security headers still applied | **both** — CSP and `X-Frame-Options` present on the probed response |
+| `bind_user` across the anyio task boundary | `user_id` on the request line | **`user_id=99`** on the completion line |
+| Application lines per request | exactly 1 | **1** |
+| `X-Request-ID` header | present, matches the log | **`79e0eb074fff`**, identical in both |
+| Query string in the log | absent | **absent** (`?secret=…` not emitted; path only) |
+| Uvicorn `dictConfig` clobbering our handler | survives | **survives** — `LOGGING_CONFIG` has no `root` key, `disable_existing_loggers: False` |
+| Uvicorn lines through our formatter | no (no double-print) | **no** — `uvicorn` sets `propagate=False` with its own handler |
+| `/healthz` failure | driver detail logged, response still bare | **both** — `db.internal` in the log, absent from the 503 body |
+
+Verified by driving the real ASGI stack directly rather than booting a server,
+per the project's "the owner validates in the browser" rule.
 
 ### B4 — Upgrade `pillow` and `starlette` (23 known CVEs)
 

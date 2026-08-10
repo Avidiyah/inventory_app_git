@@ -41,3 +41,8 @@ services:
         value: "true"
       - key: SQL_ECHO
         value: "false"
+      # Application log verbosity (app/logging_config.py). DEBUG can be
+      # flipped on here without a code change; uvicorn's own access log is
+      # independent of this and stays on.
+      - key: LOG_LEVEL
+        value: "INFO"

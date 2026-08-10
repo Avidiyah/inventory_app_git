@@ -208,7 +208,14 @@ Deployment:
 - Docker image: `python:3.12-slim`.
 - Native package: Debian `libzbar0`.
 - Entrypoint: `alembic upgrade head`, then Uvicorn on `${PORT:-8124}`.
-- Render blueprint: `render.yaml`.
+- Render blueprint: `render.yaml`. Service name `inventory-app`, database
+  `inventory-db`.
+- Production URL: `https://inventory-app-gb1c.onrender.com` (owner-supplied
+  2026-08-09; verified `GET /healthz` -> 200 `{"status":"ok"}` that day, which
+  is the first confirmation that the B4 deploy came up healthy). **The Render
+  dashboard is the authority, not this line** -- the hostname can change, and it
+  had previously been recorded nowhere at all, which left `/healthz` unreachable
+  for a full session after B2 built it.
 - `healthCheckPath: /healthz` -- a real database query. It pointed at `/` until
   2026-08-09; `/` is a filesystem-only read, so deploys went green while
   Postgres was unreachable. A deploy that cannot reach the database now fails
@@ -216,10 +223,40 @@ Deployment:
   keep a free instance awake (free services still spin down after ~15 min
   idle), so this changed nothing about spin-down behavior.
 - Required env: `DATABASE_URL`.
-- Production env should set `COOKIE_SECURE=true` and `SQL_ECHO=false`.
+- Production env should set `COOKIE_SECURE=true`, `SQL_ECHO=false`, and
+  `LOG_LEVEL=INFO`.
 - Static assets are served with `Cache-Control: no-cache`.
-- App sends `Permissions-Policy: camera=(self)`.
+- App sends `Permissions-Policy: camera=(self)` and `X-Request-ID: <12 hex>`.
 - Windows local pyzbar may need Visual C++ 2013 runtime (`msvcr120.dll`).
+
+Logging (`app/logging_config.py`, added 2026-08-09 as N1):
+
+- **Format is logfmt** -- `ts= level= req= [user_id=] event= <fields>` on
+  stdout, which Render captures. The record's *message* is the event name
+  (`auth.login_failed`), so `grep event=auth.login_failed` is a complete query
+  and `grep req=<id>` returns one whole request.
+- **Every request gets a 12-hex id**, minted by the outermost middleware and
+  echoed as `X-Request-ID` so a user's "it broke around 2:15" maps to an exact
+  line. The incoming header is never trusted -- the id is always generated.
+- **One `event=request` line per request**, with method, path, status, and ms.
+  Uvicorn's own access log stays on alongside it: it is the fallback that keeps
+  working if this middleware ever breaks. Uvicorn's loggers do not route
+  through this formatter (`uvicorn` sets `propagate=False` and its dictConfig
+  declares no `root`), so nothing is double-printed.
+- **`user_id` is bound once**, in `auth_deps.get_current_user` -- the single
+  dependency every authenticated route passes through.
+- **Never logged**: passwords, session tokens raw or hashed, the `Cookie`
+  header, request bodies, query strings (the request line records
+  `request.url.path` only), and the database URL.
+- **A failed login logs the username only if the account exists**, otherwise
+  `user=unknown` (`services.auth.username_exists`). This is not politeness:
+  logging the submitted string verbatim would put a password in the logs
+  permanently the first time someone types it into the username field.
+- Verbosity is `LOG_LEVEL` (default `INFO`); an unrecognised value falls back
+  to INFO rather than failing the boot.
+- Adding logs elsewhere needs no plumbing: `logging.getLogger(__name__)` and
+  `extra={"fields": {...}}`. The request context is read at format time, so it
+  attaches itself.
 
 ## Hard Invariants
 

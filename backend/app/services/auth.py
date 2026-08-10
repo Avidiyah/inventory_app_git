@@ -109,6 +109,27 @@ def authenticate(db: Session, *, username: str, password: str) -> User:
     return user
 
 
+def username_exists(db: Session, username: str) -> bool:
+    """Whether an account with this username exists, archived or not.
+
+    Exists for logging, and only for logging. `authenticate` above is
+    deliberately unable to tell a caller whether an account exists -- but
+    that is a property of the **HTTP response**, which this does not
+    touch. The router calls this on the failure path so a failed login can
+    be logged against a real username instead of `unknown`.
+
+    Why that matters: logging whatever string was submitted would mean
+    that a user who types their password into the username field puts
+    their password in the logs, in plaintext, permanently. A password
+    will never match an account, so gating the log on existence closes
+    that structurally rather than by discipline. The cost, accepted
+    knowingly: a probe against a username that does not exist is logged
+    as `unknown`, so the log shows the attempt and the IP but not which
+    nonexistent names were tried.
+    """
+    return db.query(User.id).filter(User.username == username).first() is not None
+
+
 def _hash_token(token: str) -> str:
     """Return the lowercase hex SHA-256 of a session token -- the only
     form ever written to the database.

@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.domain import roles
+from app.logging_config import bind_user
 from app.models import User
 from app.services import auth as auth_service
 
@@ -43,7 +44,13 @@ def get_current_user(
 ) -> User:
     """Resolve the request's session cookie to the logged-in `User`, or
     raise 401. Touching the session (sliding the idle timeout) happens
-    inside `get_active_session_user`."""
+    inside `get_active_session_user`.
+
+    Also the single place the request's logging scope learns who the
+    caller is: every authenticated route reaches this dependency, so
+    `bind_user` here puts `user_id=` on every subsequent log line of the
+    request -- including the completion line the middleware writes. Only
+    the id is bound; the session token never goes near a log."""
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated.")
@@ -51,6 +58,8 @@ def get_current_user(
     user = auth_service.get_active_session_user(db, token)
     if user is None:
         raise HTTPException(status_code=401, detail="Session expired or invalid.")
+
+    bind_user(user.id)
     return user
 
 

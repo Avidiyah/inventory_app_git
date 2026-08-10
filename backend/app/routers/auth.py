@@ -17,6 +17,8 @@ cannot read it. Only its hash reaches the database (see
 never occupies a worker thread.
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
@@ -30,6 +32,18 @@ from app.services import auth as auth_service
 from app.services import login_throttle
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+logger = logging.getLogger(__name__)
+
+# Stand-in for a submitted username that matches no account. See
+# `auth_service.username_exists` for why the raw string is not logged.
+UNKNOWN_USER = "unknown"
+
+
+def _log_username(db: Session, username: str) -> str:
+    """The username to put in a log line for a *failed* attempt: the real
+    one if the account exists, `unknown` otherwise."""
+    return username if auth_service.username_exists(db, username) else UNKNOWN_USER
 
 
 def _client_ip(request: Request) -> str:
@@ -64,6 +78,14 @@ def login(
     try:
         login_throttle.check(db, username=payload.username, ip=ip)
     except LoginThrottledError as exc:
+        logger.warning(
+            "auth.login_throttled",
+            extra={"fields": {
+                "user": _log_username(db, payload.username),
+                "ip": ip,
+                "retry_after": exc.retry_after_seconds,
+            }},
+        )
         # Handled here rather than through `to_http`, which has no way to
         # carry the Retry-After header.
         raise HTTPException(
@@ -78,9 +100,23 @@ def login(
         )
     except DomainError as exc:
         login_throttle.record_failure(db, username=payload.username, ip=ip)
+        # The counterpart to `login_attempts` being deliberately transient
+        # (swept at 24h, deleted on success): this is the only durable
+        # record that an attempt happened at all.
+        logger.warning(
+            "auth.login_failed",
+            extra={"fields": {
+                "user": _log_username(db, payload.username),
+                "ip": ip,
+            }},
+        )
         raise to_http(exc)
 
     login_throttle.clear(db, username=payload.username, ip=ip)
+    logger.info(
+        "auth.login_ok",
+        extra={"fields": {"user_id": user.id, "user": user.username, "ip": ip}},
+    )
     token = auth_service.create_session(db, user, remember=payload.remember)
     # Remembered -> a persistent cookie (max_age) that survives a browser
     # restart, matching the session's 12h server-side cap. Otherwise a
