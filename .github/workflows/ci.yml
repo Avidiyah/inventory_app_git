@@ -157,7 +157,8 @@ jobs:
     # and render.yaml sets autoDeploy: false so this hook is the only path to
     # production.
     needs: [backend, static]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # TEMPORARY drill: allow on PR to prove `needs` blocks a red build.
+    if: always()
 
     steps:
       - name: Trigger Render deploy
