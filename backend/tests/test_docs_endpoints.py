@@ -13,7 +13,8 @@ would otherwise pass.
 
 The end-to-end proof (real ASGI requests returning 404 with COOKIE_SECURE=true)
 needs a subprocess to control import-time env and is run as a verification step
-rather than lived here; see docs/api-hardening-checklist.md -> Shipped -> C4.
+rather than lived here. C4's full decision record is in git history; the
+remaining open consequence is N8 in docs/open-work.md.
 """
 
 import os
@@ -94,9 +95,9 @@ def test_leaving_the_docs_open_mounts_all_four_routes():
 # --------------------------------------------------------------------------
 
 def test_the_schema_is_still_generated_when_the_route_is_closed():
-    # Closing `/openapi.json` removes the *route*, not the schema. Every
-    # verification table in docs/api-hardening-checklist.md asserts "OpenAPI
-    # operations = 73" by calling app.openapi(), and C1 added
+    # Closing `/openapi.json` removes the *route*, not the schema. The
+    # verification tables that asserted an OpenAPI operation count did so by
+    # calling app.openapi(), and C1 added
     # test_every_gated_work_order_route_documents_its_403, which reads
     # route.responses the same way. Both have to survive openapi_url=None or
     # C4 would silently cost the project its verification coverage.

@@ -24,43 +24,34 @@ A **self-hosted inventory + work-order staging system** for physical materials t
 
 ## Documentation map
 
-**Start here:** `docs/open-work.md` answers "what's left?", and
-`docs/handoff.md` answers "what happened last, and what do I pick up?"
+**Four files, consolidated 2026-08-10** from ten. Shipped history and the
+per-backlog split were removed — git holds the history, and the three separate
+backlogs had drifted out of agreement with each other.
 
-### The live docs
-
-- **`docs/open-work.md`** — **the index of every named improvement not yet implemented**, across all three sources. An index, not an owner: each item's full write-up lives in the doc its row names. Read this first when asking what remains.
-- **`docs/handoff.md`** — the **live** session hand-off: where work stands and what to pick up next. Not a current-state authority.
-- **`docs/current-state.md`** — the durable contract/invariants reference (data model, hard invariants, API surface, roles). "If it conflicts with code, trust the code."
-- **`docs/endpoint-map.md`** — traces all 72 endpoints DB↔view (router→service→table, api.js→view), plus full request/response contracts, an error catalog, and service algorithms — meant to make reading source unnecessary.
-
-### The three backlogs
-
-Kept separate on purpose — they answer different questions and have different owners.
-
-- **`docs/improvement-tracker.md`** — **user-requested** features and their status.
-- **`docs/api-hardening-checklist.md`** — the **framework/operational** backlog (explicitly *not* user-requested features): the live queue, Tier 2 standing notes with named triggers, out-of-scope items, and verified non-issues.
-- **`docs/ux-review.md`** — the open Tier 3 findings from the July 2026 UX review. Not a current-state authority.
-
-### The archives
-
-Split out 2026-08-10, when shipped history had grown to ~79% and ~84% of its parent file and sat between the reader and the queue. Nothing was edited in the move; these are the record, not the plan.
-
-- **`docs/api-hardening-archive.md`** — every **shipped** hardening item, decision record and verification evidence intact.
-- **`docs/ux-review-archive.md`** — the **completed** July 2026 UX items and their browser-validation evidence.
+- **`docs/open-work.md`** — **the only backlog file.** Every named improvement
+  not yet implemented, with its full write-up, plus what was ruled out and what
+  was audited and found to be a non-issue. Read this when asking what remains.
+- **`docs/current-state.md`** — the durable contract/invariants reference (data
+  model, hard invariants, API surface, roles, known gaps). "If it conflicts with
+  code, trust the code."
+- **`docs/endpoint-map.md`** — traces every endpoint DB↔view
+  (router→service→table, api.js→view), plus full request/response contracts, an
+  error catalog, and service algorithms — meant to make reading source
+  unnecessary.
+- **`docs/project-summary.md`** — this file: what the app is, stack,
+  architecture, and the verification baseline.
 
 ## Current baseline
 
-Last reconciled: 2026-08-06 against local `main` at `73bdc95` plus the current
-Work Orders walkthrough working tree. Older documents that use `19e661c`,
-`0566a64`, or `Sane Roles` as the current baseline are historical. OpenAPI
-exposes 72 application operations, Alembic head is `faa2c4e6b8d0`, and all 478
-backend tests pass.
+Last reconciled: 2026-08-10 against `main` at `f0e3b3c`. Older documents that
+use `73bdc95`, `19e661c`, `0566a64`, or `Sane Roles` as the current baseline are
+historical. The backend declares **69 router operations** across 9 routers,
+Alembic head is **`fbc4e6a8d0f2`** (31 revisions), and **659 backend tests**
+pass.
 
-IMP-001 through IMP-003 and IMP-005 through IMP-031 are implemented and marked
-Done. IMP-004 (the Mass Stage redesign) is the only open requested improvement
-and remains very low priority. See `docs/improvement-tracker.md` for the original
-requests and implementation notes.
+IMP-001 through IMP-003 and IMP-005 through IMP-033 are implemented.
+IMP-004 (the Mass Stage redesign) is the only open requested improvement and
+remains very low priority — see `docs/open-work.md`.
 
 Capabilities added after the improvement batch include:
 
@@ -140,15 +131,19 @@ Capabilities added after the improvement batch include:
 
 ## Verification baseline
 
-- Full backend suite on 2026-08-06: 478 passed, including the Work Order
+- Full backend suite as of 2026-08-10: **659 passed**, covering the Work Order
   authored/timestamped append-only note log, Scan/Stock and
   Technician/Supervisor Work Orders short-count recount creation, Technician
   scan-removal boundaries, automatic request resolution,
   missing-price/link deduplication and completion, Admin request management,
-  assigned-worker start/completion walkthrough and two-person Review handoff.
-- All 33 frontend JavaScript files pass `node --check`; Python compilation is clean.
-- OpenAPI reports 72 operations, including work-order start/complete/hold/resume and both
-  User Requests routes; Alembic reports `faa2c4e6b8d0 (head)`.
+  assigned-worker start/completion walkthrough and two-person Review handoff,
+  plus the rate-limit (B3) and list-ceiling (X3) suites.
+- All frontend JavaScript modules pass `node --check`; Python compilation is clean.
+- 69 router operations across 9 routers, including work-order
+  start/complete/hold/resume and both User Requests routes; Alembic head is
+  `fbc4e6a8d0f2`.
+- CI is the deploy path: a green run on `main` deploys to Render. A red build
+  skips the deploy — observed 2026-08-10 on run `31425413107`.
 - `git diff --check` passes; Git reports only expected LF-to-CRLF working-copy
   conversion warnings for modified files.
 

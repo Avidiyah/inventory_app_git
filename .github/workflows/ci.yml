@@ -50,7 +50,7 @@ jobs:
           cache-dependency-path: backend/requirements-dev.txt
 
       # pyzbar wraps native zbar. Without this the import fails and takes the
-      # whole suite with it -- see N7 in docs/api-hardening-checklist.md.
+      # whole suite with it -- see N7 in docs/open-work.md.
       - name: Install native zbar
         run: sudo apt-get update && sudo apt-get install -y libzbar0
 

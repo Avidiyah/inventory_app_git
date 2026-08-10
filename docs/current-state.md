@@ -1,6 +1,6 @@
 # Inventory App Current State
 
-Last reviewed: 2026-08-06
+Last reviewed: 2026-08-10
 
 Purpose of this file: give an AI or developer enough current-state context to
 make technical changes without rereading the whole repository. Start here, then
@@ -9,7 +9,8 @@ open only the files named for the task.
 This is the single durable repo documentation artifact for contracts and
 invariants. Its companion `docs/endpoint-map.md` traces every endpoint
 Database ↔ User View (router → service → table, and `api.js` → view) — use it to
-locate the files for an endpoint without searching.
+locate the files for an endpoint without searching. What is still *open* lives
+in `docs/open-work.md`, the only backlog file.
 
 ## How To Use This Doc
 
@@ -29,10 +30,10 @@ For review/debugging work:
 3. Use `Test Map` to find existing coverage and missing coverage.
 
 If this file conflicts with code, trust the code and update this file as part of
-the change. The 2026-08-06 working-tree baseline has 72 OpenAPI application
-operations, Alembic head `faa2c4e6b8d0`, and 478 passing backend tests. The
-current documentation reconciliation is part of this baseline and must not be
-mistaken for an older committed state.
+the change. The 2026-08-10 baseline is `main` at `f0e3b3c`: **69 router
+operations** across 9 routers, Alembic head **`fbc4e6a8d0f2`** (31 revisions),
+and **659 passing backend tests**. Documents quoting 72 operations,
+`faa2c4e6b8d0`, or 478 tests describe the superseded 2026-08-06 baseline.
 
 ## Fast Orientation
 
@@ -265,10 +266,11 @@ Deployment:
   so they return a plain 404. They are mounted normally when it is false.
   Closing `/openapi.json` removes the route, **not** the schema:
   `app.openapi()` still returns the full dict, which is what every
-  operation-count check in `docs/api-hardening-checklist.md` relies on. There is
-  no override env var; re-enabling in production takes a code change.
+  operation-count check relies on. There is no override env var; re-enabling in
+  production takes a code change.
   Note that `/docs` and `/redoc` render blank wherever they *are* enabled,
-  because A4's CSP blocks their CDN-hosted assets — see checklist item N8.
+  because A4's CSP blocks their CDN-hosted assets — see N8 in
+  `docs/open-work.md`.
 - Static assets are served with `Cache-Control: no-cache`.
 - App sends `Permissions-Policy: camera=(self)` and `X-Request-ID: <12 hex>`.
 - Windows local pyzbar may need Visual C++ 2013 runtime (`msvcr120.dll`).

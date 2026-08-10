@@ -239,7 +239,7 @@ def test_billing_gate_answers_before_the_body_is_validated():
     # so a request that is both malformed AND unauthorized now answers 403
     # where it answered 422. The SPA cannot send a malformed body, so this is
     # unreachable in practice -- but it is a real change at a permission
-    # boundary and is recorded in docs/api-hardening-checklist.md.
+    # boundary, recorded with C1's decision record in git history.
     #
     # Like the test above, this pins the *mechanism* (gate is a dependency,
     # payload is a body param) rather than an observed status code: asserting

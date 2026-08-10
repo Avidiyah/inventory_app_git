@@ -13,9 +13,10 @@ repository documents:
   files for a given endpoint without searching.
 - [docs/project-summary.md](docs/project-summary.md) — concise current-worktree
   orientation and verification baseline.
-- [docs/improvement-tracker.md](docs/improvement-tracker.md) — requested
-  improvements, completion status, and superseding changes.
+- [docs/open-work.md](docs/open-work.md) — the only backlog: every improvement
+  still open, what was ruled out, and what was audited and found to be a
+  non-issue.
 
-`docs/ux-review.md` and `docs/handoff.md` are dated historical records, not
-current-state authorities. If any document conflicts with the working code,
-trust the code and reconcile the documents.
+The docs were consolidated from ten files to four on 2026-08-10; shipped
+history lives in git rather than in a doc. If any document conflicts with the
+working code, trust the code and reconcile the document.

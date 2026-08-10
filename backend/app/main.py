@@ -89,8 +89,8 @@ def _doc_urls(*, production: bool) -> dict:
     route requires. `/docs` and `/redoc` are closed alongside it for tidiness
     rather than for risk: A4's CSP is `default-src 'self'` and FastAPI loads
     Swagger UI and ReDoc from `cdn.jsdelivr.net`, so both pages have rendered
-    blank everywhere, local included, since A4 shipped. See the Tier 2 note in
-    `docs/api-hardening-checklist.md`.
+    blank everywhere, local included, since A4 shipped. See the N8 standing
+    note in `docs/open-work.md`.
 
     Gated on `COOKIE_SECURE` -- the flag A4 already established as "this
     deployment is HTTPS/production" when it used it for HSTS -- rather than a
