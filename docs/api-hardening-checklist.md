@@ -172,6 +172,24 @@ the fix is conditional rather than a removal.
 - **`pip-audit` reports before it blocks.** It runs from day one but does not
   fail the build until its baseline output has been seen and triaged.
 
+**Baseline `pip-audit` result, 2026-08-09 (first run):** **23 known
+vulnerabilities across 2 packages** — `pillow==12.2.0` (fix: **12.3.0**) and
+`starlette==1.2.1` (fix: **1.3.1**). Both are the majority and minority share
+respectively; pillow carries most of them.
+
+This is not a theoretical finding. `pillow` is the library that decodes
+**attacker-supplied image data**: `routers/barcodes.py` accepts an upload and
+`services/barcodes.py:79-85` hands it to Pillow before `pyzbar` ever sees it.
+An image-parsing CVE in that position is reachable by any authenticated user
+with the upload endpoint, and B1 (the size cap) does not address malformed
+content — only volume.
+
+`pip-audit` therefore stays `continue-on-error: true` for now, because turning
+it into a blocking gate today would mean landing two dependency upgrades inside
+the CI change itself. **Upgrading both pins is its own item and should be the
+next thing done after N2** — it is a larger finding than N2 expected to
+produce, and it is exactly what the gate was added to surface.
+
 ### 2. N1 — Add structured logging
 
 - [ ] **Class N** · *~half day* · **the diagnostic floor for everything else**
