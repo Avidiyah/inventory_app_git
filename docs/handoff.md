@@ -34,7 +34,7 @@ deploys.** That is the single thing to decide before doing anything else — see
 | `62c32aa` | yes | **B4** — `pillow` 12.3.0, `starlette` 1.3.1, `pip-audit` now blocking |
 | `a99ad37` | yes | the hand-off rewrite for the post-B4 state |
 | `a6572e3` | **no** | **N1** — structured logging, request id per request |
-| *(B1)* | **no** | **B1** — 10 MB / 25 MB upload caps on the two upload routes |
+| `5053ba2` | **no** | **B1** — 10 MB / 25 MB upload caps on the two upload routes |
 
 **Tier 1 now starts at C1** (fold the five in-body 403 gates, ~1 hr). Full
 order: **C1 → C4 → C2 → B3.**
@@ -63,9 +63,9 @@ first time the `pyzbar` native dependency was handled outside a container.
 
 ### State of the tree — this changed, read it
 
-**Local `main` is two commits ahead of `origin/main`, and the tree is clean.**
-N1 (`a6572e3`) and B1 are both committed locally, both verified, and **neither
-has been pushed.** Everything through `a99ad37` is pushed and green.
+**Local `main` is ahead of `origin/main`, and the tree is clean.** N1
+(`a6572e3`) and B1 (`5053ba2`) are both committed locally, both verified, and
+**neither has been pushed.** Everything through `a99ad37` is pushed and green.
 
 Both commits touch `backend/**`, so a push classifies as **deployable** and
 fires the Render hook after CI. That is why they are sitting here: the owner
