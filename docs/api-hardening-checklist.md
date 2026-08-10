@@ -749,7 +749,11 @@ Shipped as `.github/workflows/ci.yml`, three jobs:
 - **`deploy`** — `needs: [backend, static]`, restricted to pushes on `main`,
   firing a Render deploy hook held in the `RENDER_DEPLOY_HOOK_URL` secret.
   `render.yaml` is now `autoDeploy: false`, so this hook is the only path to
-  production.
+  production **from a git push**. It is not the only path overall — a Manual
+  Deploy or Blueprint sync from the Render dashboard rebuilds the branch tip and
+  runs nothing. Observed 2026-08-10, 33 minutes after the last CI run; harmless
+  that time because the tip had already passed CI. See `docs/handoff.md` →
+  *CI is not the only path to production*.
 
   **Refined 2026-08-09:** the hook now fires only when `backend/**` or
   `render.yaml` changed, so docs and tooling commits no longer restart

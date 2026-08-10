@@ -59,6 +59,12 @@ superseded status narrative went.
 > `/openapi.json` still answers with 113 KB. That is the current state, not a
 > failure.
 >
+> **A dashboard deploy on 2026-08-10 rebuilt production from `eb7f4a2` with no
+> CI run behind it** — 33 minutes after run `31402048099`, which was the last
+> one. The service came up healthy and nothing untested shipped, because that
+> commit had already passed CI on its own push. But it disproves a claim this
+> repo carried: see *CI is not the only path to production* below.
+>
 > **The consequence is small but real and currently open.** C1 added
 > `responses={403: ...}` naming the role each gated route requires, and that
 > lands in `/openapi.json` — which is public until C4 ships. So the live schema
@@ -292,6 +298,29 @@ the original `inventory-db`; verify the copy's plan and recovery settings in
 Render before relying on the same operational guarantee for the active target.
 
 **Tier 0 is now empty.** Nothing left on the list has an external clock.
+
+## CI is not the only path to production
+
+`render.yaml` claimed it was, and that claim was disproved in use on
+2026-08-10. **A Manual Deploy or Blueprint sync from the Render dashboard
+rebuilds the configured branch tip and runs nothing** — no suite, no
+`pip-audit`, no Alembic head check. `autoDeploy: false` closes the
+push-triggered path; it does not close the dashboard.
+
+Observed: a full rebuild started at **15:42:51Z** with the last CI run
+(`31402048099`) at **15:09:18Z**. The deploy was healthy and harmless, because
+the branch tip `eb7f4a2` had already passed CI when it was pushed.
+
+**The hazard is the case where those two diverge.** A dashboard deploy while
+`main` carries unpushed local work ships the *last pushed* commit, not what is
+in the working tree — so it can silently roll production backwards past work
+that was never pushed. That is exactly the shape of this session's state: C4 has
+been committed locally for some time while production runs `eb7f4a2`.
+
+Not a defect to fix — the dashboard is a necessary escape hatch, and the DB
+cutover needed it. Recorded so nobody re-derives it, and so the N2 evidence
+(*"the hook is the only path to production"*) is read with this qualifier
+attached.
 
 ## The one thing to read before drilling anything
 
