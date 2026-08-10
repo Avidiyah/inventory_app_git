@@ -63,6 +63,4 @@ jobs:
         run: alembic upgrade head
 
       - name: Run test suite
-        env:
-          DATABASE_URL: postgresql://inventory:inventory@localhost:5432/wrong_db
         run: python -m pytest -q
