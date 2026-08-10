@@ -105,7 +105,7 @@ itself evidence for C1 — an in-body gate has no stable anchor.
 
 ---
 
-## Next up: N2
+## Shipped this session: N5, N2 (and N7 incidentally)
 
 **N5 is closed** (2026-08-09). `inventory-db` was upgraded off the free plan, so
 the 90-day expiry clock is gone — there is no date to log, because the deadline
@@ -120,22 +120,42 @@ latency, not data loss.
 
 **Tier 0 is now empty.** Nothing left on the list has an external clock.
 
-**N2 (CI) is now #1 and is the first engineering item.** `render.yaml` sets
-`autoDeploy: true` and there is no `.github/`, so every push to `main` ships to
-production having run **nothing**. The 520-test suite is the largest asset in
-the repo and the only thing that never executes on the path that matters. One
-workflow file — pytest, `node --check`, Python compile, Alembic head check,
-`pip-audit` — converts an already-paid-for suite into a real deploy gate. It is
-the item that makes every other item on the list safe to ship.
+**N2 (CI) shipped 2026-08-09.** `.github/workflows/ci.yml` runs three jobs —
+`backend` (postgres:16 service, migrations, full suite on Python 3.12),
+`static` (`node --check`, compile, single Alembic head, migration round-trip,
+`pip-audit`), and `deploy` (gated on `needs: [backend, static]`, pushes to
+`main` only, firing a Render hook). `render.yaml` is now `autoDeploy: false`,
+so that hook is the only path to production. **523 passed in CI**, matching
+local exactly.
 
-**Scoping it surfaced a second layer: a naive CI job would be worse than none.**
-`tests/conftest.py:28-31` *skips* DB-backed tests when Postgres is unreachable,
-and **244 of 425 test functions take the `db` fixture**. So a workflow with a
-placeholder `DATABASE_URL` reports success having run 43% of the suite. Two
-decisions were taken and are recorded under N2 in the checklist: CI **gates**
-the deploy (`autoDeploy: true` → `false` plus a deploy hook), and the skip
-**fails when `CI` is set**, leaving local behavior identical. Linting and a
-blocking `pip-audit` are deliberately out of scope to keep the diff reviewable.
+The thing it nearly shipped with: `conftest.py` *skipped* DB-backed tests when
+Postgres was unreachable, and **244 of 425 test functions take the `db`
+fixture** — so a placeholder `DATABASE_URL` would have reported success over
+43% of the suite. `tests/_db_availability.py` now raises instead of skipping
+under `CI=true`, with local behavior unchanged.
+
+**N7 closed incidentally**: installing `libzbar0` in CI is the first time the
+`pyzbar` native dependency has been handled outside a container, which was its
+named trigger.
+
+**Read the two failure drills under N2 in the checklist before running another
+one.** The guard drill passed. The deploy-gate drill was done wrong — `if:
+always()` overrides `needs`, so it fired a real deploy of `main` (healthy, and
+already-verified code, but unintended). The generalizable lesson: a drill that
+requires weakening the condition under test is not a drill of that condition.
+
+## Next up: B4, then N1
+
+**B4 is new, and N2 found it.** The `pip-audit` gate's first run reported **23
+known CVEs across two packages**: `pillow==12.2.0` (fix 12.3.0) and
+`starlette==1.2.1` (fix 1.3.1). It ranks ahead of N1 on exposure: Pillow parses
+**attacker-supplied image data** (`routers/barcodes.py:45` →
+`services/barcodes.py:79-85`, before `pyzbar` sees it), reachable by any
+authenticated user with the upload endpoint. **B1 does not cover this** — a size
+cap bounds volume, not malformed content. Class B rather than A because a minor
+bump of the image decoder and the ASGI layer is not provably invisible; check
+A3's `httpx2==2.9.1` pin still resolves against Starlette 1.3. When it ships,
+drop `continue-on-error: true` from the *Dependency audit* step.
 
 **Then N1 (structured logging).** `backend/app/` contains **no logging
 whatsoever** — not one `import logging`, logger call, or `print()` (re-verified

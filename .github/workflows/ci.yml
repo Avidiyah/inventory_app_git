@@ -1,0 +1,166 @@
+# Every push to main previously shipped to production having run nothing:
+# render.yaml set autoDeploy: true and this directory did not exist. The
+# 520-test suite is the largest asset in the repo and never executed on the
+# path that mattered.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend suite
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: inventory
+          POSTGRES_PASSWORD: inventory
+          POSTGRES_DB: inventory_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # app/database.py raises at import time without this, so it is required
+      # even for the tests that never touch the database.
+      DATABASE_URL: postgresql://inventory:inventory@localhost:5432/inventory_test
+      # Turns tests/conftest.py's unreachable-database skip into an error.
+      CI: "true"
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"   # matches backend/Dockerfile:1
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      # pyzbar wraps native zbar. Without this the import fails and takes the
+      # whole suite with it -- see N7 in docs/api-hardening-checklist.md.
+      - name: Install native zbar
+        run: sudo apt-get update && sudo apt-get install -y libzbar0
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run migrations
+        run: alembic upgrade head
+
+      - name: Run test suite
+        run: python -m pytest -q
+
+  static:
+    name: Static checks
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: inventory
+          POSTGRES_PASSWORD: inventory
+          POSTGRES_DB: inventory_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://inventory:inventory@localhost:5432/inventory_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # The manual check performed by hand after every batch so far.
+      # 32 non-vendor files; vendor/ is third-party and not ours to fix.
+      - name: JS syntax
+        run: |
+          count=$(find backend/static -name '*.js' -not -path '*/vendor/*' | wc -l)
+          echo "checking $count non-vendor JS files (32 at time of writing)"
+          # Guards vacuous success: `xargs -r` skips node entirely on empty
+          # input, so a broken find pattern would pass this step silently.
+          # A floor, not an exact count -- adding a JS file must not go red.
+          test "$count" -gt 0
+          find backend/static -name '*.js' -not -path '*/vendor/*' -print0 \
+            | xargs -0 -r -n1 node --check
+
+      - name: Install native zbar
+        run: sudo apt-get update && sudo apt-get install -y libzbar0
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Python compile
+        working-directory: backend
+        run: python -m compileall -q app
+
+      # A merge that brings in two migrations from different branches leaves
+      # two heads; `alembic upgrade head` then fails at deploy time, in the
+      # container, after the old version is already down.
+      - name: Exactly one Alembic head
+        working-directory: backend
+        run: |
+          count=$(alembic heads | grep -c '(head)')
+          echo "alembic heads: $count"
+          test "$count" -eq 1
+
+      - name: Migration round-trip
+        working-directory: backend
+        run: |
+          alembic upgrade head
+          alembic downgrade -1
+          alembic upgrade head
+
+      # Reports but does not block, until the baseline output has been
+      # triaged. Flipping continue-on-error to false is the follow-up.
+      - name: Dependency audit
+        working-directory: backend
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit --requirement requirements.txt --desc
+
+  deploy:
+    name: Deploy to Render
+    runs-on: ubuntu-latest
+    # `needs` is the gate: a red backend or static job means this never starts,
+    # and render.yaml sets autoDeploy: false so this hook is the only path to
+    # production.
+    needs: [backend, static]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Trigger Render deploy
+        run: |
+          curl --fail --silent --show-error \
+            "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"

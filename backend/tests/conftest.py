@@ -7,8 +7,9 @@ test can call `commit()` freely without persisting anything (each commit is a
 savepoint release inside the outer transaction, which is discarded at teardown).
 
 Tests that take `db` need a reachable Postgres (per `DATABASE_URL`). If the
-connection fails, the fixture skips rather than errors, so the pure (no-DB)
-suite still runs for contributors without a database.
+connection fails the fixture skips, so the pure (no-DB) suite still runs for
+contributors without a database -- except under `CI=true`, where an unreachable
+database is an error instead. See `_db_availability.py` for why.
 """
 
 import os
@@ -21,6 +22,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.database import engine
+from tests._db_availability import handle_unreachable_database
 
 
 @pytest.fixture
@@ -28,7 +30,7 @@ def db():
     try:
         connection = engine.connect()
     except OperationalError as exc:  # pragma: no cover - environment-dependent
-        pytest.skip(f"database unreachable: {exc}")
+        handle_unreachable_database(exc)
 
     trans = connection.begin()
     session = Session(
