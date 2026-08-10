@@ -1,8 +1,9 @@
 # Session Hand-off
 
-Last updated: 2026-08-09, after the api-hardening-checklist restructure. B2
-(DB-aware health check) shipped earlier the same day; the auth-hardening piece
-(X1 + C3) shipped earlier still and was owner-validated.
+Last updated: 2026-08-09, after **N2 (CI) shipped and merged to `main`**. N5
+closed the same day (paid Postgres). Earlier that day: the checklist
+restructure, B2 (DB-aware health check), and X1 + C3 (auth hardening,
+owner-validated).
 
 This file is the **live** hand-off: where the work stands and what to pick up
 next. It is not a history. For durable behavior and contracts start with
@@ -19,33 +20,48 @@ superseded status narrative went.
 
 ## Where things stand
 
-**Just shipped (2026-08-09): auth hardening — checklist X1 + C3.**
+**Just shipped (2026-08-09): N2 — CI, merged to `main` at `d14627b`.**
 
-Four defects closed, all in `docs/api-hardening-checklist.md` under
-*Shipped by lifting the no-schema-change rule* with full verification evidence:
+`.github/workflows/ci.yml` now runs on every push and PR: `backend` (postgres:16
+service, migrations, full suite on Python 3.12), `static` (`node --check`,
+compile, single Alembic head, migration round-trip, `pip-audit`), and `deploy`
+(gated on `needs: [backend, static]`, `main` pushes only, firing a Render hook
+from the `RENDER_DEPLOY_HOOK_URL` secret). `render.yaml` is `autoDeploy: false`,
+so that hook is the only path to production. **523 passed in CI.**
 
-1. Session tokens are hashed at rest (`sessions.token` → `token_hash`, SHA-256).
-2. Every session has a 12h absolute `expires_at` (was NULL by default, forever).
-3. Password reset revokes sessions, like archive and role change already did.
-4. Login is throttled — exponential backoff on (username, IP), 429 +
-   `Retry-After`.
+Full detail and verification evidence in `docs/api-hardening-checklist.md` →
+*Shipped* → N2, including an honest record of a drill that went wrong.
 
-Verified: 514 backend tests, Alembic `fbc4e6a8d0f2` at head with a clean
-down/up round-trip, 72 OpenAPI operations unchanged, 32 JS files syntax-clean,
-and an owner browser pass across all seven manual checks.
+**Two things N2 produced that were not on anyone's list:**
 
-**State of the tree:** the work is on `main` and **uncommitted**, deliberately.
-The owner's standing direction as of 2026-08-09: *nothing gets committed until
-everything in the docs roadmaps up to this point is implemented*, across however
-many sessions that takes. So expect a large uncommitted diff and do not treat it
-as unfinished business or offer to commit it. Verify what is actually present
-with `git diff` rather than trusting this file.
+- **B4 is new and is now #1 in Tier 1.** `pip-audit`'s first run found **23
+  known CVEs** — `pillow==12.2.0` (fix 12.3.0) and `starlette==1.2.1` (fix
+  1.3.1). Pillow parses attacker-supplied image data on the barcode upload
+  path. The gate justified itself before it was even merged.
+- **N7 closed incidentally.** Installing `libzbar0` in CI is the first time the
+  `pyzbar` native dependency has been handled outside a container.
 
-**Deployment note that still matters:** the migration drops and recreates
-`sessions`, so **the first cold start on the new image signs every user out.**
-That is intended (it is what clears the accumulated plaintext credentials), but
-it should land when no crew is mid-shift. If this has not been deployed yet,
-that decision is still open.
+### State of the tree — this changed, read it
+
+**Everything is committed and merged. `main` is clean and in sync with
+`origin/main`.** The previous standing direction — *nothing gets committed until
+the roadmaps are done*, which this file carried for several sessions — **is no
+longer in force.** It ended with N2, because CI cannot be built or verified
+without pushing commits and opening a PR. Normal commit-per-change flow now
+applies, and `main` is protected by the gate rather than by holding work back.
+
+Do not look for a large uncommitted diff. If `git status` is dirty, that is real
+work in progress, not the old deliberate posture.
+
+**The session-table migration has been deployed.** `fbc4e6a8d0f2` drops and
+recreates `sessions`, so every user was signed out when it landed. That was
+always the intent (it is what clears the accumulated plaintext credentials) and
+it has now happened — do not treat it as still-pending, and do not schedule it
+again.
+
+**Every push to `main` deploys, including docs-only commits.** A `paths-ignore`
+on `docs/**` for the `deploy` job would fix that; it was raised and not yet
+decided.
 
 ---
 
@@ -105,9 +121,9 @@ itself evidence for C1 — an in-body gate has no stable anchor.
 
 ---
 
-## Shipped this session: N5, N2 (and N7 incidentally)
+## Also shipped 2026-08-09: N5 — the database deadline is gone
 
-**N5 is closed** (2026-08-09). `inventory-db` was upgraded off the free plan, so
+**N5 is closed.** `inventory-db` was upgraded off the free plan, so
 the 90-day expiry clock is gone — there is no date to log, because the deadline
 was removed rather than met. Point-in-time recovery now covers any moment in the
 **last three days**, which is stronger than the periodic dump the item asked
@@ -120,29 +136,30 @@ latency, not data loss.
 
 **Tier 0 is now empty.** Nothing left on the list has an external clock.
 
-**N2 (CI) shipped 2026-08-09.** `.github/workflows/ci.yml` runs three jobs —
-`backend` (postgres:16 service, migrations, full suite on Python 3.12),
-`static` (`node --check`, compile, single Alembic head, migration round-trip,
-`pip-audit`), and `deploy` (gated on `needs: [backend, static]`, pushes to
-`main` only, firing a Render hook). `render.yaml` is now `autoDeploy: false`,
-so that hook is the only path to production. **523 passed in CI**, matching
-local exactly.
+## The one thing to read before drilling anything
 
-The thing it nearly shipped with: `conftest.py` *skipped* DB-backed tests when
-Postgres was unreachable, and **244 of 425 test functions take the `db`
-fixture** — so a placeholder `DATABASE_URL` would have reported success over
-43% of the suite. `tests/_db_availability.py` now raises instead of skipping
-under `CI=true`, with local behavior unchanged.
+N2 included two deliberate failure drills — breaking a gate on purpose to prove
+it actually fails. **One of them was designed wrong and caused a real
+production deploy.**
 
-**N7 closed incidentally**: installing `libzbar0` in CI is the first time the
-`pyzbar` native dependency has been handled outside a container, which was its
-named trigger.
+To let the `deploy` job run on a pull request, its condition was temporarily
+changed to `if: always()`. That was the error: **`always()` overrides `needs`**,
+meaning "run regardless of whether the dependencies succeeded" — the exact
+opposite of the property being tested. The run was cancelled, but `deploy` had
+already fired the hook. It deployed `main` (already-verified code) and came up
+healthy, so there was no damage, but nothing about the gate was proven.
 
-**Read the two failure drills under N2 in the checklist before running another
-one.** The guard drill passed. The deploy-gate drill was done wrong — `if:
-always()` overrides `needs`, so it fired a real deploy of `main` (healthy, and
-already-verified code, but unintended). The generalizable lesson: a drill that
-requires weakening the condition under test is not a drill of that condition.
+**The generalizable lesson, which is why this is in the live hand-off rather
+than buried in the checklist: a drill that requires weakening the condition
+under test is not a drill of that condition.** The guard drill in the same batch
+was designed correctly — it overrode `DATABASE_URL` at the *step* level, leaving
+migrations working and isolating the failure to the thing being tested — and it
+passed.
+
+Consequence for the deploy gate: its **green path is confirmed** (the merge to
+`main` ran both jobs, then deployed). Its **red path — a failing build being
+blocked — has never been observed**, and is deliberately left to be verified for
+free on the first real red build. Do not invent a drill for it.
 
 ## Next up: B4, then N1
 
@@ -212,12 +229,14 @@ query tools. It also has `recall` / `remember` for durable per-repo notes.
 
 > **Check the index commit before trusting a structural answer.** As of
 > 2026-08-09 the graph is at `d715545` (2,512 nodes / 5,790 edges), which
-> *predates* the uncommitted X1/C3/B2 work. Its view of `sessions` is therefore
+> *predates* the X1/C3/B2 work (since committed at `873fef3`) and N2 (`d14627b`).
+> Its view of `sessions` is therefore
 > the pre-hash schema, and the never-expiring-session defect it appears to show
 > is the one X1 already fixed. Structural questions about untouched areas are
 > reliable; anything near auth, sessions, or `/healthz` must be confirmed
-> against the working tree. Because nothing is committed by design, this drift
-> will keep widening — treat the graph as a map of the last commit, not of the
+> against the working tree. The graph is now several commits behind rather than
+> a whole uncommitted batch behind, and **re-indexing it is worth doing** —
+> treat it as a map of the commit it names, not of the
 > tree.
 
 **Obsidian** — the retrieval path for documentation held outside the repo.
@@ -271,8 +290,12 @@ Carried forward because it still holds:
 - **Do not start the dev/preview server automatically** — the owner validates in
   the browser manually. Backend tests, syntax checks, and direct
   router/service calls are fair game and expected.
-- **Nothing gets committed until the owner explicitly asks.** Work batches up,
-  then lands on `main` in one go.
+- **Commit rhythm changed with N2 (2026-08-09).** The old rule — *nothing gets
+  committed until the owner explicitly asks*, work batching up and landing on
+  `main` in one go — **no longer applies.** CI cannot be built or verified
+  without pushing, so the batch landed and normal per-change commits resumed.
+  `main` is now protected by the deploy gate rather than by withholding work.
+  Still ask before **merging to `main`**, because that is what deploys.
 - After shipping an item, update its tracking doc in the same turn:
   hardening items → `docs/api-hardening-checklist.md` (tick it, record inline
   verification evidence, then **move the whole entry down to `## Shipped`** so
