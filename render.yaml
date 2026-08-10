@@ -28,7 +28,10 @@ services:
     # unreachable. Deploys that would have silently "succeeded" while broken
     # now fail here instead, which is the point.
     healthCheckPath: /healthz
-    autoDeploy: true
+    # CI is the only path to production: .github/workflows/ci.yml triggers a
+    # deploy hook after the suite passes. With autoDeploy on, Render would also
+    # deploy directly on push and race straight past that gate.
+    autoDeploy: false
     envVars:
       - key: DATABASE_URL
         fromDatabase:
