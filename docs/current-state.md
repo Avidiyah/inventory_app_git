@@ -421,7 +421,9 @@ Security/access:
   more than the runaway client it catches. Refused requests are not themselves
   counted, so the cap cannot become an open-ended lockout. Never enforced by
   sleeping. This is a ceiling on malfunction, not a quota: the UI's heaviest
-  action is far below it, and a runaway `fetch` loop is far above it.
+  action is far below it, and a runaway `fetch` loop is far above it —
+  **confirmed by an owner browser pass against the deployed service on
+  2026-08-10**, in which ordinary field work never approached the cap.
 - Both upload routes are size-capped (10 MB image / 25 MB CSV) and return 413
   above it; see *Upload size caps* under Runtime And Stack. On the import route
   the role gate runs first, so an unauthorised caller never reaches the check.

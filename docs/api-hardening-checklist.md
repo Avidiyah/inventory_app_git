@@ -443,8 +443,27 @@ Middleware tests drive the ASGI stack directly with a stubbed clock — no serve
 started (per the project's browser-validation rule) and no sleeping, so the
 sliding window is deterministic rather than raced.
 
-**Not yet validated in the browser or on the live service.** This entry records
-a local result only.
+**Deployed and owner-validated in the browser on 2026-08-10.** `11a0b42` +
+`1c094de` went out in CI run **31421105913** — `==> Deployable changes
+present.`, hook `dep-d9t1rke7bikc73afrm00`, `/healthz` 200 afterwards — and the
+owner's browser pass against the live service came back clean. **B3 is closed.**
+
+**What that pass does and does not establish, stated precisely because the two
+halves came from different evidence.** A clean browser pass proves the limiter
+does not **misfire** — ordinary field work does not approach 60/s, which was the
+only real risk this change carried. It does not prove the limiter **fires**,
+because nothing in ordinary use should ever reach the cap. That half rests on
+the 47 local tests, 16 of which drive the real ASGI stack and assert the 429,
+its `Retry-After`, the exemptions, and the middleware ordering.
+
+Two direct probes of the deployed service (65 sequential requests, then 150 at
+50-way concurrency, both to a non-exempt 404 path) returned no 429 and were
+**deliberately not escalated** — separating "the requests never landed
+60-within-one-second" from "the probe hit the old container" would have meant
+load-testing production for a signal the browser pass provides for free. Worth
+keeping as a general shape: *the last 5% of certainty is not always worth what
+it costs to obtain*, and here the expensive half of the proof was the half the
+tests already covered.
 
 ### C4 — Close `/docs`, `/redoc`, `/openapi.json` in production
 

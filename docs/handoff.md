@@ -6,8 +6,8 @@ pushed and deployed. **Tier 1 is empty**, and the owner promoted **X3**
 (paginate the unbounded collection endpoints) out of *Not in scope* to be the
 next item — see *Next up*.
 
-Two things are outstanding on B3, both small: the owner's browser pass, and the
-fact that the limiter has not been confirmed firing on the deployed service.
+**B3 is closed** — pushed, deployed, and owner-validated in the browser the same
+day. Nothing is outstanding on it.
 
 The session before shipped **C1** (every static role gate in
 `routers/work_orders.py` is declarative), **C4** (FastAPI's docs endpoints are
@@ -65,20 +65,31 @@ superseded status narrative went.
 > green, `==> Deployable changes present.`, hook `dep-d9t1rke7bikc73afrm00`.
 > `GET /healthz` returned 200 afterwards.
 >
-> **The limiter itself is not yet confirmed live, and that gap is deliberate
-> rather than forgotten.** Two probes against the deployed service — 65
-> sequential requests, then 150 at 50-way concurrency, all to a non-exempt 404
-> path — returned **no 429**. Two explanations that cannot be separated from
+> **The owner's browser pass came back clean on 2026-08-10 and B3 is closed.**
+> Ordinary field work does not approach the cap — which was the only real risk
+> this change carried.
+>
+> **What that pass does and does not prove, because the two halves rest on
+> different evidence.** It proves the limiter does not **misfire**. It does not
+> prove it **fires**, since nothing in ordinary use should ever reach 60/s;
+> that half rests on the 47 local tests, 16 of which drive the real ASGI stack
+> and assert the 429, its `Retry-After`, the exemptions, and the middleware
+> ordering. Read the two together rather than treating the browser pass as
+> end-to-end proof of the whole feature.
+>
+> **Two direct probes of the live service returned no 429 and were deliberately
+> not escalated.** 65 sequential requests, then 150 at 50-way concurrency, both
+> to a non-exempt 404 path. Two explanations that cannot be separated from
 > outside: the requests may never have landed 60-within-one-second (each curl is
 > a fresh TCP+TLS handshake to a free-tier service), or the probe may have hit
-> the old container, since `/healthz` was answered minutes after the hook fired.
-> Chasing it further means load-testing production for a signal the owner's
-> ordinary browser pass provides for free, so it was stopped.
+> the old container. Separating them meant load-testing production for a signal
+> the browser pass gives for free. **Do not re-run this probe** — it was
+> considered and dropped on purpose.
 >
-> **What the failed probe did establish is worth keeping:** it took deliberate
-> 50-way concurrency to even have a chance of reaching the cap. Sequential
-> real-world request patterns cannot approach 60/s. That is the gap the number
-> was chosen to sit in, now observed rather than assumed.
+> **What the probe did establish is worth keeping:** it took deliberate 50-way
+> concurrency to even have a chance of reaching the cap. Sequential real-world
+> request patterns cannot approach 60/s. That is the gap the number was chosen
+> to sit in, now observed rather than assumed.
 >
 > **The cap was the owner's call, not a measured one, and that is worth knowing
 > before anyone tunes it.** The plan of record was to pull real volume from N1's
@@ -176,20 +187,17 @@ route in the app, in middleware, ahead of routing. Everything shipped before it
 touched one module or one pair of endpoints. It went out on its own push
 accordingly.
 
-**The one thing still open on it is browser validation.** Ordinary use should be completely
-unaffected — that is the design, not a hope — so the validation worth doing is
-the fast path: a technician scanning several items in quick succession, a
-work-order CSV import, and a page refresh immediately followed by a search. If
-any of those produces a `Too many requests. Please slow down.` banner, the cap
-is mistuned for real field behaviour and the number should move, not the
-exemption list.
+**Browser validation passed and nothing is open on it.** Ordinary use is
+unaffected, as designed.
 
-**The one failure mode to recognize.** A 429 on a static asset would render as a
-blank or half-styled page rather than as an error message. That should be
-impossible — `/`, `/static/*` and `/healthz` are exempt and there is a test
-firing 200 consecutive requests at each to prove it — but it is the symptom to
-connect back to this change if it ever appears, because nothing about a blank
-page says "rate limit".
+**The failure mode to recognize if it ever appears later.** A 429 on a static
+asset would render as a blank or half-styled page rather than as an error
+message. That should be impossible — `/`, `/static/*` and `/healthz` are exempt
+and there is a test firing 200 consecutive requests at each to prove it — but it
+is the symptom to connect back to this change, because nothing about a blank
+page says "rate limit". Likewise, a `Too many requests. Please slow down.`
+banner during ordinary work would mean the cap is mistuned for real field
+behaviour, and the fix is the **number**, not the exemption list.
 
 C1 and C4 were *planned* as one push — both Class C, both small, both touching
 what the API exposes and to whom — for one CI run, one deploy, and one
@@ -672,8 +680,10 @@ Five things worth carrying forward:
   moved out of middleware into a dependency, with all the per-route wiring that
   implies.
 
-**Not yet pushed, and not yet validated in a browser.** See *State of the tree*
-for what to look at once it deploys.
+**Pushed, deployed** (`dep-d9t1rke7bikc73afrm00`), **and owner-validated in the
+browser on 2026-08-10.** **B3 is closed.** See *Start here* for the one nuance
+worth carrying: the browser pass proves the limiter does not misfire, while the
+local suite is what proves it fires.
 
 ## Next up: X3 — paginate the unbounded collection endpoints
 
