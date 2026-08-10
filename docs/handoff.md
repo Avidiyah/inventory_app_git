@@ -131,6 +131,19 @@ Every unclassifiable case (new branch, force push, grafted history, empty diff)
 **falls through to deploying**. That direction is deliberate: a redundant deploy
 is noise, while a skipped real change is a silent production stall.
 
+> **Observed for real on 2026-08-10, having been theory until then.** An empty
+> commit (`c06eb00`, pushed to nudge the Graphify indexer) hit the empty-diff
+> branch: `No file changes in range; deploying.` — and it deployed. No damage:
+> the tree at `c06eb00` is byte-identical to `80b0981`, so it redeployed
+> already-verified code, and `/healthz` returned 200 afterwards. But it is a
+> **production restart**, which on the free web tier means a cold start for the
+> next caller.
+>
+> **So: never use `git commit --allow-empty` to trigger anything on this repo.**
+> A trivial docs-only commit delivers the same push webhook and classifies as
+> skip, leaving production untouched. The fall-through is correct behavior and
+> should not be changed — it just makes the empty commit the one nudge to avoid.
+
 ---
 
 ## Also shipped 2026-08-09: B2 — the health check no longer lies
@@ -408,68 +421,43 @@ than opening files and more complete than grep for structural questions. Start
 with `list_repositories`, then pass the id (`Avidiyah/inventory_app_git`) to the
 query tools. It also has `recall` / `remember` for durable per-repo notes.
 
-> **It re-indexes on push to `main` — but not reliably, and not always
-> promptly.** Check `graph_stats` → `commitSha` against `git rev-parse HEAD`
-> **every session**, and read the result rather than assuming.
+> **It re-indexes on push to `main`, and as of 2026-08-10 it is current.**
+> Check `graph_stats` → `commitSha` against `git rev-parse HEAD` every session
+> anyway; it is one call, and the failure mode is silent.
 >
-> Two observations, both real, and the second is why the first is not a rule.
-> On 2026-08-09 the graph tracked `cf7dec2` and then `62c32aa` (2,667 nodes /
-> 6,085 edges) within minutes of each push. On **2026-08-10 it was still at
-> `62c32aa`** — four commits and roughly ten minutes after the push that shipped
-> N1 and B1. So an earlier revision of this file saying it "now usually matches"
-> was over-generalising from two lucky samples.
+> **The one time it went stale, the cause was a plan limit, not a bug.** The
+> graph sat at `62c32aa` across six pushes on 2026-08-10 while reporting
+> `status: ready` — the **free tier has an update cap**, and it had been hit.
+> Upgrading the Graphify account cleared it: the next push produced build
+> `6306ff13` at `c06eb00` with **2,829 nodes / 6,305 edges** (up from 2,667 /
+> 6,085), and `_uploads.py` with its call edges is present. Nothing in this repo
+> was ever the problem, and nothing in this repo could have fixed it.
 >
-> **What that costs, concretely:** a session picking up C1 would query the graph
-> for `routers/work_orders.py` and get the *pre-B1* file — line numbers ten off,
-> and `routers/_uploads.py` absent entirely. That is exactly the kind of quiet
-> wrongness the old `d715545` caveat used to cause.
+> So if it is behind again, **check the account's plan and usage first** rather
+> than re-diagnosing webhooks. There is no repository-level webhook (`gh api
+> repos/…/hooks` is empty — indexing runs off a GitHub App installation), no
+> reindex tool in the MCP surface, and the local `graphify` CLI cannot reach the
+> hosted tenant (its full command list has no push/promote/login/sync/upload).
 >
-> The old caveat itself (graph stuck at `d715545`, pre-hash `sessions` schema)
-> genuinely is gone; it was an artifact of the don't-commit posture, since the
-> graph indexes commits. **Uncommitted work is still invisible to it.** The
-> honest summary: the graph is a fast index of *some* commit, and which commit
-> is a question you have to ask, not assume.
+> **Uncommitted work is still invisible to it** — that is the case where map and
+> territory genuinely differ, and no plan fixes it.
 
-#### What was established 2026-08-10 about the staleness, so it is not re-derived
+#### `gx_find` takes a term, not a sentence — this cost a wrong conclusion
 
-Diagnosed as far as this side allows. **The remaining checks are owner-side, in
-Graphify's own dashboard and GitHub's app settings — nothing in this repo can
-fix it.**
+Worth knowing before using the query tools, because it produced a confident
+statement that was not supported.
 
-What is known, with evidence:
+`gx_find "read_capped upload size cap"` returns **0 matches**. `gx_find
+"read_capped"` returns **1**, correctly locating `_uploads.py:86`. Both against
+the *same current* graph. The multi-word phrase is not a natural-language query
+here — it is matched as a term, and a term with spaces in it matches nothing.
 
-- **The graph is genuinely behind, not just its metadata.** `graph_stats` reports
-  `62c32aa`, and `gx_find "read_capped"` returns **0 matches** — `_uploads.py`
-  does not exist in the index at all.
-- **It is not mid-build or self-reporting an error.** `list_repositories` says
-  `status: ready`, `queryable: true`, and the `buildId` is byte-identical to
-  yesterday's (`fc7109de-…`). It is serving an old build contentedly.
-- **There is no way to trigger a rebuild from here.** The entire Graphify MCP
-  surface is read-only queries plus `remember`/`recall`. No reindex tool exists.
-- **The repo has no repository-level webhook** (`gh api repos/…/hooks` returns
-  empty), so indexing must be driven by a **GitHub App installation** or by
-  Graphify polling. App installations cannot be enumerated with the current
-  token (`user/installations` → 403, needs an app-authorized token), so this is
-  the thread that could not be pulled from here.
-- **The pattern is "worked twice, then stopped."** Indexed `cf7dec2` and
-  `62c32aa` on 2026-08-09, then nothing across **six** later pushes including
-  two that changed `backend/`. So it is not "only indexes code changes".
-
-Owner-side checks, cheapest first — the first one that shows something wrong is
-the answer:
-
-1. **Graphify's dashboard for this repo.** Is there a failed or queued build
-   after `62c32aa`? A manual re-index control? This is the most likely place the
-   answer is simply visible.
-2. **GitHub → Settings → Integrations → GitHub Apps.** Is the Graphify app still
-   installed, still granted this repo, and not suspended? An app installed with
-   *selected repositories* silently stops delivering if that selection changes.
-3. **Plan or build quota.** "Worked twice on one day, then stopped" is the shape
-   a build cap makes.
-
-**Until it catches up, read `routers/work_orders.py` from the working tree for
-C1** — the graph's copy predates B1, so its line numbers are ten off and
-`_uploads.py` is absent.
+That zero was cited during the staleness diagnosis as proof the graph lacked
+B1. **It proved nothing**; it would have returned zero against a perfectly
+current graph, as it now demonstrably does. The staleness itself was real, but
+the evidence that actually established it was `commitSha` plus a `buildId` that
+had not changed. Use `gx_find` with a bare symbol name, or `query_graph` /
+`gx_find_seeds` for a real question in prose.
 
 **Obsidian** — the retrieval path for documentation held outside the repo.
 Vault root: `C:\Users\mcclu\Desktop\Obsidian\John_Vault`; this project's folder
