@@ -14,8 +14,10 @@ size caps) shipped 2026-08-09** on top of it. **C1, C4, C2's ordering half and
 B3 all shipped 2026-08-10** — every static role gate in
 `routers/work_orders.py` is declarative, FastAPI's docs endpoints are closed in
 production, tool-custody row order is pinned, and every route is now rate
-limited — so **Tier 1 is empty** and nothing left on the list exposes anything
-to an unauthenticated caller. C4's implementation also produced **N8**.
+limited — and nothing left on the list exposes anything to an unauthenticated
+caller. C4's implementation also produced **N8**. Tier 1 emptied on that day and
+the owner refilled it by promoting **X3** out of *Not in scope*, accepting the
+frontend work it had always been parked for.
 
 Re-reviewed 2026-08-09 against the promoted code graph at `d715545` (2,512 nodes
 / 5,790 edges), which covers structure the original file-by-file audit did not.
@@ -113,15 +115,65 @@ now has an external clock; the queue below is ordered purely on merit.
 
 ---
 
-## Tier 1 — empty
+## Tier 1 — Do next, in this order
 
-B3 was the last item here and it shipped on 2026-08-10 (see *Shipped*). C4
-closed the last unauthenticated surface before it, and C2 was demoted to Tier 2
-once its risky half shipped.
+### 1. X3 — Paginate the unbounded collection endpoints
 
-**Nothing is queued.** The next item to arrive should be ranked against the four
-criteria under *How this list is ordered* rather than appended, and Tier 2's
-standing notes should be re-read for a trigger that has since fired.
+- [ ] **Class X** · *promoted from "Not in scope" 2026-08-10* · **owner accepted
+  it as a feature**
+
+Six list endpoints return their entire table. Verified against the tree on
+2026-08-10:
+
+| Endpoint | Bound today | Gate |
+|---|---|---|
+| `GET /items/` | none — optional `q` substring only | any logged-in user |
+| `GET /items/search-index` | none — every live name + primary barcode | any logged-in user |
+| `GET /tools/` | none | any logged-in user |
+| `GET /users/` | none — `include_archived` widens it | Supervisor+ |
+| `GET /mass-stages/` | none | any logged-in user |
+| `GET /user-requests/` | none — open/resolved filter only | Admin+ |
+| `GET /work-orders/` | `limit: Optional[int] = Query(None, ge=1)` | scoped by role |
+
+**Only `work-orders` takes a `limit`, and it has no upper bound and no default.**
+
+**Why it moved.** It was filed under *Not in scope* because changing what these
+routes return needs matching frontend work — a scope objection, never a
+correctness one. B3 named these same endpoints as the unlimited-volume surface
+and could only put a ceiling in front of them: a rate limit bounds how *often* a
+caller asks for everything, not what one such request costs. With Tier 1 empty
+and no Tier 2 trigger fired, the owner accepted the frontend cost and promoted
+it rather than have an item invented to fill the queue.
+
+**Split it before scheduling it**, on the C2 precedent — the expensive part and
+the risky part are not the same part:
+
+- **Cheap half, no UI work:** put an upper bound on `work-orders`' existing
+  `limit`. No default changes, no current caller's response changes, no
+  frontend touch — the page passes 10 or nothing.
+- **Expensive half:** everything else, where adding a page contract changes what
+  existing callers receive. That is the part the original scope objection was
+  about.
+
+**Three things to settle first, all owner-shaped:**
+
+1. **`GET /items/` collides with IMP-001**, which asked for a *Load All Items*
+   button and got one. Paginating that route either breaks that button or turns
+   it into a paging UI. It reverses part of a shipped request.
+2. **A `limit` with a default silently truncates every existing caller** and
+   fails quietly — a truncated list looks like a short list. A `limit` without
+   one changes nothing until callers opt in, but leaves the route unbounded for
+   anyone who does not.
+3. **`/items/search-index` has zero frontend callers** (`grep` over
+   `backend/static/`, 2026-08-10). It returns every live item name and barcode
+   to any logged-in user and serves nothing. Deleting it likely beats paginating
+   it; that is a route removal, so OpenAPI goes 73 → 72.
+
+**Two interactions:** paginating `GET /tools/` also caps C2's N+1 as a side
+effect, so re-read C2's trigger afterwards rather than leaving it stale. And
+`GET /work-orders/` sorts in Python because X2 ruled out SQL ordering, so
+`LIMIT`/`OFFSET` there cannot be pushed into the query without reopening X2 —
+pagination bounds the response, not the work.
 
 ---
 
@@ -295,16 +347,13 @@ column. Both are schema changes, and `schedule_date` is deliberately raw text.
 **Superseded by A6**, which captures the available win (not hydrating the whole
 matching set to return 10 cards) with no behavior change at all.
 
-### X3 — Paginate the unbounded collection endpoints — **requires UI work**
+### X3 — **Promoted to Tier 1 on 2026-08-10.** See the top of this file.
 
-- [ ] **Class X** · **this is a feature, not hardening**
-
-Only `work-orders` exposes a `limit`, and it is `Query(None, ge=1)` — no upper
-bound, no default. Items, tools, users, stages, and requests return everything.
-Changing what the API returns requires matching frontend work, so this is a
-feature, not hardening. Log it in `improvement-tracker.md` if wanted.
-
-Referenced by B3, which names these endpoints as the unlimited-volume surface.
+Left as a pointer rather than deleted, because the *reason* it sat here matters
+to whoever picks it up: it was parked as out of scope for being a feature, not
+for being unimportant. The owner accepted it as a feature and promoted it after
+Tier 1 emptied. Nothing about the item changed — only whether the project is
+willing to do frontend work for it.
 
 ---
 

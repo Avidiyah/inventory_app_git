@@ -1,9 +1,13 @@
 # Session Hand-off
 
 Last updated: **2026-08-10**, end of the session that shipped **B3** — every
-route in the app is rate limited now, at 60 requests/second per caller.
-**Tier 1 is empty.** B3 is committed locally and **not pushed**; nothing else is
-outstanding.
+route in the app is rate limited now, at 60 requests/second per caller. It is
+pushed and deployed. **Tier 1 is empty**, and the owner promoted **X3**
+(paginate the unbounded collection endpoints) out of *Not in scope* to be the
+next item — see *Next up*.
+
+Two things are outstanding on B3, both small: the owner's browser pass, and the
+fact that the limiter has not been confirmed firing on the deployed service.
 
 The session before shipped **C1** (every static role gate in
 `routers/work_orders.py` is declarative), **C4** (FastAPI's docs endpoints are
@@ -53,10 +57,28 @@ superseded status narrative went.
 > only database reachability; Admin `/db-test` reports PostgreSQL logical
 > names, not the Render resource display name.
 
-> **B3 shipped locally and Tier 1 is now empty.** Every non-exempt path is
-> capped at 60 requests/second per caller, returning 429 + `Retry-After: 1`.
-> **632 passed**, OpenAPI still 73, no migration. It is **committed and not
-> pushed**, and pushing it deploys — see *State of the tree*.
+> **B3 is shipped, pushed and deployed, and Tier 1 is now empty.** Every
+> non-exempt path is capped at 60 requests/second per caller, returning 429 +
+> `Retry-After: 1`. **632 passed**, OpenAPI still 73, no migration.
+>
+> `11a0b42` + `1c094de` went out in CI run **31421105913** — all three jobs
+> green, `==> Deployable changes present.`, hook `dep-d9t1rke7bikc73afrm00`.
+> `GET /healthz` returned 200 afterwards.
+>
+> **The limiter itself is not yet confirmed live, and that gap is deliberate
+> rather than forgotten.** Two probes against the deployed service — 65
+> sequential requests, then 150 at 50-way concurrency, all to a non-exempt 404
+> path — returned **no 429**. Two explanations that cannot be separated from
+> outside: the requests may never have landed 60-within-one-second (each curl is
+> a fresh TCP+TLS handshake to a free-tier service), or the probe may have hit
+> the old container, since `/healthz` was answered minutes after the hook fired.
+> Chasing it further means load-testing production for a signal the owner's
+> ordinary browser pass provides for free, so it was stopped.
+>
+> **What the failed probe did establish is worth keeping:** it took deliberate
+> 50-way concurrency to even have a chance of reaching the cap. Sequential
+> real-world request patterns cannot approach 60/s. That is the gap the number
+> was chosen to sit in, now observed rather than assumed.
 >
 > **The cap was the owner's call, not a measured one, and that is worth knowing
 > before anyone tunes it.** The plan of record was to pull real volume from N1's
@@ -114,12 +136,13 @@ waiting on a decision for those items.
 | `b9c3b94` | `inventory-db-copy` re-verified — N5's guarantees hold on the live target |
 | `2cb99c9` | **C2's ordering half** — tool custody sorted by name (pushed) |
 | `775f1a2` | the hand-off rewrite that queued B3 (pushed) |
-| `11a0b42` | **B3** — 60 req/s per caller on every non-exempt route (**not pushed**) |
+| `11a0b42` | **B3** — 60 req/s per caller on every non-exempt route (pushed, deployed) |
+| `1c094de` | B3's own hash recorded in this file (pushed) |
 
-**Tier 1 is empty.** C1, C4, C2's ordering half and B3 have all shipped; the
-rest of C2 was demoted to Tier 2 after its symptom turned out not to be
-occurring. **Nothing left on the list exposes anything to an unauthenticated
-caller** — C4 was the last one.
+**Tier 1 emptied and was then refilled by the owner with X3.** C1, C4, C2's
+ordering half and B3 have all shipped; the rest of C2 was demoted to Tier 2
+after its symptom turned out not to be occurring. **Nothing left on the list
+exposes anything to an unauthenticated caller** — C4 was the last one.
 
 ### B4's two loose ends are closed (2026-08-09, next session)
 
@@ -145,16 +168,15 @@ first time the `pyzbar` native dependency was handled outside a container.
 
 ### State of the tree
 
-**One commit ahead of `origin/main`: B3.** Everything before it is pushed and
-live. Expect `[ahead 1]` and an otherwise clean tree.
+**Clean and in sync with `origin/main` at `1c094de`.** Nothing is committed and
+unpushed; expect no `[ahead]` marker. Everything through B3 is deployed.
 
-That commit touches `backend/**`, so its push deploys, and B3 is the highest-blast-radius
-change in this whole run: it sits on **every** route in the app, in
-middleware, ahead of routing. Everything shipped before it touched one module or
-one pair of endpoints. Push it on its own, and validate in the browser
-afterwards rather than inferring from a green suite.
+B3 was the highest-blast-radius change in this whole run: it sits on **every**
+route in the app, in middleware, ahead of routing. Everything shipped before it
+touched one module or one pair of endpoints. It went out on its own push
+accordingly.
 
-**What to look at after it deploys.** Ordinary use should be completely
+**The one thing still open on it is browser validation.** Ordinary use should be completely
 unaffected — that is the design, not a hope — so the validation worth doing is
 the fast path: a technician scanning several items in quick succession, a
 work-order CSV import, and a page refresh immediately followed by a search. If
@@ -653,34 +675,107 @@ Five things worth carrying forward:
 **Not yet pushed, and not yet validated in a browser.** See *State of the tree*
 for what to look at once it deploys.
 
-## Next up: nothing is queued
+## Next up: X3 — paginate the unbounded collection endpoints
 
-**Tier 1 is empty for the first time since the checklist was restructured.** No
-item on the list has an external clock, an unauthenticated exposure, or a named
-owner decision waiting on it.
+**Owner-selected 2026-08-10**, and the selection is the notable part: X3 was
+sitting under *Not in scope — violates the stated constraints*, not in a tier.
+Tier 1 was empty, no Tier 2 trigger had fired, and rather than invent an item
+the owner promoted this one. So it arrives **already accepted as a feature**,
+which is the exact thing that had been parking it.
 
-That is a real state, not an oversight — so the next session should not go
-looking for a Tier 1 item to take. The three honest options, in the order they
-are probably worth doing:
+### Why it is the right thing to pick up
 
-1. **Close out B3 properly first.** It is committed, unpushed, unvalidated, and
-   sits on every route in the app. Finishing it — push, deploy, browser
-   validation, then recording the result here and in the checklist — is worth
-   more than starting anything new.
-2. **Re-read Tier 2 for a trigger that has fired.** Each standing note has a
-   named trigger rather than a priority, which only works if someone actually
-   checks. `C2` (Tools page feels slow), `N4` (a CDN is introduced), `N8`
-   (someone wants a working API explorer), `N3` (a second instance) — and note
-   that **B3 just added a second concrete item to N3**, since its counters are
-   per process.
-3. **Ask the owner what hurts.** The list is a code audit; it has never been the
-   only source of work, and `IMP-004` is still the one open requested
-   improvement.
+B3 named these endpoints as the unlimited-volume surface and could only put a
+ceiling in front of them. A rate limit bounds how *often* a caller can ask for
+everything; it does nothing about the cost of one such request. X3 is the fix
+B3 was standing in for.
 
-**Do not invent a Tier 1 item to keep the queue populated.** The C2 demotion one
-session earlier is the precedent: an item whose symptom was not occurring cost
-five minutes once it was questioned and would have cost half a day if it had
-merely been executed.
+### What is actually unbounded — verified against the tree, not the write-up
+
+| Endpoint | Bound today | Gate |
+|---|---|---|
+| `GET /items/` | none — optional `q` substring only | any logged-in user |
+| `GET /items/search-index` | none — every live name + primary barcode | any logged-in user |
+| `GET /tools/` | none | any logged-in user |
+| `GET /users/` | none — `include_archived` widens it | Supervisor+ |
+| `GET /mass-stages/` | none | any logged-in user |
+| `GET /user-requests/` | none — open/resolved filter only | Admin+ |
+| `GET /work-orders/` | `limit: Optional[int] = Query(None, ge=1)` | scoped by role |
+
+**Only `work-orders` takes a `limit` at all, and it has `ge=1` with no upper
+bound and no default.** The page browses the first 10 and omits `limit`
+entirely for *Show all* and for search.
+
+### Start by splitting it, the way C2 was split
+
+This is the same shape C2 turned out to have, and that split is the single most
+useful precedent in this file: **the expensive part and the risky part are not
+the same part.**
+
+- **The cheap half carries no UI work at all.** Adding an upper bound to
+  `work-orders`' existing `limit` (`Query(None, ge=1, le=...)`) changes no
+  default, no response for any current caller, and no frontend code — the page
+  passes 10 or nothing. It closes an unbounded parameter that a caller can
+  already set to any integer. Do this first and it is provably invisible.
+- **The expensive half is everything else**, because adding pagination to a
+  route that currently returns everything changes what existing callers get.
+  That is the part needing matching frontend work, and it is why this was
+  parked rather than merely deprioritized.
+
+Doing the cheap half first also means the expensive half can be measured
+against a bounded endpoint rather than an unbounded one.
+
+### The forks to raise before writing code
+
+Per *Working rhythm*, these are product-shaped and belong to the owner:
+
+1. **`GET /items/` collides with a shipped, explicitly requested behaviour.**
+   IMP-001 asked for a **Load All Items** button, and it exists precisely so a
+   user can pull the entire dataset on purpose. Paginating that endpoint either
+   breaks that button or needs it to become a paging UI. **Do not treat this as
+   a pure backend change** — it reverses part of a request the owner made.
+2. **Default page size, and whether an unpaginated call stays legal.** A
+   `limit` with a default silently truncates every existing caller, including
+   the frontend, and that failure is quiet — a short list looks like a short
+   list. A `limit` without a default changes nothing until callers opt in, but
+   then the endpoint is still unbounded for anyone who does not.
+3. **Offset or cursor.** Offset is trivial and matches the existing `Query`
+   style; it also drifts under concurrent writes, which matters most on
+   `user-requests` and `work-orders`, the two lists that change while someone
+   is looking at them.
+4. **`/items/search-index` should probably be deleted rather than paginated.**
+   IMP-001 removed the native datalist that consumed it, and the tracker says
+   it "remains for compatibility". **Checked this session: `grep` over
+   `backend/static/` returns zero callers** — no frontend code requests it at
+   all. So it is an unbounded endpoint returning every live item name and
+   barcode to any logged-in user, serving nothing. Confirm against any non-SPA
+   consumer, then delete it; the cheapest fix for an unbounded endpoint is not
+   having one. That is a route removal, so it is the owner's call and it moves
+   the OpenAPI count 73 → 72.
+
+### Two interactions worth knowing before starting
+
+- **`GET /tools/` is C2's N+1.** `routers/tools.py:73` calls `_tool_response`
+  per tool and each runs `_custody_query`, so paginating this route also caps
+  that query count as a side effect — which is most of what C2's remaining half
+  was for. If X3 paginates tools, re-read C2's Tier 2 note rather than leaving
+  it stale; its trigger may be moot afterwards.
+- **`GET /work-orders/`'s ordering is done in Python, not SQL** (see X2, ruled
+  out as not safely possible: `schedule_date` is deliberately raw text and the
+  parser catches invalid calendar dates that Postgres `make_date` would raise
+  on). **So a `LIMIT`/`OFFSET` on that route cannot be pushed into the query
+  without re-opening X2.** Pagination there means slicing an already-hydrated,
+  already-sorted list — which bounds the *response*, not the work. Anyone
+  expecting X3 to make that route cheaper should know that before starting; A6
+  already captured the available win there.
+
+### Safety net
+
+`tests/test_work_orders_service.py` and `tests/test_route_role_gates.py` show
+the shape for list-endpoint behaviour and for proving a gate still runs. Any
+pagination change wants a test that **a caller who passes nothing still gets
+what they got before** — that is the regression with the quietest failure mode,
+because a silently truncated list looks exactly like a short list.
 
 ---
 
