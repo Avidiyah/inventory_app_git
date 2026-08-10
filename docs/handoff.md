@@ -207,8 +207,10 @@ each step's output is the next step's input.
 4. **Execute** only after an explicit go-ahead.
 5. **Update documentation in the same turn as the work.** Never defer it to
    "later in the session"; the specific routing is in *Working rhythm* below.
-6. **Write the session hand-off** — this file — and sync Obsidian before
-   closing.
+6. **Write the session hand-off** — this file — and append to the Obsidian
+   session log before closing. The `docs/` → vault *mirror* no longer needs
+   doing by hand; a `Stop` hook syncs it (see *MCP tooling*). The session log
+   still does.
 
 Steps 1 and 5 are the ones that have actually been skipped before, and both
 times it cost a later session real time. This file was found stale once because
@@ -227,40 +229,77 @@ than opening files and more complete than grep for structural questions. Start
 with `list_repositories`, then pass the id (`Avidiyah/inventory_app_git`) to the
 query tools. It also has `recall` / `remember` for durable per-repo notes.
 
-> **Check the index commit before trusting a structural answer.** As of
-> 2026-08-09 the graph is at `d715545` (2,512 nodes / 5,790 edges), which
-> *predates* the X1/C3/B2 work (since committed at `873fef3`) and N2 (`d14627b`).
-> Its view of `sessions` is therefore
-> the pre-hash schema, and the never-expiring-session defect it appears to show
-> is the one X1 already fixed. Structural questions about untouched areas are
-> reliable; anything near auth, sessions, or `/healthz` must be confirmed
-> against the working tree. The graph is now several commits behind rather than
-> a whole uncommitted batch behind, and **re-indexing it is worth doing** —
-> treat it as a map of the commit it names, not of the
-> tree.
+> **Re-indexed and current as of 2026-08-09.** The graph is at `cf7dec2` —
+> `main`'s tip — with 2,664 nodes / 6,083 edges. It now covers X1/C3, B2, and
+> N2, so the previous standing caveat (graph at `d715545`, pre-hash `sessions`
+> schema, "confirm anything near auth against the working tree") **no longer
+> applies** and has been removed rather than left to mislead.
+>
+> The habit that produced that caveat is still right, though: check
+> `graph_stats` → `commitSha` against `git rev-parse HEAD` before trusting a
+> structural answer. It is one call, and it tells you whether the map matches
+> the territory.
 
 **Obsidian** — the retrieval path for documentation held outside the repo.
+Vault root: `C:\Users\mcclu\Desktop\Obsidian\John_Vault`; this project's folder
+is `4. Notes\Repository-Docs\inventory-app-git`.
 
-> **It was NOT connected on 2026-08-09.** The vault was updated through direct
-> filesystem writes instead, which works and is a fine fallback. Vault root:
-> `C:\Users\mcclu\Desktop\Obsidian\John_Vault`, and this project's folder is
-> `4. Notes\Repository-Docs\inventory-app-git`.
+> **Fixed 2026-08-09. Do not re-diagnose this.** The `obsidian` MCP server is
+> `@modelcontextprotocol/server-filesystem` and *is* connected — but it was
+> reporting the **repo** as its only allowed directory even though
+> `~/.claude.json` correctly pointed it at the vault. That is not a
+> misconfiguration: the server supports the MCP **roots** protocol, and
+> `dist/index.js:578` *replaces* its command-line directories with the client's
+> roots at initialization. Claude Code declares the workspace as its roots, so
+> the vault argument was discarded every session.
+>
+> The fix was to make the vault a workspace directory —
+> `permissions.additionalDirectories` in `~/.claude/settings.json` (user scope,
+> so it is not committed and works from any project). Both directories are now
+> allowed, and it took effect live via `roots/list_changed` without a restart.
+> Editing the server's `args` would never have worked.
 
 What lives in that folder, and what it is for:
 
 | Path | What it is |
 |---|---|
-| `reviews/api-hardening-checklist.md` | **Mirror** of the repo checklist. Not authoritative — edit the repo copy, then re-sync. |
-| `reviews/Gap Audit.md` | The FastAPI-specific exposure audit the checklist was built from. |
+| `reviews/*.md` | **Generated mirrors of all seven `docs/*.md` files.** Not authoritative and not hand-edited — see below. |
+| `reviews/Gap Audit.md` | The FastAPI-specific exposure audit the checklist was built from. Vault-native, *not* a mirror; the sync never touches it. |
 | `sessions/session-log.md` | Structured per-session log: `## <ISO timestamp>` then `### Summary` / `### Changed Files` / `### Decisions / Context Updates` / `### Follow-ups`. |
 | `README.md` | Repo context plus a second, shorter append-log in the same four-section format. |
 
-Two cautions learned on 2026-08-09. The vault mirror had drifted **two shipping
-sessions** behind the repo before anyone noticed, which is why it now carries a
-provenance header saying which direction sync flows. And the session log had a
-matching gap — the 08-07 and 08-09 sessions were never written — now closed by a
-clearly-labelled backfill entry. **Append to the log in the same session as the
-work**, for the same reason step 5 above exists.
+### The mirror is automated now — do not sync it by hand
+
+`scripts/sync-obsidian.ps1` generates every `reviews/*.md` mirror from `docs/`,
+and a **`Stop` hook** in `.claude/settings.local.json` runs it when a turn ends.
+Staleness is now structural rather than a thing to remember.
+
+Three properties worth knowing before touching it:
+
+- **It is idempotent, by hash.** Each mirror's header carries
+  `<!-- sync-source-sha256: … -->` of the repo file it came from. A file is
+  rewritten only when that hash changes, so the hook is a no-op on most turns
+  and the vault's own git history stays quiet. This is why running it on every
+  turn is safe.
+- **It generates rather than copies**, because the mirrors carry vault-only
+  additions a copy would destroy: Obsidian frontmatter matching the vault's
+  existing taxonomy (`status: stable`, `type: reference`), and per-file
+  wikilinks such as the checklist's `[[Gap Audit]]` back-reference. Those live
+  in the `$related` map at the top of the script — add to it there, never in the
+  vault.
+- **`-Check` reports staleness without writing** and exits 1 if anything is
+  behind. That is the form to use from CI or a pre-commit hook if this is ever
+  wanted as a gate.
+
+The vault path defaults inside the script and is overridable with
+`INVENTORY_VAULT_DOCS`, so the committed hook config does not hard-code one
+machine's layout.
+
+**Still manual: `sessions/session-log.md` and `README.md`.** Those are append-only
+narrative, not mirrors, and nothing generates them. The log had a real gap once —
+08-07 and 08-09 were never written, closed later by a labelled backfill.
+**Append to it in the same session as the work**, for the same reason step 5
+above exists.
 
 Note that `app-grade-2026-08-06.md`, referenced from the checklist's header as
 the grading pass it extends, is **not present** in `reviews/` — only
