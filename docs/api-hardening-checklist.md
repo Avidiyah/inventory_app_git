@@ -10,9 +10,11 @@ and, on its first run, produced a new item: **B4**, 23 known CVEs in `pillow`
 and `starlette`. That is the gate doing its job before it had even been merged.
 **B4 shipped the same day** and `pip-audit` is now blocking rather than
 advisory. **N1 (structured logging) shipped 2026-08-09**, and **B1 (upload
-size caps) shipped 2026-08-09** on top of it. **C1 shipped 2026-08-10** —
-every static role gate in `routers/work_orders.py` is declarative now — so
-**Tier 1 starts at C4.**
+size caps) shipped 2026-08-09** on top of it. **C1 and C4 shipped 2026-08-10** —
+every static role gate in `routers/work_orders.py` is declarative now, and
+FastAPI's docs endpoints are closed in production — so **Tier 1 starts at C2**
+and nothing left on the list exposes anything to an unauthenticated caller.
+C4's implementation also produced **N8**.
 
 Re-reviewed 2026-08-09 against the promoted code graph at `d715545` (2,512 nodes
 / 5,790 edges), which covers structure the original file-by-file audit did not.
@@ -112,45 +114,7 @@ now has an external clock; the queue below is ordered purely on merit.
 
 ## Tier 1 — Do next, in this order
 
-### 1. C4 — Close `/docs`, `/redoc`, `/openapi.json` in production
-
-- [ ] **Class C** · *~15 min* · **decided 2026-08-10: close all three**
-
-`main.py:75` constructs `FastAPI(title="Inventory Management API")` with no
-`docs_url` / `redoc_url` / `openapi_url` override, so all three are public and
-unauthenticated. Nothing in the codebase references them, so gating them behind
-an env flag breaks no code — but it removes URLs the owner may use directly.
-
-**The decision this item was waiting on has been made.** The owner chose to
-**close all three in production**, gated on an env flag so they stay available
-locally. This is no longer an open question; with C1 shipped this is ordinary
-implementation work sitting at the front of the queue.
-
-Two things to get right when it ships. **Pick the existing signal rather than
-inventing one** — `COOKIE_SECURE` is already the flag that means "this
-deployment is HTTPS/production" and A4 reused it for HSTS on exactly that
-reasoning; adding a second, differently-named production flag would give the
-codebase two answers to one question. And **the operation-count check survives, verified rather than assumed**: every
-verification table in this file asserts "OpenAPI operations = 73" by calling
-`app.openapi()`, and that still returns the full schema dict when `openapi_url`
-is `None` — only the three *routes* disappear from `app.routes`. Checked
-directly on 2026-08-10 against this venv's FastAPI. So closing C4 costs nothing
-in verification coverage, which was the one thing that could have made a
-15-minute item expensive.
-
-**Why it ranks above C2** (criteria 3 and 4): it is the only remaining item that
-exposes anything to an *unauthenticated* caller, and it is 15 minutes against
-C2's half day.
-
-**Interaction with C1, which just shipped.** C1 added `responses={403: ...}` to
-eight routes so a gate is visible in the schema. C4 then closes `/openapi.json`
-in production, which makes that documentation a developer- and test-facing
-artifact rather than a production-facing one. Not a conflict — the schema is
-still generated, still served locally, and still asserted by
-`test_every_gated_work_order_route_documents_its_403` — but worth knowing before
-someone reads the two decisions side by side and assumes one undid the other.
-
-### 2. C2 — Eliminate the tool-custody N+1
+### 1. C2 — Eliminate the tool-custody N+1
 
 - [ ] **Class C** · *~half day* · **one-time visible reshuffle**
 
@@ -171,7 +135,7 @@ N+1 means choosing an explicit order (user name), which is a one-time visible
 reshuffle that then stays stable forever. Not safe as a silent change; fine as a
 deliberate one.
 
-### 3. B3 — No rate limiting outside the login route
+### 2. B3 — No rate limiting outside the login route
 
 - [ ] **Class B** · *logged 2026-08-09* · **authenticated callers only**
 
@@ -187,6 +151,10 @@ and B1's size cap bounds the expensive half of it more cheaply.
 
 Worth revisiting if the API ever gains a non-SPA client (see the versioning note
 under *Verified as non-issues* — the same trigger applies to both).
+
+**Tier 1 no longer contains an unauthenticated-exposure item.** C4 was the last
+one. Both remaining items concern authenticated callers, so criterion 3 has
+stopped discriminating between them and the order is now cost-and-value only.
 
 ---
 
@@ -241,6 +209,39 @@ boundary**, not a request to refactor the module wholesale. Splitting it for its
 own sake would churn the highest-traffic file in the project for no behavior
 change.
 
+### N8 — `/docs` and `/redoc` are CSP-broken wherever they are enabled
+
+- [ ] **Class N** · **trigger: someone actually wants a working API explorer**
+  · *found while shipping C4, 2026-08-10*
+
+A4's CSP is `default-src 'self'` and `add_security_headers` applies it to
+**every** response, production and local alike. FastAPI's Swagger UI and ReDoc
+pages load their only assets from `cdn.jsdelivr.net`:
+
+- `/docs` → `swagger-ui-bundle.js` + `swagger-ui.css`
+- `/redoc` → `redoc.standalone.js`
+
+The browser refuses all three, so both pages render blank. Measured by driving
+the ASGI stack: `/docs` returns 200 with **1,023 bytes** and `/redoc` 200 with
+**905 bytes** — HTML shells with nothing that can load. This has been true since
+A4 shipped (2026-08-07); nobody noticed, which is its own data point about how
+much these pages were being used.
+
+`/openapi.json` was never affected — it is plain JSON with no assets, which is
+why it was the only real exposure C4 closed and why it measured **113,156
+bytes** against their ~1 KB.
+
+**Not fixed as part of C4, deliberately.** The fix is to vendor
+`swagger-ui-dist` into `static/vendor/` (beside the ZXing bundle, which is the
+established precedent) and pass `swagger_js_url` / `swagger_css_url` to
+`get_swagger_ui_html`. That adds a dependency to keep updated and does not
+belong inside a security item whose whole point was removing a surface. The
+alternative — loosening CSP to allow the CDN — would trade a real defence for a
+developer convenience and should not be done.
+
+So the local explorer is currently unavailable, and that is a known state rather
+than a regression to hunt. Promote this if anyone actually wants it back.
+
 ### N7 — `pyzbar` is the one dependency that can break a fresh environment
 
 - [ ] **Class N** · **trigger: new dev machine, or a runtime/base-image change**
@@ -291,6 +292,94 @@ Referenced by B3, which names these endpoints as the unlimited-volume surface.
 ## Shipped
 
 Kept with verification evidence intact. These no longer occupy a priority slot.
+
+### C4 — Close `/docs`, `/redoc`, `/openapi.json` in production
+
+- [x] **Class C** · **shipped 2026-08-10** · the last unauthenticated surface
+
+`main.py` constructed `FastAPI(title="Inventory Management API")` with no URL
+overrides, so FastAPI mounted **four** public, unauthenticated routes — `/docs`,
+`/docs/oauth2-redirect`, `/redoc`, `/openapi.json`. New pure helper
+`main._doc_urls(production=)` now returns `None` for all three URLs when
+`COOKIE_SECURE` is true, which **un-mounts** the routes rather than hiding them:
+there is nothing left to authenticate against. The oauth2-redirect route is
+derived from `docs_url` and goes with it.
+
+**Reused `COOKIE_SECURE` rather than inventing a production flag.** A4
+established it as the "this deployment is HTTPS/production" signal when it gated
+HSTS on it, and the HSTS header observed on the live service is direct evidence
+it is set there. `render.yaml` needed no change — it already declares
+`COOKIE_SECURE: "true"`. **No override was added**, deliberately: re-enabling in
+production takes an edit and a deploy, so nothing can be switched on and
+forgotten.
+
+**The item's problem statement was wrong about two of its three routes, and the
+correction is the interesting part.** It treated all three as equally exposed.
+Measured against the real ASGI stack before changing anything:
+
+| Route | Status | Size | Functional? |
+|---|---|---|---|
+| `/docs` | 200 | 1,023 B | **No** — 2 CDN assets, blocked by A4's CSP |
+| `/redoc` | 200 | 905 B | **No** — 1 CDN asset, blocked |
+| `/openapi.json` | 200 | **113,156 B** | **Yes** — plain JSON, no assets |
+
+So the live exposure was `/openapi.json` alone: 73 operations, 63
+request/response models with every field and validation rule, and — since C1 —
+an explicit statement of the required role on eight gated routes. `/docs` and
+`/redoc` had rendered blank everywhere, local included, since A4 shipped. Logged
+as **N8**; the fix (vendoring `swagger-ui-dist`) was deliberately not bundled
+into a security item.
+
+Two consequences of that finding: the item's stated cost — "it removes URLs the
+owner may use directly" — was **near zero**, because two of the three could not
+be used by anyone; and the severity is reconnaissance, not breach. No rows, no
+credentials, no auth bypass — every route still enforces its gate. That is why
+this was Class C and 15 minutes rather than Tier 0.
+
+**Interaction with C1, which shipped in the same batch.** C1 added
+`responses={403: ...}` to eight routes, so the schema now names the role each
+one requires — exactly the developer-facing documentation C1 wanted, sitting on
+a public endpoint. Because the two shipped in one push, that state never reached
+production. The batching was chosen for deploy economy; closing this window was
+a side effect worth recording.
+
+**The verification coverage survives, and this was the one thing that could have
+made a cheap item expensive.** Closing `/openapi.json` removes the *route*, not
+the schema: `app.openapi()` still returns the full dict, so every "OpenAPI
+operations = 73" assertion in this file and C1's
+`test_every_gated_work_order_route_documents_its_403` keep working. Pinned by
+`test_the_schema_is_still_generated_when_the_route_is_closed`.
+
+#### Verification evidence (C4, 2026-08-10)
+
+Driven through the real ASGI stack in two separate processes, because
+`COOKIE_SECURE` is read at import time:
+
+| Path | `COOKIE_SECURE=true` | unset |
+|---|---|---|
+| `/docs` | **404** | 200, 1,023 B |
+| `/docs/oauth2-redirect` | **404** | 200, 3,012 B |
+| `/redoc` | **404** | 200, 905 B |
+| `/openapi.json` | **404** | 200, 113,156 B |
+| `/healthz` | **200** | 200 |
+| `/` | **200, 55,505 B** | 200, 55,505 B |
+
+The last row is the control: 55,505 bytes is the same figure the Class A batch
+recorded for the SPA shell, so nothing outside the doc routes moved.
+
+| Check | Expected | Result |
+|---|---|---|
+| Backend test suite | 575 + new | **583 passed in 42.94s**, zero skips |
+| OpenAPI operation count | 73 (unchanged) | **73** |
+| C1's 403 documentation | still readable from the schema | **8 / 8** |
+| Doc routes mounted, production | 0 of 4 | **0** |
+| Doc routes mounted, local | 4 of 4 | **4** |
+| Alembic head | unchanged, no migration | **`fbc4e6a8d0f2 (head)`**, 0 files |
+| Files touched under `backend/static/` | zero | **zero** |
+| Frontend references to the doc URLs | 0 | **0**, pinned by a test |
+| `render.yaml` | unchanged | **unchanged** |
+| Python compile | clean | clean (exit 0) |
+| Owner browser validation | — | **pending** |
 
 ### C1 — Fold the five in-body 403 gates into `require_min_role`
 

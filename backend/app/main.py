@@ -2,7 +2,9 @@
 
 Layer: app entry. This file does four things and nothing else:
 
-1. Configure logging and instantiate the `FastAPI` app.
+1. Configure logging and instantiate the `FastAPI` app -- including whether
+   its built-in docs endpoints exist at all, which depends on the
+   environment (see `_doc_urls`).
 2. Mount the three resource routers (`items`, `transactions`,
    `users`) and the static-files directory that serves the
    single-page frontend at `/`.
@@ -72,7 +74,42 @@ configure_logging()
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Inventory Management API")
+def _doc_urls(*, production: bool) -> dict:
+    """URLs for FastAPI's built-in docs, or `None` for each in production.
+
+    `None` **un-mounts** the route rather than hiding it, so there is nothing
+    left to authenticate against. `/docs/oauth2-redirect` is tied to `docs_url`
+    and disappears with it.
+
+    Of the three, `/openapi.json` is the one that matters. It is 113 KB of
+    plain JSON describing all 73 operations, 63 request/response models with
+    every field and validation rule, and -- since C1 -- the role each gated
+    route requires. `/docs` and `/redoc` are closed alongside it for tidiness
+    rather than for risk: A4's CSP is `default-src 'self'` and FastAPI loads
+    Swagger UI and ReDoc from `cdn.jsdelivr.net`, so both pages have rendered
+    blank everywhere, local included, since A4 shipped. See the Tier 2 note in
+    `docs/api-hardening-checklist.md`.
+
+    Gated on `COOKIE_SECURE` -- the flag A4 already established as "this
+    deployment is HTTPS/production" when it used it for HSTS -- rather than a
+    second, differently-named production flag, which would give the codebase
+    two answers to one question. There is deliberately no override: turning
+    these back on in production takes an edit and a deploy, so nothing can be
+    switched on and forgotten.
+    """
+    if production:
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {
+        "docs_url": "/docs",
+        "redoc_url": "/redoc",
+        "openapi_url": "/openapi.json",
+    }
+
+
+app = FastAPI(
+    title="Inventory Management API",
+    **_doc_urls(production=COOKIE_SECURE),
+)
 
 
 # Content Security Policy. Verified against the whole SPA before being

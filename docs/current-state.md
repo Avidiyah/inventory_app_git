@@ -209,12 +209,19 @@ Deployment:
 - Docker image: `python:3.12-slim`.
 - Native package: Debian `libzbar0`.
 - Entrypoint: `alembic upgrade head`, then Uvicorn on `${PORT:-8124}`.
-- Render blueprint: `render.yaml`. Service name `inventory-app`, production
-  database target `inventory-db-copy`.
-- `DATABASE_URL` is populated by `fromDatabase.name: inventory-db-copy` using
-  Render's internal connection string. The original `inventory-db` is no
-  longer declared in `render.yaml` after the 2026-08-10 work-order import
-  rollback cutover.
+- Render blueprint: `render.yaml`. Service name `inventory-app`, repo-declared
+  production database target `inventory-db-copy`.
+- `DATABASE_URL` is intended to be populated by
+  `fromDatabase.name: inventory-db-copy` using Render's internal connection
+  string. The original `inventory-db` is no longer declared in `render.yaml`
+  after the 2026-08-10 work-order import rollback cutover. A CI deploy hook
+  restart does not by itself prove this environment binding changed; verify a
+  cutover with the Render service Environment page, Blueprint sync status, or
+  the Admin-gated `/db-test` route. Public `/healthz` proves only database
+  reachability, not the database identity. Owner confirmed later the same day
+  that the Render environment/Blueprint binding was applied and the database
+  rollback/cutover is successful and closed. The incident cause was an import
+  of 800+ work orders that did not belong to the company.
 - Production URL: `https://inventory-app-gb1c.onrender.com` (owner-supplied
   2026-08-09; verified `GET /healthz` -> 200 `{"status":"ok"}` that day, which
   is the first confirmation that the B4 deploy came up healthy). **The Render
@@ -230,6 +237,21 @@ Deployment:
 - Required env: `DATABASE_URL`.
 - Production env should set `COOKIE_SECURE=true`, `SQL_ECHO=false`, and
   `LOG_LEVEL=INFO`.
+- **`COOKIE_SECURE` now controls three things**, all meaning "this deployment is
+  HTTPS/production": the session cookie's `Secure` flag, whether HSTS is sent
+  (A4), and whether FastAPI's built-in docs endpoints exist at all (C4). It is
+  deliberately one flag rather than three, so a deployment cannot be half
+  production. `render.yaml` sets it to `"true"`.
+- **`/docs`, `/docs/oauth2-redirect`, `/redoc`, and `/openapi.json` are absent in
+  production** — `main._doc_urls` passes `None` for all three URLs when
+  `COOKIE_SECURE` is true, which un-mounts the routes rather than gating them,
+  so they return a plain 404. They are mounted normally when it is false.
+  Closing `/openapi.json` removes the route, **not** the schema:
+  `app.openapi()` still returns the full dict, which is what every
+  operation-count check in `docs/api-hardening-checklist.md` relies on. There is
+  no override env var; re-enabling in production takes a code change.
+  Note that `/docs` and `/redoc` render blank wherever they *are* enabled,
+  because A4's CSP blocks their CDN-hosted assets — see checklist item N8.
 - Static assets are served with `Cache-Control: no-cache`.
 - App sends `Permissions-Policy: camera=(self)` and `X-Request-ID: <12 hex>`.
 - Windows local pyzbar may need Visual C++ 2013 runtime (`msvcr120.dll`).
@@ -1062,6 +1084,7 @@ specified.
 | GET | `/` | public | assembled SPA shell |
 | GET | `/healthz` | public | liveness probe: runs `SELECT 1`; `{"status":"ok"}` or 503 `Database unavailable.` Reports no database detail -- it is unauthenticated |
 | GET | `/db-test` | admin+ | database/user probe |
+| GET | `/docs`, `/redoc`, `/openapi.json` | public **locally only** | FastAPI's built-ins. Un-mounted entirely when `COOKIE_SECURE=true`, so production returns 404 (C4). Not counted among the 73 application operations |
 
 ### Auth
 

@@ -1,12 +1,16 @@
 # Session Hand-off
 
-Last updated: **2026-08-10**, end of the session that implemented **C1** (every
-static role gate in `routers/work_orders.py` is declarative now) on top of the
-database-target cutover. That cutover — the Render Blueprint moving from
-`inventory-db` to `inventory-db-copy` after a bad work-order import — landed in
-`22164bb` and **is pushed**. Earlier the same day, N1 (structured logging) and
-B1 (upload size caps) were committed, pushed to production, and verified; the
-C4 decision was also settled. The session before implemented N1 and closed B4's two loose
+Last updated: **2026-08-10**, after owner confirmation that the database
+rollback/cutover is successful and closed. The incident was caused by importing
+800+ work orders that did not belong to the company, requiring the first
+production Postgres rollback. Earlier the same day, **C1** (every static role
+gate in `routers/work_orders.py` is declarative now) and **C4** (FastAPI's docs
+endpoints are closed in production) were implemented on top of the
+database-target cutover and committed together, **awaiting one push**. That
+cutover — the Render Blueprint moving from `inventory-db` to `inventory-db-copy`
+after the bad work-order import — landed in `22164bb` and **is pushed**. Earlier
+the same day, N1 (structured logging) and B1 (upload size caps) were committed,
+pushed to production, and verified. The session before implemented N1 and closed B4's two loose
 ends; the one before that shipped **B4** (the CVE baseline), scoped the **deploy
 gate** so docs pushes stop deploying, and fixed **Obsidian vault access** plus
 automated the docs mirror. Earlier: N2 (CI), N5 (paid Postgres), B2 (DB-aware
@@ -27,20 +31,23 @@ superseded status narrative went.
 
 ## Start here
 
-> **The database-target change is no longer staged — it is pushed, and its
-> `/healthz` check is outstanding.** `render.yaml` sets `DATABASE_URL` from
-> `fromDatabase.name: inventory-db-copy` and no longer declares the original
-> `inventory-db`. That shipped in `22164bb`, which is on `origin/main`. Because
-> `render.yaml` is one of the two paths in the deploy allowlist, that push
-> **classified as deployable and fired the hook** — production has been
-> redeployed against the copy. The verification this section originally
-> deferred is therefore due now, not later: confirm `GET /healthz` returns 200
-> on the live URL, which is the one check that proves the deployed container
-> can actually reach `inventory-db-copy`. B2 exists precisely so this cannot
-> pass while the database is unreachable.
+> **Database rollback/cutover is closed.** Owner confirmed on 2026-08-10 that
+> the production database was successfully rolled back after an import of 800+
+> wrong-company work orders. The earlier live service mismatch was fixed by
+> applying the Render environment/Blueprint binding to `inventory-db-copy`; no
+> further rollback copy is needed for this incident.
+>
+> Historical diagnostic note, retained because it explains the failure mode:
+> the CI deploy hook proved only that the container restarted. Render's
+> `fromDatabase` reference updates on Blueprint sync. Public `/healthz` proves
+> only database reachability; Admin `/db-test` reports PostgreSQL logical
+> names, not the Render resource display name.
 
-**C1 is implemented and committed but deliberately not pushed.** It is batched
-with C4 so the two Class C changes ship in one deploy. See *State of the tree*.
+> **The batch is complete and the next action is a push.** C1 and C4 are both
+> implemented, committed, and verified locally; neither has reached production.
+> Pushing `main` is the whole remaining step — it runs CI and deploys both. **583
+> passed**, OpenAPI 73, Alembic head untouched, zero frontend files in either
+> change.
 
 **N1 and B1 are shipped, pushed, green, and live in production.** Nothing is
 waiting on a decision for those items.
@@ -55,9 +62,12 @@ waiting on a decision for those items.
 | `e5cd587` | the **C4 decision** — close the docs endpoints in production |
 | `22164bb` | the **database-target cutover** to `inventory-db-copy` (pushed) |
 | `b314d06` | **C1** — the five in-body 403 gates are declarative (**not pushed**) |
+| `eb7f4a2` | C1's own hash recorded in this file (**not pushed**) |
 
-**Tier 1 now starts at C4** (~15 min, decided, see below). Full order:
-**C4 → C2 → B3.** C1 is done.
+**Tier 1 now starts at C2** (~half day). Full order: **C2 → B3.** C1 and C4 are
+done, and **nothing left on the list exposes anything to an unauthenticated
+caller** — C4 was the last one, so the checklist's third ordering criterion has
+stopped discriminating between the remaining items.
 
 ### B4's two loose ends are closed (2026-08-09, next session)
 
@@ -83,8 +93,8 @@ first time the `pyzbar` native dependency was handled outside a container.
 
 ### State of the tree
 
-**`main` is at `22164bb` and in sync with `origin/main`. C1 sits on top of it,
-committed but unpushed, by design.**
+**`origin/main` is at `22164bb`. C1 and C4 sit on top of it, committed and
+unpushed, by design.**
 
 The batching is deliberate: C1 and C4 are both Class C, both small, and both
 touch the same surface (what the API exposes and to whom). One push means one
@@ -92,7 +102,15 @@ CI run, one deploy, and one browser-validation pass instead of two. The cost is
 that a red build would have two changes in it — accepted, because both are
 covered by the suite and neither touches the frontend.
 
-So a dirty `git status` here is C4 in progress, not the old batching posture.
+It also turned out to matter for more than deploy economy. C1 added
+`responses={403: ...}` naming the role each gated route requires, and that
+documentation lands in `/openapi.json` — which was public until C4 closed it.
+Shipping C1 alone would have published a better-annotated permission map for
+however long C4 took. Nothing was at risk because the two never separated, but
+it is worth knowing that the batching closed a window it was not chosen to
+close.
+
+So a clean `git status` with `[ahead 2]` is the expected state here.
 
 Before the database-target cutover, the tree was clean, pushed, and in sync
 with `origin/main`. N1 (`a6572e3`) and B1 (`5053ba2`) shipped together on
@@ -411,41 +429,69 @@ Four things worth carrying forward:
 
 **Not pushed.** See *State of the tree*.
 
-## Next up: C4
+## Shipped this session: C4 — the docs endpoints are closed in production
 
-**C4 (close `/docs`, `/redoc`, `/openapi.json` in production, ~15 min, Class
-C).** The decision is made (`e5cd587`); this is implementation work, and the two
-things already checked for it are in the subsection just below.
+`main._doc_urls(production=)` returns `None` for `docs_url` / `redoc_url` /
+`openapi_url` when `COOKIE_SECURE` is true, which **un-mounts** the routes
+rather than gating them — production returns a plain 404 for all four
+(`/docs/oauth2-redirect` is derived from `docs_url` and goes with it).
+`render.yaml` needed no change; it already sets `COOKIE_SECURE: "true"`. **583
+passed**. Full record in `docs/api-hardening-checklist.md` → *Shipped* → C4.
 
-One addition from C1: `test_every_gated_work_order_route_documents_its_403`
-reads the schema through `app.openapi()`, so it survives `openapi_url=None` for
-the same reason the operation count does. C4 makes C1's 403 documentation a
-developer- and test-facing artifact rather than a production-facing one. That is
-not a conflict, but it is the kind of pair that looks like one later.
+Three things worth carrying forward:
 
-**Then push C1 and C4 together**, and run the browser validation for both.
+- **The item was wrong about two of its three routes, and measuring first is
+  what caught it.** It treated all three as equally exposed. Driving the ASGI
+  stack before changing anything showed `/docs` at 1,023 bytes and `/redoc` at
+  905 — HTML shells whose only assets come from `cdn.jsdelivr.net`, which A4's
+  `default-src 'self'` CSP blocks. Both have rendered blank *everywhere,
+  local included*, since A4 shipped. The live exposure was `/openapi.json`
+  alone, at **113,156 bytes**. Logged as **N8**.
+- **So the item's stated cost was near zero.** "It removes URLs the owner may
+  use directly" was the reason this needed a decision at all — and two of the
+  three could not be used by anyone. Worth remembering the general shape:
+  the cost side of a trade-off is as worth measuring as the benefit side.
+- **Closing `/openapi.json` removes the route, not the schema.** `app.openapi()`
+  still returns the full dict, so every "OpenAPI operations = 73" check and
+  C1's `test_every_gated_work_order_route_documents_its_403` keep working.
+  That was the one thing that could have made a 15-minute item expensive, and
+  it is pinned by `test_the_schema_is_still_generated_when_the_route_is_closed`.
 
-Full Tier 1 order after that: **C2 → B3.**
+**There is deliberately no override env var.** Re-enabling the docs in
+production takes an edit and a deploy. That friction is the feature — an
+`ENABLE_DOCS` flag is exactly the kind of thing that gets switched on for an
+afternoon and left on, and CI would not notice.
 
-### C4's decision is made — it is implementation work now
+## Before anything else: push the batch
 
-The owner decided on 2026-08-10 (recorded in `e5cd587`): **close `/docs`,
-`/redoc`, and `/openapi.json` in production**, behind an env flag so they stay
-available locally. C4 was the one item in the queue blocked on a judgement call
-rather than on effort, and it no longer is.
+C1 and C4 are committed and verified locally but have **not reached
+production**. Pushing `main` runs CI and deploys both. Then:
 
-Two things already checked so the next session does not re-derive them:
+1. Confirm the CI run is green — and remember that a green *Deploy to Render*
+   job is not proof a deploy happened; read the log (see the note above).
+2. Confirm `GET /healthz` returns 200 on the live service.
+3. **Optionally confirm C4 on the live URL**: `/openapi.json` should return
+   404. That is the single clearest end-to-end proof of this change, and it
+   needs no login.
+4. Run the combined browser validation:
+   - **C1**, as Admin — CSV import, Export filtered CSV, For Client export, an
+     archived-number search offering Restore, and Edit charge on a material
+     line. As Supervisor — import and export refused, archived-number lookup
+     still working. As Technician — no change on the Work Orders card.
+   - **C4** — the SPA loads and behaves normally. It touches no application
+     route, so the expected result is that nothing at all is different.
 
-- **Reuse `COOKIE_SECURE` as the production signal.** A4 already established it
-  as the "this deployment is HTTPS/production" flag when it gated HSTS on it,
-  and the live response above proves it is set in production. A second,
-  differently-named production flag would give the codebase two answers to one
-  question.
-- **The operation-count check survives.** Every verification table in the
-  checklist asserts "OpenAPI operations = 73" via `app.openapi()`, and that
-  still returns the full schema dict when `openapi_url=None` — only the three
-  routes leave `app.routes`. Verified directly against this venv's FastAPI, not
-  assumed.
+## Next up: C2
+
+**C2 (eliminate the tool-custody N+1, ~half day, Class C).** `routers/tools.py`
+calls `_tool_response` per tool and each invocation runs a `GROUP BY` aggregate,
+so an unbounded `list_tools` is 201 queries for 200 tools. Read the item before
+starting: it is riskier than a pure optimisation because `_custody_query` has no
+`ORDER BY`, so consolidating will very likely reshuffle the custody rows visible
+on the Tools page. That is a one-time visible change, fine as a deliberate one
+and not safe as a silent one.
+
+Full Tier 1 order after that: **B3**, and that is the end of the tier.
 
 ---
 
