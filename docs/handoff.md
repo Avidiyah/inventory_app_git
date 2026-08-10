@@ -43,13 +43,21 @@ superseded status narrative went.
 > only database reachability; Admin `/db-test` reports PostgreSQL logical
 > names, not the Render resource display name.
 
-> **C1 is live. C4 is not, and pushing it is the next action.**
+> **C1 is live and validated. C4 is committed but unpushed, and pushing it is
+> the next action.**
 >
 > The batch did not hold: C1 (`b314d06` + `eb7f4a2`) was pushed on its own while
 > C4 was still being written. CI run **31402048099** went green, the classifier
 > logged `==> Deployable changes present.`, and the hook fired
-> (`dep-d9suk4p42hec73bo2ov0`) — so C1 is deployed and its browser validation is
-> outstanding against production, not against a local branch.
+> (`dep-d9suk4p42hec73bo2ov0`). **The owner ran all eight browser checks against
+> the deployed service on 2026-08-10 and every one passed**, including the
+> Supervisor-level `lookup` check that would have caught a wrong minimum. C1 is
+> closed with nothing outstanding.
+>
+> **C4's three live checks cannot run yet** — `/openapi.json`, `/docs`, and
+> `/redoc` returning 404 all require the push. Until then the live
+> `/openapi.json` still answers with 113 KB. That is the current state, not a
+> failure.
 >
 > **The consequence is small but real and currently open.** C1 added
 > `responses={403: ...}` naming the role each gated route requires, and that
@@ -439,8 +447,10 @@ Four things worth carrying forward:
   gates were "all in `routers/work_orders.py`"; that is now corrected in the
   checklist so nobody re-derives it.
 
-**Pushed and deployed** (`dep-d9suk4p42hec73bo2ov0`), separately from C4 rather
-than with it. Browser validation still outstanding — see *Before anything else*.
+**Pushed, deployed** (`dep-d9suk4p42hec73bo2ov0`), and **owner-validated in the
+browser on 2026-08-10** — all eight checks passed against the live service.
+**C1 is closed.** It shipped separately from C4 rather than with it; see *State
+of the tree* for why that matters and what it cost.
 
 ## Shipped this session: C4 — the docs endpoints are closed in production
 
@@ -488,14 +498,13 @@ pushed** — and it is what closes the public `/openapi.json`. Then:
 3. **Confirm C4 on the live URL**: `/openapi.json` should return **404**. That
    is the single clearest end-to-end proof of this change, it needs no login,
    and it is the one check that shows the window is shut.
-4. Run the combined browser validation — still combined, because C1's pass was
-   never run:
-   - **C1**, as Admin — CSV import, Export filtered CSV, For Client export, an
-     archived-number search offering Restore, and Edit charge on a material
-     line. As Supervisor — import and export refused, archived-number lookup
-     still working. As Technician — no change on the Work Orders card.
-   - **C4** — the SPA loads and behaves normally. It touches no application
-     route, so the expected result is that nothing at all is different.
+4. Confirm `/docs` and `/redoc` also 404.
+5. Load the SPA and click through two or three pages. C4 touches no application
+   route, so the expected result is that nothing at all is different.
+
+**C1 needs nothing further** — its eight-check pass was completed on the live
+service on 2026-08-10. Only C4's four checks above remain, and all four depend
+on the push.
 
 ## Next up: C2
 

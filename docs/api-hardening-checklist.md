@@ -388,7 +388,14 @@ recorded for the SPA shell, so nothing outside the doc routes moved.
 | Frontend references to the doc URLs | 0 | **0**, pinned by a test |
 | `render.yaml` | unchanged | **unchanged** |
 | Python compile | clean | clean (exit 0) |
-| Owner browser validation | — | **pending** |
+| Pushed / deployed | — | **not yet** |
+| Owner browser validation | — | **not possible until pushed** |
+
+**C4 has not been deployed, so its three live checks are still open.** They are
+`/openapi.json`, `/docs`, and `/redoc` returning **404** on the live URL, plus
+the SPA behaving identically. None of them can pass before the push: until then
+the live `/openapi.json` still answers with 113 KB, which is the current state,
+not a failure. Everything in the evidence table above is local.
 
 ### C1 — Fold the five in-body 403 gates into `require_min_role`
 
@@ -488,7 +495,26 @@ unit test here, stated in the test's own comment.
 | Python compile | clean | clean (exit 0) |
 | `git diff --check` | clean | clean (only the expected LF→CRLF warnings) |
 | Deployed CI run | all jobs green, hook fired | **31402048099** — `==> Deployable changes present.`, `dep-d9suk4p42hec73bo2ov0` |
-| Owner browser validation | — | **pending, against the live service** |
+| Owner browser validation | all 8 checks against the live service | **passed 2026-08-10** |
+
+**Owner browser validation passed 2026-08-10, against the deployed service.**
+All five converted routes were exercised through the UI that reaches them, plus
+the two boundaries that would expose a wrong minimum:
+
+| # | Check | Route under test |
+|---|---|---|
+| 1 | Admin: CSV import of an existing number (`created: 0`, `opened: 1`) | `POST /work-orders/import` |
+| 2 | Admin: Export filtered CSV | `GET /work-orders/export` |
+| 3 | Admin: For Client export | `GET /work-orders/export` (client variant) |
+| 4 | Admin: exact archived-number search → Restore | `GET /work-orders/lookup`, `POST /{id}/restore` |
+| 5 | Admin: Edit charge on a material line | `PATCH /{id}/items/{wid}/billing` |
+| 6 | Supervisor: import/export absent | negative |
+| 7 | **Supervisor: History archived-number prompt still works** | `GET /work-orders/lookup` at its real minimum |
+| 8 | Technician: notes and add-material unchanged | no regression |
+
+Check 7 is the one that mattered most: `lookup` is the only one of the five a
+Supervisor is *supposed* to reach, so it is where a copy-paste of the wrong
+`ROLE_` constant would have surfaced. **C1 is closed with nothing outstanding.**
 
 ### B1 — Cap upload size on both upload routes
 
