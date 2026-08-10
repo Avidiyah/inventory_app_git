@@ -43,27 +43,23 @@ superseded status narrative went.
 > only database reachability; Admin `/db-test` reports PostgreSQL logical
 > names, not the Render resource display name.
 
-> **C1 is live and validated. C4 is committed but unpushed, and pushing it is
-> the next action.**
+> **C1 and C4 are both shipped, deployed, and verified. Tier 1 is now C2 → B3
+> and nothing is waiting on a decision.**
 >
-> The batch did not hold: C1 (`b314d06` + `eb7f4a2`) was pushed on its own while
-> C4 was still being written. CI run **31402048099** went green, the classifier
-> logged `==> Deployable changes present.`, and the hook fired
-> (`dep-d9suk4p42hec73bo2ov0`). **The owner ran all eight browser checks against
-> the deployed service on 2026-08-10 and every one passed**, including the
-> Supervisor-level `lookup` check that would have caught a wrong minimum. C1 is
-> closed with nothing outstanding.
+> C1 (`b314d06` + `eb7f4a2`) went out on its own; the owner ran all eight
+> browser checks against the deployed service and every one passed, including
+> the Supervisor-level `lookup` check that would have caught a wrong minimum.
 >
-> **C4's three live checks cannot run yet** — `/openapi.json`, `/docs`, and
-> `/redoc` returning 404 all require the push. Until then the live
-> `/openapi.json` still answers with 113 KB. That is the current state, not a
-> failure.
+> C4 (`9388ed8`) went out with three doc commits in run **31415331711** —
+> `583 passed in 21.42s`, `==> Deployable changes present.`, hook
+> `dep-d9t0rl8n74is739jo6ig`. Confirmed on the live service: `/openapi.json`,
+> `/docs`, `/redoc`, and `/docs/oauth2-redirect` all return **404**, while
+> `/healthz` and `/` still return 200. **The public schema is closed.**
 >
-> **A dashboard deploy on 2026-08-10 rebuilt production from `eb7f4a2` with no
-> CI run behind it** — 33 minutes after run `31402048099`, which was the last
-> one. The service came up healthy and nothing untested shipped, because that
-> commit had already passed CI on its own push. But it disproves a claim this
-> repo carried: see *CI is not the only path to production* below.
+> **A dashboard deploy earlier the same day rebuilt production from `eb7f4a2`
+> with no CI run behind it** — 33 minutes after run `31402048099`. Healthy and
+> harmless, but it disproves a claim this repo carried: see *CI is not the only
+> path to production* below.
 >
 > **The consequence is small but real and currently open.** C1 added
 > `responses={403: ...}` naming the role each gated route requires, and that
@@ -87,7 +83,8 @@ waiting on a decision for those items.
 | `22164bb` | the **database-target cutover** to `inventory-db-copy` (pushed) |
 | `b314d06` | **C1** — the five in-body 403 gates are declarative (pushed, deployed) |
 | `eb7f4a2` | C1's own hash recorded in this file (pushed) |
-| `9388ed8` | **C4** — the docs endpoints are closed in production (**not pushed**) |
+| `9388ed8` | **C4** — the docs endpoints are closed in production (pushed, deployed) |
+| `e11b8b0` | the correction that a dashboard deploy bypasses CI |
 
 **Tier 1 now starts at C2** (~half day). Full order: **C2 → B3.** C1 and C4 are
 done, and **nothing left on the list exposes anything to an unauthenticated
@@ -118,8 +115,7 @@ first time the `pyzbar` native dependency was handled outside a container.
 
 ### State of the tree
 
-**`origin/main` is at `eb7f4a2` (C1, deployed). C4 (`9388ed8`) sits on top of
-it, committed and unpushed. Expect `[ahead 1]`.**
+**Clean, pushed, and in sync with `origin/main`.** C1 and C4 are both live.
 
 C1 and C4 were *planned* as one push — both Class C, both small, both touching
 what the API exposes and to whom — for one CI run, one deploy, and one
@@ -134,9 +130,10 @@ work — one branch, or one commit — not a note saying "don't push yet." A
 plan that can be defeated by the most routine command in the workflow is not a
 plan.
 
-What it cost here was small and is described under *Start here*: production is
-serving C1's role annotations in `/openapi.json` until C4 lands. Pushing C4 is
-the fix.
+What it cost was small and is now closed: production served C1's role
+annotations in a public `/openapi.json` for roughly two and a half hours,
+between C1's deploy and C4's. Reconnaissance-grade, and shut by
+`dep-d9t0rl8n74is739jo6ig`.
 
 Before the database-target cutover, the tree was clean, pushed, and in sync
 with `origin/main`. N1 (`a6572e3`) and B1 (`5053ba2`) shipped together on
@@ -479,7 +476,7 @@ Four things worth carrying forward:
 **Pushed, deployed** (`dep-d9suk4p42hec73bo2ov0`), and **owner-validated in the
 browser on 2026-08-10** — all eight checks passed against the live service.
 **C1 is closed.** It shipped separately from C4 rather than with it; see *State
-of the tree* for why that matters and what it cost.
+of the tree* for why that mattered and what it briefly cost.
 
 ## Shipped this session: C4 — the docs endpoints are closed in production
 
@@ -513,27 +510,6 @@ Three things worth carrying forward:
 production takes an edit and a deploy. That friction is the feature — an
 `ENABLE_DOCS` flag is exactly the kind of thing that gets switched on for an
 afternoon and left on, and CI would not notice.
-
-## Before anything else: push C4
-
-C1 is already live. C4 (`9388ed8`) is committed, verified locally, and **not
-pushed** — and it is what closes the public `/openapi.json`. Then:
-
-1. Confirm the CI run is green — and remember that a green *Deploy to Render*
-   job is not proof a deploy happened; read the log (see the note above). For
-   C1's push the line to look for was `==> Deployable changes present.`
-   followed by the hook's `{"deploy":{"id":...}}`.
-2. Confirm `GET /healthz` returns 200 on the live service.
-3. **Confirm C4 on the live URL**: `/openapi.json` should return **404**. That
-   is the single clearest end-to-end proof of this change, it needs no login,
-   and it is the one check that shows the window is shut.
-4. Confirm `/docs` and `/redoc` also 404.
-5. Load the SPA and click through two or three pages. C4 touches no application
-   route, so the expected result is that nothing at all is different.
-
-**C1 needs nothing further** — its eight-check pass was completed on the live
-service on 2026-08-10. Only C4's four checks above remain, and all four depend
-on the push.
 
 ## Next up: C2
 

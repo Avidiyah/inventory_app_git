@@ -386,16 +386,35 @@ recorded for the SPA shell, so nothing outside the doc routes moved.
 | Alembic head | unchanged, no migration | **`fbc4e6a8d0f2 (head)`**, 0 files |
 | Files touched under `backend/static/` | zero | **zero** |
 | Frontend references to the doc URLs | 0 | **0**, pinned by a test |
-| `render.yaml` | unchanged | **unchanged** |
+| `render.yaml` | unchanged by C4 | **unchanged** |
 | Python compile | clean | clean (exit 0) |
-| Pushed / deployed | — | **not yet** |
-| Owner browser validation | — | **not possible until pushed** |
+| Deployed CI run | all jobs green, hook fired | **31415331711** — `583 passed in 21.42s`, `==> Deployable changes present.`, `dep-d9t0rl8n74is739jo6ig` |
 
-**C4 has not been deployed, so its three live checks are still open.** They are
-`/openapi.json`, `/docs`, and `/redoc` returning **404** on the live URL, plus
-the SPA behaving identically. None of them can pass before the push: until then
-the live `/openapi.json` still answers with 113 KB, which is the current state,
-not a failure. Everything in the evidence table above is local.
+#### Confirmed on the live service (C4, 2026-08-10)
+
+The check that needs no login, run against
+`https://inventory-app-gb1c.onrender.com` after the deploy landed:
+
+| Path | Before | After |
+|---|---|---|
+| `/openapi.json` | 200, 113,156 B | **404** |
+| `/docs` | 200, 1,023 B | **404** |
+| `/redoc` | 200, 905 B | **404** |
+| `/docs/oauth2-redirect` | 200 | **404** |
+| `/healthz` | 200 | **200** |
+| `/` | 200 | **200** |
+
+All four doc routes are gone from production and the app is unaffected. **C4 is
+closed.**
+
+**One number in this file needed correcting as a result.** The Class A table
+records `GET /` as "200, 55,505 bytes", and C4's local control reproduced it —
+but production serves **54,866**. That is not a discrepancy to chase: the shell
+fragments are CRLF in the Windows working copy and LF in the container after
+checkout, and `_assemble_index` reads bytes verbatim. 55,505 − 639 CRLF pairs =
+54,866 exactly. So **55,505 is a local-Windows figure and 54,866 is the
+production one**; using the former as a production control would look like a
+regression that is not there.
 
 ### C1 — Fold the five in-body 403 gates into `require_min_role`
 
@@ -1188,7 +1207,7 @@ that behaves differently.
 | JS syntax (`node --check`) | all pass | **32 non-vendor files, 0 failures** |
 | Files touched under `backend/static/` | zero | **zero** |
 | `async` routes remaining in app code | 0 | **0** (4 remaining are FastAPI's own `/docs`, `/redoc`, `/openapi.json` routes) |
-| `GET /` still serves the shell | 200 | **200, 55,505 bytes, `Cache-Control: no-cache` preserved** |
+| `GET /` still serves the shell | 200 | **200, 55,505 bytes, `Cache-Control: no-cache` preserved** (local/CRLF; production serves **54,866** with LF — see C4) |
 | HSTS with `COOKIE_SECURE=false` | absent | **absent** |
 
 Rows 3 and 5 are the direct guarantees against the two stated constraints of
