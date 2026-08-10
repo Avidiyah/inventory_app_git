@@ -28,12 +28,20 @@ Tier 1 and Tier 2 both shipped in full; see the archive. Everything below has
 from July 2026, not as agreed work. Numbers are the original review's and are
 not renumbered.
 
-### 19. Flat, text-only top nav
+### 19. Flat, text-only top nav — **closed 2026-08-10, shipped as IMP-033**
 
-Up to 8 nav buttons render as plain text at `--fs-sm` (`shell-head.html`),
-wrapping to 2–3 rows on a phone. Icons plus grouping related pairs (Add/Find
-Item, Add/Users) would speed one-handed, gloved use and reduce vertical
-space taken by the header.
+Promoted into `docs/improvement-tracker.md` as **IMP-033** and implemented the
+same day: four task-domain groups separated by a hairline, an inline SVG icon on
+every button, tap targets unchanged at 44px.
+
+**The finding's own premise was half wrong, and the correction is worth
+keeping.** It said "up to 8 nav buttons" and framed the benefit as faster
+"one-handed, gloved use". Measured: the bar declares **11** buttons, but role
+gating means a **Technician — the gloved phone user it was written for — only
+ever sees four**, in two groups, and never wraps. The 11-button case belongs to
+Admin and Owner, who work office-side. So the grouping serves Admin/Owner
+scanning and the icons serve everyone; the gloved-use argument was aimed at the
+role with the fewest buttons.
 
 Files: `backend/static/shell-head.html`, `backend/static/styles.css`,
 `backend/static/views/nav.js`.
@@ -84,6 +92,8 @@ Files: `backend/static/views/items.js`, `backend/static/pages/saved-items.html`.
 ## Historical close-out
 
 Tier 1 and Tier 2 were browser-validated on 2026-07-03 and later committed.
-IMP-003 subsequently resolved #22. The remaining historical Tier 3 observations
-(#19, #21, #23, and #24) have not been re-audited as current priorities; promote
-one into `docs/improvement-tracker.md` before treating it as active work.
+IMP-003 subsequently resolved #22, and **#19 was promoted to IMP-033 and shipped
+on 2026-08-10**. The remaining Tier 3 observations (**#21, #23, #24**) have not
+been re-audited as current priorities; promote one into
+`docs/improvement-tracker.md` before treating it as active work — that promotion
+step is what #19 followed, and it is not optional.

@@ -1324,7 +1324,21 @@ boundary, not because anything is expected to notice.
 ## Frontend Feature Context
 
 Top-level navbar buttons switch SPA sections through `views/nav.js::showPage`
-without reloading the document. Every activation of Work Orders, Find Item, or
+without reloading the document.
+
+Since IMP-033 the bar is **grouped into four task-domain clusters** — Inventory
+(Add Item, Find Item, Tools), Field (Scan / Stock, Work Orders, Mass Stage),
+People (Add User, Users), Review (User Requests, Admin Review, History) —
+separated by a hairline drawn with `.nav-group + .nav-group`. Every page in
+`PAGE_ACCESS` belongs to exactly one group; adding a page means adding it to a
+group in `shell-head.html`, or it will not appear in the nav at all.
+`applyRoleVisibility` hides individual buttons by role and then hides any group
+left with nothing visible, so a role-emptied group leaves no stray divider — a
+Technician sees four buttons in two groups. Each button carries an **inline SVG
+icon** using `stroke="currentColor"`, so icons inherit idle / hover / active-red
+without icon-specific rules; they are inline because A4's CSP
+(`default-src 'self'`) blocks any icon font or CDN sprite. Tap targets remain
+`--btn-h-sm` (44px). Every activation of Work Orders, Find Item, or
 Mass Stage requests current server data. Work Orders and Mass Stage refresh both
 their main lists and their item/user reference lists; Find Item clears prior
 results and refreshes only its lightweight search index until the user chooses

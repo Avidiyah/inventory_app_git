@@ -128,20 +128,69 @@ header h1 {
 #main-nav {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-2);
+    /* Column gap sits before each divider; the group's own padding sits after
+       it, so the hairline lands centred between clusters. Row gap stays tight
+       so a wrapped nav costs as little height as possible. */
+    column-gap: var(--space-4);
+    row-gap: var(--space-2);
+    align-items: center;
+}
+
+/* Task-domain clusters: Inventory / Field / People / Review. The grouping is
+   the point of the redesign -- 11 flat buttons are a list to read, four short
+   clusters are a shape to recognize. Buttons inside a group sit tight together
+   so the cluster reads as one unit. */
+.nav-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    align-items: center;
+}
+
+/* Hairline between clusters, drawn on the group rather than as an element so
+   there is nothing to clean up when `applyRoleVisibility` hides a group. */
+.nav-group + .nav-group {
+    border-left: 1px solid var(--gray-700);
+    padding-left: var(--space-4);
+}
+
+/* A group whose every button is role-hidden must collapse, or it leaves a
+   stray divider. `views/nav.js::applyRoleVisibility` sets this. */
+.nav-group[hidden] {
+    display: none;
 }
 
 .nav-btn {
     background-color: transparent;
     color: var(--gray-200);
     border: none;
-    padding: 0 var(--space-4);
+    padding: 0 var(--space-3);
     min-height: var(--btn-h-sm);
     border-radius: var(--radius-md);
     font-size: var(--fs-sm);
     font-weight: var(--fw-semibold);
     cursor: pointer;
     margin-top: 0;
+    /* Icon and label on one line. Inline-flex keeps the 44px min touch target
+       from --btn-h-sm while letting the icon sit against the text. */
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    white-space: nowrap;
+}
+
+/* Icons inherit the button's colour through idle / hover / active-red, so the
+   states need no icon-specific rules. Stroke-only: a filled glyph would read
+   as a status dot in a bar that already uses solid red to mean "you are here". */
+.nav-ico {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
 .nav-btn:hover {
@@ -2307,6 +2356,14 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-message { margin-top: var(--space-2); font-size: var(--fs-sm); }
 
 @media (max-width: 640px) {
+    /* Phone: buy back horizontal room so fewer rows wrap, without touching the
+       44px tap target. The divider becomes the only group separation -- its
+       padding carries the spacing the column-gap gave up. A Technician sees
+       four buttons here and never wraps at all; this is the Admin/Owner case. */
+    #main-nav { column-gap: var(--space-2); }
+    .nav-group + .nav-group { padding-left: var(--space-2); }
+    .nav-btn { padding: 0 var(--space-2); gap: var(--space-1); }
+
     .wo-tech-selected-row { align-items: stretch; flex-direction: column; }
     .wo-tech-remove { width: 100%; }
     .wo-labor-entry { align-items: stretch; flex-direction: column; }

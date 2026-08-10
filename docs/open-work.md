@@ -5,8 +5,8 @@ file/line references, decision record — lives in the doc named in its row. Thi
 page exists so the answer to *"what's actually left?"* is one file rather than
 three, and so nothing open can hide inside an archive.
 
-Last reconciled: **2026-08-10**, against `main` at X3 — shipped, deployed,
-and owner-validated. Nothing below has been started or scheduled.
+Last reconciled: **2026-08-10**, after IMP-033 (UX #19) shipped. Nothing below
+has been started or scheduled.
 
 > **Keep this in sync when an item ships, is logged, or changes tier.** It is the
 > one file here that duplicates information by design, which is exactly the kind
@@ -18,7 +18,11 @@ and owner-validated. Nothing below has been started or scheduled.
 
 **Nothing is scheduled.** Tier 1 of the hardening checklist is empty; every item
 from the original audit is shipped, a standing note with a trigger, or ruled out
-of scope. The 11 items below are real, but none is queued and none has a date.
+of scope. The 10 items below are real, but none is queued and none has a date.
+
+**#19 was promoted to IMP-033 and shipped on 2026-08-10**, which is the worked
+example of how a Tier 3 observation becomes work: it goes into
+`docs/improvement-tracker.md` first.
 
 **Do not invent work to fill the queue.** The last three items questioned before
 being built — C2, B3, X3 — all described symptoms that were **not occurring**,
@@ -38,7 +42,7 @@ framework work.
 |---|---|---|---|
 | **IMP-004** | Mass Stage | Collapsible *New Mass Stage* card, collapsed by default; drop the redundant Unit # field; work-order-number-first search flow; group work orders under Communities by Location | Open — flagged *very low priority* since 2026-08-03 |
 
-IMP-001–003 and IMP-005–032 are all Done.
+IMP-001–003, IMP-005–032 and IMP-033 are all Done.
 
 ---
 
@@ -69,7 +73,6 @@ re-audited as current priorities." Numbers are the original review's; they are
 
 | # | What | Files |
 |---|---|---|
-| **19** | Flat, text-only top nav — up to 8 buttons at `--fs-sm`, wrapping to 2–3 rows on a phone. Icons plus grouping related pairs would speed one-handed, gloved use | `shell-head.html`, `styles.css`, `views/nav.js` |
 | **21** | Supervisor+ *Add Stock* is one toggle deep, behind *Manual entry & stock options*. Flagged to **confirm the tradeoff is intended**, not to change it | `pages/transaction.html`, `views/transactions.js` |
 | **23** | No hardware (keyboard-wedge) scanner support. A Bluetooth laser scanner types barcode + Enter — faster and more reliable in warehouse lighting than camera decode — but those keystrokes go nowhere unless an input happens to be focused | `views/scan.js`, `views/transactions.js` |
 | **24** | No low-stock signal until a dispense is rejected. Mass Stage already computes *short by N*; Find Item never surfaces it, so the first warning is a refusal on the floor | `views/items.js`, `pages/saved-items.html` |
@@ -85,8 +88,6 @@ recommendation — **the pick is the owner's**:
   C2/B3/X3 pattern in *The state of things* above: does the crew actually have
   or want scanners, and is
   anyone being surprised by empty stock?
-- **#19 is the only one that touches the shared shell** (`shell-head.html`,
-  `styles.css`), so its blast radius is every page rather than one view.
 
 ---
 

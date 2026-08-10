@@ -19,6 +19,7 @@ import { txnScanner } from "./scan.js";
 import { itemsScanner } from "./items.js";
 
 const navButtons = document.querySelectorAll(".nav-btn");
+const navGroups = document.querySelectorAll(".nav-group");
 const pages = document.querySelectorAll(".page");
 
 // Page-scoped scanners. Drives camera-lifecycle hooks below: stop on
@@ -96,9 +97,18 @@ export function landingPageForRole(role) {
 
 // Hide (not disable) every nav button the role may not use. Forbidden
 // pages simply do not appear.
+//
+// Then hide any task-domain group left with nothing visible in it. Without
+// this a role-emptied group still draws its `.nav-group + .nav-group`
+// separator, so a Technician -- who sees four buttons across the first two
+// groups only -- would get two trailing hairlines against empty space.
 export function applyRoleVisibility(role) {
   navButtons.forEach(btn => {
     btn.hidden = !canAccessPage(role, btn.dataset.page);
+  });
+  navGroups.forEach(group => {
+    const buttons = group.querySelectorAll(".nav-btn");
+    group.hidden = Array.from(buttons).every(btn => btn.hidden);
   });
 }
 
