@@ -795,7 +795,8 @@ matrix. **`WorkOrderImportResult`** (return of
 `supervisors_unmatched`, `skipped` (all int). The request is a `multipart/form-data`
 CSV file upload (`UploadFile`), no JSON body, capped at **25 MB** by
 `routers/_uploads.py::read_capped` (413 above it — but the Admin+ gate runs first,
-so an unauthorised oversized upload is a 403). **`WorkOrderItemDetail`**:
+so an unauthorised oversized upload is a 403; since C1 that ordering is FastAPI
+solving the dependency before it reads the form body, not statement order). **`WorkOrderItemDetail`**:
 `id`, `item_id`, `item_name`, `item_barcode`, `item_quantity` (live on-hand),
 `quantity`, `mode`, `unit_price?`, `billable_quantity?` (last two Admin/Owner-only).
 **`WorkOrderDetail`** = `WorkOrderCard` + `notes: str?` +
@@ -905,6 +906,18 @@ non-domain exceptions become FastAPI's default 500.
 Auth/gate errors are raised directly by `auth_deps.py` (not `DomainError`): **401**
 no/invalid/expired session (`get_current_user`); **403** valid session but role too
 low (`require_min_role`).
+
+Since C1 (2026-08-10) `auth_deps.py:73` is the **only** place in the app that
+raises a role 403, with one deliberate exception: `routers/transactions.py:55`
+gates `POST /transactions/` on `can_transact(role, transaction_type)`, which
+needs the parsed body because a stock and a dispense are the same route with
+different minimums. Everything else uses `Depends(require_min_role(...))`. The
+eight gated routes in `routers/work_orders.py` additionally declare
+`responses={403: ...}`, so the gate appears in the schema — FastAPI does not
+infer a 403 from a dependency that is merely able to raise one. On
+`PATCH /work-orders/{id}/items/{wid}/billing` the dependency resolves before
+Pydantic, so a request that is both malformed and unauthorized answers **403,
+not 422**.
 
 Upload size is also raised directly, by `routers/_uploads.py::read_capped` (not a
 `DomainError` — a byte cap is a transport limit, not a business rule, so it stays

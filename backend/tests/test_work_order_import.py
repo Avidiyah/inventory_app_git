@@ -17,7 +17,7 @@ import uuid
 from decimal import Decimal
 
 import pytest
-from fastapi import HTTPException, UploadFile
+from fastapi import UploadFile
 
 from app.domain import roles
 from app.domain import work_orders as wo
@@ -619,12 +619,13 @@ def _upload(csv_bytes):
     return UploadFile(filename="wo.csv", file=io.BytesIO(csv_bytes))
 
 
-def test_import_route_requires_admin(db):
-    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
-    csv_bytes = _csv([[_num(), "Loc", "Belfor", "", "SMR27", "7/1/2026", "A"]])
-    with pytest.raises(HTTPException) as exc:
-        import_route(file=_upload(csv_bytes), user=supervisor, db=db)
-    assert exc.value.status_code == 403
+# The Admin+ gate on this route is asserted in `test_route_role_gates.py`
+# (`test_folded_work_order_gates_are_declarative`). C1 moved it out of the
+# handler body into `Depends(require_min_role("admin"))`, and a directly-called
+# handler never resolves its dependencies -- so a below-rank call like the one
+# that used to live here now runs the import instead of raising 403. The gate
+# is unchanged; only where it is written, and therefore where it is provable,
+# has moved.
 
 
 def test_import_route_admin_succeeds(db):

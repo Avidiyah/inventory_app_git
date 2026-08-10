@@ -1,10 +1,12 @@
 # Session Hand-off
 
-Last updated: **2026-08-10**, after the Render Blueprint production database
-target was changed from `inventory-db` to `inventory-db-copy` following a bad
-work-order import. Earlier the same day, N1 (structured logging) and B1 (upload
-size caps) were committed, pushed to production, and verified; the C4 decision
-was also settled. The session before implemented N1 and closed B4's two loose
+Last updated: **2026-08-10**, end of the session that implemented **C1** (every
+static role gate in `routers/work_orders.py` is declarative now) on top of the
+database-target cutover. That cutover — the Render Blueprint moving from
+`inventory-db` to `inventory-db-copy` after a bad work-order import — landed in
+`22164bb` and **is pushed**. Earlier the same day, N1 (structured logging) and
+B1 (upload size caps) were committed, pushed to production, and verified; the
+C4 decision was also settled. The session before implemented N1 and closed B4's two loose
 ends; the one before that shipped **B4** (the CVE baseline), scoped the **deploy
 gate** so docs pushes stop deploying, and fixed **Obsidian vault access** plus
 automated the docs mirror. Earlier: N2 (CI), N5 (paid Postgres), B2 (DB-aware
@@ -25,11 +27,20 @@ superseded status narrative went.
 
 ## Start here
 
-**Production database target change is staged in the repo.** `render.yaml` now
-sets `DATABASE_URL` from `fromDatabase.name: inventory-db-copy` and no longer
-declares the original `inventory-db`. This affects Render only after the change
-is committed, pushed, and the Blueprint/deploy path applies it; verify
-`GET /healthz` on the live URL after that deployment.
+> **The database-target change is no longer staged — it is pushed, and its
+> `/healthz` check is outstanding.** `render.yaml` sets `DATABASE_URL` from
+> `fromDatabase.name: inventory-db-copy` and no longer declares the original
+> `inventory-db`. That shipped in `22164bb`, which is on `origin/main`. Because
+> `render.yaml` is one of the two paths in the deploy allowlist, that push
+> **classified as deployable and fired the hook** — production has been
+> redeployed against the copy. The verification this section originally
+> deferred is therefore due now, not later: confirm `GET /healthz` returns 200
+> on the live URL, which is the one check that proves the deployed container
+> can actually reach `inventory-db-copy`. B2 exists precisely so this cannot
+> pass while the database is unreachable.
+
+**C1 is implemented and committed but deliberately not pushed.** It is batched
+with C4 so the two Class C changes ship in one deploy. See *State of the tree*.
 
 **N1 and B1 are shipped, pushed, green, and live in production.** Nothing is
 waiting on a decision for those items.
@@ -42,9 +53,10 @@ waiting on a decision for those items.
 | `5053ba2` | **B1** — 10 MB / 25 MB upload caps on the two upload routes |
 | `45aa9ba` | B1's own hash recorded in this file |
 | `e5cd587` | the **C4 decision** — close the docs endpoints in production |
+| `22164bb` | the **database-target cutover** to `inventory-db-copy` (pushed) |
 
-**Tier 1 now starts at C1** (fold the five in-body 403 gates, ~1 hr). Full
-order: **C1 → C4 → C2 → B3.** C4 no longer needs a decision (see below).
+**Tier 1 now starts at C4** (~15 min, decided, see below). Full order:
+**C4 → C2 → B3.** C1 is done.
 
 ### B4's two loose ends are closed (2026-08-09, next session)
 
@@ -70,8 +82,19 @@ first time the `pyzbar` native dependency was handled outside a container.
 
 ### State of the tree
 
-Before the database-target cutover edits, the tree was clean, pushed, and in
-sync with `origin/main`. N1 (`a6572e3`) and B1 (`5053ba2`) shipped together on
+**`main` is at `22164bb` and in sync with `origin/main`. C1 sits on top of it,
+committed but unpushed, by design.**
+
+The batching is deliberate: C1 and C4 are both Class C, both small, and both
+touch the same surface (what the API exposes and to whom). One push means one
+CI run, one deploy, and one browser-validation pass instead of two. The cost is
+that a red build would have two changes in it — accepted, because both are
+covered by the suite and neither touches the frontend.
+
+So a dirty `git status` here is C4 in progress, not the old batching posture.
+
+Before the database-target cutover, the tree was clean, pushed, and in sync
+with `origin/main`. N1 (`a6572e3`) and B1 (`5053ba2`) shipped together on
 2026-08-10: CI run **31389720697** ran all three jobs green — Static checks,
 Backend suite, and Deploy to Render — and the deployed service came back
 healthy.
@@ -349,27 +372,59 @@ Three things worth carrying forward:
 and an ordinary work-order CSV import both behave as before against the deployed
 service. **B1 is closed with nothing outstanding.**
 
-## Next up: C1
+## Shipped this session: C1 — the role gates are declarative
 
-**C1 (fold the five in-body 403 gates into `require_min_role`, ~1 hr, Class
-C).** All five are in `routers/work_orders.py` — now lines **296, 333, 382, 580,
-646**. Those numbers have drifted twice in one day (279/315/365/563/630 →
-286/322/372/570/636 → the current set), the last time because B1 added an import
-and a decorator argument *above* gates it never touched. That is C1's own
-argument stated by C1's own line numbers. The response body is byte-identical
-(`auth_deps.py:71-74` raises the exact same detail string). The one real
-difference is that a dependency runs before Pydantic validates the body, so a
-request that is both malformed *and* unauthorized returns 403 where it returns
-422 today — unreachable from the SPA, but a real semantic change. Safety net:
-`tests/test_route_role_gates.py`.
+The five in-body 403 gates in `routers/work_orders.py` are now
+`Depends(require_min_role(...))`. Roles are unchanged and the response body is
+byte-identical (`auth_deps.py:73` raises the same detail string the inline
+versions raised). **575 passed**, OpenAPI still 73, Alembic head untouched, zero
+files under `backend/static/`. Full decision record and evidence table in
+`docs/api-hardening-checklist.md` → *Shipped* → C1.
 
-Note the interaction with what B1 just did: the import route's Admin+ gate is
-one of the five, and B1 documented and tested that it runs *before* the size
-check. Moving it into a dependency keeps that ordering (dependencies run before
-the handler body) — but the test that pins it calls the handler directly, so it
-will need to move to the route level with the gate. Do not delete it.
+Four things worth carrying forward:
 
-Full Tier 1 order after that: **C4 → C2 → B3.**
+- **Moving a gate into a dependency does not document it.** The item argued the
+  in-body gate was "invisible in the OpenAPI schema" — but FastAPI does not
+  infer a 403 from a dependency merely capable of raising one, so a dependency
+  is *equally* invisible. Half of what C1 argued for would not have shipped
+  without the explicit `responses={403: ...}`, which now covers all eight gated
+  routes in that module through one `_forbidden` helper.
+- **A directly-called handler never resolves its dependencies**, so every test
+  that proved a gate by calling the handler with a below-rank user silently
+  stops testing it. Three did. Two of them would have kept *passing* against a
+  different code path rather than failing — `test_import_route_requires_admin`
+  and `test_route_rejects_below_admin` would have gone on asserting a 403 that
+  the gate no longer produced. If a future item moves any other gate, look for
+  this pattern first; it is the failure mode that does not announce itself.
+- **The blast radius was found by running the suite, not by grep.** An initial
+  search looked clean because its output had been truncated at a result limit,
+  which produced a confident and wrong "exactly one test affected." Same class
+  of error as the `gx_find` zero-match described under *MCP tooling*: a tool
+  answered a narrower question than the one being asked.
+- **`transactions.py:55` is a sixth in-body 403 and is correctly in-body.** It
+  gates on `can_transact(role, payload.transaction_type)` — a stock and a
+  dispense are the same route with different minimums, so it needs the parsed
+  body and cannot be a static dependency. C1's own text claimed the in-body
+  gates were "all in `routers/work_orders.py`"; that is now corrected in the
+  checklist so nobody re-derives it.
+
+**Not pushed.** See *State of the tree*.
+
+## Next up: C4
+
+**C4 (close `/docs`, `/redoc`, `/openapi.json` in production, ~15 min, Class
+C).** The decision is made (`e5cd587`); this is implementation work, and the two
+things already checked for it are in the subsection just below.
+
+One addition from C1: `test_every_gated_work_order_route_documents_its_403`
+reads the schema through `app.openapi()`, so it survives `openapi_url=None` for
+the same reason the operation count does. C4 makes C1's 403 documentation a
+developer- and test-facing artifact rather than a production-facing one. That is
+not a conflict, but it is the kind of pair that looks like one later.
+
+**Then push C1 and C4 together**, and run the browser validation for both.
+
+Full Tier 1 order after that: **C2 → B3.**
 
 ### C4's decision is made — it is implementation work now
 

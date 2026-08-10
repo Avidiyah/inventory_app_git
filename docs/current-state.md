@@ -282,7 +282,10 @@ Upload size caps (`app/routers/_uploads.py`, added 2026-08-09 as B1):
   early would need a `Content-Length` check in middleware; that was considered
   and rejected as a global interceptor against an already-disk-bounded threat.
 - On `/work-orders/import` the Admin+ gate runs **before** the size check, so an
-  unauthorised caller gets 403 and learns nothing about the cap.
+  unauthorised caller gets 403 and learns nothing about the cap. Since C1
+  (2026-08-10) that ordering is FastAPI's rather than statement order in the
+  handler: the gate is a dependency and the upload is a body param, and
+  dependencies are solved before the form body is read.
 - A refusal logs `event=upload.rejected_too_large` with `size` and `limit`.
 
 ## Hard Invariants
@@ -332,6 +335,16 @@ Security/access:
 
 - Backend role gates are source of truth.
 - Frontend role hiding is only convenience.
+- **Every static role gate is declarative** — `Depends(require_min_role(...))`
+  on the route, never a rank check inside a handler body (item C1, 2026-08-10).
+  `auth_deps.py:73` is the single place a role 403 is raised. There is exactly
+  one deliberate exception, `routers/transactions.py:55`, which gates on
+  `can_transact(role, payload.transaction_type)` and therefore needs the parsed
+  body — a stock and a dispense are the same route with different minimums. The
+  eight gated routes in `routers/work_orders.py` also declare
+  `responses={403: ...}`, because FastAPI does not infer a 403 from a dependency
+  that can raise one. Per-row *visibility* and the per-field edit matrix stay in
+  the services, which need the loaded row.
 - Sessions are server-side rows and carried by an HttpOnly `session` cookie.
   The row stores only the **SHA-256 hash** of the cookie token
   (`services.auth._hash_token`); the raw token is never persisted, so reading
@@ -1210,7 +1223,7 @@ the only way in.
 | POST | `/work-orders/{id}/restore` | supervisor+ scoped | explicit un-archive; the only way to return a closed work order to live views |
 | POST | `/work-orders/{id}/items` | Technician+ scoped | log/add a material (mode = work order's entry_mode); a dispense shortage may make expected stock negative and creates a linked recount request |
 | PATCH | `/work-orders/{id}/items/{wo_item_id}` | supervisor+ scoped | edit a material's quantity (dispense lines auto-correct stock) |
-| PATCH | `/work-orders/{id}/items/{wo_item_id}/billing` | admin+ scoped | set/clear the line's billing override (bill partial / zero / full) |
+| PATCH | `/work-orders/{id}/items/{wo_item_id}/billing` | admin+ scoped | set/clear the line's billing override (bill partial / zero / full). Its Admin+ gate is a dependency, so it answers **before** Pydantic: a request that is both malformed and unauthorized returns 403, not 422 (see below) |
 | DELETE | `/work-orders/{id}/items/{wo_item_id}` | supervisor+ scoped | remove a material (dispense lines return stock; voids all contributing transactions and resolves their linked requests) |
 | POST | `/work-orders/{id}/labor` | supervisor+ scoped | add positive whole-minute labor for an assigned technician |
 | PATCH | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | replace actual minutes |
@@ -1220,6 +1233,14 @@ The `POST /transactions/` body now also accepts `work_order_id` (from a scanned
 card); a free-text `work_order_number` from a Supervisor+ is *resolved* to an
 already-imported work order, and 404s if there is none (it used to be
 find-or-created).
+
+**403-before-422 on the billing route** is the one observable behavior change
+C1 made (2026-08-10). Its gate used to be `_can_see_price(user)` in the handler
+body, which runs after Pydantic; as a dependency it runs first. So a caller who
+is *both* below Admin *and* sending a malformed body now gets 403 where they
+got 422. Unreachable from the SPA, which cannot send a malformed body, and no
+test asserted 422 — recorded because it is a real change at a permission
+boundary, not because anything is expected to notice.
 
 ## Frontend Feature Context
 

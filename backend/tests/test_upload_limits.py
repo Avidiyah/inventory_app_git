@@ -88,10 +88,6 @@ def _admin():
     return SimpleNamespace(id=1, role=roles.ROLE_ADMIN, username="adm")
 
 
-def _technician():
-    return SimpleNamespace(id=2, role=roles.ROLE_TECHNICIAN, username="tech")
-
-
 # --------------------------------------------------------------------------
 # read_capped
 # --------------------------------------------------------------------------
@@ -262,13 +258,14 @@ def test_import_refuses_a_csv_over_twenty_five_megabytes(monkeypatch):
     assert exc.value.detail == "CSV file is too large. The maximum upload size is 25 MB."
 
 
-def test_the_role_gate_still_runs_before_the_size_check():
-    # Order matters: an unauthorised caller should learn that they are
-    # unauthorised, not what the upload cap is. This is the one place the
-    # two guards could have been transposed by accident.
-    with pytest.raises(HTTPException) as exc:
-        work_orders_router.import_work_orders(
-            file=_declared_oversize(MAX_CSV_UPLOAD_BYTES), user=_technician(), db=None
-        )
-
-    assert exc.value.status_code == 403
+# The role-gate-before-size-check test lives in `test_route_role_gates.py` now
+# (`test_the_role_gate_still_runs_before_the_size_check`). B1 wrote it here and
+# proved it by calling this handler with a Technician; C1 moved the gate into
+# `Depends(require_min_role("admin"))`, and a directly-called handler never
+# resolves its dependencies -- so the old version would have quietly started
+# asserting 413 while still reading as an authorization test.
+#
+# The property has not been dropped, and it still matters: an unauthorised
+# caller should learn that they are unauthorised, not what the upload cap is.
+# It is simply no longer an upload fact. It is now the pairing of a dependency
+# gate with a body param, which is what makes FastAPI resolve the 403 first.

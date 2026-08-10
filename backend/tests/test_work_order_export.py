@@ -499,12 +499,13 @@ def test_route_forwards_operational_export_filters(db, monkeypatch):
     }
 
 
-def test_route_rejects_below_admin(db):
-    supervisor = _seed_user(db, "supervisor")
-
-    with pytest.raises(HTTPException) as exc:
-        export_route(scope="all", variant="full", user=supervisor, db=db)
-    assert exc.value.status_code == 403
+# The Admin+ gate on this route is asserted in `test_route_role_gates.py`
+# (`test_folded_work_order_gates_are_declarative`). C1 moved it out of the
+# handler body into `Depends(require_min_role("admin"))`, and a directly-called
+# handler never resolves its dependencies -- so a below-rank call like the one
+# that used to live here now builds the CSV instead of raising 403. The gate is
+# unchanged; only where it is written, and therefore where it is provable, has
+# moved. The 400 checks below still belong here: those are the route's own.
 
 
 def test_route_reports_an_unknown_scope_as_400(db):

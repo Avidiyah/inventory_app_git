@@ -17,6 +17,14 @@ Out-of-scope, archived, or unknown work orders surface as 404.
 There is no create route: work orders are import-only, so `POST /work-orders/
 import` (Admin+) is the one way a work order enters the system. Everything else
 here operates on an already-imported work order.
+
+**Every static role gate in this module is declarative.** Eight routes carry
+`Depends(require_min_role(...))` and declare their 403 through `_forbidden`;
+none checks a rank inside the handler body. That is deliberate (item C1): an
+in-body gate has no stable anchor, is invisible in the schema, runs after the
+session is open and the body parsed, and is opt-in -- a new route here inherits
+nothing. Per-row *visibility* and the per-field edit matrix stay in
+`app.services.work_orders`, because those need the loaded row.
 """
 
 import re
@@ -25,7 +33,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -209,6 +217,20 @@ def _can_see_price(user: User) -> bool:
     return roles.role_at_least(user.role, roles.ROLE_ADMIN)
 
 
+def _forbidden(minimum: str) -> dict:
+    """The OpenAPI `responses` entry for a route's `require_min_role` gate.
+
+    FastAPI does not infer a 403 from a dependency that is merely capable of
+    raising one, so a declarative gate is exactly as invisible in the schema as
+    the in-body `raise` it replaced -- unless the route says so. Declared for
+    the same reason B1 declared its 413: a failure mode a caller can actually
+    hit belongs in the contract.
+
+    Named once so the eight gated routes in this module cannot drift into
+    describing the same status differently."""
+    return {403: {"description": f"Requires the {minimum} role or above."}}
+
+
 # --- routes --------------------------------------------------------------
 
 @router.get("/", response_model=list[WorkOrderCard])
@@ -269,11 +291,14 @@ def work_order_filter_options(
 @router.post(
     "/import",
     response_model=WorkOrderImportResult,
-    responses={413: {"description": "CSV exceeds the upload size cap."}},
+    responses={
+        **_forbidden(roles.ROLE_ADMIN),
+        413: {"description": "CSV exceeds the upload size cap."},
+    },
 )
 def import_work_orders(
     file: UploadFile = File(...),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ):
     """Bulk-import work orders from the mass CSV export (Admin+). Each row
@@ -291,9 +316,10 @@ def import_work_orders(
     `MAX_CSV_UPLOAD_BYTES` with a 413 before the parse begins.
 
     The size check runs *after* the role gate, so an unauthorised caller
-    learns nothing about the cap."""
-    if not roles.role_at_least(user.role, roles.ROLE_ADMIN):
-        raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
+    learns nothing about the cap. That ordering used to be statement order in
+    this body; it is now FastAPI's, which solves declared dependencies before
+    it reads the form body. Pinned by
+    `test_the_role_gate_still_runs_before_the_size_check`."""
     data = read_capped(file, limit=MAX_CSV_UPLOAD_BYTES, what="CSV file")
     try:
         summary = wo_service.import_work_orders(db, csv_bytes=data, user=user)
@@ -302,7 +328,7 @@ def import_work_orders(
     return WorkOrderImportResult(**summary)
 
 
-@router.get("/export")
+@router.get("/export", responses=_forbidden(roles.ROLE_ADMIN))
 def export_work_orders(
     scope: str = Query(wo.EXPORT_SCOPE_ALL),
     variant: str = Query(wo.EXPORT_VARIANT_FULL),
@@ -311,7 +337,7 @@ def export_work_orders(
     community: Optional[str] = None,
     scheduled_date: Optional[date] = None,
     q: Optional[str] = None,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ):
     """Download the caller's work orders as CSV, one row per work order
@@ -328,10 +354,6 @@ def export_work_orders(
     or variant.
 
     Declared before `/{work_order_id}` so "export" is not parsed as an id."""
-    if not roles.role_at_least(user.role, roles.ROLE_ADMIN):
-        raise HTTPException(
-            status_code=403, detail="You do not have permission to perform this action."
-        )
     try:
         body = wo_service.export_work_orders_csv(
             db,
@@ -363,10 +385,14 @@ def export_work_orders(
     )
 
 
-@router.get("/lookup", response_model=WorkOrderLookup)
+@router.get(
+    "/lookup",
+    response_model=WorkOrderLookup,
+    responses=_forbidden(roles.ROLE_SUPERVISOR),
+)
 def lookup_work_order(
     number: str = Query(..., min_length=1),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
     """Report whether `number` names a work order the caller can see, and whether
@@ -378,8 +404,6 @@ def lookup_work_order(
     order. History and Admin+'s Work Orders search use this to offer a restore. A
     number the caller may not see reports `found=False`, same as the list would
     show."""
-    if not roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
-        raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
     work_order = wo_service.lookup_work_order(db, number=number, user=user)
     if work_order is None:
         return WorkOrderLookup(found=False)
@@ -391,7 +415,11 @@ def lookup_work_order(
     )
 
 
-@router.get("/legacy/archive", response_model=LegacyWorkOrderArchivePreview)
+@router.get(
+    "/legacy/archive",
+    response_model=LegacyWorkOrderArchivePreview,
+    responses=_forbidden(roles.ROLE_OWNER),
+)
 def preview_legacy_work_order_archive(
     user: User = Depends(require_min_role(roles.ROLE_OWNER)),
     db: Session = Depends(get_db),
@@ -404,7 +432,11 @@ def preview_legacy_work_order_archive(
     return LegacyWorkOrderArchivePreview(count=count)
 
 
-@router.post("/legacy/archive", response_model=LegacyWorkOrderArchiveResult)
+@router.post(
+    "/legacy/archive",
+    response_model=LegacyWorkOrderArchiveResult,
+    responses=_forbidden(roles.ROLE_OWNER),
+)
 def archive_legacy_work_orders(
     user: User = Depends(require_min_role(roles.ROLE_OWNER)),
     db: Session = Depends(get_db),
@@ -553,7 +585,11 @@ def resume_work_order(
         raise to_http(exc)
 
 
-@router.post("/{work_order_id}/archive", status_code=204)
+@router.post(
+    "/{work_order_id}/archive",
+    status_code=204,
+    responses=_forbidden(roles.ROLE_ADMIN),
+)
 def archive_work_order(
     work_order_id: uuid.UUID,
     user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
@@ -566,18 +602,20 @@ def archive_work_order(
         raise to_http(exc)
 
 
-@router.post("/{work_order_id}/restore", response_model=WorkOrderDetail)
+@router.post(
+    "/{work_order_id}/restore",
+    response_model=WorkOrderDetail,
+    responses=_forbidden(roles.ROLE_SUPERVISOR),
+)
 def restore_work_order(
     work_order_id: uuid.UUID,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
     """Un-archive a work order (Supervisor+, scoped), bringing it back onto the
     Work Orders page with its materials intact. This explicit undo is the only
     way back; CSV import counts and ignores archived matches. 404 if unknown or
     not visible to the caller."""
-    if not roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
-        raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
     try:
         work_order = wo_service.restore_work_order(db, work_order_id, user=user)
         return _detail(
@@ -629,21 +667,29 @@ def update_work_order_item(
 @router.patch(
     "/{work_order_id}/items/{wo_item_id}/billing",
     response_model=WorkOrderItemDetail,
+    responses=_forbidden(roles.ROLE_ADMIN),
 )
 def set_work_order_item_billing(
     work_order_id: uuid.UUID,
     wo_item_id: uuid.UUID,
     payload: WorkOrderItemBilling,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ):
     """Set or clear a material line's billing override (Admin/Owner). The line is
     the billing unit for work-order materials, so this charges fewer units than
     were consumed (or none) without touching stock. `null` clears the override;
     `0` records but does not charge; a value up to the line quantity bills a
-    partial count. 403 below Admin; 400 if the value exceeds the line quantity."""
-    if not _can_see_price(user):
-        raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
+    partial count. 403 below Admin; 400 if the value exceeds the line quantity.
+
+    The gate is a dependency rather than a `_can_see_price` check in this body:
+    `_can_see_price` is the price-*redaction* predicate, and using it to
+    authorize conflated two jobs that happen to share a rank. One consequence
+    is deliberate and worth knowing -- a dependency resolves before Pydantic
+    validates the body, so a request that is both malformed *and* unauthorized
+    now answers 403 where it answered 422. The SPA cannot produce that
+    combination; pinned by
+    `test_billing_gate_answers_before_the_body_is_validated`."""
     try:
         line = wo_service.set_work_order_item_billable(
             db, work_order_id, wo_item_id, user=user, billable_quantity=payload.billable_quantity

@@ -10,7 +10,9 @@ and, on its first run, produced a new item: **B4**, 23 known CVEs in `pillow`
 and `starlette`. That is the gate doing its job before it had even been merged.
 **B4 shipped the same day** and `pip-audit` is now blocking rather than
 advisory. **N1 (structured logging) shipped 2026-08-09**, and **B1 (upload
-size caps) shipped 2026-08-09** on top of it, so **Tier 1 now starts at C1.**
+size caps) shipped 2026-08-09** on top of it. **C1 shipped 2026-08-10** —
+every static role gate in `routers/work_orders.py` is declarative now — so
+**Tier 1 starts at C4.**
 
 Re-reviewed 2026-08-09 against the promoted code graph at `d715545` (2,512 nodes
 / 5,790 edges), which covers structure the original file-by-file audit did not.
@@ -110,51 +112,7 @@ now has an external clock; the queue below is ordered purely on merit.
 
 ## Tier 1 — Do next, in this order
 
-### 1. C1 — Fold the five in-body 403 gates into `require_min_role`
-
-- [ ] **Class C** · *~1 hr* · **response body is byte-identical**
-
-41 endpoints use the declarative `Depends(require_min_role(...))`. Five gate
-inside the handler body, all in `routers/work_orders.py` — lines **296, 333,
-382, 580, 646**.
-
-**These have now drifted twice in one day**: 279/315/365/563/630 originally,
-then 286/322/372/570/636 at the restructure, then the numbers above once B1
-added an import and a `responses={413: ...}` decorator argument above them. B1
-did not touch a single one of the five gates. That is the item's argument
-stated by the item's own line numbers: an in-body gate has no stable anchor, so
-it cannot be located except by reading the handler, and any edit anywhere above
-it moves it.
-
-The in-body gate is invisible in the OpenAPI schema, runs after `get_db` opened
-a session and the body was parsed, and is **opt-in** — so a new `work-orders`
-endpoint inherits no protection by default.
-
-**The response body is byte-identical.** `auth_deps.py:71-74` raises
-`HTTPException(403, detail="You do not have permission to perform this
-action.")` — the exact string the inline gates use, verbatim. `api.js` surfaces
-the same message, so the UI copy is unchanged.
-
-**The one real difference:** as a dependency the role check runs *before*
-Pydantic validates the body, so a request that is both malformed **and**
-unauthorized returns 403 where it returns 422 today. No test in the suite
-asserts 422 anywhere, and the SPA never sends malformed bodies, so this is
-unreachable in practice — but it is a real semantic change.
-
-Leave `items.py:51` and `transactions.py:80,213` alone: those call
-`role_at_least` for price redaction (data shaping), not gating.
-
-**Interaction with B1**, which just shipped: the import route's gate is one of
-the five, and B1 recorded and tested that it runs *before* that route's upload
-size check. A dependency preserves that ordering — FastAPI solves declared
-dependencies before it parses body parameters — but
-`test_the_role_gate_still_runs_before_the_size_check` calls the handler
-directly, so it has to move to the route level along with the gate rather than
-be deleted as broken.
-
-Safety net: `tests/test_route_role_gates.py`.
-
-### 2. C4 — Close `/docs`, `/redoc`, `/openapi.json` in production
+### 1. C4 — Close `/docs`, `/redoc`, `/openapi.json` in production
 
 - [ ] **Class C** · *~15 min* · **decided 2026-08-10: close all three**
 
@@ -165,8 +123,8 @@ an env flag breaks no code — but it removes URLs the owner may use directly.
 
 **The decision this item was waiting on has been made.** The owner chose to
 **close all three in production**, gated on an env flag so they stay available
-locally. This is no longer an open question; the item is now ordinary
-implementation work sitting at #2 behind C1.
+locally. This is no longer an open question; with C1 shipped this is ordinary
+implementation work sitting at the front of the queue.
 
 Two things to get right when it ships. **Pick the existing signal rather than
 inventing one** — `COOKIE_SECURE` is already the flag that means "this
@@ -184,7 +142,15 @@ in verification coverage, which was the one thing that could have made a
 exposes anything to an *unauthenticated* caller, and it is 15 minutes against
 C2's half day.
 
-### 3. C2 — Eliminate the tool-custody N+1
+**Interaction with C1, which just shipped.** C1 added `responses={403: ...}` to
+eight routes so a gate is visible in the schema. C4 then closes `/openapi.json`
+in production, which makes that documentation a developer- and test-facing
+artifact rather than a production-facing one. Not a conflict — the schema is
+still generated, still served locally, and still asserted by
+`test_every_gated_work_order_route_documents_its_403` — but worth knowing before
+someone reads the two decisions side by side and assumes one undid the other.
+
+### 2. C2 — Eliminate the tool-custody N+1
 
 - [ ] **Class C** · *~half day* · **one-time visible reshuffle**
 
@@ -205,7 +171,7 @@ N+1 means choosing an explicit order (user name), which is a one-time visible
 reshuffle that then stays stable forever. Not safe as a silent change; fine as a
 deliberate one.
 
-### 4. B3 — No rate limiting outside the login route
+### 3. B3 — No rate limiting outside the login route
 
 - [ ] **Class B** · *logged 2026-08-09* · **authenticated callers only**
 
@@ -325,6 +291,105 @@ Referenced by B3, which names these endpoints as the unlimited-volume surface.
 ## Shipped
 
 Kept with verification evidence intact. These no longer occupy a priority slot.
+
+### C1 — Fold the five in-body 403 gates into `require_min_role`
+
+- [x] **Class C** · **shipped 2026-08-10** · response body byte-identical, roles
+  unchanged
+
+Five role checks lived inside handler bodies in `routers/work_orders.py` as
+`if not roles.role_at_least(...): raise HTTPException(403, ...)`, while the
+app's other 41 gated endpoints used the declarative dependency. All five are now
+`Depends(require_min_role(...))`:
+
+| Was line | Route | Gate |
+|---|---|---|
+| 296 | `POST /work-orders/import` | `require_min_role(admin)` |
+| 333 | `GET /work-orders/export` | `require_min_role(admin)` |
+| 382 | `GET /work-orders/lookup` | `require_min_role(supervisor)` |
+| 580 | `POST /work-orders/{id}/restore` | `require_min_role(supervisor)` |
+| 646 | `PATCH /work-orders/{id}/items/{wid}/billing` | `require_min_role(admin)` |
+
+`routers/work_orders.py` now contains **zero** `status_code=403`. App-wide the
+string survives in exactly two places: `auth_deps.py:73`, its single home, and
+`transactions.py:57` — see the correction below.
+
+**Four decisions worth keeping:**
+
+1. **`responses={403: ...}` was added, because moving the gate does not
+   document it.** The item argued the in-body gate is "invisible in the OpenAPI
+   schema," but a dependency is *equally* invisible — FastAPI does not infer a
+   403 from a dependency merely capable of raising one. Without the explicit
+   declaration, half of what C1 argued for would not have shipped. Declared
+   through one `_forbidden(minimum)` helper so eight routes cannot drift into
+   describing the same status differently, following B1's `responses={413}`
+   precedent.
+2. **Eight routes, not five.** `archive_work_order` and the two Owner-only
+   `legacy/archive` routes were already declarative but undocumented. Five of
+   eight documented would have read as an oversight rather than a boundary.
+3. **The billing route's gate was `_can_see_price(user)`** — the price
+   *redaction* predicate doing authorization work because the two happen to
+   share a rank. It is now `require_min_role(admin)`; `_can_see_price` stays for
+   its real callers. This is the distinction the item drew when it said to leave
+   `items.py:51` and `transactions.py:80,213` alone: those shape data, this one
+   gated.
+4. **The 422 → 403 change was accepted deliberately and pinned.** On the billing
+   route a dependency resolves before Pydantic, so a request that is both
+   malformed **and** unauthorized now answers 403 where it answered 422. The SPA
+   cannot produce that combination and no test asserted 422, so it is
+   unreachable in practice — but it is a real change at a permission boundary,
+   and `test_billing_gate_answers_before_the_body_is_validated` exists so it
+   stays deliberate rather than becoming folklore.
+
+**Correction to this item's own framing: the in-body 403 gates were not "all in
+`routers/work_orders.py`."** There is a sixth, `routers/transactions.py:55`,
+raising the identical detail string. It gates on
+`roles.can_transact(user.role, payload.transaction_type)` — it needs the *parsed
+body* to know whether the request is a stock or a dispense, so it **cannot** be
+a static dependency and is correctly written in the body. It was considered and
+deliberately left; `test_create_transaction_has_no_static_min_role` already pins
+it. The item named `transactions.py:80,213` as leave-alone but never mentioned
+`:55`, which left no way to tell whether it had been missed.
+
+**The blast radius was three tests, not one, and the near-miss is the lesson.**
+A directly-called handler never resolves its dependencies, so every test that
+proved a gate by calling the handler with a below-rank user silently stops
+testing the gate — and two of the three would have kept *passing* against a
+different code path rather than failing. They were
+`test_the_role_gate_still_runs_before_the_size_check`
+(`test_upload_limits.py`), `test_import_route_requires_admin`
+(`test_work_order_import.py`), and `test_route_rejects_below_admin`
+(`test_work_order_export.py`). All three are replaced by route-level assertions
+in `test_route_role_gates.py`, and each old site keeps a pointer comment so the
+reasoning is not orphaned. The first two were found only by running the suite:
+an initial grep looked clean because its output had been truncated at the head
+limit, which is worth remembering as a way to be confidently wrong about a
+blast radius.
+
+**B1's ordering property is preserved but is now the framework's, not ours.**
+The import route's 403 still beats its 413. It used to be provable by statement
+order; it is now the pairing of a dependency gate with a body param, since
+FastAPI solves declared dependencies before it reads the form body. The test
+asserts that pairing rather than an observed status — the honest limit of a
+unit test here, stated in the test's own comment.
+
+#### Verification evidence (C1, 2026-08-10)
+
+| Check | Expected | Result |
+|---|---|---|
+| Backend test suite | 562 − 3 removed + 16 new | **575 passed in 31.75s**, zero skips |
+| OpenAPI operation count | 73 (no route added) | **73** |
+| 403 documented | all 8 gated routes | **8 / 8** |
+| Effective gate per route | unchanged roles | **admin, admin, supervisor, supervisor, admin** (+ admin, owner, owner) |
+| `/work-orders/import` responses | 413 survives beside 403 | **`['200', '403', '413', '422']`** |
+| `status_code=403` in `routers/work_orders.py` | 0 | **0** |
+| `status_code=403` app-wide | `auth_deps.py` + `transactions.py` only | **exactly those two** |
+| Alembic head | unchanged, no migration | **`fbc4e6a8d0f2 (head)`**, 0 migration files touched |
+| Files touched under `backend/static/` | zero | **zero** |
+| Non-vendor JS files | 32, untouched | **32** |
+| Python compile | clean | clean (exit 0) |
+| `git diff --check` | clean | clean (only the expected LF→CRLF warnings) |
+| Owner browser validation | — | **pending** |
 
 ### B1 — Cap upload size on both upload routes
 

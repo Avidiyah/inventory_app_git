@@ -12,6 +12,7 @@ Matches the "pure, no DB" style of the rest of the suite
 (`test_roles.py`, `test_auth_password.py`).
 """
 
+import inspect
 import os
 import sys
 import uuid
@@ -178,6 +179,99 @@ def test_work_order_list_forwards_joinable_filters(monkeypatch):
 
 def test_archive_work_order_requires_admin():
     assert _min_role_for(work_orders_router, "archive_work_order") == roles.ROLE_ADMIN
+
+
+# --------------------------------------------------------------------------
+# C1 -- the five gates that used to be written inside the handler body.
+#
+# They are `Depends(require_min_role(...))` now, so they are discoverable by
+# `_min_role_for` like every other gate in the app. Before C1 these five were
+# findable only by reading the handler, and their line numbers drifted three
+# times in two days -- twice without anyone touching a gate.
+#
+# The roles are unchanged. `auth_deps.py` raises the identical detail string
+# the in-body versions raised, so the response body is byte-identical.
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "endpoint_name,expected",
+    [
+        ("import_work_orders", roles.ROLE_ADMIN),
+        ("export_work_orders", roles.ROLE_ADMIN),
+        ("lookup_work_order", roles.ROLE_SUPERVISOR),
+        ("restore_work_order", roles.ROLE_SUPERVISOR),
+        ("set_work_order_item_billing", roles.ROLE_ADMIN),
+    ],
+)
+def test_folded_work_order_gates_are_declarative(endpoint_name, expected):
+    assert _min_role_for(work_orders_router, endpoint_name) == expected
+
+
+def test_no_work_order_route_gates_on_a_role_inside_the_handler():
+    # The point of C1, stated as an assertion rather than a line number: this
+    # module raises no 403 of its own. A future route that reintroduces an
+    # in-body rank check fails here, which is the anchor the old gates lacked.
+    source = inspect.getsource(work_orders_router)
+    assert "status_code=403" not in source
+
+
+def test_the_role_gate_still_runs_before_the_size_check():
+    # Moved here from test_upload_limits.py by C1. Order matters: an
+    # unauthorised caller should learn that they are unauthorised, not what
+    # the upload cap is.
+    #
+    # It used to be provable by calling the handler and watching statement
+    # order. Now the gate is a dependency and the upload is a body param, and
+    # *that pairing is the guarantee* -- FastAPI solves declared dependencies
+    # before it reads the form body, so the 403 cannot lose to the 413. Assert
+    # the pairing, since the ordering itself now belongs to the framework.
+    route = _route(work_orders_router, "import_work_orders")
+
+    assert _find_min_role(route.dependant) == roles.ROLE_ADMIN
+    assert "file" in {param.name for param in route.dependant.body_params}
+
+
+def test_billing_gate_answers_before_the_body_is_validated():
+    # The one deliberate semantic change in C1, pinned so it stays deliberate.
+    #
+    # `set_work_order_item_billing` used to check `_can_see_price(user)` in its
+    # body, which runs *after* Pydantic. As a dependency the gate runs first,
+    # so a request that is both malformed AND unauthorized now answers 403
+    # where it answered 422. The SPA cannot send a malformed body, so this is
+    # unreachable in practice -- but it is a real change at a permission
+    # boundary and is recorded in docs/api-hardening-checklist.md.
+    #
+    # Like the test above, this pins the *mechanism* (gate is a dependency,
+    # payload is a body param) rather than an observed status code: asserting
+    # the status would need a real request through the ASGI stack, and the
+    # mechanism is what a future edit would break.
+    route = _route(work_orders_router, "set_work_order_item_billing")
+
+    assert _find_min_role(route.dependant) == roles.ROLE_ADMIN
+    assert "payload" in {param.name for param in route.dependant.body_params}
+
+
+@pytest.mark.parametrize(
+    "endpoint_name",
+    [
+        "import_work_orders",
+        "export_work_orders",
+        "lookup_work_order",
+        "restore_work_order",
+        "set_work_order_item_billing",
+        # Already declarative before C1, documented by it for consistency.
+        "archive_work_order",
+        "preview_legacy_work_order_archive",
+        "archive_legacy_work_orders",
+    ],
+)
+def test_every_gated_work_order_route_documents_its_403(endpoint_name):
+    # Moving a gate into a dependency does not document it: FastAPI does not
+    # infer a 403 from a dependency merely capable of raising one. Without
+    # this, a declarative gate is exactly as invisible in the schema as the
+    # in-body `raise` it replaced.
+    route = _route(work_orders_router, endpoint_name)
+    assert 403 in route.responses
 
 
 @pytest.mark.parametrize("endpoint_name", ["list_user_requests", "update_user_request"])
