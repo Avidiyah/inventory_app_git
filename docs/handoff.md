@@ -1,12 +1,13 @@
 # Session Hand-off
 
-Last updated: 2026-08-09, end of the session that committed **N1** (structured
-logging) and shipped **B1** (upload size caps). The session before implemented
-N1 and closed B4's two loose ends; the one before that shipped **B4** (the CVE
+Last updated: **2026-08-10**, end of the session that committed **N1**
+(structured logging), shipped **B1** (upload size caps), **pushed both to
+production**, and settled the **C4 decision**. The session before implemented N1
+and closed B4's two loose ends; the one before that shipped **B4** (the CVE
 baseline), scoped the **deploy gate** so docs pushes stop deploying, and fixed
-**Obsidian vault access** plus automated the docs mirror. Earlier the same day:
-N2 (CI), N5 (paid Postgres), B2 (DB-aware health check), X1 + C3 (auth
-hardening), and the checklist restructure.
+**Obsidian vault access** plus automated the docs mirror. Earlier: N2 (CI), N5
+(paid Postgres), B2 (DB-aware health check), X1 + C3 (auth hardening), and the
+checklist restructure.
 
 This file is the **live** hand-off: where the work stands and what to pick up
 next. It is not a history. For durable behavior and contracts start with
@@ -386,9 +387,10 @@ each step's output is the next step's input.
 5. **Update documentation in the same turn as the work.** Never defer it to
    "later in the session"; the specific routing is in *Working rhythm* below.
 6. **Write the session hand-off** — this file — and append to the Obsidian
-   session log before closing. The `docs/` → vault *mirror* no longer needs
-   doing by hand; a `Stop` hook syncs it (see *MCP tooling*). The session log
-   still does.
+   session log before closing. Then run `scripts/sync-obsidian.ps1 -Check` and
+   sync if it reports anything stale: a `Stop` hook is supposed to do this, and
+   on 2026-08-10 it did not (see *MCP tooling*). The session log is
+   append-only narrative and is always manual.
 
 Steps 1 and 5 are the ones that have actually been skipped before, and both
 times it cost a later session real time. This file was found stale once because
@@ -407,18 +409,27 @@ than opening files and more complete than grep for structural questions. Start
 with `list_repositories`, then pass the id (`Avidiyah/inventory_app_git`) to the
 query tools. It also has `recall` / `remember` for durable per-repo notes.
 
-> **It re-indexes itself on push to `main`.** Observed twice on 2026-08-09: the
-> graph tracked `cf7dec2` and then `62c32aa` (2,667 nodes / 6,085 edges) within
-> minutes of each push. The long-standing caveat in this file — graph stuck at
-> `d715545`, pre-hash `sessions` schema, "confirm anything near auth against the
-> working tree" — **no longer applies** and has been removed rather than left to
-> mislead. It was an artifact of the old don't-commit posture: the graph indexes
-> commits, so a session that never committed left it permanently behind.
+> **It re-indexes on push to `main` — but not reliably, and not always
+> promptly.** Check `graph_stats` → `commitSha` against `git rev-parse HEAD`
+> **every session**, and read the result rather than assuming.
 >
-> Keep the habit anyway, because it is one call: check `graph_stats` →
-> `commitSha` against `git rev-parse HEAD`. It now usually matches. **Uncommitted
-> work is still invisible to it** — that is the case where the map and the
-> territory genuinely differ.
+> Two observations, both real, and the second is why the first is not a rule.
+> On 2026-08-09 the graph tracked `cf7dec2` and then `62c32aa` (2,667 nodes /
+> 6,085 edges) within minutes of each push. On **2026-08-10 it was still at
+> `62c32aa`** — four commits and roughly ten minutes after the push that shipped
+> N1 and B1. So an earlier revision of this file saying it "now usually matches"
+> was over-generalising from two lucky samples.
+>
+> **What that costs, concretely:** a session picking up C1 would query the graph
+> for `routers/work_orders.py` and get the *pre-B1* file — line numbers ten off,
+> and `routers/_uploads.py` absent entirely. That is exactly the kind of quiet
+> wrongness the old `d715545` caveat used to cause.
+>
+> The old caveat itself (graph stuck at `d715545`, pre-hash `sessions` schema)
+> genuinely is gone; it was an artifact of the don't-commit posture, since the
+> graph indexes commits. **Uncommitted work is still invisible to it.** The
+> honest summary: the graph is a fast index of *some* commit, and which commit
+> is a question you have to ask, not assume.
 
 **Obsidian** — the retrieval path for documentation held outside the repo.
 Vault root: `C:\Users\mcclu\Desktop\Obsidian\John_Vault`; this project's folder
@@ -448,11 +459,23 @@ What lives in that folder, and what it is for:
 | `sessions/session-log.md` | Structured per-session log: `## <ISO timestamp>` then `### Summary` / `### Changed Files` / `### Decisions / Context Updates` / `### Follow-ups`. |
 | `README.md` | Repo context plus a second, shorter append-log in the same four-section format. |
 
-### The mirror is automated now — do not sync it by hand
+### The mirror is scripted — but do not trust the hook to have run
 
 `scripts/sync-obsidian.ps1` generates every `reviews/*.md` mirror from `docs/`,
-and a **`Stop` hook** in `.claude/settings.local.json` runs it when a turn ends.
-Staleness is now structural rather than a thing to remember.
+and a **`Stop` hook** in `.claude/settings.local.json` is meant to run it when a
+turn ends. Do not hand-edit the mirrors; run the script.
+
+> **Correction, 2026-08-10 — this file previously claimed "staleness is now
+> structural rather than a thing to remember." That is false and was disproved
+> the same session it was relied on.** `-Check` reported **all four** changed
+> docs stale (`api-hardening-checklist.md`, `current-state.md`,
+> `endpoint-map.md`, `handoff.md`) after a turn that edited them, so the hook
+> had not fired. Running `scripts/sync-obsidian.ps1` directly fixed it
+> immediately — **the script is fine; the hook is what is unreliable.**
+>
+> So the standing habit is: run `-Check` before closing a session. It is one
+> call, it writes nothing, and it is the only thing that actually tells you.
+> Treating the hook as a guarantee is what left the vault behind.
 
 Three properties worth knowing before touching it:
 
