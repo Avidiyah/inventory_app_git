@@ -1,9 +1,10 @@
 # Session Hand-off
 
-Last updated: 2026-08-09, after **N2 (CI) shipped and merged to `main`**. N5
-closed the same day (paid Postgres). Earlier that day: the checklist
-restructure, B2 (DB-aware health check), and X1 + C3 (auth hardening,
-owner-validated).
+Last updated: 2026-08-09, end of the session that shipped **B4** (the CVE
+baseline), scoped the **deploy gate** so docs pushes stop deploying, and fixed
+**Obsidian vault access** plus automated the docs mirror. Earlier the same day:
+N2 (CI), N5 (paid Postgres), B2 (DB-aware health check), X1 + C3 (auth
+hardening), and the checklist restructure.
 
 This file is the **live** hand-off: where the work stands and what to pick up
 next. It is not a history. For durable behavior and contracts start with
@@ -18,29 +19,45 @@ superseded status narrative went.
 
 ---
 
-## Where things stand
+## Start here
 
-**Just shipped (2026-08-09): N2 — CI, merged to `main` at `d14627b`.**
+**`main` is at `62c32aa`, clean, and in sync with `origin/main`.** Three commits
+landed this session, all pushed and all green in CI:
 
-`.github/workflows/ci.yml` now runs on every push and PR: `backend` (postgres:16
-service, migrations, full suite on Python 3.12), `static` (`node --check`,
-compile, single Alembic head, migration round-trip, `pip-audit`), and `deploy`
-(gated on `needs: [backend, static]`, `main` pushes only, firing a Render hook
-from the `RENDER_DEPLOY_HOOK_URL` secret). `render.yaml` is `autoDeploy: false`,
-so that hook is the only path to production. **523 passed in CI.**
+| Commit | What |
+|---|---|
+| `da9a810` | Vault access fixed; `scripts/sync-obsidian.ps1` + `Stop` hook automate the docs mirror; `.claude/settings.*` untracked |
+| `c7ae670` | `deploy` job now fires only for changes that actually ship |
+| `62c32aa` | **B4** — `pillow` 12.3.0, `starlette` 1.3.1, `pip-audit` now blocking |
 
-Full detail and verification evidence in `docs/api-hardening-checklist.md` →
-*Shipped* → N2, including an honest record of a drill that went wrong.
+**Tier 1 now starts at N1** (structured logging). Full order:
+**N1 → B1 → C1 → C4 → C2 → B3.**
 
-**Two things N2 produced that were not on anyone's list:**
+### Read this before picking up N1 — two things are unverified
 
-- **B4 — found by `pip-audit`'s first run, and closed the same day.** 23 known
-  CVEs in `pillow` and `starlette`; Pillow parses attacker-supplied image data
-  on the barcode upload path. The gate justified itself before it was even
-  merged, then the finding was fixed and the gate armed. See *Shipped 2026-08-09:
-  B4* below.
-- **N7 closed incidentally.** Installing `libzbar0` in CI is the first time the
-  `pyzbar` native dependency has been handled outside a container.
+Both are from the very end of the session and neither is a defect. They are
+loose ends someone has to actually close.
+
+1. **Production was never confirmed healthy after the B4 deploy.** CI proves the
+   hook fired and Render returned a deploy id (`dep-d9sj39lbedkc73dlakug`), and
+   that is the limit of what the pipeline can show. `GET /healthz` was never
+   reached **because the production URL is recorded nowhere in this repo** —
+   not in `render.yaml`, the docs, or the README. Four candidate
+   `*.onrender.com` hostnames all returned 404 from Render's edge.
+
+   This is worth fixing properly: B2 built a health check specifically so a
+   broken deploy fails loudly, and it is not much use if nobody can find the
+   URL. **Get the URL from the owner or the Render dashboard, verify
+   `/healthz`, and record it in `docs/current-state.md`.**
+
+2. **The barcode upload path has not been clicked through since the Pillow
+   bump.** B4 is Class B: identical on the happy path, but a minor bump of the
+   image decoder is not *provably* invisible, and image upload is the one
+   surface it could plausibly change. Browser validation is owner-performed on
+   this project, so this is a request to make, not a task to do.
+
+**Still incidentally true:** N7 closed when N2 installed `libzbar0` in CI — the
+first time the `pyzbar` native dependency was handled outside a container.
 
 ### State of the tree — this changed, read it
 
@@ -177,6 +194,16 @@ Consequence for the deploy gate: its **green path is confirmed** (the merge to
 blocked — has never been observed**, and is deliberately left to be verified for
 free on the first real red build. Do not invent a drill for it.
 
+**The counter-example, from later the same day.** The deploy-scoping change
+(`c7ae670`) had both of its branches verified on *real pushes*, with nothing
+modified to make either one fire: the docs/tooling push that carried it
+classified as skip and left production untouched, and the next push (`62c32aa`,
+which changed `backend/requirements.txt`) classified as deployable and fired the
+hook. That is what a valid drill looks like — the condition under test was
+exercised, not weakened. Note the asymmetry with the `always()` failure: there
+the drill had to *change* the thing being tested in order to run at all, which
+was the tell.
+
 ## Shipped 2026-08-09: B4 — the CVE baseline is clean and the gate is armed
 
 `pillow` 12.2.0 → **12.3.0** and `starlette` 1.2.1 → **1.3.1**, closing all 23
@@ -250,16 +277,18 @@ than opening files and more complete than grep for structural questions. Start
 with `list_repositories`, then pass the id (`Avidiyah/inventory_app_git`) to the
 query tools. It also has `recall` / `remember` for durable per-repo notes.
 
-> **Re-indexed and current as of 2026-08-09.** The graph is at `cf7dec2` —
-> `main`'s tip — with 2,664 nodes / 6,083 edges. It now covers X1/C3, B2, and
-> N2, so the previous standing caveat (graph at `d715545`, pre-hash `sessions`
-> schema, "confirm anything near auth against the working tree") **no longer
-> applies** and has been removed rather than left to mislead.
+> **It re-indexes itself on push to `main`.** Observed twice on 2026-08-09: the
+> graph tracked `cf7dec2` and then `62c32aa` (2,667 nodes / 6,085 edges) within
+> minutes of each push. The long-standing caveat in this file — graph stuck at
+> `d715545`, pre-hash `sessions` schema, "confirm anything near auth against the
+> working tree" — **no longer applies** and has been removed rather than left to
+> mislead. It was an artifact of the old don't-commit posture: the graph indexes
+> commits, so a session that never committed left it permanently behind.
 >
-> The habit that produced that caveat is still right, though: check
-> `graph_stats` → `commitSha` against `git rev-parse HEAD` before trusting a
-> structural answer. It is one call, and it tells you whether the map matches
-> the territory.
+> Keep the habit anyway, because it is one call: check `graph_stats` →
+> `commitSha` against `git rev-parse HEAD`. It now usually matches. **Uncommitted
+> work is still invisible to it** — that is the case where the map and the
+> territory genuinely differ.
 
 **Obsidian** — the retrieval path for documentation held outside the repo.
 Vault root: `C:\Users\mcclu\Desktop\Obsidian\John_Vault`; this project's folder
