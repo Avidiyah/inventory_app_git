@@ -140,3 +140,12 @@ jobs:
           alembic upgrade head
           alembic downgrade -1
           alembic upgrade head
+
+      # Reports but does not block, until the baseline output has been
+      # triaged. Flipping continue-on-error to false is the follow-up.
+      - name: Dependency audit
+        working-directory: backend
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit --requirement requirements.txt --desc
