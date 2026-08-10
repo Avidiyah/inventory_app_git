@@ -104,6 +104,16 @@ again.
 **Docs-only pushes no longer deploy** (decided and shipped 2026-08-09). The
 `deploy` job now classifies the push before firing the hook.
 
+> **A green "Deploy to Render" job does not mean a deploy happened.** Read this
+> before concluding the classifier has regressed. The job always runs — it is
+> the *step* that is conditional — so a docs-only push shows three green jobs,
+> identical at a glance to a push that deployed. The difference is only visible
+> in the log: `==> Nothing under backend/ or render.yaml changed; skipping
+> deploy.` followed by a `No deploy needed` step. Confirmed on run
+> **31389939289** (2026-08-10, docs-only), which went fully green while leaving
+> production untouched. `gh run view <id> --log` is how you tell them apart;
+> the job list cannot.
+
 `paths-ignore` — the fix this was originally logged as — **does not work here.**
 It is a workflow-level *trigger* filter, so it would have skipped `backend` and
 `static` too, landing docs commits on `main` having run no checks at all. There
