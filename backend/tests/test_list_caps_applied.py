@@ -30,6 +30,7 @@ import pytest
 
 from app.domain import list_limits
 from app.models import Item, MassStage, Tool, User
+from app.services import auth
 from app.services import items as items_service
 from app.services import mass_staging as stages_service
 from app.services import tools as tools_service
@@ -62,6 +63,21 @@ def _seed_items(db, count):
                 name=f"Cap Item {token}",
                 quantity=Decimal("1"),
                 location="Cap test shelf",
+            )
+        )
+    db.flush()
+
+
+def _seed_users(db, count):
+    for _ in range(count):
+        token = uuid.uuid4().hex[:10]
+        db.add(
+            User(
+                username=f"cap-{token}",
+                first_name="Cap",
+                last_name=f"User {token}",
+                password_hash=auth.hash_password("hunter2"),
+                role="technician",
             )
         )
     db.flush()
@@ -106,9 +122,11 @@ def test_tools_are_capped_and_reported(db, ceiling_of_one, caplog):
 
 def test_users_are_capped_and_reported(db, ceiling_of_one, caplog):
     caplog.set_level(logging.WARNING)
-    # The fixture database always has users; no seeding needed for a
-    # ceiling of one, but assert the precondition rather than assume it.
-    assert db.query(User).count() >= 2
+    # Seed explicitly rather than relying on the database already holding
+    # users. An earlier version asserted that precondition instead, which
+    # passed against a populated local database and failed in CI against an
+    # empty one -- ambient data is not a fixture.
+    _seed_users(db, 3)
 
     rows = users_service.list_users(db)
 
