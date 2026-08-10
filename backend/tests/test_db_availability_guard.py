@@ -34,7 +34,3 @@ def test_ci_set_to_false_still_skips(monkeypatch):
 
     with pytest.raises(pytest.skip.Exception):
         handle_unreachable_database(OSError("connection refused"))
-
-
-def test_ci_gate_proof():
-    assert False, "TEMPORARY: proving the deploy gate blocks a red build"
