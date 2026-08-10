@@ -43,11 +43,21 @@ superseded status narrative went.
 > only database reachability; Admin `/db-test` reports PostgreSQL logical
 > names, not the Render resource display name.
 
-> **The batch is complete and the next action is a push.** C1 and C4 are both
-> implemented, committed, and verified locally; neither has reached production.
-> Pushing `main` is the whole remaining step — it runs CI and deploys both. **583
-> passed**, OpenAPI 73, Alembic head untouched, zero frontend files in either
-> change.
+> **C1 is live. C4 is not, and pushing it is the next action.**
+>
+> The batch did not hold: C1 (`b314d06` + `eb7f4a2`) was pushed on its own while
+> C4 was still being written. CI run **31402048099** went green, the classifier
+> logged `==> Deployable changes present.`, and the hook fired
+> (`dep-d9suk4p42hec73bo2ov0`) — so C1 is deployed and its browser validation is
+> outstanding against production, not against a local branch.
+>
+> **The consequence is small but real and currently open.** C1 added
+> `responses={403: ...}` naming the role each gated route requires, and that
+> lands in `/openapi.json` — which is public until C4 ships. So the live schema
+> right now states, for eight routes, exactly which role is needed. That is
+> reconnaissance, not a breach: no rows, no credentials, no bypass, every gate
+> still enforced. But it is precisely the window the batching was supposed to
+> avoid, and **pushing C4 (`9388ed8`) closes it.** 583 passed locally.
 
 **N1 and B1 are shipped, pushed, green, and live in production.** Nothing is
 waiting on a decision for those items.
@@ -61,8 +71,9 @@ waiting on a decision for those items.
 | `45aa9ba` | B1's own hash recorded in this file |
 | `e5cd587` | the **C4 decision** — close the docs endpoints in production |
 | `22164bb` | the **database-target cutover** to `inventory-db-copy` (pushed) |
-| `b314d06` | **C1** — the five in-body 403 gates are declarative (**not pushed**) |
-| `eb7f4a2` | C1's own hash recorded in this file (**not pushed**) |
+| `b314d06` | **C1** — the five in-body 403 gates are declarative (pushed, deployed) |
+| `eb7f4a2` | C1's own hash recorded in this file (pushed) |
+| `9388ed8` | **C4** — the docs endpoints are closed in production (**not pushed**) |
 
 **Tier 1 now starts at C2** (~half day). Full order: **C2 → B3.** C1 and C4 are
 done, and **nothing left on the list exposes anything to an unauthenticated
@@ -93,24 +104,25 @@ first time the `pyzbar` native dependency was handled outside a container.
 
 ### State of the tree
 
-**`origin/main` is at `22164bb`. C1 and C4 sit on top of it, committed and
-unpushed, by design.**
+**`origin/main` is at `eb7f4a2` (C1, deployed). C4 (`9388ed8`) sits on top of
+it, committed and unpushed. Expect `[ahead 1]`.**
 
-The batching is deliberate: C1 and C4 are both Class C, both small, and both
-touch the same surface (what the API exposes and to whom). One push means one
-CI run, one deploy, and one browser-validation pass instead of two. The cost is
-that a red build would have two changes in it — accepted, because both are
-covered by the suite and neither touches the frontend.
+C1 and C4 were *planned* as one push — both Class C, both small, both touching
+what the API exposes and to whom — for one CI run, one deploy, and one
+browser-validation pass. **That plan did not survive contact:** C1 was pushed on
+its own mid-session, before C4 existed.
 
-It also turned out to matter for more than deploy economy. C1 added
-`responses={403: ...}` naming the role each gated route requires, and that
-documentation lands in `/openapi.json` — which was public until C4 closed it.
-Shipping C1 alone would have published a better-annotated permission map for
-however long C4 took. Nothing was at risk because the two never separated, but
-it is worth knowing that the batching closed a window it was not chosen to
-close.
+**The lesson is worth more than the batching was.** The intent lived only in
+this file and in the session's head; nothing enforced it, and a perfectly
+ordinary `git push` broke it without anyone deciding to. If a future pair of
+items genuinely must ship together, the sequencing has to be a property of the
+work — one branch, or one commit — not a note saying "don't push yet." A
+plan that can be defeated by the most routine command in the workflow is not a
+plan.
 
-So a clean `git status` with `[ahead 2]` is the expected state here.
+What it cost here was small and is described under *Start here*: production is
+serving C1's role annotations in `/openapi.json` until C4 lands. Pushing C4 is
+the fix.
 
 Before the database-target cutover, the tree was clean, pushed, and in sync
 with `origin/main`. N1 (`a6572e3`) and B1 (`5053ba2`) shipped together on
@@ -427,7 +439,8 @@ Four things worth carrying forward:
   gates were "all in `routers/work_orders.py`"; that is now corrected in the
   checklist so nobody re-derives it.
 
-**Not pushed.** See *State of the tree*.
+**Pushed and deployed** (`dep-d9suk4p42hec73bo2ov0`), separately from C4 rather
+than with it. Browser validation still outstanding — see *Before anything else*.
 
 ## Shipped this session: C4 — the docs endpoints are closed in production
 
@@ -462,18 +475,21 @@ production takes an edit and a deploy. That friction is the feature — an
 `ENABLE_DOCS` flag is exactly the kind of thing that gets switched on for an
 afternoon and left on, and CI would not notice.
 
-## Before anything else: push the batch
+## Before anything else: push C4
 
-C1 and C4 are committed and verified locally but have **not reached
-production**. Pushing `main` runs CI and deploys both. Then:
+C1 is already live. C4 (`9388ed8`) is committed, verified locally, and **not
+pushed** — and it is what closes the public `/openapi.json`. Then:
 
 1. Confirm the CI run is green — and remember that a green *Deploy to Render*
-   job is not proof a deploy happened; read the log (see the note above).
+   job is not proof a deploy happened; read the log (see the note above). For
+   C1's push the line to look for was `==> Deployable changes present.`
+   followed by the hook's `{"deploy":{"id":...}}`.
 2. Confirm `GET /healthz` returns 200 on the live service.
-3. **Optionally confirm C4 on the live URL**: `/openapi.json` should return
-   404. That is the single clearest end-to-end proof of this change, and it
-   needs no login.
-4. Run the combined browser validation:
+3. **Confirm C4 on the live URL**: `/openapi.json` should return **404**. That
+   is the single clearest end-to-end proof of this change, it needs no login,
+   and it is the one check that shows the window is shut.
+4. Run the combined browser validation — still combined, because C1's pass was
+   never run:
    - **C1**, as Admin — CSV import, Export filtered CSV, For Client export, an
      archived-number search offering Restore, and Edit charge on a material
      line. As Supervisor — import and export refused, archived-number lookup

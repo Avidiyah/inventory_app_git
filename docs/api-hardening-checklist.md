@@ -336,12 +336,21 @@ be used by anyone; and the severity is reconnaissance, not breach. No rows, no
 credentials, no auth bypass — every route still enforces its gate. That is why
 this was Class C and 15 minutes rather than Tier 0.
 
-**Interaction with C1, which shipped in the same batch.** C1 added
+**Interaction with C1 — and the window did open, briefly.** C1 added
 `responses={403: ...}` to eight routes, so the schema now names the role each
-one requires — exactly the developer-facing documentation C1 wanted, sitting on
-a public endpoint. Because the two shipped in one push, that state never reached
-production. The batching was chosen for deploy economy; closing this window was
-a side effect worth recording.
+one requires: exactly the developer-facing documentation C1 wanted, sitting on
+a public endpoint. The two were planned as one push precisely so that state
+would never reach production. **They did not ship together** — C1 was pushed on
+its own (CI run 31402048099, deploy `dep-d9suk4p42hec73bo2ov0`) while C4 was
+still being written, so the live `/openapi.json` carried the role annotations
+until C4 landed.
+
+Recorded rather than smoothed over, because the failure is instructive: the
+batching existed only as an intention written in the hand-off, and an ordinary
+`git push` defeated it without anyone deciding to. Two items that must ship
+together need that enforced by the work — one branch or one commit — not by a
+note. The exposure itself was reconnaissance-grade and bounded to the interval
+between the two pushes.
 
 **The verification coverage survives, and this was the one thing that could have
 made a cheap item expensive.** Closing `/openapi.json` removes the *route*, not
@@ -478,7 +487,8 @@ unit test here, stated in the test's own comment.
 | Non-vendor JS files | 32, untouched | **32** |
 | Python compile | clean | clean (exit 0) |
 | `git diff --check` | clean | clean (only the expected LF→CRLF warnings) |
-| Owner browser validation | — | **pending** |
+| Deployed CI run | all jobs green, hook fired | **31402048099** — `==> Deployable changes present.`, `dep-d9suk4p42hec73bo2ov0` |
+| Owner browser validation | — | **pending, against the live service** |
 
 ### B1 — Cap upload size on both upload routes
 
