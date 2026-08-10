@@ -406,12 +406,18 @@ B1 ranked below N1 rather than above it: a 413 with no server-side trace leaves
 | Role gate vs. size check order | 403 wins for a Technician | **403** |
 | Python compile | clean | clean |
 | `git diff --check` | clean | clean |
+| Deployed CI run | all jobs green | **31389720697** — Static checks, Backend suite, Deploy to Render |
+| Live `GET /healthz` after deploy | 200, DB reachable | **200 `{"status":"ok"}`**, `X-Request-ID: fec6d5fa1d68` |
+| Owner browser validation | upload + import unchanged | **passed 2026-08-10** |
 
 Verified by calling both handlers directly with constructed `UploadFile`s, per
-the project's "the owner validates in the browser" rule. **Owner browser
-validation is still outstanding** — the two paths to click are an ordinary
-barcode photo upload and an ordinary work-order CSV import, both of which should
-behave exactly as before.
+the project's "the owner validates in the browser" rule.
+
+**Owner browser validation passed 2026-08-10**, against the deployed service —
+an ordinary barcode photo upload and an ordinary work-order CSV import both
+behave as before. That closes B1 completely: the byte-identical-below-the-cap
+claim is the one thing unit tests could assert but not *demonstrate* on real
+files through the real multipart path, and it now has been.
 
 ### N1 — Add structured logging
 
