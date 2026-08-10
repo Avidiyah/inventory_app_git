@@ -30,15 +30,18 @@ automated the docs mirror. Earlier: N2 (CI), N5 (paid Postgres), B2 (DB-aware
 health check), X1 + C3 (auth hardening), and the checklist restructure.
 
 This file is the **live** hand-off: where the work stands and what to pick up
-next. It is not a history. For durable behavior and contracts start with
-`docs/current-state.md`; for the framework/operational backlog see
-`docs/api-hardening-checklist.md`; for user-requested features see
-`docs/improvement-tracker.md`.
+next. It is not a history, and it is not the backlog.
 
-The July 2026 UX effort that used to live in this file is fully preserved in
-`docs/ux-review.md` (its `## Completed` section carries the per-item detail and
-validation notes). Nothing was lost by rewriting this file — only the
-superseded status narrative went.
+**For "what is left to do", read `docs/open-work.md`** — one index of every
+named improvement not yet implemented, across all three backlogs. For durable
+behavior and contracts start with `docs/current-state.md`. The full routing
+table is in `docs/project-summary.md` → *Documentation map*.
+
+**The docs were de-cluttered on 2026-08-10.** Shipped history moved out of the
+hardening checklist and the UX review into `docs/api-hardening-archive.md` and
+`docs/ux-review-archive.md` — it had reached 79% and 84% of those files
+respectively, with the open queue underneath it. Nothing was deleted or edited
+in the move, and **no item ID changed**.
 
 ---
 
@@ -489,7 +492,7 @@ there was never a pin to fight; and A3's `httpx2==2.9.1` worry is moot because
 rather than latest — Starlette is already at 1.6.0 upstream, and three extra
 minors buy no additional CVE coverage.
 
-Full detail in `docs/api-hardening-checklist.md` → *Shipped* → B4.
+Full detail in `docs/api-hardening-archive.md` → B4.
 
 ## Shipped 2026-08-09: N1 — the app can be diagnosed now
 
@@ -498,7 +501,7 @@ request id on every request and `user_id` on every authenticated one. New module
 `app/logging_config.py`; call sites in `main.py` (middleware + `/healthz`),
 `auth_deps.py`, and `routers/auth.py`. **548 passed** (523 + 25 new), OpenAPI
 still 73, Alembic head untouched. Full decision record and the evidence table in
-`docs/api-hardening-checklist.md` → *Shipped* → N1.
+`docs/api-hardening-archive.md` → N1.
 
 Three things from it worth carrying forward:
 
@@ -530,7 +533,7 @@ running service.
 `app/routers/_uploads.py`, at **10 MB** for the barcode image and **25 MB** for
 the work-order CSV. **562 passed** (548 + 14 new), OpenAPI still 73, Alembic
 head untouched, zero files under `backend/static/`. Full decision record and
-evidence table in `docs/api-hardening-checklist.md` → *Shipped* → B1.
+evidence table in `docs/api-hardening-archive.md` → B1.
 
 Three things worth carrying forward:
 
@@ -565,7 +568,7 @@ The five in-body 403 gates in `routers/work_orders.py` are now
 byte-identical (`auth_deps.py:73` raises the same detail string the inline
 versions raised). **575 passed**, OpenAPI still 73, Alembic head untouched, zero
 files under `backend/static/`. Full decision record and evidence table in
-`docs/api-hardening-checklist.md` → *Shipped* → C1.
+`docs/api-hardening-archive.md` → C1.
 
 Four things worth carrying forward:
 
@@ -606,7 +609,7 @@ of the tree* for why that mattered and what it briefly cost.
 rather than gating them — production returns a plain 404 for all four
 (`/docs/oauth2-redirect` is derived from `docs_url` and goes with it).
 `render.yaml` needed no change; it already sets `COOKIE_SECURE: "true"`. **583
-passed**. Full record in `docs/api-hardening-checklist.md` → *Shipped* → C4.
+passed**. Full record in `docs/api-hardening-archive.md` → C4.
 
 Three things worth carrying forward:
 
@@ -673,7 +676,7 @@ requests/second per caller**, returning 429 with `Retry-After: 1`. Pure policy i
 test files (`test_rate_limit.py`, `test_rate_limit_service.py`,
 `test_rate_limit_middleware.py`). **632 passed** (585 + 47), OpenAPI still 73,
 Alembic head untouched, no migration. Full record in
-`docs/api-hardening-checklist.md` → *Shipped* → B3.
+`docs/api-hardening-archive.md` → B3.
 
 Five things worth carrying forward:
 
@@ -723,7 +726,7 @@ Six list endpoints returned their whole table. All are now capped at
 policy in `domain/list_limits.py`, applied through `services/_list_cap.py`.
 `GET /items/search-index` was **deleted** outright. **659 passed** (632 + 27),
 OpenAPI **73 → 72**, Alembic head untouched, **no frontend file changed**. Full
-record in `docs/api-hardening-checklist.md` → *Shipped* → X3.
+record in `docs/api-hardening-archive.md` → X3.
 
 **The item asked for pagination. Pagination is deliberately not what shipped**,
 and that is the whole story of this one.
@@ -794,8 +797,10 @@ options, in order:
 This is the sequence the owner runs a working session by. Follow it in order;
 each step's output is the next step's input.
 
-1. **Read all current documentation first.** All seven files under `docs/`, not
-   just the one that looks relevant. The routing between them is in
+1. **Read all current documentation first.** Every file under `docs/`, not
+   just the one that looks relevant — though the two archives
+   (`api-hardening-archive.md`, `ux-review-archive.md`) are reference-on-demand
+   rather than required reading, and `open-work.md` is the fastest way in. The routing between them is in
    `docs/project-summary.md` → *Documentation map*, and the split matters:
    hardening ≠ improvement-tracker, and `current-state.md` is the only contract
    authority.
@@ -896,7 +901,7 @@ What lives in that folder, and what it is for:
 
 | Path | What it is |
 |---|---|
-| `reviews/*.md` | **Generated mirrors of all seven `docs/*.md` files.** Not authoritative and not hand-edited — see below. |
+| `reviews/*.md` | **Generated mirrors of every `docs/*.md` file.** Not authoritative and not hand-edited — see below. |
 | `reviews/Gap Audit.md` | The FastAPI-specific exposure audit the checklist was built from. Vault-native, *not* a mirror; the sync never touches it. |
 | `sessions/session-log.md` | Structured per-session log: `## <ISO timestamp>` then `### Summary` / `### Changed Files` / `### Decisions / Context Updates` / `### Follow-ups`. |
 | `README.md` | Repo context plus a second, shorter append-log in the same four-section format. |

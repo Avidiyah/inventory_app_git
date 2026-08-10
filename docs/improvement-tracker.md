@@ -1,8 +1,12 @@
 # Improvement Tracker
 
-Last reviewed: 2026-08-06. IMP-004 is the only open requested improvement.
+Last reviewed: 2026-08-10. **IMP-004 is the only open requested improvement**;
+everything else in the table below is Done.
 
-Use this document to log requested improvements for the inventory app as they come in.
+Use this document to log requested improvements for the inventory app as they
+come in. This file owns **user-requested features only** — framework and
+operational work belongs in `docs/api-hardening-checklist.md`, and the
+cross-doc index of everything still open is `docs/open-work.md`.
 
 ## Status
 

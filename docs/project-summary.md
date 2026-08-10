@@ -24,12 +24,30 @@ A **self-hosted inventory + work-order staging system** for physical materials t
 
 ## Documentation map
 
+**Start here:** `docs/open-work.md` answers "what's left?", and
+`docs/handoff.md` answers "what happened last, and what do I pick up?"
+
+### The live docs
+
+- **`docs/open-work.md`** — **the index of every named improvement not yet implemented**, across all three sources. An index, not an owner: each item's full write-up lives in the doc its row names. Read this first when asking what remains.
+- **`docs/handoff.md`** — the **live** session hand-off: where work stands and what to pick up next. Not a current-state authority.
 - **`docs/current-state.md`** — the durable contract/invariants reference (data model, hard invariants, API surface, roles). "If it conflicts with code, trust the code."
 - **`docs/endpoint-map.md`** — traces all 72 endpoints DB↔view (router→service→table, api.js→view), plus full request/response contracts, an error catalog, and service algorithms — meant to make reading source unnecessary.
-- **`docs/improvement-tracker.md`** — requested improvements and their current status.
-- **`docs/api-hardening-checklist.md`** — the framework/operational backlog (not user-requested features), listed in priority order. Read it top-down; the first unticked item is the next one to do.
-- **`docs/handoff.md`** — the **live** session hand-off: where work stands and what to pick up next. Not a current-state authority.
-- **`docs/ux-review.md`** — historical record of the July UX-improvement effort; not a current-state authority.
+
+### The three backlogs
+
+Kept separate on purpose — they answer different questions and have different owners.
+
+- **`docs/improvement-tracker.md`** — **user-requested** features and their status.
+- **`docs/api-hardening-checklist.md`** — the **framework/operational** backlog (explicitly *not* user-requested features): the live queue, Tier 2 standing notes with named triggers, out-of-scope items, and verified non-issues.
+- **`docs/ux-review.md`** — the open Tier 3 findings from the July 2026 UX review. Not a current-state authority.
+
+### The archives
+
+Split out 2026-08-10, when shipped history had grown to ~79% and ~84% of its parent file and sat between the reader and the queue. Nothing was edited in the move; these are the record, not the plan.
+
+- **`docs/api-hardening-archive.md`** — every **shipped** hardening item, decision record and verification evidence intact.
+- **`docs/ux-review-archive.md`** — the **completed** July 2026 UX items and their browser-validation evidence.
 
 ## Current baseline
 
