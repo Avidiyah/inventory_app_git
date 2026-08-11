@@ -14,7 +14,7 @@ import {
   apiDeleteTool,
   apiGetToolByBarcode,
 } from "../api.js";
-import { escapeHtml, friendlyError, formatUserName, matchesSearch } from "../format.js";
+import { escapeHtml, friendlyError, formatUserName, filterRanked } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
 import { mountScanner } from "./scan.js";
@@ -198,9 +198,12 @@ function chooseUser(user) {
 }
 
 function matchingUsers() {
-  const query = userSearch.value.trim().toLowerCase();
-  return custodyUsers
-    .filter((user) => !query || formatUserName(user).toLowerCase().includes(query))
+  // Normalized like every other search box, so `O'Brien` is reachable by
+  // typing `obrien`. An empty query still matches everyone -- `filterRanked`
+  // treats a query with no tokens as "no criteria", and every entry ranks
+  // equally, so the original order survives.
+  const query = userSearch.value.trim();
+  return filterRanked(custodyUsers, (user) => [formatUserName(user)], query)
     .slice(0, 8);
 }
 
@@ -301,12 +304,14 @@ holdingsEl.addEventListener("click", (event) => {
 // --- Checkout tool search ------------------------------------------------
 
 function availableCheckoutTools() {
-  const query = checkoutToolSearch.value.trim().toLowerCase();
-  return getTools()
-    .filter((tool) => Number(tool.quantity) > 0)
-    .filter((tool) => matchesSearch([tool.name, tool.barcode], query))
-    .sort((left, right) => left.name.localeCompare(right.name))
-    .slice(0, 8);
+  const query = checkoutToolSearch.value.trim();
+  const available = getTools().filter((tool) => Number(tool.quantity) > 0);
+  return filterRanked(
+    available,
+    (tool) => [tool.name, tool.barcode],
+    query,
+    (left, right) => left.name.localeCompare(right.name)
+  ).slice(0, 8);
 }
 
 function renderCheckoutToolResults() {
@@ -391,10 +396,10 @@ function actionsCell(tool) {
 }
 
 export function renderTools() {
-  const term = toolsSearch.value.trim().toLowerCase();
+  const term = toolsSearch.value.trim();
   const all = getTools();
   const filtered = term
-    ? all.filter((tool) => matchesSearch([tool.name, tool.barcode], term))
+    ? filterRanked(all, (tool) => [tool.name, tool.barcode], term)
     : all;
   const showActions = canManageCustody();
   const columnCount = showActions ? 5 : 4;

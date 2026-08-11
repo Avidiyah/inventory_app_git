@@ -84,6 +84,64 @@ export function matchesSearch(fields, query) {
   return tokens.every(token => haystacks.some(hay => hay.includes(token)));
 }
 
+// Relevance tiers, best first -- the browser twin of `_search_rank` in
+// `app/services/items.py`. Token matching (tier 3) ignores word order and
+// adjacency so a layperson can find things, but that also drags loose matches
+// into a precise query. Ranking floats the row the user almost certainly
+// meant without narrowing what is findable.
+//
+// This matters more here than on the backend: these pickers show only the
+// first 8 results, so an unranked exact match sitting 9th is invisible.
+export const RANK_EXACT = 0;    // the whole query IS the field
+export const RANK_PREFIX = 1;   // the field starts with the whole query
+export const RANK_CONTAINS = 2; // the whole query appears contiguously
+export const RANK_TOKENS = 3;   // all tokens present, but scattered
+
+export function searchRank(fields, query) {
+  const querySeparated = separatedForSearch(query);
+  const querySquashed = squashedForSearch(query);
+  if (!querySeparated) return RANK_EXACT;
+  let best = RANK_TOKENS;
+  for (const field of fields) {
+    if (field === null || field === undefined) continue;
+    const separated = separatedForSearch(field);
+    const squashed = squashedForSearch(field);
+    if (separated === querySeparated || squashed === querySquashed) {
+      return RANK_EXACT;
+    }
+    if (separated.startsWith(querySeparated) || squashed.startsWith(querySquashed)) {
+      best = Math.min(best, RANK_PREFIX);
+    } else if (separated.includes(querySeparated) || squashed.includes(querySquashed)) {
+      best = Math.min(best, RANK_CONTAINS);
+    }
+  }
+  return best;
+}
+
+// Filter `list` by `query` and order the survivors by relevance. `fieldsOf`
+// maps an entry to the fields to search. `tiebreak` is an optional comparator
+// applied within a rank tier (Tool checkout and the technician picker sort
+// alphabetically there); entries still tied keep their original order, which
+// is the API's newest-first.
+//
+// Callers slice AFTER this, so the slice keeps the best matches rather than
+// whichever ones happened to be newest.
+export function filterRanked(list, fieldsOf, query, tiebreak) {
+  const kept = [];
+  list.forEach((item, index) => {
+    const fields = fieldsOf(item);
+    if (!matchesSearch(fields, query)) return;
+    kept.push({ item, index, rank: searchRank(fields, query) });
+  });
+  kept.sort(
+    (a, b) =>
+      a.rank - b.rank ||
+      (tiebreak ? tiebreak(a.item, b.item) : 0) ||
+      a.index - b.index
+  );
+  return kept.map(entry => entry.item);
+}
+
 // Booleans need to render as the literal text "true"/"false"
 // rather than empty string (which is what default `String(false)`
 // would produce in many template contexts).

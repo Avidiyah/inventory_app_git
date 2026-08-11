@@ -55,14 +55,35 @@ CORPUS = [
 ]
 
 
+# (name, barcode, query) triples for the ranking parity check -- one per
+# tier, plus the ties that decide ordering in practice.
+RANK_CASES = [
+    ('2"x4" Stud', "ZX-1", "2x4 stud"),          # exact, via squashed form
+    ("2x4 stud", "ZX-1", "2x4 stud"),            # exact, via separated form
+    ("2x4 Stud Premium", "ZX-1", "2x4 stud"),    # prefix
+    ("Oak 2x4 Stud Grade A", "ZX-1", "2x4 stud"),  # contiguous, not prefix
+    ("Stud Bracket for 2x4", "ZX-1", "2x4 stud"),  # scattered tokens
+    ("Unrelated", "046677419325", "046677419325"),  # exact on barcode
+    ("Unrelated", "ZX-abc-42", "zxabc"),         # prefix on squashed barcode
+    ("PL-C 26W Compact Fluorescent", "B1", "PLC"),
+    ("Gel-Coat Products Tub & Shower Kit", "B2", "gelcoat"),
+    ("Anything", "B3", ""),                      # empty query -> no signal
+]
+
+
 def _node_results():
     script = f"""
-import {{ separatedForSearch, squashedForSearch, searchTokens }}
+import {{ separatedForSearch, squashedForSearch, searchTokens, searchRank }}
   from {json.dumps(FORMAT_JS.as_uri())};
 const corpus = {json.dumps(CORPUS)};
-process.stdout.write(JSON.stringify(corpus.map(s => [
-  separatedForSearch(s), squashedForSearch(s), searchTokens(s),
-])));
+const rankCases = {json.dumps(RANK_CASES)};
+process.stdout.write(JSON.stringify({{
+  norm: corpus.map(s => [
+    separatedForSearch(s), squashedForSearch(s), searchTokens(s),
+  ]),
+  ranks: rankCases.map(([name, barcode, query]) =>
+    searchRank([name, barcode], query)),
+}}));
 """
     proc = subprocess.run(
         [shutil.which("node"), "--input-type=module", "-e", script],
@@ -77,7 +98,7 @@ process.stdout.write(JSON.stringify(corpus.map(s => [
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_js_and_python_normalizers_agree():
-    results = _node_results()
+    results = _node_results()["norm"]
     assert len(results) == len(CORPUS)
 
     mismatches = []
@@ -96,6 +117,21 @@ def test_js_and_python_normalizers_agree():
     assert not mismatches, (
         "format.js and items.py disagree on:\n" + "\n".join(mismatches)
     )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_js_and_python_ranking_agree():
+    js_ranks = _node_results()["ranks"]
+    assert len(js_ranks) == len(RANK_CASES)
+
+    expected = [
+        items_service._search_rank([name, barcode], query)
+        for name, barcode, query in RANK_CASES
+    ]
+    assert js_ranks == expected
+
+    # The corpus must actually exercise every tier, or this passes vacuously.
+    assert set(expected) == {0, 1, 2, 3}
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")

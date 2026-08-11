@@ -46,7 +46,7 @@ import {
   friendlyError,
   formatMoney,
   formatUserName,
-  matchesSearch,
+  filterRanked,
   safeHttpUrl,
 } from "../format.js";
 import { setMessage, confirmDialog, messageDialog } from "../dom.js";
@@ -431,14 +431,18 @@ function renderTechnicianSearch(input) {
   const selectedIds = new Set(
     Array.from(picker.querySelectorAll(".wo-tech-selected-row"), (row) => row.dataset.technicianId)
   );
-  const matches = allTechs
+  // Same normalized rule the item pickers use, so a name punctuated
+  // `O'Brien` or `Smith-Jones` is found by typing `obrien` / `smithjones`.
+  // Alphabetical remains the tiebreak *within* a relevance tier.
+  const selectable = allTechs
     .map((technician) => ({ technician, name: formatUserName(technician) }))
-    .filter(
-      ({ technician, name }) =>
-        !selectedIds.has(technician.id) && name.toLowerCase().includes(query)
-    )
-    .sort((left, right) => left.name.localeCompare(right.name))
-    .slice(0, 8);
+    .filter(({ technician }) => !selectedIds.has(technician.id));
+  const matches = filterRanked(
+    selectable,
+    (entry) => [entry.name],
+    query,
+    (left, right) => left.name.localeCompare(right.name)
+  ).slice(0, 8);
 
   if (!allTechs.length) {
     results.innerHTML = `<p class="hint">No active Technicians or Supervisors are available.</p>`;
@@ -974,9 +978,11 @@ listEl.addEventListener("input", (event) => {
     results.innerHTML = "";
     return;
   }
-  const matches = allItems
-    .filter((it) => matchesSearch([it.name, it.barcode], q))
-    .slice(0, 8);
+  const matches = filterRanked(
+    allItems,
+    (it) => [it.name, it.barcode],
+    q
+  ).slice(0, 8);
   results.innerHTML = matches.length
     ? matches
         .map(

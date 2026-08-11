@@ -161,6 +161,54 @@ def test_wildcards_are_normalized_away_and_blank_search_returns_nothing(db):
     assert items_service.list_items(db, search='"""') == []
 
 
+# --- relevance ordering ---------------------------------------------------
+
+
+def test_results_are_ordered_exact_prefix_contiguous_then_scattered(db):
+    token = uuid.uuid4().hex
+    # Seeded worst-first, so passing cannot be an accident of insertion order.
+    # They also share a creation instant, so only the rank can order them.
+    scattered = _seed_item(
+        db, barcode=f"D-{token}", name=f"Stud Bracket for 2x4 {token}"
+    )
+    contiguous = _seed_item(
+        db, barcode=f"C-{token}", name=f"Oak 2x4 Stud Grade {token}"
+    )
+    prefix = _seed_item(
+        db, barcode=f"B-{token}", name=f"2x4 Stud Premium {token}"
+    )
+    exact = _seed_item(db, barcode=f"A-{token}", name='2"x4" Stud')
+
+    matches = items_service.list_items(db, search="2x4 stud")
+    ranked = [item.id for item in matches]
+
+    for item in (exact, prefix, contiguous, scattered):
+        assert item.id in ranked, f"{item.name!r} should still be findable"
+    assert ranked.index(exact.id) < ranked.index(prefix.id)
+    assert ranked.index(prefix.id) < ranked.index(contiguous.id)
+    assert ranked.index(contiguous.id) < ranked.index(scattered.id)
+
+
+def test_exact_barcode_match_outranks_a_name_hit(db):
+    token = uuid.uuid4().hex
+    code = f"9{token[:11]}"
+    by_barcode = _seed_item(db, barcode=code, name=f"Anonymous Part {token}")
+    by_name = _seed_item(db, barcode=f"NM-{token}", name=f"Widget {code} {token}")
+
+    matches = items_service.list_items(db, search=code)
+    ranked = [item.id for item in matches]
+
+    assert ranked.index(by_barcode.id) < ranked.index(by_name.id)
+
+
+def test_unfiltered_list_keeps_plain_newest_first_ordering(db):
+    # There is no query to be relevant to, so ranking must not disturb the
+    # existing full-list contract that other views depend on.
+    rows = items_service.list_items(db)
+    created = [item.created_at for item in rows]
+    assert created == sorted(created, reverse=True)
+
+
 def test_search_excludes_archived_items_while_unfiltered_list_still_works(db):
     # Previously also covered `list_item_search_index`; that route, schema and
     # service function were deleted in X3 (zero callers anywhere), so only the

@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional, Sequence
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -248,6 +248,67 @@ def _search_tokens(search: Optional[str]) -> Optional[list[str]]:
     return _separated(search).split()
 
 
+# Relevance tiers, best first. Token matching (tier 3) deliberately ignores
+# word order and adjacency so a layperson can find things, but that also
+# means a precise query drags in loose matches. Ranking puts the row the
+# user almost certainly meant at the top without narrowing what is findable.
+#
+# The client-side pickers slice to the first 8 results, so this is not
+# cosmetic there: an unranked exact match sitting 9th is invisible.
+_RANK_EXACT = 0      # the whole query IS the name or barcode
+_RANK_PREFIX = 1     # name or barcode starts with the whole query
+_RANK_CONTAINS = 2   # whole query appears contiguously, in order
+_RANK_TOKENS = 3     # all tokens present, but scattered / reordered
+
+
+def _search_rank(fields: Sequence[Optional[str]], search: str) -> int:
+    """Python reference implementation of the ordering in `list_items`.
+
+    The database does the real ranking (see `_rank_expression`) and
+    `static/format.js` does it again for the client-side pickers. This is the
+    definition the other two are tested against in `test_search_parity.py`.
+    """
+    q_sep = _separated(search)
+    q_squash = _squashed(search)
+    if not q_sep:
+        return _RANK_EXACT
+    best = _RANK_TOKENS
+    for field in fields:
+        if field is None:
+            continue
+        sep = _separated(field)
+        squash = _squashed(field)
+        if sep == q_sep or squash == q_squash:
+            return _RANK_EXACT
+        if sep.startswith(q_sep) or squash.startswith(q_squash):
+            best = min(best, _RANK_PREFIX)
+        elif q_sep in sep or q_squash in squash:
+            best = min(best, _RANK_CONTAINS)
+    return best
+
+
+def _rank_expression(search: str):
+    """`_search_rank` as a Postgres CASE over `Item.name` / `Item.barcode`.
+
+    `q_sep` is `[a-z0-9 ]` and `q_squash` is `[a-z0-9]` by construction, so
+    neither can carry a LIKE metacharacter into these patterns.
+    """
+    q_sep = _separated(search)
+    q_squash = _squashed(search)
+    columns = [
+        (_sql_separated(Item.name), q_sep),
+        (_sql_squashed(Item.name), q_squash),
+        (_sql_separated(Item.barcode), q_sep),
+        (_sql_squashed(Item.barcode), q_squash),
+    ]
+    return case(
+        (or_(*(col == value for col, value in columns)), _RANK_EXACT),
+        (or_(*(col.like(f"{value}%") for col, value in columns)), _RANK_PREFIX),
+        (or_(*(col.like(f"%{value}%") for col, value in columns)), _RANK_CONTAINS),
+        else_=_RANK_TOKENS,
+    )
+
+
 def list_items(db: Session, *, search: Optional[str] = None) -> Sequence[Item]:
     """Return live items, newest first, optionally filtered across the full
     dataset by name or primary barcode.
@@ -258,6 +319,11 @@ def list_items(db: Session, *, search: Optional[str] = None) -> Sequence[Item]:
     finds `2"x4"`, `Blinds 35` finds `Blinds (35...)`, and `PLC` finds `PL-C`.
     Word order and adjacency are deliberately not enforced -- see the block
     comment above `_QUOTES_RE`.
+
+    Because that matching is broad, a search result is ordered by relevance
+    first (exact > prefix > contiguous > scattered tokens; see `_search_rank`)
+    and only then newest-first. An *unfiltered* list keeps the plain
+    newest-first contract, since there is no query to be relevant to.
 
     Omitting `search` preserves the existing full-list contract used by other
     frontend views -- `transactions.js` (Scan/Stock manual entry), `history.js`
@@ -275,9 +341,11 @@ def list_items(db: Session, *, search: Optional[str] = None) -> Sequence[Item]:
     """
     query = db.query(Item).filter(Item.archived_at.is_(None))
     tokens = _search_tokens(search)
+    ordering = [Item.created_at.desc()]
     if tokens is not None:
         if not tokens:
             return []
+        ordering.insert(0, _rank_expression(search))
         # One AND-ed condition per token; each may land in any of the four
         # normalized haystacks. Tokens are `[a-z0-9]+` by construction, so no
         # LIKE metacharacter can survive normalization -- `escape` is kept as
@@ -296,7 +364,7 @@ def list_items(db: Session, *, search: Optional[str] = None) -> Sequence[Item]:
             )
         )
     return capped(
-        query.order_by(Item.created_at.desc()).limit(fetch_limit()).all(),
+        query.order_by(*ordering).limit(fetch_limit()).all(),
         what="items",
     )
 

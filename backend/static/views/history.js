@@ -36,7 +36,7 @@ import {
   apiLookupWorkOrder,
   apiRestoreWorkOrder,
 } from "../api.js";
-import { escapeHtml, friendlyError, formatMoney, matchesSearch } from "../format.js";
+import { escapeHtml, friendlyError, formatMoney, filterRanked } from "../format.js";
 import {
   formatPricingQuantity,
   pricingAmountLine,
@@ -398,9 +398,11 @@ function renderItemResults() {
     historyItemResults.hidden = true;
     return;
   }
-  const matches = historyItems
-    .filter((it) => matchesSearch([it.name, it.barcode], query))
-    .slice(0, 8);
+  const matches = filterRanked(
+    historyItems,
+    (it) => [it.name, it.barcode],
+    query
+  ).slice(0, 8);
 
   if (!matches.length) {
     historyItemResults.innerHTML = `<p class="hint">No matching items.</p>`;
