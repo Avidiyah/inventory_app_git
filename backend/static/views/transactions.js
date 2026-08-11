@@ -10,7 +10,7 @@
 
 import { getRole, getCurrentUser } from "../state.js";
 import { apiListItems, apiCreateTransaction, apiListWorkOrders, apiGetWorkOrder, apiStartWorkOrder, apiVoidTransaction } from "../api.js";
-import { escapeHtml, friendlyError } from "../format.js";
+import { escapeHtml, friendlyError, matchesSearch } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
 import { showPage } from "./nav.js";
@@ -156,11 +156,7 @@ function renderManualResults() {
   let matches;
   if (query) {
     matches = searchItems
-      .filter(
-        (it) =>
-          it.name.toLowerCase().includes(query) ||
-          (it.barcode && it.barcode.toLowerCase().includes(query))
-      )
+      .filter((it) => matchesSearch([it.name, it.barcode], query))
       .slice(0, 8);
   } else if (advanced) {
     matches = [...searchItems].sort((a, b) => a.name.localeCompare(b.name));

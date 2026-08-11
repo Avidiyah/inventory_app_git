@@ -17,6 +17,73 @@ export function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+// --- search normalization ------------------------------------------------
+//
+// The browser twin of `_separated` / `_squashed` in
+// `app/services/items.py`. Most search boxes in the app filter a
+// client-side list and never reach the backend, so the rule has to live
+// in both places; `tests/test_search_parity.py` runs this file under node
+// against the Python implementation so they cannot drift.
+//
+// Crews do not retype the symbols a manufacturer put in a product name, so
+// punctuation must stop deciding whether an item can be found. Both the
+// stored text and the typed query are reduced to two forms, and a token may
+// match either:
+//
+//   separated  quotes deleted, every other non-alphanumeric run -> one space
+//              'PL-C 26W Compact Fluorescent' -> 'pl c 26w compact fluorescent'
+//   squashed   every non-alphanumeric character deleted, spaces included
+//              'PL-C 26W Compact Fluorescent' -> 'plc26wcompactfluorescent'
+//
+// Quotes are DELETED rather than spaced so an inch mark closes up: `2"x4"`
+// becomes `2x4`, which is what a crew member actually types. The squashed
+// form is what lets `PLC` find `PL-C ...` and `gelcoat` find `Gel-Coat ...`.
+//
+// The class is deliberately ASCII `[^a-z0-9]`, not `\p{L}\p{N}` -- it has to
+// agree exactly with Postgres and Python, and the three disagree on
+// non-ASCII input.
+const SEARCH_QUOTES_RE = /['"]/g;
+const SEARCH_NON_ALNUM_RE = /[^a-z0-9]+/g;
+
+export function separatedForSearch(text) {
+  if (text === null || text === undefined) return "";
+  return String(text)
+    .toLowerCase()
+    .replace(SEARCH_QUOTES_RE, "")
+    .replace(SEARCH_NON_ALNUM_RE, " ")
+    .trim();
+}
+
+export function squashedForSearch(text) {
+  if (text === null || text === undefined) return "";
+  return String(text).toLowerCase().replace(SEARCH_NON_ALNUM_RE, "");
+}
+
+// Normalized tokens of a raw query. `""` for a query that is blank or that
+// normalizes away to nothing (`"""`, `---`) yields an empty array.
+export function searchTokens(query) {
+  const separated = separatedForSearch(query);
+  return separated ? separated.split(" ") : [];
+}
+
+// Does `fields` satisfy `query`? Every token must appear as a substring of
+// the separated or squashed form of at least one field. Null/undefined
+// fields are skipped, so callers can pass an optional barcode directly.
+//
+// An empty query matches EVERYTHING -- a predicate with no criteria excludes
+// nothing. Views where a blank box should show no rows (Find Item, Add
+// Barcode) already return early before filtering and must keep doing so.
+export function matchesSearch(fields, query) {
+  const tokens = searchTokens(query);
+  if (tokens.length === 0) return true;
+  const haystacks = [];
+  for (const field of fields) {
+    if (field === null || field === undefined) continue;
+    haystacks.push(separatedForSearch(field), squashedForSearch(field));
+  }
+  return tokens.every(token => haystacks.some(hay => hay.includes(token)));
+}
+
 // Booleans need to render as the literal text "true"/"false"
 // rather than empty string (which is what default `String(false)`
 // would produce in many template contexts).

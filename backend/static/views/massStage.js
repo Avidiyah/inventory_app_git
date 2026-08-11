@@ -23,7 +23,7 @@ import {
   apiListItems,
   apiListUsers,
 } from "../api.js";
-import { escapeHtml, friendlyError, formatUserName } from "../format.js";
+import { escapeHtml, friendlyError, formatUserName, matchesSearch } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
 import { canBeWorkOrderTechnician } from "../roles.js";
 import { showPage } from "./nav.js";
@@ -432,11 +432,7 @@ listEl.addEventListener("input", (event) => {
     return;
   }
   const matches = allItems
-    .filter(
-      (it) =>
-        it.name.toLowerCase().includes(q) ||
-        (it.barcode && it.barcode.toLowerCase().includes(q))
-    )
+    .filter((it) => matchesSearch([it.name, it.barcode], q))
     .slice(0, 8);
   results.innerHTML = matches.length
     ? matches

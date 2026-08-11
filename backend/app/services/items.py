@@ -6,12 +6,13 @@ SQLAlchemy integrity violations into the domain vocabulary
 to know about the database driver's exception classes.
 """
 
+import re
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional, Sequence
 
-from sqlalchemy import or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -179,47 +180,119 @@ def create_item(
 
 _LIKE_ESCAPE = "\\"
 
+# Punctuation handling for search. Crews do not retype the symbols a
+# manufacturer put in a product name, so the *punctuation* of a name must stop
+# deciding whether it can be found. Both the stored text and the typed query
+# are reduced to two forms, and a token may match either:
+#
+#   separated  quotes deleted, every other non-alphanumeric run -> one space
+#              "PL-C 26W Compact Fluorescent" -> "pl c 26w compact fluorescent"
+#   squashed   every non-alphanumeric character deleted, spaces included
+#              "PL-C 26W Compact Fluorescent" -> "plc26wcompactfluorescent"
+#
+# Quotes are DELETED rather than spaced so an inch mark closes up: `2"x4"`
+# becomes `2x4`, which is what a crew member actually types. The squashed form
+# is what lets `PLC` find `PL-C ...` and `gelcoat` find `Gel-Coat ...`; without
+# it, omitting a hyphen -- the very thing this feature promises -- would fail.
+#
+# The character class is deliberately ASCII `[^a-z0-9]` rather than
+# `[[:alnum:]]`. This expression has to agree exactly with `str.isalnum()` in
+# Python and `\p{L}\p{N}` in `static/format.js`, and the three disagree on
+# non-ASCII input. Identical behaviour across all three matters more here than
+# accent support; the catalogue is ASCII.
+_QUOTES_RE = re.compile(r"['\"]")
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 
-def _search_pattern(search: Optional[str]) -> Optional[str]:
-    """Build a literal case-insensitive substring pattern for item search."""
+_SQL_QUOTES = "['\"]"
+_SQL_NON_ALNUM = "[^a-z0-9]+"
+
+
+def _separated(text: str) -> str:
+    """Python twin of `_sql_separated` -- see the block comment above."""
+    return _NON_ALNUM_RE.sub(" ", _QUOTES_RE.sub("", text.lower())).strip()
+
+
+def _squashed(text: str) -> str:
+    """Python twin of `_sql_squashed` -- see the block comment above."""
+    return _NON_ALNUM_RE.sub("", text.lower())
+
+
+def _sql_separated(column):
+    """`_separated` as a Postgres expression over `column`."""
+    return func.btrim(
+        func.regexp_replace(
+            func.regexp_replace(func.lower(column), _SQL_QUOTES, "", "g"),
+            _SQL_NON_ALNUM,
+            " ",
+            "g",
+        )
+    )
+
+
+def _sql_squashed(column):
+    """`_squashed` as a Postgres expression over `column`."""
+    return func.regexp_replace(func.lower(column), _SQL_NON_ALNUM, "", "g")
+
+
+def _search_tokens(search: Optional[str]) -> Optional[list[str]]:
+    """Split a raw query into normalized search tokens.
+
+    `None` (no search requested) is passed straight through and is NOT the
+    same as an empty token list: the latter means the user typed something
+    that normalized away to nothing -- a query of only quotes or dashes --
+    which must return no rows rather than falling through to the whole
+    catalogue.
+    """
     if search is None:
         return None
-    trimmed = search.strip()
-    if not trimmed:
-        return ""
-    escaped = (
-        trimmed.replace(_LIKE_ESCAPE, _LIKE_ESCAPE * 2)
-        .replace("%", _LIKE_ESCAPE + "%")
-        .replace("_", _LIKE_ESCAPE + "_")
-    )
-    return f"%{escaped}%"
+    return _separated(search).split()
 
 
 def list_items(db: Session, *, search: Optional[str] = None) -> Sequence[Item]:
     """Return live items, newest first, optionally filtered across the full
-    dataset by a case-insensitive name or primary-barcode substring.
+    dataset by name or primary barcode.
+
+    Matching is case-insensitive and **punctuation-insensitive**: the query is
+    split into tokens and EVERY token must appear, as a substring, in the
+    separated or squashed form of either the name or the barcode. So `2x4`
+    finds `2"x4"`, `Blinds 35` finds `Blinds (35...)`, and `PLC` finds `PL-C`.
+    Word order and adjacency are deliberately not enforced -- see the block
+    comment above `_QUOTES_RE`.
 
     Omitting `search` preserves the existing full-list contract used by other
     frontend views -- `transactions.js` (Scan/Stock manual entry), `history.js`
     and `massStage.js` all load the whole list once and filter it client-side,
-    so this is reference data as much as it is a list view.
+    so this is reference data as much as it is a list view. Those client-side
+    filters share this matching rule via `matchesSearch` in `static/format.js`;
+    the two implementations are pinned together by `test_search_parity.py`.
 
-    A blank explicit search returns no rows rather than accidentally loading
-    the complete catalogue.
+    A blank explicit search -- or one that normalizes away to nothing --
+    returns no rows rather than accidentally loading the complete catalogue.
 
     Capped at `list_limits.MAX_LIST_ROWS` (X3). The cap is far above any real
     catalogue and exists to bound a runaway result and to emit a trigger; see
     `domain/list_limits.py`.
     """
     query = db.query(Item).filter(Item.archived_at.is_(None))
-    pattern = _search_pattern(search)
-    if pattern == "":
-        return []
-    if pattern is not None:
+    tokens = _search_tokens(search)
+    if tokens is not None:
+        if not tokens:
+            return []
+        # One AND-ed condition per token; each may land in any of the four
+        # normalized haystacks. Tokens are `[a-z0-9]+` by construction, so no
+        # LIKE metacharacter can survive normalization -- `escape` is kept as
+        # defence in depth, not because anything reaches it.
         query = query.filter(
-            or_(
-                Item.name.ilike(pattern, escape=_LIKE_ESCAPE),
-                Item.barcode.ilike(pattern, escape=_LIKE_ESCAPE),
+            and_(
+                *(
+                    or_(
+                        _sql_separated(Item.name).like(f"%{token}%", escape=_LIKE_ESCAPE),
+                        _sql_squashed(Item.name).like(f"%{token}%", escape=_LIKE_ESCAPE),
+                        _sql_separated(Item.barcode).like(f"%{token}%", escape=_LIKE_ESCAPE),
+                        _sql_squashed(Item.barcode).like(f"%{token}%", escape=_LIKE_ESCAPE),
+                    )
+                    for token in tokens
+                )
             )
         )
     return capped(

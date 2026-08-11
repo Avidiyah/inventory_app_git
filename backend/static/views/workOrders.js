@@ -46,6 +46,7 @@ import {
   friendlyError,
   formatMoney,
   formatUserName,
+  matchesSearch,
   safeHttpUrl,
 } from "../format.js";
 import { setMessage, confirmDialog, messageDialog } from "../dom.js";
@@ -974,11 +975,7 @@ listEl.addEventListener("input", (event) => {
     return;
   }
   const matches = allItems
-    .filter(
-      (it) =>
-        it.name.toLowerCase().includes(q) ||
-        (it.barcode && it.barcode.toLowerCase().includes(q))
-    )
+    .filter((it) => matchesSearch([it.name, it.barcode], q))
     .slice(0, 8);
   results.innerHTML = matches.length
     ? matches

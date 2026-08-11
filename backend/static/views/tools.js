@@ -14,7 +14,7 @@ import {
   apiDeleteTool,
   apiGetToolByBarcode,
 } from "../api.js";
-import { escapeHtml, friendlyError, formatUserName } from "../format.js";
+import { escapeHtml, friendlyError, formatUserName, matchesSearch } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
 import { mountScanner } from "./scan.js";
@@ -304,11 +304,7 @@ function availableCheckoutTools() {
   const query = checkoutToolSearch.value.trim().toLowerCase();
   return getTools()
     .filter((tool) => Number(tool.quantity) > 0)
-    .filter((tool) =>
-      !query ||
-      tool.name.toLowerCase().includes(query) ||
-      tool.barcode.toLowerCase().includes(query)
-    )
+    .filter((tool) => matchesSearch([tool.name, tool.barcode], query))
     .sort((left, right) => left.name.localeCompare(right.name))
     .slice(0, 8);
 }
@@ -398,9 +394,7 @@ export function renderTools() {
   const term = toolsSearch.value.trim().toLowerCase();
   const all = getTools();
   const filtered = term
-    ? all.filter((tool) =>
-        tool.name.toLowerCase().includes(term) ||
-        tool.barcode.toLowerCase().includes(term))
+    ? all.filter((tool) => matchesSearch([tool.name, tool.barcode], term))
     : all;
   const showActions = canManageCustody();
   const columnCount = showActions ? 5 : 4;

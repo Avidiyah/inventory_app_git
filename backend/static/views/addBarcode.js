@@ -18,7 +18,7 @@
 // with DuplicateBarcodeError, surfaced via friendlyError.
 
 import { apiListItems, apiUpdateBarcodes, apiGetItemByBarcode } from "../api.js";
-import { escapeHtml, friendlyError } from "../format.js";
+import { escapeHtml, friendlyError, matchesSearch } from "../format.js";
 import { setMessage, confirmArchivedReuse, confirmDialog } from "../dom.js";
 
 const section = document.getElementById("add-barcode-section");
@@ -67,6 +67,12 @@ export function closeAddBarcode() {
 
 // Search by name without depending on Find Item's result cache. The API may
 // also match barcodes, so the returned rows are narrowed to name matches here.
+//
+// That narrowing MUST use `matchesSearch`, the same rule the backend applies.
+// A raw `includes(term)` post-filter would discard exactly the rows the
+// punctuation-insensitive server search just found -- typing `2x4` would have
+// the API return `2"x4"` and this filter throw it straight back out, turning
+// partial results into none at all.
 function renderResults() {
   const term = searchEl.value.trim().toLowerCase();
   clearTimeout(searchTimer);
@@ -88,7 +94,7 @@ async function loadResults(term, requestId) {
     const items = await apiListItems({ query: term });
     if (requestId !== searchRequestId) return;
     candidateItems = items
-      .filter(item => item.name.toLowerCase().includes(term))
+      .filter(item => matchesSearch([item.name], term))
       .slice(0, MAX_RESULTS);
     resultsEl.innerHTML = "";
 
