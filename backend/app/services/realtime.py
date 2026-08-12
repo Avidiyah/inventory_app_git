@@ -188,26 +188,41 @@ def emit(envelope: dict[str, Any]) -> bool:
 
     Works with no running loop, which is how the tests drive it: the
     fullness decision is synchronous, and waking the loop is a separate,
-    optional step.
+    optional step that cannot fail the call.
     """
     global _dropped_events
     with _handoff_lock:
         if len(_handoff) >= policy.HANDOFF_QUEUE_MAX:
             _dropped_events += 1
             logger.warning(
-                "realtime handoff full; event dropped total_dropped=%s",
-                _dropped_events,
+                "realtime.handoff_full",
+                extra={"fields": {"total_dropped": _dropped_events}},
             )
             return False
         _handoff.append(envelope)
 
-    if _loop is not None and _wakeup is not None:
+    # Both handles are read **once**, into locals, and only the locals are
+    # used below. Read twice -- once to guard and again to call -- a
+    # concurrent `stop_dispatch` or `reset` could null either in between,
+    # and `None.call_soon_threadsafe` or `None.set` would raise an
+    # AttributeError that no `except RuntimeError` catches. This runs on a
+    # request thread after the write has already committed, so anything
+    # escaping here turns a successful inventory write into a 500.
+    loop, wakeup = _loop, _wakeup
+    if loop is not None and wakeup is not None:
         try:
-            _loop.call_soon_threadsafe(_wakeup.set)
+            loop.call_soon_threadsafe(wakeup.set)
         except RuntimeError:
-            # The loop closed between the check and the call (shutdown).
-            # The event is already queued; stop_dispatch drains it.
+            # The loop closed between the read and the call (shutdown), so
+            # nothing will consume this event. Queued-and-unsent is the
+            # correct outcome then: the process is going away, and P2 makes
+            # the event disposable.
             pass
+        except Exception:  # pragma: no cover - belt and braces
+            # The handling above is deliberately total. There is no failure
+            # of the *wakeup* that is worth failing the caller's request
+            # over, and the alternative is a 500 on a write that succeeded.
+            logger.warning("realtime.wakeup_failed", exc_info=True)
     return True
 
 

@@ -115,6 +115,25 @@ def test_dropped_events_are_counted_cumulatively():
     assert service.dropped_event_count() == 3
 
 
+def test_a_dropped_event_is_logged_as_a_greppable_event_name(caplog):
+    """A line that is present but anonymous is worse than one that is
+    absent: a missing line gets noticed, an unfilterable one looks fine
+    until the day the drop counter is the question. The app's format puts
+    the message in the `event=` slot and structured data in `fields`, so a
+    prose message with the count inlined would render as one quoted,
+    escaped blob that `grep event=realtime.handoff_full` never finds."""
+    for _ in range(policy.HANDOFF_QUEUE_MAX):
+        service.emit({"type": "work_order.changed"})
+
+    with caplog.at_level("WARNING"):
+        assert service.emit({"type": "work_order.changed"}) is False
+
+    record = next(
+        r for r in caplog.records if r.getMessage() == "realtime.handoff_full"
+    )
+    assert record.fields == {"total_dropped": 1}
+
+
 # --- backpressure ------------------------------------------------------
 
 
@@ -319,6 +338,37 @@ def test_stop_dispatch_closes_every_connection_deliberately():
 
 def test_stop_dispatch_without_a_start_is_harmless():
     asyncio.run(service.stop_dispatch())
+
+
+def test_emit_does_not_raise_when_the_loop_has_already_closed():
+    """`emit` runs on a request thread *after* the write has committed, so
+    anything that escapes it turns a successful inventory write into a 500.
+    Shutdown is the realistic case: the loop can be gone while the module
+    still holds handles to it, and an in-flight request finds them."""
+
+    async def scenario():
+        service.start_dispatch()
+        # Deliberately no stop_dispatch. `asyncio.run` closes the loop out
+        # from under the module, leaving _loop and _wakeup bound to a dead
+        # loop -- which is exactly what a request thread can find mid-shutdown.
+
+    asyncio.run(scenario())
+
+    assert service.emit({"type": policy.EVENT_WORK_ORDER_CHANGED}) is True
+    assert service.dropped_event_count() == 0
+
+
+def test_emit_does_not_raise_once_the_handles_are_cleared():
+    """The other half of the same shutdown window: handles nulled rather
+    than pointing at a dead loop."""
+
+    async def scenario():
+        service.start_dispatch()
+        await service.stop_dispatch()
+
+    asyncio.run(scenario())
+
+    assert service.emit({"type": policy.EVENT_WORK_ORDER_CHANGED}) is True
 
 
 def test_dispatch_restarts_after_a_transient_fault(monkeypatch):
