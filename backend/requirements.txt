@@ -19,6 +19,12 @@ uvicorn==0.48.0
 # `websocket_connect` against the ASGI app directly and never imports a
 # protocol library, so the socket tests pass either way. See
 # tests/test_realtime_dependency.py, which exists solely to guard this.
+#
+# 15.0.1 is the current stable release and the version verified against
+# uvicorn 0.48.0 in this environment. uvicorn 0.48.0's handshake still
+# imports the deprecated `websockets.legacy` module, so a future websockets
+# major that drops it will break that handshake silently -- bumping this pin
+# requires re-verifying a real server connection, not just a green suite.
 websockets==15.0.1
 # 1.2.1 carried 2 advisories and sits under every route in the app. Bumped to
 # the minimum fixing version rather than latest (1.6.0) -- three extra minors
