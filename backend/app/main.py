@@ -1,19 +1,22 @@
 """FastAPI application entrypoint -- the composition root.
 
-Layer: app entry. This file does four things and nothing else:
+Layer: app entry. This file does five things and nothing else:
 
 1. Configure logging and instantiate the `FastAPI` app -- including whether
    its built-in docs endpoints exist at all, which depends on the
    environment (see `_doc_urls`).
-2. Mount the three resource routers (`items`, `transactions`,
-   `users`) and the static-files directory that serves the
-   single-page frontend at `/`.
+2. Mount the resource routers and the static-files directory that serves
+   the single-page frontend at `/`.
 3. Expose the two database probes: `/healthz`, the unauthenticated
    liveness check the deployment platform polls, and `/db-test`, the
    Admin-gated probe deployment scripts use to confirm *which*
    database is connected.
 4. Wrap every request in the middleware pair: the security headers and
    the logging/request-id scope.
+5. Own the application lifespan, which starts and stops the real-time
+   dispatch task. This is the app's only startup/shutdown hook; fan-out
+   requires a long-lived background task and there was previously
+   nowhere for one to live.
 
 Business logic lives in `app.services`, validation in
 `app.schemas`, rules in `app.domain`. Nothing in this file should
@@ -46,12 +49,14 @@ from app.routers import (
     barcodes,
     items,
     mass_stages,
+    realtime,
     tools,
     transactions,
     user_requests,
     users,
     work_orders,
 )
+from app.routers.realtime import lifespan
 
 class NoCacheStaticFiles(StaticFiles):
     """StaticFiles that tells browsers to revalidate every asset.
@@ -110,6 +115,11 @@ def _doc_urls(*, production: bool) -> dict:
 
 app = FastAPI(
     title="Inventory Management API",
+    # The app's only startup/shutdown hook, and the reason item 5 exists
+    # above. It starts the real-time dispatch task, which has to outlive
+    # every request because fan-out happens after the request that caused
+    # it has already returned. See `app.routers.realtime.lifespan`.
+    lifespan=lifespan,
     **_doc_urls(production=COOKIE_SECURE),
 )
 
@@ -294,6 +304,11 @@ app.include_router(auth.router)
 app.include_router(barcodes.router)
 app.include_router(items.router)
 app.include_router(mass_stages.router)
+# The only WebSocket route in the app. Note that none of the three
+# middlewares above run for it -- they are `@app.middleware("http")` and
+# a handshake arrives in a `websocket` scope -- so it enforces its own
+# limits. See the module docstring in `app/routers/realtime.py`.
+app.include_router(realtime.router)
 app.include_router(tools.router)
 app.include_router(transactions.router)
 app.include_router(user_requests.router)
