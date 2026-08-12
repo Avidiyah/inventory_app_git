@@ -927,6 +927,170 @@ tr:last-child td {
     min-width: min(22rem, 70vw);
 }
 
+/* An item request has no item yet, so it reads as a request for work rather
+   than a stock exception -- neutral rule, not the red error rule. */
+.user-request-type-item_request {
+    border-left-color: var(--gray-500);
+}
+
+.user-request-type-item_request .user-request-alert {
+    color: var(--gray-700);
+    font-weight: var(--fw-regular);
+}
+
+/* An item request card spans two columns when the grid has room: its fulfil
+   panel carries a full Add Item form and cramps at 280px. */
+.user-request-type-item_request {
+    grid-column: span 2;
+}
+
+@media (max-width: 720px) {
+    .user-request-type-item_request {
+        grid-column: span 1;
+    }
+}
+
+.user-request-warning {
+    width: 100%;
+    margin: 0 0 var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-left: 3px solid var(--color-error);
+    background: var(--gray-100);
+    font-size: var(--fs-sm);
+}
+
+.user-request-panel:empty {
+    display: none;
+}
+
+.user-request-edit,
+.user-request-fulfill {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--gray-200);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.user-request-label,
+.user-request-count-label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    font-weight: var(--fw-bold);
+    font-size: var(--fs-sm);
+}
+
+.user-request-count-fix {
+    display: flex;
+    align-items: end;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    width: 100%;
+}
+
+.user-request-count-input {
+    width: 8rem;
+}
+
+.user-request-fulfill-mode {
+    display: flex;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    font-size: var(--fs-sm);
+}
+
+.user-request-fulfill-mode label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    font-weight: var(--fw-bold);
+}
+
+.user-request-create-pane {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--space-2);
+}
+
+.user-request-item-results {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.user-request-picked:not(:empty) {
+    font-weight: var(--fw-bold);
+}
+
+/* Pre-checked but confirmable: matching is on free text someone typed on a
+   phone, and a wrong match bills material to another customer's work order. */
+.user-request-siblings {
+    padding: var(--space-3);
+    border: 1px dashed var(--gray-400);
+    border-radius: var(--radius-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    font-size: var(--fs-sm);
+}
+
+.user-request-siblings-title {
+    margin: 0;
+}
+
+.user-request-sibling {
+    display: flex;
+    align-items: start;
+    gap: var(--space-2);
+}
+
+/* --- the "request this item" prompt on empty search results --- */
+.item-request {
+    margin-top: var(--space-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.item-request-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius-md);
+    background: var(--color-white);
+}
+
+.item-request-label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    font-weight: var(--fw-bold);
+    font-size: var(--fs-sm);
+}
+
+.item-request-actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+.item-request-actions button {
+    margin-top: 0;
+}
+
+.item-request-message:empty {
+    display: none;
+}
+
+.item-request-sent {
+    margin: 0;
+    font-weight: var(--fw-bold);
+}
+
 /* =================== NOTES EDITOR =================== */
 #notes-rows {
     display: flex;

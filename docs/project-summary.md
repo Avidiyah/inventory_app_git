@@ -74,6 +74,14 @@ Capabilities added after the improvement batch include:
   item, work order, user, recorded-before, dispensed, and shortage context with
   open/resolved management. The generic queue is migration-backed and the
   source transaction/request lifecycle stays atomic.
+- Material the catalogue has no row for is reported as an **item request** from
+  an empty search on Work Orders or Find Item, by any signed-in role. An
+  Admin/Owner fulfils it by linking an existing item or creating one; that logs
+  the material retroactively (never moving stock) on the originating work order
+  and cascades to confirmed sibling requests for the same material, each onto
+  its own work order. A closed work order is warned about and skipped rather
+  than blocking the catalogue fix. All three request types can also be edited in
+  place, except a recount's frozen audit numbers.
 
 - User administration can replace first/last/login names; Admin+ can change a
   strictly subordinate user's role and revoke that user's sessions; user archive

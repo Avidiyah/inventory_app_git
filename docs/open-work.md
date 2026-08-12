@@ -85,6 +85,32 @@ None of these is scheduled work. Each is a real property of the system with a
 **named trigger** that would promote it, written down so the trigger is
 recognized when it arrives rather than rediscovered.
 
+### N-ITEM-RESTORE — There is no item unarchive, and item requests now expose it
+
+**Trigger: an item request that turns out to name an archived item.**
+
+An archived item is invisible to search in exactly the same way an uncatalogued
+one is — `list_items` filters on `archived_at IS NULL` — so a user who searches
+for a real-but-archived material gets an empty result and files an item request.
+The Admin fulfilling it has no restore path: `services/items.py` has no
+unarchive function. `override_archived` (`items.py:116`) frees an archived
+item's *barcode* via `_free_archived_holder`, which purges or retires the
+archived row; it does not bring it back.
+
+So today the only way to fulfil such a request is to create a fresh row,
+reclaiming the barcode with `override_archived=True`. That is a working path,
+but it silently forks the item's identity: the archived row's history stays
+attached to the retired barcode while new activity accrues to the new row.
+
+This is the same shape as the archived-work-order gotcha, which was solved with
+an explicit restore workflow (`restore_work_order`, supervisor+). If archived
+items start showing up in item requests with any regularity, the answer is
+probably the same: an explicit `restore_item`, gated and confirmed, rather than
+teaching the fulfil form more tricks.
+
+**Done when triggered:** an Admin can restore an archived item from the fulfil
+form, and the resulting request links to the original row rather than a new one.
+
 ### N3 — Decide the multi-instance story before scaling horizontally
 
 **Trigger: adding a second instance.**

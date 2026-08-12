@@ -1,7 +1,8 @@
     <!-- =================== USER REQUESTS PAGE =================== -->
     <!-- Admin/Owner operational exception queue. Inventory recounts track
          short counts; missing-price requests collect pricing/discoverability
-         work for materials used on work orders. Requests resolve, never delete. -->
+         work for materials used on work orders; item requests report material
+         with no catalogue row at all. Requests resolve, never delete. -->
     <div class="page" id="user-requests-page">
 
         <section id="user-requests-section">
@@ -9,13 +10,23 @@
             <p class="hint">Track differences between real-world usage and the
                app's expected results. Recount requests flag short stock;
                pricing requests collect a price and product link for unpriced
-               materials used on work orders.</p>
+               materials used on work orders; item requests report material a
+               user searched for but could not find. Fulfilling an item request
+               adds it to the catalogue and logs it retroactively on the work
+               order it came from.</p>
 
             <div class="filter-row user-requests-controls">
                 <label for="user-requests-status">Status</label>
                 <select id="user-requests-status">
                     <option value="open">Open</option>
                     <option value="resolved">Resolved</option>
+                </select>
+                <label for="user-requests-type">Type</label>
+                <select id="user-requests-type">
+                    <option value="all">All types</option>
+                    <option value="item_request">Item requests</option>
+                    <option value="inventory_recount">Stock recounts</option>
+                    <option value="missing_item_price">Missing price / link</option>
                 </select>
                 <button id="user-requests-refresh" type="button" class="secondary-btn">Refresh</button>
             </div>

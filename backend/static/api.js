@@ -297,10 +297,56 @@ export async function apiListUserRequests(status = "open") {
   return liveGet(`/user-requests/?${params}`);
 }
 
-export async function apiUpdateUserRequest(requestId, { status, resolutionNote = null }) {
+export async function apiUpdateUserRequest(
+  requestId,
+  { status = null, resolutionNote = null, message = null, details = null }
+) {
+  // One PATCH serves both jobs: `status` moves the request through the queue,
+  // `message` / `details` correct how it reads. The server rejects a body that
+  // asks for neither, and whitelists `details` keys per request type.
   return jsonRequest(`/user-requests/${requestId}`, "PATCH", {
     status,
     resolution_note: resolutionNote,
+    message,
+    details,
+  });
+}
+
+export async function apiCreateItemRequest({
+  searchedText,
+  quantity = 1,
+  note = null,
+  workOrderId = null,
+  source,
+}) {
+  // Open to any signed-in role: the technician who cannot find a material is
+  // the one who reports it. `source` is "work_orders" or "find_item".
+  return jsonRequest("/user-requests/item-request", "POST", {
+    searched_text: searchedText,
+    quantity,
+    note,
+    work_order_id: workOrderId,
+    source,
+  });
+}
+
+export async function apiListRequestSiblings(requestId) {
+  // Other open item requests naming the same material. A proposal the Admin
+  // confirms before fulfilment cascades to them -- never applied on its own.
+  return liveGet(`/user-requests/${requestId}/siblings`);
+}
+
+export async function apiFulfillItemRequest(
+  requestId,
+  { itemId = null, newItem = null, siblingIds = [] }
+) {
+  // Exactly one of itemId / newItem. Linking an existing row matters as much
+  // as creating one -- "can't find it" is often a misspelling of something
+  // already in the catalogue.
+  return jsonRequest(`/user-requests/${requestId}/fulfill`, "POST", {
+    item_id: itemId,
+    new_item: newItem,
+    sibling_ids: siblingIds,
   });
 }
 

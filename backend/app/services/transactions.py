@@ -312,6 +312,12 @@ def apply_correction(
     stock" reading); the UI surfaces the absolute new value via the
     item's updated quantity.
 
+    A correction also resolves any open `inventory_recount` request for the
+    item, in the same commit. That is deliberately global rather than scoped to
+    the User Requests page: the request asks "please re-count this", and an
+    `adjust` answers it whichever screen it came from — this path backs both
+    Correct Count on Find Item and the recount card's inline fix.
+
     Raises `ItemNotFoundError` if the id is unknown, `NoChangeError`
     if `new_quantity` equals the current quantity (no audit row is
     created for a no-op), and `NegativeQuantityError` if `new_quantity`
@@ -342,6 +348,12 @@ def apply_correction(
         reason=reason,
     )
     db.add(new_txn)
+    # Same commit as the stock write, under the same row lock the recount
+    # request was raised beneath, so the queue can never disagree with the
+    # count it is complaining about.
+    request_service.resolve_recount_requests(
+        db, item_id=item_id, resolved_by_id=user_id
+    )
     db.commit()
     db.refresh(new_txn)
     return new_txn

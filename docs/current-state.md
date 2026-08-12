@@ -109,7 +109,7 @@ Path shorthand:
 | Item notes | `domain/notes_validation.py`, `services/notes.py`, `schemas/items.py`, `routers/items.py`, `static/views/notes.js` | add/extend focused tests if behavior changes |
 | Alternate barcodes | `models.py`, `services/items.py`, `schemas/items.py`, `routers/items.py`, `static/views/itemEditor.js`, `static/views/addBarcode.js` | `test_item_barcodes.py` |
 | Stock/dispense/correction/void | `domain/quantity.py`, `services/transactions.py`, `routers/transactions.py`, `schemas/transactions.py`, `static/views/transactions.js`, `static/views/correction.js` | `test_quantity_reverse.py`, `test_user_requests.py`, route-gate tests |
-| User Requests / operational exceptions | `models.py`, `services/user_requests.py`, `routers/user_requests.py`, `schemas/user_requests.py`, `services/items.py`, `services/work_orders.py`, `static/views/userRequests.js`, `static/pages/user-requests.html` | `test_user_requests.py`, `test_route_role_gates.py` |
+| User Requests / operational exceptions | `models.py`, `services/user_requests.py`, `routers/user_requests.py`, `schemas/user_requests.py`, `services/items.py`, `services/transactions.py`, `services/work_orders.py`, `static/views/userRequests.js`, `static/views/userRequestCards.js`, `static/views/itemRequest.js`, `static/pages/user-requests.html` | `test_user_requests.py`, `test_item_requests.py`, `test_route_role_gates.py` |
 | Billing/charge override | `domain/billing.py`, `services/transactions.py`, `services/work_orders.py`, `services/history.py`, `routers/transactions.py`, `routers/work_orders.py`, `static/pricingText.js`, `static/adminReviewReceipt.js`, `static/views/history.js`, `static/views/workOrders.js`, `static/views/adminReview.js` | `test_billing_validation.py`, `test_work_order_billing.py`, `test_history_price_snapshot.py`, `test_item_price_gating.py` |
 | History filters/export | `services/history.py`, `routers/transactions.py`, `schemas/transactions.py`, `static/views/history.js`, `static/api.js` | `test_history_wo_filter.py` |
 | Barcode upload decode | `services/barcodes.py`, `routers/barcodes.py`, `schemas/barcodes.py`, `static/views/scan.js`, `static/api.js` | `test_barcodes.py` |
@@ -653,7 +653,8 @@ owner > admin > supervisor > technician
 | Export work orders (CSV, full or For Client) | admin+, server-scoped |
 | Preview/re-archive all live legacy work orders | owner exactly; server gate and service check |
 | Admin Review page / receipt | admin+; lists every live Review work order |
-| User Requests page / request status | admin+; list and resolve/reopen operational exceptions |
+| User Requests page / request status | admin+; list, edit, resolve/reopen, and fulfil operational exceptions |
+| File an item request | any authenticated user, from an empty search on Work Orders or Find Item |
 | Close/archive a work order | admin+ (scoped), any live status; UI action lives on expanded Work Orders cards and remains in Admin Review for Review rows |
 | Set work-order line billing override | admin+ (scoped) |
 | Scan-gate work-order cards | any authenticated user (scoped Created/Assigned/In-Progress list); In-Progress starts a batch, Assigned confirms an in-place start for Technician+, Created opens Work Orders for assignment |
@@ -1226,7 +1227,10 @@ caps*).
 | Method | Path | Gate | Behavior |
 | --- | --- | --- | --- |
 | GET | `/user-requests/?status=open|resolved` | admin+ | list newest-first requests with item/work-order/user context plus current item price/link |
-| PATCH | `/user-requests/{request_id}` | admin+ | resolve or reopen a durable request |
+| POST | `/user-requests/item-request` | any session | file a request for material with no catalogue row; the only non-admin route on this router |
+| GET | `/user-requests/{request_id}/siblings` | admin+ | other open item requests naming the same material, for the admin to confirm before a cascade |
+| POST | `/user-requests/{request_id}/fulfill` | admin+ | create or link the item, log it retroactively on every live work order across the request and its confirmed siblings, resolve them all |
+| PATCH | `/user-requests/{request_id}` | admin+ | resolve/reopen a durable request and/or correct its wording (`details` whitelisted per type) |
 
 ### Tools
 
@@ -1448,9 +1452,53 @@ user-request router/service/schema/model, and item/work-order services.
 
 Behavior:
 
-- Admin/Owner can switch between the newest-first open and resolved queues.
+- Admin/Owner can switch between the newest-first open and resolved queues, and
+  narrow to one of the three request types with a client-side Type filter.
 - Inventory-recount cards show the frozen shortage context and expose manual
-  Resolve/Reopen actions.
+  Resolve/Reopen actions, plus an inline **Correct count to / Reason** form that
+  calls `POST /transactions/adjust`. A correction resolves the open recount
+  request for that item in the same commit — and does so **globally**, including
+  from Correct Count on Find Item, because the request asks "please re-count
+  this" and an adjust answers it wherever it was made.
+- **Item requests** report material with no catalogue row at all. This is
+  narrower than it sounds: `list_items` filters on `archived_at` and never on
+  quantity, so an in-app item at zero is still findable and belongs to
+  `inventory_recount`. An item request carries a NULL `item_id` until fulfilled,
+  and that NULL is what distinguishes "not in the app" from "in the app, count
+  is wrong".
+  - Filed from two empty states — the Work Orders card's add-material picker
+    (carrying that work order) and Find Item (carrying none) — by any signed-in
+    role, via the one non-admin route on this router.
+  - Fulfilment either **links an existing item** or **creates a new one**.
+    Linking matters as much as creating: "can't find it" is often a misspelling
+    of something already in the catalogue, and forcing a create would mean a
+    duplicate row each time.
+  - Fulfilment logs the material on the originating work order **always in
+    `retroactive` mode**, whatever that work order's own `entry_mode` is, by
+    calling `attach_dispense_line` directly rather than `add_work_order_item`.
+    Fulfilment records material consumed before the app knew the item existed,
+    so it must never move stock — otherwise a newly created item at zero on hand
+    would be driven negative and raise a recount request on top of the request
+    just closed.
+  - A **closed work order never blocks the catalogue fix**: the card warns up
+    front, the item is still created, the retroactive add is skipped, and the
+    reason is recorded in `resolution_note`.
+  - One card per filing, even when several name the same material, so each keeps
+    its own work order, quantity, and requester. Fulfilling one **cascades** to
+    sibling requests the admin confirms: each sibling resolves and gets the
+    material added to its own work order at its own quantity, in one
+    transaction. Siblings are matched on **token-set equality** using the item
+    search's tokenizer — stricter than the search's own subset matching, because
+    a wrong match here retroactively bills material to another customer's work
+    order rather than merely showing a bad row. They arrive pre-checked but
+    confirmable.
+- Every card has an **Edit** mode for the request's own wording. Item requests
+  expose searched text, quantity, and note; the other two expose the message
+  only. A recount's `recorded_quantity_before` / `dispensed_quantity` /
+  `shortage_quantity` are **never editable** — they are a snapshot of what the
+  system observed at dispense time, and a snapshot someone can rewrite to match
+  a later recount is not an audit trail. The whitelist lives in
+  `EDITABLE_DETAILS`; a rejected key returns 409.
 - An open missing-price card shows the item's current Price and Product Link in
   one form. Its price input has `min="0.01"`; Save rejects zero or negative
   values and requires a valid, nonblank link, sends one item PATCH, and

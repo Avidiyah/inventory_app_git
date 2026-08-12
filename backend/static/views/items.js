@@ -42,6 +42,7 @@ import {
 } from "./correction.js";
 import { mountScanner } from "./scan.js";
 import { openAddBarcode, closeAddBarcode, setOnSaved as setOnAddBarcodeSaved } from "./addBarcode.js";
+import { itemRequestPromptHtml } from "./itemRequest.js";
 import { initSubNav } from "./subnav.js";
 
 const createItemBtn = document.getElementById("create-item-btn");
@@ -214,7 +215,14 @@ export function renderItems(emptyMessage = "No items match that search.") {
   itemsTbody.innerHTML = "";
   if (items.length === 0) {
     const row = document.createElement("tr");
-    row.innerHTML = `<td colspan="${columns.length}">${escapeHtml(emptyMessage)}</td>`;
+    // Only a *search* that found nothing means "the catalogue has no such
+    // item" -- an empty Load All just means an empty catalogue, and a scan
+    // has its own create-item shortcut, so neither offers to file a request.
+    const prompt = resultMode === "search" && resultQuery
+      ? itemRequestPromptHtml({ searchedText: resultQuery, source: "find_item" })
+      : "";
+    row.innerHTML =
+      `<td colspan="${columns.length}">${escapeHtml(emptyMessage)}${prompt}</td>`;
     itemsTbody.appendChild(row);
     return;
   }

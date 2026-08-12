@@ -102,6 +102,15 @@ class UserRequestNotFoundError(DomainError):
     """Raised when an Admin acts on a User Request that no longer exists."""
 
 
+class ItemRequestStateError(DomainError):
+    """Raised when a User Request cannot accept the requested change.
+
+    Covers fulfilling something that is not an open item request (already
+    resolved, or the wrong `request_type`) and editing a `details` key the
+    request's type does not expose -- notably a recount's frozen shortage
+    numbers, which are an audit snapshot rather than editable fields."""
+
+
 class NegativeQuantityError(DomainError):
     """Raised by strict `domain.quantity` arithmetic when an operation would
     drop an item's stock below zero.

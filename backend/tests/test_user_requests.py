@@ -9,13 +9,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
-from app.domain.errors import RoleManagementError
+from app.domain.errors import ItemRequestStateError, RoleManagementError
 from app.models import Item, User, UserRequest, WorkOrderItem
 from app.services import auth
 from app.services import items as item_service
 from app.services import user_requests as request_service
 from app.services import work_orders as wos
-from app.services.transactions import apply_transaction, void_transaction
+from app.services.transactions import (
+    apply_correction,
+    apply_transaction,
+    void_transaction,
+)
 
 
 def _user(db, role):
@@ -402,3 +406,138 @@ def test_zero_price_is_missing_until_a_positive_price_is_saved(db):
     )
     db.refresh(request)
     assert request.status == "resolved"
+
+
+# --------------------------------------------------------------------------
+# A count correction answers the recount request, from anywhere
+# --------------------------------------------------------------------------
+
+def _open_recount(db, supervisor, technician, item):
+    work_order = _assigned_work_order(db, supervisor, technician)
+    transaction = apply_transaction(
+        db,
+        item_id=item.id,
+        transaction_type="dispense",
+        quantity=Decimal("3"),
+        user_id=technician.id,
+        work_order_number=work_order.number,
+        work_order_id=work_order.id,
+    )
+    return (
+        db.query(UserRequest)
+        .filter(UserRequest.transaction_id == transaction.id)
+        .one()
+    )
+
+
+def test_correcting_the_count_resolves_the_open_recount_request(db):
+    admin = _user(db, "admin")
+    supervisor = _user(db, "supervisor")
+    technician = _user(db, "technician")
+    item = _item(db, "0")
+    request = _open_recount(db, supervisor, technician, item)
+    assert request.status == "open"
+
+    apply_correction(
+        db,
+        item_id=item.id,
+        new_quantity=Decimal("12"),
+        reason="Recounted the shelf.",
+        user_id=admin.id,
+    )
+
+    db.refresh(request)
+    assert request.status == "resolved"
+    assert request.resolved_by_id == admin.id
+    assert request.resolution_note == "Stock count corrected."
+
+
+def test_a_correction_leaves_an_unrelated_items_recount_open(db):
+    admin = _user(db, "admin")
+    supervisor = _user(db, "supervisor")
+    technician = _user(db, "technician")
+    item = _item(db, "0")
+    other_item = _item(db, "0")
+    request = _open_recount(db, supervisor, technician, item)
+    other_request = _open_recount(db, supervisor, technician, other_item)
+
+    apply_correction(
+        db,
+        item_id=item.id,
+        new_quantity=Decimal("12"),
+        reason="Recounted the shelf.",
+        user_id=admin.id,
+    )
+
+    db.refresh(request)
+    db.refresh(other_request)
+    assert request.status == "resolved"
+    assert other_request.status == "open"
+
+
+# --------------------------------------------------------------------------
+# Editing a request's own fields
+# --------------------------------------------------------------------------
+
+def test_item_request_fields_are_editable(db):
+    tech = _user(db, "technician")
+    request = request_service.create_item_request(
+        db,
+        searched_text="cooper elbo",
+        quantity=Decimal("2"),
+        note=None,
+        work_order_id=None,
+        work_order_number=None,
+        source="find_item",
+        created_by_id=tech.id,
+    )
+    db.flush()
+
+    updated = request_service.update_user_request_fields(
+        db,
+        request.id,
+        details_patch={"searched_text": "3/4 copper elbow", "quantity": "4"},
+    )
+
+    assert updated.details["searched_text"] == "3/4 copper elbow"
+    assert updated.details["quantity"] == "4"
+    # Untouched keys survive the patch.
+    assert updated.details["source"] == "find_item"
+
+
+def test_recount_audit_numbers_cannot_be_edited(db):
+    supervisor = _user(db, "supervisor")
+    technician = _user(db, "technician")
+    item = _item(db, "0")
+    request = _open_recount(db, supervisor, technician, item)
+
+    with pytest.raises(ItemRequestStateError):
+        request_service.update_user_request_fields(
+            db, request.id, details_patch={"shortage_quantity": "0"}
+        )
+
+    db.refresh(request)
+    assert request.details["shortage_quantity"] == "3"
+
+
+def test_a_requests_message_is_editable_on_every_type(db):
+    supervisor = _user(db, "supervisor")
+    technician = _user(db, "technician")
+    item = _item(db, "0")
+    request = _open_recount(db, supervisor, technician, item)
+
+    updated = request_service.update_user_request_fields(
+        db, request.id, message="  Re-count aisle 4, top shelf.  "
+    )
+
+    assert updated.message == "Re-count aisle 4, top shelf."
+
+
+def test_a_blank_message_is_rejected(db):
+    supervisor = _user(db, "supervisor")
+    technician = _user(db, "technician")
+    item = _item(db, "0")
+    request = _open_recount(db, supervisor, technician, item)
+
+    with pytest.raises(ItemRequestStateError):
+        request_service.update_user_request_fields(db, request.id, message="   ")

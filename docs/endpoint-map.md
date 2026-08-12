@@ -117,7 +117,10 @@ writes (w).
 | 65 | POST | `/work-orders/legacy/archive` | owner exactly | `work_orders.py` → `work_orders.archive_live_legacy_work_orders` | work_orders (w; atomic bulk soft-archive) | `apiArchiveLegacyWorkOrders` | `workOrders.js` |
 | 66 | POST | `/work-orders/{id}/start` | technician+ scoped | `work_orders.py` → `work_orders.start_work_order` | work_orders (r/w, row lock) | `apiStartWorkOrder` | `transactions.js`, `workOrders.js` |
 | 67 | GET | `/user-requests/` | admin+ | `user_requests.py` → `user_requests.list_user_requests` | user_requests (r), items (r), work_orders (r), users (r) | `apiListUserRequests` | `userRequests.js` |
-| 68 | PATCH | `/user-requests/{id}` | admin+ | `user_requests.py` → `user_requests.update_user_request` | user_requests (r/w), users (r) | `apiUpdateUserRequest` | `userRequests.js` |
+| 68 | PATCH | `/user-requests/{id}` | admin+ | `user_requests.py` → `user_requests.update_user_request` / `update_user_request_fields` | user_requests (r/w), users (r) | `apiUpdateUserRequest` | `userRequests.js` |
+| 68a | POST | `/user-requests/item-request` | session (any role) | `user_requests.py` → `user_requests.create_item_request` | user_requests (w), work_orders (r) | `apiCreateItemRequest` | `itemRequest.js` |
+| 68b | GET | `/user-requests/{id}/siblings` | admin+ | `user_requests.py` → `user_requests.find_sibling_item_requests` | user_requests (r), work_orders (r), users (r) | `apiListRequestSiblings` | `userRequests.js` |
+| 68c | POST | `/user-requests/{id}/fulfill` | admin+ | `user_requests.py` → `items.create_item` (optional) + `user_requests.fulfill_item_request` → `work_orders.attach_dispense_line` | user_requests (r/w, row lock), items (r/w on create), work_orders (r/w status), work_order_items (w, retroactive) | `apiFulfillItemRequest` | `userRequests.js` |
 | 69 | POST | `/work-orders/{id}/complete` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.complete_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiCompleteWorkOrder` | `workOrders.js` |
 | 70 | POST | `/work-orders/{id}/hold` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.hold_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiHoldWorkOrder` | `workOrders.js` |
 | 71 | POST | `/work-orders/{id}/resume` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.resume_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiResumeWorkOrder` | `workOrders.js` |
@@ -692,7 +695,25 @@ is always present (lets the copy-table resolve the work order). **`TransactionHi
 ### User Requests (`schemas/user_requests.py`)
 
 **`UserRequestUpdate`** — `PATCH /user-requests/{id}`: `status:
-"open"|"resolved"`, `resolution_note: str?=null` (trimmed; blank becomes null).
+"open"|"resolved"?=null`, `resolution_note: str?=null` (trimmed; blank becomes
+null), `message: str?=null` (trimmed), `details: dict?=null`. All optional, but
+at least one of `status`/`message`/`details` is required. `details` keys are
+whitelisted per request type by `EDITABLE_DETAILS`; a recount's frozen audit
+numbers are not on any list and a rejected key returns 409.
+
+**`ItemRequestCreate`** — `POST /user-requests/item-request`: `searched_text:
+str` (1–200, trimmed), `quantity: Decimal=1` (>0), `note: str?=null` (≤500,
+trimmed), `work_order_id: UUID?=null`, `source: "work_orders"|"find_item"`.
+
+**`NewItemPayload`** — the Add Item fields for creating the catalogue row inline:
+`barcode`, `name`, `location` (all non-blank), `quantity: Decimal=0` (≥0),
+`price: Decimal?=null`, `product_link: str?=null`, `override_archived:
+bool=false`.
+
+**`ItemRequestFulfill`** — `POST /user-requests/{id}/fulfill`: `item_id: UUID?`
+XOR `new_item: NewItemPayload?` (exactly one, enforced by a model validator),
+`sibling_ids: list[UUID]=[]` — the other open requests the admin **confirmed**
+name the same material.
 
 **`UserRequestResponse`** — `id`, `request_type`, `status`, `message`, nullable
 `item_id`/`item_name`/`item_barcode`/`item_price`/`item_product_link`,
@@ -870,6 +891,7 @@ non-domain exceptions become FastAPI's default 500.
 | `UserNotFoundError` | 404 | user id unknown; tool checkout also uses it when the target is archived (not an active checkout target) |
 | `TransactionNotFoundError` | 404 | txn id unknown or already voided |
 | `UserRequestNotFoundError` | 404 | user-request id unknown |
+| `ItemRequestStateError` | 409 | fulfilling something that is not an open item request, or editing a `details` key the request's type does not expose (notably a recount's frozen audit numbers) |
 | `StageNotFoundError` | 404 | mass-stage id unknown |
 | `RoomNotFoundError` | 404 | stage **slot** not found / not in the stage (name retains old "room") |
 | `StageItemNotFoundError` | 404 | planned stage item not found (incl. loading an unplanned item) |

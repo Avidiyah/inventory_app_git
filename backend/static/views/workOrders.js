@@ -50,6 +50,7 @@ import {
   safeHttpUrl,
 } from "../format.js";
 import { setMessage, confirmDialog, messageDialog } from "../dom.js";
+import { itemRequestPromptHtml } from "./itemRequest.js";
 import { getCurrentUser, getRole } from "../state.js";
 import {
   canBeWorkOrderSupervisor,
@@ -983,6 +984,10 @@ listEl.addEventListener("input", (event) => {
     (it) => [it.name, it.barcode],
     q
   ).slice(0, 8);
+  // No match means the catalogue has no row for what they typed, so offer to
+  // report it. The work order travels with the request: fulfilling it later
+  // logs the material back onto this job retroactively.
+  const cardEl = input.closest(".wo-card");
   results.innerHTML = matches.length
     ? matches
         .map(
@@ -990,7 +995,12 @@ listEl.addEventListener("input", (event) => {
             `<button type="button" class="secondary-btn scan-choice-btn" data-action="pick-item" data-item-id="${escapeHtml(it.id)}" data-item-name="${escapeHtml(it.name)}">${escapeHtml(it.name)} <span class="ms-pick-barcode">${escapeHtml(it.barcode)}</span></button>`
         )
         .join("")
-    : `<p class="hint">No matching items.</p>`;
+    : `<p class="hint">No matching items.</p>` +
+      itemRequestPromptHtml({
+        searchedText: input.value.trim(),
+        workOrderId: cardEl ? cardEl.dataset.id : null,
+        source: "work_orders",
+      });
   results.hidden = false;
 });
 

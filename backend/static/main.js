@@ -28,6 +28,7 @@ import "./views/history.js";
 import "./views/transactions.js";
 import "./views/scan.js";
 import "./views/massStage.js";
+import "./views/itemRequest.js";
 import "./views/userRequests.js";
 import "./views/tools.js";
 import "./views/toolCheckout.js";
