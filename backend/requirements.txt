@@ -11,6 +11,15 @@
 
 fastapi==0.136.3
 uvicorn==0.48.0
+# uvicorn is installed WITHOUT [standard], so it ships no WebSocket
+# protocol implementation. Without this package uvicorn answers every
+# upgrade request with "Unsupported upgrade request" and closes.
+#
+# This cannot be caught by the test suite: Starlette's TestClient drives
+# `websocket_connect` against the ASGI app directly and never imports a
+# protocol library, so the socket tests pass either way. See
+# tests/test_realtime_dependency.py, which exists solely to guard this.
+websockets==15.0.1
 # 1.2.1 carried 2 advisories and sits under every route in the app. Bumped to
 # the minimum fixing version rather than latest (1.6.0) -- three extra minors
 # of ASGI-layer change buy no additional CVE coverage. fastapi 0.136.3 declares
