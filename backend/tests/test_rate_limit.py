@@ -140,7 +140,7 @@ def test_custom_cap_preserves_the_off_by_one():
     This is the specific bug a forked copy would risk reintroducing.
     """
     allowed = sum(
-        1 for count in range(10) if not rate_limit.is_over_limit(count, max_requests=10)
+        1 for count in range(12) if not rate_limit.is_over_limit(count, max_requests=10)
     )
     assert allowed == 10
 
