@@ -1204,7 +1204,9 @@ explicit non-goal until it is answered.
 import asyncio
 import json
 import logging
+import threading
 import uuid
+from collections import deque
 from typing import Any, Optional
 
 from app.domain import realtime as policy
@@ -1212,7 +1214,24 @@ from app.domain import realtime as policy
 logger = logging.getLogger(__name__)
 
 _connections: dict[str, set["Connection"]] = {}
-_handoff: Optional[asyncio.Queue] = None
+
+# The handoff is a plain deque behind a threading.Lock, NOT an asyncio.Queue.
+#
+# This is deliberate and the reasoning is easy to get wrong. `emit` is called
+# from a request thread, so it cannot touch an asyncio.Queue directly. The
+# obvious fix -- `loop.call_soon_threadsafe(queue.put_nowait, envelope)` --
+# is broken: call_soon_threadsafe *schedules* the call and returns, so a
+# QueueFull raises later inside the loop callback where the caller's
+# try/except cannot see it. The drop would go uncounted and the request
+# thread would be told the event was accepted.
+#
+# Checking fullness synchronously under a lock keeps the decision on the
+# caller's thread, where it can be counted and reported honestly. The lock
+# is held for O(1) work only, so UX-7 holds: a request thread never waits
+# on a socket.
+_handoff: deque = deque()
+_handoff_lock = threading.Lock()
+_wakeup: Optional[asyncio.Event] = None
 _loop: Optional[asyncio.AbstractEventLoop] = None
 _dispatch_task: Optional[asyncio.Task] = None
 _dropped_events = 0
@@ -1325,20 +1344,35 @@ def emit(envelope: dict[str, Any]) -> bool:
     Returns False when the handoff is full and the event was dropped.
     Never blocks and never raises -- an emit failure must not turn a
     successful inventory write into a 500.
+
+    Drop-newest is D3. P2 is what makes it safe: an invalidation event is
+    disposable, and the client's next page activation refetches through
+    REST. What matters is that the request thread is never blocked and
+    that the drop is counted rather than silent.
+
+    Works with no running loop, which is how the tests drive it: the
+    fullness decision is synchronous, and waking the loop is a separate,
+    optional step.
     """
     global _dropped_events
-    if _handoff is None or _loop is None:
-        return False
-    try:
-        _loop.call_soon_threadsafe(_handoff.put_nowait, envelope)
-        return True
-    except (asyncio.QueueFull, RuntimeError):
-        _dropped_events += 1
-        logger.warning(
-            "realtime handoff full; event dropped total_dropped=%s",
-            _dropped_events,
-        )
-        return False
+    with _handoff_lock:
+        if len(_handoff) >= policy.HANDOFF_QUEUE_MAX:
+            _dropped_events += 1
+            logger.warning(
+                "realtime handoff full; event dropped total_dropped=%s",
+                _dropped_events,
+            )
+            return False
+        _handoff.append(envelope)
+
+    if _loop is not None and _wakeup is not None:
+        try:
+            _loop.call_soon_threadsafe(_wakeup.set)
+        except RuntimeError:
+            # The loop closed between the check and the call (shutdown).
+            # The event is already queued; stop_dispatch drains it.
+            pass
+    return True
 
 
 def dropped_event_count() -> int:
@@ -1346,18 +1380,22 @@ def dropped_event_count() -> int:
 
 
 def reset() -> None:
-    """Discard all state. For tests -- module state is process global."""
-    global _dropped_events, _handoff, _loop, _dispatch_task
+    """Discard all state. For tests -- module state is process global, so a
+    test that fills the handoff would otherwise leak into the next one.
+    Mirrors `services.rate_limit.reset`."""
+    global _dropped_events, _wakeup, _loop, _dispatch_task
     _connections.clear()
+    with _handoff_lock:
+        _handoff.clear()
     _dropped_events = 0
-    _handoff = None
+    _wakeup = None
     _loop = None
     _dispatch_task = None
 ```
 
-Also implement `start_dispatch()` / `stop_dispatch()` (creating the queue and the supervised task, closing every connection on shutdown), and the `_dispatch_loop` coroutine which drains `_handoff`, resolves the audience via `policy.audience_allows(envelope["type"], connection.role)`, and calls `connection.enqueue(...)`, closing any connection whose `enqueue` returns `False`.
+Also implement `start_dispatch()` / `stop_dispatch()` (binding `_loop` and `_wakeup`, starting the supervised task, and on shutdown closing every connection deliberately so clients see a clean close and reconnect on their own schedule), and the `_dispatch_loop` coroutine which waits on `_wakeup`, drains `_handoff` under the lock, resolves the audience via `policy.audience_allows(envelope["type"], connection.role)`, calls `connection.enqueue(...)`, and closes any connection whose `enqueue` returns `False`.
 
-**Important for the test above:** `emit` must work when no loop is running (the tests call it synchronously). Implement the drop-counting branch so `test_emit_drops_newest_when_the_handoff_is_full` can drive it by pre-filling a queue the test installs — expose a test seam `_install_handoff_for_tests(queue, loop)` or make `emit` fall back to a direct `put_nowait` when `_loop` is not running.
+**No test-only seam is needed.** Because the fullness decision in `emit` is synchronous and the loop wakeup is a separate optional step, the tests drive `emit` directly with no running loop. Do not add an `_install_handoff_for_tests`-style hook: production code shaped by tests is a defect, and this design does not need one.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -1416,6 +1454,7 @@ pass whether or not uvicorn can serve a real handshake in production.
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from app.domain import realtime as policy
 from app.main import app
@@ -1448,7 +1487,7 @@ def _session_for(db, *, role="admin", username="ws_endpoint_user"):
 def test_handshake_without_a_cookie_is_refused(db):
     """Refused immediately, before any expensive work."""
     with TestClient(app) as client:
-        with pytest.raises(Exception):
+        with pytest.raises(WebSocketDisconnect):
             with client.websocket_connect("/ws"):
                 pass
 
@@ -1456,7 +1495,7 @@ def test_handshake_without_a_cookie_is_refused(db):
 def test_handshake_with_an_unknown_token_is_refused(db):
     with TestClient(app) as client:
         client.cookies.set("session", "not-a-real-token")
-        with pytest.raises(Exception):
+        with pytest.raises(WebSocketDisconnect):
             with client.websocket_connect("/ws"):
                 pass
 
@@ -1512,7 +1551,7 @@ def test_oversized_frames_are_rejected(db):
         client.cookies.set("session", token)
         with client.websocket_connect("/ws") as socket:
             socket.send_text("x" * (policy.MAX_FRAME_BYTES + 1))
-            with pytest.raises(Exception):
+            with pytest.raises(WebSocketDisconnect):
                 socket.receive_json()
 ```
 
