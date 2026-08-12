@@ -64,31 +64,44 @@ def is_exempt(path: str) -> bool:
     return path.startswith(EXEMPT_PREFIXES)
 
 
-def window_start(now: float) -> float:
+def window_start(now: float, window_seconds: float = WINDOW_SECONDS) -> float:
     """The oldest timestamp still inside the window ending at `now`.
 
     Anything at or before this has aged out and no longer counts.
+
+    `window_seconds` is a parameter so the real-time layer's inbound frame
+    limiter can share this rule rather than fork it. It defaults to the
+    HTTP window, so every existing caller is unchanged.
     """
-    return now - WINDOW_SECONDS
+    return now - window_seconds
 
 
-def is_over_limit(count_in_window: int) -> bool:
+def is_over_limit(count_in_window: int, max_requests: int = MAX_REQUESTS) -> bool:
     """Whether a request arriving now would exceed the cap.
 
     `count_in_window` is the number of *already recorded* requests still
     inside the window, so the incoming one is allowed while that count
-    is below `MAX_REQUESTS` -- making exactly `MAX_REQUESTS` requests per
-    window succeed rather than `MAX_REQUESTS - 1`.
+    is below `max_requests` -- making exactly `max_requests` requests per
+    window succeed rather than `max_requests - 1`.
+
+    That off-by-one is the reason this module is parameterized rather than
+    copied: a second hand-written implementation is a coin flip on getting
+    it right, in the one module whose purpose is being the single place
+    the rule is written.
     """
-    return count_in_window >= MAX_REQUESTS
+    return count_in_window >= max_requests
 
 
-def retry_after_seconds(oldest_in_window: float, now: float) -> int:
+def retry_after_seconds(
+    oldest_in_window: float,
+    now: float,
+    window_seconds: float = WINDOW_SECONDS,
+) -> int:
     """Whole seconds until the window has room again.
 
     Rounded up, and never below 1: reporting 0 while still limited would
     invite an immediate retry that just fails again. Mirrors the same
     guard in `services.login_throttle._remaining_seconds`.
     """
-    frees_at = oldest_in_window + WINDOW_SECONDS
+    frees_at = oldest_in_window + window_seconds
     return max(1, math.ceil(frees_at - now))

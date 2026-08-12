@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
+from app.domain import rate_limit
 from app.domain.rate_limit import (
     MAX_REQUESTS,
     WINDOW_SECONDS,
@@ -110,3 +111,43 @@ def test_a_path_merely_starting_with_static_is_not_exempt():
     # The prefix carries its trailing slash on purpose: a future route
     # named e.g. /static-report must not inherit the asset exemption.
     assert not is_exempt("/static-report")
+
+
+# --- parameterized reuse (real-time inbound frame limiting) -------------
+#
+# The socket's inbound limiter is a second *policy* over the same *rule*.
+# These cases pin the parameterized form so the two policies can never
+# drift apart -- in particular the off-by-one, which is the reason the
+# design forbids forking this module.
+
+
+def test_window_start_accepts_a_custom_window():
+    assert rate_limit.window_start(100.0, window_seconds=60.0) == 40.0
+
+
+def test_window_start_defaults_to_the_http_window():
+    assert rate_limit.window_start(100.0) == 100.0 - rate_limit.WINDOW_SECONDS
+
+
+def test_is_over_limit_accepts_a_custom_cap():
+    assert rate_limit.is_over_limit(19, max_requests=20) is False
+    assert rate_limit.is_over_limit(20, max_requests=20) is True
+
+
+def test_custom_cap_preserves_the_off_by_one():
+    """Exactly `max_requests` must succeed, not `max_requests - 1`.
+
+    This is the specific bug a forked copy would risk reintroducing.
+    """
+    allowed = sum(
+        1 for count in range(10) if not rate_limit.is_over_limit(count, max_requests=10)
+    )
+    assert allowed == 10
+
+
+def test_retry_after_accepts_a_custom_window():
+    assert rate_limit.retry_after_seconds(100.0, 130.0, window_seconds=60.0) == 30
+
+
+def test_retry_after_never_reports_zero_with_a_custom_window():
+    assert rate_limit.retry_after_seconds(100.0, 160.0, window_seconds=60.0) == 1
