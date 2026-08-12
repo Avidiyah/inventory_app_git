@@ -393,6 +393,8 @@ into a roadmap without inventing requirements.
 | SEC-017 | Medium when triggered: prevents cookie-authenticated cross-origin abuse. | DEC-011. |
 | SEC-018 | High: gives ordinary operational data an owned lifecycle and export policy. | DEC-009. |
 | SEC-019 | Compliance-dependent: satisfies only applicable legal/contractual duties. | DEC-001, DEC-009, and legal/contract owner. |
+| SEC-020 | Very high: prevents an unvalidated quantity from being billed to a customer work order. | None. |
+| SEC-021 | High: closes item-request filing against work orders the filer cannot see. | DEC-005. |
 
 #### SEC-001 - Trustworthy, bounded request throttling
 
@@ -652,6 +654,56 @@ status `Candidate`.
   requests and backup expiry meet recorded deadlines.
 - **Trigger/dependency:** DEC-001 and DEC-009.
 
+#### SEC-020 - Validate item-request `details` values, not just their keys
+
+`Must-fix`; `S`; Security + Integrity; `Confirmed`; status `Candidate`.
+
+- **Evidence/outcome:** `EDITABLE_DETAILS`
+  (`services/user_requests.py:43`) whitelists *which* `details` keys an Admin may
+  write; nothing validates *what* is written.
+  `schemas/user_requests.py:23` types the field `Optional[dict[str, Any]]`, and
+  `update_user_request_fields:514` strips strings and passes every other type
+  through. Fulfilment then computes
+  `Decimal(str(details.get("quantity") or "1"))` at
+  `services/user_requests.py:255`. Two behaviors were reproduced against a live
+  database: `quantity: "abc"` stores cleanly and raises an unhandled
+  `InvalidOperation` at fulfilment (a 500, after which the request cannot be
+  fulfilled until it is edited back), and `quantity: -5` stores cleanly and
+  writes a **−5 line onto the work order**. Because `attach_dispense_line`
+  aggregates by `(work_order_id, item_id)`, a negative value can also silently
+  reduce an existing line rather than appearing as its own.
+- **UI-reachable, not API-only:** the edit input carries `min="0.01"`
+  (`views/userRequestCards.js:152`) but is handled by a click listener rather
+  than a form submit, so the constraint never runs; `views/userRequests.js:245`
+  sends the raw trimmed string.
+- **Done when:** the patch is validated per request type at the schema boundary
+  — reusing the `quantity: Decimal = Field(gt=0)` rule
+  `ItemRequestCreate` already declares (`schemas/user_requests.py:47`) — a
+  malformed or non-positive quantity returns `422`/`409` with no mutation, and a
+  regression test fails without the fix. None of the 10 tests in
+  `test_item_requests.py` covers this.
+- **Dependency/decision:** none. Shape is the only open question: typed per-type
+  patch models end the whole class of defect; per-key coercion beside
+  `EDITABLE_DETAILS` is smaller and leaves `Any` in the schema.
+
+#### SEC-021 - Work-order visibility check when filing an item request
+
+`Must-fix`; `S`; Security + Integrity; `Confirmed`; status `Candidate`.
+
+- **Evidence/outcome:** `routers/user_requests.py:96-105` resolves
+  `work_order_id` by existence and `archived_at IS NULL` only. The pure
+  predicate `domain/work_orders.can_view_work_order` is never called, though it
+  takes no I/O and is used for exactly this elsewhere. A proof filed a request
+  against a work order assigned to another Technician: accepted, and the
+  response returned that work order's `number`. On fulfilment, material is
+  retroactively billed to it. This is the same shape as SEC-002, on the route
+  deliberately opened to any authenticated session.
+- **Done when:** filing against a work order the caller cannot see returns `404`
+  with no row created and no number disclosed; Technician, Supervisor, and Admin
+  cases are covered.
+- **Dependency/decision:** DEC-005, same as SEC-002 — the visibility rule for
+  reassigned/archived work orders is the same policy question.
+
 ### Professionalism candidates
 
 | ID | Risk reduction/value | Owner input required |
@@ -676,6 +728,7 @@ status `Candidate`.
 | PRO-018 | High: controls changes to critical code and production. | DEC-010 and administrator access. |
 | PRO-019 | Medium: makes releases/support visible and traceable. | DEC-010. |
 | PRO-020 | High: detects production invariant drift before it compounds. | Source-of-truth rule and alert severity for each invariant. |
+| PRO-021 | Medium: turns a malformed item-request payload into a 4xx instead of a 500. | None. |
 
 #### PRO-001 - Build, test, and deploy one immutable production artifact
 
@@ -945,6 +998,26 @@ status `Candidate`.
   controlled fixture proves every alarm path.
 - **Dependency/decision:** PRO-013, PRO-015, SCL-005/SCL-006, and the approved
   source-of-truth rule for each invariant.
+
+#### PRO-021 - Whitespace-only `searched_text` returns 500, not 422
+
+`Must-fix`; `S`; Professionalism + Reliability; `Confirmed`; status `Candidate`.
+
+- **Evidence/outcome:** one shared validator serves a required field and an
+  optional one (`schemas/user_requests.py:54`, applied to `searched_text` and
+  `note`) and returns `value.strip() or None`. Pydantic v2 does not re-validate
+  an after-validator's return against the annotation, and `min_length=1`
+  (`:46`) already passed on the *untrimmed* value — so `searched_text="   "`
+  yields `None` on a field typed `str`, and `create_item_request` then calls
+  `.strip()` on it (`services/user_requests.py:174`). Reproduced: unhandled
+  `AttributeError`.
+- **Reachability:** API-only today. `views/itemRequest.js:92` trims and rejects
+  empty text before sending, so no user hits this through the UI — a client-side
+  guard standing in for a server-side one, which is the same pattern SEC-020
+  shows failing once a second client path exists.
+- **Done when:** trimming happens in a `mode="before"` validator so `min_length`
+  sees the trimmed value, one validator no longer serves both a required and an
+  optional field, and whitespace-only input returns `422` with no row created.
 
 ### Scalability and reliability candidates
 
