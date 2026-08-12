@@ -131,6 +131,20 @@ worthless, and a Postgres write per request would cost more than the runaway
 client it catches — but this note now has a concrete second item to revisit, not
 just the Alembic race.
 
+**A real-time connection registry would be the third thing to inherit it, and
+the worst of the three.** The other two *degrade* under a second instance: the
+Alembic race is a startup window, and the rate limiter's cap becomes 60/s per
+process instead of per caller. A registry does not degrade — it **silently
+halves delivery**. Connections are held in process memory, so a user on instance
+A would never receive an event emitted on instance B, with no error anywhere on
+either side. The screens that failed to update would look exactly like screens
+with nothing to update.
+
+Nothing is built yet — see `docs/superpowers/specs/2026-08-12-websocket-realtime-layer-design.md`,
+whose §15 lists horizontal scaling as an explicit non-goal precisely because of
+this note. Recorded here now so that adding a second instance surfaces it as a
+known constraint rather than a production mystery.
+
 ### N4 — Reconsider serving the SPA from the API process
 
 **Trigger: introducing a CDN** · *deferred by design*

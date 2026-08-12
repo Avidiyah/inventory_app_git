@@ -1,7 +1,14 @@
 # Real-Time Layer — Session Handoff
 
-**Status: nothing is implemented, scheduled, or approved. Zero lines of socket
-code exist.**
+**Superseded in part, 2026-08-12.** The gate this note describes has been passed:
+all eight decisions D1–D8 are resolved in §14 of the design, and preconditions
+4.1, 4.3, and 4.4 are met (4.2 is resolved for production and needs one browser
+check locally). The design is now the current document; this note is kept for the
+reasoning behind how the decisions were framed. §4.1 below — the warning that the
+User Requests queue became form-heavy — is what redirected D4 to Admin Review, and
+was the single most useful thing in it.
+
+**Status: zero lines of socket code exist. Phases 1–2 are being planned.**
 
 Written 2026-08-12 at `c7531ea`. This is the pickup note for the real-time work.
 It carries the context that is *not* in the design document: what state the

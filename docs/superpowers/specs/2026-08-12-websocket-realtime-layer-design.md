@@ -1,10 +1,15 @@
 # Real-Time Layer — Reference Design
 
-**Status: reference only. Nothing here is scheduled, approved, or in progress.**
+**Status: decisions resolved 2026-08-12 (see §14). Phases 1–2 are being planned;
+nothing is implemented.**
 
 Written 2026-08-12 against `90be427`. This document exists to be read before any
 real-time work is planned. It is deliberately abstract: it describes behavior,
 responsibilities, and sequencing, not implementations.
+
+Amended 2026-08-12 at `32c8c92`: the eight open decisions in §14 are answered,
+the route count in §2/§3/§5.2 is corrected from 97 to 75, and §4.2 is resolved
+for production. Behavior described elsewhere is unchanged.
 
 It does not live in `docs/`. That directory is the four consolidated files from
 2026-08-10 and `open-work.md` remains the only backlog. This is a design
@@ -61,8 +66,10 @@ Established by inspection at `90be427`:
 - **The only staleness measure is HTTP-cache bypass** — `liveGet` in
   `static/api.js` uses `cache: "no-store"`. That fixes stale responses, not
   stale screens.
-- **The backend is entirely synchronous.** 97 sync route handlers, zero
+- **The backend is entirely synchronous.** 75 sync route handlers, zero
   `async def`, with the choice documented explicitly in at least two routers.
+  (The "97" written here originally was wrong when written, not drifted into;
+  re-verified as 75 `APIRoute`s at `c7531ea`.)
 - **All three middleware layers are HTTP-scope only** (`app/main.py`): rate
   limiting, security headers, request logging.
 - **Authorization primitives already exist** and are reusable without change:
@@ -129,7 +136,7 @@ free tier's guaranteed disconnections (spin-down, deploys) a non-event.
 There is one socket endpoint. Enforcement, logging, and limits are written
 visibly in it rather than hidden in middleware.
 
-*Why it is load-bearing:* middleware exists to avoid repetition across 97 routes.
+*Why it is load-bearing:* middleware exists to avoid repetition across 75 routes.
 With one endpoint, explicit enforcement is complete by inspection — you can read
 one file and know the entire policy. The cost is that nothing is inherited
 automatically, which is precisely why §7 and §8 exist as their own phases.
@@ -140,14 +147,18 @@ automatically, which is precisely why §7 and §8 exist as their own phases.
 
 Nothing below starts until these are true.
 
-### 4.1 The working tree is clean
+### 4.1 The working tree is clean — **met at `32c8c92`**
 
 *Problem solved:* a real-time change and an unrelated feature must not share one
 diff through a gate that deploys to production.
 
 *Behavior:* none. Process only.
 
-### 4.2 CSP permits the connection
+*Resolved:* the pending SEC-020 / SEC-021 / PRO-021 entries and this document
+were committed as a docs-only change at `32c8c92`. Re-check before starting
+implementation; this is a property of the moment, not a permanent state.
+
+### 4.2 CSP permits the connection — **resolved for production, open for local**
 
 *Problem solved:* the page's own Content-Security-Policy governs whether a socket
 may be opened. The policy declares `default-src 'self'` with no explicit
@@ -156,8 +167,25 @@ browsers treat `'self'` as covering same-origin `wss:`, but this policy was
 verified clause by clause when written and should not acquire its first assumed
 clause now.
 
-*Behavior:* either confirmed as-is, or `connect-src` stated explicitly. No
-user-visible change either way.
+*Resolved for production:* CSP Level 3 states that `connect-src` governs
+WebSocket and falls back to `default-src`, and that **`'self'` matches the
+`https:` and `wss:` variants of the page's origin, even on pages whose scheme is
+`http`**. Production is served over HTTPS (`COOKIE_SECURE`), so `wss:` to the
+same origin is permitted by the policy as it stands. **No CSP change is
+required.**
+
+*Still open for local development, and this is the trap:* the spec's upgrade
+allowance names `https:` and `wss:` specifically. Local development runs
+`http://localhost:8124` and would open **`ws:`**, which is neither same-origin
+(the scheme differs) nor in the upgrade set. Under a strict reading the socket
+could be blocked locally while working in production — the most confusing
+possible failure shape, since local is where it gets debugged. Browsers have
+historically been lenient here, but that is precisely the assumption this
+precondition exists to refuse.
+
+*Behavior:* verify in the browser the first time Phase 1 connects locally. If
+blocked, state `connect-src` explicitly rather than weakening `default-src`. Not
+resolvable by reading the repository.
 
 ### 4.3 The multi-instance note is updated
 
@@ -170,12 +198,17 @@ B.
 *Behavior:* documentation only. Recording it now is the difference between a
 known constraint and a production mystery.
 
-### 4.4 The documentation home is decided
+### 4.4 The documentation home is decided — **resolved (D7)**
 
 *Problem solved:* `docs/endpoint-map.md` documents "every endpoint traced
 DB↔view". A persistent bidirectional channel is not an endpoint in that sense —
 it is a second transport. Adding a fifth file to `docs/` contradicts the 2026-08-10
 consolidation.
+
+*Resolved:* **no fifth file.** This design stays in `docs/superpowers/` as a
+reference; implemented behavior is documented in `docs/current-state.md`; work
+that is actually scheduled gets an `open-work.md` entry like anything else. The
+2026-08-10 four-file shape is preserved.
 
 *Behavior:* documentation only.
 
@@ -200,7 +233,7 @@ contradiction of it.
 
 ### 5.2 The sync/async boundary
 
-*Problem solved:* the app is entirely synchronous; 97 handlers run in a
+*Problem solved:* the app is entirely synchronous; 75 handlers run in a
 threadpool. Sockets live on the event loop. A threadpool handler cannot `await` a
 broadcast.
 
@@ -300,9 +333,10 @@ A socket authenticated once at handshake has no next request:
 - Sessions carry a hard 12-hour absolute cap that a socket would simply outlive.
 
 *New behavior:* connections are bound to session validity — closed on
-revocation, on role change, and at session expiry. Whether by periodic
-revalidation, by an explicit signal from the revoking code paths, or both, is an
-open decision (§10).
+revocation, on role change, and at session expiry. **Resolved (D1): by periodic
+revalidation against a stored token hash**, which covers all three revocation
+paths because each deletes the session row. See §14 for why this beat an
+explicit signal from the revoking code paths.
 
 *Does not change:* who is permitted to do what. It preserves the property the app
 already has and would otherwise silently lose.
@@ -620,8 +654,35 @@ indicator, no degraded mode. The app is simply the app it is today.
 genuine staleness cost, and low interaction risk under UX-6 — a queue nobody is
 mid-edit in is safer than a form-heavy page.
 
-*Explicitly not first:* work orders. Highest value, hardest fan-out, largest
-files in the repo. It goes second, once the transport is proven.
+*Resolved (D4): **Admin Review** (`static/views/adminReview.js`, 179 lines).*
+
+It wins on all three criteria. Its audience is the flat `["owner", "admin"]`
+gate, and `domain/work_orders.can_view_work_order` short-circuits to `True` for
+Admin and Owner, so the per-row predicate is trivially satisfied rather than
+merely avoided. Its staleness is genuine — Supervisors move work orders into
+Review while an Admin sits on the page working the queue.
+
+Its UX-6 risk is the lowest in the application: **the page has no text input at
+all.** The interaction surface is click-a-card, Reopen, Close. And the safety
+property is already built — `loadAdminReview()` calls only `renderQueue()` and
+never touches `receiptSection`, while `buildCard` re-applies the selection from
+`selectedDetail?.id`. **A queue reload already preserves the open receipt and
+the selected card**, and the existing Reopen handler depends on exactly that,
+deliberately, with a comment saying the receipt remains available. Nothing has
+to be built to make the first surface UX-6-safe.
+
+*Not the User Requests queue*, which this document originally implied. At
+`c7531ea` it became form-heavy — inline edit forms, a fulfil panel with a mode
+switch and item search, sibling checkboxes — and its in-progress state lives
+**entirely in the DOM** (`panel.innerHTML`, `panel.dataset.pickedItemId`), with
+no module-level flag to consult. Its `render()` calls `listEl.replaceChildren()`
+unconditionally, destroying every open panel. It is a Phase 8 surface, and a
+late one.
+
+*Explicitly not first:* the work orders **page**. Highest value, hardest
+fan-out, largest file in the repo (`views/workOrders.js`, 1,455 lines). Admin
+Review consumes a work-order event without being that page; the §11 exclusion is
+about the fan-out predicate and the file, neither of which applies here.
 
 *Verification at this gate:*
 
@@ -671,20 +732,120 @@ authoritative (forces unbounded buffering, per P1).
 
 ---
 
-## 14. Open decisions
+## 14. Decisions — resolved 2026-08-12
 
-Recorded, not resolved. Each changes work materially.
+All eight are answered. Each entry records the choice and the reason it beat the
+alternatives, so a later reader can tell a decision from a default.
 
-| # | Decision | Notes |
+| # | Decision | Resolution |
 |---|---|---|
-| D1 | Session-binding mechanism (§6.2) | Periodic revalidation, explicit signal from the revoking paths, or both. Trades promptness against cost. |
-| D2 | Dispatch-task restart policy (§8.3) | Restart on death, or fail loudly and stay down. Restarting risks masking a crash loop. |
-| D3 | Handoff overflow behavior (§5.2) | Drop oldest, drop newest, or close the connection. |
-| D4 | First surface (§11) | Named against the criteria there. |
-| D5 | Every threshold in §7 | To be measured, not assumed. |
-| D6 | Backpressure scope | Whether §7.5 is v1 or deferred. Deferring accepts an unbounded memory risk driven by the worst network on the crew. |
-| D7 | Documentation home (§4.4) | |
-| D8 | Active-page refresh policy under UX-6 | What happens when an event arrives while an editor, form, or scan session is open. |
+| D1 | Session-binding mechanism (§6.2) | **Periodic revalidation by stored token hash.** Close the connection when the re-resolve returns `None`. |
+| D2 | Dispatch-task restart policy (§8.3) | **Supervised, bounded restarts, then permanent stop** — logged loudly in the app's own format. |
+| D3 | Handoff overflow behavior (§5.2) | **Drop newest**, log and count. |
+| D4 | First surface (§11) | **Admin Review.** See §11. |
+| D5 | Every threshold in §7 | **Adopted as named constants with the hypothesis recorded beside each**, measured at the §11 gate rather than trusted. |
+| D6 | Backpressure scope | **In v1**, and it lands in Phase 1 rather than Phase 3 — see below. |
+| D7 | Documentation home (§4.4) | **No fifth file.** See §4.4. |
+| D8 | Active-page refresh policy under UX-6 | **Opt-in live refresh over a mark-dirty default.** See below. |
+
+### D1 — why revalidation rather than an explicit signal
+
+Revalidation has **complete coverage**, which was not obvious until the
+revocation paths were read. All three — `archive_user`, `update_role`, and
+`reset_password` (`services/users.py:156,178,251`) — call
+`revoke_user_sessions`, which **deletes** the rows (`services/auth.py:160`). A
+re-resolve therefore returns `None` for role change, archival, and password
+reset alike, and checks the 12-hour cap on the same call. One mechanism catches
+every case §6.2 names.
+
+It is also cheap in a way that was worth verifying rather than assuming:
+`get_active_session_user` (`services/auth.py:200`) is a **pure read** — its own
+docstring states "There is no idle timeout and no per-request write." So
+revalidation slides nothing and costs two queries per connection per interval.
+
+The decisive argument is that **security does not depend on the sync→async
+signal path being correct.** That path is being built anyway for events, but a
+missed signal there would be a silent security hole rather than a missed
+refresh. Revalidation fails closed.
+
+*The explicit-signal alternative has a specific trap that ruled it out as the
+primary mechanism:* `revoke_user_sessions` deliberately **does not commit** —
+"the caller folds this into its own transaction." A signal fired from the
+service layer fires before commit and could close sockets for a revocation that
+then rolls back. It would have to be emitted at the router layer after commit,
+per §9.1, which is more moving parts for a promptness gain that has not been
+shown to matter.
+
+*Accepted cost:* revocation lags by up to one revalidation interval. Add the
+signal later as an optimization if that lag is ever demonstrated to matter — the
+shape does not change.
+
+*Implied work not in the original design:* `get_active_session_user` takes the
+**raw** token and hashes it internally. Holding raw tokens in the connection
+registry for hours would contradict the precedent §7.1 praises — the
+caller-identity function hashes the token so that a live credential never enters
+a process-wide dict. **Revalidation needs a hash-keyed sibling resolver in
+`services/auth.py`**, so the registry stores only the hash. This is a change
+outside socket code and belongs in the Phase 2 plan.
+
+### D2 — why bounded restarts
+
+A transient failure should not kill real-time for hours; a crash loop must not
+look like healthy operation, which is the silent-failure mode §8.3 names. Bounded
+restarts separate the two: the first case self-heals, the second stops and says
+so. Free-tier spin-down provides a clean slate on the next cold start regardless,
+which bounds the blast radius of the permanent-stop state.
+
+### D3 — why drop newest
+
+`put_nowait`, catch the full-queue error, increment a counter, log. It can never
+block a request thread, which is UX-7. P2 makes the drop safe — the client's next
+page activation refetches through REST. Drop-oldest buys marginally better
+freshness under sustained overflow at the cost of an evicting structure, and the
+counter is what actually tells you the ceiling is wrong. Closing connections is
+the wrong lever entirely: this queue is shared across all connections, so one
+busy moment would disconnect everyone.
+
+### D6 — backpressure moves into Phase 1
+
+§7.5 places backpressure in Phase 3, but it belongs to the connection object and
+the connection object is built in §5. Deferring it accepts an unbounded
+server-side memory risk driven by whoever has the worst signal on the crew — and
+a rate limiter structurally cannot catch a slow client, because a bad connection
+is not abuse. P1 and P2 make closing such a client lossless. **The bounded
+per-connection send queue is built in Phase 1 alongside the connection object,
+not retrofitted into an established send path later.**
+
+### D8 — opt-in live refresh over a mark-dirty default
+
+**The default action for an event arriving for the active page is mark-dirty
+only.** A view opts into live refresh by registering a handler it declares
+UX-6-safe, and that declaration is reviewed once at opt-in. This is P5 —
+explicit over ambient — applied to the client.
+
+*Why the safe behavior is the default:* it means a surface added in Phase 8 that
+nobody thought carefully about degrades to today's on-activation loading rather
+than destroying someone's half-typed form. Getting it wrong requires an explicit
+act.
+
+*Why not a uniform `isBusy()` predicate on every view:* it is the more
+"by construction" design, but Admin Review's implementation would be
+`return false`, so it builds plumbing the first surface does not need. It remains
+the right answer for the first surface that genuinely needs busy-detection —
+User Requests will — and can be added then without changing the registration
+shape.
+
+*Constraint this places on Phase 8:* there is no uniform way to detect an open
+interaction today. `state.js` uses module flags (`editingItemId`,
+`editingNotesItemId`), `tools.js` has `editingToolId`, and User Requests keeps
+its state **entirely in the DOM** with no flag at all. Any view opting in must
+answer the busy question in its own terms. Admin Review does not have to answer
+it, because it has no uncommitted state to protect.
+
+*Note on §10.3:* Admin Review keeps no `state.js` cache — it fetches on load. So
+the "cache freshness" concept §10.3 introduces is **not needed for the first
+surface** and is deferred to Phase 8, where the first cached surface actually
+requires it.
 
 ---
 
