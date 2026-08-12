@@ -43,8 +43,8 @@ def get_current_user(
     db: Session = Depends(get_db),
 ) -> User:
     """Resolve the request's session cookie to the logged-in `User`, or
-    raise 401. Touching the session (sliding the idle timeout) happens
-    inside `get_active_session_user`.
+    raise 401. Sessions have a hard absolute cap and no idle timeout, so
+    this is a pure read -- see `get_active_session_user`.
 
     Also the single place the request's logging scope learns who the
     caller is: every authenticated route reaches this dependency, so

@@ -130,14 +130,19 @@ def username_exists(db: Session, username: str) -> bool:
     return db.query(User.id).filter(User.username == username).first() is not None
 
 
-def _hash_token(token: str) -> str:
+def hash_session_token(token: str) -> str:
     """Return the lowercase hex SHA-256 of a session token -- the only
-    form ever written to the database.
+    form ever written to the database, and the only form a long-lived
+    real-time connection is allowed to remember.
 
     Plain SHA-256 (not scrypt) is correct here: the input is 256 bits of
     CSPRNG output, so there is no guessable keyspace for a slow KDF to
     defend, and this runs on every authenticated request."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+# Retained so existing internal callers read unchanged.
+_hash_token = hash_session_token
 
 
 def sweep_expired_sessions(db: Session) -> int:
@@ -212,9 +217,32 @@ def get_active_session_user(db: Session, token: str) -> Optional[User]:
       sessions, but this guards any that slip through). There is no idle
       timeout and no per-request write.
     """
+    return _resolve_active_session(db, hash_session_token(token))
+
+
+def get_active_session_user_by_hash(db: Session, token_hash: str) -> Optional[User]:
+    """`get_active_session_user`, keyed by an already-hashed token.
+
+    Exists for the real-time layer. A socket is authenticated once at
+    handshake and has no next request, so it re-resolves its session on a
+    timer to stay bound to revocation, role change, and the 12-hour cap
+    (design D1). It stores the **hash** rather than the raw token: a raw
+    token is a live credential, and a connection registry is exactly the
+    process-wide structure `services.rate_limit.caller_key` hashes to stay
+    out of.
+
+    Identical policy to the raw-token resolver, and deliberately a thin
+    wrapper over one shared implementation so the two cannot drift.
+    """
+    return _resolve_active_session(db, token_hash)
+
+
+def _resolve_active_session(db: Session, token_hash: str) -> Optional[User]:
+    """Shared body of the two resolvers above. See `get_active_session_user`
+    for the lifetime policy this implements."""
     session = (
         db.query(AuthSession)
-        .filter(AuthSession.token_hash == _hash_token(token))
+        .filter(AuthSession.token_hash == token_hash)
         .first()
     )
     if session is None:
