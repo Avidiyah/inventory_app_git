@@ -6,10 +6,14 @@ tests pin the mechanism that replaces it: periodic re-resolution against
 a stored token *hash*.
 """
 
+import asyncio
+
 import pytest
 
 from app.models import User
+from app.routers import realtime as realtime_router
 from app.services import auth as auth_service
+from app.services import realtime as realtime_service
 
 
 def _make_user(db, *, username="ws_bind_user", role="technician"):
@@ -78,3 +82,82 @@ def test_resolve_by_hash_agrees_with_the_raw_token_resolver(db):
 
     assert by_token is not None and by_hash is not None
     assert by_token.id == by_hash.id
+
+
+# --- live connection revalidation -------------------------------------
+
+
+def _connection(*, user_id="user-1", role="admin"):
+    return realtime_service.Connection(
+        user_id=user_id,
+        token_hash="a" * 64,
+        role=role,
+    )
+
+
+def test_revalidate_once_keeps_an_unchanged_live_identity(monkeypatch):
+    async def scenario():
+        connection = _connection()
+        monkeypatch.setattr(
+            realtime_router,
+            "_resolve_identity",
+            lambda _token_hash: ("user-1", "admin"),
+        )
+
+        assert await realtime_router._revalidate_once(connection) is True
+        assert connection.close_requested.is_set() is False
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "resolved_identity",
+    [
+        None,
+        ("another-user", "admin"),
+        ("user-1", "technician"),
+    ],
+)
+def test_revalidate_once_fails_closed_when_authorization_changes(
+    monkeypatch,
+    resolved_identity,
+):
+    """Revocation, identity drift, and role drift all end the socket.
+
+    Normal role changes revoke the session and therefore resolve to None.
+    The explicit mismatch cases keep this boundary fail-closed even if a
+    future write path accidentally changes identity state without revoking.
+    """
+
+    async def scenario():
+        connection = _connection()
+        monkeypatch.setattr(
+            realtime_router,
+            "_resolve_identity",
+            lambda _token_hash: resolved_identity,
+        )
+
+        assert await realtime_router._revalidate_once(connection) is False
+        assert connection.close_requested.is_set() is True
+        assert connection.close_code == realtime_router.CLOSE_POLICY_VIOLATION
+        assert connection.close_reason == "session no longer valid"
+
+    asyncio.run(scenario())
+
+
+def test_revalidate_once_fails_closed_when_resolution_errors(monkeypatch):
+    def broken_resolver(_token_hash):
+        raise RuntimeError("database unavailable")
+
+    async def scenario():
+        connection = _connection()
+        monkeypatch.setattr(realtime_router, "_resolve_identity", broken_resolver)
+
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            await realtime_router._revalidate_once(connection)
+
+        assert connection.close_requested.is_set() is True
+        assert connection.close_code == realtime_router.CLOSE_INTERNAL_ERROR
+        assert connection.close_reason == "session revalidation failed"
+
+    asyncio.run(scenario())

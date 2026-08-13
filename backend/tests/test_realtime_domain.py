@@ -12,27 +12,23 @@ from app.domain import realtime
 
 def test_envelope_carries_a_discriminating_type():
     envelope = realtime.build_envelope(
-        event_type=realtime.EVENT_WORK_ORDER_CHANGED,
+        event_type=realtime.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED,
         entity_id="wo-1",
-        actor_id="user-1",
         request_id="req-1",
     )
 
-    assert envelope["type"] == realtime.EVENT_WORK_ORDER_CHANGED
+    assert envelope["type"] == realtime.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED
 
 
-def test_envelope_carries_actor_and_correlation_id():
-    """Actor lets a client ignore its own echo (§8.4, a UX-7 protection).
-    The request id is what makes one write traceable to N deliveries
+def test_envelope_carries_correlation_id():
+    """The request id is what makes one write traceable to N deliveries
     (§8.2) -- it must travel as data, never through a context variable."""
     envelope = realtime.build_envelope(
-        event_type=realtime.EVENT_WORK_ORDER_CHANGED,
+        event_type=realtime.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED,
         entity_id="wo-1",
-        actor_id="user-1",
         request_id="req-1",
     )
 
-    assert envelope["actor"] == "user-1"
     assert envelope["req"] == "req-1"
 
 
@@ -41,13 +37,12 @@ def test_envelope_carries_no_row_data():
     security argument for the socket rests on this -- if payloads ship,
     every fan-out decision becomes an independent disclosure review."""
     envelope = realtime.build_envelope(
-        event_type=realtime.EVENT_WORK_ORDER_CHANGED,
+        event_type=realtime.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED,
         entity_id="wo-1",
-        actor_id="user-1",
         request_id="req-1",
     )
 
-    assert set(envelope) == {"type", "id", "actor", "req"}
+    assert set(envelope) == {"type", "id", "req"}
 
 
 def test_envelope_stringifies_ids():
@@ -56,49 +51,68 @@ def test_envelope_stringifies_ids():
 
     entity = uuid.uuid4()
     envelope = realtime.build_envelope(
-        event_type=realtime.EVENT_WORK_ORDER_CHANGED,
+        event_type=realtime.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED,
         entity_id=entity,
-        actor_id=None,
         request_id=None,
     )
 
     assert envelope["id"] == str(entity)
-    assert envelope["actor"] is None
 
 
-# --- inbound validation ------------------------------------------------
+def test_envelope_allows_a_collection_invalidation_without_an_entity_id():
+    envelope = realtime.build_envelope(
+        event_type=realtime.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED,
+        entity_id=None,
+        request_id="req-1",
+    )
+
+    assert envelope["id"] is None
 
 
-def test_ping_is_the_only_accepted_inbound_frame():
-    assert realtime.is_valid_inbound({"type": realtime.INBOUND_PING}) is True
-
-
-def test_unknown_inbound_types_are_rejected():
-    assert realtime.is_valid_inbound({"type": "mutate_everything"}) is False
-
-
-def test_malformed_inbound_frames_are_rejected():
-    assert realtime.is_valid_inbound({}) is False
-    assert realtime.is_valid_inbound({"type": None}) is False
-    assert realtime.is_valid_inbound([]) is False
-    assert realtime.is_valid_inbound("ping") is False
+def test_v1_has_no_application_heartbeat_vocabulary():
+    """Uvicorn owns protocol ping/pong. Adding JSON heartbeat frames would
+    create a second liveness mechanism and a wire contract with no product
+    meaning."""
+    assert not hasattr(realtime, "INBOUND_PING")
+    assert not hasattr(realtime, "HEARTBEAT_INTERVAL_SECONDS")
+    assert not hasattr(realtime, "is_valid_inbound")
 
 
 # --- audience ----------------------------------------------------------
 
 
-def test_work_order_events_reach_admin_and_owner():
-    assert realtime.audience_allows(realtime.EVENT_WORK_ORDER_CHANGED, "admin") is True
-    assert realtime.audience_allows(realtime.EVENT_WORK_ORDER_CHANGED, "owner") is True
+def test_review_queue_events_reach_admin_and_owner():
+    assert (
+        realtime.audience_allows(
+            realtime.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED, "admin"
+        )
+        is True
+    )
+    assert (
+        realtime.audience_allows(
+            realtime.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED, "owner"
+        )
+        is True
+    )
 
 
-def test_work_order_events_do_not_reach_lower_roles_in_v1():
+def test_review_queue_events_do_not_reach_lower_roles_in_v1():
     """Not a security boundary -- P2 makes a mis-scoped audience a wasted
     message, since the recipient's re-fetch is still authorized
     server-side. This is a noise and efficiency rule, and the Admin
     Review surface is Admin+ only."""
-    assert realtime.audience_allows(realtime.EVENT_WORK_ORDER_CHANGED, "supervisor") is False
-    assert realtime.audience_allows(realtime.EVENT_WORK_ORDER_CHANGED, "technician") is False
+    assert (
+        realtime.audience_allows(
+            realtime.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED, "supervisor"
+        )
+        is False
+    )
+    assert (
+        realtime.audience_allows(
+            realtime.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED, "technician"
+        )
+        is False
+    )
 
 
 def test_unknown_event_types_reach_nobody():
@@ -123,3 +137,11 @@ def test_every_threshold_is_positive():
     assert realtime.MAX_FRAME_BYTES > 0
     assert realtime.SEND_QUEUE_MAX > 0
     assert realtime.HANDOFF_QUEUE_MAX > 0
+    assert realtime.SHUTDOWN_CLOSE_GRACE_SECONDS > 0
+    assert realtime.REVALIDATE_INTERVAL_SECONDS > 0
+    assert realtime.DISPATCH_MAX_RESTARTS > 0
+
+
+def test_revalidation_interval_bounds_authorization_lag():
+    """D1 accepts bounded lag, never an effectively permanent session."""
+    assert realtime.REVALIDATE_INTERVAL_SECONDS <= 300.0

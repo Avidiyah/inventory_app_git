@@ -67,12 +67,6 @@ _loop: Optional[asyncio.AbstractEventLoop] = None
 _dispatch_task: Optional[asyncio.Task] = None
 _dropped_events = 0
 
-# In-flight socket closes. Held only so the tasks are not garbage collected
-# mid-close -- asyncio keeps a weak reference to a running task, and a
-# fire-and-forget close that is collected simply never happens.
-_closing: set[asyncio.Task] = set()
-
-
 class Connection:
     """One live socket, with its own bounded outbound queue.
 
@@ -82,25 +76,35 @@ class Connection:
     events over hours, so this is a second identity model alongside that
     one rather than a copy of it.
 
-    The connection stores the session token **hash**, never the raw
-    token: it re-resolves its session on a timer (D1) and a registry full
-    of live credentials is exactly what `services.rate_limit.caller_key`
-    hashes to avoid.
+    The connection stores the session token **hash**, never the raw token.
+    Periodic revalidation uses it to keep authorization current (D1); keeping
+    a registry full of live credentials would violate the same boundary that
+    makes `services.rate_limit.caller_key` hash its input.
+
+    Inbound frame timestamps also live here rather than in a process-global
+    map. Their lifetime is exactly the connection's lifetime, so deregistration
+    is cleanup by construction and an abandoned caller cannot leave a key
+    behind.
     """
 
     __slots__ = (
-        "user_id", "token_hash", "role", "websocket",
-        "connection_id", "queue", "overflowed",
+        "user_id", "token_hash", "role", "connection_id", "queue",
+        "overflowed", "inbound_frames", "close_requested", "close_code",
+        "close_reason", "closed",
     )
 
-    def __init__(self, *, user_id, token_hash, role, websocket):
+    def __init__(self, *, user_id, token_hash, role):
         self.user_id = str(user_id)
         self.token_hash = token_hash
         self.role = role
-        self.websocket = websocket
         self.connection_id = uuid.uuid4().hex[:12]
         self.queue: asyncio.Queue = asyncio.Queue(maxsize=policy.SEND_QUEUE_MAX)
         self.overflowed = False
+        self.inbound_frames: deque[float] = deque()
+        self.close_requested = asyncio.Event()
+        self.close_code: Optional[int] = None
+        self.close_reason: Optional[str] = None
+        self.closed = asyncio.Event()
 
     def enqueue(self, envelope: dict[str, Any]) -> bool:
         """Queue one envelope for delivery. False means this connection
@@ -118,6 +122,25 @@ class Connection:
         except asyncio.QueueFull:
             self.overflowed = True
             return False
+
+    def request_close(self, code: int, reason: str) -> bool:
+        """Ask the endpoint that owns this connection to close it.
+
+        The service layer deliberately has no WebSocket reference and never
+        writes to the transport. Close requests are first-writer-wins because
+        overflow, revocation, shutdown, and peer failure can converge on one
+        connection; preserving the first cause keeps the resulting close code
+        deterministic and the log line honest.
+
+        Called only on the application event loop. `emit` is the sole
+        cross-thread entry point and it never calls this method.
+        """
+        if self.close_requested.is_set():
+            return False
+        self.close_code = code
+        self.close_reason = reason
+        self.close_requested.set()
+        return True
 
 
 class DispatchSupervisor:
@@ -144,9 +167,9 @@ def register(connection: "Connection") -> bool:
     """Add a connection, or refuse it at the per-user cap.
 
     Per **user**, not per session: phone-plus-desktop is legitimate and
-    multi-device delivery requires it. Correctness depends on the
-    heartbeat -- enough zombie entries and a legitimate user is locked out
-    by their own dead sockets.
+    multi-device delivery requires it. Uvicorn's protocol ping/pong and the
+    endpoint's receive loop eventually remove dead peers, so zombie entries
+    cannot consume cap slots indefinitely.
     """
     existing = _connections.setdefault(connection.user_id, set())
     if len(existing) >= policy.MAX_CONNECTIONS_PER_USER:
@@ -257,15 +280,16 @@ def start_dispatch() -> None:
 
 
 async def stop_dispatch() -> None:
-    """Stop dispatch and close every connection deliberately.
+    """Stop dispatch and request deliberate closure of every connection.
 
-    The close is the point. A client that is dropped without one sees a
-    network fault and reconnects on the shortest backoff it has, so a
-    deploy would be followed by every client retrying at once; a clean
-    close lets each reconnect on its own schedule.
+    The endpoint owns every transport write. This service signals code 1001,
+    then waits a bounded interval for the endpoint's `closed` acknowledgement.
+    One vanished peer can therefore neither create concurrent socket writers
+    nor hold application shutdown open indefinitely.
 
-    Closes run concurrently, so shutdown waits for the slowest socket
-    rather than the sum of all of them.
+    A client that receives the close reconnects on its own schedule; one that
+    cannot acknowledge is left to Uvicorn's shutdown path after the grace
+    period expires.
     """
     global _loop, _wakeup, _dispatch_task
 
@@ -279,27 +303,36 @@ async def stop_dispatch() -> None:
         except Exception:  # pragma: no cover - supervisor already logs
             logger.error("realtime.dispatch_stop_failed", exc_info=True)
 
-    # In-flight overflow closes are cancelled, not awaited. Those sockets
-    # are already out of the registry and already going away, and they are
-    # by definition the slow ones -- waiting on them is how a shutdown that
-    # should take milliseconds ends at the platform's SIGKILL instead.
-    in_flight = list(_closing)
-    _closing.clear()
-    for task in in_flight:
-        task.cancel()
-    if in_flight:
-        await asyncio.gather(*in_flight, return_exceptions=True)
-
     doomed = all_connections()
     _connections.clear()
-    if doomed:
-        await asyncio.gather(
-            *(
-                _close_quietly(connection, CLOSE_GOING_AWAY, "server shutting down")
-                for connection in doomed
-            ),
-            return_exceptions=True,
+    for connection in doomed:
+        connection.request_close(CLOSE_GOING_AWAY, "server shutting down")
+
+    waiters = [
+        asyncio.create_task(
+            connection.closed.wait(),
+            name=f"realtime-close-{connection.connection_id}",
         )
+        for connection in doomed
+        if not connection.closed.is_set()
+    ]
+    if waiters:
+        _done, pending = await asyncio.wait(
+            waiters,
+            timeout=policy.SHUTDOWN_CLOSE_GRACE_SECONDS,
+        )
+        if pending:
+            logger.warning(
+                "realtime.shutdown_close_timeout",
+                extra={"fields": {
+                    "pending": len(pending),
+                    "grace_seconds": policy.SHUTDOWN_CLOSE_GRACE_SECONDS,
+                }},
+            )
+        for waiter in pending:
+            waiter.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
     _loop = None
     _wakeup = None
@@ -322,19 +355,22 @@ async def _supervised_dispatch() -> None:
         except asyncio.CancelledError:
             raise
         except Exception:
+            will_restart = supervisor.should_restart()
             logger.error(
                 "realtime.dispatch_crashed",
                 exc_info=True,
                 extra={"fields": {
                     "restarts": supervisor.restarts,
+                    "will_restart": will_restart,
                     "connections": len(all_connections()),
                 }},
             )
-            if not supervisor.should_restart():
+            if not will_restart:
                 logger.error(
                     "realtime.dispatch_gave_up",
                     extra={"fields": {
                         "restarts": supervisor.restarts,
+                        "restart_limit": policy.DISPATCH_MAX_RESTARTS,
                         "connections": len(all_connections()),
                         "detail": "real-time delivery is stopped until restart",
                     }},
@@ -402,42 +438,9 @@ def _fan_out(envelope: dict[str, Any]) -> None:
             }},
         )
         deregister(connection)
-        _close_in_background(connection, CLOSE_TRY_AGAIN_LATER, "send queue overflow")
-
-
-def _close_in_background(connection: "Connection", code: int, reason: str) -> None:
-    """Close a socket beside the dispatch loop rather than inside it.
-
-    The connections closed here are by definition the ones that cannot
-    keep up, which makes them the ones whose close is most likely to
-    block on a full transport buffer. Awaiting that inline would let one
-    phone on bad wifi stall delivery for every other user -- the same
-    failure `emit` exists to prevent, one layer in.
-    """
-    if connection.websocket is None:
-        return
-    task = asyncio.ensure_future(_close_quietly(connection, code, reason))
-    _closing.add(task)
-    task.add_done_callback(_closing.discard)
-
-
-async def _close_quietly(connection: "Connection", code: int, reason: str) -> None:
-    """Close one socket, tolerating a peer that has already vanished.
-
-    A close that raises is not interesting: the socket is going away
-    either way, and the connection is already out of the registry.
-    """
-    websocket = connection.websocket
-    if websocket is None:
-        return
-    try:
-        await websocket.close(code=code, reason=reason)
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        logger.info(
-            "realtime.close_failed",
-            extra={"fields": {"connection_id": connection.connection_id}},
+        connection.request_close(
+            CLOSE_TRY_AGAIN_LATER,
+            "send queue overflow",
         )
 
 
@@ -460,7 +463,6 @@ def reset() -> None:
     with _handoff_lock:
         _handoff.clear()
     _dropped_events = 0
-    _closing.clear()
     _wakeup = None
     _loop = None
     _dispatch_task = None

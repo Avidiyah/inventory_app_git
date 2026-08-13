@@ -40,6 +40,8 @@ import "./views/auth.js";
 import { setScanResetter, setScanAutostarter } from "./views/transactions.js";
 import { resetScan, autoStartTxnScan } from "./views/scan.js";
 import { initAuth } from "./views/auth.js";
+import { getActivePage } from "./views/nav.js";
+import { setActivePageGetter } from "./realtime.js";
 
 // Let the scan-and-go flow stop the live camera + clear the scan UI when
 // the operator changes the work order. Same one-way-dependency reasoning.
@@ -48,6 +50,10 @@ setScanResetter(resetScan);
 // Auto-start the camera when a work order batch begins (only if camera
 // permission is already granted -- never prompts). Same one-way dependency.
 setScanAutostarter(autoStartTxnScan);
+
+// Give the foundation transport read-only page state without teaching it about
+// DOM structure or importing a view module from below the composition root.
+setActivePageGetter(getActivePage);
 
 // --- Auth gate ---------------------------------------------------
 // `initAuth` checks /auth/me and then either shows the login screen or

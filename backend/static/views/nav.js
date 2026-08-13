@@ -33,6 +33,13 @@ const SCANNERS_BY_PAGE = {
 
 let activePage = null;
 
+// Read-only navigation state for composition-root integrations such as the
+// real-time transport. Exporting the value avoids DOM inspection and keeps
+// foundation modules from importing this view module directly.
+export function getActivePage() {
+  return activePage;
+}
+
 // Tab-hide -> stop every active camera. The user has navigated away
 // from the tab; releasing the camera also turns off the torch LED and
 // the recording indicator. We do NOT reset() -- if they tab back, the

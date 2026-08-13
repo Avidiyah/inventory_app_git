@@ -97,15 +97,22 @@ class LogfmtFormatter(logging.Formatter):
     following lines. That breaks one-line-per-record, which is the point:
     a traceback is unreadable escaped onto a single line, and the header
     line above it still carries the request id needed to correlate it.
+
+    Long-lived work that outlives an HTTP request may carry its originating
+    request id as ordinary data. Such callers set `record.request_id`; that
+    explicit value replaces the ambient context value in the one canonical
+    `req=` field. It must never be appended through `fields`, which would
+    produce two conflicting correlation keys on one line.
     """
 
     def format(self, record: logging.LogRecord) -> str:
         context = request_context.get()
+        request_id = getattr(record, "request_id", context.get("req", _ABSENT))
 
         pairs: list[tuple[str, Any]] = [
             ("ts", self._timestamp(record)),
             ("level", record.levelname),
-            ("req", context.get("req", _ABSENT)),
+            ("req", request_id),
         ]
 
         user = context.get("user")
@@ -179,6 +186,17 @@ def new_request_context(request_id: str) -> dict[str, Any]:
     can read back whatever a downstream dependency added.
     """
     return {"req": request_id}
+
+
+def current_request_id() -> Optional[str]:
+    """The active HTTP request's correlation id, if there is one.
+
+    Router-level invalidation emitters copy this value into the envelope as
+    ordinary data because the long-lived dispatch task cannot inherit request
+    context. Outside an HTTP request this is deliberately safe and returns
+    ``None`` rather than manufacturing an identity.
+    """
+    return request_context.get().get("req")
 
 
 def bind_user(user_id: Any) -> None:

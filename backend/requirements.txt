@@ -20,8 +20,9 @@ uvicorn==0.48.0
 # protocol library, so the socket tests pass either way. See
 # tests/test_realtime_dependency.py, which exists solely to guard this.
 #
-# 15.0.1 is the current stable release and the version verified against
-# uvicorn 0.48.0 in this environment. uvicorn 0.48.0's handshake still
+# 15.0.1 is the version verified against uvicorn 0.48.0 in this environment.
+# It is a compatibility pin, not a claim about the newest available release.
+# uvicorn 0.48.0's handshake still
 # imports the deprecated `websockets.legacy` module, so a future websockets
 # major that drops it will break that handshake silently -- bumping this pin
 # requires re-verifying a real server connection, not just a green suite.

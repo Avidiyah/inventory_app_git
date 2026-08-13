@@ -21,12 +21,11 @@ def _clean_registry():
     service.reset()
 
 
-def _conn(user_id="user-1", role="admin", websocket=None):
+def _conn(user_id="user-1", role="admin"):
     return service.Connection(
         user_id=user_id,
         token_hash="a" * 64,
         role=role,
-        websocket=websocket,
     )
 
 
@@ -93,7 +92,7 @@ def test_users_have_independent_caps():
 
 
 def test_emit_never_blocks_and_reports_acceptance():
-    assert service.emit({"type": "work_order.changed"}) is True
+    assert service.emit({"type": "work_order.review_queue.changed"}) is True
 
 
 def test_emit_drops_newest_when_the_handoff_is_full():
@@ -102,15 +101,15 @@ def test_emit_drops_newest_when_the_handoff_is_full():
     matters is that a request thread is never blocked (UX-7) and that the
     drop is counted rather than silent."""
     for _ in range(policy.HANDOFF_QUEUE_MAX):
-        service.emit({"type": "work_order.changed"})
+        service.emit({"type": "work_order.review_queue.changed"})
 
-    assert service.emit({"type": "work_order.changed"}) is False
+    assert service.emit({"type": "work_order.review_queue.changed"}) is False
     assert service.dropped_event_count() == 1
 
 
 def test_dropped_events_are_counted_cumulatively():
     for _ in range(policy.HANDOFF_QUEUE_MAX + 3):
-        service.emit({"type": "work_order.changed"})
+        service.emit({"type": "work_order.review_queue.changed"})
 
     assert service.dropped_event_count() == 3
 
@@ -123,10 +122,10 @@ def test_a_dropped_event_is_logged_as_a_greppable_event_name(caplog):
     prose message with the count inlined would render as one quoted,
     escaped blob that `grep event=realtime.handoff_full` never finds."""
     for _ in range(policy.HANDOFF_QUEUE_MAX):
-        service.emit({"type": "work_order.changed"})
+        service.emit({"type": "work_order.review_queue.changed"})
 
     with caplog.at_level("WARNING"):
-        assert service.emit({"type": "work_order.changed"}) is False
+        assert service.emit({"type": "work_order.review_queue.changed"}) is False
 
     record = next(
         r for r in caplog.records if r.getMessage() == "realtime.handoff_full"
@@ -148,10 +147,27 @@ def test_send_queue_overflow_marks_the_connection_for_closure():
     connection = _conn()
 
     for _ in range(policy.SEND_QUEUE_MAX):
-        assert connection.enqueue({"type": "work_order.changed"}) is True
+        assert connection.enqueue({"type": "work_order.review_queue.changed"}) is True
 
-    assert connection.enqueue({"type": "work_order.changed"}) is False
+    assert connection.enqueue({"type": "work_order.review_queue.changed"}) is False
     assert connection.overflowed is True
+
+
+def test_connection_has_no_transport_reference():
+    """Only the endpoint may write or close a WebSocket. Keeping the
+    transport out of the registry makes that boundary structural."""
+    assert not hasattr(_conn(), "websocket")
+
+
+def test_first_close_request_wins():
+    connection = _conn()
+
+    assert connection.request_close(1013, "send queue overflow") is True
+    assert connection.request_close(1001, "server shutting down") is False
+
+    assert connection.close_requested.is_set()
+    assert connection.close_code == 1013
+    assert connection.close_reason == "send queue overflow"
 
 
 # --- dispatch supervision ----------------------------------------------
@@ -188,21 +204,6 @@ def test_supervisor_reports_permanent_failure():
 # before an assertion is meaningful.
 
 
-class _FakeSocket:
-    """Just enough of a Starlette WebSocket for the close path."""
-
-    def __init__(self, hangs=False):
-        self.closed_with = None
-        self.close_calls = 0
-        self._hangs = hangs
-
-    async def close(self, code=1000, reason=""):
-        self.close_calls += 1
-        if self._hangs:
-            await asyncio.sleep(3600)
-        self.closed_with = (code, reason)
-
-
 async def _settle(predicate, timeout=2.0):
     """Yield until `predicate` holds, or give up. Returns the outcome so a
     timeout fails the assertion rather than hanging the suite."""
@@ -213,6 +214,13 @@ async def _settle(predicate, timeout=2.0):
             return False
         await asyncio.sleep(0.001)
     return True
+
+
+async def _stop_cleanly():
+    """Acknowledge endpoint ownership when a service-only scenario ends."""
+    for connection in service.all_connections():
+        connection.closed.set()
+    await service.stop_dispatch()
 
 
 def test_dispatch_delivers_only_to_the_permitted_audience():
@@ -227,16 +235,18 @@ def test_dispatch_delivers_only_to_the_permitted_audience():
         service.register(technician)
         service.start_dispatch()
 
-        service.emit({"type": policy.EVENT_WORK_ORDER_CHANGED, "id": "7"})
+        service.emit(
+            {"type": policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED, "id": "7"}
+        )
 
         assert await _settle(lambda: admin.queue.qsize() == 1)
         assert technician.queue.qsize() == 0
         assert admin.queue.get_nowait() == {
-            "type": policy.EVENT_WORK_ORDER_CHANGED,
+            "type": policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED,
             "id": "7",
         }
 
-        await service.stop_dispatch()
+        await _stop_cleanly()
 
     asyncio.run(scenario())
 
@@ -249,15 +259,19 @@ def test_dispatch_drains_events_emitted_before_the_loop_existed():
 
     async def scenario():
         service.register(connection)
-        service.emit({"type": policy.EVENT_WORK_ORDER_CHANGED, "id": "1"})
+        service.emit(
+            {"type": policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED, "id": "1"}
+        )
 
         service.start_dispatch()
 
         assert await _settle(lambda: connection.queue.qsize() == 2)
-        await service.stop_dispatch()
+        await _stop_cleanly()
 
     # Emitted with no event loop running anywhere in the process.
-    service.emit({"type": policy.EVENT_WORK_ORDER_CHANGED, "id": "0"})
+    service.emit(
+        {"type": policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED, "id": "0"}
+    )
     asyncio.run(scenario())
 
     assert [connection.queue.get_nowait()["id"] for _ in range(2)] == ["0", "1"]
@@ -267,34 +281,35 @@ def test_dispatch_closes_and_deregisters_a_connection_that_overflows():
     """The backpressure policy: a socket that cannot drain what it is sent
     is closed, not buffered. Deregistration is immediate so the cap slot
     is freed and no later event is fanned out to a doomed socket."""
-    socket = _FakeSocket()
-    connection = _conn(websocket=socket)
+    connection = _conn()
     for _ in range(policy.SEND_QUEUE_MAX):
-        connection.enqueue({"type": policy.EVENT_WORK_ORDER_CHANGED})
+        connection.enqueue({"type": policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED})
 
     async def scenario():
         service.register(connection)
         service.start_dispatch()
 
-        service.emit({"type": policy.EVENT_WORK_ORDER_CHANGED, "id": "9"})
+        service.emit(
+            {"type": policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED, "id": "9"}
+        )
 
-        assert await _settle(lambda: socket.closed_with is not None)
+        assert await _settle(connection.close_requested.is_set)
         assert service.connection_count("user-1") == 0
         assert connection.overflowed is True
+        assert connection.close_code == service.CLOSE_TRY_AGAIN_LATER
+        assert connection.close_reason == "send queue overflow"
 
         await service.stop_dispatch()
 
     asyncio.run(scenario())
 
 
-def test_a_hanging_close_does_not_stall_dispatch_for_everyone_else():
-    """Closing an overflowed socket is exactly the case most likely to
-    block, so it runs beside the dispatch loop rather than inside it. If
-    it ran inline, one phone on bad wifi would stop delivery for every
-    other user -- the same failure this whole module exists to prevent."""
-    slow = _conn(user_id="user-slow", websocket=_FakeSocket(hangs=True))
+def test_an_overflow_close_request_does_not_stall_dispatch_for_everyone_else():
+    """The service signals closure without touching the socket, so one
+    slow peer cannot stall fan-out for every healthy connection."""
+    slow = _conn(user_id="user-slow")
     for _ in range(policy.SEND_QUEUE_MAX):
-        slow.enqueue({"type": policy.EVENT_WORK_ORDER_CHANGED})
+        slow.enqueue({"type": policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED})
     healthy = _conn(user_id="user-fine")
 
     async def scenario():
@@ -302,24 +317,28 @@ def test_a_hanging_close_does_not_stall_dispatch_for_everyone_else():
         service.register(healthy)
         service.start_dispatch()
 
-        service.emit({"type": policy.EVENT_WORK_ORDER_CHANGED, "id": "1"})
-        service.emit({"type": policy.EVENT_WORK_ORDER_CHANGED, "id": "2"})
+        service.emit(
+            {"type": policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED, "id": "1"}
+        )
+        service.emit(
+            {"type": policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED, "id": "2"}
+        )
 
         assert await _settle(lambda: healthy.queue.qsize() == 2)
+        assert slow.close_requested.is_set()
 
-        await service.stop_dispatch()
+        await _stop_cleanly()
 
     asyncio.run(scenario())
 
 
-def test_stop_dispatch_closes_every_connection_deliberately():
+def test_stop_dispatch_requests_every_connection_close_and_waits_for_ack():
     """A clean close lets the client reconnect on its own schedule. Being
     dropped without one looks like a network fault, and every client
     reconnects at once."""
-    sockets = [_FakeSocket(), _FakeSocket()]
     connections = [
-        _conn(user_id="user-1", websocket=sockets[0]),
-        _conn(user_id="user-2", websocket=sockets[1]),
+        _conn(user_id="user-1"),
+        _conn(user_id="user-2"),
     ]
 
     async def scenario():
@@ -327,13 +346,41 @@ def test_stop_dispatch_closes_every_connection_deliberately():
             service.register(connection)
         service.start_dispatch()
 
+        async def acknowledge(connection):
+            await connection.close_requested.wait()
+            connection.closed.set()
+
+        acknowledgements = [
+            asyncio.create_task(acknowledge(connection))
+            for connection in connections
+        ]
         await service.stop_dispatch()
+        await asyncio.gather(*acknowledgements)
 
     asyncio.run(scenario())
 
-    assert all(socket.closed_with is not None for socket in sockets)
+    assert all(connection.close_code == service.CLOSE_GOING_AWAY for connection in connections)
+    assert all(connection.close_reason == "server shutting down" for connection in connections)
     assert service.connection_count("user-1") == 0
     assert service.connection_count("user-2") == 0
+
+
+def test_stop_dispatch_timeout_is_bounded_and_logged(monkeypatch, caplog):
+    connection = _conn()
+    monkeypatch.setattr(service.policy, "SHUTDOWN_CLOSE_GRACE_SECONDS", 0.0)
+
+    async def scenario():
+        service.register(connection)
+        service.start_dispatch()
+        await service.stop_dispatch()
+
+    with caplog.at_level("WARNING"):
+        asyncio.run(scenario())
+
+    assert any(
+        record.getMessage() == "realtime.shutdown_close_timeout"
+        for record in caplog.records
+    )
 
 
 def test_stop_dispatch_without_a_start_is_harmless():
@@ -354,7 +401,9 @@ def test_emit_does_not_raise_when_the_loop_has_already_closed():
 
     asyncio.run(scenario())
 
-    assert service.emit({"type": policy.EVENT_WORK_ORDER_CHANGED}) is True
+    assert (
+        service.emit({"type": policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED}) is True
+    )
     assert service.dropped_event_count() == 0
 
 
@@ -368,10 +417,12 @@ def test_emit_does_not_raise_once_the_handles_are_cleared():
 
     asyncio.run(scenario())
 
-    assert service.emit({"type": policy.EVENT_WORK_ORDER_CHANGED}) is True
+    assert (
+        service.emit({"type": policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED}) is True
+    )
 
 
-def test_dispatch_restarts_after_a_transient_fault(monkeypatch):
+def test_dispatch_restarts_after_a_transient_fault(monkeypatch, caplog):
     """D2's first half: a one-off fault must not end real-time until the
     next deploy."""
     connection = _conn()
@@ -390,15 +441,28 @@ def test_dispatch_restarts_after_a_transient_fault(monkeypatch):
         service.register(connection)
         service.start_dispatch()
 
-        service.emit({"type": policy.EVENT_WORK_ORDER_CHANGED, "id": "1"})
+        service.emit(
+            {"type": policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED, "id": "1"}
+        )
         assert await _settle(lambda: calls["n"] >= 1)
 
-        service.emit({"type": policy.EVENT_WORK_ORDER_CHANGED, "id": "2"})
+        service.emit(
+            {"type": policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED, "id": "2"}
+        )
         assert await _settle(lambda: connection.queue.qsize() >= 1)
 
-        await service.stop_dispatch()
+        await _stop_cleanly()
 
-    asyncio.run(scenario())
+    with caplog.at_level("ERROR", logger=service.__name__):
+        asyncio.run(scenario())
+
+    crashed = next(
+        record for record in caplog.records
+        if record.getMessage() == "realtime.dispatch_crashed"
+    )
+    assert crashed.levelname == "ERROR"
+    assert crashed.fields["restarts"] == 1
+    assert crashed.fields["will_restart"] is True
 
 
 def test_dispatch_gives_up_loudly_after_the_restart_cap(caplog):
@@ -422,10 +486,15 @@ def test_dispatch_gives_up_loudly_after_the_restart_cap(caplog):
         service.start_dispatch()
 
         for index in range(policy.DISPATCH_MAX_RESTARTS + 2):
-            service.emit({"type": policy.EVENT_WORK_ORDER_CHANGED, "id": str(index)})
+            service.emit(
+                {
+                    "type": policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED,
+                    "id": str(index),
+                }
+            )
 
         assert await _settle(gave_up)
-        await service.stop_dispatch()
+        await _stop_cleanly()
 
     with caplog.at_level("ERROR"):
         with pytest.MonkeyPatch.context() as patch:
@@ -433,3 +502,18 @@ def test_dispatch_gives_up_loudly_after_the_restart_cap(caplog):
             asyncio.run(scenario())
 
     assert connection.queue.qsize() == 0
+    crashed = [
+        record for record in caplog.records
+        if record.getMessage() == "realtime.dispatch_crashed"
+    ]
+    gave_up_record = next(
+        record for record in caplog.records
+        if record.getMessage() == "realtime.dispatch_gave_up"
+    )
+    assert crashed[-1].levelname == "ERROR"
+    assert crashed[-1].fields["restarts"] == policy.DISPATCH_MAX_RESTARTS
+    assert crashed[-1].fields["will_restart"] is False
+    assert gave_up_record.levelname == "ERROR"
+    assert gave_up_record.fields["restarts"] == policy.DISPATCH_MAX_RESTARTS
+    assert gave_up_record.fields["restart_limit"] == policy.DISPATCH_MAX_RESTARTS
+    assert "stopped until restart" in gave_up_record.fields["detail"]

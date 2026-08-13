@@ -120,6 +120,7 @@ Path shorthand:
 | Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
 | Work Orders UI | `static/views/workOrders.js`, `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | work-order tests plus manual UI check |
 | Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, manual UI check |
+| Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
 | Tools API/domain/service (custody) | `domain/tools.py`, `domain/quantity.py` (reused), `services/tools.py`, `routers/tools.py`, `schemas/tools.py`, `models.py` | `test_tools_domain.py`, `test_tools_service.py`, `test_route_role_gates.py` |
 | Tools UI (Add Tools card + Tools page) | `static/views/tools.js`, `static/views/toolCheckout.js`, `static/views/toolReturn.js`, `static/pages/tools.html`, `static/pages/create-item.html`, `static/api.js` | manual UI check (no frontend test harness) |
 | Deployment/runtime | `backend/Dockerfile`, `backend/entrypoint.sh`, `backend/alembic.ini`, `backend/app/database.py`, `render.yaml`, `requirements*.txt` | `git diff --check`; run tests if runtime deps change |
@@ -303,6 +304,63 @@ Logging (`app/logging_config.py`, added 2026-08-09 as N1):
 - Adding logs elsewhere needs no plumbing: `logging.getLogger(__name__)` and
   `extra={"fields": {...}}`. The request context is read at format time, so it
   attaches itself.
+
+Real-time invalidation (`domain/realtime.py`, `services/realtime.py`,
+`routers/realtime.py`, `static/realtime.js`, `static/views/adminReview.js`;
+implementation Tasks 1-12 on
+`feat/realtime-live-layer`):
+
+- The wire envelope is exactly `type`, `id`, and `req`. It never carries row
+  data or an actor. `req` is copied from `logging_config.current_request_id()`
+  into ordinary event data so the independent dispatch task can preserve the
+  originating HTTP request's causal trace.
+- The first and currently only application event is
+  `work_order.review_queue.changed`, delivered only to Admin and Owner. It
+  invalidates the Review-status queue projection (membership plus the
+  number/location/assignee card fields), not the whole work-order aggregate and
+  not an open Admin Review receipt.
+- Exactly five work-order commands emit after their mutating service returns:
+  CSV import and bulk legacy archive once each with `id: null`, plus update,
+  archive, and restore with the work-order UUID. Successful capable no-ops emit
+  intentionally; the extra refetch is cheaper and safer than before/after state
+  plumbing.
+- Start, complete, hold, resume, materials, billing, and labor do not emit this
+  projection event. Any future route capable of changing Review membership or
+  the queue's displayed card fields must call the same helper and extend
+  `test_realtime_emit.py`'s exact emitter-set assertion.
+- Emission is non-blocking and best-effort. A full handoff drops and counts the
+  newest invalidation but never changes the durable HTTP write. REST remains the
+  source of truth.
+- The browser transport owns one same-origin `/ws` connection. It connects only
+  after authentication, disconnects on logout or any global 401, and uses a
+  generation guard so callbacks from an old socket cannot reconnect after the
+  session has been cleared.
+- Failed connections retry silently with equal-jitter exponential backoff:
+  0.5-1s, 1-2s, 2-4s, 4-8s, 8-16s, then 15-30s. A successful recovery notifies
+  each registered handler once because invalidations may have been missed; the
+  first successful connection does not produce a recovery notification.
+- `static/realtime.js` has no DOM or view dependency. `main.js` injects
+  `views/nav.js::getActivePage`, and notifications expose `reason`, `envelope`,
+  and `activePage`. Only explicitly subscribed, UX-6-reviewed views may refresh;
+  there is no global page reload, actor suppression, socket status UI, or
+  client-to-server application message.
+- Admin Review subscribes to the queue event and to reconnect recovery. It
+  refreshes only while `admin-review` is active; inactive notifications need no
+  dirty flag because navigation already performs a fresh REST load on entry.
+- Socket-driven queue refreshes are silent: they do not show the loading copy,
+  and a failed automatic REST refetch preserves the usable queue. Foreground
+  navigation and Reopen/Close loads retain their existing loading and error UI.
+- Queue requests carry a monotonically increasing id. Only a result at least as
+  new as the last DOM commit may render, preventing an older response from
+  repainting stale cards when the writer's event overlaps its explicit post-
+  action reload. `selectedDetail` and the open receipt are never replaced by a
+  queue refresh.
+- Tasks 1-12 are technically implemented and owner-validated in a local browser
+  on 2026-08-13. The owner confirmed the real `ws://localhost:8124/ws`
+  handshake, two-browser live updates, inactive-page behavior, writer echo,
+  receipt preservation, reconnect recovery, blocked-socket REST fallback,
+  logout cleanup, local CSP behavior, and expected connection/delivery logs.
+  Codex did not operate the browser; this acceptance evidence is owner-reported.
 
 Upload size caps (`app/routers/_uploads.py`, added 2026-08-09 as B1):
 

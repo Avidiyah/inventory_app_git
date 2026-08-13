@@ -16,39 +16,37 @@ So with one endpoint, the whole policy is readable in one file.
 
 Authentication reuses the existing session cookie and the existing
 resolver. No new token scheme, no new credential, no change to how anyone
-logs in: a socket is exactly as authenticated as the page that opened it,
-and revoking a session revokes the socket with it.
+logs in. The handshake retains only the token hash, and every accepted
+connection periodically re-resolves it so revocation remains bounded for a
+long-lived socket. The revalidation must return the exact handshake identity;
+missing sessions and identity or role drift all fail closed.
 
-Refusal happens **before** `accept()`. A missing cookie, an unresolvable
-session, and a user already at `MAX_CONNECTIONS_PER_USER` are all decided
-while the handshake is still a handshake, so a refused caller costs one
-close frame rather than a registered connection that has to be unwound.
-Note the protocol limit this runs into: **there is no `Retry-After` on a
-WebSocket close.** The server closes with a code and the client derives
-its own wait; a wait hint, if one is ever needed, has to ride in an
-application frame *before* the close.
+Refusal happens **before** `accept()` as an HTTP denial response. A foreign
+origin, missing or unresolvable session, and a user already at
+`MAX_CONNECTIONS_PER_USER` never become WebSocket connections. Close codes
+exist only after acceptance; Starlette maps a pre-accept `close()` to a bare
+HTTP 403, so authentication and capacity use explicit 401/429 responses.
 
-**P3 is permanent: the socket never mutates anything.** The only inbound
-frame this version understands is a ping, and there will never be an
-inbound frame that changes state. Frames it does not understand are
-ignored rather than fatal -- an unknown type is at worst a client from a
-newer deploy, and dropping the connection over one would turn a frontend
-release into a disconnect storm.
+**P3 is permanent: the socket never mutates anything.** V1 has no
+application-level inbound vocabulary. Uvicorn owns protocol ping/pong;
+application frames inside the size limit are ignored until a later feature
+has a real message type to validate.
 
-What is deliberately *not* here, because later tasks own it: the
-handshake attempt limiter and the inbound frame-rate limiter, the
-heartbeat, and periodic session revalidation. The seams they need exist
--- inbound frames are already accepted and validated here, and
-`Connection` already carries the session hash it will re-resolve.
+Handshake attempts and accepted application frames have independent,
+process-local sliding-window budgets. The handshake budget is also independent
+from the HTTP request limiter so reconnect churn cannot consume the requests an
+inventory write needs. Transport liveness remains configured in Uvicorn rather
+than duplicated in application JSON.
 """
 
 import contextlib
-import json
 import logging
+from time import monotonic
 from typing import Optional
+from urllib.parse import urlsplit
 
 import anyio
-from fastapi import APIRouter, WebSocket
+from fastapi import APIRouter, HTTPException, WebSocket
 from starlette.concurrency import run_in_threadpool
 from starlette.websockets import WebSocketDisconnect
 
@@ -56,8 +54,9 @@ from app.auth_deps import SESSION_COOKIE
 from app.database import SessionLocal
 from app.domain import realtime as policy
 from app.services import auth as auth_service
+from app.services import rate_limit as rate_limit_service
+from app.services import realtime_limits
 from app.services.realtime import (
-    CLOSE_TRY_AGAIN_LATER,
     Connection,
     deregister,
     register,
@@ -69,32 +68,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Close codes used by this endpoint. Transport mechanics rather than
-# policy -- nothing in `app.domain.realtime` decides them -- and the two
-# that already had a home live in `app.services.realtime` beside the
-# shutdown and backpressure closes that use them.
-#
-# 1008 is "policy violation" and is what every pre-accept refusal sends,
-# per the task brief. Worth knowing when the client is written: it is the
-# code for *both* "you are not authenticated" (do not retry, re-login)
-# and "you are at the connection cap" (do retry later), so the client
-# cannot tell those apart from the code alone.
+# 1009 is the standard "message too big". It is a post-accept transport
+# close, unlike handshake policy failures, which are HTTP denial responses.
 CLOSE_POLICY_VIOLATION = 1008
-
-# 1009 is the standard "message too big". Distinct from 1008 on purpose:
-# an oversized frame is the one refusal that happens *after* accept, and
-# it says nothing about the caller's credentials.
 CLOSE_MESSAGE_TOO_BIG = 1009
+CLOSE_INTERNAL_ERROR = 1011
 
-# The only server->client frame this task produces. It is not an event,
-# so it deliberately does not go through `policy.build_envelope` -- that
-# envelope's four keys are the *event* contract, and widening it to also
-# describe liveness replies is how a wire format starts meaning two
-# things.
-#
-# Lives here rather than in `app.domain.realtime` beside `INBOUND_PING`
-# only because this task's file list is the endpoint and `main.py`.
-OUTBOUND_PONG = "pong"
+
+def _connection_log_fields(connection: Connection) -> dict[str, str]:
+    """Stable identity fields for every accepted-connection log line."""
+    return {
+        "connection_id": connection.connection_id,
+        "user_id": connection.user_id,
+    }
 
 
 def _resolve_identity(token_hash: str) -> Optional[tuple[str, str]]:
@@ -125,15 +111,102 @@ def _resolve_identity(token_hash: str) -> Optional[tuple[str, str]]:
         return str(user.id), user.role
 
 
+async def _revalidate_once(connection: Connection) -> bool:
+    """Re-resolve one accepted connection's authorization.
+
+    The database work stays off the event loop and uses `_resolve_identity`'s
+    short-lived session. Returning primitives keeps ORM state out of the
+    connection registry. The identity must match the handshake exactly:
+    production role changes revoke the session, and an unexpected surviving
+    mismatch is an invariant violation that must fail closed rather than
+    silently changing the connection's audience.
+
+    Resolver failures also fail closed. The exception is re-raised so the
+    existing connection-failure log retains the operational cause, while the
+    requested 1011 close gives the client an honest retryable transport result.
+    """
+    try:
+        identity = await run_in_threadpool(
+            _resolve_identity,
+            connection.token_hash,
+        )
+    except Exception:
+        connection.request_close(
+            CLOSE_INTERNAL_ERROR,
+            "session revalidation failed",
+        )
+        raise
+
+    if identity != (connection.user_id, connection.role):
+        connection.request_close(
+            CLOSE_POLICY_VIOLATION,
+            "session no longer valid",
+        )
+        return False
+    return True
+
+
+def _normalise_origin(value: str) -> Optional[tuple[str, str, int]]:
+    """Return a comparable browser origin, or None when it is not one.
+
+    Browser Origin serialization has a scheme and authority only. Rejecting
+    credentials and every other URL component keeps this comparison narrower
+    than general URL equivalence, which is exactly what a cookie-authenticated
+    same-origin channel needs.
+    """
+    if not value or value == "null":
+        return None
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return None
+    if parsed.scheme not in {"http", "https"} or parsed.hostname is None:
+        return None
+    if parsed.username is not None or parsed.password is not None:
+        return None
+    if parsed.path or parsed.query or parsed.fragment:
+        return None
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+    return parsed.scheme, parsed.hostname.lower(), port
+
+
+def _same_origin(websocket: WebSocket) -> bool:
+    """Whether this browser handshake came from the page it targets.
+
+    Browser clients cannot forge Origin or Host. Non-browser clients can
+    forge both, which is fine: this boundary prevents cookie-bearing browser
+    JavaScript on another origin from borrowing the user's authority; session
+    authentication remains authoritative for every client.
+    """
+    origins = websocket.headers.getlist("origin")
+    hosts = websocket.headers.getlist("host")
+    if len(origins) != 1 or len(hosts) != 1 or not hosts[0]:
+        return False
+    host = hosts[0]
+
+    request_scheme = {
+        "ws": "http",
+        "wss": "https",
+        "http": "http",
+        "https": "https",
+    }.get(websocket.url.scheme)
+    if request_scheme is None:
+        return False
+    return _normalise_origin(origins[0]) == _normalise_origin(
+        f"{request_scheme}://{host}"
+    )
+
+
 @router.websocket("/ws")
 async def realtime_socket(websocket: WebSocket) -> None:
     """The app's only WebSocket route. Refuse, register, accept, serve.
 
     The ordering is the substance of this function, so it is written as a
-    flat sequence rather than factored into helpers: read the cookie,
-    resolve the session, take a slot, and only then accept. Each step
-    refuses by closing and returning, and none of them has accepted a
-    connection yet.
+    flat sequence rather than factored into helpers: validate Origin, count
+    the attempt, resolve the session, take a slot, and only then accept. Each
+    failed step raises an HTTP denial and none has accepted a connection yet.
 
     `deregister` runs in a `finally` covering **every** exit after
     registration -- clean close, client vanishing, unhandled error, task
@@ -142,18 +215,44 @@ async def realtime_socket(websocket: WebSocket) -> None:
     process and becomes a phantom fan-out target that the dispatch loop
     keeps enqueuing to.
     """
+    if not _same_origin(websocket):
+        raise HTTPException(status_code=403, detail="WebSocket origin is not allowed.")
+
     token = websocket.cookies.get(SESSION_COOKIE)
+    client = websocket.client
+    caller_key = rate_limit_service.caller_key(
+        token,
+        client.host if client and client.host else "unknown",
+    )
+    retry_after = realtime_limits.check_handshake_and_record(
+        caller_key,
+        monotonic(),
+    )
+    if retry_after is not None:
+        logger.warning(
+            "realtime.connection_refused",
+            extra={"fields": {
+                "reason": "handshake_rate_limit",
+                "retry_after": retry_after,
+                "cap": policy.HANDSHAKE_MAX_ATTEMPTS,
+                "window_seconds": policy.HANDSHAKE_WINDOW_SECONDS,
+            }},
+        )
+        raise HTTPException(
+            status_code=429,
+            detail="Too many WebSocket connection attempts.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     if not token:
         # No log line. An unauthenticated handshake is the ordinary shape
         # of a logged-out browser reconnecting, not an event.
-        await websocket.close(code=CLOSE_POLICY_VIOLATION, reason="not authenticated")
-        return
+        raise HTTPException(status_code=401, detail="Not authenticated.")
 
-    # The raw token is used exactly once, here, and never stored: the
-    # `Connection` keeps the hash. A raw session token is a live
-    # credential and the registry is a process-wide structure that lives
-    # for the life of the process -- the same reasoning that made
-    # `services.rate_limit.caller_key` hash its input.
+    # The raw token is passed only to the two established hash boundaries --
+    # caller identity above and session identity here -- and is never stored.
+    # A raw session token is a live credential; the connection registry and
+    # limiter buckets are process-wide structures that must not retain it.
     token_hash = auth_service.hash_session_token(token)
 
     # Offloaded to a worker thread rather than awaited on the loop. The
@@ -163,21 +262,20 @@ async def realtime_socket(websocket: WebSocket) -> None:
     # database access on the socket path, and it costs two queries.
     identity = await run_in_threadpool(_resolve_identity, token_hash)
     if identity is None:
-        await websocket.close(code=CLOSE_POLICY_VIOLATION, reason="session invalid")
-        return
+        raise HTTPException(status_code=401, detail="Not authenticated.")
 
     user_id, role = identity
     connection = Connection(
         user_id=user_id,
         token_hash=token_hash,
         role=role,
-        websocket=websocket,
     )
 
     if not register(connection):
         # Registered *before* accept, so a user at the cap never becomes a
-        # connection that then has to be torn down. There is no
-        # `Retry-After` to send with this; the client picks its own wait.
+        # connection that then has to be torn down. This is concurrent
+        # capacity rather than a timed rate limit, so no Retry-After value
+        # would be honest.
         logger.warning(
             "realtime.connection_refused",
             extra={"fields": {
@@ -186,16 +284,14 @@ async def realtime_socket(websocket: WebSocket) -> None:
                 "cap": policy.MAX_CONNECTIONS_PER_USER,
             }},
         )
-        await websocket.close(code=CLOSE_POLICY_VIOLATION, reason="too many connections")
-        return
+        raise HTTPException(status_code=429, detail="Too many WebSocket connections.")
 
     try:
         await websocket.accept()
         logger.info(
             "realtime.connected",
             extra={"fields": {
-                "connection_id": connection.connection_id,
-                "user_id": user_id,
+                **_connection_log_fields(connection),
                 "role": role,
             }},
         )
@@ -205,23 +301,23 @@ async def realtime_socket(websocket: WebSocket) -> None:
         # cancellation at shutdown, where the first `await` would
         # immediately re-raise and skip whatever followed it.
         deregister(connection)
+        connection.closed.set()
         logger.info(
             "realtime.disconnected",
             extra={"fields": {
-                "connection_id": connection.connection_id,
-                "user_id": user_id,
+                **_connection_log_fields(connection),
                 "overflowed": connection.overflowed,
             }},
         )
 
 
 async def _serve(connection: Connection, websocket: WebSocket) -> None:
-    """Run the connection's two loops until either one finishes.
+    """Run the connection loops, then serialize any requested close.
 
-    Reading and writing are separate tasks because they block on
-    different things: the reader waits on the peer, the writer waits on
-    the send queue that the process-wide dispatch task fills. A single
-    loop polling both would either add latency to delivery or spin.
+    Reading, writing, and close signaling are separate tasks because they
+    block on different things. Whichever finishes first cancels and joins
+    the other two. Only after the data writer is gone may this supervisor
+    send a close frame, so the socket never has concurrent writers.
 
     **An anyio task group, not `asyncio.wait` over `ensure_future`.** This
     is the one place in the file where the idiomatic-looking asyncio
@@ -248,6 +344,12 @@ async def _serve(connection: Connection, websocket: WebSocket) -> None:
             task_group.start_soon(
                 _until_done, task_group, _send_pump, connection, websocket
             )
+            task_group.start_soon(
+                _until_done, task_group, _wait_for_close, connection, websocket
+            )
+            task_group.start_soon(
+                _until_done, task_group, _revalidation_loop, connection, websocket
+            )
     except Exception as error:
         # Logged, not raised. UX-5: socket failure is silent, and there is
         # no request to fail -- the only useful outcome is a greppable
@@ -256,8 +358,11 @@ async def _serve(connection: Connection, websocket: WebSocket) -> None:
         logger.warning(
             "realtime.connection_failed",
             exc_info=error,
-            extra={"fields": {"connection_id": connection.connection_id}},
+            extra={"fields": _connection_log_fields(connection)},
         )
+
+    if connection.close_requested.is_set():
+        await _send_requested_close(connection, websocket)
 
 
 async def _until_done(task_group, loop, connection: Connection, websocket: WebSocket):
@@ -280,16 +385,10 @@ async def _receive_loop(connection: Connection, websocket: WebSocket) -> None:
     be *measured* before anything tries to parse it -- a size check that
     runs after `json.loads` is not a size check.
 
-    The two rejection kinds are deliberately different in kind:
-
-    - **Oversized** closes the connection. It is a transport-level abuse
-      that says nothing about the caller's credentials, so it gets 1009
-      rather than the handshake's 1008.
-    - **Unparseable or unrecognised** is ignored and the loop continues.
-      `is_valid_inbound` is a positive allowlist, so an unknown type can
-      never reach a handler; and because of P3 there is no handler it
-      could reach that would change anything. Closing over one would make
-      every frontend deploy a disconnect storm.
+    Oversized input requests code 1009 before the rate counter is touched, so
+    the existing size failure keeps deterministic precedence. Acceptable-size
+    frames are counted and then ignored: v1 has no application-level inbound
+    vocabulary, and P3 means there is no state mutation they could reach.
     """
     while True:
         message = await websocket.receive()
@@ -303,52 +402,55 @@ async def _receive_loop(connection: Connection, websocket: WebSocket) -> None:
             logger.warning(
                 "realtime.frame_too_large",
                 extra={"fields": {
-                    "connection_id": connection.connection_id,
+                    **_connection_log_fields(connection),
                     "bytes": len(raw),
                     "limit": policy.MAX_FRAME_BYTES,
                 }},
             )
-            await websocket.close(
-                code=CLOSE_MESSAGE_TOO_BIG, reason="frame too large"
+            connection.request_close(CLOSE_MESSAGE_TOO_BIG, "frame too large")
+            return
+
+        if not realtime_limits.inbound_frame_allowed(
+            connection,
+            monotonic(),
+        ):
+            logger.warning(
+                "realtime.frame_rate_limited",
+                extra={"fields": {
+                    **_connection_log_fields(connection),
+                    "limit": policy.INBOUND_MAX_FRAMES,
+                    "window_seconds": policy.INBOUND_WINDOW_SECONDS,
+                }},
+            )
+            connection.request_close(
+                CLOSE_POLICY_VIOLATION,
+                "inbound frame rate exceeded",
             )
             return
 
-        try:
-            frame = json.loads(raw)
-        except (ValueError, UnicodeDecodeError):
-            continue
 
-        if not policy.is_valid_inbound(frame):
-            continue
+async def _revalidation_loop(
+    connection: Connection,
+    _websocket: WebSocket,
+) -> None:
+    """Keep a long-lived socket bound to its handshake authorization.
 
-        if frame["type"] == policy.INBOUND_PING and not connection.enqueue(
-            {"type": OUTBOUND_PONG}
-        ):
-            # The reply queue is full, which for a connection whose only
-            # outbound traffic is pongs means the peer is sending faster
-            # than it reads. Same decision `services.realtime._fan_out`
-            # makes for a slow client, for the same reason: closing is
-            # safe because P2 makes everything on this socket disposable.
-            logger.warning(
-                "realtime.reply_queue_full",
-                extra={"fields": {"connection_id": connection.connection_id}},
-            )
-            await websocket.close(
-                code=CLOSE_TRY_AGAIN_LATER, reason="send queue overflow"
-            )
+    Sleep before the first check because the handshake has just performed the
+    same resolution. Uvicorn's protocol ping/pong owns transport liveness;
+    this loop is authorization maintenance only.
+    """
+    while True:
+        await anyio.sleep(policy.REVALIDATE_INTERVAL_SECONDS)
+        if not await _revalidate_once(connection):
             return
 
 
 async def _send_pump(connection: Connection, websocket: WebSocket) -> None:
-    """Drain this connection's queue onto the wire. Its **only** writer.
+    """Drain this connection's queue. The socket's only data writer.
 
-    Every outbound frame leaves through here -- fan-out envelopes that
-    the dispatch task enqueues, and this connection's own pong replies
-    alike. Starlette's `WebSocket.send_*` is not safe to call from two
-    coroutines at once, and a socket with two writers is a race that
-    surfaces as an interleaved frame under load and never once in a test.
-    Routing the pong through the queue rather than replying inline in the
-    receive loop is what keeps that true.
+    Starlette's `WebSocket.send_*` is not safe to call from two coroutines
+    at once. Requested closure cancels and joins this pump before the
+    supervisor sends a close frame.
     """
     while True:
         envelope = await connection.queue.get()
@@ -359,6 +461,46 @@ async def _send_pump(connection: Connection, websocket: WebSocket) -> None:
             # error and not worth a log line: it is the ordinary end of a
             # connection, and the receive loop reports the same event.
             return
+        logger.info(
+            "realtime.delivered",
+            extra={
+                # This is ordinary envelope data, not request context. The
+                # socket task was born at handshake and cannot inherit the
+                # HTTP request that emitted this event.
+                "request_id": envelope.get("req"),
+                "fields": {
+                    **_connection_log_fields(connection),
+                    "event_type": envelope.get("type"),
+                    "entity_id": envelope.get("id"),
+                },
+            },
+        )
+
+
+async def _wait_for_close(connection: Connection, _websocket: WebSocket) -> None:
+    """Wake the connection supervisor when a service or policy requests close."""
+    await connection.close_requested.wait()
+
+
+async def _send_requested_close(
+    connection: Connection,
+    websocket: WebSocket,
+) -> None:
+    """Send one close frame after every data writer has stopped."""
+    if connection.close_code is None:
+        return
+    try:
+        await websocket.close(
+            code=connection.close_code,
+            reason=connection.close_reason or "",
+        )
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logger.info(
+            "realtime.close_failed",
+            extra={"fields": _connection_log_fields(connection)},
+        )
 
 
 @contextlib.asynccontextmanager

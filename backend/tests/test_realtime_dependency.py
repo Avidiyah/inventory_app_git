@@ -32,3 +32,16 @@ def test_websockets_is_declared_in_requirements():
         "serve a WebSocket handshake without a protocol library, and no "
         "other test in this suite can detect its absence."
     )
+
+
+def test_container_entrypoint_pins_websocket_transport_policy():
+    """Production must not inherit Uvicorn's changing WebSocket defaults."""
+    from pathlib import Path
+
+    entrypoint = (
+        Path(__file__).resolve().parent.parent / "entrypoint.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "--ws-max-size 65536" in entrypoint
+    assert "--ws-ping-interval 30" in entrypoint
+    assert "--ws-ping-timeout 30" in entrypoint

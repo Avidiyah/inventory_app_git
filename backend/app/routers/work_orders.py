@@ -39,10 +39,12 @@ from sqlalchemy.orm import Session
 
 from app.auth_deps import get_current_user, require_min_role
 from app.database import get_db
+from app.domain import realtime as realtime_policy
 from app.domain import roles
 from app.domain import work_orders as wo
 from app.domain.errors import DomainError
 from app.domain.list_limits import MAX_LIST_ROWS
+from app.logging_config import current_request_id
 from app.models import User, WorkOrder, WorkOrderItem, WorkOrderLabor
 from app.routers._errors import to_http
 from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_capped
@@ -63,9 +65,26 @@ from app.schemas.work_orders import (
     WorkOrderLookup,
     WorkOrderUpdate,
 )
+from app.services import realtime as realtime_service
 from app.services import work_orders as wo_service
 
 router = APIRouter(prefix="/work-orders", tags=["work-orders"])
+
+
+def _emit_review_queue_changed(entity_id: Optional[uuid.UUID]) -> None:
+    """Invalidate Admin Review after one capable command succeeds.
+
+    ``None`` identifies a collection command (CSV import or bulk legacy
+    archive). Delivery is best-effort: ``emit`` is total and its boolean result
+    is deliberately ignored so a full handoff can never fail a durable write.
+    """
+    realtime_service.emit(
+        realtime_policy.build_envelope(
+            event_type=realtime_policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED,
+            entity_id=entity_id,
+            request_id=current_request_id(),
+        )
+    )
 
 
 # --- response builders ---------------------------------------------------
@@ -328,6 +347,7 @@ def import_work_orders(
     data = read_capped(file, limit=MAX_CSV_UPLOAD_BYTES, what="CSV file")
     try:
         summary = wo_service.import_work_orders(db, csv_bytes=data, user=user)
+        _emit_review_queue_changed(None)
     except DomainError as exc:
         raise to_http(exc)
     return WorkOrderImportResult(**summary)
@@ -449,6 +469,7 @@ def archive_legacy_work_orders(
     """Soft-archive every currently live legacy work order (Owner only)."""
     try:
         archived = wo_service.archive_live_legacy_work_orders(db, user=user)
+        _emit_review_queue_changed(None)
     except DomainError as exc:
         raise to_http(exc)
     return LegacyWorkOrderArchiveResult(archived=archived)
@@ -500,6 +521,7 @@ def update_work_order(
             fields=fields,
             **update_kwargs,
         )
+        _emit_review_queue_changed(work_order.id)
         return _detail(
             # The caller may just have routed the row to somebody else. The
             # write was already authorized above, so build its response through
@@ -603,6 +625,7 @@ def archive_work_order(
     """Close any live work order (Admin+, scoped) by soft-archiving it."""
     try:
         wo_service.archive_work_order(db, work_order_id, user=user)
+        _emit_review_queue_changed(work_order_id)
     except DomainError as exc:
         raise to_http(exc)
 
@@ -623,6 +646,7 @@ def restore_work_order(
     not visible to the caller."""
     try:
         work_order = wo_service.restore_work_order(db, work_order_id, user=user)
+        _emit_review_queue_changed(work_order.id)
         return _detail(
             wo_service.get_work_order(db, work_order.id, user=user),
             include_price=_can_see_price(user),

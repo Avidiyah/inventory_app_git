@@ -1,7 +1,20 @@
 # Real-Time Layer — Reference Design
 
-**Status: decisions resolved 2026-08-12 (see §14). Phases 1–2 are being planned;
-nothing is implemented.**
+> **Implementation correction (2026-08-12):** the server transport and
+> abuse-control foundation through implementation Task 8, Task 9 observability,
+> Task 10 emission, Task 11 browser transport, and Task 12 Admin Review
+> consumption now exist on
+> `feat/realtime-live-layer`. During review,
+> four rules were corrected: invalidations always refresh (no actor suppression),
+> Uvicorn owns protocol ping/pong (no JSON heartbeat), the endpoint exclusively
+> owns WebSocket writes, and cookie-bearing handshakes require strict
+> request-derived same-origin. The authoritative implementation record is
+> `../plans/2026-08-12-realtime-tasks-4-6-correction.md`. Older contradictory
+> wording in this reference describes the pre-review proposal, not current code.
+
+**Status: decisions resolved 2026-08-12 (see §14). Implementation Tasks 1–12
+exist on `feat/realtime-live-layer`; owner-run local browser acceptance was
+completed successfully on 2026-08-13.**
 
 Written 2026-08-12 against `90be427`. This document exists to be read before any
 real-time work is planned. It is deliberately abstract: it describes behavior,
@@ -10,6 +23,10 @@ responsibilities, and sequencing, not implementations.
 Amended 2026-08-12 at `32c8c92`: the eight open decisions in §14 are answered,
 the route count in §2/§3/§5.2 is corrected from 97 to 75, and §4.2 is resolved
 for production. Behavior described elsewhere is unchanged.
+
+Amended again during the Tasks 4–6 implementation review: the correction notice
+above and its linked record supersede the original actor, heartbeat, close-
+ownership, and handshake-refusal proposals.
 
 It does not live in `docs/`. That directory is the four consolidated files from
 2026-08-10 and `open-work.md` remains the only backlog. This is a design
@@ -266,6 +283,11 @@ It costs nothing extra today.
 
 ### 5.4 The endpoint and handshake authentication
 
+> **Implemented correction:** require exactly one valid Origin and Host, compare
+> them after scheme/default-port normalization, and do this before cookie hashing
+> or database access. Pre-accept failures are HTTP denials: 403 for Origin, 401
+> for authentication, and 429 for the per-user connection cap.
+
 *Problem solved:* a socket must be attributable to a user before it receives
 anything.
 
@@ -281,18 +303,19 @@ Unauthenticated handshakes are refused immediately, before any expensive work.
 
 ### 5.5 The message envelope
 
+> **Implemented correction:** the v1 envelope has exactly `type`, `id`, and
+> `req`. It has no actor id because a user id cannot distinguish tabs or devices.
+> V1 has no application inbound vocabulary; under-limit frames are inert and
+> oversized frames close with 1009.
+
 *Problem solved:* the wire format is the hardest thing to change later, because
 every client and every emitter depends on it.
 
 *New behavior:* a typed envelope with a discriminating `type` field from day one,
-even while only one type exists. Envelopes carry a correlation id (see §6.2) and
-an actor id (see §8.4).
-
-*Forward-compatibility note:* the endpoint accepts client→server frames from the
-start — even if v1 handles nothing but heartbeats. A strictly one-way socket has
-no seam at which to later add message send, inbound validation, or inbound rate
-limiting. This is the cheapest forward-compatibility decision in the document and
-the most expensive one to retrofit.
+even while only one type exists. Envelopes carry an entity-or-collection id and
+the originating request correlation id as ordinary data. V1 has no actor field
+and no application-level inbound vocabulary; protocol ping/pong belongs to
+Uvicorn.
 
 ---
 
@@ -301,7 +324,11 @@ the most expensive one to retrofit.
 A socket that outlives its authorization is a security defect. This phase closes
 that before any application data flows.
 
-### 6.1 Heartbeat
+### 6.1 Transport liveness
+
+> **Implemented correction:** Uvicorn native WebSocket ping/pong runs with a
+> 30-second interval and timeout. There are no JSON heartbeat messages and no
+> application heartbeat timer.
 
 *Problem solved:* TCP does not reliably tell you a peer is gone. A phone that
 walks into a dead zone leaves a half-open connection the server still believes in.
@@ -317,6 +344,12 @@ enforceable.
 *Does not change:* anything visible. Heartbeats are protocol-level.
 
 ### 6.2 Authorization is no longer re-checked per request
+
+> **Implemented:** each accepted connection periodically re-resolves its stored
+> token hash on a worker thread using a fresh short-lived database session. The
+> resolved user id and role must exactly match the handshake identity. Missing
+> or changed authorization closes with 1008; resolver failure fails closed with
+> 1011. The cached role is never updated in place.
 
 *Problem solved — and this is the most important item in the document.*
 
@@ -387,10 +420,11 @@ Two design points:
 
 *Starting point:* order of ten attempts per minute per caller.
 
-*Protocol note:* there is no `Retry-After` on a WebSocket close. The server closes
-with a policy code; the client must derive its own wait. Backoff correctness
-therefore lives in the client — the same code most likely to be buggy — so any
-wait hint must ride in an application frame before the close.
+*Protocol note:* the attempt decision happens before `accept()`, so refusal is an
+HTTP `429` WebSocket denial response carrying `Retry-After`, not a WebSocket
+close. No application frame or second wait-hint vocabulary is needed. The client
+still owns reconnect backoff; the header makes a timed refusal explicit for
+clients that choose to inspect it.
 
 ### 7.2 Concurrent connection cap
 
@@ -416,6 +450,12 @@ but the seam belongs in v1 — retrofitting a limiter into an established messag
 loop is exactly the kind of change this design is trying to avoid.
 
 *New behavior:* a per-connection sliding window.
+
+The application measures frame size first, preserving close `1009` for an
+oversized frame. Every acceptable-size text or binary frame is then counted;
+exactly 20 in the one-second window remain inert and the next requests
+endpoint-owned close `1008`. Protocol ping/pong remains Uvicorn-owned and never
+enters this counter.
 
 *Implementation note:* the existing rate-limit domain module already implements
 this window as pure, unit-tested functions; they read their cap and window from
@@ -539,11 +579,13 @@ own format, and its restart policy is explicit.
 
 ### 8.4 Event attribution
 
-*Problem solved:* a client should not re-fetch in response to its own write.
+> **Corrected decision:** events carry no actor. Every relevant client refreshes,
+> including the writer. Suppressing by user would incorrectly suppress another
+> tab or device owned by that same user and recreate the stale-screen defect.
 
-*New behavior:* events carry the acting user, and clients ignore their own echo.
-This is also a UX-7 protection — without it, every write costs the writer an
-extra round trip.
+*New behavior:* every relevant client refreshes, including the writer. A user id
+cannot identify one originating tab, so suppressing by user would leave another
+tab or device stale.
 
 ---
 
@@ -556,18 +598,27 @@ is not currently a well-defined moment. Commits happen in routers in some places
 and inside services in others, and `open-work.md` SCL-006 documents helpers that
 commit internally while callers keep working.
 
-*New behavior:* explicit emission at the router layer — the one place where "this
-command is finished" is unambiguous today.
+*New behavior:* explicit emission at the router layer after a capable command's
+mutating service returns — the available command boundary today.
 
 *Why not a database commit hook:* the test suite would lie. The shared fixture
 binds sessions to an outer transaction in savepoint mode, so **every commit under
 test is a savepoint release, not a real commit.** A commit-hook design would fire
 events in tests that never fire in production and vice versa.
 
-*Accepted cost:* a visible line per mutating route, and routers that are currently
-pure translation gain a second job. The trade is honesty and testability in
-exchange for something you can forget to write. Emission is therefore a
-review-checklist item for any new mutating route.
+*Implemented first vocabulary:* `work_order.review_queue.changed` invalidates
+the Review-status queue projection, not the entire work-order aggregate. Exactly
+five commands can change its membership or displayed card fields and emit:
+work-order CSV import, bulk legacy archive, update, archive, and restore. Import
+and bulk archive use `id: null`; the single-row commands carry the work-order id.
+Start, complete, hold, resume, materials, billing, and labor are deliberately
+excluded because the first consumer refreshes only the queue, not its open
+receipt.
+
+*Accepted cost:* capable routes contain a visible helper call, and a successful
+no-op can cause a harmless extra refetch. Any future route able to alter Review
+membership or the number/location/assignee card projection must add the same
+invalidation and extend the exact-emitter-set test.
 
 ### 9.2 The audience vocabulary
 
@@ -579,7 +630,7 @@ primitives that already exist:
 
 | Event | Audience | Existing primitive |
 |---|---|---|
-| Work order changed | users who may see that work order | the pure visibility predicate in `domain/work_orders.py` |
+| Admin Review queue changed | Admin and Owner | the existing Admin Review role gate |
 | Item / tool stock changed | any authenticated session | all roles already reach these pages |
 | Operational request changed | Admin and Owner | the existing role gate |
 
@@ -604,6 +655,12 @@ Row payloads (P2). Anything from the auth surface. Session state. Credentials.
 no DOM access, no view imports, wired at the composition root. Plain ES modules;
 no build step, no tooling change, no new dependency.
 
+*Implemented:* `static/realtime.js` owns one same-origin `/ws` connection and
+the subscription registry. `main.js` injects a read-only active-page getter from
+`views/nav.js`; the foundation module does not inspect the DOM or import a view.
+`views/auth.js` connects after authenticated page selection and disconnects on
+every path back to the login screen.
+
 ### 10.2 Reconnection
 
 *Problem solved:* the free tier spins down when idle and every deploy drops every
@@ -621,18 +678,27 @@ On reconnect, the client refreshes the active page. There is no event log, no
 sequence numbering, and no resume cursor — P1 and P2 make refetch a complete
 recovery.
 
+*Implemented correction:* the transport does not refresh a page globally.
+Recovery after a failed or interrupted connection sends one `reconnect`
+notification to each unique registered handler, with the current page. A view
+must explicitly opt in under D8; the initial successful connection produces no
+recovery notification. Equal-jitter exponential backoff starts at 0.5-1 second
+and caps at 15-30 seconds, and a generation guard prevents stale callbacks from
+reconnecting after logout.
+
 ### 10.3 Subscription and cache freshness
 
 *Problem solved:* views need to react without every view learning about sockets.
 
-*New behavior:* views register interest; the transport routes events to them.
-`state.js` gains one concept it does not have — cache freshness. Its caches are
-currently bare arrays with accessors and no notion of being stale.
+*New behavior:* views register interest; the transport routes events and
+reconnect recovery to them. Each notification supplies the active page without
+making the transport depend on navigation or DOM structure.
 
-*The minimal-change path:* an event for a page that is not active marks its cache
-dirty; the existing on-activation loader in `nav.js` does the work it already
-does. This reuses machinery rather than adding a second refresh path, and it means
-inactive pages cost nothing.
+*Implemented minimum:* Task 11 adds no cache-freshness state because the first
+consumer has no shared cache. Mark-dirty behavior remains deferred to the first
+Phase 8 cached surface that requires it, as resolved by D8. Until a view
+subscribes, valid events are safely ignored and existing on-activation loading
+remains the fallback.
 
 ### 10.4 Silent failure
 
@@ -670,6 +736,17 @@ never touches `receiptSection`, while `buildCard` re-applies the selection from
 the selected card**, and the existing Reopen handler depends on exactly that,
 deliberately, with a comment saying the receipt remains available. Nothing has
 to be built to make the first surface UX-6-safe.
+
+*Implemented:* the view subscribes to `work_order.review_queue.changed`. Both a
+matching event and reconnect recovery silently reload the queue only while
+Admin Review is active; inactive pages rely on the existing navigation load.
+Automatic failures preserve the current queue. A monotonic queue-request
+sequence prevents a slower response from overwriting a newer result when the
+writer's own event overlaps Reopen/Close's explicit reload. The owner reported
+successful local browser acceptance on 2026-08-13 across the handshake,
+two-browser delivery, active/inactive behavior, writer echo, receipt
+preservation, reconnect, blocked-socket fallback, logout, CSP, and log checks.
+Codex did not operate or observe the browser.
 
 *Not the User Requests queue*, which this document originally implied. At
 `c7531ea` it became form-heavy — inline edit forms, a fulfil panel with a mode

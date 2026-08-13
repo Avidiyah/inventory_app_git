@@ -26,8 +26,7 @@ from app.domain import roles
 from app.domain.rate_limit import is_over_limit, retry_after_seconds, window_start
 
 __all__ = [
-    "EVENT_WORK_ORDER_CHANGED",
-    "INBOUND_PING",
+    "EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED",
     "HANDSHAKE_MAX_ATTEMPTS",
     "HANDSHAKE_WINDOW_SECONDS",
     "MAX_CONNECTIONS_PER_USER",
@@ -36,11 +35,10 @@ __all__ = [
     "MAX_FRAME_BYTES",
     "SEND_QUEUE_MAX",
     "HANDOFF_QUEUE_MAX",
-    "HEARTBEAT_INTERVAL_SECONDS",
+    "SHUTDOWN_CLOSE_GRACE_SECONDS",
     "REVALIDATE_INTERVAL_SECONDS",
     "DISPATCH_MAX_RESTARTS",
     "build_envelope",
-    "is_valid_inbound",
     "audience_allows",
     "is_over_limit",
     "retry_after_seconds",
@@ -49,21 +47,15 @@ __all__ = [
 
 # --- vocabulary --------------------------------------------------------
 
-# The only server->client event type in v1. Named for what changed, not
-# for what a view should do about it -- views decide that themselves.
-EVENT_WORK_ORDER_CHANGED = "work_order.changed"
-
-# The only client->server frame type in v1.
-#
-# The endpoint accepts inbound frames from the start even though this is
-# all it does with them. A strictly one-way socket has no seam at which
-# to later add message send, inbound validation, or inbound rate
-# limiting: this is the cheapest forward-compatibility decision in the
-# design and the most expensive one to retrofit.
-INBOUND_PING = "ping"
+# The only server->client event type in v1. This is intentionally narrower
+# than a general work-order aggregate event: it invalidates the Review-status
+# queue projection (membership plus the fields shown on its cards). Material,
+# labor, billing, and price changes do not belong to this vocabulary because
+# the first consumer refreshes only the queue, not an open receipt.
+EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED = "work_order.review_queue.changed"
 
 _AUDIENCE_MIN_ROLE = {
-    EVENT_WORK_ORDER_CHANGED: roles.ROLE_ADMIN,
+    EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED: roles.ROLE_ADMIN,
 }
 
 # --- thresholds --------------------------------------------------------
@@ -115,11 +107,11 @@ SEND_QUEUE_MAX = 32
 # so a phone on bad wifi can never become a server-side memory risk.
 HANDOFF_QUEUE_MAX = 1000
 
-# Liveness exchange interval. TCP does not reliably report a vanished
-# peer; a phone that walks into a dead zone leaves a half-open connection
-# the server still believes in. The concurrency cap above is only as
-# correct as the registry's view of what is alive.
-HEARTBEAT_INTERVAL_SECONDS = 30.0
+# Maximum time application shutdown waits for endpoint-owned WebSocket
+# close handshakes to finish. The endpoint, not the service registry, owns
+# transport writes; a bounded acknowledgement wait preserves that boundary
+# without letting one vanished peer hold process shutdown open indefinitely.
+SHUTDOWN_CLOSE_GRACE_SECONDS = 2.0
 
 # How often a connection re-resolves its session (D1). Bounds how long a
 # demoted, archived, or logged-out user keeps receiving.
@@ -138,21 +130,23 @@ def build_envelope(
     *,
     event_type: str,
     entity_id: Any,
-    actor_id: Any,
     request_id: Optional[str],
 ) -> dict[str, Any]:
     """One server->client frame.
 
-    Four fields and no more:
+    Three fields and no more:
 
     - `type` -- the discriminator. Present from day one so a second event
       type is additive rather than a wire-format change.
     - `id`   -- which entity changed. An identifier, never its contents.
-    - `actor`-- who caused it, so a client can ignore its own echo (§8.4).
-      Without this every write costs the writer an extra round trip,
-      which is a UX-7 regression.
     - `req`  -- the originating request id, so one HTTP write and its N
       deliveries are a single traceable chain (§8.2).
+
+    There is deliberately no actor id. A user id cannot distinguish the
+    tab that made a write from another tab or device belonging to the same
+    person; suppressing by user would recreate the exact stale-screen bug
+    this layer exists to remove. V1 clients refetch on every relevant
+    invalidation, including their own.
 
     `req` travels as **data**, deliberately. The dispatch task is started
     at lifespan, lives independently of any request, and inherits nothing
@@ -167,24 +161,8 @@ def build_envelope(
     return {
         "type": event_type,
         "id": None if entity_id is None else str(entity_id),
-        "actor": None if actor_id is None else str(actor_id),
         "req": request_id,
     }
-
-
-# --- inbound validation ------------------------------------------------
-
-
-def is_valid_inbound(frame: Any) -> bool:
-    """Whether a client->server frame is one this version understands.
-
-    Rejects by allowlist, so an unknown type can never fall through to a
-    handler. P3 is permanent: the socket never mutates anything, so there
-    is no inbound frame that changes state and there never will be.
-    """
-    if not isinstance(frame, dict):
-        return False
-    return frame.get("type") in (INBOUND_PING,)
 
 
 # --- audience ----------------------------------------------------------

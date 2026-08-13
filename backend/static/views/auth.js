@@ -13,6 +13,7 @@
 //    the app returns the user to the login screen.
 
 import { apiLogin, apiLogout, apiMe, setUnauthorizedHandler } from "../api.js";
+import { connectRealtime, disconnectRealtime } from "../realtime.js";
 import { setCurrentUser } from "../state.js";
 import { setMessage } from "../dom.js";
 import { friendlyError, formatUserName } from "../format.js";
@@ -48,6 +49,7 @@ function setPasswordVisible(visible) {
 // timeout when the app was actually open -- a 401 during the initial boot check
 // (apiMe) is just "not signed in yet", not an expiry, and must stay quiet.
 function showLoginScreen({ expired = false } = {}) {
+  disconnectRealtime();
   const wasInApp = !appRoot.hidden;
   setCurrentUser(null);
   resetToolsView();
@@ -106,6 +108,7 @@ async function enterApp(user, { resume = false } = {}) {
   }
 
   showPage(resumed ? "transaction" : landingPageForRole(user.role));
+  connectRealtime();
 }
 
 // Any 401 anywhere -> back to login. The login form's own catch still

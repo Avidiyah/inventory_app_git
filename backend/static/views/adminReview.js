@@ -15,6 +15,10 @@ import {
 import { buildAdminReviewReceipt } from "../adminReviewReceipt.js";
 import { confirmDialog, setMessage } from "../dom.js";
 import { escapeHtml, friendlyError } from "../format.js";
+import { subscribe } from "../realtime.js";
+
+const REVIEW_QUEUE_CHANGED_EVENT = "work_order.review_queue.changed";
+const ADMIN_REVIEW_PAGE = "admin-review";
 
 const listEl = document.getElementById("admin-review-list");
 const listMessage = document.getElementById("admin-review-list-message");
@@ -27,6 +31,8 @@ const closeBtn = document.getElementById("admin-review-close-btn");
 
 let selectedDetail = null;
 let selectionRequestId = 0;
+let queueRequestId = 0;
+let committedQueueRequestId = 0;
 
 function assignedNames(card) {
   const names = Array.isArray(card.assigned_to_names)
@@ -113,12 +119,25 @@ async function selectWorkOrder(workOrderId) {
   }
 }
 
-export async function loadAdminReview() {
-  setMessage(listMessage, "Loading Review work orders…", "");
+export async function loadAdminReview({ background = false } = {}) {
+  const requestId = ++queueRequestId;
+  if (!background) {
+    setMessage(listMessage, "Loading Review work orders…", "");
+  }
   try {
     const cards = await apiListWorkOrders({ status: "review" });
+    // A writer's own invalidation can overlap the explicit post-action load.
+    // Commit only responses at least as new as the last result/error rendered,
+    // so a slower old request cannot repaint stale queue data.
+    if (requestId < committedQueueRequestId) return;
+    committedQueueRequestId = requestId;
     renderQueue(cards || []);
   } catch (err) {
+    // Automatic refresh is best-effort: keep a usable queue rather than turn a
+    // socket-driven failure into visible UI. Foreground loads retain today's
+    // error behavior, unless a newer result has already won the render race.
+    if (background || requestId < committedQueueRequestId) return;
+    committedQueueRequestId = requestId;
     listEl.replaceChildren();
     setMessage(listMessage, friendlyError(err, "Could not load Admin Review."), "error");
   }
@@ -176,4 +195,13 @@ closeBtn.addEventListener("click", async () => {
     closeBtn.disabled = false;
     setMessage(receiptMessage, friendlyError(err, "Could not close that work order."), "error");
   }
+});
+
+// Both a matching invalidation and a recovered connection mean the queue may
+// be stale. Admin Review is explicitly UX-6-safe to refresh: rebuilding its
+// cards preserves selectedDetail and never touches the open receipt. Inactive
+// pages need no dirty flag because nav.js already loads this queue on entry.
+subscribe(REVIEW_QUEUE_CHANGED_EVENT, ({ activePage }) => {
+  if (activePage !== ADMIN_REVIEW_PAGE) return;
+  return loadAdminReview({ background: true });
 });

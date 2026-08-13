@@ -1,5 +1,12 @@
 # Real-Time Live Layer Implementation Plan
 
+> **2026-08-12 Tasks 4-6 correction:** Tasks 4-6 are implemented on
+> `feat/realtime-live-layer`, but their original detailed snippets below are a
+> pre-review draft and are not authoritative. Use
+> `2026-08-12-realtime-tasks-4-6-correction.md` for the implemented envelope,
+> Origin policy, transport ownership, close sequencing, Uvicorn liveness, tests,
+> and the resulting changes to Tasks 7, 8, and 11.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give the SPA a live layer — data on screen stops being stale — without changing any behavior, appearance, permission, or workflow in the application.
@@ -45,7 +52,7 @@ Every number below is a **starting hypothesis**, not a measurement. Each is a na
 | `MAX_FRAME_BYTES` | `65536` | 64 KB; a chat message needs kilobytes |
 | `SEND_QUEUE_MAX` | `32` | per connection; overflow closes rather than buffers |
 | `HANDOFF_QUEUE_MAX` | `1000` | process-wide thread→loop buffer |
-| `HEARTBEAT_INTERVAL_SECONDS` | `30.0` | below typical proxy idle timeouts |
+| `SHUTDOWN_CLOSE_GRACE_SECONDS` | `2.0` | bounded wait for endpoint-owned close acknowledgement |
 | `REVALIDATE_INTERVAL_SECONDS` | `60.0` | bounds revocation lag to one minute |
 | `DISPATCH_MAX_RESTARTS` | `3` | separates a transient fault from a crash loop |
 
@@ -586,6 +593,11 @@ docstring says so."
 
 ## Task 4: The pure real-time policy module
 
+> **Implemented with corrections.** The authoritative Task 4 interface is the
+> three-field `type`/`id`/`req` envelope. There is no actor field, inbound ping
+> vocabulary, or application heartbeat. See the correction record linked at the
+> top; the original red/green draft below is retained only as plan history.
+
 Everything with a number or a rule, and nothing with a socket, a clock, or a database. Unit-testable with no app running, exactly like `domain/rate_limit.py`.
 
 **Files:**
@@ -980,6 +992,11 @@ the first-surface gate is a comparison rather than a fresh argument."
 ---
 
 ## Task 5: Connection registry, handoff queue, and the supervised dispatch task
+
+> **Implemented with corrections.** `Connection` has no WebSocket reference.
+> The service requests close through first-writer-wins state, the endpoint owns
+> all transport writes, and shutdown uses a bounded acknowledgement wait. See
+> the correction record; the original scaffold below is non-authoritative.
 
 The first genuine concurrency boundary in the codebase. The app is entirely synchronous — 75 handlers running in a threadpool — and sockets live on the event loop, so a threadpool handler cannot `await` a broadcast.
 
@@ -1427,6 +1444,12 @@ additive later rather than a rewrite."
 
 ## Task 6: The endpoint, handshake authentication, and the lifespan hook
 
+> **Implemented with corrections.** The endpoint enforces strict request-derived
+> same-origin before authentication, uses HTTP 403/401/429 handshake denials,
+> treats under-limit application frames as inert, and serializes requested close
+> after the send pump stops. Uvicorn owns native ping/pong. See the correction
+> record; the original endpoint draft below is non-authoritative.
+
 One endpoint. Every limit is enforced visibly here rather than inherited, per P5 — with a single endpoint, explicit enforcement is complete by inspection: you read one file and know the entire policy.
 
 **Note the trap §7 records:** the HTTP rate limiter does **not** apply to this route. The handshake arrives as a `websocket` scope and never enters HTTP middleware, despite being an HTTP GET on the wire. Nothing is inherited; everything is written here.
@@ -1658,7 +1681,20 @@ deliberately rather than silently contradicted."
 
 # Phase 2 — Connection lifecycle and session binding
 
-## Task 7: Heartbeat and session revalidation
+## Task 7: Session revalidation
+
+> **Corrected scope:** periodic session revalidation only. Uvicorn protocol
+> ping/pong is configured in `entrypoint.sh`; do not add JSON heartbeats or a
+> second liveness timeout model.
+>
+> **Implemented with corrections.** Revalidation uses the existing
+> request-independent `_resolve_identity` helper on a worker thread and keeps a
+> connection only while both user id and role exactly match the handshake.
+> Missing or changed authorization requests an endpoint-owned 1008 close;
+> resolver failure requests 1011 and re-raises into the existing failure log.
+> The original red/green draft below is retained as plan history and is not
+> authoritative. See `2026-08-12-realtime-tasks-4-6-correction.md` for the
+> implementation record and verification results.
 
 **This closes the most important item in the design.** Today every request re-resolves the session, so revocation is instant and automatic. A socket authenticated once at handshake has no next request: demote a Supervisor and their open socket keeps streaming Supervisor-scoped events; archive a user and their socket keeps receiving; sessions carry a hard 12-hour cap a socket would simply outlive.
 
@@ -1819,70 +1855,52 @@ as well as checked, so a demotion narrows delivery without a reconnect."
 
 # Phase 3 — Resource and abuse control
 
-## Task 8: Handshake throttling, frame limits, and backpressure enforcement
+## Task 8: Handshake-attempt and inbound-frame-rate limiting
 
-Five distinct problems, none of which the existing HTTP limiter addresses, because the handshake never enters HTTP middleware.
+> **Implemented with corrected scope.** Task 8 adds only the two timed
+> limiters. Task 6 already enforces frame size and the per-user connection cap;
+> Task 5 already owns per-connection backpressure.
 
 **Files:**
-- Modify: `backend/app/routers/realtime.py`
+- Add: `backend/app/services/realtime_limits.py`
+- Modify: `backend/app/services/realtime.py`, `backend/app/routers/realtime.py`
 - Test: `backend/tests/test_realtime_limits.py`
 
 **Interfaces:**
-- Consumes: `app.services.rate_limit.caller_key`; parameterized `domain.rate_limit` functions; every threshold in `domain.realtime`.
-- Produces: `handshake_attempt_allowed(key: str, now: float) -> bool`; `inbound_frame_allowed(connection, now: float) -> bool`; `reset_limits() -> None`.
+- `check_handshake_and_record(key: str, now: float) -> int | None` returns
+  whole `Retry-After` seconds when refused.
+- `inbound_frame_allowed(connection, now: float) -> bool` owns the
+  per-connection sliding-window decision.
+- `reset() -> None` clears only the real-time handshake buckets for tests.
 
-- [ ] **Step 1: Write the failing tests**
+**Implemented behavior:**
 
-Create `backend/tests/test_realtime_limits.py` covering, with one test each and an explicit assertion per bullet:
+- Same-origin validation runs first. Every surviving attempt is then counted
+  before cookie rejection or database work using the existing
+  `services.rate_limit.caller_key`; missing cookies fall back to the resolved
+  client address and raw session tokens never enter limiter state.
+- Exactly 10 attempts per caller per 60 seconds proceed. The next is a
+  pre-accept HTTP `429` denial with `Retry-After`; rejected attempts are not
+  recorded and idle caller buckets are swept on an amortized clock.
+- The handshake budget is process-local and completely separate from the HTTP
+  request budget.
+- Every acceptable-size text or binary application frame is counted on a deque
+  owned by its `Connection`. Exactly 20 frames per second remain inert; the
+  next requests endpoint-owned close `1008` with reason
+  `inbound frame rate exceeded`.
+- The existing size check runs first, so an oversized frame deterministically
+  keeps close `1009` even at the rate boundary. All closes still cancel and
+  join the send pump before the endpoint writes the close frame.
 
-- Handshake attempts are counted per caller and refused past `HANDSHAKE_MAX_ATTEMPTS` in `HANDSHAKE_WINDOW_SECONDS`.
-- The handshake budget is **separate from** the HTTP budget: exhausting the socket budget leaves `services.rate_limit.check_and_record` untouched, so socket churn cannot consume the budget a user's inventory writes need.
-- `caller_key` is reused unchanged — assert the key for a given token matches `services.rate_limit.caller_key(token, ip)` exactly.
-- Inbound frames are refused past `INBOUND_MAX_FRAMES` per `INBOUND_WINDOW_SECONDS`, per connection.
-- Exactly `INBOUND_MAX_FRAMES` succeed, not `INBOUND_MAX_FRAMES - 1` — the off-by-one Task 2 preserved.
-- A frame over `MAX_FRAME_BYTES` closes the connection.
-- **Each limit has a test that fails when the limit is removed.** This is a named requirement of the §11 verification gate — after writing each test, comment out the limit, confirm the test fails, restore it.
+**Verification:**
 
-- [ ] **Step 2: Run the tests to verify they fail**
-
-```bash
-cd backend && python -m pytest tests/test_realtime_limits.py -v
-```
-
-- [ ] **Step 3: Implement the limiters**
-
-Reuse `caller_key` unchanged — it already hashes the session token so a live credential never enters a process-wide dict, and already falls back to client address for unauthenticated callers. The socket object exposes everything it needs via `websocket.cookies` and `websocket.client.host`.
-
-Use the parameterized `window_start` / `is_over_limit` from Task 2 with the socket constants. Do **not** write a second sliding window.
-
-- [ ] **Step 4: Run the tests to verify they pass**
-
-```bash
-cd backend && python -m pytest tests/test_realtime_limits.py -v
-```
-
-- [ ] **Step 5: Verify each limit is load-bearing**
-
-For each of the four limits: comment it out, run the suite, confirm a test fails, restore it. Record the result in the commit message.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add backend/app/routers/realtime.py backend/tests/test_realtime_limits.py
-git commit -m "feat(realtime): enforce handshake, frame, and size limits
-
-None of this is inherited. The handshake arrives as a websocket scope and
-never enters HTTP middleware, so the existing limiter does not apply.
-
-The budget is deliberately separate from the HTTP one: 60-per-second is
-calibrated for page loads, and sixty socket opens per second is a
-catastrophe that sails straight through it. Sharing the bucket would also
-let socket churn consume the budget a user's inventory writes need.
-
-caller_key and the sliding-window math are reused unchanged rather than
-forked. Verified each limit is load-bearing by removing it and confirming
-a test fails."
-```
+- 13 focused Task 8 tests passed; all 79 real-time tests passed; all 53 HTTP
+  rate-limit tests passed; the full backend suite passed at 789 tests.
+- Both enforcement calls were temporarily bypassed independently. The
+  handshake test failed `429 != 401`, and the receive-loop test found no `1008`
+  close; both calls were restored and the suites returned green.
+- Two known Uvicorn/websockets legacy deprecation warnings remain unchanged.
+- `git diff --check` is clean apart from the repository's LF-to-CRLF notices.
 
 ---
 
@@ -1890,60 +1908,120 @@ a test fails."
 
 ## Task 9: Connection identity, causal correlation, and dispatch supervision logging
 
+> **Prerequisite review completed 2026-08-12.** Tasks 1-7 were reviewed in
+> order against the corrected Tasks 4-7 architecture. The focused dependency,
+> rate-limit, session, domain, registry, and endpoint set passes (137 tests),
+> and the full backend suite passes (789 tests, with the two already-documented
+> Uvicorn/`websockets.legacy` deprecation warnings). The owner-run real-server
+> browser handshake remains a deployment gate, but it does not block this
+> observability task.
+>
+> Task 9 is now a **completion pass**, not a greenfield logging task. Task 5
+> already mints `Connection.connection_id` and logs supervised dispatch crashes
+> and permanent give-up. Task 6 already logs accepted connect/disconnect with
+> `connection_id` and `user_id`. Task 7 routes revalidation failures through the
+> existing connection failure path. Do not replace those seams or reintroduce a
+> WebSocket reference into the service registry.
+>
+> The missing pieces are: an actual post-`send_json` delivery line; causal
+> request correlation sourced from `envelope["req"]`; rendered-log guarantees;
+> and consistent `user_id` on accepted-connection failure/policy lines. Global
+> or pre-authentication events (handoff full, dispatch death, handshake refusal)
+> cannot truthfully carry a connection and user and are outside that guarantee.
+>
+> **Formatter trap found by this review:** `LogfmtFormatter` always writes the
+> request-context `req` key before appending `record.fields`. Putting another
+> `req` inside `fields` would render the ambiguous line
+> `req=- ... req=<originating-id>`. Add a dedicated log-record request-id
+> override, populated directly from the envelope, so the formatter emits one
+> authoritative `req=` key. Test the rendered logfmt; `caplog` alone does not
+> run the production formatter and cannot catch duplicate or placeholder
+> correlation keys.
+
 The app's observability bar is high and deliberate. **None of it is inherited.** The logging formatter reads a request-scoped context variable at format time; outside a request scope it emits a placeholder, and `bind_user` is an explicit no-op. Concretely: every log line from socket code would be both un-correlatable and un-attributable — present in the stream, greppable by nothing, attached to no one. That is worse than not logging, because absent lines get noticed and anonymous lines look fine until the day you need them.
 
-**Files:**
-- Modify: `backend/app/services/realtime.py`, `backend/app/routers/realtime.py`
-- Test: `backend/tests/test_realtime_endpoint.py` (extend)
+> **Implemented 2026-08-12.** Task 9 is complete in the working tree.
 
-- [ ] **Step 1: Write the failing tests**
+**Implemented behavior:**
 
-Add tests asserting, via `caplog`:
-- A connect line carries `conn=` and `user=`.
-- A disconnect line carries the same `conn=` value.
-- A delivery line carries `conn=`, `user=`, and the originating `req=` from the envelope.
-- Dispatch-task death logs at `ERROR` with the restart count.
-- Permanent give-up logs at `ERROR` and says so explicitly.
+- `LogfmtFormatter` accepts an explicit `LogRecord.request_id` override for
+  long-lived work. It replaces the ambient request-context value in the one
+  canonical `req=` field, so a delivery never renders duplicate correlation
+  keys and existing HTTP request logging remains unchanged.
+- The endpoint logs `realtime.delivered` at `INFO` only after
+  `send_json(envelope)` succeeds. The line carries the envelope's `req` as the
+  request-id override plus `connection_id`, `user_id`, `event_type`, and
+  `entity_id`. A failed send never claims delivery.
+- Accepted-connection logs consistently carry `connection_id` and `user_id`,
+  including connect/disconnect, connection failure, frame-size and frame-rate
+  policy events, close failure, overflow, and delivery. Pre-authentication and
+  process-global events remain exempt because those identities do not exist.
+- Dispatch crash logs remain `ERROR`, now record the one-based authorized
+  restart count and `will_restart`. Permanent give-up records the configured
+  restart limit and explicitly says delivery is stopped until restart.
+- No envelope, REST, database, migration, frontend, transport-ownership, close,
+  or session-revalidation behavior changed.
 
-- [ ] **Step 2: Run to verify they fail**
+**Verification:**
 
-- [ ] **Step 3: Implement**
-
-Mint the connection id at handshake (already on `Connection`), stable for the socket's life. Log connect, disconnect, and delivery with it.
-
-**The correlation id must be read from the envelope's `req` field, never from a context variable.** The logging module already documents being bitten by a near-identical issue: middleware runs downstream work in a separate task, and a task gets a *copy* of the context, which is why `bind_user` mutates in place rather than re-setting. The dispatch task is worse than a copy — it is started at lifespan, lives independently of any request, and inherits nothing from any of them.
-
-- [ ] **Step 4: Run to verify they pass**
-
-- [ ] **Step 5: Commit**
+- Red phase: 5 focused tests failed for the missing request-id override,
+  delivery event, accepted-connection user field, and restart semantics.
+- Green phase: 69 focused formatter/endpoint/registry tests passed.
+- Logging plus all real-time tests: 106 passed with the two known
+  Uvicorn/`websockets.legacy` deprecation warnings.
+- Full backend suite: 791 passed with the same two known warnings.
 
 ---
 
 # Phase 5 — Event vocabulary and the emit seam
 
-## Task 10: Emit at the work-order routes
+## Task 10: Emit the Admin Review queue invalidation
 
-Events must fire after the change is durable. "After commit" is not currently a well-defined moment — commits happen in routers in some places and inside services in others, and `open-work.md` SCL-006 documents helpers that commit internally while callers keep working. Emission goes at the **router layer**, the one place where "this command is finished" is unambiguous today.
+> **Scope corrected and implemented 2026-08-12 (Option B1).** The original
+> three-route draft confused a broad work-order domain event with the projection
+> Task 12 can actually refresh. Task 10 now publishes the precise
+> `work_order.review_queue.changed` invalidation.
 
-**Do not use a database commit hook.** The shared test fixture binds sessions to an outer transaction in `join_transaction_mode="create_savepoint"`, so **every commit under test is a savepoint release, not a real commit.** A commit-hook design would fire events in tests that never fire in production and vice versa.
+Events fire after the capable command's service call returns. "After commit" is
+not a uniform ORM hook in this repository: services own commits, and the shared
+test fixture turns those commits into savepoint releases. The router is the
+available command boundary, so no database commit hook or outbox is introduced.
+
+**Implemented contract:**
+
+- Constant: `EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED`.
+- Envelope: exactly `type`, `id`, and originating `req`; never an actor or row
+  payload.
+- Audience: Admin and Owner, matching the first consumer.
+- Single-row invalidations carry the work-order UUID. CSV import and bulk legacy
+  archive are collection invalidations with `id: null`.
+- Exactly five capable commands emit: import, bulk legacy archive, update,
+  archive, and restore. A successful capable no-op still emits; occasional false
+  positives are the accepted B1 trade for avoiding before/after state plumbing.
+- Start, complete, hold, resume, material, billing, and labor commands do not
+  emit this event. It is not a general aggregate-change vocabulary, and Task 12
+  does not refresh an open receipt.
+- A command failure before the mutating service returns emits nothing. A full
+  handoff drops the invalidation without changing the successful HTTP result.
 
 **Files:**
-- Modify: `backend/app/routers/work_orders.py`
-- Test: `backend/tests/test_realtime_emit.py`
 
-- [ ] **Step 1: Write the failing tests**
+- Modify: `backend/app/logging_config.py`, `backend/app/domain/realtime.py`,
+  `backend/app/routers/work_orders.py`.
+- Add: `backend/tests/test_realtime_emit.py`.
+- Extend: `backend/tests/test_logging.py`, `backend/tests/test_realtime_domain.py`,
+  and the existing real-time transport tests for the renamed vocabulary.
 
-Assert that `update_work_order` (`routers/work_orders.py:474`), `complete_work_order` (`:536`), and `archive_work_order` (`:598`) each emit exactly one `work_order.changed` envelope carrying the work order id and the acting user, and that a route which raises before commit emits **nothing**.
+**Tests:**
 
-- [ ] **Step 2: Run to verify they fail**
-
-- [ ] **Step 3: Add the emit line to each route**
-
-One visible line per mutating route, after the service call returns and the commit has happened. The accepted cost is that routers currently doing pure translation gain a second job, and that this is something you can forget to write — so **emission is a review-checklist item for any new mutating route.** Add that line to the repo's review checklist as part of this task.
-
-- [ ] **Step 4: Run to verify they pass, and run the whole suite**
-
-- [ ] **Step 5: Commit**
+- The red phase produced 11 intended failures for the missing request-id
+  accessor, event vocabulary, route helper, and five emitter calls; 37 existing
+  focused tests remained green.
+- The Task 10 logging/domain/emitter set passes 48 tests.
+- Logging plus all real-time tests pass 117 tests with the two known
+  Uvicorn/`websockets.legacy` deprecation warnings.
+- The affected import/work-order/role suites pass 167 tests.
+- The full backend suite passes 802 tests with the same two known warnings.
 
 ---
 
@@ -1951,33 +2029,83 @@ One visible line per mutating route, after the service call returns and the comm
 
 ## Task 11: The client transport module
 
+> **Corrected client rule:** refresh on every relevant invalidation, including
+> the originating user's. The envelope has no actor field; never suppress an
+> event by user id because that would also suppress another tab or device.
+>
+> **Implemented 2026-08-13.** The transport owns one connection and routes both
+> invalidations and reconnect recovery only to explicit subscribers. It never
+> globally reloads the active page: D8 requires a view to opt into live refresh
+> after its UX-6 safety is reviewed. Task 12 remains the first such opt-in.
+
 A new foundation-layer module, peer to `api.js` — no DOM access, no view imports, wired at the composition root. Plain ES modules; no build step, no tooling change, no new dependency.
 
 **Files:**
 - Create: `backend/static/realtime.js`
-- Modify: `backend/static/views/auth.js`, `backend/static/main.js`
+- Modify: `backend/static/views/auth.js`, `backend/static/views/nav.js`,
+  `backend/static/main.js`
 
 **Interfaces:**
 - Produces: `connectRealtime()`, `disconnectRealtime()`, `subscribe(eventType, handler)`, `setActivePageGetter(fn)`.
 
-- [ ] **Step 1: Implement the transport**
+- [x] **Step 1: Implement the transport**
 
 Requirements, each load-bearing:
 
 - **Reconnect with jittered backoff.** The free tier spins down when idle and every deploy drops every socket simultaneously, so disconnection is routine rather than exceptional. **Backoff must be jittered, not fixed** — in lockstep, every client retries as a thundering herd against a cold-starting instance, potentially forever. A small crew makes this minor today; it is trivial to get right up front and annoying to diagnose later.
-- **Ignore your own echo.** Compare `envelope.actor` against the current user id and return early if they match. Without this, every write costs the writer an extra round trip — a UX-7 regression.
+- **Refresh on every relevant event, including the writer's.** A user id cannot
+  distinguish the originating tab from another tab or device, and the envelope
+  deliberately has no actor field.
 - **Silent failure, always (UX-5).** Refused handshake, rate-limited, closed mid-session, never connected at all — all invisible. No message, no indicator, no degraded mode, and **no connection-status UI of any kind** (UX-2).
-- **On reconnect, refresh the active page.** There is no event log, no sequence numbering, and no resume cursor — P1 and P2 make refetch a complete recovery.
+- **On reconnect, notify every registered handler once.** Each receives the
+  active page and chooses whether it is safe and relevant to refetch. There is
+  no event log, sequence numbering, or resume cursor, so an opted-in view must
+  treat recovery as possible missed invalidations.
 
 Connect from `enterApp` in `views/auth.js` (after the session is confirmed) and disconnect from `showLoginScreen` (`views/auth.js:170`).
 
-- [ ] **Step 2: Verify no new UI exists**
+- [x] **Step 2: Verify no new UI exists**
 
 ```bash
 cd backend && grep -rn "connected\|offline\|reconnect" static/*.html static/views/*.js | grep -iv "^static/realtime.js" | head
 ```
 
 Expected: no user-visible strings introduced. UX-2 has no exceptions.
+
+**Implemented details:**
+
+- `connectRealtime()` is idempotent and opens the same-origin `/ws`; the browser
+  carries the existing HttpOnly cookie and no credential appears in a URL or
+  frame.
+- `disconnectRealtime()` cancels retry, closes the socket, and advances a
+  connection generation. Late callbacks from an old generation cannot create a
+  socket after logout or session expiry.
+- Equal-jitter exponential retry uses 0.5-1s, 1-2s, 2-4s, 4-8s, 8-16s, then
+  15-30s. Even the earliest curve stays below the server's ten-attempts-per-
+  minute budget.
+- `subscribe` returns an unsubscribe function. Notifications are
+  `{reason: "event", envelope, activePage}` or, after recovery only,
+  `{reason: "reconnect", envelope: null, activePage}`. The initial successful
+  connection produces no recovery notification.
+- Only exact `type`/`id`/`req` envelopes dispatch. Malformed JSON, unknown event
+  types, binary frames, and widened envelopes are ignored.
+- `main.js` injects `views/nav.js::getActivePage`; the transport retains no DOM
+  or view import. `enterApp` connects after page selection and
+  `showLoginScreen` disconnects first on every return to authentication.
+
+**Verification:**
+
+- A deterministic Node lifecycle harness covered URL selection, duplicate-
+  connect suppression, exact-envelope dispatch, malformed-frame rejection,
+  jitter timing, recovery, unsubscribe, and logout cancellation.
+- All 35 non-vendor JavaScript modules pass `node --check`; the focused real-
+  time/logging suite passes 117 tests; the full backend suite passes 802 tests
+  with the two known Uvicorn/`websockets.legacy` warnings.
+- `git diff --check` is clean apart from repository line-ending notices, and no
+  connection-status string was introduced in HTML or view modules.
+- The app reached `/healthz` through real Uvicorn. The interactive browser
+  CSP/cookie handshake check remains open because no controllable browser was
+  connected to this session; do not change CSP without observing a violation.
 
 - [ ] **Step 3: Commit**
 
@@ -1987,6 +2115,12 @@ Expected: no user-visible strings introduced. UX-2 has no exceptions.
 
 ## Task 12: Admin Review consumes the event
 
+> **Technical implementation and owner browser acceptance completed
+> 2026-08-13.** The owner manually confirmed all expected behavior; Codex
+> performed no browser automation by owner direction. The implementation
+> subscribes to both matching events and reconnect recovery, refreshes only
+> while Admin Review is active, and keeps automatic failures invisible.
+
 **Why this surface (D4):** its audience is the flat `["owner", "admin"]` gate, and `can_view_work_order` (`domain/work_orders.py:445`) short-circuits to `True` for Admin and Owner, so the per-row predicate is trivially satisfied rather than merely avoided. Its staleness is genuine — Supervisors move work orders into Review while an Admin works the queue.
 
 **Its UX-6 safety is already built.** `loadAdminReview()` (`views/adminReview.js:116`) calls only `renderQueue()` and never touches `receiptSection`; `buildCard` (`:51`) re-applies the selection from `selectedDetail?.id`. A queue reload already preserves the open receipt and the selected card, and the existing Reopen handler depends on exactly that, deliberately. **Nothing has to be built to make the first surface UX-6-safe.**
@@ -1994,25 +2128,55 @@ Expected: no user-visible strings introduced. UX-2 has no exceptions.
 **Files:**
 - Modify: `backend/static/views/adminReview.js`
 
-- [ ] **Step 1: Subscribe**
+- [x] **Step 1: Subscribe**
 
-Register a handler for `work_order.changed` that calls `loadAdminReview()` **only when Admin Review is the active page**; otherwise mark dirty and let the existing on-activation loader in `nav.js` do the work it already does (D8: opt-in live refresh over a mark-dirty default).
+Register a handler for `work_order.review_queue.changed` that calls
+`loadAdminReview({ background: true })` **only when Admin Review is the active
+page**. Inactive notifications are ignored; the existing on-activation loader
+in `nav.js` performs the fresh REST read when the page is later opened (D8:
+opt-in live refresh over a mark-dirty default).
 
 This view keeps no `state.js` cache — it fetches on load — so the cache-freshness concept §10.3 introduces is **not needed here** and is deferred to Phase 8.
 
-- [ ] **Step 2: Verification gate**
+**Implemented details:**
 
-Every item below is a named requirement of §11. Check each explicitly and record the result:
+- Background loads suppress the loading copy and preserve the current queue on
+  failure. Foreground callers retain their prior loading/error behavior.
+- Queue responses use a separate monotonic request sequence. An older response
+  cannot overwrite a newer committed result or foreground error; a failed
+  background request commits nothing.
+- Queue rendering still never touches `selectedDetail` or `receiptSection`, so
+  the selected card/open receipt contract is unchanged.
+- The handler treats event and reconnect notifications identically and never
+  suppresses the writer's invalidation.
 
-- [ ] The queue updates live for a second user (two browsers, two accounts).
-- [ ] With the socket blocked (DevTools → block `/ws`), the page behaves **exactly** as it does today.
-- [ ] An open receipt survives a live queue refresh with its selection intact.
-- [ ] Every log line from socket code carries connection identity and user.
-- [ ] Fan-out is traceable from the originating request id.
-- [ ] Every limit in Phase 3 has a test that fails when the limit is removed.
-- [ ] **No new UI element exists anywhere.**
-- [ ] **The local CSP check (precondition 4.2):** confirm in the browser console that the socket opens over `ws://localhost:8124`. CSP3's upgrade allowance names `https:` and `wss:`; local dev is `http:` → `ws:`, which is neither same-origin nor in that set. If it is blocked, state `connect-src` explicitly rather than weakening `default-src`. **Production over `wss:` is already confirmed permitted and needs no change.**
+- [x] **Step 2: Owner browser behavior verification gate**
+
+Owner-reported manual validation on 2026-08-13 confirmed the real local
+WebSocket handshake, two-browser delivery, silent active-page refresh, no
+inactive-page refetch, fresh navigation load, writer echo, receipt/selection
+preservation, reconnect catch-up, blocked-socket REST fallback, logout cleanup,
+local CSP behavior, and expected connection/delivery logs. Codex did not
+operate or observe the browser.
+
+- [x] The queue updates live for a second user (two browsers, two accounts).
+- [x] With the socket blocked (DevTools → block `/ws`), the page behaves **exactly** as it does today.
+- [x] An open receipt survives a live queue refresh with its selection intact.
+- [x] Every log line from socket code carries connection identity and user.
+- [x] Fan-out is traceable from the originating request id.
+- [x] Every limit in Phase 3 has a test that fails when the limit is removed.
+- [x] **No new UI element exists anywhere.**
+- [x] **The local CSP check (precondition 4.2):** the owner confirmed that the socket opens over `ws://localhost:8124` without a CSP refusal. **Production over `wss:` was already confirmed permitted and needs no change.**
 - [ ] Measure every threshold in the Global Constraints table against real behavior and record the actual numbers (D5).
+
+The D5 numeric threshold-calibration item is separate from this completed
+behavioral browser gate and remains open; automated boundary tests are already
+green.
+
+**Automated verification:** all 35 non-vendor JavaScript modules pass
+`node --check`; the focused logging/real-time suite passes 117 tests; the full
+backend suite passes 802 tests with the two known Uvicorn/`websockets.legacy`
+warnings; `git diff --check` is clean apart from repository line-ending notices.
 
 - [ ] **Step 3: Commit**
 
@@ -2032,7 +2196,7 @@ Re-check every UX invariant per surface, particularly UX-6.
 
 ## Self-review notes
 
-**Spec coverage:** §4 preconditions → done pre-plan except the local CSP check, which is Task 12's gate. §5 → Tasks 5–6. §6 → Task 7. §7 → Tasks 2, 5, 8. §8 → Task 9. §9 → Task 10. §10 → Task 11. §11 → Task 12. §12 → Phase 8. §13 (messaging readiness) is a statement, not work; Tasks 4–6 preserve it via the typed envelope, the inbound seam, and the user-keyed registry.
+**Spec coverage:** §4 preconditions → done, including the Task 12 owner-validated local CSP check. §5 → Tasks 5–6. §6 → Task 7. §7 → Tasks 2, 5, 8. §8 → Task 9. §9 → Task 10. §10 → Task 11. §11 → Task 12. §12 → Phase 8. §13 (messaging readiness) is a statement, not work; Tasks 4–6 preserve it via the typed envelope, the inbound seam, and the user-keyed registry.
 
 **Not in the spec, found while planning:** Task 1 (the missing `websockets` dependency and the fact that no socket test can detect it) and Task 3 (the hash-keyed resolver D1 implies). Both are load-bearing.
 

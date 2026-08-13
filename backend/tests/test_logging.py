@@ -109,6 +109,49 @@ def test_a_bound_request_id_reaches_the_formatted_line():
     assert "req=a3f9c1d20e77" in line
 
 
+def test_current_request_id_reads_the_active_scope_and_is_safe_without_one():
+    assert logging_config.current_request_id() is None
+
+    token = request_context.set(logging_config.new_request_context("current-request"))
+    try:
+        assert logging_config.current_request_id() == "current-request"
+    finally:
+        request_context.reset(token)
+
+
+def test_current_request_id_treats_a_context_without_req_as_unbound():
+    token = request_context.set({})
+    try:
+        assert logging_config.current_request_id() is None
+    finally:
+        request_context.reset(token)
+
+
+def test_an_explicit_record_request_id_is_the_one_correlation_key():
+    """Long-lived tasks carry causality as data, not request context.
+
+    The formatter must replace the ambient value rather than append a second
+    `req` field, or a delivery line becomes ambiguous to both humans and
+    logfmt parsers.
+    """
+    token = request_context.set(logging_config.new_request_context("ambient-request"))
+    try:
+        record = _record(
+            "realtime.delivered",
+            connection_id="connection-1",
+            user_id="user-1",
+        )
+        record.request_id = "originating-request"
+        line = _format(record)
+    finally:
+        request_context.reset(token)
+
+    assert "req=originating-request" in line
+    assert "req=ambient-request" not in line
+    assert "req=-" not in line
+    assert line.count("req=") == 1
+
+
 def test_bind_user_adds_the_id_to_an_active_scope():
     context = logging_config.new_request_context("a3f9c1d20e77")
     token = request_context.set(context)
