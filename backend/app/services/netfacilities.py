@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TypeAlias
 from uuid import UUID
@@ -27,6 +27,7 @@ from app.models import WorkOrder
 
 
 SessionFactory: TypeAlias = Callable[[], Session]
+RequestProgressObserver: TypeAlias = Callable[[str], Awaitable[None]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +70,7 @@ async def enrich_work_orders(
     session_factory: SessionFactory,
     client: NetFacilitiesClientProtocol,
     batch_timeout_seconds: float,
+    on_request_started: RequestProgressObserver | None = None,
 ) -> NetFacilitiesEnrichmentSummary:
     """Enrich eligible existing rows serially through a fakeable source client.
 
@@ -99,6 +101,8 @@ async def enrich_work_orders(
             continue
 
         summary.requests_attempted += 1
+        if on_request_started is not None:
+            await on_request_started(number)
         try:
             async with asyncio.timeout(seconds_left):
                 source = await client.get_work_order(number)

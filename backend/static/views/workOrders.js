@@ -1356,7 +1356,14 @@ function netFacilitiesCountsMessage(job) {
 function renderNetFacilitiesJob(job) {
   if (!job || !netFacilitiesStatus) return;
   if (job.state === "queued" || job.state === "running") {
-    setMessage(netFacilitiesStatus, "Seeking Task/Symptom and Priority in NetFacilities…", "");
+    const currentRequest = job.current_work_order_number
+      ? ` Currently requesting work order ${job.current_work_order_number}.`
+      : "";
+    setMessage(
+      netFacilitiesStatus,
+      `Seeking Task/Symptom and Priority in NetFacilities…${currentRequest}`,
+      "",
+    );
     return;
   }
   if (job.state === "completed") {

@@ -1,9 +1,9 @@
 # NetFacilities Stage 1 Authentication and Enrichment Runbook
 
 Status: local CLI lookup/authentication and the Admin+ in-app manual sign-in flow are
-implemented; the local happy path is owner-accepted, and Render can consume the same
-protected saved state through a browserless request client. The first hosted live
-request is still pending operator acceptance.
+implemented; the local happy path is owner-accepted, and Render capability enablement is
+owner-confirmed. The first hosted enrichment pass updated zero priorities, including
+newly imported blank-priority rows, so hosted enrichment remains under investigation.
 
 ## Scope
 
@@ -124,7 +124,8 @@ The operator workflow is:
 3. Click **Import from CSV…** and select the NetFacilities CSV already downloaded on
    the computer.
 4. After the normal CSV import succeeds, the app automatically starts the serialized
-   enrichment job and polls its aggregate result.
+   enrichment job. Its existing one-second poll displays the currently requested
+   work-order number while available, then reports the aggregate result.
 5. If login state is missing or expired, use **Sign in to NetFacilities** again, then
    click **Import Tasks and Priority**. The CSV does not need to be uploaded again.
 
@@ -143,8 +144,10 @@ POST /integrations/netfacilities/work-orders/enrich
 GET  /integrations/netfacilities/work-orders/enrich/{job_id}
 ```
 
-They return capability state, operation IDs, safe outcome classes, and counts only.
-They never return storage paths, cookies, HTML, headers, or source field contents.
+They return capability state, operation IDs, the nullable current requested work-order
+number while a job is running, safe outcome classes, and counts. They retain no
+completed-number history and never return storage paths, cookies, HTML, headers,
+descriptions, or Priority values.
 
 ## Provision saved authentication on Render
 
@@ -194,7 +197,11 @@ live application imported Task/Symptom correctly and imported Priority correctly
 source values, work-order identifiers, profile paths, or authentication material were
 recorded. The roadmap retains the separate retry, preservation, expiration,
 cancellation, timeout, and page-reentry resilience checks. This accepts the local live
-happy path only; the first Render-hosted live request remains pending.
+happy path only. Render capability enablement was later confirmed after commit
+`0679c52`, but the first hosted enrichment pass updated zero priorities, including new
+blank-priority rows. In-flight requested-number progress is now implemented and
+focused-tested; Priority selectors remain unchanged pending aggregate counts and a
+sanitized DOM observation. See `handoff.md` for the next-session investigation brief.
 
 ## Look up one work order
 

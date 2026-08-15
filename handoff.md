@@ -2,10 +2,97 @@
 
 Last updated: 2026-08-15
 
-Status: Milestones 0 through 5 plus Admin+ in-app manual authentication are implemented
-for the local Windows, single-operator release. The owner-reported live happy path
-passed on 2026-08-15 after restarting Uvicorn without reload: Task/Symptom and Priority
-both imported correctly. Remaining resilience scenarios are listed below.
+Status: The local Windows happy path remains accepted. Render capability enablement is
+now owner-confirmed after commit `0679c52` corrected the production-image root used by
+protected-path validation. The first hosted enrichment pass exposed an unresolved bug:
+no Priority values were updated, including newly imported work orders with blank
+Priority. In-flight requested-number progress is now implemented and focused-tested;
+the next session should continue the evidence-gated Priority investigation below.
+
+## Next-session brief: hosted Priority investigation
+
+### Confirmed observations and boundaries
+
+- On 2026-08-15 the owner confirmed that NetFacilities is enabled on Render after
+  `0679c52` reached `main`. The prior `disabled` and false `unavailable` configuration
+  states are resolved.
+- The first hosted pass updated zero priorities, including new work orders. The owner
+  has not yet supplied the final aggregate counts or the Task/Symptom outcome for that
+  pass; do not infer either one.
+- The Admin-visible job status now shows the work-order number currently being requested
+  while the serialized enrichment job is running. It retains the generic seeking message
+  before the first request and clears the number for every terminal outcome.
+- Keep the existing Admin+ route gates, one-job serialization, one-second frontend
+  polling, compare-and-set writes, and prohibition on returning/logging cookies, storage
+  paths, HTML, headers, descriptions, or Priority values. A work-order number may be
+  exposed only as the current Admin-visible progress identifier; do not retain a
+  completed-number history.
+- Never request or inspect the saved storage-state contents. The state pasted in the
+  prior session had already expired; replacement state remains bearer-equivalent.
+
+### Continue with these questions and checks
+
+1. Ask the owner for the exact completed-job counts shown by the UI: `candidates`,
+   `requests_attempted`, `fetched`, `descriptions_updated`, `priorities_updated`,
+   `unchanged`, `other_failures`, and `remaining`. These counts distinguish parser/data
+   failure from candidate or request failure without exposing source values.
+2. Confirm whether Task/Symptom changed on the same hosted pass and whether affected
+   cards displayed `Not imported` before and after it.
+3. Use a deliberately small authorized work-order set for any live check. Inspect only
+   the Priority DOM shape/label through the authorized browser, then create a sanitized
+   minimal fixture. Do not save or log a live page, identifier, description, location,
+   Priority value, cookie, or header.
+4. Re-read the applicable Obsidian repo context and inspect the current tree/status
+   before planning edits; the worktree may contain owner changes.
+
+### Current code trace and remaining change points
+
+| Concern | Current code | Current status / next action |
+| --- | --- | --- |
+| Current requested number | `backend/app/services/netfacilities.py`, `enrich_work_orders()` candidate loop | Implemented: an optional async observer receives each validated number immediately before its serialized `get_work_order()` request. |
+| Process-local job state | `backend/app/services/netfacilities_jobs.py`, `NetFacilitiesJobSnapshot` and `_run()` | Implemented: the immutable running snapshot publishes `current_work_order_number` through the coordinator lock; duplicate starts/polling see the same snapshot, and terminal snapshots clear it. |
+| Admin API contract | `backend/app/schemas/netfacilities.py` and `backend/app/routers/netfacilities.py::_job_response` | Implemented: the response explicitly maps nullable `current_work_order_number`. No source description, Priority, URL, HTML, storage data, header, or cookie was added. |
+| Work Orders status UI | `backend/static/views/workOrders.js`, especially `renderNetFacilitiesJob()` and `pollNetFacilitiesJob()` | Implemented through the existing one-second polling path: running jobs display the current number when present and retain the generic fallback before the first callback. |
+| Priority extraction | `backend/app/integrations/netfacilities/parser.py`, lines selecting `#priority-level` or `general.get("Priority Level")` | A missing selector/label returns `None`, which is legal and silently prevents a Priority write. The all-zero hosted result makes production DOM/label drift the leading hypothesis, not a confirmed cause. Update selectors only from a sanitized observation. |
+| Candidate and write rules | `backend/app/services/netfacilities.py::_load_candidates`, `_source_values`, and `_apply_candidate` | Blank-priority rows are selected; source `None` is accepted; writes occur only when local Priority is blank and source Priority is non-null. Preserve these safety rules while testing whether the value is lost before `_apply_candidate`. |
+| Regression coverage | `backend/tests/test_netfacilities_parser.py`, sanitized fixture, `test_netfacilities_service.py`, `test_netfacilities_jobs.py`, and `test_netfacilities_routes.py` | Service/job/route tests now cover in-flight progress and the restricted response field. The sanitized production Priority DOM variant and a corresponding parser regression are still missing. |
+
+### Priority investigation decision tree
+
+- `candidates == 0`: inspect import persistence and `_load_candidates`; confirm new rows
+  actually have null/blank Priority and are not archived.
+- `requests_attempted == 0` with candidates present: inspect number validation and the
+  loop's early-exit conditions.
+- `fetched == 0`: investigate authentication, permission, not-found, timeout, and safe
+  failure counts before touching parsing or persistence.
+- `fetched > 0`, `other_failures == 0`, and `priorities_updated == 0`: inspect the live
+  Priority DOM first. This most strongly fits the parser returning `None` while allowing
+  description enrichment to continue.
+- `other_failures > 0`: determine whether parsing/projection validation or database
+  application failed using safe outcome classes and focused tests; do not add live
+  values to logs.
+- If a sanitized parser test returns a nonblank Priority but persistence still stays
+  blank, trace `_source_values()` into `_apply_candidate()` with a fake projection and
+  a real PostgreSQL row before changing compare-and-set rules.
+
+### Progress verification and remaining acceptance
+
+- Completed automated coverage proves that the observer receives validated numbers
+  immediately before deterministic serial requests; running/duplicate/polled job
+  snapshots expose the same current number; terminal snapshots clear it; and the route
+  returns it only as approved nullable progress metadata. The focused suite passed
+  **27 tests with 5 skipped**.
+- `node --check backend/static/views/workOrders.js` and `git diff --check` passed. A
+  manual running-job check that visibly advances through a small authorized sequence and
+  clears the number at completion is still unreported.
+- Parser tests: add the sanitized production Priority markup/label variant plus a
+  missing-Priority case; retain identifier, login, section, and size fail-closed tests.
+- Existing service/database coverage continues to prove that a blank-priority candidate
+  receives a nonblank source value while existing/manual Priority, archived rows, and
+  concurrent edits remain unchanged.
+- Hosted acceptance is complete only when a fresh small pass reports nonzero
+  `priorities_updated` for eligible blank rows and the cards show those committed values.
+  Record only counts, duration, safe outcomes, and pass/fail.
 
 ## Corrected operating decision
 
@@ -81,7 +168,8 @@ lease shared by authentication and enrichment, so they cannot overlap.
 - refuses missing saved auth state before creating a browser client;
 - lazily creates one headless saved-state client;
 - returns the active job on duplicate starts;
-- reports only aggregate counts and safe failure classes;
+- reports the current requested work-order number while running, plus aggregate counts
+  and safe failure classes, and clears the number at every terminal outcome;
 - maps auth loss to `authentication_required` and stops remaining reads;
 - cancels and closes the owned client during application shutdown.
 
@@ -104,17 +192,19 @@ GET  /integrations/netfacilities/work-orders/enrich/{job_id}
 
 Capability state is limited to `unavailable`, `not_authenticated`, `authenticating`,
 `ready`, `running`, and `expired`. Authentication and job payloads contain only
-operation IDs, states, timestamps, safe failure classes, and aggregate counts. The
-existing `POST /work-orders/import` remains the only creator.
+operation IDs, states, timestamps, the nullable current requested work-order number,
+safe failure classes, and aggregate counts. The existing `POST /work-orders/import`
+remains the only creator.
 
 ### Work Orders UI
 
 The existing Admin+ `.csv` chooser is reused. On a successful import, the UI starts the
 enrichment job automatically only when authentication is ready, polls it, displays
-counts, and reloads cards. If auth is absent or expired, the CSV import stays committed;
-after in-app sign-in, **Import Tasks and Priority** retries enrichment without another
-upload. Sign-in, confirmation, and cancellation controls recover the process-local auth
-attempt after page re-entry.
+the current requested work-order number when available, displays counts, and reloads
+cards. If auth is absent or expired, the CSV import stays committed; after in-app sign-in,
+**Import Tasks and Priority** retries enrichment without another upload. Sign-in,
+confirmation, and cancellation controls recover the process-local auth attempt after
+page re-entry.
 
 When the capability is disabled/unavailable, the retry control stays hidden and normal
 CSV import continues. Technician/Supervisor hiding is presentation only; server gates
@@ -189,9 +279,15 @@ feature ran successfully: Task/Symptom imported correctly and Priority imported
 correctly. No source values, identifiers, profile paths, or authentication material
 were recorded.
 
-The local live happy path is accepted. The first hosted live request on Render is still
-pending operator acceptance. The following hardening checks remain unreported and
-should still record only pass/fail, counts, duration, and safe outcome classes:
+The local live happy path is accepted. Render capability enablement is also accepted,
+but hosted enrichment is not: its first pass updated zero priorities, including newly
+imported blank-priority rows. Task/Symptom behavior and the final aggregate counts were
+not reported in this checkpoint. In-flight requested-number progress has since been
+implemented, but no Priority selector was changed because hosted aggregate counts and a
+sanitized live DOM observation are still missing. The next session must investigate the
+Priority path using the brief above before claiming hosted acceptance. The following
+hardening checks also remain unreported and should still record only pass/fail, counts,
+duration, and safe outcome classes:
 
 1. Confirm lifecycle status, other local fields, archived rows, and manual/CSV values do
    not change.

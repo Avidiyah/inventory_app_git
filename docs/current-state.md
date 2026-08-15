@@ -1,6 +1,6 @@
 # Inventory App Current State
 
-Last reviewed: 2026-08-14
+Last reviewed: 2026-08-15
 
 Purpose of this file: give an AI or developer enough current-state context to
 make technical changes without rereading the whole repository. Start here, then
@@ -119,7 +119,7 @@ Path shorthand:
 | Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | mass-stage tests plus manual UI check |
 | Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
 | Work Orders UI | `static/views/workOrders.js`, `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | work-order tests plus manual UI check |
-| NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_auth.py`, `services/netfacilities_jobs.py`, `services/netfacilities_operations.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | Admin+ local headed sign-in saves protected state; Render consumes an operator-provisioned secret state file through a browserless Playwright request context; CSV import remains the sole creator and starts one serialized enrichment job only when auth is ready; only exact fallback Task/Symptom and blank Priority may change; local live happy path accepted; hosted live request pending |
+| NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_auth.py`, `services/netfacilities_jobs.py`, `services/netfacilities_operations.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | Admin+ local headed sign-in saves protected state; Render consumes an operator-provisioned secret state file through a browserless Playwright request context; CSV import remains the sole creator and starts one serialized enrichment job only when auth is ready; the existing one-second poll exposes the current requested number while running; only exact fallback Task/Symptom and blank Priority may change; local live happy path and hosted capability enablement accepted; first hosted pass updated zero priorities, so hosted enrichment remains unaccepted |
 | Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, manual UI check |
 | Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
 | Tools API/domain/service (custody) | `domain/tools.py`, `domain/quantity.py` (reused), `services/tools.py`, `routers/tools.py`, `schemas/tools.py`, `models.py` | `test_tools_domain.py`, `test_tools_service.py`, `test_route_role_gates.py` |
@@ -1427,9 +1427,11 @@ still never embedded in the image and must be provisioned in Render's Environmen
 
 The saved state is bearer-equivalent. Never commit, log, return, or place it in an
 ordinary environment variable. On expiration, refresh it through the authorized local
-headed flow, replace the Render secret file, and redeploy. A session transfer may still
-be rejected by tenant-side IP/device binding; the first hosted live request remains an
-operator-run acceptance check.
+headed flow, replace the Render secret file, and redeploy. The owner confirmed hosted
+capability enablement on 2026-08-15 after commit `0679c52` corrected production root
+detection. The first hosted enrichment pass updated zero priorities, including newly
+imported blank-priority rows; Task/Symptom behavior and aggregate counts were not
+reported, so end-to-end hosted enrichment remains unaccepted.
 
 Browser-enabled local Uvicorn must run as one process without `--reload` or multiple
 workers: those Windows modes use `SelectorEventLoop`, which cannot start Playwright's
@@ -1444,6 +1446,14 @@ expired auth leaves the CSV import committed. Locally, sign in again; on Render,
 the saved-state secret and redeploy. Then use **Import Tasks and Priority** without
 re-uploading.
 
+During the serialized candidate loop, an optional async observer receives each validated
+work-order number immediately before its source request. The job coordinator publishes
+that value as nullable `current_work_order_number` in the immutable running snapshot
+under its lock; terminal snapshots clear it. The Work Orders status uses the existing
+one-second poll to display the number and keeps the generic seeking message before the
+first request. No completed-number history or source description/Priority value is
+exposed.
+
 On 2026-08-15 the owner restarted Uvicorn without reload and reported successful live
 Task/Symptom and Priority imports. This is the accepted live happy path; the roadmap
 retains separate resilience checks for retries, preservation rules, expiration,
@@ -1454,7 +1464,12 @@ including 45 focused hosted client/config/job/route tests. The final current-tre
 passed 934 tests. A real Playwright request-only runtime smoke passed with temporary
 synthetic storage state and no Chromium/browser launch; `python -m pip check` and
 JavaScript syntax checks passed. Automated verification made no live NetFacilities
-request. The first hosted live request is still pending.
+request. The later owner-run hosted pass confirmed enablement but exposed the zero
+Priority-update gap described above.
+
+The later in-flight progress extension passed 27 focused tests with 5 skipped,
+`node --check backend/static/views/workOrders.js`, and `git diff --check`. It did not
+change Priority selectors or make a live source request.
 
 | Method | Path | Gate | Behavior |
 | --- | --- | --- | --- |
@@ -1463,7 +1478,7 @@ request. The first hosted live request is still pending.
 | POST | `/integrations/netfacilities/auth/confirm` | admin+ | verify an allowlisted non-login page, save protected state, close browser, release lease |
 | POST | `/integrations/netfacilities/auth/cancel` | admin+ | close the pending browser without saving and release the lease |
 | POST | `/integrations/netfacilities/work-orders/enrich` | admin+ | start one process-local saved-state job or return the active duplicate; 409 when auth is absent or another profile operation is active and 503 when the capability is disabled/unavailable |
-| GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | admin+ | poll the latest process-local job; state/timestamps/safe failure class/counts only |
+| GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | admin+ | poll the latest process-local job; state/timestamps/nullable current requested work-order number/safe failure class/counts only |
 
 `services.netfacilities_auth` owns the local headed browser between start and confirm/cancel;
 early confirmation keeps it open, while cancel, configured timeout, or shutdown closes
@@ -1471,9 +1486,10 @@ it. It and `services.netfacilities_jobs` share one operation lease. The job lazi
 creates either a local headless browser context or a hosted browserless request context
 with saved state, then calls the serial compare-and-set service with fresh short
 database sessions. Disabled startup still avoids importing the concrete client.
-Responses and logs never contain source field values, storage paths, cookies, HTML, or
-headers. Browser-managed CSV downloading and hosted interactive authentication are out
-of scope.
+Responses may expose only the current work-order number as Admin-visible in-flight
+progress; they retain no completed-number history. Responses and logs never contain
+source descriptions, Priority values, storage paths, cookies, HTML, or headers.
+Browser-managed CSV downloading and hosted interactive authentication are out of scope.
 
 **403-before-422 on the billing route** is the one observable behavior change
 C1 made (2026-08-10). Its gate used to be `_can_see_price(user)` in the handler
@@ -2293,9 +2309,9 @@ Coverage map:
 | `test_netfacilities_client.py` | one allowlisted authenticated GET, hosted request-only lifetime/no-browser boundary, response metadata/size boundaries, auth redirect detection, and runtime dependency placement |
 | `test_netfacilities_poc.py` | dedicated profile-path boundary, explicit profile requirement, browser-channel choice, and pre-I/O identifier validation |
 | `test_netfacilities_config.py` | disabled default, Windows profile vs Linux secret-state modes, external-path/channel/timeout validation, lazy imports, and production-safe startup |
-| `test_netfacilities_service.py` | exact live candidate union, serial fake reads, two-field compare-and-set writes, idempotency/concurrent-edit protection, error counts, auth stop, timeout, and no-create behavior |
-| `test_netfacilities_jobs.py` | local/hosted saved-auth precondition, owned client lifetime, serialized duplicate admission, aggregate results, auth-loss state, and clean shutdown cancellation |
-| `test_netfacilities_routes.py` | disabled/local/hosted capability state, interactive-auth availability, recoverable missing-auth 409, source-value-free result contracts, and process-local 404 |
+| `test_netfacilities_service.py` | exact live candidate union, serial fake reads, pre-request progress ordering/validated-number filtering, two-field compare-and-set writes, idempotency/concurrent-edit protection, error counts, auth stop, timeout, and no-create behavior |
+| `test_netfacilities_jobs.py` | local/hosted saved-auth precondition, owned client lifetime, serialized duplicate admission, shared in-flight current-number snapshots, terminal progress clearing, aggregate results, auth-loss state, and clean shutdown cancellation |
+| `test_netfacilities_routes.py` | disabled/local/hosted capability state, interactive-auth availability, recoverable missing-auth 409, approved nullable progress plus source-value-free result contracts, and process-local 404 |
 | `test_work_order_priority.py` | nullable ORM/response contract, generic-update exclusion, and read-only UI source contract |
 | `test_receipt.py` | backend fixed-width receipt output matches the frontend contract for markup, truncation, quantities, missing prices, and labor rounding |
 | `test_tools_domain.py` | pure `domain.tools.validate_return` outstanding-balance cap |
@@ -2316,9 +2332,12 @@ Do not "fix" these accidentally unless the task asks for it.
 - Completed mass stages cannot be reopened.
 - Stage deletion does not reverse load transactions already written.
 - Frontend has no bundler/type checker; ID and module contract drift is manual.
-- NetFacilities local happy-path acceptance passed on 2026-08-15. Render support now
-  consumes the same saved authentication as a secret file through a browserless request
-  context, but the first hosted live request remains operator-run acceptance. Session
+- NetFacilities local happy-path acceptance passed on 2026-08-15. Render capability
+  enablement is owner-confirmed, but the first hosted pass updated zero priorities,
+  including newly imported blank-priority rows. Current requested-number progress is now
+  implemented through the existing polled job contract. The next session must still
+  investigate live Priority parsing versus candidate/application behavior; selectors
+  remain unchanged pending aggregate counts and a sanitized DOM observation. Session
   expiration requires local reauthentication, secret replacement, and redeploy.
   Browser-managed downloading, app-side credential/MFA handling, and secondary-data
   retrieval remain absent. Default tests never make a live NetFacilities request.

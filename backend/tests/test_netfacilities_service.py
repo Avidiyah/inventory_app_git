@@ -328,6 +328,50 @@ def test_invalid_number_never_calls_source_and_does_not_block_later_rows(monkeyp
     assert summary.unchanged == 1
 
 
+def test_request_progress_precedes_each_valid_serial_request(monkeypatch):
+    valid_numbers = [_number(), _number()]
+    candidates = [
+        service.EnrichmentCandidate(uuid.uuid4(), "invalid", None, None),
+        *[
+            service.EnrichmentCandidate(uuid.uuid4(), number, None, None)
+            for number in valid_numbers
+        ],
+    ]
+    monkeypatch.setattr(service, "_load_candidates", lambda _factory: candidates)
+    monkeypatch.setattr(
+        service,
+        "_apply_candidate",
+        lambda *_args: service.ApplyResult(),
+    )
+    events = []
+
+    class EventClient:
+        async def get_work_order(self, number):
+            events.append(("request", number))
+            return SourceWorkOrder(number, "Source task", "Routine")
+
+    async def observe(number):
+        events.append(("progress", number))
+
+    summary = asyncio.run(
+        service.enrich_work_orders(
+            session_factory=lambda: Session(),
+            client=EventClient(),
+            batch_timeout_seconds=30,
+            on_request_started=observe,
+        )
+    )
+
+    assert events == [
+        ("progress", valid_numbers[0]),
+        ("request", valid_numbers[0]),
+        ("progress", valid_numbers[1]),
+        ("request", valid_numbers[1]),
+    ]
+    assert summary.invalid_numbers == 1
+    assert summary.requests_attempted == 2
+
+
 def test_mixed_failures_continue_until_authentication_loss(monkeypatch):
     numbers = [_number() for _ in range(4)]
     candidates = [

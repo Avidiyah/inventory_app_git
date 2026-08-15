@@ -9,6 +9,7 @@ import pytest
 from app.integrations.netfacilities.config import NetFacilitiesConfig
 from app.integrations.netfacilities.errors import (
     NetFacilitiesAuthenticationRequired,
+    NetFacilitiesError,
 )
 from app.services.netfacilities import NetFacilitiesEnrichmentSummary
 from app.services.netfacilities_jobs import NetFacilitiesJobCoordinator
@@ -162,6 +163,77 @@ def test_duplicate_start_returns_the_active_job(tmp_path):
     asyncio.run(exercise())
 
 
+def test_in_flight_progress_is_shared_and_cleared_on_completion(tmp_path):
+    number = "12345678901"
+
+    async def exercise():
+        reported = asyncio.Event()
+        release = asyncio.Event()
+
+        async def enrich(**kwargs):
+            await kwargs["on_request_started"](number)
+            reported.set()
+            await release.wait()
+            return NetFacilitiesEnrichmentSummary(candidates=1, fetched=1)
+
+        coordinator = NetFacilitiesJobCoordinator(
+            client_factory=lambda _config: FakeClientContext(),
+            enrichment_runner=enrich,
+        )
+        config = _config(tmp_path)
+        started, created = await coordinator.start(config)
+        assert created
+        await reported.wait()
+
+        polled = await coordinator.get(started.job_id)
+        duplicate, duplicate_created = await coordinator.start(config)
+        assert polled.current_work_order_number == number
+        assert duplicate == polled
+        assert not duplicate_created
+
+        release.set()
+        finished = await _wait_for_terminal(coordinator, started.job_id)
+        assert finished.state == "completed"
+        assert finished.current_work_order_number is None
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected_state"),
+    [
+        ("authentication_required", "authentication_required"),
+        ("timed_out", "timed_out"),
+        ("failed", "failed"),
+    ],
+)
+def test_non_completed_terminal_states_clear_progress(
+    tmp_path,
+    outcome,
+    expected_state,
+):
+    async def enrich(**kwargs):
+        await kwargs["on_request_started"]("12345678901")
+        if outcome == "authentication_required":
+            return NetFacilitiesEnrichmentSummary(authentication_required=1)
+        if outcome == "timed_out":
+            return NetFacilitiesEnrichmentSummary(timed_out=True)
+        raise NetFacilitiesError("sanitized failure")
+
+    coordinator = NetFacilitiesJobCoordinator(
+        client_factory=lambda _config: FakeClientContext(),
+        enrichment_runner=enrich,
+    )
+
+    async def exercise():
+        started, _ = await coordinator.start(_config(tmp_path))
+        finished = await _wait_for_terminal(coordinator, started.job_id)
+        assert finished.state == expected_state
+        assert finished.current_work_order_number is None
+
+    asyncio.run(exercise())
+
+
 def test_authentication_loss_becomes_a_recoverable_job_state(tmp_path):
     context = FakeClientContext(
         enter_error=NetFacilitiesAuthenticationRequired("expired")
@@ -209,7 +281,8 @@ def test_service_reported_authentication_loss_marks_job_expired(tmp_path):
 def test_shutdown_cancels_the_batch_and_closes_its_client(tmp_path):
     context = FakeClientContext()
 
-    async def enrich(**_kwargs):
+    async def enrich(**kwargs):
+        await kwargs["on_request_started"]("12345678901")
         await asyncio.Event().wait()
 
     coordinator = NetFacilitiesJobCoordinator(
@@ -227,6 +300,7 @@ def test_shutdown_cancels_the_batch_and_closes_its_client(tmp_path):
         finished = await coordinator.get(started.job_id)
         assert finished.state == "cancelled"
         assert finished.failure == "cancelled"
+        assert finished.current_work_order_number is None
 
     asyncio.run(exercise())
     assert context.entered == 1

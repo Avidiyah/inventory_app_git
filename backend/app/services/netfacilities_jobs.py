@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import logging
 from typing import Literal, TypeAlias
@@ -64,6 +64,7 @@ class NetFacilitiesJobSnapshot:
     finished_at: datetime | None = None
     failure: FailureClass | None = None
     summary: NetFacilitiesEnrichmentSummary | None = None
+    current_work_order_number: str | None = None
 
 
 def _default_client_factory(
@@ -160,6 +161,23 @@ class NetFacilitiesJobCoordinator:
             if self._latest is not None and self._latest.job_id == snapshot.job_id:
                 self._latest = snapshot
 
+    async def _report_request_started(
+        self,
+        job_id: UUID,
+        work_order_number: str,
+    ) -> None:
+        async with self._lock:
+            snapshot = self._latest
+            if (
+                snapshot is not None
+                and snapshot.job_id == job_id
+                and snapshot.state == "running"
+            ):
+                self._latest = replace(
+                    snapshot,
+                    current_work_order_number=work_order_number,
+                )
+
     async def _run(self, job_id: UUID, config: NetFacilitiesConfig) -> None:
         started_at = datetime.now(timezone.utc)
         started_clock = asyncio.get_running_loop().time()
@@ -181,6 +199,10 @@ class NetFacilitiesJobCoordinator:
                     session_factory=self._session_factory,
                     client=client,
                     batch_timeout_seconds=config.batch_timeout_seconds,
+                    on_request_started=lambda number: self._report_request_started(
+                        job_id,
+                        number,
+                    ),
                 )
         except asyncio.CancelledError:
             await self._finish(

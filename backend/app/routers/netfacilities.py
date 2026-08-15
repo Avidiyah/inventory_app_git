@@ -65,6 +65,7 @@ def _job_response(snapshot: NetFacilitiesJobSnapshot) -> NetFacilitiesEnrichment
         state=snapshot.state,
         started_at=snapshot.started_at,
         finished_at=snapshot.finished_at,
+        current_work_order_number=snapshot.current_work_order_number,
         failure=snapshot.failure,
         counts=counts,
     )

@@ -275,7 +275,10 @@ def test_start_translates_missing_authentication_to_recoverable_409(
     assert "path" not in exc.value.detail
 
 
-def test_job_response_contains_counts_but_no_source_values(tmp_path, monkeypatch):
+def test_job_response_contains_approved_progress_and_counts_but_no_source_values(
+    tmp_path,
+    monkeypatch,
+):
     config = _config(tmp_path)
     monkeypatch.setattr(router, "load_netfacilities_config", lambda: config)
     snapshot = NetFacilitiesJobSnapshot(
@@ -301,9 +304,30 @@ def test_job_response_contains_counts_but_no_source_values(tmp_path, monkeypatch
 
     assert payload["counts"]["descriptions_updated"] == 2
     assert payload["counts"]["priorities_updated"] == 1
+    assert payload["current_work_order_number"] is None
     assert "description" not in payload
     assert "priority" not in payload
     assert "profile" not in payload
+
+    running_payload = router._job_response(
+        NetFacilitiesJobSnapshot(
+            job_id=uuid4(),
+            state="running",
+            started_at=datetime.now(timezone.utc),
+            current_work_order_number="12345678901",
+        )
+    ).model_dump(mode="json")
+    assert running_payload["current_work_order_number"] == "12345678901"
+    assert running_payload["counts"] is None
+    assert set(running_payload) == {
+        "job_id",
+        "state",
+        "started_at",
+        "finished_at",
+        "current_work_order_number",
+        "failure",
+        "counts",
+    }
 
 
 def test_unknown_process_local_job_returns_404():

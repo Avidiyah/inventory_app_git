@@ -43,6 +43,7 @@ class NetFacilitiesEnrichmentJob(BaseModel):
     state: NetFacilitiesJobState
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    current_work_order_number: str | None = None
     failure: Literal[
         "authentication_required",
         "unavailable",
