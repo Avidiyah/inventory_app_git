@@ -358,6 +358,9 @@ class WorkOrder(Base):
     building_number = Column(Text, nullable=True)
     unit_number = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
+    # Source-owned enrichment value. It is deliberately nullable and excluded
+    # from the generic work-order edit/import contracts.
+    priority = Column(Text, nullable=True)
     # Append-only plain-text operational log. New entries are server-formatted
     # as [TIME] [MMDDYY] [User] text; pre-log free-form content is preserved.
     notes = Column(Text, nullable=True)

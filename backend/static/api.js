@@ -492,6 +492,45 @@ export async function apiImportWorkOrders(file) {
   return parseResponse(response);
 }
 
+// Local-only NetFacilities sign-in and enrichment. Credentials/CAPTCHA/MFA stay
+// in the headed browser; these endpoints never return browser state, profile
+// paths, or source field values.
+export async function apiGetNetFacilitiesSession() {
+  return liveGet("/integrations/netfacilities/session");
+}
+
+export async function apiStartNetFacilitiesAuthentication() {
+  return parseResponse(await fetch(
+    "/integrations/netfacilities/auth/start",
+    { method: "POST", credentials: "include" },
+  ));
+}
+
+export async function apiConfirmNetFacilitiesAuthentication() {
+  return parseResponse(await fetch(
+    "/integrations/netfacilities/auth/confirm",
+    { method: "POST", credentials: "include" },
+  ));
+}
+
+export async function apiCancelNetFacilitiesAuthentication() {
+  return parseResponse(await fetch(
+    "/integrations/netfacilities/auth/cancel",
+    { method: "POST", credentials: "include" },
+  ));
+}
+
+export async function apiStartNetFacilitiesEnrichment() {
+  return parseResponse(await fetch(
+    "/integrations/netfacilities/work-orders/enrich",
+    { method: "POST", credentials: "include" },
+  ));
+}
+
+export async function apiGetNetFacilitiesEnrichment(jobId) {
+  return liveGet(`/integrations/netfacilities/work-orders/enrich/${encodeURIComponent(jobId)}`);
+}
+
 // Download work orders as CSV (Admin+). The operational `full` export may carry
 // the same active service/supervisor/community/number filters as the card list;
 // status remains the existing `scope`. The `client` caller deliberately omits

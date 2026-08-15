@@ -20,6 +20,7 @@ def test_card_exposes_full_names_without_login_usernames():
         building_number=None,
         unit_number=None,
         description=None,
+        priority=None,
         notes="Resident requested an afternoon visit.",
         status="in_progress",
         entry_mode="dispense",
@@ -43,6 +44,7 @@ def test_card_exposes_full_names_without_login_usernames():
     assert response.assigned_to_ids == [assignee_id]
     assert response.assigned_to_names == ["Jamie Rivera"]
     assert response.supervisor_name == "Alex Morgan"
+    assert response.priority is None
     assert "assigned_to_username" not in response.model_dump()
     assert "supervisor_username" not in response.model_dump()
 
@@ -64,6 +66,7 @@ def test_detail_exposes_multiple_technicians_and_rounded_labor_total():
         building_number=None,
         unit_number=None,
         description=None,
+        priority="Emergency",
         notes=None,
         status="in_progress",
         entry_mode="dispense",
@@ -94,6 +97,7 @@ def test_detail_exposes_multiple_technicians_and_rounded_labor_total():
 
     assert detail.assigned_to_ids == [primary_id, second_id]
     assert detail.assigned_to_names == ["Jamie Rivera", "Taylor Chen"]
+    assert detail.priority == "Emergency"
     assert detail.labor_minutes == 75
     assert detail.labor_billed_minutes == 90
     assert detail.labor_total == 93.75

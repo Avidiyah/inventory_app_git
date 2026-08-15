@@ -13,6 +13,12 @@ venv/
 # Environment / secrets
 .env
 
+# NetFacilities authentication state is a bearer-equivalent secret. The Stage 1
+# CLI also rejects profiles inside the repository; these patterns are defense in
+# depth against an accidentally copied profile.
+.netfacilities-profile/
+netfacilities-profile/
+
 # Agent settings -- personal and machine-specific (absolute vault paths, local
 # permission grants). Was tracked until 2026-08-09; untracked deliberately.
 .claude/settings.json

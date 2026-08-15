@@ -29,6 +29,7 @@ import pytest
 from app.domain import roles
 from app.domain.errors import WorkOrderAssignmentConflictError
 from app.routers import items as items_router
+from app.routers import netfacilities as netfacilities_router
 from app.routers import tools as tools_router
 from app.routers import users as users_router
 from app.routers import transactions as transactions_router
@@ -179,6 +180,22 @@ def test_work_order_list_forwards_joinable_filters(monkeypatch):
 
 def test_archive_work_order_requires_admin():
     assert _min_role_for(work_orders_router, "archive_work_order") == roles.ROLE_ADMIN
+
+
+@pytest.mark.parametrize(
+    "endpoint_name",
+    [
+        "netfacilities_session",
+        "start_netfacilities_authentication",
+        "confirm_netfacilities_authentication",
+        "cancel_netfacilities_authentication",
+        "start_netfacilities_enrichment",
+        "get_netfacilities_enrichment",
+    ],
+)
+def test_netfacilities_routes_require_admin_and_document_403(endpoint_name):
+    assert _min_role_for(netfacilities_router, endpoint_name) == roles.ROLE_ADMIN
+    assert 403 in _route(netfacilities_router, endpoint_name).responses
 
 
 # --------------------------------------------------------------------------

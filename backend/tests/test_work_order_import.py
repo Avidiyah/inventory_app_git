@@ -135,10 +135,30 @@ def test_import_creates_work_orders_with_new_fields(db):
     assert row.service_type == "SMR27 - Belfor"
     assert row.schedule_date == "7/29/2026"
     assert row.description == "Fix couch"
+    assert row.priority is None
     assert row.legacy is False
     assert row.supervisor_id is None  # no matching supervisor
     assert row.status == "created"
     assert row.created_by_id == admin.id
+
+
+def test_reimport_never_writes_or_overwrites_priority(db):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    number = _num()
+    csv_bytes = _csv([[
+        number, "Commons: 8B", "Belfor", "", "SMR27", "7/29/2026", "Fix couch"
+    ]])
+
+    wos.import_work_orders(db, csv_bytes=csv_bytes, user=admin)
+    work_order = wos.find_by_number(db, number)
+    assert work_order.priority is None
+
+    work_order.priority = "Manual priority"
+    db.commit()
+    wos.import_work_orders(db, csv_bytes=csv_bytes, user=admin)
+    db.refresh(work_order)
+
+    assert work_order.priority == "Manual priority"
 
 
 def test_import_missing_task_uses_replaceable_work_order_link(db):
