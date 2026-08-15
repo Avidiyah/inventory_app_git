@@ -1,8 +1,8 @@
 # Endpoint Map: Database ↔ User View
 
-Last reviewed: 2026-08-09
+Last reviewed: 2026-08-14
 
-Purpose: a complete, self-contained trace of all 72 endpoints — wiring, contracts,
+Purpose: a complete, self-contained trace of application endpoints — wiring, contracts,
 rules, error behavior, and service algorithms — so an AI or developer can answer
 "what does this endpoint send/return/do?" **without opening the source**. If you
 find yourself about to read `schemas/`, `services/`, `domain/`, or `routers/`,
@@ -124,9 +124,15 @@ writes (w).
 | 69 | POST | `/work-orders/{id}/complete` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.complete_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiCompleteWorkOrder` | `workOrders.js` |
 | 70 | POST | `/work-orders/{id}/hold` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.hold_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiHoldWorkOrder` | `workOrders.js` |
 | 71 | POST | `/work-orders/{id}/resume` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.resume_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiResumeWorkOrder` | `workOrders.js` |
+| NF1 | GET | `/integrations/netfacilities/session` | admin+ | `netfacilities.py` → dependency-free config + authentication/job coordinators | no DB; protected saved-state existence + process-local safe snapshots | `apiGetNetFacilitiesSession` | `workOrders.js` |
+| NF1a | POST | `/integrations/netfacilities/auth/start` | admin+ | `netfacilities.py` → `netfacilities_auth.start` → lazy headed client | no DB; opens dedicated local browser and acquires protected-profile lease | `apiStartNetFacilitiesAuthentication` | `workOrders.js` |
+| NF1b | POST | `/integrations/netfacilities/auth/confirm` | admin+ | `netfacilities.py` → `netfacilities_auth.confirm` → allowlisted page verification + storage-state save | no DB; secret-safe attempt state only | `apiConfirmNetFacilitiesAuthentication` | `workOrders.js` |
+| NF1c | POST | `/integrations/netfacilities/auth/cancel` | admin+ | `netfacilities.py` → `netfacilities_auth.cancel` | no DB; closes pending headed browser and releases profile | `apiCancelNetFacilitiesAuthentication` | `workOrders.js` |
+| NF2 | POST | `/integrations/netfacilities/work-orders/enrich` | admin+ | `netfacilities.py` → `netfacilities_jobs.start` → `netfacilities.enrich_work_orders` | work_orders (r/w, existing live candidates only; short compare-and-set locks) | `apiStartNetFacilitiesEnrichment` | `workOrders.js` |
+| NF3 | GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | admin+ | `netfacilities.py` → `netfacilities_jobs.get` | no DB; process-local aggregate-only job snapshot | `apiGetNetFacilitiesEnrichment` | `workOrders.js` |
 
-(Rows 55–72 were appended out of resource order to keep the existing #1–54
-numbering — and the footnote / per-table references to it — stable.)
+(Rows 55 onward and NF1–NF3/NF1a–NF1c were appended out of resource order to keep the existing
+#1–54 numbering — and the footnote / per-table references to it — stable.)
 
 Footnotes:
 1. `POST /transactions/`: dispense = any authenticated user; stock = supervisor+ (`domain.roles.can_transact`). A Scan/Stock dispense may take expected quantity below zero and opens a recount request. Work Orders Add Item has the same deliberate exception; Work Order quantity edits and the other stock-out paths retain the strict no-overdraft domain rule.
@@ -357,6 +363,21 @@ one no import has brought in.
   closed and ignored before merge/routing. Reads **users** to
   name-match the vendor `ASSIGNED TO` to a supervisor (`supervisor_id`) for live
   rows. *The only path that creates a work order.*
+- Before import, an Admin may call `apiStartNetFacilitiesAuthentication`, complete
+  credentials/CAPTCHA/MFA directly in the dedicated headed browser, then call
+  `apiConfirmNetFacilitiesAuthentication` (or cancel). Authentication and enrichment
+  share one process-local profile lease; their responses never contain credentials,
+  browser storage, paths, or source values.
+- After CSV import succeeds, `workOrders.js` checks
+  `apiGetNetFacilitiesSession` → `GET /integrations/netfacilities/session`. On the
+  configured local Windows host with ready saved auth state, it calls
+  `apiStartNetFacilitiesEnrichment` → `POST
+  /integrations/netfacilities/work-orders/enrich`. One process-local job snapshots
+  existing eligible **work_orders**, performs serial allowlisted source reads, then
+  briefly locks/rechecks each row. Only an exact generated Task/Symptom fallback and a
+  blank Priority may be filled. `apiGetNetFacilitiesEnrichment` polls aggregate-only
+  state; completion/timeout reloads cards. Missing/expired auth preserves the completed
+  CSV import and leaves in-app sign-in plus **Import Tasks and Priority** as recovery.
 - `workOrders.js` (Re-archive legacy work orders..., Owner only) first calls
   `apiGetLegacyWorkOrderArchivePreview` → `GET /work-orders/legacy/archive` →
   `count_live_legacy_work_orders` and shows the returned live-row count in the
@@ -801,7 +822,7 @@ service).
 `id`, `technician_id`, `technician_name`, `minutes`.
 
 **`WorkOrderCard`** — list rows: `id`, `number`, `community?`, `building_number?`,
-`unit_number?`, `description?`, `status`, `entry_mode`, `created_by_id?`,
+`unit_number?`, `description?`, `priority?`, `status`, `entry_mode`, `created_by_id?`,
 `assigned_to_id?`, `assigned_to_name?` (compatibility primary),
 `assigned_to_ids`, `assigned_to_names`, `item_count`, plus the CSV-import
 fields `location?`, `output_to?`, `vendor_assignee?`, `service_type?`,
@@ -822,6 +843,25 @@ solving the dependency before it reads the form body, not statement order). **`W
 `labor_minutes` + `labor_billed_minutes` + `materials_total?` (Admin/Owner; Σ
 `effective_billable × unit_price`) + `labor_rate?` / `labor_total?`
 (Admin/Owner; fixed rate after combined-duration rounding).
+
+### NetFacilities (`schemas/netfacilities.py`)
+
+All six routes are Admin+. **`NetFacilitiesCapability`** returns `available`, one of
+`unavailable|not_authenticated|authenticating|ready|running|expired`, a secret-safe
+`message`, and optional `latest_authentication` / `latest_job`. **`NetFacilitiesAuthenticationAttempt`**
+returns only an attempt ID, lifecycle state, timestamps, and a safe failure class.
+**`NetFacilitiesEnrichmentJob`** returns `job_id`, one of
+`queued|running|completed|authentication_required|timed_out|failed|cancelled`, optional
+UTC `started_at` / `finished_at`, optional safe `failure`, and optional aggregate
+`counts`. Counts contain candidate/request/fetch/update/unchanged/failure/remaining
+integers and `timed_out`; no work-order number or source value is returned.
+
+Start has no request body. It returns 202, including for a duplicate that resolves to
+the active job; absent CLI auth state is 409 and disabled/unavailable capability is 503.
+Polling accepts only the UUID path parameter and returns 404 after a process restart or
+when the id is not the coordinator's latest job. The session endpoint reads only
+validated config, saved-state file existence/mtime, and process-local state; it never
+returns a filesystem path or browser content.
 
 ### Mass Stages (`schemas/mass_stages.py`)
 

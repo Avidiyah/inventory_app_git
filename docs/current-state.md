@@ -1,6 +1,6 @@
 # Inventory App Current State
 
-Last reviewed: 2026-08-10
+Last reviewed: 2026-08-14
 
 Purpose of this file: give an AI or developer enough current-state context to
 make technical changes without rereading the whole repository. Start here, then
@@ -119,6 +119,7 @@ Path shorthand:
 | Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | mass-stage tests plus manual UI check |
 | Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
 | Work Orders UI | `static/views/workOrders.js`, `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | work-order tests plus manual UI check |
+| NetFacilities local enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_auth.py`, `services/netfacilities_jobs.py`, `services/netfacilities_operations.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | Admin+ in-app manual headed sign-in saves protected state; auth/enrichment share one profile gate; existing local CSV import remains sole creator and starts one serialized enrichment job only when auth is ready; only exact fallback Task/Symptom and blank Priority may change; fake-backed offline/DB tests; live app acceptance pending |
 | Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, manual UI check |
 | Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
 | Tools API/domain/service (custody) | `domain/tools.py`, `domain/quantity.py` (reused), `services/tools.py`, `routers/tools.py`, `schemas/tools.py`, `models.py` | `test_tools_domain.py`, `test_tools_service.py`, `test_route_role_gates.py` |
@@ -147,9 +148,16 @@ backend/app/services/*.py        DB-backed application logic
 backend/app/services/work_orders.py Work Orders materials log (dispense/retro)
 backend/app/services/tools.py    Tool CRUD + checkout/return + custody aggregate
 backend/app/services/user_requests.py durable operational exception queue
+backend/app/integrations/netfacilities/*.py local NetFacilities config/contracts/validation + concrete read-only boundary
+backend/app/services/netfacilities_auth.py process-local headed sign-in start/confirm/cancel lifecycle
+backend/app/services/netfacilities_jobs.py serialized saved-state enrichment job coordinator
+backend/app/services/netfacilities_operations.py one shared protected-profile operation lease
+backend/app/routers/netfacilities.py Admin-only auth/capability/start/poll routes
+backend/app/lifespan.py         composed realtime + NetFacilities task shutdown
 backend/alembic/versions/*.py    migrations
 backend/scripts/create_owner.py  owner bootstrap
 backend/scripts/import_local_data.ps1 local data import helper
+backend/scripts/netfacilities_poc.py manual-auth/read-only local lookup CLI; auth state feeds the local app job
 ```
 
 Frontend:
@@ -189,6 +197,7 @@ backend/tests/test_history_wo_filter.py
 backend/tests/test_quantity_reverse.py
 backend/tests/test_user_requests.py
 backend/tests/test_mass_staging*.py
+backend/tests/test_netfacilities_*.py
 backend/tests/conftest.py
 ```
 
@@ -207,11 +216,15 @@ backend/tests/conftest.py
 | Live barcode decode | vendored `@zxing/browser` UMD 0.2.0 |
 | Tests | pytest 9.0.3 |
 | Fixture generation only | python-barcode 0.16.1 |
+| Local NetFacilities integration only | Playwright 1.62.0, Beautiful Soup 4.15.0 (development requirements; installed Chrome by default) |
 
 Deployment:
 
 - Docker image: `python:3.12-slim`.
 - Native package: Debian `libzbar0`.
+- Playwright, Beautiful Soup, and Chromium are not included in the production image;
+  the NetFacilities concrete client remains local-only and disabled deployments import
+  only the dependency-free configuration/contracts/service boundary.
 - Entrypoint: `alembic upgrade head`, then Uvicorn on `${PORT:-8124}`.
 - Render blueprint: `render.yaml`. Service name `inventory-app`, repo-declared
   production database target `inventory-db-copy`.
@@ -1377,6 +1390,56 @@ card); a free-text `work_order_number` from a Supervisor+ is *resolved* to an
 already-imported work order, and 404s if there is none (it used to be
 find-or-created).
 
+Work-order card/detail responses also expose nullable `priority`. The Work Orders detail
+block renders it read-only and displays `Not imported` while blank. Priority is absent
+from generic PATCH, CSV import/export, filters, sorting, and billing; the fake-backed
+NetFacilities service is its only intended first-release writer.
+
+### NetFacilities local enrichment
+
+This capability is disabled by default and is supported only on the configured local
+Windows operator host. The app must be configured with `NETFACILITIES_ENABLED=true`
+and an absolute external `NETFACILITIES_PROFILE_DIR`. Browser-enabled local Uvicorn
+must run as one process without `--reload` or multiple workers: Uvicorn otherwise uses
+Windows `SelectorEventLoop`, which cannot start Playwright's driver subprocess. The
+client rejects that incompatible loop as `unavailable` before starting Playwright, so
+the auth route returns a secret-safe 503 instead of leaking an ASGI traceback. In Work
+Orders, an Admin/Owner clicks **Sign in to NetFacilities**, completes
+credentials/CAPTCHA/MFA directly in the dedicated Chrome window, returns to the app,
+and clicks **I finished signing in**. The
+app verifies an allowlisted non-login page and saves `playwright-storage-state.json`.
+The CLI `auth` command remains a fallback against the same path. The application never
+downloads the vendor CSV or receives NetFacilities credential fields.
+
+The Admin/Owner then uses the existing **Import from CSV…** chooser for a file already
+on the computer. The unchanged `/work-orders/import` transaction creates/updates rows;
+after success the frontend starts and polls the separate enrichment job. Missing or
+expired auth leaves the CSV import committed; sign in again and use **Import Tasks and
+Priority** without re-uploading.
+
+On 2026-08-15 the owner restarted Uvicorn without reload and reported successful live
+Task/Symptom and Priority imports. This is the accepted live happy path; the roadmap
+retains separate resilience checks for retries, preservation rules, expiration,
+cancellation, timeout, and page re-entry.
+
+| Method | Path | Gate | Behavior |
+| --- | --- | --- | --- |
+| GET | `/integrations/netfacilities/session` | admin+ | dependency-free capability state (`unavailable`, `not_authenticated`, `authenticating`, `ready`, `running`, `expired`) plus safe authentication/job snapshots |
+| POST | `/integrations/netfacilities/auth/start` | admin+ | acquire the shared profile lease and open the local dedicated headed browser |
+| POST | `/integrations/netfacilities/auth/confirm` | admin+ | verify an allowlisted non-login page, save protected state, close browser, release lease |
+| POST | `/integrations/netfacilities/auth/cancel` | admin+ | close the pending browser without saving and release the lease |
+| POST | `/integrations/netfacilities/work-orders/enrich` | admin+ | start one process-local saved-state job or return the active duplicate; 409 when auth is absent or another profile operation is active and 503 when the local capability is disabled/unavailable |
+| GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | admin+ | poll the latest process-local job; state/timestamps/safe failure class/counts only |
+
+`services.netfacilities_auth` owns the headed browser between start and confirm/cancel;
+early confirmation keeps it open, while cancel, configured timeout, or shutdown closes
+it. It and `services.netfacilities_jobs` share one profile lease. The job lazily creates
+one headless client with saved state, then calls the serial compare-and-set service with
+fresh short database sessions. Disabled startup imports no Playwright/parser runtime.
+Responses and logs never contain source field values, storage paths, cookies, HTML, or
+headers. Browser-managed CSV downloading and in-app auth endpoints are explicitly out
+of scope for this release.
+
 **403-before-422 on the billing route** is the one observable behavior change
 C1 made (2026-08-10). Its gate used to be `_can_see_price(user)` in the handler
 body, which runs after Pydantic; as a dependency it runs first. So a caller who
@@ -2191,6 +2254,14 @@ Coverage map:
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
 | `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin; history row exposes `work_order_id` |
 | `test_work_order_export.py` | Admin+ scoped full/client CSV exports, joined operational filters (including date), unchanged client scope behavior, import-header compatibility including generated-task round-trip, billing totals, and receipt cells |
+| `test_netfacilities_parser.py` | sanitized server-rendered HTML parsing, identifier/status fail-closed checks, login-document detection, required fields, and input validation |
+| `test_netfacilities_client.py` | one allowlisted authenticated GET, response metadata/size boundaries, auth redirect detection, and dev-only dependency placement |
+| `test_netfacilities_poc.py` | dedicated profile-path boundary, explicit profile requirement, browser-channel choice, and pre-I/O identifier validation |
+| `test_netfacilities_config.py` | disabled-by-default Windows capability settings, external-path/channel/timeout validation, lazy imports, and production-safe application startup |
+| `test_netfacilities_service.py` | exact live candidate union, serial fake reads, two-field compare-and-set writes, idempotency/concurrent-edit protection, error counts, auth stop, timeout, and no-create behavior |
+| `test_netfacilities_jobs.py` | saved-auth precondition, owned client lifetime, serialized duplicate admission, aggregate results, auth-loss state, and clean shutdown cancellation |
+| `test_netfacilities_routes.py` | disabled/ready capability state, recoverable missing-auth 409, source-value-free result contracts, and process-local 404 |
+| `test_work_order_priority.py` | nullable ORM/response contract, generic-update exclusion, and read-only UI source contract |
 | `test_receipt.py` | backend fixed-width receipt output matches the frontend contract for markup, truncation, quantities, missing prices, and labor rounding |
 | `test_tools_domain.py` | pure `domain.tools.validate_return` outstanding-balance cap |
 | `test_tools_service.py` | DB-backed: create/duplicate-live-barcode, archived-barcode reuse, checkout/return round-trip incl. `apply_delta` reuse, active-target validation without stock/ledger mutation, checkout overdraft (`NegativeQuantityError`), return-beyond-outstanding (`ToolReturnExceedsCheckedOutError`), per-tool and per-user custody aggregates, multi-user custody split, archive guard until full return, Correct Count increase/decrease/no-op (`NoChangeError`), and the regression that an `adjust` row never enters a custody balance |
@@ -2210,6 +2281,13 @@ Do not "fix" these accidentally unless the task asks for it.
 - Completed mass stages cannot be reopened.
 - Stage deletion does not reverse load transactions already written.
 - Frontend has no bundler/type checker; ID and module contract drift is manual.
+- NetFacilities local application wiring is implemented but still needs the Milestone 6
+  operator-run live acceptance. The supported first-release flow is Admin+ in-app
+  manual headed sign-in, selection of a CSV already downloaded on the same computer,
+  the unchanged CSV import, and one serialized enrichment job. Browser-managed
+  downloading, app-side credential/MFA handling, secondary-data retrieval, and a
+  production/Render browser runtime are intentionally absent. Default tests never make
+  a live NetFacilities request.
 - Editing a dispense-mode work-order line auto-corrects stock by the delta and
   appends one reconciling `adjust` transaction (signed stock delta; the original
   scan rows stay intact). That `adjust` is an inventory record only -- it is not
@@ -2231,8 +2309,9 @@ Do not "fix" these accidentally unless the task asks for it.
 - A free-text work-order number on a transaction is *resolved* (never created,
   since work orders are import-only) and only for Supervisor+; a technician's
   scan must carry a `work_order_id` (from a card).
-- Deferred work-order attributes not yet built: `priority`, `due_date`,
-  `external_ref`/`source` (for future real-world WO integration).
+- Deferred work-order attributes not yet built: `due_date` and
+  `external_ref`/`source`. Priority now exists as a nullable, source-owned,
+  read-only field.
 - Tools: no void/undo for a checkout or return -- mis-clicks are not
   reversible (unlike `transactions.voided_at`).
 - Tools: no cross-namespace barcode uniqueness check against

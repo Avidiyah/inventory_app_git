@@ -208,6 +208,7 @@ class WorkOrderCard(BaseModel):
     building_number: Optional[str] = None
     unit_number: Optional[str] = None
     description: Optional[str] = None
+    priority: Optional[str] = None
     status: str
     entry_mode: str
     created_by_id: Optional[UUID] = None

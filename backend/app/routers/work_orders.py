@@ -177,6 +177,7 @@ def _card(work_order: WorkOrder) -> WorkOrderCard:
         building_number=work_order.building_number,
         unit_number=work_order.unit_number,
         description=work_order.description,
+        priority=work_order.priority,
         status=work_order.status,
         entry_mode=work_order.entry_mode,
         created_by_id=work_order.created_by_id,

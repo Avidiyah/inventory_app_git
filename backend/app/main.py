@@ -43,12 +43,14 @@ from app.logging_config import (
     new_request_context,
     request_context,
 )
+from app.lifespan import lifespan
 from app.services import rate_limit as rate_limit_service
 from app.routers import (
     auth,
     barcodes,
     items,
     mass_stages,
+    netfacilities,
     realtime,
     tools,
     transactions,
@@ -56,7 +58,6 @@ from app.routers import (
     users,
     work_orders,
 )
-from app.routers.realtime import lifespan
 
 class NoCacheStaticFiles(StaticFiles):
     """StaticFiles that tells browsers to revalidate every asset.
@@ -304,6 +305,7 @@ app.include_router(auth.router)
 app.include_router(barcodes.router)
 app.include_router(items.router)
 app.include_router(mass_stages.router)
+app.include_router(netfacilities.router)
 # The only WebSocket route in the app. Note that none of the three
 # middlewares above run for it -- they are `@app.middleware("http")` and
 # a handshake arrives in a `websocket` scope -- so it enforces its own
