@@ -244,6 +244,32 @@ def test_factory_refuses_disabled_capability():
         create_netfacilities_client(config, headless=True, use_saved_state=True)
 
 
+def test_hosted_factory_uses_bundled_browser_without_interactive_authentication(
+    tmp_path,
+):
+    storage_state = tmp_path / STORAGE_STATE_FILENAME
+    storage_state.write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+    config = NetFacilitiesConfig(
+        enabled=True,
+        profile_dir=None,
+        browser_channel="bundled-chromium",
+        request_timeout_seconds=30,
+        auth_timeout_seconds=900,
+        batch_timeout_seconds=1_800,
+        storage_state_file=storage_state,
+        interactive_authentication_available=False,
+    )
+
+    client = create_netfacilities_client(
+        config,
+        headless=True,
+        use_saved_state=True,
+    )
+
+    assert client.request_only is False
+    assert client.browser_channel is None
+
+
 def test_boundary_modules_remain_lazy_without_concrete_dependencies():
     backend = Path(__file__).resolve().parents[1]
     script = r'''

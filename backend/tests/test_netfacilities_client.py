@@ -11,7 +11,6 @@ from app.integrations.netfacilities.client import (
     MAX_RESPONSE_BYTES,
     NetFacilitiesClient,
     STORAGE_STATE_FILENAME,
-    WORK_ORDER_DOCUMENT_HEADERS,
 )
 from app.integrations.netfacilities.errors import (
     NetFacilitiesAuthenticationRequired,
@@ -64,28 +63,85 @@ class FakeStandaloneRequestContext(FakeRequestContext):
 
 class FakeBrowserContext:
     def __init__(self, response, *, pages=None):
+        self.response = response
         self.request = FakeRequestContext(response)
         self.storage_state_calls = []
         self.pages = pages or []
+        self.closed = 0
 
     async def storage_state(self, **kwargs):
         self.storage_state_calls.append(kwargs)
         return {"cookies": [], "origins": []}
 
     async def new_page(self):
-        page = FakePage()
+        page = FakePage(response=self.response)
         self.pages.append(page)
         return page
 
+    async def close(self):
+        self.closed += 1
+
+
+class FakeNavigationRequest:
+    def __init__(self, url, *, resource_type="document", navigation=True):
+        self.url = url
+        self.method = "GET"
+        self.resource_type = resource_type
+        self._navigation = navigation
+
+    def is_navigation_request(self):
+        return self._navigation
+
+
+class FakeRoute:
+    def __init__(self, request):
+        self.request = request
+        self.action = None
+        self.abort_code = None
+
+    async def continue_(self):
+        self.action = "continued"
+
+    async def abort(self, code):
+        self.action = "aborted"
+        self.abort_code = code
+
 
 class FakePage:
-    def __init__(self, url="about:blank"):
+    def __init__(self, url="about:blank", response=None):
         self.url = url
+        self.response = response
         self.goto_calls = []
+        self.route_calls = []
+        self._route_handler = None
+        self.closed = 0
+
+    async def route(self, pattern, handler):
+        self.route_calls.append((pattern, handler))
+        self._route_handler = handler
 
     async def goto(self, url, **kwargs):
         self.goto_calls.append((url, kwargs))
         self.url = url
+        if self._route_handler is not None:
+            document_route = FakeRoute(FakeNavigationRequest(url))
+            await self._route_handler(document_route)
+            self.route_calls.append(document_route)
+            subresource_route = FakeRoute(
+                FakeNavigationRequest(
+                    "https://system.netfacilities.com/bundles/scripts",
+                    resource_type="script",
+                    navigation=False,
+                )
+            )
+            await self._route_handler(subresource_route)
+            self.route_calls.append(subresource_route)
+            if document_route.action != "continued":
+                return None
+        return self.response
+
+    async def close(self):
+        self.closed += 1
 
 
 def _client(response):
@@ -107,12 +163,7 @@ def test_get_work_order_uses_only_the_allowlisted_read_request():
     assert len(context.request.calls) == 1
     url, options = context.request.calls[0]
     assert url == "https://system.netfacilities.com/tools/viewworkorders/12345678"
-    assert options["headers"] == WORK_ORDER_DOCUMENT_HEADERS
-    assert options["headers"]["Sec-Fetch-Dest"] == "document"
-    assert options["headers"]["Sec-CH-UA-Platform"] == '"Windows"'
-    assert "Chrome/" in options["headers"]["User-Agent"]
-    assert "Cookie" not in options["headers"]
-    assert "Authorization" not in options["headers"]
+    assert options["headers"] == {"Accept": "text/html"}
     assert options["max_redirects"] == 0
     assert options["fail_on_status_code"] is False
 
@@ -128,6 +179,36 @@ def test_diagnostic_reuses_one_allowlisted_read_and_returns_only_structural_fact
     assert diagnostics.expected_id_count == 1
     assert diagnostics.expected_id_has_text is True
     assert len(context.request.calls) == 1
+
+
+def test_saved_state_uses_one_browser_document_and_aborts_every_subresource():
+    context = FakeBrowserContext(FakeResponse())
+    client = NetFacilitiesClient(
+        profile_dir=None,
+        storage_state_path=Path("unused-saved-state"),
+        headless=True,
+        use_saved_state=True,
+        _context=context,
+    )
+
+    parsed = asyncio.run(client.get_work_order("12345678"))
+
+    assert parsed.priority == "Normal"
+    assert context.request.calls == []
+    assert len(context.pages) == 1
+    page = context.pages[0]
+    assert page.goto_calls == [
+        (
+            "https://system.netfacilities.com/tools/viewworkorders/12345678",
+            {"wait_until": "commit", "timeout": 30_000},
+        )
+    ]
+    assert page.route_calls[0][0] == "**/*"
+    document_route, subresource_route = page.route_calls[1:]
+    assert document_route.action == "continued"
+    assert subresource_route.action == "aborted"
+    assert subresource_route.abort_code == "blockedbyclient"
+    assert page.closed == 1
 
 
 def test_persists_playwright_storage_state_inside_the_protected_profile():
@@ -253,6 +334,80 @@ def test_request_only_saved_state_never_launches_a_browser(tmp_path, monkeypatch
     assert runtime.stopped == 1
 
 
+def test_saved_state_browser_runtime_disables_page_execution(tmp_path, monkeypatch):
+    storage_state = tmp_path / STORAGE_STATE_FILENAME
+    storage_state.write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+    context = FakeBrowserContext(FakeResponse())
+
+    class FakeBrowser:
+        def __init__(self):
+            self.context_calls = []
+            self.closed = 0
+
+        async def new_context(self, **kwargs):
+            self.context_calls.append(kwargs)
+            return context
+
+        async def close(self):
+            self.closed += 1
+
+    class FakeChromium:
+        def __init__(self, browser):
+            self.browser = browser
+            self.launch_calls = []
+
+        async def launch(self, **kwargs):
+            self.launch_calls.append(kwargs)
+            return self.browser
+
+    class FakePlaywright:
+        def __init__(self, chromium):
+            self.chromium = chromium
+            self.stopped = 0
+
+        async def stop(self):
+            self.stopped += 1
+
+    browser = FakeBrowser()
+    chromium = FakeChromium(browser)
+    runtime = FakePlaywright(chromium)
+
+    class FakeStarter:
+        async def start(self):
+            return runtime
+
+    monkeypatch.setattr(client_module.sys, "platform", "linux")
+    monkeypatch.setattr(client_module, "async_playwright", lambda: FakeStarter())
+    client = NetFacilitiesClient(
+        profile_dir=None,
+        storage_state_path=storage_state,
+        headless=True,
+        browser_channel=None,
+        use_saved_state=True,
+        request_only=False,
+    )
+
+    async def exercise():
+        async with client:
+            parsed = await client.get_work_order("12345678")
+            assert parsed.priority == "Normal"
+
+    asyncio.run(exercise())
+
+    assert chromium.launch_calls == [{"channel": None, "headless": True}]
+    assert browser.context_calls == [
+        {
+            "storage_state": str(storage_state),
+            "accept_downloads": False,
+            "java_script_enabled": False,
+            "service_workers": "block",
+        }
+    ]
+    assert context.closed == 1
+    assert browser.closed == 1
+    assert runtime.stopped == 1
+
+
 def test_login_redirect_is_authentication_required():
     client, _ = _client(
         FakeResponse(
@@ -317,3 +472,12 @@ def test_stage1_dependencies_are_runtime_pinned_without_dev_duplicates():
     assert "beautifulsoup4==4.15.0" in runtime
     assert "playwright==" not in development
     assert "beautifulsoup4==" not in development
+
+
+def test_production_image_installs_only_the_configured_bundled_browser():
+    backend = Path(__file__).resolve().parent.parent
+    dockerfile = (backend / "Dockerfile").read_text(encoding="utf-8")
+
+    assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" in dockerfile
+    assert "NETFACILITIES_BROWSER_CHANNEL=bundled-chromium" in dockerfile
+    assert "playwright install --with-deps chromium" in dockerfile

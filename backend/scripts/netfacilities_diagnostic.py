@@ -58,11 +58,7 @@ async def _diagnose(work_order_number: str) -> dict[str, Any]:
 
     return {
         "request_succeeded": True,
-        "transport": (
-            "browser_context"
-            if config.interactive_authentication_available
-            else "request_only"
-        ),
+        "transport": "isolated_browser_document",
         "configuration": {
             "enabled": config.enabled,
             "saved_authentication_found": config.has_saved_authentication,

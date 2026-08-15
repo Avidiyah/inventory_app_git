@@ -68,6 +68,7 @@ def test_diagnose_reports_only_safe_shapes(monkeypatch):
     rendered = json.dumps(result)
 
     assert client.calls == ["12345678"]
+    assert result["transport"] == "isolated_browser_document"
     assert result["document"] == {
         "work_order_number_matched": True,
         "description_populated": True,

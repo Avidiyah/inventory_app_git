@@ -37,35 +37,6 @@ LOGIN_PATH_PREFIX = "/account/login"
 MAX_RESPONSE_BYTES = 2_000_000
 REQUEST_TIMEOUT_MS = 30_000
 
-# NetFacilities returns a reduced work-order document to Playwright's default
-# APIRequestContext request profile. A normal authenticated browser navigation to the
-# same allowlisted URL includes the Priority row in its original HTML. Keep this small,
-# non-secret profile aligned with a top-level Chrome document request; authentication
-# cookies still come only from protected Playwright storage state.
-WORK_ORDER_DOCUMENT_HEADERS = {
-    "Accept": (
-        "text/html,application/xhtml+xml,application/xml;q=0.9,"
-        "image/avif,image/webp,*/*;q=0.8"
-    ),
-    "Accept-Language": "en-US,en;q=0.9",
-    "Sec-CH-UA": (
-        '"Chromium";v="120", "Google Chrome";v="120", '
-        '"Not_A Brand";v="99"'
-    ),
-    "Sec-CH-UA-Mobile": "?0",
-    "Sec-CH-UA-Platform": '"Windows"',
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "same-origin",
-    "Sec-Fetch-User": "?1",
-    "Upgrade-Insecure-Requests": "1",
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-}
-
 
 class NetFacilitiesClient:
     """Own a browser or request context and perform one allowlisted read request."""
@@ -123,6 +94,8 @@ class NetFacilitiesClient:
                     self._context = await self._browser.new_context(
                         storage_state=str(self.storage_state_path),
                         accept_downloads=False,
+                        java_script_enabled=False,
+                        service_workers="block",
                     )
             else:
                 if self.profile_dir is None:
@@ -246,6 +219,27 @@ class NetFacilitiesClient:
         number = validate_work_order_number(work_order_number)
         expected_path = f"/tools/viewworkorders/{number}"
         url = f"{BASE_URL}{expected_path}"
+
+        if self.use_saved_state and self._request_context is None:
+            body = await self._navigate_to_work_order_document(
+                url,
+                expected_path=expected_path,
+            )
+        else:
+            body = await self._request_work_order_document(
+                url,
+                expected_path=expected_path,
+            )
+        return number, body
+
+    async def _request_work_order_document(
+        self,
+        url: str,
+        *,
+        expected_path: str,
+    ) -> bytes:
+        """Read through APIRequestContext for the local proof-of-concept fallback."""
+
         request_context = self._request_context
         if request_context is None:
             request_context = self._require_context().request
@@ -253,7 +247,7 @@ class NetFacilitiesClient:
         try:
             response = await request_context.get(
                 url,
-                headers=dict(WORK_ORDER_DOCUMENT_HEADERS),
+                headers={"Accept": "text/html"},
                 fail_on_status_code=False,
                 max_redirects=0,
                 timeout=self.timeout_ms,
@@ -264,6 +258,67 @@ class NetFacilitiesClient:
             ) from exc
 
         self._validate_response_metadata(response, expected_path)
+        return await self._read_bounded_body(response)
+
+    async def _navigate_to_work_order_document(
+        self,
+        url: str,
+        *,
+        expected_path: str,
+    ) -> bytes:
+        """Use Chromium for one document GET while aborting every other request."""
+
+        page = await self._require_context().new_page()
+        route_state = {
+            "document_continued": False,
+            "login_redirect_blocked": False,
+        }
+
+        async def allow_only_expected_document(route: Any) -> None:
+            request = route.request
+            is_expected_document = (
+                not route_state["document_continued"]
+                and request.method == "GET"
+                and request.url == url
+                and request.resource_type == "document"
+                and request.is_navigation_request()
+            )
+            if is_expected_document:
+                route_state["document_continued"] = True
+                await route.continue_()
+                return
+            if request.is_navigation_request() and _is_login_url(request.url):
+                route_state["login_redirect_blocked"] = True
+            await route.abort("blockedbyclient")
+
+        try:
+            await page.route("**/*", allow_only_expected_document)
+            try:
+                response = await page.goto(
+                    url,
+                    wait_until="commit",
+                    timeout=self.timeout_ms,
+                )
+            except (PlaywrightError, PlaywrightTimeoutError) as exc:
+                if route_state["login_redirect_blocked"]:
+                    raise NetFacilitiesAuthenticationRequired(
+                        "NetFacilities session is not authenticated; sign in again."
+                    ) from exc
+                raise NetFacilitiesUnavailable(
+                    "NetFacilities did not complete the isolated browser document request."
+                ) from exc
+            if response is None:
+                raise NetFacilitiesUnexpectedResponse(
+                    "NetFacilities browser navigation returned no document response."
+                )
+            self._validate_response_metadata(response, expected_path)
+            return await self._read_bounded_body(response)
+        finally:
+            await page.close()
+
+    async def _read_bounded_body(self, response: Any) -> bytes:
+        """Read one already-validated response under the shared size bound."""
+
         try:
             body = await response.body()
         except PlaywrightError as exc:
@@ -274,7 +329,7 @@ class NetFacilitiesClient:
             raise NetFacilitiesUnexpectedResponse(
                 "NetFacilities work-order response exceeds the Stage 1 size limit."
             )
-        return number, body
+        return body
 
     def _validate_response_metadata(self, response: Any, expected_path: str) -> None:
         status = response.status

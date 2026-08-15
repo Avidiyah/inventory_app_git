@@ -18,8 +18,9 @@ The command-line boundary:
 - does not itself write to PostgreSQL or the Inventory application.
 
 The application consumes the saved authentication state to enrich only eligible
-existing work orders. On Render it uses Playwright's standalone `APIRequestContext`,
-not a browser. The CLI still performs no database mutation.
+existing work orders. On Render it uses bundled headless Chromium for one isolated
+document navigation: JavaScript and service workers are disabled and every non-document
+request is aborted. The CLI still performs no database mutation.
 
 The browser profile and its `playwright-storage-state.json` file contain
 bearer-equivalent session state. Keep them outside the repository, outside synced
@@ -207,23 +208,25 @@ debugging. Do not supplement it with page source or authentication material.
 
 On 2026-08-15 this diagnostic proved that Render's default request-only response omitted
 all supported Priority body markup while an authenticated Chrome **view-source** of the
-same work-order URL contained both the expected ID and label. Production enrichment now
-uses a small, non-secret top-level Chrome document header profile for that same
-allowlisted GET. Cookies still come exclusively from the protected saved state; no
-browser automation, additional endpoint, field value, or authentication header is
-introduced. Verify `priority_populated: true` for one authorized work order before
-rerunning the full blank-Priority enrichment batch.
+same work-order URL contained both the expected ID and label. A later browser-header
+profile through `APIRequestContext` still returned the reduced variant. Production now
+uses bundled headless Chromium's network stack for that one allowlisted document GET.
+Cookies still come exclusively from protected saved state; JavaScript/service workers
+are disabled and routing aborts every script, stylesheet, image, XHR, redirect target,
+and other subresource. Verify `priority_populated: true` for one authorized work order
+before rerunning the full blank-Priority enrichment batch.
 
-The production image includes Playwright's request runtime and Beautiful Soup but no
-Chromium binary. If Render reports authentication missing or expired, repeat the local
+The production image includes bundled Playwright Chromium and Beautiful Soup. If Render
+reports authentication missing or expired, repeat the local
 sign-in, replace the Render secret file, and redeploy. Do not put storage state in
 `render.yaml`, an ordinary environment variable, logs, tickets, or source control.
 
 The hosted extension passed 182 broader work-order/import/application regressions,
 including 45 focused hosted client/config/job/route tests, and the final current-tree
-suite passed 934 tests. A real Playwright request-only runtime smoke passed with
-temporary synthetic storage state and no Chromium/browser launch; `python -m pip check`
-and JavaScript syntax checks passed. These checks made no live NetFacilities request.
+suite passed 934 tests. The later isolated-browser transport passed 52 focused
+client/config/parser/diagnostic tests, including one-document routing, subresource
+blocking, disabled execution, and complete lifetime cleanup. `python -m pip check` and
+JavaScript syntax checks passed. These checks made no live NetFacilities request.
 
 Transfer of an otherwise valid session can still fail if NetFacilities binds it to a
 device, IP address, or other tenant-side signal. In that case the job stops as

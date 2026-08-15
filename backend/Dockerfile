@@ -2,7 +2,8 @@ FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # The deploy hook rebuilds this image but does not synchronize render.yaml into an
 # existing Render service. Keep the hosted NetFacilities capability enabled in the
@@ -11,7 +12,8 @@ ENV PYTHONUNBUFFERED=1 \
 # missing/expired file reports not_authenticated rather than exposing or inventing
 # credentials. Runtime environment values can still override either default.
 ENV NETFACILITIES_ENABLED=true \
-    NETFACILITIES_STORAGE_STATE_PATH=/etc/secrets/netfacilities-storage-state.json
+    NETFACILITIES_STORAGE_STATE_PATH=/etc/secrets/netfacilities-storage-state.json \
+    NETFACILITIES_BROWSER_CHANNEL=bundled-chromium
 
 # pyzbar wraps the native zbar C library; libzbar0 provides it on Debian.
 # Without it, `import pyzbar` fails at runtime (missing libzbar.so).
@@ -24,6 +26,14 @@ WORKDIR /app
 # Install deps first so the layer caches across code changes.
 COPY requirements.txt ./
 RUN pip install -r requirements.txt
+
+# NetFacilities omits Priority from its standalone HTTP-client response but includes it
+# in a real browser document response. Install only bundled Chromium; runtime routing
+# disables JavaScript and aborts every subresource so enrichment still performs one
+# allowlisted document GET per work order.
+RUN python -m playwright install --with-deps chromium \
+    && chmod -R a+rX /ms-playwright \
+    && rm -rf /var/lib/apt/lists/*
 
 # Application code and the assets the entrypoint/migrations need.
 COPY app ./app

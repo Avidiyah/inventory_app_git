@@ -36,7 +36,11 @@ def create_netfacilities_client(
         browser_channel=config.playwright_channel,
         timeout_ms=config.request_timeout_ms,
         use_saved_state=use_saved_state,
-        request_only=not config.interactive_authentication_available,
+        # Hosted Priority markup is present in an isolated browser document response
+        # but absent from Playwright's standalone APIRequestContext response. Linux
+        # therefore uses the bundled headless browser with JavaScript/subresources
+        # blocked; interactive authentication availability is a separate capability.
+        request_only=False,
     )
 
 

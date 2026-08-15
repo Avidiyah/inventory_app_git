@@ -142,7 +142,7 @@ CAPTCHA, SSO, or MFA fields.
   configuration, dependency-free protocols, validation, lazy client construction, the
   allowlisted Playwright reader, and the sanitized HTML parser.
 - Windows interactive mode requires an absolute external
-  `NETFACILITIES_PROFILE_DIR`. Linux/Render request-only mode requires an absolute
+  `NETFACILITIES_PROFILE_DIR`. Linux/Render isolated-browser mode requires an absolute
   `NETFACILITIES_STORAGE_STATE_PATH` pointing at an operator-provisioned secret file.
   Browser channel and positive request/auth/batch timeouts are validated. Protected
   paths never enter responses or logs.
@@ -267,12 +267,12 @@ secret file `netfacilities-storage-state.json`. `backend/Dockerfile` and `render
 both enable the capability and point `NETFACILITIES_STORAGE_STATE_PATH` at
 `/etc/secrets/netfacilities-storage-state.json`. The image defaults matter because a
 deploy hook rebuild does not synchronize Blueprint environment changes into an existing
-service. Hosted mode uses a browserless
-Playwright `APIRequestContext` and intentionally makes interactive sign-in unavailable;
-it does not install or launch Chromium. The state file is bearer-equivalent and must be
-protected like a password. Refreshing an expired hosted session means repeating local
-sign-in, replacing that secret file, and redeploying. The detailed procedure is in
-`docs/netfacilities-stage1-poc.md`.
+service. Hosted mode installs bundled Chromium and intentionally makes interactive
+sign-in unavailable. It navigates only to the exact work-order document with JavaScript
+and service workers disabled; routing aborts every non-document request. The state file
+is bearer-equivalent and must be protected like a password. Refreshing an expired hosted
+session means repeating local sign-in, replacing that secret file, and redeploying. The
+detailed procedure is in `docs/netfacilities-stage1-poc.md`.
 
 ## Verification completed
 
@@ -281,8 +281,8 @@ sign-in, replacing that secret file, and redeploying. The detailed procedure is 
   extension.
 - The final full current-tree suite passed: 934 tests with two known WebSockets
   deprecation warnings.
-- A real Playwright standalone `APIRequestContext` started and disposed successfully
-  without launching a browser.
+- The later isolated-browser transport passed 52 focused tests covering one-document
+  routing, blocked subresources, disabled execution, and browser/context/page cleanup.
 - `python -m pip check`, `node --check backend/static/views/workOrders.js`, and
   `git diff --check` passed.
 - Automated verification made no live NetFacilities request and did not inspect the

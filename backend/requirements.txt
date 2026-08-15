@@ -45,10 +45,11 @@ pyzbar==0.1.9
 # advisories were the most exposed of the pip-audit baseline. 12.2.0 carried
 # the bulk of the 23 CVEs; 12.3.0 is both the fix and the current release.
 pillow==12.3.0
-# NetFacilities enrichment parses server-rendered HTML and uses Playwright's
-# standalone APIRequestContext with operator-provisioned saved authentication on
-# Render. No browser binary is installed in the production image; interactive
-# browser sign-in remains a local Windows-only operation.
+# NetFacilities enrichment parses server-rendered HTML. Render uses bundled headless
+# Chromium with operator-provisioned saved authentication because the vendor omits
+# Priority from standalone APIRequestContext responses. JavaScript and service workers
+# are disabled and all non-document requests are aborted. Interactive browser sign-in
+# remains a local Windows-only operation.
 beautifulsoup4==4.15.0
 playwright==1.62.0
 # Web Push (RFC 8030 / 8291 / 8292). The de-facto Python implementation, from

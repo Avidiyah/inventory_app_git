@@ -119,7 +119,7 @@ Path shorthand:
 | Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | mass-stage tests plus manual UI check |
 | Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
 | Work Orders UI | `static/views/workOrders.js`, `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | work-order tests plus manual UI check |
-| NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_auth.py`, `services/netfacilities_jobs.py`, `services/netfacilities_operations.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | Admin+ local headed sign-in saves protected state; Render consumes an operator-provisioned secret state file through a browserless Playwright request context; CSV import remains the sole creator and starts one serialized enrichment job only when auth is ready; the existing one-second poll exposes the current requested number while running; only exact fallback Task/Symptom and blank Priority may change; local live happy path and hosted capability enablement accepted; first hosted pass updated zero priorities, so hosted enrichment remains unaccepted |
+| NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_auth.py`, `services/netfacilities_jobs.py`, `services/netfacilities_operations.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | Admin+ local headed sign-in saves protected state; Render consumes an operator-provisioned secret state file through isolated bundled Chromium document navigation with JavaScript/subresources blocked; CSV import remains the sole creator and starts one serialized enrichment job only when auth is ready; the existing one-second poll exposes the current requested number while running; only exact fallback Task/Symptom and blank Priority may change; local live happy path and hosted capability enablement accepted; hosted Priority retrieval remains pending acceptance |
 | Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, manual UI check |
 | Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
 | Tools API/domain/service (custody) | `domain/tools.py`, `domain/quantity.py` (reused), `services/tools.py`, `routers/tools.py`, `schemas/tools.py`, `models.py` | `test_tools_domain.py`, `test_tools_service.py`, `test_route_role_gates.py` |
@@ -216,15 +216,15 @@ backend/tests/conftest.py
 | Live barcode decode | vendored `@zxing/browser` UMD 0.2.0 |
 | Tests | pytest 9.0.3 |
 | Fixture generation only | python-barcode 0.16.1 |
-| NetFacilities integration | Playwright 1.62.0, Beautiful Soup 4.15.0 (runtime requirements; installed Chrome is used only for local interactive sign-in) |
+| NetFacilities integration | Playwright 1.62.0, Beautiful Soup 4.15.0 (runtime requirements; installed Chrome is used for local interactive sign-in and bundled Chromium performs isolated hosted document reads) |
 
 Deployment:
 
 - Docker image: `python:3.12-slim`.
 - Native package: Debian `libzbar0`.
-- Playwright and Beautiful Soup are included in the production image. Chromium is not:
-  Render enrichment uses Playwright's standalone `APIRequestContext` with saved state,
-  while the local Windows authentication flow uses installed Chrome by default.
+- Playwright, bundled Chromium, and Beautiful Soup are included in the production image.
+  Render uses saved state for an isolated headless document navigation; the local
+  Windows authentication flow uses installed Chrome by default.
 - Entrypoint: `alembic upgrade head`, then Uvicorn on `${PORT:-8124}`.
 - Render blueprint: `render.yaml`. Service name `inventory-app`, repo-declared
   production database target `inventory-db-copy`.
@@ -1411,10 +1411,10 @@ authentication modes exist:
 - **Linux/Render:** `NETFACILITIES_ENABLED=true` plus an absolute
   `NETFACILITIES_STORAGE_STATE_PATH`. Render points this at
   `/etc/secrets/netfacilities-storage-state.json`, which the operator provisions as a
-  Render secret file from the locally generated state. Hosted mode never opens a
-  browser and exposes no sign-in control; it uses Playwright's standalone
-  `APIRequestContext` to perform the same allowlisted authenticated GET. Chromium is
-  not installed in the production image. Protected-path validation derives the source
+  Render secret file from the locally generated state. Hosted mode exposes no sign-in
+  control; bundled headless Chromium performs one allowlisted document navigation with
+  JavaScript/service workers disabled and every non-document request aborted.
+  Protected-path validation derives the source
   root for both checkout and `/app` production-image layouts, so `/app` remains blocked
   without incorrectly treating `/` as the repository and rejecting `/etc/secrets`.
 
@@ -1449,11 +1449,12 @@ description but no Priority selector, label, named element, or body token; only 
 inline-script token references existed. The owner's authenticated Chrome view-source of
 the same URL contained both the expected Priority ID and label. This rules out CSV
 candidates, parser selectors, JavaScript DOM insertion, and persistence as the first
-failure. The browserless production GET now supplies an explicit non-secret top-level
-Chrome document request profile while retaining the exact host/path, protected saved
-cookies, response validation, parser, and compare-and-set writes. Live acceptance still
-requires one Render diagnostic with `priority_populated: true` followed by a successful
-blank-Priority enrichment retry.
+failure. Supplying browser headers through the standalone client did not restore the
+row. Production therefore uses bundled headless Chromium's genuine document transport
+while retaining the exact host/path, protected saved cookies, response validation,
+parser, and compare-and-set writes. JavaScript/service workers are disabled and all
+non-document routing is aborted. Live acceptance still requires one Render diagnostic
+with `priority_populated: true` followed by a successful blank-Priority enrichment retry.
 
 Browser-enabled local Uvicorn must run as one process without `--reload` or multiple
 workers: those Windows modes use `SelectorEventLoop`, which cannot start Playwright's
@@ -1483,11 +1484,11 @@ cancellation, timeout, and page re-entry.
 
 The Linux/Render extension passed 182 broader work-order/import/application regressions,
 including 45 focused hosted client/config/job/route tests. The final current-tree suite
-passed 934 tests. A real Playwright request-only runtime smoke passed with temporary
-synthetic storage state and no Chromium/browser launch; `python -m pip check` and
-JavaScript syntax checks passed. Automated verification made no live NetFacilities
-request. The later owner-run hosted pass confirmed enablement but exposed the zero
-Priority-update gap described above.
+passed 934 tests. The later isolated-browser transport passed 52 focused tests covering
+one-document routing, subresource blocking, disabled execution, and full lifetime
+cleanup. Automated verification made no live NetFacilities request. The earlier
+owner-run hosted pass confirmed enablement but exposed the zero Priority-update gap
+described above.
 
 The later in-flight progress extension passed 27 focused tests with 5 skipped,
 `node --check backend/static/views/workOrders.js`, and `git diff --check`. It did not
@@ -1508,8 +1509,8 @@ did not make a live request or change persistence, selectors, or candidate rules
 `services.netfacilities_auth` owns the local headed browser between start and confirm/cancel;
 early confirmation keeps it open, while cancel, configured timeout, or shutdown closes
 it. It and `services.netfacilities_jobs` share one operation lease. The job lazily
-creates either a local headless browser context or a hosted browserless request context
-with saved state, then calls the serial compare-and-set service with fresh short
+creates a local or hosted headless browser context with saved state, then calls the
+serial compare-and-set service with fresh short
 database sessions. Disabled startup still avoids importing the concrete client.
 Responses may expose only the current work-order number as Admin-visible in-flight
 progress; they retain no completed-number history. Responses and logs never contain
@@ -2331,7 +2332,7 @@ Coverage map:
 | `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin; history row exposes `work_order_id` |
 | `test_work_order_export.py` | Admin+ scoped full/client CSV exports, joined operational filters (including date), unchanged client scope behavior, import-header compatibility including generated-task round-trip, billing totals, and receipt cells |
 | `test_netfacilities_parser.py` | sanitized server-rendered HTML parsing, identifier/status fail-closed checks, login-document detection, required fields, input validation, and safe Priority body-vs-script structure classification |
-| `test_netfacilities_client.py` | one allowlisted authenticated GET, one-read diagnostic reuse, hosted request-only lifetime/no-browser boundary, response metadata/size boundaries, auth redirect detection, and runtime dependency placement |
+| `test_netfacilities_client.py` | one allowlisted authenticated GET, isolated browser document routing with all subresources blocked, disabled execution/full lifetime cleanup, one-read diagnostic reuse, response metadata/size boundaries, auth redirect detection, and runtime browser placement |
 | `test_netfacilities_diagnostic.py` | one-work-order Render CLI safe-shape output, identifier/source-value omission, and exception-message redaction |
 | `test_netfacilities_poc.py` | dedicated profile-path boundary, explicit profile requirement, browser-channel choice, and pre-I/O identifier validation |
 | `test_netfacilities_config.py` | disabled default, Windows profile vs Linux secret-state modes, external-path/channel/timeout validation, lazy imports, and production-safe startup |

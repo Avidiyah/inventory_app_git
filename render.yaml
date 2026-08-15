@@ -55,3 +55,5 @@ services:
         value: "true"
       - key: NETFACILITIES_STORAGE_STATE_PATH
         value: "/etc/secrets/netfacilities-storage-state.json"
+      - key: NETFACILITIES_BROWSER_CHANNEL
+        value: "bundled-chromium"
