@@ -52,6 +52,15 @@ class FakeRequestContext:
         return self.response
 
 
+class FakeStandaloneRequestContext(FakeRequestContext):
+    def __init__(self, response):
+        super().__init__(response)
+        self.disposed = 0
+
+    async def dispose(self):
+        self.disposed += 1
+
+
 class FakeBrowserContext:
     def __init__(self, response, *, pages=None):
         self.request = FakeRequestContext(response)
@@ -169,6 +178,62 @@ def test_windows_selector_loop_fails_closed_before_playwright_start(
             runner.run(enter_client())
 
 
+def test_request_only_saved_state_never_launches_a_browser(tmp_path, monkeypatch):
+    storage_state = tmp_path / STORAGE_STATE_FILENAME
+    storage_state.write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+    request_context = FakeStandaloneRequestContext(FakeResponse())
+
+    class FakeRequestFactory:
+        def __init__(self):
+            self.calls = []
+
+        async def new_context(self, **kwargs):
+            self.calls.append(kwargs)
+            return request_context
+
+    class FakePlaywright:
+        def __init__(self):
+            self.request = FakeRequestFactory()
+            self.stopped = 0
+
+        @property
+        def chromium(self):
+            raise AssertionError("request-only enrichment launched a browser")
+
+        async def stop(self):
+            self.stopped += 1
+
+    runtime = FakePlaywright()
+
+    class FakeStarter:
+        async def start(self):
+            return runtime
+
+    monkeypatch.setattr(client_module.sys, "platform", "linux")
+    monkeypatch.setattr(client_module, "async_playwright", lambda: FakeStarter())
+    client = NetFacilitiesClient(
+        profile_dir=None,
+        storage_state_path=storage_state,
+        headless=True,
+        use_saved_state=True,
+        request_only=True,
+    )
+
+    async def exercise():
+        async with client:
+            parsed = await client.get_work_order("12345678")
+            assert parsed.work_order_number == "12345678"
+
+    asyncio.run(exercise())
+
+    assert runtime.request.calls == [
+        {"storage_state": str(storage_state), "timeout": 30_000}
+    ]
+    assert len(request_context.calls) == 1
+    assert request_context.disposed == 1
+    assert runtime.stopped == 1
+
+
 def test_login_redirect_is_authentication_required():
     client, _ = _client(
         FakeResponse(
@@ -224,12 +289,12 @@ def test_rejects_actual_oversized_response():
         asyncio.run(client.get_work_order("12345678"))
 
 
-def test_stage1_dependencies_are_dev_only_and_pinned():
+def test_stage1_dependencies_are_runtime_pinned_without_dev_duplicates():
     backend = Path(__file__).resolve().parent.parent
     runtime = (backend / "requirements.txt").read_text(encoding="utf-8")
     development = (backend / "requirements-dev.txt").read_text(encoding="utf-8")
 
-    assert "playwright==1.62.0" in development
-    assert "beautifulsoup4==4.15.0" in development
-    assert "playwright==" not in runtime
-    assert "beautifulsoup4==" not in runtime
+    assert "playwright==1.62.0" in runtime
+    assert "beautifulsoup4==4.15.0" in runtime
+    assert "playwright==" not in development
+    assert "beautifulsoup4==" not in development

@@ -363,21 +363,24 @@ one no import has brought in.
   closed and ignored before merge/routing. Reads **users** to
   name-match the vendor `ASSIGNED TO` to a supervisor (`supervisor_id`) for live
   rows. *The only path that creates a work order.*
-- Before import, an Admin may call `apiStartNetFacilitiesAuthentication`, complete
-  credentials/CAPTCHA/MFA directly in the dedicated headed browser, then call
-  `apiConfirmNetFacilitiesAuthentication` (or cancel). Authentication and enrichment
-  share one process-local profile lease; their responses never contain credentials,
-  browser storage, paths, or source values.
+- On the local Windows host, an Admin may call
+  `apiStartNetFacilitiesAuthentication`, complete credentials/CAPTCHA/MFA directly in
+  the dedicated headed browser, then call `apiConfirmNetFacilitiesAuthentication` (or
+  cancel). On Render, interactive sign-in is unavailable and the saved state comes from
+  a protected secret file. Authentication and enrichment share one process-local
+  operation lease; responses never contain credentials, browser storage, paths, or
+  source values.
 - After CSV import succeeds, `workOrders.js` checks
   `apiGetNetFacilitiesSession` → `GET /integrations/netfacilities/session`. On the
-  configured local Windows host with ready saved auth state, it calls
+  configured local Windows host or Render service with ready saved auth state, it calls
   `apiStartNetFacilitiesEnrichment` → `POST
   /integrations/netfacilities/work-orders/enrich`. One process-local job snapshots
   existing eligible **work_orders**, performs serial allowlisted source reads, then
   briefly locks/rechecks each row. Only an exact generated Task/Symptom fallback and a
   blank Priority may be filled. `apiGetNetFacilitiesEnrichment` polls aggregate-only
   state; completion/timeout reloads cards. Missing/expired auth preserves the completed
-  CSV import and leaves in-app sign-in plus **Import Tasks and Priority** as recovery.
+  CSV import. Recovery is local in-app sign-in or, on Render, replacing the saved-state
+  secret and redeploying before using **Import Tasks and Priority**.
 - `workOrders.js` (Re-archive legacy work orders..., Owner only) first calls
   `apiGetLegacyWorkOrderArchivePreview` → `GET /work-orders/legacy/archive` →
   `count_live_legacy_work_orders` and shows the returned live-row count in the
@@ -846,7 +849,8 @@ solving the dependency before it reads the form body, not statement order). **`W
 
 ### NetFacilities (`schemas/netfacilities.py`)
 
-All six routes are Admin+. **`NetFacilitiesCapability`** returns `available`, one of
+All six routes are Admin+. **`NetFacilitiesCapability`** returns `available`,
+`interactive_authentication_available`, one of
 `unavailable|not_authenticated|authenticating|ready|running|expired`, a secret-safe
 `message`, and optional `latest_authentication` / `latest_job`. **`NetFacilitiesAuthenticationAttempt`**
 returns only an attempt ID, lifecycle state, timestamps, and a safe failure class.
@@ -857,7 +861,8 @@ UTC `started_at` / `finished_at`, optional safe `failure`, and optional aggregat
 integers and `timed_out`; no work-order number or source value is returned.
 
 Start has no request body. It returns 202, including for a duplicate that resolves to
-the active job; absent CLI auth state is 409 and disabled/unavailable capability is 503.
+the active job; absent saved auth state is 409 and disabled/unavailable capability is
+503. Hosted interactive-auth start is also 503.
 Polling accepts only the UUID path parameter and returns 404 after a process restart or
 when the id is not the coordinator's latest job. The session endpoint reads only
 validated config, saved-state file existence/mtime, and process-local state; it never

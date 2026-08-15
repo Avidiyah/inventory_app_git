@@ -1,4 +1,4 @@
-"""Admin-only API for local NetFacilities sign-in and enrichment jobs."""
+"""Admin-only API for NetFacilities sign-in and enrichment jobs."""
 
 from __future__ import annotations
 
@@ -108,7 +108,7 @@ async def netfacilities_session(
         get_netfacilities_authentication_coordinator
     ),
 ) -> NetFacilitiesCapability:
-    """Report safe local sign-in, capability, and latest-job state."""
+    """Report safe sign-in, capability, and latest-job state."""
 
     try:
         config = load_netfacilities_config()
@@ -136,6 +136,9 @@ async def netfacilities_session(
     if latest is not None and latest.state in {"queued", "running"}:
         return NetFacilitiesCapability(
             available=True,
+            interactive_authentication_available=(
+                config.interactive_authentication_available
+            ),
             state="running",
             message="NetFacilities is seeking Task/Symptom and Priority data.",
             latest_job=latest_response,
@@ -148,6 +151,9 @@ async def netfacilities_session(
     ):
         return NetFacilitiesCapability(
             available=True,
+            interactive_authentication_available=(
+                config.interactive_authentication_available
+            ),
             state="authenticating",
             message=(
                 "Complete NetFacilities sign-in in the opened browser, then confirm "
@@ -157,10 +163,21 @@ async def netfacilities_session(
             latest_authentication=authentication_response,
         )
     if not config.has_saved_authentication:
+        message = (
+            "Sign in to NetFacilities before enrichment."
+            if config.interactive_authentication_available
+            else (
+                "Saved NetFacilities authentication is missing; update the Render "
+                "secret file."
+            )
+        )
         return NetFacilitiesCapability(
             available=True,
+            interactive_authentication_available=(
+                config.interactive_authentication_available
+            ),
             state="not_authenticated",
-            message="Sign in to NetFacilities before enrichment.",
+            message=message,
             latest_job=latest_response,
             latest_authentication=authentication_response,
         )
@@ -169,15 +186,27 @@ async def netfacilities_session(
         and latest.state == "authentication_required"
         and not _saved_state_refreshed_after(config, latest)
     ):
+        message = (
+            "NetFacilities authentication expired; sign in again."
+            if config.interactive_authentication_available
+            else (
+                "NetFacilities authentication expired; refresh the Render secret "
+                "file and redeploy."
+            )
+        )
         return NetFacilitiesCapability(
             available=True,
+            interactive_authentication_available=(
+                config.interactive_authentication_available
+            ),
             state="expired",
-            message="NetFacilities authentication expired; sign in again.",
+            message=message,
             latest_job=latest_response,
             latest_authentication=authentication_response,
         )
     return NetFacilitiesCapability(
         available=True,
+        interactive_authentication_available=config.interactive_authentication_available,
         state="ready",
         message="Saved NetFacilities authentication is ready for enrichment.",
         latest_job=latest_response,
@@ -214,6 +243,14 @@ async def start_netfacilities_authentication(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="NetFacilities sign-in is disabled on this host.",
+        )
+    if not config.interactive_authentication_available:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Interactive NetFacilities sign-in is unavailable on this host; "
+                "refresh the configured saved authentication instead."
+            ),
         )
     try:
         snapshot, _created = await authentication.start(config)
@@ -327,9 +364,17 @@ async def start_netfacilities_enrichment(
     try:
         snapshot, _created = await jobs.start(config)
     except NetFacilitiesAuthenticationRequired as exc:
+        detail = (
+            "Sign in to NetFacilities before enrichment."
+            if config.interactive_authentication_available
+            else (
+                "Refresh the saved NetFacilities authentication secret and redeploy "
+                "before enrichment."
+            )
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Sign in to NetFacilities before enrichment.",
+            detail=detail,
         ) from exc
     except NetFacilitiesOperationInProgress as exc:
         raise HTTPException(

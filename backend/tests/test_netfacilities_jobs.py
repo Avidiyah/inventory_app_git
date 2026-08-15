@@ -30,9 +30,11 @@ class FakeClientContext:
         self.exited += 1
 
 
-def _config(tmp_path, *, authenticated=True):
-    profile = tmp_path / "profile"
-    profile.mkdir()
+def _config(tmp_path, *, authenticated=True, hosted=False):
+    profile = None if hosted else tmp_path / "profile"
+    if profile is not None:
+        profile.mkdir()
+    storage_state = tmp_path / "hosted-storage-state.json" if hosted else None
     config = NetFacilitiesConfig(
         enabled=True,
         profile_dir=profile,
@@ -40,6 +42,8 @@ def _config(tmp_path, *, authenticated=True):
         request_timeout_seconds=30,
         auth_timeout_seconds=900,
         batch_timeout_seconds=1_800,
+        storage_state_file=storage_state,
+        interactive_authentication_available=not hosted,
     )
     if authenticated:
         config.storage_state_path.write_text("sanitized-test-state", encoding="utf-8")
@@ -105,6 +109,28 @@ def test_job_owns_client_lifetime_and_returns_only_aggregate_counts(tmp_path):
     assert captured["batch_timeout_seconds"] == 1_800
     assert "client" in captured
     assert "session_factory" in captured
+
+
+def test_hosted_job_accepts_saved_state_without_a_browser_profile(tmp_path):
+    context = FakeClientContext()
+
+    async def enrich(**_kwargs):
+        return NetFacilitiesEnrichmentSummary()
+
+    coordinator = NetFacilitiesJobCoordinator(
+        client_factory=lambda _config: context,
+        enrichment_runner=enrich,
+    )
+
+    async def exercise():
+        started, created = await coordinator.start(_config(tmp_path, hosted=True))
+        assert created
+        finished = await _wait_for_terminal(coordinator, started.job_id)
+        assert finished.state == "completed"
+
+    asyncio.run(exercise())
+    assert context.entered == 1
+    assert context.exited == 1
 
 
 def test_duplicate_start_returns_the_active_job(tmp_path):

@@ -71,9 +71,10 @@ class NetFacilitiesAuthenticationAttempt(BaseModel):
 
 
 class NetFacilitiesCapability(BaseModel):
-    """Local capability state without protected paths or browser contents."""
+    """Capability state without protected paths or browser contents."""
 
     available: bool
+    interactive_authentication_available: bool = False
     state: Literal[
         "unavailable",
         "not_authenticated",

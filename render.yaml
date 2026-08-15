@@ -44,3 +44,10 @@ services:
       # independent of this and stays on.
       - key: LOG_LEVEL
         value: "INFO"
+      # Hosted enrichment performs read-only HTTP requests from an operator-created
+      # Playwright storage-state file. Add that file in Render's Environment page as
+      # the secret file `netfacilities-storage-state.json`; never commit its contents.
+      - key: NETFACILITIES_ENABLED
+        value: "true"
+      - key: NETFACILITIES_STORAGE_STATE_PATH
+        value: "/etc/secrets/netfacilities-storage-state.json"

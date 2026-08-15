@@ -102,7 +102,7 @@ class NetFacilitiesJobCoordinator:
     ) -> tuple[NetFacilitiesJobSnapshot, bool]:
         """Start a batch, or return the currently active batch unchanged."""
 
-        if not config.enabled or config.profile_dir is None:
+        if not config.enabled:
             raise NetFacilitiesAuthenticationRequired(
                 "NetFacilities enrichment is not enabled on this host."
             )
@@ -143,7 +143,7 @@ class NetFacilitiesJobCoordinator:
             return self._latest
 
     async def shutdown(self) -> None:
-        """Cancel an active job so its browser context closes before exit."""
+        """Cancel an active job so its source client closes before exit."""
 
         async with self._lock:
             task = self._task
