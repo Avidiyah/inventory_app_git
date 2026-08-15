@@ -23,7 +23,12 @@ from .errors import (
     NetFacilitiesWorkOrderNotFound,
 )
 from .config import STORAGE_STATE_FILENAME
-from .parser import ParsedWorkOrder, parse_work_order_html
+from .parser import (
+    ParsedWorkOrder,
+    PriorityMarkupDiagnostics,
+    inspect_priority_markup,
+    parse_work_order_html,
+)
 from .validation import validate_work_order_number
 
 
@@ -188,6 +193,25 @@ class NetFacilitiesClient:
     async def get_work_order(self, work_order_number: str) -> ParsedWorkOrder:
         """Retrieve and parse one work order without executing document actions."""
 
+        number, body = await self._get_work_order_document(work_order_number)
+        return parse_work_order_html(body, expected_work_order_number=number)
+
+    async def get_work_order_with_diagnostics(
+        self,
+        work_order_number: str,
+    ) -> tuple[ParsedWorkOrder, PriorityMarkupDiagnostics]:
+        """Retrieve once and return parsed data plus secret-safe Priority facts."""
+
+        number, body = await self._get_work_order_document(work_order_number)
+        work_order = parse_work_order_html(body, expected_work_order_number=number)
+        return work_order, inspect_priority_markup(body)
+
+    async def _get_work_order_document(
+        self,
+        work_order_number: str,
+    ) -> tuple[str, bytes]:
+        """Perform the single allowlisted read and return its bounded document."""
+
         number = validate_work_order_number(work_order_number)
         expected_path = f"/tools/viewworkorders/{number}"
         url = f"{BASE_URL}{expected_path}"
@@ -219,7 +243,7 @@ class NetFacilitiesClient:
             raise NetFacilitiesUnexpectedResponse(
                 "NetFacilities work-order response exceeds the Stage 1 size limit."
             )
-        return parse_work_order_html(body, expected_work_order_number=number)
+        return number, body
 
     def _validate_response_metadata(self, response: Any, expected_path: str) -> None:
         status = response.status

@@ -1429,9 +1429,20 @@ The saved state is bearer-equivalent. Never commit, log, return, or place it in 
 ordinary environment variable. On expiration, refresh it through the authorized local
 headed flow, replace the Render secret file, and redeploy. The owner confirmed hosted
 capability enablement on 2026-08-15 after commit `0679c52` corrected production root
-detection. The first hosted enrichment pass updated zero priorities, including newly
-imported blank-priority rows; Task/Symptom behavior and aggregate counts were not
-reported, so end-to-end hosted enrichment remains unaccepted.
+detection. A hosted retry fetched all 290 Priority candidates with no categorized
+request failure or timeout, but every row was unchanged and no Priority was updated.
+The owner clarified that Task/Symptom is always empty in the CSV and earlier enrichment
+had populated it; zero description updates on this retry therefore did not establish a
+CSV source. End-to-end hosted Priority enrichment remains unaccepted.
+
+`python -m scripts.netfacilities_diagnostic WORK_ORDER_NUMBER`, run from the Render
+Shell, performs one request through that same production client. It returns only
+booleans, structural counts, transport classification, and a safe exception class. It
+never returns the number, source values, HTML, URL, path, headers, cookies, or storage
+state. The client reads the bounded response only once, then supplies it to both the
+normal parser and `inspect_priority_markup()`. The latter distinguishes the supported
+`#priority-level`/`Priority Level` body markup from script-only token references. This
+is an observation tool, not a second endpoint or alternate extraction path.
 
 Browser-enabled local Uvicorn must run as one process without `--reload` or multiple
 workers: those Windows modes use `SelectorEventLoop`, which cannot start Playwright's
@@ -1470,6 +1481,9 @@ Priority-update gap described above.
 The later in-flight progress extension passed 27 focused tests with 5 skipped,
 `node --check backend/static/views/workOrders.js`, and `git diff --check`. It did not
 change Priority selectors or make a live source request.
+
+The single-response diagnostic extension passed 31 focused parser/client/CLI tests. It
+did not make a live request or change persistence, selectors, or candidate rules.
 
 | Method | Path | Gate | Behavior |
 | --- | --- | --- | --- |
@@ -2305,8 +2319,9 @@ Coverage map:
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
 | `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin; history row exposes `work_order_id` |
 | `test_work_order_export.py` | Admin+ scoped full/client CSV exports, joined operational filters (including date), unchanged client scope behavior, import-header compatibility including generated-task round-trip, billing totals, and receipt cells |
-| `test_netfacilities_parser.py` | sanitized server-rendered HTML parsing, identifier/status fail-closed checks, login-document detection, required fields, and input validation |
-| `test_netfacilities_client.py` | one allowlisted authenticated GET, hosted request-only lifetime/no-browser boundary, response metadata/size boundaries, auth redirect detection, and runtime dependency placement |
+| `test_netfacilities_parser.py` | sanitized server-rendered HTML parsing, identifier/status fail-closed checks, login-document detection, required fields, input validation, and safe Priority body-vs-script structure classification |
+| `test_netfacilities_client.py` | one allowlisted authenticated GET, one-read diagnostic reuse, hosted request-only lifetime/no-browser boundary, response metadata/size boundaries, auth redirect detection, and runtime dependency placement |
+| `test_netfacilities_diagnostic.py` | one-work-order Render CLI safe-shape output, identifier/source-value omission, and exception-message redaction |
 | `test_netfacilities_poc.py` | dedicated profile-path boundary, explicit profile requirement, browser-channel choice, and pre-I/O identifier validation |
 | `test_netfacilities_config.py` | disabled default, Windows profile vs Linux secret-state modes, external-path/channel/timeout validation, lazy imports, and production-safe startup |
 | `test_netfacilities_service.py` | exact live candidate union, serial fake reads, pre-request progress ordering/validated-number filtering, two-field compare-and-set writes, idempotency/concurrent-edit protection, error counts, auth stop, timeout, and no-create behavior |

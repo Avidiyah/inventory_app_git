@@ -3,11 +3,11 @@
 Last updated: 2026-08-15
 
 Status: The local Windows happy path remains accepted. Render capability enablement is
-now owner-confirmed after commit `0679c52` corrected the production-image root used by
-protected-path validation. The first hosted enrichment pass exposed an unresolved bug:
-no Priority values were updated, including newly imported work orders with blank
-Priority. In-flight requested-number progress is now implemented and focused-tested;
-the next session should continue the evidence-gated Priority investigation below.
+owner-confirmed after commit `0679c52`. A hosted retry fetched all 290 candidates but
+updated no Priority values and reported every candidate unchanged. A one-line,
+secret-safe production diagnostic now classifies the exact response used by enrichment;
+the next step is to run it for one authorized work order in Render Shell and use the
+decision tree below.
 
 ## Next-session brief: hosted Priority investigation
 
@@ -16,9 +16,17 @@ the next session should continue the evidence-gated Priority investigation below
 - On 2026-08-15 the owner confirmed that NetFacilities is enabled on Render after
   `0679c52` reached `main`. The prior `disabled` and false `unavailable` configuration
   states are resolved.
-- The first hosted pass updated zero priorities, including new work orders. The owner
-  has not yet supplied the final aggregate counts or the Task/Symptom outcome for that
-  pass; do not infer either one.
+- The completed hosted retry reported 290 candidates, requests attempted, and fetched;
+  zero description and Priority updates; 290 unchanged; zero invalid, not-found,
+  permission, authentication, other-failure, and remaining counts; and no timeout.
+- The owner clarified that Task/Symptom is always empty in the CSV and is genuinely
+  supplied by enrichment. Earlier enrichment had already populated descriptions, so a
+  later Priority retry can correctly show zero description updates.
+- The expected minimal Priority markup is already represented by the sanitized fixture.
+  Preliminary non-production request/headless inspection saw no supported Priority body
+  markup and found the token only in inline script. Because that check may not represent
+  Render's current saved state, verify the actual deployed response with the safe CLI
+  before changing selectors or adding a secondary request.
 - The Admin-visible job status now shows the work-order number currently being requested
   while the serialized enrichment job is running. It retains the generic seeking message
   before the first request and clears the number for every terminal outcome.
@@ -32,16 +40,15 @@ the next session should continue the evidence-gated Priority investigation below
 
 ### Continue with these questions and checks
 
-1. Ask the owner for the exact completed-job counts shown by the UI: `candidates`,
-   `requests_attempted`, `fetched`, `descriptions_updated`, `priorities_updated`,
-   `unchanged`, `other_failures`, and `remaining`. These counts distinguish parser/data
-   failure from candidate or request failure without exposing source values.
-2. Confirm whether Task/Symptom changed on the same hosted pass and whether affected
-   cards displayed `Not imported` before and after it.
-3. Use a deliberately small authorized work-order set for any live check. Inspect only
-   the Priority DOM shape/label through the authorized browser, then create a sanitized
-   minimal fixture. Do not save or log a live page, identifier, description, location,
-   Priority value, cookie, or header.
+1. In Render Shell, run
+   `python -m scripts.netfacilities_diagnostic WORK_ORDER_NUMBER` for one authorized
+   work order and retain only its safe JSON result.
+2. If `priority_populated` is false and the expected ID/label/body counts are zero,
+   investigate why the authenticated request document differs from the visible UI. Do
+   not guess a secondary endpoint: capture only sanitized request metadata if the live
+   browser proves that a separate Priority request exists.
+3. If `priority_populated` is true, trace the already-tested projection into the
+   compare-and-set write path with a single blank database row.
 4. Re-read the applicable Obsidian repo context and inspect the current tree/status
    before planning edits; the worktree may contain owner changes.
 
@@ -53,9 +60,10 @@ the next session should continue the evidence-gated Priority investigation below
 | Process-local job state | `backend/app/services/netfacilities_jobs.py`, `NetFacilitiesJobSnapshot` and `_run()` | Implemented: the immutable running snapshot publishes `current_work_order_number` through the coordinator lock; duplicate starts/polling see the same snapshot, and terminal snapshots clear it. |
 | Admin API contract | `backend/app/schemas/netfacilities.py` and `backend/app/routers/netfacilities.py::_job_response` | Implemented: the response explicitly maps nullable `current_work_order_number`. No source description, Priority, URL, HTML, storage data, header, or cookie was added. |
 | Work Orders status UI | `backend/static/views/workOrders.js`, especially `renderNetFacilitiesJob()` and `pollNetFacilitiesJob()` | Implemented through the existing one-second polling path: running jobs display the current number when present and retain the generic fallback before the first callback. |
-| Priority extraction | `backend/app/integrations/netfacilities/parser.py`, lines selecting `#priority-level` or `general.get("Priority Level")` | A missing selector/label returns `None`, which is legal and silently prevents a Priority write. The all-zero hosted result makes production DOM/label drift the leading hypothesis, not a confirmed cause. Update selectors only from a sanitized observation. |
+| Priority extraction | `backend/app/integrations/netfacilities/parser.py`, selecting `#priority-level` or `general.get("Priority Level")` | A missing selector/label returns `None`, which is legal and silently prevents a Priority write. `inspect_priority_markup()` now reports counts/booleans that distinguish body markup from script-only references without returning values or HTML. |
+| One-response diagnostic | `backend/scripts/netfacilities_diagnostic.py` and `NetFacilitiesClient.get_work_order_with_diagnostics()` | Performs the same single allowlisted production GET, reports only safe structure/error types, and never prints the requested identifier or source/authentication data. Run it from Render Shell before changing retrieval behavior. |
 | Candidate and write rules | `backend/app/services/netfacilities.py::_load_candidates`, `_source_values`, and `_apply_candidate` | Blank-priority rows are selected; source `None` is accepted; writes occur only when local Priority is blank and source Priority is non-null. Preserve these safety rules while testing whether the value is lost before `_apply_candidate`. |
-| Regression coverage | `backend/tests/test_netfacilities_parser.py`, sanitized fixture, `test_netfacilities_service.py`, `test_netfacilities_jobs.py`, and `test_netfacilities_routes.py` | Service/job/route tests now cover in-flight progress and the restricted response field. The sanitized production Priority DOM variant and a corresponding parser regression are still missing. |
+| Regression coverage | sanitized fixture plus `test_netfacilities_parser.py`, `test_netfacilities_client.py`, and `test_netfacilities_diagnostic.py` | Covers expected body markup, script-only references, exactly one allowlisted diagnostic request, safe output, and redacted failures. Focused suite: 31 passed. |
 
 ### Priority investigation decision tree
 
@@ -85,8 +93,8 @@ the next session should continue the evidence-gated Priority investigation below
 - `node --check backend/static/views/workOrders.js` and `git diff --check` passed. A
   manual running-job check that visibly advances through a small authorized sequence and
   clears the number at completion is still unreported.
-- Parser tests: add the sanitized production Priority markup/label variant plus a
-  missing-Priority case; retain identifier, login, section, and size fail-closed tests.
+- The safe diagnostic test set passed 31 focused parser/client/CLI tests. The production
+  Render result is still required; automated tests intentionally make no live request.
 - Existing service/database coverage continues to prove that a blank-priority candidate
   receives a nonblank source value while existing/manual Priority, archived rows, and
   concurrent edits remain unchanged.
@@ -280,14 +288,15 @@ correctly. No source values, identifiers, profile paths, or authentication mater
 were recorded.
 
 The local live happy path is accepted. Render capability enablement is also accepted,
-but hosted enrichment is not: its first pass updated zero priorities, including newly
-imported blank-priority rows. Task/Symptom behavior and the final aggregate counts were
-not reported in this checkpoint. In-flight requested-number progress has since been
-implemented, but no Priority selector was changed because hosted aggregate counts and a
-sanitized live DOM observation are still missing. The next session must investigate the
-Priority path using the brief above before claiming hosted acceptance. The following
-hardening checks also remain unreported and should still record only pass/fail, counts,
-duration, and safe outcome classes:
+but hosted Priority enrichment is not. The later completed retry fetched all 290
+candidates with no categorized failure or timeout, changed no Priority, and classified
+every candidate as unchanged. The owner clarified that Task/Symptom is always absent
+from the CSV and had been populated by earlier enrichment. In-flight requested-number
+progress and the one-response safe Render diagnostic have since been implemented; no
+Priority selector or retrieval path was guessed. Run that diagnostic and follow the
+brief above before claiming hosted acceptance. The following hardening checks also
+remain unreported and should still record only pass/fail, counts, duration, and safe
+outcome classes:
 
 1. Confirm lifecycle status, other local fields, archived rows, and manual/CSV values do
    not change.

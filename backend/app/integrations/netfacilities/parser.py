@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from bs4 import BeautifulSoup
-from bs4.element import Tag
+from bs4.element import Comment, NavigableString, Tag
 
 from .errors import (
     NetFacilitiesAuthenticationRequired,
@@ -41,6 +41,26 @@ class ParsedWorkOrder:
         result = asdict(self)
         result["location_parts"] = list(self.location_parts)
         return result
+
+
+@dataclass(frozen=True, slots=True)
+class PriorityMarkupDiagnostics:
+    """Secret-safe structural facts about Priority markup in one document."""
+
+    expected_id_count: int
+    expected_id_has_text: bool
+    exact_label_count: int
+    priority_named_element_count: int
+    priority_named_element_with_text_count: int
+    priority_token_in_script_count: int
+    priority_token_in_style_count: int
+    priority_token_in_comment_count: int
+    priority_token_in_body_text_count: int
+
+    def to_dict(self) -> dict[str, int | bool]:
+        """Return counts and booleans only; never return source markup or values."""
+
+        return asdict(self)
 
 
 def parse_work_order_html(
@@ -105,12 +125,79 @@ def parse_work_order_html(
     )
 
 
+def inspect_priority_markup(html: bytes | str) -> PriorityMarkupDiagnostics:
+    """Classify where Priority appears without retaining or returning source data."""
+
+    soup = BeautifulSoup(html, "html.parser")
+    expected_nodes = soup.select("#priority-level")
+    priority_named_nodes = [
+        node
+        for node in soup.find_all(True)
+        if _has_priority_named_attribute(node)
+    ]
+    exact_labels = [
+        node
+        for node in soup.select(".p-gern")
+        if _clean(node.get_text(" ", strip=True)).rstrip(":").strip().casefold()
+        == "priority level"
+    ]
+
+    script_count = 0
+    style_count = 0
+    comment_count = 0
+    body_text_count = 0
+    for text_node in soup.find_all(string=True):
+        token_count = str(text_node).casefold().count("priority")
+        if not token_count:
+            continue
+        if isinstance(text_node, Comment):
+            comment_count += token_count
+            continue
+        parent_name = _parent_name(text_node)
+        if parent_name == "script":
+            script_count += token_count
+        elif parent_name == "style":
+            style_count += token_count
+        else:
+            body_text_count += token_count
+
+    return PriorityMarkupDiagnostics(
+        expected_id_count=len(expected_nodes),
+        expected_id_has_text=any(
+            _optional_text(node) is not None for node in expected_nodes
+        ),
+        exact_label_count=len(exact_labels),
+        priority_named_element_count=len(priority_named_nodes),
+        priority_named_element_with_text_count=sum(
+            _optional_text(node) is not None for node in priority_named_nodes
+        ),
+        priority_token_in_script_count=script_count,
+        priority_token_in_style_count=style_count,
+        priority_token_in_comment_count=comment_count,
+        priority_token_in_body_text_count=body_text_count,
+    )
+
+
 def _looks_like_login(soup: BeautifulSoup) -> bool:
     if soup.select_one("form#signin") is not None:
         return True
     password = soup.select_one('input[type="password"]')
     title = _optional_text(soup.title)
     return password is not None and bool(title and "login" in title.casefold())
+
+
+def _has_priority_named_attribute(node: Tag) -> bool:
+    for attribute in ("id", "name", "class"):
+        raw = node.get(attribute)
+        values = raw if isinstance(raw, list) else [raw]
+        if any("priority" in str(value).casefold() for value in values if value):
+            return True
+    return False
+
+
+def _parent_name(text_node: NavigableString) -> str | None:
+    parent = text_node.parent
+    return parent.name.casefold() if isinstance(parent, Tag) and parent.name else None
 
 
 def _section(soup: BeautifulSoup, heading_text: str) -> Tag:

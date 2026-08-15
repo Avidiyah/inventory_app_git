@@ -111,6 +111,19 @@ def test_get_work_order_uses_only_the_allowlisted_read_request():
     assert options["fail_on_status_code"] is False
 
 
+def test_diagnostic_reuses_one_allowlisted_read_and_returns_only_structural_facts():
+    client, context = _client(FakeResponse())
+
+    parsed, diagnostics = asyncio.run(
+        client.get_work_order_with_diagnostics("12345678")
+    )
+
+    assert parsed.work_order_number == "12345678"
+    assert diagnostics.expected_id_count == 1
+    assert diagnostics.expected_id_has_text is True
+    assert len(context.request.calls) == 1
+
+
 def test_persists_playwright_storage_state_inside_the_protected_profile():
     client, context = _client(FakeResponse())
 

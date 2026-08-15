@@ -175,6 +175,36 @@ First complete the authorized local sign-in flow above so the protected profile 
 5. Import a small authorized CSV and confirm the aggregate enrichment result. The
    default automated tests never make a live source request.
 
+### Inspect one Render response safely
+
+When Priority is visible in the NetFacilities UI but hosted enrichment still reports no
+update, open the Render Shell for the deployed service and run this single short line:
+
+```text
+python -m scripts.netfacilities_diagnostic WORK_ORDER_NUMBER
+```
+
+Replace `WORK_ORDER_NUMBER` with one authorized number. The command performs exactly
+one request through the same production client used by enrichment. It reports only
+booleans, counts, a transport classification, and an exception class name. It never
+prints the number, source field values, HTML, URL, filesystem path, header, cookie, or
+saved authentication state.
+
+Interpret the result at the retrieval boundary:
+
+- `priority_populated: true` means Priority reached the normal parser; investigate the
+  candidate/write path next.
+- `priority_populated: false` together with `expected_id_count: 0` and
+  `exact_label_count: 0` means the retrieved document did not contain either supported
+  Priority DOM shape.
+- a positive `priority_token_in_script_count` with all body/selector counts at zero
+  means the word appeared only in JavaScript, not as readable Priority markup.
+- `request_succeeded: false` reports only the safe exception type. An
+  authentication-required result means the Render secret file must be refreshed.
+
+Copy the complete JSON result for comparison; it is deliberately safe to share for
+debugging. Do not supplement it with page source or authentication material.
+
 The production image includes Playwright's request runtime and Beautiful Soup but no
 Chromium binary. If Render reports authentication missing or expired, repeat the local
 sign-in, replace the Render secret file, and redeploy. Do not put storage state in
@@ -198,10 +228,15 @@ source values, work-order identifiers, profile paths, or authentication material
 recorded. The roadmap retains the separate retry, preservation, expiration,
 cancellation, timeout, and page-reentry resilience checks. This accepts the local live
 happy path only. Render capability enablement was later confirmed after commit
-`0679c52`, but the first hosted enrichment pass updated zero priorities, including new
-blank-priority rows. In-flight requested-number progress is now implemented and
-focused-tested; Priority selectors remain unchanged pending aggregate counts and a
-sanitized DOM observation. See `handoff.md` for the next-session investigation brief.
+`0679c52`. A hosted retry attempted and fetched all 290 Priority candidates without an
+authentication, permission, not-found, validation, timeout, or other failure, but all
+290 were unchanged and Priority updates remained zero. The owner clarified that the
+CSV Task/Symptom cells are always empty and earlier enrichment had populated them; the
+zero description-update count on this retry was therefore not evidence that CSV supplied
+those descriptions. The parser's expected Priority fragment was confirmed in sanitized
+form, but preliminary non-production inspection found only script references in the
+retrieved document. The deployed safe diagnostic above now distinguishes that retrieval
+boundary without exposing source data. See `handoff.md` for the investigation brief.
 
 ## Look up one work order
 
