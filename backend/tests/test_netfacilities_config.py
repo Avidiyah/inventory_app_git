@@ -326,6 +326,29 @@ def test_hosted_factory_uses_bundled_browser_without_interactive_authentication(
 
     assert client.request_only is False
     assert client.browser_channel is None
+    # Hosted enrichment must render, or Priority never reaches the parser.
+    assert client.render_document is True
+    assert client.render_settle_ms == 5_000
+
+
+def test_hosted_factory_honours_the_rendered_document_kill_switch(tmp_path):
+    storage_state = tmp_path / STORAGE_STATE_FILENAME
+    storage_state.write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+    config = NetFacilitiesConfig(
+        enabled=True,
+        profile_dir=None,
+        browser_channel="bundled-chromium",
+        request_timeout_seconds=30,
+        auth_timeout_seconds=900,
+        batch_timeout_seconds=1_800,
+        storage_state_file=storage_state,
+        interactive_authentication_available=False,
+        render_document=False,
+    )
+
+    client = create_netfacilities_client(config, headless=True, use_saved_state=True)
+
+    assert client.render_document is False
 
 
 def test_boundary_modules_remain_lazy_without_concrete_dependencies():

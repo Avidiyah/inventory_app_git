@@ -36,11 +36,14 @@ def create_netfacilities_client(
         browser_channel=config.playwright_channel,
         timeout_ms=config.request_timeout_ms,
         use_saved_state=use_saved_state,
-        # Hosted Priority markup is present in an isolated browser document response
-        # but absent from Playwright's standalone APIRequestContext response. Linux
-        # therefore uses the bundled headless browser with JavaScript/subresources
-        # blocked; interactive authentication availability is a separate capability.
+        # NetFacilities ships Priority inside an inline script and inserts it into the
+        # DOM on load. Owner DevTools verification on 2026-08-15 found it absent from
+        # the Network response body and from every XHR, and present only in Elements,
+        # so no request-shaped change can recover it: the document must be rendered.
+        # NETFACILITIES_RENDER_DOCUMENT=false reverts to the raw read via a restart.
         request_only=False,
+        render_document=config.render_document,
+        render_settle_ms=config.render_settle_ms,
     )
 
 
