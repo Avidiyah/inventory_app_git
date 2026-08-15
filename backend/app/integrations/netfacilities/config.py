@@ -26,6 +26,7 @@ ALLOWED_BROWSER_CHANNELS = frozenset({"chrome", "msedge", "bundled-chromium"})
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 30
 DEFAULT_AUTH_TIMEOUT_SECONDS = 900
 DEFAULT_BATCH_TIMEOUT_SECONDS = 1_800
+DEFAULT_RENDER_SETTLE_SECONDS = 5
 STORAGE_STATE_FILENAME = "playwright-storage-state.json"
 
 
@@ -41,6 +42,14 @@ class NetFacilitiesConfig:
     batch_timeout_seconds: int
     storage_state_file: Path | None = None
     interactive_authentication_available: bool = True
+    render_document: bool = True
+    render_settle_seconds: int = DEFAULT_RENDER_SETTLE_SECONDS
+
+    @property
+    def render_settle_ms(self) -> int:
+        """How long a rendered document may settle before it is serialized."""
+
+        return self.render_settle_seconds * 1_000
 
     @property
     def playwright_channel(self) -> str | None:
@@ -147,6 +156,19 @@ def load_netfacilities_config(
         ),
         storage_state_file=storage_state_file,
         interactive_authentication_available=interactive_authentication_available,
+        # NetFacilities inserts Priority into the DOM with first-party JavaScript, so
+        # the raw response never carries it. Rendering is the default; setting this to
+        # false restores the raw read without a redeploy.
+        render_document=_flag(
+            values.get("NETFACILITIES_RENDER_DOCUMENT"),
+            name="NETFACILITIES_RENDER_DOCUMENT",
+            default=True,
+        ),
+        render_settle_seconds=_positive_seconds(
+            values,
+            "NETFACILITIES_RENDER_SETTLE_SECONDS",
+            DEFAULT_RENDER_SETTLE_SECONDS,
+        ),
     )
 
 
@@ -161,6 +183,19 @@ def _enabled(raw: str | None) -> bool:
     raise NetFacilitiesUnavailable(
         "NETFACILITIES_ENABLED must be either true or false."
     )
+
+
+def _flag(raw: str | None, *, name: str, default: bool) -> bool:
+    """Parse an optional strict boolean, keeping unset values at the safe default."""
+
+    if raw is None or not raw.strip():
+        return default
+    normalized = raw.strip().lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    raise NetFacilitiesUnavailable(f"{name} must be either true or false.")
 
 
 def _profile_dir(raw: str | None, *, repository_root: Path) -> Path:

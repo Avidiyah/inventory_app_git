@@ -94,6 +94,64 @@ def test_linux_capability_uses_hosted_saved_state_without_interactive_auth(tmp_p
     assert not config.interactive_authentication_available
 
 
+def _hosted_environment(tmp_path, **overrides):
+    storage_state = tmp_path / "secrets" / "netfacilities-state.json"
+    storage_state.parent.mkdir(exist_ok=True)
+    storage_state.write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+    return {
+        "NETFACILITIES_ENABLED": "true",
+        "NETFACILITIES_STORAGE_STATE_PATH": str(storage_state),
+        **overrides,
+    }
+
+
+def test_rendered_document_retrieval_is_the_hosted_default(tmp_path):
+    config = load_netfacilities_config(
+        _hosted_environment(tmp_path),
+        platform="linux",
+        repository_root=tmp_path / "repository",
+    )
+
+    assert config.render_document is True
+    assert config.render_settle_ms == 5_000
+
+
+def test_rendered_document_retrieval_can_be_disabled_without_a_redeploy(tmp_path):
+    config = load_netfacilities_config(
+        _hosted_environment(tmp_path, NETFACILITIES_RENDER_DOCUMENT="false"),
+        platform="linux",
+        repository_root=tmp_path / "repository",
+    )
+
+    assert config.render_document is False
+
+
+@pytest.mark.parametrize("value", ["1", "yes", "enabled", "maybe"])
+def test_rendered_document_flag_rejects_ambiguous_values(tmp_path, value):
+    with pytest.raises(NetFacilitiesUnavailable, match="either true or false"):
+        load_netfacilities_config(
+            _hosted_environment(tmp_path, NETFACILITIES_RENDER_DOCUMENT=value),
+            platform="linux",
+            repository_root=tmp_path / "repository",
+        )
+
+
+def test_render_settle_seconds_is_bounded_and_configurable(tmp_path):
+    config = load_netfacilities_config(
+        _hosted_environment(tmp_path, NETFACILITIES_RENDER_SETTLE_SECONDS="8"),
+        platform="linux",
+        repository_root=tmp_path / "repository",
+    )
+    assert config.render_settle_ms == 8_000
+
+    with pytest.raises(NetFacilitiesUnavailable, match="positive whole number"):
+        load_netfacilities_config(
+            _hosted_environment(tmp_path, NETFACILITIES_RENDER_SETTLE_SECONDS="0"),
+            platform="linux",
+            repository_root=tmp_path / "repository",
+        )
+
+
 def test_repository_root_supports_checkout_and_production_image_layouts(tmp_path):
     checkout_module = (
         tmp_path
