@@ -11,6 +11,7 @@ from app.integrations.netfacilities.client import (
     MAX_RESPONSE_BYTES,
     NetFacilitiesClient,
     STORAGE_STATE_FILENAME,
+    WORK_ORDER_DOCUMENT_HEADERS,
 )
 from app.integrations.netfacilities.errors import (
     NetFacilitiesAuthenticationRequired,
@@ -106,7 +107,12 @@ def test_get_work_order_uses_only_the_allowlisted_read_request():
     assert len(context.request.calls) == 1
     url, options = context.request.calls[0]
     assert url == "https://system.netfacilities.com/tools/viewworkorders/12345678"
-    assert options["headers"] == {"Accept": "text/html"}
+    assert options["headers"] == WORK_ORDER_DOCUMENT_HEADERS
+    assert options["headers"]["Sec-Fetch-Dest"] == "document"
+    assert options["headers"]["Sec-CH-UA-Platform"] == '"Windows"'
+    assert "Chrome/" in options["headers"]["User-Agent"]
+    assert "Cookie" not in options["headers"]
+    assert "Authorization" not in options["headers"]
     assert options["max_redirects"] == 0
     assert options["fail_on_status_code"] is False
 

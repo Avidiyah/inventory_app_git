@@ -9,6 +9,14 @@ secret-safe production diagnostic now classifies the exact response used by enri
 the next step is to run it for one authorized work order in Render Shell and use the
 decision tree below.
 
+The production diagnostic subsequently proved that Render received a reduced HTML
+variant: description was populated, Priority was null, supported Priority body counts
+were zero, and the token appeared only twice in inline script. The owner's authenticated
+Chrome view-source of the same URL contained the expected Priority ID and label. The
+production GET now presents a non-secret top-level Chrome document request profile to
+retrieve that full HTML variant. This remains pending live confirmation and a batch
+retry; it does not add a secondary endpoint or weaken saved-state handling.
+
 ## Next-session brief: hosted Priority investigation
 
 ### Confirmed observations and boundaries

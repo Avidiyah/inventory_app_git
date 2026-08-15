@@ -36,6 +36,37 @@ BASE_URL = "https://system.netfacilities.com"
 LOGIN_PATH_PREFIX = "/account/login"
 MAX_RESPONSE_BYTES = 2_000_000
 REQUEST_TIMEOUT_MS = 30_000
+
+# NetFacilities returns a reduced work-order document to Playwright's default
+# APIRequestContext request profile. A normal authenticated browser navigation to the
+# same allowlisted URL includes the Priority row in its original HTML. Keep this small,
+# non-secret profile aligned with a top-level Chrome document request; authentication
+# cookies still come only from protected Playwright storage state.
+WORK_ORDER_DOCUMENT_HEADERS = {
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,*/*;q=0.8"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-CH-UA": (
+        '"Chromium";v="120", "Google Chrome";v="120", '
+        '"Not_A Brand";v="99"'
+    ),
+    "Sec-CH-UA-Mobile": "?0",
+    "Sec-CH-UA-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+}
+
+
 class NetFacilitiesClient:
     """Own a browser or request context and perform one allowlisted read request."""
 
@@ -222,7 +253,7 @@ class NetFacilitiesClient:
         try:
             response = await request_context.get(
                 url,
-                headers={"Accept": "text/html"},
+                headers=dict(WORK_ORDER_DOCUMENT_HEADERS),
                 fail_on_status_code=False,
                 max_redirects=0,
                 timeout=self.timeout_ms,

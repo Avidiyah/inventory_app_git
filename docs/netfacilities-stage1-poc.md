@@ -205,6 +205,15 @@ Interpret the result at the retrieval boundary:
 Copy the complete JSON result for comparison; it is deliberately safe to share for
 debugging. Do not supplement it with page source or authentication material.
 
+On 2026-08-15 this diagnostic proved that Render's default request-only response omitted
+all supported Priority body markup while an authenticated Chrome **view-source** of the
+same work-order URL contained both the expected ID and label. Production enrichment now
+uses a small, non-secret top-level Chrome document header profile for that same
+allowlisted GET. Cookies still come exclusively from the protected saved state; no
+browser automation, additional endpoint, field value, or authentication header is
+introduced. Verify `priority_populated: true` for one authorized work order before
+rerunning the full blank-Priority enrichment batch.
+
 The production image includes Playwright's request runtime and Beautiful Soup but no
 Chromium binary. If Render reports authentication missing or expired, repeat the local
 sign-in, replace the Render secret file, and redeploy. Do not put storage state in

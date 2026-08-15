@@ -1444,6 +1444,17 @@ normal parser and `inspect_priority_markup()`. The latter distinguishes the supp
 `#priority-level`/`Priority Level` body markup from script-only token references. This
 is an observation tool, not a second endpoint or alternate extraction path.
 
+The first production diagnostic returned the correct work order and a populated
+description but no Priority selector, label, named element, or body token; only two
+inline-script token references existed. The owner's authenticated Chrome view-source of
+the same URL contained both the expected Priority ID and label. This rules out CSV
+candidates, parser selectors, JavaScript DOM insertion, and persistence as the first
+failure. The browserless production GET now supplies an explicit non-secret top-level
+Chrome document request profile while retaining the exact host/path, protected saved
+cookies, response validation, parser, and compare-and-set writes. Live acceptance still
+requires one Render diagnostic with `priority_populated: true` followed by a successful
+blank-Priority enrichment retry.
+
 Browser-enabled local Uvicorn must run as one process without `--reload` or multiple
 workers: those Windows modes use `SelectorEventLoop`, which cannot start Playwright's
 driver subprocess. The client rejects that incompatible loop as `unavailable` before
