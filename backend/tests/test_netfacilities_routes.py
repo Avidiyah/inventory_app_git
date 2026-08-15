@@ -18,9 +18,21 @@ from app.services.netfacilities_auth import NetFacilitiesAuthenticationSnapshot
 from app.services.netfacilities_jobs import NetFacilitiesJobSnapshot
 
 
-def _config(tmp_path, *, enabled=True, authenticated=True):
-    profile = tmp_path / "profile"
-    profile.mkdir()
+def _config(
+    tmp_path,
+    *,
+    enabled=True,
+    authenticated=True,
+    interactive_authentication_available=True,
+):
+    profile = tmp_path / "profile" if interactive_authentication_available else None
+    if profile is not None:
+        profile.mkdir()
+    storage_state = (
+        None
+        if interactive_authentication_available
+        else tmp_path / "netfacilities-storage-state.json"
+    )
     config = NetFacilitiesConfig(
         enabled=enabled,
         profile_dir=profile if enabled else None,
@@ -28,6 +40,10 @@ def _config(tmp_path, *, enabled=True, authenticated=True):
         request_timeout_seconds=30,
         auth_timeout_seconds=900,
         batch_timeout_seconds=1_800,
+        storage_state_file=storage_state if enabled else None,
+        interactive_authentication_available=(
+            interactive_authentication_available if enabled else False
+        ),
     )
     if enabled and authenticated:
         config.storage_state_path.write_text("test-state", encoding="utf-8")
@@ -122,6 +138,48 @@ def test_session_reports_ready_after_saved_state(tmp_path, monkeypatch):
     assert result.available
     assert result.state == "ready"
     assert result.latest_job is None
+    assert result.interactive_authentication_available
+
+
+def test_session_reports_hosted_saved_state_without_interactive_sign_in(
+    tmp_path, monkeypatch
+):
+    config = _config(
+        tmp_path,
+        interactive_authentication_available=False,
+    )
+    monkeypatch.setattr(router, "load_netfacilities_config", lambda: config)
+
+    result = asyncio.run(
+        router.netfacilities_session(
+            _user=SimpleNamespace(),
+            jobs=FakeJobs(),
+            authentication=FakeAuthentication(),
+        )
+    )
+
+    assert result.available
+    assert result.state == "ready"
+    assert not result.interactive_authentication_available
+
+
+def test_hosted_mode_rejects_interactive_sign_in(tmp_path, monkeypatch):
+    config = _config(
+        tmp_path,
+        interactive_authentication_available=False,
+    )
+    monkeypatch.setattr(router, "load_netfacilities_config", lambda: config)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            router.start_netfacilities_authentication(
+                _user=SimpleNamespace(),
+                authentication=FakeAuthentication(),
+            )
+        )
+
+    assert exc.value.status_code == 503
+    assert "unavailable on this host" in exc.value.detail
 
 
 def test_session_reports_pending_in_app_authentication(tmp_path, monkeypatch):

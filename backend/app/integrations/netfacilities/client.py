@@ -32,17 +32,19 @@ LOGIN_PATH_PREFIX = "/account/login"
 MAX_RESPONSE_BYTES = 2_000_000
 REQUEST_TIMEOUT_MS = 30_000
 class NetFacilitiesClient:
-    """Own a dedicated browser context and perform one allowlisted read request."""
+    """Own a browser or request context and perform one allowlisted read request."""
 
     def __init__(
         self,
         *,
-        profile_dir: Path,
+        profile_dir: Path | None,
+        storage_state_path: Path | None = None,
         headless: bool,
         browser_channel: str | None = "chrome",
         timeout_ms: int = REQUEST_TIMEOUT_MS,
         max_response_bytes: int = MAX_RESPONSE_BYTES,
         use_saved_state: bool = False,
+        request_only: bool = False,
         _context: BrowserContext | Any | None = None,
     ) -> None:
         self.profile_dir = profile_dir
@@ -51,8 +53,12 @@ class NetFacilitiesClient:
         self.timeout_ms = timeout_ms
         self.max_response_bytes = max_response_bytes
         self.use_saved_state = use_saved_state
-        self.storage_state_path = profile_dir / STORAGE_STATE_FILENAME
+        self.request_only = request_only
+        self.storage_state_path = storage_state_path or (
+            profile_dir / STORAGE_STATE_FILENAME if profile_dir is not None else None
+        )
         self._context = _context
+        self._request_context: Any | None = None
         self._browser: Any | None = None
         self._playwright: Any | None = None
         self._owns_context = _context is None
@@ -64,25 +70,29 @@ class NetFacilitiesClient:
         try:
             self._playwright = await async_playwright().start()
             if self.use_saved_state:
-                if not self.storage_state_path.is_file():
+                if self.storage_state_path is None or not self.storage_state_path.is_file():
                     raise NetFacilitiesAuthenticationRequired(
                         "No saved NetFacilities authentication state; sign in first."
                     )
-                self._browser = await self._playwright.chromium.launch(
-                    channel=self.browser_channel,
-                    headless=self.headless,
-                )
-                try:
+                if self.request_only:
+                    self._request_context = await self._playwright.request.new_context(
+                        storage_state=str(self.storage_state_path),
+                        timeout=self.timeout_ms,
+                    )
+                else:
+                    self._browser = await self._playwright.chromium.launch(
+                        channel=self.browser_channel,
+                        headless=self.headless,
+                    )
                     self._context = await self._browser.new_context(
                         storage_state=str(self.storage_state_path),
                         accept_downloads=False,
                     )
-                except PlaywrightError as exc:
-                    raise NetFacilitiesAuthenticationRequired(
-                        "Saved NetFacilities authentication state could not be loaded; "
-                        "sign in again."
-                    ) from exc
             else:
+                if self.profile_dir is None:
+                    raise NetFacilitiesUnavailable(
+                        "Interactive NetFacilities sign-in requires a dedicated profile."
+                    )
                 self._context = await self._playwright.chromium.launch_persistent_context(
                     user_data_dir=str(self.profile_dir),
                     channel=self.browser_channel,
@@ -94,6 +104,11 @@ class NetFacilitiesClient:
             raise
         except PlaywrightError as exc:
             await self._stop_runtime()
+            if self.use_saved_state:
+                raise NetFacilitiesAuthenticationRequired(
+                    "Saved NetFacilities authentication state could not be loaded; "
+                    "sign in again."
+                ) from exc
             raise NetFacilitiesUnavailable(
                 "Could not start the dedicated browser. Verify the browser channel "
                 "and that no other process is using this profile."
@@ -155,6 +170,10 @@ class NetFacilitiesClient:
     async def persist_authentication_state(self) -> None:
         """Save cookies and browser storage, including session cookies, before close."""
 
+        if self.storage_state_path is None:
+            raise NetFacilitiesUnavailable(
+                "NetFacilities authentication state has no configured destination."
+            )
         context = self._require_context()
         try:
             await context.storage_state(
@@ -172,10 +191,12 @@ class NetFacilitiesClient:
         number = validate_work_order_number(work_order_number)
         expected_path = f"/tools/viewworkorders/{number}"
         url = f"{BASE_URL}{expected_path}"
-        context = self._require_context()
+        request_context = self._request_context
+        if request_context is None:
+            request_context = self._require_context().request
 
         try:
-            response = await context.request.get(
+            response = await request_context.get(
                 url,
                 headers={"Accept": "text/html"},
                 fail_on_status_code=False,
@@ -275,9 +296,14 @@ class NetFacilitiesClient:
 
     async def _stop_runtime(self) -> None:
         try:
-            if self._browser is not None:
-                await self._browser.close()
-                self._browser = None
+            try:
+                if self._request_context is not None:
+                    await self._request_context.dispose()
+                    self._request_context = None
+            finally:
+                if self._browser is not None:
+                    await self._browser.close()
+                    self._browser = None
         finally:
             await self._stop_playwright()
 

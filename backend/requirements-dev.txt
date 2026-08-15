@@ -18,9 +18,6 @@ httpx2==2.9.1
 # not import this package.
 python-barcode==0.16.1
 
-# Local-only NetFacilities Stage 1 proof of concept. No browser binary is
-# downloaded during package installation, and neither dependency is included in
-# the production Docker image until a later production-integration stage is
-# explicitly approved.
-beautifulsoup4==4.15.0
-playwright==1.62.0
+# NetFacilities parsing and Playwright's browserless request transport are runtime
+# dependencies. Local interactive sign-in additionally needs an installed Chrome,
+# Edge, or Playwright Chromium browser selected by configuration.

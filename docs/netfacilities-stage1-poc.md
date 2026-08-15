@@ -1,7 +1,9 @@
-# NetFacilities Stage 1 Local Proof of Concept
+# NetFacilities Stage 1 Authentication and Enrichment Runbook
 
 Status: local CLI lookup/authentication and the Admin+ in-app manual sign-in flow are
-implemented; both use the same protected saved state for application enrichment
+implemented; the local happy path is owner-accepted, and Render can consume the same
+protected saved state through a browserless request client. The first hosted live
+request is still pending operator acceptance.
 
 ## Scope
 
@@ -16,12 +18,15 @@ The command-line boundary:
 - does not itself write to PostgreSQL or the Inventory application.
 
 The application consumes the saved authentication state to enrich only eligible
-existing work orders. The CLI still performs no database mutation.
+existing work orders. On Render it uses Playwright's standalone `APIRequestContext`,
+not a browser. The CLI still performs no database mutation.
 
 The browser profile and its `playwright-storage-state.json` file contain
 bearer-equivalent session state. Keep them outside the repository, outside synced
 folders, and accessible only to the authorized Windows user. Never attach either to an
-issue, copy either into documentation, or place either in Render.
+issue, copy either into documentation, or commit either. The one approved transfer is
+the storage-state file into the Inventory service's protected Render secret-file slot;
+the persistent browser profile itself never leaves the local host.
 
 ## Install local development dependencies
 
@@ -96,9 +101,9 @@ Optional positive whole-number settings are
 `NETFACILITIES_REQUEST_TIMEOUT_SECONDS`,
 `NETFACILITIES_AUTH_TIMEOUT_SECONDS`, and
 `NETFACILITIES_BATCH_TIMEOUT_SECONDS`. The app defaults the feature to disabled and
-rejects non-Windows hosts, relative/repository profile paths, unknown browser channels,
-and invalid timeouts. Playwright and Beautiful Soup remain local development
-dependencies; disabled deployment startup does not import them.
+rejects relative/repository profile paths, unknown browser channels, unsupported
+platforms, and invalid timeouts. Playwright and Beautiful Soup are runtime dependencies;
+interactive browser sign-in remains Windows-only.
 
 Start browser-enabled Uvicorn as a single process without auto-reload. From `backend/`:
 
@@ -141,13 +146,52 @@ GET  /integrations/netfacilities/work-orders/enrich/{job_id}
 They return capability state, operation IDs, safe outcome classes, and counts only.
 They never return storage paths, cookies, HTML, headers, or source field contents.
 
+## Provision saved authentication on Render
+
+First complete the authorized local sign-in flow above so the protected profile contains
+`playwright-storage-state.json`. Then:
+
+1. Open the Render dashboard for the `inventory-app` service and select
+   **Environment**.
+2. Under **Secret Files**, add a file named
+   `netfacilities-storage-state.json` and paste the complete contents of the locally
+   generated `playwright-storage-state.json` into it. Treat this content as a password.
+3. Save the secret file. `render.yaml` already supplies:
+
+   ```text
+   NETFACILITIES_ENABLED=true
+   NETFACILITIES_STORAGE_STATE_PATH=/etc/secrets/netfacilities-storage-state.json
+   ```
+
+4. Sync/deploy the Blueprint revision containing this support. In Work Orders, the
+   capability should report ready and **Import Tasks and Priority** should be enabled.
+   The local **Sign in to NetFacilities** control is intentionally hidden on Render.
+5. Import a small authorized CSV and confirm the aggregate enrichment result. The
+   default automated tests never make a live source request.
+
+The production image includes Playwright's request runtime and Beautiful Soup but no
+Chromium binary. If Render reports authentication missing or expired, repeat the local
+sign-in, replace the Render secret file, and redeploy. Do not put storage state in
+`render.yaml`, an ordinary environment variable, logs, tickets, or source control.
+
+The hosted extension passed 182 broader work-order/import/application regressions,
+including 45 focused hosted client/config/job/route tests, and the final current-tree
+suite passed 934 tests. A real Playwright request-only runtime smoke passed with
+temporary synthetic storage state and no Chromium/browser launch; `python -m pip check`
+and JavaScript syntax checks passed. These checks made no live NetFacilities request.
+
+Transfer of an otherwise valid session can still fail if NetFacilities binds it to a
+device, IP address, or other tenant-side signal. In that case the job stops as
+`authentication_required`; do not weaken authentication or automate CAPTCHA/MFA.
+
 ## Owner-reported live checkpoint
 
 On 2026-08-15 the owner restarted Uvicorn without `--reload` and reported that the
 live application imported Task/Symptom correctly and imported Priority correctly. No
 source values, work-order identifiers, profile paths, or authentication material were
 recorded. The roadmap retains the separate retry, preservation, expiration,
-cancellation, timeout, and page-reentry resilience checks.
+cancellation, timeout, and page-reentry resilience checks. This accepts the local live
+happy path only; the first Render-hosted live request remains pending.
 
 ## Look up one work order
 
@@ -197,9 +241,9 @@ authenticated browser closes and also refreshes the saved storage state.
 - Browser unavailable: verify Chrome is installed and no other process is using the
   dedicated profile.
 - Application reports not authenticated/expired: sign in again, then use **Import
-  Tasks and Priority**.
-- Application reports unavailable: confirm it is the configured local Windows host and
-  that local development dependencies are installed. Ordinary CSV import remains usable.
+  Tasks and Priority** locally; on Render, refresh the secret file and redeploy.
+- Application reports unavailable: confirm the current host's required profile or
+  saved-state path is configured. Ordinary CSV import remains usable.
 
 ## Optional bundled Chromium
 

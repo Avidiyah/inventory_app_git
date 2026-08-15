@@ -48,8 +48,9 @@ description.
   hiding is presentation only.
 - Keep one browser/session owner and basic admission control so an accidental repeated
   click cannot overlap authentication or enrichment.
-- Keep the current Render deployment free of a production browser runtime. The normal
-  CSV import must continue to work when the NetFacilities local capability is disabled.
+- Keep Render free of Chromium and headed sign-in. The post-roadmap hosted extension
+  uses Playwright's standalone request runtime with an operator-provisioned secret
+  storage-state file; normal CSV import still works when enrichment is unavailable.
 - Keep Playwright storage state and the persistent profile outside the repository.
   Treat both as bearer-equivalent secrets and never inspect, log, return, or copy their
   contents.
@@ -83,10 +84,11 @@ selection and local update rules live in `app/services/netfacilities.py`. HTTP a
 concerns live in a dedicated router. Browser and job state are process-local; database
 rows hold only the approved `priority` and `description` values.
 
-Because Playwright and Beautiful Soup are currently local development dependencies,
-the application composition path must not import the concrete browser/parser runtime
-when NetFacilities is disabled. A small interface plus lazy local factory should let
-Render start and retain CSV import without installing or launching Chromium.
+At the time of the original milestones, Playwright and Beautiful Soup were local
+development dependencies, so the application composition path did not import the
+concrete browser/parser runtime when NetFacilities was disabled. The later Render
+extension promotes both packages to runtime dependencies but retains lazy construction
+and still installs or launches no production Chromium.
 
 ## Milestone 0 - Baseline and local capability boundary
 
@@ -97,9 +99,11 @@ are implemented in `app/integrations/netfacilities`, with a lazy concrete-client
 factory and no FastAPI composition import. Configuration defaults disabled and uses
 `NETFACILITIES_ENABLED`, `NETFACILITIES_PROFILE_DIR`,
 `NETFACILITIES_BROWSER_CHANNEL`, and bounded request/authentication/batch timeout
-settings. Enabled configuration is limited to Windows and rejects unsafe repository
-paths, invalid channels, nonpositive timeouts, and missing local-only dependencies as
-secret-safe `unavailable` failures.
+settings. That milestone limited enabled configuration to Windows. The later hosted
+extension adds Linux request-only configuration through
+`NETFACILITIES_STORAGE_STATE_PATH`; both modes reject unsafe repository paths, invalid
+channels, nonpositive timeouts, and missing dependencies as secret-safe `unavailable`
+failures.
 
 The package initializer no longer eagerly imports the Beautiful Soup parser, so the
 configuration/contracts/factory boundary and `app.main` import without Playwright or
@@ -386,8 +390,9 @@ the process-local browser state after page re-entry.
 
 Polling displays only counts, disables duplicate enrichment actions, recovers a running
 job after page re-entry, and reloads cards on completion/timeout. When the feature is
-disabled or unavailable (including Render), the retry control stays hidden and ordinary
-CSV import continues unchanged.
+disabled or unavailable (including Render without provisioned saved state), the retry
+control stays hidden and ordinary CSV import continues unchanged. The later hosted
+extension enables the retry control when Render has usable saved state.
 
 ### Remaining manual checks
 
@@ -524,7 +529,9 @@ Each slice should be independently reviewable and leave ordinary CSV import work
 - Render-hosted Chromium or a remote headed-browser interface.
 - Browser-managed CSV downloading and `NETFACILITIES_DOWNLOAD_DIR`.
 - Credential, CAPTCHA, SSO, or MFA collection/automation inside Inventory App.
-- Uploading or transferring local Playwright storage state to Render.
+- Hosted interactive sign-in or automatic authentication-state transfer. The later
+  approved Render extension uses a manual, bearer-equivalent Render secret file and
+  requires local reauthentication plus secret replacement when it expires.
 - Local companion/agent or browser extension architecture.
 - Multiple NetFacilities users or multiple protected profiles.
 - Concurrent enrichment batches or large-scale parallel source reads.
@@ -533,6 +540,6 @@ Each slice should be independently reviewable and leave ordinary CSV import work
 - NetFacilities status, location, dates, assignees, labor, materials, notes,
   attachments, audit data, or secondary endpoint imports.
 
-If remote production enrichment is requested later, treat it as a separate architecture
-decision. A normal browser tab on an Admin's computer cannot authenticate Playwright on
-Render.
+The later remote-production decision is recorded in `docs/current-state.md`: Render
+performs only browserless allowlisted reads from manually provisioned saved state. A
+normal browser tab on an Admin's computer still cannot authenticate the Render process.

@@ -1,4 +1,4 @@
-"""Lazy construction of the local-only NetFacilities browser client."""
+"""Lazy construction of local or hosted NetFacilities clients."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def create_netfacilities_client(
 ) -> NetFacilitiesClientContextProtocol:
     """Create the concrete client only after safe enablement is established."""
 
-    if not config.enabled or config.profile_dir is None:
+    if not config.enabled or config.storage_state_path is None:
         raise NetFacilitiesUnavailable(
             "NetFacilities enrichment is disabled on this host."
         )
@@ -26,15 +26,17 @@ def create_netfacilities_client(
         from .client import NetFacilitiesClient
     except ModuleNotFoundError as exc:
         raise NetFacilitiesUnavailable(
-            "NetFacilities local browser dependencies are unavailable."
+            "NetFacilities integration dependencies are unavailable."
         ) from exc
 
     return NetFacilitiesClient(
         profile_dir=config.profile_dir,
+        storage_state_path=config.storage_state_path,
         headless=headless,
         browser_channel=config.playwright_channel,
         timeout_ms=config.request_timeout_ms,
         use_saved_state=use_saved_state,
+        request_only=not config.interactive_authentication_available,
     )
 
 
@@ -42,6 +44,11 @@ def create_netfacilities_authentication_client(
     config: NetFacilitiesConfig,
 ) -> NetFacilitiesAuthenticationContextProtocol:
     """Create the headed client used by the local in-app sign-in ceremony."""
+
+    if not config.interactive_authentication_available or config.profile_dir is None:
+        raise NetFacilitiesUnavailable(
+            "Interactive NetFacilities sign-in is unavailable on this host."
+        )
 
     return create_netfacilities_client(
         config,

@@ -1296,11 +1296,20 @@ function updateNetFacilitiesControls(capability) {
     authentication && NETFACILITIES_ACTIVE_AUTH_STATES.has(authentication.state),
   );
   const available = Boolean(capability && capability.available);
+  const interactiveAuthentication = Boolean(
+    capability && capability.interactive_authentication_available,
+  );
   const enrichmentRunning = capability && capability.state === "running";
 
   if (netFacilitiesSignInBtn) {
-    netFacilitiesSignInBtn.hidden = !available || authActive || enrichmentRunning;
-    netFacilitiesSignInBtn.disabled = !available || authActive || enrichmentRunning;
+    netFacilitiesSignInBtn.hidden = !available
+      || !interactiveAuthentication
+      || authActive
+      || enrichmentRunning;
+    netFacilitiesSignInBtn.disabled = !available
+      || !interactiveAuthentication
+      || authActive
+      || enrichmentRunning;
     netFacilitiesSignInBtn.textContent = capability && capability.state === "ready"
       ? "Sign in again"
       : "Sign in to NetFacilities";
@@ -1321,6 +1330,13 @@ function updateNetFacilitiesControls(capability) {
       || capability.state !== "ready"
       || Boolean(netFacilitiesPollingJobId);
   }
+}
+
+function netFacilitiesReauthenticationAction() {
+  return netFacilitiesCapability
+    && netFacilitiesCapability.interactive_authentication_available
+    ? "Sign in again"
+    : "Refresh the saved authentication secret and redeploy";
 }
 
 function netFacilitiesCountsMessage(job) {
@@ -1350,7 +1366,7 @@ function renderNetFacilitiesJob(job) {
   if (job.state === "authentication_required") {
     setMessage(
       netFacilitiesStatus,
-      "NetFacilities authentication is missing or expired. Sign in again, then click Import Tasks and Priority.",
+      `NetFacilities authentication is missing or expired. ${netFacilitiesReauthenticationAction()}, then click Import Tasks and Priority.`,
       "error",
     );
     return;
@@ -1433,7 +1449,7 @@ async function runNetFacilitiesEnrichment() {
     await pollNetFacilitiesJob(job.job_id);
   } catch (err) {
     if (netFacilitiesStatus) {
-      setMessage(netFacilitiesStatus, friendlyError(err, "Could not start NetFacilities enrichment. Sign in, then try again."), "error");
+      setMessage(netFacilitiesStatus, friendlyError(err, `Could not start NetFacilities enrichment. ${netFacilitiesReauthenticationAction()}, then try again.`), "error");
     }
     await refreshNetFacilitiesSession({ preserveJobResult: true });
   } finally {

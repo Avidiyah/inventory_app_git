@@ -1,4 +1,4 @@
-"""Fail-closed local configuration for the NetFacilities capability."""
+"""Fail-closed configuration for local and hosted NetFacilities enrichment."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ STORAGE_STATE_FILENAME = "playwright-storage-state.json"
 
 @dataclass(frozen=True, slots=True)
 class NetFacilitiesConfig:
-    """Validated local capability settings with no browser side effects."""
+    """Validated capability settings with no browser or network side effects."""
 
     enabled: bool
     profile_dir: Path | None
@@ -30,6 +30,8 @@ class NetFacilitiesConfig:
     request_timeout_seconds: int
     auth_timeout_seconds: int
     batch_timeout_seconds: int
+    storage_state_file: Path | None = None
+    interactive_authentication_available: bool = True
 
     @property
     def playwright_channel(self) -> str | None:
@@ -45,6 +47,8 @@ class NetFacilitiesConfig:
     def storage_state_path(self) -> Path | None:
         """Protected saved-login state, without importing Playwright."""
 
+        if self.storage_state_file is not None:
+            return self.storage_state_file
         if self.profile_dir is None:
             return None
         return self.profile_dir / STORAGE_STATE_FILENAME
@@ -66,8 +70,10 @@ def load_netfacilities_config(
     """Read configuration without importing or starting the browser runtime.
 
     Missing or explicit ``false`` keeps the capability disabled and ignores all
-    local-only settings.  An attempted enablement is strict: malformed or unsafe
-    configuration becomes one secret-safe ``unavailable`` failure.
+    integration settings. An attempted enablement is strict: malformed or unsafe
+    configuration becomes one secret-safe ``unavailable`` failure. Windows uses a
+    dedicated interactive profile; Linux/Render uses a separately provisioned saved
+    authentication file and never attempts headed sign-in.
     """
 
     values = os.environ if environ is None else environ
@@ -80,18 +86,28 @@ def load_netfacilities_config(
             request_timeout_seconds=DEFAULT_REQUEST_TIMEOUT_SECONDS,
             auth_timeout_seconds=DEFAULT_AUTH_TIMEOUT_SECONDS,
             batch_timeout_seconds=DEFAULT_BATCH_TIMEOUT_SECONDS,
+            interactive_authentication_available=False,
         )
 
     current_platform = sys.platform if platform is None else platform
-    if current_platform != "win32":
-        raise NetFacilitiesUnavailable(
-            "NetFacilities enrichment is available only on the configured local Windows host."
+    if current_platform == "win32":
+        profile_dir = _profile_dir(
+            values.get("NETFACILITIES_PROFILE_DIR"),
+            repository_root=repository_root,
         )
-
-    profile_dir = _profile_dir(
-        values.get("NETFACILITIES_PROFILE_DIR"),
-        repository_root=repository_root,
-    )
+        storage_state_file = None
+        interactive_authentication_available = True
+    elif current_platform == "linux":
+        profile_dir = None
+        storage_state_file = _storage_state_file(
+            values.get("NETFACILITIES_STORAGE_STATE_PATH"),
+            repository_root=repository_root,
+        )
+        interactive_authentication_available = False
+    else:
+        raise NetFacilitiesUnavailable(
+            "NetFacilities enrichment is supported only on Windows or Linux hosts."
+        )
     browser_channel = values.get(
         "NETFACILITIES_BROWSER_CHANNEL",
         DEFAULT_BROWSER_CHANNEL,
@@ -120,6 +136,8 @@ def load_netfacilities_config(
             "NETFACILITIES_BATCH_TIMEOUT_SECONDS",
             DEFAULT_BATCH_TIMEOUT_SECONDS,
         ),
+        storage_state_file=storage_state_file,
+        interactive_authentication_available=interactive_authentication_available,
     )
 
 
@@ -160,6 +178,36 @@ def _profile_dir(raw: str | None, *, repository_root: Path) -> Path:
     if path.exists() and not path.is_dir():
         raise NetFacilitiesUnavailable(
             "NETFACILITIES_PROFILE_DIR must refer to a directory."
+        )
+    return path
+
+
+def _storage_state_file(raw: str | None, *, repository_root: Path) -> Path:
+    if raw is None or not raw.strip():
+        raise NetFacilitiesUnavailable(
+            "NETFACILITIES_STORAGE_STATE_PATH is required on Linux when "
+            "NetFacilities is enabled."
+        )
+    expanded = Path(raw.strip()).expanduser()
+    if not expanded.is_absolute():
+        raise NetFacilitiesUnavailable(
+            "NETFACILITIES_STORAGE_STATE_PATH must be an absolute path outside "
+            "the repository."
+        )
+
+    path = expanded.resolve(strict=False)
+    root = repository_root.resolve(strict=False)
+    try:
+        path.relative_to(root)
+    except ValueError:
+        pass
+    else:
+        raise NetFacilitiesUnavailable(
+            "NETFACILITIES_STORAGE_STATE_PATH must be outside the repository."
+        )
+    if path.exists() and not path.is_file():
+        raise NetFacilitiesUnavailable(
+            "NETFACILITIES_STORAGE_STATE_PATH must refer to a file."
         )
     return path
 

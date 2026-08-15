@@ -1,8 +1,8 @@
 """Dependency-free contracts for NetFacilities application wiring.
 
 Importing this module must never import the Playwright transport or the HTML
-parser.  Disabled deployments and service tests use these structural protocols
-without installing the local-only integration dependencies.
+parser. Disabled deployments and service tests use these structural protocols without
+constructing the concrete integration runtime.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ class NetFacilitiesClientProtocol(Protocol):
 
 
 class NetFacilitiesClientContextProtocol(NetFacilitiesClientProtocol, Protocol):
-    """Client lifetime owned by one local enrichment job."""
+    """Client lifetime owned by one enrichment job."""
 
     async def __aenter__(self) -> "NetFacilitiesClientProtocol": ...
 

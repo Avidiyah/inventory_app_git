@@ -35,12 +35,14 @@ CAPTCHA, SSO, or MFA fields.
 
 ### Foundation and persistence
 
-- `backend/app/integrations/netfacilities/` contains strict disabled-by-default local
+- `backend/app/integrations/netfacilities/` contains strict disabled-by-default
   configuration, dependency-free protocols, validation, lazy client construction, the
   allowlisted Playwright reader, and the sanitized HTML parser.
-- `NETFACILITIES_ENABLED=true` is accepted only on Windows and requires an absolute
-  external `NETFACILITIES_PROFILE_DIR`. Browser channel and positive request/auth/batch
-  timeouts are validated. Protected paths never enter responses or logs.
+- Windows interactive mode requires an absolute external
+  `NETFACILITIES_PROFILE_DIR`. Linux/Render request-only mode requires an absolute
+  `NETFACILITIES_STORAGE_STATE_PATH` pointing at an operator-provisioned secret file.
+  Browser channel and positive request/auth/batch timeouts are validated. Protected
+  paths never enter responses or logs.
 - Alembic `0c1d2e3f4a5b` adds nullable `work_orders.priority`. Model/card/detail response
   plumbing is complete; Work Orders displays read-only Priority or `Not imported`.
 - Priority remains absent from generic PATCH, CSV import/export, filters, sorting, and
@@ -154,18 +156,29 @@ Then:
 Never use the normal everyday browser profile, copy storage state into the repository,
 inspect/log protected contents, or paste live source values into issues or notes.
 
+For Render, upload the locally generated `playwright-storage-state.json` as the service
+secret file `netfacilities-storage-state.json`. `render.yaml` enables the capability and
+points `NETFACILITIES_STORAGE_STATE_PATH` at
+`/etc/secrets/netfacilities-storage-state.json`. Hosted mode uses a browserless
+Playwright `APIRequestContext` and intentionally makes interactive sign-in unavailable;
+it does not install or launch Chromium. The state file is bearer-equivalent and must be
+protected like a password. Refreshing an expired hosted session means repeating local
+sign-in, replacing that secret file, and redeploying. The detailed procedure is in
+`docs/netfacilities-stage1-poc.md`.
+
 ## Verification completed
 
-- 103 focused authentication/client/job/route/role-gate tests passed for this slice.
-- The final full current-tree suite passed: 929 tests with two known WebSockets deprecation
-  warnings.
-- `python -m compileall -q app scripts tests` passed.
-- `python -m pip check` passed.
-- `node --check backend/static/api.js` passed.
-- `node --check backend/static/views/workOrders.js` passed.
-- `git diff --check` passed.
-- No live NetFacilities request, protected-profile inspection, or real application
-  enrichment was performed during automated verification.
+- 45 focused hosted client/config/job/route tests passed.
+- 182 NetFacilities/import/priority/role-gate regression tests passed for the hosted
+  extension.
+- The final full current-tree suite passed: 934 tests with two known WebSockets
+  deprecation warnings.
+- A real Playwright standalone `APIRequestContext` started and disposed successfully
+  without launching a browser.
+- `python -m pip check`, `node --check backend/static/views/workOrders.js`, and
+  `git diff --check` passed.
+- Automated verification made no live NetFacilities request and did not inspect the
+  protected profile or storage-state contents.
 
 ## Live acceptance result and remaining checks
 
@@ -174,7 +187,8 @@ feature ran successfully: Task/Symptom imported correctly and Priority imported
 correctly. No source values, identifiers, profile paths, or authentication material
 were recorded.
 
-The live happy path is accepted. The following hardening checks remain unreported and
+The local live happy path is accepted. The first hosted live request on Render is still
+pending operator acceptance. The following hardening checks remain unreported and
 should still record only pass/fail, counts, duration, and safe outcome classes:
 
 1. Confirm lifecycle status, other local fields, archived rows, and manual/CSV values do

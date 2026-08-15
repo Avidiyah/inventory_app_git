@@ -1,4 +1,4 @@
-"""Local capability configuration stays strict, lazy, and production-safe."""
+"""NetFacilities configuration stays strict, lazy, and production-safe."""
 
 from __future__ import annotations
 
@@ -29,6 +29,8 @@ def test_capability_defaults_to_disabled_without_local_paths():
     assert config.request_timeout_seconds == DEFAULT_REQUEST_TIMEOUT_SECONDS
     assert config.auth_timeout_seconds == DEFAULT_AUTH_TIMEOUT_SECONDS
     assert config.batch_timeout_seconds == DEFAULT_BATCH_TIMEOUT_SECONDS
+    assert config.storage_state_path is None
+    assert not config.interactive_authentication_available
 
 
 @pytest.mark.parametrize("value", ["1", "yes", "enabled", "maybe"])
@@ -37,15 +39,58 @@ def test_feature_flag_rejects_ambiguous_values(value):
         load_netfacilities_config({"NETFACILITIES_ENABLED": value}, platform="win32")
 
 
-def test_enabled_capability_requires_local_windows():
-    with pytest.raises(NetFacilitiesUnavailable, match="local Windows host"):
+def test_linux_capability_requires_an_absolute_external_storage_state(tmp_path):
+    repository_root = tmp_path / "repository"
+    with pytest.raises(NetFacilitiesUnavailable, match="required on Linux"):
+        load_netfacilities_config(
+            {"NETFACILITIES_ENABLED": "true"},
+            platform="linux",
+            repository_root=repository_root,
+        )
+
+    with pytest.raises(NetFacilitiesUnavailable, match="absolute path"):
         load_netfacilities_config(
             {
                 "NETFACILITIES_ENABLED": "true",
-                "NETFACILITIES_PROFILE_DIR": "/secure/netfacilities",
+                "NETFACILITIES_STORAGE_STATE_PATH": "relative/state.json",
             },
             platform="linux",
+            repository_root=repository_root,
         )
+
+    with pytest.raises(NetFacilitiesUnavailable, match="outside the repository"):
+        load_netfacilities_config(
+            {
+                "NETFACILITIES_ENABLED": "true",
+                "NETFACILITIES_STORAGE_STATE_PATH": str(
+                    repository_root / "state.json"
+                ),
+            },
+            platform="linux",
+            repository_root=repository_root,
+        )
+
+
+def test_linux_capability_uses_hosted_saved_state_without_interactive_auth(tmp_path):
+    repository_root = tmp_path / "repository"
+    storage_state = tmp_path / "secrets" / "netfacilities-state.json"
+    storage_state.parent.mkdir()
+    storage_state.write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+
+    config = load_netfacilities_config(
+        {
+            "NETFACILITIES_ENABLED": "true",
+            "NETFACILITIES_STORAGE_STATE_PATH": str(storage_state),
+        },
+        platform="linux",
+        repository_root=repository_root,
+    )
+
+    assert config.enabled
+    assert config.profile_dir is None
+    assert config.storage_state_path == storage_state.resolve(strict=False)
+    assert config.has_saved_authentication
+    assert not config.interactive_authentication_available
 
 
 def test_enabled_capability_requires_an_absolute_external_profile(tmp_path):
@@ -88,6 +133,7 @@ def test_external_profile_may_be_created_later_but_cannot_be_a_file(tmp_path):
     assert config.storage_state_path == external_profile / STORAGE_STATE_FILENAME
     assert not config.has_saved_authentication
     assert not external_profile.exists()
+    assert config.interactive_authentication_available
 
     external_profile.mkdir(parents=True)
     config.storage_state_path.write_text("test-only", encoding="utf-8")
@@ -160,14 +206,14 @@ def test_factory_refuses_disabled_capability():
         create_netfacilities_client(config, headless=True, use_saved_state=True)
 
 
-def test_boundary_modules_import_without_local_browser_dependencies():
+def test_boundary_modules_remain_lazy_without_concrete_dependencies():
     backend = Path(__file__).resolve().parents[1]
     script = r'''
 import builtins
 real_import = builtins.__import__
 def guarded_import(name, *args, **kwargs):
     if name == "playwright" or name.startswith("playwright.") or name == "bs4" or name.startswith("bs4."):
-        raise AssertionError(f"local dependency imported: {name}")
+        raise AssertionError(f"concrete dependency imported: {name}")
     return real_import(name, *args, **kwargs)
 builtins.__import__ = guarded_import
 from app.integrations.netfacilities import config, contracts, factory
