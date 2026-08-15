@@ -14,6 +14,7 @@ from app.integrations.netfacilities.config import (
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
     NetFacilitiesConfig,
     STORAGE_STATE_FILENAME,
+    _repository_root,
     load_netfacilities_config,
 )
 from app.integrations.netfacilities.errors import NetFacilitiesUnavailable
@@ -91,6 +92,43 @@ def test_linux_capability_uses_hosted_saved_state_without_interactive_auth(tmp_p
     assert config.storage_state_path == storage_state.resolve(strict=False)
     assert config.has_saved_authentication
     assert not config.interactive_authentication_available
+
+
+def test_repository_root_supports_checkout_and_production_image_layouts(tmp_path):
+    checkout_module = (
+        tmp_path
+        / "inventory-app"
+        / "backend"
+        / "app"
+        / "integrations"
+        / "netfacilities"
+        / "config.py"
+    )
+    image_module = (
+        tmp_path
+        / "image"
+        / "app"
+        / "integrations"
+        / "netfacilities"
+        / "config.py"
+    )
+
+    assert _repository_root(checkout_module) == tmp_path / "inventory-app"
+    assert _repository_root(image_module) == tmp_path / "image"
+
+
+def test_production_image_defaults_enable_hosted_capability():
+    backend = Path(__file__).resolve().parents[1]
+    dockerfile = (backend / "Dockerfile").read_text(encoding="utf-8")
+
+    # A Render deploy hook rebuilds the service image but does not apply new
+    # render.yaml environment declarations to an existing service. These image
+    # defaults keep the deployed capability on even before a Blueprint sync.
+    assert "NETFACILITIES_ENABLED=true" in dockerfile
+    assert (
+        "NETFACILITIES_STORAGE_STATE_PATH="
+        "/etc/secrets/netfacilities-storage-state.json"
+    ) in dockerfile
 
 
 def test_enabled_capability_requires_an_absolute_external_profile(tmp_path):

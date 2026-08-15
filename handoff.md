@@ -157,9 +157,11 @@ Never use the normal everyday browser profile, copy storage state into the repos
 inspect/log protected contents, or paste live source values into issues or notes.
 
 For Render, upload the locally generated `playwright-storage-state.json` as the service
-secret file `netfacilities-storage-state.json`. `render.yaml` enables the capability and
-points `NETFACILITIES_STORAGE_STATE_PATH` at
-`/etc/secrets/netfacilities-storage-state.json`. Hosted mode uses a browserless
+secret file `netfacilities-storage-state.json`. `backend/Dockerfile` and `render.yaml`
+both enable the capability and point `NETFACILITIES_STORAGE_STATE_PATH` at
+`/etc/secrets/netfacilities-storage-state.json`. The image defaults matter because a
+deploy hook rebuild does not synchronize Blueprint environment changes into an existing
+service. Hosted mode uses a browserless
 Playwright `APIRequestContext` and intentionally makes interactive sign-in unavailable;
 it does not install or launch Chromium. The state file is bearer-equivalent and must be
 protected like a password. Refreshing an expired hosted session means repeating local

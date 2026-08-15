@@ -1397,8 +1397,12 @@ NetFacilities service is its only intended first-release writer.
 
 ### NetFacilities enrichment
 
-The capability remains disabled by default in application configuration, but
-`render.yaml` enables it for the production service. Two authentication modes exist:
+The capability remains disabled by default in application configuration. Production
+enables it in both `backend/Dockerfile` and `render.yaml`: the image defaults make the
+normal CI deploy-hook path reliable for an existing Render service, while the Blueprint
+declaration documents and restores the intended service configuration when synced.
+Runtime environment values may deliberately override the image defaults. Two
+authentication modes exist:
 
 - **Local Windows:** `NETFACILITIES_ENABLED=true` plus an absolute external
   `NETFACILITIES_PROFILE_DIR`. An Admin/Owner uses the in-app headed sign-in, completes
@@ -1410,7 +1414,16 @@ The capability remains disabled by default in application configuration, but
   Render secret file from the locally generated state. Hosted mode never opens a
   browser and exposes no sign-in control; it uses Playwright's standalone
   `APIRequestContext` to perform the same allowlisted authenticated GET. Chromium is
-  not installed in the production image.
+  not installed in the production image. Protected-path validation derives the source
+  root for both checkout and `/app` production-image layouts, so `/app` remains blocked
+  without incorrectly treating `/` as the repository and rejecting `/etc/secrets`.
+
+Render's deploy hook rebuilds the configured branch but does not synchronize new
+`render.yaml` environment declarations into an existing service. This previously left
+production reporting `NetFacilities enrichment is disabled on this host.` even after a
+successful code deploy. The production image now carries the same enablement/path
+defaults, so a regular gated deploy enables the capability. The secret file itself is
+still never embedded in the image and must be provisioned in Render's Environment page.
 
 The saved state is bearer-equivalent. Never commit, log, return, or place it in an
 ordinary environment variable. On expiration, refresh it through the authorized local

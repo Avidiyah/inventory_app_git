@@ -11,7 +11,16 @@ import sys
 from .errors import NetFacilitiesUnavailable
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
+def _repository_root(module_file: Path) -> Path:
+    """Locate the protected source tree in a checkout or production image."""
+
+    application_root = module_file.resolve(strict=False).parents[3]
+    if application_root.name == "backend":
+        return application_root.parent
+    return application_root
+
+
+REPOSITORY_ROOT = _repository_root(Path(__file__))
 DEFAULT_BROWSER_CHANNEL = "chrome"
 ALLOWED_BROWSER_CHANNELS = frozenset({"chrome", "msedge", "bundled-chromium"})
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 30

@@ -4,6 +4,15 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
+# The deploy hook rebuilds this image but does not synchronize render.yaml into an
+# existing Render service. Keep the hosted NetFacilities capability enabled in the
+# image itself so a normal gated deploy cannot silently fall back to "disabled".
+# The authentication state remains an operator-provisioned Render Secret File; a
+# missing/expired file reports not_authenticated rather than exposing or inventing
+# credentials. Runtime environment values can still override either default.
+ENV NETFACILITIES_ENABLED=true \
+    NETFACILITIES_STORAGE_STATE_PATH=/etc/secrets/netfacilities-storage-state.json
+
 # pyzbar wraps the native zbar C library; libzbar0 provides it on Debian.
 # Without it, `import pyzbar` fails at runtime (missing libzbar.so).
 RUN apt-get update \

@@ -156,14 +156,17 @@ First complete the authorized local sign-in flow above so the protected profile 
 2. Under **Secret Files**, add a file named
    `netfacilities-storage-state.json` and paste the complete contents of the locally
    generated `playwright-storage-state.json` into it. Treat this content as a password.
-3. Save the secret file. `render.yaml` already supplies:
+3. Save the secret file. The production image and `render.yaml` both supply:
 
    ```text
    NETFACILITIES_ENABLED=true
    NETFACILITIES_STORAGE_STATE_PATH=/etc/secrets/netfacilities-storage-state.json
    ```
 
-4. Sync/deploy the Blueprint revision containing this support. In Work Orders, the
+4. Deploy the current `main` revision. A normal CI deploy-hook build uses the image
+   defaults even when the existing service has not been Blueprint-synced. A later
+   Blueprint sync is still useful for keeping the dashboard configuration aligned, but
+   it is no longer required merely to turn the capability on. In Work Orders, the
    capability should report ready and **Import Tasks and Priority** should be enabled.
    The local **Sign in to NetFacilities** control is intentionally hidden on Render.
 5. Import a small authorized CSV and confirm the aggregate enrichment result. The
