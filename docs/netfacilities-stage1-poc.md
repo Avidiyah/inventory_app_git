@@ -191,29 +191,39 @@ booleans, counts, a transport classification, and an exception class name. It ne
 prints the number, source field values, HTML, URL, filesystem path, header, cookie, or
 saved authentication state.
 
-Interpret the result at the retrieval boundary:
+`priority_markup` describes the document the parser saw. When rendering is enabled the
+same navigation also reports `raw_priority_markup`, the wire response it was rendered
+from, plus a `render` block. Every branch below has a defined next step:
 
-- `priority_populated: true` means Priority reached the normal parser; investigate the
-  candidate/write path next.
-- `priority_populated: false` together with `expected_id_count: 0` and
-  `exact_label_count: 0` means the retrieved document did not contain either supported
-  Priority DOM shape.
-- a positive `priority_token_in_script_count` with all body/selector counts at zero
-  means the word appeared only in JavaScript, not as readable Priority markup.
-- `request_succeeded: false` reports only the safe exception type. An
-  authentication-required result means the Render secret file must be refreshed.
+| Signal | Meaning | Next step |
+| --- | --- | --- |
+| `priority_populated: true` | Working. | Rerun the blank-Priority enrichment batch |
+| `rendered_grew: false` with `subresources_allowed: 0` | JavaScript never ran, or every script was blocked | Confirm `render_document: true`; widen `RENDER_ALLOWED_RESOURCE_TYPES` |
+| `rendered_grew: true`, `priority_selector_appeared: false`, both markup blocks at zero | Scripts ran but built no Priority row | The row likely needs a tab/accordion interaction, or the selector differs from `#priority-level` |
+| `console_errors > 0` with `rendered_grew: true` | A blocked dependency broke the script | Allow `stylesheet`/`font` subresources and retry |
+| `raw_priority_markup.expected_id_count > 0` | The wire response did contain it | Retrieval was never the cause; revisit saved authentication state |
+| `request_succeeded: false` | Safe exception type only | An authentication-required result means the Render secret file must be refreshed |
 
 Copy the complete JSON result for comparison; it is deliberately safe to share for
 debugging. Do not supplement it with page source or authentication material.
 
-On 2026-08-15 this diagnostic proved that Render's default request-only response omitted
-all supported Priority body markup while an authenticated Chrome **view-source** of the
-same work-order URL contained both the expected ID and label. A later browser-header
-profile through `APIRequestContext` still returned the reduced variant. Production now
-uses bundled headless Chromium's network stack for that one allowlisted document GET.
-Cookies still come exclusively from protected saved state; JavaScript/service workers
-are disabled and routing aborts every script, stylesheet, image, XHR, redirect target,
-and other subresource. Verify `priority_populated: true` for one authorized work order
+On 2026-08-15 this diagnostic proved that Render's request-only response omitted all
+supported Priority body markup. A browser-header profile through `APIRequestContext` did
+not restore it, and neither did the bundled-Chromium document transport, which returned
+a byte-identical reduced document. All three attempts read `response.body()` — the raw
+payload — so none could have succeeded.
+
+Owner DevTools verification located the real boundary: `priority-level` is absent from
+the Network tab's Response body and from every Fetch/XHR response, and present only in
+the Elements tab. NetFacilities inserts the row with first-party JavaScript from data
+embedded in the initial document, and no separate endpoint serves it. Production now
+renders that one allowlisted document: JavaScript enabled, same-origin `GET`
+script/XHR allowed, cross-origin requests and images/stylesheets/fonts still aborted,
+no non-`GET` route ever continued, service workers blocked, and the serialized DOM
+parsed instead of the wire bytes. Cookies still come exclusively from protected saved
+state. Set `NETFACILITIES_RENDER_DOCUMENT=false` and restart to revert to the raw read
+without a redeploy; `NETFACILITIES_RENDER_SETTLE_SECONDS` (default 5) bounds how long
+the document may settle. Verify `priority_populated: true` for one authorized work order
 before rerunning the full blank-Priority enrichment batch.
 
 The production image includes bundled Playwright Chromium and Beautiful Soup. If Render

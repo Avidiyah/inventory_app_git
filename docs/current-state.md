@@ -1413,7 +1413,10 @@ authentication modes exist:
   `/etc/secrets/netfacilities-storage-state.json`, which the operator provisions as a
   Render secret file from the locally generated state. Hosted mode exposes no sign-in
   control; bundled headless Chromium performs one allowlisted document navigation with
-  JavaScript/service workers disabled and every non-document request aborted.
+  service workers blocked. JavaScript runs so first-party scripts can build the Priority
+  row, and only same-origin `GET` script/XHR subresources are allowed; every other
+  request, including anything cross-origin or non-`GET`, is aborted. Setting
+  `NETFACILITIES_RENDER_DOCUMENT=false` restores the JavaScript-disabled raw read.
   Protected-path validation derives the source
   root for both checkout and `/app` production-image layouts, so `/app` remains blocked
   without incorrectly treating `/` as the repository and rejecting `/etc/secrets`.
@@ -1444,16 +1447,34 @@ normal parser and `inspect_priority_markup()`. The latter distinguishes the supp
 `#priority-level`/`Priority Level` body markup from script-only token references. This
 is an observation tool, not a second endpoint or alternate extraction path.
 
+Because that one navigation keeps `response.body()` available after rendering, the
+diagnostic classifies both views of it: `priority_markup` describes the document the
+parser saw, and `raw_priority_markup` describes the wire response it was rendered from.
+A `render` block reports whether the Priority selector attached, how many subresources
+were allowed and blocked, the console-error count, and both byte counts. Those fields
+exist so that a *failed* attempt still identifies the failing boundary instead of
+reporting an undifferentiated set of zeros.
+
 The first production diagnostic returned the correct work order and a populated
 description but no Priority selector, label, named element, or body token; only two
-inline-script token references existed. The owner's authenticated Chrome view-source of
-the same URL contained both the expected Priority ID and label. This rules out CSV
-candidates, parser selectors, JavaScript DOM insertion, and persistence as the first
-failure. Supplying browser headers through the standalone client did not restore the
-row. Production therefore uses bundled headless Chromium's genuine document transport
-while retaining the exact host/path, protected saved cookies, response validation,
-parser, and compare-and-set writes. JavaScript/service workers are disabled and all
-non-document routing is aborted. Live acceptance still requires one Render diagnostic
+inline-script token references existed. Supplying browser headers through the standalone
+client did not restore the row, and neither did the bundled-Chromium document transport
+shipped in `090ae17`: on 2026-08-15 that transport returned a byte-identical reduced
+document. Three attempts had varied only *how the bytes were requested* while all three
+read `response.body()`, the raw payload, so none of them could ever have succeeded.
+
+Owner DevTools verification then established the actual boundary. `priority-level` is
+absent from the Network tab's Response body and from every Fetch/XHR response, and
+present only in the Elements tab. NetFacilities ships the value inside the initial
+document's inline script and inserts the row with first-party JavaScript; there is no
+separate data endpoint to call. Production therefore renders the document: JavaScript is
+enabled, same-origin `GET` script/XHR subresources are allowed so those scripts can run,
+and the parsed document is `page.content()` rather than the wire response. The exact
+host/path, protected saved cookies, response validation, parser, and compare-and-set
+writes are unchanged, the integration stays read-only because no non-`GET` route is ever
+continued, and cross-origin requests plus images/stylesheets/fonts remain aborted.
+`NETFACILITIES_RENDER_DOCUMENT=false` reverts to the raw read through a restart rather
+than a redeploy. Live acceptance still requires one Render diagnostic
 with `priority_populated: true` followed by a successful blank-Priority enrichment retry.
 
 Browser-enabled local Uvicorn must run as one process without `--reload` or multiple
