@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from pathlib import Path
 import sys
 from typing import Any
@@ -37,6 +38,32 @@ LOGIN_PATH_PREFIX = "/account/login"
 MAX_RESPONSE_BYTES = 2_000_000
 REQUEST_TIMEOUT_MS = 30_000
 
+# A rendered document is larger than its wire response, so it carries its own bound.
+MAX_RENDERED_DOCUMENT_BYTES = 4_000_000
+DEFAULT_RENDER_SETTLE_MS = 5_000
+PRIORITY_SELECTOR = "#priority-level"
+# First-party scripts build the Priority row; nothing else is needed to read text.
+RENDER_ALLOWED_RESOURCE_TYPES = frozenset({"script", "xhr", "fetch"})
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentRetrieval:
+    """One navigation's raw and rendered views plus secret-safe telemetry.
+
+    Only counts and booleans accompany the markup: this record is the source of the
+    Render diagnostic's output and must never carry source values.
+    """
+
+    body: bytes
+    raw_body: bytes | None
+    rendered: bool
+    priority_selector_appeared: bool | None
+    subresources_allowed: int
+    subresources_blocked: int
+    console_errors: int
+    raw_byte_count: int
+    rendered_byte_count: int | None
+
 
 class NetFacilitiesClient:
     """Own a browser or request context and perform one allowlisted read request."""
@@ -52,6 +79,8 @@ class NetFacilitiesClient:
         max_response_bytes: int = MAX_RESPONSE_BYTES,
         use_saved_state: bool = False,
         request_only: bool = False,
+        render_document: bool = False,
+        render_settle_ms: int = DEFAULT_RENDER_SETTLE_MS,
         _context: BrowserContext | Any | None = None,
     ) -> None:
         self.profile_dir = profile_dir
@@ -61,6 +90,8 @@ class NetFacilitiesClient:
         self.max_response_bytes = max_response_bytes
         self.use_saved_state = use_saved_state
         self.request_only = request_only
+        self.render_document = render_document
+        self.render_settle_ms = render_settle_ms
         self.storage_state_path = storage_state_path or (
             profile_dir / STORAGE_STATE_FILENAME if profile_dir is not None else None
         )
@@ -94,7 +125,7 @@ class NetFacilitiesClient:
                     self._context = await self._browser.new_context(
                         storage_state=str(self.storage_state_path),
                         accept_downloads=False,
-                        java_script_enabled=False,
+                        java_script_enabled=self.render_document,
                         service_workers="block",
                     )
             else:
@@ -197,8 +228,8 @@ class NetFacilitiesClient:
     async def get_work_order(self, work_order_number: str) -> ParsedWorkOrder:
         """Retrieve and parse one work order without executing document actions."""
 
-        number, body = await self._get_work_order_document(work_order_number)
-        return parse_work_order_html(body, expected_work_order_number=number)
+        number, retrieval = await self._get_work_order_document(work_order_number)
+        return parse_work_order_html(retrieval.body, expected_work_order_number=number)
 
     async def get_work_order_with_diagnostics(
         self,
@@ -206,14 +237,16 @@ class NetFacilitiesClient:
     ) -> tuple[ParsedWorkOrder, PriorityMarkupDiagnostics]:
         """Retrieve once and return parsed data plus secret-safe Priority facts."""
 
-        number, body = await self._get_work_order_document(work_order_number)
-        work_order = parse_work_order_html(body, expected_work_order_number=number)
-        return work_order, inspect_priority_markup(body)
+        number, retrieval = await self._get_work_order_document(work_order_number)
+        work_order = parse_work_order_html(
+            retrieval.body, expected_work_order_number=number
+        )
+        return work_order, inspect_priority_markup(retrieval.body)
 
     async def _get_work_order_document(
         self,
         work_order_number: str,
-    ) -> tuple[str, bytes]:
+    ) -> tuple[str, DocumentRetrieval]:
         """Perform the single allowlisted read and return its bounded document."""
 
         number = validate_work_order_number(work_order_number)
@@ -221,16 +254,17 @@ class NetFacilitiesClient:
         url = f"{BASE_URL}{expected_path}"
 
         if self.use_saved_state and self._request_context is None:
-            body = await self._navigate_to_work_order_document(
+            retrieval = await self._navigate_to_work_order_document(
                 url,
                 expected_path=expected_path,
             )
         else:
-            body = await self._request_work_order_document(
+            raw = await self._request_work_order_document(
                 url,
                 expected_path=expected_path,
             )
-        return number, body
+            retrieval = _unrendered_retrieval(raw)
+        return number, retrieval
 
     async def _request_work_order_document(
         self,
@@ -265,14 +299,32 @@ class NetFacilitiesClient:
         url: str,
         *,
         expected_path: str,
-    ) -> bytes:
-        """Use Chromium for one document GET while aborting every other request."""
+    ) -> DocumentRetrieval:
+        """Perform one document GET and return both views of that navigation.
+
+        With rendering disabled this is the original isolated read: one document,
+        every other request aborted. With rendering enabled, same-origin ``GET``
+        scripts and XHR are additionally allowed so first-party JavaScript can build
+        the Priority row, and the serialized DOM becomes the parsed document. The
+        integration stays read-only either way: no non-``GET`` route is continued.
+        """
 
         page = await self._require_context().new_page()
         route_state = {
             "document_continued": False,
             "login_redirect_blocked": False,
+            "subresources_allowed": 0,
+            "subresources_blocked": 0,
+            "console_errors": 0,
         }
+
+        def count_console_error(message: Any) -> None:
+            # Count only. Console text can echo source values and is never read.
+            if getattr(message, "type", None) == "error":
+                route_state["console_errors"] += 1
+
+        def count_page_error(_error: Any) -> None:
+            route_state["console_errors"] += 1
 
         async def allow_only_expected_document(route: Any) -> None:
             request = route.request
@@ -287,16 +339,32 @@ class NetFacilitiesClient:
                 route_state["document_continued"] = True
                 await route.continue_()
                 return
-            if request.is_navigation_request() and _is_login_url(request.url):
-                route_state["login_redirect_blocked"] = True
+            if request.is_navigation_request():
+                if _is_login_url(request.url):
+                    route_state["login_redirect_blocked"] = True
+                await route.abort("blockedbyclient")
+                return
+            if (
+                self.render_document
+                and request.method == "GET"
+                and request.resource_type in RENDER_ALLOWED_RESOURCE_TYPES
+                and _is_allowed_host(request.url)
+            ):
+                route_state["subresources_allowed"] += 1
+                await route.continue_()
+                return
+            route_state["subresources_blocked"] += 1
             await route.abort("blockedbyclient")
 
         try:
+            if self.render_document:
+                page.on("console", count_console_error)
+                page.on("pageerror", count_page_error)
             await page.route("**/*", allow_only_expected_document)
             try:
                 response = await page.goto(
                     url,
-                    wait_until="commit",
+                    wait_until="domcontentloaded" if self.render_document else "commit",
                     timeout=self.timeout_ms,
                 )
             except (PlaywrightError, PlaywrightTimeoutError) as exc:
@@ -312,9 +380,75 @@ class NetFacilitiesClient:
                     "NetFacilities browser navigation returned no document response."
                 )
             self._validate_response_metadata(response, expected_path)
-            return await self._read_bounded_body(response)
+            raw_body = await self._read_bounded_body(response)
+            if not self.render_document:
+                return _unrendered_retrieval(
+                    raw_body,
+                    subresources_blocked=route_state["subresources_blocked"],
+                )
+            return await self._read_rendered_document(
+                page,
+                expected_path=expected_path,
+                raw_body=raw_body,
+                route_state=route_state,
+            )
         finally:
             await page.close()
+
+    async def _read_rendered_document(
+        self,
+        page: Any,
+        *,
+        expected_path: str,
+        raw_body: bytes,
+        route_state: dict[str, Any],
+    ) -> DocumentRetrieval:
+        """Let first-party scripts populate the DOM, then serialize it once."""
+
+        try:
+            await page.wait_for_selector(
+                PRIORITY_SELECTOR,
+                state="attached",
+                timeout=self.render_settle_ms,
+            )
+            selector_appeared = True
+        except PlaywrightTimeoutError:
+            # A work order with no priority is a normal outcome, not a failure.
+            selector_appeared = False
+
+        # Check where the page ended up before serializing: JavaScript can navigate.
+        if _is_login_url(page.url):
+            raise NetFacilitiesAuthenticationRequired(
+                "NetFacilities session is not authenticated; sign in again."
+            )
+        if urlsplit(page.url).path.rstrip("/") != expected_path:
+            raise NetFacilitiesUnexpectedResponse(
+                "NetFacilities navigated away from the requested work order."
+            )
+
+        try:
+            markup = await page.content()
+        except PlaywrightError as exc:
+            raise NetFacilitiesUnavailable(
+                "NetFacilities rendered work-order document could not be read."
+            ) from exc
+
+        body = markup.encode("utf-8")
+        if len(body) > MAX_RENDERED_DOCUMENT_BYTES:
+            raise NetFacilitiesUnexpectedResponse(
+                "NetFacilities rendered work-order document exceeds the Stage 1 size limit."
+            )
+        return DocumentRetrieval(
+            body=body,
+            raw_body=raw_body,
+            rendered=True,
+            priority_selector_appeared=selector_appeared,
+            subresources_allowed=route_state["subresources_allowed"],
+            subresources_blocked=route_state["subresources_blocked"],
+            console_errors=route_state["console_errors"],
+            raw_byte_count=len(raw_body),
+            rendered_byte_count=len(body),
+        )
 
     async def _read_bounded_body(self, response: Any) -> bytes:
         """Read one already-validated response under the shared size bound."""
@@ -416,6 +550,26 @@ class NetFacilitiesClient:
                     self._browser = None
         finally:
             await self._stop_playwright()
+
+
+def _unrendered_retrieval(
+    body: bytes,
+    *,
+    subresources_blocked: int = 0,
+) -> DocumentRetrieval:
+    """Wrap a raw wire response, which has no second view to compare against."""
+
+    return DocumentRetrieval(
+        body=body,
+        raw_body=None,
+        rendered=False,
+        priority_selector_appeared=None,
+        subresources_allowed=0,
+        subresources_blocked=subresources_blocked,
+        console_errors=0,
+        raw_byte_count=len(body),
+        rendered_byte_count=None,
+    )
 
 
 def _is_allowed_host(url: str) -> bool:

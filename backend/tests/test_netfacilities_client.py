@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from app.integrations.netfacilities import client as client_module
 from app.integrations.netfacilities.client import (
@@ -62,19 +63,25 @@ class FakeStandaloneRequestContext(FakeRequestContext):
 
 
 class FakeBrowserContext:
-    def __init__(self, response, *, pages=None):
+    def __init__(self, response, *, pages=None, rendered_html=None):
         self.response = response
         self.request = FakeRequestContext(response)
         self.storage_state_calls = []
         self.pages = pages or []
         self.closed = 0
+        self.rendered_html = rendered_html
+        self.redirect_to = None
 
     async def storage_state(self, **kwargs):
         self.storage_state_calls.append(kwargs)
         return {"cookies": [], "origins": []}
 
     async def new_page(self):
-        page = FakePage(response=self.response)
+        page = FakePage(
+            response=self.response,
+            rendered_html=self.rendered_html,
+            redirect_to=self.redirect_to,
+        )
         self.pages.append(page)
         return page
 
@@ -108,13 +115,21 @@ class FakeRoute:
 
 
 class FakePage:
-    def __init__(self, url="about:blank", response=None):
+    def __init__(self, url="about:blank", response=None, rendered_html=None,
+                 redirect_to=None):
         self.url = url
         self.response = response
+        self.rendered_html = rendered_html
+        self.redirect_to = redirect_to
         self.goto_calls = []
         self.route_calls = []
+        self.waited_for = []
+        self.listeners = []
         self._route_handler = None
         self.closed = 0
+
+    def on(self, event, handler):
+        self.listeners.append(event)
 
     async def route(self, pattern, handler):
         self.route_calls.append((pattern, handler))
@@ -127,18 +142,42 @@ class FakePage:
             document_route = FakeRoute(FakeNavigationRequest(url))
             await self._route_handler(document_route)
             self.route_calls.append(document_route)
-            subresource_route = FakeRoute(
+            for probe in (
                 FakeNavigationRequest(
                     "https://system.netfacilities.com/bundles/scripts",
                     resource_type="script",
                     navigation=False,
-                )
-            )
-            await self._route_handler(subresource_route)
-            self.route_calls.append(subresource_route)
+                ),
+                FakeNavigationRequest(
+                    "https://cdn.example.com/tracker.js",
+                    resource_type="script",
+                    navigation=False,
+                ),
+                FakeNavigationRequest(
+                    "https://system.netfacilities.com/logo.png",
+                    resource_type="image",
+                    navigation=False,
+                ),
+            ):
+                probe_route = FakeRoute(probe)
+                await self._route_handler(probe_route)
+                self.route_calls.append(probe_route)
             if document_route.action != "continued":
                 return None
         return self.response
+
+    async def wait_for_selector(self, selector, **kwargs):
+        self.waited_for.append((selector, kwargs))
+        if self.redirect_to is not None:
+            # Simulate first-party JavaScript navigating away while we wait.
+            self.url = self.redirect_to
+            raise PlaywrightTimeoutError("selector never attached")
+        if self.rendered_html is None or selector.strip("#") not in self.rendered_html:
+            raise PlaywrightTimeoutError("selector never attached")
+        return object()
+
+    async def content(self):
+        return self.rendered_html or ""
 
     async def close(self):
         self.closed += 1
@@ -204,11 +243,141 @@ def test_saved_state_uses_one_browser_document_and_aborts_every_subresource():
         )
     ]
     assert page.route_calls[0][0] == "**/*"
-    document_route, subresource_route = page.route_calls[1:]
+    document_route, *subresource_routes = page.route_calls[1:]
     assert document_route.action == "continued"
-    assert subresource_route.action == "aborted"
-    assert subresource_route.abort_code == "blockedbyclient"
+    # Kill switch off: nothing but the one document is allowed, not even
+    # same-origin scripts.
+    assert [route.action for route in subresource_routes] == ["aborted"] * 3
+    assert {route.abort_code for route in subresource_routes} == {"blockedbyclient"}
+    assert page.waited_for == []
     assert page.closed == 1
+
+
+RENDERED_HTML = (
+    "<html><body><div class='wo_Id'><h3>12345678</h3></div>"
+    "<div class='wo_statusdiv'><h3>Open</h3></div>"
+    "<div><h2>Task/Procedure</h2><p>Type</p><p>Fix the pump</p></div>"
+    "<div><h2>Location</h2><p>Site A</p></div>"
+    "<div><h2>General Information</h2>"
+    "<p><span class='p-gern'>Priority Level:</span>"
+    "<span id='priority-level'>Normal</span></p></div>"
+    "</body></html>"
+)
+
+# What NetFacilities actually puts on the wire: a complete work order whose
+# Priority row exists only inside an inline script until JavaScript runs.
+RAW_HTML_WITHOUT_PRIORITY = (
+    "<html><body><div class='wo_Id'><h3>12345678</h3></div>"
+    "<div class='wo_statusdiv'><h3>Open</h3></div>"
+    "<div><h2>Task/Procedure</h2><p>Type</p><p>Fix the pump</p></div>"
+    "<div><h2>Location</h2><p>Site A</p></div>"
+    "<div><h2>General Information</h2>"
+    "<p><span class='p-gern'>WO Type:</span>Corrective</p></div>"
+    "<script>var woPriority = 'Normal';</script>"
+    "</body></html>"
+).encode("utf-8")
+
+
+def _rendering_client(response, rendered_html=RENDERED_HTML):
+    context = FakeBrowserContext(response, rendered_html=rendered_html)
+    client = NetFacilitiesClient(
+        profile_dir=None,
+        storage_state_path=Path("unused-saved-state"),
+        headless=True,
+        use_saved_state=True,
+        render_document=True,
+        _context=context,
+    )
+    return client, context
+
+
+def test_rendered_mode_parses_priority_that_only_exists_after_javascript():
+    client, context = _rendering_client(
+        FakeResponse(body=RAW_HTML_WITHOUT_PRIORITY)
+    )
+
+    parsed = asyncio.run(client.get_work_order("12345678"))
+
+    assert parsed.priority == "Normal"
+    page = context.pages[0]
+    assert page.goto_calls[0][1]["wait_until"] == "domcontentloaded"
+    assert page.waited_for[0][0] == "#priority-level"
+    assert page.closed == 1
+
+
+def test_rendered_mode_allows_only_same_origin_get_subresources():
+    client, context = _rendering_client(FakeResponse())
+
+    asyncio.run(client.get_work_order("12345678"))
+
+    document, same_origin_script, cross_origin_script, image = (
+        context.pages[0].route_calls[1:]
+    )
+    assert document.action == "continued"
+    assert same_origin_script.action == "continued"
+    assert cross_origin_script.action == "aborted"
+    assert image.action == "aborted"
+
+
+def test_rendered_mode_keeps_the_integration_read_only():
+    client, context = _rendering_client(FakeResponse())
+    asyncio.run(client.get_work_order("12345678"))
+    handler = context.pages[0]._route_handler
+
+    write_request = FakeNavigationRequest(
+        "https://system.netfacilities.com/tools/save",
+        resource_type="xhr",
+        navigation=False,
+    )
+    write_request.method = "POST"
+    route = FakeRoute(write_request)
+    asyncio.run(handler(route))
+
+    assert route.action == "aborted"
+    assert route.abort_code == "blockedbyclient"
+
+
+def test_missing_priority_selector_is_not_an_error():
+    # A work order with genuinely no priority must still parse.
+    blank = RENDERED_HTML.replace(
+        "<p><span class='p-gern'>Priority Level:</span>"
+        "<span id='priority-level'>Normal</span></p>",
+        "",
+    )
+    client, _ = _rendering_client(FakeResponse(), rendered_html=blank)
+
+    parsed = asyncio.run(client.get_work_order("12345678"))
+
+    assert parsed.priority is None
+    assert parsed.work_order_number == "12345678"
+
+
+def test_client_side_redirect_to_login_fails_closed():
+    """JavaScript can now navigate; a login page must not be parsed as a work order."""
+
+    context = FakeBrowserContext(FakeResponse(), rendered_html=RENDERED_HTML)
+    context.redirect_to = "https://system.netfacilities.com/account/login"
+    client = NetFacilitiesClient(
+        profile_dir=None,
+        storage_state_path=Path("unused-saved-state"),
+        headless=True,
+        use_saved_state=True,
+        render_document=True,
+        _context=context,
+    )
+
+    with pytest.raises(NetFacilitiesAuthenticationRequired):
+        asyncio.run(client.get_work_order("12345678"))
+
+
+def test_rendered_document_is_bounded():
+    client, _ = _rendering_client(
+        FakeResponse(),
+        rendered_html="<html>" + "x" * (client_module.MAX_RENDERED_DOCUMENT_BYTES),
+    )
+
+    with pytest.raises(NetFacilitiesUnexpectedResponse, match="size limit"):
+        asyncio.run(client.get_work_order("12345678"))
 
 
 def test_persists_playwright_storage_state_inside_the_protected_profile():
