@@ -210,7 +210,7 @@ def test_get_work_order_uses_only_the_allowlisted_read_request():
 def test_diagnostic_reuses_one_allowlisted_read_and_returns_only_structural_facts():
     client, context = _client(FakeResponse())
 
-    parsed, diagnostics = asyncio.run(
+    parsed, diagnostics, retrieval, raw_diagnostics = asyncio.run(
         client.get_work_order_with_diagnostics("12345678")
     )
 
@@ -218,6 +218,9 @@ def test_diagnostic_reuses_one_allowlisted_read_and_returns_only_structural_fact
     assert diagnostics.expected_id_count == 1
     assert diagnostics.expected_id_has_text is True
     assert len(context.request.calls) == 1
+    # A raw read has only one view, so there is nothing to compare against.
+    assert retrieval.rendered is False
+    assert raw_diagnostics is None
 
 
 def test_saved_state_uses_one_browser_document_and_aborts_every_subresource():

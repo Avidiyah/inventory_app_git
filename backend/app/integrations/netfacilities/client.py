@@ -234,14 +234,34 @@ class NetFacilitiesClient:
     async def get_work_order_with_diagnostics(
         self,
         work_order_number: str,
-    ) -> tuple[ParsedWorkOrder, PriorityMarkupDiagnostics]:
-        """Retrieve once and return parsed data plus secret-safe Priority facts."""
+    ) -> tuple[
+        ParsedWorkOrder,
+        PriorityMarkupDiagnostics,
+        DocumentRetrieval,
+        PriorityMarkupDiagnostics | None,
+    ]:
+        """Retrieve once and classify both views of that single navigation.
+
+        Returns the parsed work order, the parsed document's Priority facts, the
+        retrieval telemetry, and -- when rendering produced a second view -- the same
+        facts for the raw wire response, so the two can be compared directly.
+        """
 
         number, retrieval = await self._get_work_order_document(work_order_number)
         work_order = parse_work_order_html(
             retrieval.body, expected_work_order_number=number
         )
-        return work_order, inspect_priority_markup(retrieval.body)
+        raw_markup = (
+            inspect_priority_markup(retrieval.raw_body)
+            if retrieval.raw_body is not None
+            else None
+        )
+        return (
+            work_order,
+            inspect_priority_markup(retrieval.body),
+            retrieval,
+            raw_markup,
+        )
 
     async def _get_work_order_document(
         self,
