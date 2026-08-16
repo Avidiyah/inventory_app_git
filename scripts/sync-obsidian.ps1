@@ -54,13 +54,16 @@ $target  = Join-Path $VaultDocs 'reviews'
 
 # Vault-only wikilinks, added per note. These are the reason the mirror is
 # generated rather than copied -- a plain copy would drop them every sync.
+#
+# Keys MUST name a file that still exists in docs/. A key for a deleted doc is
+# dead weight, but a *value* naming a deleted note is worse: it renders as a
+# dangling wikilink in the vault. Rewritten 2026-08-16, when the previous map
+# was found still pointing at the six docs consolidated away on 2026-08-10.
 $related = @{
-    'api-hardening-checklist.md' = '[[Gap Audit]] is the FastAPI-specific exposure audit this checklist was built from. Shipped items live in [[api-hardening-archive]].'
-    'api-hardening-archive.md'   = 'The live queue this was split out of is [[api-hardening-checklist]].'
-    'handoff.md'                 = 'Session-by-session detail lives in [[session-log]]. Open items are indexed in [[open-work]].'
-    'open-work.md'               = 'Owning docs: [[improvement-tracker]], [[api-hardening-checklist]], [[ux-review]].'
-    'ux-review.md'               = 'Completed July 2026 items live in [[ux-review-archive]].'
-    'ux-review-archive.md'       = 'The open findings this was split out of are in [[ux-review]].'
+    'project-summary.md' = 'Routing authority for this folder -- see its *Documentation map*. Behaviour detail is in [[current-state]]; the backlog is [[open-work]].'
+    'current-state.md'   = 'Per-endpoint contracts live in [[endpoint-map]]. Anything not yet true of the system belongs in [[open-work]], not here.'
+    'endpoint-map.md'    = 'The invariants these endpoints must uphold are in [[current-state]].'
+    'open-work.md'       = 'The **only** backlog: if an item is not here, it is not open. What the system already does is in [[current-state]]. Session narrative: [[session-log]].'
 }
 
 function Get-FileSha256([string]$path) {

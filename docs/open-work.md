@@ -140,10 +140,11 @@ A would never receive an event emitted on instance B, with no error anywhere on
 either side. The screens that failed to update would look exactly like screens
 with nothing to update.
 
-Nothing is built yet — see `docs/superpowers/specs/2026-08-12-websocket-realtime-layer-design.md`,
-whose §15 lists horizontal scaling as an explicit non-goal precisely because of
-this note. Recorded here now so that adding a second instance surfaces it as a
-known constraint rather than a production mystery.
+Nothing is built yet. The design note that recorded this — whose §15 lists
+horizontal scaling as an explicit non-goal precisely because of this item — was
+archived out of the repo on 2026-08-16; it survives in the Obsidian vault under
+`archive/superpowers/`. Recorded here now so that adding a second instance
+surfaces it as a known constraint rather than a production mystery.
 
 ### N4 — Reconsider serving the SPA from the API process
 
