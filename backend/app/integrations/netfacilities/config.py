@@ -42,7 +42,7 @@ class NetFacilitiesConfig:
     batch_timeout_seconds: int
     storage_state_file: Path | None = None
     interactive_authentication_available: bool = True
-    render_document: bool = True
+    render_document: bool = False
     render_settle_seconds: int = DEFAULT_RENDER_SETTLE_SECONDS
 
     @property
@@ -156,13 +156,13 @@ def load_netfacilities_config(
         ),
         storage_state_file=storage_state_file,
         interactive_authentication_available=interactive_authentication_available,
-        # NetFacilities inserts Priority into the DOM with first-party JavaScript, so
-        # the raw response never carries it. Rendering is the default; setting this to
-        # false restores the raw read without a redeploy.
+        # Priority is server-rendered, so the primed raw response already carries it
+        # and the batch needs no JavaScript. Rendering stays available behind this
+        # flag for diagnosis, but costs a settle wait on every row when enabled.
         render_document=_flag(
             values.get("NETFACILITIES_RENDER_DOCUMENT"),
             name="NETFACILITIES_RENDER_DOCUMENT",
-            default=True,
+            default=False,
         ),
         render_settle_seconds=_positive_seconds(
             values,

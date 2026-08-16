@@ -1463,19 +1463,34 @@ shipped in `090ae17`: on 2026-08-15 that transport returned a byte-identical red
 document. Three attempts had varied only *how the bytes were requested* while all three
 read `response.body()`, the raw payload, so none of them could ever have succeeded.
 
-Owner DevTools verification then established the actual boundary. `priority-level` is
-absent from the Network tab's Response body and from every Fetch/XHR response, and
-present only in the Elements tab. NetFacilities ships the value inside the initial
-document's inline script and inserts the row with first-party JavaScript; there is no
-separate data endpoint to call. Production therefore renders the document: JavaScript is
-enabled, same-origin `GET` script/XHR subresources are allowed so those scripts can run,
-and the parsed document is `page.content()` rather than the wire response. The exact
-host/path, protected saved cookies, response validation, parser, and compare-and-set
-writes are unchanged, the integration stays read-only because no non-`GET` route is ever
-continued, and cross-origin requests plus images/stylesheets/fonts remain aborted.
-`NETFACILITIES_RENDER_DOCUMENT=false` reverts to the raw read through a restart rather
-than a redeploy. Live acceptance still requires one Render diagnostic
-with `priority_populated: true` followed by a successful blank-Priority enrichment retry.
+A live DevTools session on 2026-08-15 overturned that reading, and the rendered-document
+work it justified addressed a cause that did not exist. `#priority-level` is present in
+the raw HTTP response body, carrying its value as server-rendered markup. The two
+inline-script tokens the diagnostic counted are one jQuery handle,
+`var _prioritylevel = $("#priority-level");`, not the value, and no first-party script
+inserts the row. NetFacilities instead serves a *trimmed* work-order document — eleven
+General Information labels rather than thirteen, dropping `Priority Level` and
+`Recurring` — to any session that has not loaded the home page. The hosted client
+navigates straight to `/tools/viewworkorders/<number>`, so it always received the trimmed
+view, and the absent row read as a work order with no priority rather than as a failure.
+One `GET /myhome` with the same saved cookies restores the full document: the request
+that returned 26,816 bytes without Priority returns 28,835 bytes with it. The stale
+`ASP.NET_SessionId` cookie is not involved; removing it changes neither result.
+
+The client therefore primes the session with one read-only `GET /myhome` before its first
+work-order read and reuses that priming for every later read in the same context, so a
+290-row batch pays it once. When a fetched document still lacks the `Priority Level`
+label — the signal that a session went stale mid-batch — the client primes again and
+re-reads that one work order before accepting the result, so a dropped session cannot
+silently blank Priority for the remaining rows. A work order whose priority is simply
+unset still renders the label, so it settles on the first read. Because the value is
+server-rendered, rendering is unnecessary and `NETFACILITIES_RENDER_DOCUMENT` now
+defaults to `false`: the batch executes no JavaScript and pays no settle wait per row.
+Setting it to `true` restores the rendered read for diagnosis. The exact host/path,
+protected saved cookies, response validation, parser, and compare-and-set writes are
+unchanged, and the integration stays read-only because no non-`GET` route is ever
+continued. Live acceptance still requires one Render diagnostic with
+`priority_populated: true` followed by a successful blank-Priority enrichment retry.
 
 Browser-enabled local Uvicorn must run as one process without `--reload` or multiple
 workers: those Windows modes use `SelectorEventLoop`, which cannot start Playwright's

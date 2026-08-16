@@ -135,12 +135,7 @@ def inspect_priority_markup(html: bytes | str) -> PriorityMarkupDiagnostics:
         for node in soup.find_all(True)
         if _has_priority_named_attribute(node)
     ]
-    exact_labels = [
-        node
-        for node in soup.select(".p-gern")
-        if _clean(node.get_text(" ", strip=True)).rstrip(":").strip().casefold()
-        == "priority level"
-    ]
+    exact_labels = [node for node in soup.select(".p-gern") if _is_priority_label(node)]
 
     script_count = 0
     style_count = 0
@@ -175,6 +170,26 @@ def inspect_priority_markup(html: bytes | str) -> PriorityMarkupDiagnostics:
         priority_token_in_style_count=style_count,
         priority_token_in_comment_count=comment_count,
         priority_token_in_body_text_count=body_text_count,
+    )
+
+
+def has_priority_label(html: bytes | str) -> bool:
+    """Whether the document carries the Priority Level field label.
+
+    NetFacilities trims the work-order view for a session that has not loaded the
+    home page, dropping this label from General Information entirely. Its absence
+    marks a trimmed document, which is what distinguishes a session that must be
+    primed again from a work order that simply has no priority assigned.
+    """
+
+    soup = BeautifulSoup(html, "html.parser")
+    return any(_is_priority_label(node) for node in soup.select(".p-gern"))
+
+
+def _is_priority_label(node: Tag) -> bool:
+    return (
+        _clean(node.get_text(" ", strip=True)).rstrip(":").strip().casefold()
+        == "priority level"
     )
 
 

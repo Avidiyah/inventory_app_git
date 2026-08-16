@@ -27,6 +27,7 @@ from .config import STORAGE_STATE_FILENAME
 from .parser import (
     ParsedWorkOrder,
     PriorityMarkupDiagnostics,
+    has_priority_label,
     inspect_priority_markup,
     parse_work_order_html,
 )
@@ -35,6 +36,9 @@ from .validation import validate_work_order_number
 
 BASE_URL = "https://system.netfacilities.com"
 LOGIN_PATH_PREFIX = "/account/login"
+# NetFacilities renders a trimmed work-order view -- no Priority Level row -- for a
+# session that has never loaded the home page. One read-only GET establishes it.
+HOME_PATH = "/myhome"
 MAX_RESPONSE_BYTES = 2_000_000
 REQUEST_TIMEOUT_MS = 30_000
 
@@ -100,6 +104,7 @@ class NetFacilitiesClient:
         self._browser: Any | None = None
         self._playwright: Any | None = None
         self._owns_context = _context is None
+        self._session_primed = False
 
     async def __aenter__(self) -> "NetFacilitiesClient":
         if self._context is not None:
@@ -273,18 +278,78 @@ class NetFacilitiesClient:
         expected_path = f"/tools/viewworkorders/{number}"
         url = f"{BASE_URL}{expected_path}"
 
-        if self.use_saved_state and self._request_context is None:
-            retrieval = await self._navigate_to_work_order_document(
+        await self._ensure_session_primed()
+        retrieval = await self._read_work_order_document(url, expected_path=expected_path)
+        if not has_priority_label(retrieval.body):
+            # The session lost its home-page context, so NetFacilities served the
+            # trimmed view. Prime again and re-read once rather than silently
+            # importing the work order with no priority.
+            self._session_primed = False
+            await self._ensure_session_primed()
+            retrieval = await self._read_work_order_document(
                 url,
                 expected_path=expected_path,
             )
-        else:
-            raw = await self._request_work_order_document(
-                url,
-                expected_path=expected_path,
-            )
-            retrieval = _unrendered_retrieval(raw)
         return number, retrieval
+
+    async def _read_work_order_document(
+        self,
+        url: str,
+        *,
+        expected_path: str,
+    ) -> DocumentRetrieval:
+        """Perform the one allowlisted read through whichever transport is in use."""
+
+        if self.use_saved_state and self._request_context is None:
+            return await self._navigate_to_work_order_document(
+                url,
+                expected_path=expected_path,
+            )
+        raw = await self._request_work_order_document(url, expected_path=expected_path)
+        return _unrendered_retrieval(raw)
+
+    async def _ensure_session_primed(self) -> None:
+        """Load the home page once so the server renders the full work-order view.
+
+        Without it NetFacilities omits the Priority Level row from every work order,
+        which reads as a work order with no priority rather than as a failure. The
+        request shares the context's cookies, so one GET primes every later read.
+        """
+
+        if self._session_primed:
+            return
+
+        request_context = self._request_context
+        if request_context is None:
+            request_context = self._require_context().request
+
+        try:
+            response = await request_context.get(
+                f"{BASE_URL}{HOME_PATH}",
+                headers={"Accept": "text/html"},
+                fail_on_status_code=False,
+                timeout=self.timeout_ms,
+            )
+        except (PlaywrightError, PlaywrightTimeoutError) as exc:
+            raise NetFacilitiesUnavailable(
+                "NetFacilities did not complete the read-only session priming request."
+            ) from exc
+
+        headers = {key.casefold(): value for key, value in response.headers.items()}
+        if (
+            response.status == 401
+            or _is_login_url(response.url)
+            or _is_login_url(headers.get("location", ""))
+        ):
+            raise NetFacilitiesAuthenticationRequired(
+                "NetFacilities session is not authenticated; sign in again."
+            )
+        if response.status != 200:
+            raise NetFacilitiesUnexpectedResponse(
+                f"NetFacilities returned unexpected status {response.status} "
+                "while priming the session."
+            )
+        self._session_primed = True
 
     async def _request_work_order_document(
         self,

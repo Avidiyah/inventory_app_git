@@ -199,8 +199,11 @@ def test_get_work_order_uses_only_the_allowlisted_read_request():
     parsed = asyncio.run(client.get_work_order("12345678"))
 
     assert parsed.work_order_number == "12345678"
-    assert len(context.request.calls) == 1
-    url, options = context.request.calls[0]
+    # One priming GET, then the one allowlisted work-order read.
+    assert len(context.request.calls) == 2
+    prime_url, _prime_options = context.request.calls[0]
+    assert prime_url == "https://system.netfacilities.com/myhome"
+    url, options = context.request.calls[1]
     assert url == "https://system.netfacilities.com/tools/viewworkorders/12345678"
     assert options["headers"] == {"Accept": "text/html"}
     assert options["max_redirects"] == 0
@@ -217,10 +220,126 @@ def test_diagnostic_reuses_one_allowlisted_read_and_returns_only_structural_fact
     assert parsed.work_order_number == "12345678"
     assert diagnostics.expected_id_count == 1
     assert diagnostics.expected_id_has_text is True
-    assert len(context.request.calls) == 1
+    # The priming GET plus one read; the diagnostic never re-fetches the document.
+    assert len(context.request.calls) == 2
     # A raw read has only one view, so there is nothing to compare against.
     assert retrieval.rendered is False
     assert raw_diagnostics is None
+
+
+def _document(*, priority_row: bool) -> bytes:
+    """A parseable work order, with or without the Priority Level row."""
+
+    priority = (
+        "<p><span class='p-gern'>Priority Level:</span>"
+        "<span id='priority-level'>Normal</span></p>"
+        if priority_row
+        else ""
+    )
+    return (
+        "<html><body><div class='wo_Id'><h3>12345678</h3></div>"
+        "<div class='wo_statusdiv'><h3>Open</h3></div>"
+        "<div><h2>Task/Procedure</h2><p>Type</p><p>Fix the pump</p></div>"
+        "<div><h2>Location</h2><p>Site A</p></div>"
+        "<div><h2>General Information</h2>"
+        "<p><span class='p-gern'>WO Type:</span>Corrective</p>"
+        f"{priority}</div></body></html>"
+    ).encode("utf-8")
+
+
+# What an unprimed session receives: a complete work order whose General
+# Information block silently omits the Priority Level row.
+TRIMMED_DOCUMENT = _document(priority_row=False)
+PRIMED_DOCUMENT = _document(priority_row=True)
+
+
+class FakeSequencedRequestContext(FakeRequestContext):
+    """Serve a scripted sequence of responses so a re-read can differ."""
+
+    def __init__(self, responses):
+        super().__init__(None)
+        self._responses = list(responses)
+
+    async def get(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        index = min(len(self.calls) - 1, len(self._responses) - 1)
+        return self._responses[index]
+
+
+def _sequenced_client(bodies):
+    context = FakeBrowserContext(FakeResponse())
+    context.request = FakeSequencedRequestContext(
+        [FakeResponse(body=body) for body in bodies]
+    )
+    client = NetFacilitiesClient(
+        profile_dir=Path("unused-in-offline-test"),
+        headless=True,
+        _context=context,
+    )
+    return client, context
+
+
+def test_session_is_primed_once_and_reused_across_work_orders():
+    client, context = _sequenced_client(
+        [PRIMED_DOCUMENT, PRIMED_DOCUMENT, PRIMED_DOCUMENT]
+    )
+
+    first = asyncio.run(client.get_work_order("12345678"))
+    second = asyncio.run(client.get_work_order("12345678"))
+
+    assert first.priority == "Normal"
+    assert second.priority == "Normal"
+    # One priming GET covers both reads; a batch pays it once, not per row.
+    assert [url for url, _ in context.request.calls] == [
+        "https://system.netfacilities.com/myhome",
+        "https://system.netfacilities.com/tools/viewworkorders/12345678",
+        "https://system.netfacilities.com/tools/viewworkorders/12345678",
+    ]
+
+
+def test_trimmed_document_reprimes_the_session_and_reads_again():
+    client, context = _sequenced_client(
+        [PRIMED_DOCUMENT, TRIMMED_DOCUMENT, PRIMED_DOCUMENT, PRIMED_DOCUMENT]
+    )
+
+    parsed = asyncio.run(client.get_work_order("12345678"))
+
+    # A session that went stale mid-batch recovers instead of importing a blank.
+    assert parsed.priority == "Normal"
+    assert [url for url, _ in context.request.calls] == [
+        "https://system.netfacilities.com/myhome",
+        "https://system.netfacilities.com/tools/viewworkorders/12345678",
+        "https://system.netfacilities.com/myhome",
+        "https://system.netfacilities.com/tools/viewworkorders/12345678",
+    ]
+
+
+def test_persistently_trimmed_document_retries_only_once():
+    client, context = _sequenced_client([TRIMMED_DOCUMENT])
+
+    parsed = asyncio.run(client.get_work_order("12345678"))
+
+    # A work order with no priority is legal, so this must settle, not loop.
+    assert parsed.priority is None
+    assert len(context.request.calls) == 4
+
+
+def test_priming_redirected_to_login_is_authentication_required():
+    context = FakeBrowserContext(FakeResponse())
+    context.request = FakeRequestContext(
+        FakeResponse(status=302, headers={"location": "/Account/loginfrm"})
+    )
+    client = NetFacilitiesClient(
+        profile_dir=Path("unused-in-offline-test"),
+        headless=True,
+        _context=context,
+    )
+
+    with pytest.raises(NetFacilitiesAuthenticationRequired):
+        asyncio.run(client.get_work_order("12345678"))
+
+    # The work order is never requested with an unauthenticated session.
+    assert len(context.request.calls) == 1
 
 
 def test_saved_state_uses_one_browser_document_and_aborts_every_subresource():
@@ -236,7 +355,10 @@ def test_saved_state_uses_one_browser_document_and_aborts_every_subresource():
     parsed = asyncio.run(client.get_work_order("12345678"))
 
     assert parsed.priority == "Normal"
-    assert context.request.calls == []
+    # Priming shares the context cookies, so it needs no page of its own.
+    assert [url for url, _ in context.request.calls] == [
+        "https://system.netfacilities.com/myhome"
+    ]
     assert len(context.pages) == 1
     page = context.pages[0]
     assert page.goto_calls == [
@@ -501,7 +623,11 @@ def test_request_only_saved_state_never_launches_a_browser(tmp_path, monkeypatch
     assert runtime.request.calls == [
         {"storage_state": str(storage_state), "timeout": 30_000}
     ]
-    assert len(request_context.calls) == 1
+    # Priming and the read both go through the standalone request context.
+    assert [url for url, _ in request_context.calls] == [
+        "https://system.netfacilities.com/myhome",
+        "https://system.netfacilities.com/tools/viewworkorders/12345678",
+    ]
     assert request_context.disposed == 1
     assert runtime.stopped == 1
 

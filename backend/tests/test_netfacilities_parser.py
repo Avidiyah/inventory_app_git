@@ -10,6 +10,7 @@ from app.integrations.netfacilities.errors import (
     NetFacilitiesUnexpectedDocument,
 )
 from app.integrations.netfacilities.parser import (
+    has_priority_label,
     inspect_priority_markup,
     parse_work_order_html,
     validate_work_order_number,
@@ -144,3 +145,32 @@ def test_rejects_unsafe_work_order_numbers(value):
 
 def test_normalizes_surrounding_work_order_whitespace():
     assert validate_work_order_number(" 12345678 ") == "12345678"
+
+
+def test_primed_document_carries_the_priority_label():
+    assert has_priority_label(_html()) is True
+
+
+def test_trimmed_document_has_no_priority_label():
+    # An unprimed session receives the General Information block with the whole
+    # Priority Level row removed, label included.
+    trimmed = _html().replace(
+        '<p><span class="p-gern">Priority Level:</span>'
+        '<span id="priority-level">Normal</span></p>',
+        "",
+    )
+
+    assert has_priority_label(trimmed) is False
+
+
+def test_priority_label_survives_an_empty_value():
+    # A work order with no priority still renders the label, so it must not be
+    # mistaken for a trimmed document and re-read.
+    without_value = _html().replace(
+        '<span id="priority-level">Normal</span>',
+        '<span id="priority-level"></span>',
+    )
+
+    assert has_priority_label(without_value) is True
+    parsed = parse_work_order_html(without_value, expected_work_order_number="12345678")
+    assert parsed.priority is None

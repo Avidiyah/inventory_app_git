@@ -105,25 +105,27 @@ def _hosted_environment(tmp_path, **overrides):
     }
 
 
-def test_rendered_document_retrieval_is_the_hosted_default(tmp_path):
+def test_raw_document_retrieval_is_the_hosted_default(tmp_path):
     config = load_netfacilities_config(
         _hosted_environment(tmp_path),
         platform="linux",
         repository_root=tmp_path / "repository",
     )
 
-    assert config.render_document is True
+    # Priority is server-rendered into the primed document, so the batch pays no
+    # settle wait and runs no JavaScript.
+    assert config.render_document is False
     assert config.render_settle_ms == 5_000
 
 
-def test_rendered_document_retrieval_can_be_disabled_without_a_redeploy(tmp_path):
+def test_rendered_document_retrieval_can_be_enabled_without_a_redeploy(tmp_path):
     config = load_netfacilities_config(
-        _hosted_environment(tmp_path, NETFACILITIES_RENDER_DOCUMENT="false"),
+        _hosted_environment(tmp_path, NETFACILITIES_RENDER_DOCUMENT="true"),
         platform="linux",
         repository_root=tmp_path / "repository",
     )
 
-    assert config.render_document is False
+    assert config.render_document is True
 
 
 @pytest.mark.parametrize("value", ["1", "yes", "enabled", "maybe"])
@@ -326,8 +328,8 @@ def test_hosted_factory_uses_bundled_browser_without_interactive_authentication(
 
     assert client.request_only is False
     assert client.browser_channel is None
-    # Hosted enrichment must render, or Priority never reaches the parser.
-    assert client.render_document is True
+    # Priming, not rendering, is what puts Priority in the document.
+    assert client.render_document is False
     assert client.render_settle_ms == 5_000
 
 

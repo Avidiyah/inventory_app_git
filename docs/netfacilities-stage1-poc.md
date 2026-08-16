@@ -198,10 +198,8 @@ from, plus a `render` block. Every branch below has a defined next step:
 | Signal | Meaning | Next step |
 | --- | --- | --- |
 | `priority_populated: true` | Working. | Rerun the blank-Priority enrichment batch |
-| `rendered_grew: false` with `subresources_allowed: 0` | JavaScript never ran, or every script was blocked | Confirm `render_document: true`; widen `RENDER_ALLOWED_RESOURCE_TYPES` |
-| `rendered_grew: true`, `priority_selector_appeared: false`, both markup blocks at zero | Scripts ran but built no Priority row | The row likely needs a tab/accordion interaction, or the selector differs from `#priority-level` |
-| `console_errors > 0` with `rendered_grew: true` | A blocked dependency broke the script | Allow `stylesheet`/`font` subresources and retry |
-| `raw_priority_markup.expected_id_count > 0` | The wire response did contain it | Retrieval was never the cause; revisit saved authentication state |
+| `exact_label_count: 0` with a matched work-order number | The trimmed document: the session was never primed | Confirm the priming `GET /myhome` returned 200; a redirect to login means the saved state is stale |
+| `expected_id_count: 1` with `expected_id_has_text: false` | Primed correctly; this work order has no priority set | Nothing to fix — a blank priority is a legal value |
 | `request_succeeded: false` | Safe exception type only | An authentication-required result means the Render secret file must be refreshed |
 
 Copy the complete JSON result for comparison; it is deliberately safe to share for
@@ -213,18 +211,26 @@ not restore it, and neither did the bundled-Chromium document transport, which r
 a byte-identical reduced document. All three attempts read `response.body()` — the raw
 payload — so none could have succeeded.
 
-Owner DevTools verification located the real boundary: `priority-level` is absent from
-the Network tab's Response body and from every Fetch/XHR response, and present only in
-the Elements tab. NetFacilities inserts the row with first-party JavaScript from data
-embedded in the initial document, and no separate endpoint serves it. Production now
-renders that one allowlisted document: JavaScript enabled, same-origin `GET`
-script/XHR allowed, cross-origin requests and images/stylesheets/fonts still aborted,
-no non-`GET` route ever continued, service workers blocked, and the serialized DOM
-parsed instead of the wire bytes. Cookies still come exclusively from protected saved
-state. Set `NETFACILITIES_RENDER_DOCUMENT=false` and restart to revert to the raw read
-without a redeploy; `NETFACILITIES_RENDER_SETTLE_SECONDS` (default 5) bounds how long
-the document may settle. Verify `priority_populated: true` for one authorized work order
-before rerunning the full blank-Priority enrichment batch.
+A live DevTools session on 2026-08-15 corrected that reading. `#priority-level` is in the
+raw response body with its value; the two script tokens are one jQuery handle,
+`var _prioritylevel = $("#priority-level");`. Nothing inserts the row at runtime. What
+differs is the document NetFacilities serves: a session that has not loaded the home page
+receives a trimmed work-order view with eleven General Information labels instead of
+thirteen, omitting `Priority Level` and `Recurring` entirely. Because the client
+navigated straight to the work order, it always received that view, and a missing row is
+indistinguishable from an unset priority. One `GET /myhome` on the same cookies turns the
+26,816-byte trimmed response into the 28,835-byte full one.
+
+The client now primes the session with a single read-only `GET /myhome` before its first
+work-order read, reuses it for the rest of the batch, and — if a document still arrives
+without the `Priority Level` label — primes once more and re-reads that work order, so a
+session that expires mid-batch cannot silently blank the remaining rows. Rendering is not
+required for Priority: `NETFACILITIES_RENDER_DOCUMENT` defaults to `false`, so the batch
+runs no JavaScript and waits on no settle timeout. Set it to `true` and restart to
+re-enable the rendered read for diagnosis; `NETFACILITIES_RENDER_SETTLE_SECONDS`
+(default 5) bounds that wait. Cookies still come exclusively from protected saved state.
+Verify `priority_populated: true` for one authorized work order before rerunning the full
+blank-Priority enrichment batch.
 
 The production image includes bundled Playwright Chromium and Beautiful Soup. If Render
 reports authentication missing or expired, repeat the local
