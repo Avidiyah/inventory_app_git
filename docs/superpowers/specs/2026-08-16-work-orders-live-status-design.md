@@ -250,8 +250,10 @@ manual-validation only. This is a known gap, not an oversight.
   stay out of the vocabulary.
 - No optimistic UI. Clients render server truth only.
 - No socket status indicator, connection UI, or "N items updated" toast.
-- No live refresh of an open card *body*. Only the summary updates, and only
-  when the card is not held.
+- No refresh of a *held* card, in any part -- summary or body. An open card
+  that is not held IS repainted in full on an entity event, body included:
+  §5's own rationale for the hold rule is that the alternative is a badge
+  reading "Completed" above a body still offering a Mark Completed button.
 - No client-side replication of server filter semantics. When the changed work
   order's list membership is in question, the server is asked.
 - Horizontal scaling remains out of scope (N3 in `docs/open-work.md`): the

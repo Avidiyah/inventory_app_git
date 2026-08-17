@@ -382,6 +382,9 @@ Real-time invalidation (`domain/realtime.py`, `services/realtime.py`,
   `_emit_status_changed` second; the order is pinned, not incidental, because
   restore's status envelope carries `id: null` and a caller inspecting
   `envelopes[0]` must still find the review-queue entity invalidation.
+- CSV import (`import_work_orders`), bulk legacy archive
+  (`archive_legacy_work_orders`), and materials, labor, and billing changes do
+  not emit `work_order.status.changed`; only the seven commands above do.
 - The audience map is a noise/efficiency rule, not a security boundary.
   Envelopes carry no row data, so scoping is enforced where it always was: by
   `can_view_work_order` on the client's REST re-fetch. Neither event type
@@ -426,9 +429,10 @@ Real-time invalidation (`domain/realtime.py`, `services/realtime.py`,
   deferred entirely while any card is held -- `renderCards` clears the list
   wholesale, which would destroy an open editor -- and runs once the last
   hold clears.
-- If a status filter is active and a work order's new status no longer
-  matches it, the row stays visible with its badge updated rather than being
-  removed; only a 404 on refetch removes a row. Rebuilding the filtered view
+- A filtered Work Orders list is a snapshot refined by live badges, not a
+  live query. If a status filter is active and a work order's new status no
+  longer matches it, the row stays visible with its badge updated rather than
+  being removed; only a 404 on refetch removes a row. Rebuilding the filtered view
   from the server on every status change would collapse every expanded card
   while filtered, which is worse than the staleness it would fix, and
   evaluating the filter client-side was rejected to avoid drifting from

@@ -289,6 +289,52 @@ shipped. That last one is the reason this is written down.
 Until one is chosen, `current-state.md` marks the files dormant so they are not
 mistaken for a working feature. **Do not document push as a capability.**
 
+### N10 — Work Orders live status: frontend gaps with no automated coverage
+
+**Trigger: none for the coverage gap itself — this is a testing gap, not a
+defect. The other three each have their own trigger, named below.**
+
+There is no `package.json` and no JS test runner anywhere in this repository;
+CI verifies `backend/static/views/workOrders.js` with `node --check` only. The
+subscriber, the hold rule, the in-place card update, and the deferred list
+refetch (`refreshCardSummary`, `isHeld`, `runOrDeferListRefresh`) are all
+manual-validation only, same as the rest of the frontend (PRO-008 is the
+general-purpose item for closing this class of gap).
+
+Three more specific gaps live in the same feature and are recorded here rather
+than separately, since they share both a trigger class (manual validation) and
+a fix class (frontend-only):
+
+- **Reassignment is asymmetric.** `update_work_order`
+  (`routers/work_orders.py:533`) emits `_emit_status_changed(work_order.id)`
+  (`:562`) unconditionally, including on a technician reassignment. The
+  technician who *loses* the work order has its card on screen, so their
+  refetch 404s and the row disappears live. The technician who *gains* it has
+  no card on screen for the subscriber to match
+  (`views/workOrders.js`'s `subscribe(STATUS_CHANGED_EVENT, ...)` ignores any
+  id it cannot find in the DOM), so it does not appear until they next enter
+  the page. Only `restore_work_order` (`:681`, `_emit_status_changed(None)` at
+  `:693`) emits the null-id membership signal that would cover this, and
+  reassignment does not use it. **Trigger: a technician reports a newly
+  assigned work order not appearing until they reload.**
+- **Two rapid status events on one card can resolve out of order.**
+  `refreshCardSummary` (`views/workOrders.js:872`) calls `apiGetWorkOrder` with
+  no request-ordering guard, so a slower response to an older event can
+  overwrite a newer one already rendered. `views/adminReview.js` already solves
+  this class of race with a monotonically increasing request id
+  (`queueRequestId` / `committedQueueRequestId`, `loadAdminReview`,
+  `adminReview.js:122-143`) that only commits a response at least as new as the
+  last one rendered. **Trigger: a card observed showing an older status than
+  the one just set, immediately after a fast double status change.**
+- **A card collapsed while its editor is still open stays held indefinitely.**
+  `isHeld` (`views/workOrders.js:913`) checks whether any editor `<details>`
+  inside a card is open regardless of whether the card itself is expanded, so
+  collapsing the outer card without closing its editor leaves the card held.
+  No refresh reaches it, and because `anyCardHeld()` also stays true, a
+  deferred full list refetch is blocked until that specific card is
+  re-expanded and its editor closed. **Trigger: a badge observed stuck on an
+  old status with no open card visible anywhere in the list.**
+
 ---
 
 ## 3. UX observations — never re-audited
