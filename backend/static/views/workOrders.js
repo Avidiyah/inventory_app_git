@@ -894,6 +894,14 @@ function renderBody(detail, bodyEl) {
   } else if (detail.status === "completed") {
     if (canSendToReview) {
       statusActions += `<button type="button" data-action="review-wo">Send to Review</button>`;
+    } else if (getRole() === "techfm_oa") {
+      // A TechFM OA holds the rest of the Admin toolkit, so a missing button
+      // reads as a bug to them rather than as a rule. Show it, disabled, with
+      // the reason. Every other role keeps the hidden treatment -- for them
+      // Review was never on the menu. The server refuses the transition either
+      // way (services/work_orders._require_review_handoff_permission), and a
+      // disabled button fires no click, so the delegate below is unreachable.
+      statusActions += `<button type="button" data-action="review-wo" disabled title="An Admin, Owner, or the routed Supervisor must send this to Review.">Send to Review</button>`;
     }
     if (sup) {
       statusActions += `<button type="button" class="secondary-btn" data-action="reopen-wo">Reopen</button>`;
