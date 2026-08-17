@@ -559,6 +559,7 @@ def update_work_order(
             **update_kwargs,
         )
         _emit_review_queue_changed(work_order.id)
+        _emit_status_changed(work_order.id)
         return _detail(
             # The caller may just have routed the row to somebody else. The
             # write was already authorized above, so build its response through
@@ -667,6 +668,7 @@ def archive_work_order(
     try:
         wo_service.archive_work_order(db, work_order_id, user=user)
         _emit_review_queue_changed(work_order_id)
+        _emit_status_changed(work_order_id)
     except DomainError as exc:
         raise to_http(exc)
 
@@ -688,6 +690,7 @@ def restore_work_order(
     try:
         work_order = wo_service.restore_work_order(db, work_order_id, user=user)
         _emit_review_queue_changed(work_order.id)
+        _emit_status_changed(None)
         return _detail(
             wo_service.get_work_order(db, work_order.id, user=user),
             include_price=_can_see_price(user),

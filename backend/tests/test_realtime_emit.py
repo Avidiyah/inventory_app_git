@@ -93,13 +93,18 @@ def test_update_emits_after_the_command_and_before_response_hydration(monkeypatc
     )
 
     assert result is saved
-    assert order == ["command", "emit", "hydrate"]
+    assert order == ["command", "emit", "emit", "hydrate"]
     assert envelopes == [
         {
             "type": realtime_policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED,
             "id": str(work_order_id),
             "req": REQUEST_ID,
-        }
+        },
+        {
+            "type": realtime_policy.EVENT_WORK_ORDER_STATUS_CHANGED,
+            "id": str(work_order_id),
+            "req": REQUEST_ID,
+        },
     ]
 
 
@@ -121,7 +126,12 @@ def test_archive_emits_one_entity_invalidation(monkeypatch):
             "type": realtime_policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED,
             "id": str(work_order_id),
             "req": REQUEST_ID,
-        }
+        },
+        {
+            "type": realtime_policy.EVENT_WORK_ORDER_STATUS_CHANGED,
+            "id": str(work_order_id),
+            "req": REQUEST_ID,
+        },
     ]
 
 
@@ -237,7 +247,7 @@ def test_a_dropped_invalidation_never_changes_the_http_result(monkeypatch):
     )
 
     assert result is saved
-    assert len(envelopes) == 1
+    assert len(envelopes) == 2
 
 
 @pytest.mark.parametrize(
@@ -306,6 +316,77 @@ def test_the_review_queue_emitter_set_is_exactly_the_five_capable_routes():
     assert emitters == {
         "import_work_orders",
         "archive_legacy_work_orders",
+        "update_work_order",
+        "archive_work_order",
+        "restore_work_order",
+    }
+
+
+def test_restore_emits_a_collection_style_status_invalidation(monkeypatch):
+    """A restored work order is on nobody's screen, so no on-screen card can be
+    updated in place. `None` is the established collection signal (import and
+    bulk legacy archive both use it) and tells the client to refetch its list."""
+    work_order_id = uuid.uuid4()
+    saved = SimpleNamespace(id=work_order_id)
+    user = SimpleNamespace(role=roles.ROLE_SUPERVISOR)
+    envelopes = _capture_emits(monkeypatch)
+    monkeypatch.setattr(
+        work_orders_router.wo_service,
+        "restore_work_order",
+        lambda db, incoming_id, *, user: saved,
+    )
+    monkeypatch.setattr(
+        work_orders_router.wo_service,
+        "get_work_order",
+        lambda db, incoming_id, *, user: saved,
+    )
+    _passthrough_detail(monkeypatch)
+
+    work_orders_router.restore_work_order(work_order_id, user=user, db=None)
+
+    assert [e["type"] for e in envelopes] == [
+        realtime_policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED,
+        realtime_policy.EVENT_WORK_ORDER_STATUS_CHANGED,
+    ]
+    assert envelopes[1]["id"] is None
+
+
+def test_archive_emits_an_entity_style_status_invalidation(monkeypatch):
+    """Archive is surgical, not collection: the card IS on screen, so the client
+    refetches it, gets a 404 from the scoping, and drops that one row."""
+    work_order_id = uuid.uuid4()
+    user = SimpleNamespace(role=roles.ROLE_ADMIN)
+    envelopes = _capture_emits(monkeypatch)
+    monkeypatch.setattr(
+        work_orders_router.wo_service,
+        "archive_work_order",
+        lambda db, incoming_id, *, user: None,
+    )
+
+    work_orders_router.archive_work_order(work_order_id, user=user, db=None)
+
+    assert envelopes[1] == {
+        "type": realtime_policy.EVENT_WORK_ORDER_STATUS_CHANGED,
+        "id": str(work_order_id),
+        "req": REQUEST_ID,
+    }
+
+
+def test_the_status_emitter_set_is_exactly_the_seven_capable_routes():
+    """Mirrors the review-queue emitter-set test. Any future route able to change
+    a work order's status or its card summary must join this set deliberately."""
+    emitters = {
+        route.endpoint.__name__
+        for route in work_orders_router.router.routes
+        if route.endpoint.__module__ == work_orders_router.__name__
+        and "_emit_status_changed(" in inspect.getsource(route.endpoint)
+    }
+
+    assert emitters == {
+        "start_work_order",
+        "complete_work_order",
+        "hold_work_order",
+        "resume_work_order",
         "update_work_order",
         "archive_work_order",
         "restore_work_order",
