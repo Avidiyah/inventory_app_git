@@ -143,8 +143,12 @@ inline at `:844-848`. Lift that into a `summaryHtml(card)` helper used by both
 (`:788`) is otherwise untouched and keeps serving page entry, filter changes and
 Show all.
 
-After a surgical removal, re-run `renderMoreControl` with the new count so the
-Show all control does not go stale.
+`renderMoreControl` (`:804`) is deliberately **not** re-run after a surgical
+removal. It offers "Show all" when a capped browse came back full
+(`shownCount >= RECENT_LIMIT`); removing one row drops the count below the cap
+and would hide the control even though more work orders still exist beyond it.
+Leaving it alone is the accurate behaviour, and it self-corrects on the next
+full load.
 
 ### 5. The hold rule
 
@@ -194,8 +198,7 @@ must stay silent, per the Admin Review precedent.
 
 ## Testing
 
-Both currently pinned tests stay green **without edits**, which is the primary
-regression argument for this shape:
+### Stays green without edits
 
 - `test_realtime_emit.py:243` derives the emitter set by grepping route source
   for the literal `_emit_review_queue_changed(`. `archive_work_order` and
@@ -204,6 +207,27 @@ regression argument for this shape:
   not join it.
 - `test_realtime_domain.py:99` asserts against the review-queue constant only and
   is unaffected by a new constant with its own audience entry.
+
+### Must be updated
+
+`update_work_order` and `archive_work_order` now emit **two** envelopes each, and
+three existing tests assert exact envelope lists:
+
+| Test | Current assertion | Becomes |
+| --- | --- | --- |
+| `test_realtime_emit.py:63` | `order == ["command", "emit", "hydrate"]` and a one-item `envelopes` list | `["command", "emit", "emit", "hydrate"]`, two envelopes |
+| `test_realtime_emit.py:106` | `envelopes == [<review-queue>]` | both envelopes |
+| `test_realtime_emit.py:215` | `len(envelopes) == 1` | `== 2` |
+
+These are correct tests whose subject genuinely changed; updating them is the
+honest outcome, not a workaround.
+
+**Emit order is pinned: review-queue first, status second.** This is not
+cosmetic. `test_realtime_emit.py:148` asserts `envelopes[0]["id"] == str(work_order_id)`
+for `restore_work_order`, and restore's status envelope carries `id: None` — so
+emitting status first would break that test and, more importantly, would make
+envelope order an accident rather than a decision. Every route that emits both
+does so in this order, and the updated assertions above lock it in.
 
 New tests, additive:
 
@@ -257,5 +281,5 @@ manual-validation only. This is a known gap, not an oversight.
 | `backend/app/routers/work_orders.py` | `_emit_status_changed` + seven call sites |
 | `backend/static/views/workOrders.js` | subscribe, surgical update, hold rule, deferred catch-up, `summaryHtml` extraction |
 | `backend/tests/test_realtime_domain.py` | new audience tests (additive) |
-| `backend/tests/test_realtime_emit.py` | new emitter-set + entity/collection tests (additive) |
+| `backend/tests/test_realtime_emit.py` | new emitter-set + entity/collection tests, **plus three existing tests updated** for the second envelope |
 | `docs/current-state.md` | realtime section: second event, second consumer |
