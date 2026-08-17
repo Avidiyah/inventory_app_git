@@ -874,6 +874,22 @@ async function refreshCardSummary(cardEl) {
   cardEl.className = `wo-card wo-card-status-${detail.status}`;
 }
 
+// The four editor sections inside a card body. A card holding any of them open
+// is "held": nothing refreshes it, because rewriting it would discard an unsaved
+// note, a material quantity, labor hours, or a technician selection in progress.
+// The technician combobox needs no entry -- it renders inside `.wo-edit-card`.
+const EDITOR_SECTIONS =
+  ".wo-edit-card, .wo-notes-section, .wo-materials-section, .wo-labor-section";
+
+function isHeld(cardEl) {
+  return Array.from(cardEl.querySelectorAll(EDITOR_SECTIONS)).some((s) => s.open);
+}
+
+function anyCardHeld() {
+  if (!listEl) return false;
+  return Array.from(listEl.querySelectorAll("details.wo-card")).some(isHeld);
+}
+
 function buildCard(card) {
   const el = document.createElement("details");
   el.className = `wo-card wo-card-status-${card.status}`;
@@ -1783,5 +1799,27 @@ subscribe(STATUS_CHANGED_EVENT, ({ activePage, envelope }) => {
 
   const cardEl = listEl.querySelector(`details.wo-card[data-id="${envelope.id}"]`);
   if (!cardEl) return;
+  if (isHeld(cardEl)) {
+    // Catch up when the editor closes rather than yanking input away mid-edit.
+    cardEl.dataset.missedUpdate = "1";
+    return;
+  }
   return refreshCardSummary(cardEl);
 });
+
+// `toggle` does not bubble, so this listens in the capture phase -- a delegated
+// bubble-phase listener here would silently never fire.
+if (listEl) {
+  listEl.addEventListener(
+    "toggle",
+    () => {
+      const cards = Array.from(listEl.querySelectorAll("details.wo-card"));
+      for (const cardEl of cards) {
+        if (cardEl.dataset.missedUpdate !== "1" || isHeld(cardEl)) continue;
+        delete cardEl.dataset.missedUpdate;
+        void refreshCardSummary(cardEl);
+      }
+    },
+    true
+  );
+}
