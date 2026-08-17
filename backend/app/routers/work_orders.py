@@ -87,6 +87,30 @@ def _emit_review_queue_changed(entity_id: Optional[uuid.UUID]) -> None:
     )
 
 
+def _emit_status_changed(entity_id: Optional[uuid.UUID]) -> None:
+    """Invalidate the Work Orders card list after a status change.
+
+    ``None`` identifies a membership command (restore), where a recipient's
+    list may have gained a row that no on-screen card can represent, so the
+    client refetches the list instead of one card.
+
+    Emitted *after* ``_emit_review_queue_changed`` on every route that sends
+    both. Order is pinned rather than incidental: restore's status envelope
+    carries ``id: None``, so a caller inspecting ``envelopes[0]`` must still
+    find the review-queue entity invalidation.
+
+    Delivery is best-effort for the same reason as the review-queue emitter:
+    a full handoff must never fail a durable write.
+    """
+    realtime_service.emit(
+        realtime_policy.build_envelope(
+            event_type=realtime_policy.EVENT_WORK_ORDER_STATUS_CHANGED,
+            entity_id=entity_id,
+            request_id=current_request_id(),
+        )
+    )
+
+
 # --- response builders ---------------------------------------------------
 
 def _filename_slug(value) -> str:
@@ -560,6 +584,7 @@ def start_work_order(
     """
     try:
         work_order = wo_service.start_work_order(db, work_order_id, user=user)
+        _emit_status_changed(work_order.id)
         return _detail(
             wo_service.get_work_order(db, work_order.id, user=user),
             include_price=_can_see_price(user),
@@ -583,6 +608,7 @@ def complete_work_order(
         work_order = wo_service.complete_work_order(
             db, work_order_id, user=user
         )
+        _emit_status_changed(work_order.id)
         return _detail(
             wo_service.get_work_order(db, work_order.id, user=user),
             include_price=_can_see_price(user),
@@ -600,6 +626,7 @@ def hold_work_order(
     """Place In-Progress work On-Hold as one of its assigned workers."""
     try:
         work_order = wo_service.hold_work_order(db, work_order_id, user=user)
+        _emit_status_changed(work_order.id)
         return _detail(
             wo_service.get_work_order(db, work_order.id, user=user),
             include_price=_can_see_price(user),
@@ -617,6 +644,7 @@ def resume_work_order(
     """Resume On-Hold work as one of its assigned workers."""
     try:
         work_order = wo_service.resume_work_order(db, work_order_id, user=user)
+        _emit_status_changed(work_order.id)
         return _detail(
             wo_service.get_work_order(db, work_order.id, user=user),
             include_price=_can_see_price(user),

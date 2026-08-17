@@ -240,6 +240,61 @@ def test_a_dropped_invalidation_never_changes_the_http_result(monkeypatch):
     assert len(envelopes) == 1
 
 
+@pytest.mark.parametrize(
+    "route_name",
+    ["start_work_order", "complete_work_order", "hold_work_order", "resume_work_order"],
+)
+def test_each_walkthrough_transition_emits_one_status_invalidation(
+    monkeypatch, route_name
+):
+    """The four assigned-worker transitions are the whole reason this event
+    exists: they change the status a card renders and emitted nothing before."""
+    work_order_id = uuid.uuid4()
+    saved = SimpleNamespace(id=work_order_id)
+    user = SimpleNamespace(role=roles.ROLE_TECHNICIAN)
+    envelopes = _capture_emits(monkeypatch)
+    monkeypatch.setattr(
+        work_orders_router.wo_service,
+        route_name,
+        lambda db, incoming_id, *, user: saved,
+    )
+    monkeypatch.setattr(
+        work_orders_router.wo_service,
+        "get_work_order",
+        lambda db, incoming_id, *, user: saved,
+    )
+    _passthrough_detail(monkeypatch)
+
+    result = getattr(work_orders_router, route_name)(
+        work_order_id, user=user, db=None
+    )
+
+    assert result is saved
+    assert envelopes == [
+        {
+            "type": realtime_policy.EVENT_WORK_ORDER_STATUS_CHANGED,
+            "id": str(work_order_id),
+            "req": REQUEST_ID,
+        }
+    ]
+
+
+def test_a_failed_transition_emits_nothing(monkeypatch):
+    work_order_id = uuid.uuid4()
+    user = SimpleNamespace(role=roles.ROLE_TECHNICIAN)
+    envelopes = _capture_emits(monkeypatch)
+
+    def fail(db, incoming_id, *, user):
+        raise WorkOrderStateError("not in progress")
+
+    monkeypatch.setattr(work_orders_router.wo_service, "complete_work_order", fail)
+
+    with pytest.raises(HTTPException):
+        work_orders_router.complete_work_order(work_order_id, user=user, db=None)
+
+    assert envelopes == []
+
+
 def test_the_review_queue_emitter_set_is_exactly_the_five_capable_routes():
     emitters = {
         route.endpoint.__name__
