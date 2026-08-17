@@ -715,7 +715,12 @@ async function offerRestoreForExactArchivedSearch(number, token) {
 export async function loadWorkOrders({
   refreshReferenceData = false,
   checkArchivedSearch = false,
+  background = false,
 } = {}) {
+  // Any completed full load -- nav entry, filter change, Show all, Clear
+  // filters, or this call itself -- genuinely satisfies a pending deferred
+  // refresh, so this states a truth rather than defends against a bug.
+  deferredListRefresh = false;
   const archivedLookupToken = ++archivedSearchToken;
   if (refreshReferenceData || !itemsLoaded) {
     try {
@@ -780,6 +785,11 @@ export async function loadWorkOrders({
       await offerRestoreForExactArchivedSearch(filters.q, archivedLookupToken);
     }
   } catch (err) {
+    // A socket-driven refresh must stay silent on failure (spec section 6):
+    // leave the existing list exactly as it was rather than wipe it out from
+    // under a user who never asked for this reload. The user-initiated path
+    // (background=false) keeps today's error behavior unchanged.
+    if (background) return;
     listEl.innerHTML = "";
     if (moreEl) {
       moreEl.hidden = true;
@@ -851,8 +861,10 @@ function summaryHtml(card) {
   );
 }
 
-// One work order changed. Rewrite just that card's summary and status class --
-// the body, and any editor open inside it, is deliberately left untouched.
+// One work order changed. Rewrite that card's summary and status class, and,
+// if the card is expanded and not held, its body too, so the badge and the
+// body's status actions never disagree. A held card's editor is never
+// touched -- the caller filters those out before calling this.
 //
 // A 404 means the work order left this user's view: archived, or unassigned
 // from them. Either way the row goes. Only 404 removes a card; a network blip
@@ -872,6 +884,23 @@ async function refreshCardSummary(cardEl) {
   const summary = cardEl.querySelector("summary.wo-summary");
   if (summary) summary.innerHTML = summaryHtml(detail);
   cardEl.className = `wo-card wo-card-status-${detail.status}`;
+
+  // A badge alone is not enough: an expanded, non-held card still shows its
+  // body, and the body's status actions (renderBody picks them off
+  // detail.status) must not fall out of sync with the badge just repainted
+  // above -- that is exactly the "Completed" badge over a live "Mark
+  // Completed" button spec section 5 exists to prevent. openDetail already
+  // re-fetches, repaints summary/badge/meta, sets dataset.loaded, and clears
+  // dataset.missedUpdate, so reuse it rather than reimplement any of that.
+  // Held cards are never reached here -- both callers already guard for it.
+  if (cardEl.open && !isHeld(cardEl)) {
+    const bodyEl = cardEl.querySelector(".wo-body");
+    if (bodyEl) await openDetail(cardEl.dataset.id, bodyEl, cardEl);
+  } else {
+    // Collapsed (or held, defensively): drop the loaded flag so the next
+    // expansion re-fetches instead of showing a body that is now stale.
+    delete cardEl.dataset.loaded;
+  }
 }
 
 // The four editor sections inside a card body. A card holding any of them open
@@ -901,7 +930,7 @@ function runOrDeferListRefresh() {
     return;
   }
   deferredListRefresh = false;
-  void loadWorkOrders();
+  void loadWorkOrders({ background: true });
 }
 
 function buildCard(card) {
@@ -1842,8 +1871,9 @@ if (listEl) {
     "toggle",
     () => {
       if (deferredListRefresh && !anyCardHeld()) {
-        deferredListRefresh = false;
-        void loadWorkOrders();
+        // Route through the single function that knows a socket-driven
+        // refresh must be silent -- do not duplicate its background flag here.
+        runOrDeferListRefresh();
         return;
       }
 
