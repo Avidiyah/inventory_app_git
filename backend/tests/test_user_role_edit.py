@@ -138,3 +138,68 @@ def test_role_change_revokes_the_target_sessions(db):
     assert db.query(AuthSession).filter(AuthSession.user_id == target.id).count() == 0
     assert auth.get_active_session_user(db, token) is None
     assert users_service.get_user(db, target.id).role == roles.ROLE_SUPERVISOR
+
+
+def test_techfm_oa_cannot_change_an_admin_or_owner_role(db):
+    # The second of TechFM OA's two subtractions. `can_manage` is false at
+    # equal rank and above, so an Admin, an Owner, and a TechFM OA peer are all
+    # out of reach -- no special case implements this.
+    actor = _create_user(db, roles.ROLE_TECHFM_OA)
+
+    for target_role in (roles.ROLE_ADMIN, roles.ROLE_OWNER, roles.ROLE_TECHFM_OA):
+        target = _create_user(db, target_role)
+        with pytest.raises(HTTPException) as exc:
+            update_user_role_route(
+                target.id,
+                UserRoleUpdate(role=roles.ROLE_SUPERVISOR),
+                actor=actor,
+                db=db,
+            )
+        assert exc.value.status_code == 403
+        db.refresh(target)
+        assert target.role == target_role
+
+
+def test_techfm_oa_cannot_hand_out_admin_or_owner(db):
+    # The other half of the rule: the actor must outrank the role being
+    # *assigned*, not just the one the target holds.
+    actor = _create_user(db, roles.ROLE_TECHFM_OA)
+    target = _create_user(db, roles.ROLE_TECHNICIAN)
+
+    for role in (roles.ROLE_ADMIN, roles.ROLE_OWNER, roles.ROLE_TECHFM_OA):
+        with pytest.raises(HTTPException) as exc:
+            update_user_role_route(
+                target.id, UserRoleUpdate(role=role), actor=actor, db=db
+            )
+        assert exc.value.status_code == 403
+
+    db.refresh(target)
+    assert target.role == roles.ROLE_TECHNICIAN
+
+
+def test_techfm_oa_can_re_role_subordinates(db):
+    actor = _create_user(db, roles.ROLE_TECHFM_OA)
+    target = _create_user(db, roles.ROLE_TECHNICIAN)
+
+    promoted = update_user_role_route(
+        target.id,
+        UserRoleUpdate(role=roles.ROLE_SUPERVISOR),
+        actor=actor,
+        db=db,
+    )
+    assert promoted.role == roles.ROLE_SUPERVISOR
+
+
+def test_admin_can_promote_a_supervisor_to_techfm_oa(db):
+    # The counterpart to the rank choice: Admins must retain control of these
+    # accounts, which is exactly what a shared Admin rank would have broken.
+    admin = _create_user(db, roles.ROLE_ADMIN)
+    target = _create_user(db, roles.ROLE_SUPERVISOR)
+
+    promoted = update_user_role_route(
+        target.id,
+        UserRoleUpdate(role=roles.ROLE_TECHFM_OA),
+        actor=admin,
+        db=db,
+    )
+    assert promoted.role == roles.ROLE_TECHFM_OA
