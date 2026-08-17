@@ -890,6 +890,20 @@ function anyCardHeld() {
   return Array.from(listEl.querySelectorAll("details.wo-card")).some(isHeld);
 }
 
+// A full list refetch rebuilds every card (renderCards clears the list), so it
+// must never run while an editor is open. Restore and reconnect are both rare,
+// so deferring until the last hold clears costs nothing.
+let deferredListRefresh = false;
+
+function runOrDeferListRefresh() {
+  if (anyCardHeld()) {
+    deferredListRefresh = true;
+    return;
+  }
+  deferredListRefresh = false;
+  void loadWorkOrders();
+}
+
 function buildCard(card) {
   const el = document.createElement("details");
   el.className = `wo-card wo-card-status-${card.status}`;
@@ -1798,9 +1812,18 @@ if (clearFiltersBtn) {
 // list refetch would mean every technician's client reloading the whole list
 // every time anyone changed a status anywhere. A work order newly *appearing*
 // for someone is a membership change, which arrives as a null id instead.
-subscribe(STATUS_CHANGED_EVENT, ({ activePage, envelope }) => {
+subscribe(STATUS_CHANGED_EVENT, ({ activePage, envelope, reason }) => {
   if (activePage !== WORK_ORDERS_PAGE) return;
-  if (!listEl || !envelope?.id) return;
+  if (!listEl) return;
+
+  // A null id is a membership command (restore) and a reconnect means events
+  // were missed while the socket was down. Both mean "the list itself may be
+  // wrong", which only a refetch can settle -- deciding locally would duplicate
+  // the server's ordering, row cap and filter semantics.
+  if (reason === "reconnect" || !envelope?.id) {
+    runOrDeferListRefresh();
+    return;
+  }
 
   const cardEl = listEl.querySelector(`details.wo-card[data-id="${envelope.id}"]`);
   if (!cardEl) return;
@@ -1818,6 +1841,12 @@ if (listEl) {
   listEl.addEventListener(
     "toggle",
     () => {
+      if (deferredListRefresh && !anyCardHeld()) {
+        deferredListRefresh = false;
+        void loadWorkOrders();
+        return;
+      }
+
       const cards = Array.from(listEl.querySelectorAll("details.wo-card"));
       for (const cardEl of cards) {
         if (cardEl.dataset.missedUpdate !== "1" || isHeld(cardEl)) continue;
