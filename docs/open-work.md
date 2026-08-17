@@ -157,9 +157,10 @@ failure. The cost: every asset request is a Python round-trip, no CDN, no
 content hashing. Fine at current scale — the first thing to change if a CDN is
 ever introduced.
 
-Scale note: `static/styles.css` is **2,546 lines**, unminified, and re-fetched on
-every navigation because of the blanket `no-cache`. That is the concrete cost of
-this trade, and the number to watch.
+Scale note: `static/styles.css` is **2,710 lines** (2,546 at the 2026-08-10
+consolidation), unminified, and re-fetched on every navigation because of the
+blanket `no-cache`. That is the concrete cost of this trade, and the number to
+watch.
 
 ### N6 — `services/work_orders.py` is 2,034 lines / 59 functions
 
@@ -167,8 +168,10 @@ this trade, and the number to watch.
 
 Roughly 3.7× the next-largest service (`mass_staging.py`, 549) and larger than
 any other file in the repo except `styles.css`. Its frontend counterpart
-`static/views/workOrders.js` is 1,442 lines. Change risk in this codebase is
-concentrated in these two files.
+`static/views/workOrders.js` is **1,705 lines** (1,442 at the 2026-08-10
+consolidation — it has grown 18% since, faster than the service it fronts, which
+is unchanged at 2,034). Change risk in this codebase is concentrated in these
+two files.
 
 Not a defect — the layering it sits inside is sound, and the extraction target
 already exists and already works: `domain/work_orders.py` (461 lines) holds the
@@ -251,6 +254,40 @@ established precedent) and pass `swagger_js_url` / `swagger_css_url` to
 belong inside a security item whose point was removing a surface. The
 alternative — loosening CSP to allow the CDN — would trade a real defence for a
 developer convenience and **should not be done**.
+
+### N9 — Web Push Phase A sits on `main` wired to nothing
+
+**Trigger: none — this is a decision, not a defect.** Nothing is broken and
+nothing is at risk; the question is only whether the feature is resumed or the
+groundwork is removed.
+
+`domain/push.py`, `scripts/generate_vapid_keys.py`, their two test files, and the
+`pywebpush==2.4.0` dependency are all on `main` and all pass. **Nothing imports
+`domain/push.py` outside its own test.** There is no router, service, model,
+migration, subscription table, or frontend service worker — the running app
+cannot send a push, and no configuration makes it able to.
+
+This is the intended shape of a first phase: the decidable, I/O-free half landed
+first, matching how every other `domain/` module is built. The remainder is on
+`feat/push-notifications`, which has since fallen behind `main` on the
+NetFacilities work and would need a rebase before it is worth reading.
+
+The cost of leaving it is small but not zero: a dependency that is installed and
+never called, two test files that imply a capability the app does not have, and
+the standing risk that someone reads `domain/push.py` and reports push as
+shipped. That last one is the reason this is written down.
+
+**Two honest options, no third:**
+
+1. **Resume** — rebase `feat/push-notifications` onto `main` and finish the
+   wiring (subscription table + migration, a service that calls `pywebpush`, the
+   router, the service worker, and the opt-in UI).
+2. **Retire** — delete the four files, drop `pywebpush` from
+   `requirements.txt`, and move the entry in `current-state.md`'s
+   `Removed, Replaced, And Dormant` register from *Dormant* down to *Removed*.
+
+Until one is chosen, `current-state.md` marks the files dormant so they are not
+mistaken for a working feature. **Do not document push as a capability.**
 
 ---
 
@@ -1443,6 +1480,15 @@ showed the feature half was never needed.
 
 These statements are scoped to the reviewed commit. Re-audit a statement when
 its code, dependency, deployment topology, or named exception materially changes.
+
+**Known drift since `ac99487` (checked 2026-08-16, statements not otherwise
+re-audited):** the migration count below is now **32 revisions at head
+`0c1d2e3f4a5b`**, not 31 at `fbc4e6a8d0f2`; the suite now collects **974** tests,
+not 679/683. The `BackgroundTasks` statement is unchanged but now sits beside a
+real-time dispatch task and a NetFacilities job coordinator, both supervised
+through `lifespan.py` rather than `BackgroundTasks` — the finding still holds,
+its context does not. Figures below are otherwise left at their audited values
+on purpose: this is a dated record, not a live one.
 
 - **Pydantic v1→v2 migration debt** — none. `pydantic==2.13.4`, already current.
 - **`BackgroundTasks` durability** — no usage anywhere, so no dropped-job
