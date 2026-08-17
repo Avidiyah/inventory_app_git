@@ -29,10 +29,12 @@ export const ROLE_LABELS = {
   technician: "Technician",
 };
 
-// Human-facing name for `role`. Unrecognised values come back unchanged
-// rather than blank, so a stale account still renders something readable.
+// Human-facing name for `role`. An unrecognised value comes back unchanged
+// rather than blank, so a stale account still renders something readable; a
+// missing one says so, because the Tools custody card concatenates this into
+// "<role> · <created>" and a blank would leave a dangling separator.
 export function roleLabel(role) {
-  return ROLE_LABELS[role] || role || "";
+  return ROLE_LABELS[role] || role || "Unknown role";
 }
 
 function rank(role) {

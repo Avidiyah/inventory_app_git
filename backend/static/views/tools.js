@@ -1,9 +1,10 @@
 // View: Add Tool form plus the user-first Tools page.
 //
-// Custody is the default feature: Admin/Owner searches active users, while
-// Supervisor/Technician opens their own card. Checkout starts from that card
-// by tool search or contextual scan; check-in starts from one of the selected
-// user's current holdings. Inventory retains lookup and Admin+ maintenance.
+// Custody is the default feature: TechFM OA and above search active users,
+// while Supervisor/Technician opens their own card. Checkout starts from that
+// card by tool search or contextual scan; check-in starts from one of the
+// selected user's current holdings. Inventory retains lookup and TechFM OA+
+// maintenance.
 
 import { getTools, setTools, getRole, getCurrentUser } from "../state.js";
 import {
@@ -16,7 +17,7 @@ import {
 } from "../api.js";
 import { escapeHtml, friendlyError, formatUserName, filterRanked } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
-import { roleAtLeast } from "../roles.js";
+import { roleAtLeast, roleLabel } from "../roles.js";
 import { mountScanner } from "./scan.js";
 import { initSubNav } from "./subnav.js";
 import {
@@ -98,15 +99,11 @@ let checkoutScanUserId = null;
 let toolsSubNav = null;
 
 function canManageCustody() {
-  return roleAtLeast(getRole(), "admin");
+  return roleAtLeast(getRole(), "techfm_oa");
 }
 
 function selectedUser() {
   return custodyUsers.find((user) => user.id === selectedUserId) || null;
-}
-
-function roleLabel(role) {
-  return role ? role.charAt(0).toUpperCase() + role.slice(1) : "Unknown role";
 }
 
 function formattedCreatedAt(value) {

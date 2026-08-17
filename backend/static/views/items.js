@@ -149,11 +149,11 @@ export function renderItems(emptyMessage = "No items match that search.") {
   const items = getItems();
   itemsTable.hidden = false;
 
-  // Items are read/write for Owner/Admin; Supervisor may edit notes
+  // Items are read/write for TechFM OA and above; Supervisor may edit notes
   // only; Technician is read-only. The backend is still the source of
   // truth -- this is purely UI gating.
   const role = getRole();
-  const canAdmin = roleAtLeast(role, "admin");
+  const canAdmin = roleAtLeast(role, "techfm_oa");
   const canNotes = roleAtLeast(role, "supervisor");
   // A "worker" here is a Technician: no row actions, so we declutter their
   // lookup table (drop the empty Actions column and the Created timestamp)

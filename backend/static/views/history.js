@@ -257,10 +257,10 @@ export function renderHistory(data) {
   const s = getHistoryState();
 
   // The Charge column (line total + mark-up, plus the inline billing
-  // editor) is Admin/Owner only. Toggle the header column to match the
+  // editor) is TechFM OA and above. Toggle the header column to match the
   // cells we emit; the backend redacts `item_price` / `billable_quantity`
   // for lower roles, so this is presentational only.
-  const canSeePrice = roleAtLeast(getRole(), "admin");
+  const canSeePrice = roleAtLeast(getRole(), "techfm_oa");
   historyTable.querySelectorAll("thead .admin-col").forEach(th => { th.hidden = !canSeePrice; });
   // Base table is 7 columns (Time, Item, Type, Qty, WO, User, Actions);
   // the Charge column adds one for Admin/Owner.

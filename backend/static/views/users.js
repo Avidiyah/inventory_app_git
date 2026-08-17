@@ -8,7 +8,7 @@
 // Authorization is mirrored from the backend for UX only: the create
 // form offers just the roles the current user may assign, each row
 // shows Reset Password / Delete only when the current user outranks
-// that row's role, and Edit Role appears only for an Admin or Owner
+// that row's role, and Edit Role appears only for a TechFM OA or above
 // acting on someone they outrank. Edit Details (name + login username)
 // is offered for yourself or anyone you outrank. The backend re-checks
 // everything.
@@ -32,7 +32,7 @@ import {
   promptUserName,
   promptUserRole,
 } from "../dom.js";
-import { assignableRoles, canManage, roleAtLeast } from "../roles.js";
+import { assignableRoles, canManage, roleAtLeast, roleLabel } from "../roles.js";
 
 const createUserBtn = document.getElementById("create-user-btn");
 const createUserMessage = document.getElementById("create-user-message");
@@ -51,6 +51,7 @@ const historyUserSelect = document.getElementById("history-user-select");
 const ROLE_DESCRIPTIONS = {
   technician: "Scan items and do basic work.",
   supervisor: "Record stock, edit notes, view history.",
+  techfm_oa: "Everything an Admin does, except sending work orders to Review and changing Admin roles.",
   admin: "Manage items and corrections.",
   owner: "Top-level setup.",
 };
@@ -97,10 +98,10 @@ function renderUsersTable() {
     if (isArchived) row.classList.add("archived-user");
     const canManageUser = canManage(actorRole, user.role);
     const canEditName = actorId === user.id || canManageUser;
-    // Role changes are Admin+ only (on top of the usual outranks-the-target
+    // Role changes are TechFM OA+ only (on top of the usual outranks-the-target
     // rule), and pointless for an archived user, who cannot log in at all.
     const canEditRole =
-      canManageUser && !isArchived && roleAtLeast(actorRole, "admin");
+      canManageUser && !isArchived && roleAtLeast(actorRole, "techfm_oa");
     let lifecycleActions = "";
     if (canManageUser && isArchived) {
       lifecycleActions = `<button class="restore-user-btn secondary-btn" data-id="${user.id}" data-name="${escapeHtml(user.username)}">Restore</button>`;
@@ -123,7 +124,7 @@ function renderUsersTable() {
       <td data-label="First Name">${escapeHtml(user.first_name || "Name unavailable")}${archivedTag}</td>
       <td data-label="Last Name">${escapeHtml(user.last_name || "Name unavailable")}</td>
       <td data-label="Username">${escapeHtml(user.username)}</td>
-      <td data-label="Role">${escapeHtml(user.role)}</td>
+      <td data-label="Role">${escapeHtml(roleLabel(user.role))}</td>
       <td data-label="Created At">${escapeHtml(createdAt)}</td>
       <td data-label="Actions">${actions}</td>
     `;
@@ -140,7 +141,7 @@ function populateRoleSelect() {
   assignableRoles(getRole()).forEach(role => {
     const option = document.createElement("option");
     option.value = role;
-    option.textContent = role.charAt(0).toUpperCase() + role.slice(1);
+    option.textContent = roleLabel(role);
     userRoleSelect.appendChild(option);
   });
   if (previous && [...userRoleSelect.options].some(o => o.value === previous)) {

@@ -126,8 +126,11 @@ function isSupervisorPlus() {
   return roleAtLeast(getRole(), "supervisor");
 }
 
+// The admin *toolkit* floor, which is TechFM OA and above. Distinct from
+// `canCurrentUserSendToReview` below, which is the one control still gated on
+// Admin proper.
 function isAdminPlus() {
-  return roleAtLeast(getRole(), "admin");
+  return roleAtLeast(getRole(), "techfm_oa");
 }
 
 function isOwner() {

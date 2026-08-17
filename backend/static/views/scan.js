@@ -278,10 +278,10 @@ export function mountScanner({
   function handleUnknownBarcode(barcode) {
     setMessage(messageEl, `No ${notFoundLabel} matches that barcode.`, "error");
 
-    // Both shortcuts (Create Item, Add Barcode) hit Owner/Admin-only
-    // backend routes, so gate the whole chooser to Admin+. Lower roles
-    // just see the message above.
-    if (!roleAtLeast(getRole(), "admin")) return;
+    // Both shortcuts (Create Item, Add Barcode) hit TechFM OA+ backend
+    // routes, so gate the whole chooser the same way. Lower roles just see
+    // the message above.
+    if (!roleAtLeast(getRole(), "techfm_oa")) return;
 
     chooserEl.innerHTML = "";
 

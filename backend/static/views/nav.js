@@ -55,25 +55,26 @@ document.addEventListener("visibilitychange", () => {
 // nav visibility AND for the post-login boot in `auth.js`. It mirrors
 // the backend route gates; the backend still enforces them.
 export const PAGE_ACCESS = {
-  "create-item": ["owner", "admin"],
-  "saved-items": ["owner", "admin", "supervisor", "technician"],
-  "create-user": ["owner", "admin", "supervisor"],
-  "saved-users": ["owner", "admin", "supervisor"],
+  "create-item": ["owner", "admin", "techfm_oa"],
+  "saved-items": ["owner", "admin", "techfm_oa", "supervisor", "technician"],
+  "create-user": ["owner", "admin", "techfm_oa", "supervisor"],
+  "saved-users": ["owner", "admin", "techfm_oa", "supervisor"],
   // Technicians get scan-and-go too, but dispense-only (enforced server-side
   // in roles.can_transact; the UI hides the Stock toggle for them).
-  "transaction": ["owner", "admin", "supervisor", "technician"],
-  "mass-stage": ["owner", "admin", "supervisor"],
+  "transaction": ["owner", "admin", "techfm_oa", "supervisor", "technician"],
+  "mass-stage": ["owner", "admin", "techfm_oa", "supervisor"],
   // Work Orders is technician-facing (server scopes to assigned/created/all).
-  "work-orders": ["owner", "admin", "supervisor", "technician"],
-  // Operational exceptions such as inventory recounts are managed by Admin+.
-  "user-requests": ["owner", "admin"],
-  // Final billing/close queue. Cost detail and archive are Admin/Owner-only.
-  "admin-review": ["owner", "admin"],
+  "work-orders": ["owner", "admin", "techfm_oa", "supervisor", "technician"],
+  // Operational exceptions such as inventory recounts are managed by TechFM OA+.
+  "user-requests": ["owner", "admin", "techfm_oa"],
+  // Final billing/close queue. Cost detail and archive are TechFM OA+. A
+  // TechFM OA works this queue; they just cannot put a work order into it.
+  "admin-review": ["owner", "admin", "techfm_oa"],
   // Tools: every role sees its user-first custody card and can check in;
-  // Admin+ can search active users and check out tools. The server retains
-  // the existing Admin+ checkout gate and authenticated-user return gate.
-  "tools": ["owner", "admin", "supervisor", "technician"],
-  "history": ["owner", "admin", "supervisor"],
+  // TechFM OA+ can search active users and check out tools. The server retains
+  // the existing checkout gate and authenticated-user return gate.
+  "tools": ["owner", "admin", "techfm_oa", "supervisor", "technician"],
+  "history": ["owner", "admin", "techfm_oa", "supervisor"],
 };
 
 export function canAccessPage(role, pageName) {
@@ -82,12 +83,13 @@ export function canAccessPage(role, pageName) {
 
 // Where each role lands right after sign-in, chosen so the first screen is
 // that role's usual first job: technicians scan (Transaction), supervisors
-// run the board (Work Orders), admins/owners review activity (History).
+// run the board (Work Orders), TechFM OA and above review activity (History).
 // Consumed by `auth.js`; every entry must also be allowed by PAGE_ACCESS
 // above (landingPageForRole falls back if it is not).
 const LANDING_PAGE_BY_ROLE = {
   technician: "transaction",
   supervisor: "work-orders",
+  techfm_oa: "history",
   admin: "history",
   owner: "history",
 };
