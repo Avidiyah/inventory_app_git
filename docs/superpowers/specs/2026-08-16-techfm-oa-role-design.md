@@ -39,6 +39,15 @@ The stored value stays a lowercase single token for consistency with the other
 four, and because the raw value reaches API responses, CSV exports and the docs
 tables.
 
+The backend needs the same mapping. Two OpenAPI `403` description builders
+interpolate the role slug directly — `routers/netfacilities.py:47`
+(`f"Requires {roles.ROLE_ADMIN} role or higher."`) and `routers/work_orders.py:252`
+(`f"Requires the {minimum} role or above."`) — and would otherwise publish
+"Requires the techfm_oa role or above." So `domain/roles.py` gains a
+`ROLE_LABELS` dict and a `label(role)` helper, and both builders read from it.
+The 403 *detail* returned to callers is a fixed generic string
+(`auth_deps.py:74`) and leaks no slug.
+
 ## Design
 
 ### 1. Rank insert (`backend/app/domain/roles.py`)
@@ -168,9 +177,9 @@ Six `roleAtLeast(..., "admin")` call sites move to `"techfm_oa"`:
   `"admin"`, including `admin-review` and `user-requests`.
 - `LANDING_PAGE_BY_ROLE` — `techfm_oa: "history"`, matching Admin.
 
-`roles.js` gains `ROLE_LABELS`, a slug → display-string map covering all five
-roles. Three sites read from it instead of capitalising the raw slug:
-`views/tools.js:108` (`roleLabel`), `views/users.js:143`
+`roles.js` gains `ROLE_LABELS` and a `roleLabel()` export, mirroring the Python
+map. Three sites read from it instead of capitalising the raw slug:
+`views/tools.js:108` (which loses its own local `roleLabel`), `views/users.js:143`
 (`populateRoleSelect`), and `views/users.js:126` (the Users table Role cell).
 
 `views/users.js:51` `ROLE_DESCRIPTIONS` gains a plain-language entry.
@@ -209,13 +218,29 @@ always a mistake, and a future route written with `ROLE_ADMIN` out of habit
 would silently lock TechFM OA out of a capability it is supposed to have. The
 guard turns that into a failing test.
 
+**New `tests/test_role_mirror_parity.py`.** `static/roles.js` is a
+hand-maintained twin of `domain/roles.py` and nothing has ever checked that the
+two agree — they disagree silently, with the frontend gating the wrong things
+while every backend test still passes. Renumbering both tables by hand is
+exactly when that bites. The test parses the `ROLE_RANK`, `ALL_ROLES` and
+`ROLE_LABELS` literals out of the JS and asserts each matches its Python
+counterpart. Pure, no DB.
+
 **New service tests.**
 
-- A TechFM OA is refused by `_require_review_handoff_permission` with 403,
-  including when they are the routed supervisor on the work order.
+- A TechFM OA is refused by `_require_review_handoff_permission`, including when
+  they are the routed supervisor on the work order. This one is written as a
+  **pure** test: the function reads only `user.id`, `user.role`,
+  `work_order.supervisor_id` and the assignment attributes, all through
+  `getattr` with fallbacks, so `SimpleNamespace` stand-ins suffice and no
+  database is involved.
 - A TechFM OA cannot change an Admin's role (403) and cannot assign the Admin
   role (403), but can re-role a Supervisor and a Technician.
-- An Admin can create, manage, and re-role a TechFM OA.
+- An Admin can promote a Supervisor to TechFM OA.
+
+The last two go through the route handler and need the `db` fixture, so they
+**skip** on a machine without Postgres credentials and are verified in CI. The
+rank rules underneath them are covered purely in `test_roles.py`.
 
 Tests that pass `roles.ROLE_ADMIN` as an *actor* (`test_realtime_emit.py`,
 `test_upload_limits.py`, `test_work_order_import.py`, `test_user_role_edit.py`)
