@@ -3,17 +3,37 @@
 // Layer: foundation (no DOM, no fetch, no state). This is the frontend
 // twin of `app/domain/roles.py`. It exists ONLY to decide what to show
 // or hide -- the backend remains the real authority and re-checks every
-// request. Keep the rank values in sync with the Python module.
+// request. Keep the rank values and labels in sync with the Python module;
+// tests/test_role_mirror_parity.py enforces it.
 
 export const ROLE_RANK = {
   technician: 0,
   supervisor: 1,
-  admin: 2,
-  owner: 3,
+  techfm_oa: 2,
+  admin: 3,
+  owner: 4,
 };
 
 // All roles, most-senior first.
-export const ALL_ROLES = ["owner", "admin", "supervisor", "technician"];
+export const ALL_ROLES = ["owner", "admin", "techfm_oa", "supervisor", "technician"];
+
+// Human-facing names. Everything else in the UI used to capitalise the raw
+// slug, which cannot produce "TechFM OA", so the mapping is explicit here and
+// `roleLabel` is the single way to render a role. Mirrors ROLE_LABELS in
+// app/domain/roles.py; the pair is pinned by tests/test_role_mirror_parity.py.
+export const ROLE_LABELS = {
+  owner: "Owner",
+  admin: "Admin",
+  techfm_oa: "TechFM OA",
+  supervisor: "Supervisor",
+  technician: "Technician",
+};
+
+// Human-facing name for `role`. Unrecognised values come back unchanged
+// rather than blank, so a stale account still renders something readable.
+export function roleLabel(role) {
+  return ROLE_LABELS[role] || role || "";
+}
 
 function rank(role) {
   return role in ROLE_RANK ? ROLE_RANK[role] : -1;
@@ -25,9 +45,10 @@ export function roleAtLeast(role, minimum) {
 }
 
 // Operational Work Order assignment eligibility mirrors app/domain/roles.py.
-// Owner retains full authority but is not an assignment target.
+// Owner retains full authority but is not an assignment target. TechFM OA is
+// a routing choice for the same reason Admin is.
 export function canBeWorkOrderSupervisor(role) {
-  return role === "admin" || role === "supervisor";
+  return role === "admin" || role === "techfm_oa" || role === "supervisor";
 }
 
 export function canBeWorkOrderTechnician(role) {
