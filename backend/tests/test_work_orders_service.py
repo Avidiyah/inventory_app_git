@@ -994,7 +994,7 @@ def test_admin_plus_can_archive_from_any_live_status(db, role, status):
 def test_supervisor_cannot_archive_work_order(db):
     supervisor = _seed_user(db, "supervisor")
     work_order = _wo(db, created_by=supervisor)
-    with pytest.raises(RoleManagementError, match="Admin or Owner"):
+    with pytest.raises(RoleManagementError, match="TechFM OA, Admin, or Owner"):
         wos.archive_work_order(db, work_order.id, user=supervisor)
     db.refresh(work_order)
     assert work_order.archived_at is None
@@ -1098,7 +1098,7 @@ def test_work_order_routing_requires_an_active_supervisor(db):
     work_order = _wo(db, created_by=admin)
     db.commit()
 
-    with pytest.raises(InvalidSupervisorError, match="active Admin or Supervisor"):
+    with pytest.raises(InvalidSupervisorError, match="active TechFM OA, Admin, or Supervisor"):
         wos.update_work_order(
             db,
             work_order.id,
@@ -1108,7 +1108,7 @@ def test_work_order_routing_requires_an_active_supervisor(db):
         )
     db.rollback()
 
-    with pytest.raises(InvalidSupervisorError, match="active Admin or Supervisor"):
+    with pytest.raises(InvalidSupervisorError, match="active TechFM OA, Admin, or Supervisor"):
         wos.update_work_order(
             db,
             work_order.id,
@@ -1118,7 +1118,7 @@ def test_work_order_routing_requires_an_active_supervisor(db):
         )
     db.rollback()
 
-    with pytest.raises(InvalidSupervisorError, match="active Admin or Supervisor"):
+    with pytest.raises(InvalidSupervisorError, match="active TechFM OA, Admin, or Supervisor"):
         wos.update_work_order(
             db,
             work_order.id,
