@@ -162,7 +162,7 @@ def list_stages(
     )
     if status is not None:
         q = q.filter(MassStage.status == status)
-    if user is not None and not roles.role_at_least(user.role, roles.ROLE_ADMIN):
+    if user is not None and not roles.role_at_least(user.role, roles.ROLE_TECHFM_OA):
         q = q.filter(MassStage.created_by_id == user.id)
     return capped(
         q.order_by(MassStage.created_at.desc()).limit(fetch_limit()).all(),

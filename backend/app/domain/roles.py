@@ -124,7 +124,7 @@ def can_transact(actor_role: str, transaction_type: str) -> bool:
     and above) may take stock out. Adding stock is a supervisory action,
     so `stock` requires Supervisor or above. Any other transaction type
     (e.g. the impossible-from-the-schema case, or `adjust`, which has its
-    own Admin-gated route) is refused here."""
+    own TechFM-OA-gated route) is refused here."""
     if transaction_type == "dispense":
         return is_valid_role(actor_role)
     if transaction_type == "stock":

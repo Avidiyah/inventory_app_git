@@ -3,8 +3,8 @@
 Layer: routers (FastAPI). Thin handlers only -- mirrors
 `app/routers/items.py`'s style. Role gates:
 
-- Create / edit / archive / checkout: Admin+ (tools are an Admin-controlled
-  crib; checkout is explicitly Admin-only).
+- Create / edit / archive / checkout: TechFM OA+ (tools are a TechFM-OA-controlled
+  crib; checkout is explicitly TechFM OA+).
 - List / lookup / return: any authenticated user (any role can view the
   Tools page and process a return).
 """
@@ -50,10 +50,10 @@ def _tool_response(db: Session, tool: Tool) -> ToolResponse:
 @router.post("/", response_model=ToolResponse, status_code=201)
 def create_tool(
     payload: ToolCreate,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
-    """Create a tool. Admin+ only. 400 on a live duplicate barcode."""
+    """Create a tool. TechFM OA+ only. 400 on a live duplicate barcode."""
     try:
         tool = tools_service.create_tool(
             db, barcode=payload.barcode, name=payload.name, quantity=payload.quantity
@@ -92,10 +92,10 @@ def get_tool_by_barcode(
 def update_tool(
     tool_id: uuid.UUID,
     payload: ToolUpdate,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
-    """Partially edit barcode and/or name. Admin+ only. 404 if unknown;
+    """Partially edit barcode and/or name. TechFM OA+ only. 404 if unknown;
     400 on a live duplicate barcode."""
     try:
         tool = tools_service.update_tool(
@@ -109,10 +109,10 @@ def update_tool(
 @router.delete(
     "/{tool_id}",
     status_code=204,
-    dependencies=[Depends(require_min_role(roles.ROLE_ADMIN))],
+    dependencies=[Depends(require_min_role(roles.ROLE_TECHFM_OA))],
 )
 def delete_tool(tool_id: uuid.UUID, db: Session = Depends(get_db)):
-    """Soft-delete a tool. Admin+ only. 404 if unknown; 400 while any
+    """Soft-delete a tool. TechFM OA+ only. 404 if unknown; 400 while any
     user has an outstanding custody balance for the tool."""
     try:
         tools_service.delete_tool(db, tool_id)
@@ -124,10 +124,10 @@ def delete_tool(tool_id: uuid.UUID, db: Session = Depends(get_db)):
 def checkout_tool(
     tool_id: uuid.UUID,
     payload: ToolCheckoutCreate,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
-    """Check a tool out to an active `assigned_to_id`. Admin+ only. 404 if
+    """Check a tool out to an active `assigned_to_id`. TechFM OA+ only. 404 if
     the tool or active target user is unknown; 400 if `quantity` exceeds
     on-hand."""
     try:
@@ -149,11 +149,11 @@ def checkout_tool(
 def adjust_tool(
     tool_id: uuid.UUID,
     payload: ToolAdjustCreate,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
     """"Correct Count": set the tool's on-hand quantity to an absolute
-    value with a required reason. Admin+ only, mirrors
+    value with a required reason. TechFM OA+ only, mirrors
     `POST /transactions/adjust`. 404 if unknown; 400 if `new_quantity`
     equals the current quantity (no-op)."""
     try:

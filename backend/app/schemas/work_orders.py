@@ -54,9 +54,9 @@ class WorkOrderUpdate(BaseModel):
     entry_mode: Optional[str] = None
     assigned_to_id: Optional[UUID] = None
     assigned_to_ids: Optional[list[UUID]] = None
-    # CSV-import attributes, editable after import by Admin+. `supervisor_id` is
-    # operational routing, remains Supervisor+, and may target active Admins or
-    # Supervisors.
+    # CSV-import attributes, editable after import by TechFM OA+. `supervisor_id` is
+    # operational routing, remains Supervisor+, and may target active TechFM OAs,
+    # Admins, or Supervisors.
     location: Optional[str] = None
     output_to: Optional[str] = None
     vendor_assignee: Optional[str] = None
@@ -185,7 +185,7 @@ class WorkOrderItemDetail(BaseModel):
     # The line is the billing unit for work-order materials: the customer
     # charge is `effective_billable * unit_price`, where `effective_billable`
     # is `billable_quantity` when set else `quantity`. Both cost fields are
-    # Admin/Owner only (None when redacted for lower roles).
+    # TechFM OA and above only (None when redacted for lower roles).
     unit_price: Optional[Decimal] = None
     billable_quantity: Optional[Decimal] = None
 
@@ -303,11 +303,11 @@ class WorkOrderDetail(WorkOrderCard):
     items: list[WorkOrderItemDetail] = Field(default_factory=list)
     labor: list[WorkOrderLaborDetail] = Field(default_factory=list)
     # Base materials charge = sum over lines of (effective_billable * unit_price),
-    # before the +15% mark-up. Admin/Owner only (None when redacted).
+    # before the +15% mark-up. TechFM OA and above only (None when redacted).
     materials_total: Optional[Decimal] = None
     labor_minutes: int = 0
     labor_billed_minutes: int = 0
     # Labor bills at the fixed domain rate after total-duration rounding. Both
-    # cost fields are Admin/Owner only (None when redacted).
+    # cost fields are TechFM OA and above only (None when redacted).
     labor_rate: Optional[Decimal] = None
     labor_total: Optional[Decimal] = None

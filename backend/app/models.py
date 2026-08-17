@@ -192,7 +192,7 @@ class Transaction(Base):
     # meaning) and for every pre-snapshot row. `services.history` falls back
     # to the live `Item.price` when this is NULL.
     unit_price = Column(Numeric, nullable=True)
-    # Billing override (Admin/Owner only): how many of the row's units should
+    # Billing override (TechFM OA and above only): how many of the row's units should
     # actually be charged to the customer. NULL means "no override -- bill the
     # full `quantity`"; a value of 0 means "recorded but not charged". This is a
     # pure billing annotation: it NEVER touches `Item.quantity` (the items were
@@ -390,7 +390,7 @@ class WorkOrder(Base):
     vendor_assignee = Column(Text, nullable=True)
     service_type = Column(Text, nullable=True)
     schedule_date = Column(Text, nullable=True)
-    # The Admin/Supervisor a work order is routed to. Set by name-match at import
+    # The account a work order is routed to. Set by name-match at import
     # or manually by Supervisor+; drives Supervisor visibility alongside worker
     # assignment membership.
     supervisor_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -707,13 +707,13 @@ class WorkOrderItem(Base):
 
 
 class UserRequest(Base):
-    """An operational exception raised by a user for later Admin review.
+    """An operational exception raised by a user for later review.
 
     Initial request types are ``inventory_recount`` (a dispense exceeds the
     recorded on-hand quantity) and ``missing_item_price`` (an unpriced item is
     attached to a work order and needs both price and product link). The general
     request/status/message/details shape lets later real-world vs. in-app
-    disparities use the same Admin queue without another table.
+    disparities use the same review queue without another table.
 
     Requests are durable audit records. Resolving one stamps who/when rather
     than deleting it; voiding the source transaction resolves its request with
@@ -812,7 +812,7 @@ class ToolTransaction(Base):
     assigned to a user before a checkout is recorded; NULL for `adjust`,
     which has no custody holder), and `performed_by_id` is who was logged
     in and processed the action (mirrors `Transaction.user_id`).
-    `assigned_to_id` and `performed_by_id` may differ -- an Admin can check
+    `assigned_to_id` and `performed_by_id` may differ -- a TechFM OA or Admin can check
     a tool out to a technician.
 
     "Who currently has this tool" is derived, not stored: for a given

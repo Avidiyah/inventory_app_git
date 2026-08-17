@@ -1,9 +1,9 @@
 """HTTP routes for operational User Requests.
 
-Admin/Owner owns the queue, with one deliberate exception: filing an item
+TechFM OA and above own the queue, with one deliberate exception: filing an item
 request is open to any authenticated session, because the Technician who
 cannot find a material on the floor is exactly the person who has to report
-it. Every other operation here stays Admin+.
+it. Every other operation here stays TechFM OA+.
 """
 
 from typing import Literal, Optional
@@ -69,10 +69,10 @@ def _response(
 @router.get("/", response_model=list[UserRequestResponse])
 def list_user_requests(
     status: Optional[Literal["open", "resolved"]] = Query("open"),
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
-    """List Admin-visible requests. Omit ``status`` only through an internal
+    """List queue-visible requests. Omit ``status`` only through an internal
     call; the browser uses ``open`` or ``resolved`` queues explicitly."""
     return [_response(row) for row in request_service.list_user_requests(db, status=status)]
 
@@ -87,7 +87,7 @@ def create_item_request(
 
     The one route on this router open to any authenticated session -- the same
     shape as ``POST /transactions/``, which is also gated by what the caller is
-    doing rather than by rank. Admin+ still owns reading and resolving the
+    doing rather than by rank. TechFM OA+ still owns reading and resolving the
     queue.
     """
     number = None
@@ -125,12 +125,12 @@ def create_item_request(
 )
 def list_request_siblings(
     request_id: uuid.UUID,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
     """Other open item requests naming the same material.
 
-    A proposal for the Admin to confirm before a fulfilment cascades to them,
+    A proposal for a TechFM OA or Admin to confirm before a fulfilment cascades to them,
     never an action in itself.
     """
     try:
@@ -151,7 +151,7 @@ def list_request_siblings(
 def fulfill_item_request(
     request_id: uuid.UUID,
     payload: ItemRequestFulfill,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
     """Create or link the item, log it retroactively on every live work order
@@ -183,7 +183,7 @@ def fulfill_item_request(
 def update_user_request(
     request_id: uuid.UUID,
     payload: UserRequestUpdate,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
     """Move a request through the queue and/or correct how it reads.

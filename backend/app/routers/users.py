@@ -6,8 +6,9 @@ and deleting are all "manage a subordinate" actions: the acting user
 must strictly outrank the target's role (`app.domain.roles.can_manage`),
 which is why an Owner is never manageable through the API and a
 Technician can manage no one. Changing a role additionally requires
-Admin or above and applies the same rank rule to the incoming role, so
-nobody can promote a user to their own level.
+TechFM OA or above and applies the same rank rule to the incoming role,
+so nobody can promote a user to their own level -- which is also what
+keeps a TechFM OA away from Admin and Owner accounts.
 
 The subordinate-rank check lives here (it needs the *actor*); the
 service layer stays unaware of who is calling, consistent with the rest
@@ -113,7 +114,7 @@ def update_user_name(
 @router.patch(
     "/{user_id}/role",
     response_model=UserResponse,
-    dependencies=[Depends(require_min_role(roles.ROLE_ADMIN))],
+    dependencies=[Depends(require_min_role(roles.ROLE_TECHFM_OA))],
 )
 def update_user_role(
     user_id: uuid.UUID,
@@ -121,13 +122,14 @@ def update_user_role(
     actor: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Change a user's role. Admin or above, and -- as with every other
+    """Change a user's role. TechFM OA or above, and -- as with every other
     subordinate action -- the actor must strictly outrank both the role the
     target holds now and the role being assigned. That pair of checks is
     what stops an Admin from promoting anyone (including themselves) to
-    Admin or Owner: `can_manage` is false at equal rank. 404 if unknown;
-    403 otherwise. The target's sessions are revoked, so they sign in again
-    with a UI that matches their new role."""
+    Admin or Owner, and what keeps a TechFM OA out of Admin and Owner
+    accounts entirely: `can_manage` is false at equal rank and below. 404 if
+    unknown; 403 otherwise. The target's sessions are revoked, so they sign in
+    again with a UI that matches their new role."""
     try:
         target = users_service.get_user(db, user_id)
         if not roles.can_manage(actor.role, target.role):

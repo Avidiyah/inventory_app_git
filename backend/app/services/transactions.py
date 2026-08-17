@@ -55,7 +55,7 @@ def apply_transaction(
     Raises `ItemNotFoundError` if the item id is unknown. A Scan / Stock
     dispense is deliberately allowed to move the recorded count below zero:
     that preserves reversible ledger arithmetic while a linked open User
-    Request tells Admin+ that the physical stock needs to be re-counted. Other
+    Request tells TechFM OA+ that the physical stock needs to be re-counted. Other
     stock-moving services retain the shared no-overdraft domain rule.
     """
     item = (
@@ -224,7 +224,7 @@ def void_transaction(
     # contribution. A `dispense` contributed +qty to the line; a reconciling
     # `adjust` from a line edit contributed -qty (its stored quantity is the signed
     # stock delta). Found by (work_order, item); the line drops out at zero. Only
-    # work-order-linked rows qualify -- an Admin correction carries no work_order_id.
+    # work-order-linked rows qualify -- a correction carries no work_order_id.
     if txn.work_order_id is not None and txn.transaction_type in ("dispense", "adjust"):
         line = (
             db.query(WorkOrderItem)

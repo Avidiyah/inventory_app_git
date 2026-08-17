@@ -55,7 +55,7 @@ __all__ = [
 EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED = "work_order.review_queue.changed"
 
 _AUDIENCE_MIN_ROLE = {
-    EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED: roles.ROLE_ADMIN,
+    EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED: roles.ROLE_TECHFM_OA,
 }
 
 # --- thresholds --------------------------------------------------------

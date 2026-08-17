@@ -108,7 +108,7 @@ def list_history(
 
     `include_price` carries the per-unit `item_price` AND the
     `billable_quantity` billing override into each row only when the
-    caller is Admin/Owner; for lower roles both stay `None` so neither
+    caller is TechFM OA and above; for lower roles both stay `None` so neither
     cost data nor billing adjustments are sent to the client (the router
     decides this from the requester's role).
 

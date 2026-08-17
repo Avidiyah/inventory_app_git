@@ -120,7 +120,7 @@ def _find_min_role(dependant):
     return None
 
 
-def test_update_item_barcodes_requires_admin():
+def test_update_item_barcodes_requires_techfm_oa():
     # Same gate as the structural PATCH /items/{id} edit.
     route = _route(items_router, "update_item_barcodes")
-    assert _find_min_role(route.dependant) == roles.ROLE_ADMIN
+    assert _find_min_role(route.dependant) == roles.ROLE_TECHFM_OA

@@ -56,7 +56,7 @@ EnrichmentRunner: TypeAlias = Callable[..., Awaitable[NetFacilitiesEnrichmentSum
 
 @dataclass(frozen=True, slots=True)
 class NetFacilitiesJobSnapshot:
-    """Immutable, source-value-free state safe for an Admin API response."""
+    """Immutable, source-value-free state safe for a gated API response."""
 
     job_id: UUID
     state: JobState

@@ -31,7 +31,7 @@ class TransactionCreate(BaseModel):
 
     Corrections (`transaction_type = "adjust"`) live on a separate
     route (`POST /transactions/adjust`) with its own `CorrectionCreate`
-    schema and Admin+ gate, so this body intentionally does NOT accept
+    schema and TechFM OA+ gate, so this body intentionally does NOT accept
     "adjust".
 
     There is no `user_id` field: a transaction is always attributed to
@@ -88,7 +88,7 @@ class CorrectionCreate(BaseModel):
 
 
 class BillingUpdate(BaseModel):
-    """Payload for `PATCH /transactions/{id}/billing` (Admin/Owner only).
+    """Payload for `PATCH /transactions/{id}/billing` (TechFM OA and above only).
 
     `billable_quantity` is how many of the row's units to charge the
     customer for: `0` to record-but-not-charge, a smaller number to bill
@@ -140,7 +140,7 @@ class TransactionHistoryItem(BaseModel):
     for `transaction_type = "adjust"`.
 
     `item_price` is the *per-unit* price, included ONLY when the requester
-    is Admin/Owner (the service nulls it otherwise); the frontend
+    is TechFM OA and above (the service nulls it otherwise); the frontend
     multiplies it by `quantity` to show the line value and hides the column
     for lower roles. For stock/dispense rows it is the price snapshotted
     onto the transaction when it was written (`Transaction.unit_price`), so
@@ -148,10 +148,10 @@ class TransactionHistoryItem(BaseModel):
     rows (NULL `unit_price`) and any row without a snapshot fall back to the
     live `Item.price`.
 
-    `billable_quantity` is the Admin's billing override (how many units
+    `billable_quantity` is the billing override (how many units
     to actually charge for; NULL = charge the full `quantity`). Like
-    `item_price` it is included ONLY for Admin/Owner — billing is an
-    Admin-only concern — so lower roles always see `None` and the live,
+    `item_price` it is included ONLY for TechFM OA and above — billing is an
+    TechFM-OA-gated concern — so lower roles always see `None` and the live,
     unedited quantity in the Quantity column.
     """
 

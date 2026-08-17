@@ -77,7 +77,7 @@ class ItemRequestFulfill(BaseModel):
     something already in the catalogue, and forcing a create would mean a
     duplicate row every time.
 
-    `sibling_ids` are the other open requests the Admin CONFIRMED name the same
+    `sibling_ids` are the other open requests the reviewer CONFIRMED name the same
     material. The server proposes that set via `GET /{id}/siblings`; it never
     acts on the proposal unsupervised, because a wrong match would retroactively
     bill material to another customer's work order.

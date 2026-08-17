@@ -86,7 +86,7 @@ _ATTR_FIELDS = (
 
 # PATCH permission groups. Notes are the technician-level edit. Supervisor+
 # owns operational routing/status/mode, while imported and legacy metadata is
-# Admin+ so a supervisor's editor stays focused on daily execution.
+# TechFM OA+ so a supervisor's editor stays focused on daily execution.
 _ADMIN_UPDATE_FIELDS = frozenset(("number", *_ATTR_FIELDS))
 _SUPERVISOR_UPDATE_FIELDS = frozenset(
     ("status", "entry_mode", "assigned_to_id", "assigned_to_ids", "supervisor_id")
@@ -106,8 +106,9 @@ def _require_update_permissions(user: Optional[User], fields: dict) -> None:
     if keys & _ADMIN_UPDATE_FIELDS:
         _require_role(
             user,
-            roles.ROLE_ADMIN,
-            "Only an Admin or Owner can edit imported work order details.",
+            roles.ROLE_TECHFM_OA,
+            "Only a TechFM OA, Admin, or Owner can edit imported work order "
+            "details.",
         )
     if keys & _SUPERVISOR_UPDATE_FIELDS:
         _require_role(
@@ -210,7 +211,8 @@ def _validate_assignees(
 def _validate_supervisor(
     db: Session, supervisor_id: Optional[uuid.UUID]
 ) -> None:
-    """A routed work order must target an active Admin or Supervisor account."""
+    """A routed work order must target an active TechFM OA, Admin, or
+    Supervisor account."""
     if supervisor_id is None:
         return
     supervisor = (
@@ -224,7 +226,8 @@ def _validate_supervisor(
     )
     if supervisor is None:
         raise InvalidSupervisorError(
-            "Work orders can only be routed to an active Admin or Supervisor."
+            "Work orders can only be routed to an active TechFM OA, Admin, or "
+            "Supervisor."
         )
 
 
@@ -260,6 +263,13 @@ def _require_review_handoff_permission(
     not review work they are assigned to perform, even when they are also the
     routed Supervisor. Otherwise Admin+ has global authority and the unassigned
     routed Supervisor owns the operational handoff.
+
+    The `ROLE_ADMIN` floor below is the one place in the application that still
+    means Admin rather than TechFM OA, and it is deliberate: the Review handoff
+    is the single capability an Admin holds that a TechFM OA does not. A TechFM
+    OA may be the routed supervisor on a work order and still cannot complete
+    the handoff -- Review is a second-person control, so an Admin, the Owner, or
+    another routed Supervisor closes it out.
     """
     if user is None:
         return
@@ -602,7 +612,8 @@ def get_or_create_work_order(
 # --- CSV import ----------------------------------------------------------
 
 def _supervisor_lookup(db: Session) -> dict[str, Optional[uuid.UUID]]:
-    """Map unambiguous active Admin/Supervisor full names to ids for CSV routing.
+    """Map unambiguous active routing-eligible full names to ids for CSV
+    routing -- TechFM OA, Admin, or Supervisor.
 
     Missing names are deliberately unmatchable. Duplicate normalized names are
     stored as ``None`` so import leaves the relationship unassigned instead of
@@ -638,7 +649,7 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
     empty field; operational data and manual edits survive). Archived matches are
     counted as closed and ignored without restoring or mutating them. The
     `ASSIGNED TO` vendor name is stored raw AND matched to an active system
-    Admin or Supervisor (by normalized first + last name) to set
+    TechFM OA, Admin, or Supervisor (by normalized first + last name) to set
     `supervisor_id`; an unmatched name imports cleanly (admin routes it later).
     A blank/missing task becomes the canonical NetFacilities URL; a later real
     task replaces that generated value without weakening other fill-blank rules.
@@ -884,16 +895,17 @@ def list_work_orders(
 
 
 def _scoped_to_user(query, user: Optional[User]):
-    """Narrow a `WorkOrder` query to what `user` may see. Admin/owner (and a
-    `None` internal caller) see everything, so the query is returned unchanged.
-    Mirrors `domain.work_orders.can_view_work_order`; shared by the list and the
-    CSV export so neither can drift into showing more than the other."""
-    if user is None or roles.role_at_least(user.role, roles.ROLE_ADMIN):
+    """Narrow a `WorkOrder` query to what `user` may see. TechFM OA and above
+    (and a `None` internal caller) see everything, so the query is returned
+    unchanged. Mirrors `domain.work_orders.can_view_work_order`; shared by the
+    list and the CSV export so neither can drift into showing more than the
+    other."""
+    if user is None or roles.role_at_least(user.role, roles.ROLE_TECHFM_OA):
         return query
     if user.role == roles.ROLE_SUPERVISOR:
         # Unrouted work orders are the shared pickup queue. A Supervisor also
         # retains worker access when assigned in the technician set, even if a
-        # different Admin/Supervisor owns the routing field.
+        # different routing-eligible account owns the routing field.
         return query.filter(
             or_(
                 WorkOrder.supervisor_id.is_(None),
@@ -983,7 +995,7 @@ def list_work_orders_for_export(
     is no `limit`: an export is meant to be the whole matching set.
 
     **Deliberately exempt from X3's `MAX_LIST_ROWS` ceiling -- do not "fix"
-    this.** `docs/current-state.md` documents the Admin+ export as the uncapped
+    this.** `docs/current-state.md` documents the TechFM OA+ export as the uncapped
     filtered set, and a CSV that silently omits rows while looking complete is a
     billing and record-keeping problem rather than a performance one. Every
     other list in the app is capped; this one is the considered exception."""
@@ -1377,8 +1389,9 @@ def update_work_order(
     status / entry_mode / assigned_to_ids. Validates status / mode / assignees.
     Nonblank notes append a server-timestamped/authored entry instead of replacing
     prior text. Notes are Technician+; operational fields require Supervisor+;
-    imported and legacy metadata requires Admin+. Review is the exception within
-    general status editing: the row must already be Completed and the caller must
+    imported and legacy metadata requires TechFM OA+. Review is the exception
+    within general status editing, and the one place the floor is still Admin
+    rather than TechFM OA: the row must already be Completed and the caller must
     be an unassigned routed Supervisor or Admin+. When `expected_supervisor_id` is supplied,
     routing changes use it as an optimistic precondition while the work-order
     row is locked.
@@ -1501,7 +1514,7 @@ def update_work_order(
 def archive_work_order(
     db: Session, work_order_id: uuid.UUID, *, user: Optional[User]
 ) -> None:
-    """Close any live work order by soft-archiving it (Admin+).
+    """Close any live work order by soft-archiving it (TechFM OA+).
 
     The row and its material lines stay put and the number stays reserved.
     Reversible only through the explicit `restore_work_order` workflow.
@@ -1510,8 +1523,8 @@ def archive_work_order(
     closed work order's past dispenses stay searchable."""
     _require_role(
         user,
-        roles.ROLE_ADMIN,
-        "Only an Admin or Owner can archive a work order.",
+        roles.ROLE_TECHFM_OA,
+        "Only a TechFM OA, Admin, or Owner can archive a work order.",
     )
     work_order = _get_visible(db, work_order_id, user)
     work_order.archived_at = datetime.now(timezone.utc)

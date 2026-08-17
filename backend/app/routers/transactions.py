@@ -51,7 +51,7 @@ def create_transaction(
     logged-in user may *dispense* (the floor-crew action), but *stock*
     requires Supervisor or above. A Technician attempting to stock gets
     a 403. 404 if the item is unknown. A dispense that exceeds recorded stock
-    is saved with a linked Admin recount request rather than rejected."""
+    is saved with a linked recount request rather than rejected."""
     if not roles.can_transact(user.role, payload.transaction_type):
         raise HTTPException(
             status_code=403,
@@ -98,10 +98,10 @@ def create_transaction(
 @router.post("/adjust", response_model=TransactionResponse, status_code=201)
 def create_correction(
     payload: CorrectionCreate,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
-    """Record a quantity correction. Owner/Admin only. The client sends
+    """Record a quantity correction. TechFM OA+ only. The client sends
     the absolute `new_quantity`; the service computes the signed delta
     under the item row lock and writes a `transaction_type = "adjust"`
     audit row carrying the delta and the required `reason`.
@@ -126,12 +126,12 @@ def create_correction(
 def update_billing(
     transaction_id: UUID,
     payload: BillingUpdate,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
-    """Set or clear a transaction's billing override. Owner/Admin only.
+    """Set or clear a transaction's billing override. TechFM OA+ only.
 
-    Lets an Admin reviewing a work order charge for fewer units than were
+    Lets a reviewer of a work order charge for fewer units than were
     dispensed (or not charge at all) without touching the inventory
     record. `billable_quantity = null` clears the override (bill the full
     recorded quantity); `0` records-but-does-not-charge; any value up to
@@ -200,7 +200,7 @@ def list_transactions(
     100 to bound the join cost.
 
     The per-unit `item_price` is included in each row only for
-    Admin/Owner; Supervisors get `None` so cost data stays gated."""
+    TechFM OA and above; Supervisors get `None` so cost data stays gated."""
     return history_service.list_history(
         db,
         item_id=item_id,
@@ -210,5 +210,5 @@ def list_transactions(
         date_to=date_to,
         page=page,
         page_size=page_size,
-        include_price=roles.role_at_least(user.role, roles.ROLE_ADMIN),
+        include_price=roles.role_at_least(user.role, roles.ROLE_TECHFM_OA),
     )

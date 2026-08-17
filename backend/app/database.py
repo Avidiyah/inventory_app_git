@@ -94,7 +94,7 @@ def check_connection() -> None:
 
     Returning nothing is deliberate: the caller is unauthenticated, so the
     database name, user, and version must not leave the process.
-    `test_connection` is the Admin-gated probe that does report those.
+    `test_connection` is the TechFM OA-gated probe that does report those.
 
     Goes through the pool rather than opening a dedicated connection, so it
     exercises the same path a real request takes -- and since

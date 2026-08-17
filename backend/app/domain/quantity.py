@@ -6,7 +6,7 @@ This module owns the single most important business rule in the
 system: stock-moving workflows reject negative stock unless they explicitly
 raise a tracked operational exception. Scan / Stock is that one exception: its
 service records real usage, permits a negative expected count, and creates an
-Admin User Request. Work-order edits, Mass Stage, tools, corrections, and
+A User Request. Work-order edits, Mass Stage, tools, corrections, and
 reversals continue to use this strict arithmetic.
 
 Called under SELECT ... FOR UPDATE locks by the transaction stock-in path and

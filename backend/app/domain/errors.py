@@ -99,7 +99,7 @@ class UserNotFoundError(DomainError):
 
 
 class UserRequestNotFoundError(DomainError):
-    """Raised when an Admin acts on a User Request that no longer exists."""
+    """Raised when a reviewer acts on a User Request that no longer exists."""
 
 
 class ItemRequestStateError(DomainError):
@@ -148,7 +148,7 @@ class TransactionVoidError(DomainError):
 
 class BillingQuantityError(DomainError):
     """Raised by `domain.billing.validate_billable_quantity` when an
-    Admin's billable-quantity override is invalid -- negative, larger than
+    billable-quantity override is invalid -- negative, larger than
     the units actually recorded, or applied to an `adjust` (correction)
     row that cannot be billed. A pure validation failure, so it maps to
     400."""
@@ -265,7 +265,7 @@ class InvalidAssigneeError(DomainError):
 
 class InvalidSupervisorError(DomainError):
     """Raised when work-order routing targets a missing, archived, or
-    ineligible user. Active Admin and Supervisor accounts are eligible; an
+    ineligible user. Active TechFM OA, Admin, and Supervisor accounts are eligible; an
     unrouted work order (None) is always valid. Maps to 400."""
 
 

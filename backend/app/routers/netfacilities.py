@@ -1,4 +1,4 @@
-"""Admin-only API for NetFacilities sign-in and enrichment jobs."""
+"""TechFM OA+ API for NetFacilities sign-in and enrichment jobs."""
 
 from __future__ import annotations
 
@@ -44,7 +44,13 @@ router = APIRouter(prefix="/integrations/netfacilities", tags=["netfacilities"])
 
 
 def _forbidden() -> dict[int, dict[str, str]]:
-    return {403: {"description": f"Requires {roles.ROLE_ADMIN} role or higher."}}
+    return {
+        403: {
+            "description": (
+                f"Requires the {roles.label(roles.ROLE_TECHFM_OA)} role or higher."
+            )
+        }
+    }
 
 
 def get_netfacilities_coordinator() -> NetFacilitiesJobCoordinator:
@@ -103,7 +109,7 @@ def _saved_state_refreshed_after(
     responses=_forbidden(),
 )
 async def netfacilities_session(
-    _user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    _user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     jobs: NetFacilitiesJobCoordinator = Depends(get_netfacilities_coordinator),
     authentication: NetFacilitiesAuthenticationCoordinator = Depends(
         get_netfacilities_authentication_coordinator
@@ -226,7 +232,7 @@ async def netfacilities_session(
     },
 )
 async def start_netfacilities_authentication(
-    _user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    _user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     authentication: NetFacilitiesAuthenticationCoordinator = Depends(
         get_netfacilities_authentication_coordinator
     ),
@@ -278,7 +284,7 @@ async def start_netfacilities_authentication(
     },
 )
 async def confirm_netfacilities_authentication(
-    _user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    _user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     authentication: NetFacilitiesAuthenticationCoordinator = Depends(
         get_netfacilities_authentication_coordinator
     ),
@@ -317,7 +323,7 @@ async def confirm_netfacilities_authentication(
     },
 )
 async def cancel_netfacilities_authentication(
-    _user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    _user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     authentication: NetFacilitiesAuthenticationCoordinator = Depends(
         get_netfacilities_authentication_coordinator
     ),
@@ -345,7 +351,7 @@ async def cancel_netfacilities_authentication(
     },
 )
 async def start_netfacilities_enrichment(
-    _user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    _user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     jobs: NetFacilitiesJobCoordinator = Depends(get_netfacilities_coordinator),
 ) -> NetFacilitiesEnrichmentJob:
     """Start one saved-session batch; duplicate starts return the active job."""
@@ -395,7 +401,7 @@ async def start_netfacilities_enrichment(
 )
 async def get_netfacilities_enrichment(
     job_id: UUID,
-    _user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    _user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     jobs: NetFacilitiesJobCoordinator = Depends(get_netfacilities_coordinator),
 ) -> NetFacilitiesEnrichmentJob:
     snapshot = await jobs.get(job_id)

@@ -37,7 +37,7 @@ router = APIRouter(prefix="/items", tags=["items"])
 
 def _item_response(item: Item, role: str) -> ItemResponse:
     """Serialise an item, redacting the cost-sensitive `price` and
-    `product_link` for anyone below Admin. This is the authoritative
+    `product_link` for anyone below TechFM OA. This is the authoritative
     gate (the frontend only hides the columns): a Supervisor or
     Technician hitting `GET /items/` directly still gets `null` for
     both fields."""
@@ -47,7 +47,7 @@ def _item_response(item: Item, role: str) -> ItemResponse:
     # flatten to their codes here. Ordered oldest-first for a stable
     # display (the relationship default order is insertion order).
     resp.barcodes = [b.code for b in item.alt_barcodes]
-    if not roles.role_at_least(role, roles.ROLE_ADMIN):
+    if not roles.role_at_least(role, roles.ROLE_TECHFM_OA):
         resp.price = None
         resp.product_link = None
     return resp
@@ -60,10 +60,10 @@ def _item_response(item: Item, role: str) -> ItemResponse:
 )
 def create_item(
     payload: ItemCreate,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
-    """Create an item. Owner/Admin only. 400 on a live duplicate barcode;
+    """Create an item. TechFM OA+ only. 400 on a live duplicate barcode;
     409 when the barcode is held only by an archived item (the client
     confirms and retries with `override_archived` to free it)."""
     try:
@@ -93,7 +93,7 @@ def list_items(
 ):
     """Return live items, optionally filtered by a literal name/barcode
     substring. Any logged-in user. `price` / `product_link` are redacted for
-    non-Admin callers."""
+    below-TechFM-OA callers."""
     return [
         _item_response(item, user.role)
         for item in items_service.list_items(db, search=q)
@@ -110,7 +110,7 @@ def get_item_by_barcode(
     db: Session = Depends(get_db),
 ):
     """Lookup by barcode for the scan/entry flow. Any logged-in user.
-    404 if unknown. `price` / `product_link` are redacted for non-Admin
+    404 if unknown. `price` / `product_link` are redacted for below-TechFM-OA
     callers."""
     try:
         item = items_service.get_item_by_barcode(db, barcode)
@@ -131,12 +131,12 @@ def update_item_notes(
     db: Session = Depends(get_db),
 ):
     """Replace the JSONB `notes` dict wholesale. Supervisor or above
-    (notes are an operational field, distinct from the Admin-only
+    (notes are an operational field, distinct from the TechFM-OA-gated
     structural edits). Notes whitelist is enforced by
     `ItemNotesUpdate`'s field validator; 404 if the item does not exist.
 
     Routed through `_item_response` so a Supervisor saving notes does not
-    receive the Admin-only `price` / `product_link` in the echo."""
+    receive the TechFM-OA-gated `price` / `product_link` in the echo."""
     try:
         item = notes_service.replace_notes(db, item_id, payload.notes)
         return _item_response(item, user.role)
@@ -151,10 +151,10 @@ def update_item_notes(
 def update_item_barcodes(
     item_id: uuid.UUID,
     payload: ItemBarcodesUpdate,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
-    """Replace the item's *additional* barcodes wholesale. Owner/Admin
+    """Replace the item's *additional* barcodes wholesale. TechFM OA+
     only (same gate as the structural `PATCH /items/{item_id}` edit). The
     canonical `barcode` is unchanged -- it is edited via that route. 404 if
     the item does not exist; 400 if a submitted code is already in use by
@@ -180,11 +180,11 @@ def update_item_barcodes(
 def update_item(
     item_id: uuid.UUID,
     payload: ItemUpdate,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
     """Partially edit barcode, name, location, price, and/or product link.
-    Owner/Admin only. Only the fields present in the request body are
+    TechFM OA+ only. Only the fields present in the request body are
     written; an explicit `null` clears `price` / `product_link`. 404 if the
     item does not exist; 400 on a live duplicate barcode; 409 when the new
     barcode is held only by an archived item (the client confirms and
@@ -208,10 +208,10 @@ def update_item(
 @router.delete(
     "/{item_id}",
     status_code=204,
-    dependencies=[Depends(require_min_role(roles.ROLE_ADMIN))],
+    dependencies=[Depends(require_min_role(roles.ROLE_TECHFM_OA))],
 )
 def delete_item(item_id: uuid.UUID, db: Session = Depends(get_db)):
-    """Soft-delete (archive) an item. Owner/Admin only. 404 if unknown."""
+    """Soft-delete (archive) an item. TechFM OA+ only. 404 if unknown."""
     try:
         items_service.delete_item(db, item_id)
     except DomainError as exc:

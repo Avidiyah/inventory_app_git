@@ -9,7 +9,7 @@ Layer: app entry. This file does five things and nothing else:
    the single-page frontend at `/`.
 3. Expose the two database probes: `/healthz`, the unauthenticated
    liveness check the deployment platform polls, and `/db-test`, the
-   Admin-gated probe deployment scripts use to confirm *which*
+   TechFM OA-gated probe deployment scripts use to confirm *which*
    database is connected.
 4. Wrap every request in the middleware pair: the security headers and
    the logging/request-id scope.
@@ -380,7 +380,7 @@ def healthz():
     Deliberately reports **no** database detail: not the name, user, or
     version, and not the driver's error text (psycopg's `OperationalError`
     routinely carries the host, port, and database name from the DSN).
-    `/db-test` is the Admin-gated route that reports those.
+    `/db-test` is the TechFM OA-gated route that reports those.
 
     `SQLAlchemyError` rather than a bare `except`, so a genuine bug in this
     handler still surfaces as a 500 instead of being laundered into a
@@ -401,10 +401,10 @@ def healthz():
     return {"status": "ok"}
 
 
-@app.get("/db-test", dependencies=[Depends(require_min_role(roles.ROLE_ADMIN))])
+@app.get("/db-test", dependencies=[Depends(require_min_role(roles.ROLE_TECHFM_OA))])
 def db_test():
-    """Liveness probe for the database connection. Restricted to
-    Owner/Admin. Returns the current database name and connected user so
+    """Liveness probe for the database connection. Restricted to TechFM OA
+    and above. Returns the current database name and connected user so
     deploys can confirm they are pointed at the right environment."""
     database_name, user_name = test_connection()
 

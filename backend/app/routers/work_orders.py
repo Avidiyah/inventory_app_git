@@ -9,13 +9,13 @@ save notes, add materials, and use narrow assigned-worker start/complete/hold/re
 walkthrough. Supervisor+ owns operational routing, general status, entry mode,
 labor, and material corrections. Sending Completed work to Review requires a
 second person: an assigned worker is excluded even when also routed Supervisor.
-Admin+ additionally owns imported and legacy metadata edits.
-Closing (the archive operation) is Admin+ from any live status. Both an expanded
+TechFM OA+ additionally owns imported and legacy metadata edits.
+Closing (the archive operation) is TechFM OA+ from any live status. Both an expanded
 Work Orders card and the Review queue may call the same endpoint.
 Out-of-scope, archived, or unknown work orders surface as 404.
 
 There is no create route: work orders are import-only, so `POST /work-orders/
-import` (Admin+) is the one way a work order enters the system. Everything else
+import` (TechFM OA+) is the one way a work order enters the system. Everything else
 here operates on an already-imported work order.
 
 **Every static role gate in this module is declarative.** Eight routes carry
@@ -150,7 +150,7 @@ def _line_detail(line: WorkOrderItem, *, include_price: bool) -> WorkOrderItemDe
         quantity=line.quantity,
         mode=line.mode,
         # The line bills at the item's current price; both cost fields are
-        # redacted below Admin.
+        # redacted below TechFM OA.
         unit_price=line.item.price if include_price else None,
         billable_quantity=line.billable_quantity if include_price else None,
     )
@@ -233,9 +233,9 @@ def _detail(work_order: WorkOrder, *, include_price: bool) -> WorkOrderDetail:
 
 
 def _can_see_price(user: User) -> bool:
-    """Cost fields (line unit price) are Admin/Owner only, mirroring item /
+    """Cost fields (line unit price) are TechFM OA and above only, mirroring item /
     history price redaction."""
-    return roles.role_at_least(user.role, roles.ROLE_ADMIN)
+    return roles.role_at_least(user.role, roles.ROLE_TECHFM_OA)
 
 
 def _forbidden(minimum: str) -> dict:
@@ -249,7 +249,7 @@ def _forbidden(minimum: str) -> dict:
 
     Named once so the eight gated routes in this module cannot drift into
     describing the same status differently."""
-    return {403: {"description": f"Requires the {minimum} role or above."}}
+    return {403: {"description": f"Requires the {roles.label(minimum)} role or above."}}
 
 
 # --- routes --------------------------------------------------------------
@@ -317,16 +317,16 @@ def work_order_filter_options(
     "/import",
     response_model=WorkOrderImportResult,
     responses={
-        **_forbidden(roles.ROLE_ADMIN),
+        **_forbidden(roles.ROLE_TECHFM_OA),
         413: {"description": "CSV exceeds the upload size cap."},
     },
 )
 def import_work_orders(
     file: UploadFile = File(...),
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
-    """Bulk-import work orders from the mass CSV export (Admin+). Each row
+    """Bulk-import work orders from the mass CSV export (TechFM OA+). Each row
     find-or-creates by number (idempotent re-upload), stores the new-schema
     columns, and matches the vendor `ASSIGNED TO` name to a supervisor to route
     visibility. Archived matches are counted as closed and left untouched.
@@ -354,7 +354,7 @@ def import_work_orders(
     return WorkOrderImportResult(**summary)
 
 
-@router.get("/export", responses=_forbidden(roles.ROLE_ADMIN))
+@router.get("/export", responses=_forbidden(roles.ROLE_TECHFM_OA))
 def export_work_orders(
     scope: str = Query(wo.EXPORT_SCOPE_ALL),
     variant: str = Query(wo.EXPORT_VARIANT_FULL),
@@ -363,11 +363,11 @@ def export_work_orders(
     community: Optional[str] = None,
     scheduled_date: Optional[date] = None,
     q: Optional[str] = None,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
     """Download the caller's work orders as CSV, one row per work order
-    (Admin+).
+    (TechFM OA+).
 
     `scope` is `all`, `archived`, or one live status -- the same vocabulary the
     page's status filter uses, plus the closed work orders the list hides.
@@ -427,7 +427,7 @@ def lookup_work_order(
     Declared before `/{work_order_id}` so "lookup" is not parsed as an id. This is
     the one read that sees through the archive: the list and detail routes hide
     archived work orders, which leaves a searched number with no visible work
-    order. History and Admin+'s Work Orders search use this to offer a restore. A
+    order. History and TechFM OA+'s Work Orders search use this to offer a restore. A
     number the caller may not see reports `found=False`, same as the list would
     show."""
     work_order = wo_service.lookup_work_order(db, number=number, user=user)
@@ -503,7 +503,7 @@ def update_work_order(
     """Edit a scoped work order under the service's role matrix.
 
     Technician: append notes only. Supervisor+: routing, technicians, general
-    status, and entry mode. Admin+: imported/legacy metadata as well. Review is
+    status, and entry mode. TechFM OA+: imported/legacy metadata as well. Review is
     restricted further to a Completed row and a second, unassigned responsible
     user. The service stamps each nonblank note with server time and the
     authenticated user's display name. Server-scoped.
@@ -616,14 +616,14 @@ def resume_work_order(
 @router.post(
     "/{work_order_id}/archive",
     status_code=204,
-    responses=_forbidden(roles.ROLE_ADMIN),
+    responses=_forbidden(roles.ROLE_TECHFM_OA),
 )
 def archive_work_order(
     work_order_id: uuid.UUID,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
-    """Close any live work order (Admin+, scoped) by soft-archiving it."""
+    """Close any live work order (TechFM OA+, scoped) by soft-archiving it."""
     try:
         wo_service.archive_work_order(db, work_order_id, user=user)
         _emit_review_queue_changed(work_order_id)
@@ -697,20 +697,20 @@ def update_work_order_item(
 @router.patch(
     "/{work_order_id}/items/{wo_item_id}/billing",
     response_model=WorkOrderItemDetail,
-    responses=_forbidden(roles.ROLE_ADMIN),
+    responses=_forbidden(roles.ROLE_TECHFM_OA),
 )
 def set_work_order_item_billing(
     work_order_id: uuid.UUID,
     wo_item_id: uuid.UUID,
     payload: WorkOrderItemBilling,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
-    """Set or clear a material line's billing override (Admin/Owner). The line is
+    """Set or clear a material line's billing override (TechFM OA and above). The line is
     the billing unit for work-order materials, so this charges fewer units than
     were consumed (or none) without touching stock. `null` clears the override;
     `0` records but does not charge; a value up to the line quantity bills a
-    partial count. 403 below Admin; 400 if the value exceeds the line quantity.
+    partial count. 403 below TechFM OA; 400 if the value exceeds the line quantity.
 
     The gate is a dependency rather than a `_can_see_price` check in this body:
     `_can_see_price` is the price-*redaction* predicate, and using it to

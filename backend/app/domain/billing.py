@@ -1,7 +1,7 @@
 """Pure billing rules.
 
 Layer: pure domain (no FastAPI, no SQLAlchemy, no Pydantic). Holds the
-single rule that validates an Admin's billable-quantity override before
+single rule that validates a billable-quantity override before
 the service writes it, so it can be unit-tested without a database.
 
 A billable-quantity override answers "how many of this row's units do we

@@ -11,7 +11,7 @@ than by a stock operation: a user searched for a material and the catalogue had
 no row for it at all. That is deliberately narrower than it sounds -- an in-app
 item sitting at zero is still findable, because ``list_items`` filters on
 ``archived_at`` and never on quantity, so a short count is ``inventory_recount``
-territory. An item request carries a NULL ``item_id`` until an Admin fulfils it,
+territory. An item request carries a NULL ``item_id`` until a reviewer fulfils it,
 and that NULL is exactly what distinguishes "not in the app" from "in the app,
 count is wrong".
 """
@@ -35,7 +35,7 @@ REQUEST_ITEM = "item_request"
 STATUS_OPEN = "open"
 STATUS_RESOLVED = "resolved"
 
-# Which `details` keys each request type lets an Admin edit. The recount
+# Which `details` keys each request type lets a reviewer edit. The recount
 # numbers are absent by design: `recorded_quantity_before`,
 # `dispensed_quantity`, and `shortage_quantity` are a frozen snapshot of what
 # the system observed at dispense time, and a snapshot someone can rewrite to
@@ -207,7 +207,7 @@ def find_sibling_item_requests(
     else's request. So `copper elbow 3/4` matches `3/4 copper elbow`, while
     `copper elbow` does not sweep up `copper elbow press`.
 
-    The Admin still confirms the returned set before a fulfilment cascades to
+    The reviewer still confirms the returned set before a fulfilment cascades to
     it; this is a proposal, not a decision.
     """
     target = _token_set((request.details or {}).get("searched_text"))

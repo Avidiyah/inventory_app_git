@@ -205,7 +205,7 @@ def labor_charge(total_minutes: int) -> Decimal:
 
 
 def effective_billable(quantity: Decimal, billable_quantity: Optional[Decimal]) -> Decimal:
-    """Units actually charged on a material line: the Admin override when one is
+    """Units actually charged on a material line: the billing override when one is
     set, otherwise the full recorded quantity. Shared by the card/detail
     responses and the CSV export so a work order's materials total is the same
     number wherever it is read."""
@@ -442,12 +442,12 @@ def can_view_work_order(
 ) -> bool:
     """Whether a user of `role` may see/act on a work order.
 
-    Admin/owner (and a `None`-role internal caller) see all. A Supervisor sees
+    TechFM OA and above (and a `None`-role internal caller) see all. A Supervisor sees
     unrouted work orders available to pick up, work orders routed to them, and
     work orders where they are assigned to perform technician work. A Technician
     sees only work orders assigned to them.
     """
-    if role is None or roles.role_at_least(role, roles.ROLE_ADMIN):
+    if role is None or roles.role_at_least(role, roles.ROLE_TECHFM_OA):
         return True
     technician_ids = tuple(assigned_to_ids or ())
     if assigned_to_id is not None and assigned_to_id not in technician_ids:

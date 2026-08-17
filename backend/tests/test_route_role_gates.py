@@ -75,11 +75,12 @@ def test_update_item_notes_requires_supervisor():
     assert _min_role_for(items_router, "update_item_notes") == roles.ROLE_SUPERVISOR
 
 
-def test_update_user_role_requires_admin():
-    # Changing someone's role is Admin+; the outranks-the-target rule inside
-    # the handler is additional, not a substitute (a Supervisor outranks a
-    # Technician but still may not re-role them).
-    assert _min_role_for(users_router, "update_user_role") == roles.ROLE_ADMIN
+def test_update_user_role_requires_techfm_oa():
+    # Changing someone's role is TechFM OA+; the outranks-the-target rule inside
+    # the handler is additional, not a substitute. That inner rule is what stops
+    # a TechFM OA from touching an Admin, and what stops a Supervisor from
+    # re-roling a Technician they do outrank.
+    assert _min_role_for(users_router, "update_user_role") == roles.ROLE_TECHFM_OA
 
 
 def test_update_user_name_has_no_static_min_role():
@@ -88,17 +89,20 @@ def test_update_user_name_has_no_static_min_role():
     assert _min_role_for(users_router, "update_user_name") is None
 
 
-def test_update_item_requires_admin():
-    assert _min_role_for(items_router, "update_item") == roles.ROLE_ADMIN
+def test_update_item_requires_techfm_oa():
+    assert _min_role_for(items_router, "update_item") == roles.ROLE_TECHFM_OA
 
 
-def test_delete_item_requires_admin():
-    assert _min_role_for(items_router, "delete_item") == roles.ROLE_ADMIN
+def test_delete_item_requires_techfm_oa():
+    assert _min_role_for(items_router, "delete_item") == roles.ROLE_TECHFM_OA
 
 
-def test_create_correction_requires_admin():
+def test_create_correction_requires_techfm_oa():
     # `POST /transactions/adjust`.
-    assert _min_role_for(transactions_router, "create_correction") == roles.ROLE_ADMIN
+    assert (
+        _min_role_for(transactions_router, "create_correction")
+        == roles.ROLE_TECHFM_OA
+    )
 
 
 def test_void_transaction_has_no_static_min_role():
@@ -178,8 +182,11 @@ def test_work_order_list_forwards_joinable_filters(monkeypatch):
     }
 
 
-def test_archive_work_order_requires_admin():
-    assert _min_role_for(work_orders_router, "archive_work_order") == roles.ROLE_ADMIN
+def test_archive_work_order_requires_techfm_oa():
+    assert (
+        _min_role_for(work_orders_router, "archive_work_order")
+        == roles.ROLE_TECHFM_OA
+    )
 
 
 @pytest.mark.parametrize(
@@ -193,8 +200,8 @@ def test_archive_work_order_requires_admin():
         "get_netfacilities_enrichment",
     ],
 )
-def test_netfacilities_routes_require_admin_and_document_403(endpoint_name):
-    assert _min_role_for(netfacilities_router, endpoint_name) == roles.ROLE_ADMIN
+def test_netfacilities_routes_require_techfm_oa_and_document_403(endpoint_name):
+    assert _min_role_for(netfacilities_router, endpoint_name) == roles.ROLE_TECHFM_OA
     assert 403 in _route(netfacilities_router, endpoint_name).responses
 
 
@@ -213,11 +220,11 @@ def test_netfacilities_routes_require_admin_and_document_403(endpoint_name):
 @pytest.mark.parametrize(
     "endpoint_name,expected",
     [
-        ("import_work_orders", roles.ROLE_ADMIN),
-        ("export_work_orders", roles.ROLE_ADMIN),
+        ("import_work_orders", roles.ROLE_TECHFM_OA),
+        ("export_work_orders", roles.ROLE_TECHFM_OA),
         ("lookup_work_order", roles.ROLE_SUPERVISOR),
         ("restore_work_order", roles.ROLE_SUPERVISOR),
-        ("set_work_order_item_billing", roles.ROLE_ADMIN),
+        ("set_work_order_item_billing", roles.ROLE_TECHFM_OA),
     ],
 )
 def test_folded_work_order_gates_are_declarative(endpoint_name, expected):
@@ -244,7 +251,7 @@ def test_the_role_gate_still_runs_before_the_size_check():
     # the pairing, since the ordering itself now belongs to the framework.
     route = _route(work_orders_router, "import_work_orders")
 
-    assert _find_min_role(route.dependant) == roles.ROLE_ADMIN
+    assert _find_min_role(route.dependant) == roles.ROLE_TECHFM_OA
     assert "file" in {param.name for param in route.dependant.body_params}
 
 
@@ -264,7 +271,7 @@ def test_billing_gate_answers_before_the_body_is_validated():
     # mechanism is what a future edit would break.
     route = _route(work_orders_router, "set_work_order_item_billing")
 
-    assert _find_min_role(route.dependant) == roles.ROLE_ADMIN
+    assert _find_min_role(route.dependant) == roles.ROLE_TECHFM_OA
     assert "payload" in {param.name for param in route.dependant.body_params}
 
 
@@ -300,8 +307,8 @@ def test_every_gated_work_order_route_documents_its_403(endpoint_name):
         "fulfill_item_request",
     ],
 )
-def test_user_request_routes_require_admin(endpoint_name):
-    assert _min_role_for(user_requests_router, endpoint_name) == roles.ROLE_ADMIN
+def test_user_request_routes_require_techfm_oa(endpoint_name):
+    assert _min_role_for(user_requests_router, endpoint_name) == roles.ROLE_TECHFM_OA
 
 
 def test_filing_an_item_request_has_no_static_min_role():
@@ -439,24 +446,24 @@ def test_stale_work_order_assignment_maps_to_named_http_409():
     )
 
 
-def test_create_tool_requires_admin():
-    assert _min_role_for(tools_router, "create_tool") == roles.ROLE_ADMIN
+def test_create_tool_requires_techfm_oa():
+    assert _min_role_for(tools_router, "create_tool") == roles.ROLE_TECHFM_OA
 
 
-def test_update_tool_requires_admin():
-    assert _min_role_for(tools_router, "update_tool") == roles.ROLE_ADMIN
+def test_update_tool_requires_techfm_oa():
+    assert _min_role_for(tools_router, "update_tool") == roles.ROLE_TECHFM_OA
 
 
-def test_delete_tool_requires_admin():
-    assert _min_role_for(tools_router, "delete_tool") == roles.ROLE_ADMIN
+def test_delete_tool_requires_techfm_oa():
+    assert _min_role_for(tools_router, "delete_tool") == roles.ROLE_TECHFM_OA
 
 
-def test_checkout_tool_requires_admin():
-    assert _min_role_for(tools_router, "checkout_tool") == roles.ROLE_ADMIN
+def test_checkout_tool_requires_techfm_oa():
+    assert _min_role_for(tools_router, "checkout_tool") == roles.ROLE_TECHFM_OA
 
 
-def test_adjust_tool_requires_admin():
-    assert _min_role_for(tools_router, "adjust_tool") == roles.ROLE_ADMIN
+def test_adjust_tool_requires_techfm_oa():
+    assert _min_role_for(tools_router, "adjust_tool") == roles.ROLE_TECHFM_OA
 
 
 @pytest.mark.parametrize(
@@ -465,5 +472,26 @@ def test_adjust_tool_requires_admin():
 )
 def test_tool_routes_open_to_any_session_have_no_static_min_role(endpoint_name):
     # Viewing the Tools page/lookup and processing a return are open to any
-    # authenticated role -- only checkout/create/edit/archive are Admin+.
+    # authenticated role -- only checkout/create/edit/archive are TechFM OA+.
     assert _min_role_for(tools_router, endpoint_name) is None
+
+
+def test_no_route_gate_is_left_at_the_admin_floor():
+    # After the TechFM OA insert, every route that once read "Admin or above"
+    # means "TechFM OA or above" -- the Admin floor survives in exactly one
+    # place, and it is a service-level check inside the Review handoff, not a
+    # route gate. A new route written with ROLE_ADMIN out of habit would
+    # silently lock TechFM OA out of a capability it is supposed to have, and
+    # nothing else in the suite would notice. This is that notice.
+    #
+    # If a genuinely Admin-only route is ever added, add its endpoint name to
+    # the expected set here, deliberately and with a reason.
+    from app.main import app as fastapi_app
+
+    offenders = {
+        route.endpoint.__name__
+        for route in fastapi_app.routes
+        if isinstance(route, APIRoute)
+        and _find_min_role(route.dependant) == roles.ROLE_ADMIN
+    }
+    assert offenders == set()
