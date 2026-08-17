@@ -2,11 +2,27 @@
 
 Layer: pure domain (no FastAPI, no SQLAlchemy, no Pydantic).
 
-There are four roles. Authority is strictly ordered by rank, and the
+There are five roles. Authority is strictly ordered by rank, and the
 single rule that drives every user-management decision is: *an actor
 may create, reset, or delete a user only when the actor outranks that
 user* (`can_manage`). The set of roles an actor may hand out is exactly
 the set ranked below them (`assignable_roles`).
+
+TechFM OA sits between Supervisor and Admin. It holds the whole Admin
+toolkit with two subtractions, and both of them are consequences of its
+rank rather than special cases written anywhere:
+
+* it fails `role_at_least(role, ROLE_ADMIN)`, which is the floor
+  `services.work_orders._require_review_handoff_permission` requires, so
+  it cannot send a work order to Review; and
+* `can_manage` is false against Admin and Owner, so it can neither
+  re-role them nor hand those roles out.
+
+Every *other* gate that once read "Admin or above" now reads
+`ROLE_TECHFM_OA`. A new route written with `ROLE_ADMIN` out of habit
+would silently lock TechFM OA out of a capability it is meant to have,
+so `tests/test_route_role_gates.py` asserts that no route gate is left
+at the Admin floor.
 
 Owner is the top of the hierarchy and is created only by the bootstrap
 script (`backend/scripts/create_owner.py`); no API caller can manage an
@@ -15,6 +31,7 @@ Owner because no role outranks it.
 
 ROLE_OWNER = "owner"
 ROLE_ADMIN = "admin"
+ROLE_TECHFM_OA = "techfm_oa"
 ROLE_SUPERVISOR = "supervisor"
 ROLE_TECHNICIAN = "technician"
 
@@ -22,8 +39,9 @@ ROLE_TECHNICIAN = "technician"
 ROLE_RANK: dict[str, int] = {
     ROLE_TECHNICIAN: 0,
     ROLE_SUPERVISOR: 1,
-    ROLE_ADMIN: 2,
-    ROLE_OWNER: 3,
+    ROLE_TECHFM_OA: 2,
+    ROLE_ADMIN: 3,
+    ROLE_OWNER: 4,
 }
 
 # Newest-first is irrelevant here; this is the canonical list of every
@@ -31,14 +49,31 @@ ROLE_RANK: dict[str, int] = {
 ALL_ROLES: tuple[str, ...] = (
     ROLE_OWNER,
     ROLE_ADMIN,
+    ROLE_TECHFM_OA,
     ROLE_SUPERVISOR,
     ROLE_TECHNICIAN,
 )
 
+# Human-facing names. Every other role's label is just its capitalised
+# slug, but "TechFM OA" is not derivable that way, so the mapping is
+# explicit and the UI and the OpenAPI descriptions both read from it.
+# `static/roles.js` carries the same table; the pair is pinned by
+# `tests/test_role_mirror_parity.py`.
+ROLE_LABELS: dict[str, str] = {
+    ROLE_OWNER: "Owner",
+    ROLE_ADMIN: "Admin",
+    ROLE_TECHFM_OA: "TechFM OA",
+    ROLE_SUPERVISOR: "Supervisor",
+    ROLE_TECHNICIAN: "Technician",
+}
+
 # Work-order assignment roles are intentionally narrower than authority floors.
 # Owners retain full access but are not operational routing/worker choices.
+# TechFM OA is a routing choice for the same reason Admin is; it is not a
+# worker, for the same reason Admin is not.
 WORK_ORDER_SUPERVISOR_ROLES: tuple[str, ...] = (
     ROLE_ADMIN,
+    ROLE_TECHFM_OA,
     ROLE_SUPERVISOR,
 )
 WORK_ORDER_TECHNICIAN_ROLES: tuple[str, ...] = (
@@ -48,8 +83,15 @@ WORK_ORDER_TECHNICIAN_ROLES: tuple[str, ...] = (
 
 
 def is_valid_role(role: str) -> bool:
-    """True if `role` is one of the four recognised roles."""
+    """True if `role` is one of the five recognised roles."""
     return role in ROLE_RANK
+
+
+def label(role: str) -> str:
+    """Human-facing name for `role`, for UI copy and OpenAPI descriptions.
+    An unrecognised value is returned unchanged rather than raising -- a
+    description string is never worth a 500."""
+    return ROLE_LABELS.get(role, role)
 
 
 def rank(role: str) -> int:
