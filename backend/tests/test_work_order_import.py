@@ -433,6 +433,28 @@ def test_import_matches_supervisor_by_name(db):
     assert unmatched.status == "created"
 
 
+def test_reimport_does_not_recount_supervisor_matches(db):
+    """The supervisor counters describe newly created work orders only. A
+    re-imported number already carries whatever routing it was given, so it is
+    not a fresh name match and must not inflate the import summary."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    sup, csv_name = _seed_named_supervisor(db)
+    hit, miss = _num(), _num()
+    csv_bytes = _csv([
+        [hit, "Loc1", "Belfor", csv_name, "SMR27", "7/1/2026", "A"],
+        [miss, "Loc2", "Belfor", "Unknown Person (Belfor)", "SMR27", "7/2/2026", "B"],
+    ])
+    wos.import_work_orders(db, csv_bytes=csv_bytes, user=admin)
+
+    result = wos.import_work_orders(db, csv_bytes=csv_bytes, user=admin)
+
+    assert result["created"] == 0
+    assert result["opened"] == 2
+    assert result["supervisors_matched"] == 0
+    assert result["supervisors_unmatched"] == 0
+    assert wos.find_by_number(db, hit).supervisor_id == sup.id
+
+
 def test_import_matches_admin_as_supervisor_by_name(db):
     importing_admin = _seed_user(db, roles.ROLE_ADMIN)
     routed_admin = _seed_user(

@@ -284,8 +284,10 @@ class WorkOrderImportResult(BaseModel):
     """Summary of a `POST /work-orders/import` CSV upload. `created` are new work
     orders, `opened` matched an existing number (fill-blanks, no duplicate);
     `closed` matched an archived number and was ignored without mutation;
-    `supervisors_matched`/`supervisors_unmatched` count rows whose vendor name did
-    / did not resolve to a system supervisor; `skipped` had a blank number."""
+    `supervisors_matched`/`supervisors_unmatched` count only the newly created
+    work orders whose vendor name did / did not resolve to a system supervisor
+    (a re-imported number keeps its existing routing and is not recounted);
+    `skipped` had a blank number."""
 
     total: int
     created: int

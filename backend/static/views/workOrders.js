@@ -1524,6 +1524,15 @@ if (netFacilitiesEnrichBtn) {
 
 // --- CSV import (Admin+) --------------------------------------------------
 
+// How many work orders the import added, and how many of those the CSV's
+// `ASSIGNED TO` name routed to a supervisor on its own. `supervisors_matched`
+// counts new work orders only, so the match count never exceeds `created`.
+function importSummary(r) {
+  if (!r.created) return "No new work orders.";
+  const noun = r.created === 1 ? "new work order" : "new work orders";
+  return `${r.created} ${noun} · ${r.supervisors_matched} with a supervisor name match.`;
+}
+
 async function handleImport() {
   const file = importFile.files && importFile.files[0];
   if (!file) return;
@@ -1531,16 +1540,9 @@ async function handleImport() {
   importBtn.disabled = true;
   try {
     const r = await apiImportWorkOrders(file);
-    const parts = [
-      `Processed ${r.total} CSV row${r.total === 1 ? "" : "s"}`,
-      `${r.created} new, ${r.opened} updated`,
-      `${r.closed} closed work order${r.closed === 1 ? "" : "s"} ignored`,
-    ];
-    if (r.supervisors_matched || r.supervisors_unmatched) {
-      parts.push(`${r.supervisors_matched} supervisor name matches, ${r.supervisors_unmatched} unmatched`);
-    }
-    if (r.skipped) parts.push(`${r.skipped} skipped (no number)`);
-    setMessage(importMessage, parts.join(" · ") + ".", "success");
+    // Only the new work orders are worth reporting: re-imported numbers keep
+    // their own routing, and rows the import passed over changed nothing.
+    setMessage(importMessage, importSummary(r), "success");
     // Reset caches so a re-import reflects fresh data, then reload the list.
     usersLoaded = false;
     filterOptionsLoaded = false;

@@ -657,7 +657,8 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
     and the required `WORK ORDER` header are preflighted before row commits.
 
     Returns a summary dict (`total`, `created`, `opened`, `closed`,
-    `supervisors_matched`, `supervisors_unmatched`, `skipped`)."""
+    `supervisors_matched`, `supervisors_unmatched`, `skipped`). The two
+    supervisor counters describe only the work orders this import created."""
     try:
         text = csv_bytes.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
@@ -713,10 +714,13 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
             closed += 1
             continue
 
-        if attrs.get("vendor_assignee") is not None:
+        # Name matching is only news on a work order this import created. A
+        # re-imported number keeps whatever routing it already had, so counting
+        # it again would overstate what the operator has to review.
+        if not existed:
             if supervisor_id is not None:
                 matched += 1
-            else:
+            elif attrs.get("vendor_assignee") is not None:
                 unmatched += 1
         if existed:
             opened += 1
