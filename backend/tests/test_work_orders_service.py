@@ -5,6 +5,10 @@ fill-blanks, restore-on-archived), resolve-by-number (every other surface, which
 may not create), dispense vs retroactive logging, edit auto-correction, delete
 reversal, the stock-neutral void, archive/restore, and role scoping. Skip if no
 DB.
+
+The Review-handoff permission tests at the end of the file are the exception:
+`_require_review_handoff_permission` reads only a handful of attributes through
+`getattr`, so they run against stand-ins and need no database.
 """
 
 import os
@@ -17,10 +21,12 @@ import logging
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
 from app.domain import list_limits
+from app.domain import roles
 from app.domain import work_orders as wo
 from app.domain.errors import (
     InvalidAssigneeError,
@@ -1517,3 +1523,52 @@ def test_a_callers_own_smaller_limit_is_not_reported_as_truncation(db, monkeypat
 
     assert len(rows) == 2
     assert [r for r in caplog.records if r.getMessage() == "list.truncated"] == []
+
+
+# --- Review handoff permission (pure: no DB) -------------------------------
+#
+# `_require_review_handoff_permission` reads only `user.id`, `user.role`,
+# `work_order.supervisor_id`, and the two assignment attributes, all through
+# `getattr` with fallbacks -- so stand-ins are enough and these run on a
+# machine with no database.
+
+def _review_stub_work_order(supervisor_id=None, assigned_to_id=None):
+    """Minimal stand-in for the four attributes the handoff gate reads."""
+    return SimpleNamespace(
+        supervisor_id=supervisor_id,
+        assigned_to_id=assigned_to_id,
+        technician_assignments=(),
+    )
+
+
+def test_techfm_oa_cannot_send_a_work_order_to_review():
+    # The single capability an Admin has and a TechFM OA does not. No special
+    # case implements this -- it falls out of ranking below Admin -- so the
+    # rule needs a test of its own or a future re-rank would silently grant it.
+    actor = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_TECHFM_OA)
+    with pytest.raises(RoleManagementError):
+        wos._require_review_handoff_permission(_review_stub_work_order(), actor)
+
+
+def test_techfm_oa_cannot_review_even_as_the_routed_supervisor():
+    # TechFM OA IS a valid routing target (WORK_ORDER_SUPERVISOR_ROLES), so
+    # this is reachable in production: they own the work order operationally
+    # and still hand the final step to an Admin, Owner, or routed Supervisor.
+    actor = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_TECHFM_OA)
+    with pytest.raises(RoleManagementError):
+        wos._require_review_handoff_permission(
+            _review_stub_work_order(supervisor_id=actor.id), actor
+        )
+
+
+def test_admin_and_owner_still_send_work_orders_to_review():
+    for role in (roles.ROLE_ADMIN, roles.ROLE_OWNER):
+        actor = SimpleNamespace(id=uuid.uuid4(), role=role)
+        wos._require_review_handoff_permission(_review_stub_work_order(), actor)
+
+
+def test_unassigned_routed_supervisor_still_sends_to_review():
+    actor = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_SUPERVISOR)
+    wos._require_review_handoff_permission(
+        _review_stub_work_order(supervisor_id=actor.id), actor
+    )
