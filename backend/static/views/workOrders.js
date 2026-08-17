@@ -828,6 +828,25 @@ if (moreEl) {
   });
 }
 
+// The summary line of a work-order card. Shared by the initial render and the
+// real-time single-card update, so the two projections cannot drift. Accepts a
+// WorkOrderDetail as well: the schema subclasses WorkOrderCard, so a detail
+// response carries every field this reads.
+function summaryHtml(card) {
+  const place = placeMeta(card);
+  const technicianNames = assignedNames(card);
+  const assignee = technicianNames.length
+    ? ` · ${escapeHtml(technicianNames.join(", "))}`
+    : "";
+  const legacyTag = card.legacy ? `<span class="wo-legacy-tag">Legacy</span>` : "";
+  return (
+    `<span class="wo-title">WO ${escapeHtml(card.number)}</span>` +
+    statusBadge(card.status) +
+    legacyTag +
+    `<span class="wo-meta">${place ? escapeHtml(place) + " · " : ""}${card.item_count} items${assignee}</span>`
+  );
+}
+
 function buildCard(card) {
   const el = document.createElement("details");
   el.className = `wo-card wo-card-status-${card.status}`;
@@ -835,17 +854,7 @@ function buildCard(card) {
 
   const summary = document.createElement("summary");
   summary.className = "wo-summary";
-  const place = placeMeta(card);
-  const technicianNames = assignedNames(card);
-  const assignee = technicianNames.length
-    ? ` · ${escapeHtml(technicianNames.join(", "))}`
-    : "";
-  const legacyTag = card.legacy ? `<span class="wo-legacy-tag">Legacy</span>` : "";
-  summary.innerHTML =
-    `<span class="wo-title">WO ${escapeHtml(card.number)}</span>` +
-    statusBadge(card.status) +
-    legacyTag +
-    `<span class="wo-meta">${place ? escapeHtml(place) + " · " : ""}${card.item_count} items${assignee}</span>`;
+  summary.innerHTML = summaryHtml(card);
 
   const body = document.createElement("div");
   body.className = "wo-body";
