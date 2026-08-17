@@ -357,7 +357,7 @@ Real-time invalidation (`domain/realtime.py`, `services/realtime.py`,
   into ordinary event data so the independent dispatch task can preserve the
   originating HTTP request's causal trace.
 - Two application events exist. `work_order.review_queue.changed`, delivered
-  only to Admin and Owner, invalidates the Review-status queue projection
+  to TechFM OA and above, invalidates the Review-status queue projection
   (membership plus the number/location/assignee card fields), not the whole
   work-order aggregate and not an open Admin Review receipt.
   `work_order.status.changed`, delivered to every role that can open the Work
@@ -377,7 +377,7 @@ Real-time invalidation (`domain/realtime.py`, `services/realtime.py`,
   `id: null` because it is a membership command: it can put a row back into a
   recipient's list when no on-screen card represents it yet, so the client
   must refetch the list rather than target one card. `update_work_order` emits
-  unconditionally, with no "did status change" check. On the four routes that
+  unconditionally, with no "did status change" check. On the three routes that
   emit both events, `_emit_review_queue_changed` runs first and
   `_emit_status_changed` second; the order is pinned, not incidental, because
   restore's status envelope carries `id: null` and a caller inspecting
