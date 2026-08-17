@@ -348,28 +348,44 @@ Logging (`app/logging_config.py`, added 2026-08-09 as N1):
   attaches itself.
 
 Real-time invalidation (`domain/realtime.py`, `services/realtime.py`,
-`routers/realtime.py`, `static/realtime.js`, `static/views/adminReview.js`;
-implementation Tasks 1-12 on
-`feat/realtime-live-layer`):
+`routers/realtime.py`, `static/realtime.js`, `static/views/adminReview.js`,
+`static/views/workOrders.js`; implementation Tasks 1-12 on
+`feat/realtime-live-layer`, Work Orders live status added later):
 
 - The wire envelope is exactly `type`, `id`, and `req`. It never carries row
   data or an actor. `req` is copied from `logging_config.current_request_id()`
   into ordinary event data so the independent dispatch task can preserve the
   originating HTTP request's causal trace.
-- The first and currently only application event is
-  `work_order.review_queue.changed`, delivered only to Admin and Owner. It
-  invalidates the Review-status queue projection (membership plus the
-  number/location/assignee card fields), not the whole work-order aggregate and
-  not an open Admin Review receipt.
-- Exactly five work-order commands emit after their mutating service returns:
-  CSV import and bulk legacy archive once each with `id: null`, plus update,
-  archive, and restore with the work-order UUID. Successful capable no-ops emit
-  intentionally; the extra refetch is cheaper and safer than before/after state
-  plumbing.
-- Start, complete, hold, resume, materials, billing, and labor do not emit this
-  projection event. Any future route capable of changing Review membership or
-  the queue's displayed card fields must call the same helper and extend
+- Two application events exist. `work_order.review_queue.changed`, delivered
+  only to Admin and Owner, invalidates the Review-status queue projection
+  (membership plus the number/location/assignee card fields), not the whole
+  work-order aggregate and not an open Admin Review receipt.
+  `work_order.status.changed`, delivered to every role that can open the Work
+  Orders page (technician and above), invalidates the Work Orders card list.
+- Exactly five work-order commands emit `work_order.review_queue.changed`
+  after their mutating service returns: CSV import and bulk legacy archive
+  once each with `id: null`, plus update, archive, and restore with the
+  work-order UUID. Successful capable no-ops emit intentionally; the extra
+  refetch is cheaper and safer than before/after state plumbing.
+- Start, complete, hold, resume, materials, billing, and labor do not emit the
+  review-queue event. Any future route capable of changing Review membership
+  or the queue's displayed card fields must call the same helper and extend
   `test_realtime_emit.py`'s exact emitter-set assertion.
+- Seven work-order commands emit `work_order.status.changed` after their
+  mutating service returns: start, complete, hold, resume, update, archive,
+  and restore, each with the work-order UUID -- except restore, which emits
+  `id: null` because it is a membership command: it can put a row back into a
+  recipient's list when no on-screen card represents it yet, so the client
+  must refetch the list rather than target one card. `update_work_order` emits
+  unconditionally, with no "did status change" check. On the four routes that
+  emit both events, `_emit_review_queue_changed` runs first and
+  `_emit_status_changed` second; the order is pinned, not incidental, because
+  restore's status envelope carries `id: null` and a caller inspecting
+  `envelopes[0]` must still find the review-queue entity invalidation.
+- The audience map is a noise/efficiency rule, not a security boundary.
+  Envelopes carry no row data, so scoping is enforced where it always was: by
+  `can_view_work_order` on the client's REST re-fetch. Neither event type
+  needed new authorization code.
 - Emission is non-blocking and best-effort. A full handoff drops and counts the
   newest invalidation but never changes the durable HTTP write. REST remains the
   source of truth.
@@ -389,6 +405,35 @@ implementation Tasks 1-12 on
 - Admin Review subscribes to the queue event and to reconnect recovery. It
   refreshes only while `admin-review` is active; inactive notifications need no
   dirty flag because navigation already performs a fresh REST load on entry.
+- Work Orders (`views/workOrders.js`) subscribes to `work_order.status.changed`
+  and, like Admin Review, refreshes only while its own page is active. An
+  entity event for a card on screen refetches that one work order via
+  `apiGetWorkOrder` and rewrites its summary and status badge in place; a 404
+  on that refetch removes the row instead, since the work order left this
+  user's view entirely (archived, or unassigned from them). An entity event
+  for a work order not on screen is ignored outright -- chasing it would mean
+  every client refetches the whole list on every status change anywhere. A
+  null id (restore) or a `reason: "reconnect"` notification refetches the
+  full list, since a membership change or missed events can leave the list
+  itself wrong in ways a single card can't fix.
+- A card with any of its four editor sections open (`.wo-edit-card`,
+  `.wo-notes-section`, `.wo-materials-section`, `.wo-labor-section`) is held:
+  no refresh touches it, so an in-progress note, material quantity, labor
+  entry, or technician selection is never discarded out from under the user.
+  A held card is flagged with `data-missed-update` and catches up once its
+  last open editor closes; `openDetail`'s own repaint on close already brings
+  the card current, so it clears the flag itself. A full list refetch is
+  deferred entirely while any card is held -- `renderCards` clears the list
+  wholesale, which would destroy an open editor -- and runs once the last
+  hold clears.
+- If a status filter is active and a work order's new status no longer
+  matches it, the row stays visible with its badge updated rather than being
+  removed; only a 404 on refetch removes a row. Rebuilding the filtered view
+  from the server on every status change would collapse every expanded card
+  while filtered, which is worse than the staleness it would fix, and
+  evaluating the filter client-side was rejected to avoid drifting from
+  server filter semantics. The stale row self-corrects on the next full
+  list load.
 - Socket-driven queue refreshes are silent: they do not show the loading copy,
   and a failed automatic REST refetch preserves the usable queue. Foreground
   navigation and Reopen/Close loads retain their existing loading and error UI.
