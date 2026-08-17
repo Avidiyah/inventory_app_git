@@ -64,6 +64,7 @@ import {
   roleAtLeast,
 } from "../roles.js";
 import { openBillingEditor } from "./billingEditor.js";
+import { subscribe } from "../realtime.js";
 
 const listEl = document.getElementById("work-orders-list");
 const listMessage = document.getElementById("work-orders-list-message");
@@ -118,6 +119,9 @@ let pendingFocusId = null;
 // queries the full set. See loadWorkOrders / renderMoreControl.
 const RECENT_LIMIT = 10;
 let showAll = false;
+
+const STATUS_CHANGED_EVENT = "work_order.status.changed";
+const WORK_ORDERS_PAGE = "work-orders";
 
 export function focusWorkOrder(workOrderId) {
   pendingFocusId = workOrderId;
@@ -845,6 +849,29 @@ function summaryHtml(card) {
     legacyTag +
     `<span class="wo-meta">${place ? escapeHtml(place) + " · " : ""}${card.item_count} items${assignee}</span>`
   );
+}
+
+// One work order changed. Rewrite just that card's summary and status class --
+// the body, and any editor open inside it, is deliberately left untouched.
+//
+// A 404 means the work order left this user's view: archived, or unassigned
+// from them. Either way the row goes. Only 404 removes a card; a network blip
+// rejects without a `status` field and must leave the list alone.
+async function refreshCardSummary(cardEl) {
+  let detail;
+  try {
+    detail = await apiGetWorkOrder(cardEl.dataset.id);
+  } catch (err) {
+    if (err?.status !== 404) return;
+    cardEl.remove();
+    if (!listEl.querySelector("details.wo-card")) {
+      listEl.innerHTML = `<p class="hint">No work orders match.</p>`;
+    }
+    return;
+  }
+  const summary = cardEl.querySelector("summary.wo-summary");
+  if (summary) summary.innerHTML = summaryHtml(detail);
+  cardEl.className = `wo-card wo-card-status-${detail.status}`;
 }
 
 function buildCard(card) {
@@ -1741,3 +1768,20 @@ if (clearFiltersBtn) {
     loadWorkOrders();
   });
 }
+
+// Status invalidations for the card list. Like Admin Review, this refreshes only
+// while its own page is active -- an inactive page needs no dirty flag because
+// nav.js already performs a fresh REST load on entry (static/views/nav.js:154).
+//
+// An event for a work order that is not on screen is ignored. Chasing it with a
+// list refetch would mean every technician's client reloading the whole list
+// every time anyone changed a status anywhere. A work order newly *appearing*
+// for someone is a membership change, which arrives as a null id instead.
+subscribe(STATUS_CHANGED_EVENT, ({ activePage, envelope }) => {
+  if (activePage !== WORK_ORDERS_PAGE) return;
+  if (!listEl || !envelope?.id) return;
+
+  const cardEl = listEl.querySelector(`details.wo-card[data-id="${envelope.id}"]`);
+  if (!cardEl) return;
+  return refreshCardSummary(cardEl);
+});
