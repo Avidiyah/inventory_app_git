@@ -30,10 +30,14 @@ For review/debugging work:
 3. Use `Test Map` to find existing coverage and missing coverage.
 
 If this file conflicts with code, trust the code and update this file as part of
-the change. The 2026-08-10 baseline is `main` at `f0e3b3c`: **69 router
-operations** across 9 routers, Alembic head **`fbc4e6a8d0f2`** (31 revisions),
-and **659 passing backend tests**. Documents quoting 72 operations,
-`faa2c4e6b8d0`, or 478 tests describe the superseded 2026-08-06 baseline.
+the change. The 2026-08-16 baseline is `main` at `4a211fb`: **79 router
+operations** across 11 routers (78 HTTP + the `/ws` WebSocket) plus 3 app-level
+routes in `main.py`, Alembic head **`0c1d2e3f4a5b`** (32 revisions), and
+**974 collected backend tests**.
+
+A document is describing a superseded baseline if it quotes 72 operations /
+`faa2c4e6b8d0` / 478 tests (2026-08-06), or 69 operations across 9 routers /
+`fbc4e6a8d0f2` / 31 revisions / 659 tests (2026-08-10, `f0e3b3c`).
 
 ## Fast Orientation
 
@@ -47,6 +51,10 @@ Runtime shape:
 - Static no-build frontend under `backend/static`.
 - Barcode upload decoding through backend `pyzbar`.
 - Live camera scanning through vendored `@zxing/browser`.
+- One same-origin `/ws` WebSocket per authenticated browser for cache
+  invalidation only; REST remains the source of truth.
+- Read-only NetFacilities work-order enrichment through a bundled Playwright
+  Chromium, Admin-gated and disabled by default.
 - Render deployment: one Docker web service wired to an existing managed
   Postgres instance.
 
@@ -61,7 +69,7 @@ Core workflows:
 - Review/copy transaction history.
 - Manage users and role-scoped access.
 - Add tools by barcode and manage custody from a user-first profile card:
-  Admin/Owner search active users and check out available tools by search or
+  TechFM OA and above search active users and check out available tools by search or
   scan; every role can check in its UI-selected user's holdings. Bulk tools
   (`quantity > 1`) can still be split across multiple holders.
 
@@ -119,7 +127,7 @@ Path shorthand:
 | Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | mass-stage tests plus manual UI check |
 | Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
 | Work Orders UI | `static/views/workOrders.js`, `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | work-order tests plus manual UI check |
-| NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_auth.py`, `services/netfacilities_jobs.py`, `services/netfacilities_operations.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | Admin+ local headed sign-in saves protected state; Render consumes an operator-provisioned secret state file through isolated bundled Chromium document navigation with JavaScript/subresources blocked; CSV import remains the sole creator and starts one serialized enrichment job only when auth is ready; the existing one-second poll exposes the current requested number while running; only exact fallback Task/Symptom and blank Priority may change; local live happy path and hosted capability enablement accepted; hosted Priority retrieval remains pending acceptance |
+| NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_auth.py`, `services/netfacilities_jobs.py`, `services/netfacilities_operations.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | TechFM OA+ local headed sign-in saves protected state; Render consumes an operator-provisioned secret state file through isolated bundled Chromium document navigation with JavaScript/subresources blocked; CSV import remains the sole creator and starts one serialized enrichment job only when auth is ready; the existing one-second poll exposes the current requested number while running; only exact fallback Task/Symptom and blank Priority may change; local live happy path and hosted capability enablement accepted; hosted Priority retrieval remains pending acceptance |
 | Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, manual UI check |
 | Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
 | Tools API/domain/service (custody) | `domain/tools.py`, `domain/quantity.py` (reused), `services/tools.py`, `routers/tools.py`, `schemas/tools.py`, `models.py` | `test_tools_domain.py`, `test_tools_service.py`, `test_route_role_gates.py` |
@@ -153,11 +161,20 @@ backend/app/services/netfacilities_auth.py process-local headed sign-in start/co
 backend/app/services/netfacilities_jobs.py serialized saved-state enrichment job coordinator
 backend/app/services/netfacilities_operations.py one shared protected-profile operation lease
 backend/app/routers/netfacilities.py Admin-only auth/capability/start/poll routes
-backend/app/lifespan.py         composed realtime + NetFacilities task shutdown
+backend/app/services/netfacilities.py enrichment pass over live work-order candidates
+backend/app/domain/realtime.py   pure envelope/audience rules + every policy constant
+backend/app/services/realtime.py in-process connection registry, per-user cap, dispatch
+backend/app/services/realtime_limits.py handshake-attempt and inbound-frame rate limits
+backend/app/routers/realtime.py  the `/ws` handshake; NO app middleware runs here
+backend/app/domain/push.py       pure Web Push policy -- DORMANT, see Removed, Replaced, And Dormant
+backend/app/logging_config.py    per-request id, JSON formatter, request context
+backend/app/lifespan.py          composed realtime + NetFacilities task shutdown
 backend/alembic/versions/*.py    migrations
 backend/scripts/create_owner.py  owner bootstrap
 backend/scripts/import_local_data.ps1 local data import helper
 backend/scripts/netfacilities_poc.py manual-auth/read-only local lookup CLI; auth state feeds the local app job
+backend/scripts/netfacilities_diagnostic.py one-work-order safe-shape markup diagnostic
+backend/scripts/generate_vapid_keys.py VAPID keypair generator -- DORMANT, see above
 ```
 
 Frontend:
@@ -166,15 +183,18 @@ Frontend:
 backend/static/main.js           frontend composition root
 backend/static/api.js            fetch wrappers for every backend route
 backend/static/state.js          shared client state
-backend/static/roles.js          frontend mirror of role hierarchy
+backend/static/roles.js          frontend mirror of role hierarchy + labels
 backend/static/format.js         display/error/safe-url helpers
 backend/static/dom.js            DOM helpers and confirm dialog
+backend/static/realtime.js       `/ws` transport + backoff; no DOM/view dependency
+backend/static/pricingText.js    shared price/redaction copy
+backend/static/adminReviewReceipt.js frontend half of the 41-char receipt contract
 backend/static/views/*.js        page/view modules
 backend/static/views/workOrders.js Work Orders page view
 backend/static/views/tools.js    Tools page (list/search/scan) + Add Tool form binding
-backend/static/views/toolCheckout.js Tool checkout sub-flow (Admin+)
+backend/static/views/toolCheckout.js Tool checkout sub-flow (TechFM OA+)
 backend/static/views/toolReturn.js Tool return sub-flow (any role)
-backend/static/views/userRequests.js Admin/Owner request queue
+backend/static/views/userRequests.js TechFM OA and above request queue
 backend/static/pages/*.html      SPA page fragments
 backend/static/pages/work-orders.html Work Orders page fragment
 backend/static/pages/tools.html  Tools page fragment
@@ -198,8 +218,17 @@ backend/tests/test_quantity_reverse.py
 backend/tests/test_user_requests.py
 backend/tests/test_mass_staging*.py
 backend/tests/test_netfacilities_*.py
+backend/tests/test_realtime_*.py
+backend/tests/test_rate_limit*.py
+backend/tests/test_login_throttle*.py
+backend/tests/test_list_*.py
+backend/tests/test_push_domain.py
+backend/tests/test_vapid_keys.py
 backend/tests/conftest.py
 ```
+
+The `Test Map` section below carries the full per-file coverage table; this list
+is a routing aid, not an inventory.
 
 ## Runtime And Stack
 
@@ -393,7 +422,7 @@ Upload size caps (`app/routers/_uploads.py`, added 2026-08-09 as B1):
   CSV parser -- it does not stop a large body being transmitted. Refusing that
   early would need a `Content-Length` check in middleware; that was considered
   and rejected as a global interceptor against an already-disk-bounded threat.
-- On `/work-orders/import` the Admin+ gate runs **before** the size check, so an
+- On `/work-orders/import` the TechFM OA+ gate runs **before** the size check, so an
   unauthorised caller gets 403 and learns nothing about the cap. Since C1
   (2026-08-10) that ordering is FastAPI's rather than statement order in the
   handler: the gate is a dependency and the upload is a body param, and
@@ -516,7 +545,7 @@ Security/access:
     gained an upper bound of `MAX_LIST_ROWS` (it was `ge=1`, unbounded), and
     omitting `limit` no longer takes a separate uncapped code path — same rows,
     same order, less loading.
-  - **The Admin+ work-order CSV export is deliberately exempt** and remains the
+  - **The TechFM OA+ work-order CSV export is deliberately exempt** and remains the
     uncapped filtered set. A CSV that silently omits rows while looking complete
     is a records problem, not a performance one.
   - **Owner-validated in the browser on 2026-08-10** across all six capped lists
@@ -528,7 +557,7 @@ Security/access:
 - User management requires strict subordinate authority: actor rank must be
   greater than target role rank.
 - Owner is bootstrap-only; API users cannot manage an owner.
-- Admin/Owner cost fields are redacted server-side for lower roles.
+- TechFM OA and above cost fields are redacted server-side for lower roles.
 
 Work orders:
 
@@ -606,8 +635,8 @@ Work orders:
   Created/Assigned from the technician field. Material/labor activity does not
   resume On-Hold. `completed_at` is retained through Review and cleared by
   rollback/reopen. Closed is not a stored status: it is `archived_at`.
-- Closing requires Admin+ and is valid from every live status. Each expanded Work
-  Orders card exposes the confirmed Archive action to Admin/Owner; Admin Review
+- Closing requires TechFM OA+ and is valid from every live status. Each expanded Work
+  Orders card exposes the confirmed Archive action to TechFM OA and above; Admin Review
   retains its receipt-aware Close action for Review rows. The row and lines
   remain, the number stays reserved, and only the explicit `restore_work_order`
   workflow can return it to live views. CSV import counts and ignores it. Closing
@@ -635,7 +664,7 @@ Work orders:
   linked dispense into a line (companion to the one-time backfill migration
   `c4e6a8b0d2f5`).
 - The line is the **billing unit** for work-order materials: the customer charge
-  is `effective_billable * current Item.price` (Admin/Owner only), where
+  is `effective_billable * current Item.price` (TechFM OA and above only), where
   `effective_billable` is `work_order_items.billable_quantity` when set else the
   line `quantity`. Shown per line and summed into `materials_total` on the Work
   Orders page. Work-order-linked transaction rows (`work_order_id` set) are a pure
@@ -644,7 +673,7 @@ Work orders:
   when a line goes 2->8) is never billed as a negative. Ad-hoc (non-work-order)
   transactions keep their per-row History charge.
 - `work_order_items.billable_quantity` is the per-line billing override
-  (Admin/Owner, `PATCH .../items/{id}/billing`): NULL bills the full `quantity`,
+  (TechFM OA and above, `PATCH .../items/{id}/billing`): NULL bills the full `quantity`,
   `0` records but does not charge, a value <= quantity bills a partial count. It
   never moves stock. Lowering a line's `quantity` below an existing override
   clears the override (reverts to full). Labor billing is implemented separately;
@@ -660,8 +689,8 @@ Work orders:
   adding materials, and the assignment-checked start/complete walkthrough are
   Technician+; operational routing/general status/mode, labor, and material
   corrections are Supervisor+; Review adds the Completed + second-person gate;
-  imported/legacy metadata and close/archive are Admin+; archive accepts any
-  live status.
+  imported/legacy metadata and close/archive are TechFM OA+; archive accepts
+  any live status.
 
 Mass staging:
 
@@ -696,7 +725,7 @@ Frontend:
 Role order:
 
 ```text
-owner > admin > supervisor > technician
+owner > admin > techfm_oa > supervisor > technician
 ```
 
 | Capability | Rule |
@@ -707,47 +736,69 @@ owner > admin > supervisor > technician
 | History | supervisor+ |
 | Void transaction | supervisor+ for any actionable row; Technician may remove only their own work-order dispense |
 | Edit item notes | supervisor+ |
-| Create/edit/archive item | admin+ |
-| Correct count | admin+ |
-| View item price/product link | admin+; server redaction below admin |
-| Set billing override | admin+ |
+| Create/edit/archive item | techfm_oa+ |
+| Correct count | techfm_oa+ |
+| View item price/product link | techfm_oa+; server redaction below techfm_oa |
+| Set billing override | techfm_oa+ |
 | List users | supervisor+ |
 | Create/reset/archive/restore/delete user | actor must outrank target |
 | Edit user name + username | self, or actor outranks target |
-| Change a user's role | admin+ AND actor outranks both the current and the new role |
+| Change a user's role | techfm_oa+ AND actor outranks both the current and the new role (so a TechFM OA can never touch an Admin or Owner, nor hand those roles out) |
 | Mass-stage page/API | supervisor+ |
-| Work Orders list/get/items | any authenticated user, server-scoped (Technician: assigned; Supervisor: unassigned OR routed to self OR assigned as a worker; Admin/Owner: all) |
+| Work Orders list/get/items | any authenticated user, server-scoped (Technician: assigned; Supervisor: unassigned OR routed to self OR assigned as a worker; TechFM OA+: all) |
 | Edit Work Order notes / add material | any authenticated in-scope user |
 | Edit Work Order supervisor / technicians / status / entry mode / labor / logged-material quantity or removal | supervisor+ (scoped) |
-| Edit imported Work Order metadata (Location, Service, Schedule Date, Output to, Vendor Contact, Symptom/Task) | admin+ (scoped) |
-| Import work orders (CSV) | admin+ |
-| Export work orders (CSV, full or For Client) | admin+, server-scoped |
+| Edit imported Work Order metadata (Location, Service, Schedule Date, Output to, Vendor Contact, Symptom/Task) | techfm_oa+ (scoped) |
+| Import work orders (CSV) | techfm_oa+ |
+| Export work orders (CSV, full or For Client) | techfm_oa+, server-scoped |
 | Preview/re-archive all live legacy work orders | owner exactly; server gate and service check |
-| Admin Review page / receipt | admin+; lists every live Review work order |
-| User Requests page / request status | admin+; list, edit, resolve/reopen, and fulfil operational exceptions |
+| Admin Review page / receipt | techfm_oa+; lists every live Review work order |
+| User Requests page / request status | techfm_oa+; list, edit, resolve/reopen, and fulfil operational exceptions |
 | File an item request | any authenticated user, from an empty search on Work Orders or Find Item |
-| Close/archive a work order | admin+ (scoped), any live status; UI action lives on expanded Work Orders cards and remains in Admin Review for Review rows |
-| Set work-order line billing override | admin+ (scoped) |
+| Close/archive a work order | techfm_oa+ (scoped), any live status; UI action lives on expanded Work Orders cards and remains in Admin Review for Review rows |
+| Set work-order line billing override | techfm_oa+ (scoped) |
+| Send a Completed work order to Review | **admin+**, or the routed Supervisor when not also an assigned worker. The one capability an Admin holds that a TechFM OA does not — see the note below |
 | Scan-gate work-order cards | any authenticated user (scoped Created/Assigned/In-Progress list); In-Progress starts a batch, Assigned confirms an in-place start for Technician+, Created opens Work Orders for assignment |
 | Tools: view list/lookup, return | any authenticated user |
-| Tools: create, edit, archive, checkout | admin+ |
+| Tools: create, edit, archive, checkout | techfm_oa+ |
 
-Tools UI nuance: Admin/Owner can search every active user and act on that
+TechFM OA nuance: the role sits between Supervisor and Admin (rank 2 of
+`technician 0 < supervisor 1 < techfm_oa 2 < admin 3 < owner 4`) and carries the
+whole Admin toolkit with two subtractions, both of which fall out of the rank
+rather than any special case:
+
+1. **It cannot send a work order to Review.** The handoff floor in
+   `services.work_orders._require_review_handoff_permission` is the one
+   `ROLE_ADMIN` left in `backend/app`; a TechFM OA fails it, and fails the
+   routed-Supervisor branch too. A TechFM OA *is* a valid routing target, so
+   they can own a work order operationally and still hand the final step to an
+   Admin, the Owner, or another routed Supervisor. The Work Orders card shows
+   them the button disabled with that reason rather than hiding it.
+2. **It cannot re-role an Admin or Owner, or hand those roles out.**
+   `can_manage` is false at equal rank and above. Admins keep full control of
+   TechFM OA accounts and can create them, which is why the role got its own
+   rank instead of sharing Admin's.
+
+`tests/test_route_role_gates.py` asserts that no route gate is left at the Admin
+floor, so a new route written with `ROLE_ADMIN` out of habit fails loudly
+instead of silently locking TechFM OA out.
+
+Tools UI nuance: TechFM OA and above can search every active user and act on that
 user's custody card. Supervisor/Technician are pinned to their own card. The
 HTTP return route remains session-gated and accepts any `assigned_to_id`; this
 self-scope is a frontend workflow boundary, not a backend authorization rule.
 
 Scoping nuance:
 
-- `GET /mass-stages/` list is scoped: supervisor sees own stages, admin/owner
+- `GET /mass-stages/` list is scoped: supervisor sees own stages, techfm_oa+
   all. Direct stage-by-ID routes are supervisor+ gated but not additionally
   creator-scoped once the caller has a stage id.
 - The `/work-orders` routes DO add real per-row assignment scope checks
   (`services.work_orders`), because technicians reach them. Unassigned rows are
   the shared Supervisor pickup queue; a routed row is visible only to its
-  selected Supervisor and Admin/Owner. The service also
+  selected Supervisor and TechFM OA and above. The service also
   enforces the edit matrix: Technician = notes/add material; Supervisor+ =
-  operations/labor/material corrections; Admin+ = imported/legacy metadata.
+  operations/labor/material corrections; TechFM OA+ = imported/legacy metadata.
 
 ## Data Model
 
@@ -780,7 +831,7 @@ Rules:
   (`PATCH /users/{id}/name`, self or a manageable subordinate); uniqueness is
   still the database's call, surfaced as a 400. The password is unaffected,
   and sessions survive because they key on the user id, not the login name.
-- `role` is editable by Admin+ through `PATCH /users/{id}/role`, which revokes
+- `role` is editable by TechFM OA+ through `PATCH /users/{id}/role`, which revokes
   the target's sessions so the role-shaped frontend cannot outlive the change.
 - Full names are not unique. Two active routing-eligible users (Admin or
   Supervisor) with the same normalized first + last name are intentionally
@@ -971,7 +1022,7 @@ Rules:
   compatibility mirror of the first selected worker for Mass Stage and older
   clients.
 - Soft delete via `archived_at` is the Closed state; the number stays reserved
-  and material lines are kept. Closing is Admin+ from any live status and is
+  and material lines are kept. Closing is TechFM OA+ from any live status and is
   available on expanded Work Orders cards. A closed work order is invisible to list
   and detail loads, so it comes back only through explicit `restore_work_order`
   (`POST /work-orders/{id}/restore`, Supervisor+). CSV import and ordinary
@@ -983,7 +1034,7 @@ Rules:
   locks the same row, validates an active Admin or Supervisor target, and can compare the
   caller's `expected_supervisor_id` to reject stale pickup attempts with 409.
 - **CSV-import schema (the new default source of truth).** The mass work-order
-  export is bulk-imported via `POST /work-orders/import` (Admin+). Its columns
+  export is bulk-imported via `POST /work-orders/import` (TechFM OA+). Its columns
   land on `location` (raw LOCATION string, deliberately unparsed), `output_to`,
   `vendor_assignee` (the raw "ASSIGNED TO" contact -- a vendor name, NOT a system
   user), `service_type`, `schedule_date` (raw; some rows carry a time), and
@@ -1033,7 +1084,7 @@ Rules:
   (`UNIQUE(work_order_id, item_id)`); re-logging an item ADDS to its row -- the
   line is the aggregate of that item's dispenses, written by every stock-out path
   via `attach_dispense_line`. The line is also the **billing unit**: the
-  Admin/Owner charge is `effective_billable * current Item.price` (exposed as the
+  TechFM OA and above charge is `effective_billable * current Item.price` (exposed as the
   response `unit_price`, redacted below Admin), so work-order-linked transaction
   rows carry no per-row charge in History.
 - Every in-scope role may add a material. Editing an aggregate line quantity or
@@ -1077,7 +1128,7 @@ Rules:
   Supervisor+ and may target any assigned Technician or Supervisor.
 - Billing sums all actual minutes on the work order, rounds the combined total
   upward once to the next 30 minutes, then charges `$62.50/hour`. Rate and total
-  are returned only to Admin/Owner; actual and billed durations are visible to
+  are returned only to TechFM OA and above; actual and billed durations are visible to
   every in-scope user.
 - The first labor insert uses `status_after_activity`, advancing Created/Assigned
   to In-Progress while leaving On-Hold and later states unchanged. Editing or
@@ -1151,7 +1202,7 @@ Rules:
   their primary row and reject the archive until every outstanding unit is
   checked in.
 - `adjust` is the "Correct Count" action (`POST /tools/{id}/adjust`,
-  Admin+, mirrors `POST /transactions/adjust`): the client sends the
+  TechFM OA+, mirrors `POST /transactions/adjust`): the client sends the
   **absolute** new on-hand quantity, the service computes the signed delta
   under the row lock via `domain.quantity.apply_delta(qty, "adjust",
   delta)`, and `reason` is required (schema-validated non-blank). This is
@@ -1214,8 +1265,8 @@ specified.
 | --- | --- | --- | --- |
 | GET | `/` | public | assembled SPA shell |
 | GET | `/healthz` | public | liveness probe: runs `SELECT 1`; `{"status":"ok"}` or 503 `Database unavailable.` Reports no database detail -- it is unauthenticated |
-| GET | `/db-test` | admin+ | database/user probe |
-| GET | `/docs`, `/redoc`, `/openapi.json` | public **locally only** | FastAPI's built-ins. Un-mounted entirely when `COOKIE_SECURE=true`, so production returns 404 (C4). Not counted among the 73 application operations |
+| GET | `/db-test` | techfm_oa+ | database/user probe |
+| GET | `/docs`, `/redoc`, `/openapi.json` | public **locally only** | FastAPI's built-ins. Un-mounted entirely when `COOKIE_SECURE=true`, so production returns 404 (C4). Not counted among the 79 router operations |
 
 ### Auth
 
@@ -1229,13 +1280,13 @@ specified.
 
 | Method | Path | Gate | Behavior |
 | --- | --- | --- | --- |
-| POST | `/items/` | admin+ | create item |
+| POST | `/items/` | techfm_oa+ | create item |
 | GET | `/items/` | session | list non-archived items newest-first; optional `q` performs case-insensitive literal substring search on name/primary barcode; blank `q` returns no rows |
 | GET | `/items/{barcode}` | session | lookup live item by primary or additional barcode |
-| PATCH | `/items/{item_id}` | admin+ | partial edit of barcode/name/location/price/product link; explicit null clears price/link |
+| PATCH | `/items/{item_id}` | techfm_oa+ | partial edit of barcode/name/location/price/product link; explicit null clears price/link |
 | PATCH | `/items/{item_id}/notes` | supervisor+ | replace notes object |
-| PATCH | `/items/{item_id}/barcodes` | admin+ | replace additional barcodes |
-| DELETE | `/items/{item_id}` | admin+ | archive item |
+| PATCH | `/items/{item_id}/barcodes` | techfm_oa+ | replace additional barcodes |
+| DELETE | `/items/{item_id}` | techfm_oa+ | archive item |
 
 ### Users
 
@@ -1244,7 +1295,7 @@ specified.
 | POST | `/users/` | actor outranks target role | create user; username + first/last name required |
 | GET | `/users/` | supervisor+ | list users; `include_archived` adds archived users |
 | PATCH | `/users/{user_id}/name` | self or actor outranks target | replace required first + last name and, when supplied, the unique login username; legacy-account remediation |
-| PATCH | `/users/{user_id}/role` | admin+ and actor outranks current + new role | change role and revoke the target's sessions |
+| PATCH | `/users/{user_id}/role` | techfm_oa+ and actor outranks current + new role | change role and revoke the target's sessions |
 | POST | `/users/{user_id}/reset-password` | actor outranks target | reset password |
 | POST | `/users/{user_id}/archive` | actor outranks target | archive (soft delete) user; revokes sessions; optional `force_return_tools=true` checks in all held tools first |
 | POST | `/users/{user_id}/restore` | actor outranks target | reactivate archived user |
@@ -1255,8 +1306,8 @@ specified.
 | Method | Path | Gate | Behavior |
 | --- | --- | --- | --- |
 | POST | `/transactions/` | session plus direction rule | create stock/dispense; a short Scan/Stock dispense returns recount metadata and creates a User Request |
-| POST | `/transactions/adjust` | admin+ | absolute count correction |
-| PATCH | `/transactions/{transaction_id}/billing` | admin+ | set/clear billing override |
+| POST | `/transactions/adjust` | techfm_oa+ | absolute count correction |
+| PATCH | `/transactions/{transaction_id}/billing` | techfm_oa+ | set/clear billing override |
 | DELETE | `/transactions/{transaction_id}` | session; Supervisor+ any row, Technician own work-order dispense only | void transaction, reverse stock/line, resolve linked recount request |
 | GET | `/transactions/` | supervisor+ | paginated history, voided rows excluded |
 
@@ -1275,7 +1326,7 @@ Filter behavior:
 - filters combine with AND
 - work-order filter is case-sensitive substring match
 - SQL `%`, `_`, and escape characters are escaped
-- Admin/Owner rows include `item_price` and `billable_quantity`, EXCEPT
+- TechFM OA and above rows include `item_price` and `billable_quantity`, EXCEPT
   work-order rows (`work_order_id` set) which null both -- that material bills
   via its work-order line, not the row
 - Supervisor rows receive null for cost/billing fields
@@ -1297,24 +1348,24 @@ caps*).
 
 | Method | Path | Gate | Behavior |
 | --- | --- | --- | --- |
-| GET | `/user-requests/?status=open|resolved` | admin+ | list newest-first requests with item/work-order/user context plus current item price/link |
+| GET | `/user-requests/?status=open\|resolved` | techfm_oa+ | list newest-first requests with item/work-order/user context plus current item price/link |
 | POST | `/user-requests/item-request` | any session | file a request for material with no catalogue row; the only non-admin route on this router |
-| GET | `/user-requests/{request_id}/siblings` | admin+ | other open item requests naming the same material, for the admin to confirm before a cascade |
-| POST | `/user-requests/{request_id}/fulfill` | admin+ | create or link the item, log it retroactively on every live work order across the request and its confirmed siblings, resolve them all |
-| PATCH | `/user-requests/{request_id}` | admin+ | resolve/reopen a durable request and/or correct its wording (`details` whitelisted per type) |
+| GET | `/user-requests/{request_id}/siblings` | techfm_oa+ | other open item requests naming the same material, for the admin to confirm before a cascade |
+| POST | `/user-requests/{request_id}/fulfill` | techfm_oa+ | create or link the item, log it retroactively on every live work order across the request and its confirmed siblings, resolve them all |
+| PATCH | `/user-requests/{request_id}` | techfm_oa+ | resolve/reopen a durable request and/or correct its wording (`details` whitelisted per type) |
 
 ### Tools
 
 | Method | Path | Gate | Behavior |
 | --- | --- | --- | --- |
-| POST | `/tools/` | admin+ | create tool |
+| POST | `/tools/` | techfm_oa+ | create tool |
 | GET | `/tools/` | session | list live tools, each with current custody breakdown |
 | GET | `/tools/{barcode}` | session | lookup live tool by barcode |
-| PATCH | `/tools/{tool_id}` | admin+ | partial edit of barcode/name |
-| DELETE | `/tools/{tool_id}` | admin+ | archive tool |
-| POST | `/tools/{tool_id}/checkout` | admin+ | check out to `assigned_to_id`; decrements on-hand |
+| PATCH | `/tools/{tool_id}` | techfm_oa+ | partial edit of barcode/name |
+| DELETE | `/tools/{tool_id}` | techfm_oa+ | archive tool |
+| POST | `/tools/{tool_id}/checkout` | techfm_oa+ | check out to `assigned_to_id`; decrements on-hand |
 | POST | `/tools/{tool_id}/return` | session | return from `assigned_to_id`'s custody; increments on-hand |
-| POST | `/tools/{tool_id}/adjust` | admin+ | "Correct Count": set on-hand to an absolute value with a required reason; no custody holder |
+| POST | `/tools/{tool_id}/adjust` | techfm_oa+ | "Correct Count": set on-hand to an absolute value with a required reason; no custody holder |
 
 `work_order_id`/`work_order_number` on checkout/return are optional and
 never required, with no find-or-create behavior (a free-text number is
@@ -1352,11 +1403,12 @@ Created can navigate to the expanded Work Order card for assignment first.
 List/get/items are open to any authenticated user but **server-scoped**: a
 Technician sees/acts on only work orders assigned to them; a Supervisor sees
 unassigned work orders, ones routed to them, and ones where they are assigned as
-a worker; Admin/Owner see all.
+a worker; TechFM OA and above see all.
 Notes/add-material and the assigned-worker start/complete walkthrough are
 Technician+; general operations/labor/material corrections and restore are
-Supervisor+; metadata and closing are Admin+. Review additionally requires a
-Completed row and a second, unassigned responsible user. Archive accepts every live status. Out-of-scope, closed, or
+Supervisor+; metadata and closing are TechFM OA+. Review additionally requires
+a Completed row and a second, unassigned responsible user, and is the one gate
+still floored at Admin rather than TechFM OA. Archive accepts every live status. Out-of-scope, closed, or
 unknown work orders return 404. **There is no create route** — the CSV import is
 the only way in.
 
@@ -1366,20 +1418,20 @@ the only way in.
 | GET | `/work-orders/filter-options` | session scoped | distinct service types and routed supervisors from caller-visible live work orders plus stable community choices |
 | GET | `/work-orders/legacy/archive` | owner exactly | count currently live legacy work orders (`legacy=true`, `archived_at IS NULL`) before confirmation; returns `{count}` |
 | POST | `/work-orders/legacy/archive` | owner exactly | atomically soft-archive every currently live legacy work order and return the actual `{archived}` count |
-| POST | `/work-orders/import` | admin+ | preflight a UTF-8 mass CSV with exactly one `WORK ORDER` header, then locked find-or-create; blank/missing task stores a replaceable NetFacilities URL, supervisor fills only while NULL, and archived matches are ignored; **the only path that creates a work order**; returns created/opened/closed/matched/skipped counts; a CSV over **25 MB** returns 413 before the parse (see *Upload size caps*) |
-| GET | `/work-orders/export` | admin+ scoped | export `scope=all|archived|<live-status>` as `variant=full` (re-importable operational CSV; accepts the live page's service/supervisor/community/date/number filters) or `variant=client` (unchanged scope-only billing totals + fixed-width receipt) |
+| POST | `/work-orders/import` | techfm_oa+ | preflight a UTF-8 mass CSV with exactly one `WORK ORDER` header, then locked find-or-create; blank/missing task stores a replaceable NetFacilities URL, supervisor fills only while NULL, and archived matches are ignored; **the only path that creates a work order**; returns created/opened/closed/matched/skipped counts; a CSV over **25 MB** returns 413 before the parse (see *Upload size caps*) |
+| GET | `/work-orders/export` | techfm_oa+ scoped | export `scope=all\|archived\|<live-status>` as `variant=full` (re-importable operational CSV; accepts the live page's service/supervisor/community/date/number filters) or `variant=client` (unchanged scope-only billing totals + fixed-width receipt) |
 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | does this number name a work order, and is it archived? the one read that reports an archived one, so History can offer a restore |
 | GET | `/work-orders/{id}` | session scoped | work-order detail + append-only authored/timestamped note log + logged materials + labor totals |
-| PATCH | `/work-orders/{id}` | session scoped; field-sensitive | a nonblank note appends a server-stamped/authored log entry at Technician+; supervisor/technicians/general status/entry mode = Supervisor+; imported/legacy metadata = Admin+; Review only from Completed by an unassigned routed Supervisor or Admin+; optional original supervisor precondition returns a named 409 on stale pickup |
+| PATCH | `/work-orders/{id}` | session scoped; field-sensitive | a nonblank note appends a server-stamped/authored log entry at Technician+; supervisor/technicians/general status/entry mode = Supervisor+; imported/legacy metadata = TechFM OA+; Review only from Completed by an unassigned routed Supervisor or TechFM OA+ (Admin, not TechFM OA); optional original supervisor precondition returns a named 409 on stale pickup |
 | POST | `/work-orders/{id}/start` | session scoped; Technician+ | idempotently move Assigned to In-Progress; no general Technician status-edit permission |
 | POST | `/work-orders/{id}/complete` | assigned worker | idempotently move In-Progress to Completed; rejects unassigned callers and grants no general status or Review permission |
 | POST | `/work-orders/{id}/hold` | assigned worker | idempotently move In-Progress to On-Hold; rejects unassigned/non-In-Progress callers and grants no general status permission |
 | POST | `/work-orders/{id}/resume` | assigned worker | idempotently move On-Hold to In-Progress; rejects unassigned/other-state callers and grants no general status permission |
-| POST | `/work-orders/{id}/archive` | admin+ scoped | close a work order from any live status via soft archive (number reserved, lines kept, transactions untouched) |
+| POST | `/work-orders/{id}/archive` | techfm_oa+ scoped | close a work order from any live status via soft archive (number reserved, lines kept, transactions untouched) |
 | POST | `/work-orders/{id}/restore` | supervisor+ scoped | explicit un-archive; the only way to return a closed work order to live views |
 | POST | `/work-orders/{id}/items` | Technician+ scoped | log/add a material (mode = work order's entry_mode); a dispense shortage may make expected stock negative and creates a linked recount request |
 | PATCH | `/work-orders/{id}/items/{wo_item_id}` | supervisor+ scoped | edit a material's quantity (dispense lines auto-correct stock) |
-| PATCH | `/work-orders/{id}/items/{wo_item_id}/billing` | admin+ scoped | set/clear the line's billing override (bill partial / zero / full). Its Admin+ gate is a dependency, so it answers **before** Pydantic: a request that is both malformed and unauthorized returns 403, not 422 (see below) |
+| PATCH | `/work-orders/{id}/items/{wo_item_id}/billing` | techfm_oa+ scoped | set/clear the line's billing override (bill partial / zero / full). Its TechFM OA+ gate is a dependency, so it answers **before** Pydantic: a request that is both malformed and unauthorized returns 403, not 422 (see below) |
 | DELETE | `/work-orders/{id}/items/{wo_item_id}` | supervisor+ scoped | remove a material (dispense lines return stock; voids all contributing transactions and resolves their linked requests) |
 | POST | `/work-orders/{id}/labor` | supervisor+ scoped | add positive whole-minute labor for an assigned technician |
 | PATCH | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | replace actual minutes |
@@ -1405,7 +1457,7 @@ Runtime environment values may deliberately override the image defaults. Two
 authentication modes exist:
 
 - **Local Windows:** `NETFACILITIES_ENABLED=true` plus an absolute external
-  `NETFACILITIES_PROFILE_DIR`. An Admin/Owner uses the in-app headed sign-in, completes
+  `NETFACILITIES_PROFILE_DIR`. An TechFM OA and above uses the in-app headed sign-in, completes
   credentials/CAPTCHA/MFA directly in dedicated Chrome, and confirms the session. The
   app saves `playwright-storage-state.json`; the CLI `auth` command is a fallback.
 - **Linux/Render:** `NETFACILITIES_ENABLED=true` plus an absolute
@@ -1498,7 +1550,7 @@ driver subprocess. The client rejects that incompatible loop as `unavailable` be
 browser startup. The application never downloads the vendor CSV or receives
 NetFacilities credential fields.
 
-The Admin/Owner then uses the existing **Import from CSV…** chooser for a file already
+The TechFM OA and above then uses the existing **Import from CSV…** chooser for a file already
 on the computer. The unchanged `/work-orders/import` transaction creates/updates rows;
 after success the frontend starts and polls the separate enrichment job. Missing or
 expired auth leaves the CSV import committed. Locally, sign in again; on Render, replace
@@ -1535,12 +1587,12 @@ did not make a live request or change persistence, selectors, or candidate rules
 
 | Method | Path | Gate | Behavior |
 | --- | --- | --- | --- |
-| GET | `/integrations/netfacilities/session` | admin+ | capability state (`unavailable`, `not_authenticated`, `authenticating`, `ready`, `running`, `expired`), whether interactive authentication is available, plus safe authentication/job snapshots |
-| POST | `/integrations/netfacilities/auth/start` | admin+ | acquire the shared profile lease and open the local dedicated headed browser |
-| POST | `/integrations/netfacilities/auth/confirm` | admin+ | verify an allowlisted non-login page, save protected state, close browser, release lease |
-| POST | `/integrations/netfacilities/auth/cancel` | admin+ | close the pending browser without saving and release the lease |
-| POST | `/integrations/netfacilities/work-orders/enrich` | admin+ | start one process-local saved-state job or return the active duplicate; 409 when auth is absent or another profile operation is active and 503 when the capability is disabled/unavailable |
-| GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | admin+ | poll the latest process-local job; state/timestamps/nullable current requested work-order number/safe failure class/counts only |
+| GET | `/integrations/netfacilities/session` | techfm_oa+ | capability state (`unavailable`, `not_authenticated`, `authenticating`, `ready`, `running`, `expired`), whether interactive authentication is available, plus safe authentication/job snapshots |
+| POST | `/integrations/netfacilities/auth/start` | techfm_oa+ | acquire the shared profile lease and open the local dedicated headed browser |
+| POST | `/integrations/netfacilities/auth/confirm` | techfm_oa+ | verify an allowlisted non-login page, save protected state, close browser, release lease |
+| POST | `/integrations/netfacilities/auth/cancel` | techfm_oa+ | close the pending browser without saving and release the lease |
+| POST | `/integrations/netfacilities/work-orders/enrich` | techfm_oa+ | start one process-local saved-state job or return the active duplicate; 409 when auth is absent or another profile operation is active and 503 when the capability is disabled/unavailable |
+| GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | techfm_oa+ | poll the latest process-local job; state/timestamps/nullable current requested work-order number/safe failure class/counts only |
 
 `services.netfacilities_auth` owns the local headed browser between start and confirm/cancel;
 early confirmation keeps it open, while cancel, configured timeout, or shutdown closes
@@ -1560,6 +1612,37 @@ is *both* below Admin *and* sending a malformed body now gets 403 where they
 got 422. Unreachable from the SPA, which cannot send a malformed body, and no
 test asserted 422 — recorded because it is a real change at a permission
 boundary, not because anything is expected to notice.
+
+### Real-time (`routers/realtime.py`)
+
+| Method | Path | Gate | Behavior |
+| --- | --- | --- | --- |
+| WS | `/ws` | session cookie + same-origin | one invalidation socket per authenticated browser; server→client only |
+
+This is the app's only non-HTTP operation, and it does not behave like the rows
+above it:
+
+- **No application middleware runs for it.** The rate limiter, security headers,
+  and request logger are all registered with `@app.middleware("http")`, and the
+  handshake arrives in a `websocket` scope. The route does its own origin check
+  and its own logging instead. Anything that must apply to `/ws` has to be added
+  inside the route — adding it to the middleware stack will silently miss.
+- **Auth is the session cookie, revalidated every `REVALIDATE_INTERVAL_SECONDS`
+  (60s)**, not a one-shot check at connect. A logout or role change closes the
+  socket rather than leaving a long-lived connection on stale identity.
+- **Same-origin is enforced by hand** (`_same_origin`) because CORS does not
+  apply to WebSocket handshakes.
+- **Refusals happen before `accept()`, as ordinary HTTP 401/429** — not as
+  WebSocket close codes. A browser cannot read a close code from a handshake
+  that never completed, so capacity and auth failures are deliberately visible
+  as status codes instead.
+- **Every policy constant lives in `domain/realtime.py`**: 6 connections per user
+  (`MAX_CONNECTIONS_PER_USER`, enforced by the registry in `services/realtime.py`),
+  10 handshakes/60s and 20 inbound frames/second (enforced in
+  `services/realtime_limits.py`), 64 KiB max frame, and the queue bounds.
+- The wire envelope is exactly `type`, `id`, `req` — no row data, no actor. See
+  the real-time invalidation notes under `Runtime And Stack` for the emitter set
+  and the backoff schedule.
 
 ## Frontend Feature Context
 
@@ -1611,7 +1694,7 @@ Files: `views/items.js`, `views/itemEditor.js`, `views/addBarcode.js`,
 
 Behavior:
 
-- Add Item is Admin+.
+- Add Item is TechFM OA+.
 - Find Item list is available to all roles.
 - Opening Find Item makes no item request, shows a plain search field without a
   native suggestion popup, and renders no item cards. Typing alone does not
@@ -1623,9 +1706,9 @@ Behavior:
 - Technician item table is simplified: no actions/created column, quantity and
   location near name.
 - Supervisor+ can edit notes.
-- Admin+ can edit item details/barcodes, correct count, and archive item.
-- Admin/Owner see price/link columns.
-- Unknown scan on Find Item offers Admin+ Create Item and Add Barcode shortcuts.
+- TechFM OA+ can edit item details/barcodes, correct count, and archive item.
+- TechFM OA and above see price/link columns.
+- Unknown scan on Find Item offers TechFM OA+ Create Item and Add Barcode shortcuts.
 
 ### Scan / Stock
 
@@ -1667,10 +1750,10 @@ Behavior:
   and resolves a recount request if one was raised.
 - When a dispense exceeds recorded on-hand, it still commits, the count may go
   negative, and the normally green line is red with `Please re-count stock`.
-  Admin/Owner see the linked request on the User Requests page and can resolve
+  TechFM OA and above see the linked request on the User Requests page and can resolve
   or reopen it.
 - When the work-order item has no price, the same commit creates or updates one
-  deduplicated missing-price request. Admin/Owner can enter Price and Product
+  deduplicated missing-price request. TechFM OA and above can enter Price and Product
   Link together on User Requests; the card leaves the open queue automatically
   only after a price greater than `$0.00` and a product link both exist.
   Work-order totals already use the item's live
@@ -1686,7 +1769,7 @@ user-request router/service/schema/model, and item/work-order services.
 
 Behavior:
 
-- Admin/Owner can switch between the newest-first open and resolved queues, and
+- TechFM OA and above can switch between the newest-first open and resolved queues, and
   narrow to one of the three request types with a client-side Type filter.
 - Inventory-recount cards show the frozen shortage context and expose manual
   Resolve/Reopen actions, plus an inline **Correct count to / Reason** form that
@@ -1781,9 +1864,9 @@ Behavior:
 
 - Any authenticated role, server-scoped: a Technician sees any work order in
   their plural assignment set; a Supervisor sees the shared unassigned queue
-  plus work routed to them; Admin/Owner sees all live rows. Reached via the nav
+  plus work routed to them; TechFM OA and above sees all live rows. Reached via the nav
   button or a Unit click in the Mass Stage tree.
-- Admin+ get an "Import work orders" section (file picker → `apiImportWorkOrders`
+- TechFM OA+ get an "Import work orders" section (file picker → `apiImportWorkOrders`
   → summary of processed/new/updated/closed/routed/skipped counts, then the list
   reloads). The closed count is always shown, including zero, and those rows are
   ignored without mutation. The
@@ -1813,7 +1896,7 @@ Behavior:
   and choosing a result adds it to the
   assigned list beneath the search, and Remove drops it from that draft list.
   Save sends the complete remaining set as replacement `assigned_to_ids`; Cancel
-  reloads the persisted detail. Admin/Owner additionally see Location, Service
+  reloads the persisted detail. TechFM OA and above additionally see Location, Service
   Type, Schedule Date, Output To, Vendor Contact, and Symptom/Task. Legacy community/building/
   unit and the work-order number stay read-only. The existing status selector
   offers In-Progress for Created/Assigned rows, making it the explicit
@@ -1825,9 +1908,9 @@ Behavior:
 - Advanced filters cover status, dynamic service type, caller-visible assigned
   supervisor, derived community, exact scheduled date, and the existing
   debounced work-order number search. Every active value is sent in one request
-  and combines with AND; Clear filters resets the complete search. Admin+ also
+  and combines with AND; Clear filters resets the complete search. TechFM OA+ also
   sees Export filtered CSV in this card; it exports the same uncapped result set.
-- For Admin/Owner, a work-order-number search that exactly identifies an
+- For TechFM OA and above, a work-order-number search that exactly identifies an
   archived row performs the archive-aware lookup after the live-list search and
   opens the shared modal with `Work Order has been closed.` plus **Restore** and
   **Close**. Close leaves the archive untouched. Restore clears `archived_at`
@@ -1847,7 +1930,7 @@ Behavior:
   Only while In-Progress, a second Place On-Hold button appears beside Mark
   Completed. While On-Hold, those controls are replaced by one Resume
   In-Progress button; it appears in no other state.
-  A routed Supervisor who is not assigned, or any unassigned Admin+, sees Send to
+  A routed Supervisor who is not assigned, or any unassigned TechFM OA+, sees Send to
   Review on Completed work; it still requires confirmation. An assigned
   Supervisor is deliberately excluded even when also routed, enforcing a second
   set of eyes. Supervisor+ retains Mark Completed for visible In-Progress work
@@ -1866,15 +1949,15 @@ Behavior:
   rendered data stays visible. Technicians can add items but see existing
   quantities read-only; Supervisor+ may update/remove lines. Labor likewise
   reopens after add/update/remove, and Supervisor+ may manage any assigned
-  technician. Admin/Owner additionally receives a confirmed Archive action on
+  technician. TechFM OA and above additionally receives a confirmed Archive action on
   every live-status card.
 - Closing keeps the row, material lines, and transactions, but hides the work
-  order from live views. `POST .../archive` requires Admin+ from any live status;
+  order from live views. `POST .../archive` requires TechFM OA+ from any live status;
   Admin Review keeps its receipt-aware Review close flow. History can still find transactions by
   number and offers restore for a closed work order.
 - Dispense entries move stock and show in History like a Scan/Stock dispense;
   retroactive entries show in History identically but move no stock.
-- Each material line shows an Admin/Owner-only charge (`effective billable *
+- Each material line shows an TechFM OA and above-only charge (`effective billable *
   current price`, plus the `+15%` mark-up): the line is the billing unit, so the
   customer cost lives here, not on the individual History rows (the backend
   redacts the line's `unit_price`/`billable_quantity` below Admin). An inline
@@ -1890,7 +1973,7 @@ Files: `views/adminReview.js`, `adminReviewReceipt.js`, `pricingText.js`,
 
 Behavior:
 
-- Admin/Owner-only SPA page. On activation it requests every live Review work
+- TechFM OA and above-only SPA page. On activation it requests every live Review work
   order with `apiListWorkOrders({status: "review"})` and renders green cards with
   the work-order number as the title.
 - Selecting a card fetches `WorkOrderDetail` and opens one persistent read-only
@@ -1912,7 +1995,7 @@ Behavior:
   disables Close while naming the affected items. Return to In-Progress remains
   available so the work order can be corrected.
 - Return to In-Progress confirms, then PATCHes status to `in_progress`; Close
-  confirms, then calls the shared any-live-status Admin+ archive endpoint. Either
+  confirms, then calls the shared any-live-status TechFM OA+ archive endpoint. Either
   action removes the work order from this Review queue while preserving the
   receipt text for reference/copying.
 
@@ -1925,12 +2008,12 @@ router/service/domain/schema/model.
 Behavior:
 
 - Add Tool is a second card ("Add Tool") on the Add Item page, below Add
-  Item; Admin+ (inherits the page's gate). Barcode + name + quantity only
+  Item; TechFM OA+ (inherits the page's gate). Barcode + name + quantity only
   -- no location/price/product-link.
 - Tools page is reached via its own nav button (any authenticated role).
   Its default sub-view is **Custody**; Inventory and Scan remain secondary
   sub-views.
-- Admin/Owner Custody starts with an active-user searchable combobox (up to
+- TechFM OA and above Custody starts with an active-user searchable combobox (up to
   eight matching full names, keyboard Arrow/Enter/Escape support). Selecting a
   user opens a profile card with full name, role, account-created date, active
   status, distinct holding count, and the user's derived tool balances.
@@ -1938,11 +2021,11 @@ Behavior:
   list for this page and instead see only a card for the `/auth/me` identity.
 - Check-in starts on a holding row. Its fixed-user panel defaults to the full
   outstanding balance and caps the quantity to that balance. Checkout is
-  Admin+ only and starts from the selected user's card: search available tools
+  TechFM OA+ only and starts from the selected user's card: search available tools
   by name/barcode or choose "Scan Tool to Check Out," then confirm a fixed
   user/tool and quantity. A scan never commits automatically.
 - Inventory columns remain Barcode, Name, On Hand, Checked Out (each custody
-  entry as `full name: quantity`, one per line). Admin+ row actions are limited
+  entry as `full name: quantity`, one per line). TechFM OA+ row actions are limited
   to Edit, Correct Count, and Archive; transactional Check Out/Check In actions
   live only on the Custody card.
 - Correct Count (`views/toolCorrection.js`) sets the absolute on-hand
@@ -1983,20 +2066,20 @@ Behavior:
   session. This is the undo path for an accidental archive.
 - Voided rows are hidden.
 - Any row visible in History can be voided by the same role set.
-- Admin/Owner Charge column shows base line value and `+15%` marked-up value
+- TechFM OA and above Charge column shows base line value and `+15%` marked-up value
   for ad-hoc rows; a work-order-linked row shows no charge (`—`) because that
   material bills through its work-order line on the Work Orders page.
 - Billing editor (partial / zero / clear override) appears only on ad-hoc
   stock/dispense rows; work-order rows have no per-row charge to edit.
 - Copy table exports all matching rows, not just visible page.
 - Export cap: 100 pages * 100 rows.
-- Admin/Owner export includes billable qty, unit price, base value, marked-up
+- TechFM OA and above export includes billable qty, unit price, base value, marked-up
   value. Work-order rows suppress `item_price` on screen (charge lives on the
   line), so the export fills each work-order stock/dispense row's per-row pricing
   from the work order's line `unit_price` (fetched via `apiGetWorkOrder`); `adjust`
   corrections stay blank. This is export-only -- the on-screen History charge
   column is unchanged.
-- Admin/Owner export also appends a "Work Order Summary" block: one line per
+- TechFM OA and above export also appends a "Work Order Summary" block: one line per
   distinct work order in the export with its authoritative total (`materials_total`,
   override-aware) and that total `+15%`. Sourced from the work order's line totals,
   not by summing rows. Work orders are resolved by `work_order_number` (always
@@ -2020,7 +2103,7 @@ Behavior:
   subordinate rows. The same modal can replace the login username. It writes
   through `PATCH /users/{id}/name`; this is how pre-migration accounts become
   eligible for full-name CSV routing and how mistyped login names are corrected.
-- Admin/Owner rows expose Edit Role only for manageable subordinates. The role
+- TechFM OA and above rows expose Edit Role only for manageable subordinates. The role
   modal offers only roles the actor strictly outranks; a successful change
   revokes the target's sessions so their next login receives the correct UI.
 - Create-user dropdown offers only subordinate roles.
@@ -2118,7 +2201,7 @@ Behavior:
 - `set_billable_quantity` validates override and updates row only.
 - `list_history` joins transactions/items/users, filters voided rows, paginates.
 - History cost/billing fields are populated only when router passes
-  `include_price=True` for Admin/Owner; `item_price` is the row's frozen
+  `include_price=True` for TechFM OA and above; `item_price` is the row's frozen
   `unit_price` snapshot, falling back to the live `Item.price` only when the
   snapshot is NULL or 0 (so a price edit leaves real recorded prices intact
   but flows onto previously-free rows). A work-order-linked row
@@ -2145,7 +2228,7 @@ Behavior:
   message saying which. Work orders are import-only, so a reference cannot create.
 - `lookup_work_order` returns the scoped row *including an archived one* (the one
   read that sees through the archive); `restore_work_order` clears `archived_at`.
-  Together they back History's archive prompt and Admin+'s exact-number Work
+  Together they back History's archive prompt and TechFM OA+'s exact-number Work
   Orders search prompt, which are the undo paths for archive now that nothing can
   re-create a work order.
 - `list_work_orders` is scoped (technician/supervisor/admin), excludes archived,
@@ -2153,7 +2236,7 @@ Behavior:
   calendar day, and sorts scheduled date descending before applying `limit`.
 - `update_work_order` checks field permissions before writing: notes require an
   in-scope Technician+; status/entry mode/supervisor/technicians require
-  Supervisor+; imported and legacy metadata require Admin+. A nonblank note is
+  Supervisor+; imported and legacy metadata require TechFM OA+. A nonblank note is
   appended under the existing row lock through the pure domain formatter, which
   adds Central time, `MMDDYY`, and `user.full_name`; a null leaves the log
   unchanged. Other supplied fields retain overwrite semantics. `assigned_to_ids`
@@ -2163,7 +2246,7 @@ Behavior:
   an explicit rollback to either pre-work value is normalized again after the
   assignment edit, so the pair cannot contradict technician presence.
   Supervisor routing is independent. A Review request is accepted only from
-  Completed and only when the caller is an Admin+ or the routed Supervisor and
+  Completed and only when the caller is an TechFM OA+ or the routed Supervisor and
   is not one of the assigned workers. Completed and Review retain `completed_at`,
   while On-Hold/rollback/reopen clears it. A number collision raises 400.
 - `start_work_order` is a separate idempotent Assigned -> In-Progress action for
@@ -2176,7 +2259,7 @@ Behavior:
   a currently assigned worker. It grants no general status authority.
 - `resume_work_order` is its assignment-checked idempotent inverse, On-Hold ->
   In-Progress, and likewise grants no other status authority.
-- `archive_work_order` requires Admin+ in the service and sets `archived_at` from
+- `archive_work_order` requires TechFM OA+ in the service and sets `archived_at` from
   any live status. This is the stored Closed state.
 - `count_live_legacy_work_orders` and `archive_live_legacy_work_orders` both
   require Owner exactly in the service. They select only `legacy=true` live
@@ -2201,7 +2284,7 @@ Behavior:
   override (validated by `domain.billing.validate_billable_value`); it never
   touches stock. The router builds `materials_total` (sum of
   `effective_billable * unit_price`) and per-line `unit_price`/`billable_quantity`
-  for Admin/Owner, redacted below.
+  for TechFM OA and above, redacted below.
 - `add_work_order_labor` requires Supervisor+ and a current technician
   assignment, stores actual whole minutes, and applies the shared
   activity-derived status transition. Update/delete are Supervisor+ as well.
@@ -2342,12 +2425,13 @@ Coverage map:
 | `test_auth_session_lifetime.py` | remembered/non-remembered session lifecycle |
 | `test_auth_profile_schema.py` | `/auth/me` response includes first/last/full name plus profile timestamps |
 | `test_user_names.py` | required trimmed names, neutral legacy display, name persistence, and self/manager edit authorization |
-| `test_user_role_edit.py` | Admin/Owner-only subordinate role changes, rank restrictions, session revocation, and UI/API contracts |
+| `test_user_role_edit.py` | TechFM OA and above-only subordinate role changes, rank restrictions, session revocation, and UI/API contracts |
 | `test_user_archive.py` | user archive blocks login, revokes sessions, list scoping, refuses archive with outstanding custody, and force-returns held tools atomically |
 | `test_item_update_partial.py` | partial item PATCH + clear price/link to null |
 | `test_history_price_snapshot.py` | frozen `unit_price` snapshot; non-zero rows unchanged by price edits; snapshot 0 / NULL falls back to live price |
-| `test_roles.py` | role hierarchy and transaction/user-management rules |
-| `test_route_role_gates.py` | important route minimum-role gates |
+| `test_roles.py` | five-role hierarchy, TechFM OA's position and limits, labels, and transaction/user-management rules |
+| `test_role_mirror_parity.py` | `static/roles.js` ranks/roles/labels match `app/domain/roles.py` |
+| `test_route_role_gates.py` | important route minimum-role gates, plus a guard that no route gate is left at the Admin floor |
 | `test_user_requests.py` | DB-backed recount lifecycle; Technician own-scan removal boundaries; deduplicated missing-price requests across work orders; NULL/`$0.00` price detection; positive-price+link automatic resolution; simultaneous recount + missing-price creation; Admin resolve/reopen lifecycle |
 | `test_barcodes.py` | backend image decode and supported formats |
 | `test_item_barcodes.py` | additional barcode uniqueness/lookup/update |
@@ -2366,7 +2450,7 @@ Coverage map:
 | `test_work_order_name_responses.py` | work-order response exposes plural operational names, rounded labor detail/totals, and the note-log text while omitting login usernames |
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
 | `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin; history row exposes `work_order_id` |
-| `test_work_order_export.py` | Admin+ scoped full/client CSV exports, joined operational filters (including date), unchanged client scope behavior, import-header compatibility including generated-task round-trip, billing totals, and receipt cells |
+| `test_work_order_export.py` | TechFM OA+ scoped full/client CSV exports, joined operational filters (including date), unchanged client scope behavior, import-header compatibility including generated-task round-trip, billing totals, and receipt cells |
 | `test_netfacilities_parser.py` | sanitized server-rendered HTML parsing, identifier/status fail-closed checks, login-document detection, required fields, input validation, and safe Priority body-vs-script structure classification |
 | `test_netfacilities_client.py` | one allowlisted authenticated GET, isolated browser document routing with all subresources blocked, disabled execution/full lifetime cleanup, one-read diagnostic reuse, response metadata/size boundaries, auth redirect detection, and runtime browser placement |
 | `test_netfacilities_diagnostic.py` | one-work-order Render CLI safe-shape output, identifier/source-value omission, and exception-message redaction |
@@ -2379,6 +2463,34 @@ Coverage map:
 | `test_receipt.py` | backend fixed-width receipt output matches the frontend contract for markup, truncation, quantities, missing prices, and labor rounding |
 | `test_tools_domain.py` | pure `domain.tools.validate_return` outstanding-balance cap |
 | `test_tools_service.py` | DB-backed: create/duplicate-live-barcode, archived-barcode reuse, checkout/return round-trip incl. `apply_delta` reuse, active-target validation without stock/ledger mutation, checkout overdraft (`NegativeQuantityError`), return-beyond-outstanding (`ToolReturnExceedsCheckedOutError`), per-tool and per-user custody aggregates, multi-user custody split, archive guard until full return, Correct Count increase/decrease/no-op (`NoChangeError`), and the regression that an `adjust` row never enters a custody balance |
+| `test_item_requests.py` | item requests for material with no catalogue row at all, as distinct from a recount of an in-app item whose count is wrong |
+| `test_history_date_filter.py` | pure `date_from`/`date_to` → half-open tz-aware UTC bounds builder used by `history.list_history` |
+| `test_search_parity.py` | pins the two punctuation-insensitive search normalizers together — `services/items.py` (Find Item) and `static/format.js` (the client-filtered views) |
+| `test_session_token_hashing.py` | X1: a read of `sessions` yields nothing replayable as a credential |
+| `test_password_reset_revokes_sessions.py` | a reset signs the target out — there is no idle timeout to retire the old session (`c7e9a1b3d5f8` removed the sliding window) |
+| `test_login_throttle.py` | pure backoff curve: a free window wide enough that ordinary mistyping is never punished, plus a bounded ceiling |
+| `test_login_throttle_service.py` | DB-backed counting/locking, and the isolation properties that keep the throttle from becoming a DoS weapon against the crew |
+| `test_rate_limit.py` | pure B3 policy: cap, window, and exemption list |
+| `test_rate_limit_service.py` | in-memory sliding-window counters; `now` is an argument, so no sleeping and no flakiness |
+| `test_rate_limit_middleware.py` | the limiter as actually wired, driven through the ASGI stack directly rather than a dev server |
+| `test_list_limits.py` | pure X3 ceiling policy: the `+1` fetch and the exact truncation boundary |
+| `test_list_cap_service.py` | the `event=list.truncated` early-warning signal — silent below the ceiling, exactly one line above it |
+| `test_list_caps_applied.py` | the ceiling is actually wired into every list service; catches a new list endpoint that forgets the cap |
+| `test_upload_limits.py` | `routers/_uploads.py` size caps and both call sites |
+| `test_health_check.py` | `/healthz` liveness probe with the connection check monkeypatched |
+| `test_docs_endpoints.py` | C4: `/docs`, `/redoc`, `/openapi.json` are un-mounted when `COOKIE_SECURE=true` |
+| `test_logging.py` | `logging_config.py` and its three call sites: per-request id, JSON formatter, request context |
+| `test_db_availability_guard.py` | stops CI reporting success over a half-skipped suite — DB-backed tests must not silently skip in CI |
+| `test_netfacilities_auth.py` | offline coverage of the in-app headed sign-in start/confirm/cancel lifecycle |
+| `test_realtime_dependency.py` | the WebSocket protocol library is actually installed — `TestClient` drives ASGI directly and would pass without it |
+| `test_realtime_domain.py` | pure envelope/audience rules and policy constants; no sockets, clock, or DB |
+| `test_realtime_registry.py` | connection registry, per-user cap, bounded handoff, and dispatch supervision |
+| `test_realtime_endpoint.py` | handshake policy and connection lifecycle |
+| `test_realtime_limits.py` | handshake-attempt and inbound-frame limits, in state and at the endpoint |
+| `test_realtime_session_binding.py` | periodic re-resolution replacing the instant revocation a socket cannot get from a next request |
+| `test_realtime_emit.py` | the **exact** emitter set: only commands that can change Review membership or card fields emit. Extend this assertion when adding one |
+| `test_push_domain.py` | pure Web Push response classification and endpoint allowlist. Covers **dormant** code — see `Removed, Replaced, And Dormant` |
+| `test_vapid_keys.py` | VAPID keypair interoperability (not cryptography). Also dormant |
 
 No frontend test harness exists. For UI behavior, run backend tests plus manual
 browser checks for changed pages.
@@ -2456,6 +2568,61 @@ Do not "fix" these accidentally unless the task asks for it.
 - `login_attempts` is not an audit trail: rows are deleted on successful login
   and swept after 24h, so it cannot answer "who tried to get in last week".
   Pairs naturally with N1 (structured logging) if that is ever wanted.
+
+## Removed, Replaced, And Dormant
+
+A post-mortem register. Everything here is either **gone from the repo** (so a
+document still describing it as live is wrong) or **present but not wired to
+anything** (so reading the file will mislead you about what the app does). Each
+entry names the replacement or the reason, so a removal is not re-proposed and a
+dormant file is not mistaken for a working feature.
+
+### Dormant — code is on `main`, the feature is not built
+
+**Web Push notifications (Phase A groundwork).** These files are on `main` and
+are covered by passing tests, but **nothing imports them outside their own
+tests**:
+
+| On `main` | Status |
+|---|---|
+| `app/domain/push.py` | pure policy: response classification + endpoint allowlist |
+| `scripts/generate_vapid_keys.py` | VAPID keypair generator |
+| `tests/test_push_domain.py`, `tests/test_vapid_keys.py` | cover the two above |
+| `pywebpush==2.4.0` in `requirements.txt` | installed, never called |
+
+There is **no** router, service, model, migration, frontend service worker, or
+subscription table. Nothing in the running app can send a push. The intent was
+to land the decidable, I/O-free half first — the same pattern the `domain/`
+layer uses everywhere else — and the rest of the work is on the
+`feat/push-notifications` branch, which has since fallen behind `main` on the
+NetFacilities work.
+
+Treat `domain/push.py` as a design artifact, not a capability. Do not document
+push as a feature and do not report it as available. If push is abandoned rather
+than resumed, delete these four files, drop `pywebpush`, and move this entry
+down to *Removed* below.
+
+### Removed
+
+| What | When | Replaced by / why |
+|---|---|---|
+| `GET /items/search-index` | 2026-08-10 (X3) | The lightweight projection had no remaining caller once Find Item moved to explicit Search / Load All. `GET /items/` with `q` covers it. |
+| `backend/static/index.html` | 2026-06-12 (`7dbac2d`) | Runtime shell assembly: `main.py::_assemble_index` concatenates `shell-head.html` + `pages/*.html` + `shell-tail.html` on **every** request to `/`, deliberately uncached so an edited fragment is never served stale. |
+| Sliding-window session idle timeout | migration `c7e9a1b3d5f8` | Replaced by an absolute `expires_at` plus remember-me. Consequence worth knowing: because no idle timeout exists, a password reset must explicitly revoke sessions — see `test_password_reset_revokes_sessions.py`. |
+| Ten separate docs → four | 2026-08-10 | The three parallel backlogs had drifted out of agreement. `open-work.md` is now the only backlog; git holds shipped history. |
+| NetFacilities/realtime/push plan + design docs, `handoff.md` | 2026-08-16 (`4a211fb`) | Superseded once the work landed; durable behavior belongs in this file. They survive in the Obsidian vault under `archive/superpowers/`. N3 depends on one of them and cites it directly. |
+
+### Still live — occasionally assumed dead
+
+- **HTTP middleware.** `main.py` registers **three** `@app.middleware("http")`
+  layers, and all three are load-bearing: `rate_limit` (B3), `add_security_headers`,
+  and `log_request`. Registration order is the reverse of execution order —
+  `add_middleware` inserts at the front — so `log_request` is outermost and
+  `rate_limit` innermost. The one real exception is `/ws`, which is a `websocket`
+  scope and therefore runs **none** of them; see the Real-time API Surface entry.
+- **`static/scan-test.html` / `scan-test.js`.** Deleted in `635fbd2` and
+  restored afterwards. Still present, still an unauthenticated diagnostic
+  harness, still not part of the SPA.
 
 ## Documentation Policy
 

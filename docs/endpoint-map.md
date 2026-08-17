@@ -44,26 +44,27 @@ Paths below are relative to `backend/`. `domain/*`, `routers/*`, `services/*`,
 
 ## Master Endpoint Index
 
-Every HTTP endpoint, one row each. "Tables" lists what the call reads (r) and
-writes (w).
+Every endpoint, one row each — 82 in total: 79 router operations (78 HTTP plus
+the `/ws` WebSocket, row WS1) and 3 app-level routes in `main.py`. "Tables"
+lists what the call reads (r) and writes (w).
 
 | # | Method | Path | Gate | Router → Service | Tables | api.js wrapper | View(s) |
 |---|--------|------|------|------------------|--------|----------------|---------|
 | 1 | GET | `/` | public | `main.py` (shell assembly) | — | — (browser) | SPA boot |
 | 1a | GET | `/healthz` | public | `main.py` → `database.check_connection` | — | — | (platform health check) |
-| 2 | GET | `/db-test` | admin+ | `main.py` → `database.test_connection` | — | — | (diagnostic) |
+| 2 | GET | `/db-test` | techfm_oa+ | `main.py` → `database.test_connection` | — | — | (diagnostic) |
 | 3 | POST | `/auth/login` | public | `auth.py` → `auth.authenticate` + `create_session` | users (r), sessions (w) | `apiLogin` | `auth.js` |
 | 4 | POST | `/auth/logout` | session | `auth.py` → `auth.delete_session` | sessions (w) | `apiLogout` | `auth.js` |
 | 5 | GET | `/auth/me` | session | `auth_deps.get_current_user` | sessions (r), users (r) | `apiMe` | `auth.js`, `tools.js` (self profile) |
 | 6 | GET | `/items/` | session | `items.py` → `items.list_items` (optional `q`) | items (r) | `apiListItems` | `items.js`, `addBarcode.js`, `transactions.js`, `massStage.js`, `workOrders.js` |
 | 7 | GET | `/items/{barcode}` | session | `items.py` → `items.get_item_by_barcode` | items (r), item_barcodes (r) | `apiGetItemByBarcode` | `scan.js`, `addBarcode.js`, `history.js` |
-| 8 | POST | `/items/` | admin+ | `items.py` → `items.create_item` | items (w), item_barcodes (r) | `apiCreateItem` | `items.js` |
-| 9 | PATCH | `/items/{id}` | admin+ | `items.py` → `items.update_item` (+ `user_requests.resolve_missing_price_requests`) | items (w/lock), item_barcodes (r), user_requests (w when price+link complete) | `apiUpdateItem` | `itemEditor.js`, `userRequests.js` |
+| 8 | POST | `/items/` | techfm_oa+ | `items.py` → `items.create_item` | items (w), item_barcodes (r) | `apiCreateItem` | `items.js` |
+| 9 | PATCH | `/items/{id}` | techfm_oa+ | `items.py` → `items.update_item` (+ `user_requests.resolve_missing_price_requests`) | items (w/lock), item_barcodes (r), user_requests (w when price+link complete) | `apiUpdateItem` | `itemEditor.js`, `userRequests.js` |
 | 10 | PATCH | `/items/{id}/notes` | supervisor+ | `items.py` → `notes.replace_notes` | items (w) | `apiUpdateNotes` | `notes.js` |
-| 11 | PATCH | `/items/{id}/barcodes` | admin+ | `items.py` → `items.replace_barcodes` | item_barcodes (w), items (r) | `apiUpdateBarcodes` | `itemEditor.js`, `addBarcode.js` |
-| 12 | DELETE | `/items/{id}` | admin+ | `items.py` → `items.delete_item` | items (w, archive) | `apiDeleteItem` | `items.js` |
+| 11 | PATCH | `/items/{id}/barcodes` | techfm_oa+ | `items.py` → `items.replace_barcodes` | item_barcodes (w), items (r) | `apiUpdateBarcodes` | `itemEditor.js`, `addBarcode.js` |
+| 12 | DELETE | `/items/{id}` | techfm_oa+ | `items.py` → `items.delete_item` | items (w, archive) | `apiDeleteItem` | `items.js` |
 | 13 | POST | `/barcodes/decode` | session | `barcodes.py` → `barcodes.decode_image` | — (no persistence) | `apiDecodeBarcode` | `scan.js` |
-| 14 | GET | `/users/` | supervisor+ | `users.py` → `users.list_users` | users (r) | `apiListUsers` | `users.js`, `transactions.js`, `massStage.js`, `workOrders.js`, `tools.js` (Admin/Owner only) |
+| 14 | GET | `/users/` | supervisor+ | `users.py` → `users.list_users` | users (r) | `apiListUsers` | `users.js`, `transactions.js`, `massStage.js`, `workOrders.js`, `tools.js` (TechFM OA and above only) |
 | 15 | POST | `/users/` | outranks target | `users.py` → `users.create_user` | users (w) | `apiCreateUser` | `users.js` |
 | 16 | POST | `/users/{id}/reset-password` | outranks target | `users.py` → `users.reset_password` | users (w) | `apiResetPassword` | `users.js` |
 | 17 | POST | `/users/{id}/archive` | outranks target | `users.py` → `users.archive_user` + `tools.user_custody` (+ `tools.return_all_for_user` when `?force_return_tools=true`) | users (w), sessions (w, revoke), tools/tool_transactions (r, custody guard; w on force check-in) | `apiArchiveUser` | `users.js` |
@@ -71,17 +72,17 @@ writes (w).
 | 19 | DELETE | `/users/{id}` | outranks target | `users.py` → `users.delete_user` | users (w, hard) | `apiDeleteUser` | **API-only** (no UI; UI uses archive) |
 | 20 | GET | `/transactions/` | supervisor+ | `transactions.py` → `history.list_history` | transactions (r), items (r), users (r) | `apiListTransactions` | `history.js` |
 | 21 | POST | `/transactions/` | session + direction¹ | `transactions.py` → `transactions.apply_transaction` (+ `work_orders.resolve_work_order`, `attach_dispense_line`; User Request producers for shortage/missing price) | items (w), transactions (w), work_orders (r/w²), work_order_items (w³), user_requests (w on shortage or NULL/non-positive work-order price) | `apiCreateTransaction` | `transactions.js` |
-| 22 | POST | `/transactions/adjust` | admin+ | `transactions.py` → `transactions.apply_correction` | items (w), transactions (w) | `apiCreateCorrection` | `correction.js` |
-| 23 | PATCH | `/transactions/{id}/billing` | admin+ | `transactions.py` → `transactions.set_billable_quantity` | transactions (w) | `apiSetBillableQuantity` | `history.js` |
+| 22 | POST | `/transactions/adjust` | techfm_oa+ | `transactions.py` → `transactions.apply_correction` | items (w), transactions (w) | `apiCreateCorrection` | `correction.js` |
+| 23 | PATCH | `/transactions/{id}/billing` | techfm_oa+ | `transactions.py` → `transactions.set_billable_quantity` | transactions (w) | `apiSetBillableQuantity` | `history.js` |
 | 24 | DELETE | `/transactions/{id}` | supervisor+, or Technician's own linked dispense | `transactions.py` → `transactions.void_transaction` (+ `user_requests.resolve_for_transaction`) | transactions (w, soft), items (w), work_order_items (w⁴), user_requests (w if linked) | `apiVoidTransaction` | `history.js`, `transactions.js` |
 | 25 | GET | `/work-orders/` | session scoped | `work_orders.py` → `work_orders.list_work_orders` (scheduled-date descending; joinable status/service/supervisor/community/date/number filters) | work_orders (r), work_order_items (r), work_order_technicians (r), users (r) | `apiListWorkOrders` | `workOrders.js`, `transactions.js`, `history.js`, `adminReview.js` |
 | 26 | GET | `/work-orders/{id}` | session scoped | `work_orders.py` → `work_orders.get_work_order` | work_orders (r), work_order_items (r/w⁵), work_order_technicians (r), work_order_labor (r), items (r), users (r) | `apiGetWorkOrder` | `workOrders.js`, `history.js`, `adminReview.js` |
-| 27 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | `work_orders.py` → `work_orders.lookup_work_order` | work_orders (r, **incl. archived**) | `apiLookupWorkOrder` | `history.js`, `workOrders.js` (Admin+ exact search) |
-| 28 | PATCH | `/work-orders/{id}` | scoped; notes→tech+, operations→sup+, metadata→admin+; stale supervisor precondition→409 | `work_orders.py` → `work_orders.update_work_order` | work_orders (r/w, row lock; incl. notes/primary mirror), work_order_technicians (w), users (r) | `apiUpdateWorkOrder` | `workOrders.js`, `adminReview.js` (Return to In-Progress) |
-| 29 | POST | `/work-orders/{id}/archive` | admin+ scoped; any live status | `work_orders.py` → `work_orders.archive_work_order` | work_orders (w, Closed/archive) | `apiArchiveWorkOrder` | `workOrders.js`, `adminReview.js` |
+| 27 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | `work_orders.py` → `work_orders.lookup_work_order` | work_orders (r, **incl. archived**) | `apiLookupWorkOrder` | `history.js`, `workOrders.js` (TechFM OA+ exact search) |
+| 28 | PATCH | `/work-orders/{id}` | scoped; notes→tech+, operations→sup+, metadata→techfm_oa+; stale supervisor precondition→409 | `work_orders.py` → `work_orders.update_work_order` | work_orders (r/w, row lock; incl. notes/primary mirror), work_order_technicians (w), users (r) | `apiUpdateWorkOrder` | `workOrders.js`, `adminReview.js` (Return to In-Progress) |
+| 29 | POST | `/work-orders/{id}/archive` | techfm_oa+ scoped; any live status | `work_orders.py` → `work_orders.archive_work_order` | work_orders (w, Closed/archive) | `apiArchiveWorkOrder` | `workOrders.js`, `adminReview.js` |
 | 30 | POST | `/work-orders/{id}/items` | Technician+ scoped | `work_orders.py` → `work_orders.add_work_order_item` | items (w; negative expected count allowed in dispense mode), transactions (w), work_order_items (w), user_requests (w if stock is short or item is unpriced) | `apiAddWorkOrderItem` | `workOrders.js` |
 | 31 | PATCH | `/work-orders/{id}/items/{wid}` | supervisor+ scoped | `work_orders.py` → `work_orders.update_work_order_item` | items (w), transactions (w, adjust), work_order_items (w) | `apiUpdateWorkOrderItem` | `workOrders.js` |
-| 32 | PATCH | `/work-orders/{id}/items/{wid}/billing` | admin+ scoped | `work_orders.py` → `work_orders.set_work_order_item_billable` | work_order_items (w) | `apiSetWorkOrderItemBilling` | `workOrders.js` |
+| 32 | PATCH | `/work-orders/{id}/items/{wid}/billing` | techfm_oa+ scoped | `work_orders.py` → `work_orders.set_work_order_item_billable` | work_order_items (w) | `apiSetWorkOrderItemBilling` | `workOrders.js` |
 | 33 | DELETE | `/work-orders/{id}/items/{wid}` | supervisor+ scoped | `work_orders.py` → `work_orders.delete_work_order_item` | items (w), transactions (w, void), work_order_items (w), user_requests (w, resolve source-linked) | `apiDeleteWorkOrderItem` | `workOrders.js` |
 | 34 | POST | `/mass-stages/` | supervisor+ | `mass_stages.py` → `mass_staging.create_stage` | mass_stages (w) | `apiCreateStage` | `massStage.js` |
 | 35 | GET | `/mass-stages/` | supervisor+ scoped | `mass_stages.py` → `mass_staging.list_stages` | mass_stages (r) | `apiListStages` | `massStage.js` |
@@ -96,43 +97,45 @@ writes (w).
 | 44 | DELETE | `/mass-stages/{id}/work-orders/{slot}/items/{sid}` | supervisor+ | `mass_stages.py` → `mass_staging.delete_item` | mass_stage_items (w) | `apiDeleteStageItem` | `massStage.js` |
 | 45 | POST | `/mass-stages/{id}/load` | supervisor+ | `mass_stages.py` → `mass_staging.load_item` | items (w), transactions (w), work_order_items (w), mass_stage_items (w), user_requests (w if unpriced) | `apiLoadStageItem` | `massStage.js` |
 | 46 | POST | `/mass-stages/{id}/return` | supervisor+ | `mass_stages.py` → `mass_staging.return_item` | items (w, silent), work_order_items (w), mass_stage_items (w) | `apiReturnStageItem` | `massStage.js` |
-| 47 | POST | `/tools/` | admin+ | `tools.py` → `tools_service.create_tool` | tools (w) | `apiCreateTool` | `tools.js` |
+| 47 | POST | `/tools/` | techfm_oa+ | `tools.py` → `tools_service.create_tool` | tools (w) | `apiCreateTool` | `tools.js` |
 | 48 | GET | `/tools/` | session | `tools.py` → `tools_service.list_tools` + `tool_custody` | tools (r), tool_transactions (r), users (r) | `apiListTools` | `tools.js` |
 | 49 | GET | `/tools/{barcode}` | session | `tools.py` → `tools_service.get_tool_by_barcode` + `tool_custody` | tools (r), tool_transactions (r), users (r) | `apiGetToolByBarcode` | `tools.js` |
-| 50 | PATCH | `/tools/{tool_id}` | admin+ | `tools.py` → `tools_service.update_tool` | tools (w) | `apiUpdateTool` | `tools.js` |
-| 51 | DELETE | `/tools/{tool_id}` | admin+ | `tools.py` → `tools_service.delete_tool` + `tool_custody` | tools (r/w, archive), tool_transactions (r, custody guard) | `apiDeleteTool` | `tools.js` |
-| 52 | POST | `/tools/{tool_id}/checkout` | admin+ | `tools.py` → `tools_service.checkout_tool` | users (r, active-target guard), tools (w), tool_transactions (w) | `apiCheckoutTool` | `toolCheckout.js` |
+| 50 | PATCH | `/tools/{tool_id}` | techfm_oa+ | `tools.py` → `tools_service.update_tool` | tools (w) | `apiUpdateTool` | `tools.js` |
+| 51 | DELETE | `/tools/{tool_id}` | techfm_oa+ | `tools.py` → `tools_service.delete_tool` + `tool_custody` | tools (r/w, archive), tool_transactions (r, custody guard) | `apiDeleteTool` | `tools.js` |
+| 52 | POST | `/tools/{tool_id}/checkout` | techfm_oa+ | `tools.py` → `tools_service.checkout_tool` | users (r, active-target guard), tools (w), tool_transactions (w) | `apiCheckoutTool` | `toolCheckout.js` |
 | 53 | POST | `/tools/{tool_id}/return` | session | `tools.py` → `tools_service.return_tool` | tools (w), tool_transactions (w, r for cap check) | `apiReturnTool` | `toolReturn.js` |
-| 54 | POST | `/tools/{tool_id}/adjust` | admin+ | `tools.py` → `tools_service.adjust_tool_quantity` | tools (w), tool_transactions (w) | `apiAdjustTool` | `toolCorrection.js` |
-| 55 | POST | `/work-orders/import` | admin+ | `work_orders.py` → `work_orders.import_work_orders` | work_orders (r/w, locked find-or-create — **the only create path**), users (r, active-supervisor name-match) | `apiImportWorkOrders` | `workOrders.js` |
-| 56 | POST | `/work-orders/{id}/restore` | supervisor+ scoped | `work_orders.py` → `work_orders.restore_work_order` | work_orders (w, un-archive) | `apiRestoreWorkOrder` | `history.js`, `workOrders.js` (Admin+ exact search) |
+| 54 | POST | `/tools/{tool_id}/adjust` | techfm_oa+ | `tools.py` → `tools_service.adjust_tool_quantity` | tools (w), tool_transactions (w) | `apiAdjustTool` | `toolCorrection.js` |
+| 55 | POST | `/work-orders/import` | techfm_oa+ | `work_orders.py` → `work_orders.import_work_orders` | work_orders (r/w, locked find-or-create — **the only create path**), users (r, active-supervisor name-match) | `apiImportWorkOrders` | `workOrders.js` |
+| 56 | POST | `/work-orders/{id}/restore` | supervisor+ scoped | `work_orders.py` → `work_orders.restore_work_order` | work_orders (w, un-archive) | `apiRestoreWorkOrder` | `history.js`, `workOrders.js` (TechFM OA+ exact search) |
 | 57 | PATCH | `/users/{id}/name` | self or outranks target | `users.py` → `users.update_name` | users (w; first/last name + optional `username`) | `apiUpdateUserName` | `users.js` |
 | 58 | POST | `/work-orders/{id}/labor` | supervisor+ scoped | `work_orders.py` → `work_orders.add_work_order_labor` | work_orders (r/w status), work_order_technicians (r), work_order_labor (w), users (r) | `apiAddWorkOrderLabor` | `workOrders.js` |
 | 59 | PATCH | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | `work_orders.py` → `work_orders.update_work_order_labor` | work_order_labor (r/w) | `apiUpdateWorkOrderLabor` | `workOrders.js` |
 | 60 | DELETE | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | `work_orders.py` → `work_orders.delete_work_order_labor` | work_order_labor (r/w) | `apiDeleteWorkOrderLabor` | `workOrders.js` |
-| 61 | PATCH | `/users/{id}/role` | admin+ AND outranks both current and new role | `users.py` → `users.update_role` | users (w), sessions (w, revoke) | `apiUpdateUserRole` | `users.js` |
-| 62 | GET | `/work-orders/export` | admin+, server-scoped | `work_orders.py` → `work_orders.export_work_orders_csv` (full: current live filters; client: unchanged scope dropdown; + `domain.receipt`) | work_orders (r), work_order_items (r), items (r), work_order_labor (r), users (r) | `apiExportWorkOrders` | `workOrders.js` |
+| 61 | PATCH | `/users/{id}/role` | techfm_oa+ AND outranks both current and new role | `users.py` → `users.update_role` | users (w), sessions (w, revoke) | `apiUpdateUserRole` | `users.js` |
+| 62 | GET | `/work-orders/export` | techfm_oa+, server-scoped | `work_orders.py` → `work_orders.export_work_orders_csv` (full: current live filters; client: unchanged scope dropdown; + `domain.receipt`) | work_orders (r), work_order_items (r), items (r), work_order_labor (r), users (r) | `apiExportWorkOrders` | `workOrders.js` |
 | 63 | GET | `/work-orders/filter-options` | session scoped | `work_orders.py` → `work_orders.get_work_order_filter_options` | work_orders (r), work_order_technicians (r, scope), users (r) | `apiGetWorkOrderFilterOptions` | `workOrders.js` |
 | 64 | GET | `/work-orders/legacy/archive` | owner exactly | `work_orders.py` → `work_orders.count_live_legacy_work_orders` | work_orders (r; live legacy count) | `apiGetLegacyWorkOrderArchivePreview` | `workOrders.js` |
 | 65 | POST | `/work-orders/legacy/archive` | owner exactly | `work_orders.py` → `work_orders.archive_live_legacy_work_orders` | work_orders (w; atomic bulk soft-archive) | `apiArchiveLegacyWorkOrders` | `workOrders.js` |
 | 66 | POST | `/work-orders/{id}/start` | technician+ scoped | `work_orders.py` → `work_orders.start_work_order` | work_orders (r/w, row lock) | `apiStartWorkOrder` | `transactions.js`, `workOrders.js` |
-| 67 | GET | `/user-requests/` | admin+ | `user_requests.py` → `user_requests.list_user_requests` | user_requests (r), items (r), work_orders (r), users (r) | `apiListUserRequests` | `userRequests.js` |
-| 68 | PATCH | `/user-requests/{id}` | admin+ | `user_requests.py` → `user_requests.update_user_request` / `update_user_request_fields` | user_requests (r/w), users (r) | `apiUpdateUserRequest` | `userRequests.js` |
+| 67 | GET | `/user-requests/` | techfm_oa+ | `user_requests.py` → `user_requests.list_user_requests` | user_requests (r), items (r), work_orders (r), users (r) | `apiListUserRequests` | `userRequests.js` |
+| 68 | PATCH | `/user-requests/{id}` | techfm_oa+ | `user_requests.py` → `user_requests.update_user_request` / `update_user_request_fields` | user_requests (r/w), users (r) | `apiUpdateUserRequest` | `userRequests.js` |
 | 68a | POST | `/user-requests/item-request` | session (any role) | `user_requests.py` → `user_requests.create_item_request` | user_requests (w), work_orders (r) | `apiCreateItemRequest` | `itemRequest.js` |
-| 68b | GET | `/user-requests/{id}/siblings` | admin+ | `user_requests.py` → `user_requests.find_sibling_item_requests` | user_requests (r), work_orders (r), users (r) | `apiListRequestSiblings` | `userRequests.js` |
-| 68c | POST | `/user-requests/{id}/fulfill` | admin+ | `user_requests.py` → `items.create_item` (optional) + `user_requests.fulfill_item_request` → `work_orders.attach_dispense_line` | user_requests (r/w, row lock), items (r/w on create), work_orders (r/w status), work_order_items (w, retroactive) | `apiFulfillItemRequest` | `userRequests.js` |
+| 68b | GET | `/user-requests/{id}/siblings` | techfm_oa+ | `user_requests.py` → `user_requests.find_sibling_item_requests` | user_requests (r), work_orders (r), users (r) | `apiListRequestSiblings` | `userRequests.js` |
+| 68c | POST | `/user-requests/{id}/fulfill` | techfm_oa+ | `user_requests.py` → `items.create_item` (optional) + `user_requests.fulfill_item_request` → `work_orders.attach_dispense_line` | user_requests (r/w, row lock), items (r/w on create), work_orders (r/w status), work_order_items (w, retroactive) | `apiFulfillItemRequest` | `userRequests.js` |
 | 69 | POST | `/work-orders/{id}/complete` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.complete_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiCompleteWorkOrder` | `workOrders.js` |
 | 70 | POST | `/work-orders/{id}/hold` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.hold_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiHoldWorkOrder` | `workOrders.js` |
 | 71 | POST | `/work-orders/{id}/resume` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.resume_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiResumeWorkOrder` | `workOrders.js` |
-| NF1 | GET | `/integrations/netfacilities/session` | admin+ | `netfacilities.py` → dependency-free config + authentication/job coordinators | no DB; protected saved-state existence + process-local safe snapshots | `apiGetNetFacilitiesSession` | `workOrders.js` |
-| NF1a | POST | `/integrations/netfacilities/auth/start` | admin+ | `netfacilities.py` → `netfacilities_auth.start` → lazy headed client | no DB; opens dedicated local browser and acquires protected-profile lease | `apiStartNetFacilitiesAuthentication` | `workOrders.js` |
-| NF1b | POST | `/integrations/netfacilities/auth/confirm` | admin+ | `netfacilities.py` → `netfacilities_auth.confirm` → allowlisted page verification + storage-state save | no DB; secret-safe attempt state only | `apiConfirmNetFacilitiesAuthentication` | `workOrders.js` |
-| NF1c | POST | `/integrations/netfacilities/auth/cancel` | admin+ | `netfacilities.py` → `netfacilities_auth.cancel` | no DB; closes pending headed browser and releases profile | `apiCancelNetFacilitiesAuthentication` | `workOrders.js` |
-| NF2 | POST | `/integrations/netfacilities/work-orders/enrich` | admin+ | `netfacilities.py` → `netfacilities_jobs.start` → `netfacilities.enrich_work_orders` | work_orders (r/w, existing live candidates only; short compare-and-set locks) | `apiStartNetFacilitiesEnrichment` | `workOrders.js` |
-| NF3 | GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | admin+ | `netfacilities.py` → `netfacilities_jobs.get` | no DB; process-local aggregate-only job snapshot | `apiGetNetFacilitiesEnrichment` | `workOrders.js` |
+| NF1 | GET | `/integrations/netfacilities/session` | techfm_oa+ | `netfacilities.py` → dependency-free config + authentication/job coordinators | no DB; protected saved-state existence + process-local safe snapshots | `apiGetNetFacilitiesSession` | `workOrders.js` |
+| NF1a | POST | `/integrations/netfacilities/auth/start` | techfm_oa+ | `netfacilities.py` → `netfacilities_auth.start` → lazy headed client | no DB; opens dedicated local browser and acquires protected-profile lease | `apiStartNetFacilitiesAuthentication` | `workOrders.js` |
+| NF1b | POST | `/integrations/netfacilities/auth/confirm` | techfm_oa+ | `netfacilities.py` → `netfacilities_auth.confirm` → allowlisted page verification + storage-state save | no DB; secret-safe attempt state only | `apiConfirmNetFacilitiesAuthentication` | `workOrders.js` |
+| NF1c | POST | `/integrations/netfacilities/auth/cancel` | techfm_oa+ | `netfacilities.py` → `netfacilities_auth.cancel` | no DB; closes pending headed browser and releases profile | `apiCancelNetFacilitiesAuthentication` | `workOrders.js` |
+| NF2 | POST | `/integrations/netfacilities/work-orders/enrich` | techfm_oa+ | `netfacilities.py` → `netfacilities_jobs.start` → `netfacilities.enrich_work_orders` | work_orders (r/w, existing live candidates only; short compare-and-set locks) | `apiStartNetFacilitiesEnrichment` | `workOrders.js` |
+| NF3 | GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | techfm_oa+ | `netfacilities.py` → `netfacilities_jobs.get` | no DB; process-local aggregate-only job snapshot | `apiGetNetFacilitiesEnrichment` | `workOrders.js` |
+| WS1 | WS | `/ws` | session cookie + same-origin | `realtime.py` → `services/realtime` registry → `domain/realtime` policy | **none** — carries no row data, reads and writes nothing | — (`static/realtime.js` owns the socket; not an `api.js` wrapper) | `adminReview.js` (subscriber), `auth.js` + `nav.js` (lifecycle) |
 
 (Rows 55 onward and NF1–NF3/NF1a–NF1c were appended out of resource order to keep the existing
-#1–54 numbering — and the footnote / per-table references to it — stable.)
+#1–54 numbering — and the footnote / per-table references to it — stable. WS1 is the one
+non-HTTP operation and is numbered apart from the resource rows for the same reason.)
 
 Footnotes:
 1. `POST /transactions/`: dispense = any authenticated user; stock = supervisor+ (`domain.roles.can_transact`). A Scan/Stock dispense may take expected quantity below zero and opens a recount request. Work Orders Add Item has the same deliberate exception; Work Order quantity edits and the other stock-out paths retain the strict no-overdraft domain rule.
@@ -161,7 +164,7 @@ What populates each screen. Format: **table → … → view → what the user s
   was deleted in X3 — it had no consumer at all.)
 - **items** → `list_items` → `GET /items/` (optional `q`) → `apiListItems` →
   - `items.js`: explicit full-dataset Search/Enter results or Load All Items
-    (Admin/Owner see price/link columns); typing alone does not render cards.
+    (TechFM OA and above see price/link columns); typing alone does not render cards.
   - `addBarcode.js`: debounced name picker independent of the Find Item cache.
   - `transactions.js`: the manual entry search-and-pick panel (every role;
     Supervisor+ additionally browse-all with an empty search).
@@ -181,13 +184,13 @@ What populates each screen. Format: **table → … → view → what the user s
   - `workOrders.js`: Edit Details locally searches the already-loaded active
     Technicians by full name, offers only unselected matches in a dropdown, and
     lists the draft assignment set below it. Save replaces `assigned_to_ids`.
-  - `tools.js`: Admin/Owner's full-name active-user custody search (archived
+  - `tools.js`: TechFM OA and above's full-name active-user custody search (archived
     excluded).
 
 ### Transaction history
 - **transactions ⋈ items ⋈ users** → `list_history` → `GET /transactions/` →
   `apiListTransactions` → `history.js`: the paginated History table. It renders
-  the acting user's full name; no login username is returned. Admin/Owner get
+  the acting user's full name; no login username is returned. TechFM OA and above get
   the Charge column (`item_price` × qty × 1.15) — **null for work-order rows**
   (they bill via the line). Copy-table also reads this set; see cross-feature note.
 
@@ -200,13 +203,13 @@ What populates each screen. Format: **table → … → view → what the user s
 - **work_orders ⋈ work_order_items ⋈ items** → `get_work_order` →
   `GET /work-orders/{id}` → `apiGetWorkOrder` →
   - `workOrders.js`: the expanded card body — materials lines, per-line charge
-    (`unit_price`/`billable_quantity`, Admin/Owner), and `materials_total`.
+    (`unit_price`/`billable_quantity`, TechFM OA and above), and `materials_total`.
   - `history.js`: per-work-order totals + line unit prices for the copy export.
 
 ### User requests
 - **user_requests ⋈ items ⋈ work_orders ⋈ users** → `list_user_requests` →
   `GET /user-requests/?status=open|resolved` → `apiListUserRequests` →
-  `userRequests.js`: Admin/Owner see recount disparities and missing-price/link
+  `userRequests.js`: TechFM OA and above see recount disparities and missing-price/link
   tasks with item/barcode, affected work orders, current price/link, requestor,
   state, and resolution metadata. Missing-price cards expose both item fields
   inline; the page remains request-type-generic.
@@ -224,7 +227,7 @@ What populates each screen. Format: **table → … → view → what the user s
   selected user's custody-card holdings (both derived from each tool's
   `custody` breakdown).
 - **users** → `list_users(include_archived=false)` → `GET /users/` →
-  `apiListUsers` → `tools.js`: Admin/Owner's searchable active-user picker.
+  `apiListUsers` → `tools.js`: TechFM OA and above's searchable active-user picker.
   Supervisor/Technician skip this request and use `/auth/me` for a self-only
   card.
 - **tools ⋈ tool_transactions ⋈ users** → `get_tool_by_barcode` +
@@ -308,7 +311,7 @@ service → table effect**.
   card from the default open queue while preserving resolved history.
 - `userRequests.js` (recount-card Mark resolved / Reopen) → `apiUpdateUserRequest` →
   `PATCH /user-requests/{id}` → `update_user_request` → **user_requests.status**,
-  `resolved_at`, `resolved_by_id`, and optional `resolution_note` update. Admin+
+  `resolved_at`, `resolved_by_id`, and optional `resolution_note` update. TechFM OA+
   only; reopening clears the resolution fields. Resolved missing-price cards are
   read-only audit entries in the page, although the generic endpoint accepts a
   reopen request from an API client.
@@ -319,7 +322,7 @@ service → table effect**.
   **users.first_name/last_name/username** update (self or manageable
   subordinate; a duplicate username is a 400).
 - `users.js` (Edit Role) → `apiUpdateUserRole` → `PATCH /users/{id}/role` →
-  **users.role** update + **sessions** delete (Admin+, and only for roles the
+  **users.role** update + **sessions** delete (TechFM OA+, and only for roles the
   actor outranks — so nobody promotes to their own level).
 - `users.js` (Reset password) → `apiResetPassword` →
   `POST /users/{id}/reset-password` → **users.password_hash** update.
@@ -346,14 +349,14 @@ one no import has brought in.
   `community` + raw `location`; Commons includes Cimarron/Cimmarron,
   multi-location rows can match several named choices, and Academics means no
   known community term. The final rows sort by parsed scheduled date descending.
-- `workOrders.js` (Admin+ exact number search) additionally calls
+- `workOrders.js` (TechFM OA+ exact number search) additionally calls
   `apiLookupWorkOrder` after the live-list request. Because lookup applies the
   trimmed, case-insensitive work-order identity rule, only an exact archived
   match opens `Work Order has been closed.` with Restore/Close actions. Restore
   calls `apiRestoreWorkOrder` and reloads the search; Close makes no write. A
   search-generation token prevents a stale lookup from prompting after input
   changes.
-- `workOrders.js` (Import from CSV, Admin+) → `apiImportWorkOrders` →
+- `workOrders.js` (Import from CSV, TechFM OA+) → `apiImportWorkOrders` →
   `POST /work-orders/import` → `import_work_orders` preflight → per row
   **work_orders** lock/find-or-create live numbers with idempotent fill-blanks.
   Blank/missing tasks store a canonical NetFacilities URL that remains
@@ -386,7 +389,7 @@ one no import has brought in.
   `count_live_legacy_work_orders` and shows the returned live-row count in the
   shared modal. A zero count uses a message-only dialog; otherwise confirmation
   proceeds to the write flow below.
-- `workOrders.js` (Export filtered CSV beside Search, Admin+) →
+- `workOrders.js` (Export filtered CSV beside Search, TechFM OA+) →
   `apiExportWorkOrders` → `GET /work-orders/export?scope=…&variant=full&…` →
   `export_work_orders_csv` → reads **work_orders** (+ lines, items, labor,
   users) and returns every row matching the current live status, service type,
@@ -396,7 +399,7 @@ one no import has brought in.
   the import's own headers, so live rows re-import cleanly. The response filename
   is `MM-DD-YY_HH-MM_filter1-filter2.csv` (UTC), using every active filter value;
   `-` replaces the requested time colon because `:` is invalid on Windows.
-- `workOrders.js` (For Client, Admin+) → same route with `variant=client` →
+- `workOrders.js` (For Client, TechFM OA+) → same route with `variant=client` →
   four columns only: `WORK ORDER`, `MATERIAL TOTAL`, `LABOR TOTAL`, `RECEIPT`.
   Its existing scope dropdown remains authoritative; advanced page filters are
   not sent or applied. Its filename is `MM-DD-YY_HH-MM_client-scope.csv`.
@@ -414,7 +417,7 @@ one no import has brought in.
   result dropdown, selected users are excluded, and each choice is added to a
   removable list below the search. The remaining row IDs are serialized as the
   replacement `assigned_to_ids` set.
-  Admin/Owner also receives imported metadata inputs (`location`, `service_type`,
+  TechFM OA and above also receives imported metadata inputs (`location`, `service_type`,
   `schedule_date`, `output_to`, `vendor_assignee`, `description`). Legacy place
   fields and number are read-only. The existing status selector offers
   In-Progress for Created/Assigned, so it replaces the former standalone start
@@ -441,7 +444,7 @@ one no import has brought in.
 - `workOrders.js` (mode / general lifecycle actions, Supervisor+) →
   `apiUpdateWorkOrder` → same PATCH route. Supervisor+ retains mode, Mark
   Completed, Reopen, and the unchanged Edit details status controls. Send to
-  Review appears only on Completed for Admin+ or the routed Supervisor when that
+  Review appears only on Completed for TechFM OA+ or the routed Supervisor when that
   caller is not assigned to the work. The confirmation remains, and the service
   enforces both Completed state and the second-person rule before the Review
   PATCH enters final Admin Review. Status-colored cards are
@@ -472,9 +475,9 @@ one no import has brought in.
   **work_order_labor**. Entries store actual whole minutes per assigned
   technician; Supervisor+ may manage any assigned technician. Detail billing
   sums minutes, rounds upward once to 30 minutes, and
-  applies `$62.50/hour` (rate/charge Admin+ only). Add/update/remove re-fetches
+  applies `$62.50/hour` (rate/charge TechFM OA+ only). Add/update/remove re-fetches
   detail and reopens the Labor card.
-- `adminReview.js` (Admin/Owner) → `apiListWorkOrders({status: "review"})` →
+- `adminReview.js` (TechFM OA and above) → `apiListWorkOrders({status: "review"})` →
   Review cards → `apiGetWorkOrder` → `adminReviewReceipt.js`. The pure receipt
   builder uses authoritative override-aware work-order material lines with
   `+15%`, always appends `[x] Labor Hours` from billed minutes plus `labor_total`
@@ -485,8 +488,8 @@ one no import has brought in.
 - `adminReview.js` (Return to In-Progress) → `apiUpdateWorkOrder` → `PATCH
   /work-orders/{id}` with `{status: "in_progress"}`. The card leaves the Review
   queue while the current receipt remains visible.
-- `workOrders.js` (Archive, Admin+ on any expanded live card) → confirm →
-  `apiArchiveWorkOrder` → `POST /work-orders/{id}/archive` → Admin+ service and
+- `workOrders.js` (Archive, TechFM OA+ on any expanded live card) → confirm →
+  `apiArchiveWorkOrder` → `POST /work-orders/{id}/archive` → TechFM OA+ service and
   route gates → **work_orders.archived_at** set (Closed), then reload the active
   list. `adminReview.js` uses the same endpoint for its receipt-aware Close
   action on Review rows. The row, lines, and transactions remain, and Admin
@@ -498,7 +501,7 @@ one no import has brought in.
   affected count; the view shows it and reloads Work Orders. Already archived
   legacy rows and non-legacy rows are untouched.
 - `history.js` (work-order filter names an archived work order) and
-  `workOrders.js` (Admin+ exact archived-number search) →
+  `workOrders.js` (TechFM OA+ exact archived-number search) →
   `apiLookupWorkOrder` → `GET /work-orders/lookup?number=` → the one read that
   reports an archived work order → confirm → `apiRestoreWorkOrder` →
   `POST /work-orders/{id}/restore` → **work_orders.archived_at** cleared. This is
@@ -680,7 +683,7 @@ target may be self or a subordinate; username uniqueness is enforced by the
 database and a conflict returns 400.
 
 **`UserRoleUpdate`** — `PATCH /users/{id}/role`: `role: str` (recognized role).
-The Admin+ router requires the actor to strictly outrank both the target's
+The TechFM OA+ router requires the actor to strictly outrank both the target's
 current role and the requested role; a successful service update revokes the
 target's sessions.
 
@@ -790,8 +793,8 @@ validated in the service. Live statuses are `created`, `assigned`, `in_progress`
 Notes are trimmed per-entry text; every in-scope user may append one. The
 service supplies timestamp/date/author metadata and preserves the prior log.
 `status`, `entry_mode`, supervisor, and technician assignment require
-Supervisor+; imported/legacy text metadata and number require Admin+. A Review
-status is accepted only while the stored row is Completed and only from Admin+
+Supervisor+; imported/legacy text metadata and number require TechFM OA+. A Review
+status is accepted only while the stored row is Completed and only from TechFM OA+
 or its routed Supervisor when the caller is not an assigned worker.
 `supervisor_id` may target an active Admin or Supervisor; `assigned_to_ids` may
 contain active Technician or Supervisor accounts (including the acting
@@ -836,20 +839,20 @@ matrix. **`WorkOrderImportResult`** (return of
 `POST /work-orders/import`): `total`, `created`, `opened`, `closed`, `supervisors_matched`,
 `supervisors_unmatched`, `skipped` (all int). The request is a `multipart/form-data`
 CSV file upload (`UploadFile`), no JSON body, capped at **25 MB** by
-`routers/_uploads.py::read_capped` (413 above it — but the Admin+ gate runs first,
+`routers/_uploads.py::read_capped` (413 above it — but the TechFM OA+ gate runs first,
 so an unauthorised oversized upload is a 403; since C1 that ordering is FastAPI
 solving the dependency before it reads the form body, not statement order). **`WorkOrderItemDetail`**:
 `id`, `item_id`, `item_name`, `item_barcode`, `item_quantity` (live on-hand),
-`quantity`, `mode`, `unit_price?`, `billable_quantity?` (last two Admin/Owner-only).
+`quantity`, `mode`, `unit_price?`, `billable_quantity?` (last two TechFM OA and above-only).
 **`WorkOrderDetail`** = `WorkOrderCard` + `notes: str?` +
 `items: list[WorkOrderItemDetail]` + `labor: list[WorkOrderLaborDetail]` +
-`labor_minutes` + `labor_billed_minutes` + `materials_total?` (Admin/Owner; Σ
+`labor_minutes` + `labor_billed_minutes` + `materials_total?` (TechFM OA and above; Σ
 `effective_billable × unit_price`) + `labor_rate?` / `labor_total?`
-(Admin/Owner; fixed rate after combined-duration rounding).
+(TechFM OA and above; fixed rate after combined-duration rounding).
 
 ### NetFacilities (`schemas/netfacilities.py`)
 
-All six routes are Admin+. **`NetFacilitiesCapability`** returns `available`,
+All six routes are TechFM OA+. **`NetFacilitiesCapability`** returns `available`,
 `interactive_authentication_available`, one of
 `unavailable|not_authenticated|authenticating|ready|running|expired`, a secret-safe
 `message`, and optional `latest_authentication` / `latest_job`. **`NetFacilitiesAuthenticationAttempt`**
@@ -867,6 +870,51 @@ Polling accepts only the UUID path parameter and returns 404 after a process res
 when the id is not the coordinator's latest job. The session endpoint reads only
 validated config, saved-state file existence/mtime, and process-local state; it never
 returns a filesystem path or browser content.
+
+### Real-time (`domain/realtime.py` — no Pydantic schema)
+
+`/ws` is the one operation with no request or response *body*. It has no
+`schemas/` module because nothing is parsed from a client: the socket is
+**server→client only**. There is no application-level inbound vocabulary — Uvicorn
+owns protocol ping/pong, and application frames within the size limit are
+*ignored* rather than rejected, so adding a client→server message later is an
+additive change. The socket never mutates anything (P3, permanent).
+
+**Server→client envelope** — exactly three keys, always:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `type` | `str` | event name; currently only `work_order.review_queue.changed` |
+| `id` | `str \| null` | the affected work-order UUID, or `null` for bulk commands (CSV import, legacy archive) |
+| `req` | `str` | the 12-hex request id of the HTTP write that caused it, copied from `logging_config.current_request_id()` so the socket event stays on the causal trace |
+
+The envelope deliberately carries **no row data and no actor**. It is a cache
+invalidation, not a data feed: the client refetches over REST, so there is no
+second serialization path to keep in agreement with the REST contract, and no
+authorization decision is embedded in the message. Audience is enforced
+server-side at send time (`domain/realtime.audience_allows`) — the review-queue
+event is TechFM OA and above only.
+
+**Emitters** — exactly five work-order commands emit, after their mutating
+service returns: CSV import and bulk legacy archive (`id: null`), plus update,
+archive, and restore (work-order UUID). Start, complete, hold, resume,
+materials, billing, and labor deliberately do **not**. `test_realtime_emit.py`
+asserts that exact set; a new route that can change Review membership or the
+queue's card fields must call the same helper and extend that assertion.
+
+**Failure behavior** — emission is non-blocking and best-effort. A saturated
+handoff drops and counts the newest invalidation and never fails the durable
+HTTP write. REST remains the source of truth.
+
+**Handshake refusals are HTTP, not close codes.** Close codes only exist after
+`accept()`, and Starlette maps a pre-accept `close()` to a bare HTTP 403, so a
+foreign origin, an unresolvable session, and a user at capacity are all refused
+before acceptance with explicit statuses instead: **401** for auth, **429 +
+`Retry-After`** for the handshake-attempt limit, and **429 without
+`Retry-After`** for the per-user cap — capacity is not a timed limit, so there
+is no honest retry interval to give. Policy constants (6 connections/user,
+10 handshakes/60s, 20 inbound frames/s, 64 KiB frame ceiling) live in
+`domain/realtime.py`.
 
 ### Mass Stages (`schemas/mass_stages.py`)
 
@@ -997,7 +1045,7 @@ Upload size is also raised directly, by `routers/_uploads.py::read_capped` (not 
 out of the framework-agnostic `domain/errors.py`): **413** on
 `POST /barcodes/decode` over 10 MB and `POST /work-orders/import` over 25 MB, with
 `detail` naming the limit. Both routes declare it in their OpenAPI `responses`. On
-the import route the Admin+ gate runs first, so an unauthorised oversized upload is
+the import route the TechFM OA+ gate runs first, so an unauthorised oversized upload is
 a 403. Note: a few error class names (`RoomNotFoundError`,
 `DuplicateBuildingStageError`) and their docstrings retain pre-rebuild "room"/
 "building" wording but now apply to work-order slots / (community, building) stages.
@@ -1009,9 +1057,15 @@ a 403. Note: a few error class names (`RoomNotFoundError`,
 Pure functions (no DB) in `domain/*.py` — the business rules, testable in isolation.
 
 ### Roles (`domain/roles.py`)
-- Ranks: `technician 0 < supervisor 1 < admin 2 < owner 3`. Unknown role → rank −1.
+- Ranks: `technician 0 < supervisor 1 < techfm_oa 2 < admin 3 < owner 4`. Unknown
+  role → rank −1.
 - `role_at_least(role, min)` — the route-gate primitive (`>=` on rank).
-- `can_be_work_order_supervisor(role)` — true only for Admin and Supervisor.
+- `can_be_work_order_supervisor(role)` — true for TechFM OA, Admin, and Supervisor.
+- `label(role)` / `ROLE_LABELS` — display names; "TechFM OA" is not derivable by
+  capitalising its slug, so UI copy and OpenAPI 403 descriptions read from here.
+- TechFM OA holds the Admin toolkit minus two things, both consequences of its
+  rank: it fails `role_at_least(role, ROLE_ADMIN)`, which is the Review handoff
+  floor, and `can_manage` is false against Admin and Owner.
 - `can_be_work_order_technician(role)` — true only for Supervisor and Technician.
   These assignment predicates intentionally exclude Owner despite Owner's global
   authority.
@@ -1171,7 +1225,7 @@ read-modify-write guard for `items.quantity`).
   raises `DuplicateUsernameError`.
 - `update_role(id, role)` → replace the role and delete all target sessions so
   the next login receives matching navigation/permissions. The router owns the
-  Admin+ and strict-rank checks.
+  TechFM OA+ and strict-rank checks.
 - `reset_password(id, hash)` → overwrite hash; sessions left intact.
 - `archive_user(id, force_return_tools?, performed_by_id?)` → 🔒 lock the user →
   query `tools.user_custody`; raise `UserHasCheckedOutToolsError` while any
@@ -1302,7 +1356,7 @@ attaches to an existing number and refuses an unknown one. Both share the
   authenticated `user.full_name`; null does not erase the log.
   `_require_update_permissions` applies notes = Technician+,
   status/mode/routing/assignment = Supervisor+, and imported/legacy
-  metadata = Admin+. `assigned_to_ids` synchronizes **work_order_technicians**
+  metadata = TechFM OA+. `assigned_to_ids` synchronizes **work_order_technicians**
   and the singular compatibility mirror. Plural Technician/Supervisor worker assignment reconciles
   Created/Assigned; an
   explicit pre-work rollback is normalized after assignment so those states
@@ -1328,7 +1382,7 @@ attaches to an existing number and refuses an unknown one. Both share the
 - `resume_work_order(id, user)` → the assignment-checked inverse, moving only
   On-Hold → In-Progress and treating In-Progress as an idempotent retry. It grants
   no other status authority.
-- `archive_work_order(id)` → require Admin+ in the service, scoped-load any live
+- `archive_work_order(id)` → require TechFM OA+ in the service, scoped-load any live
   status, then set `archived_at` (Closed). Rows/lines/transactions remain.
 - `count_live_legacy_work_orders(user)` → require Owner exactly in the service;
   count only `legacy=true AND archived_at IS NULL` rows for confirmation.
