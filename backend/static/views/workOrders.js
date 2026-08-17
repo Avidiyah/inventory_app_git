@@ -930,6 +930,11 @@ async function openDetail(workOrderId, bodyEl, cardEl) {
         const assignee = technicianNames.length ? ` · ${technicianNames.join(", ")}` : "";
         meta.textContent = `${place ? place + " · " : ""}${detail.items.length} items${assignee}`;
       }
+      // This repaint already reflects the latest data, so any missed socket
+      // update while the card was held is now satisfied -- every repaint path
+      // (Cancel, Save details, materials/labor actions, initial expansion)
+      // routes through here.
+      delete cardEl.dataset.missedUpdate;
     }
   } catch (err) {
     bodyEl.innerHTML = `<p class="error">${escapeHtml(friendlyError(err, "Could not load this work order."))}</p>`;
