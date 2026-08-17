@@ -889,16 +889,20 @@ async function refreshCardSummary(cardEl) {
   // body, and the body's status actions (renderBody picks them off
   // detail.status) must not fall out of sync with the badge just repainted
   // above -- that is exactly the "Completed" badge over a live "Mark
-  // Completed" button spec section 5 exists to prevent. openDetail already
-  // re-fetches, repaints summary/badge/meta, sets dataset.loaded, and clears
-  // dataset.missedUpdate, so reuse it rather than reimplement any of that.
-  // Held cards are never reached here -- both callers already guard for it.
-  if (cardEl.open && !isHeld(cardEl)) {
-    const bodyEl = cardEl.querySelector(".wo-body");
-    if (bodyEl) await openDetail(cardEl.dataset.id, bodyEl, cardEl);
+  // Completed" button spec section 5 exists to prevent.
+  //
+  // `paintDetail` reuses the detail already fetched above rather than going
+  // back to the server, so this stays one request and inherits no second
+  // failure path. Held cards are never reached here -- both callers guard for
+  // it -- and the re-check below closes the window where an editor opened
+  // while the fetch was in flight.
+  const bodyEl =
+    cardEl.open && !isHeld(cardEl) ? cardEl.querySelector(".wo-body") : null;
+  if (bodyEl) {
+    paintDetail(detail, bodyEl, cardEl);
   } else {
-    // Collapsed (or held, defensively): drop the loaded flag so the next
-    // expansion re-fetches instead of showing a body that is now stale.
+    // Collapsed, held, or bodyless: drop the loaded flag so the next expansion
+    // re-fetches instead of showing a body that is now stale.
     delete cardEl.dataset.loaded;
   }
 }
@@ -956,32 +960,44 @@ function buildCard(card) {
 
 async function openDetail(workOrderId, bodyEl, cardEl) {
   try {
-    const detail = await apiGetWorkOrder(workOrderId);
-    renderBody(detail, bodyEl);
-    if (cardEl) {
-      cardEl.dataset.loaded = "1";
-      cardEl.className = `wo-card wo-card-status-${detail.status}`;
-      const badge = cardEl.querySelector(".wo-status");
-      if (badge) {
-        badge.className = `wo-status wo-status-${detail.status}`;
-        badge.textContent = statusLabel(detail.status);
-      }
-      const meta = cardEl.querySelector(".wo-meta");
-      if (meta) {
-        const place = placeMeta(detail);
-        const technicianNames = assignedNames(detail);
-        const assignee = technicianNames.length ? ` · ${technicianNames.join(", ")}` : "";
-        meta.textContent = `${place ? place + " · " : ""}${detail.items.length} items${assignee}`;
-      }
-      // This repaint already reflects the latest data, so any missed socket
-      // update while the card was held is now satisfied -- every repaint path
-      // (Cancel, Save details, materials/labor actions, initial expansion)
-      // routes through here.
-      delete cardEl.dataset.missedUpdate;
-    }
+    paintDetail(await apiGetWorkOrder(workOrderId), bodyEl, cardEl);
   } catch (err) {
     bodyEl.innerHTML = `<p class="error">${escapeHtml(friendlyError(err, "Could not load this work order."))}</p>`;
   }
+}
+
+// Paint one already-fetched work order into its card.
+//
+// Split out of `openDetail` so a caller holding a fresh detail can repaint
+// without a second round-trip. That matters for more than bandwidth: a second
+// fetch carries a second failure path, and `openDetail`'s is deliberately loud
+// (it writes an error into the body). Loud is right when a user clicked to
+// expand a card; it is wrong for a socket-driven refresh the user never asked
+// for, and it would stick -- `dataset.loaded` only advances on success, so
+// collapsing and re-expanding would not retry.
+function paintDetail(detail, bodyEl, cardEl) {
+  renderBody(detail, bodyEl);
+  if (!cardEl) return;
+
+  cardEl.dataset.loaded = "1";
+  cardEl.className = `wo-card wo-card-status-${detail.status}`;
+  const badge = cardEl.querySelector(".wo-status");
+  if (badge) {
+    badge.className = `wo-status wo-status-${detail.status}`;
+    badge.textContent = statusLabel(detail.status);
+  }
+  const meta = cardEl.querySelector(".wo-meta");
+  if (meta) {
+    const place = placeMeta(detail);
+    const technicianNames = assignedNames(detail);
+    const assignee = technicianNames.length ? ` · ${technicianNames.join(", ")}` : "";
+    meta.textContent = `${place ? place + " · " : ""}${detail.items.length} items${assignee}`;
+  }
+  // This repaint already reflects the latest data, so any missed socket
+  // update while the card was held is now satisfied -- every repaint path
+  // (Cancel, Save details, materials/labor actions, initial expansion)
+  // routes through here.
+  delete cardEl.dataset.missedUpdate;
 }
 
 // --- detail rendering ----------------------------------------------------
