@@ -27,6 +27,7 @@ from app.domain.rate_limit import is_over_limit, retry_after_seconds, window_sta
 
 __all__ = [
     "EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED",
+    "EVENT_WORK_ORDER_STATUS_CHANGED",
     "HANDSHAKE_MAX_ATTEMPTS",
     "HANDSHAKE_WINDOW_SECONDS",
     "MAX_CONNECTIONS_PER_USER",
@@ -54,8 +55,21 @@ __all__ = [
 # the first consumer refreshes only the queue, not an open receipt.
 EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED = "work_order.review_queue.changed"
 
+# The Work Orders card list. Narrower than an aggregate event in the same way:
+# it invalidates a card's *summary* projection -- status, assignee, item count --
+# and nothing else. Material, labor, billing, and price stay out of the
+# vocabulary, because no consumer refreshes an open card body.
+#
+# `id` names one work order; `None` means a membership command (restore), where
+# the recipient's list may have gained a row that no on-screen card represents.
+EVENT_WORK_ORDER_STATUS_CHANGED = "work_order.status.changed"
+
 _AUDIENCE_MIN_ROLE = {
     EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED: roles.ROLE_TECHFM_OA,
+    # Every role that can open the Work Orders page. Not a security boundary:
+    # P2 keeps row data out of the envelope, so a technician who receives an
+    # event for a work order they cannot see simply re-fetches nothing.
+    EVENT_WORK_ORDER_STATUS_CHANGED: roles.ROLE_TECHNICIAN,
 }
 
 # --- thresholds --------------------------------------------------------

@@ -145,3 +145,22 @@ def test_every_threshold_is_positive():
 def test_revalidation_interval_bounds_authorization_lag():
     """D1 accepts bounded lag, never an effectively permanent session."""
     assert realtime.REVALIDATE_INTERVAL_SECONDS <= 300.0
+
+
+def test_status_events_reach_every_role_that_can_open_the_page():
+    """Work Orders is available to all five roles (static/views/nav.js:67), so
+    the status event's audience is the whole hierarchy. This is a noise rule,
+    not a security one -- P2 means the re-fetch is what enforces scoping."""
+    for role in ("technician", "supervisor", "techfm_oa", "admin", "owner"):
+        assert (
+            realtime.audience_allows(realtime.EVENT_WORK_ORDER_STATUS_CHANGED, role)
+            is True
+        )
+
+
+def test_status_and_review_queue_are_distinct_event_types():
+    assert (
+        realtime.EVENT_WORK_ORDER_STATUS_CHANGED
+        != realtime.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED
+    )
+    assert realtime.EVENT_WORK_ORDER_STATUS_CHANGED == "work_order.status.changed"
