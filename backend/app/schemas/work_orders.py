@@ -248,6 +248,7 @@ class WorkOrderFilterOptions(BaseModel):
     """Scoped dynamic values used by the Work Orders advanced filters."""
 
     service_types: list[str] = Field(default_factory=list)
+    priorities: list[str] = Field(default_factory=list)
     supervisors: list[WorkOrderSupervisorFilterChoice] = Field(default_factory=list)
     communities: list[WorkOrderFilterChoice] = Field(default_factory=list)
 

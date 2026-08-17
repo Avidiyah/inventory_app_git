@@ -145,6 +145,29 @@ def normalize_community_filter(value: Optional[str]) -> Optional[str]:
     return normalized
 
 
+# Priority is raw text scraped from the vendor's "Priority Level" field, so the
+# value set is open and this sentinel has to be something no vendor value could
+# be. It selects the work orders NetFacilities enrichment never reached -- the
+# ones the detail card labels "Not imported".
+PRIORITY_FILTER_NONE = "__none__"
+
+
+def normalize_priority_filter(value: Optional[str]) -> Optional[str]:
+    """Normalize the Work Orders priority query value.
+
+    Blank means no priority filter, and `PRIORITY_FILTER_NONE` passes through as
+    the unimported sentinel. Anything else filters on itself.
+
+    Deliberately unlike `normalize_community_filter`, which rejects values
+    outside its fixed set: priority has no fixed set to validate against, and
+    rejecting unknown text would make a level the vendor adds later unfilterable
+    until someone changes this file.
+    """
+    if value is None or not value.strip():
+        return None
+    return value.strip()
+
+
 def parse_schedule_date(value: Optional[str]) -> Optional[date]:
     """Parse the leading date from the import's raw schedule text.
 

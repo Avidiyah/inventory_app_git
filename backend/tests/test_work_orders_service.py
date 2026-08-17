@@ -1396,6 +1396,60 @@ def test_filter_options_are_distinct_and_server_scoped(db):
     )
 
 
+# --- priority filter -----------------------------------------------------
+#
+# Priority is raw NetFacilities text written by enrichment, never by the import,
+# so these fixtures set it the way the enricher does: straight onto the row.
+
+def test_list_filters_by_priority_ignoring_case_and_padding(db):
+    admin = _seed_user(db, "admin")
+    tech = _seed_user(db, "technician")
+    emergency = _wo(db, created_by=admin, assigned_to=tech)
+    normal = _wo(db, created_by=admin, assigned_to=tech)
+    emergency.priority = "  Emergency  "
+    normal.priority = "Normal"
+    db.flush()
+
+    found = wos.list_work_orders(db, user=tech, priority="emergency")
+
+    assert [w.number for w in found] == [emergency.number]
+
+
+def test_list_priority_none_filter_matches_null_and_blank(db):
+    """"Not imported" has to mean the same thing to the filter that it means to
+    the enricher, which treats NULL and whitespace-only alike."""
+    admin = _seed_user(db, "admin")
+    tech = _seed_user(db, "technician")
+    never_enriched = _wo(db, created_by=admin, assigned_to=tech)
+    blank = _wo(db, created_by=admin, assigned_to=tech)
+    rated = _wo(db, created_by=admin, assigned_to=tech)
+    blank.priority = "   "
+    rated.priority = "Normal"
+    db.flush()
+
+    found = wos.list_work_orders(db, user=tech, priority=wo.PRIORITY_FILTER_NONE)
+
+    assert {w.number for w in found} == {never_enriched.number, blank.number}
+
+
+def test_filter_options_report_distinct_priorities(db):
+    admin = _seed_user(db, "admin")
+    tech = _seed_user(db, "technician")
+    first = _wo(db, created_by=admin, assigned_to=tech)
+    second = _wo(db, created_by=admin, assigned_to=tech)
+    third = _wo(db, created_by=admin, assigned_to=tech)
+    unenriched = _wo(db, created_by=admin, assigned_to=tech)
+    first.priority = "Normal"
+    second.priority = "normal"  # same value, vendor spelling drift
+    third.priority = "Emergency"
+    unenriched.priority = None  # contributes no option of its own
+    db.flush()
+
+    options = wos.get_work_order_filter_options(db, user=tech)
+
+    assert options["priorities"] == ["Emergency", "Normal"]
+
+
 def test_list_limit_applies_after_scheduled_date_sort(db):
     sup = _seed_user(db, "supervisor")
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)

@@ -164,6 +164,30 @@ def _apply_community_filter(query, value: Optional[str]):
     return query.filter(_community_match(wo.COMMUNITY_SEARCH_TERMS[community]))
 
 
+def _apply_priority_filter(query, value: Optional[str]):
+    """Apply one exact priority filter or the unimported-priority fallback.
+
+    The sentinel's NULL-or-blank pair is the same predicate the NetFacilities
+    enricher uses to decide a row still needs a priority, so "Not imported" on
+    the page means exactly what it means to the enricher. Real values compare
+    case- and whitespace-insensitively, like `service_type`, because they are
+    scraped vendor text rather than a controlled vocabulary.
+    """
+    priority = wo.normalize_priority_filter(value)
+    if priority is None:
+        return query
+    if priority == wo.PRIORITY_FILTER_NONE:
+        return query.filter(
+            or_(
+                WorkOrder.priority.is_(None),
+                func.btrim(WorkOrder.priority) == "",
+            )
+        )
+    return query.filter(
+        func.lower(func.btrim(WorkOrder.priority)) == priority.casefold()
+    )
+
+
 def _validate_assignee(db: Session, assigned_to_id: Optional[uuid.UUID]) -> None:
     """A work order may be unassigned, but if assigned the target must exist and
     be an active Technician or Supervisor account."""
@@ -747,6 +771,7 @@ def _apply_work_order_filters(
     service_type: Optional[str] = None,
     supervisor_id: Optional[uuid.UUID] = None,
     community: Optional[str] = None,
+    priority: Optional[str] = None,
     search: Optional[str] = None,
 ):
     """Apply the joinable Work Orders predicates shared by list and export."""
@@ -764,6 +789,7 @@ def _apply_work_order_filters(
         query = query.filter(WorkOrder.supervisor_id == supervisor_id)
 
     query = _apply_community_filter(query, community)
+    query = _apply_priority_filter(query, priority)
 
     pattern = _search_pattern(search)
     if pattern is not None:
@@ -821,18 +847,21 @@ def list_work_orders(
     service_type: Optional[str] = None,
     supervisor_id: Optional[uuid.UUID] = None,
     community: Optional[str] = None,
+    priority: Optional[str] = None,
     scheduled_date: Optional[date] = None,
     search: Optional[str] = None,
     limit: Optional[int] = None,
 ) -> Sequence[WorkOrder]:
     """Live work orders by scheduled date descending, scoped to `user`
     (technician -> assigned, supervisor -> created/routed, admin/owner -> all).
-    Optional status, service type, routed supervisor, derived community, exact
-    scheduled date, and number-substring filters combine with AND. Community
-    membership searches both structured `community` and raw CSV `location`;
-    Academics means no known term appears in either. Blank or malformed schedule
-    values sort last, with creation time breaking ties. `limit`, when set, caps
-    this ordering; filters and Show all omit it to reach the full matching set.
+    Optional status, service type, routed supervisor, derived community,
+    priority, exact scheduled date, and number-substring filters combine with
+    AND. Community membership searches both structured `community` and raw CSV
+    `location`; Academics means no known term appears in either. Priority is an
+    exact vendor value, or `PRIORITY_FILTER_NONE` for the rows enrichment never
+    reached. Blank or malformed schedule values sort last, with creation time
+    breaking ties. `limit`, when set, caps this ordering; filters and Show all
+    omit it to reach the full matching set.
 
     **X3's ceiling applies here differently from every other capped list, and
     the difference is worth understanding before changing it.** `schedule_date`
@@ -857,6 +886,7 @@ def list_work_orders(
             service_type=service_type,
             supervisor_id=supervisor_id,
             community=community,
+            priority=priority,
             search=search,
         )
         return _scoped_to_user(query, user)
@@ -930,6 +960,27 @@ def _scoped_to_user(query, user: Optional[User]):
     )
 
 
+def _distinct_filter_values(rows) -> list[str]:
+    """Distinct non-blank values for one filter dropdown, sorted case-insensitively.
+
+    Rows differing only in case or padding collapse to a single option. The
+    surviving spelling is the smallest by code point rather than whichever row
+    the database happened to return first -- both of these columns hold raw
+    vendor text where `Normal` and `normal` coexist, and an arbitrary winner
+    means the dropdown can reshuffle between requests for no visible reason.
+    """
+    by_key: dict[str, str] = {}
+    for (raw_value,) in rows:
+        value = raw_value.strip() if raw_value else ""
+        if not value:
+            continue
+        key = value.casefold()
+        current = by_key.get(key)
+        if current is None or value < current:
+            by_key[key] = value
+    return sorted(by_key.values(), key=lambda value: value.casefold())
+
+
 def get_work_order_filter_options(
     db: Session, *, user: Optional[User]
 ) -> dict:
@@ -939,14 +990,12 @@ def get_work_order_filter_options(
     avoids deriving options from the page's intentionally capped card list.
     """
     live = WorkOrder.archived_at.is_(None)
-    service_rows = _scoped_to_user(
-        db.query(WorkOrder.service_type).filter(live), user
-    ).all()
-    service_types_by_key: dict[str, str] = {}
-    for (raw_value,) in service_rows:
-        value = raw_value.strip() if raw_value else ""
-        if value:
-            service_types_by_key.setdefault(value.casefold(), value)
+    service_types = _distinct_filter_values(
+        _scoped_to_user(db.query(WorkOrder.service_type).filter(live), user).all()
+    )
+    priorities = _distinct_filter_values(
+        _scoped_to_user(db.query(WorkOrder.priority).filter(live), user).all()
+    )
 
     supervisor_rows = (
         _scoped_to_user(
@@ -960,9 +1009,10 @@ def get_work_order_filter_options(
     )
 
     return {
-        "service_types": sorted(
-            service_types_by_key.values(), key=lambda value: value.casefold()
-        ),
+        "service_types": service_types,
+        # Alphabetical, not by urgency: priority is free vendor text, so nothing
+        # here knows that Emergency outranks Normal.
+        "priorities": priorities,
         "supervisors": sorted(
             (
                 {"id": supervisor.id, "name": supervisor.full_name}
@@ -987,6 +1037,7 @@ def list_work_orders_for_export(
     service_type: Optional[str] = None,
     supervisor_id: Optional[uuid.UUID] = None,
     community: Optional[str] = None,
+    priority: Optional[str] = None,
     scheduled_date: Optional[date] = None,
     search: Optional[str] = None,
 ) -> Sequence[WorkOrder]:
@@ -1024,6 +1075,7 @@ def list_work_orders_for_export(
         service_type=service_type,
         supervisor_id=supervisor_id,
         community=community,
+        priority=priority,
         search=search,
     )
 
@@ -1137,6 +1189,7 @@ def export_work_orders_csv(
     service_type: Optional[str] = None,
     supervisor_id: Optional[uuid.UUID] = None,
     community: Optional[str] = None,
+    priority: Optional[str] = None,
     scheduled_date: Optional[date] = None,
     search: Optional[str] = None,
 ) -> str:
@@ -1163,6 +1216,7 @@ def export_work_orders_csv(
         "service_type": service_type,
         "supervisor_id": supervisor_id,
         "community": community,
+        "priority": priority,
         "scheduled_date": scheduled_date,
         "search": search,
     }

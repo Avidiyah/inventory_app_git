@@ -282,6 +282,33 @@ def test_operational_export_combines_the_active_work_order_filters(db):
     assert [row["WORK ORDER"] for row in rows] == [target.number]
 
 
+def test_operational_export_honors_the_priority_filter(db):
+    """The export shares `_apply_work_order_filters` with the list, so what the
+    page shows and what the CSV contains stay the same set."""
+    admin = _seed_user(db, "admin")
+    emergency = _wo(db, admin)
+    normal = _wo(db, admin)
+    unenriched = _wo(db, admin)
+    emergency.priority = "Emergency"
+    normal.priority = "Normal"
+    db.flush()
+    numbers = [emergency.number, normal.number, unenriched.number]
+
+    rated = _rows(
+        db, user=admin, scope="all", numbers=numbers, priority="emergency"
+    )
+    missing = _rows(
+        db,
+        user=admin,
+        scope="all",
+        numbers=numbers,
+        priority=wo.PRIORITY_FILTER_NONE,
+    )
+
+    assert [row["WORK ORDER"] for row in rated] == [emergency.number]
+    assert [row["WORK ORDER"] for row in missing] == [unenriched.number]
+
+
 def test_all_scope_excludes_archived_and_archived_scope_includes_only_them(db):
     admin = _seed_user(db, "admin")
     live = _wo(db, admin)
@@ -474,6 +501,7 @@ def test_route_forwards_operational_export_filters(db, monkeypatch):
         service_type="Repair",
         supervisor_id=supervisor_id,
         community="commons",
+        priority="Emergency",
         scheduled_date=date(2026, 7, 28),
         q="WO-123",
         user=admin,
@@ -483,8 +511,8 @@ def test_route_forwards_operational_export_filters(db, monkeypatch):
     assert response.body == b"WORK ORDER\r\n"
     assert re.search(
         r'filename="\d{2}-\d{2}-\d{2}_\d{2}-\d{2}_status-in-progress-service-repair-'
-        r'supervisor-avery-able-community-commons-date-2026-07-28-'
-        r'number-wo-123\.csv"',
+        r'supervisor-avery-able-community-commons-priority-emergency-'
+        r'date-2026-07-28-number-wo-123\.csv"',
         response.headers["content-disposition"],
     )
     assert captured == {
@@ -494,6 +522,7 @@ def test_route_forwards_operational_export_filters(db, monkeypatch):
         "service_type": "Repair",
         "supervisor_id": supervisor_id,
         "community": "commons",
+        "priority": "Emergency",
         "scheduled_date": date(2026, 7, 28),
         "search": "WO-123",
     }

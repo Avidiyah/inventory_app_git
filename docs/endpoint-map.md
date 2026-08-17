@@ -342,8 +342,9 @@ anywhere in the UI; every other surface resolves an existing number and 404s on
 one no import has brought in.
 
 - `workOrders.js` (advanced filters) → `apiGetWorkOrderFilterOptions` for
-  caller-scoped service/supervisor choices, then one `apiListWorkOrders` request
-  carrying any active `status`, `service_type`, `supervisor_id`, `community`,
+  caller-scoped service/priority/supervisor choices, then one `apiListWorkOrders`
+  request carrying any active `status`, `service_type`, `supervisor_id`,
+  `community`, `priority`,
   `scheduled_date`, and `q`. The service adds every predicate with AND before
   applying the normal role scope. Community is membership-based over
   `community` + raw `location`; Commons includes Cimarron/Cimmarron,
@@ -764,20 +765,31 @@ There is no `WorkOrderCreate`: work orders are import-only, so the CSV upload is
 the only request that can bring one into existence.
 
 **List query** — `GET /work-orders/`: optional `status`, `service_type`,
-`supervisor_id`, `community`, `scheduled_date` (ISO calendar date), `q`, and
+`supervisor_id`, `community`, `priority`, `scheduled_date` (ISO calendar date),
+`q`, and
 `limit`. All filters combine with AND;
 `service_type` is an exact trimmed case-insensitive match, `q` is a literal
 case-insensitive number substring, and community values are `scholars`,
-`centennial`, `commons`, `young_hall`, or `academics`.
+`centennial`, `commons`, `young_hall`, or `academics`. `priority` is an exact
+trimmed case-insensitive match against raw vendor text, so unlike `community` it
+has no fixed vocabulary and an unrecognized value filters on itself rather than
+returning 400; the sentinel `__none__` selects the work orders whose priority is
+NULL or blank — the ones NetFacilities enrichment never reached.
 
 **`WorkOrderFilterOptions`** — return of `GET /work-orders/filter-options`:
-`service_types: list[str]`, `supervisors: list[{id, name}]`, and
+`service_types: list[str]`, `priorities: list[str]`,
+`supervisors: list[{id, name}]`, and
 `communities: list[{value, label}]`. Dynamic values come only from live work
-orders visible to the caller; the community vocabulary is stable.
+orders visible to the caller; the community vocabulary is stable. `service_types`
+and `priorities` collapse values differing only in case or padding, keeping the
+lowest-code-point spelling so the choices do not reshuffle between requests.
+`priorities` omits the blank/NULL group; the page appends its own "Not imported"
+choice carrying `__none__`.
 
 **CSV export query** — `GET /work-orders/export`: `scope=all|archived|<live
 status>` and `variant=full|client`; optional `service_type`, `supervisor_id`,
-`community`, `scheduled_date`, and `q` are applied only to `full`. Invalid values
+`community`, `priority`, `scheduled_date`, and `q` are applied only to `full`.
+Invalid values
 return 400. The response is a UTF-8 `text/csv` attachment, not a Pydantic
 response. `full` leads with the seven import headers and adds status,
 assignments, billing totals, and timestamps. `client` remains scope-only and
@@ -1332,7 +1344,7 @@ attaches to an existing number and refuses an unknown one. Both share the
   routing fills only a still-NULL `supervisor_id`. Each created/opened row
   commits inside get-or-create.
 - `list_work_orders_for_export(user, scope, service_type?, supervisor_id?,
-  community?, scheduled_date?, search?)` → validate scope, select live/all, one
+  community?, priority?, scheduled_date?, search?)` → validate scope, select live/all, one
   live status, or archived rows, apply the shared predicates and caller scope,
   eager-load export relations, then sort by parsed scheduled date descending.
 - `export_work_orders_csv(user, scope, variant, …filters)` → validate variant and
@@ -1341,10 +1353,11 @@ attaches to an existing number and refuses an unknown one. Both share the
   ignores the advanced predicates and keeps its scope-only
   `CLIENT_EXPORT_HEADERS`/receipt behavior.
 - `list_work_orders(user, status?, service_type?, supervisor_id?, community?,
-  scheduled_date?, search?, limit?)` → archived excluded. Every supplied filter
+  priority?, scheduled_date?, search?, limit?)` → archived excluded. Every supplied filter
   is combined with AND, then `_scoped_to_user` enforces Supervisor
   unassigned/self-routed/worker-assigned or Technician assignment visibility. Community searches structured/raw
-  location text; scheduled date parses leading vendor/ISO dates exactly. Results
+  location text; priority matches trimmed case-insensitively or, given
+  `__none__`, selects NULL/blank; scheduled date parses leading vendor/ISO dates exactly. Results
   sort by parsed schedule descending, invalid/blank values last, before `limit`.
 - `get_work_order_filter_options(user)` → two scoped distinct queries over live
   work orders: normalized service type values and routed supervisor identities;

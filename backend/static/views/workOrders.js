@@ -69,6 +69,7 @@ const listEl = document.getElementById("work-orders-list");
 const listMessage = document.getElementById("work-orders-list-message");
 const statusFilter = document.getElementById("work-orders-status-filter");
 const serviceTypeFilter = document.getElementById("work-orders-service-filter");
+const priorityFilter = document.getElementById("work-orders-priority-filter");
 const supervisorFilter = document.getElementById("work-orders-supervisor-filter");
 const communityFilter = document.getElementById("work-orders-community-filter");
 const scheduledDateFilter = document.getElementById("work-orders-date-filter");
@@ -137,6 +138,11 @@ function isOwner() {
   return getRole() === "owner";
 }
 
+// Matches `domain.work_orders.PRIORITY_FILTER_NONE`: the work orders whose
+// priority never came back from NetFacilities, which the detail card shows as
+// "Not imported". A sentinel rather than "" because "" already means no filter.
+const PRIORITY_NOT_IMPORTED = "__none__";
+
 function populateFilterSelect(select, emptyLabel, options) {
   if (!select) return;
   const selected = select.value;
@@ -156,6 +162,15 @@ async function loadFilterOptions() {
     serviceTypeFilter,
     "All service types",
     (options.service_types || []).map((value) => ({ value, label: value }))
+  );
+  // Priority is raw vendor text, so the choices are whatever the live work
+  // orders actually carry, plus the rows NetFacilities never reached.
+  populateFilterSelect(
+    priorityFilter,
+    "All priorities",
+    (options.priorities || [])
+      .map((value) => ({ value, label: value }))
+      .concat([{ value: PRIORITY_NOT_IMPORTED, label: "Not imported" }])
   );
   populateFilterSelect(
     supervisorFilter,
@@ -179,6 +194,7 @@ function currentFilters() {
     serviceType: serviceTypeFilter ? serviceTypeFilter.value : "",
     supervisorId: supervisorFilter ? supervisorFilter.value : "",
     community: communityFilter ? communityFilter.value : "",
+    priority: priorityFilter ? priorityFilter.value : "",
     scheduledDate: scheduledDateFilter ? scheduledDateFilter.value : "",
     q: searchInput ? searchInput.value.trim() : "",
   };
@@ -189,7 +205,7 @@ function hasActiveFilters() {
 }
 
 function resetFilterControls() {
-  [statusFilter, serviceTypeFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
+  [statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
     if (control) control.value = "";
   });
   if (searchInput) searchInput.value = "";
@@ -1700,7 +1716,7 @@ if (searchInput) {
     }
   });
 }
-[statusFilter, serviceTypeFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
+[statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
   if (!control) return;
   control.addEventListener("change", () => {
     showAll = false;
