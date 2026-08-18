@@ -1762,7 +1762,7 @@ whole crew:
 | --- | --- | --- |
 | Assigned to a work order | `update_work_order` (PATCH) | technicians **newly added** by that write |
 | Marked Completed | `complete_work_order`, and PATCH to `completed` | Admin and above |
-| Leaves Completed for any other status | `update_work_order` (PATCH) | assigned technicians + the routed supervisor |
+| Leaves Completed for any live status (**not** Review) | `update_work_order` (PATCH) | assigned technicians + the routed supervisor |
 
 Rules that apply to all three:
 
@@ -1780,7 +1780,9 @@ Rules that apply to all three:
   status — so the rules are evaluated independently.
 - **Reopen has one trigger site.** `start` / `hold` / `resume` each reject a
   Completed row, so the Supervisor+ PATCH is the only route out of Completed.
-  Completed → Review counts, since Review is another status.
+  **Completed → Review is excluded**: it is the forward handoff rather than
+  work coming back, so it notifies nobody. Every other exit from Completed
+  notifies.
 - **A rule that raises never fails the write.** The work order is already
   committed; `_notify` logs and moves on.
 

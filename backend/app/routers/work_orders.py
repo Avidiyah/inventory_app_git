@@ -127,6 +127,13 @@ def _notify_work_order_patch(
     This is also the only route out of Completed: the narrow start / hold
     / resume endpoints each reject a Completed row, so the reopen rule has
     no other trigger site.
+
+    **Review is excluded from the reopen rule.** It is technically a move
+    out of Completed, but it is the forward handoff rather than work
+    coming back -- the assignees have nothing to do about it, and telling
+    them their finished job is "no longer Completed" reads as a setback.
+    Everything else that leaves Completed does mean the work is live
+    again.
     """
     if wo_service.newly_assigned_ids(work_order):
         _notify(
@@ -149,7 +156,7 @@ def _notify_work_order_patch(
             work_order=work_order,
             actor_id=actor_id,
         )
-    elif previous == wo.STATUS_COMPLETED:
+    elif previous == wo.STATUS_COMPLETED and work_order.status != wo.STATUS_REVIEW:
         _notify(
             notifications_service.notify_work_order_reopened,
             db,

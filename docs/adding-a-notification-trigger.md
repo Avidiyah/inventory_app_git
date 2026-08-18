@@ -247,11 +247,13 @@ Two things about that table that are not obvious:
 - **Reopen has exactly one trigger site.** The narrow `start` / `hold` /
   `resume` endpoints all reject a Completed row outright, so the only way out
   of Completed is the Supervisor+ PATCH.
-- **Completed → Review counts as a reopen.** The rule is "leaves Completed for
-  any other status", and Review is another status, so assignees are told their
-  finished work is no longer Completed. That follows the requirement as
-  written; narrowing it is one `and previous_status != STATUS_REVIEW` in
-  `_notify_work_order_patch` if the noise is not wanted.
+- **Completed → Review is carved out of the reopen rule.** It is a move out of
+  Completed, so the literal rule would fire, but Review is the forward handoff
+  rather than work coming back: the assignees have nothing to do about it and
+  "no longer Completed" reads as a setback. Every other exit from Completed
+  does mean the work is live again and does notify. Owner decision,
+  2026-08-18, pinned by two tests — one that Review is silent and one that the
+  carve-out stays a carve-out.
 
 ## Traps
 

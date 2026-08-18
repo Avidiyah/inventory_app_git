@@ -325,7 +325,10 @@ Where execution diverged from the plan, and why:
 | — | `BackgroundTasks` as an explicit handler parameter meant updating eight direct handler calls in existing tests. Worth it over a `None` default that would silently disable notifications. |
 | — | A procedure doc, `docs/adding-a-notification-trigger.md`, was written before Task 1 and reconciled against the shipped code at Task 6. |
 
-One behavior worth a second look: **Completed → Review fires the reopen rule**,
-because Review is "any other status". Pinned by
-`test_sending_completed_work_to_review_counts_as_leaving_completed`. Narrowing
-it is one condition in `_notify_work_order_patch`.
+**Amended 2026-08-18 after owner review: Completed → Review notifies nobody.**
+The literal requirement ("leaves Completed for any other status") would have
+fired the reopen rule, but Review is the forward handoff rather than work
+coming back — the assignees have nothing to act on, and "no longer Completed"
+reads as a setback. Every other exit from Completed still notifies, pinned by
+`test_every_other_way_out_of_completed_still_notifies` so the carve-out cannot
+quietly widen.

@@ -195,12 +195,11 @@ def test_reopening_does_not_also_fire_the_completed_rule(db, configured):
     assert admin.id not in background.tasks[0].args[0]
 
 
-def test_sending_completed_work_to_review_counts_as_leaving_completed(db, configured):
-    """Requirement 3 is "leaves Completed for any other status", and Review
-    is another status. Pinned because it is a consequence of the rule rather
-    than a case anyone asked for: the assignees are told their finished work
-    is no longer Completed, which is true. Narrowing it is one condition in
-    `_notify_work_order_patch`."""
+def test_sending_completed_work_to_review_notifies_nobody(db, configured):
+    """Review is the one exception to "leaves Completed for any other
+    status". It is the forward handoff, not work coming back: the assignees
+    have nothing to do about it, and "no longer Completed" would read as a
+    setback. Owner decision, 2026-08-18."""
     admin = _seed_user(db, roles.ROLE_ADMIN)
     supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
     worker = _seed_user(db, roles.ROLE_TECHNICIAN)
@@ -211,7 +210,23 @@ def test_sending_completed_work_to_review_counts_as_leaving_completed(db, config
     background = BackgroundTasks()
     _patch(db, background, work_order.id, user=admin, status="review")
 
-    assert set(_recipients(background)) == {worker.id, supervisor.id}
+    assert background.tasks == []
+
+
+def test_every_other_way_out_of_completed_still_notifies(db, configured):
+    """The Review carve-out must stay a carve-out. A rollback to any live
+    status is work coming back and has to reach the people holding it."""
+    for status in ("created", "assigned", "in_progress", "on_hold"):
+        admin = _seed_user(db, roles.ROLE_ADMIN)
+        worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+        work_order = _wo(db, created_by=admin, assigned_to=worker)
+        wos.start_work_order(db, work_order.id, user=worker)
+        wos.complete_work_order(db, work_order.id, user=worker)
+
+        background = BackgroundTasks()
+        _patch(db, background, work_order.id, user=admin, status=status)
+
+        assert worker.id in _recipients(background), f"{status} notified nobody"
 
 
 def test_a_status_change_that_never_touched_completed_notifies_nobody(db, configured):
