@@ -227,6 +227,26 @@ def configured(monkeypatch):
     return True
 
 
+@pytest.fixture
+def only_seeded_subscriptions(db):
+    """Hide any subscription this database already holds from the fan-out.
+
+    A fan-out queries *every* subscription at or above a role, so a real
+    device enrolled on a development machine -- the Owner's phone, for
+    instance -- joins every send under test. The scripted `_send_one` below
+    then sees an endpoint it has no outcome for, and the counting assertions
+    see a send they did not seed.
+
+    The delete runs inside the `db` fixture's transaction and is discarded
+    with it, so a developer's genuinely enrolled device survives the run.
+    CI never needed this because its database is empty, which is precisely
+    why the failure appears only on a machine that has actually used the
+    feature.
+    """
+    db.query(PushSubscription).delete()
+    db.flush()
+
+
 def _fake_send(outcomes):
     """Replace `_send_one` with a scripted sequence of outcomes, keyed by
     endpoint so ordering does not matter."""
@@ -236,7 +256,7 @@ def _fake_send(outcomes):
     return send
 
 
-def test_a_dead_subscription_is_deleted(db, monkeypatch, configured):
+def test_a_dead_subscription_is_deleted(db, monkeypatch, configured, only_seeded_subscriptions):
     """404/410 is the only status class where deletion is correct."""
     user = _seed_user(db, roles.ROLE_ADMIN)
     endpoint = _endpoint()
@@ -262,7 +282,9 @@ def test_a_dead_subscription_is_deleted(db, monkeypatch, configured):
         push_policy.PUSH_RETRY,
     ],
 )
-def test_a_failed_send_never_deletes_the_subscription(db, monkeypatch, configured, outcome):
+def test_a_failed_send_never_deletes_the_subscription(
+    db, monkeypatch, configured, only_seeded_subscriptions, outcome
+):
     """The disaster `classify_push_response` was written to prevent: a
     bad key returns 401 for *every* device, and deleting on that would
     wipe the table and force everyone to opt in again."""
@@ -279,7 +301,7 @@ def test_a_failed_send_never_deletes_the_subscription(db, monkeypatch, configure
     assert db.get(PushSubscription, endpoint) is not None
 
 
-def test_a_disallowed_endpoint_is_never_requested(db, monkeypatch, configured):
+def test_a_disallowed_endpoint_is_never_requested(db, monkeypatch, configured, only_seeded_subscriptions):
     """The SSRF guard. A row whose host is not on the allowlist must fail
     without the send being attempted at all -- reaching `_send_one` would
     mean the server made the request."""
@@ -299,7 +321,7 @@ def test_a_disallowed_endpoint_is_never_requested(db, monkeypatch, configured):
     assert result["sent"] == 0
 
 
-def test_mixed_outcomes_are_counted_separately(db, monkeypatch, configured):
+def test_mixed_outcomes_are_counted_separately(db, monkeypatch, configured, only_seeded_subscriptions):
     """A partial failure is the interesting case during a rollout, so the
     three counts must not collapse into one."""
     user = _seed_user(db, roles.ROLE_ADMIN)
