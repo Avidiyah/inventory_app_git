@@ -170,6 +170,8 @@ backend/app/routers/realtime.py  the `/ws` handshake; NO app middleware runs her
 backend/app/domain/push.py       pure Web Push policy: response classification + endpoint allowlist
 backend/app/services/push.py     VAPID config, pywebpush send, subscription store, dead-row cleanup
 backend/app/routers/push.py      config/subscribe/unsubscribe (any authenticated) + Owner-only test send
+backend/app/domain/notifications.py  pure notification policy: recipient rules, actor suppression, lock-screen text
+backend/app/services/notifications.py  resolves recipients against the DB, hands delivery to a background task
 backend/app/logging_config.py    per-request id, JSON formatter, request context
 backend/app/lifespan.py          composed realtime + NetFacilities task shutdown
 backend/alembic/versions/*.py    migrations
@@ -1743,8 +1745,48 @@ above it:
 | POST | `/push/unsubscribe` | any authenticated | drop this device's row; scoped to the caller |
 | POST | `/push/test` | **owner** | fan a fixed message out to Admin-and-above |
 
-Landed 2026-08-18 as a deliberately narrow probe: the Owner triggers, Admin and
-above receive, the message is fixed. No business event is wired to it yet.
+The transport landed 2026-08-18 as a narrow probe; work-order triggers were
+wired the same day. **Two role floors, deliberately separate** — collapsing
+them back into one constant is how the Owner's diagnostic starts buzzing the
+whole crew:
+
+- `SUBSCRIBE_MIN_ROLE` (Technician) decides who is *offered* the opt-in button,
+  mirrored in `static/views/push.js`. `/push/subscribe` itself is not
+  role-gated: holding a subscription grants no authority.
+- `TEST_AUDIENCE_MIN_ROLE` (Admin) is the audience of `/push/test`, and nothing
+  else uses it.
+
+#### Notification triggers
+
+| Event | Trigger site | Recipients |
+| --- | --- | --- |
+| Assigned to a work order | `update_work_order` (PATCH) | technicians **newly added** by that write |
+| Marked Completed | `complete_work_order`, and PATCH to `completed` | Admin and above |
+| Leaves Completed for any other status | `update_work_order` (PATCH) | assigned technicians + the routed supervisor |
+
+Rules that apply to all three:
+
+- **The acting user is always suppressed**, by id rather than by role — a
+  supervisor completing work on someone's behalf is as much the actor as a
+  technician is.
+- **Delivery is a `BackgroundTasks` handoff**, so no Apple round trip sits
+  inside the user's tap. Recipients are resolved *during* the request and
+  `_deliver` opens its own session, because since FastAPI 0.106 a dependency
+  with `yield` is torn down before background tasks run.
+- **A transition notifies only when it happened.** The narrow endpoints are
+  idempotent, so both trigger sites compare the prior status the service
+  stamped on the returned row; without that a slow double tap sends twice.
+- **One PATCH can be several events** — it may add assignees *and* move the
+  status — so the rules are evaluated independently.
+- **Reopen has one trigger site.** `start` / `hold` / `resume` each reject a
+  Completed row, so the Supervisor+ PATCH is the only route out of Completed.
+  Completed → Review counts, since Review is another status.
+- **A rule that raises never fails the write.** The work order is already
+  committed; `_notify` logs and moves on.
+
+Adding a trigger is a documented three-step procedure —
+`docs/adding-a-notification-trigger.md`. Read that rather than this section
+when the task is "notify someone when X happens".
 
 Six things that are not obvious from the table:
 
@@ -2632,7 +2674,10 @@ Coverage map:
 | `test_realtime_emit.py` | the **exact** emitter set: only commands that can change Review membership or card fields emit. Extend this assertion when adding one |
 | `test_push_domain.py` | pure Web Push response classification and endpoint allowlist |
 | `test_vapid_keys.py` | VAPID keypair interoperability (not cryptography) |
-| `test_push_subscriptions.py` | Owner-only send gate and Admin-and-above audience derived from rank; DB-backed endpoint reassignment on a shared device, caller-scoped delete, archived-user exclusion, delete-only-on-404/410, and the SSRF guard refusing a disallowed endpoint before any request |
+| `test_push_subscriptions.py` | Owner-only send gate, the two separate role floors, and the Admin-and-above test audience derived from rank; DB-backed endpoint reassignment on a shared device, caller-scoped delete, archived-user exclusion, delete-only-on-404/410, and the SSRF guard refusing a disallowed endpoint before any request — on both fan-out entry points. Its fan-out tests hide any subscription the developer's own database holds, inside the rolled-back transaction; without that a genuinely enrolled device joins every send under test |
+| `test_notifications_domain.py` | pure recipient rules: actor suppression, dedup, dropping an unrouted supervisor, and that message text interpolates the work-order number and nothing else |
+| `test_notifications.py` | recipient resolution against the DB, that nothing is scheduled without recipients or without a VAPID key, and that delivery opens its own session and swallows failures |
+| `test_work_orders_notifications.py` | the three triggers at their routes: right recipients, one notification per event across an idempotent repeat, one PATCH producing two events, and a broken rule never failing the write |
 
 No frontend test harness exists. For UI behavior, run backend tests plus manual
 browser checks for changed pages.

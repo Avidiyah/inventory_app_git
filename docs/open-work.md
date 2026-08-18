@@ -271,15 +271,32 @@ unique — it was the vehicle for the NetFacilities work, and push Phase A merel
 rode along in #8. There was no rebase to do and nothing to recover; the rest of
 the feature had simply never been written.
 
-**What shipped is a probe, not the finished feature.** Deliberate limits, none
-of which are defects:
+**Phase B — real triggers — landed the same day.** Three work-order events now
+send: assignment (to the newly added technicians), completion (Admin and
+above), and leaving Completed for any other status (assignees plus the routed
+supervisor). Recipients are resolved during the request and delivered on a
+`BackgroundTasks` handoff. See *API Surface → Web Push* in `current-state.md`
+for the rules, and `docs/adding-a-notification-trigger.md` for the procedure to
+add a fourth.
 
-- No business event is wired to a notification. The only sender is
-  `POST /push/test`, which is Owner-gated and sends a fixed message to
-  Admin-and-above. Wiring work-order events is the natural next item and is not
-  tracked here yet.
-- The fan-out is sequential inside the request handler. Crew-sized audiences are
+Two corrections this entry and the planning document both got wrong, preserved
+because each cost time:
+
+- *"Technicians cannot subscribe."* They always could. `/push/subscribe`
+  depends only on `get_current_user`; the restriction was one constant in
+  `static/views/push.js`.
+- The fan-out tests were not hermetic. They assumed `push_subscriptions` held
+  only what they seeded, so they passed in CI and failed on any machine with a
+  genuinely enrolled device.
+
+**Remaining deliberate limits, none of which are defects:**
+
+- The fan-out is sequential inside the background task. Crew-sized audiences are
   fine; hundreds of devices would need a queue.
+- No per-user opt-out and no per-event preferences. Routing is by role and
+  assignment only.
+- No delivery record. `{sent, dropped, failed}` is logged and discarded, so
+  "was this person notified?" has no answer beyond the log.
 - iOS requires a manual Home-Screen install per device before push works at all,
   and the installed app has its own cookie jar, so users log in again inside it.
   Accepted, not solvable — Apple exposes no programmatic install.
@@ -331,6 +348,37 @@ a fix class (frontend-only):
   deferred full list refetch is blocked until that specific card is
   re-expanded and its editor closed. **Trigger: a badge observed stuck on an
   old status with no open card visible anywhere in the list.**
+
+### N11 — Notification triggers considered and deliberately deferred
+
+**Trigger: a user asking to be told about one of these, or the first time
+somebody drives to a job that was archived under them.**
+
+Five triggers were proposed alongside the three that shipped in N9 and were
+scoped out to keep that batch tight. None is blocked; each reuses an existing
+emitter and the machinery is now in place, so the cost is the three steps in
+`docs/adding-a-notification-trigger.md` rather than any new design. Ordered by
+value-to-effort:
+
+1. **Completed → Review notifies Admin.** The Review handoff is already
+   Admin-only and is the queue they watch. Note that assignees are *already*
+   notified on this transition, because it leaves Completed; this item is the
+   Admin half.
+2. **On-Hold notifies the supervisor and assignees.** Same shape as the reopen
+   rule, different trigger (`hold_work_order`).
+3. **Archive notifies assignees.** Someone actively working a job currently
+   learns it was closed by arriving at it. The one item here with a real
+   operational cost attached to not doing it.
+4. **New user request / recount notifies TechFM OA and above.** Different
+   router (`routers/user_requests.py`) and a different audience — genuinely
+   useful, but a larger step than 1-3.
+5. **NetFacilities enrichment finished notifies the Admin who started it.**
+   Long-running and currently poll-only. Touches
+   `services/netfacilities_jobs.py` and is the least related to work orders.
+
+**Deliberately excluded rather than deferred:** anything putting customer or job
+detail in a notification body (the lock-screen rule), and any digest or batching
+scheme — premature until real volume is observed.
 
 ---
 

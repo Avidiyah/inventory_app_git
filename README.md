@@ -16,6 +16,8 @@ repository documents:
 - [docs/open-work.md](docs/open-work.md) — the only backlog: every improvement
   still open, what was ruled out, and what was audited and found to be a
   non-issue.
+- [docs/adding-a-notification-trigger.md](docs/adding-a-notification-trigger.md)
+  — procedure: how to make a business event send a Web Push notification.
 
 The docs were consolidated from ten files to four on 2026-08-10; shipped
 history lives in git rather than in a doc. If any document conflicts with the

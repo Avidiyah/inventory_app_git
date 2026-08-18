@@ -58,6 +58,14 @@ backlogs had drifted out of agreement with each other.
 - **`docs/project-summary.md`** — this file: what the app is, stack,
   architecture, and the verification baseline.
 
+A fifth file was added 2026-08-18 and does not reopen the split above, because
+it is a **procedure** rather than a backlog or a contract reference:
+
+- **`docs/adding-a-notification-trigger.md`** — how to wire a business event to
+  a Web Push notification: the three files a trigger touches, the five rules
+  that are each a bug someone already nearly shipped, and what to verify by
+  hand. Read it before touching `services/push.py` or adding a `notify_*` call.
+
 ## Current baseline
 
 Last reconciled: 2026-08-16 against `main` at `4a211fb`. The backend declares

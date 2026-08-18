@@ -195,6 +195,25 @@ def test_reopening_does_not_also_fire_the_completed_rule(db, configured):
     assert admin.id not in background.tasks[0].args[0]
 
 
+def test_sending_completed_work_to_review_counts_as_leaving_completed(db, configured):
+    """Requirement 3 is "leaves Completed for any other status", and Review
+    is another status. Pinned because it is a consequence of the rule rather
+    than a case anyone asked for: the assignees are told their finished work
+    is no longer Completed, which is true. Narrowing it is one condition in
+    `_notify_work_order_patch`."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(db, created_by=admin, assigned_to=worker, supervisor=supervisor)
+    wos.start_work_order(db, work_order.id, user=worker)
+    wos.complete_work_order(db, work_order.id, user=worker)
+
+    background = BackgroundTasks()
+    _patch(db, background, work_order.id, user=admin, status="review")
+
+    assert set(_recipients(background)) == {worker.id, supervisor.id}
+
+
 def test_a_status_change_that_never_touched_completed_notifies_nobody(db, configured):
     admin = _seed_user(db, roles.ROLE_ADMIN)
     worker = _seed_user(db, roles.ROLE_TECHNICIAN)
