@@ -271,10 +271,11 @@ unique — it was the vehicle for the NetFacilities work, and push Phase A merel
 rode along in #8. There was no rebase to do and nothing to recover; the rest of
 the feature had simply never been written.
 
-**Phase B — real triggers — landed the same day.** Three work-order events now
+**Phase B — real triggers — landed the same day.** Four work-order events now
 send: assignment (to the newly added technicians), completion (Admin and
-above), and leaving Completed for any other status (assignees plus the routed
-supervisor). Recipients are resolved during the request and delivered on a
+above), leaving Completed for any live status other than Review, and being
+returned from Review to In-Progress — the last two to the assignees plus the
+routed supervisor. Recipients are resolved during the request and delivered on a
 `BackgroundTasks` handoff. See *API Surface → Web Push* in `current-state.md`
 for the rules, and `docs/adding-a-notification-trigger.md` for the procedure to
 add a fourth.
@@ -361,9 +362,11 @@ emitter and the machinery is now in place, so the cost is the three steps in
 value-to-effort:
 
 1. **Completed → Review notifies Admin.** The Review handoff is already
-   Admin-only and is the queue they watch. Note that assignees are *already*
-   notified on this transition, because it leaves Completed; this item is the
-   Admin half.
+   Admin-only and is the queue they watch. The assignee half of this transition
+   was considered and deliberately dropped: Completed → Review notifies nobody
+   on the crew, because it is the forward handoff rather than work coming back.
+   The *return* out of Review does notify them, and shipped as a fourth
+   trigger.
 2. **On-Hold notifies the supervisor and assignees.** Same shape as the reopen
    rule, different trigger (`hold_work_order`).
 3. **Archive notifies assignees.** Someone actively working a job currently

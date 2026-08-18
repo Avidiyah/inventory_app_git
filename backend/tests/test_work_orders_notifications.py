@@ -240,6 +240,87 @@ def test_a_status_change_that_never_touched_completed_notifies_nobody(db, config
     assert background.tasks == []
 
 
+# --- returned from review -----------------------------------------------
+
+def _to_review(db, work_order, *, worker, reviewer):
+    """Walk a work order to Review the way the app does. The handoff needs
+    a second, unassigned person, so the reviewer cannot be the worker."""
+    wos.start_work_order(db, work_order.id, user=worker)
+    wos.complete_work_order(db, work_order.id, user=worker)
+    return wos.update_work_order(
+        db, work_order.id, user=reviewer, fields={"status": "review"}
+    )
+
+
+def test_returning_from_review_notifies_the_technician_and_supervisor(db, configured):
+    """The Admin Review page's return button is the only way this happens
+    and it sends exactly `status: in_progress`."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(db, created_by=admin, assigned_to=worker, supervisor=supervisor)
+    _to_review(db, work_order, worker=worker, reviewer=admin)
+
+    background = BackgroundTasks()
+    _patch(db, background, work_order.id, user=admin, status="in_progress")
+
+    assert set(_recipients(background)) == {worker.id, supervisor.id}
+
+
+def test_the_returned_notification_says_it_needs_another_look(db, configured):
+    """A return is not a reopen. The crew has to be able to tell the
+    difference from the lock screen without opening the app."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(db, created_by=admin, assigned_to=worker)
+    _to_review(db, work_order, worker=worker, reviewer=admin)
+
+    background = BackgroundTasks()
+    _patch(db, background, work_order.id, user=admin, status="in_progress")
+
+    _, title, body = background.tasks[0].args
+    assert title == "Work order returned"
+    assert work_order.number in body
+    assert "Review" in body
+
+
+def test_a_supervisor_returning_their_own_work_order_is_not_told(db, configured):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(db, created_by=admin, assigned_to=worker, supervisor=supervisor)
+    _to_review(db, work_order, worker=worker, reviewer=supervisor)
+
+    background = BackgroundTasks()
+    _patch(db, background, work_order.id, user=supervisor, status="in_progress")
+
+    assert _recipients(background) == [worker.id]
+
+
+def test_review_to_completed_is_a_completion_not_a_return(db, configured):
+    """The branches are ordered, and this is the one pair that can overlap.
+    A reviewer marking the work Completed again is telling the Admins, not
+    sending it back to the crew.
+
+    The second Admin is seeded rather than assumed: the reviewer is the
+    actor and therefore suppressed, so without someone else at that rank
+    there is no audience and no task to assert on. A development database
+    supplies one by accident; CI's does not."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    other_admin = _seed_user(db, roles.ROLE_ADMIN)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(db, created_by=admin, assigned_to=worker)
+    _to_review(db, work_order, worker=worker, reviewer=admin)
+
+    background = BackgroundTasks()
+    _patch(db, background, work_order.id, user=admin, status="completed")
+
+    recipients = _recipients(background)
+    assert other_admin.id in recipients
+    assert admin.id not in recipients  # the actor
+    assert worker.id not in recipients  # not a return-to-crew event
+
+
 # --- one write, several events ------------------------------------------
 
 def test_one_patch_can_be_both_an_assignment_and_a_completion(db, configured):

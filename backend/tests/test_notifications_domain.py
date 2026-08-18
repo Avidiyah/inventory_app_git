@@ -126,6 +126,36 @@ def test_a_supervisor_reopening_their_own_work_order_is_suppressed():
     ) == [assignee]
 
 
+def test_a_return_from_review_addresses_assignees_and_the_supervisor():
+    assignee, supervisor, reviewer = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+    assert notif.recipients_for_return_from_review(
+        assignee_ids=[assignee], supervisor_id=supervisor, actor_id=reviewer
+    ) == [assignee, supervisor]
+
+
+def test_the_reviewer_who_sent_it_back_is_not_told_about_it():
+    supervisor, assignee = uuid.uuid4(), uuid.uuid4()
+
+    assert notif.recipients_for_return_from_review(
+        assignee_ids=[assignee], supervisor_id=supervisor, actor_id=supervisor
+    ) == [assignee]
+
+
+def test_a_return_from_review_reads_differently_from_a_reopen():
+    """Same audience, different event. If the two ever collapse into one
+    rule, the crew stops being told the difference between "this is live
+    again" and "somebody wants this changed"."""
+    _, returned = notif.build_message(
+        notif.EVENT_WORK_ORDER_RETURNED_FROM_REVIEW, number="WO-1"
+    )
+    _, reopened = notif.build_message(
+        notif.EVENT_WORK_ORDER_REOPENED, number="WO-1"
+    )
+
+    assert returned != reopened
+
+
 # --- message text --------------------------------------------------------
 
 @pytest.mark.parametrize("event", notif.ALL_EVENTS)

@@ -134,6 +134,12 @@ def _notify_work_order_patch(
     them their finished job is "no longer Completed" reads as a setback.
     Everything else that leaves Completed does mean the work is live
     again.
+
+    **Coming back *out* of Review is its own event.** The Admin Review
+    page's return button is the only way it happens -- it sends exactly
+    ``{"status": "in_progress"}`` (``adminReview.js``), and the card
+    editor disables the status field outright for a Review row -- so this
+    branch is narrow on purpose rather than by omission.
     """
     if wo_service.newly_assigned_ids(work_order):
         _notify(
@@ -159,6 +165,17 @@ def _notify_work_order_patch(
     elif previous == wo.STATUS_COMPLETED and work_order.status != wo.STATUS_REVIEW:
         _notify(
             notifications_service.notify_work_order_reopened,
+            db,
+            background,
+            work_order=work_order,
+            actor_id=actor_id,
+        )
+    elif (
+        previous == wo.STATUS_REVIEW
+        and work_order.status == wo.STATUS_IN_PROGRESS
+    ):
+        _notify(
+            notifications_service.notify_work_order_returned_from_review,
             db,
             background,
             work_order=work_order,

@@ -1763,6 +1763,7 @@ whole crew:
 | Assigned to a work order | `update_work_order` (PATCH) | technicians **newly added** by that write |
 | Marked Completed | `complete_work_order`, and PATCH to `completed` | Admin and above |
 | Leaves Completed for any live status (**not** Review) | `update_work_order` (PATCH) | assigned technicians + the routed supervisor |
+| Returned from Review to In-Progress | `update_work_order` (PATCH) | assigned technicians + the routed supervisor |
 
 Rules that apply to all three:
 
@@ -1783,6 +1784,11 @@ Rules that apply to all three:
   **Completed → Review is excluded**: it is the forward handoff rather than
   work coming back, so it notifies nobody. Every other exit from Completed
   notifies.
+- **Coming back out of Review is its own event**, with its own wording — the
+  crew needs to distinguish "this is live again" from "somebody wants this
+  changed". It is narrow (`review → in_progress`) because that is the only
+  transition the app can produce: the Admin Review page's return button sends
+  exactly that, and the card editor disables the status field for a Review row.
 - **A rule that raises never fails the write.** The work order is already
   committed; `_notify` logs and moves on.
 

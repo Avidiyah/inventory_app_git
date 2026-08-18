@@ -239,6 +239,7 @@ buzzing every technician's phone. They look redundant and are not.
 | Assigned to you | `update_work_order` (PATCH) | technicians **newly** added by that write |
 | Marked Completed | `complete_work_order`, and PATCH to `completed` | Admin and above |
 | Reopened from Completed | `update_work_order` (PATCH) | assigned technicians + the routed supervisor |
+| Returned from Review | `update_work_order` (PATCH), `review → in_progress` | assigned technicians + the routed supervisor |
 
 Every one of them suppresses the acting user.
 
@@ -254,6 +255,16 @@ Two things about that table that are not obvious:
   does mean the work is live again and does notify. Owner decision,
   2026-08-18, pinned by two tests — one that Review is silent and one that the
   carve-out stays a carve-out.
+- **Two rules can share an audience and still be two rules.** Reopen and
+  Returned-from-Review both address the assignees plus the supervisor, and are
+  deliberately separate functions with separate wording: one says the work is
+  live again, the other says somebody looked at it and wants it changed. Merging
+  them to remove the duplication would delete the only thing the recipient
+  actually needs from the lock screen.
+- **Branch order decides overlapping transitions.** `review → completed` is
+  both "leaves Review" and "is now Completed"; it is evaluated as a completion
+  because the completion arm comes first. If you add a rule whose transition can
+  overlap an existing one, add a test that pins which one wins.
 
 ## Traps
 

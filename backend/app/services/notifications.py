@@ -150,6 +150,31 @@ def notify_work_order_completed(
     )
 
 
+def notify_work_order_returned_from_review(
+    db: Session,
+    background: BackgroundTasks,
+    *,
+    work_order: WorkOrder,
+    actor_id: Optional[uuid.UUID],
+) -> None:
+    """A reviewer returned the work order for corrections.
+
+    Distinct from the reopen rule despite sharing an audience: this is the
+    one transition where somebody has actively asked the crew to do more,
+    so it is worth its own words on a lock screen.
+    """
+    _dispatch(
+        background,
+        policy.EVENT_WORK_ORDER_RETURNED_FROM_REVIEW,
+        work_order,
+        policy.recipients_for_return_from_review(
+            assignee_ids=wo_service.assigned_technician_ids(work_order),
+            supervisor_id=work_order.supervisor_id,
+            actor_id=actor_id,
+        ),
+    )
+
+
 def notify_work_order_reopened(
     db: Session,
     background: BackgroundTasks,

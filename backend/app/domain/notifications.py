@@ -25,11 +25,13 @@ from app.domain import roles
 EVENT_WORK_ORDER_ASSIGNED = "work_order.assigned"
 EVENT_WORK_ORDER_COMPLETED = "work_order.completed"
 EVENT_WORK_ORDER_REOPENED = "work_order.reopened"
+EVENT_WORK_ORDER_RETURNED_FROM_REVIEW = "work_order.returned_from_review"
 
 ALL_EVENTS = (
     EVENT_WORK_ORDER_ASSIGNED,
     EVENT_WORK_ORDER_COMPLETED,
     EVENT_WORK_ORDER_REOPENED,
+    EVENT_WORK_ORDER_RETURNED_FROM_REVIEW,
 )
 
 # Completion is the one rule addressed to a rank rather than to named
@@ -49,6 +51,10 @@ _MESSAGES = {
     EVENT_WORK_ORDER_REOPENED: (
         "Work order reopened",
         "{number} is no longer Completed.",
+    ),
+    EVENT_WORK_ORDER_RETURNED_FROM_REVIEW: (
+        "Work order returned",
+        "{number} came back from Review and needs another look.",
     ),
 }
 
@@ -122,6 +128,26 @@ def recipients_for_reopen(
     routed supervisor because they own the outcome and are usually the
     one who has to react. Ordered assignees-first so the dedup keeps a
     supervisor who is also an assignee in the more specific position.
+    """
+    return select_recipients(
+        [*assignee_ids, supervisor_id], actor_id=actor_id
+    )
+
+
+def recipients_for_return_from_review(
+    *,
+    assignee_ids: Sequence[uuid.UUID],
+    supervisor_id: Optional[uuid.UUID],
+    actor_id: Optional[uuid.UUID],
+) -> list[uuid.UUID]:
+    """A reviewer sent the work back for corrections.
+
+    The same audience as a reopen -- the assigned technicians and the
+    routed supervisor -- but a separate rule rather than a shared one,
+    because the two events differ in the only way that matters to the
+    person holding the phone. A reopen says the work is live again; this
+    says somebody looked at it and wants it changed. Keeping them apart
+    also lets the audiences diverge later without untangling a caller.
     """
     return select_recipients(
         [*assignee_ids, supervisor_id], actor_id=actor_id
