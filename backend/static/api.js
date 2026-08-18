@@ -679,3 +679,30 @@ export async function apiDeleteWorkOrderLabor(workOrderId, laborId) {
     credentials: "include",
   }));
 }
+
+// --- Web Push ----------------------------------------------------
+export async function apiPushConfig() {
+  return parseResponse(await fetch("/push/config", { credentials: "include" }));
+}
+
+// `subscription` is a browser PushSubscription; `toJSON()` already
+// produces the exact shape `schemas/push.py` expects, so it is passed
+// through rather than reshaped here.
+export async function apiPushSubscribe(subscription) {
+  return jsonRequest("/push/subscribe", "POST", subscription.toJSON());
+}
+
+// A POST, not a DELETE: this carries a body, and a body on DELETE is
+// widely stripped in transit. See the docstring in `routers/push.py`.
+export async function apiPushUnsubscribe(endpoint) {
+  return jsonRequest("/push/unsubscribe", "POST", { endpoint });
+}
+
+// No body -- the audience and the message are both fixed server-side, so
+// there is nothing for the caller to supply.
+export async function apiPushTest() {
+  return parseResponse(await fetch("/push/test", {
+    method: "POST",
+    credentials: "include",
+  }));
+}

@@ -255,39 +255,36 @@ belong inside a security item whose point was removing a surface. The
 alternative — loosening CSP to allow the CDN — would trade a real defence for a
 developer convenience and **should not be done**.
 
-### N9 — Web Push Phase A sits on `main` wired to nothing
+### N9 — Web Push Phase A sits on `main` wired to nothing — RESOLVED 2026-08-18
 
-**Trigger: none — this is a decision, not a defect.** Nothing is broken and
-nothing is at risk; the question is only whether the feature is resumed or the
-groundwork is removed.
+**Resumed.** The wiring landed: `push_subscriptions` + migration
+`1d2e3f4a5b6c`, `services/push.py`, `routers/push.py`, `static/service-worker.js`,
+`static/manifest.json`, and the opt-in UI in `static/views/push.js`.
+`domain/push.py` is now imported by the service rather than only by its own
+test, and `pywebpush` is called. See *API Surface → Web Push* in
+`current-state.md` for the behavior.
 
-`domain/push.py`, `scripts/generate_vapid_keys.py`, their two test files, and the
-`pywebpush==2.4.0` dependency are all on `main` and all pass. **Nothing imports
-`domain/push.py` outside its own test.** There is no router, service, model,
-migration, subscription table, or frontend service worker — the running app
-cannot send a push, and no configuration makes it able to.
+One correction worth preserving, because this entry asserted it twice and it was
+wrong: the remaining work was **not** stranded on `feat/push-notifications`.
+That branch was fully merged into `main` (PRs #8 and #9) and held nothing
+unique — it was the vehicle for the NetFacilities work, and push Phase A merely
+rode along in #8. There was no rebase to do and nothing to recover; the rest of
+the feature had simply never been written.
 
-This is the intended shape of a first phase: the decidable, I/O-free half landed
-first, matching how every other `domain/` module is built. The remainder is on
-`feat/push-notifications`, which has since fallen behind `main` on the
-NetFacilities work and would need a rebase before it is worth reading.
+**What shipped is a probe, not the finished feature.** Deliberate limits, none
+of which are defects:
 
-The cost of leaving it is small but not zero: a dependency that is installed and
-never called, two test files that imply a capability the app does not have, and
-the standing risk that someone reads `domain/push.py` and reports push as
-shipped. That last one is the reason this is written down.
-
-**Two honest options, no third:**
-
-1. **Resume** — rebase `feat/push-notifications` onto `main` and finish the
-   wiring (subscription table + migration, a service that calls `pywebpush`, the
-   router, the service worker, and the opt-in UI).
-2. **Retire** — delete the four files, drop `pywebpush` from
-   `requirements.txt`, and move the entry in `current-state.md`'s
-   `Removed, Replaced, And Dormant` register from *Dormant* down to *Removed*.
-
-Until one is chosen, `current-state.md` marks the files dormant so they are not
-mistaken for a working feature. **Do not document push as a capability.**
+- No business event is wired to a notification. The only sender is
+  `POST /push/test`, which is Owner-gated and sends a fixed message to
+  Admin-and-above. Wiring work-order events is the natural next item and is not
+  tracked here yet.
+- The fan-out is sequential inside the request handler. Crew-sized audiences are
+  fine; hundreds of devices would need a queue.
+- iOS requires a manual Home-Screen install per device before push works at all,
+  and the installed app has its own cookie jar, so users log in again inside it.
+  Accepted, not solvable — Apple exposes no programmatic install.
+- Frontend coverage is manual-validation only, same class of gap as N10 and
+  PRO-008. `views/push.js` has no automated test.
 
 ### N10 — Work Orders live status: frontend gaps with no automated coverage
 

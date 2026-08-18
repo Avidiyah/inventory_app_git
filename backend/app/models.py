@@ -62,6 +62,9 @@ class User(Base):
 
     transactions = relationship("Transaction", back_populates="user")
     sessions = relationship("AuthSession", back_populates="user", cascade="all, delete-orphan")
+    push_subscriptions = relationship(
+        "PushSubscription", back_populates="user", cascade="all, delete-orphan"
+    )
 
     @property
     def full_name(self) -> str:
@@ -851,3 +854,51 @@ class ToolTransaction(Base):
     # Viewonly (no back-populates on User): surface account + display identity.
     assigned_to = relationship("User", foreign_keys=[assigned_to_id], viewonly=True)
     performed_by = relationship("User", foreign_keys=[performed_by_id], viewonly=True)
+
+
+class PushSubscription(Base):
+    """One Web Push subscription: a single browser profile on a single
+    device that has opted in to notifications.
+
+    `endpoint` is the primary key rather than a surrogate id, and that is
+    the load-bearing decision here. A subscription belongs to a *browser
+    profile*, not to an account -- the browser mints one endpoint and
+    hands that same endpoint back to whoever is logged in. Keying on it
+    means re-subscribing after a different user logs in on a shared
+    device **reassigns** the row instead of adding a second one, so the
+    device stops receiving the previous user's notifications. Keying on
+    `user_id` would leave both rows alive and deliver to the wrong
+    person, which on a shared crew phone is a privacy failure rather
+    than a tidiness one.
+
+    `p256dh` and `auth` are browser-generated payload-encryption material
+    (RFC 8291). The push service relays ciphertext it cannot read; only
+    this device can decrypt. They are per-device secrets and must not be
+    logged.
+
+    The FK is ON DELETE CASCADE, matching `sessions`: a deleted account
+    stops receiving as well as stops authenticating.
+    """
+
+    __tablename__ = "push_subscriptions"
+
+    # The URL the push service handed the browser. Always HTTPS, always
+    # on one of the hosts in `domain.push.ALLOWED_PUSH_HOSTS`, which
+    # `services.push` re-checks before every send -- the column itself
+    # carries no constraint, so the check cannot be skipped by writing
+    # the row some other way.
+    endpoint = Column(Text, primary_key=True)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    p256dh = Column(Text, nullable=False)
+    auth = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", back_populates="push_subscriptions")
+
+    # The fan-out selects by recipient; the endpoint primary key does not
+    # serve that query.
+    __table_args__ = (Index("ix_push_subscriptions_user_id", "user_id"),)

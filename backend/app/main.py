@@ -30,7 +30,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.auth_deps import COOKIE_SECURE, SESSION_COOKIE, require_min_role
@@ -51,6 +51,7 @@ from app.routers import (
     items,
     mass_stages,
     netfacilities,
+    push,
     realtime,
     tools,
     transactions,
@@ -306,6 +307,7 @@ app.include_router(barcodes.router)
 app.include_router(items.router)
 app.include_router(mass_stages.router)
 app.include_router(netfacilities.router)
+app.include_router(push.router)
 # The only WebSocket route in the app. Note that none of the three
 # middlewares above run for it -- they are `@app.middleware("http")` and
 # a handshake arrives in a `websocket` scope -- so it enforces its own
@@ -366,6 +368,27 @@ def _assemble_index() -> bytes:
 def read_root():
     """Serve the SPA shell, assembled from per-page fragments."""
     return HTMLResponse(_assemble_index(), headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/service-worker.js", include_in_schema=False)
+def service_worker():
+    """Serve the push service worker from the **root** path.
+
+    Not part of the `/static` mount, and that is the entire point. A
+    worker's default scope is the directory it was served from, so
+    `/static/service-worker.js` could only ever control `/static/` and
+    would never receive a push for the app. Serving it here gives it
+    scope `/`.
+
+    `no-cache` matches the shell: a stale worker is unusually painful to
+    dislodge, because the browser keeps running the old one until every
+    tab closes.
+    """
+    return FileResponse(
+        STATIC_DIR / "service-worker.js",
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @app.get("/healthz")

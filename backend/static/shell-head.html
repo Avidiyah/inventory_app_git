@@ -31,6 +31,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inventory Management</title>
     <link rel="icon" type="image/png" href="/static/favicon.png">
+    <!-- Web Push on iPhone requires the site to be installed to the Home
+         Screen, and iOS will not offer that without a manifest declaring
+         `display: standalone`. The apple-touch-icon is what the installed
+         icon uses; iOS ignores the manifest `icons` array for it. -->
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon-180.png">
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -105,6 +111,11 @@
         </nav>
         <div id="auth-bar">
             <span id="auth-user-indicator"></span>
+            <!-- Both start hidden and are revealed by role in
+                 views/push.js::initPushForUser -- Admin and above for the
+                 opt-in, Owner only for the test send. -->
+            <button id="push-enable-btn" type="button" class="secondary-btn" hidden>Enable notifications</button>
+            <button id="push-test-btn" type="button" class="secondary-btn" hidden>Send test</button>
             <button id="logout-btn" type="button" class="secondary-btn">Log Out</button>
         </div>
     </header>

@@ -22,6 +22,7 @@ import { loadUsers } from "./users.js";
 import { setHistoryTab } from "./history.js";
 import { resetBatch, tryResumeBatch } from "./transactions.js";
 import { resetToolsView } from "./tools.js";
+import { initPushForUser, resetPushView, unsubscribeThisDevice } from "./push.js";
 
 const loginScreen = document.getElementById("login-screen");
 const appRoot = document.getElementById("app-root");
@@ -53,6 +54,7 @@ function showLoginScreen({ expired = false } = {}) {
   const wasInApp = !appRoot.hidden;
   setCurrentUser(null);
   resetToolsView();
+  resetPushView();
   // On a timeout, keep the batch snapshot so a re-login by the same operator
   // can resume the work order (see enterApp). A deliberate logout clears it.
   resetBatch({ keepSaved: expired });
@@ -109,6 +111,13 @@ async function enterApp(user, { resume = false } = {}) {
 
   showPage(resumed ? "transaction" : landingPageForRole(user.role));
   connectRealtime();
+
+  // Not awaited: a push subscription is not required for the app to be
+  // usable, and iOS can take a moment over the service-worker
+  // registration. Re-binds this device's endpoint to the user who just
+  // logged in, which is what keeps a shared phone from delivering the
+  // previous account's notifications.
+  initPushForUser();
 }
 
 // Any 401 anywhere -> back to login. The login form's own catch still
@@ -164,6 +173,10 @@ if (loginPasswordToggle) {
 }
 
 logoutBtn.addEventListener("click", async () => {
+  // Before `apiLogout`, because dropping the subscription is an
+  // authenticated call -- after the session is gone the server would
+  // refuse it and the device would keep receiving.
+  await unsubscribeThisDevice();
   try {
     await apiLogout();
   } catch {

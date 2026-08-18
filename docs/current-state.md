@@ -30,14 +30,15 @@ For review/debugging work:
 3. Use `Test Map` to find existing coverage and missing coverage.
 
 If this file conflicts with code, trust the code and update this file as part of
-the change. The 2026-08-16 baseline is `main` at `4a211fb`: **79 router
-operations** across 11 routers (78 HTTP + the `/ws` WebSocket) plus 3 app-level
-routes in `main.py`, Alembic head **`0c1d2e3f4a5b`** (32 revisions), and
-**974 collected backend tests**.
+the change. The 2026-08-18 baseline is **83 router operations** across 12
+routers (82 HTTP + the `/ws` WebSocket) plus 4 app-level routes in `main.py`,
+Alembic head **`1d2e3f4a5b6c`** (33 revisions), and **1031 collected backend
+tests**.
 
-A document is describing a superseded baseline if it quotes 72 operations /
-`faa2c4e6b8d0` / 478 tests (2026-08-06), or 69 operations across 9 routers /
-`fbc4e6a8d0f2` / 31 revisions / 659 tests (2026-08-10, `f0e3b3c`).
+A document is describing a superseded baseline if it quotes 79 operations across
+11 routers / `0c1d2e3f4a5b` / 32 revisions / 974 tests (2026-08-16, `4a211fb`),
+72 operations / `faa2c4e6b8d0` / 478 tests (2026-08-06), or 69 operations across
+9 routers / `fbc4e6a8d0f2` / 31 revisions / 659 tests (2026-08-10, `f0e3b3c`).
 
 ## Fast Orientation
 
@@ -166,7 +167,9 @@ backend/app/domain/realtime.py   pure envelope/audience rules + every policy con
 backend/app/services/realtime.py in-process connection registry, per-user cap, dispatch
 backend/app/services/realtime_limits.py handshake-attempt and inbound-frame rate limits
 backend/app/routers/realtime.py  the `/ws` handshake; NO app middleware runs here
-backend/app/domain/push.py       pure Web Push policy -- DORMANT, see Removed, Replaced, And Dormant
+backend/app/domain/push.py       pure Web Push policy: response classification + endpoint allowlist
+backend/app/services/push.py     VAPID config, pywebpush send, subscription store, dead-row cleanup
+backend/app/routers/push.py      config/subscribe/unsubscribe (any authenticated) + Owner-only test send
 backend/app/logging_config.py    per-request id, JSON formatter, request context
 backend/app/lifespan.py          composed realtime + NetFacilities task shutdown
 backend/alembic/versions/*.py    migrations
@@ -174,7 +177,7 @@ backend/scripts/create_owner.py  owner bootstrap
 backend/scripts/import_local_data.ps1 local data import helper
 backend/scripts/netfacilities_poc.py manual-auth/read-only local lookup CLI; auth state feeds the local app job
 backend/scripts/netfacilities_diagnostic.py one-work-order safe-shape markup diagnostic
-backend/scripts/generate_vapid_keys.py VAPID keypair generator -- DORMANT, see above
+backend/scripts/generate_vapid_keys.py VAPID keypair generator; run once per environment
 ```
 
 Frontend:
@@ -187,6 +190,9 @@ backend/static/roles.js          frontend mirror of role hierarchy + labels
 backend/static/format.js         display/error/safe-url helpers
 backend/static/dom.js            DOM helpers and confirm dialog
 backend/static/realtime.js       `/ws` transport + backoff; no DOM/view dependency
+backend/static/service-worker.js push + notificationclick; served from ROOT, not /static (scope)
+backend/static/manifest.json     PWA manifest; without it iOS offers no Home-Screen install
+backend/static/views/push.js     opt-in button, iOS install instructions, Owner test trigger
 backend/static/pricingText.js    shared price/redaction copy
 backend/static/adminReviewReceipt.js frontend half of the 41-char receipt contract
 backend/static/views/*.js        page/view modules
@@ -223,6 +229,7 @@ backend/tests/test_rate_limit*.py
 backend/tests/test_login_throttle*.py
 backend/tests/test_list_*.py
 backend/tests/test_push_domain.py
+backend/tests/test_push_subscriptions.py
 backend/tests/test_vapid_keys.py
 backend/tests/conftest.py
 ```
@@ -298,6 +305,14 @@ Deployment:
 - Required env: `DATABASE_URL`.
 - Production env should set `COOKIE_SECURE=true`, `SQL_ECHO=false`, and
   `LOG_LEVEL=INFO`.
+- **`VAPID_PRIVATE_KEY` enables Web Push** and is the only secret the feature
+  needs. Set in Render's Environment page — `render.yaml` declares it
+  `sync: false` and it is deliberately **not** mirrored into `backend/Dockerfile`
+  the way the NetFacilities settings are, because that file is committed. Absent,
+  push disables itself (`services.push.is_configured`) and `/push/config` and
+  `/push/test` return 503; nothing else is affected. Rotating it invalidates
+  every existing subscription, since the browser bound the public half in at
+  `subscribe()` time.
 - **`COOKIE_SECURE` now controls three things**, all meaning "this deployment is
   HTTPS/production": the session cookie's `Secure` flag, whether HSTS is sent
   (A4), and whether FastAPI's built-in docs endpoints exist at all (C4). It is
@@ -909,6 +924,32 @@ Rules:
   `sweep_expired_sessions` call on every login. No scheduler.
 - Rows are deleted wholesale by `services.auth.revoke_user_sessions` on user
   archive, role change, and password reset.
+
+### `push_subscriptions`
+
+Fields: `endpoint`, `user_id`, `p256dh`, `auth`, `created_at`.
+
+Rules:
+
+- **`endpoint` is the primary key.** A subscription belongs to a browser
+  profile, not to an account: the browser mints one endpoint per device and
+  hands the same one back to whoever is logged in. Keying on it makes a
+  re-subscribe *reassign* the row, which is what stops a shared crew phone from
+  receiving the previous user's notifications. A surrogate id keyed on
+  `user_id` would leave both rows alive and deliver to the wrong person.
+- `user_id` cascades on user delete, matching `sessions` — a removed account
+  stops receiving as well as stops authenticating. Indexed, because the fan-out
+  selects by recipient and the endpoint primary key does not serve that query.
+- `p256dh` and `auth` are browser-generated payload-encryption material (RFC
+  8291). Push payloads are encrypted end-to-end with them, so Apple relays
+  ciphertext it cannot read. They are per-device secrets: never logged, never
+  returned by any route.
+- No expiry column and no sweep. A subscription dies when the push service says
+  so — `services/push.py` deletes a row only on the 404/410 that
+  `domain/push.py::classify_push_response` maps to `PUSH_DROP_SUBSCRIPTION` —
+  or when the user logs out of that device.
+- Archived users are filtered out of the audience at query time rather than
+  having their rows deleted, so un-archiving restores their devices.
 
 ### `login_attempts`
 
@@ -1693,6 +1734,54 @@ above it:
   the real-time invalidation notes under `Runtime And Stack` for the emitter set
   and the backoff schedule.
 
+### Web Push (`routers/push.py`)
+
+| Method | Path | Gate | Behavior |
+| --- | --- | --- | --- |
+| GET | `/push/config` | any authenticated | VAPID public key for `subscribe()`; 503 if unconfigured |
+| POST | `/push/subscribe` | any authenticated | create or **reassign** this device's subscription |
+| POST | `/push/unsubscribe` | any authenticated | drop this device's row; scoped to the caller |
+| POST | `/push/test` | **owner** | fan a fixed message out to Admin-and-above |
+
+Landed 2026-08-18 as a deliberately narrow probe: the Owner triggers, Admin and
+above receive, the message is fixed. No business event is wired to it yet.
+
+Six things that are not obvious from the table:
+
+- **iOS is the binding constraint.** Safari exposes the push API only to a site
+  launched from a Home-Screen install, never to a browser tab, and iOS has no
+  `beforeinstallprompt` — so the install cannot be offered programmatically and
+  `views/push.js` detects the tab case and gives written instructions instead.
+  The installed app also has its **own cookie jar**, so a user logged in through
+  Safari is logged out inside it. None of this involves the App Store: it stays
+  a website, with no native app, developer account, or review.
+- **`endpoint` is the primary key of `push_subscriptions`**, not a surrogate id.
+  A subscription belongs to a browser profile rather than an account, so a
+  re-subscribe after a different login reassigns the row instead of adding one.
+  Keying on `user_id` would leave both alive and deliver a shared crew phone the
+  previous user's notifications.
+- **Logout unsubscribes this device only** (`views/auth.js`, before `apiLogout`
+  because the call needs the session). Deleting all of a user's rows would
+  silence their other devices.
+- **Only 404/410 deletes a subscription**, decided by
+  `domain/push.py::classify_push_response`. A bad key returns 401 for *every*
+  device; deleting on that would empty the table and force everyone to opt in
+  again.
+- **The endpoint allowlist is re-checked on every send**, not just at
+  registration. A stored endpoint is otherwise an SSRF primitive aimed at the
+  hosting provider's network.
+- **`/service-worker.js` is served from root** by `main.py::service_worker`, not
+  from the `/static` mount. A worker's scope is the directory it was served
+  from, so a copy under `/static/` could never receive a push for the app.
+
+Configuration is one secret, `VAPID_PRIVATE_KEY`, set in the Render dashboard
+(`render.yaml` declares it `sync: false`) and in `backend/.env` locally. It is
+deliberately **not** duplicated into `backend/Dockerfile` the way the
+NetFacilities settings are — that file is committed. The public half is a
+constant in `services/push.py` because it must stay pinned to the private half;
+a drift between them is invisible until the first send returns 401. Absent the
+key, push disables itself and the rest of the app is unaffected.
+
 ## Frontend Feature Context
 
 Top-level navbar buttons switch SPA sections through `views/nav.js::showPage`
@@ -2413,7 +2502,7 @@ Behavior:
 
 ## Migration History
 
-Alembic head: `faa2c4e6b8d0`.
+Alembic head: `1d2e3f4a5b6c`.
 
 | Revision | Meaning |
 | --- | --- |
@@ -2447,6 +2536,9 @@ Alembic head: `faa2c4e6b8d0`.
 | `f8a0c2e4b6d8` | durable generic `user_requests` queue; first producer is a linked Scan / Stock inventory-recount exception |
 | `f9b1d3e5a7c9` | backfill one open missing-price/link request per unpriced item already present on a live work order |
 | `faa2c4e6b8d0` | backfill missing-price/link requests for live work-order items whose recorded price is `$0.00` or otherwise non-positive; tag seeded rows with `details.migration_source` so downgrade removes only this migration's inserts |
+| `fbc4e6a8d0f2` | hash session tokens at rest (`sessions.token_hash` replaces the raw token) + `login_attempts` throttle counters |
+| `0c1d2e3f4a5b` | nullable `work_orders.priority`; no default and no backfill, written only by NetFacilities enrichment |
+| `1d2e3f4a5b6c` | `push_subscriptions` for Web Push opt-in, keyed on `endpoint` so a re-subscribe reassigns a shared device rather than duplicating it; nothing to backfill |
 
 ## Test Map
 
@@ -2538,8 +2630,9 @@ Coverage map:
 | `test_realtime_limits.py` | handshake-attempt and inbound-frame limits, in state and at the endpoint |
 | `test_realtime_session_binding.py` | periodic re-resolution replacing the instant revocation a socket cannot get from a next request |
 | `test_realtime_emit.py` | the **exact** emitter set: only commands that can change Review membership or card fields emit. Extend this assertion when adding one |
-| `test_push_domain.py` | pure Web Push response classification and endpoint allowlist. Covers **dormant** code — see `Removed, Replaced, And Dormant` |
-| `test_vapid_keys.py` | VAPID keypair interoperability (not cryptography). Also dormant |
+| `test_push_domain.py` | pure Web Push response classification and endpoint allowlist |
+| `test_vapid_keys.py` | VAPID keypair interoperability (not cryptography) |
+| `test_push_subscriptions.py` | Owner-only send gate and Admin-and-above audience derived from rank; DB-backed endpoint reassignment on a shared device, caller-scoped delete, archived-user exclusion, delete-only-on-404/410, and the SSRF guard refusing a disallowed endpoint before any request |
 
 No frontend test harness exists. For UI behavior, run backend tests plus manual
 browser checks for changed pages.
@@ -2628,28 +2721,13 @@ dormant file is not mistaken for a working feature.
 
 ### Dormant — code is on `main`, the feature is not built
 
-**Web Push notifications (Phase A groundwork).** These files are on `main` and
-are covered by passing tests, but **nothing imports them outside their own
-tests**:
-
-| On `main` | Status |
-|---|---|
-| `app/domain/push.py` | pure policy: response classification + endpoint allowlist |
-| `scripts/generate_vapid_keys.py` | VAPID keypair generator |
-| `tests/test_push_domain.py`, `tests/test_vapid_keys.py` | cover the two above |
-| `pywebpush==2.4.0` in `requirements.txt` | installed, never called |
-
-There is **no** router, service, model, migration, frontend service worker, or
-subscription table. Nothing in the running app can send a push. The intent was
-to land the decidable, I/O-free half first — the same pattern the `domain/`
-layer uses everywhere else — and the rest of the work is on the
-`feat/push-notifications` branch, which has since fallen behind `main` on the
-NetFacilities work.
-
-Treat `domain/push.py` as a design artifact, not a capability. Do not document
-push as a feature and do not report it as available. If push is abandoned rather
-than resumed, delete these four files, drop `pywebpush`, and move this entry
-down to *Removed* below.
+**Currently empty.** Web Push held the only entry here from 2026-08-15 to
+2026-08-18: `domain/push.py` and `scripts/generate_vapid_keys.py` sat on `main`
+imported by nothing but their own tests. That entry also claimed the remaining
+work was stranded on `feat/push-notifications` and merely behind `main`. It was
+not — that branch was fully merged (PRs #8 and #9) and held nothing unique; the
+rest of the feature had never been written. The wiring landed on 2026-08-18 and
+push is now a live capability, documented under *API Surface → Web Push*.
 
 ### Removed
 

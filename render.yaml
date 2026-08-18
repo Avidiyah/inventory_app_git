@@ -57,3 +57,16 @@ services:
         value: "/etc/secrets/netfacilities-storage-state.json"
       - key: NETFACILITIES_BROWSER_CHANNEL
         value: "bundled-chromium"
+      # VAPID signing key for Web Push (app/services/push.py). Declared
+      # here without a value -- `sync: false` means Render keeps the real
+      # one in the dashboard's Environment page and never reads it from
+      # Git. Unlike the NetFacilities settings above it is deliberately
+      # NOT duplicated into backend/Dockerfile: that file is committed,
+      # and this is a credential that can send notifications to every
+      # subscriber.
+      #
+      # Rotating it invalidates every existing subscription, because the
+      # browser bound the public half in at subscribe() time. Absent, push
+      # simply stays off; nothing else in the app is affected.
+      - key: VAPID_PRIVATE_KEY
+        sync: false
