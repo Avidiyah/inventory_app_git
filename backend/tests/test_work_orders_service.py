@@ -1626,3 +1626,126 @@ def test_unassigned_routed_supervisor_still_sends_to_review():
     wos._require_review_handoff_permission(
         _review_stub_work_order(supervisor_id=actor.id), actor
     )
+
+
+# --- transition facts, for notification triggers -------------------------
+#
+# A notification must fire on a real transition and stay silent on a repeat.
+# The narrow endpoints are all idempotent -- a slow tap fires them twice --
+# so the router needs to know what the row held *before* the call, not just
+# what it holds now. `previous_status` and `newly_assigned_ids` carry that
+# on the returned row; nothing else in the app reads them.
+
+def test_each_narrow_transition_reports_the_status_it_left(db):
+    manager = _seed_user(db, "admin")
+    worker = _seed_user(db, "technician")
+    work_order = _wo(db, created_by=manager, assigned_to=worker)
+
+    started = wos.start_work_order(db, work_order.id, user=worker)
+    assert wos.previous_status(started) == "assigned"
+
+    held = wos.hold_work_order(db, work_order.id, user=worker)
+    assert wos.previous_status(held) == "in_progress"
+
+    resumed = wos.resume_work_order(db, work_order.id, user=worker)
+    assert wos.previous_status(resumed) == "on_hold"
+
+    completed = wos.complete_work_order(db, work_order.id, user=worker)
+    assert wos.previous_status(completed) == "in_progress"
+
+
+@pytest.mark.parametrize(
+    "transition, reach",
+    [
+        ("start_work_order", []),
+        ("hold_work_order", ["start_work_order"]),
+        ("resume_work_order", ["start_work_order", "hold_work_order"]),
+        ("complete_work_order", ["start_work_order"]),
+    ],
+)
+def test_an_idempotent_repeat_reports_no_change(db, transition, reach):
+    """The double-tap guard. Repeating a transition returns the row
+    unchanged, and the caller must be able to tell that apart from a real
+    move -- otherwise a slow tap sends two notifications for one event."""
+    manager = _seed_user(db, "admin")
+    worker = _seed_user(db, "technician")
+    work_order = _wo(db, created_by=manager, assigned_to=worker)
+    for step in reach:
+        getattr(wos, step)(db, work_order.id, user=worker)
+
+    moved = getattr(wos, transition)(db, work_order.id, user=worker)
+    assert wos.previous_status(moved) != moved.status
+
+    repeated = getattr(wos, transition)(db, work_order.id, user=worker)
+    assert wos.previous_status(repeated) == repeated.status
+
+
+def test_a_patch_reports_the_status_it_left(db):
+    """The PATCH is the only route out of Completed, which makes it the
+    only trigger site for the reopen rule."""
+    manager = _seed_user(db, "admin")
+    worker = _seed_user(db, "technician")
+    work_order = _wo(db, created_by=manager, assigned_to=worker)
+    wos.start_work_order(db, work_order.id, user=worker)
+    wos.complete_work_order(db, work_order.id, user=worker)
+
+    reopened = wos.update_work_order(
+        db, work_order.id, user=manager, fields={"status": "in_progress"}
+    )
+
+    assert wos.previous_status(reopened) == "completed"
+    assert reopened.status == "in_progress"
+
+
+def test_a_patch_reports_only_the_newly_added_assignees(db):
+    manager = _seed_user(db, "admin")
+    first = _seed_user(db, "technician")
+    second = _seed_user(db, "technician")
+    work_order = _wo(db, created_by=manager, assigned_to=first)
+
+    both = wos.update_work_order(
+        db,
+        work_order.id,
+        user=manager,
+        fields={"assigned_to_ids": [first.id, second.id]},
+    )
+
+    assert wos.newly_assigned_ids(both) == [second.id]
+
+
+def test_re_sending_an_unchanged_assignee_list_adds_nobody(db):
+    """Re-saving a form must not re-notify the whole crew."""
+    manager = _seed_user(db, "admin")
+    worker = _seed_user(db, "technician")
+    work_order = _wo(db, created_by=manager, assigned_to=worker)
+
+    unchanged = wos.update_work_order(
+        db, work_order.id, user=manager, fields={"assigned_to_ids": [worker.id]}
+    )
+
+    assert wos.newly_assigned_ids(unchanged) == []
+
+
+def test_removing_an_assignee_adds_nobody(db):
+    manager = _seed_user(db, "admin")
+    worker = _seed_user(db, "technician")
+    work_order = _wo(db, created_by=manager, assigned_to=worker)
+
+    emptied = wos.update_work_order(
+        db, work_order.id, user=manager, fields={"assigned_to_ids": []}
+    )
+
+    assert wos.newly_assigned_ids(emptied) == []
+
+
+def test_a_patch_that_touches_no_assignments_adds_nobody(db):
+    """A note-only edit is not an assignment event."""
+    manager = _seed_user(db, "admin")
+    worker = _seed_user(db, "technician")
+    work_order = _wo(db, created_by=manager, assigned_to=worker)
+
+    noted = wos.update_work_order(
+        db, work_order.id, user=manager, fields={"notes": "on my way"}
+    )
+
+    assert wos.newly_assigned_ids(noted) == []

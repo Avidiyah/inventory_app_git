@@ -267,6 +267,66 @@ def _assigned_technician_ids(work_order: WorkOrder) -> list[uuid.UUID]:
     return assigned
 
 
+def assigned_technician_ids(work_order: WorkOrder) -> list[uuid.UUID]:
+    """Public reader for the plural assignment ids.
+
+    Notification rules address assignees by id, and reaching into the
+    private helper from another module would make the legacy-column
+    fallback someone else's problem to remember.
+    """
+    return _assigned_technician_ids(work_order)
+
+
+# Transition facts, attached to the row a write returns.
+#
+# A caller that wants to react to a write -- notifications, today -- needs
+# to know what the write *changed*, which the post-write row cannot say on
+# its own. The narrow transition endpoints are all idempotent, so a slow
+# double tap returns a perfectly valid Completed row twice and only the
+# prior status distinguishes the real event from the repeat.
+#
+# These are plain Python attributes rather than columns, set after the
+# final `db.refresh()` so no expiry can clear them, and read through the
+# accessors below. They are meaningful *only* on an instance just returned
+# from one of the functions that sets them; anywhere else they are absent
+# and the accessors say so.
+_PREVIOUS_STATUS = "_wo_previous_status"
+_NEWLY_ASSIGNED = "_wo_newly_assigned_ids"
+
+
+def previous_status(work_order: WorkOrder) -> Optional[str]:
+    """The status this row held before the write that returned it.
+
+    Equal to the current status when the write changed nothing, which is
+    how an idempotent repeat is told apart from a real transition.
+    `None` when the row did not come from such a write.
+    """
+    return getattr(work_order, _PREVIOUS_STATUS, None)
+
+
+def newly_assigned_ids(work_order: WorkOrder) -> list[uuid.UUID]:
+    """Technicians *added* by the write that returned this row.
+
+    Empty when the write re-sent an unchanged assignee list, removed
+    someone, or never touched assignments at all -- so "was anyone newly
+    assigned" is a truthiness check rather than a set comparison the
+    caller has to get right.
+    """
+    return list(getattr(work_order, _NEWLY_ASSIGNED, ()))
+
+
+def _record_transition(
+    work_order: WorkOrder,
+    *,
+    previous: Optional[str],
+    newly_assigned: Optional[Sequence[uuid.UUID]] = None,
+) -> WorkOrder:
+    """Stamp the transition facts on a row about to be returned."""
+    setattr(work_order, _PREVIOUS_STATUS, previous)
+    setattr(work_order, _NEWLY_ASSIGNED, list(newly_assigned or ()))
+    return work_order
+
+
 def assigned_technicians(work_order: WorkOrder) -> list[User]:
     """Assigned technician users, including a legacy singular fallback."""
     technicians = list(getattr(work_order, "technicians", None) or ())
@@ -321,8 +381,14 @@ def _sync_technician_assignments(
     technician_ids: Sequence[uuid.UUID],
     *,
     assigned_by_id: Optional[uuid.UUID],
-) -> None:
-    """Replace a work order's normalized assignment set and legacy mirror."""
+) -> list[uuid.UUID]:
+    """Replace a work order's normalized assignment set and legacy mirror.
+
+    Returns the ids this call *added*, in the order they were requested.
+    The prior membership is already computed here to decide the deletes,
+    so reporting the additions costs nothing and spares every caller from
+    recovering a set that no longer exists once the replace has run.
+    """
     desired = list(dict.fromkeys(technician_ids))
     existing = {
         assignment.technician_id: assignment
@@ -331,8 +397,10 @@ def _sync_technician_assignments(
     for technician_id, assignment in existing.items():
         if technician_id not in desired:
             db.delete(assignment)
+    added: list[uuid.UUID] = []
     for technician_id in desired:
         if technician_id not in existing:
+            added.append(technician_id)
             db.add(
                 WorkOrderTechnician(
                     work_order_id=work_order.id,
@@ -342,6 +410,7 @@ def _sync_technician_assignments(
             )
     # Compatibility for Mass Stage and old response consumers.
     work_order.assigned_to_id = desired[0] if desired else None
+    return added
 
 
 def _visible(work_order: WorkOrder, user: Optional[User]) -> bool:
@@ -1303,17 +1372,18 @@ def start_work_order(
     ):
         raise WorkOrderNotFoundError("Work order not found.")
     if work_order.status == wo.STATUS_IN_PROGRESS:
-        return work_order
+        return _record_transition(work_order, previous=work_order.status)
     if work_order.status != wo.STATUS_ASSIGNED:
         raise WorkOrderStateError(
             "Only an Assigned work order can be started from Scan / Stock."
         )
 
+    previous = work_order.status
     work_order.status = wo.STATUS_IN_PROGRESS
     work_order.completed_at = None
     db.commit()
     db.refresh(work_order)
-    return work_order
+    return _record_transition(work_order, previous=previous)
 
 
 def complete_work_order(
@@ -1343,18 +1413,19 @@ def complete_work_order(
             "Only a worker assigned to this work order can mark it Completed."
         )
     if work_order.status == wo.STATUS_COMPLETED:
-        return work_order
+        return _record_transition(work_order, previous=work_order.status)
     if work_order.status != wo.STATUS_IN_PROGRESS:
         raise WorkOrderStateError(
             "Only an In-Progress work order can be marked Completed by its "
             "assigned worker."
         )
 
+    previous = work_order.status
     work_order.status = wo.STATUS_COMPLETED
     work_order.completed_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(work_order)
-    return work_order
+    return _record_transition(work_order, previous=previous)
 
 
 def hold_work_order(
@@ -1382,18 +1453,19 @@ def hold_work_order(
             "Only a worker assigned to this work order can place it On-Hold."
         )
     if work_order.status == wo.STATUS_ON_HOLD:
-        return work_order
+        return _record_transition(work_order, previous=work_order.status)
     if work_order.status != wo.STATUS_IN_PROGRESS:
         raise WorkOrderStateError(
             "Only an In-Progress work order can be placed On-Hold by its "
             "assigned worker."
         )
 
+    previous = work_order.status
     work_order.status = wo.STATUS_ON_HOLD
     work_order.completed_at = None
     db.commit()
     db.refresh(work_order)
-    return work_order
+    return _record_transition(work_order, previous=previous)
 
 
 def resume_work_order(
@@ -1421,17 +1493,18 @@ def resume_work_order(
             "Only a worker assigned to this work order can resume it."
         )
     if work_order.status == wo.STATUS_IN_PROGRESS:
-        return work_order
+        return _record_transition(work_order, previous=work_order.status)
     if work_order.status != wo.STATUS_ON_HOLD:
         raise WorkOrderStateError(
             "Only an On-Hold work order can be resumed by its assigned worker."
         )
 
+    previous = work_order.status
     work_order.status = wo.STATUS_IN_PROGRESS
     work_order.completed_at = None
     db.commit()
     db.refresh(work_order)
-    return work_order
+    return _record_transition(work_order, previous=previous)
 
 
 def update_work_order(
@@ -1462,6 +1535,11 @@ def update_work_order(
     work_order = _get_locked(db, work_order_id)
     if work_order is None or work_order.archived_at is not None:
         raise WorkOrderNotFoundError("Work order not found.")
+
+    # Captured before any mutation below. This is the only route out of
+    # Completed -- the narrow endpoints each reject it -- so it is also the
+    # only place the reopen rule can be recognised.
+    previous = work_order.status
 
     # Check the stale routing value before current visibility: a supervisor who
     # loaded this row while it was unrouted must receive the named 409 after
@@ -1500,9 +1578,10 @@ def update_work_order(
             "Provide assigned_to_ids or assigned_to_id, not both."
         )
     assignment_changed = False
+    newly_assigned: list[uuid.UUID] = []
     if "assigned_to_ids" in fields:
         technician_ids = _validate_assignees(db, fields["assigned_to_ids"] or [])
-        _sync_technician_assignments(
+        newly_assigned = _sync_technician_assignments(
             db,
             work_order,
             technician_ids,
@@ -1515,7 +1594,7 @@ def update_work_order(
             if fields["assigned_to_id"] is not None
             else []
         )
-        _sync_technician_assignments(
+        newly_assigned = _sync_technician_assignments(
             db,
             work_order,
             technician_ids,
@@ -1566,7 +1645,9 @@ def update_work_order(
             "A work order with that number already exists."
         ) from exc
     db.refresh(work_order)
-    return work_order
+    return _record_transition(
+        work_order, previous=previous, newly_assigned=newly_assigned
+    )
 
 
 def archive_work_order(
