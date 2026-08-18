@@ -27,13 +27,14 @@ nothing. Per-row *visibility* and the per-field edit matrix stay in
 `app.services.work_orders`, because those need the loaded row.
 """
 
+import logging
 import re
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -65,8 +66,11 @@ from app.schemas.work_orders import (
     WorkOrderLookup,
     WorkOrderUpdate,
 )
+from app.services import notifications as notifications_service
 from app.services import realtime as realtime_service
 from app.services import work_orders as wo_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/work-orders", tags=["work-orders"])
 
@@ -85,6 +89,74 @@ def _emit_review_queue_changed(entity_id: Optional[uuid.UUID]) -> None:
             request_id=current_request_id(),
         )
     )
+
+
+def _notify(call, *args, **kwargs) -> None:
+    """Run one notification rule without letting it fail the request.
+
+    The durable write has already committed by the time any of these run.
+    A bug in recipient resolution must therefore surface as a log line and
+    a missing notification, never as a 500 for a save that succeeded --
+    the same contract the realtime emitters above follow, and the reason
+    ``emit``'s boolean result is ignored there.
+    """
+    try:
+        call(*args, **kwargs)
+    except Exception:  # noqa: BLE001 - best-effort by contract
+        logger.exception("work-order notification rule failed")
+
+
+def _notify_work_order_patch(
+    db: Session,
+    background: BackgroundTasks,
+    work_order: WorkOrder,
+    *,
+    actor_id: uuid.UUID,
+) -> None:
+    """Fire whichever notification rules a single PATCH satisfied.
+
+    One write can be several events -- a PATCH may add assignees *and*
+    move the status -- so assignment is evaluated independently of the
+    transition rather than as the first arm of a chain.
+
+    Both facts are read off the row the service returned. When there is no
+    prior status the row did not come from a write that records one, and
+    inferring an event from the post-write status alone is exactly how an
+    idempotent repeat sends a second notification for one event.
+
+    This is also the only route out of Completed: the narrow start / hold
+    / resume endpoints each reject a Completed row, so the reopen rule has
+    no other trigger site.
+    """
+    if wo_service.newly_assigned_ids(work_order):
+        _notify(
+            notifications_service.notify_work_order_assigned,
+            db,
+            background,
+            work_order=work_order,
+            actor_id=actor_id,
+        )
+
+    previous = wo_service.previous_status(work_order)
+    if previous is None or previous == work_order.status:
+        return
+
+    if work_order.status == wo.STATUS_COMPLETED:
+        _notify(
+            notifications_service.notify_work_order_completed,
+            db,
+            background,
+            work_order=work_order,
+            actor_id=actor_id,
+        )
+    elif previous == wo.STATUS_COMPLETED:
+        _notify(
+            notifications_service.notify_work_order_reopened,
+            db,
+            background,
+            work_order=work_order,
+            actor_id=actor_id,
+        )
 
 
 def _emit_status_changed(entity_id: Optional[uuid.UUID]) -> None:
@@ -533,6 +605,7 @@ def get_work_order(
 def update_work_order(
     work_order_id: uuid.UUID,
     payload: WorkOrderUpdate,
+    background: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -560,6 +633,7 @@ def update_work_order(
         )
         _emit_review_queue_changed(work_order.id)
         _emit_status_changed(work_order.id)
+        _notify_work_order_patch(db, background, work_order, actor_id=user.id)
         return _detail(
             # The caller may just have routed the row to somebody else. The
             # write was already authorized above, so build its response through
@@ -597,6 +671,7 @@ def start_work_order(
 @router.post("/{work_order_id}/complete", response_model=WorkOrderDetail)
 def complete_work_order(
     work_order_id: uuid.UUID,
+    background: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -610,6 +685,20 @@ def complete_work_order(
             db, work_order_id, user=user
         )
         _emit_status_changed(work_order.id)
+        # Guarded on a real transition: this endpoint is idempotent, so a
+        # slow double tap returns the same Completed row twice and would
+        # otherwise notify every Admin twice for one completion. No recorded
+        # prior status means the row did not come from a write that tracks
+        # one, which is not evidence that anything moved.
+        previous = wo_service.previous_status(work_order)
+        if previous is not None and previous != work_order.status:
+            _notify(
+                notifications_service.notify_work_order_completed,
+                db,
+                background,
+                work_order=work_order,
+                actor_id=user.id,
+            )
         return _detail(
             wo_service.get_work_order(db, work_order.id, user=user),
             include_price=_can_see_price(user),

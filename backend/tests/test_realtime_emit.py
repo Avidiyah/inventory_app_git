@@ -10,6 +10,7 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
+from fastapi import BackgroundTasks
 from fastapi import HTTPException
 
 from app.domain import realtime as realtime_policy
@@ -63,7 +64,7 @@ def _passthrough_detail(monkeypatch):
 def test_update_emits_after_the_command_and_before_response_hydration(monkeypatch):
     work_order_id = uuid.uuid4()
     saved = SimpleNamespace(id=work_order_id)
-    user = SimpleNamespace(role=roles.ROLE_ADMIN)
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_ADMIN)
     order = []
     envelopes = []
 
@@ -88,6 +89,7 @@ def test_update_emits_after_the_command_and_before_response_hydration(monkeypatc
     result = work_orders_router.update_work_order(
         work_order_id,
         WorkOrderUpdate(notes="Changed"),
+        BackgroundTasks(),
         user=user,
         db=None,
     )
@@ -110,7 +112,7 @@ def test_update_emits_after_the_command_and_before_response_hydration(monkeypatc
 
 def test_archive_emits_one_entity_invalidation(monkeypatch):
     work_order_id = uuid.uuid4()
-    user = SimpleNamespace(role=roles.ROLE_ADMIN)
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_ADMIN)
     envelopes = _capture_emits(monkeypatch)
     monkeypatch.setattr(
         work_orders_router.wo_service,
@@ -138,7 +140,7 @@ def test_archive_emits_one_entity_invalidation(monkeypatch):
 def test_restore_emits_even_when_the_successful_command_is_a_noop(monkeypatch):
     work_order_id = uuid.uuid4()
     saved = SimpleNamespace(id=work_order_id)
-    user = SimpleNamespace(role=roles.ROLE_SUPERVISOR)
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_SUPERVISOR)
     envelopes = _capture_emits(monkeypatch)
     monkeypatch.setattr(
         work_orders_router.wo_service,
@@ -159,7 +161,7 @@ def test_restore_emits_even_when_the_successful_command_is_a_noop(monkeypatch):
 
 
 def test_import_emits_one_collection_invalidation(monkeypatch):
-    user = SimpleNamespace(role=roles.ROLE_ADMIN)
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_ADMIN)
     envelopes = _capture_emits(monkeypatch)
     monkeypatch.setattr(work_orders_router, "read_capped", lambda *args, **kwargs: b"csv")
     monkeypatch.setattr(
@@ -181,7 +183,7 @@ def test_import_emits_one_collection_invalidation(monkeypatch):
 
 
 def test_zero_row_legacy_archive_still_emits_one_collection_invalidation(monkeypatch):
-    user = SimpleNamespace(role=roles.ROLE_OWNER)
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_OWNER)
     envelopes = _capture_emits(monkeypatch)
     monkeypatch.setattr(
         work_orders_router.wo_service,
@@ -203,7 +205,7 @@ def test_zero_row_legacy_archive_still_emits_one_collection_invalidation(monkeyp
 
 def test_a_command_failure_emits_nothing(monkeypatch):
     work_order_id = uuid.uuid4()
-    user = SimpleNamespace(role=roles.ROLE_ADMIN)
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_ADMIN)
     envelopes = _capture_emits(monkeypatch)
 
     def fail(db, incoming_id, *, user, fields):
@@ -215,6 +217,7 @@ def test_a_command_failure_emits_nothing(monkeypatch):
         work_orders_router.update_work_order(
             work_order_id,
             WorkOrderUpdate(notes="Changed"),
+            BackgroundTasks(),
             user=user,
             db=None,
         )
@@ -225,7 +228,7 @@ def test_a_command_failure_emits_nothing(monkeypatch):
 def test_a_dropped_invalidation_never_changes_the_http_result(monkeypatch):
     work_order_id = uuid.uuid4()
     saved = SimpleNamespace(id=work_order_id)
-    user = SimpleNamespace(role=roles.ROLE_ADMIN)
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_ADMIN)
     envelopes = _capture_emits(monkeypatch, accepted=False)
     monkeypatch.setattr(
         work_orders_router.wo_service,
@@ -242,6 +245,7 @@ def test_a_dropped_invalidation_never_changes_the_http_result(monkeypatch):
     result = work_orders_router.update_work_order(
         work_order_id,
         WorkOrderUpdate(notes="Changed"),
+        BackgroundTasks(),
         user=user,
         db=None,
     )
@@ -261,7 +265,7 @@ def test_each_walkthrough_transition_emits_one_status_invalidation(
     exists: they change the status a card renders and emitted nothing before."""
     work_order_id = uuid.uuid4()
     saved = SimpleNamespace(id=work_order_id)
-    user = SimpleNamespace(role=roles.ROLE_TECHNICIAN)
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_TECHNICIAN)
     envelopes = _capture_emits(monkeypatch)
     monkeypatch.setattr(
         work_orders_router.wo_service,
@@ -275,8 +279,14 @@ def test_each_walkthrough_transition_emits_one_status_invalidation(
     )
     _passthrough_detail(monkeypatch)
 
+    # Only completion notifies, so only it takes a BackgroundTasks.
+    extra = (
+        {"background": BackgroundTasks()}
+        if route_name == "complete_work_order"
+        else {}
+    )
     result = getattr(work_orders_router, route_name)(
-        work_order_id, user=user, db=None
+        work_order_id, user=user, db=None, **extra
     )
 
     assert result is saved
@@ -291,7 +301,7 @@ def test_each_walkthrough_transition_emits_one_status_invalidation(
 
 def test_a_failed_transition_emits_nothing(monkeypatch):
     work_order_id = uuid.uuid4()
-    user = SimpleNamespace(role=roles.ROLE_TECHNICIAN)
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_TECHNICIAN)
     envelopes = _capture_emits(monkeypatch)
 
     def fail(db, incoming_id, *, user):
@@ -300,7 +310,9 @@ def test_a_failed_transition_emits_nothing(monkeypatch):
     monkeypatch.setattr(work_orders_router.wo_service, "complete_work_order", fail)
 
     with pytest.raises(HTTPException):
-        work_orders_router.complete_work_order(work_order_id, user=user, db=None)
+        work_orders_router.complete_work_order(
+            work_order_id, BackgroundTasks(), user=user, db=None
+        )
 
     assert envelopes == []
 
@@ -328,7 +340,7 @@ def test_restore_emits_a_collection_style_status_invalidation(monkeypatch):
     bulk legacy archive both use it) and tells the client to refetch its list."""
     work_order_id = uuid.uuid4()
     saved = SimpleNamespace(id=work_order_id)
-    user = SimpleNamespace(role=roles.ROLE_SUPERVISOR)
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_SUPERVISOR)
     envelopes = _capture_emits(monkeypatch)
     monkeypatch.setattr(
         work_orders_router.wo_service,
@@ -355,7 +367,7 @@ def test_archive_emits_an_entity_style_status_invalidation(monkeypatch):
     """Archive is surgical, not collection: the card IS on screen, so the client
     refetches it, gets a 404 from the scoping, and drops that one row."""
     work_order_id = uuid.uuid4()
-    user = SimpleNamespace(role=roles.ROLE_ADMIN)
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_ADMIN)
     envelopes = _capture_emits(monkeypatch)
     monkeypatch.setattr(
         work_orders_router.wo_service,

@@ -25,6 +25,7 @@ from fastapi import HTTPException
 from fastapi.routing import APIRoute
 
 import pytest
+from fastapi import BackgroundTasks
 
 from app.domain import roles
 from app.domain.errors import WorkOrderAssignmentConflictError
@@ -146,7 +147,7 @@ def test_work_order_routes_have_no_static_min_role(endpoint_name):
 
 def test_work_order_list_forwards_joinable_filters(monkeypatch):
     supervisor_id = uuid.uuid4()
-    user = SimpleNamespace(role=roles.ROLE_ADMIN)
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_ADMIN)
     captured = {}
 
     def list_filtered(db, **kwargs):
@@ -348,7 +349,8 @@ def test_technician_cannot_change_work_order_status(status):
         work_orders_router.update_work_order(
             uuid.uuid4(),
             WorkOrderUpdate(status=status),
-            user=SimpleNamespace(role=roles.ROLE_TECHNICIAN),
+            BackgroundTasks(),
+            user=SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_TECHNICIAN),
             db=None,
         )
     assert exc.value.status_code == 403
@@ -359,7 +361,8 @@ def test_supervisor_cannot_edit_imported_work_order_metadata():
         work_orders_router.update_work_order(
             uuid.uuid4(),
             WorkOrderUpdate(location="Commons 101"),
-            user=SimpleNamespace(role=roles.ROLE_SUPERVISOR),
+            BackgroundTasks(),
+            user=SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_SUPERVISOR),
             db=None,
         )
     assert exc.value.status_code == 403
@@ -368,7 +371,7 @@ def test_supervisor_cannot_edit_imported_work_order_metadata():
 def test_technician_can_save_work_order_notes(monkeypatch):
     work_order_id = uuid.uuid4()
     saved = SimpleNamespace(id=work_order_id)
-    user = SimpleNamespace(role=roles.ROLE_TECHNICIAN)
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_TECHNICIAN)
     captured = {}
 
     def save(db, incoming_id, *, user, fields):
@@ -390,6 +393,7 @@ def test_technician_can_save_work_order_notes(monkeypatch):
     result = work_orders_router.update_work_order(
         work_order_id,
         WorkOrderUpdate(notes="  Gate code is 4123.  "),
+        BackgroundTasks(),
         user=user,
         db=None,
     )
@@ -402,7 +406,7 @@ def test_work_order_route_passes_precondition_and_returns_internal_detail(monkey
     work_order_id = uuid.uuid4()
     target_id = uuid.uuid4()
     saved = SimpleNamespace(id=work_order_id)
-    user = SimpleNamespace(role=roles.ROLE_SUPERVISOR)
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_SUPERVISOR)
     captured = {}
 
     def save(db, incoming_id, *, user, fields, expected_supervisor_id):
@@ -428,6 +432,7 @@ def test_work_order_route_passes_precondition_and_returns_internal_detail(monkey
             supervisor_id=target_id,
             expected_supervisor_id=None,
         ),
+        BackgroundTasks(),
         user=user,
         db=None,
     )
