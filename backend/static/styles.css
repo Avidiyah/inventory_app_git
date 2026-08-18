@@ -2517,6 +2517,17 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-add-labor input { margin-top: 0; }
 .wo-add-labor input { width: 120px; }
 .wo-add-labor button { margin-top: 0; min-height: var(--control-h); }
+/* A Technician records only their own hours, so the picker is replaced by
+   their name. It sits where the select would and must read as the value, not
+   as a second field label -- which is what `label > span` above would make it. */
+.wo-add-labor label > span.wo-labor-technician-name {
+    display: flex;
+    align-items: center;
+    min-height: var(--control-h);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-regular);
+    color: var(--gray-900);
+}
 .wo-message { margin-top: var(--space-2); font-size: var(--fs-sm); }
 
 @media (max-width: 640px) {

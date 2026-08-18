@@ -314,11 +314,25 @@ function renderLaborEntryHtml(entry) {
           </div>`;
 }
 
+// A Technician may record only their own hours, so they get no picker to aim
+// at somebody else -- their id travels in a hidden field carrying the same
+// class, which is what the add-labor handler reads either way. The server
+// enforces the same rule (`_require_labor_author`); this only keeps the UI
+// from offering a control that would be refused.
 function laborTechnicianControl(detail) {
   const ids = assignedIds(detail);
   const names = assignedNames(detail);
   if (!ids.length) {
     return `<p class="hint">Assign at least one technician before recording labor.</p>`;
+  }
+  if (!isSupervisorPlus()) {
+    const user = getCurrentUser();
+    const index = ids.indexOf(user?.id);
+    if (index < 0) return "";
+    return `<label><span>Technician</span>
+              <input type="hidden" class="wo-labor-technician" value="${escapeHtml(user.id)}">
+              <span class="wo-labor-technician-name">${escapeHtml(names[index] || user.full_name || "You")}</span>
+            </label>`;
   }
   const options = ids
     .map((id, index) => `<option value="${escapeHtml(id)}">${escapeHtml(names[index] || "Assigned technician")}</option>`)
@@ -329,7 +343,11 @@ function laborTechnicianControl(detail) {
 function laborSectionHtml(detail) {
   const entries = (detail.labor || []).map(renderLaborEntryHtml).join("") ||
     `<p class="hint">No labor recorded yet.</p>`;
-  const hasAssignments = assignedIds(detail).length > 0;
+  // A technician with no add control left (not assigned, or no assignments at
+  // all) would otherwise open an empty card.
+  const canAdd = Boolean(laborTechnicianControl(detail)) &&
+    (isSupervisorPlus() || isAssignedToCurrentUser(detail));
+  const hasAssignments = assignedIds(detail).length > 0 && canAdd;
   const rateText = detail.labor_rate === null || detail.labor_rate === undefined
     ? "The combined actual time is rounded up to the next 30 minutes for billing."
     : `Labor is billed at ${formatMoney(detail.labor_rate)}/hour. The combined actual time is rounded up to the next 30 minutes.`;
@@ -1017,12 +1035,19 @@ function renderBody(detail, bodyEl) {
     statusActions =
       `<button type="button" data-action="complete-assigned-wo">Mark Completed</button>` +
       `<button type="button" class="secondary-btn" data-action="hold-assigned-wo">Place On-Hold</button>`;
-  } else if (assignedToCurrentUser && detail.status === "on_hold") {
-    statusActions = `<button type="button" data-action="resume-assigned-wo">Resume In-Progress</button>`;
+  } else if (detail.status === "on_hold" && (assignedToCurrentUser || sup)) {
+    // Not an either/or: a Supervisor who is also an assigned worker needs both
+    // halves. With Technicians out of Completed every job now lands here first,
+    // so a supervisor closing one out must not have to open Edit details.
+    if (assignedToCurrentUser) {
+      statusActions += `<button type="button" data-action="resume-assigned-wo">Resume In-Progress</button>`;
+    }
+    if (sup) {
+      statusActions += `<button type="button" data-action="complete-wo">Mark Completed</button>`;
+      statusActions += `<span class="hint wo-status-note">On-Hold — a supervisor can also resume or roll back this work order in the Edit details card.</span>`;
+    }
   } else if (sup && detail.status === "in_progress") {
     statusActions = `<button type="button" data-action="complete-wo">Mark Completed</button>`;
-  } else if (sup && detail.status === "on_hold") {
-    statusActions = `<span class="hint wo-status-note">On-Hold — a supervisor can resume or roll back this work order in the Edit details card.</span>`;
   } else if (detail.status === "completed") {
     if (canSendToReview) {
       statusActions += `<button type="button" data-action="review-wo">Send to Review</button>`;
@@ -1087,7 +1112,7 @@ function renderBody(detail, bodyEl) {
          </div>
        </div>
      </details>` +
-    (sup ? laborSectionHtml(detail) : "") +
+    (sup || assignedToCurrentUser ? laborSectionHtml(detail) : "") +
     `<p class="wo-message"></p>`;
 }
 
@@ -1222,8 +1247,20 @@ listEl.addEventListener("click", async (event) => {
       await apiStartWorkOrder(workOrderId);
       await refreshCard(cardEl);
     } else if (action === "complete-assigned-wo") {
-      await apiCompleteWorkOrder(workOrderId);
+      const finished = await apiCompleteWorkOrder(workOrderId);
       await refreshCard(cardEl);
+      // A Technician's finish lands On-Hold for supervisor review, so the
+      // badge that appears a moment later would otherwise read as a failed
+      // save. Chosen from the row the server returned rather than from the
+      // role, so this can never disagree with what was actually written.
+      // Re-queried after the refresh: renderBody replaced the old element.
+      if (finished?.status === "on_hold") {
+        setMessage(
+          cardEl.querySelector(".wo-message"),
+          "Sent to your supervisor for review.",
+          "success"
+        );
+      }
     } else if (action === "hold-assigned-wo") {
       await apiHoldWorkOrder(workOrderId);
       await refreshCard(cardEl);
