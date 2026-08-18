@@ -142,6 +142,58 @@ def test_the_reviewer_who_sent_it_back_is_not_told_about_it():
     ) == [assignee]
 
 
+def test_a_hold_addresses_the_routed_supervisor():
+    supervisor, actor = uuid.uuid4(), uuid.uuid4()
+
+    assert notif.recipients_for_hold(
+        supervisor_id=supervisor, admin_ids=[], actor_id=actor
+    ) == [supervisor]
+
+
+def test_an_unrouted_hold_falls_back_to_the_admins():
+    """Nobody owns the work order, so a stopped job would otherwise be
+    silent until someone happened to open the card."""
+    first, second = uuid.uuid4(), uuid.uuid4()
+
+    assert notif.recipients_for_hold(
+        supervisor_id=None, admin_ids=[first, second], actor_id=None
+    ) == [first, second]
+
+
+def test_an_unrouted_hold_still_suppresses_the_acting_admin():
+    admin, acting_admin = uuid.uuid4(), uuid.uuid4()
+
+    assert notif.recipients_for_hold(
+        supervisor_id=None, admin_ids=[admin, acting_admin], actor_id=acting_admin
+    ) == [admin]
+
+
+def test_a_supervisor_holding_their_own_work_order_does_not_wake_the_admins():
+    """Routed-but-suppressed is not unrouted. The fallback answers "nobody
+    owns this", not "the audience came out empty" -- otherwise a supervisor
+    pausing their own job escalates it to every Admin by doing so."""
+    supervisor, admin = uuid.uuid4(), uuid.uuid4()
+
+    assert notif.recipients_for_hold(
+        supervisor_id=supervisor, admin_ids=[admin], actor_id=supervisor
+    ) == []
+
+
+def test_the_unrouted_hold_fallback_is_addressed_to_admin_and_above():
+    assert notif.UNROUTED_HOLD_AUDIENCE_MIN_ROLE == roles.ROLE_ADMIN
+
+
+def test_a_review_hold_reads_differently_from_an_ordinary_hold():
+    """Same audience, different job for the supervisor: one is a
+    scheduling problem, the other is a review task waiting on them."""
+    _, held = notif.build_message(notif.EVENT_WORK_ORDER_HELD, number="WO-1")
+    _, for_review = notif.build_message(
+        notif.EVENT_WORK_ORDER_HELD_FOR_REVIEW, number="WO-1"
+    )
+
+    assert held != for_review
+
+
 def test_a_return_from_review_reads_differently_from_a_reopen():
     """Same audience, different event. If the two ever collapse into one
     rule, the crew stops being told the difference between "this is live

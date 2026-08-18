@@ -69,6 +69,12 @@ ALL_MODES: tuple[str, ...] = (MODE_DISPENSE, MODE_RETROACTIVE)
 
 NOTE_TIMEZONE = ZoneInfo("America/Chicago")
 
+# Written to the note log when a Technician's completion parks the work order
+# On-Hold (`completion_target_status`). It is the only thing distinguishing that
+# hold from an ordinary mid-job pause, so it is a constant rather than a string
+# typed at the call site -- the Supervisor reading the log is the audience.
+REVIEW_HOLD_NOTE = "Placed On-Hold for Supervisor Review"
+
 
 def append_note_log(
     existing: Optional[str],
@@ -280,6 +286,28 @@ def status_after_activity(current_status: str) -> str:
     if current_status in (STATUS_CREATED, STATUS_ASSIGNED):
         return STATUS_IN_PROGRESS
     return current_status
+
+
+def completion_target_status(role: Optional[str]) -> str:
+    """Where an assigned worker's walkthrough completion actually lands.
+
+    A Technician finishes the work but does not get to declare it billable:
+    their completion parks the row On-Hold for a supervisor to review.
+    Supervisor and above -- and the `None`-role internal caller -- reach
+    Completed directly.
+
+    Keyed on role rather than on assignment, deliberately. A Supervisor may
+    also be an assigned worker (`roles.WORK_ORDER_TECHNICIAN_ROLES`), and the
+    UI routes every assignee through the same button, so an assignment-based
+    rule would quietly take completion away from supervisors too.
+
+    An unrecognised role ranks below Technician (`roles.rank` returns -1) and
+    therefore lands On-Hold. A corrupt role value must never reach a billing
+    state.
+    """
+    if role is None or roles.role_at_least(role, roles.ROLE_SUPERVISOR):
+        return STATUS_COMPLETED
+    return STATUS_ON_HOLD
 
 
 def validate_mode(mode: str) -> None:

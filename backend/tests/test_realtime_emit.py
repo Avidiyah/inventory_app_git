@@ -279,10 +279,11 @@ def test_each_walkthrough_transition_emits_one_status_invalidation(
     )
     _passthrough_detail(monkeypatch)
 
-    # Only completion notifies, so only it takes a BackgroundTasks.
+    # Finishing and pausing both notify, so both take a BackgroundTasks.
+    # Start and resume still do not.
     extra = (
         {"background": BackgroundTasks()}
-        if route_name == "complete_work_order"
+        if route_name in ("complete_work_order", "hold_work_order")
         else {}
     )
     result = getattr(work_orders_router, route_name)(

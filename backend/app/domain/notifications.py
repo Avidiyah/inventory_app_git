@@ -26,18 +26,29 @@ EVENT_WORK_ORDER_ASSIGNED = "work_order.assigned"
 EVENT_WORK_ORDER_COMPLETED = "work_order.completed"
 EVENT_WORK_ORDER_REOPENED = "work_order.reopened"
 EVENT_WORK_ORDER_RETURNED_FROM_REVIEW = "work_order.returned_from_review"
+EVENT_WORK_ORDER_HELD = "work_order.held"
+EVENT_WORK_ORDER_HELD_FOR_REVIEW = "work_order.held_for_review"
 
 ALL_EVENTS = (
     EVENT_WORK_ORDER_ASSIGNED,
     EVENT_WORK_ORDER_COMPLETED,
     EVENT_WORK_ORDER_REOPENED,
     EVENT_WORK_ORDER_RETURNED_FROM_REVIEW,
+    EVENT_WORK_ORDER_HELD,
+    EVENT_WORK_ORDER_HELD_FOR_REVIEW,
 )
 
 # Completion is the one rule addressed to a rank rather than to named
 # people: the Admin review queue is what an Admin watches, and nobody is
 # "assigned" to being told. Everything else routes by assignment.
 COMPLETED_AUDIENCE_MIN_ROLE = roles.ROLE_ADMIN
+
+# Who hears about a hold on a work order nobody is routed to. Deliberately
+# a second constant rather than a reuse of the one above: they answer
+# different questions ("who watches the review queue" versus "who covers an
+# unowned job") and must be able to diverge without one silently dragging
+# the other.
+UNROUTED_HOLD_AUDIENCE_MIN_ROLE = roles.ROLE_ADMIN
 
 _MESSAGES = {
     EVENT_WORK_ORDER_ASSIGNED: (
@@ -55,6 +66,14 @@ _MESSAGES = {
     EVENT_WORK_ORDER_RETURNED_FROM_REVIEW: (
         "Work order returned",
         "{number} came back from Review and needs another look.",
+    ),
+    EVENT_WORK_ORDER_HELD: (
+        "Work order on hold",
+        "{number} was placed On-Hold.",
+    ),
+    EVENT_WORK_ORDER_HELD_FOR_REVIEW: (
+        "Work order ready for review",
+        "{number} is finished and waiting on your review.",
     ),
 }
 
@@ -152,6 +171,33 @@ def recipients_for_return_from_review(
     return select_recipients(
         [*assignee_ids, supervisor_id], actor_id=actor_id
     )
+
+
+def recipients_for_hold(
+    *,
+    supervisor_id: Optional[uuid.UUID],
+    admin_ids: Sequence[uuid.UUID],
+    actor_id: Optional[uuid.UUID],
+) -> list[uuid.UUID]:
+    """A work order stopped -- tell whoever owns it that it did.
+
+    The routed supervisor owns a routed work order and is the whole
+    audience for one. Assignees are deliberately excluded: on the hold
+    paths that matter they are either the actor or people who already know
+    the job stopped, and a hold is not an instruction to anyone.
+
+    When the work order is **unrouted** nobody owns it, so the alert goes
+    to `admin_ids` instead rather than nowhere.
+
+    Routed-but-suppressed is not unrouted. A supervisor who holds their own
+    job takes the `supervisor_id` branch and comes back empty -- they must
+    not escalate their own pause to every Admin in the company by taking
+    it. The branch is on who is routed, never on how many recipients
+    survived.
+    """
+    if supervisor_id is not None:
+        return select_recipients([supervisor_id], actor_id=actor_id)
+    return select_recipients(admin_ids, actor_id=actor_id)
 
 
 def build_message(event_type: str, *, number: str) -> tuple[str, str]:

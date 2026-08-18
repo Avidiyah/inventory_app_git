@@ -1389,18 +1389,27 @@ def start_work_order(
 def complete_work_order(
     db: Session, work_order_id: uuid.UUID, *, user: User
 ) -> WorkOrder:
-    """Move an assigned worker's In-Progress work order to Completed.
+    """Finish an assigned worker's In-Progress work order.
 
-    This is the second and final assigned-worker walkthrough action. It is
+    Where it lands is the worker's role, decided by
+    `domain.work_orders.completion_target_status`: Supervisor and above reach
+    Completed, while a Technician's finish parks the row On-Hold with a
+    server-authored review note. Completed is the billing state, so it stays a
+    supervisory decision even though the work itself is done.
+
+    This is the second and final assigned-worker walkthrough action, and is
     intentionally separate from the Supervisor+ PATCH contract so a Technician
-    receives no arbitrary status authority. Repeating the completion after a
-    slow/double tap is idempotent; every other source status is rejected.
+    receives no arbitrary status authority. Repeating the action after a
+    slow/double tap is idempotent *against the caller's own target* -- which is
+    what keeps a technician's second tap from appending a second note. Every
+    other source status is rejected.
     """
     _require_role(
         user,
         roles.ROLE_TECHNICIAN,
         "Only a Technician or above can complete assigned work.",
     )
+    target = wo.completion_target_status(user.role if user else None)
     work_order = _get_locked(db, work_order_id)
     if (
         work_order is None
@@ -1410,19 +1419,31 @@ def complete_work_order(
         raise WorkOrderNotFoundError("Work order not found.")
     if user.id not in _assigned_technician_ids(work_order):
         raise RoleManagementError(
-            "Only a worker assigned to this work order can mark it Completed."
+            "Only a worker assigned to this work order can finish it."
         )
-    if work_order.status == wo.STATUS_COMPLETED:
+    if work_order.status == target:
         return _record_transition(work_order, previous=work_order.status)
     if work_order.status != wo.STATUS_IN_PROGRESS:
         raise WorkOrderStateError(
-            "Only an In-Progress work order can be marked Completed by its "
+            "Only an In-Progress work order can be finished by its "
             "assigned worker."
         )
 
     previous = work_order.status
-    work_order.status = wo.STATUS_COMPLETED
-    work_order.completed_at = datetime.now(timezone.utc)
+    work_order.status = target
+    if target == wo.STATUS_COMPLETED:
+        work_order.completed_at = datetime.now(timezone.utc)
+    else:
+        # A hold is not a completion, and the note is the only thing that
+        # tells a supervisor reading the log that this one is finished work
+        # awaiting review rather than an ordinary mid-job pause.
+        work_order.completed_at = None
+        work_order.notes = wo.append_note_log(
+            work_order.notes,
+            wo.REVIEW_HOLD_NOTE,
+            author_name=user.full_name if user is not None else "System",
+            occurred_at=datetime.now(timezone.utc),
+        )
     db.commit()
     db.refresh(work_order)
     return _record_transition(work_order, previous=previous)
@@ -1777,13 +1798,37 @@ def _get_labor_entry(
     return entry
 
 
-def _require_labor_actor(user: Optional[User]) -> None:
-    """Labor management belongs to Supervisor+ for every technician row."""
+def _require_labor_manager(user: Optional[User]) -> None:
+    """Revising or removing labor belongs to Supervisor+, on any row.
+
+    Add-only for technicians is what keeps the billed figure trustworthy:
+    hours can be corrected by a supervisor, but never quietly rewritten or
+    erased by the person they are attributed to.
+    """
     _require_role(
         user,
         roles.ROLE_SUPERVISOR,
-        "Only a Supervisor, Admin, or Owner can manage work order labor.",
+        "Only a Supervisor, Admin, or Owner can revise or remove work order "
+        "labor.",
     )
+
+
+def _require_labor_author(
+    user: Optional[User], technician_id: uuid.UUID
+) -> None:
+    """Recording labor is Supervisor+ for anyone, or a Technician for self.
+
+    A technician logs the hours they just worked, the same way they log the
+    materials they just used. This is strictly narrower than the Supervisor+
+    permission -- the caller must still be assigned to the work order, which
+    `add_work_order_labor` checks separately.
+    """
+    if user is None or roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
+        return
+    if user.id != technician_id:
+        raise RoleManagementError(
+            "A Technician can only record their own labor."
+        )
 
 
 def add_work_order_labor(
@@ -1794,7 +1839,10 @@ def add_work_order_labor(
     technician_id: uuid.UUID,
     minutes: int,
 ) -> WorkOrderLabor:
-    """Record actual labor for one assigned technician (Supervisor+).
+    """Record actual labor for one assigned technician.
+
+    Supervisor+ may record any assigned worker; a Technician may record only
+    themselves (`_require_labor_author`).
 
     The duration is stored without rounding. Billing is derived from the sum of
     every entry on the work order, rounded upward once to the next 30 minutes.
@@ -1803,7 +1851,7 @@ def add_work_order_labor(
     """
     work_order = _get_visible(db, work_order_id, user)
     wo.validate_labor_minutes(minutes)
-    _require_labor_actor(user)
+    _require_labor_author(user, technician_id)
     if technician_id not in _assigned_technician_ids(work_order):
         raise InvalidAssigneeError(
             "Labor can only be recorded for a technician assigned to this work order."
@@ -1830,11 +1878,12 @@ def update_work_order_labor(
     user: Optional[User],
     minutes: int,
 ) -> WorkOrderLabor:
-    """Replace one labor entry's actual duration without re-rounding it."""
+    """Replace one labor entry's actual duration without re-rounding it
+    (Supervisor+, including on a technician's own entry)."""
     work_order = _get_visible(db, work_order_id, user)
     entry = _get_labor_entry(db, work_order, labor_id)
     wo.validate_labor_minutes(minutes)
-    _require_labor_actor(user)
+    _require_labor_manager(user)
     entry.minutes = minutes
     db.commit()
     return _get_labor_entry(db, work_order, entry.id)
@@ -1847,10 +1896,11 @@ def delete_work_order_labor(
     *,
     user: Optional[User],
 ) -> None:
-    """Remove one labor entry. Lifecycle status is not rolled backward."""
+    """Remove one labor entry (Supervisor+, including a technician's own).
+    Lifecycle status is not rolled backward."""
     work_order = _get_visible(db, work_order_id, user)
     entry = _get_labor_entry(db, work_order, labor_id)
-    _require_labor_actor(user)
+    _require_labor_manager(user)
     db.delete(entry)
     db.commit()
 

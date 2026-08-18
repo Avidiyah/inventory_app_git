@@ -128,6 +128,15 @@ def _notify_work_order_patch(
     / resume endpoints each reject a Completed row, so the reopen rule has
     no other trigger site.
 
+    **The On-Hold arm goes first, and that ordering is a decision.**
+    ``completed -> on_hold`` is both "leaves Completed" and "entered
+    On-Hold", and the reopen audience already contains the routed
+    supervisor -- evaluating both would buzz them twice for one edit. It
+    resolves as a hold: the row is paused, not handed back to the crew, and
+    telling the assignees their finished job is "no longer Completed"
+    invites work that is not yet available to them. Pinned by
+    ``test_completed_to_on_hold_is_a_hold_not_a_reopen``.
+
     **Review is excluded from the reopen rule.** It is technically a move
     out of Completed, but it is the forward handoff rather than work
     coming back -- the assignees have nothing to do about it, and telling
@@ -154,7 +163,15 @@ def _notify_work_order_patch(
     if previous is None or previous == work_order.status:
         return
 
-    if work_order.status == wo.STATUS_COMPLETED:
+    if work_order.status == wo.STATUS_ON_HOLD:
+        _notify(
+            notifications_service.notify_work_order_held,
+            db,
+            background,
+            work_order=work_order,
+            actor_id=actor_id,
+        )
+    elif work_order.status == wo.STATUS_COMPLETED:
         _notify(
             notifications_service.notify_work_order_completed,
             db,
@@ -699,10 +716,14 @@ def complete_work_order(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Complete an In-Progress work order as one of its assigned workers.
+    """Finish an In-Progress work order as one of its assigned workers.
 
     This is the final assigned-worker walkthrough step. It grants no general
     status editing and cannot send the work order to Review.
+
+    Where it lands depends on the caller's role
+    (`domain.work_orders.completion_target_status`): Supervisor+ reaches
+    Completed, a Technician parks the row On-Hold with a review note.
     """
     try:
         work_order = wo_service.complete_work_order(
@@ -710,14 +731,18 @@ def complete_work_order(
         )
         _emit_status_changed(work_order.id)
         # Guarded on a real transition: this endpoint is idempotent, so a
-        # slow double tap returns the same Completed row twice and would
-        # otherwise notify every Admin twice for one completion. No recorded
-        # prior status means the row did not come from a write that tracks
-        # one, which is not evidence that anything moved.
+        # slow double tap returns the same row twice and would otherwise
+        # fire a second time for one event. No recorded prior status means
+        # the row did not come from a write that tracks one, which is not
+        # evidence that anything moved.
         previous = wo_service.previous_status(work_order)
         if previous is not None and previous != work_order.status:
+            # Chosen from the row rather than from the role, so the
+            # notification can never disagree with what was written.
             _notify(
-                notifications_service.notify_work_order_completed,
+                notifications_service.notify_work_order_held_for_review
+                if work_order.status == wo.STATUS_ON_HOLD
+                else notifications_service.notify_work_order_completed,
                 db,
                 background,
                 work_order=work_order,
@@ -734,13 +759,27 @@ def complete_work_order(
 @router.post("/{work_order_id}/hold", response_model=WorkOrderDetail)
 def hold_work_order(
     work_order_id: uuid.UUID,
+    background: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Place In-Progress work On-Hold as one of its assigned workers."""
+    """Place In-Progress work On-Hold as one of its assigned workers.
+
+    Alerts the routed supervisor -- a paused job is otherwise invisible
+    until someone opens the card.
+    """
     try:
         work_order = wo_service.hold_work_order(db, work_order_id, user=user)
         _emit_status_changed(work_order.id)
+        previous = wo_service.previous_status(work_order)
+        if previous is not None and previous != work_order.status:
+            _notify(
+                notifications_service.notify_work_order_held,
+                db,
+                background,
+                work_order=work_order,
+                actor_id=user.id,
+            )
         return _detail(
             wo_service.get_work_order(db, work_order.id, user=user),
             include_price=_can_see_price(user),

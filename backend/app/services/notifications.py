@@ -175,6 +175,74 @@ def notify_work_order_returned_from_review(
     )
 
 
+def _hold_recipients(
+    db: Session,
+    work_order: WorkOrder,
+    actor_id: Optional[uuid.UUID],
+) -> list[uuid.UUID]:
+    """Who hears that a work order stopped, for either hold event.
+
+    The Admin query runs only when the work order is unrouted -- a routed
+    one never consults the fallback, and every hold would otherwise pay for
+    a query whose result is discarded.
+    """
+    supervisor_id = work_order.supervisor_id
+    admin_ids = (
+        []
+        if supervisor_id is not None
+        else push_service.user_ids_for_min_role(
+            db, policy.UNROUTED_HOLD_AUDIENCE_MIN_ROLE
+        )
+    )
+    return policy.recipients_for_hold(
+        supervisor_id=supervisor_id,
+        admin_ids=admin_ids,
+        actor_id=actor_id,
+    )
+
+
+def notify_work_order_held(
+    db: Session,
+    background: BackgroundTasks,
+    *,
+    work_order: WorkOrder,
+    actor_id: Optional[uuid.UUID],
+) -> None:
+    """A work order was paused, from any of the three routes into On-Hold.
+
+    Says only that the work stopped. The finished-and-waiting case is
+    `notify_work_order_held_for_review`, and the difference is the whole
+    reason they are two functions.
+    """
+    _dispatch(
+        background,
+        policy.EVENT_WORK_ORDER_HELD,
+        work_order,
+        _hold_recipients(db, work_order, actor_id),
+    )
+
+
+def notify_work_order_held_for_review(
+    db: Session,
+    background: BackgroundTasks,
+    *,
+    work_order: WorkOrder,
+    actor_id: Optional[uuid.UUID],
+) -> None:
+    """A technician finished the work; it is parked awaiting review.
+
+    Same audience as an ordinary hold and deliberately a separate event:
+    the supervisor's next move is a review task rather than a scheduling
+    problem, and that difference has to survive to a lock screen.
+    """
+    _dispatch(
+        background,
+        policy.EVENT_WORK_ORDER_HELD_FOR_REVIEW,
+        work_order,
+        _hold_recipients(db, work_order, actor_id),
+    )
+
+
 def notify_work_order_reopened(
     db: Session,
     background: BackgroundTasks,

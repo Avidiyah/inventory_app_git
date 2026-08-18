@@ -107,6 +107,35 @@ def test_first_activity_advances_only_prework_states():
     assert wo.status_after_activity(wo.STATUS_REVIEW) == wo.STATUS_REVIEW
 
 
+def test_a_technicians_completion_lands_on_hold():
+    """A Technician may finish work but may not declare it Completed --
+    Completed is the billing state the Admin review queue reads."""
+    assert (
+        wo.completion_target_status(roles.ROLE_TECHNICIAN) == wo.STATUS_ON_HOLD
+    )
+
+
+def test_supervisor_and_above_still_complete():
+    for role in (
+        roles.ROLE_SUPERVISOR,
+        roles.ROLE_TECHFM_OA,
+        roles.ROLE_ADMIN,
+        roles.ROLE_OWNER,
+    ):
+        assert wo.completion_target_status(role) == wo.STATUS_COMPLETED
+
+
+def test_an_internal_caller_completes():
+    """`None` is the no-role internal caller every other rule here honours."""
+    assert wo.completion_target_status(None) == wo.STATUS_COMPLETED
+
+
+def test_an_unknown_role_cannot_complete():
+    """`roles.rank` puts a corrupt value below Technician, so the safe
+    destination is the one that bills nobody."""
+    assert wo.completion_target_status("intern") == wo.STATUS_ON_HOLD
+
+
 def test_note_log_appends_central_timestamp_date_and_author():
     occurred_at = datetime(2026, 8, 5, 19, 7, tzinfo=timezone.utc)
 

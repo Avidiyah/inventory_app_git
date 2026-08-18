@@ -244,7 +244,13 @@ def test_assigned_worker_can_complete_only_after_start(db, worker_role):
     with pytest.raises(WorkOrderStateError):
         wos.complete_work_order(db, work_order.id, user=worker)
 
+
+def test_an_assigned_supervisor_completes_directly(db):
+    manager = _seed_user(db, "admin")
+    worker = _seed_user(db, "supervisor")
+    work_order = _wo(db, created_by=manager, assigned_to=worker)
     wos.start_work_order(db, work_order.id, user=worker)
+
     completed = wos.complete_work_order(db, work_order.id, user=worker)
 
     assert completed.status == "completed"
@@ -254,6 +260,41 @@ def test_assigned_worker_can_complete_only_after_start(db, worker_role):
     repeated = wos.complete_work_order(db, work_order.id, user=worker)
     assert repeated.status == "completed"
     assert repeated.completed_at == completed_at
+
+
+def test_a_technicians_completion_parks_the_work_order_for_review(db):
+    """A Technician finishes the job but does not get to declare it
+    billable. The note is the only thing separating this hold from an
+    ordinary mid-job pause, so it is part of the contract."""
+    manager = _seed_user(db, "admin")
+    worker = _seed_user(db, "technician", first_name="Dale", last_name="Grubb")
+    work_order = _wo(db, created_by=manager, assigned_to=worker)
+    wos.start_work_order(db, work_order.id, user=worker)
+
+    held = wos.complete_work_order(db, work_order.id, user=worker)
+
+    assert held.status == "on_hold"
+    assert held.completed_at is None
+    assert wo.REVIEW_HOLD_NOTE in held.notes
+    assert "Dale Grubb" in held.notes
+
+
+def test_a_repeated_technician_completion_does_not_duplicate_the_note(db):
+    """The endpoint is idempotent by contract, so a slow double tap must
+    not write a second note -- nor, downstream, fire a second alert."""
+    manager = _seed_user(db, "admin")
+    worker = _seed_user(db, "technician")
+    work_order = _wo(db, created_by=manager, assigned_to=worker)
+    wos.start_work_order(db, work_order.id, user=worker)
+
+    first = wos.complete_work_order(db, work_order.id, user=worker)
+    notes_after_first = first.notes
+
+    repeated = wos.complete_work_order(db, work_order.id, user=worker)
+
+    assert repeated.status == "on_hold"
+    assert repeated.notes == notes_after_first
+    assert repeated.notes.count(wo.REVIEW_HOLD_NOTE) == 1
 
 
 @pytest.mark.parametrize("worker_role", ["technician", "supervisor"])
@@ -341,7 +382,12 @@ def test_unassigned_routed_supervisor_can_send_completed_work_to_review(db):
         supervisor=routed_supervisor,
     )
     wos.start_work_order(db, work_order.id, user=worker)
+    # The technician's finish parks the row for review; the routed supervisor
+    # is the one who turns that into Completed.
     wos.complete_work_order(db, work_order.id, user=worker)
+    wos.update_work_order(
+        db, work_order.id, user=routed_supervisor, fields={"status": "completed"}
+    )
 
     reviewed = wos.update_work_order(
         db, work_order.id, user=routed_supervisor, fields={"status": "review"}
@@ -363,7 +409,7 @@ def test_labor_tracks_technician_and_advances_first_activity(db):
 
     with pytest.raises(RoleManagementError):
         wos.add_work_order_labor(
-            db, w.id, user=tech1, technician_id=tech1.id, minutes=35
+            db, w.id, user=tech1, technician_id=tech2.id, minutes=35
         )
 
     first = wos.add_work_order_labor(
@@ -395,6 +441,58 @@ def test_labor_tracks_technician_and_advances_first_activity(db):
     detail = wos.get_work_order(db, w.id, user=tech2)
     assert [entry.id for entry in detail.labor_entries] == [second.id]
     assert detail.status == "in_progress"
+
+
+def test_a_technician_records_their_own_labor(db):
+    """The point of the change: a tech logs the hours they just worked
+    instead of texting them to somebody with a bigger role."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup)
+    wos.update_work_order(
+        db, w.id, user=sup, fields={"assigned_to_ids": [tech.id]}
+    )
+
+    entry = wos.add_work_order_labor(
+        db, w.id, user=tech, technician_id=tech.id, minutes=35
+    )
+
+    assert entry.technician_id == tech.id
+    assert entry.minutes == 35
+
+
+def test_a_technician_cannot_revise_or_erase_their_own_labor(db):
+    """Add-only is what keeps the billed figure trustworthy: hours can be
+    corrected by a supervisor but never quietly rewritten by the person
+    they belong to."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup)
+    wos.update_work_order(
+        db, w.id, user=sup, fields={"assigned_to_ids": [tech.id]}
+    )
+    entry = wos.add_work_order_labor(
+        db, w.id, user=tech, technician_id=tech.id, minutes=35
+    )
+
+    with pytest.raises(RoleManagementError):
+        wos.update_work_order_labor(db, w.id, entry.id, user=tech, minutes=5)
+    with pytest.raises(RoleManagementError):
+        wos.delete_work_order_labor(db, w.id, entry.id, user=tech)
+
+
+def test_a_technician_still_needs_the_assignment_to_log_their_own_labor(db):
+    """The own-row rule narrows the Supervisor+ permission; it does not
+    replace the assignment check that was already there."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    other = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=other)
+
+    with pytest.raises(WorkOrderNotFoundError):
+        wos.add_work_order_labor(
+            db, w.id, user=tech, technician_id=tech.id, minutes=30
+        )
 
 
 def test_labor_requires_current_technician_assignment(db):
@@ -1688,6 +1786,11 @@ def test_a_patch_reports_the_status_it_left(db):
     work_order = _wo(db, created_by=manager, assigned_to=worker)
     wos.start_work_order(db, work_order.id, user=worker)
     wos.complete_work_order(db, work_order.id, user=worker)
+    # A technician's finish stops at On-Hold, so Completed is reached the only
+    # way it can be now -- a supervisory PATCH.
+    wos.update_work_order(
+        db, work_order.id, user=manager, fields={"status": "completed"}
+    )
 
     reopened = wos.update_work_order(
         db, work_order.id, user=manager, fields={"status": "in_progress"}

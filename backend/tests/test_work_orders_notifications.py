@@ -74,6 +74,21 @@ def _recipients(background):
     return background.tasks[0].args[0]
 
 
+def _to_completed(db, work_order, *, worker, manager):
+    """Walk a work order to Completed the way the app does now.
+
+    A technician's finish stops at On-Hold for review, so reaching Completed
+    takes a supervisory PATCH afterwards. Written as one helper because
+    almost every rule below needs a Completed row as a *starting point*
+    rather than as the thing under test.
+    """
+    wos.start_work_order(db, work_order.id, user=worker)
+    wos.complete_work_order(db, work_order.id, user=worker)
+    return wos.update_work_order(
+        db, work_order.id, user=manager, fields={"status": "completed"}
+    )
+
+
 # --- requirement 1: assignment ------------------------------------------
 
 def test_assigning_a_technician_notifies_that_technician(db, configured):
@@ -119,8 +134,11 @@ def test_a_note_only_edit_notifies_nobody(db, configured):
 # --- requirement 2: completion ------------------------------------------
 
 def test_completing_from_the_walkthrough_notifies_admins(db, configured):
+    """A Supervisor working the job reaches Completed directly, so this is
+    still the completion event. A Technician's finish is a different event
+    entirely -- see the hold rules below."""
     admin = _seed_user(db, roles.ROLE_ADMIN)
-    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    worker = _seed_user(db, roles.ROLE_SUPERVISOR)
     work_order = _wo(db, created_by=admin, assigned_to=worker)
     wos.start_work_order(db, work_order.id, user=worker)
 
@@ -136,7 +154,7 @@ def test_completing_twice_notifies_once(db, configured):
     """The double-tap guard, at the site it protects. The second call is a
     valid, successful, idempotent request that changed nothing."""
     admin = _seed_user(db, roles.ROLE_ADMIN)
-    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    worker = _seed_user(db, roles.ROLE_SUPERVISOR)
     work_order = _wo(db, created_by=admin, assigned_to=worker)
     wos.start_work_order(db, work_order.id, user=worker)
 
@@ -147,6 +165,190 @@ def test_completing_twice_notifies_once(db, configured):
 
     assert len(first.tasks) == 1
     assert second.tasks == []
+
+
+# --- a technician's finish is a hold for review -------------------------
+
+def test_a_technicians_finish_alerts_the_routed_supervisor(db, configured):
+    """The technician cannot reach Completed, so the event their button
+    produces is a review hold addressed to whoever owns the work order."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+    wos.start_work_order(db, work_order.id, user=worker)
+
+    background = BackgroundTasks()
+    work_orders_router.complete_work_order(
+        work_order.id, background, user=worker, db=db
+    )
+
+    assert _recipients(background) == [supervisor.id]
+
+
+def test_a_technicians_finish_does_not_tell_the_admins_it_completed(db, configured):
+    """The row is On-Hold, not Completed. Firing the completion rule here
+    would put unreviewed work in front of the Admin review queue."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+    wos.start_work_order(db, work_order.id, user=worker)
+
+    background = BackgroundTasks()
+    work_orders_router.complete_work_order(
+        work_order.id, background, user=worker, db=db
+    )
+
+    assert admin.id not in _recipients(background)
+
+
+def test_a_review_hold_says_it_is_waiting_on_the_supervisor(db, configured):
+    """A supervisor must be able to tell a finished job from a paused one
+    without opening the app."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+    wos.start_work_order(db, work_order.id, user=worker)
+
+    background = BackgroundTasks()
+    work_orders_router.complete_work_order(
+        work_order.id, background, user=worker, db=db
+    )
+
+    _, title, body = background.tasks[0].args
+    assert title == "Work order ready for review"
+    assert work_order.number in body
+    assert "review" in body
+
+
+def test_a_technician_finishing_twice_alerts_once(db, configured):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+    wos.start_work_order(db, work_order.id, user=worker)
+
+    first = BackgroundTasks()
+    work_orders_router.complete_work_order(work_order.id, first, user=worker, db=db)
+    second = BackgroundTasks()
+    work_orders_router.complete_work_order(work_order.id, second, user=worker, db=db)
+
+    assert len(first.tasks) == 1
+    assert second.tasks == []
+
+
+# --- every entry into On-Hold reaches the supervisor --------------------
+
+def test_pausing_from_the_walkthrough_alerts_the_routed_supervisor(db, configured):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+    wos.start_work_order(db, work_order.id, user=worker)
+
+    background = BackgroundTasks()
+    work_orders_router.hold_work_order(
+        work_order.id, background, user=worker, db=db
+    )
+
+    assert _recipients(background) == [supervisor.id]
+
+
+def test_an_ordinary_pause_does_not_claim_the_work_is_finished(db, configured):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+    wos.start_work_order(db, work_order.id, user=worker)
+
+    background = BackgroundTasks()
+    work_orders_router.hold_work_order(
+        work_order.id, background, user=worker, db=db
+    )
+
+    _, title, _body = background.tasks[0].args
+    assert title == "Work order on hold"
+
+
+def test_pausing_twice_alerts_once(db, configured):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+    wos.start_work_order(db, work_order.id, user=worker)
+
+    first = BackgroundTasks()
+    work_orders_router.hold_work_order(work_order.id, first, user=worker, db=db)
+    second = BackgroundTasks()
+    work_orders_router.hold_work_order(work_order.id, second, user=worker, db=db)
+
+    assert len(first.tasks) == 1
+    assert second.tasks == []
+
+
+def test_a_hold_on_an_unrouted_work_order_reaches_the_admins(db, configured):
+    """Nobody owns the work order, so the alert escalates rather than
+    vanishing. Owner decision, 2026-08-18."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(db, created_by=admin, assigned_to=worker)
+    wos.start_work_order(db, work_order.id, user=worker)
+
+    background = BackgroundTasks()
+    work_orders_router.hold_work_order(
+        work_order.id, background, user=worker, db=db
+    )
+
+    assert admin.id in _recipients(background)
+
+
+def test_a_supervisor_pausing_their_own_work_order_wakes_nobody(db, configured):
+    """Routed-but-suppressed is not unrouted. A supervisor pausing their
+    own job must not escalate it to every Admin by doing so."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=supervisor, supervisor=supervisor
+    )
+    wos.start_work_order(db, work_order.id, user=supervisor)
+
+    background = BackgroundTasks()
+    work_orders_router.hold_work_order(
+        work_order.id, background, user=supervisor, db=db
+    )
+
+    assert background.tasks == []
+
+
+def test_an_admin_holding_a_work_order_by_hand_alerts_the_supervisor(db, configured):
+    """The third entry into On-Hold: a manual status edit."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+
+    background = BackgroundTasks()
+    _patch(db, background, work_order.id, user=admin, status="on_hold")
+
+    assert _recipients(background) == [supervisor.id]
 
 
 def test_completing_through_the_patch_also_notifies_admins(db, configured):
@@ -170,8 +372,7 @@ def test_reopening_notifies_the_assignees_and_the_supervisor(db, configured):
     supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
     worker = _seed_user(db, roles.ROLE_TECHNICIAN)
     work_order = _wo(db, created_by=admin, assigned_to=worker, supervisor=supervisor)
-    wos.start_work_order(db, work_order.id, user=worker)
-    wos.complete_work_order(db, work_order.id, user=worker)
+    _to_completed(db, work_order, worker=worker, manager=admin)
 
     background = BackgroundTasks()
     _patch(db, background, work_order.id, user=admin, status="in_progress")
@@ -185,14 +386,36 @@ def test_reopening_does_not_also_fire_the_completed_rule(db, configured):
     admin = _seed_user(db, roles.ROLE_ADMIN)
     worker = _seed_user(db, roles.ROLE_TECHNICIAN)
     work_order = _wo(db, created_by=admin, assigned_to=worker)
-    wos.start_work_order(db, work_order.id, user=worker)
-    wos.complete_work_order(db, work_order.id, user=worker)
+    _to_completed(db, work_order, worker=worker, manager=admin)
+
+    background = BackgroundTasks()
+    _patch(db, background, work_order.id, user=admin, status="in_progress")
+
+    assert len(background.tasks) == 1
+    assert admin.id not in background.tasks[0].args[0]
+
+
+def test_completed_to_on_hold_is_a_hold_not_a_reopen(db, configured):
+    """The one overlap the new arm creates: leaving Completed *and*
+    entering On-Hold. It resolves as a hold, so the supervisor hears once
+    instead of twice -- the reopen audience already includes them.
+
+    The assignees are deliberately not told. The row is paused, not handed
+    back, and "no longer Completed" would invite work that is not yet
+    available."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+    _to_completed(db, work_order, worker=worker, manager=admin)
 
     background = BackgroundTasks()
     _patch(db, background, work_order.id, user=admin, status="on_hold")
 
-    assert len(background.tasks) == 1
-    assert admin.id not in background.tasks[0].args[0]
+    assert _recipients(background) == [supervisor.id]
+    assert worker.id not in background.tasks[0].args[0]
 
 
 def test_sending_completed_work_to_review_notifies_nobody(db, configured):
@@ -204,8 +427,7 @@ def test_sending_completed_work_to_review_notifies_nobody(db, configured):
     supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
     worker = _seed_user(db, roles.ROLE_TECHNICIAN)
     work_order = _wo(db, created_by=admin, assigned_to=worker, supervisor=supervisor)
-    wos.start_work_order(db, work_order.id, user=worker)
-    wos.complete_work_order(db, work_order.id, user=worker)
+    _to_completed(db, work_order, worker=worker, manager=admin)
 
     background = BackgroundTasks()
     _patch(db, background, work_order.id, user=admin, status="review")
@@ -214,14 +436,18 @@ def test_sending_completed_work_to_review_notifies_nobody(db, configured):
 
 
 def test_every_other_way_out_of_completed_still_notifies(db, configured):
-    """The Review carve-out must stay a carve-out. A rollback to any live
-    status is work coming back and has to reach the people holding it."""
-    for status in ("created", "assigned", "in_progress", "on_hold"):
+    """The Review carve-out must stay a carve-out. A rollback to a live
+    working status is work coming back and has to reach the people holding
+    it.
+
+    On-Hold is excluded because it is not work coming back -- it has its own
+    rule and its own audience, pinned by
+    `test_completed_to_on_hold_is_a_hold_not_a_reopen`."""
+    for status in ("created", "assigned", "in_progress"):
         admin = _seed_user(db, roles.ROLE_ADMIN)
         worker = _seed_user(db, roles.ROLE_TECHNICIAN)
         work_order = _wo(db, created_by=admin, assigned_to=worker)
-        wos.start_work_order(db, work_order.id, user=worker)
-        wos.complete_work_order(db, work_order.id, user=worker)
+        _to_completed(db, work_order, worker=worker, manager=admin)
 
         background = BackgroundTasks()
         _patch(db, background, work_order.id, user=admin, status=status)
@@ -245,8 +471,7 @@ def test_a_status_change_that_never_touched_completed_notifies_nobody(db, config
 def _to_review(db, work_order, *, worker, reviewer):
     """Walk a work order to Review the way the app does. The handoff needs
     a second, unassigned person, so the reviewer cannot be the worker."""
-    wos.start_work_order(db, work_order.id, user=worker)
-    wos.complete_work_order(db, work_order.id, user=worker)
+    _to_completed(db, work_order, worker=worker, manager=reviewer)
     return wos.update_work_order(
         db, work_order.id, user=reviewer, fields={"status": "review"}
     )
