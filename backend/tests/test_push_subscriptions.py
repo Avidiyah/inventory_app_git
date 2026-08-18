@@ -364,6 +364,135 @@ def test_mixed_outcomes_are_counted_separately(db, monkeypatch, configured, only
     assert db.get(PushSubscription, broken) is not None
 
 
+# --- database: per-user fan-out -----------------------------------------
+
+def test_sending_to_users_reaches_only_the_named_users(
+    db, monkeypatch, configured, only_seeded_subscriptions
+):
+    """Role is irrelevant here. Two technicians hold devices and only one
+    is addressed, which is the whole point of the per-user path -- a work
+    order is assigned to people, not to a rank."""
+    addressed = _seed_user(db, roles.ROLE_TECHNICIAN)
+    bystander = _seed_user(db, roles.ROLE_TECHNICIAN)
+    wanted, unwanted = _endpoint("a"), _endpoint("b")
+    push_service.save_subscription(db, addressed.id, wanted, "k", "a")
+    push_service.save_subscription(db, bystander.id, unwanted, "k", "a")
+
+    monkeypatch.setattr(
+        push_service, "_send_one", _fake_send({wanted: push_policy.PUSH_OK})
+    )
+
+    result = push_service.send_to_users(db, [addressed.id], "t", "b")
+
+    assert result == {"sent": 1, "dropped": 0, "failed": 0}
+
+
+def test_sending_to_users_reaches_every_device_a_user_holds(
+    db, monkeypatch, configured, only_seeded_subscriptions
+):
+    """Subscriptions are keyed by device, not by account. Someone with a
+    phone and a tablet is one recipient and two sends."""
+    user = _seed_user(db, roles.ROLE_TECHNICIAN)
+    phone, tablet = _endpoint("a"), _endpoint("b")
+    for endpoint in (phone, tablet):
+        push_service.save_subscription(db, user.id, endpoint, "k", "a")
+
+    monkeypatch.setattr(
+        push_service,
+        "_send_one",
+        _fake_send({phone: push_policy.PUSH_OK, tablet: push_policy.PUSH_OK}),
+    )
+
+    assert push_service.send_to_users(db, [user.id], "t", "b")["sent"] == 2
+
+
+def test_sending_to_an_archived_user_delivers_nothing(
+    db, monkeypatch, configured, only_seeded_subscriptions
+):
+    """Same rule the role fan-out follows: an account that cannot log in
+    must not keep receiving. Naming the id explicitly must not bypass it."""
+    from datetime import datetime, timezone
+
+    user = _seed_user(db, roles.ROLE_TECHNICIAN)
+    push_service.save_subscription(db, user.id, _endpoint(), "k", "a")
+    user.archived_at = datetime.now(timezone.utc)
+    db.flush()
+
+    def explode(subscription, payload):  # pragma: no cover - must not run
+        raise AssertionError("send attempted for an archived user")
+
+    monkeypatch.setattr(push_service, "_send_one", explode)
+
+    assert push_service.send_to_users(db, [user.id], "t", "b") == {
+        "sent": 0,
+        "dropped": 0,
+        "failed": 0,
+    }
+
+
+def test_sending_to_nobody_is_not_a_query(
+    db, monkeypatch, configured, only_seeded_subscriptions
+):
+    """An event with no recipients after actor suppression is ordinary,
+    not exceptional, and must not degenerate into `WHERE user_id IN ()`."""
+    def explode(subscription, payload):  # pragma: no cover - must not run
+        raise AssertionError("send attempted with no recipients")
+
+    monkeypatch.setattr(push_service, "_send_one", explode)
+
+    assert push_service.send_to_users(db, [], "t", "b") == {
+        "sent": 0,
+        "dropped": 0,
+        "failed": 0,
+    }
+
+
+def test_sending_to_users_still_deletes_a_dead_subscription(
+    db, monkeypatch, configured, only_seeded_subscriptions
+):
+    """The delete-on-404/410 rule belongs to the fan-out, not to one entry
+    point into it. A second caller that forgot it would leak dead rows."""
+    user = _seed_user(db, roles.ROLE_TECHNICIAN)
+    endpoint = _endpoint()
+    push_service.save_subscription(db, user.id, endpoint, "k", "a")
+
+    monkeypatch.setattr(
+        push_service,
+        "_send_one",
+        _fake_send({endpoint: push_policy.PUSH_DROP_SUBSCRIPTION}),
+    )
+
+    assert push_service.send_to_users(db, [user.id], "t", "b")["dropped"] == 1
+    assert db.get(PushSubscription, endpoint) is None
+
+
+def test_sending_to_users_refuses_a_disallowed_endpoint(
+    db, monkeypatch, configured, only_seeded_subscriptions
+):
+    """The SSRF guard is re-checked on every send, so it must hold on this
+    path too -- it is the newer of the two and the easier one to forget."""
+    user = _seed_user(db, roles.ROLE_TECHNICIAN)
+    db.add(
+        PushSubscription(
+            endpoint="https://internal.example.com/hook",
+            user_id=user.id,
+            p256dh="k",
+            auth="a",
+        )
+    )
+    db.flush()
+
+    def explode(subscription, payload):  # pragma: no cover - must not run
+        raise AssertionError("send attempted for a disallowed endpoint")
+
+    monkeypatch.setattr(push_service, "_send_one", explode)
+
+    result = push_service.send_to_users(db, [user.id], "t", "b")
+
+    assert result["failed"] == 1
+    assert result["sent"] == 0
+
+
 # --- configuration ------------------------------------------------------
 
 def test_push_is_disabled_without_a_private_key(monkeypatch):

@@ -162,24 +162,57 @@ def _send_one(subscription: PushSubscription, payload: str) -> str:
         return push_policy.PUSH_RETRY
 
 
-def send_to_min_role(db: Session, minimum: str, title: str, body: str) -> dict:
-    """Fan one notification out to every subscriber at or above `minimum`.
+def subscriptions_for_users(db: Session, user_ids) -> list[PushSubscription]:
+    """Every subscription belonging to any of `user_ids`.
 
+    Returns every *device* those users hold, not one row per user -- a
+    person with a phone and a tablet is one recipient and two sends.
+
+    Archived users are excluded here rather than by the caller, matching
+    `subscriptions_for_min_role`. An account that cannot log in must not
+    keep receiving, and naming its id explicitly is not a reason to
+    bypass that.
+
+    An empty `user_ids` short-circuits: an event whose recipient list
+    emptied out (everyone involved was the actor) is ordinary, and
+    `WHERE user_id IN ()` is not a query worth issuing.
+    """
+    ids = list(user_ids)
+    if not ids:
+        return []
+    return (
+        db.query(PushSubscription)
+        .join(User, User.id == PushSubscription.user_id)
+        .filter(PushSubscription.user_id.in_(ids))
+        .filter(User.archived_at.is_(None))
+        .all()
+    )
+
+
+def _fan_out(db: Session, subscriptions, title: str, body: str) -> dict:
+    """Deliver one message to a resolved set of devices.
+
+    The single send-and-classify body, shared by every entry point.
     Returns `{"sent", "dropped", "failed"}`. Subscriptions the push
     service reports as dead (404/410) are deleted here -- that is the one
     status class where deletion is correct, and `classify_push_response`
     is the only thing that decides it.
 
+    This is deliberately the *only* place that decides what a delivery
+    outcome implies. A second copy of the loop is how a caller ends up
+    deleting on a 401 and emptying the table; the audience query is the
+    part that varies between callers, and it is the only part that does.
+
     Sends are sequential. With a crew-sized audience that is a handful of
-    requests inside one HTTP handler; it would need a queue before this
-    grew to hundreds of devices.
+    requests; it would need a queue before this grew to hundreds of
+    devices.
     """
     payload = json.dumps({"title": title, "body": body})
 
     sent = dropped = failed = 0
     dead: list[str] = []
 
-    for subscription in subscriptions_for_min_role(db, minimum):
+    for subscription in subscriptions:
         # Re-checked on every send, not merely at registration: the
         # allowlist is what keeps a stored endpoint from becoming an SSRF
         # primitive pointed at the hosting provider's network.
@@ -210,3 +243,26 @@ def send_to_min_role(db: Session, minimum: str, title: str, body: str) -> dict:
         db.commit()
 
     return {"sent": sent, "dropped": dropped, "failed": failed}
+
+
+def send_to_min_role(db: Session, minimum: str, title: str, body: str) -> dict:
+    """Fan one notification out to every subscriber at or above `minimum`.
+
+    The audience-by-rank entry point: used for `POST /push/test` and for
+    events whose recipients are a role rather than named people, such as
+    "an Admin should know this work order was completed".
+    """
+    return _fan_out(db, subscriptions_for_min_role(db, minimum), title, body)
+
+
+def send_to_users(db: Session, user_ids, title: str, body: str) -> dict:
+    """Fan one notification out to the devices of specific people.
+
+    The per-user entry point: work orders are assigned to people, not to
+    a rank, so requirements phrased as "notify the assignees" cannot be
+    served by `send_to_min_role` at any floor.
+
+    Both entry points share `_fan_out`, so the delete-on-404/410 rule and
+    the endpoint allowlist re-check apply identically here.
+    """
+    return _fan_out(db, subscriptions_for_users(db, user_ids), title, body)
