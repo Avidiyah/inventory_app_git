@@ -20,6 +20,7 @@ state and the router turns it into a clear message.
 import json
 import logging
 import os
+import uuid
 
 from sqlalchemy.orm import Session
 
@@ -83,6 +84,28 @@ def subscriptions_for_min_role(db: Session, minimum: str) -> list[PushSubscripti
         .filter(User.archived_at.is_(None))
         .all()
     )
+
+
+def user_ids_for_min_role(db: Session, minimum: str) -> list[uuid.UUID]:
+    """Active users at or above `minimum`, by id.
+
+    `send_to_min_role` addresses devices directly and never learns whose
+    they are, which is fine for a broadcast and useless for a rule that
+    has to exclude somebody. Notification rules suppress the acting user,
+    so they resolve the audience to people here and then address them
+    with `send_to_users`.
+
+    Only the role expansion is shared with the device query -- deriving
+    it twice is how a role inserted into the hierarchy later ends up in
+    one audience and not the other.
+    """
+    rows = (
+        db.query(User.id)
+        .filter(User.role.in_(_recipient_roles(minimum)))
+        .filter(User.archived_at.is_(None))
+        .all()
+    )
+    return [row[0] for row in rows]
 
 
 def save_subscription(
