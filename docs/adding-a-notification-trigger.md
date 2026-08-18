@@ -237,9 +237,11 @@ buzzing every technician's phone. They look redundant and are not.
 | Event | Trigger site | Recipients |
 | --- | --- | --- |
 | Assigned to you | `update_work_order` (PATCH) | technicians **newly** added by that write |
-| Marked Completed | `complete_work_order`, and PATCH to `completed` | Admin and above |
+| Marked Completed | `complete_work_order` for a Supervisor+ caller, and PATCH to `completed` | Admin and above |
 | Reopened from Completed | `update_work_order` (PATCH) | assigned technicians + the routed supervisor |
 | Returned from Review | `update_work_order` (PATCH), `review → in_progress` | assigned technicians + the routed supervisor |
+| Placed On-Hold | `hold_work_order`, and PATCH to `on_hold` | the routed supervisor — or Admin+ if unrouted |
+| Held for review | `complete_work_order` for a **Technician** caller | the routed supervisor — or Admin+ if unrouted |
 
 Every one of them suppresses the acting user.
 
@@ -263,8 +265,24 @@ Two things about that table that are not obvious:
   actually needs from the lock screen.
 - **Branch order decides overlapping transitions.** `review → completed` is
   both "leaves Review" and "is now Completed"; it is evaluated as a completion
-  because the completion arm comes first. If you add a rule whose transition can
-  overlap an existing one, add a test that pins which one wins.
+  because the completion arm comes first. `completed → on_hold` is both "leaves
+  Completed" and "entered On-Hold"; the On-Hold arm sorts ahead of everything,
+  so it is a hold. That one is not a style choice — the reopen audience already
+  contains the routed supervisor, so evaluating both would buzz one person twice
+  for one edit. If you add a rule whose transition can overlap an existing one,
+  add a test that pins which one wins.
+- **The same endpoint can raise different events.** `complete_work_order` fires
+  *Marked Completed* or *Held for review* depending on where the row landed,
+  which is a function of the caller's role
+  (`domain.work_orders.completion_target_status`). The router chooses from the
+  **resulting status**, never from the role — reading the role twice is how the
+  notification and the database start disagreeing.
+- **An audience of one can still need a fallback.** The two hold events address
+  the routed supervisor, and an unrouted work order would otherwise alert
+  nobody at all. They fall back to `UNROUTED_HOLD_AUDIENCE_MIN_ROLE`. Note the
+  rule branches on *who is routed*, not on how many recipients survived
+  suppression: a supervisor pausing their own job must not escalate it to every
+  Admin by taking it.
 
 ## Traps
 

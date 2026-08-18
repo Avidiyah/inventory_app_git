@@ -190,14 +190,28 @@ than one or the other.
 
 ### Audience
 
-`work_order.supervisor_id` and nobody else — the literal "Supervisors assigned
-to the work order only". Actor-suppressed like every other rule, so a
-Supervisor who holds a job themselves stays silent.
+`work_order.supervisor_id` when the work order is routed. When it is **not**
+routed (`supervisor_id IS NULL`), the alert goes to **Admin and above** instead,
+so a stopped job is never silent. Owner decision, 2026-08-18.
 
-**Accepted consequence:** an unrouted work order (`supervisor_id IS NULL`)
-notifies no one. `select_recipients` drops `None` and `_schedule` returns early
-on an empty list, so this costs one list comprehension and no task. Owner
-decision, 2026-08-18, chosen over a Supervisor-wide fallback.
+Actor-suppressed like every other rule, so whoever caused the hold stays silent.
+
+**Routed-but-suppressed is not unrouted.** If the routed supervisor is also the
+actor, the audience is empty and nothing is sent — it does *not* fall through to
+the Admins. The fallback answers "nobody owns this work order", not "the
+computed audience came out empty". A supervisor who holds their own job does not
+escalate it to every Admin by doing so. This distinction is pinned by its own
+test.
+
+The fallback floor is a named constant beside the existing one:
+
+```python
+UNROUTED_HOLD_AUDIENCE_MIN_ROLE = roles.ROLE_ADMIN
+```
+
+It mirrors `COMPLETED_AUDIENCE_MIN_ROLE` deliberately — both are the "nobody is
+assigned to being told this" audience — and stays a separate constant so the two
+can diverge without one silently dragging the other.
 
 ### Two events, not one
 

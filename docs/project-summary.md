@@ -72,7 +72,7 @@ Last reconciled: 2026-08-16 against `main` at `4a211fb`. The backend declares
 **79 router operations** across 11 routers (78 HTTP + the `/ws` WebSocket), plus
 3 app-level routes in `main.py` (`/`, `/healthz`, `/db-test`) for **82 total**.
 Alembic head is **`0c1d2e3f4a5b`** (32 revisions) and the suite collects
-**974 tests**.
+**1135 tests** (2026-08-18).
 
 Older documents are historical if they use `73bdc95`, `19e661c`, `0566a64`, or
 `Sane Roles` as the baseline, or if they quote any of these superseded figures:
@@ -81,6 +81,7 @@ Older documents are historical if they use `73bdc95`, `19e661c`, `0566a64`, or
 |---|---|
 | 72 operations, head `faa2c4e6b8d0`, 478 tests | 2026-08-06 |
 | 69 operations / 9 routers, head `fbc4e6a8d0f2` (31 revisions), 659 tests | 2026-08-10 (`f0e3b3c`) |
+| 974 tests | 2026-08-16 (`4a211fb`) |
 
 IMP-001 through IMP-003 and IMP-005 through IMP-033 are implemented.
 IMP-004 (the Mass Stage redesign) is the only open requested improvement and
@@ -172,7 +173,7 @@ Capabilities added after the improvement batch include:
 
 ## Verification baseline
 
-- Backend suite as of 2026-08-16: **974 tests collected**
+- Backend suite as of 2026-08-18: **1135 tests collected**
   (`backend\venv\Scripts\python.exe -m pytest --collect-only -q`). Collection
   needs no database. The authoritative **pass** count comes from CI, which runs
   the suite against its own Postgres service — a local run additionally needs a
@@ -181,7 +182,9 @@ Capabilities added after the improvement batch include:
   Technician/Supervisor Work Orders short-count recount creation, Technician
   scan-removal boundaries, automatic request resolution,
   missing-price/link deduplication and completion, request-queue management,
-  assigned-worker start/completion walkthrough and two-person Review handoff,
+  assigned-worker start/finish/hold/resume walkthrough (a Technician's finish
+  lands On-Hold for review) and two-person Review handoff, technician-own labor,
+  the work-order push-notification triggers,
   the NetFacilities enrichment stack, the real-time invalidation layer, and the
   rate-limit (B3) and list-ceiling (X3) suites.
 - All frontend JavaScript modules pass `node --check`; Python compilation is clean.
