@@ -40,10 +40,24 @@ router = APIRouter(prefix="/push", tags=["push"])
 
 logger = logging.getLogger(__name__)
 
+# Who is *offered* the opt-in button. The `/push/subscribe` route itself
+# is not role-gated -- holding a subscription grants no authority -- so
+# this is the product decision about who is asked, mirrored in
+# `static/views/push.js`. Technician, because assignment and reopen
+# notifications are addressed to technicians by id: a technician who is
+# never offered the button can never be reached by them.
+SUBSCRIBE_MIN_ROLE = roles.ROLE_TECHNICIAN
+
 # Who receives a test push. Admin and above, so the Owner triggering the
 # fan-out is also in the audience and can prove the loop on one device
 # without a second person present.
-NOTIFY_MIN_ROLE = roles.ROLE_ADMIN
+#
+# Deliberately *not* the same constant as the floor above, though the two
+# were one until technicians became eligible. `/push/test` fans out to
+# everyone at or above this rank; pointing it at the subscribe floor
+# would buzz the entire crew every time the Owner checks that push still
+# works.
+TEST_AUDIENCE_MIN_ROLE = roles.ROLE_ADMIN
 
 
 @router.get("/config", response_model=PushConfigResponse)
@@ -133,7 +147,7 @@ def send_test(
 
     result = push_service.send_to_min_role(
         db,
-        minimum=NOTIFY_MIN_ROLE,
+        minimum=TEST_AUDIENCE_MIN_ROLE,
         title="Inventory",
         body="Test notification. Push is working on this device.",
     )

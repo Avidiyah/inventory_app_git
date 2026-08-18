@@ -94,15 +94,32 @@ def test_registering_a_device_is_not_role_gated():
         assert _find_min_role(_route(name).dependant) is None
 
 
-def test_notify_audience_is_admin_and_above():
-    assert push_router.NOTIFY_MIN_ROLE == roles.ROLE_ADMIN
+def test_test_audience_is_admin_and_above():
+    """The Owner's diagnostic button, and only it, uses this floor."""
+    assert push_router.TEST_AUDIENCE_MIN_ROLE == roles.ROLE_ADMIN
+
+
+def test_technicians_may_hold_a_subscription():
+    """Assignment and reopen notifications are addressed to technicians,
+    so a technician who cannot subscribe can never be reached."""
+    assert push_router.SUBSCRIBE_MIN_ROLE == roles.ROLE_TECHNICIAN
+
+
+def test_the_test_audience_is_not_the_subscribe_floor():
+    """The two must stay separate constants. Collapsing them back into
+    one is how the Owner's test button starts buzzing every technician's
+    phone -- they look redundant and are not."""
+    assert push_router.SUBSCRIBE_MIN_ROLE != push_router.TEST_AUDIENCE_MIN_ROLE
+    assert not roles.role_at_least(
+        push_router.SUBSCRIBE_MIN_ROLE, push_router.TEST_AUDIENCE_MIN_ROLE
+    )
 
 
 def test_recipient_roles_expand_upward_only():
     """Admin-and-above must include the Owner -- that is what lets the
     Owner prove the loop on one device -- and must exclude everyone
     below Admin."""
-    recipients = set(push_service._recipient_roles(roles.ROLE_ADMIN))
+    recipients = set(push_service._recipient_roles(push_router.TEST_AUDIENCE_MIN_ROLE))
 
     assert recipients == {roles.ROLE_ADMIN, roles.ROLE_OWNER}
     assert roles.ROLE_TECHFM_OA not in recipients

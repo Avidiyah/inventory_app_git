@@ -21,9 +21,12 @@ import { roleAtLeast } from "../roles.js";
 const enableBtn = document.getElementById("push-enable-btn");
 const testBtn = document.getElementById("push-test-btn");
 
-// Who may hold a subscription, mirroring NOTIFY_MIN_ROLE in
-// `routers/push.py`. The backend re-checks; this only decides visibility.
-const NOTIFY_MIN_ROLE = "admin";
+// Who is offered the opt-in button, mirroring SUBSCRIBE_MIN_ROLE in
+// `routers/push.py`. `/push/subscribe` is not role-gated on the server --
+// holding a subscription grants no authority -- so this constant is the
+// whole gate, and it is the only thing that kept technicians from
+// receiving their own assignment notifications.
+const SUBSCRIBE_MIN_ROLE = "technician";
 
 // Whether this browser can do push at all. On iOS this is false in a
 // Safari tab and true in the installed PWA, which is exactly the
@@ -135,7 +138,7 @@ function setButtonState(subscribed) {
 // whoever just logged in.
 export async function initPushForUser() {
   const role = getRole();
-  const eligible = role && roleAtLeast(role, NOTIFY_MIN_ROLE);
+  const eligible = role && roleAtLeast(role, SUBSCRIBE_MIN_ROLE);
 
   if (enableBtn) enableBtn.hidden = !eligible;
   if (testBtn) testBtn.hidden = !(role && roleAtLeast(role, "owner"));
