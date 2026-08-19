@@ -178,10 +178,6 @@ export function showPage(pageName) {
   navButtons.forEach(btn => {
     btn.classList.toggle("active", btn.dataset.page === pageName);
   });
-  navGroupToggles.forEach(toggle => {
-    const group = toggle.closest(".nav-group");
-    toggle.classList.toggle("has-active", !!group.querySelector(".nav-btn.active"));
-  });
   closeAllGroupMenus();
   activePage = pageName;
 

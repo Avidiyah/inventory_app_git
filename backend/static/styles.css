@@ -201,6 +201,13 @@ header h1 {
     align-items: center;
     gap: var(--space-2);
     white-space: nowrap;
+    /* Red underline, same brand accent as the group toggles -- but only
+       while the button sits directly in the bar. A button tucked inside a
+       compact-mode popover is stripped back to plain (see
+       `#main-nav.nav-compact .nav-group-menu .nav-btn` below): the popover
+       already reads as "menu", so a bar full of underlines inside it would
+       be noise, not a cue. */
+    box-shadow: inset 0 -2px 0 var(--color-brand);
 }
 
 /* Icons inherit the button's colour through idle / hover / active-red, so the
@@ -258,18 +265,15 @@ header h1 {
     align-items: center;
     gap: var(--space-1);
     white-space: nowrap;
+    /* Red underline on every group toggle, echoing the active-page pill so
+       the collapsed bar still reads as branded rather than plain gray text. */
+    box-shadow: inset 0 -2px 0 var(--color-brand);
 }
 
 .nav-group-toggle:hover,
 .nav-group-toggle[aria-expanded="true"] {
     background-color: #2A2A2A;
     color: var(--color-white);
-}
-
-/* Orientation cue: this group contains the active page, drawn as a red
-   underline so it reads at a glance even while the menu is collapsed. */
-.nav-group-toggle.has-active {
-    box-shadow: inset 0 -2px 0 var(--color-brand);
 }
 
 .nav-caret {
@@ -323,6 +327,7 @@ header h1 {
 #main-nav.nav-compact .nav-group-menu .nav-btn {
     width: 100%;
     justify-content: flex-start;
+    box-shadow: none;
 }
 
 main {
