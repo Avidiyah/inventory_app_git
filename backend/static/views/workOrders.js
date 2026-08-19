@@ -647,6 +647,7 @@ function detailsEditorHtml(detail) {
       editField("schedule-date", "Schedule date", detail.schedule_date) +
       editField("output-to", "Output to", detail.output_to) +
       editField("vendor", "Vendor contact", detail.vendor_assignee) +
+      editField("priority", "Priority", detail.priority) +
       `<label class="wo-edit-field wo-edit-wide">
          <span>Symptom / task</span>
          <textarea class="wo-edit-description" rows="2">${escapeHtml(detail.description || "")}</textarea>
@@ -1304,6 +1305,7 @@ listEl.addEventListener("click", async (event) => {
         output_to: value(".wo-edit-output-to"),
         vendor_assignee: value(".wo-edit-vendor"),
         description: value(".wo-edit-description"),
+        priority: value(".wo-edit-priority"),
         supervisor_id: body.querySelector(".wo-edit-supervisor")?.value || null,
         expected_supervisor_id:
           body.querySelector(".wo-edit")?.dataset.originalSupervisorId || null,

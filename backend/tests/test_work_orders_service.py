@@ -1060,10 +1060,12 @@ def test_work_order_update_role_matrix_separates_metadata_and_operations(db):
             "output_to": "Facilities",
             "vendor_assignee": "Vendor Contact",
             "description": "Leaking sink",
+            "priority": "Emergency",
         },
     )
     assert metadata.location == "Commons 101"
     assert metadata.description == "Leaking sink"
+    assert metadata.priority == "Emergency"
 
     operational = wos.update_work_order(
         db,
@@ -1492,6 +1494,33 @@ def test_filter_options_are_distinct_and_server_scoped(db):
     assert [option["value"] for option in options["communities"]] == list(
         wo.ALL_COMMUNITY_FILTERS
     )
+
+
+def test_edited_priority_case_variant_does_not_duplicate_the_filter_option(db):
+    # A manual priority edit must fold into the same casefold bucket the
+    # dedup in get_work_order_filter_options already uses for imported/scraped
+    # values -- typing "normal" must not add a second dropdown entry next to
+    # an existing "Normal".
+    admin = _seed_user(db, "admin")
+    tech = _seed_user(db, "technician")
+    existing = wos.get_or_create_work_order(
+        db,
+        number=f"WO-PRIO-{uuid.uuid4().hex[:8]}",
+        created_by_id=admin.id,
+        assigned_to_id=tech.id,
+    )
+    wos.update_work_order(db, existing.id, user=admin, fields={"priority": "Normal"})
+
+    edited = wos.get_or_create_work_order(
+        db,
+        number=f"WO-PRIO-{uuid.uuid4().hex[:8]}",
+        created_by_id=admin.id,
+        assigned_to_id=tech.id,
+    )
+    wos.update_work_order(db, edited.id, user=admin, fields={"priority": "normal"})
+
+    options = wos.get_work_order_filter_options(db, user=tech)
+    assert options["priorities"] == ["Normal"]
 
 
 # --- priority filter -----------------------------------------------------

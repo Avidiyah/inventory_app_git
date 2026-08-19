@@ -1,9 +1,8 @@
-"""Priority is response-visible but not part of generic edits or CSV contracts."""
+"""Priority is response-visible and editable like the other imported metadata
+fields (TechFM OA+, subject to being overwritten by a later NetFacilities
+re-enrichment) -- not part of the CSV import contract itself."""
 
 from pathlib import Path
-
-import pytest
-from pydantic import ValidationError
 
 from app.domain import work_orders as wo
 from app.models import WorkOrder
@@ -19,23 +18,30 @@ def test_priority_column_and_response_field_are_nullable():
     assert fields["priority"].default is None
 
 
-def test_priority_is_not_accepted_as_a_generic_update():
-    with pytest.raises(ValidationError, match="Provide at least one field"):
-        WorkOrderUpdate.model_validate({"priority": "Emergency"})
+def test_priority_is_accepted_as_a_generic_update():
+    update = WorkOrderUpdate.model_validate({"priority": "Emergency"})
+    assert update.model_dump(exclude_unset=True) == {"priority": "Emergency"}
 
     update = WorkOrderUpdate.model_validate(
         {"description": "Manual task", "priority": "Emergency"}
     )
-    assert update.model_dump(exclude_unset=True) == {"description": "Manual task"}
+    assert update.model_dump(exclude_unset=True) == {
+        "description": "Manual task",
+        "priority": "Emergency",
+    }
+
+    # Blank means "clear it", same as the other imported metadata fields.
+    blanked = WorkOrderUpdate.model_validate({"priority": "  "})
+    assert blanked.priority is None
 
 
-def test_work_orders_ui_always_renders_read_only_priority():
+def test_work_orders_ui_renders_an_editable_priority():
     source = (
         Path(__file__).resolve().parents[1] / "static" / "views" / "workOrders.js"
     ).read_text(encoding="utf-8")
 
     assert '["Priority", detail.priority || "Not imported"]' in source
-    assert "wo-edit-priority" not in source
+    assert "wo-edit-priority" in source
 
 
 # --- the list filter -----------------------------------------------------

@@ -62,6 +62,7 @@ class WorkOrderUpdate(BaseModel):
     vendor_assignee: Optional[str] = None
     service_type: Optional[str] = None
     schedule_date: Optional[str] = None
+    priority: Optional[str] = None
     supervisor_id: Optional[UUID] = None
     # Optimistic precondition for routing changes. The browser sends the value
     # it originally rendered (including an explicit null) so a stale pickup
@@ -86,6 +87,7 @@ class WorkOrderUpdate(BaseModel):
         "vendor_assignee",
         "service_type",
         "schedule_date",
+        "priority",
     )
     @classmethod
     def _trim(cls, v):

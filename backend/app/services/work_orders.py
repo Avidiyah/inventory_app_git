@@ -82,6 +82,7 @@ _ATTR_FIELDS = (
     "vendor_assignee",
     "service_type",
     "schedule_date",
+    "priority",
 )
 
 # PATCH permission groups. Notes are the technician-level edit. Supervisor+
