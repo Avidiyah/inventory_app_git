@@ -2449,6 +2449,24 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 }
 .wo-body { padding: 0 var(--space-4) var(--space-4); }
 
+/* Card page ("solo") mode -- one work order rendered as the whole page.
+   The element is still the same details.wo-card inside #work-orders-list;
+   only its presentation changes, because every interaction on a card is
+   delegated off that list element (see static/views/workOrders.js). */
+.wo-solo-back { margin-bottom: var(--space-3); }
+.wo-card.wo-solo {
+    margin-bottom: 0;
+}
+.wo-card.wo-solo > .wo-summary {
+    /* Not collapsible here: the click handler preventDefaults, so a pointer
+       cursor and a disclosure triangle would both be promising something
+       that does not happen. */
+    cursor: default;
+    font-size: var(--fs-base);
+}
+.wo-card.wo-solo > .wo-summary::before { content: none; }
+.wo-card.wo-solo > .wo-summary > .wo-title { font-size: var(--fs-lg); }
+
 /* Work-order status pill. */
 .wo-status {
     display: inline-block;
