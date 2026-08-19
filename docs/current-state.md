@@ -132,7 +132,7 @@ Path shorthand:
 | Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, manual UI check |
 | Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
 | Tools API/domain/service (custody) | `domain/tools.py`, `domain/quantity.py` (reused), `services/tools.py`, `routers/tools.py`, `schemas/tools.py`, `models.py` | `test_tools_domain.py`, `test_tools_service.py`, `test_route_role_gates.py` |
-| Tools UI (Add Tools card + Tools page) | `static/views/tools.js`, `static/views/toolCheckout.js`, `static/views/toolReturn.js`, `static/pages/tools.html`, `static/pages/create-item.html`, `static/api.js` | manual UI check (no frontend test harness) |
+| Tools UI (Add Tool tab + Tools page) | `static/views/tools.js`, `static/views/toolCheckout.js`, `static/views/toolReturn.js`, `static/pages/tools.html`, `static/pages/create-item.html`, `static/api.js` | manual UI check (no frontend test harness) |
 | Deployment/runtime | `backend/Dockerfile`, `backend/entrypoint.sh`, `backend/alembic.ini`, `backend/app/database.py`, `render.yaml`, `requirements*.txt` | `git diff --check`; run tests if runtime deps change |
 | Frontend navigation/layout | `static/shell-head.html`, `static/shell-tail.html`, `static/pages/*.html`, `static/views/nav.js`, `static/styles.css` | manual browser check; no frontend test harness |
 | Database schema/migration | `models.py`, matching schemas/services, `backend/alembic/versions`, `database.py` | targeted DB-backed tests, then full pytest |
@@ -1861,7 +1861,21 @@ Technician sees four buttons in two groups. Each button carries an **inline SVG
 icon** using `stroke="currentColor"`, so icons inherit idle / hover / active-red
 without icon-specific rules; they are inline because A4's CSP
 (`default-src 'self'`) blocks any icon font or CDN sprite. Tap targets remain
-`--btn-h-sm` (44px). Every activation of Work Orders, Find Item, or
+`--btn-h-sm` (44px).
+
+Any role with more than 5 visible pages (Supervisor, TechFM OA, Admin, Owner)
+gets each `.nav-group` collapsed into a single toggle button with its pages in
+a popover, instead of the bar spelling out every button; Technician (4 pages)
+renders flat, exactly as before. Flat mode is pure CSS
+(`.nav-group-menu { display: contents; }`), so it costs nothing when compact
+mode doesn't apply. Every group toggle carries the same red-underline brand
+accent as a flat-mode button (`box-shadow: inset 0 -2px 0 var(--color-brand)`
+in `styles.css`), so a collapsed bar still reads as branded rather than plain
+gray text — there is no separate "this group contains the active page" cue.
+Popovers follow standard behavior: click to open, one open at a time,
+Escape/outside-click to close, and switching pages closes any open popover.
+
+Every activation of Work Orders, Find Item, or
 Mass Stage requests current server data. Work Orders and Mass Stage refresh both
 their main lists and their item/user reference lists; Find Item clears prior
 results and refreshes only its lightweight search index until the user chooses
@@ -1889,20 +1903,40 @@ Behavior:
 ### Find/Add Item
 
 Files: `views/items.js`, `views/itemEditor.js`, `views/addBarcode.js`,
-`views/notes.js`, `views/correction.js`, `pages/saved-items.html`,
-`pages/create-item.html`.
+`views/notes.js`, `views/correction.js`, `views/tools.js`, `views/scan.js`,
+`views/subnav.js`, `pages/saved-items.html`, `pages/create-item.html`.
 
 Behavior:
 
-- Add Item is TechFM OA+.
+- Add Item is TechFM OA+. Item and Tool are sub-nav tabs on one page
+  (`views/subnav.js`, same convention as Saved Items' Find/Scan), not stacked
+  cards. Each tab has its own live-scan widget (`item-scan-*` /
+  `tool-scan-*` ids) scoped to that tab's own barcode field: a match warns
+  the barcode is already in use (`onItemFound`), a miss prefills the field
+  via `mountScanner`'s `onNotFound` callback instead of making the user
+  retype it. `allowCreate: false` on both — there's no create-shortcut loop
+  from a create form. Leaving a tab (or the page) stops that tab's camera via
+  `nav.js`'s `create-item` scanner entry, which drives both `itemScanWidget`
+  and `toolScanWidget` so page-leave never leaves either running.
 - Find Item list is available to all roles.
-- Opening Find Item makes no item request, shows a plain search field without a
-  native suggestion popup, and renders no item cards. Typing alone does not
-  query or render. Search/Enter calls `/items/?q=...` across the full live
-  dataset; Load All Items calls the backward-compatible unfiltered `/items/`
-  feed. `/items/search-index` was **deleted in X3** (2026-08-10) — it had no
-  caller anywhere and returned every live name and barcode to any signed-in
-  user.
+- Opening Find Item makes no item request, shows a plain search field (with an
+  inline magnifier glyph, no native suggestion popup) and renders no item
+  cards. Typing alone does not query or render. Search/Enter calls
+  `/items/?q=...` across the full live dataset; Load All Items calls the
+  backward-compatible unfiltered `/items/` feed. `/items/search-index` was
+  **deleted in X3** (2026-08-10) — it had no caller anywhere and returned
+  every live name and barcode to any signed-in user.
+- No-rows results (opening state, a search with no matches, an empty Load
+  All) render a dedicated `#items-empty` panel instead of a single-line table
+  row — `showEmptyState`/`hideEmptyState` in `items.js` toggle it against the
+  table. The icon differs: a magnifier for "haven't searched yet" / "search
+  found nothing," a box for an empty Load All. A search that found nothing
+  still carries the item-request prompt into `#items-empty-extra`. Rows found
+  show a count (`#items-count`, "N items found") next to the table.
+  Every section heading on the page (Find Item, Scan Barcode, Notes, Edit
+  Item, Correct Count, Add Barcode to an Item) carries a matching inline
+  `.section-icon` SVG — stroke-only, `currentColor`, no icon font (CSP is
+  `default-src 'self'`).
 - Technician item table is simplified: no actions/created column, quantity and
   location near name.
 - Supervisor+ can edit notes.
@@ -2212,9 +2246,10 @@ router/service/domain/schema/model.
 
 Behavior:
 
-- Add Tool is a second card ("Add Tool") on the Add Item page, below Add
-  Item; TechFM OA+ (inherits the page's gate). Barcode + name + quantity only
-  -- no location/price/product-link.
+- Add Tool is the "Tool" sub-nav tab on the Add Item page, alongside the
+  "Item" tab (see Find/Add Item above); TechFM OA+ (inherits the page's
+  gate). Barcode + name + quantity only -- no location/price/product-link.
+  Has its own live-scan widget scoped to the tool barcode field.
 - Tools page is reached via its own nav button (any authenticated role).
   Its default sub-view is **Custody**; Inventory and Scan remain secondary
   sub-views.
