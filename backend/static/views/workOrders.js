@@ -1133,6 +1133,51 @@ async function openWorkOrderPage({ id, number = null }) {
   showSoloCard(detail);
 }
 
+// Open a card page from a work-order NUMBER -- a refreshed page, a bookmark,
+// or a pasted link, where the id is not known.
+//
+// Resolved through the ordinary list search rather than `/work-orders/lookup`:
+// lookup is Supervisor+, so a technician following a link to their own
+// assigned work order would get a 403 -- the exact person the link is usually
+// for. The list route is open to any session and already server-scoped, so it
+// answers "may this caller see it" as a side effect of answering "does it
+// exist". It partial-matches, so the exact number is chosen here.
+async function openWorkOrderPageByNumber(number) {
+  await ensureReferenceData();
+  soloActive = true;
+  soloNumber = number;
+  setSoloChrome(true);
+  if (listMessage) setMessage(listMessage, "", "");
+  listEl.innerHTML = `<p class="hint">Loading…</p>`;
+
+  let matches;
+  try {
+    matches = await apiListWorkOrders({ q: number });
+  } catch (err) {
+    renderSoloError(friendlyError(err, "Could not open this work order."));
+    return;
+  }
+
+  const match =
+    matches.find((c) => c.number === number) ||
+    matches.find((c) => c.number.toLowerCase() === number.toLowerCase());
+  if (!match) {
+    // Archived, or outside this caller's scope. `/work-orders/lookup` could
+    // tell those apart but is Supervisor+, so say the one thing that is true
+    // for every role rather than guess.
+    renderSoloError(`Work order ${number} is not available.`);
+    return;
+  }
+  await openWorkOrderPage({ id: match.id, number: match.number });
+}
+
+// Queue a card page to open the next time the Work Orders page loads. Used by
+// the post-login boot: nav.js's `showPage` triggers `loadWorkOrders`, which
+// consumes this instead of rendering the list, so the two cannot race.
+export function focusWorkOrderNumber(number) {
+  pendingSoloNumber = number;
+}
+
 // Render `detail` as the only card in the list, expanded, with a Back control
 // above it. The element is exactly what `buildCard` produces -- same tag, same
 // classes, same `data-id`, same parent -- plus a `.wo-solo` presentation
@@ -2151,3 +2196,25 @@ if (listEl) {
     true
   );
 }
+
+// Browser Back/Forward between the list and a card page. The card page is the
+// SPA's only routed URL, so this handles both directions itself.
+//
+// The active-page check reads the DOM rather than importing `getActivePage`
+// from nav.js: nav.js already imports this module, and the cycle is not worth
+// one boolean. Popstate while some other page is showing is ignored -- the
+// stale URL is harmless and `exitSolo` normalizes it on the next list render.
+window.addEventListener("popstate", () => {
+  if (!listEl) return;
+  const workOrdersPage = document.getElementById("work-orders-page");
+  if (!workOrdersPage?.classList.contains("active")) return;
+
+  const number = soloNumberFromPath();
+  if (number === null) {
+    if (!soloActive) return;
+    void loadWorkOrders();  // exits solo mode itself
+    return;
+  }
+  if (soloActive && number === soloNumber) return;
+  void openWorkOrderPageByNumber(number);
+});
