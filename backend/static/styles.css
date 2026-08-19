@@ -1414,6 +1414,13 @@ tr.archived-user {
     max-width: 400px;
 }
 
+/* Higher specificity than the flex rule above so the `hidden` attribute
+   wins -- needed now that the Add Item page's scan widgets start collapsed
+   and toggle open, unlike the always-visible Saved Items scan panel. */
+.scan-controls[hidden] {
+    display: none;
+}
+
 .scan-label {
     font-weight: var(--fw-bold);
     font-size: var(--fs-sm);
@@ -1460,7 +1467,9 @@ tr.archived-user {
    See docs/current-state.md. */
 #txn-scan-input,
 #items-scan-input,
-#tools-scan-input {
+#tools-scan-input,
+#item-scan-input,
+#tool-scan-input {
     display: none;
 }
 
