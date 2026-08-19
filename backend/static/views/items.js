@@ -55,6 +55,12 @@ const itemsSearch = document.getElementById("items-search");
 const itemsSearchBtn = document.getElementById("items-search-btn");
 const itemsLoadAllBtn = document.getElementById("items-load-all-btn");
 const itemsMessage = document.getElementById("items-message");
+const itemsCount = document.getElementById("items-count");
+const itemsEmpty = document.getElementById("items-empty");
+const itemsEmptyText = document.getElementById("items-empty-text");
+const itemsEmptyExtra = document.getElementById("items-empty-extra");
+const itemsEmptyIconSearch = document.getElementById("items-empty-icon-search");
+const itemsEmptyIconBox = document.getElementById("items-empty-icon-box");
 
 let resultMode = "none";
 let resultQuery = "";
@@ -83,10 +89,10 @@ export function loadItems() {
   resultQuery = "";
   setItems([]);
   itemsSearch.value = "";
-  itemsTable.hidden = true;
   itemsTbody.innerHTML = "";
   setResultsBusy(false);
-  setMessage(itemsMessage, "Search by name or barcode, or load all items.", "");
+  setMessage(itemsMessage, "", "");
+  showEmptyState("Search by name or barcode to get started.");
 }
 
 function setResultsBusy(busy) {
@@ -94,9 +100,39 @@ function setResultsBusy(busy) {
   itemsLoadAllBtn.disabled = busy;
 }
 
+// The results area shows exactly one of: the table (rows, "Loading…", or a
+// load error) or the empty-state panel. `extraHtml` carries the
+// "request this item" prompt on a search that found nothing.
+function showEmptyState(text, { icon = "search", extraHtml = "" } = {}) {
+  itemsEmptyText.textContent = text;
+  itemsEmptyExtra.innerHTML = extraHtml;
+  itemsEmptyIconSearch.hidden = icon !== "search";
+  itemsEmptyIconBox.hidden = icon !== "box";
+  itemsEmpty.hidden = false;
+  itemsTable.hidden = true;
+  setResultCount(0);
+}
+
+function hideEmptyState() {
+  itemsEmpty.hidden = true;
+  itemsEmptyExtra.innerHTML = "";
+}
+
+function setResultCount(count) {
+  if (!count) {
+    itemsCount.textContent = "";
+    itemsCount.hidden = true;
+    return;
+  }
+  itemsCount.textContent = `${count} item${count === 1 ? "" : "s"} found`;
+  itemsCount.hidden = false;
+}
+
 async function loadItemResults({ query = null, emptyMessage }) {
   const requestId = ++resultRequestId;
   setResultsBusy(true);
+  hideEmptyState();
+  setResultCount(0);
   itemsTable.hidden = false;
   itemsTbody.innerHTML = `<tr><td colspan="8" class="hint">Loading…</td></tr>`;
 
@@ -148,6 +184,7 @@ async function refreshDisplayedItems() {
 
 export function renderItems(emptyMessage = "No items match that search.") {
   const items = getItems();
+  hideEmptyState();
   itemsTable.hidden = false;
 
   // Items are read/write for TechFM OA and above; Supervisor may edit notes
@@ -215,18 +252,22 @@ export function renderItems(emptyMessage = "No items match that search.") {
   // Body.
   itemsTbody.innerHTML = "";
   if (items.length === 0) {
-    const row = document.createElement("tr");
+    // No rows: swap the table out for the empty-state panel entirely, so the
+    // page isn't a bare header row over one line of text.
     // Only a *search* that found nothing means "the catalogue has no such
     // item" -- an empty Load All just means an empty catalogue, and a scan
     // has its own create-item shortcut, so neither offers to file a request.
     const prompt = resultMode === "search" && resultQuery
       ? itemRequestPromptHtml({ searchedText: resultQuery, source: "find_item" })
       : "";
-    row.innerHTML =
-      `<td colspan="${columns.length}">${escapeHtml(emptyMessage)}${prompt}</td>`;
-    itemsTbody.appendChild(row);
+    showEmptyState(emptyMessage, {
+      icon: resultMode === "all" ? "box" : "search",
+      extraHtml: prompt,
+    });
     return;
   }
+
+  setResultCount(items.length);
 
   items.forEach(item => {
     const row = document.createElement("tr");
