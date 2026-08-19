@@ -263,6 +263,23 @@ h2 {
     color: var(--color-ink);
 }
 
+/* Inline glyph in front of a section heading (Find Item page). Same
+   stroke-only build as .nav-ico, two sizes up because h2 text is bigger;
+   `currentColor` means it inherits --color-ink from the heading, so no
+   icon-specific colour rule -- and no status hues here by design. */
+.section-icon {
+    width: 20px;
+    height: 20px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    vertical-align: -4px;
+    margin-right: var(--space-2);
+}
+
 /* =================== SECTION / LAYOUT =================== */
 section {
     background-color: var(--color-white);
@@ -358,6 +375,36 @@ select {
 .password-toggle-btn:focus-visible {
     outline: none;
     box-shadow: var(--focus-ring);
+}
+
+/* Search field + inline magnifier (same wrapper pattern as .password-field,
+   mirrored to the left edge). The icon is decorative -- pointer-events off so
+   a tap near it still lands in the input. */
+.search-field {
+    position: relative;
+    display: block;
+}
+
+.search-field input {
+    width: 100%;
+    /* --space-3 gutter + 18px icon + --space-2 gap. */
+    padding-left: 38px;
+}
+
+.search-field-icon {
+    position: absolute;
+    top: 50%;
+    left: var(--space-3);
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    color: var(--gray-500);
+    pointer-events: none;
 }
 
 /* Primary button = solid brand red ("go"). */
@@ -493,6 +540,55 @@ td {
 
 tr:last-child td {
     border-bottom: none;
+}
+
+/* Find Item results: row hover, gated on a real pointer so a tapped row on a
+   phone doesn't keep the highlight stuck to it. Scoped to this table -- the
+   other .stack-table users get it in their own branding pass. */
+@media (hover: hover) {
+    #items-table tbody tr:hover {
+        background-color: var(--gray-50);
+    }
+}
+
+/* Neutral "nothing to show" panel: nothing searched yet, or a search that
+   found no rows. Distinct from .error / .success, which stay red / green on
+   the page's message paragraph -- this one is quiet gray. */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-8) var(--space-4);
+    text-align: center;
+    font-size: var(--fs-sm);
+    color: var(--gray-500);
+}
+
+.empty-state-icon {
+    width: 40px;
+    height: 40px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    color: var(--gray-400);
+}
+
+/* Slot under the empty-state text (currently the "request this item"
+   prompt + its form). Left-aligned and width-capped: the panel around it is
+   centred, but a form reads wrong centred. Collapses when there's nothing in
+   it so the panel doesn't carry a stray gap. */
+#items-empty-extra {
+    width: 100%;
+    max-width: 420px;
+    text-align: left;
+}
+
+#items-empty-extra:empty {
+    display: none;
 }
 
 /* Icon-only delete (Users table). Brand red glyph. */
@@ -2706,6 +2802,13 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 
     .filter-row input,
     .filter-row select {
+        min-width: 0;
+        flex: 1 1 100%;
+    }
+
+    /* The search input is wrapped (icon-in-field), so the flex sizing above
+       lands on the wrapper, not the input. */
+    .filter-row .search-field {
         min-width: 0;
         flex: 1 1 100%;
     }
