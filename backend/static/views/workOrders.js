@@ -904,12 +904,20 @@ export async function loadWorkOrders({
     renderMoreControl(capped, cards.length);
     setMessage(listMessage, "", "");
     if (pendingFocusId) {
-      const card = listEl.querySelector(`details.wo-card[data-id="${pendingFocusId}"]`);
-      if (card) {
-        card.open = true;
-        card.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
+      const focused = cards.find((c) => c.id === pendingFocusId);
       pendingFocusId = null;
+      if (focused) {
+        // Cards are pages now. Expanding a row here would drop the user
+        // mid-list at a card they then have to scroll to -- the thing this
+        // change exists to remove. The list was fetched (and filters reset if
+        // needed) above, so this is the id/number resolution as well.
+        //
+        // Returns before the archived-number prompt below: `checkArchivedSearch`
+        // is only ever set by the number-search path, and a Mass Stage focus
+        // never sets it.
+        await openWorkOrderPage({ id: focused.id, number: focused.number });
+        return;
+      }
     }
     if (checkArchivedSearch) {
       await offerRestoreForExactArchivedSearch(filters.q, archivedLookupToken);
