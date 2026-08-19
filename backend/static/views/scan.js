@@ -44,6 +44,9 @@ import { FrameDebouncer } from "../scan/frame-debouncer.js";
  * @param {(barcode: string) => void} [opts.onAddBarcode] - offer an "Add Barcode to an existing item"
  *                                              shortcut on 404 (Admin+ only); the callback opens the
  *                                              by-name add-barcode flow for the scanned code
+ * @param {(barcode: string) => void} [opts.onNotFound] - called on a 404 lookup, alongside the
+ *                                              shortcut chooser above -- for a caller that has its own
+ *                                              use for the unmatched code (e.g. prefilling a create form)
  * @param {boolean} [opts.continuous=false]   - scan-and-go batch mode: a successful decode is
  *                                              committed via `onCommit` instead of opening a form,
  *                                              and the live camera stays running between scans.
@@ -76,6 +79,7 @@ export function mountScanner({
   allowCreate = true,
   onCreateShortcut,
   onAddBarcode,
+  onNotFound,
   liveEls,
   continuous = false,
   onCommit,
@@ -277,6 +281,7 @@ export function mountScanner({
 
   function handleUnknownBarcode(barcode) {
     setMessage(messageEl, `No ${notFoundLabel} matches that barcode.`, "error");
+    onNotFound?.(barcode);
 
     // Both shortcuts (Create Item, Add Barcode) hit TechFM OA+ backend
     // routes, so gate the whole chooser the same way. Lower roles just see

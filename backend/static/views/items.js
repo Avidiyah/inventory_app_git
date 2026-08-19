@@ -44,6 +44,7 @@ import { mountScanner } from "./scan.js";
 import { openAddBarcode, closeAddBarcode, setOnSaved as setOnAddBarcodeSaved } from "./addBarcode.js";
 import { itemRequestPromptHtml } from "./itemRequest.js";
 import { initSubNav } from "./subnav.js";
+import { toolScanWidget } from "./tools.js";
 
 const createItemBtn = document.getElementById("create-item-btn");
 const createItemMessage = document.getElementById("create-item-message");
@@ -295,6 +296,53 @@ createItemBtn.addEventListener("click", async () => {
     }
     setMessage(createItemMessage, friendlyError(err, "Could not save the item. Try again."), "error");
   }
+});
+
+// --- Add Item scanner (Item tab, create-item page) ----------------------
+//
+// Scoped to this form's own barcode field: a match warns (someone else
+// already has this code), a miss fills the field so the user doesn't
+// retype it. Distinct from `itemsScanner` below, which is the Saved
+// Items page's Find/Scan lookup aid.
+
+const itemScanToggleBtn = document.getElementById("item-scan-toggle-btn");
+const itemScanControls = document.getElementById("item-scan-controls");
+const itemScanInput = document.getElementById("item-scan-input");
+const itemScanMessage = document.getElementById("item-scan-message");
+const itemScanChooser = document.getElementById("item-scan-chooser");
+
+export const itemScanWidget = mountScanner({
+  inputEl: itemScanInput,
+  messageEl: itemScanMessage,
+  chooserEl: itemScanChooser,
+  allowCreate: false,
+  onNotFound: (barcode) => {
+    barcodeInput.value = barcode;
+    itemScanControls.hidden = true;
+  },
+  onItemFound: (item) => setMessage(itemScanMessage, `Already in use by ${item.name}.`, "error"),
+  liveEls: {
+    videoEl: document.getElementById("item-scan-video"),
+    scanBtn: document.getElementById("item-scan-scan-btn"),
+    uploadBtn: document.getElementById("item-scan-upload-btn"),
+    torchBtn: document.getElementById("item-scan-torch-btn"),
+    aimboxEl: document.getElementById("item-scan-aimbox"),
+  },
+});
+
+itemScanToggleBtn.addEventListener("click", () => {
+  const collapsing = !itemScanControls.hidden;
+  itemScanControls.hidden = collapsing;
+  if (collapsing) itemScanWidget.stopLive();
+});
+
+// Item and Tool are sub-nav tabs on the create-item page; only one camera
+// should ever be live, so leaving a tab stops that tab's scanner.
+initSubNav(document.getElementById("create-item-page"), {
+  onShow(feature, prev) {
+    if (prev === "item" && feature !== "item") itemScanWidget.stopLive();
+    if (prev === "tool" && feature !== "tool") toolScanWidget.stopLive();
+  },
 });
 
 itemsTbody.addEventListener("change", async (event) => {

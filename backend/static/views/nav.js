@@ -14,9 +14,9 @@ import { loadStages } from "./massStage.js";
 import { loadWorkOrders } from "./workOrders.js";
 import { loadAdminReview } from "./adminReview.js";
 import { loadUserRequests } from "./userRequests.js";
-import { loadTools, toolsScanner } from "./tools.js";
+import { loadTools, toolsScanner, toolScanWidget } from "./tools.js";
 import { txnScanner } from "./scan.js";
-import { itemsScanner } from "./items.js";
+import { itemsScanner, itemScanWidget } from "./items.js";
 
 const navButtons = document.querySelectorAll(".nav-btn");
 const navGroups = document.querySelectorAll(".nav-group");
@@ -29,6 +29,16 @@ const SCANNERS_BY_PAGE = {
   "transaction": txnScanner,
   "saved-items": itemsScanner,
   "tools": toolsScanner,
+  // Add Item's Item/Tool tabs each carry their own scan widget; this page
+  // entry drives both so page-leave / tab-hide never leaves either camera
+  // running. refreshPermissionState() on the hidden tab's widget is a
+  // harmless no-op (it only toggles a Scan button and message on DOM that
+  // isn't visible), so no active-tab check is needed here.
+  "create-item": {
+    stopLive: () => { itemScanWidget.stopLive(); toolScanWidget.stopLive(); },
+    reset: () => { itemScanWidget.reset(); toolScanWidget.reset(); },
+    refreshPermissionState: () => { itemScanWidget.refreshPermissionState(); toolScanWidget.refreshPermissionState(); },
+  },
 };
 
 let activePage = null;

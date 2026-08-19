@@ -71,6 +71,45 @@ createToolBtn.addEventListener("click", async () => {
   }
 });
 
+// --- Add Tool scanner (Tool tab, create-item page) ----------------------
+//
+// Same widget shape as the Saved Items / Tools-page scanners, but scoped to
+// the Tool tab's own barcode field: a match warns (someone else already
+// has this code), a miss fills the field so the user doesn't retype it.
+
+const toolScanToggleBtn = document.getElementById("tool-scan-toggle-btn");
+const toolScanControls = document.getElementById("tool-scan-controls");
+const toolScanInput = document.getElementById("tool-scan-input");
+const toolScanMessage = document.getElementById("tool-scan-message");
+const toolScanChooser = document.getElementById("tool-scan-chooser");
+
+export const toolScanWidget = mountScanner({
+  inputEl: toolScanInput,
+  messageEl: toolScanMessage,
+  chooserEl: toolScanChooser,
+  allowCreate: false,
+  lookupFn: apiGetToolByBarcode,
+  notFoundLabel: "tool",
+  onNotFound: (barcode) => {
+    toolBarcodeInput.value = barcode;
+    toolScanControls.hidden = true;
+  },
+  onItemFound: (tool) => setMessage(toolScanMessage, `Already in use by ${tool.name}.`, "error"),
+  liveEls: {
+    videoEl: document.getElementById("tool-scan-video"),
+    scanBtn: document.getElementById("tool-scan-scan-btn"),
+    uploadBtn: document.getElementById("tool-scan-upload-btn"),
+    torchBtn: document.getElementById("tool-scan-torch-btn"),
+    aimboxEl: document.getElementById("tool-scan-aimbox"),
+  },
+});
+
+toolScanToggleBtn.addEventListener("click", () => {
+  const collapsing = !toolScanControls.hidden;
+  toolScanControls.hidden = collapsing;
+  if (collapsing) toolScanWidget.stopLive();
+});
+
 // --- User-first custody state -------------------------------------------
 
 const toolsPage = document.getElementById("tools-page");

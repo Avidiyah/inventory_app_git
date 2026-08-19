@@ -1,12 +1,37 @@
     <!-- =================== CREATE ITEM PAGE =================== -->
+    <!-- Item and Tool are sub-nav tabs (views/subnav.js), one feature-panel
+         visible at a time -- same convention as Saved Items' Find/Scan. -->
     <div class="page" id="create-item-page">
 
-        <section id="create-item-section">
+        <nav class="sub-nav" aria-label="Add Item or Tool">
+            <button type="button" class="sub-nav-btn active" data-feature="item">Item</button>
+            <button type="button" class="sub-nav-btn" data-feature="tool">Tool</button>
+        </nav>
+
+        <section class="feature-panel" data-feature="item" id="create-item-section">
             <h2>Add Item</h2>
             <div class="form-stack">
                 <label for="barcode">Barcode</label>
-                <input type="text" id="barcode" placeholder="Scan or enter barcode">
+                <div class="filter-row">
+                    <input type="text" id="barcode" placeholder="Scan or enter barcode">
+                    <button type="button" id="item-scan-toggle-btn">Scan</button>
+                </div>
                 <p class="hint">Scan or type the label number.</p>
+
+                <div class="scan-controls" id="item-scan-controls" hidden>
+                    <input type="file" id="item-scan-input" accept="image/*" capture="environment">
+                    <div class="scan-viewport">
+                        <video id="item-scan-video" class="scan-video" playsinline muted autoplay></video>
+                        <div id="item-scan-aimbox" class="scan-aimbox" role="presentation" hidden></div>
+                    </div>
+                    <div class="scan-toolbar">
+                        <button id="item-scan-scan-btn" type="button">Scan Barcode</button>
+                        <button id="item-scan-upload-btn" type="button" class="secondary-btn">Upload Photo</button>
+                        <button id="item-scan-torch-btn" type="button" class="secondary-btn" hidden>Torch</button>
+                    </div>
+                    <div id="item-scan-chooser" class="scan-chooser" hidden></div>
+                    <p id="item-scan-message"></p>
+                </div>
 
                 <label for="name">Item Name</label>
                 <input type="text" id="name" placeholder="Enter item name">
@@ -29,12 +54,30 @@
             </div>
         </section>
 
-        <section id="create-tool-section">
+        <section class="feature-panel" data-feature="tool" id="create-tool-section" hidden>
             <h2>Add Tool</h2>
             <div class="form-stack">
                 <label for="tool-barcode">Barcode</label>
-                <input type="text" id="tool-barcode" placeholder="Scan or enter barcode">
+                <div class="filter-row">
+                    <input type="text" id="tool-barcode" placeholder="Scan or enter barcode">
+                    <button type="button" id="tool-scan-toggle-btn">Scan</button>
+                </div>
                 <p class="hint">Scan or type the label number.</p>
+
+                <div class="scan-controls" id="tool-scan-controls" hidden>
+                    <input type="file" id="tool-scan-input" accept="image/*" capture="environment">
+                    <div class="scan-viewport">
+                        <video id="tool-scan-video" class="scan-video" playsinline muted autoplay></video>
+                        <div id="tool-scan-aimbox" class="scan-aimbox" role="presentation" hidden></div>
+                    </div>
+                    <div class="scan-toolbar">
+                        <button id="tool-scan-scan-btn" type="button">Scan Barcode</button>
+                        <button id="tool-scan-upload-btn" type="button" class="secondary-btn">Upload Photo</button>
+                        <button id="tool-scan-torch-btn" type="button" class="secondary-btn" hidden>Torch</button>
+                    </div>
+                    <div id="tool-scan-chooser" class="scan-chooser" hidden></div>
+                    <p id="tool-scan-message"></p>
+                </div>
 
                 <label for="tool-name">Tool Name</label>
                 <input type="text" id="tool-name" placeholder="Enter tool name">
@@ -49,4 +92,3 @@
         </section>
 
     </div>
-
