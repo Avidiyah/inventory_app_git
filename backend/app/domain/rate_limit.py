@@ -15,11 +15,14 @@ a global 60/s and one of them would be served a 429 for a JavaScript
 module -- i.e. the blank page this app already has history with. Per
 caller, that interference is impossible by construction.
 
-**API routes only.** `/`, `/static/*` and `/healthz` are exempt, so no
-amount of page loading can consume the budget that exists to catch a
-runaway API client. `/healthz` is exempt for a second and separate
-reason: `render.yaml` points `healthCheckPath` at it, so a 429 there
-would fail a deploy rather than protect one.
+**API routes only.** `/`, `/static/*`, `/workorder_card/*` and `/healthz`
+are exempt, so no amount of page loading can consume the budget that
+exists to catch a runaway API client. `/workorder_card/<number>` serves
+the same shell document as `/` -- the deep link a shared work-order card
+produces -- so it carries the same exemption for the same reason.
+`/healthz` is exempt for a second and separate reason: `render.yaml`
+points `healthCheckPath` at it, so a 429 there would fail a deploy rather
+than protect one.
 
 **Enforced by rejection, never by sleeping.** The caller returns HTTP
 429 with `Retry-After`. Sleeping inside the handler would hold a
@@ -48,7 +51,7 @@ WINDOW_SECONDS = 1.0
 
 # Paths the limiter never counts. Matched as prefixes, except `/` which
 # is matched exactly -- as a prefix it would exempt the entire app.
-EXEMPT_PREFIXES = ("/static/",)
+EXEMPT_PREFIXES = ("/static/", "/workorder_card/")
 EXEMPT_EXACT = ("/", "/healthz")
 
 
