@@ -20,7 +20,16 @@ import { itemsScanner } from "./items.js";
 
 const navButtons = document.querySelectorAll(".nav-btn");
 const navGroups = document.querySelectorAll(".nav-group");
+const navGroupToggles = document.querySelectorAll(".nav-group-toggle");
+const mainNav = document.getElementById("main-nav");
 const pages = document.querySelectorAll(".page");
+
+// Above this many total visible pages, the bar switches from flat buttons to
+// per-group dropdown menus (see `applyRoleVisibility`). Technician (4 pages)
+// stays flat; Supervisor (8) and TechFM OA/Admin/Owner (11) compact. Chosen
+// so a role with only a handful of buttons never pays an extra click to
+// reach them.
+const COMPACT_NAV_THRESHOLD = 5;
 
 // Page-scoped scanners. Drives camera-lifecycle hooks below: stop on
 // page-leave / tab-hide, refresh permission state on page-enter. Add
@@ -119,7 +128,42 @@ export function applyRoleVisibility(role) {
     const buttons = group.querySelectorAll(".nav-btn");
     group.hidden = Array.from(buttons).every(btn => btn.hidden);
   });
+
+  const visiblePageCount = Object.keys(PAGE_ACCESS).filter(page => canAccessPage(role, page)).length;
+  closeAllGroupMenus();
+  mainNav.classList.toggle("nav-compact", visiblePageCount > COMPACT_NAV_THRESHOLD);
 }
+
+// Collapse every open group popover -- used on outside click/Escape, on a
+// role switch, and before opening a different group so only one is ever
+// open at a time.
+function closeAllGroupMenus() {
+  navGroupToggles.forEach(toggle => {
+    toggle.setAttribute("aria-expanded", "false");
+    const menu = toggle.nextElementSibling;
+    if (menu) menu.classList.remove("open");
+  });
+}
+
+navGroupToggles.forEach(toggle => {
+  toggle.addEventListener("click", () => {
+    const menu = toggle.nextElementSibling;
+    const wasOpen = menu && menu.classList.contains("open");
+    closeAllGroupMenus();
+    if (menu && !wasOpen) {
+      menu.classList.add("open");
+      toggle.setAttribute("aria-expanded", "true");
+    }
+  });
+});
+
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".nav-group")) closeAllGroupMenus();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeAllGroupMenus();
+});
 
 export function showPage(pageName) {
   // Camera lifecycle: stop + reset the leaving page's scanner (if any)
@@ -134,6 +178,7 @@ export function showPage(pageName) {
   navButtons.forEach(btn => {
     btn.classList.toggle("active", btn.dataset.page === pageName);
   });
+  closeAllGroupMenus();
   activePage = pageName;
 
   const entering = SCANNERS_BY_PAGE[pageName];
