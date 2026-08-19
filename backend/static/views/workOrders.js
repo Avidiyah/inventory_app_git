@@ -1005,6 +1005,13 @@ async function refreshCardSummary(cardEl) {
     detail = await apiGetWorkOrder(cardEl.dataset.id);
   } catch (err) {
     if (err?.status !== 404) return;
+    if (soloActive) {
+      // The card page's only card just left this user's view -- archived, or
+      // unassigned from them. Wiping to the list's "No work orders match."
+      // would leave a page with no card and no way back.
+      renderSoloError("This work order is no longer available.");
+      return;
+    }
     cardEl.remove();
     if (!listEl.querySelector("details.wo-card")) {
       listEl.innerHTML = `<p class="hint">No work orders match.</p>`;
@@ -1059,6 +1066,20 @@ function anyCardHeld() {
 let deferredListRefresh = false;
 
 function runOrDeferListRefresh() {
+  if (soloActive) {
+    // A list refetch would replace the card page with the list -- silently,
+    // with the card's URL still in the address bar. On a card page the only
+    // row that can matter is the one on screen, so refresh that instead. A
+    // held card defers exactly as it does in the list.
+    const cardEl = listEl.querySelector("details.wo-card");
+    if (!cardEl) return;
+    if (isHeld(cardEl)) {
+      cardEl.dataset.missedUpdate = "1";
+      return;
+    }
+    void refreshCardSummary(cardEl);
+    return;
+  }
   if (anyCardHeld()) {
     deferredListRefresh = true;
     return;
