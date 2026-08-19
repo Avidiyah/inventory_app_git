@@ -90,26 +90,46 @@
 
              `data-page` stays on the button: it is the contract `views/nav.js`
              reads. `applyRoleVisibility` hides individual buttons and then
-             hides any group left with nothing visible in it. -->
+             hides any group left with nothing visible in it.
+
+             Each group also carries a `.nav-group-toggle` + `.nav-group-menu`
+             pair for compact mode: `views/nav.js` adds `.nav-compact` to
+             `#main-nav` when a role's total visible pages exceeds the
+             threshold (Supervisor/TechFM OA/Admin/Owner), which is what makes
+             the toggle button visible and turns the menu into a popover --
+             CSS-only otherwise (`.nav-group-menu { display: contents }`), so
+             a Technician's four buttons render exactly as before. -->
         <nav id="main-nav">
             <div class="nav-group" data-nav-group="inventory">
-                <button class="nav-btn" data-page="create-item"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M12 11v6M9 14h6"/></svg>Add Item</button>
-                <button class="nav-btn" data-page="saved-items"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>Find Item</button>
-                <button class="nav-btn" data-page="tools"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 3a5 5 0 0 0-4.6 7L3 17.4 6.6 21l7.4-7.4A5 5 0 0 0 21 9l-3 3-3-3 3-3a5 5 0 0 0-3-3z"/></svg>Tools</button>
+                <button type="button" class="nav-group-toggle" aria-haspopup="true" aria-expanded="false">Inventory<svg class="nav-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
+                <div class="nav-group-menu">
+                    <button class="nav-btn" data-page="create-item"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M12 11v6M9 14h6"/></svg>Add Item</button>
+                    <button class="nav-btn" data-page="saved-items"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>Find Item</button>
+                    <button class="nav-btn" data-page="tools"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 3a5 5 0 0 0-4.6 7L3 17.4 6.6 21l7.4-7.4A5 5 0 0 0 21 9l-3 3-3-3 3-3a5 5 0 0 0-3-3z"/></svg>Tools</button>
+                </div>
             </div>
             <div class="nav-group" data-nav-group="field">
-                <button class="nav-btn" data-page="transaction"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M7 12h10"/></svg>Scan / Stock</button>
-                <button class="nav-btn" data-page="work-orders"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 4H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M9 13l2 2 4-4"/></svg>Work Orders</button>
-                <button class="nav-btn" data-page="mass-stage"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5"/><path d="M3 16.5L12 21l9-4.5"/></svg>Mass Stage</button>
+                <button type="button" class="nav-group-toggle" aria-haspopup="true" aria-expanded="false">Field<svg class="nav-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
+                <div class="nav-group-menu">
+                    <button class="nav-btn" data-page="transaction"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M7 12h10"/></svg>Scan / Stock</button>
+                    <button class="nav-btn" data-page="work-orders"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 4H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M9 13l2 2 4-4"/></svg>Work Orders</button>
+                    <button class="nav-btn" data-page="mass-stage"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5"/><path d="M3 16.5L12 21l9-4.5"/></svg>Mass Stage</button>
+                </div>
             </div>
             <div class="nav-group" data-nav-group="people">
-                <button class="nav-btn" data-page="create-user"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M18 8v6M15 11h6"/></svg>Add User</button>
-                <button class="nav-btn" data-page="saved-users"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="9" cy="8" r="3.5"/><path d="M2 20a7 7 0 0 1 14 0"/><path d="M16 5.2a3.5 3.5 0 0 1 0 5.6M18 20a7 7 0 0 0-3-5.7"/></svg>Users</button>
+                <button type="button" class="nav-group-toggle" aria-haspopup="true" aria-expanded="false">People<svg class="nav-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
+                <div class="nav-group-menu">
+                    <button class="nav-btn" data-page="create-user"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M18 8v6M15 11h6"/></svg>Add User</button>
+                    <button class="nav-btn" data-page="saved-users"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="9" cy="8" r="3.5"/><path d="M2 20a7 7 0 0 1 14 0"/><path d="M16 5.2a3.5 3.5 0 0 1 0 5.6M18 20a7 7 0 0 0-3-5.7"/></svg>Users</button>
+                </div>
             </div>
             <div class="nav-group" data-nav-group="review">
-                <button class="nav-btn" data-page="user-requests"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5 5h14l2 8v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5z"/></svg>User Requests</button>
-                <button class="nav-btn" data-page="admin-review"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>Admin Review</button>
-                <button class="nav-btn" data-page="history"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3.5 9A9 9 0 1 1 3 12"/><path d="M3 4v5h5"/><path d="M12 7.5V12l3 2"/></svg>History</button>
+                <button type="button" class="nav-group-toggle" aria-haspopup="true" aria-expanded="false">Review<svg class="nav-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
+                <div class="nav-group-menu">
+                    <button class="nav-btn" data-page="user-requests"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5 5h14l2 8v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5z"/></svg>User Requests</button>
+                    <button class="nav-btn" data-page="admin-review"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>Admin Review</button>
+                    <button class="nav-btn" data-page="history"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3.5 9A9 9 0 1 1 3 12"/><path d="M3 4v5h5"/><path d="M12 7.5V12l3 2"/></svg>History</button>
+                </div>
             </div>
         </nav>
         <div id="auth-bar">
