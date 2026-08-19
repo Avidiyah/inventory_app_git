@@ -629,6 +629,21 @@ Work orders:
 
 - A work order is a standalone entity; **identity is its `number`**, unique
   case-insensitively + trimmed.
+- **Cards are pages.** Clicking a work-order card navigates to
+  `/workorder_card/<number>` and renders that one work order as a page rather
+  than expanding it in-list: the filter and import sections hide and a Back
+  control appears above the card. The card remains a `details.wo-card` inside
+  `#work-orders-list` — moving it into another container would silently break
+  the delegated action layer (~20 click branches, the technician picker, the
+  billing editor) and the realtime subscriber's card lookup, with no error.
+  `GET /workorder_card/{number}` (`main.py`) serves the same SPA shell as `/`
+  so a refresh, bookmark, or pasted link resolves instead of 404ing. Deep links
+  resolve number→id through the server-scoped list search
+  (`apiListWorkOrders({ q })`), **not** `/work-orders/lookup`, which is
+  Supervisor+ and would 403 a technician following a link to their own assigned
+  work order. An archived and an out-of-scope number are therefore
+  indistinguishable and both report "not available". The Mass Stage hand-off
+  routes to the same card page via the existing `pendingFocusId` mechanism.
 - Work Orders list filters are server-side and joinable: status, exact normalized
   service type, routed supervisor, derived community, exact scheduled date, and
   number substring all combine with AND before the caller's normal visibility
