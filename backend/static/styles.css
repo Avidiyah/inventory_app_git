@@ -1505,8 +1505,19 @@ tr.archived-user {
     justify-content: center;
     padding: var(--space-5);
     background-color: var(--color-header);
-    background-image: url("/static/login-bg.jpg");
-    background-size: cover;
+    /* The brand crescent, centred, with the sign-in card nested inside the
+       ring. Sized off `vmin` and NOT `cover`: the mark is a square logo whose
+       centre is empty, so `cover` on any wide viewport crops away the arcs and
+       leaves what looks like a plain black screen.
+
+       `clamp` rather than a bare `min` because both ends fail otherwise. The
+       720px ceiling stops the ring ballooning past the card on a large
+       monitor. The 420px floor is for phones: the card is up to 360px wide, so
+       at 90vmin a 390px-wide handset would draw a ~350px ring almost exactly
+       behind the card and the mark would vanish. The floor keeps it wider than
+       the card, bleeding off both edges, so the arcs still read. */
+    background-image: url("/static/login-mark.png");
+    background-size: clamp(420px, 90vmin, 720px) auto;
     background-position: center;
     background-repeat: no-repeat;
 }
@@ -1519,11 +1530,13 @@ tr.archived-user {
     display: none;
 }
 
-/* Dark frosted glass: translucent over the login background image rather
-   than a flat white card, so the photo reads through instead of the card
-   sitting on top of it like a sticker. backdrop-filter blurs the busy
-   texture behind the text, which is what keeps it readable at low opacity --
-   without the blur, translucent text over the logo mark would be illegible. */
+/* Dark frosted glass: translucent over the login background rather than a
+   flat white card, so the brand crescent reads through instead of the card
+   sitting on top of it like a sticker. The card is deliberately narrower
+   than the ring behind it, so the mark frames the form rather than being
+   hidden by it. backdrop-filter still blurs what passes under the card --
+   the silver arc crosses the lower edge, and at this opacity unblurred it
+   would show through the labels. */
 #login-section {
     background-color: var(--glass-bg);
     backdrop-filter: blur(var(--glass-blur));
