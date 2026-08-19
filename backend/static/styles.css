@@ -123,11 +123,13 @@
     --shadow-panel: 0 2px 12px rgba(0, 0, 0, .40);
     /* --border is the hairline on panel surfaces; all 11 uses are cards and
        wells sitting on frost, so it moves to the translucent rule wholesale.
-       --border-input stays an opaque gray: inputs keep a white background and
-       dark text on every surface (see docs/design-system.md), so their border
-       is still being drawn against white. */
+       --border-input used to stay an opaque gray because inputs kept a white
+       background on every surface; owner decision (see docs/design-system.md)
+       moved inputs to the dark frosted treatment app-wide, so this is now the
+       translucent panel border too, drawn against --input-bg instead of white. */
     --border:       1px solid var(--panel-rule);
-    --border-input: 1px solid var(--gray-300);
+    --border-input: 1px solid var(--panel-border);
+    --input-bg:     var(--panel-well);
 
     /* Dark glass surfaces: translucent panels over a photo/dark background
        (login screen and similar full-bleed brand moments), distinct from the
@@ -487,14 +489,50 @@ label {
 }
 
 input,
-select {
-    min-height: var(--control-h);
+select,
+textarea {
     padding: 0 var(--space-3);
     border: var(--border-input);
     border-radius: var(--radius-md);
     font-size: var(--fs-base);
-    color: var(--color-ink);
-    background-color: var(--color-white);
+    font-family: inherit;
+    color: var(--text-panel);
+    background-color: var(--input-bg);
+    /* A faint inset shadow reads as a recessed well against the panel behind
+       it instead of a flat cutout; the transition makes the focus-visible
+       ring below feel like a state change, not a snap. */
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, .35);
+    transition: border-color .12s ease, box-shadow .12s ease, background-color .12s ease;
+}
+
+input::placeholder,
+textarea::placeholder {
+    color: var(--text-panel-mute);
+}
+
+/* Chromium/WebKit force a light autofill background no CSS property can
+   remove directly; this box-shadow trick paints over it with the same
+   dark fill instead of leaving a white oval on a saved login/username. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--text-panel);
+    -webkit-box-shadow: 0 0 0 1000px var(--input-bg) inset;
+    transition: background-color 5000s ease-in-out 0s;
+}
+
+input,
+select {
+    min-height: var(--control-h);
+}
+
+/* Textareas have no natural single-line height to center on, so they get
+   their own vertical padding and a sane starting height instead of
+   min-height. */
+textarea {
+    padding-top: var(--space-2);
+    padding-bottom: var(--space-2);
+    min-height: 80px;
 }
 
 /* Inline "Stay signed in for this shift" toggle on the login form: checkbox
@@ -580,7 +618,7 @@ select {
     stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
-    color: var(--gray-500);
+    color: var(--text-panel-mute);
     pointer-events: none;
 }
 
@@ -672,12 +710,15 @@ button:disabled {
 
 /* =================== FOCUS STATES =================== */
 /* Inputs: brand border + red ring. */
+/* --card-accent/--card-accent-rgb are set by .wo-card-status-* below, so an
+   input inside a work-order card picks up that card's status color instead
+   of the flat brand ring -- everywhere else falls back to brand red. */
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
     outline: none;
-    border-color: var(--color-brand);
-    box-shadow: var(--focus-ring);
+    border-color: var(--card-accent, var(--color-brand));
+    box-shadow: 0 0 0 3px rgba(var(--card-accent-rgb, 200, 16, 46), .40);
 }
 
 /* Solid-red primary buttons: a dark ring reads better than red-on-red. */
@@ -805,8 +846,8 @@ tr:last-child td {
     margin-top: 0;
     border: var(--border-input);
     border-radius: var(--radius-md);
-    background-color: var(--color-white);
-    color: var(--color-ink);
+    background-color: var(--input-bg);
+    color: var(--text-panel);
     cursor: pointer;
 }
 
@@ -2454,87 +2495,104 @@ details[open] > .community-summary::before { content: "\25BE"; }
     box-shadow: var(--shadow-card);
     margin-bottom: var(--space-2);
 }
-/* IMP-005: the whole collapsed card communicates lifecycle state. Dark states
-   use white text; Created/In-Progress use ink. Expanded detail bodies return to
-   a white reading surface so forms, item rows, and helper text retain their
-   established contrast. These classes also color the tappable Scan/Stock cards. */
+/* IMP-005: lifecycle state reads via a colored outline on the standard
+   dark-frosted card, not a solid fill -- keeps text uniformly contrasting
+   across every status and matches the rest of the app's panel treatment.
+   These classes also color the tappable Scan/Stock and Admin Review cards. */
+.wo-card-status-created,
+.wo-card-status-assigned,
+.wo-card-status-in_progress,
+.wo-card-status-on_hold,
+.wo-card-status-completed,
+.wo-card-status-review {
+    border-radius: 10px;
+    transition: transform .08s ease, box-shadow .08s ease;
+}
+/* .wo-card:hover sets a plain red border-color for generic tappable cards;
+   at equal specificity it would otherwise win here on source order and
+   paint over the status color the instant a status card is hovered or
+   clicked. Keep the status color through hover. */
+.wo-card-status-created:hover { border-color: #D1D5DB; }
+.wo-card-status-assigned:hover { border-color: #B91C1C; }
+.wo-card-status-in_progress:hover { border-color: #FACC15; }
+.wo-card-status-on_hold:hover { border-color: #C2410C; }
+.wo-card-status-completed:hover { border-color: #2563EB; }
+.wo-card-status-review:hover { border-color: #15803D; }
+/* Keycap illusion: a hard-edged "wall" shadow (no blur) reads as the key's
+   physical thickness; the soft glow beneath sells the lift off the board.
+   :active shrinks the wall and nudges the card down by the same amount, so
+   it looks pressed rather than just re-shadowed. */
 .wo-card-status-created {
-    background-color: #D1D5DB;
-    border-color: #9CA3AF;
-    color: #111827;
+    --card-accent: #D1D5DB;
+    --card-accent-rgb: 209, 213, 219;
+    background-color: rgba(0, 0, 0, .55);
+    border-color: #D1D5DB;
+    border-width: 2px;
+    box-shadow: 0 4px 0 0 #9CA3AF, 0 6px 16px -6px rgba(209, 213, 219, .45), var(--shadow-card);
+}
+.wo-card-status-created:active {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 0 #9CA3AF, 0 2px 6px -2px rgba(209, 213, 219, .35), var(--shadow-card);
 }
 .wo-card-status-assigned {
-    background-color: #B91C1C;
-    border-color: #991B1B;
-    color: var(--color-white);
+    --card-accent: #B91C1C;
+    --card-accent-rgb: 185, 28, 28;
+    background-color: rgba(0, 0, 0, .55);
+    border-color: #B91C1C;
+    border-width: 2px;
+    box-shadow: 0 4px 0 0 #991B1B, 0 6px 16px -6px rgba(185, 28, 28, .45), var(--shadow-card);
+}
+.wo-card-status-assigned:active {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 0 #991B1B, 0 2px 6px -2px rgba(185, 28, 28, .35), var(--shadow-card);
 }
 .wo-card-status-in_progress {
-    background-color: #FACC15;
-    border-color: #CA8A04;
-    color: #111827;
+    --card-accent: #FACC15;
+    --card-accent-rgb: 250, 204, 21;
+    background-color: rgba(0, 0, 0, .55);
+    border-color: #FACC15;
+    border-width: 2px;
+    box-shadow: 0 4px 0 0 #CA8A04, 0 6px 16px -6px rgba(250, 204, 21, .45), var(--shadow-card);
+}
+.wo-card-status-in_progress:active {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 0 #CA8A04, 0 2px 6px -2px rgba(250, 204, 21, .35), var(--shadow-card);
 }
 .wo-card-status-on_hold {
-    background-color: #C2410C;
-    border-color: #9A3412;
-    color: var(--color-white);
+    --card-accent: #C2410C;
+    --card-accent-rgb: 194, 65, 12;
+    background-color: rgba(0, 0, 0, .55);
+    border-color: #C2410C;
+    border-width: 2px;
+    box-shadow: 0 4px 0 0 #9A3412, 0 6px 16px -6px rgba(194, 65, 12, .45), var(--shadow-card);
+}
+.wo-card-status-on_hold:active {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 0 #9A3412, 0 2px 6px -2px rgba(194, 65, 12, .35), var(--shadow-card);
 }
 .wo-card-status-completed {
-    background-color: #2563EB;
-    border-color: #1D4ED8;
-    color: var(--color-white);
+    --card-accent: #2563EB;
+    --card-accent-rgb: 37, 99, 235;
+    background-color: rgba(0, 0, 0, .55);
+    border-color: #2563EB;
+    border-width: 2px;
+    box-shadow: 0 4px 0 0 #1D4ED8, 0 6px 16px -6px rgba(37, 99, 235, .45), var(--shadow-card);
+}
+.wo-card-status-completed:active {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 0 #1D4ED8, 0 2px 6px -2px rgba(37, 99, 235, .35), var(--shadow-card);
 }
 .wo-card-status-review {
-    background-color: #15803D;
-    border-color: #166534;
-    color: var(--color-white);
+    --card-accent: #15803D;
+    --card-accent-rgb: 21, 128, 61;
+    background-color: rgba(0, 0, 0, .55);
+    border-color: #15803D;
+    border-width: 2px;
+    box-shadow: 0 4px 0 0 #166534, 0 6px 16px -6px rgba(21, 128, 61, .45), var(--shadow-card);
 }
-button.wo-card-status-created:hover,
-button.wo-card-status-created:active { background-color: #D1D5DB; }
-button.wo-card-status-assigned:hover,
-button.wo-card-status-assigned:active { background-color: #B91C1C; }
-button.wo-card-status-in_progress:hover,
-button.wo-card-status-in_progress:active { background-color: #FACC15; }
-button.wo-card-status-on_hold:hover,
-button.wo-card-status-on_hold:active { background-color: #C2410C; }
-button.wo-card-status-completed:hover,
-button.wo-card-status-completed:active { background-color: #2563EB; }
-button.wo-card-status-review:hover,
-button.wo-card-status-review:active { background-color: #15803D; }
-.wo-card-status-assigned .wo-title,
-.wo-card-status-assigned .wo-meta,
-.wo-card-status-assigned .wo-card-wo,
-.wo-card-status-assigned .wo-card-meta,
-.wo-card-status-assigned .wo-card-assignee,
-.wo-card-status-on_hold .wo-title,
-.wo-card-status-on_hold .wo-meta,
-.wo-card-status-on_hold .wo-card-wo,
-.wo-card-status-on_hold .wo-card-meta,
-.wo-card-status-on_hold .wo-card-assignee,
-.wo-card-status-completed .wo-title,
-.wo-card-status-completed .wo-meta,
-.wo-card-status-completed .wo-card-wo,
-.wo-card-status-completed .wo-card-meta,
-.wo-card-status-completed .wo-card-assignee,
-.wo-card-status-review .wo-title,
-.wo-card-status-review .wo-meta,
-.wo-card-status-review .wo-card-wo,
-.wo-card-status-review .wo-card-meta,
-.wo-card-status-review .wo-card-assignee {
-    color: var(--color-white);
-}
-.wo-card-status-assigned > .wo-summary::before,
-.wo-card-status-on_hold > .wo-summary::before,
-.wo-card-status-completed > .wo-summary::before,
-.wo-card-status-review > .wo-summary::before {
-    color: var(--color-white);
-}
-.wo-card-status-created .wo-card-wo,
-.wo-card-status-created .wo-card-meta,
-.wo-card-status-created .wo-card-assignee,
-.wo-card-status-in_progress .wo-card-wo,
-.wo-card-status-in_progress .wo-card-meta,
-.wo-card-status-in_progress .wo-card-assignee {
-    color: #111827;
+.wo-card-status-review:active {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 0 #166534, 0 2px 6px -2px rgba(21, 128, 61, .35), var(--shadow-card);
 }
 .wo-card > .wo-body {
     background-color: var(--panel-nested);
@@ -2601,6 +2659,25 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-status-completed { background-color: #1E3A8A; }
 .wo-status-review { background-color: #14532D; }
 
+/* Priority pill: same shape as .wo-status, colored by severity bucket since
+   priority is free-form NetFacilities text (see priorityBucket() in
+   workOrders.js) rather than a fixed set of values. */
+.wo-priority {
+    display: inline-block;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    color: var(--color-white);
+}
+.wo-priority-emergency { background-color: #B91C1C; }
+.wo-priority-urgent { background-color: #C2410C; }
+.wo-priority-high { background-color: #B45309; }
+.wo-priority-normal { background-color: #1D4ED8; }
+.wo-priority-low { background-color: #15803D; }
+.wo-priority-unknown,
+.wo-priority-none { background-color: #4B5563; }
+
 /* Pre-import (legacy) work order: kept for search, old attributes dropped. A
    muted outline pill so it reads as a state marker, not an action. */
 .wo-legacy-tag {
@@ -2656,7 +2733,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     margin-bottom: var(--space-3);
     border: 1px solid var(--panel-rule);
     border-radius: var(--radius-sm);
-    background-color: var(--gray-50, transparent);
+    background-color: var(--panel-nested);
 }
 .wo-edit-summary,
 .wo-section-summary {
@@ -2736,7 +2813,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     padding: var(--space-2);
     border: 1px solid var(--panel-rule);
     border-radius: var(--radius-sm);
-    background-color: white;
+    background-color: var(--panel-hover);
     box-shadow: var(--shadow-md);
 }
 .wo-tech-results[hidden] { display: none; }
@@ -2758,7 +2835,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     padding: var(--space-1) var(--space-2);
     border: 1px solid var(--panel-rule);
     border-radius: var(--radius-sm);
-    background-color: white;
+    background-color: var(--panel-well);
 }
 .wo-tech-selected-name { min-width: 0; overflow-wrap: anywhere; }
 .wo-tech-remove { flex: 0 0 auto; min-height: var(--btn-h-sm); margin-top: 0; }
@@ -2779,7 +2856,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     margin-bottom: var(--space-3);
     border: 1px solid var(--panel-rule);
     border-radius: var(--radius-sm);
-    background-color: var(--gray-50, transparent);
+    background-color: var(--panel-nested);
 }
 .wo-section-content { padding: var(--space-3); }
 .wo-section-content > :first-child { margin-top: 0; }

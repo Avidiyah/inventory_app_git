@@ -82,10 +82,25 @@ zebra row, `--panel-hover`, and `--panel-rule` / `--panel-rule-soft` for
 hairlines. `--border` resolves to `--panel-rule`; `--border-input` stays an
 opaque gray because it is drawn against a white input.
 
-**Inputs stay white with dark text** on every surface (see below) — so
-`--color-ink`, `--gray-50` and friends are still correct *inside* a control.
-They are no longer correct for a panel. `--gray-50` in particular no longer
-means "page"; nothing uses it as a page background.
+**Rule change (owner decision, superseding "inputs stay white with dark
+text").** This file previously kept `input`/`select`/`textarea` white with
+dark text on every surface — including dark glass — as the one exception to
+the dark-panel default, on the grounds that a form control needs the
+strongest, most conventional legibility available. The owner chose the dark
+frosted treatment for inputs too, app-wide, for visual consistency with the
+rest of the working UI. Inputs now use `--input-bg` (`var(--panel-well)`) and
+`--text-panel`, with `--border-input` moved from an opaque gray to
+`--panel-border` to match. `--color-ink` and `--gray-50` are no longer used
+by inputs or panels; nothing in the app reads them as a background anymore.
+
+Two follow-on details worth knowing when touching this code:
+- `input:-webkit-autofill` needs the box-shadow-inset override in
+  `styles.css` — Chromium/WebKit force a light autofill background that no
+  ordinary `background-color` rule can remove.
+- A native `<select>`'s closed box picks up `--input-bg`/`--text-panel` fine,
+  but its open dropdown list is OS-rendered and outside CSS's reach; it may
+  still show light on some platforms. This is a known limitation, not a bug
+  to chase.
 
 ### Dark glass (brand/photo moments only)
 
@@ -160,10 +175,9 @@ which would strip the red/green color coding:
 #login-section #login-message:not(.error):not(.success) { color: var(--gray-200); }
 ```
 
-Inputs (`input`, `select`) keep their normal white background + dark text on
-*any* surface, glass included — that's the standard convention for a form on
-a dark card, and it's what keeps typed text legible without a parallel
-dark-input variant.
+Inputs (`input`, `select`, `textarea`) keep their normal dark `--input-bg` +
+`--text-panel` treatment on *any* surface, glass included — see the "Inputs
+stay white with dark text" rule change above.
 
 ## Brand art assets
 

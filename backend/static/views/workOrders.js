@@ -463,6 +463,27 @@ function statusBadge(status) {
   return `<span class="wo-status wo-status-${escapeHtml(status)}">${escapeHtml(statusLabel(status))}</span>`;
 }
 
+// Priority is raw NetFacilities vendor text with no fixed vocabulary (see
+// normalize_priority_filter), so it's bucketed into a severity color by
+// keyword rather than an exact match. Unrecognized text still displays
+// as-is -- only the color falls back to neutral.
+function priorityBucket(priority) {
+  if (!priority) return "none";
+  const p = priority.toLowerCase();
+  if (p.includes("emergency")) return "emergency";
+  if (p.includes("urgent")) return "urgent";
+  if (p.includes("high")) return "high";
+  if (p.includes("low")) return "low";
+  if (p.includes("normal") || p.includes("routine") || p.includes("standard")) return "normal";
+  return "unknown";
+}
+
+function priorityBadge(priority) {
+  const bucket = priorityBucket(priority);
+  const label = priority || "No priority";
+  return `<span class="wo-priority wo-priority-${bucket}">${escapeHtml(label)}</span>`;
+}
+
 function modeLabel(mode) {
   return mode === "retroactive" ? "Retroactive" : "Dispense";
 }
@@ -995,6 +1016,7 @@ function summaryHtml(card) {
   return (
     `<span class="wo-title">WO ${escapeHtml(card.number)}</span>` +
     statusBadge(card.status) +
+    priorityBadge(card.priority) +
     legacyTag +
     `<span class="wo-meta">${place ? escapeHtml(place) + " · " : ""}${card.item_count} items${assignee}</span>`
   );
