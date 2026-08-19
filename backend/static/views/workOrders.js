@@ -79,6 +79,9 @@ const searchBtn = document.getElementById("work-orders-search-btn");
 const clearFiltersBtn = document.getElementById("work-orders-clear-filters");
 const exportMessage = document.getElementById("work-orders-export-message");
 const moreEl = document.getElementById("work-orders-more");
+// The filters/search block. Hidden in solo mode ("card page"), where the list
+// holds one work order and there is nothing to filter.
+const controlsSection = document.getElementById("work-orders-controls-section");
 
 const importSection = document.getElementById("work-orders-import-section");
 const importFile = document.getElementById("wo-import-file");
@@ -119,6 +122,86 @@ let pendingFocusId = null;
 // queries the full set. See loadWorkOrders / renderMoreControl.
 const RECENT_LIMIT = 10;
 let showAll = false;
+
+// --- card page ("solo") mode ----------------------------------------------
+//
+// A work-order card opened from the list is shown as a page: the same
+// `details.wo-card`, expanded, alone in `#work-orders-list`, with the filter
+// and import sections hidden and a Back control above it.
+//
+// The card is NOT relocated, and must never be. Every interaction on it --
+// status actions, notes, materials, labor, the billing editor, the technician
+// picker -- is delegated off `listEl`, and the realtime subscriber finds cards
+// by querying `listEl`. Rendering the detail into a different container leaves
+// a card that looks correct and whose every button is dead, with no error.
+//
+// `soloActive` drives the chrome; `soloNumber` is the number in the URL and
+// stays null when a deep link could not be resolved (renderSoloError).
+let soloActive = false;
+let soloNumber = null;
+
+// Must match the FastAPI route in backend/app/main.py and the rate-limit
+// exemption in backend/app/domain/rate_limit.py. These three strings are the
+// whole contract.
+const SOLO_PATH_PREFIX = "/workorder_card/";
+
+// A number pending a card-page open, set before nav.js activates the page (see
+// focusWorkOrderNumber / focusWorkOrder). loadWorkOrders consumes it instead of
+// rendering the list, which is what keeps the two renders from racing.
+let pendingSoloNumber = null;
+
+// The work-order number in `pathname`, or null if it is not a card-page URL.
+export function soloNumberFromPath(pathname = window.location.pathname) {
+  if (!pathname.startsWith(SOLO_PATH_PREFIX)) return null;
+  const raw = pathname.slice(SOLO_PATH_PREFIX.length);
+  if (!raw) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    // A malformed %-escape is not a work order number. Treat it as no link
+    // rather than throwing out of a boot path.
+    return null;
+  }
+}
+
+// Show/hide everything around the card. `importSection`'s hidden state is
+// role-derived (loadWorkOrders sets it from isAdminPlus), so restoring it must
+// recompute rather than blindly unhide -- otherwise leaving a card page would
+// expose the Admin+ import block to a technician.
+function setSoloChrome(on) {
+  if (controlsSection) controlsSection.hidden = on;
+  if (importSection) importSection.hidden = on || !isAdminPlus();
+  if (moreEl) {
+    if (on) moreEl.innerHTML = "";
+    moreEl.hidden = true;
+  }
+}
+
+// Leave card-page mode and put the address bar back. Called from the top of
+// every path that renders the full list, so the browser can never show a
+// /workorder_card/ URL for a page that is no longer showing that card. The URL
+// is normalized even when solo mode was already off -- that covers navigating
+// to another page and back while a stale card URL is in the bar.
+function exitSolo() {
+  if (soloActive) setSoloChrome(false);
+  soloActive = false;
+  soloNumber = null;
+  if (window.location.pathname.startsWith(SOLO_PATH_PREFIX)) {
+    window.history.replaceState({}, "", "/");
+  }
+}
+
+// The card page's own way back. It lives inside `listEl` (so it is cleared with
+// the card) but outside any `.wo-card`, which the click delegation has to
+// account for -- see the `back-to-work-orders` branch.
+function soloBackControl() {
+  const wrap = document.createElement("div");
+  wrap.className = "wo-solo-back";
+  wrap.innerHTML =
+    `<button type="button" class="secondary-btn" data-action="back-to-work-orders">` +
+    `&larr; Back to work orders</button>`;
+  return wrap;
+}
 
 const STATUS_CHANGED_EVENT = "work_order.status.changed";
 const WORK_ORDERS_PAGE = "work-orders";
@@ -731,17 +814,15 @@ async function offerRestoreForExactArchivedSearch(number, token) {
   }
 }
 
-export async function loadWorkOrders({
-  refreshReferenceData = false,
-  checkArchivedSearch = false,
-  background = false,
-} = {}) {
-  // Any completed full load -- nav entry, filter change, Show all, Clear
-  // filters, or this call itself -- genuinely satisfies a pending deferred
-  // refresh, so this states a truth rather than defends against a bug.
-  deferredListRefresh = false;
-  const archivedLookupToken = ++archivedSearchToken;
-  if (refreshReferenceData || !itemsLoaded) {
+// Item and user reference lists that the card *body* needs: the add-material
+// search reads `allItems`, the technician picker reads `allTechs`/`allSupers`.
+//
+// Shared by the list load and the card-page load. A cold deep link paints a
+// card body without ever rendering the list, and empty lists there are a
+// picker that silently matches nothing rather than an error the user can act
+// on. Failures stay swallowed, as before: the card is still worth showing.
+async function ensureReferenceData({ refresh = false } = {}) {
+  if (refresh || !itemsLoaded) {
     try {
       allItems = await apiListItems();
       itemsLoaded = true;
@@ -749,7 +830,7 @@ export async function loadWorkOrders({
       allItems = [];
     }
   }
-  if ((refreshReferenceData || !usersLoaded) && isSupervisorPlus()) {
+  if ((refresh || !usersLoaded) && isSupervisorPlus()) {
     try {
       const users = await apiListUsers();
       allTechs = users.filter((u) => canBeWorkOrderTechnician(u.role));
@@ -760,6 +841,37 @@ export async function loadWorkOrders({
       allSupers = [];
     }
   }
+}
+
+export async function loadWorkOrders({
+  refreshReferenceData = false,
+  checkArchivedSearch = false,
+  background = false,
+} = {}) {
+  // Any completed full load -- nav entry, filter change, Show all, Clear
+  // filters, or this call itself -- genuinely satisfies a pending deferred
+  // refresh, so this states a truth rather than defends against a bug.
+  deferredListRefresh = false;
+
+  // A pending card-page open wins: rendering the list first and the card
+  // second is the same two renders racing, and whichever settled last would
+  // win. nav.js calls this on page entry, so consuming the request here is the
+  // one place both orderings can be serialized.
+  if (pendingSoloNumber !== null) {
+    const number = pendingSoloNumber;
+    pendingSoloNumber = null;
+    await ensureReferenceData({ refresh: refreshReferenceData });
+    await openWorkOrderPageByNumber(number);
+    return;
+  }
+
+  // Rendering the list is the definition of leaving the card page. Placed
+  // here rather than at each call site so a path added later cannot forget it
+  // and strand a /workorder_card/ URL over a list.
+  exitSolo();
+
+  const archivedLookupToken = ++archivedSearchToken;
+  await ensureReferenceData({ refresh: refreshReferenceData });
   if (refreshReferenceData) filterOptionsLoaded = false;
   if (!filterOptionsLoaded) {
     try {
@@ -793,12 +905,20 @@ export async function loadWorkOrders({
     renderMoreControl(capped, cards.length);
     setMessage(listMessage, "", "");
     if (pendingFocusId) {
-      const card = listEl.querySelector(`details.wo-card[data-id="${pendingFocusId}"]`);
-      if (card) {
-        card.open = true;
-        card.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
+      const focused = cards.find((c) => c.id === pendingFocusId);
       pendingFocusId = null;
+      if (focused) {
+        // Cards are pages now. Expanding a row here would drop the user
+        // mid-list at a card they then have to scroll to -- the thing this
+        // change exists to remove. The list was fetched (and filters reset if
+        // needed) above, so this is the id/number resolution as well.
+        //
+        // Returns before the archived-number prompt below: `checkArchivedSearch`
+        // is only ever set by the number-search path, and a Mass Stage focus
+        // never sets it.
+        await openWorkOrderPage({ id: focused.id, number: focused.number });
+        return;
+      }
     }
     if (checkArchivedSearch) {
       await offerRestoreForExactArchivedSearch(filters.q, archivedLookupToken);
@@ -894,6 +1014,13 @@ async function refreshCardSummary(cardEl) {
     detail = await apiGetWorkOrder(cardEl.dataset.id);
   } catch (err) {
     if (err?.status !== 404) return;
+    if (soloActive) {
+      // The card page's only card just left this user's view -- archived, or
+      // unassigned from them. Wiping to the list's "No work orders match."
+      // would leave a page with no card and no way back.
+      renderSoloError("This work order is no longer available.");
+      return;
+    }
     cardEl.remove();
     if (!listEl.querySelector("details.wo-card")) {
       listEl.innerHTML = `<p class="hint">No work orders match.</p>`;
@@ -948,6 +1075,20 @@ function anyCardHeld() {
 let deferredListRefresh = false;
 
 function runOrDeferListRefresh() {
+  if (soloActive) {
+    // A list refetch would replace the card page with the list -- silently,
+    // with the card's URL still in the address bar. On a card page the only
+    // row that can matter is the one on screen, so refresh that instead. A
+    // held card defers exactly as it does in the list.
+    const cardEl = listEl.querySelector("details.wo-card");
+    if (!cardEl) return;
+    if (isHeld(cardEl)) {
+      cardEl.dataset.missedUpdate = "1";
+      return;
+    }
+    void refreshCardSummary(cardEl);
+    return;
+  }
   if (anyCardHeld()) {
     deferredListRefresh = true;
     return;
@@ -974,6 +1115,16 @@ function buildCard(card) {
   el.addEventListener("toggle", () => {
     if (el.open && !el.dataset.loaded) openDetail(card.id, body, el);
   });
+  summary.addEventListener("click", (event) => {
+    // Cards navigate rather than expand in place. `preventDefault` suppresses
+    // the native toggle, and covers the keyboard path with it: Enter and Space
+    // on a focused summary both dispatch a click, so there is no second path
+    // to intercept. It also makes the card page's own card non-collapsible,
+    // which is right -- there is nothing to collapse to.
+    event.preventDefault();
+    if (soloActive) return;
+    void openWorkOrderPage({ id: card.id, number: card.number });
+  });
   return el;
 }
 
@@ -983,6 +1134,124 @@ async function openDetail(workOrderId, bodyEl, cardEl) {
   } catch (err) {
     bodyEl.innerHTML = `<p class="error">${escapeHtml(friendlyError(err, "Could not load this work order."))}</p>`;
   }
+}
+
+// --- card page render ------------------------------------------------------
+
+// Open one work order as a page. `number` is optional: a click from the list
+// already has it, a Mass Stage hand-off has only an id, and either way the
+// detail fetched here carries the authoritative number for the URL.
+//
+// One request, not two: the detail fetched here is painted directly rather
+// than being re-fetched by `openDetail`, so opening a card page costs exactly
+// what expanding a card used to.
+async function openWorkOrderPage({ id, number = null }) {
+  await ensureReferenceData();
+  soloActive = true;
+  soloNumber = number;
+  setSoloChrome(true);
+  if (listMessage) setMessage(listMessage, "", "");
+  listEl.innerHTML = `<p class="hint">Loading…</p>`;
+
+  let detail;
+  try {
+    detail = await apiGetWorkOrder(id);
+  } catch (err) {
+    renderSoloError(friendlyError(err, "Could not open this work order."));
+    return;
+  }
+  showSoloCard(detail);
+}
+
+// Open a card page from a work-order NUMBER -- a refreshed page, a bookmark,
+// or a pasted link, where the id is not known.
+//
+// Resolved through the ordinary list search rather than `/work-orders/lookup`:
+// lookup is Supervisor+, so a technician following a link to their own
+// assigned work order would get a 403 -- the exact person the link is usually
+// for. The list route is open to any session and already server-scoped, so it
+// answers "may this caller see it" as a side effect of answering "does it
+// exist". It partial-matches, so the exact number is chosen here.
+async function openWorkOrderPageByNumber(number) {
+  await ensureReferenceData();
+  soloActive = true;
+  soloNumber = number;
+  setSoloChrome(true);
+  if (listMessage) setMessage(listMessage, "", "");
+  listEl.innerHTML = `<p class="hint">Loading…</p>`;
+
+  let matches;
+  try {
+    matches = await apiListWorkOrders({ q: number });
+  } catch (err) {
+    renderSoloError(friendlyError(err, "Could not open this work order."));
+    return;
+  }
+
+  const match =
+    matches.find((c) => c.number === number) ||
+    matches.find((c) => c.number.toLowerCase() === number.toLowerCase());
+  if (!match) {
+    // Archived, or outside this caller's scope. `/work-orders/lookup` could
+    // tell those apart but is Supervisor+, so say the one thing that is true
+    // for every role rather than guess.
+    renderSoloError(`Work order ${number} is not available.`);
+    return;
+  }
+  await openWorkOrderPage({ id: match.id, number: match.number });
+}
+
+// Queue a card page to open the next time the Work Orders page loads. Used by
+// the post-login boot: nav.js's `showPage` triggers `loadWorkOrders`, which
+// consumes this instead of rendering the list, so the two cannot race.
+export function focusWorkOrderNumber(number) {
+  pendingSoloNumber = number;
+}
+
+// Render `detail` as the only card in the list, expanded, with a Back control
+// above it. The element is exactly what `buildCard` produces -- same tag, same
+// classes, same `data-id`, same parent -- plus a `.wo-solo` presentation
+// modifier, so delegation, the realtime subscriber, and every repaint path
+// keep working untouched.
+function showSoloCard(detail) {
+  soloActive = true;
+  soloNumber = detail.number;
+  setSoloChrome(true);
+
+  const path = SOLO_PATH_PREFIX + encodeURIComponent(detail.number);
+  if (window.location.pathname !== path) {
+    // `{ solo: ... }` marks entries this module pushed, which is how the Back
+    // control knows whether `history.back()` would leave the app entirely (a
+    // cold deep link has a null state).
+    window.history.pushState({ solo: detail.number }, "", path);
+  }
+
+  listEl.innerHTML = "";
+  listEl.appendChild(soloBackControl());
+  const cardEl = buildCard(detail);
+  cardEl.classList.add("wo-solo");
+  listEl.appendChild(cardEl);
+  // Paint before opening. `paintDetail` sets `dataset.loaded`, so `buildCard`'s
+  // own toggle listener sees a loaded card and does not fetch it a second time
+  // -- this does not rely on when the async `toggle` event happens to fire.
+  paintDetail(detail, cardEl.querySelector(".wo-body"), cardEl);
+  cardEl.open = true;
+}
+
+// A card page that has no card: the work order could not be fetched, could not
+// be resolved from a link, or has just left this user's view. It still needs
+// its own Back control -- the filters are hidden, and a cold deep link has no
+// history entry to go back to.
+function renderSoloError(message) {
+  soloActive = true;
+  soloNumber = null;
+  setSoloChrome(true);
+  listEl.innerHTML = "";
+  listEl.appendChild(soloBackControl());
+  const p = document.createElement("p");
+  p.className = "error";
+  p.textContent = message;
+  listEl.appendChild(p);
 }
 
 // Paint one already-fetched work order into its card.
@@ -1234,6 +1503,22 @@ listEl.addEventListener("click", async (event) => {
       list.innerHTML = emptyTechnicianSelectionHtml();
     }
     picker.querySelector(".wo-tech-search")?.focus();
+    return;
+  }
+
+  if (action === "back-to-work-orders") {
+    // Above the `.wo-card` lookup below: this control lives in the list but
+    // outside any card, so the `if (!cardEl) return` guard would swallow it.
+    if (window.history.state?.solo) {
+      // We pushed this entry. Unwinding it keeps Back and Forward agreeing
+      // with the button; `popstate` does the actual restore.
+      window.history.back();
+    } else {
+      // A cold deep link: there is no entry of ours to pop, and calling
+      // back() would leave the app. loadWorkOrders normalizes the URL itself
+      // (exitSolo).
+      void loadWorkOrders();
+    }
     return;
   }
 
@@ -1942,3 +2227,25 @@ if (listEl) {
     true
   );
 }
+
+// Browser Back/Forward between the list and a card page. The card page is the
+// SPA's only routed URL, so this handles both directions itself.
+//
+// The active-page check reads the DOM rather than importing `getActivePage`
+// from nav.js: nav.js already imports this module, and the cycle is not worth
+// one boolean. Popstate while some other page is showing is ignored -- the
+// stale URL is harmless and `exitSolo` normalizes it on the next list render.
+window.addEventListener("popstate", () => {
+  if (!listEl) return;
+  const workOrdersPage = document.getElementById("work-orders-page");
+  if (!workOrdersPage?.classList.contains("active")) return;
+
+  const number = soloNumberFromPath();
+  if (number === null) {
+    if (!soloActive) return;
+    void loadWorkOrders();  // exits solo mode itself
+    return;
+  }
+  if (soloActive && number === soloNumber) return;
+  void openWorkOrderPageByNumber(number);
+});

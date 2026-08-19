@@ -113,6 +113,21 @@ def test_a_path_merely_starting_with_static_is_not_exempt():
     assert not is_exempt("/static-report")
 
 
+def test_the_deep_linked_work_order_shell_is_exempt():
+    # /workorder_card/<number> serves the same SPA shell as "/", so it pulls
+    # the same 33-module ES graph on a cold load. Counting it would let a
+    # shared link be throttled into the blank page this app has history with.
+    assert is_exempt("/workorder_card/12345")
+    assert is_exempt("/workorder_card/WO-2026-0001")
+
+
+def test_the_shell_prefix_does_not_exempt_a_lookalike_route():
+    # The prefix carries its trailing slash for the same reason "/static/"
+    # does: a future /workorder_cards-report must not inherit the exemption.
+    assert not is_exempt("/workorder_cards-report")
+    assert not is_exempt("/workorder_card")
+
+
 # --- parameterized reuse (real-time inbound frame limiting) -------------
 #
 # The socket's inbound limiter is a second *policy* over the same *rule*.

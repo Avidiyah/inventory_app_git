@@ -23,6 +23,7 @@ import { setHistoryTab } from "./history.js";
 import { resetBatch, tryResumeBatch } from "./transactions.js";
 import { resetToolsView } from "./tools.js";
 import { initPushForUser, resetPushView, unsubscribeThisDevice } from "./push.js";
+import { focusWorkOrderNumber, soloNumberFromPath } from "./workOrders.js";
 
 const loginScreen = document.getElementById("login-screen");
 const appRoot = document.getElementById("app-root");
@@ -109,7 +110,25 @@ async function enterApp(user, { resume = false } = {}) {
     loadUsers();
   }
 
-  showPage(resumed ? "transaction" : landingPageForRole(user.role));
+  // A card-page URL survives the login screen: someone following a shared link
+  // signs in first and lands on the work order they were sent, not on their
+  // usual landing page. A resumed scan batch still wins -- that operator was
+  // mid-job when the session dropped.
+  const deepLinkNumber = resumed ? null : soloNumberFromPath();
+  if (deepLinkNumber !== null && canAccessPage(user.role, "work-orders")) {
+    // Queued before showPage, not after: showPage triggers loadWorkOrders,
+    // which is what consumes the request. Opening the card afterwards would
+    // race that list render.
+    focusWorkOrderNumber(deepLinkNumber);
+    showPage("work-orders");
+  } else {
+    if (deepLinkNumber !== null) {
+      // A role that cannot reach Work Orders. Drop the URL so a refresh does
+      // not keep re-attempting a page they will never be shown.
+      window.history.replaceState({}, "", "/");
+    }
+    showPage(resumed ? "transaction" : landingPageForRole(user.role));
+  }
   connectRealtime();
 
   // Not awaited: a push subscription is not required for the app to be

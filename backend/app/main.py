@@ -370,6 +370,29 @@ def read_root():
     return HTMLResponse(_assemble_index(), headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/workorder_card/{number}")
+def workorder_card_shell(number: str):
+    """Serve the SPA shell for a deep-linked work-order card.
+
+    Identical to `read_root`, deliberately: there is only one document.
+    The Work Orders page pushes `/workorder_card/<number>` into the
+    address bar when a card is opened, so this route is what makes a
+    refresh, a bookmark, or a link pasted into a text message reach the
+    app instead of a 404.
+
+    `number` is routing information only. The client reads it back off
+    `location.pathname` and resolves it against the server-scoped work
+    order list; it is never substituted into the HTML. This is the one
+    URL in the app a user composes and sends to someone else, so
+    reflecting the segment would turn a shared link into an injection
+    surface for no gain.
+
+    Unauthenticated, like `/`: the recipient of a shared link arrives
+    with no session, and the SPA's own login gate is what greets them.
+    """
+    return HTMLResponse(_assemble_index(), headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/service-worker.js", include_in_schema=False)
 def service_worker():
     """Serve the push service worker from the **root** path.

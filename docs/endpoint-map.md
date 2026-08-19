@@ -44,14 +44,15 @@ Paths below are relative to `backend/`. `domain/*`, `routers/*`, `services/*`,
 
 ## Master Endpoint Index
 
-Every endpoint, one row each — 82 in total: 79 router operations (78 HTTP plus
-the `/ws` WebSocket, row WS1) and 3 app-level routes in `main.py`. "Tables"
+Every endpoint, one row each — 83 in total: 79 router operations (78 HTTP plus
+the `/ws` WebSocket, row WS1) and 4 app-level routes in `main.py`. "Tables"
 lists what the call reads (r) and writes (w).
 
 | # | Method | Path | Gate | Router → Service | Tables | api.js wrapper | View(s) |
 |---|--------|------|------|------------------|--------|----------------|---------|
 | 1 | GET | `/` | public | `main.py` (shell assembly) | — | — (browser) | SPA boot |
 | 1a | GET | `/healthz` | public | `main.py` → `database.check_connection` | — | — | (platform health check) |
+| 1b | GET | `/workorder_card/{number}` | public | `main.py` (shell assembly) | — | — (browser) | SPA boot (deep-linked work-order card) |
 | 2 | GET | `/db-test` | techfm_oa+ | `main.py` → `database.test_connection` | — | — | (diagnostic) |
 | 3 | POST | `/auth/login` | public | `auth.py` → `auth.authenticate` + `create_session` | users (r), sessions (w) | `apiLogin` | `auth.js` |
 | 4 | POST | `/auth/logout` | session | `auth.py` → `auth.delete_session` | sessions (w) | `apiLogout` | `auth.js` |
@@ -157,6 +158,13 @@ What populates each screen. Format: **table → … → view → what the user s
   fields to render a self-only custody profile for Supervisor/Technician.
 - **(static fragments)** → `main.py` shell assembly → `GET /` → browser: the SPA
   shell (`shell-head.html` + `pages/*.html` + `shell-tail.html`).
+- **(static fragments)** → `main.py` shell assembly → `GET /workorder_card/{number}`
+  → browser: serves the SPA shell for a deep-linked work-order card — the
+  identical document to `/`, unauthenticated, and rate-limit exempt for the same
+  reason `/` is (a cold shell load pulls the whole ES module graph at once).
+  The `number` segment is routing only and is never reflected into the HTML;
+  `workOrders.js` reads it back off `location.pathname` and resolves it against
+  the server-scoped list search.
 
 ### Items
 - Find Item makes no item request on entry and shows no native suggestion
