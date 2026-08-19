@@ -195,6 +195,16 @@ installed to the Home Screen and notifications already granted: cause the event
 from a *different* account, confirm the notification arrives with the app fully
 closed, and confirm the actor's own phone stays silent.
 
+### Step 6 — Record it in the registry
+
+Add the event to `docs/notification-events.md` — a row in *Who is told* and a
+row in *What each one says* — **in the same commit as the trigger**. Its
+*Keeping this file honest* section says what each kind of change owes it.
+
+Not optional and not bookkeeping: that file is what the next person reads to
+answer "who gets told when X happens", and a registry that lags the code is
+worse than none, because it will be believed.
+
 ---
 
 ## What you can address a notification to
@@ -234,55 +244,14 @@ buzzing every technician's phone. They look redundant and are not.
 
 ## Currently wired
 
-| Event | Trigger site | Recipients |
-| --- | --- | --- |
-| Assigned to you | `update_work_order` (PATCH) | technicians **newly** added by that write |
-| Marked Completed | `complete_work_order` for a Supervisor+ caller, and PATCH to `completed` | Admin and above |
-| Reopened from Completed | `update_work_order` (PATCH) | assigned technicians + the routed supervisor |
-| Returned from Review | `update_work_order` (PATCH), `review → in_progress` | assigned technicians + the routed supervisor |
-| Placed On-Hold | `hold_work_order`, and PATCH to `on_hold` | the routed supervisor — or Admin+ if unrouted |
-| Held for review | `complete_work_order` for a **Technician** caller | the routed supervisor — or Admin+ if unrouted |
+**`docs/notification-events.md`** — the registry. Every event, who can raise it,
+which trigger sites raise it, who is told, and the exact words that reach a lock
+screen; plus the realtime broadcast events, which are not notifications and are
+listed there so the two are not confused.
 
-Every one of them suppresses the acting user.
-
-Two things about that table that are not obvious:
-
-- **Reopen has exactly one trigger site.** The narrow `start` / `hold` /
-  `resume` endpoints all reject a Completed row outright, so the only way out
-  of Completed is the Supervisor+ PATCH.
-- **Completed → Review is carved out of the reopen rule.** It is a move out of
-  Completed, so the literal rule would fire, but Review is the forward handoff
-  rather than work coming back: the assignees have nothing to do about it and
-  "no longer Completed" reads as a setback. Every other exit from Completed
-  does mean the work is live again and does notify. Owner decision,
-  2026-08-18, pinned by two tests — one that Review is silent and one that the
-  carve-out stays a carve-out.
-- **Two rules can share an audience and still be two rules.** Reopen and
-  Returned-from-Review both address the assignees plus the supervisor, and are
-  deliberately separate functions with separate wording: one says the work is
-  live again, the other says somebody looked at it and wants it changed. Merging
-  them to remove the duplication would delete the only thing the recipient
-  actually needs from the lock screen.
-- **Branch order decides overlapping transitions.** `review → completed` is
-  both "leaves Review" and "is now Completed"; it is evaluated as a completion
-  because the completion arm comes first. `completed → on_hold` is both "leaves
-  Completed" and "entered On-Hold"; the On-Hold arm sorts ahead of everything,
-  so it is a hold. That one is not a style choice — the reopen audience already
-  contains the routed supervisor, so evaluating both would buzz one person twice
-  for one edit. If you add a rule whose transition can overlap an existing one,
-  add a test that pins which one wins.
-- **The same endpoint can raise different events.** `complete_work_order` fires
-  *Marked Completed* or *Held for review* depending on where the row landed,
-  which is a function of the caller's role
-  (`domain.work_orders.completion_target_status`). The router chooses from the
-  **resulting status**, never from the role — reading the role twice is how the
-  notification and the database start disagreeing.
-- **An audience of one can still need a fallback.** The two hold events address
-  the routed supervisor, and an unrouted work order would otherwise alert
-  nobody at all. They fall back to `UNROUTED_HOLD_AUDIENCE_MIN_ROLE`. Note the
-  rule branches on *who is routed*, not on how many recipients survived
-  suppression: a supervisor pausing their own job must not escalate it to every
-  Admin by taking it.
+It is kept deliberately in one place rather than summarised here, because a
+second copy of that table is a second thing to forget. **Step 6 of the recipe
+above is to add your event to it, in the same commit.**
 
 ## Traps
 

@@ -18,6 +18,9 @@ repository documents:
   non-issue.
 - [docs/adding-a-notification-trigger.md](docs/adding-a-notification-trigger.md)
   — procedure: how to make a business event send a Web Push notification.
+- [docs/notification-events.md](docs/notification-events.md) — the living
+  register of what notifies whom: every event, who raises it, and who is told.
+  Updated in the same commit as any notification change.
 
 The docs were consolidated from ten files to four on 2026-08-10; shipped
 history lives in git rather than in a doc. If any document conflicts with the

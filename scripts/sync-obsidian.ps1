@@ -64,6 +64,8 @@ $related = @{
     'current-state.md'   = 'Per-endpoint contracts live in [[endpoint-map]]. Anything not yet true of the system belongs in [[open-work]], not here.'
     'endpoint-map.md'    = 'The invariants these endpoints must uphold are in [[current-state]].'
     'open-work.md'       = 'The **only** backlog: if an item is not here, it is not open. What the system already does is in [[current-state]]. Session narrative: [[session-log]].'
+    'notification-events.md'          = 'The living register of what notifies whom. How to wire a new one: [[adding-a-notification-trigger]].'
+    'adding-a-notification-trigger.md' = 'The procedure. What is already wired is registered in [[notification-events]].'
 }
 
 function Get-FileSha256([string]$path) {

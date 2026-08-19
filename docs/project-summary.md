@@ -58,13 +58,33 @@ backlogs had drifted out of agreement with each other.
 - **`docs/project-summary.md`** — this file: what the app is, stack,
   architecture, and the verification baseline.
 
-A fifth file was added 2026-08-18 and does not reopen the split above, because
-it is a **procedure** rather than a backlog or a contract reference:
+Two further files were added 2026-08-18. Neither reopens the split above,
+because neither is a backlog or a general contract reference — one is a
+**procedure** and the other is a **register** that the procedure's last step
+requires you to update:
 
 - **`docs/adding-a-notification-trigger.md`** — how to wire a business event to
   a Web Push notification: the three files a trigger touches, the five rules
   that are each a bug someone already nearly shipped, and what to verify by
   hand. Read it before touching `services/push.py` or adding a `notify_*` call.
+- **`docs/notification-events.md`** — **the living register of notification
+  events**: every event, who can raise it, which trigger sites raise it, who is
+  told, and the words that reach a lock screen — plus the realtime broadcast
+  events, which are not notifications and are listed there to keep the two
+  apart. A commit that adds, removes, or re-audiences a notification updates
+  this file in the same commit. Read it to answer "who gets told when X
+  happens".
+
+A seventh file was added 2026-08-19, for the same reason the previous two
+were admitted — it is neither a backlog nor the general behavior/contract
+reference `current-state.md` already owns:
+
+- **`docs/design-system.md`** — the front-end visual language: palette rules,
+  the two surface types (flat panel vs. dark frosted glass) and when to use
+  each, how to scope text-color overrides onto a new surface without
+  disturbing global element rules, and the brand-asset-to-served-file
+  pipeline (icons, backgrounds). Read it before adding a new front-end
+  surface rather than re-deriving conventions from `styles.css`.
 
 ## Current baseline
 

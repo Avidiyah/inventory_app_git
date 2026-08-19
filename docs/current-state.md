@@ -1774,16 +1774,14 @@ whole crew:
 
 #### Notification triggers
 
-| Event | Trigger site | Recipients |
-| --- | --- | --- |
-| Assigned to a work order | `update_work_order` (PATCH) | technicians **newly added** by that write |
-| Marked Completed | `complete_work_order` for a Supervisor+ caller, and PATCH to `completed` | Admin and above |
-| Leaves Completed for any live status (**not** Review, **not** On-Hold) | `update_work_order` (PATCH) | assigned technicians + the routed supervisor |
-| Returned from Review to In-Progress | `update_work_order` (PATCH) | assigned technicians + the routed supervisor |
-| Placed On-Hold, from any route | `hold_work_order`, and PATCH to `on_hold` | the routed supervisor, or Admin+ when unrouted |
-| Held for supervisor review | `complete_work_order` for a **Technician** caller | the routed supervisor, or Admin+ when unrouted |
+**Which events exist, who can raise them, and who is told is registered in
+`docs/notification-events.md`** — the living register, updated in the same
+commit as any trigger change. It deliberately used to be duplicated here and no
+longer is: three copies of one table is three chances to disagree with the code.
+What stays below is the mechanism, which is a contract rather than a routing
+decision.
 
-Rules that apply to all of them:
+Rules that apply to every trigger:
 
 - **The acting user is always suppressed**, by id rather than by role — a
   supervisor completing work on someone's behalf is as much the actor as a
@@ -1797,36 +1795,20 @@ Rules that apply to all of them:
   stamped on the returned row; without that a slow double tap sends twice.
 - **One PATCH can be several events** — it may add assignees *and* move the
   status — so the rules are evaluated independently.
-- **Reopen has one trigger site.** `start` / `hold` / `resume` each reject a
-  Completed row, so the Supervisor+ PATCH is the only route out of Completed.
-  **Completed → Review is excluded**: it is the forward handoff rather than
-  work coming back, so it notifies nobody. **Completed → On-Hold is excluded
-  too**, because the On-Hold arm sorts ahead of the reopen arm: the row is
-  paused rather than handed back, and the reopen audience already contains the
-  routed supervisor, who would otherwise be told twice about one edit. Every
-  other exit from Completed notifies.
-- **One endpoint, two events.** `complete_work_order` raises *Marked
-  Completed* or *Held for review* according to where the row landed, which is
-  a function of the caller's role. The router chooses from the resulting
-  status, never from the role, so the alert cannot contradict the write.
-- **The hold events fall back rather than vanish.** They address the routed
-  supervisor; an unrouted work order reaches Admin+ instead
-  (`UNROUTED_HOLD_AUDIENCE_MIN_ROLE`). The branch is on who is *routed*, not
-  on how many recipients survived suppression — a supervisor pausing their own
-  job must not escalate it to every Admin by taking it.
-- **Coming back out of Review is its own event**, with its own wording — the
-  crew needs to distinguish "this is live again" from "somebody wants this
-  changed". It is narrow (`review → in_progress`) because that is the only
-  transition the app can produce: the Admin Review page's return button sends
-  exactly that, and the card editor disables the status field for a Review row.
+- **Overlapping transitions resolve by branch order, and each resolution is
+  pinned by a test.** One write can satisfy two rules (`completed → on_hold` is
+  both "leaves Completed" and "entered On-Hold"); the arm that wins is a
+  decision, not an accident. Which one wins in each case is registered in
+  `notification-events.md`.
 - **A rule that raises never fails the write.** The work order is already
   committed; `_notify` logs and moves on.
 
 Adding a trigger is a documented three-step procedure —
-`docs/adding-a-notification-trigger.md`. Read that rather than this section
-when the task is "notify someone when X happens".
+`docs/adding-a-notification-trigger.md` — whose last step is registering the
+event in `docs/notification-events.md`. Read those rather than this section when
+the task is "notify someone when X happens".
 
-Six things that are not obvious from the table:
+Six things that are not obvious:
 
 - **iOS is the binding constraint.** Safari exposes the push API only to a site
   launched from a Home-Screen install, never to a browser tab, and iOS has no

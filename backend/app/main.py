@@ -116,7 +116,7 @@ def _doc_urls(*, production: bool) -> dict:
 
 
 app = FastAPI(
-    title="Inventory Management API",
+    title="TechFM API",
     # The app's only startup/shutdown hook, and the reason item 5 exists
     # above. It starts the real-time dispatch task, which has to outlive
     # every request because fan-out happens after the request that caused

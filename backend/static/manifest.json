@@ -1,11 +1,11 @@
 {
-  "name": "Inventory Management",
-  "short_name": "Inventory",
+  "name": "TechFM",
+  "short_name": "TechFM",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#8b1216",
+  "theme_color": "#C8102E",
   "icons": [
     {
       "src": "/static/icon-180.png",

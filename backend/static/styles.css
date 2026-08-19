@@ -82,6 +82,17 @@
     --border:       1px solid var(--gray-200);
     --border-input: 1px solid var(--gray-300);
 
+    /* Dark glass surfaces: translucent panels over a photo/dark background
+       (login screen and similar full-bleed brand moments), distinct from the
+       flat opaque light panels used everywhere else in the app UI. Always
+       pair --glass-bg with --glass-blur -- opacity alone over a busy image
+       leaves text illegible; the blur is what buys the legibility back. See
+       docs/design-system.md for when to reach for this vs. a flat panel. */
+    --glass-bg:     rgba(20, 20, 20, .75);
+    --glass-blur:   16px;
+    --glass-border: rgba(200, 16, 46, .40);   /* brand-red hairline */
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, .45);
+
     /* Controls */
     --control-h: 48px;   /* inputs, selects */
     --btn-h: 52px;       /* primary buttons */
@@ -1192,6 +1203,11 @@ tr.archived-user {
     align-items: center;
     justify-content: center;
     padding: var(--space-5);
+    background-color: var(--color-header);
+    background-image: url("/static/login-bg.jpg");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
 }
 
 /* The `display: flex` above is an ID selector and outranks the UA
@@ -1202,11 +1218,19 @@ tr.archived-user {
     display: none;
 }
 
+/* Dark frosted glass: translucent over the login background image rather
+   than a flat white card, so the photo reads through instead of the card
+   sitting on top of it like a sticker. backdrop-filter blurs the busy
+   texture behind the text, which is what keeps it readable at low opacity --
+   without the blur, translucent text over the logo mark would be illegible. */
 #login-section {
-    background-color: var(--color-white);
+    background-color: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
     padding: var(--space-8);
     border-radius: var(--radius-md);
-    box-shadow: var(--shadow-md);
+    box-shadow: var(--glass-shadow);
     width: 100%;
     max-width: 360px;
 }
@@ -1214,13 +1238,35 @@ tr.archived-user {
 #login-section h1 {
     font-size: var(--fs-2xl);
     margin-bottom: var(--space-1);
+    color: var(--color-white);
 }
 
 #login-section h2 {
     font-size: var(--fs-base);
     font-weight: var(--fw-regular);
-    color: var(--gray-500);
+    color: var(--gray-200);
     margin-bottom: var(--space-4);
+}
+
+/* Scoped overrides: the global `label` / `.password-toggle-btn` rules assume
+   dark text on a light card, which is invisible on this dark one. */
+#login-section label {
+    color: var(--color-white);
+}
+
+#login-section .password-toggle-btn {
+    color: var(--gray-200);
+}
+
+#login-section .password-toggle-btn:hover {
+    color: var(--color-white);
+}
+
+/* Neutral (no .error/.success class) login message, e.g. the session-expired
+   notice -- those two classes already set their own color and take
+   precedence via :not() below rather than being overridden by this. */
+#login-section #login-message:not(.error):not(.success) {
+    color: var(--gray-200);
 }
 
 /* The auth bar sits to the right of the nav inside the dark header. */
