@@ -109,7 +109,7 @@ lists what the call reads (r) and writes (w).
 | 55 | POST | `/work-orders/import` | techfm_oa+ | `work_orders.py` → `work_orders.import_work_orders` | work_orders (r/w, locked find-or-create — **the only create path**), users (r, active-supervisor name-match) | `apiImportWorkOrders` | `workOrders.js` |
 | 56 | POST | `/work-orders/{id}/restore` | supervisor+ scoped | `work_orders.py` → `work_orders.restore_work_order` | work_orders (w, un-archive) | `apiRestoreWorkOrder` | `history.js`, `workOrders.js` (TechFM OA+ exact search) |
 | 57 | PATCH | `/users/{id}/name` | self or outranks target | `users.py` → `users.update_name` | users (w; first/last name + optional `username`) | `apiUpdateUserName` | `users.js` |
-| 58 | POST | `/work-orders/{id}/labor` | technician+ scoped (own row only below supervisor) | `work_orders.py` → `work_orders.add_work_order_labor` | work_orders (r/w status), work_order_technicians (r), work_order_labor (w), users (r) | `apiAddWorkOrderLabor` | `workOrders.js` |
+| 58 | POST | `/work-orders/{id}/labor` | supervisor+ scoped (assigned worker, or self) | `work_orders.py` → `work_orders.add_work_order_labor` | work_orders (r/w status), work_order_technicians (r), work_order_labor (w), users (r) | `apiAddWorkOrderLabor` | `workOrders.js` |
 | 59 | PATCH | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | `work_orders.py` → `work_orders.update_work_order_labor` | work_order_labor (r/w) | `apiUpdateWorkOrderLabor` | `workOrders.js` |
 | 60 | DELETE | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | `work_orders.py` → `work_orders.delete_work_order_labor` | work_order_labor (r/w) | `apiDeleteWorkOrderLabor` | `workOrders.js` |
 | 61 | PATCH | `/users/{id}/role` | techfm_oa+ AND outranks both current and new role | `users.py` → `users.update_role` | users (w), sessions (w, revoke) | `apiUpdateUserRole` | `users.js` |
@@ -126,6 +126,8 @@ lists what the call reads (r) and writes (w).
 | 69 | POST | `/work-orders/{id}/complete` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.complete_work_order` | work_orders (r/w status + notes, row lock), work_order_technicians (r), push_subscriptions (r, via notify) | `apiCompleteWorkOrder` | `workOrders.js` |
 | 70 | POST | `/work-orders/{id}/hold` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.hold_work_order` | work_orders (r/w, row lock), work_order_technicians (r), push_subscriptions (r, via notify) | `apiHoldWorkOrder` | `workOrders.js` |
 | 71 | POST | `/work-orders/{id}/resume` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.resume_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiResumeWorkOrder` | `workOrders.js` |
+| 71a | POST | `/work-orders/{id}/tracking/start` | assigned Technician, or Supervisor+ on any visible row | `work_orders.py` → `work_orders.start_labor_session` | work_orders (r/w status + notes, row lock), work_order_technicians (r), work_order_labor_sessions (r/w), work_order_labor (w, when it closes a clock elsewhere), push_subscriptions (r, via notify on that row's auto-hold) | `apiStartWorkOrderTracking` | `workOrders.js` |
+| 71b | POST | `/work-orders/{id}/tracking/stop` | assigned Technician, or Supervisor+ on any visible row | `work_orders.py` → `work_orders.stop_labor_session` | work_orders (r/w status + notes, row lock), work_order_technicians (r), work_order_labor_sessions (r/w), work_order_labor (w), push_subscriptions (r, via notify on auto-hold) | `apiStopWorkOrderTracking` | `workOrders.js` |
 | NF1 | GET | `/integrations/netfacilities/session` | techfm_oa+ | `netfacilities.py` → dependency-free config + authentication/job coordinators | no DB; protected saved-state existence + process-local safe snapshots | `apiGetNetFacilitiesSession` | `workOrders.js` |
 | NF1a | POST | `/integrations/netfacilities/auth/start` | techfm_oa+ | `netfacilities.py` → `netfacilities_auth.start` → lazy headed client | no DB; opens dedicated local browser and acquires protected-profile lease | `apiStartNetFacilitiesAuthentication` | `workOrders.js` |
 | NF1b | POST | `/integrations/netfacilities/auth/confirm` | techfm_oa+ | `netfacilities.py` → `netfacilities_auth.confirm` → allowlisted page verification + storage-state save | no DB; secret-safe attempt state only | `apiConfirmNetFacilitiesAuthentication` | `workOrders.js` |
@@ -374,7 +376,11 @@ one no import has brought in.
   wins over a later or concurrent import. An archived match is counted as
   closed and ignored before merge/routing. Reads **users** to
   name-match the vendor `ASSIGNED TO` to a supervisor (`supervisor_id`) for live
-  rows. *The only path that creates a work order.*
+  rows. Each matched supervisor is then notified **once for the whole import**
+  (`work_order.supervisor_assigned_bulk`), counting only rows this import
+  created — the same branch `supervisors_matched` is computed on, so the push
+  and the on-screen summary cannot disagree. *The only path that creates a work
+  order.*
 - On the local Windows host, an Admin may call
   `apiStartNetFacilitiesAuthentication`, complete credentials/CAPTCHA/MFA directly in
   the dedicated headed browser, then call `apiConfirmNetFacilitiesAuthentication` (or
@@ -471,23 +477,35 @@ one no import has brought in.
   wrap inside the card.
 - `workOrders.js` (Save notes, any in-scope user) → `apiUpdateWorkOrder` → same
   route with one nonblank `{notes}` entry → row-locked `append_note_log` →
-  **work_orders.notes** append. The server prefixes Central `h:mm AM/PM`,
-  `MMDDYY`, and the authenticated user's `full_name`; existing/legacy text is
+  **work_orders.notes** append. The server prefixes Central
+  `MM/DD/YY hh:MM AM/PM` and the authenticated user's `full_name`;
+  existing/legacy text (including lines in the earlier bracketed shape) is
   retained. The response returns the complete log. The browser replaces the
   visible log from that response, clears the new-note textarea, and closes the
   nested Notes card. Blank input is rejected client-side; null cannot clear the
   stored log.
-- `workOrders.js` (Add labor Technician+ for self / Supervisor+ for anyone;
-  update+remove Supervisor+ only) →
+- `workOrders.js` (Start / Stop Tracking, assigned Technician or Supervisor+ on
+  any visible row) → `apiStartWorkOrderTracking` / `apiStopWorkOrderTracking` →
+  `/work-orders/{id}/tracking/start` or `/tracking/stop` →
+  **work_order_labor_sessions** and, on stop, **work_order_labor**. This is how
+  a technician's hours are produced. Start also advances a pre-work row to
+  In-Progress or resumes an On-Hold one; stopping the last clock on an
+  In-Progress row moves it back to On-Hold and the card says so, because a badge
+  changing on its own reads as a failed save. Each response is the whole
+  refreshed detail, so the card repaints from one call.
+- `workOrders.js` (Add / update / remove labor, **Supervisor+ only**) →
   `apiAddWorkOrderLabor` / `apiUpdateWorkOrderLabor` /
   `apiDeleteWorkOrderLabor` → `/work-orders/{id}/labor` or
   `/work-orders/{id}/labor/{labor_id}` →
-  **work_order_labor**. Entries store actual whole minutes per assigned
-  technician. Supervisor+ may manage any assigned technician; a Technician may
-  add only their own row and can neither revise nor remove one, so recorded
-  hours are correctable by a supervisor but never rewritten by their owner.
-  The card renders their own name in place of the technician picker. Detail billing
-  sums minutes, rounds upward once to 30 minutes, and
+  **work_order_labor**. Entries store actual whole minutes. A Technician's labor
+  card is a **read-only** list of the sessions they clocked — they cannot key,
+  revise, or remove a duration, so recorded hours are correctable by a
+  supervisor but never written or rewritten by their owner. Hand entry is the
+  correction route for a missed clock-in, and its picker also offers the
+  supervisor themselves even when they are not on the crew. Each entry shows the
+  session window it came from, falling back to the duration alone for manual and
+  pre-tracking rows, and an auto-capped entry is tagged "auto-stopped". Detail
+  billing sums minutes, rounds upward once to 30 minutes, and
   applies `$62.50/hour` (rate/charge TechFM OA+ only). Add/update/remove re-fetches
   detail and reopens the Labor card.
 - `adminReview.js` (TechFM OA and above) → `apiListWorkOrders({status: "review"})` →
@@ -611,7 +629,8 @@ Quick reverse lookup: "which endpoints touch table X?"
 | `work_orders` | 21 (activity status), 28, 29, 40 (fill-blanks), 55 (import f-o-c), 59 (activity status), 67 (start) | 20–21, 25–29, 36, 40, 55, 59–61, 63–64, 67–68 |
 | `work_order_items` | 21, 24, 30, 31, 32, 33, 45, 46 | 25, 26, 63 |
 | `work_order_technicians` | 28, 40, 55 | 25, 26, 28, 59, 64 |
-| `work_order_labor` | 59, 60, 61 | 26, 60, 61, 63 |
+| `work_order_labor` | 59, 60, 61, 71a, 71b | 26, 60, 61, 63 |
+| `work_order_labor_sessions` | 71a, 71b, 69, 70, 26 (PATCH into a stopping status), 64 (archive), 27 (lazy 12-hour cap on read) | 71a, 71b, 27, 69, 70 |
 | `mass_stages` | 34, 37, 38, 39 | 35, 36 |
 | `mass_stage_work_orders` | 40, 41 | 36 |
 | `mass_stage_items` | 42, 43, 44, 45, 46 | 36 |
@@ -1377,8 +1396,8 @@ attaches to an existing number and refuses an unknown one. Both share the
   technicians.
 - `update_work_order(id, fields, expected_supervisor_id?)` → explicit overwrite
   for ordinary fields plus row-locked append semantics for nonblank `notes`.
-  `domain.work_orders.append_note_log` adds Central time, `MMDDYY`, and the
-  authenticated `user.full_name`; null does not erase the log.
+  `domain.work_orders.append_note_log` adds Central `MM/DD/YY hh:MM AM/PM` and
+  the authenticated `user.full_name`; null does not erase the log.
   `_require_update_permissions` applies notes = Technician+,
   status/mode/routing/assignment = Supervisor+, and imported/legacy
   metadata = TechFM OA+. `assigned_to_ids` synchronizes **work_order_technicians**
@@ -1417,12 +1436,24 @@ attaches to an existing number and refuses an unknown one. Both share the
 - `get_work_order(id, user)` → scoped load (`WorkOrderNotFoundError` if unknown/
   archived/out-of-scope); **`_heal_orphan_lines`**: sum non-voided linked dispenses
   per item with no line and create the missing `work_order_items` rows (lazy
-  backfill, stock-neutral), commit if any healed.
+  backfill, stock-neutral), commit if any healed. Also **`_apply_session_cap`**:
+  close any tracking session that has outrun 12 hours, at its capped time. That
+  one takes the row lock first — unlike the orphan heal it produces a *labor*
+  row, and two readers racing would bill the same overnight session twice.
 - `add_work_order_labor` / `update_work_order_labor` /
-  `delete_work_order_labor` → scoped CRUD over **work_order_labor**. Create
-  requires Supervisor+, requires the target to be assigned, and applies
-  `status_after_activity`; update/delete also require Supervisor+ and do not
-  rewind lifecycle status.
+  `delete_work_order_labor` → scoped CRUD over **work_order_labor**. All three
+  require Supervisor+. Create requires the credited worker to be assigned **or**
+  to be the Supervisor themselves, and applies `status_after_activity`;
+  update/delete do not rewind lifecycle status.
+- `start_labor_session` / `stop_labor_session` → the tracked-time pair over
+  **work_order_labor_sessions**. Technician floor plus an assignment check that
+  Supervisor+ skips, row lock, idempotent. Start advances Created/Assigned via
+  `status_after_activity` and performs its own explicit On-Hold → In-Progress;
+  it also closes the caller's clock on any other work order first, returning
+  that row through `side_transitions` so its auto-hold notification still fires.
+  Stop writes the labor row, links `labor_id`, and moves an In-Progress row to
+  On-Hold when it closed the last clock. Every close appends a `stopped work`
+  note authored by the session's own technician.
 - `attach_dispense_line(work_order_id, item_id, qty, mode, transaction_id, user_id)`
   → the single "show a stock-out on the work order" home. It advances a
   Created/Assigned work order to In-Progress, leaves On-Hold unchanged, then finds the line by

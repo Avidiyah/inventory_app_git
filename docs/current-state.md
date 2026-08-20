@@ -30,12 +30,14 @@ For review/debugging work:
 3. Use `Test Map` to find existing coverage and missing coverage.
 
 If this file conflicts with code, trust the code and update this file as part of
-the change. The 2026-08-18 baseline is **83 router operations** across 12
-routers (82 HTTP + the `/ws` WebSocket) plus 4 app-level routes in `main.py`,
-Alembic head **`1d2e3f4a5b6c`** (33 revisions), and **1031 collected backend
+the change. The 2026-08-19 baseline is **85 router operations** across 12
+routers (84 HTTP + the `/ws` WebSocket) plus 4 app-level routes in `main.py`,
+Alembic head **`a2c4e6b8d0f1`** (34 revisions), and **1205 collected backend
 tests**.
 
-A document is describing a superseded baseline if it quotes 79 operations across
+A document is describing a superseded baseline if it quotes 83 operations across
+12 routers / `1d2e3f4a5b6c` / 33 revisions / 1031 tests (2026-08-18),
+79 operations across
 11 routers / `0c1d2e3f4a5b` / 32 revisions / 974 tests (2026-08-16, `4a211fb`),
 72 operations / `faa2c4e6b8d0` / 478 tests (2026-08-06), or 69 operations across
 9 routers / `fbc4e6a8d0f2` / 31 revisions / 659 tests (2026-08-10, `f0e3b3c`).
@@ -690,30 +692,49 @@ Work orders:
   the 41-character line width, name truncation, `NO PRICE` /
   `Total (incomplete)`, and money/quantity formatting all match, pinned by
   `tests/test_receipt.py`. Change one and the other has to move with it.
-- Live status is `created` → `assigned` → `in_progress` → `completed` →
-  `review`, with `on_hold` as a pause state that an assigned worker may enter
-  only from In-Progress and Supervisor+ may otherwise manage. Every new
+- Live status is `created` → `assigned` → `in_progress` → `ready_to_complete` →
+  `completed` → `review`, with `on_hold` as the pause state. **On-Hold now means
+  exactly one thing: nobody is on the clock.** Every new
   import starts Created. Assigning one or more technicians advances a
   pre-work row to Assigned, and clearing every technician returns an Assigned
   row to Created; later states never rewind automatically. The first committed
   material or labor activity advances Created/Assigned to In-Progress through
-  the same domain transition. An assigned Technician or Supervisor can use the
-  Work Orders card walkthrough: the existing narrow `POST
-  /work-orders/{id}/start` action moves Assigned to In-Progress, then the narrow
-  `POST /work-orders/{id}/complete` action finishes it. **Where that finish
+  the same domain transition.
+  The Work Orders card walkthrough is built on **tracked time**, not on status
+  buttons. `POST /work-orders/{id}/tracking/start` opens a labor session for the
+  caller and, as a side effect, advances a pre-work row to In-Progress or
+  resumes an On-Hold one — so "Set In-Progress" is no longer a button anyone has
+  to find. `POST /work-orders/{id}/tracking/stop` closes it, and when it closes
+  the **last** running session on an In-Progress row the work order moves itself
+  to On-Hold. Both are idempotent, and both are open to assigned Technicians
+  **and to Supervisor+ on any work order they can see** — a supervisor who does
+  the work records it without joining the crew.
+  The narrow `POST /work-orders/{id}/complete` action ("Notify Supervisor")
+  finishes the job and stops every clock on it. **Where that finish
   lands is the caller's role** (`domain.work_orders.completion_target_status`):
-  Supervisor+ reaches Completed, while a Technician's finish parks the row
-  On-Hold and appends the server-authored note `Placed On-Hold for Supervisor
-  Review`. Completed is the billing state the Admin review queue reads, so it
+  Supervisor+ reaches Completed, while a Technician's finish moves the row to
+  **Ready to Complete** and appends the server-authored note `marked work ready
+  to complete`. Ready to Complete is a real status rather than a note on an
+  On-Hold row, so a supervisor's filter separates "the job is done and waiting
+  on you" from "the crew is at lunch" without opening a card. From there
+  Supervisor+ gets Approve — Mark Completed (`PATCH {status: "completed"}`) and
+  Send Back (`PATCH {status: "in_progress"}`); no new endpoint. Send Back raises
+  `work_order.sent_back` to the assignees and the routed supervisor. Completed is the
+  billing state the Admin review queue reads, so it
   stays a supervisory decision even once the work itself is done. The rule keys
   on role rather than assignment because a Supervisor may also be an assigned
   worker and uses the same button. Idempotency compares against the caller's own
   target, so a double tap appends no second note.
+  `POST /work-orders/{id}/start` survives unchanged for the Scan / Stock
+  confirmation, which is a different surface with its own reasons.
   While In-Progress, the assigned worker also has a separate narrow `POST
-  /work-orders/{id}/hold` action that places the row On-Hold. While On-Hold, its
-  button is replaced by the assignment-checked `POST /work-orders/{id}/resume`
-  action, which returns the row to In-Progress. Supervisor+ retains the unchanged
-  general status controls as an additional management path.
+  /work-orders/{id}/hold` action that places the row On-Hold and stops **every**
+  clock on it. The assignment-checked `POST /work-orders/{id}/resume` returns the
+  row to In-Progress and deliberately **starts no clock**: stopping a clock can
+  only under-bill, while starting one bills somebody who may not be on site.
+  Supervisor+ retains the unchanged general status controls as an additional
+  management path; driving a row into `on_hold`, `ready_to_complete`, or
+  `completed` by PATCH also stops every session.
   Selecting an Assigned Scan / Stock card also confirms the start transition and
   starts the batch in place; Created still redirects to Work Orders for
   assignment. Supervisor+ retains general status rollback, On-Hold/resume, and
@@ -775,10 +796,11 @@ Work orders:
   elsewhere. A routing edit may target an active Admin or Supervisor. The
   editor sends its original `supervisor_id`; the service locks the row and
   returns a named 409 conflict if another request assigned it first. Notes,
-  adding materials, recording their own labor, and the assignment-checked
+  adding materials, tracking their own time, and the assignment-checked
   start/finish/hold/resume walkthrough are Technician+ — but a Technician's
-  finish lands On-Hold, not Completed (see the walkthrough rules below);
-  operational routing/general status/mode, labor corrections, and material
+  finish lands Ready to Complete, not Completed (see the walkthrough rules
+  below), and a Technician can no longer key labor hours by hand at all;
+  operational routing/general status/mode, hand-entered labor, and material
   corrections are Supervisor+; Review adds the Completed + second-person gate;
   imported/legacy metadata and close/archive are TechFM OA+; archive accepts
   any live status.
@@ -837,10 +859,12 @@ owner > admin > techfm_oa > supervisor > technician
 | Change a user's role | techfm_oa+ AND actor outranks both the current and the new role (so a TechFM OA can never touch an Admin or Owner, nor hand those roles out) |
 | Mass-stage page/API | supervisor+ |
 | Work Orders list/get/items | any authenticated user, server-scoped (Technician: assigned; Supervisor: unassigned OR routed to self OR assigned as a worker; TechFM OA+: all) |
-| Edit Work Order notes / add material / record own labor | any authenticated in-scope user |
-| Record labor for another worker | supervisor+ (scoped) |
+| Edit Work Order notes / add material | any authenticated in-scope user |
+| Start / stop time tracking | assigned Technician, or supervisor+ on any visible work order (no assignment needed) |
+| Record labor by hand (any worker, or self when unassigned) | supervisor+ (scoped) — the correction route; a Technician's hours come from tracked sessions |
 | Edit Work Order supervisor / technicians / status / entry mode / labor revision or removal / logged-material quantity or removal | supervisor+ (scoped) |
-| Finish assigned work into Completed | supervisor+ (a Technician's finish lands On-Hold for review) |
+| Finish assigned work into Completed | supervisor+ (a Technician's finish lands Ready to Complete for review) |
+| Approve / Send Back from Ready to Complete | supervisor+ (the existing status PATCH) |
 | Edit imported Work Order metadata (Location, Service, Schedule Date, Output to, Vendor Contact, Symptom/Task) | techfm_oa+ (scoped) |
 | Import work orders (CSV) | techfm_oa+ |
 | Export work orders (CSV, full or For Client) | techfm_oa+, server-scoped |
@@ -1120,20 +1144,30 @@ Rules:
   resolves an existing number via `resolve_work_order` and gets a 404 for one
   that was never imported. There is no create endpoint or form anywhere.
 - Live `status` values are `created`, `assigned`, `in_progress`, `on_hold`,
-  `completed`, and `review`. Closed is `archived_at`, not a stored status value.
+  `ready_to_complete`, `completed`, and `review`, in that lifecycle order —
+  which is also the order every dropdown and filter renders in. Closed is
+  `archived_at`, not a stored status value.
   On-Hold is stable during material/labor activity until Supervisor+ explicitly
-  resumes or rolls it back. New imports
+  resumes or rolls it back, or a technician taps Start Tracking (the tracking
+  service performs that transition itself rather than widening
+  `status_after_activity`). New imports
   default to Created; worker assignment derives Assigned, and the first
   material/labor activity derives In-Progress. Migration `f4c6e8a0b2d3` added
   the five-state lifecycle, while `f5d7f9b1c3e4` aligned existing pre-work rows
-  with technician assignment.
+  with technician assignment. **`ready_to_complete` needed no migration**:
+  `work_orders.status` is a plain `Text` column with no CHECK constraint, so
+  adding a value is app-level only.
 - `entry_mode` (`dispense` / `retroactive`) is the default mode for newly logged
   materials.
 - `notes` is an append-only plain-text log on the work order. Every nonblank
   Technician+ save is serialized under the Work Order row lock and appends
-  `[h:mm AM/PM] [MMDDYY] [Full Name] note text`, using server time converted to
-  `America/Chicago`. Pre-log free-form text remains intact; blank/null input
-  cannot erase the history.
+  `MM/DD/YY hh:MM AM/PM Full Name note text`, using server time converted to
+  `America/Chicago`. Pre-log free-form text and lines written in the earlier
+  `[h:mm AM/PM] [MMDDYY] [Full Name]` shape remain intact and are never
+  rewritten, so the two shapes coexist and age out; blank/null input cannot
+  erase the history. Start Tracking, Stop Tracking, and Notify Supervisor each
+  append a server-authored line through the same formatter, so the work
+  timeline is public rather than buried in the sessions table.
 - `work_order_technicians` is the authoritative plural assignment relation.
   Active Technician and Supervisor accounts are eligible workers; membership
   drives Technician visibility and also preserves a working Supervisor's scope
@@ -1243,12 +1277,20 @@ Fields: `id`, `work_order_id`, `technician_id`, `minutes`, `recorded_by_id`,
 
 Rules:
 
-- Each row records positive whole-minute actual labor attributed to a worker
-  assigned to the work order. Supervisor+ may create, edit, or remove labor for
-  any assigned Technician or Supervisor. A Technician may **create** labor for
-  themselves only, and may never edit or remove an entry — add-only is what
-  keeps the billed figure trustworthy, since hours can then be corrected by a
-  supervisor but never quietly rewritten by the person they belong to.
+- Each row records positive whole-minute actual labor attributed to a worker.
+  **Most rows are produced by stopping a tracked session** (see
+  `work_order_labor_sessions` below), not typed by anyone.
+- Hand-entering, editing, and removing labor are all **Supervisor+**. A
+  Technician cannot key a duration at all — their hours come from the clock, and
+  a supervisor is the only one who can correct the result. That is what keeps
+  the billed figure trustworthy: hours are never written, rewritten, or erased
+  by the person they are attributed to. The direct cost is that a forgotten
+  Start Tracking is unrecoverable by the technician who forgot it.
+- The credited worker must be assigned to the work order **or** be the
+  Supervisor recording themselves. That second case is a deliberate widening: a
+  supervisor who does the work attaches billable labor without joining the crew.
+  It is bounded by visibility and attributed by name, and the labor card already
+  lists every row regardless of assignment, so it renders with no special case.
 - Billing sums all actual minutes on the work order, rounds the combined total
   upward once to the next 30 minutes, then charges `$62.50/hour`. Rate and total
   are returned only to TechFM OA and above; actual and billed durations are visible to
@@ -1256,6 +1298,58 @@ Rules:
 - The first labor insert uses `status_after_activity`, advancing Created/Assigned
   to In-Progress while leaving On-Hold and later states unchanged. Editing or
   deleting labor never rolls lifecycle status backward.
+
+### `work_order_labor_sessions`
+
+Fields: `id`, `work_order_id`, `technician_id`, `started_at`, `ended_at`,
+`labor_id`, `auto_closed_at`, `created_at`, `updated_at`. Added by migration
+`a2c4e6b8d0f1`.
+
+Rules:
+
+- A session is the record of **when** somebody worked. `ended_at IS NULL` means
+  the clock is running. Stopping one computes minutes, creates a
+  `work_order_labor` row, and links it through `labor_id`.
+- **An open session contributes nothing to billing.** There is no labor row
+  yet, so `labor_minutes`, `billed_labor_minutes`, the receipt, and the CSV
+  export are exactly as correct for a job in progress as they were before
+  tracking existed. This is the property that made the change additive rather
+  than a rewrite of the billing path, and it is why sessions got their own
+  table instead of nullable timestamps on `work_order_labor` — a running
+  session has no duration, which would have forced `minutes` to become nullable
+  and made every consumer of that column learn to skip NULLs.
+- A **partial unique index** on `(technician_id) WHERE ended_at IS NULL`
+  enforces one running clock per person across every work order, in the
+  database rather than in a service check that races. Starting a clock while
+  one is running elsewhere closes the other first — writing its labor row, its
+  `stopped work` note, and running that work order's auto-hold. The abandoned
+  row comes back through `services.work_orders.side_transitions` so its
+  notification is not lost.
+- **Stopping the last clock on an In-Progress row moves it to On-Hold** and
+  fires `work_order.held`. A co-worker still tracking keeps it In-Progress, and
+  an idempotent repeat closes nothing, so it neither transitions nor notifies.
+- Sessions are stopped wherever work provably ended: Stop Tracking, `/hold`,
+  Notify Supervisor, archive, and a Supervisor's PATCH into `on_hold` /
+  `ready_to_complete` / `completed`. `/resume` starts none. Each closed session
+  writes its own `stopped work` note authored by **its own technician**, not by
+  whoever tapped.
+- **The 12-hour cap** (`domain.work_orders.LABOR_SESSION_MAX_MINUTES`,
+  `capped_session_minutes`) truncates a session that outran it, pulls
+  `ended_at` back to the capped instant so the note agrees with the minutes
+  billed, and sets `auto_closed_at`. It is applied **lazily** — on any read or
+  tracking write — because the app has no periodic task runner and a cron would
+  be new infrastructure for one rule; this follows the same pattern as
+  `_heal_orphan_lines`. A session on a work order nobody opens therefore stays
+  open past 12 hours until it is read, but still closes at the *correct* capped
+  time, so only the flag is late. The cap deliberately does **not** auto-hold: a
+  status change and a supervisor's phone buzzing as a side effect of somebody
+  opening a card would be indefensible. Auto-closed entries are tagged
+  "auto-stopped" on the labor card as a prompt to review, and nothing blocks
+  them from billing.
+- Because the cap writes its note at the capped time rather than the noticed
+  time, an auto-closed line can appear **out of chronological order** in the
+  log. Entries are appended in write order and never sorted; this is the one
+  case where the two differ.
 
 ### `tools`
 
@@ -1547,16 +1641,18 @@ the only way in.
 | GET | `/work-orders/{id}` | session scoped | work-order detail + append-only authored/timestamped note log + logged materials + labor totals |
 | PATCH | `/work-orders/{id}` | session scoped; field-sensitive | a nonblank note appends a server-stamped/authored log entry at Technician+; supervisor/technicians/general status/entry mode = Supervisor+; imported/legacy metadata = TechFM OA+; Review only from Completed by an unassigned routed Supervisor or TechFM OA+ (Admin, not TechFM OA); optional original supervisor precondition returns a named 409 on stale pickup |
 | POST | `/work-orders/{id}/start` | session scoped; Technician+ | idempotently move Assigned to In-Progress; no general Technician status-edit permission |
-| POST | `/work-orders/{id}/complete` | assigned worker | idempotently finish In-Progress work — Supervisor+ lands Completed, a Technician lands On-Hold with a review note and alerts the routed supervisor; rejects unassigned callers and grants no general status or Review permission |
-| POST | `/work-orders/{id}/hold` | assigned worker | idempotently move In-Progress to On-Hold and alert the routed supervisor; rejects unassigned/non-In-Progress callers and grants no general status permission |
-| POST | `/work-orders/{id}/resume` | assigned worker | idempotently move On-Hold to In-Progress; rejects unassigned/other-state callers and grants no general status permission |
+| POST | `/work-orders/{id}/tracking/start` | assigned worker, or supervisor+ on any visible row | idempotently open the caller's labor session; advances Created/Assigned to In-Progress and resumes On-Hold; rejects Ready to Complete and Completed; closes the caller's clock on any other work order first (which may auto-hold that row); fires no notification of its own |
+| POST | `/work-orders/{id}/tracking/stop` | assigned worker, or supervisor+ on any visible row | idempotently close the caller's session and write its labor row; moves an In-Progress row to On-Hold and alerts the routed supervisor **only** when it closed the last running clock |
+| POST | `/work-orders/{id}/complete` | assigned worker | idempotently finish In-Progress work and stop every clock on it — Supervisor+ lands Completed, a Technician lands Ready to Complete with a note and alerts the routed supervisor; rejects unassigned callers and grants no general status or Review permission |
+| POST | `/work-orders/{id}/hold` | assigned worker | idempotently move In-Progress to On-Hold, stop every clock, and alert the routed supervisor; rejects unassigned/non-In-Progress callers and grants no general status permission |
+| POST | `/work-orders/{id}/resume` | assigned worker | idempotently move On-Hold to In-Progress, starting no clock; rejects unassigned/other-state callers and grants no general status permission |
 | POST | `/work-orders/{id}/archive` | techfm_oa+ scoped | close a work order from any live status via soft archive (number reserved, lines kept, transactions untouched) |
 | POST | `/work-orders/{id}/restore` | supervisor+ scoped | explicit un-archive; the only way to return a closed work order to live views |
 | POST | `/work-orders/{id}/items` | Technician+ scoped | log/add a material (mode = work order's entry_mode); a dispense shortage may make expected stock negative and creates a linked recount request |
 | PATCH | `/work-orders/{id}/items/{wo_item_id}` | supervisor+ scoped | edit a material's quantity (dispense lines auto-correct stock) |
 | PATCH | `/work-orders/{id}/items/{wo_item_id}/billing` | techfm_oa+ scoped | set/clear the line's billing override (bill partial / zero / full). Its TechFM OA+ gate is a dependency, so it answers **before** Pydantic: a request that is both malformed and unauthorized returns 403, not 422 (see below) |
 | DELETE | `/work-orders/{id}/items/{wo_item_id}` | supervisor+ scoped | remove a material (dispense lines return stock; voids all contributing transactions and resolves their linked requests) |
-| POST | `/work-orders/{id}/labor` | technician+ scoped (own row only below supervisor) | add positive whole-minute labor for an assigned technician |
+| POST | `/work-orders/{id}/labor` | supervisor+ scoped | hand-enter positive whole-minute labor for an assigned worker, or for the Supervisor themselves; the correction route for a missed clock-in |
 | PATCH | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | replace actual minutes |
 | DELETE | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | remove an entry; status does not rewind |
 
@@ -1808,8 +1904,17 @@ Rules that apply to every trigger:
 - **A transition notifies only when it happened.** The narrow endpoints are
   idempotent, so both trigger sites compare the prior status the service
   stamped on the returned row; without that a slow double tap sends twice.
-- **One PATCH can be several events** — it may add assignees *and* move the
-  status — so the rules are evaluated independently.
+- **One PATCH can be several events** — it may add assignees, route a
+  supervisor, *and* move the status — so the rules are evaluated independently.
+  Both assignment rules sit outside the transition chain for that reason.
+- **A change is not a field being present.** The editor sends the whole form, so
+  the transition facts stamped on the returned row (`previous_status`,
+  `newly_assigned_ids`, `newly_routed_supervisor_id`) are what tell a real
+  change from a re-save. Without them, saving a note would re-notify the routed
+  supervisor.
+- **One event, one notification — except the CSV import**, which sends once per
+  matched supervisor rather than once per work order. The single batching
+  exception in the system, argued from volume and scoped to that route.
 - **Overlapping transitions resolve by branch order, and each resolution is
   pinned by a test.** One write can satisfy two rules (`completed → on_hold` is
   both "leaves Completed" and "entered On-Hold"); the arm that wins is a
@@ -2171,26 +2276,41 @@ Behavior:
   restores it. Blank/malformed schedule text sorts last, with creation time as a
   tiebreaker. Any active filter queries the complete matching set.
 - Cards are collapsible and their full collapsed background communicates status:
-  Created gray, Assigned red, In-Progress yellow, On-Hold orange, Completed blue,
+  Created gray, Assigned red, In-Progress yellow, On-Hold orange, Ready to
+  Complete violet, Completed blue,
   Review green, with contrasting text. Expanded bodies return to a white form surface. The
-  body has a Supervisor+ mode selector and status-appropriate actions. An
-  assigned Technician or Supervisor gets one walkthrough button: Set In-Progress
-  while Assigned, then Mark Completed while In-Progress, then no Review button.
-  Only while In-Progress, a second Place On-Hold button appears beside Mark
-  Completed. While On-Hold, those controls are replaced by one Resume
-  In-Progress button; it appears in no other state.
+  body has a Supervisor+ mode selector and status-appropriate actions.
+  **The technician's ladder is built on the clock, not on the lifecycle.**
+  Created/Assigned shows **Start Tracking** — "Set In-Progress" is gone,
+  because that transition is now a side effect of starting work, which is what
+  the button always meant. In-Progress shows Start Tracking (plus Place
+  On-Hold) when the viewer has no clock running, and **Stop Tracking · Notify
+  Supervisor ·** Place On-Hold when they do: Stop is "I'm pausing", Notify
+  Supervisor is "I'm done". Stop Tracking says so when it auto-holds the row —
+  *"Work stopped. Nobody is tracking, so this is now On-Hold."* — because a
+  badge changing on its own otherwise reads as a failed save. On-Hold shows
+  Start Tracking **beside** Resume In-Progress: Start is the one a returning
+  technician taps, since it resumes and starts the clock in one action, while
+  Resume stays for work resuming without the tapper doing it.
+  Ready to Complete shows Supervisor+ **Approve — Mark Completed** and **Send
+  Back**, and shows a technician a status hint with no actions.
+  Because tracking is Supervisor+ on any *visible* row, the buttons that require
+  assignment server-side (Notify Supervisor, Place On-Hold, Resume) are gated on
+  assignment client-side too; an unassigned supervisor tracking a row sees Stop
+  Tracking and Mark Completed.
   A routed Supervisor who is not assigned, or any unassigned TechFM OA+, sees Send to
   Review on Completed work; it still requires confirmation. An assigned
   Supervisor is deliberately excluded even when also routed, enforcing a second
   set of eyes. Supervisor+ retains Mark Completed for visible In-Progress work
   and Reopen as applicable, while the unchanged Edit details status dropdown
-  remains the general start/rollback/On-Hold control. The Review transition
+  remains the general rollback/On-Hold control — it does **not** offer
+  `ready_to_complete`, which like Review is reached by an action rather than
+  chosen from a menu, though unlike Review the field stays enabled so a
+  supervisor keeps the full rollback path. The Review transition
   places the row in final Admin Review. Material/labor activity still advances
   Created/Assigned automatically, and Scan/Stock retains its scoped Assigned
-  start action. An On-Hold card shows Resume In-Progress to an assigned worker
-  and Mark Completed to Supervisor+ — both when the viewer is each — because
-  with Technicians out of Completed every job now passes through On-Hold and a
-  supervisor must be able to close one out without opening Edit details. The
+  start action (its list still filters to Created/Assigned/In-Progress, so a
+  Ready to Complete row correctly never appears there). The
   body also has collapsed-by-default nested cards for Supervisor+ Edit details,
   Notes, Materials, and Labor. Opening
   Notes shows the accumulated plain-text log above an empty new-note textarea.
@@ -2200,10 +2320,16 @@ Behavior:
   controls; it reopens after add/update/remove or billing refreshes so newly
   rendered data stays visible. Technicians can add items but see existing
   quantities read-only; Supervisor+ may update/remove lines. Labor likewise
-  reopens after add/update/remove. Supervisor+ may manage any assigned
-  technician; an assigned Technician sees the card with existing rows read-only
-  and their own name in place of the technician picker, so they can add their
-  own hours and nothing else. TechFM OA and above additionally receives a confirmed Archive action on
+  reopens after add/update/remove. **A Technician's Labor card is entirely
+  read-only** — the hours input and Add labor button render for Supervisor+
+  only, because their rows come from stopping a session. Each entry shows the
+  session window it came from (`2:10–3:25 PM`, pre-formatted server-side in
+  Central so it cannot disagree with the note log beside it), falling back to
+  the duration alone for hand-entered rows and every row predating tracked
+  time; a capped entry carries an "auto-stopped" tag marking it an estimate.
+  A supervisor's technician picker also lists themselves, flagged "(not
+  assigned)", since they may credit their own labor without joining the crew.
+  TechFM OA and above additionally receives a confirmed Archive action on
   every live-status card.
 - Closing keeps the row, material lines, and transactions, but hides the work
   order from live views. `POST .../archive` requires TechFM OA+ from any live status;
@@ -2493,8 +2619,9 @@ Behavior:
   in-scope Technician+; status/entry mode/supervisor/technicians require
   Supervisor+; imported and legacy metadata require TechFM OA+. A nonblank note is
   appended under the existing row lock through the pure domain formatter, which
-  adds Central time, `MMDDYY`, and `user.full_name`; a null leaves the log
-  unchanged. Other supplied fields retain overwrite semantics. `assigned_to_ids`
+  adds Central `MM/DD/YY hh:MM AM/PM` and `user.full_name`; a null leaves the
+  log unchanged. Driving the row into `on_hold`, `ready_to_complete`, or
+  `completed` also stops every running labor session on it. Other supplied fields retain overwrite semantics. `assigned_to_ids`
   replaces the normalized assignment set while
   maintaining the singular compatibility mirror. Setting/clearing the plural
   set reconciles Created/Assigned;
@@ -2540,11 +2667,20 @@ Behavior:
   touches stock. The router builds `materials_total` (sum of
   `effective_billable * unit_price`) and per-line `unit_price`/`billable_quantity`
   for TechFM OA and above, redacted below.
-- `add_work_order_labor` requires Supervisor+ and a current technician
-  assignment, stores actual whole minutes, and applies the shared
-  activity-derived status transition. Update/delete are Supervisor+ as well.
-  Response totals use `billed_labor_minutes` and `labor_charge`:
-  sum first, round upward once to 30 minutes, then multiply by `$62.50/hour`.
+- `add_work_order_labor` requires Supervisor+ and a credited worker who is
+  either assigned or the Supervisor themselves, stores actual whole minutes, and
+  applies the shared activity-derived status transition. Update/delete are
+  Supervisor+ as well. Response totals use `billed_labor_minutes` and
+  `labor_charge`: sum first, round upward once to 30 minutes, then multiply by
+  `$62.50/hour`. **Rounding stays once over the combined total, not per
+  session** — a tracker makes short sessions easy, and rounding a 5-minute
+  return trip up to half an hour three times a day would silently inflate every
+  invoice.
+- `start_labor_session` / `stop_labor_session` are the tracked-time pair. Both
+  sit at the Technician floor with an assignment check that Supervisor+ skips,
+  both take the row lock, and both are idempotent. `_detail` shapes
+  `active_labor_session` (the caller's own clock) and `tracking_technician_ids`
+  (everyone's) per caller, the same way `include_price` already varied by rank.
 
 ### Tools
 
@@ -2619,7 +2755,7 @@ Behavior:
 
 ## Migration History
 
-Alembic head: `1d2e3f4a5b6c`.
+Alembic head: `a2c4e6b8d0f1`.
 
 | Revision | Meaning |
 | --- | --- |
@@ -2656,6 +2792,7 @@ Alembic head: `1d2e3f4a5b6c`.
 | `fbc4e6a8d0f2` | hash session tokens at rest (`sessions.token_hash` replaces the raw token) + `login_attempts` throttle counters |
 | `0c1d2e3f4a5b` | nullable `work_orders.priority`; no default and no backfill, written only by NetFacilities enrichment |
 | `1d2e3f4a5b6c` | `push_subscriptions` for Web Push opt-in, keyed on `endpoint` so a re-subscribe reassigns a shared device rather than duplicating it; nothing to backfill |
+| `a2c4e6b8d0f1` | `work_order_labor_sessions` for tracked start/stop labor, with a partial unique index on `(technician_id) WHERE ended_at IS NULL` enforcing one running clock per person; nothing backfilled, so existing labor rows keep rendering as a bare duration. The new `ready_to_complete` status needed no migration — `work_orders.status` has no CHECK constraint |
 
 ## Test Map
 
@@ -2689,6 +2826,7 @@ Coverage map:
 | `test_history_price_snapshot.py` | frozen `unit_price` snapshot; non-zero rows unchanged by price edits; snapshot 0 / NULL falls back to live price |
 | `test_roles.py` | five-role hierarchy, TechFM OA's position and limits, labels, and transaction/user-management rules |
 | `test_role_mirror_parity.py` | `static/roles.js` ranks/roles/labels match `app/domain/roles.py` |
+| `test_work_order_status_parity.py` | the status vocabulary agrees across its four hand-edited homes — `ALL_STATUSES`, `statusLabel`, the page filter (values **and** lifecycle order), and the badge/accent/hover CSS — plus the `renderBody` action names matching their click handlers |
 | `test_route_role_gates.py` | important route minimum-role gates, plus a guard that no route gate is left at the Admin floor |
 | `test_user_requests.py` | DB-backed recount lifecycle; Technician own-scan removal boundaries; deduplicated missing-price requests across work orders; NULL/`$0.00` price detection; positive-price+link automatic resolution; simultaneous recount + missing-price creation; Admin resolve/reopen lifecycle |
 | `test_barcodes.py` | backend image decode and supported formats |
@@ -2702,8 +2840,8 @@ Coverage map:
 | `test_mass_staging.py` | pure mass-stage allocation/lifecycle rules |
 | `test_mass_stages_api.py` | schemas, route gates, response builders |
 | `test_mass_staging_load.py` | DB-backed slot load/return, add-work-order enforce-match + refusal of an unimported number, Technician/Supervisor worker assignment, reuse |
-| `test_work_orders_domain.py` | pure number normalization, six live statuses including stable On-Hold, community-filter vocabulary/validation, plural worker-derived Created/Assigned state, activity-derived In-Progress, authored/timestamped note-log formatting, combined labor rounding/charge, fill-blanks, Technician/Supervisor worker visibility scope |
-| `test_work_orders_service.py` | DB-backed find-or-create, resolve-only attach, plural Technician/Supervisor assignment/scope, Admin/Supervisor routing targets, assigned-worker start/completion/On-Hold/resume actions, Completed-only two-person Review handoff, Supervisor+-only per-worker labor writes, lifecycle/status/append-only authored notes/archive/materials, Technician/Supervisor zero-stock add with recount creation and Supervisor removal resolution, Owner-only live-legacy preview/re-archive selection, AND-composed advanced filters, community aliases/multi-membership/Academics fallback, scoped filter options, and list cap |
+| `test_work_orders_domain.py` | pure number normalization, seven live statuses in lifecycle order including stable On-Hold and the new `ready_to_complete`, community-filter vocabulary/validation, plural worker-derived Created/Assigned state, activity-derived In-Progress, `MM/DD/YY hh:MM AM/PM` note-log formatting (zero-padded hour, midnight/noon, naive-as-UTC, old lines preserved verbatim), the 12-hour session cap and its 1-minute floor, combined labor rounding/charge, fill-blanks, Technician/Supervisor worker visibility scope |
+| `test_work_orders_service.py` | DB-backed find-or-create, resolve-only attach, plural Technician/Supervisor assignment/scope, Admin/Supervisor routing targets, assigned-worker start/finish/On-Hold/resume actions, tracked labor sessions (open/idempotent/refused past Ready to Complete, the auto-hold on the last clock out, a co-worker keeping it In-Progress, hold and finish stopping every clock with each note authored by its own technician, resume starting none, the cross-work-order auto-stop and its `side_transitions` hand-back, the partial unique index, archive, the lazy cap writing at the capped time without auto-holding, and an open session billing nothing), Completed-only two-person Review handoff, Supervisor+-only labor writes including a supervisor crediting themselves unassigned, lifecycle/status/append-only authored notes/archive/materials, Technician/Supervisor zero-stock add with recount creation and Supervisor removal resolution, Owner-only live-legacy preview/re-archive selection, AND-composed advanced filters, community aliases/multi-membership/Academics fallback, scoped filter options, and list cap |
 | `test_work_order_import.py` | CSV parsing/import, required-number-header and UTF-8 preflight, blank/missing-task NetFacilities fallback, generated-to-real replacement, duplicate-row precedence, manual-task preservation, full-name Admin/Supervisor routing independent of Created status, unmatched/ambiguous/archived/ineligible-role fallback, idempotence, closed-row count/no-mutation, and Admin gate |
 | `test_work_order_name_responses.py` | work-order response exposes plural operational names, rounded labor detail/totals, and the note-log text while omitting login usernames |
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
@@ -2750,9 +2888,9 @@ Coverage map:
 | `test_push_domain.py` | pure Web Push response classification and endpoint allowlist |
 | `test_vapid_keys.py` | VAPID keypair interoperability (not cryptography) |
 | `test_push_subscriptions.py` | Owner-only send gate, the two separate role floors, and the Admin-and-above test audience derived from rank; DB-backed endpoint reassignment on a shared device, caller-scoped delete, archived-user exclusion, delete-only-on-404/410, and the SSRF guard refusing a disallowed endpoint before any request — on both fan-out entry points. Its fan-out tests hide any subscription the developer's own database holds, inside the rolled-back transaction; without that a genuinely enrolled device joins every send under test |
-| `test_notifications_domain.py` | pure recipient rules: actor suppression, dedup, dropping an unrouted supervisor, and that message text interpolates the work-order number and nothing else |
+| `test_notifications_domain.py` | pure recipient rules: actor suppression, dedup, dropping an unrouted supervisor, and that message text interpolates a work-order number or a count and nothing else. Every event is partitioned into a number event or a count event, so a new one cannot skip that decision |
 | `test_notifications.py` | recipient resolution against the DB, that nothing is scheduled without recipients or without a VAPID key, and that delivery opens its own session and swallows failures |
-| `test_work_orders_notifications.py` | every trigger at its route: right recipients, one notification per event across an idempotent repeat, one PATCH producing two events, the ordering that makes `completed → on_hold` a hold rather than a reopen, the unrouted-hold fallback to Admin+, and a broken rule never failing the write |
+| `test_work_orders_notifications.py` | every trigger at its route: right recipients, one notification per event across an idempotent repeat, one PATCH producing two events, the ordering that makes `completed → on_hold` a hold rather than a reopen, the unrouted-hold fallback to Admin+, `/tracking/start` firing nothing while `/tracking/stop` fires `held` only on the auto-hold (and nothing when a co-worker is still tracking, on a repeat, or when the actor is the routed supervisor), the abandoned work order's alert surviving a cross-work-order start, the Ready to Complete approve/send-back pair (send-back now reaching the technician, and reading differently from a return from Review), supervisor routing notifying only the new supervisor and staying silent on a re-save or a clear, and a broken rule never failing the write |
 
 No frontend test harness exists. For UI behavior, run backend tests plus manual
 browser checks for changed pages.

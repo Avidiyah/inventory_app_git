@@ -597,10 +597,25 @@ export async function apiStartWorkOrder(workOrderId) {
   return jsonRequest(`/work-orders/${workOrderId}/start`, "POST", {});
 }
 
-// The second Work Orders walkthrough step is narrower: the caller must be one
-// of the assigned workers. It cannot pause, roll back, or send work to Review.
+// "Notify Supervisor" on the card. The caller must be one of the assigned
+// workers; it cannot pause, roll back, or send work to Review. A Technician
+// lands Ready to Complete, Supervisor+ lands Completed, and either way every
+// clock on the work order stops.
 export async function apiCompleteWorkOrder(workOrderId) {
   return jsonRequest(`/work-orders/${workOrderId}/complete`, "POST", {});
+}
+
+// Start / stop the caller's own labor clock. Assigned Technicians, plus
+// Supervisor+ on any visible work order. Both are idempotent and both return
+// the refreshed WorkOrderDetail, so the card repaints from one response.
+// Starting advances a pre-work row to In-Progress and resumes an On-Hold one;
+// stopping the last clock on an In-Progress row puts it back On-Hold.
+export async function apiStartWorkOrderTracking(workOrderId) {
+  return jsonRequest(`/work-orders/${workOrderId}/tracking/start`, "POST", {});
+}
+
+export async function apiStopWorkOrderTracking(workOrderId) {
+  return jsonRequest(`/work-orders/${workOrderId}/tracking/stop`, "POST", {});
 }
 
 // Assigned workers may pause only an In-Progress row. Resuming remains part of

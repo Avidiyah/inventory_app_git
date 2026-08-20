@@ -210,7 +210,23 @@ def test_a_return_from_review_reads_differently_from_a_reopen():
 
 # --- message text --------------------------------------------------------
 
-@pytest.mark.parametrize("event", notif.ALL_EVENTS)
+# Every event names one work order except the bulk import send, which
+# tallies several and has none to name. The partition is spelled out so a
+# new event has to be sorted into one half deliberately;
+# `test_every_event_is_either_a_number_event_or_a_count_event` fails if
+# somebody adds one and skips that step.
+_COUNT_EVENTS = (notif.EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED_BULK,)
+_NUMBER_EVENTS = tuple(
+    event for event in notif.ALL_EVENTS if event not in _COUNT_EVENTS
+)
+
+
+def test_every_event_is_either_a_number_event_or_a_count_event():
+    assert set(_NUMBER_EVENTS) | set(_COUNT_EVENTS) == set(notif.ALL_EVENTS)
+    assert not set(_NUMBER_EVENTS) & set(_COUNT_EVENTS)
+
+
+@pytest.mark.parametrize("event", _NUMBER_EVENTS)
 def test_every_event_has_words_and_names_the_work_order(event):
     title, body = notif.build_message(event, number="WO-1234")
 
@@ -218,18 +234,119 @@ def test_every_event_has_words_and_names_the_work_order(event):
     assert "WO-1234" in body
 
 
-@pytest.mark.parametrize("event", notif.ALL_EVENTS)
+@pytest.mark.parametrize("event", _COUNT_EVENTS)
+def test_a_count_event_has_words_and_states_the_tally(event):
+    title, body = notif.build_message(event, count=40)
+
+    assert title.strip()
+    assert "40" in body
+
+
+@pytest.mark.parametrize("event", _NUMBER_EVENTS)
 def test_a_message_interpolates_nothing_but_the_number(event):
     """The lock-screen rule, enforced at the signature. `build_message`
-    takes a number and no other field, so no future edit can quote a
-    customer or an address into a notification without changing this
-    contract first -- which is the change worth arguing about."""
+    takes a number and a count and no other field, so no future edit can
+    quote a customer or an address into a notification without changing
+    that contract first -- which is the change worth arguing about."""
     _, body = notif.build_message(event, number="{description}{notes}")
 
     assert body.count("{description}{notes}") == 1
+
+
+def test_the_bulk_message_says_nothing_about_any_work_order():
+    """A count is allowed past the lock-screen rule precisely because it
+    identifies nothing. If this message ever grows a number, a customer, or
+    a location, that argument stops holding."""
+    _, body = notif.build_message(
+        notif.EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED_BULK, count=40, number="WO-1"
+    )
+
+    assert "WO-1" not in body
 
 
 def test_an_unknown_event_raises_rather_than_buzzing_silently():
     """A notification with no words is worse than no notification."""
     with pytest.raises(ValueError):
         notif.build_message("work_order.invented", number="WO-1")
+
+
+def test_an_event_missing_the_field_its_text_needs_raises():
+    """What a caller hits by reaching for the bulk event with one work
+    order in hand. Better a logged exception the router swallows than a
+    phone buzzing with a literal `{count}`."""
+    with pytest.raises(ValueError):
+        notif.build_message(
+            notif.EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED_BULK, number="WO-1"
+        )
+
+    with pytest.raises(ValueError):
+        notif.build_message(
+            notif.EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED, count=3
+        )
+
+
+# --- the two new rules ---------------------------------------------------
+
+def test_send_back_reaches_the_assignees_and_the_supervisor():
+    first = uuid.uuid4()
+    second = uuid.uuid4()
+    supervisor = uuid.uuid4()
+
+    assert notif.recipients_for_send_back(
+        assignee_ids=[first, second],
+        supervisor_id=supervisor,
+        actor_id=None,
+    ) == [first, second, supervisor]
+
+
+def test_the_supervisor_sending_work_back_is_not_told_about_it():
+    worker = uuid.uuid4()
+    supervisor = uuid.uuid4()
+
+    assert notif.recipients_for_send_back(
+        assignee_ids=[worker],
+        supervisor_id=supervisor,
+        actor_id=supervisor,
+    ) == [worker]
+
+
+def test_send_back_reads_differently_from_a_reopen_and_a_review_return():
+    """Three rules, one audience. The words are the only thing that tells
+    a technician whether the work is live again, an Admin wants changes, or
+    their own supervisor rejected the handoff -- so collapsing any two of
+    these deletes the only thing the recipient needed."""
+    bodies = {
+        notif.build_message(event, number="WO-1")[1]
+        for event in (
+            notif.EVENT_WORK_ORDER_SENT_BACK,
+            notif.EVENT_WORK_ORDER_REOPENED,
+            notif.EVENT_WORK_ORDER_RETURNED_FROM_REVIEW,
+        )
+    }
+
+    assert len(bodies) == 3
+
+
+def test_a_routed_supervisor_is_the_whole_audience_for_their_assignment():
+    supervisor = uuid.uuid4()
+
+    assert notif.recipients_for_supervisor_assignment(
+        supervisor_id=supervisor, actor_id=uuid.uuid4()
+    ) == [supervisor]
+
+
+def test_a_supervisor_claiming_a_work_order_does_not_notify_themselves():
+    supervisor = uuid.uuid4()
+
+    assert notif.recipients_for_supervisor_assignment(
+        supervisor_id=supervisor, actor_id=supervisor
+    ) == []
+
+
+def test_clearing_the_routing_notifies_nobody():
+    """`None` means the work order was un-routed. There is no fallback
+    audience here, unlike the hold rules -- the event *is* somebody taking
+    ownership, so nobody taking it is not an escalation."""
+    assert notif.recipients_for_supervisor_assignment(
+        supervisor_id=None, actor_id=uuid.uuid4()
+    ) == []

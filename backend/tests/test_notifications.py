@@ -324,6 +324,96 @@ def test_a_delivery_failure_is_swallowed(db, monkeypatch, configured):
     task.func(*task.args)  # must not raise
 
 
+# --- the bulk import send -----------------------------------------------
+
+def test_a_supervisor_gets_one_notification_for_a_whole_import(db, configured):
+    """The exception to "one event, one notification", and the reason it
+    exists: forty separate pushes in a few seconds is not a notification,
+    it is a denial of service aimed at the person who most needs to read
+    it."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+
+    background = BackgroundTasks()
+    notifications_service.notify_supervisors_assigned_bulk(
+        db,
+        background,
+        routing={supervisor.id: [f"WO-{n}" for n in range(40)]},
+        actor_id=admin.id,
+    )
+
+    (user_ids, _title, body), = _scheduled(background)
+    assert user_ids == [supervisor.id]
+    assert "40" in body
+
+
+def test_each_matched_supervisor_is_scheduled_separately(db, configured):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    first = _seed_user(db, roles.ROLE_SUPERVISOR)
+    second = _seed_user(db, roles.ROLE_SUPERVISOR)
+
+    background = BackgroundTasks()
+    notifications_service.notify_supervisors_assigned_bulk(
+        db,
+        background,
+        routing={first.id: ["WO-1", "WO-2"], second.id: ["WO-3", "WO-4"]},
+        actor_id=admin.id,
+    )
+
+    assert [args[0] for args in _scheduled(background)] == [
+        [first.id],
+        [second.id],
+    ]
+
+
+def test_a_single_matched_work_order_is_named_rather_than_counted(db, configured):
+    """"1 work orders have been assigned to you" is the small half of the
+    reason. The larger one is that a supervisor who received exactly one
+    work order can be told which one, and that is strictly more useful."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+
+    background = BackgroundTasks()
+    notifications_service.notify_supervisors_assigned_bulk(
+        db,
+        background,
+        routing={supervisor.id: ["WO-77"]},
+        actor_id=admin.id,
+    )
+
+    (_user_ids, _title, body), = _scheduled(background)
+    assert "WO-77" in body
+    assert "1 work orders" not in body
+
+
+def test_an_importer_who_matched_themselves_is_not_notified(db, configured):
+    """A supervisor with the TechFM OA rank runs the import and their own
+    name matches some rows. They are the actor and already know."""
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    other = _seed_user(db, roles.ROLE_SUPERVISOR)
+
+    background = BackgroundTasks()
+    notifications_service.notify_supervisors_assigned_bulk(
+        db,
+        background,
+        routing={supervisor.id: ["WO-1", "WO-2"], other.id: ["WO-3"]},
+        actor_id=supervisor.id,
+    )
+
+    assert [args[0] for args in _scheduled(background)] == [[other.id]]
+
+
+def test_an_import_that_matched_nobody_schedules_nothing(db, configured):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+
+    background = BackgroundTasks()
+    notifications_service.notify_supervisors_assigned_bulk(
+        db, background, routing={}, actor_id=admin.id
+    )
+
+    assert background.tasks == []
+
+
 class _NullSession:
     def close(self):
         pass

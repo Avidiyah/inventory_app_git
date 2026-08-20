@@ -174,8 +174,10 @@ Capabilities added after the improvement batch include:
   Save replaces the complete plural assignment set. The Supervisor selector
   lists active Admins and Supervisors. Notes, Materials, and Labor
   are also nested cards that start collapsed. Notes displays its accumulated
-  text log above an empty input; Save appends `[TIME] [MMDDYY] [User]` metadata,
-  clears the input, and closes the card. Materials and Labor reopen after their
+  text log above an empty input; Save appends `MM/DD/YY hh:MM AM/PM User`
+  metadata, clears the input, and closes the card. The same line shape carries
+  the automatic `began work` / `stopped work` / `marked work ready to complete`
+  entries, so the log reads as one timeline. Materials and Labor reopen after their
   write-triggered detail refreshes so the changed rows remain visible. Logged material rows, the total, and Add Item controls
   stay grouped inside Materials. TechFM OA and above additionally receives a confirmed
   Archive action on every expanded live-status card.

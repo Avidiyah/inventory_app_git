@@ -97,10 +97,26 @@ Two follow-on details worth knowing when touching this code:
 - `input:-webkit-autofill` needs the box-shadow-inset override in
   `styles.css` — Chromium/WebKit force a light autofill background that no
   ordinary `background-color` rule can remove.
-- A native `<select>`'s closed box picks up `--input-bg`/`--text-panel` fine,
-  but its open dropdown list is OS-rendered and outside CSS's reach; it may
-  still show light on some platforms. This is a known limitation, not a bug
-  to chase.
+- A native `<select>`'s open dropdown list is OS-rendered and outside CSS's
+  direct reach, so it doesn't pick up `--input-bg`/`--text-panel` the way the
+  closed box does. `color-scheme: dark` on `:root` (`styles.css`) and
+  `select option { background-color / color }` both help, but on some
+  Windows/Chromium builds the browser hands the popup off to a fully
+  OS-drawn combobox that ignores page CSS entirely — confirmed by field
+  testing on 2026-08-20 (screenshot: white system popup despite both rules
+  in place). There is no reliable CSS-only fix for that path.
+
+  The **only** dependable fix is to not use a native `<select>` where the
+  popup must match the theme: build a custom listbox instead, the way the
+  work-order technician picker already does (`.wo-tech-search` /
+  `.wo-tech-results` in `views/workOrders.js` / `styles.css`). The Status and
+  Supervisor fields on the work-order card editor (`comboHtml()` /
+  `.wo-combo-*` in the same two files) follow this pattern: a real `<select>`
+  stays in the DOM, hidden, purely to hold the value for existing save/read
+  code; a styled trigger button + `.wo-combo-list` popover (visually matching
+  `.wo-tech-results`) is what the user actually sees and clicks. Reach for
+  this pattern for any future dropdown that needs to look right rather than
+  a native `<select>`.
 
 ### Dark glass (brand/photo moments only)
 

@@ -349,6 +349,7 @@ SHELL_PARTS = (
     "pages/admin-review.html",
     "pages/tools.html",
     "pages/history.html",
+    "pages/integrations.html",
     "shell-tail.html",          # </main>, scan-confirm overlay, scripts, </body></html>
 )
 

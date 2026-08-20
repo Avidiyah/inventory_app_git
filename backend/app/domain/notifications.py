@@ -11,10 +11,15 @@ these against the database; `services/push.py` delivers.
 contain a customer name, an address, a job description, note text, or a
 price. A work-order *number* is deliberately allowed: it is an opaque
 identifier rather than a detail, it is what makes the notification
-actionable, and it is already visible to anyone holding the phone. The
-line is identifiers yes, human-readable detail no -- which is why
-`build_message` accepts a number and nothing else. Widening that
-signature is the change to argue about, not the strings.
+actionable, and it is already visible to anyone holding the phone.
+
+The line is **identifiers and counts yes, human-readable detail no.**
+`build_message` accepts a `number` and a `count`, and widening it past
+those two is the change to argue about, not the strings. `count` was
+added for the bulk import event: "40 work orders have been assigned to
+you" names no work order, no customer, and no job -- a tally of your own
+queue discloses nothing to somebody holding the phone that the badge on
+the app icon would not.
 """
 
 from typing import Iterable, Optional, Sequence
@@ -28,6 +33,11 @@ EVENT_WORK_ORDER_REOPENED = "work_order.reopened"
 EVENT_WORK_ORDER_RETURNED_FROM_REVIEW = "work_order.returned_from_review"
 EVENT_WORK_ORDER_HELD = "work_order.held"
 EVENT_WORK_ORDER_HELD_FOR_REVIEW = "work_order.held_for_review"
+EVENT_WORK_ORDER_SENT_BACK = "work_order.sent_back"
+EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED = "work_order.supervisor_assigned"
+EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED_BULK = (
+    "work_order.supervisor_assigned_bulk"
+)
 
 ALL_EVENTS = (
     EVENT_WORK_ORDER_ASSIGNED,
@@ -36,6 +46,9 @@ ALL_EVENTS = (
     EVENT_WORK_ORDER_RETURNED_FROM_REVIEW,
     EVENT_WORK_ORDER_HELD,
     EVENT_WORK_ORDER_HELD_FOR_REVIEW,
+    EVENT_WORK_ORDER_SENT_BACK,
+    EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED,
+    EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED_BULK,
 )
 
 # Completion is the one rule addressed to a rank rather than to named
@@ -74,6 +87,18 @@ _MESSAGES = {
     EVENT_WORK_ORDER_HELD_FOR_REVIEW: (
         "Work order ready for review",
         "{number} is finished and waiting on your review.",
+    ),
+    EVENT_WORK_ORDER_SENT_BACK: (
+        "Work order sent back",
+        "{number} was sent back and needs more work.",
+    ),
+    EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED: (
+        "Work order assigned to you",
+        "{number} has been assigned to you.",
+    ),
+    EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED_BULK: (
+        "Work orders assigned to you",
+        "{count} work orders have been assigned to you.",
     ),
 }
 
@@ -173,6 +198,57 @@ def recipients_for_return_from_review(
     )
 
 
+def recipients_for_send_back(
+    *,
+    assignee_ids: Sequence[uuid.UUID],
+    supervisor_id: Optional[uuid.UUID],
+    actor_id: Optional[uuid.UUID],
+) -> list[uuid.UUID]:
+    """A supervisor rejected a finished job from Ready to Complete.
+
+    The third rule sharing this audience -- assignees plus the routed
+    supervisor -- and, like the reopen/returned pair above, kept separate
+    for the only reason that matters on a lock screen. A reopen says the
+    work is live again; a return from Review says an Admin wants changes;
+    this says the crew's own supervisor did not accept the handoff. The
+    technician's next move differs in each case and the words have to say
+    which one happened.
+
+    The routed supervisor is in the audience even though they are usually
+    the one tapping Send Back -- actor suppression removes them for free
+    in that case. The row earns its place when an Admin, or a second
+    supervisor, rejects work over the owning supervisor's head: they own
+    the outcome and have just had their crew put back on the job.
+    """
+    return select_recipients(
+        [*assignee_ids, supervisor_id], actor_id=actor_id
+    )
+
+
+def recipients_for_supervisor_assignment(
+    *,
+    supervisor_id: Optional[uuid.UUID],
+    actor_id: Optional[uuid.UUID],
+) -> list[uuid.UUID]:
+    """A work order was routed to a supervisor -- tell that supervisor.
+
+    An audience of exactly one, and deliberately no fallback: unlike the
+    hold rules there is no "nobody owns this" case to cover, because the
+    event *is* somebody taking ownership. A `None` supervisor means the
+    routing was cleared rather than set, and `select_recipients` drops it
+    to an empty audience, which is correct -- nobody was assigned.
+
+    A supervisor claiming an unrouted work order for themselves is the
+    actor and is suppressed. That is the common case on the PATCH path and
+    the reason this goes through `select_recipients` rather than returning
+    a one-element list.
+
+    Says nothing to whoever held the routing before. Losing a work order
+    is real news and is not sent today; see the registry.
+    """
+    return select_recipients([supervisor_id], actor_id=actor_id)
+
+
 def recipients_for_hold(
     *,
     supervisor_id: Optional[uuid.UUID],
@@ -200,14 +276,39 @@ def recipients_for_hold(
     return select_recipients(admin_ids, actor_id=actor_id)
 
 
-def build_message(event_type: str, *, number: str) -> tuple[str, str]:
+def build_message(
+    event_type: str,
+    *,
+    number: Optional[str] = None,
+    count: Optional[int] = None,
+) -> tuple[str, str]:
     """The `(title, body)` a device will display for one event.
 
-    `number` is the only thing interpolated, on purpose -- see the module
-    docstring. An unknown event type raises rather than sending an empty
-    notification, since a buzz with no words is worse than no buzz.
+    A work-order `number` and a `count` are the only things interpolated,
+    on purpose -- see the module docstring. Both are optional because no
+    template uses both: every event names one work order or tallies
+    several, never both, and forcing callers to pass a `None` for the one
+    they do not have would make the wrong call site look correct.
+
+    Two ways this raises rather than sending something wrong, because a
+    buzz with no words is worse than no buzz:
+
+    - an event with no text at all, and
+    - an event whose template needs a field this call did not supply,
+      which is what a caller reaching for the bulk event with a single
+      work order in hand would hit.
     """
     if event_type not in _MESSAGES:
         raise ValueError(f"no notification text for event {event_type!r}")
     title, body = _MESSAGES[event_type]
-    return title, body.format(number=number)
+    supplied = {
+        name: value
+        for name, value in (("number", number), ("count", count))
+        if value is not None
+    }
+    try:
+        return title, body.format(**supplied)
+    except KeyError as exc:
+        raise ValueError(
+            f"notification text for event {event_type!r} needs {exc.args[0]!r}"
+        ) from exc

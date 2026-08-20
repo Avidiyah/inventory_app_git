@@ -24,7 +24,7 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
-from fastapi import HTTPException, UploadFile
+from fastapi import BackgroundTasks, HTTPException, UploadFile
 
 from app.domain import roles
 from app.routers import barcodes as barcodes_router
@@ -236,7 +236,7 @@ def test_import_passes_a_normal_csv_through_to_the_service(monkeypatch):
     monkeypatch.setattr(work_orders_router.wo_service, "import_work_orders", fake_import)
 
     result = work_orders_router.import_work_orders(
-        file=_upload(payload), user=_admin(), db=None
+        BackgroundTasks(), file=_upload(payload), user=_admin(), db=None
     )
 
     assert seen["csv_bytes"] == payload
@@ -251,7 +251,10 @@ def test_import_refuses_a_csv_over_twenty_five_megabytes(monkeypatch):
 
     with pytest.raises(HTTPException) as exc:
         work_orders_router.import_work_orders(
-            file=_declared_oversize(MAX_CSV_UPLOAD_BYTES), user=_admin(), db=None
+            BackgroundTasks(),
+            file=_declared_oversize(MAX_CSV_UPLOAD_BYTES),
+            user=_admin(),
+            db=None,
         )
 
     assert exc.value.status_code == 413

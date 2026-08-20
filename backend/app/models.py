@@ -336,10 +336,13 @@ class WorkOrder(Base):
     creates one. Everywhere else a number is used, it must already name a row
     (`services.work_orders.resolve_work_order`).
 
-    Live `status` follows `created -> assigned -> in_progress -> completed ->
-    review`, with `on_hold` as a supervisor-controlled pause state: technician
-    assignment derives Assigned and first material/labor activity derives
-    In-Progress. Closed is represented by `archived_at`.
+    Live `status` follows `created -> assigned -> in_progress ->
+    ready_to_complete -> completed -> review`, with `on_hold` as the pause
+    state: technician assignment derives Assigned and first material/labor
+    activity derives In-Progress. Ready to Complete is the crew's handoff to a
+    supervisor; On-Hold means nobody is on the clock, and the tracking service
+    sets it when the last session stops. Closed is represented by
+    `archived_at`.
     `entry_mode` (`dispense` |
     `retroactive`) is the default mode for newly logged materials: dispense moves
     stock, retroactive is a stock-neutral paper backfill.
@@ -365,7 +368,8 @@ class WorkOrder(Base):
     # from the generic work-order edit/import contracts.
     priority = Column(Text, nullable=True)
     # Append-only plain-text operational log. New entries are server-formatted
-    # as [TIME] [MMDDYY] [User] text; pre-log free-form content is preserved.
+    # as MM/DD/YY hh:MM AM/PM User text; pre-log free-form content and lines in
+    # the earlier [TIME] [MMDDYY] [User] shape are preserved, never rewritten.
     notes = Column(Text, nullable=True)
     status = Column(Text, nullable=False, default="created", server_default="created")
     entry_mode = Column(Text, nullable=False, default="dispense", server_default="dispense")
@@ -425,6 +429,12 @@ class WorkOrder(Base):
         back_populates="work_order",
         cascade="all, delete-orphan",
         order_by="WorkOrderLabor.created_at",
+    )
+    labor_sessions = relationship(
+        "WorkOrderLaborSession",
+        back_populates="work_order",
+        cascade="all, delete-orphan",
+        order_by="WorkOrderLaborSession.started_at",
     )
     # Viewonly (no back-populates on User): surface account + display identity.
     creator = relationship("User", foreign_keys=[created_by_id], viewonly=True)
@@ -502,10 +512,91 @@ class WorkOrderLabor(Base):
     work_order = relationship("WorkOrder", back_populates="labor_entries")
     technician = relationship("User", foreign_keys=[technician_id], viewonly=True)
     recorded_by = relationship("User", foreign_keys=[recorded_by_id], viewonly=True)
+    # The session that produced this row, or None for a hand-entered
+    # correction and for every row predating tracked time. Read by the detail
+    # response to show the entry's start/stop window; the FK lives on the
+    # session side, so this is the reverse of `WorkOrderLaborSession.labor`.
+    session = relationship(
+        "WorkOrderLaborSession",
+        back_populates="labor",
+        uselist=False,
+        viewonly=True,
+    )
 
     __table_args__ = (
         Index("ix_work_order_labor_work_order_id", "work_order_id"),
         Index("ix_work_order_labor_technician_id", "technician_id"),
+    )
+
+
+class WorkOrderLaborSession(Base):
+    """One tracked start/stop of work by one person on one work order.
+
+    The authoritative record of *when* labor happened, as opposed to
+    `WorkOrderLabor`, which records how long it lasted and is what billing
+    reads. Stopping a session produces a labor row and links it through
+    `labor_id`; a **running** session (`ended_at IS NULL`) has produced nothing
+    and therefore contributes nothing to any total. That is deliberate and is
+    what keeps tracked time additive: `labor_minutes`, the receipt, and the CSV
+    export are exactly as correct for a job in progress as they were before.
+
+    Sessions were given their own table rather than nullable timestamps on
+    `work_order_labor` because a running session has no duration, which would
+    force `minutes` to become nullable and make every consumer of that column
+    learn to skip NULLs.
+
+    The partial unique index enforces one running session per person -- across
+    every work order, not per row -- in the database rather than in a service
+    check that races. Starting a session while another is running closes the
+    other one first (`services.work_orders.start_labor_session`).
+    """
+
+    __tablename__ = "work_order_labor_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    work_order_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("work_orders.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # Who was working, which is not necessarily who recorded it: a supervisor
+    # stopping a forgotten clock does not take the hours.
+    technician_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    # NULL means the clock is still running.
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+    labor_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("work_order_labor.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # Set when the 12-hour cap closed this session rather than a person. Flags
+    # the produced labor row as an estimate for a supervisor to correct; the
+    # row is never blocked from billing on account of it.
+    auto_closed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    work_order = relationship("WorkOrder", back_populates="labor_sessions")
+    technician = relationship("User", foreign_keys=[technician_id], viewonly=True)
+    labor = relationship(
+        "WorkOrderLabor",
+        foreign_keys=[labor_id],
+        back_populates="session",
+    )
+
+    __table_args__ = (
+        Index("ix_work_order_labor_sessions_work_order_id", "work_order_id"),
+        Index(
+            "uq_work_order_labor_sessions_running_technician",
+            "technician_id",
+            unique=True,
+            postgresql_where=text("ended_at IS NULL"),
+        ),
     )
 
 

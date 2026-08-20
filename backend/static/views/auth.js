@@ -22,7 +22,7 @@ import { loadUsers } from "./users.js";
 import { setHistoryTab } from "./history.js";
 import { resetBatch, tryResumeBatch } from "./transactions.js";
 import { resetToolsView } from "./tools.js";
-import { initPushForUser, resetPushView, unsubscribeThisDevice } from "./push.js";
+import { initPushForUser, resetPushView, unsubscribeThisDevice, requestPermissionAtLogin } from "./push.js";
 import { focusWorkOrderNumber, soloNumberFromPath } from "./workOrders.js";
 
 const loginScreen = document.getElementById("login-screen");
@@ -32,6 +32,7 @@ const loginPassword = document.getElementById("login-password");
 const loginPasswordToggle = document.getElementById("login-password-toggle");
 const loginBtn = document.getElementById("login-btn");
 const loginRemember = document.getElementById("login-remember");
+const loginNotifications = document.getElementById("login-notifications");
 const loginMessage = document.getElementById("login-message");
 const logoutBtn = document.getElementById("logout-btn");
 const authUserIndicator = document.getElementById("auth-user-indicator");
@@ -154,6 +155,13 @@ loginBtn.addEventListener("click", async () => {
   if (!username || !password) {
     setMessage(loginMessage, "Enter a username and password.", "error");
     return;
+  }
+
+  // Must run before any other await in this handler -- this click is the
+  // user gesture requestPermission() needs, and it's gone by the time
+  // apiLogin's network round trip below would otherwise let us get to it.
+  if (loginNotifications && loginNotifications.checked) {
+    await requestPermissionAtLogin();
   }
 
   try {

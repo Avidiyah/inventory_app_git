@@ -128,6 +128,11 @@ def test_create_transaction_has_no_static_min_role():
         "work_order_filter_options",
         "get_work_order",
         "start_work_order",
+        # Tracking sits at the Technician floor, enforced in the service
+        # alongside the per-row assignment rule -- not at Admin, and not by a
+        # declarative gate.
+        "start_work_order_tracking",
+        "stop_work_order_tracking",
         "complete_work_order",
         "hold_work_order",
         "resume_work_order",
@@ -387,7 +392,7 @@ def test_technician_can_save_work_order_notes(monkeypatch):
     monkeypatch.setattr(
         work_orders_router,
         "_detail",
-        lambda work_order, *, include_price: work_order,
+        lambda work_order, *, include_price, viewer_id=None: work_order,
     )
 
     result = work_orders_router.update_work_order(
@@ -423,7 +428,7 @@ def test_work_order_route_passes_precondition_and_returns_internal_detail(monkey
     monkeypatch.setattr(
         work_orders_router,
         "_detail",
-        lambda work_order, *, include_price: work_order,
+        lambda work_order, *, include_price, viewer_id=None: work_order,
     )
 
     result = work_orders_router.update_work_order(

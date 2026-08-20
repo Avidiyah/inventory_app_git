@@ -147,6 +147,25 @@
     --btn-h: 52px;       /* primary buttons */
     --btn-h-sm: 44px;    /* compact/toolbar buttons (min touch) */
     --focus-ring: 0 0 0 3px rgba(200, 16, 46, .40);
+
+    /* Langston University brand (NetFacilities integration card only).
+       Pulled from langston.edu's own stylesheet, NOT part of the TechFM
+       red/black/white system -- see .lu-card below and docs/design-system.md.
+       Do not reuse these outside that card. */
+    --lu-navy:        #152B51;
+    --lu-orange:      #F2682B;
+    --lu-orange-hover:#D4551C;
+    --lu-navy-tint:   rgba(21, 43, 81, .08);
+    --lu-orange-tint: rgba(242, 104, 43, .12);
+
+    /* The app has no light theme. Without this, native controls (select
+       popups, scrollbars, checkboxes) render with the browser's light-mode
+       chrome regardless of the page's own dark styling -- an open <select>
+       list ends up light text (--text-panel) on the browser's default white
+       popup background, since that popup is OS-rendered and outside CSS's
+       reach otherwise. color-scheme tells the browser to theme those native
+       controls dark to match. */
+    color-scheme: dark;
 }
 
 /* =================== RESET / BASE =================== */
@@ -503,6 +522,15 @@ textarea {
        ring below feel like a state change, not a snap. */
     box-shadow: inset 0 1px 3px rgba(0, 0, 0, .35);
     transition: border-color .12s ease, box-shadow .12s ease, background-color .12s ease;
+}
+
+/* Reinforces color-scheme: dark (root) for the native <select> popup, which
+   some Chromium/Windows builds hand off to an OS-drawn combobox that ignores
+   page CSS entirely -- if that's happening here, this rule is a no-op, not a
+   fix; there is no reliable CSS-only override for that path. */
+select option {
+    background-color: var(--color-header);
+    color: var(--text-panel);
 }
 
 input::placeholder,
@@ -2503,6 +2531,7 @@ details[open] > .community-summary::before { content: "\25BE"; }
 .wo-card-status-assigned,
 .wo-card-status-in_progress,
 .wo-card-status-on_hold,
+.wo-card-status-ready_to_complete,
 .wo-card-status-completed,
 .wo-card-status-review {
     border-radius: 10px;
@@ -2516,6 +2545,7 @@ details[open] > .community-summary::before { content: "\25BE"; }
 .wo-card-status-assigned:hover { border-color: #B91C1C; }
 .wo-card-status-in_progress:hover { border-color: #FACC15; }
 .wo-card-status-on_hold:hover { border-color: #C2410C; }
+.wo-card-status-ready_to_complete:hover { border-color: #6D28D9; }
 .wo-card-status-completed:hover { border-color: #2563EB; }
 .wo-card-status-review:hover { border-color: #15803D; }
 /* Keycap illusion: a hard-edged "wall" shadow (no blur) reads as the key's
@@ -2569,6 +2599,21 @@ details[open] > .community-summary::before { content: "\25BE"; }
 .wo-card-status-on_hold:active {
     transform: translateY(3px);
     box-shadow: 0 1px 0 0 #9A3412, 0 2px 6px -2px rgba(194, 65, 12, .35), var(--shadow-card);
+}
+/* Violet: the one hue unmistakable against gray, dark red, amber, orange,
+   blue, and green at a glance on a phone in daylight. Badge / accent / wall
+   follow the established -900 / -700 / -800 tone pattern. */
+.wo-card-status-ready_to_complete {
+    --card-accent: #6D28D9;
+    --card-accent-rgb: 109, 40, 217;
+    background-color: rgba(0, 0, 0, .55);
+    border-color: #6D28D9;
+    border-width: 2px;
+    box-shadow: 0 4px 0 0 #5B21B6, 0 6px 16px -6px rgba(109, 40, 217, .45), var(--shadow-card);
+}
+.wo-card-status-ready_to_complete:active {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 0 #5B21B6, 0 2px 6px -2px rgba(109, 40, 217, .35), var(--shadow-card);
 }
 .wo-card-status-completed {
     --card-accent: #2563EB;
@@ -2656,6 +2701,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-status-assigned { background-color: #7F1D1D; }
 .wo-status-in_progress { background-color: #854D0E; }
 .wo-status-on_hold { background-color: #9A3412; }
+.wo-status-ready_to_complete { background-color: #4C1D95; }
 .wo-status-completed { background-color: #1E3A8A; }
 .wo-status-review { background-color: #14532D; }
 
@@ -2709,9 +2755,90 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     white-space: pre-wrap;
 }
 
-/* Import work orders section (Admin+). */
-#work-orders-import-section { margin-bottom: var(--space-4); }
+/* Import work orders section (Admin+). Lives on its own Integrations page;
+   see backend/static/pages/integrations.html. */
+#integrations-import-section { margin-bottom: var(--space-4); }
 #wo-import-message:not(:empty) { margin-top: var(--space-2); }
+
+/* Langston University / NetFacilities integration card. Nested inside the
+   normal frosted `section` chrome of the Integrations page, but deliberately
+   NOT frosted or red/black/white itself -- navy header + orange rule + a
+   flat white body reads as a widget embedded from the client's own system,
+   which is the point: it should look like it did not come from TechFM. */
+.lu-card {
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-card);
+}
+
+.lu-card-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    background-color: var(--lu-navy);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 3px solid var(--lu-orange);
+}
+
+.lu-card-title {
+    color: var(--color-white);
+    font-weight: var(--fw-bold);
+}
+
+.lu-card-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--lu-orange);
+    border-radius: var(--radius-pill);
+    color: var(--lu-orange);
+    background-color: var(--lu-orange-tint);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.lu-card-body {
+    background-color: var(--color-white);
+    color: var(--color-ink);
+    padding: var(--space-4);
+}
+
+.lu-card-body .hint {
+    color: var(--gray-500);
+}
+
+.lu-card-body select {
+    background-color: var(--color-white);
+    color: var(--color-ink);
+    border: 1px solid var(--gray-300);
+    box-shadow: none;
+}
+
+/* Primary "go" actions (Import from CSV..., confirm sign-in) carry the LU
+   orange instead of TechFM brand red -- same semantics, this card's own hue. */
+.lu-card-body button:not(.secondary-btn) {
+    background-color: var(--lu-orange);
+}
+
+.lu-card-body button:not(.secondary-btn):hover {
+    background-color: var(--lu-orange-hover);
+}
+
+.lu-card-body .secondary-btn {
+    background-color: var(--color-white);
+    color: var(--lu-navy);
+    border: 1.5px solid var(--lu-navy);
+}
+
+.lu-card-body .secondary-btn:hover {
+    background-color: var(--lu-navy-tint);
+    color: var(--lu-navy);
+}
 
 /* Controls row: mode selector + complete/reopen. */
 .wo-controls {
@@ -2811,13 +2938,123 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     max-height: 240px;
     overflow-y: auto;
     padding: var(--space-2);
-    border: 1px solid var(--panel-rule);
+    border: 1px solid var(--gray-700);
     border-radius: var(--radius-sm);
-    background-color: var(--panel-hover);
+    /* Solid, not a translucent --panel-* token: this floats over card
+       content (buttons, text), and at low alpha that content shows through
+       and reads as a rendering glitch. Same opaque fill as the nav popover
+       (.nav-group-menu) for the same reason. */
+    background-color: var(--color-header);
     box-shadow: var(--shadow-md);
 }
 .wo-tech-results[hidden] { display: none; }
 .wo-tech-results .hint { margin: var(--space-1); }
+
+/* Shared scrollbar theme for the app's scrollable dropdown/results lists
+   (.wo-tech-results here, .manual-results in the manual-entry search,
+   .wo-combo-list below) so they match instead of each falling back to a
+   different browser default. */
+.wo-tech-results,
+.manual-results,
+.wo-combo-list {
+    scrollbar-width: thin;
+    scrollbar-color: var(--gray-700) transparent;
+}
+.wo-tech-results::-webkit-scrollbar,
+.manual-results::-webkit-scrollbar,
+.wo-combo-list::-webkit-scrollbar {
+    width: 8px;
+}
+.wo-tech-results::-webkit-scrollbar-track,
+.manual-results::-webkit-scrollbar-track,
+.wo-combo-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+.wo-tech-results::-webkit-scrollbar-thumb,
+.manual-results::-webkit-scrollbar-thumb,
+.wo-combo-list::-webkit-scrollbar-thumb {
+    background-color: var(--gray-700);
+    border-radius: var(--radius-sm);
+}
+.wo-tech-results::-webkit-scrollbar-thumb:hover,
+.manual-results::-webkit-scrollbar-thumb:hover,
+.wo-combo-list::-webkit-scrollbar-thumb:hover {
+    background-color: var(--panel-hover);
+}
+
+/* Custom dropdown ("combo") for Status/Supervisor: a real <select> stays in
+   the DOM (hidden) to hold the value for save/read logic unchanged; this is
+   the visible trigger + listbox, styled like .wo-tech-results so the two
+   pickers on this card read as one system instead of a native popup that
+   escapes our CSS (see docs/design-system.md's note on OS-rendered <select>
+   popups). */
+.wo-combo { position: relative; }
+.wo-combo-native { display: none; }
+
+.wo-combo-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    width: 100%;
+    min-height: var(--control-h);
+    padding: 0 var(--space-3);
+    margin-top: 0;
+    border: var(--border-input);
+    border-radius: var(--radius-md);
+    background-color: var(--input-bg);
+    color: var(--text-panel);
+    font-size: var(--fs-base);
+    font-family: inherit;
+    font-weight: normal;
+    text-align: left;
+    cursor: pointer;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, .35);
+}
+.wo-combo-trigger:hover { background-color: var(--panel-hover); }
+
+.wo-combo-chevron {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+    color: var(--text-panel-mute);
+    transition: transform .12s ease;
+}
+.wo-combo-trigger[aria-expanded="true"] .wo-combo-chevron { transform: rotate(180deg); }
+
+.wo-combo-list {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + var(--space-1));
+    right: 0;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    max-height: 240px;
+    overflow-y: auto;
+    padding: var(--space-2);
+    border: 1px solid var(--gray-700);
+    border-radius: var(--radius-sm);
+    background-color: var(--color-header);
+    box-shadow: var(--shadow-md);
+}
+.wo-combo-list[hidden] { display: none; }
+
+.wo-combo-option {
+    justify-content: flex-start;
+    width: 100%;
+    min-height: var(--btn-h-sm);
+    margin-top: 0;
+    text-align: left;
+}
+.wo-combo-option[aria-selected="true"] {
+    background-color: var(--color-brand);
+    color: var(--color-white);
+}
+.wo-combo-option[aria-selected="true"]:hover {
+    background-color: var(--color-brand-hover);
+}
 .wo-tech-result {
     justify-content: flex-start;
     width: 100%;
@@ -2966,6 +3203,24 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     border-radius: var(--radius-sm);
 }
 .wo-labor-entry > div:first-child { display: flex; flex-direction: column; gap: var(--space-1); }
+/* The session window an entry came from. Secondary to the duration, which is
+   the figure that bills. */
+.wo-labor-window { font-variant-numeric: tabular-nums; }
+/* An estimate the 12-hour cap invented, not a measured figure. Amber rather
+   than red: it is a prompt to check, not an error, and per the design system
+   status color stays out of the button palette. */
+.wo-labor-auto-stopped {
+    align-self: flex-start;
+    padding: 1px var(--space-2);
+    border: 1px solid #854D0E;
+    border-radius: var(--radius-sm);
+    background-color: rgba(250, 204, 21, .12);
+    color: #FACC15;
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
 .wo-labor-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .wo-labor-actions input { width: 90px; margin-top: 0; }
 .wo-labor-actions button { margin-top: 0; min-height: var(--btn-h-sm); }

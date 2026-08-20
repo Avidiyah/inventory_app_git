@@ -17,7 +17,7 @@ import uuid
 from decimal import Decimal
 
 import pytest
-from fastapi import UploadFile
+from fastapi import BackgroundTasks, UploadFile
 
 from app.domain import roles
 from app.domain import work_orders as wo
@@ -25,6 +25,7 @@ from app.domain.errors import WorkOrderStateError
 from app.models import Item, User, WorkOrder
 from app.routers.work_orders import import_work_orders as import_route
 from app.services import auth
+from app.services import push as push_service
 from app.services import work_orders as wos
 
 
@@ -386,13 +387,15 @@ def test_import_counts_and_ignores_closed_work_orders(db):
         "supervisors_matched": 0,
         "supervisors_unmatched": 0,
         "skipped": 0,
+        # An archived match routes nobody, so there is nobody to notify.
+        "supervisor_routing": {},
     }
     db.refresh(work_order)
     assert work_order.archived_at == archived_at
     assert work_order.location == "Original location"
     assert work_order.description == "Original task"
     assert work_order.notes == notes_before_import
-    assert work_order.notes.endswith("[Name unavailable] Keep this note.")
+    assert work_order.notes.endswith("Name unavailable Keep this note.")
     assert len(work_order.items) == 1
     assert work_order.items[0].quantity == Decimal("2")
     assert len(work_order.labor_entries) == 1
@@ -673,6 +676,76 @@ def _upload(csv_bytes):
 def test_import_route_admin_succeeds(db):
     admin = _seed_user(db, roles.ROLE_ADMIN)
     csv_bytes = _csv([[_num(), "Loc", "Belfor", "", "SMR27", "7/1/2026", "A"]])
-    result = import_route(file=_upload(csv_bytes), user=admin, db=db)
+    result = import_route(
+        BackgroundTasks(), file=_upload(csv_bytes), user=admin, db=db
+    )
     assert result.created == 1
     assert result.closed == 0
+
+
+# --- the import's notification ------------------------------------------
+
+def test_a_matched_supervisor_is_notified_once_for_the_whole_import(
+    db, monkeypatch
+):
+    """Three matched rows, one push. The routing map the service returns is
+    what makes a single send possible; without it the router would have to
+    re-derive who got what from the summary counters, which cannot say."""
+    monkeypatch.setattr(push_service, "VAPID_PRIVATE_KEY", "test-private-key")
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    sup, csv_name = _seed_named_supervisor(db)
+    csv_bytes = _csv([
+        [_num(), "Loc1", "Belfor", csv_name, "SMR27", "7/1/2026", "A"],
+        [_num(), "Loc2", "Belfor", csv_name, "SMR27", "7/2/2026", "B"],
+        [_num(), "Loc3", "Belfor", csv_name, "SMR27", "7/3/2026", "C"],
+        [_num(), "Loc4", "Belfor", "Unknown Person (Belfor)", "SMR27", "7/4/2026", "D"],
+    ])
+
+    background = BackgroundTasks()
+    import_route(background, file=_upload(csv_bytes), user=admin, db=db)
+
+    (user_ids, title, body), = [task.args for task in background.tasks]
+    assert user_ids == [sup.id]
+    assert title == "Work orders assigned to you"
+    assert "3" in body
+
+
+def test_the_notified_count_matches_the_count_on_screen(db, monkeypatch):
+    """A re-import routes nothing new, so `supervisors_matched` is 0 and the
+    supervisor's phone stays silent. These two numbers are read off the same
+    branch precisely so they can never tell the operator and the supervisor
+    different stories."""
+    monkeypatch.setattr(push_service, "VAPID_PRIVATE_KEY", "test-private-key")
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    _sup, csv_name = _seed_named_supervisor(db)
+    csv_bytes = _csv([
+        [_num(), "Loc1", "Belfor", csv_name, "SMR27", "7/1/2026", "A"],
+        [_num(), "Loc2", "Belfor", csv_name, "SMR27", "7/2/2026", "B"],
+    ])
+    first = BackgroundTasks()
+    first_result = import_route(first, file=_upload(csv_bytes), user=admin, db=db)
+
+    second = BackgroundTasks()
+    second_result = import_route(second, file=_upload(csv_bytes), user=admin, db=db)
+
+    assert first_result.supervisors_matched == 2
+    assert "2" in first.tasks[0].args[2]
+    assert second_result.supervisors_matched == 0
+    assert second.tasks == []
+
+
+def test_the_routing_map_never_reaches_the_api_response(db, monkeypatch):
+    """It exists to address a notification. `WorkOrderImportResult` has no
+    field for it and must not grow one -- the router pops it."""
+    monkeypatch.setattr(push_service, "VAPID_PRIVATE_KEY", "test-private-key")
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    _sup, csv_name = _seed_named_supervisor(db)
+    csv_bytes = _csv([
+        [_num(), "Loc1", "Belfor", csv_name, "SMR27", "7/1/2026", "A"],
+    ])
+
+    result = import_route(
+        BackgroundTasks(), file=_upload(csv_bytes), user=admin, db=db
+    )
+
+    assert not hasattr(result, "supervisor_routing")

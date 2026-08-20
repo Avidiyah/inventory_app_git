@@ -1,16 +1,16 @@
 // View: Web Push opt-in and the Owner's test trigger.
 //
-// Layer: views. Owns the two header controls (`#push-enable-btn`,
-// `#push-test-btn`), the service-worker registration, and the browser
-// subscription lifecycle. `views/auth.js` calls in at login and logout;
-// nothing else imports from here.
+// Layer: views. Owns the header's `#push-test-btn`, the login-time
+// permission request (requestPermissionAtLogin, called from views/auth.js
+// before login), the service-worker registration, and the browser
+// subscription lifecycle. There is no in-app way to turn notifications back
+// off short of logging out -- `unsubscribeThisDevice` (called from
+// views/auth.js on logout) is the opt-out path.
 //
 // The iOS constraint shapes this whole module. On iPhone, Web Push works
 // **only inside a PWA installed to the Home Screen** -- in a plain Safari
 // tab `window.Notification` does not exist, and no amount of prompting
-// creates it. iOS also has no `beforeinstallprompt`, so the install
-// cannot be offered programmatically; the only honest thing to do is
-// detect the tab case and tell the user what to do by hand.
+// creates it.
 
 import { apiPushConfig, apiPushSubscribe, apiPushTest, apiPushUnsubscribe } from "../api.js";
 import { messageDialog } from "../dom.js";
@@ -18,39 +18,24 @@ import { friendlyError } from "../format.js";
 import { getRole } from "../state.js";
 import { roleAtLeast } from "../roles.js";
 
-const enableBtn = document.getElementById("push-enable-btn");
 const testBtn = document.getElementById("push-test-btn");
 
-// Who is offered the opt-in button, mirroring SUBSCRIBE_MIN_ROLE in
+// Who may hold a push subscription, mirroring SUBSCRIBE_MIN_ROLE in
 // `routers/push.py`. `/push/subscribe` is not role-gated on the server --
 // holding a subscription grants no authority -- so this constant is the
 // whole gate, and it is the only thing that kept technicians from
-// receiving their own assignment notifications.
+// receiving their own assignment notifications. Gates the silent
+// re-subscribe in initPushForUser below.
 const SUBSCRIBE_MIN_ROLE = "technician";
 
 // Whether this browser can do push at all. On iOS this is false in a
-// Safari tab and true in the installed PWA, which is exactly the
-// distinction the UI needs to explain.
+// Safari tab and true in the installed PWA.
 function pushSupported() {
   return (
     "serviceWorker" in navigator &&
     "PushManager" in window &&
     typeof window.Notification !== "undefined"
   );
-}
-
-// True when running as an installed app rather than a browser tab.
-// `navigator.standalone` is the iOS-only signal; the media query is the
-// standard one every other platform reports.
-function isInstalledApp() {
-  return (
-    window.navigator.standalone === true ||
-    window.matchMedia("(display-mode: standalone)").matches
-  );
-}
-
-function isIOS() {
-  return /iPad|iPhone|iPod/.test(navigator.userAgent);
 }
 
 // `applicationServerKey` must be raw bytes. The server sends the key in
@@ -127,86 +112,50 @@ export async function unsubscribeThisDevice() {
   }
 }
 
-function setButtonState(subscribed) {
-  if (!enableBtn) return;
-  enableBtn.textContent = subscribed ? "Notifications on" : "Enable notifications";
-  enableBtn.disabled = subscribed;
-}
-
-// Called after login. Decides what the header shows, and silently
-// refreshes an existing subscription so the endpoint is re-bound to
-// whoever just logged in.
+// Called after login. Silently (re-)subscribes this device so its
+// endpoint is bound to whoever just logged in, and decides whether the
+// Owner's test button shows.
 export async function initPushForUser() {
   const role = getRole();
   const eligible = role && roleAtLeast(role, SUBSCRIBE_MIN_ROLE);
 
-  if (enableBtn) enableBtn.hidden = !eligible;
   if (testBtn) testBtn.hidden = !(role && roleAtLeast(role, "owner"));
 
   if (!eligible || !pushSupported()) return;
 
-  // Only re-subscribe when permission is already granted. Calling
-  // `subscribe()` without it would trigger the permission prompt on
-  // page load, and iOS gives no second chance after a denial.
-  if (window.Notification.permission !== "granted") {
-    setButtonState(false);
-    return;
-  }
+  // Only subscribe when permission is already granted -- calling
+  // `subscribe()` without it would trigger the permission prompt on page
+  // load, and iOS gives no second chance after a denial. Permission is
+  // requested earlier, at login (see requestPermissionAtLogin).
+  if (window.Notification.permission !== "granted") return;
 
   try {
     await subscribeThisDevice();
-    setButtonState(true);
-  } catch (err) {
-    setButtonState(false);
+  } catch {
+    // Nothing further to do -- the device just stays unsubscribed until
+    // the next login retries it.
   }
 }
 
-// Hide both controls when the app returns to the login screen.
+// Hide the test control when the app returns to the login screen.
 export function resetPushView() {
-  if (enableBtn) enableBtn.hidden = true;
   if (testBtn) testBtn.hidden = true;
 }
 
-async function onEnableClick() {
-  if (!pushSupported()) {
-    // The one case worth a specific explanation: on iOS this is not a
-    // browser limitation the user can work around by allowing something,
-    // it is a missing install step.
-    if (isIOS() && !isInstalledApp()) {
-      await messageDialog(
-        "On iPhone, notifications require this app to be installed. " +
-          "Tap the Share button, choose \"Add to Home Screen\", then open " +
-          "Inventory from the new icon and log in there."
-      );
-    } else {
-      await messageDialog("This browser cannot receive notifications.");
-    }
-    return;
-  }
-
-  enableBtn.disabled = true;
+// Called synchronously from the login button's click handler, before any
+// awaited network call. That is the only place the login click's user
+// gesture is still valid for `requestPermission()` -- iOS refuses the
+// prompt outright once an `await` (e.g. the login request itself) has run
+// first, with no second chance after. A no-op when unsupported or already
+// decided, so a checked box never blocks or delays the login it's attached
+// to: initPushForUser (after login) re-checks permission and simply won't
+// subscribe if this was denied or skipped.
+export async function requestPermissionAtLogin() {
+  if (!pushSupported() || window.Notification.permission !== "default") return;
   try {
-    // Must be called from this click. A permission request that is not
-    // tied to a user gesture is refused outright on iOS.
-    const permission = await window.Notification.requestPermission();
-
-    if (permission !== "granted") {
-      // There is no re-prompt after a denial -- the browser will not ask
-      // again, so the recovery path is the Settings app.
-      await messageDialog(
-        "Notifications are blocked for this app. To turn them on, open " +
-          "iPhone Settings, find Inventory, and allow Notifications."
-      );
-      setButtonState(false);
-      return;
-    }
-
-    await subscribeThisDevice();
-    setButtonState(true);
-    await messageDialog("Notifications are on for this device.");
-  } catch (err) {
-    setButtonState(false);
-    await messageDialog(friendlyError(err));
+    await window.Notification.requestPermission();
+  } catch {
+    // Swallowed -- see above.
   }
 }
 
@@ -225,5 +174,4 @@ async function onTestClick() {
   }
 }
 
-if (enableBtn) enableBtn.addEventListener("click", onEnableClick);
 if (testBtn) testBtn.addEventListener("click", onTestClick);

@@ -5,9 +5,10 @@ to `app.services.work_orders`, translate `DomainError` via `to_http`.
 
 Most routes are open to any authenticated user but **server-scoped** (technician
 -> assigned, supervisor -> created/routed, admin/owner -> all). Technicians may
-save notes, add materials, and use narrow assigned-worker start/complete/hold/resume
-walkthrough. Supervisor+ owns operational routing, general status, entry mode,
-labor, and material corrections. Sending Completed work to Review requires a
+save notes, add materials, track their time, and use the narrow assigned-worker
+start/complete/hold/resume walkthrough. Supervisor+ owns operational routing,
+general status, entry mode, hand-entered labor, and material corrections, and
+may track time on any work order they can see without being assigned to it. Sending Completed work to Review requires a
 second person: an assigned worker is excluded even when also routed Supervisor.
 TechFM OA+ additionally owns imported and legacy metadata edits.
 Closing (the archive operation) is TechFM OA+ from any live status. Both an expanded
@@ -62,6 +63,7 @@ from app.schemas.work_orders import (
     WorkOrderItemUpdate,
     WorkOrderLaborCreate,
     WorkOrderLaborDetail,
+    WorkOrderLaborSessionDetail,
     WorkOrderLaborUpdate,
     WorkOrderLookup,
     WorkOrderUpdate,
@@ -115,9 +117,12 @@ def _notify_work_order_patch(
 ) -> None:
     """Fire whichever notification rules a single PATCH satisfied.
 
-    One write can be several events -- a PATCH may add assignees *and*
-    move the status -- so assignment is evaluated independently of the
-    transition rather than as the first arm of a chain.
+    One write can be several events -- a PATCH may add assignees, route a
+    supervisor, *and* move the status -- so both assignment rules are
+    evaluated independently of the transition rather than as arms of the
+    chain. A person who is routed as supervisor and added as a technician
+    in the same write receives two notifications: both are true, they say
+    different things, and suppression is deliberately per-rule.
 
     Both facts are read off the row the service returned. When there is no
     prior status the row did not come from a write that records one, and
@@ -149,10 +154,28 @@ def _notify_work_order_patch(
     ``{"status": "in_progress"}`` (``adminReview.js``), and the card
     editor disables the status field outright for a Review row -- so this
     branch is narrow on purpose rather than by omission.
+
+    **So is Send Back, and it is a third rule with the same audience.**
+    ``ready_to_complete -> in_progress`` is the supervisor rejecting the
+    crew's handoff (``workOrders.js``'s Send Back button, which sends the
+    same ``{"status": "in_progress"}``). Its pair matches no arm above it,
+    so its position in the chain is free rather than load-bearing -- but
+    ``test_send_back_is_its_own_event_not_a_return_from_review`` pins that,
+    because the two arms differ only in their ``previous`` and a future
+    edit could make them overlap without anyone noticing.
     """
     if wo_service.newly_assigned_ids(work_order):
         _notify(
             notifications_service.notify_work_order_assigned,
+            db,
+            background,
+            work_order=work_order,
+            actor_id=actor_id,
+        )
+
+    if wo_service.newly_routed_supervisor_id(work_order):
+        _notify(
+            notifications_service.notify_supervisor_assigned,
             db,
             background,
             work_order=work_order,
@@ -193,6 +216,17 @@ def _notify_work_order_patch(
     ):
         _notify(
             notifications_service.notify_work_order_returned_from_review,
+            db,
+            background,
+            work_order=work_order,
+            actor_id=actor_id,
+        )
+    elif (
+        previous == wo.STATUS_READY_TO_COMPLETE
+        and work_order.status == wo.STATUS_IN_PROGRESS
+    ):
+        _notify(
+            notifications_service.notify_work_order_sent_back,
             db,
             background,
             work_order=work_order,
@@ -347,23 +381,82 @@ def _materials_total(work_order: WorkOrder) -> Decimal:
     return total
 
 
+def _session_window(session) -> Optional[str]:
+    """`2:10-3:25 PM` for a closed session, rendered in the note log's zone.
+
+    Formatted here rather than in the browser so the window and the log line
+    that records the same stop cannot disagree -- `format.js` has no timezone
+    helper, and every other JS timestamp in the app renders browser-local.
+    The date is omitted: the entry sits on one work order's labor card, where
+    the time of day is the useful part and `MM/DD/YY` on every row is noise.
+    """
+    if session is None or session.started_at is None or session.ended_at is None:
+        return None
+    start = wo.format_note_timestamp(session.started_at)[9:]
+    end = wo.format_note_timestamp(session.ended_at)[9:]
+    # "02:10 PM" -> "2:10 PM"; the log pads the hour, a duration window need not.
+    start, end = start.lstrip("0"), end.lstrip("0")
+    start_time, start_meridiem = start.rsplit(" ", 1)
+    end_time, end_meridiem = end.rsplit(" ", 1)
+    if start_meridiem == end_meridiem:
+        return f"{start_time}–{end_time} {end_meridiem}"
+    return f"{start}–{end}"
+
+
 def _labor_detail(entry: WorkOrderLabor) -> WorkOrderLaborDetail:
+    session = getattr(entry, "session", None)
     return WorkOrderLaborDetail(
         id=entry.id,
         technician_id=entry.technician_id,
         technician_name=entry.technician.full_name,
         minutes=entry.minutes,
+        session_window=_session_window(session),
+        auto_closed=session is not None and session.auto_closed_at is not None,
     )
 
 
-def _detail(work_order: WorkOrder, *, include_price: bool) -> WorkOrderDetail:
+def _detail(
+    work_order: WorkOrder,
+    *,
+    include_price: bool,
+    viewer_id: Optional[uuid.UUID] = None,
+) -> WorkOrderDetail:
+    """The full card for one caller.
+
+    Two things vary by *who is asking* rather than by the row: price redaction
+    (`include_price`) and, now, which running clock is theirs. `viewer_id`
+    defaults to `None` so an internal builder that has no caller simply gets no
+    `active_labor_session`, which is the honest answer for it.
+    """
     labor_entries = list(getattr(work_order, "labor_entries", None) or ())
     labor_minutes = sum(entry.minutes for entry in labor_entries)
+    # An open session has produced no labor row, so it is absent from the sums
+    # above by construction -- the property that keeps every billing read path
+    # as correct for a job in progress as it was before tracking existed.
+    running = [
+        session
+        for session in (getattr(work_order, "labor_sessions", None) or ())
+        if session.ended_at is None
+    ]
+    mine = next(
+        (s for s in running if viewer_id is not None and s.technician_id == viewer_id),
+        None,
+    )
     return WorkOrderDetail(
         **_card(work_order).model_dump(),
         notes=work_order.notes,
         items=[_line_detail(line, include_price=include_price) for line in work_order.items],
         labor=[_labor_detail(entry) for entry in labor_entries],
+        active_labor_session=(
+            WorkOrderLaborSessionDetail(
+                id=mine.id,
+                technician_id=mine.technician_id,
+                started_at=mine.started_at,
+            )
+            if mine is not None
+            else None
+        ),
+        tracking_technician_ids=[session.technician_id for session in running],
         materials_total=_materials_total(work_order) if include_price else None,
         labor_minutes=labor_minutes,
         labor_billed_minutes=wo.billed_labor_minutes(labor_minutes),
@@ -467,6 +560,7 @@ def work_order_filter_options(
     },
 )
 def import_work_orders(
+    background: BackgroundTasks,
     file: UploadFile = File(...),
     user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
@@ -476,6 +570,14 @@ def import_work_orders(
     columns, and matches the vendor `ASSIGNED TO` name to a supervisor to route
     visibility. Archived matches are counted as closed and left untouched.
     Returns a summary of created/opened/closed/matched/skipped counts.
+
+    Each matched supervisor is notified once for the whole import rather
+    than once per work order -- the system's only batched notification, and
+    the argument for it is in
+    `services/notifications.notify_supervisors_assigned_bulk`. Only newly
+    *created* rows count, which is exactly what `supervisors_matched`
+    reports, so the push and this response can never disagree about how
+    many work orders somebody just received.
 
     Deliberately `def`, not `async def`: the import is one long synchronous
     SQLAlchemy transaction over the whole CSV. On the event loop it would
@@ -496,6 +598,18 @@ def import_work_orders(
         _emit_review_queue_changed(None)
     except DomainError as exc:
         raise to_http(exc)
+    # Popped rather than passed through: the routing map exists to address a
+    # notification and is not part of the API contract, and
+    # `WorkOrderImportResult` would have to grow a field to carry it.
+    routing = summary.pop("supervisor_routing", {})
+    if routing:
+        _notify(
+            notifications_service.notify_supervisors_assigned_bulk,
+            db,
+            background,
+            routing=routing,
+            actor_id=user.id,
+        )
     return WorkOrderImportResult(**summary)
 
 
@@ -637,6 +751,7 @@ def get_work_order(
         return _detail(
             wo_service.get_work_order(db, work_order_id, user=user),
             include_price=_can_see_price(user),
+            viewer_id=user.id,
         )
     except DomainError as exc:
         raise to_http(exc)
@@ -682,6 +797,7 @@ def update_work_order(
             # a false 404.
             wo_service.get_work_order(db, work_order.id, user=None),
             include_price=_can_see_price(user),
+            viewer_id=user.id,
         )
     except DomainError as exc:
         raise to_http(exc)
@@ -704,6 +820,7 @@ def start_work_order(
         return _detail(
             wo_service.get_work_order(db, work_order.id, user=user),
             include_price=_can_see_price(user),
+            viewer_id=user.id,
         )
     except DomainError as exc:
         raise to_http(exc)
@@ -723,7 +840,13 @@ def complete_work_order(
 
     Where it lands depends on the caller's role
     (`domain.work_orders.completion_target_status`): Supervisor+ reaches
-    Completed, a Technician parks the row On-Hold with a review note.
+    Completed, a Technician moves the row to Ready to Complete for review.
+    Either way every clock on the work order stops.
+
+    Deliberately keeps its path and shape rather than gaining a sibling route.
+    A technician running a stale cached SPA calls this and gets the new
+    behaviour instead of a 403 -- which matters more now that the button's
+    label changed too.
     """
     try:
         work_order = wo_service.complete_work_order(
@@ -741,7 +864,7 @@ def complete_work_order(
             # notification can never disagree with what was written.
             _notify(
                 notifications_service.notify_work_order_held_for_review
-                if work_order.status == wo.STATUS_ON_HOLD
+                if work_order.status == wo.STATUS_READY_TO_COMPLETE
                 else notifications_service.notify_work_order_completed,
                 db,
                 background,
@@ -751,6 +874,7 @@ def complete_work_order(
         return _detail(
             wo_service.get_work_order(db, work_order.id, user=user),
             include_price=_can_see_price(user),
+            viewer_id=user.id,
         )
     except DomainError as exc:
         raise to_http(exc)
@@ -783,6 +907,7 @@ def hold_work_order(
         return _detail(
             wo_service.get_work_order(db, work_order.id, user=user),
             include_price=_can_see_price(user),
+            viewer_id=user.id,
         )
     except DomainError as exc:
         raise to_http(exc)
@@ -801,6 +926,101 @@ def resume_work_order(
         return _detail(
             wo_service.get_work_order(db, work_order.id, user=user),
             include_price=_can_see_price(user),
+            viewer_id=user.id,
+        )
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+def _notify_auto_hold(
+    db: Session,
+    background: BackgroundTasks,
+    work_order: WorkOrder,
+    *,
+    actor_id: uuid.UUID,
+) -> None:
+    """Fire `work_order.held` when a tracking write put a row On-Hold.
+
+    The standard `previous is not None and previous != status` guard is what
+    makes this correct on the idempotent path: a repeat stop closes no session,
+    performs no transition, and therefore sends nothing.
+
+    Reuses `notify_work_order_held` unchanged -- same audience (routed
+    supervisor, actor-suppressed, Admin fallback when unrouted), same body.
+    This is that rule's fourth trigger site, alongside `/hold`, the PATCH arm,
+    and now the stop path.
+    """
+    previous = wo_service.previous_status(work_order)
+    if (
+        previous is not None
+        and previous != work_order.status
+        and work_order.status == wo.STATUS_ON_HOLD
+    ):
+        _notify(
+            notifications_service.notify_work_order_held,
+            db,
+            background,
+            work_order=work_order,
+            actor_id=actor_id,
+        )
+
+
+@router.post("/{work_order_id}/tracking/start", response_model=WorkOrderDetail)
+def start_work_order_tracking(
+    work_order_id: uuid.UUID,
+    background: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Start the clock on a work order -- the field's primary action.
+
+    Assigned Technicians, and Supervisor+ on any work order they can see.
+    Advances a pre-work row to In-Progress and resumes an On-Hold one, so the
+    technician taps once rather than setting a status and then starting work.
+    Rejected on Ready to Complete and Completed. Idempotent.
+
+    Fires **no** notification of its own: starting a timer is not news to a
+    supervisor, and the transition it performs matches no arm of any rule. It
+    can still emit one `work_order.held` -- if the caller had a clock running
+    on a *different* work order, that one is closed here and may auto-hold.
+    """
+    try:
+        work_order = wo_service.start_labor_session(db, work_order_id, user=user)
+        _emit_status_changed(work_order.id)
+        for other in wo_service.side_transitions(work_order):
+            _emit_status_changed(other.id)
+            _notify_auto_hold(db, background, other, actor_id=user.id)
+        return _detail(
+            wo_service.get_work_order(db, work_order.id, user=user),
+            include_price=_can_see_price(user),
+            viewer_id=user.id,
+        )
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.post("/{work_order_id}/tracking/stop", response_model=WorkOrderDetail)
+def stop_work_order_tracking(
+    work_order_id: uuid.UUID,
+    background: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Stop the caller's clock and record the labor it produced.
+
+    When this closes the last running session on an In-Progress row the work
+    order puts itself On-Hold and alerts the routed supervisor. A stop that
+    leaves a co-worker on the clock changes no status and notifies nobody.
+    Idempotent.
+    """
+    try:
+        work_order = wo_service.stop_labor_session(db, work_order_id, user=user)
+        _emit_status_changed(work_order.id)
+        _notify_auto_hold(db, background, work_order, actor_id=user.id)
+        return _detail(
+            wo_service.get_work_order(db, work_order.id, user=user),
+            include_price=_can_see_price(user),
+            viewer_id=user.id,
         )
     except DomainError as exc:
         raise to_http(exc)
@@ -846,6 +1066,7 @@ def restore_work_order(
         return _detail(
             wo_service.get_work_order(db, work_order.id, user=user),
             include_price=_can_see_price(user),
+            viewer_id=user.id,
         )
     except DomainError as exc:
         raise to_http(exc)
@@ -949,11 +1170,13 @@ def add_work_order_labor(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Record actual labor for an assigned technician.
+    """Record actual labor by hand (Supervisor+).
 
-    Supervisor+ may record any assigned technician. The first entry starts
-    pre-work, and billing rounds the combined work-order duration upward to the
-    next 30 minutes.
+    The correction route now that tracked sessions are authoritative: a dead
+    battery, a forgotten Start Tracking, a paper sheet. The technician credited
+    must be assigned to the work order, or be the Supervisor recording
+    themselves. The first entry starts pre-work, and billing rounds the
+    combined work-order duration upward to the next 30 minutes.
     """
     try:
         return _labor_detail(

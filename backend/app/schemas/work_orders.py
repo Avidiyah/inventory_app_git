@@ -6,6 +6,7 @@ the logged-material lines. Response models are plain `BaseModel`s the router
 builder fills (a line's `item_name` comes from the joined `Item`).
 """
 
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 from uuid import UUID
@@ -40,9 +41,10 @@ class WorkOrderUpdate(BaseModel):
     its timestamp and authenticated author instead of replacing the log. At
     least one field required.
 
-    `status` (created|assigned|in_progress|on_hold|completed|review) and `entry_mode`
-    (dispense|retroactive) are validated in the service. Closed is archive state,
-    never a PATCH status value."""
+    `status` (created|assigned|in_progress|on_hold|ready_to_complete|completed|
+    review) and `entry_mode` (dispense|retroactive) are validated in the
+    service. Closed is archive state, never a PATCH status value. Driving a row
+    into on_hold, ready_to_complete, or completed stops every clock on it."""
 
     number: Optional[str] = None
     community: Optional[str] = None
@@ -193,12 +195,33 @@ class WorkOrderItemDetail(BaseModel):
 
 
 class WorkOrderLaborDetail(BaseModel):
-    """One actual labor entry attributed to a technician."""
+    """One actual labor entry attributed to a technician.
+
+    The session fields describe where the duration came from. They are `None`
+    for a hand-entered correction and for every row that predates tracked time,
+    which the labor card must render as a bare duration rather than treat as an
+    error."""
 
     id: UUID
     technician_id: UUID
     technician_name: str
     minutes: int
+    # Pre-rendered by the server in the note log's Central timezone (e.g.
+    # "2:10-3:25 PM"), for the same reason the log is: the client parses
+    # nothing, so a phone in another timezone cannot show a window that
+    # disagrees with the `stopped work` line beside it.
+    session_window: Optional[str] = None
+    # The 12-hour cap closed this session rather than a person. The figure is a
+    # prompt to review, never a billing fact accepted on its own.
+    auto_closed: bool = False
+
+
+class WorkOrderLaborSessionDetail(BaseModel):
+    """A tracking session that is currently running."""
+
+    id: UUID
+    technician_id: UUID
+    started_at: datetime
 
 
 class WorkOrderCard(BaseModel):
@@ -302,11 +325,19 @@ class WorkOrderImportResult(BaseModel):
 
 
 class WorkOrderDetail(WorkOrderCard):
-    """A work-order card plus notes, logged materials, and labor."""
+    """A work-order card plus notes, logged materials, and labor.
+
+    Two fields are shaped per caller rather than per work order:
+    `active_labor_session` is *this* caller's running clock (the card decides
+    between Start Tracking and Stop Tracking from it), while
+    `tracking_technician_ids` is everyone's, so a supervisor can see that the
+    crew is on the job without being on it themselves."""
 
     notes: Optional[str] = None
     items: list[WorkOrderItemDetail] = Field(default_factory=list)
     labor: list[WorkOrderLaborDetail] = Field(default_factory=list)
+    active_labor_session: Optional[WorkOrderLaborSessionDetail] = None
+    tracking_technician_ids: list[UUID] = Field(default_factory=list)
     # Base materials charge = sum over lines of (effective_billable * unit_price),
     # before the +15% mark-up. TechFM OA and above only (None when redacted).
     materials_total: Optional[Decimal] = None
