@@ -1,6 +1,6 @@
     <!-- =================== USER HUB PAGE =================== -->
     <!-- The landing page for every role (D4). Static shell only: the clock
-         widget and both tab bodies are built by views/hubClock.js and
+         widget and the role-scoped tab bodies are built by views/hubClock.js and
          views/hubTechnician.js, orchestrated by views/userHub.js. Reached
          via the header identity button (#auth-user-indicator, see
          shell-head.html) -- there is no button in #main-nav (D10). -->
@@ -8,12 +8,14 @@
 
         <section id="hub-clock-mount" aria-live="polite"></section>
 
-        <nav id="hub-tabs" class="hub-tabs" aria-label="User hub sections">
-            <button type="button" class="hub-tab active" id="hub-tab-dashboard" data-hub-tab="dashboard" aria-selected="true" role="tab">Dashboard</button>
-            <button type="button" class="hub-tab" id="hub-tab-work-orders" data-hub-tab="work-orders" aria-selected="false" role="tab">My Work Orders</button>
+        <nav id="hub-tabs" class="hub-tabs" aria-label="User hub sections" role="tablist">
+            <button type="button" class="hub-tab active" id="hub-tab-dashboard" data-hub-tab="dashboard" aria-controls="hub-tabpanel-dashboard" aria-selected="true" role="tab">Dashboard</button>
+            <button type="button" class="hub-tab hidden" id="hub-tab-timesheets" data-hub-tab="timesheets" aria-controls="hub-tabpanel-timesheets" aria-selected="false" role="tab" hidden>Timesheets</button>
+            <button type="button" class="hub-tab" id="hub-tab-work-orders" data-hub-tab="work-orders" aria-controls="hub-tabpanel-work-orders" aria-selected="false" role="tab">My Work Orders</button>
         </nav>
 
-        <div class="hub-tabpanel active" id="hub-tabpanel-dashboard" role="tabpanel"></div>
-        <div class="hub-tabpanel" id="hub-tabpanel-work-orders" role="tabpanel" hidden></div>
+        <div class="hub-tabpanel active" id="hub-tabpanel-dashboard" role="tabpanel" aria-labelledby="hub-tab-dashboard"></div>
+        <div class="hub-tabpanel" id="hub-tabpanel-timesheets" role="tabpanel" aria-labelledby="hub-tab-timesheets" hidden></div>
+        <div class="hub-tabpanel" id="hub-tabpanel-work-orders" role="tabpanel" aria-labelledby="hub-tab-work-orders" hidden></div>
 
     </div>

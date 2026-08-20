@@ -7,7 +7,7 @@ is fully unit-testable without a database and tunable in one place (spec
 
 Predicates return flag strings rather than booleans. The payload carries a
 small vocabulary (`long_session`, `approaching_cap`, `assigned_idle`,
-`stale_work_order`) that the frontend renders as an icon plus a word, never
+`stale_work_order`, `running`) that the frontend renders as an icon plus a word, never
 color alone -- required by spec §8 and by the fact that these are read in
 jobsite glare.
 """
@@ -35,6 +35,7 @@ FLAG_LONG_SESSION = "long_session"
 FLAG_APPROACHING_CAP = "approaching_cap"
 FLAG_ASSIGNED_IDLE = "assigned_idle"
 FLAG_STALE_WORK_ORDER = "stale_work_order"
+FLAG_RUNNING = "running"
 
 
 def session_flag(running_minutes: int) -> Optional[str]:

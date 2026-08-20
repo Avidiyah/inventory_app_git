@@ -489,6 +489,34 @@ export async function apiGetHubCrew() {
   return liveGet("/hub/crew");
 }
 
+export async function apiGetHubTimesheets({ start = null, end = null, userId = null } = {}) {
+  const params = new URLSearchParams();
+  if (start) params.set("start", start);
+  if (end) params.set("end", end);
+  if (userId) params.set("user_id", userId);
+  const query = params.toString();
+  return liveGet(`/hub/timesheets${query ? `?${query}` : ""}`);
+}
+
+export async function apiExportHubTimesheets({ start = null, end = null, userId = null } = {}) {
+  const params = new URLSearchParams();
+  if (start) params.set("start", start);
+  if (end) params.set("end", end);
+  if (userId) params.set("user_id", userId);
+  const query = params.toString();
+  const response = await fetch(`/hub/timesheets/export${query ? `?${query}` : ""}`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!response.ok) return parseResponse(response); // always throws
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  return {
+    blob: await response.blob(),
+    filename: match ? match[1] : "timesheet.csv",
+  };
+}
+
 // Bulk-import work orders from the mass CSV export (Admin+). multipart upload --
 // do NOT set Content-Type by hand (the browser adds the multipart boundary),
 // mirroring apiDecodeBarcode. Returns the WorkOrderImportResult summary.

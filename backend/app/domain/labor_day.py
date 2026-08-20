@@ -63,6 +63,17 @@ def central_date_of(instant: datetime, *, tz: ZoneInfo = CENTRAL) -> date:
     return as_utc(instant).astimezone(tz).date()
 
 
+def week_bounds_containing(day: date) -> tuple[date, date]:
+    """Return the Monday and Sunday containing ``day``, both inclusive.
+
+    Callers pass an already-resolved Central calendar date, so this is pure
+    date arithmetic. Keeping it here gives the timesheet and the later Admin
+    billing view one definition of "current week."
+    """
+    start = day - timedelta(days=day.weekday())
+    return start, start + timedelta(days=6)
+
+
 def overlap_minutes(
     start: datetime,
     end: Optional[datetime],

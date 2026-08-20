@@ -334,3 +334,18 @@ class ToolReturnExceedsCheckedOutError(DomainError):
         super().__init__(
             f"Cannot return {requested}: only {outstanding} checked out."
         )
+
+
+class TimesheetRangeInvalidError(DomainError):
+    """Raised when a timesheet range ends before it starts. Maps to 400."""
+
+    def __init__(self):
+        super().__init__("End date must be on or after start date.")
+
+
+class TimesheetRangeTooLargeError(DomainError):
+    """Raised when an inclusive timesheet range exceeds its safety cap."""
+
+    def __init__(self, max_days: int):
+        self.max_days = max_days
+        super().__init__(f"Date range cannot exceed {max_days} days.")

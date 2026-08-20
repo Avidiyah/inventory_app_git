@@ -3,18 +3,19 @@
 // Layer: views. The landing page for every role (D4). Owns the one GET /hub
 // fetch every tab reads from, the persistent clock widget above the tabs
 // (mounted once, refreshed on every reload), switching between the
-// Dashboard and My Work Orders tab bodies, and -- for supervisor+ viewers --
-// the crew board's own GET /hub/crew fetch and its freshness (spec §5.3, §6.2).
+// role-scoped tab bodies, and -- for supervisor+ viewers -- the crew board's
+// freshness plus the lazily fetched Timesheets tab (spec §5.3, §6.2).
 // Admin dashboards are P4; every role below TechFM OA sees this same shape
 // for now, built from the same role-agnostic GET /hub payload.
 
-import { apiGetHub, apiGetHubCrew } from "../api.js";
-import { friendlyError } from "../format.js";
+import { apiGetHub, apiGetHubCrew, apiGetHubTimesheets } from "../api.js";
+import { escapeHtml, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
 import { roleAtLeast } from "../roles.js";
 import { mountHubClock, startHubClockTicking, stopHubClockTicking } from "./hubClock.js";
 import { mountHubDashboard, mountHubWorkOrders } from "./hubTechnician.js";
 import { mountHubCrew } from "./hubSupervisor.js";
+import { mountHubTimesheets } from "./hubTimesheets.js";
 
 const HUB_PAGE = "user-hub";
 const LABOR_SESSION_CHANGED_EVENT = "labor.session.changed";
@@ -27,15 +28,21 @@ const CREW_SAFETY_REFRESH_MS = 60000;
 const tabButtons = document.querySelectorAll(".hub-tab");
 const tabPanels = {
   dashboard: document.getElementById("hub-tabpanel-dashboard"),
+  timesheets: document.getElementById("hub-tabpanel-timesheets"),
   "work-orders": document.getElementById("hub-tabpanel-work-orders"),
 };
 const clockMount = document.getElementById("hub-clock-mount");
+const timesheetsTabButton = document.getElementById("hub-tab-timesheets");
 
 let activeTab = "dashboard";
 let latestPayload = null;
 let latestCrewPayload = null;
 let crewRequestId = 0;
 let crewSafetyTimer = null;
+let latestTimesheetPayload = null;
+let timesheetRange = null;
+let timesheetRequestId = 0;
+let loadedUserId = null;
 
 function showTab(name) {
   activeTab = name;
@@ -68,8 +75,63 @@ function renderActiveTab() {
   if (activeTab === "dashboard") {
     mountHubDashboard(tabPanels.dashboard, latestPayload);
     renderCrew();
+  } else if (activeTab === "timesheets") {
+    if (latestTimesheetPayload) {
+      mountHubTimesheets(tabPanels.timesheets, latestTimesheetPayload, {
+        onWeekChange: (start, end) => void loadTimesheets({ start, end }),
+      });
+    } else {
+      void loadTimesheets(timesheetRange || {});
+    }
   } else {
     mountHubWorkOrders(tabPanels["work-orders"], latestPayload);
+  }
+}
+
+function setTimesheetsTabVisible(visible) {
+  if (!timesheetsTabButton) return;
+  timesheetsTabButton.hidden = !visible;
+  timesheetsTabButton.classList.toggle("hidden", !visible);
+}
+
+function showTimesheetLoadError(mount, err, requestedRange) {
+  const message = escapeHtml(friendlyError(err, "Could not load timesheets."));
+  let status = mount.querySelector(".hub-timesheet-message");
+  if (!status) {
+    mount.innerHTML = `<div class="hub-timesheet-load-error"><p class="hub-timesheet-message error"></p></div>`;
+    status = mount.querySelector(".hub-timesheet-message");
+  }
+  status.className = "hub-timesheet-message error";
+  status.innerHTML = `${message} <button type="button" class="secondary-btn hub-timesheet-retry">Retry</button>`;
+  status.querySelector(".hub-timesheet-retry")?.addEventListener("click", () => {
+    void loadTimesheets(requestedRange);
+  });
+}
+
+async function loadTimesheets({ start = null, end = null } = {}) {
+  const mount = tabPanels.timesheets;
+  if (!mount) return;
+  const requestedRange = { start, end };
+  const requestId = ++timesheetRequestId;
+  const existingStatus = mount.querySelector(".hub-timesheet-message");
+  if (latestTimesheetPayload && existingStatus) {
+    existingStatus.className = "hub-timesheet-message";
+    existingStatus.textContent = "Loading…";
+  } else {
+    mount.innerHTML = `<p class="hint hub-timesheet-message">Loading…</p>`;
+  }
+  try {
+    const payload = await apiGetHubTimesheets({ start, end });
+    if (requestId !== timesheetRequestId) return;
+    latestTimesheetPayload = payload;
+    timesheetRange = { start: payload.range.start, end: payload.range.end };
+    mountHubTimesheets(mount, payload, {
+      onWeekChange: (rangeStart, rangeEnd) =>
+        void loadTimesheets({ start: rangeStart, end: rangeEnd }),
+    });
+  } catch (err) {
+    if (requestId !== timesheetRequestId) return;
+    showTimesheetLoadError(mount, err, requestedRange);
   }
 }
 
@@ -117,18 +179,35 @@ tabButtons.forEach((btn) => {
 // (loadWorkOrders, loadTools, ...) -- the hub is exactly the kind of page
 // where "stale since I last looked" is the failure mode to avoid.
 export async function loadUserHub() {
+  let payload;
   try {
-    latestPayload = await apiGetHub();
+    payload = await apiGetHub();
   } catch (err) {
     clockMount.innerHTML = `<p class="error">${friendlyError(err, "Could not load your hub.")}</p>`;
     return;
   }
+  const nextUserId = String(payload.user.id);
+  const userChanged = loadedUserId !== nextUserId;
+  const canViewSupervisorTabs = roleAtLeast(payload.user.role, "supervisor");
+  if (userChanged || !canViewSupervisorTabs) {
+    latestCrewPayload = null;
+    latestTimesheetPayload = null;
+    timesheetRange = null;
+    crewRequestId += 1;
+    timesheetRequestId += 1;
+    tabPanels.timesheets.replaceChildren();
+  }
+  if (userChanged) activeTab = "dashboard";
+  if (!canViewSupervisorTabs && activeTab === "timesheets") activeTab = "dashboard";
+  loadedUserId = nextUserId;
+  latestPayload = payload;
+  setTimesheetsTabVisible(canViewSupervisorTabs);
   document.getElementById("hub-tab-work-orders").textContent =
     `My Work Orders (${latestPayload.counts.assigned})`;
   mountHubClock(clockMount, latestPayload, { onChanged: refreshUserHub });
-  renderActiveTab();
+  showTab(activeTab);
 
-  if (roleAtLeast(latestPayload.user.role, "supervisor")) {
+  if (canViewSupervisorTabs) {
     await refreshCrew();
     startCrewSafetyRefresh();
   } else {

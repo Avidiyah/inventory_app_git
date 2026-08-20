@@ -137,11 +137,13 @@ lists what the call reads (r) and writes (w).
 | WS1 | WS | `/ws` | session cookie + same-origin | `realtime.py` → `services/realtime` registry → `domain/realtime` policy | **none** — carries no row data, reads and writes nothing | — (`static/realtime.js` owns the socket; not an `api.js` wrapper) | `adminReview.js` (subscriber), `auth.js` + `nav.js` (lifecycle) |
 | H1 | GET | `/hub` | any authenticated | `hub.py` → `hub.personal_hub` → `work_orders.sweep_stale_sessions` + `labor_summary.day_summary` + `tools.user_custody_detail` | work_order_labor_sessions (r/w on sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), tool_transactions (r), tools (r), users (r) | `apiGetHub` | `userHub.js`, `hubClock.js`, `hubTechnician.js` |
 | H2 | GET | `/hub/crew` | supervisor+ | `hub.py` → `hub.crew_hub` → `work_orders.sweep_stale_sessions` (per crew member) + `labor_summary.crew_day_summaries` + `labor_summary.last_worked` | work_order_labor_sessions (r/w on per-member sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), users (r) | `apiGetHubCrew` | `userHub.js`, `hubSupervisor.js` |
+| H3 | GET | `/hub/timesheets` | supervisor+ | `hub.py` → `hub.timesheets_hub` → `work_orders.sweep_stale_sessions` (per crew member) + `labor_summary.crew_range_summaries` | work_order_labor_sessions (r/w on per-member sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), users (r) | `apiGetHubTimesheets` | `userHub.js`, `hubTimesheets.js` |
+| H4 | GET | `/hub/timesheets/export` | supervisor+ | `hub.py` → `hub.timesheets_hub` + `hub.timesheet_csv` | same as H3 | `apiExportHubTimesheets` | `hubTimesheets.js` |
 
 (Rows 55 onward and NF1–NF3/NF1a–NF1c were appended out of resource order to keep the existing
 #1–54 numbering — and the footnote / per-table references to it — stable. WS1 is the one
 non-HTTP operation and is numbered apart from the resource rows for the same reason. H1 is the
-first User Hub row, numbered apart for the same reason; P2 onward add `H2`, `H3`, ….)
+first User Hub row, numbered apart for the same reason; P2 onward add `H2`, `H3`, `H4`, ….)
 
 Footnotes:
 1. `POST /transactions/`: dispense = any authenticated user; stock = supervisor+ (`domain.roles.can_transact`). A Scan/Stock dispense may take expected quantity below zero and opens a recount request. Work Orders Add Item has the same deliberate exception; Work Order quantity edits and the other stock-out paths retain the strict no-overdraft domain rule.
@@ -1164,6 +1166,25 @@ two subsets of the work orders this supervisor leads, same convention as
 `detail` — a server-composed sentence, matching spec §7's abbreviated
 `{kind, subject, detail}` contract for this list.
 
+**`HubTimesheetResponse`** — `GET /hub/timesheets` (supervisor+; P3b scopes
+every caller to their own routed crew): `range: HubTimesheetRange`, `rows:
+list[HubTimesheetRow] = []`, and `crew_totals_by_day:
+list[HubTimesheetDayTotal] = []`. The range is inclusive Central calendar
+dates, defaults to the current Monday–Sunday week, and is capped at 92 days.
+The two range-spanning source queries use `MAX_LIST_ROWS` and emit the shared
+`list.truncated` warning if that ceiling bites.
+
+**`HubTimesheetRow`**: `user: HubUser`, `days: list[HubTimesheetDay]`, and
+`total_minutes`. **`HubTimesheetDay`** carries `date`, `tracked_minutes`,
+`adjustment_minutes`, computed `total_minutes`, `flags`, and the session plus
+adjustment rows used by the inline drill-down. D15 applies at every level:
+cell, row, crew, and CSV totals all include adjustments. `running` marks a
+cell with an open clock; `assigned_idle` is never applied to a future day.
+
+**`HubTimesheetDayTotal`**: `date`, `minutes` — the adjustment-aware crew
+sum for one day. `GET /hub/timesheets/export` serializes the same payload as
+`H:MM` CSV named `timesheet_<start>_to_<end>[_<user>].csv`.
+
 ---
 
 ## Error Catalog
@@ -1191,6 +1212,8 @@ non-domain exceptions become FastAPI's default 500.
 | `DuplicateToolBarcodeError` | 400 | barcode held by a **live** tool (no archived-conflict/override flow, unlike items) |
 | `ToolReturnExceedsCheckedOutError` | 400 | return quantity exceeds that user's current outstanding balance for the tool |
 | `ToolHasOutstandingCustodyError` | 400 | archiving a tool while any user still has a positive outstanding balance |
+| `TimesheetRangeInvalidError` | 400 | a timesheet range ends before it starts |
+| `TimesheetRangeTooLargeError` | **422** | an inclusive timesheet range exceeds 92 days |
 | `DuplicateBarcodeError` | 400 | barcode held by a **live** item (primary or additional) |
 | `ArchivedBarcodeConflictError` | **409** | barcode held only by an **archived** item; retry with `override_archived=true` |
 | `DuplicateUsernameError` | 400 | username UNIQUE constraint fired |

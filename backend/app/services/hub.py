@@ -7,18 +7,15 @@ sweep is `services.work_orders`. This module's whole job is to run them in
 the right order and hand back one object the router can serialise, so the
 router stays the thin translation layer every other one in this app is.
 
-Phase 1 builds the **personal block** only -- the payload behind `GET /hub`,
-which every authenticated role receives, Admin included. That is not
-symmetry for its own sake: `POST /tracking/start` is already open to
-Supervisor+ on any visible work order, precisely so a supervisor who does
-the work records it, and a supervisor with a running clock and nowhere to
-see it would be a regression. The crew, admin, and timesheet payloads are
-later phases.
+The module now composes the personal block, the routed crew board, and the
+same crew's timesheets. The Admin-wide payload remains a later phase.
 """
 
+import csv
+import io
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -28,6 +25,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.domain import hub as hub_domain
 from app.domain import labor_day
 from app.domain import work_orders as wo
+from app.domain.errors import TimesheetRangeInvalidError, TimesheetRangeTooLargeError
 from app.models import User, WorkOrder, WorkOrderLaborSession, WorkOrderTechnician
 from app.services import labor_summary
 from app.services import tools as tools_service
@@ -168,9 +166,10 @@ def personal_hub(db: Session, user: User) -> HubPayload:
     and the client's clock-skew anchor, so every number in the response
     describes the same instant.
     """
-    work_orders_service.sweep_stale_sessions(db, technician_id=user.id)
-
     now = datetime.now(timezone.utc)
+    work_orders_service.sweep_stale_sessions(
+        db, technician_id=user.id, now=now
+    )
     day = labor_day.central_date_of(now)
 
     mine = _assigned_work_orders(db, user.id)
@@ -305,6 +304,40 @@ def _stale_work_order_detail(
     return f"{label}, no activity for {days} {unit}"
 
 
+def _led_work_orders(db: Session, supervisor_id: uuid.UUID) -> list[WorkOrder]:
+    """Every live work order routed to this supervisor.
+
+    This is the query half of D6's crew derivation, shared by the crew board
+    and timesheets so their membership cannot drift.
+    """
+    return (
+        db.query(WorkOrder)
+        .options(joinedload(WorkOrder.technicians))
+        .filter(
+            WorkOrder.archived_at.is_(None),
+            WorkOrder.supervisor_id == supervisor_id,
+        )
+        .all()
+    )
+
+
+def _crew_ids_from(
+    led_work_orders: list[WorkOrder], supervisor_id: uuid.UUID
+) -> set[uuid.UUID]:
+    """Derive distinct crew ids from plural and legacy assignments (D6).
+
+    The supervisor's own id is always removed (D13); their hours stay in the
+    personal clock widget rather than a crew total they cannot reconcile.
+    """
+    crew_ids: set[uuid.UUID] = set()
+    for work_order in led_work_orders:
+        crew_ids.update(technician.id for technician in work_order.technicians)
+        if work_order.assigned_to_id:
+            crew_ids.add(work_order.assigned_to_id)
+    crew_ids.discard(supervisor_id)
+    return crew_ids
+
+
 def crew_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> HubCrewPayload:
     """The `GET /hub/crew` payload: who I lead, who is on the clock, and
     what needs a look.
@@ -335,12 +368,7 @@ def crew_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> HubC
     now = now or datetime.now(timezone.utc)
     day = labor_day.central_date_of(now)
 
-    led_work_orders = (
-        db.query(WorkOrder)
-        .options(joinedload(WorkOrder.technicians))
-        .filter(WorkOrder.archived_at.is_(None), WorkOrder.supervisor_id == user.id)
-        .all()
-    )
+    led_work_orders = _led_work_orders(db, user.id)
     led = LedCounts(
         total=len(led_work_orders),
         in_progress=sum(1 for w in led_work_orders if w.status == wo.STATUS_IN_PROGRESS),
@@ -349,16 +377,12 @@ def crew_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> HubC
         ),
     )
 
-    crew_ids: set[uuid.UUID] = set()
-    for w in led_work_orders:
-        for tech in w.technicians:
-            crew_ids.add(tech.id)
-        if w.assigned_to_id:
-            crew_ids.add(w.assigned_to_id)
-    crew_ids.discard(user.id)
+    crew_ids = _crew_ids_from(led_work_orders, user.id)
 
     for technician_id in crew_ids:
-        work_orders_service.sweep_stale_sessions(db, technician_id=technician_id)
+        work_orders_service.sweep_stale_sessions(
+            db, technician_id=technician_id, now=now
+        )
 
     summaries = labor_summary.crew_day_summaries(db, list(crew_ids), day, now=now)
     crew_users = (
@@ -440,3 +464,190 @@ def crew_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> HubC
         technicians=technicians,
         attention=attention,
     )
+
+
+# --- the timesheet payload (P3b) -------------------------------------------
+
+MAX_TIMESHEET_RANGE_DAYS = 92
+
+
+@dataclass(frozen=True)
+class TimesheetDay:
+    """One grid cell plus the detail expanded from that same payload."""
+
+    date: date
+    tracked_minutes: int
+    adjustment_minutes: int
+    flags: list[str] = field(default_factory=list)
+    sessions: list[labor_summary.TimelineEntry] = field(default_factory=list)
+    adjustments: list[labor_summary.Adjustment] = field(default_factory=list)
+
+    @property
+    def total_minutes(self) -> int:
+        """D15: every displayed total includes adjustments."""
+        return self.tracked_minutes + self.adjustment_minutes
+
+
+@dataclass(frozen=True)
+class TimesheetRow:
+    user: User
+    days: list[TimesheetDay] = field(default_factory=list)
+    total_minutes: int = 0
+
+
+@dataclass(frozen=True)
+class TimesheetDayTotal:
+    date: date
+    minutes: int
+
+
+@dataclass(frozen=True)
+class TimesheetRange:
+    start: date
+    end: date
+
+
+@dataclass(frozen=True)
+class HubTimesheetPayload:
+    range: TimesheetRange
+    rows: list[TimesheetRow] = field(default_factory=list)
+    crew_totals_by_day: list[TimesheetDayTotal] = field(default_factory=list)
+
+
+def timesheets_hub(
+    db: Session,
+    user: User,
+    *,
+    start: date,
+    end: date,
+    user_id: Optional[uuid.UUID] = None,
+    now: Optional[datetime] = None,
+) -> HubTimesheetPayload:
+    """Compose the routed crew's timesheet cells for an inclusive range.
+
+    P3b uses the exact same D6 membership as the crew board for every caller,
+    including higher-ranked callers. P4 owns the later widening to an
+    all-company scope. A ``user_id`` can only narrow that already-authorized
+    set; an id outside it returns no rows without revealing whether it exists.
+
+    Each in-scope technician is swept before reading so a forgotten clock is
+    shown as the established 12-hour estimate, not unbounded running time.
+    """
+    if end < start:
+        raise TimesheetRangeInvalidError()
+    if (end - start).days + 1 > MAX_TIMESHEET_RANGE_DAYS:
+        raise TimesheetRangeTooLargeError(MAX_TIMESHEET_RANGE_DAYS)
+
+    now = now or datetime.now(timezone.utc)
+    today = labor_day.central_date_of(now)
+    crew_ids = _crew_ids_from(_led_work_orders(db, user.id), user.id)
+    if user_id is not None:
+        crew_ids.intersection_update({user_id})
+
+    for technician_id in crew_ids:
+        work_orders_service.sweep_stale_sessions(
+            db, technician_id=technician_id, now=now
+        )
+
+    summaries = labor_summary.crew_range_summaries(
+        db, list(crew_ids), start, end, now=now
+    )
+    crew_users = (
+        {person.id: person for person in db.query(User).filter(User.id.in_(crew_ids)).all()}
+        if crew_ids
+        else {}
+    )
+
+    rows: list[TimesheetRow] = []
+    totals_by_day: dict[date, int] = {}
+    ordered_ids = sorted(
+        crew_ids, key=lambda technician_id: crew_users[technician_id].full_name.casefold()
+    )
+    for technician_id in ordered_ids:
+        assigned_count = _assigned_counts(
+            _assigned_work_orders(db, technician_id)
+        ).assigned
+        days: list[TimesheetDay] = []
+        for summary in summaries[technician_id]:
+            flags: list[str] = []
+            if summary.running is not None:
+                flags.append(hub_domain.FLAG_RUNNING)
+            if summary.day <= today and hub_domain.is_assigned_idle(
+                assigned_count=assigned_count,
+                minutes_today=summary.total_minutes,
+                now=now,
+            ):
+                flags.append(hub_domain.FLAG_ASSIGNED_IDLE)
+
+            timesheet_day = TimesheetDay(
+                date=summary.day,
+                tracked_minutes=summary.closed_minutes + summary.running_minutes,
+                adjustment_minutes=summary.adjustment_minutes,
+                flags=flags,
+                sessions=summary.timeline,
+                adjustments=summary.adjustments,
+            )
+            days.append(timesheet_day)
+            totals_by_day[summary.day] = (
+                totals_by_day.get(summary.day, 0) + timesheet_day.total_minutes
+            )
+
+        rows.append(
+            TimesheetRow(
+                user=crew_users[technician_id],
+                days=days,
+                total_minutes=sum(day.total_minutes for day in days),
+            )
+        )
+
+    date_range = [
+        start + timedelta(days=offset)
+        for offset in range((end - start).days + 1)
+    ]
+    return HubTimesheetPayload(
+        range=TimesheetRange(start=start, end=end),
+        rows=rows,
+        crew_totals_by_day=[
+            TimesheetDayTotal(date=day, minutes=totals_by_day.get(day, 0))
+            for day in date_range
+        ],
+    )
+
+
+def _format_timesheet_hm(total_minutes: int) -> str:
+    """Payroll-facing ``H:MM``; crew-board prose keeps its own formatter."""
+    hours, minutes = divmod(max(0, round(total_minutes)), 60)
+    return f"{hours}:{minutes:02d}"
+
+
+def timesheet_csv(payload: HubTimesheetPayload) -> str:
+    """Serialize the exact grid payload, including adjustment-aware totals."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\r\n")
+    dates = [total.date for total in payload.crew_totals_by_day]
+    writer.writerow(["Technician", *(day.isoformat() for day in dates), "Total"])
+    for row in payload.rows:
+        cells_by_day = {day.date: day for day in row.days}
+        writer.writerow(
+            [
+                row.user.full_name,
+                *(
+                    _format_timesheet_hm(cells_by_day[day].total_minutes)
+                    for day in dates
+                ),
+                _format_timesheet_hm(row.total_minutes),
+            ]
+        )
+    writer.writerow(
+        [
+            "Crew total",
+            *(
+                _format_timesheet_hm(total.minutes)
+                for total in payload.crew_totals_by_day
+            ),
+            _format_timesheet_hm(
+                sum(total.minutes for total in payload.crew_totals_by_day)
+            ),
+        ]
+    )
+    return buffer.getvalue()

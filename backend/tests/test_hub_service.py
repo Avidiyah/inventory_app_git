@@ -21,6 +21,7 @@ from app.domain import hub as hub_domain
 from app.domain import labor_day
 from app.domain import roles
 from app.domain import work_orders as wo
+from app.domain.errors import TimesheetRangeInvalidError, TimesheetRangeTooLargeError
 from app.models import User, WorkOrderLaborSession, WorkOrderTechnician
 from app.services import auth
 from app.services import hub as hub_service
@@ -537,3 +538,204 @@ def test_the_crew_payload_serialises_into_the_response_schema(db):
     assert body["crew_on_clock"] == 1
     assert body["technicians"][0]["user"]["id"] == tech.id
     assert body["technicians"][0]["running_session"]["number"] == "88214"
+
+
+# --- the supervisor timesheet payload (P3b) -------------------------------
+
+
+def test_timesheets_hub_is_scoped_to_the_supervisors_routed_crew(db):
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR, first_name="Sam", last_name="Boss")
+    crew_tech = _seed_user(db, first_name="Ana", last_name="Crew")
+    other_tech = _seed_user(db, first_name="Not", last_name="Mine")
+    _seed_work_order(
+        db, created_by=supervisor, assigned_to=crew_tech, supervisor=supervisor
+    )
+    _seed_work_order(db, created_by=supervisor, assigned_to=other_tech)
+
+    payload = hub_service.timesheets_hub(
+        db, supervisor, start=date(2026, 8, 17), end=date(2026, 8, 17), now=NOW
+    )
+
+    assert [row.user.id for row in payload.rows] == [crew_tech.id]
+    assert supervisor.id not in [row.user.id for row in payload.rows]
+
+
+def test_timesheets_hub_totals_include_adjustments_at_every_level(db):
+    from app.models import WorkOrderLabor
+
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    tech = _seed_user(db)
+    work_order = _seed_work_order(
+        db, created_by=supervisor, assigned_to=tech, supervisor=supervisor
+    )
+    day = date(2026, 8, 17)
+    window_start, _ = labor_day.day_bounds(day)
+    _seed_session(
+        db,
+        work_order,
+        tech,
+        started_at=window_start + timedelta(hours=1),
+        ended_at=window_start + timedelta(hours=2),
+    )
+    db.add(
+        WorkOrderLabor(
+            id=uuid.uuid4(),
+            work_order_id=work_order.id,
+            technician_id=tech.id,
+            recorded_by_id=supervisor.id,
+            minutes=30,
+            created_at=window_start + timedelta(hours=3),
+        )
+    )
+    db.flush()
+
+    payload = hub_service.timesheets_hub(
+        db, supervisor, start=day, end=day, now=NOW
+    )
+
+    cell = payload.rows[0].days[0]
+    assert (cell.tracked_minutes, cell.adjustment_minutes, cell.total_minutes) == (
+        60,
+        30,
+        90,
+    )
+    assert payload.rows[0].total_minutes == 90
+    assert payload.crew_totals_by_day[0].minutes == 90
+
+
+def test_timesheets_hub_user_filter_cannot_escape_the_crew_scope(db):
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    crew_tech = _seed_user(db, first_name="Ana")
+    stranger = _seed_user(db, first_name="Outside")
+    _seed_work_order(
+        db, created_by=supervisor, assigned_to=crew_tech, supervisor=supervisor
+    )
+
+    included = hub_service.timesheets_hub(
+        db,
+        supervisor,
+        start=date(2026, 8, 17),
+        end=date(2026, 8, 17),
+        user_id=crew_tech.id,
+        now=NOW,
+    )
+    excluded = hub_service.timesheets_hub(
+        db,
+        supervisor,
+        start=date(2026, 8, 17),
+        end=date(2026, 8, 17),
+        user_id=stranger.id,
+        now=NOW,
+    )
+
+    assert [row.user.id for row in included.rows] == [crew_tech.id]
+    assert excluded.rows == []
+
+
+def test_timesheets_hub_validates_the_inclusive_range(db):
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+
+    with pytest.raises(TimesheetRangeInvalidError):
+        hub_service.timesheets_hub(
+            db,
+            supervisor,
+            start=date(2026, 8, 20),
+            end=date(2026, 8, 19),
+            now=NOW,
+        )
+    with pytest.raises(TimesheetRangeTooLargeError) as exc_info:
+        hub_service.timesheets_hub(
+            db,
+            supervisor,
+            start=date(2026, 1, 1),
+            end=date(2026, 4, 3),
+            now=NOW,
+        )
+
+    assert exc_info.value.max_days == 92
+
+
+def test_timesheets_hub_marks_running_and_assigned_idle_cells(db):
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    running_tech = _seed_user(db, first_name="Running")
+    idle_tech = _seed_user(db, first_name="Idle")
+    running_work = _seed_work_order(
+        db, created_by=supervisor, assigned_to=running_tech, supervisor=supervisor
+    )
+    _seed_work_order(
+        db, created_by=supervisor, assigned_to=idle_tech, supervisor=supervisor
+    )
+    _seed_session(db, running_work, running_tech, started_at=NOW - timedelta(hours=1))
+    today = labor_day.central_date_of(NOW)
+
+    payload = hub_service.timesheets_hub(
+        db, supervisor, start=today, end=today, now=NOW
+    )
+    cells = {row.user.first_name: row.days[0] for row in payload.rows}
+
+    assert hub_domain.FLAG_RUNNING in cells["Running"].flags
+    assert hub_domain.FLAG_ASSIGNED_IDLE in cells["Idle"].flags
+
+
+def test_timesheets_hub_never_flags_a_future_zero_day_as_idle(db):
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    tech = _seed_user(db)
+    _seed_work_order(db, created_by=supervisor, assigned_to=tech, supervisor=supervisor)
+    tomorrow = labor_day.central_date_of(NOW) + timedelta(days=1)
+
+    payload = hub_service.timesheets_hub(
+        db, supervisor, start=tomorrow, end=tomorrow, now=NOW
+    )
+
+    assert hub_domain.FLAG_ASSIGNED_IDLE not in payload.rows[0].days[0].flags
+
+
+def test_timesheets_hub_sweeps_a_forgotten_crew_clock_before_reading(db):
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    tech = _seed_user(db)
+    work_order = _seed_work_order(
+        db, created_by=supervisor, assigned_to=tech, supervisor=supervisor
+    )
+    started = datetime.now(timezone.utc) - timedelta(hours=20)
+    session = _seed_session(db, work_order, tech, started_at=started)
+    start_day = labor_day.central_date_of(started)
+    end_day = labor_day.central_date_of(datetime.now(timezone.utc))
+
+    payload = hub_service.timesheets_hub(
+        db, supervisor, start=start_day, end=end_day
+    )
+
+    db.refresh(session)
+    assert session.ended_at == started + timedelta(minutes=wo.LABOR_SESSION_MAX_MINUTES)
+    assert all(
+        hub_domain.FLAG_RUNNING not in day.flags
+        for day in payload.rows[0].days
+    )
+
+
+def test_timesheet_csv_uses_h_mm_and_includes_the_crew_total(db):
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    tech = _seed_user(db, first_name="Jordan", last_name="Rivera")
+    work_order = _seed_work_order(
+        db, created_by=supervisor, assigned_to=tech, supervisor=supervisor
+    )
+    day = date(2026, 8, 17)
+    window_start, _ = labor_day.day_bounds(day)
+    _seed_session(
+        db,
+        work_order,
+        tech,
+        started_at=window_start + timedelta(hours=1),
+        ended_at=window_start + timedelta(hours=8, minutes=5),
+    )
+
+    payload = hub_service.timesheets_hub(
+        db, supervisor, start=day, end=day, now=NOW
+    )
+    lines = hub_service.timesheet_csv(payload).splitlines()
+
+    assert lines == [
+        "Technician,2026-08-17,Total",
+        "Jordan Rivera,7:05,7:05",
+        "Crew total,7:05,7:05",
+    ]

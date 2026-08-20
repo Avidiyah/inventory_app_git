@@ -269,3 +269,24 @@ def test_a_session_spanning_the_spring_forward_gap_loses_the_skipped_hour():
         now=datetime(2026, 3, 8, 9, 0, tzinfo=timezone.utc),
     )
     assert pairs == [(date(2026, 3, 8), 60)]
+
+
+def test_week_bounds_containing_mid_week():
+    assert labor_day.week_bounds_containing(date(2026, 8, 19)) == (
+        date(2026, 8, 17),
+        date(2026, 8, 23),
+    )
+
+
+def test_week_bounds_containing_on_monday():
+    assert labor_day.week_bounds_containing(date(2026, 8, 17)) == (
+        date(2026, 8, 17),
+        date(2026, 8, 23),
+    )
+
+
+def test_week_bounds_containing_on_sunday():
+    assert labor_day.week_bounds_containing(date(2026, 8, 23)) == (
+        date(2026, 8, 17),
+        date(2026, 8, 23),
+    )

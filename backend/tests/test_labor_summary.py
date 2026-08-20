@@ -526,3 +526,102 @@ def test_last_worked_only_considers_the_named_technician(db):
     _seed_session(db, work_order, theirs, started_at=_at(9, 0), ended_at=_at(10, 0))
 
     assert labor_summary.last_worked(db, mine.id) is None
+
+
+# --- the batched timesheet range aggregate ---------------------------------
+
+
+def test_crew_range_summaries_include_every_requested_day(db):
+    tech = _seed_user(db)
+
+    result = labor_summary.crew_range_summaries(
+        db, [tech.id], date(2026, 8, 17), date(2026, 8, 19), now=_at(18, 0)
+    )
+
+    assert [summary.day for summary in result[tech.id]] == [
+        date(2026, 8, 17),
+        date(2026, 8, 18),
+        date(2026, 8, 19),
+    ]
+    assert all(summary.total_minutes == 0 for summary in result[tech.id])
+
+
+def test_crew_range_summaries_split_a_session_across_days(db):
+    tech = _seed_user(db)
+    work_order = _seed_work_order(db, created_by=tech, assigned_to=tech)
+    # 11 PM Aug 17 through 1 AM Aug 18 Central.
+    _seed_session(
+        db,
+        work_order,
+        tech,
+        started_at=datetime(2026, 8, 18, 4, 0, tzinfo=timezone.utc),
+        ended_at=datetime(2026, 8, 18, 6, 0, tzinfo=timezone.utc),
+    )
+
+    day17, day18 = labor_summary.crew_range_summaries(
+        db, [tech.id], date(2026, 8, 17), date(2026, 8, 18), now=_at(18, 0)
+    )[tech.id]
+
+    assert (day17.closed_minutes, day18.closed_minutes) == (60, 60)
+    assert (len(day17.timeline), len(day18.timeline)) == (1, 1)
+
+
+def test_crew_range_summaries_preserve_running_session_anchors(db):
+    tech = _seed_user(db)
+    work_order = _seed_work_order(db, created_by=tech, assigned_to=tech)
+    _seed_session(db, work_order, tech, started_at=_at(17, 0))
+
+    summary = labor_summary.crew_range_summaries(
+        db, [tech.id], DAY, DAY, now=_at(18, 0)
+    )[tech.id][0]
+
+    assert summary.running is not None
+    assert summary.running_minutes == 60
+
+
+def test_crew_range_summaries_bucket_adjustments_by_created_day(db):
+    tech = _seed_user(db)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR, first_name="Sam")
+    work_order = _seed_work_order(db, created_by=supervisor, assigned_to=tech)
+    day18_start, _ = labor_day.day_bounds(date(2026, 8, 18))
+    _seed_adjustment(
+        db,
+        work_order,
+        tech,
+        minutes=30,
+        recorded_by=supervisor,
+        created_at=day18_start + timedelta(hours=2),
+    )
+
+    day17, day18, day19 = labor_summary.crew_range_summaries(
+        db, [tech.id], date(2026, 8, 17), date(2026, 8, 19), now=_at(18, 0)
+    )[tech.id]
+
+    assert [day17.adjustment_minutes, day18.adjustment_minutes, day19.adjustment_minutes] == [
+        0,
+        30,
+        0,
+    ]
+    assert day18.adjustments[0].recorded_by_name == supervisor.full_name
+
+
+def test_crew_range_summaries_match_the_existing_one_day_aggregate(db):
+    tech = _seed_user(db)
+    work_order = _seed_work_order(db, created_by=tech, assigned_to=tech)
+    _seed_session(db, work_order, tech, started_at=_at(13, 0), ended_at=_at(15, 0))
+
+    expected = labor_summary.day_summary(db, tech.id, DAY, now=_at(18, 0))
+    actual = labor_summary.crew_range_summaries(
+        db, [tech.id], DAY, DAY, now=_at(18, 0)
+    )[tech.id][0]
+
+    assert actual == expected
+
+
+def test_crew_range_summaries_of_an_empty_crew_is_an_empty_dict(db):
+    assert (
+        labor_summary.crew_range_summaries(
+            db, [], date(2026, 8, 17), date(2026, 8, 18), now=_at(18, 0)
+        )
+        == {}
+    )

@@ -536,3 +536,8 @@ def test_the_crew_board_requires_supervisor():
     # A technician gets 403 on their own crew board; a supervisor gets 200
     # (spec §4.1: `/hub/crew` is `supervisor+`).
     assert _min_role_for(hub_router, "get_hub_crew") == roles.ROLE_SUPERVISOR
+
+
+def test_timesheets_and_export_require_supervisor():
+    assert _min_role_for(hub_router, "get_hub_timesheets") == roles.ROLE_SUPERVISOR
+    assert _min_role_for(hub_router, "export_hub_timesheets") == roles.ROLE_SUPERVISOR

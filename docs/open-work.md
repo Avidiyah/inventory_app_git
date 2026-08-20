@@ -100,13 +100,15 @@ locked decisions. Four phases:
   (registered in `docs/notification-events.md`). Split out of the original
   P3 scope; the crew board renders inside the Dashboard tab, no new tab.
   Built on `user-hub-p3-crew`; not yet merged.
-- **P3b · Timesheets — next.** `GET /hub/timesheets`, the grid, per-cell
-  drill-down, and CSV export, reusing P3a's crew-scope query. D17 moved this
-  down from P4, making the split P3a/P3b the larger of the two remaining
-  phases.
-- **P4 · Admin hub.** `GET /hub/admin`, the four tile groups, the conditional
-  crew board, and widening the timesheet row scope from "my crew" to
-  everyone.
+- **P3b · Timesheets — shipped.** `GET /hub/timesheets`, `GET
+  /hub/timesheets/export`, the weekly grid, per-cell session/adjustment
+  drill-down, navigation, and payroll-friendly CSV export. Reuses P3a's D6
+  crew derivation and scopes every caller to their own routed crew; P4 owns
+  the higher-rank widening to everyone. Built on `user-hub-p3-crew`; not yet
+  merged.
+- **P4 · Admin hub — next.** `GET /hub/admin`, the four tile groups, the
+  conditional crew board, and widening `/hub/timesheets` from "my crew" to
+  everyone for TechFM OA+ and above.
 
 ---
 

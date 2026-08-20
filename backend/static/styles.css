@@ -2017,6 +2017,186 @@ tr.archived-user {
     font-size: var(--fs-xs);
 }
 
+/* Supervisor timesheets (P3b). The table is intentionally allowed to stay
+   wide and scroll inside its panel: shrinking seven day columns into phone
+   widths would make the audit figures unreadable. */
+.hub-timesheet-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+}
+
+.hub-timesheet-week-nav {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+.hub-timesheet-toolbar button,
+.hub-timesheet-retry {
+    min-height: var(--btn-h-sm);
+    margin-top: 0;
+}
+
+.hub-timesheet-message {
+    min-height: 1.25rem;
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-sm);
+}
+
+.hub-timesheet-message:empty {
+    visibility: hidden;
+}
+
+.hub-timesheet-retry {
+    margin-left: var(--space-2);
+    padding-inline: var(--space-3);
+}
+
+.hub-timesheet-table-wrap {
+    overflow-x: auto;
+    background: var(--panel-nested);
+    border: var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.hub-timesheet-table {
+    width: 100%;
+    min-width: 760px;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+}
+
+.hub-timesheet-table th,
+.hub-timesheet-table td {
+    padding: var(--space-2) var(--space-3);
+    text-align: right;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--panel-rule-soft);
+}
+
+.hub-timesheet-table th:first-child,
+.hub-timesheet-table td:first-child {
+    text-align: left;
+}
+
+.hub-timesheet-table thead th {
+    border-bottom: 1px solid var(--panel-rule);
+    color: var(--text-panel-mute);
+    font-size: var(--fs-sm);
+}
+
+.hub-timesheet-table tbody > tr:not(.hub-timesheet-detail-row):nth-child(even) {
+    background: var(--panel-well);
+}
+
+.hub-timesheet-table tfoot th,
+.hub-timesheet-table tfoot td {
+    border-top: 1px solid var(--panel-rule);
+    border-bottom: none;
+    font-weight: var(--fw-semibold);
+}
+
+.hub-timesheet-row-total {
+    font-weight: var(--fw-semibold);
+}
+
+.hub-timesheet-cell {
+    min-height: auto;
+    margin: 0;
+    padding: var(--space-1);
+    background: none;
+    border-radius: var(--radius-sm);
+    color: inherit;
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+}
+
+.hub-timesheet-cell:hover,
+.hub-timesheet-cell:active,
+.hub-timesheet-cell:focus-visible {
+    background: var(--panel-well);
+    color: inherit;
+    text-decoration: underline;
+}
+
+.hub-timesheet-flag {
+    margin-left: var(--space-1);
+    font-size: var(--fs-xs);
+}
+
+.hub-timesheet-flag-running {
+    color: var(--color-success);
+}
+
+.hub-timesheet-flag-assigned_idle,
+.hub-timesheet-estimate {
+    color: var(--color-error);
+}
+
+.hub-timesheet-detail-row > td {
+    padding: 0 var(--space-3) var(--space-3);
+    white-space: normal;
+}
+
+.hub-timesheet-drilldown {
+    padding: var(--space-3) var(--space-4);
+    background: var(--panel-well);
+    border-left: 3px solid var(--panel-rule);
+    border-radius: var(--radius-sm);
+}
+
+.hub-timesheet-drilldown-heading,
+.hub-timesheet-drilldown-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-4);
+}
+
+.hub-timesheet-drilldown-heading {
+    margin-bottom: var(--space-2);
+}
+
+.hub-timesheet-drilldown-row {
+    padding: var(--space-1) 0;
+    border-bottom: 1px solid var(--panel-rule-soft);
+    font-variant-numeric: tabular-nums;
+}
+
+.hub-timesheet-subtotal {
+    margin-top: var(--space-1);
+}
+
+.hub-timesheet-total {
+    border-top: 1px solid var(--panel-rule);
+    border-bottom: none;
+    margin-top: var(--space-1);
+    font-weight: var(--fw-semibold);
+}
+
+.hub-timesheet-no-detail,
+.hub-timesheet-empty {
+    margin: var(--space-2) 0;
+}
+
+@media (max-width: 600px) {
+    .hub-timesheet-toolbar,
+    .hub-timesheet-drilldown-heading,
+    .hub-timesheet-drilldown-row {
+        align-items: flex-start;
+    }
+
+    .hub-timesheet-drilldown-heading,
+    .hub-timesheet-drilldown-row {
+        flex-direction: column;
+        gap: var(--space-1);
+    }
+}
+
 /* Logout: white outline button on the dark header. */
 #logout-btn {
     margin-top: 0;

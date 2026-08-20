@@ -217,3 +217,56 @@ class HubCrewResponse(BaseModel):
     attention: list[HubAttentionItem] = []
 
     model_config = {"from_attributes": True}
+
+
+# --- GET /hub/timesheets (P3b) ---------------------------------------------
+
+
+class HubTimesheetRange(BaseModel):
+    start: date
+    end: date
+
+    model_config = {"from_attributes": True}
+
+
+class HubTimesheetDay(BaseModel):
+    """One adjustment-aware grid cell and its inline drill-down detail."""
+
+    date: date
+    tracked_minutes: int
+    adjustment_minutes: int
+    flags: list[str] = []
+    sessions: list[HubTimelineEntry] = []
+    adjustments: list[HubAdjustment] = []
+
+    @computed_field
+    @property
+    def total_minutes(self) -> int:
+        return self.tracked_minutes + self.adjustment_minutes
+
+    model_config = {"from_attributes": True}
+
+
+class HubTimesheetRow(BaseModel):
+    user: HubUser
+    days: list[HubTimesheetDay] = []
+    total_minutes: int
+
+    model_config = {"from_attributes": True}
+
+
+class HubTimesheetDayTotal(BaseModel):
+    date: date
+    minutes: int
+
+    model_config = {"from_attributes": True}
+
+
+class HubTimesheetResponse(BaseModel):
+    """Supervisor+ timesheets, scoped to the caller's routed crew in P3b."""
+
+    range: HubTimesheetRange
+    rows: list[HubTimesheetRow] = []
+    crew_totals_by_day: list[HubTimesheetDayTotal] = []
+
+    model_config = {"from_attributes": True}

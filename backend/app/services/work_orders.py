@@ -2221,9 +2221,9 @@ def _stop_all_sessions(
 
 
 def _stale_running_sessions(
-    db: Session, work_order: WorkOrder
+    db: Session, work_order: WorkOrder, *, now: Optional[datetime] = None
 ) -> list[WorkOrderLaborSession]:
-    cutoff = datetime.now(timezone.utc) - timedelta(
+    cutoff = (now or datetime.now(timezone.utc)) - timedelta(
         minutes=wo.LABOR_SESSION_MAX_MINUTES
     )
     return [
@@ -2266,7 +2266,10 @@ def _apply_session_cap(db: Session, work_order: WorkOrder) -> bool:
 
 
 def sweep_stale_sessions(
-    db: Session, *, technician_id: Optional[uuid.UUID] = None
+    db: Session,
+    *,
+    technician_id: Optional[uuid.UUID] = None,
+    now: Optional[datetime] = None,
 ) -> int:
     """Close every over-cap running session, for one person or for everyone.
 
@@ -2298,7 +2301,8 @@ def sweep_stale_sessions(
 
     Returns the number of sessions closed, so the caller can log or skip work.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(
+    now = now or datetime.now(timezone.utc)
+    cutoff = now - timedelta(
         minutes=wo.LABOR_SESSION_MAX_MINUTES
     )
     query = db.query(WorkOrderLaborSession.work_order_id).filter(
@@ -2314,7 +2318,7 @@ def sweep_stale_sessions(
         work_order = _get_locked(db, work_order_id)
         if work_order is None:
             continue
-        stale = _stale_running_sessions(db, work_order)
+        stale = _stale_running_sessions(db, work_order, now=now)
         if technician_id is not None:
             # `_apply_session_cap` closes every stale session on the work
             # order, which would reach past `technician_id` on a row shared
@@ -2325,7 +2329,7 @@ def sweep_stale_sessions(
             stale = [s for s in stale if s.technician_id == technician_id]
         if not stale:
             continue
-        noticed_at = datetime.now(timezone.utc)
+        noticed_at = now
         for session in stale:
             _close_session(
                 db,
