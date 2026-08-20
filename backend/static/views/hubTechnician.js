@@ -154,7 +154,12 @@ export function mountHubDashboard(container, payload) {
   container.innerHTML =
     countsHtml(payload.counts) +
     timeTodayHtml(payload) +
-    toolsOutHtml(payload.tools_out);
+    toolsOutHtml(payload.tools_out) +
+    // Empty for a Technician; userHub.js mounts the crew board here for
+    // supervisor+ viewers (spec §5.3: the crew board lives inside this same
+    // Dashboard tab, not a new one). Present unconditionally so userHub.js
+    // never has to special-case whether this element exists.
+    `<div id="hub-crew-mount"></div>`;
   container.querySelectorAll(".hub-timeline-block").forEach((block) => {
     block.style.left = `${block.dataset.left}%`;
     block.style.width = `${block.dataset.width}%`;
