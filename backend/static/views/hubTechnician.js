@@ -80,7 +80,12 @@ function timelineBlocksHtml(timeline, rangeStart, rangeEnd) {
       const widthPct = Math.max((entry.minutes / span) * 100, 0.5);
       const running = !entry.ended_at;
       const label = running ? `${entry.number} (running)` : entry.number;
-      return `<div class="hub-timeline-block${running ? " hub-timeline-block-running" : ""}" style="left:${leftPct}%;width:${widthPct}%" title="WO ${escapeHtml(entry.number)} — ${escapeHtml(formatHm(entry.minutes))}${entry.auto_closed ? " (auto-closed estimate)" : ""}">${escapeHtml(label)}</div>`;
+      // Position rides on data-* and is applied via CSSOM in
+      // `mountHubDashboard`, not an inline `style=`: the app's CSP has no
+      // `style-src`, so it falls back to `default-src 'self'` and the
+      // browser drops style attributes parsed out of markup. CSSOM sets
+      // are outside CSP's scope, so they still apply.
+      return `<div class="hub-timeline-block${running ? " hub-timeline-block-running" : ""}" data-left="${leftPct}" data-width="${widthPct}" title="WO ${escapeHtml(entry.number)} — ${escapeHtml(formatHm(entry.minutes))}${entry.auto_closed ? " (auto-closed estimate)" : ""}">${escapeHtml(label)}</div>`;
     })
     .join("");
 }
@@ -150,6 +155,10 @@ export function mountHubDashboard(container, payload) {
     countsHtml(payload.counts) +
     timeTodayHtml(payload) +
     toolsOutHtml(payload.tools_out);
+  container.querySelectorAll(".hub-timeline-block").forEach((block) => {
+    block.style.left = `${block.dataset.left}%`;
+    block.style.width = `${block.dataset.width}%`;
+  });
 }
 
 // Capped so an Admin/Owner's (currently company-wide, until P4 scopes it)

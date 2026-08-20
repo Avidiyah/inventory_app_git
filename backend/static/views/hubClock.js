@@ -12,7 +12,8 @@
 // ticks from `running_session.day_counting_from` instead -- see this plan's
 // Global Constraints for why they must stay separate.
 
-import { apiStartWorkOrderTracking, apiStopWorkOrderTracking, comboHtml } from "./workOrders.js";
+import { apiStartWorkOrderTracking, apiStopWorkOrderTracking } from "../api.js";
+import { comboHtml } from "./workOrders.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage } from "../dom.js";
 
