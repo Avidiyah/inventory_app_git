@@ -480,6 +480,11 @@ export async function apiGetWorkOrder(workOrderId) {
   return parseResponse(await fetch(`/work-orders/${workOrderId}`, { credentials: "include" }));
 }
 
+// --- User Hub ------------------------------------------------------
+export async function apiGetHub() {
+  return liveGet("/hub");
+}
+
 // Bulk-import work orders from the mass CSV export (Admin+). multipart upload --
 // do NOT set Content-Type by hand (the browser adds the multipart boundary),
 // mirroring apiDecodeBarcode. Returns the WorkOrderImportResult summary.

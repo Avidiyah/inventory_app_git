@@ -1,0 +1,19 @@
+    <!-- =================== USER HUB PAGE =================== -->
+    <!-- The landing page for every role (D4). Static shell only: the clock
+         widget and both tab bodies are built by views/hubClock.js and
+         views/hubTechnician.js, orchestrated by views/userHub.js. Reached
+         via the header identity button (#auth-user-indicator, see
+         shell-head.html) -- there is no button in #main-nav (D10). -->
+    <div class="page" id="user-hub-page">
+
+        <section id="hub-clock-mount" aria-live="polite"></section>
+
+        <nav id="hub-tabs" class="hub-tabs" aria-label="User hub sections">
+            <button type="button" class="hub-tab active" id="hub-tab-dashboard" data-hub-tab="dashboard" aria-selected="true" role="tab">Dashboard</button>
+            <button type="button" class="hub-tab" id="hub-tab-work-orders" data-hub-tab="work-orders" aria-selected="false" role="tab">My Work Orders</button>
+        </nav>
+
+        <div class="hub-tabpanel active" id="hub-tabpanel-dashboard" role="tabpanel"></div>
+        <div class="hub-tabpanel" id="hub-tabpanel-work-orders" role="tabpanel" hidden></div>
+
+    </div>

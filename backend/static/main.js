@@ -35,6 +35,7 @@ import "./views/toolCheckout.js";
 import "./views/toolReturn.js";
 import "./views/toolCorrection.js";
 import "./views/push.js";
+import "./views/userHub.js";
 import "./views/auth.js";
 
 // --- Named imports for bootstrap calls ---------------------------

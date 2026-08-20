@@ -340,6 +340,7 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 # extracted still live inline in `shell-head.html` / `shell-tail.html`.
 SHELL_PARTS = (
     "shell-head.html",          # head, login, header/nav, <main>
+    "pages/user-hub.html",
     "pages/create-item.html",
     "pages/saved-items.html",
     "pages/create-user.html",

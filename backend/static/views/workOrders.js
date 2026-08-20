@@ -662,7 +662,7 @@ function comboListHtml(id, options, selectedValue, ariaLabel) {
           </div>`;
 }
 
-function comboHtml({ id, extraClass, nativeSelectHtml, options, selectedValue, ariaLabel }) {
+export function comboHtml({ id, extraClass, nativeSelectHtml, options, selectedValue, ariaLabel }) {
   const selected = options.find((opt) => opt.value === selectedValue);
   const triggerLabel = selected ? selected.label : options[0]?.label || "";
   // The trigger button renders before the hidden native select: both are
@@ -1205,7 +1205,7 @@ function runOrDeferListRefresh() {
   void loadWorkOrders({ background: true });
 }
 
-function buildCard(card) {
+function buildCard(card, { onOpen } = {}) {
   const el = document.createElement("details");
   el.className = `wo-card wo-card-status-${card.status}`;
   el.dataset.id = card.id;
@@ -1231,6 +1231,10 @@ function buildCard(card) {
     // which is right -- there is nothing to collapse to.
     event.preventDefault();
     if (soloActive) return;
+    if (onOpen) {
+      onOpen(card);
+      return;
+    }
     void openWorkOrderPage({ id: card.id, number: card.number });
   });
   return el;
@@ -1314,6 +1318,42 @@ async function openWorkOrderPageByNumber(number) {
 // consumes this instead of rendering the list, so the two cannot race.
 export function focusWorkOrderNumber(number) {
   pendingSoloNumber = number;
+}
+
+// A second, independent card-list renderer for a container other than
+// `#work-orders-list` -- the User Hub's "My Work Orders" tab (spec §4.4).
+// Deliberately does NOT reuse listEl, the six delegated listeners, solo
+// mode, held-card tracking, or the realtime subscriber: none of that
+// machinery is reachable from a *collapsed* card (see this plan's Global
+// Constraints for why), and a collapsed card is all this ever renders --
+// a click hands off to `onOpen` instead of expanding in place, exactly like
+// the standalone page's own collapsed cards already do via `openWorkOrderPage`.
+//
+// `lockedFilter` is forwarded to `apiListWorkOrders` as-is (the same
+// {status, serviceType, supervisorId, community, priority, scheduledDate,
+// q, limit} shape that function already accepts). The technician's own
+// scope needs no filter at all -- `apiListWorkOrders` is already scoped
+// server-side per role (`_scoped_to_user`), so an unfiltered call already
+// returns exactly "my work orders" for a Technician. A future Supervisor/
+// Admin caller (P3/P4) passes `{ supervisorId }` or nothing, respectively.
+export function mountWorkOrderList({ container, lockedFilter = null, onOpen } = {}) {
+  async function refresh() {
+    container.innerHTML = `<p class="hint">Loading…</p>`;
+    let cards;
+    try {
+      cards = await apiListWorkOrders(lockedFilter || {});
+    } catch (err) {
+      container.innerHTML = `<p class="error">${escapeHtml(friendlyError(err, "Could not load work orders."))}</p>`;
+      return;
+    }
+    container.innerHTML = "";
+    if (!cards.length) {
+      container.innerHTML = `<p class="hint">No work orders match.</p>`;
+      return;
+    }
+    cards.forEach((card) => container.appendChild(buildCard(card, { onOpen })));
+  }
+  return { refresh };
 }
 
 // Render `detail` as the only card in the list, expanded, with a Back control
@@ -1411,7 +1451,7 @@ function renderBody(detail, bodyEl) {
   // work and record it).
   const canTrack = assignedToCurrentUser || sup;
   const tracking = Boolean(detail.active_labor_session);
-  const startTracking = `<button type="button" data-action="start-tracking-wo">Start Tracking</button>`;
+  const startTracking = `<button type="button" data-action="start-tracking-wo">W.O. Received, Begin Tracking</button>`;
 
   let statusActions = "";
   if (canTrack && (detail.status === "created" || detail.status === "assigned")) {

@@ -1661,8 +1661,250 @@ tr.archived-user {
     font-size: var(--fs-sm);
 }
 
-#auth-user-indicator {
-    color: var(--gray-200);
+/* The identity button inherits .nav-btn's box entirely (padding, hover,
+   active-page highlight, box-shadow underline) -- this only restacks its
+   contents: name over role, role a step smaller and dimmer, matching the
+   two-line reading order in the design spec's header mockup. */
+#auth-user-indicator.user-hub-btn {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    line-height: 1.2;
+}
+
+.user-hub-name {
+    font-size: var(--fs-sm);
+}
+
+.user-hub-role {
+    font-size: var(--fs-xs);
+    color: var(--text-panel-mute);
+}
+
+#auth-user-indicator.user-hub-btn.active .user-hub-role {
+    /* Dimmer role text would fail contrast on the brand-red active pill --
+       let it inherit the button's own (white) active-state color instead. */
+    color: inherit;
+}
+
+.hub-tabs {
+    display: flex;
+    gap: var(--space-2);
+    border-bottom: var(--border);
+    margin-bottom: var(--space-4);
+}
+
+.hub-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: var(--space-2) var(--space-3);
+    min-height: var(--btn-h-sm);
+    color: var(--text-panel-mute);
+    font-weight: var(--fw-semibold);
+    cursor: pointer;
+}
+
+.hub-tab.active {
+    color: var(--text-panel);
+    border-bottom-color: var(--color-brand);
+}
+
+.hub-tabpanel {
+    display: none;
+}
+
+.hub-tabpanel.active {
+    display: block;
+}
+
+.hub-clock-status {
+    font-weight: var(--fw-semibold);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.hub-clock-on .hub-clock-status {
+    color: var(--color-success);
+}
+
+.hub-clock-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--color-success);
+    display: inline-block;
+}
+
+.hub-clock-subject {
+    color: var(--text-panel-mute);
+}
+
+.hub-clock-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin-top: var(--space-3);
+}
+
+/* Hero figures throughout the hub: one per view, proportional (not
+   tabular-nums) figures per spec §8. */
+.hub-clock-hero {
+    font-size: 2.5rem;
+    line-height: 1.1;
+    margin: 0;
+}
+
+.hub-clock-started,
+.hub-clock-today {
+    color: var(--text-panel-mute);
+    margin: 0;
+}
+
+.hub-clock-stop-btn,
+.hub-clock-start-btn {
+    /* Red is the primary action color here, not a status color (spec §8) --
+       Stop and Start use the default button red, same as everywhere else. */
+    min-width: 96px;
+}
+
+.hub-clock-start-wrap {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.hub-clock-warning {
+    color: var(--color-error);
+    margin-top: var(--space-2);
+    font-weight: var(--fw-semibold);
+}
+
+.hub-clock-message:empty {
+    display: none;
+}
+
+.hub-tile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: var(--space-4);
+    margin-bottom: var(--space-6);
+}
+
+.hub-tile-label {
+    color: var(--text-panel-mute);
+    font-size: var(--fs-sm);
+    margin: 0;
+}
+
+.hub-tile-value {
+    font-size: 2rem;
+    margin: var(--space-1) 0;
+}
+
+.hub-tile-sub {
+    color: var(--text-panel-mute);
+    font-size: var(--fs-sm);
+    margin: 0;
+}
+
+.hub-tile-count {
+    color: var(--text-panel-mute);
+    font-weight: var(--fw-regular);
+}
+
+.hub-time-today-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+}
+
+.hub-running-badge {
+    color: var(--color-success);
+}
+
+.hub-time-today-line {
+    color: var(--text-panel-mute);
+    margin: var(--space-1) 0;
+}
+
+.hub-adjustment-line {
+    color: var(--text-panel-mute);
+    font-size: var(--fs-sm);
+    margin: 0 0 var(--space-1);
+}
+
+/* Timeline strip: uniform white-at-alpha blocks, the running one in brand
+   red, identity from the direct label -- never color alone (spec §8). */
+.hub-timeline {
+    margin-top: var(--space-4);
+}
+
+.hub-timeline-axis {
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-panel-mute);
+    font-size: var(--fs-xs);
+    margin-bottom: var(--space-1);
+}
+
+.hub-timeline-track {
+    position: relative;
+    height: 32px;
+    background-color: var(--panel-well);
+    border-radius: var(--radius-sm);
+    border: var(--border);
+}
+
+.hub-timeline-block {
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    /* 2px surface gaps between touching blocks, per spec §8. */
+    margin: 0 1px;
+    background-color: rgba(255, 255, 255, .35);
+    color: var(--text-panel);
+    font-size: var(--fs-xs);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    white-space: nowrap;
+    border-radius: 2px;
+}
+
+.hub-timeline-block-running {
+    background-color: var(--color-brand);
+    color: var(--color-white);
+}
+
+.hub-tools-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.hub-tools-list li {
+    display: flex;
+    justify-content: space-between;
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--panel-rule-soft);
+}
+
+.hub-tools-list li:last-child {
+    border-bottom: none;
+}
+
+.hub-tool-since {
+    color: var(--text-panel-mute);
+    font-size: var(--fs-sm);
+}
+
+.hub-wo-view-all {
+    margin-top: var(--space-3);
+    text-align: right;
 }
 
 /* Logout: white outline button on the dark header. */
