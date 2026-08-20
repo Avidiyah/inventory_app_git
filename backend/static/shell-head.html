@@ -63,6 +63,10 @@
                     <input type="checkbox" id="login-remember"> Stay signed in for this shift
                 </label>
 
+                <label class="checkbox-row" for="login-notifications">
+                    <input type="checkbox" id="login-notifications"> Enable notifications
+                </label>
+
                 <button id="login-btn">Sign In</button>
                 <p id="login-message"></p>
             </div>
@@ -131,13 +135,19 @@
                     <button class="nav-btn" data-page="history"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3.5 9A9 9 0 1 1 3 12"/><path d="M3 4v5h5"/><path d="M12 7.5V12l3 2"/></svg>History</button>
                 </div>
             </div>
+            <div class="nav-group" data-nav-group="integration">
+                <button type="button" class="nav-group-toggle" aria-haspopup="true" aria-expanded="false">Integration<svg class="nav-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
+                <div class="nav-group-menu">
+                    <button class="nav-btn" data-page="integrations"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Integration</button>
+                </div>
+            </div>
         </nav>
         <div id="auth-bar">
             <span id="auth-user-indicator"></span>
-            <!-- Both start hidden and are revealed by role in
-                 views/push.js::initPushForUser -- Admin and above for the
-                 opt-in, Owner only for the test send. -->
-            <button id="push-enable-btn" type="button" class="secondary-btn" hidden>Enable notifications</button>
+            <!-- Starts hidden and is revealed by role in
+                 views/push.js::initPushForUser -- Owner only. Notifications
+                 themselves are opted into at login (see the login screen's
+                 checkbox) and opted out of by logging out. -->
             <button id="push-test-btn" type="button" class="secondary-btn" hidden>Send test</button>
             <button id="logout-btn" type="button" class="secondary-btn">Log Out</button>
         </div>

@@ -11,7 +11,7 @@ import { loadHistory } from "./history.js";
 import { loadItems } from "./items.js";
 import { loadUsers } from "./users.js";
 import { loadStages } from "./massStage.js";
-import { loadWorkOrders } from "./workOrders.js";
+import { loadWorkOrders, loadIntegrationsPage } from "./workOrders.js";
 import { loadAdminReview } from "./adminReview.js";
 import { loadUserRequests } from "./userRequests.js";
 import { loadTools, toolsScanner, toolScanWidget } from "./tools.js";
@@ -94,6 +94,9 @@ export const PAGE_ACCESS = {
   // the existing checkout gate and authenticated-user return gate.
   "tools": ["owner", "admin", "techfm_oa", "supervisor", "technician"],
   "history": ["owner", "admin", "techfm_oa", "supervisor"],
+  // NetFacilities/Langston University work-order import-export. Same gate as
+  // the card it replaces (workOrders.js::isAdminPlus).
+  "integrations": ["owner", "admin", "techfm_oa"],
 };
 
 export function canAccessPage(role, pageName) {
@@ -214,6 +217,8 @@ export function showPage(pageName) {
     loadAdminReview();
   } else if (pageName === "tools") {
     loadTools();
+  } else if (pageName === "integrations") {
+    loadIntegrationsPage();
   }
 }
 

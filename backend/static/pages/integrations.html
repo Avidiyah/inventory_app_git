@@ -1,0 +1,47 @@
+    <!-- =================== INTEGRATIONS PAGE =================== -->
+    <!-- Admin+ only (views/nav.js PAGE_ACCESS). The page itself uses the
+         app's normal frosted-panel chrome; the NetFacilities card nested
+         inside it is deliberately styled off-system in Langston University's
+         own navy/orange (.lu-card, styles.css) so it reads as a widget
+         embedded from the client's system, not TechFM. Wiring lives in
+         views/workOrders.js -- it shares state with the work-order list and
+         import pipeline -- only the markup lives here. See
+         docs/design-system.md. -->
+    <div class="page" id="integrations-page">
+
+        <section id="integrations-import-section" aria-labelledby="integrations-heading" hidden>
+            <h2 id="integrations-heading">Integrations</h2>
+            <p class="hint">Third-party systems connected to Work Orders.</p>
+
+            <div class="lu-card">
+                <div class="lu-card-header">
+                    <span class="lu-card-title">Work Order Import / Export</span>
+                    <span class="lu-card-badge">NetFacilities &middot; Langston University</span>
+                </div>
+                <div class="lu-card-body">
+                    <input type="file" id="wo-import-file" accept=".csv,text/csv" hidden>
+                    <p id="wo-netfacilities-status" class="hint"></p>
+                    <div class="filter-row">
+                        <button id="wo-netfacilities-sign-in-btn" type="button" class="secondary-btn" hidden>Sign in to NetFacilities</button>
+                        <button id="wo-netfacilities-confirm-btn" type="button" hidden>I finished signing in</button>
+                        <button id="wo-netfacilities-cancel-btn" type="button" class="secondary-btn" hidden>Cancel sign-in</button>
+                        <button id="wo-import-btn" type="button">Import from CSV&hellip;</button>
+                        <button id="wo-netfacilities-enrich-btn" type="button" class="secondary-btn" hidden>Import Tasks and Priority</button>
+                        <select id="wo-export-scope" aria-label="Work orders to export">
+                            <option value="all">All (live)</option>
+                            <option value="created">Created</option>
+                            <option value="assigned">Assigned</option>
+                            <option value="in_progress">In-Progress</option>
+                            <option value="on_hold">On-Hold</option>
+                            <option value="completed">Completed</option>
+                            <option value="review">Review</option>
+                            <option value="archived">Archived (closed)</option>
+                        </select>
+                        <button id="wo-export-client-btn" type="button" class="secondary-btn">For Client</button>
+                    </div>
+                    <p id="wo-import-message"></p>
+                </div>
+            </div>
+        </section>
+
+    </div>
