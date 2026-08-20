@@ -413,3 +413,84 @@ def test_the_status_emitter_set_is_exactly_the_nine_capable_routes():
         "archive_work_order",
         "restore_work_order",
     }
+
+
+def test_the_labor_session_emitter_set_is_exactly_the_two_tracking_routes():
+    """A crew board (spec §5.3) needs to know when *anyone's* clock starts or
+    stops. Only the two tracking routes can change that -- adding a route
+    here without an audience decision is exactly what this tripwire catches."""
+    emitters = {
+        route.endpoint.__name__
+        for route in work_orders_router.router.routes
+        if route.endpoint.__module__ == work_orders_router.__name__
+        and "_emit_labor_session_changed(" in inspect.getsource(route.endpoint)
+    }
+
+    assert emitters == {
+        "start_work_order_tracking",
+        "stop_work_order_tracking",
+    }
+
+
+def test_starting_a_clock_emits_a_labor_session_changed_envelope(monkeypatch):
+    work_order_id = uuid.uuid4()
+    saved = SimpleNamespace(id=work_order_id)
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_TECHNICIAN)
+    envelopes = _capture_emits(monkeypatch)
+    monkeypatch.setattr(
+        work_orders_router.wo_service,
+        "start_labor_session",
+        lambda db, incoming_id, *, user: saved,
+    )
+    monkeypatch.setattr(
+        work_orders_router.wo_service, "side_transitions", lambda work_order: []
+    )
+    monkeypatch.setattr(
+        work_orders_router.wo_service,
+        "get_work_order",
+        lambda db, incoming_id, *, user: saved,
+    )
+    _passthrough_detail(monkeypatch)
+
+    work_orders_router.start_work_order_tracking(
+        work_order_id, BackgroundTasks(), user=user, db=None
+    )
+
+    assert [e["type"] for e in envelopes] == [
+        realtime_policy.EVENT_WORK_ORDER_STATUS_CHANGED,
+        realtime_policy.EVENT_LABOR_SESSION_CHANGED,
+    ]
+    assert envelopes[1]["id"] is None
+
+
+def test_stopping_a_clock_emits_a_labor_session_changed_envelope(monkeypatch):
+    work_order_id = uuid.uuid4()
+    saved = SimpleNamespace(id=work_order_id)
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_TECHNICIAN)
+    envelopes = _capture_emits(monkeypatch)
+    monkeypatch.setattr(
+        work_orders_router.wo_service,
+        "stop_labor_session",
+        lambda db, incoming_id, *, user: saved,
+    )
+    monkeypatch.setattr(
+        work_orders_router,
+        "_notify_auto_hold",
+        lambda db, background, work_order, *, actor_id: None,
+    )
+    monkeypatch.setattr(
+        work_orders_router.wo_service,
+        "get_work_order",
+        lambda db, incoming_id, *, user: saved,
+    )
+    _passthrough_detail(monkeypatch)
+
+    work_orders_router.stop_work_order_tracking(
+        work_order_id, BackgroundTasks(), user=user, db=None
+    )
+
+    assert [e["type"] for e in envelopes] == [
+        realtime_policy.EVENT_WORK_ORDER_STATUS_CHANGED,
+        realtime_policy.EVENT_LABOR_SESSION_CHANGED,
+    ]
+    assert envelopes[1]["id"] is None

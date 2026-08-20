@@ -258,6 +258,31 @@ def _emit_status_changed(entity_id: Optional[uuid.UUID]) -> None:
     )
 
 
+def _emit_labor_session_changed() -> None:
+    """Invalidate the Supervisor hub's crew board after a clock starts or
+    stops.
+
+    Always ``entity_id=None``: this is a membership change to *someone's*
+    running-session state, not one card's field, so the recipient refetches
+    the whole board rather than targeting a row -- the same reasoning
+    ``restore``'s ``None`` already uses for
+    ``EVENT_WORK_ORDER_STATUS_CHANGED``.
+
+    One emit is enough on the start path even though two sessions can change
+    (the new one opens, another may close via ``side_transitions``), because
+    ``id: None`` already means "refetch everything." Best-effort, like every
+    other emission here -- a dropped envelope never affects the durable
+    write.
+    """
+    realtime_service.emit(
+        realtime_policy.build_envelope(
+            event_type=realtime_policy.EVENT_LABOR_SESSION_CHANGED,
+            entity_id=None,
+            request_id=current_request_id(),
+        )
+    )
+
+
 # --- response builders ---------------------------------------------------
 
 def _filename_slug(value) -> str:
@@ -987,6 +1012,7 @@ def start_work_order_tracking(
     try:
         work_order = wo_service.start_labor_session(db, work_order_id, user=user)
         _emit_status_changed(work_order.id)
+        _emit_labor_session_changed()
         for other in wo_service.side_transitions(work_order):
             _emit_status_changed(other.id)
             _notify_auto_hold(db, background, other, actor_id=user.id)
@@ -1016,6 +1042,7 @@ def stop_work_order_tracking(
     try:
         work_order = wo_service.stop_labor_session(db, work_order_id, user=user)
         _emit_status_changed(work_order.id)
+        _emit_labor_session_changed()
         _notify_auto_hold(db, background, work_order, actor_id=user.id)
         return _detail(
             wo_service.get_work_order(db, work_order.id, user=user),

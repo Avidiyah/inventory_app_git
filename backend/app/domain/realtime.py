@@ -26,6 +26,7 @@ from app.domain import roles
 from app.domain.rate_limit import is_over_limit, retry_after_seconds, window_start
 
 __all__ = [
+    "EVENT_LABOR_SESSION_CHANGED",
     "EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED",
     "EVENT_WORK_ORDER_STATUS_CHANGED",
     "HANDSHAKE_MAX_ATTEMPTS",
@@ -64,12 +65,20 @@ EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED = "work_order.review_queue.changed"
 # the recipient's list may have gained a row that no on-screen card represents.
 EVENT_WORK_ORDER_STATUS_CHANGED = "work_order.status.changed"
 
+# A crew member's clock started or stopped -- a membership change to the
+# Supervisor hub's crew board, not a row update, so `id` is always `None`
+# (spec §6.2) and the recipient refetches the board rather than targeting a
+# card. Emitted from `routers/work_orders.py`'s tracking start/stop routes.
+EVENT_LABOR_SESSION_CHANGED = "labor.session.changed"
+
 _AUDIENCE_MIN_ROLE = {
     EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED: roles.ROLE_TECHFM_OA,
     # Every role that can open the Work Orders page. Not a security boundary:
     # P2 keeps row data out of the envelope, so a technician who receives an
     # event for a work order they cannot see simply re-fetches nothing.
     EVENT_WORK_ORDER_STATUS_CHANGED: roles.ROLE_TECHNICIAN,
+    # Only supervisors and above can see a crew board at all (spec §4.1).
+    EVENT_LABOR_SESSION_CHANGED: roles.ROLE_SUPERVISOR,
 }
 
 # --- thresholds --------------------------------------------------------
