@@ -718,7 +718,8 @@ Work orders:
   On-Hold row, so a supervisor's filter separates "the job is done and waiting
   on you" from "the crew is at lunch" without opening a card. From there
   Supervisor+ gets Approve — Mark Completed (`PATCH {status: "completed"}`) and
-  Send Back (`PATCH {status: "in_progress"}`); no new endpoint. Completed is the
+  Send Back (`PATCH {status: "in_progress"}`); no new endpoint. Send Back raises
+  `work_order.sent_back` to the assignees and the routed supervisor. Completed is the
   billing state the Admin review queue reads, so it
   stays a supervisory decision even once the work itself is done. The rule keys
   on role rather than assignment because a Supervisor may also be an assigned
@@ -1903,8 +1904,17 @@ Rules that apply to every trigger:
 - **A transition notifies only when it happened.** The narrow endpoints are
   idempotent, so both trigger sites compare the prior status the service
   stamped on the returned row; without that a slow double tap sends twice.
-- **One PATCH can be several events** — it may add assignees *and* move the
-  status — so the rules are evaluated independently.
+- **One PATCH can be several events** — it may add assignees, route a
+  supervisor, *and* move the status — so the rules are evaluated independently.
+  Both assignment rules sit outside the transition chain for that reason.
+- **A change is not a field being present.** The editor sends the whole form, so
+  the transition facts stamped on the returned row (`previous_status`,
+  `newly_assigned_ids`, `newly_routed_supervisor_id`) are what tell a real
+  change from a re-save. Without them, saving a note would re-notify the routed
+  supervisor.
+- **One event, one notification — except the CSV import**, which sends once per
+  matched supervisor rather than once per work order. The single batching
+  exception in the system, argued from volume and scoped to that route.
 - **Overlapping transitions resolve by branch order, and each resolution is
   pinned by a test.** One write can satisfy two rules (`completed → on_hold` is
   both "leaves Completed" and "entered On-Hold"); the arm that wins is a
@@ -2878,9 +2888,9 @@ Coverage map:
 | `test_push_domain.py` | pure Web Push response classification and endpoint allowlist |
 | `test_vapid_keys.py` | VAPID keypair interoperability (not cryptography) |
 | `test_push_subscriptions.py` | Owner-only send gate, the two separate role floors, and the Admin-and-above test audience derived from rank; DB-backed endpoint reassignment on a shared device, caller-scoped delete, archived-user exclusion, delete-only-on-404/410, and the SSRF guard refusing a disallowed endpoint before any request — on both fan-out entry points. Its fan-out tests hide any subscription the developer's own database holds, inside the rolled-back transaction; without that a genuinely enrolled device joins every send under test |
-| `test_notifications_domain.py` | pure recipient rules: actor suppression, dedup, dropping an unrouted supervisor, and that message text interpolates the work-order number and nothing else |
+| `test_notifications_domain.py` | pure recipient rules: actor suppression, dedup, dropping an unrouted supervisor, and that message text interpolates a work-order number or a count and nothing else. Every event is partitioned into a number event or a count event, so a new one cannot skip that decision |
 | `test_notifications.py` | recipient resolution against the DB, that nothing is scheduled without recipients or without a VAPID key, and that delivery opens its own session and swallows failures |
-| `test_work_orders_notifications.py` | every trigger at its route: right recipients, one notification per event across an idempotent repeat, one PATCH producing two events, the ordering that makes `completed → on_hold` a hold rather than a reopen, the unrouted-hold fallback to Admin+, `/tracking/start` firing nothing while `/tracking/stop` fires `held` only on the auto-hold (and nothing when a co-worker is still tracking, on a repeat, or when the actor is the routed supervisor), the abandoned work order's alert surviving a cross-work-order start, the Ready to Complete approve/send-back pair, and a broken rule never failing the write |
+| `test_work_orders_notifications.py` | every trigger at its route: right recipients, one notification per event across an idempotent repeat, one PATCH producing two events, the ordering that makes `completed → on_hold` a hold rather than a reopen, the unrouted-hold fallback to Admin+, `/tracking/start` firing nothing while `/tracking/stop` fires `held` only on the auto-hold (and nothing when a co-worker is still tracking, on a repeat, or when the actor is the routed supervisor), the abandoned work order's alert surviving a cross-work-order start, the Ready to Complete approve/send-back pair (send-back now reaching the technician, and reading differently from a return from Review), supervisor routing notifying only the new supervisor and staying silent on a re-save or a clear, and a broken rule never failing the write |
 
 No frontend test harness exists. For UI behavior, run backend tests plus manual
 browser checks for changed pages.

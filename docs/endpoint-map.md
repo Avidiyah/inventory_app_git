@@ -376,7 +376,11 @@ one no import has brought in.
   wins over a later or concurrent import. An archived match is counted as
   closed and ignored before merge/routing. Reads **users** to
   name-match the vendor `ASSIGNED TO` to a supervisor (`supervisor_id`) for live
-  rows. *The only path that creates a work order.*
+  rows. Each matched supervisor is then notified **once for the whole import**
+  (`work_order.supervisor_assigned_bulk`), counting only rows this import
+  created — the same branch `supervisors_matched` is computed on, so the push
+  and the on-screen summary cannot disagree. *The only path that creates a work
+  order.*
 - On the local Windows host, an Admin may call
   `apiStartNetFacilitiesAuthentication`, complete credentials/CAPTCHA/MFA directly in
   the dedicated headed browser, then call `apiConfirmNetFacilitiesAuthentication` (or

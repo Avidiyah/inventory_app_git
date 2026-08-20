@@ -117,9 +117,12 @@ def _notify_work_order_patch(
 ) -> None:
     """Fire whichever notification rules a single PATCH satisfied.
 
-    One write can be several events -- a PATCH may add assignees *and*
-    move the status -- so assignment is evaluated independently of the
-    transition rather than as the first arm of a chain.
+    One write can be several events -- a PATCH may add assignees, route a
+    supervisor, *and* move the status -- so both assignment rules are
+    evaluated independently of the transition rather than as arms of the
+    chain. A person who is routed as supervisor and added as a technician
+    in the same write receives two notifications: both are true, they say
+    different things, and suppression is deliberately per-rule.
 
     Both facts are read off the row the service returned. When there is no
     prior status the row did not come from a write that records one, and
@@ -151,10 +154,28 @@ def _notify_work_order_patch(
     ``{"status": "in_progress"}`` (``adminReview.js``), and the card
     editor disables the status field outright for a Review row -- so this
     branch is narrow on purpose rather than by omission.
+
+    **So is Send Back, and it is a third rule with the same audience.**
+    ``ready_to_complete -> in_progress`` is the supervisor rejecting the
+    crew's handoff (``workOrders.js``'s Send Back button, which sends the
+    same ``{"status": "in_progress"}``). Its pair matches no arm above it,
+    so its position in the chain is free rather than load-bearing -- but
+    ``test_send_back_is_its_own_event_not_a_return_from_review`` pins that,
+    because the two arms differ only in their ``previous`` and a future
+    edit could make them overlap without anyone noticing.
     """
     if wo_service.newly_assigned_ids(work_order):
         _notify(
             notifications_service.notify_work_order_assigned,
+            db,
+            background,
+            work_order=work_order,
+            actor_id=actor_id,
+        )
+
+    if wo_service.newly_routed_supervisor_id(work_order):
+        _notify(
+            notifications_service.notify_supervisor_assigned,
             db,
             background,
             work_order=work_order,
@@ -195,6 +216,17 @@ def _notify_work_order_patch(
     ):
         _notify(
             notifications_service.notify_work_order_returned_from_review,
+            db,
+            background,
+            work_order=work_order,
+            actor_id=actor_id,
+        )
+    elif (
+        previous == wo.STATUS_READY_TO_COMPLETE
+        and work_order.status == wo.STATUS_IN_PROGRESS
+    ):
+        _notify(
+            notifications_service.notify_work_order_sent_back,
             db,
             background,
             work_order=work_order,
@@ -528,6 +560,7 @@ def work_order_filter_options(
     },
 )
 def import_work_orders(
+    background: BackgroundTasks,
     file: UploadFile = File(...),
     user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
@@ -537,6 +570,14 @@ def import_work_orders(
     columns, and matches the vendor `ASSIGNED TO` name to a supervisor to route
     visibility. Archived matches are counted as closed and left untouched.
     Returns a summary of created/opened/closed/matched/skipped counts.
+
+    Each matched supervisor is notified once for the whole import rather
+    than once per work order -- the system's only batched notification, and
+    the argument for it is in
+    `services/notifications.notify_supervisors_assigned_bulk`. Only newly
+    *created* rows count, which is exactly what `supervisors_matched`
+    reports, so the push and this response can never disagree about how
+    many work orders somebody just received.
 
     Deliberately `def`, not `async def`: the import is one long synchronous
     SQLAlchemy transaction over the whole CSV. On the event loop it would
@@ -557,6 +598,18 @@ def import_work_orders(
         _emit_review_queue_changed(None)
     except DomainError as exc:
         raise to_http(exc)
+    # Popped rather than passed through: the routing map exists to address a
+    # notification and is not part of the API contract, and
+    # `WorkOrderImportResult` would have to grow a field to carry it.
+    routing = summary.pop("supervisor_routing", {})
+    if routing:
+        _notify(
+            notifications_service.notify_supervisors_assigned_bulk,
+            db,
+            background,
+            routing=routing,
+            actor_id=user.id,
+        )
     return WorkOrderImportResult(**summary)
 
 

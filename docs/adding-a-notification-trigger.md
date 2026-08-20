@@ -27,9 +27,12 @@ or was one review comment away from happening.
 **1. Notification text renders on a locked phone.** No customer names, no
 addresses, no job descriptions, no note text, no prices. A work-order **number**
 is allowed and wanted — it is an opaque identifier that makes the notification
-actionable, and it is already visible to anyone holding the phone. The line is
-*identifiers yes, human-readable detail no*. `routers/push.py::send_test` is the
-reference for tone.
+actionable, and it is already visible to anyone holding the phone. A **count**
+is allowed for the same reason: "40 work orders have been assigned to you"
+identifies nothing. The line is *identifiers and counts yes, human-readable
+detail no*, and `build_message` takes exactly `number` and `count` to keep it
+there. Widening that signature is the change to argue about, not the strings.
+`routers/push.py::send_test` is the reference for tone.
 
 **2. Only 404 and 410 may delete a subscription.**
 `domain/push.py::classify_push_response` is the single authority and no trigger
@@ -216,6 +219,7 @@ worse than none, because it will be believed.
 | `push.user_ids_for_min_role(db, minimum)` | `services/push.py` | the *people* at or above a role, so the actor can be filtered out |
 | `wo_service.assigned_technician_ids(wo)` | `services/work_orders.py` | plural assignments, with the legacy singular folded in |
 | `work_order.supervisor_id` | model | the routed supervisor, may be `None` |
+| `wo_service.newly_routed_supervisor_id(wo)` | `services/work_orders.py` | the supervisor *this write* routed the row to, else `None` |
 
 Prefer `user_ids_for_min_role` + `send_to_users` over `send_to_min_role` for
 anything with an actor. A role-addressed send cannot express "everyone at this
@@ -268,8 +272,17 @@ above is to add your event to it, in the same commit.**
 - **Do not add a notification inside a service function.** Services take no
   FastAPI types, so `BackgroundTasks` cannot reach them; the trigger belongs at
   the router where the realtime emit already is.
-- **Do not batch or digest.** Deliberately excluded until real volume is
-  observed. One event, one notification.
+- **Do not batch or digest.** One event, one notification. The single exception
+  is the CSV import (`work_order.supervisor_assigned_bulk`), which sends once per
+  matched supervisor because forty pushes in a few seconds is not a
+  notification. That exception was argued from observed volume and is scoped to
+  the import; it is not a licence for a digest layer. See N14 in
+  `open-work.md`.
+- **A trigger fires on a change, not on a field being present.** The work-order
+  editor sends the whole form, so "`supervisor_id` was in the payload" would
+  re-notify somebody every time a note was saved. The transition facts
+  (`previous_status`, `newly_assigned_ids`, `newly_routed_supervisor_id`) exist
+  because the post-write row cannot tell a real change from a re-save.
 
 ## Deliberately not built
 

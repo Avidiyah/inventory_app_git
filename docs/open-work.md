@@ -380,8 +380,10 @@ value-to-effort:
    `services/netfacilities_jobs.py` and is the least related to work orders.
 
 **Deliberately excluded rather than deferred:** anything putting customer or job
-detail in a notification body (the lock-screen rule), and any digest or batching
-scheme — premature until real volume is observed.
+detail in a notification body (the lock-screen rule), and any general digest or
+batching scheme — premature until real volume is observed. The one batched send
+that exists, `work_order.supervisor_assigned_bulk`, is scoped to the CSV import
+and argued from its volume; see N14.
 
 ### N12 — Auto-hold is the largest source of notification volume ever added
 
@@ -405,22 +407,40 @@ leaving `/hold` and the PATCH arm untouched. No change to the audience, the
 rule, the wording, or the other three trigger sites. See
 `docs/notification-events.md`.
 
-### N13 — Send Back tells the technician nothing
+### N13 — Send Back tells the technician nothing — CLOSED
 
-**Trigger: a technician reporting they did not know work had been returned to
-them, or a supervisor asking whether Send Back "went through".**
+Closed 2026-08-20 by `work_order.sent_back`, a fifth arm on
+`_notify_work_order_patch` addressed to the assignees and the routed supervisor.
+It is its own event rather than a reuse of `work_order.reopened`, for the reason
+this item always gave: that rule means "your finished job is no longer
+Completed" and a sent-back row never reached Completed.
 
-A supervisor rejecting work from Ready to Complete sends
-`PATCH {status: "in_progress"}`, which matches no arm of
-`_notify_work_order_patch`'s chain. The technician learns their work came back
-when they next open the app.
+Shipped alongside `work_order.supervisor_assigned` and
+`work_order.supervisor_assigned_bulk`. See `docs/notification-events.md`.
 
-Stated as a gap rather than a defect: it was left out to keep the tracking
-change from also growing a new event, and the alternative — reusing
-`work_order.reopened` — is wrong, because that rule means "your finished job is
-no longer Completed" and this row never reached Completed. Closing it is a new
-arm and a new event following the three steps in
-`docs/adding-a-notification-trigger.md`.
+### N14 — The bulk import send is the first batched notification
+
+**Trigger: a second batching case appearing, or an import send that is wrong in
+a way per-work-order sends would not have been.**
+
+`work_order.supervisor_assigned_bulk` collapses a whole import into one push per
+matched supervisor, which is the only place in this system where one
+notification stands for more than one event. The argument for it is volume — an
+import creating forty work orders for one supervisor would otherwise fire forty
+pushes in seconds — and it is deliberately scoped to the import rather than
+generalised into a digest layer.
+
+Two things follow, and both are the reason this is written down:
+
+- **It is not precedent.** "Do not batch or digest" still holds everywhere else.
+  A second batching case should be argued on its own volume evidence, not by
+  pointing at this one.
+- **It under-counts on purpose.** Only work orders the import *created* count.
+  An import that routes an existing unrouted work order to a supervisor is
+  silent, so that the push and the on-screen `supervisors_matched` can never
+  disagree. If that silence turns out to matter more than the agreement does,
+  the fix is to widen both together — the import summary and the notification
+  read off the same branch precisely so that stays one change.
 
 ---
 

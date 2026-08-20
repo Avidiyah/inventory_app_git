@@ -94,7 +94,12 @@ def _dispatch(
     work_order: WorkOrder,
     user_ids: Sequence[uuid.UUID],
 ) -> None:
-    """Build the text for `event_type` and queue it to `user_ids`."""
+    """Build the text for `event_type` and queue it to `user_ids`.
+
+    For the events that name one work order, which is all of them but the
+    bulk import send -- that one has no single row to name and builds its
+    own text from a count.
+    """
     title, body = policy.build_message(event_type, number=work_order.number)
     _schedule(background, user_ids, title, body)
 
@@ -173,6 +178,101 @@ def notify_work_order_returned_from_review(
             actor_id=actor_id,
         ),
     )
+
+
+def notify_work_order_sent_back(
+    db: Session,
+    background: BackgroundTasks,
+    *,
+    work_order: WorkOrder,
+    actor_id: Optional[uuid.UUID],
+) -> None:
+    """A supervisor rejected the crew's handoff from Ready to Complete.
+
+    Third of the three rules addressed to assignees plus the routed
+    supervisor, and separate from both for the reason given in the policy
+    module: the technician needs to know *why* the work is theirs again,
+    and only the words carry that.
+    """
+    _dispatch(
+        background,
+        policy.EVENT_WORK_ORDER_SENT_BACK,
+        work_order,
+        policy.recipients_for_send_back(
+            assignee_ids=wo_service.assigned_technician_ids(work_order),
+            supervisor_id=work_order.supervisor_id,
+            actor_id=actor_id,
+        ),
+    )
+
+
+def notify_supervisor_assigned(
+    db: Session,
+    background: BackgroundTasks,
+    *,
+    work_order: WorkOrder,
+    actor_id: Optional[uuid.UUID],
+) -> None:
+    """One work order was routed to a supervisor.
+
+    The caller decides whether routing actually *changed* -- this fires on
+    the fact, not on the field being present in a PATCH. `newly_routed_
+    supervisor_id` is what carries that fact off the write, for the same
+    reason `previous_status` does for transitions: the post-write row
+    cannot tell a real re-route from a form re-save.
+    """
+    _dispatch(
+        background,
+        policy.EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED,
+        work_order,
+        policy.recipients_for_supervisor_assignment(
+            supervisor_id=wo_service.newly_routed_supervisor_id(work_order),
+            actor_id=actor_id,
+        ),
+    )
+
+
+def notify_supervisors_assigned_bulk(
+    db: Session,
+    background: BackgroundTasks,
+    *,
+    routing: dict[uuid.UUID, Sequence[str]],
+    actor_id: Optional[uuid.UUID],
+) -> None:
+    """An import routed a batch of new work orders to their supervisors.
+
+    **The only batched notification in this system**, and the exception is
+    argued rather than assumed: an import that creates forty work orders
+    for one supervisor would otherwise buzz them forty times in a few
+    seconds, which is not a notification but a denial of service aimed at
+    the person who most needs to read it. One send per supervisor per
+    import.
+
+    A supervisor who matched exactly one work order gets the ordinary
+    single-work-order text instead of "1 work orders" -- correct grammar
+    is the smaller half of that; naming the number they can act on is the
+    larger one.
+
+    Each supervisor is resolved and scheduled independently, so one
+    supervisor whose text fails to build cannot silence the rest.
+    """
+    for supervisor_id, numbers in routing.items():
+        user_ids = policy.recipients_for_supervisor_assignment(
+            supervisor_id=supervisor_id, actor_id=actor_id
+        )
+        if not user_ids:
+            continue
+        if len(numbers) == 1:
+            title, body = policy.build_message(
+                policy.EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED,
+                number=numbers[0],
+            )
+        else:
+            title, body = policy.build_message(
+                policy.EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED_BULK,
+                count=len(numbers),
+            )
+        _schedule(background, user_ids, title, body)
 
 
 def _hold_recipients(

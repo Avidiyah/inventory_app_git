@@ -157,6 +157,15 @@
     --lu-orange-hover:#D4551C;
     --lu-navy-tint:   rgba(21, 43, 81, .08);
     --lu-orange-tint: rgba(242, 104, 43, .12);
+
+    /* The app has no light theme. Without this, native controls (select
+       popups, scrollbars, checkboxes) render with the browser's light-mode
+       chrome regardless of the page's own dark styling -- an open <select>
+       list ends up light text (--text-panel) on the browser's default white
+       popup background, since that popup is OS-rendered and outside CSS's
+       reach otherwise. color-scheme tells the browser to theme those native
+       controls dark to match. */
+    color-scheme: dark;
 }
 
 /* =================== RESET / BASE =================== */
@@ -513,6 +522,15 @@ textarea {
        ring below feel like a state change, not a snap. */
     box-shadow: inset 0 1px 3px rgba(0, 0, 0, .35);
     transition: border-color .12s ease, box-shadow .12s ease, background-color .12s ease;
+}
+
+/* Reinforces color-scheme: dark (root) for the native <select> popup, which
+   some Chromium/Windows builds hand off to an OS-drawn combobox that ignores
+   page CSS entirely -- if that's happening here, this rule is a no-op, not a
+   fix; there is no reliable CSS-only override for that path. */
+select option {
+    background-color: var(--color-header);
+    color: var(--text-panel);
 }
 
 input::placeholder,
@@ -2920,13 +2938,123 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     max-height: 240px;
     overflow-y: auto;
     padding: var(--space-2);
-    border: 1px solid var(--panel-rule);
+    border: 1px solid var(--gray-700);
     border-radius: var(--radius-sm);
-    background-color: var(--panel-hover);
+    /* Solid, not a translucent --panel-* token: this floats over card
+       content (buttons, text), and at low alpha that content shows through
+       and reads as a rendering glitch. Same opaque fill as the nav popover
+       (.nav-group-menu) for the same reason. */
+    background-color: var(--color-header);
     box-shadow: var(--shadow-md);
 }
 .wo-tech-results[hidden] { display: none; }
 .wo-tech-results .hint { margin: var(--space-1); }
+
+/* Shared scrollbar theme for the app's scrollable dropdown/results lists
+   (.wo-tech-results here, .manual-results in the manual-entry search,
+   .wo-combo-list below) so they match instead of each falling back to a
+   different browser default. */
+.wo-tech-results,
+.manual-results,
+.wo-combo-list {
+    scrollbar-width: thin;
+    scrollbar-color: var(--gray-700) transparent;
+}
+.wo-tech-results::-webkit-scrollbar,
+.manual-results::-webkit-scrollbar,
+.wo-combo-list::-webkit-scrollbar {
+    width: 8px;
+}
+.wo-tech-results::-webkit-scrollbar-track,
+.manual-results::-webkit-scrollbar-track,
+.wo-combo-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+.wo-tech-results::-webkit-scrollbar-thumb,
+.manual-results::-webkit-scrollbar-thumb,
+.wo-combo-list::-webkit-scrollbar-thumb {
+    background-color: var(--gray-700);
+    border-radius: var(--radius-sm);
+}
+.wo-tech-results::-webkit-scrollbar-thumb:hover,
+.manual-results::-webkit-scrollbar-thumb:hover,
+.wo-combo-list::-webkit-scrollbar-thumb:hover {
+    background-color: var(--panel-hover);
+}
+
+/* Custom dropdown ("combo") for Status/Supervisor: a real <select> stays in
+   the DOM (hidden) to hold the value for save/read logic unchanged; this is
+   the visible trigger + listbox, styled like .wo-tech-results so the two
+   pickers on this card read as one system instead of a native popup that
+   escapes our CSS (see docs/design-system.md's note on OS-rendered <select>
+   popups). */
+.wo-combo { position: relative; }
+.wo-combo-native { display: none; }
+
+.wo-combo-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    width: 100%;
+    min-height: var(--control-h);
+    padding: 0 var(--space-3);
+    margin-top: 0;
+    border: var(--border-input);
+    border-radius: var(--radius-md);
+    background-color: var(--input-bg);
+    color: var(--text-panel);
+    font-size: var(--fs-base);
+    font-family: inherit;
+    font-weight: normal;
+    text-align: left;
+    cursor: pointer;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, .35);
+}
+.wo-combo-trigger:hover { background-color: var(--panel-hover); }
+
+.wo-combo-chevron {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+    color: var(--text-panel-mute);
+    transition: transform .12s ease;
+}
+.wo-combo-trigger[aria-expanded="true"] .wo-combo-chevron { transform: rotate(180deg); }
+
+.wo-combo-list {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + var(--space-1));
+    right: 0;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    max-height: 240px;
+    overflow-y: auto;
+    padding: var(--space-2);
+    border: 1px solid var(--gray-700);
+    border-radius: var(--radius-sm);
+    background-color: var(--color-header);
+    box-shadow: var(--shadow-md);
+}
+.wo-combo-list[hidden] { display: none; }
+
+.wo-combo-option {
+    justify-content: flex-start;
+    width: 100%;
+    min-height: var(--btn-h-sm);
+    margin-top: 0;
+    text-align: left;
+}
+.wo-combo-option[aria-selected="true"] {
+    background-color: var(--color-brand);
+    color: var(--color-white);
+}
+.wo-combo-option[aria-selected="true"]:hover {
+    background-color: var(--color-brand-hover);
+}
 .wo-tech-result {
     justify-content: flex-start;
     width: 100%;

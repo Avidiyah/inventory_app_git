@@ -40,6 +40,9 @@ screen whether or not the app is open.
 | `work_order.returned_from_review` | Supervisor+ — in practice the Admin Review page's Return button, the only UI that sends it | `PATCH`, `review → in_progress` | assigned technicians + the routed supervisor |
 | `work_order.held` | an assigned worker (Technician+), or any Supervisor+ editor | `POST /work-orders/{id}/hold`, `PATCH` to `on_hold`, and `POST /work-orders/{id}/tracking/stop` **only when it auto-holds** (see below) | the routed supervisor — or `UNROUTED_HOLD_AUDIENCE_MIN_ROLE` (**Admin** and above) when nobody is routed |
 | `work_order.held_for_review` | an assigned **Technician** — the role is what makes their finish a handoff | `POST /work-orders/{id}/complete` when it lands `ready_to_complete` | the routed supervisor — or **Admin** and above when nobody is routed |
+| `work_order.sent_back` | Supervisor+ — in practice the work-order card's **Send Back** button, the only UI that sends it | `PATCH`, `ready_to_complete → in_progress` | assigned technicians + the routed supervisor |
+| `work_order.supervisor_assigned` | Supervisor+ (routing is a `_SUPERVISOR_UPDATE_FIELDS` edit, **not** Admin-only) | `PATCH` that *changes* `supervisor_id` to somebody | the newly routed supervisor, and nobody else |
+| `work_order.supervisor_assigned_bulk` | TechFM OA+ (whoever ran the import) | `POST /work-orders/import` | each supervisor the import name-matched, **once for the whole import** |
 
 **Every rule suppresses the acting user, by id.** A supervisor completing work
 on someone else's behalf is as much the actor as a technician is, so
@@ -49,9 +52,15 @@ who is also an assignee is one person and gets one notification.
 
 ## What each one says
 
-Notification text renders on a locked phone, so a work-order **number** is the
-only variable any of these interpolate. No customer, no address, no
-description, no note text, no price.
+Notification text renders on a locked phone, so a work-order **number** and a
+**count** are the only variables any of these interpolate. No customer, no
+address, no description, no note text, no price.
+
+`count` exists for one event. "40 work orders have been assigned to you" names
+no work order, no customer, and no job — a tally of your own queue tells a
+stranger holding the phone nothing the app's icon badge would not. That is the
+whole argument for widening `build_message` past a number, and it does not
+extend to a third field.
 
 | Event | Title | Body |
 | --- | --- | --- |
@@ -61,6 +70,14 @@ description, no note text, no price.
 | `work_order.returned_from_review` | Work order returned | `{number}` came back from Review and needs another look. |
 | `work_order.held` | Work order on hold | `{number}` was placed On-Hold. |
 | `work_order.held_for_review` | Work order ready for review | `{number}` is finished and waiting on your review. |
+| `work_order.sent_back` | Work order sent back | `{number}` was sent back and needs more work. |
+| `work_order.supervisor_assigned` | Work order assigned to you | `{number}` has been assigned to you. |
+| `work_order.supervisor_assigned_bulk` | Work orders assigned to you | `{count}` work orders have been assigned to you. |
+
+An import that matched a supervisor to exactly **one** work order sends the
+singular `work_order.supervisor_assigned` text instead, naming the number. Correct
+grammar is the smaller reason; the larger one is that a supervisor who received
+one work order can be told which one.
 
 ## The one non-work-order send
 
@@ -98,8 +115,13 @@ technician's phone.
   comprehension.
 - **No VAPID key means no task**, rather than one guaranteed failure per device
   per response.
-- **Nothing is batched or digested.** One event, one notification. Deliberate,
-  until real volume argues otherwise.
+- **Nothing is batched or digested, with one named exception.** One event, one
+  notification — except `work_order.supervisor_assigned_bulk`, which is one send
+  per supervisor per import however many rows matched them. Real volume did
+  argue otherwise: an import creating forty work orders for one supervisor
+  would fire forty pushes in a few seconds, which is not a notification but a
+  denial of service aimed at the person who most needs to read it. The
+  exception is the *import*, not a general licence to digest.
 
 ## Why some of these are separate rules
 
@@ -157,12 +179,39 @@ Read this before "simplifying" two rows into one.
   running on a *different* work order, that row is closed here and may
   auto-hold, and it is handed back through `side_transitions` precisely so its
   alert is not silently dropped.
-- **Send Back notifies nobody, and that is a stated gap.** A supervisor
-  rejecting work from Ready to Complete sends `PATCH {status: "in_progress"}`,
-  which matches no arm of the chain, so the technician learns their work came
-  back when they next open the app. If field use shows they need a push, it is
-  a new arm and a new event following this document — not a change to the
-  existing chain.
+- **Three rules now share the assignees-plus-supervisor audience, and they stay
+  three.** Reopen says the work is live again; returned-from-review says an
+  Admin looked at it and wants changes; sent-back says the crew's own
+  supervisor rejected the handoff. Identical recipient lists, three different
+  next moves for the technician, and the words are the only thing that carries
+  which. Merging any two of them to remove the duplication deletes the only
+  thing the recipient needed from a lock screen — the same argument the
+  reopen/returned pair has always rested on, now applying to a third rule.
+- **Send Back and the Review return send byte-identical payloads.** Both are
+  `PATCH {status: "in_progress"}`; only `previous` tells them apart
+  (`ready_to_complete` versus `review`). Their arms cannot currently overlap, so
+  the ordering between them is free rather than load-bearing — but
+  `test_send_back_is_its_own_event_not_a_return_from_review` pins the wording
+  anyway, because they share an audience and nothing else would catch a mix-up.
+- **Routing a supervisor is evaluated outside the transition chain**, beside the
+  technician-assignment rule and for the same reason: one PATCH can route a
+  supervisor *and* move the status, and a chain of `elif`s drops whichever arm
+  comes second. A person routed as supervisor and added as a technician in the
+  same write receives two notifications. Both are true, they say different
+  things, and suppression is per-rule by design.
+- **`work_order.supervisor_assigned` fires on a change, not on a field.** The
+  editor sends the whole form, so "`supervisor_id` was in the payload" would
+  re-notify a supervisor every time somebody saved a note. `services/work_orders.
+  newly_routed_supervisor_id` carries the fact off the write, exactly as
+  `previous_status` does for transitions — the post-write row cannot tell a real
+  re-route from a re-save. Clearing the routing sends nothing.
+- **The import counts only rows it created, and that is a deliberate
+  under-count.** An import also routes *existing* unrouted work orders to a
+  matched supervisor, and those are silent. The reason is that
+  `supervisors_matched` — the number the operator sees on screen — is computed on
+  the same branch, so the push and the import summary can never tell two people
+  different stories about the same upload. Owner decision, 2026-08-20. Widening
+  one without the other is the bug this is written to prevent.
 - **An audience of one still needs a fallback.** Both hold events address the
   routed supervisor, and an unrouted work order would otherwise alert nobody.
   The fallback branches on *who is routed*, never on how many recipients
@@ -223,6 +272,13 @@ When a change touches notifications:
 
 No per-user opt-out. No per-event preferences. No delivery record. Routing is by
 role and assignment only.
+
+**Losing a work order is not an event.** Re-routing tells the new supervisor and
+says nothing to the one who held it, who may keep working a job that is no
+longer theirs. Named here rather than left undocumented, because the recipient
+list in `recipients_for_supervisor_assignment` looks like an oversight and is
+not. If it needs building it is a new event with its own words, not a second
+recipient bolted onto this one.
 
 If someone asks "was this person notified?", the honest answer today is that the
 counts were logged and discarded. Adding a delivery record is a schema change,

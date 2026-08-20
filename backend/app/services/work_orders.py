@@ -304,6 +304,7 @@ def assigned_technician_ids(work_order: WorkOrder) -> list[uuid.UUID]:
 _PREVIOUS_STATUS = "_wo_previous_status"
 _NEWLY_ASSIGNED = "_wo_newly_assigned_ids"
 _SIDE_TRANSITIONS = "_wo_side_transitions"
+_NEWLY_ROUTED_SUPERVISOR = "_wo_newly_routed_supervisor_id"
 
 
 def previous_status(work_order: WorkOrder) -> Optional[str]:
@@ -325,6 +326,20 @@ def newly_assigned_ids(work_order: WorkOrder) -> list[uuid.UUID]:
     caller has to get right.
     """
     return list(getattr(work_order, _NEWLY_ASSIGNED, ()))
+
+
+def newly_routed_supervisor_id(work_order: WorkOrder) -> Optional[uuid.UUID]:
+    """The supervisor the write that returned this row *routed* it to.
+
+    `None` when the write left routing alone, re-sent the supervisor the
+    row already had, or cleared it -- so "was somebody newly given this
+    work order" is a truthiness check rather than a before/after
+    comparison the caller has to reconstruct. Clearing routing reads the
+    same as not touching it on purpose: there is nobody to notify either
+    way, and the person who *lost* the work order is not an audience this
+    system has.
+    """
+    return getattr(work_order, _NEWLY_ROUTED_SUPERVISOR, None)
 
 
 def side_transitions(work_order: WorkOrder) -> list[WorkOrder]:
@@ -349,11 +364,13 @@ def _record_transition(
     previous: Optional[str],
     newly_assigned: Optional[Sequence[uuid.UUID]] = None,
     side: Optional[Sequence[WorkOrder]] = None,
+    newly_routed_supervisor: Optional[uuid.UUID] = None,
 ) -> WorkOrder:
     """Stamp the transition facts on a row about to be returned."""
     setattr(work_order, _PREVIOUS_STATUS, previous)
     setattr(work_order, _NEWLY_ASSIGNED, list(newly_assigned or ()))
     setattr(work_order, _SIDE_TRANSITIONS, list(side or ()))
+    setattr(work_order, _NEWLY_ROUTED_SUPERVISOR, newly_routed_supervisor)
     return work_order
 
 
@@ -781,7 +798,15 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
 
     Returns a summary dict (`total`, `created`, `opened`, `closed`,
     `supervisors_matched`, `supervisors_unmatched`, `skipped`). The two
-    supervisor counters describe only the work orders this import created."""
+    supervisor counters describe only the work orders this import created.
+
+    `supervisor_routing` rides along beside them: `{supervisor_id: [number,
+    ...]}` for the same created-and-matched rows the `supervisors_matched`
+    counter describes, so the notification a supervisor receives and the
+    count the operator sees on screen can never disagree. It is not part of
+    the API response -- the router pops it -- and it holds numbers rather
+    than a bare tally because a supervisor who matched exactly one work
+    order is told *which* one."""
     try:
         text = csv_bytes.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
@@ -804,6 +829,7 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
     supervisors = _supervisor_lookup(db)
 
     created = opened = closed = matched = unmatched = skipped = 0
+    routing: dict[uuid.UUID, list[str]] = {}
     for row in rows:
         attrs = wo.parse_import_row(row)
         number = attrs.pop("number")
@@ -843,6 +869,10 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
         if not existed:
             if supervisor_id is not None:
                 matched += 1
+                # Read off the committed row rather than the CSV cell: the
+                # number the supervisor's phone shows has to be the number
+                # the work order actually carries.
+                routing.setdefault(supervisor_id, []).append(work_order.number)
             elif attrs.get("vendor_assignee") is not None:
                 unmatched += 1
         if existed:
@@ -858,6 +888,7 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
         "supervisors_matched": matched,
         "supervisors_unmatched": unmatched,
         "skipped": skipped,
+        "supervisor_routing": routing,
     }
 
 
@@ -1698,8 +1729,16 @@ def update_work_order(
             work_order.status = wo.reconcile_assignment_status(
                 work_order.status, technician_ids
             )
+    newly_routed_supervisor: Optional[uuid.UUID] = None
     if "supervisor_id" in fields:
         _validate_supervisor(db, fields["supervisor_id"])
+        # Captured against the value still on the row. Re-saving the editor
+        # with an unchanged routing must stay silent, and after the
+        # assignment below there is no way left to tell -- the same reason
+        # `newly_assigned` is computed inside `_sync_technician_assignments`
+        # rather than inferred from the post-write row.
+        if fields["supervisor_id"] not in (None, work_order.supervisor_id):
+            newly_routed_supervisor = fields["supervisor_id"]
         work_order.supervisor_id = fields["supervisor_id"]
     if "status" in fields:
         # Created/Assigned is an assignment-derived pair even for a manual
@@ -1745,7 +1784,10 @@ def update_work_order(
         ) from exc
     db.refresh(work_order)
     return _record_transition(
-        work_order, previous=previous, newly_assigned=newly_assigned
+        work_order,
+        previous=previous,
+        newly_assigned=newly_assigned,
+        newly_routed_supervisor=newly_routed_supervisor,
     )
 
 

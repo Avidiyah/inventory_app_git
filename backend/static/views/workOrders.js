@@ -561,18 +561,18 @@ function technicianPickerHtml(detail) {
     .join("");
 
   return `<div class="wo-tech-picker">
+            <div class="wo-tech-selected">
+              <span class="wo-tech-selected-label">Assigned to this work order</span>
+              <div class="wo-tech-selected-list" aria-live="polite">
+                ${selections || emptyTechnicianSelectionHtml()}
+              </div>
+            </div>
             <div class="wo-tech-search-wrap">
               <label class="wo-tech-search-label">
                 <span>Search Technicians or Supervisors</span>
                 <input type="search" class="wo-tech-search" placeholder="Search by name" autocomplete="off" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-controls="${escapeHtml(resultsId)}" aria-expanded="false">
               </label>
               <div class="wo-tech-results" id="${escapeHtml(resultsId)}" role="listbox" aria-label="Technician search results" hidden></div>
-            </div>
-            <div class="wo-tech-selected">
-              <span class="wo-tech-selected-label">Assigned to this work order</span>
-              <div class="wo-tech-selected-list" aria-live="polite">
-                ${selections || emptyTechnicianSelectionHtml()}
-              </div>
             </div>
           </div>`;
 }
@@ -638,6 +638,53 @@ function supervisorOptions(selectedId) {
       )
       .join("")
   );
+}
+
+function supervisorChoices() {
+  return [{ value: "", label: "Unassigned" }].concat(
+    allSupers.map((s) => ({ value: s.id, label: formatUserName(s) }))
+  );
+}
+
+// A custom-styled stand-in for a native <select>, used where the OS-rendered
+// popup of a real select can't be reached by our CSS (see docs/design-system.md).
+// `nativeSelectHtml` is a real, hidden <select> that still holds the value --
+// save/read logic (and the class name callers already query for) is
+// unchanged; this only replaces what the user sees and clicks.
+function comboListHtml(id, options, selectedValue, ariaLabel) {
+  return `<div class="wo-combo-list" id="${escapeHtml(id)}" role="listbox" aria-label="${escapeHtml(ariaLabel)}" hidden>
+            ${options
+              .map(
+                ({ value, label }) =>
+                  `<button type="button" class="secondary-btn wo-combo-option" role="option" data-action="pick-combo-option" data-value="${escapeHtml(value)}" aria-selected="${value === selectedValue}">${escapeHtml(label)}</button>`
+              )
+              .join("")}
+          </div>`;
+}
+
+function comboHtml({ id, extraClass, nativeSelectHtml, options, selectedValue, ariaLabel }) {
+  const selected = options.find((opt) => opt.value === selectedValue);
+  const triggerLabel = selected ? selected.label : options[0]?.label || "";
+  // The trigger button renders before the hidden native select: both are
+  // "labelable" and this whole thing sits inside a <label>, which forwards a
+  // caption click to the first labelable descendant in tree order. Button
+  // first means the click opens the combo instead of landing on a select
+  // that's hidden and can't respond.
+  return `<div class="wo-combo${extraClass ? ` ${extraClass}` : ""}" data-combo>
+            <button type="button" class="wo-combo-trigger" data-action="toggle-combo" aria-haspopup="listbox" aria-expanded="false" aria-controls="${escapeHtml(id)}">
+              <span class="wo-combo-trigger-label">${escapeHtml(triggerLabel)}</span>
+              <svg class="wo-combo-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            ${comboListHtml(id, options, selectedValue, ariaLabel)}
+            ${nativeSelectHtml}
+          </div>`;
+}
+
+function closeCombo(combo) {
+  const list = combo?.querySelector(".wo-combo-list");
+  const trigger = combo?.querySelector(".wo-combo-trigger");
+  if (list) list.hidden = true;
+  if (trigger) trigger.setAttribute("aria-expanded", "false");
 }
 
 // True when a work order still carries the pre-import community/building/unit
@@ -715,7 +762,7 @@ function editField(field, label, value) {
 // exposed as a standalone button), and On-Hold is always available as a pause.
 // Created/Assigned remains one assignment-derived pre-work choice so the status
 // cannot contradict the technician field.
-function editableStatusOptions(detail) {
+function editableStatusValues(detail) {
   const prework = assignedIds(detail).length ? "assigned" : "created";
   let statuses;
   if (detail.status === "on_hold" || detail.status === "ready_to_complete") {
@@ -733,7 +780,11 @@ function editableStatusOptions(detail) {
     statuses.push("on_hold");
     if (rank >= 3) statuses.push("completed");
   }
-  return [...new Set(statuses)]
+  return [...new Set(statuses)];
+}
+
+function editableStatusOptions(detail) {
+  return editableStatusValues(detail)
     .map(
       (status) =>
         `<option value="${escapeHtml(status)}"${status === detail.status ? " selected" : ""}>${escapeHtml(statusLabel(status))}</option>`
@@ -748,9 +799,18 @@ function statusEditorHtml(detail) {
               <input type="text" value="Review" disabled>
             </label>`;
   }
+  const options = editableStatusValues(detail).map((status) => ({ value: status, label: statusLabel(status) }));
+  const nativeSelect = `<select class="wo-edit-status wo-combo-native" hidden>${editableStatusOptions(detail)}</select>`;
   return `<label class="wo-edit-field wo-edit-status-field">
             <span>Status</span>
-            <select class="wo-edit-status">${editableStatusOptions(detail)}</select>
+            ${comboHtml({
+              id: `wo-status-list-${detail.id}`,
+              extraClass: "wo-status-combo",
+              nativeSelectHtml: nativeSelect,
+              options,
+              selectedValue: detail.status,
+              ariaLabel: "Status",
+            })}
             <small class="hint">Start work, roll back to an earlier step, or place this work order On-Hold. Created/Assigned follows technician assignment.</small>
           </label>`;
 }
@@ -782,7 +842,14 @@ function detailsEditorHtml(detail) {
                 ${adminMetadata}
                 <label class="wo-edit-field">
                   <span>Supervisor</span>
-                  <select class="wo-edit-supervisor">${supervisorOptions(detail.supervisor_id || "")}</select>
+                  ${comboHtml({
+                    id: `wo-supervisor-list-${detail.id}`,
+                    extraClass: "wo-supervisor-combo",
+                    nativeSelectHtml: `<select class="wo-edit-supervisor wo-combo-native" hidden>${supervisorOptions(detail.supervisor_id || "")}</select>`,
+                    options: supervisorChoices(),
+                    selectedValue: detail.supervisor_id || "",
+                    ariaLabel: "Supervisor",
+                  })}
                 </label>
                 <fieldset class="wo-edit-field wo-edit-technicians">
                   <legend>Assigned technicians</legend>
@@ -1580,6 +1647,34 @@ listEl.addEventListener("click", async (event) => {
     return;
   }
 
+  if (action === "toggle-combo") {
+    const combo = btn.closest(".wo-combo");
+    const list = combo.querySelector(".wo-combo-list");
+    const opening = list.hidden;
+    // Only one open at a time -- picking in one shouldn't leave another
+    // combo's listbox stranded open behind it.
+    listEl.querySelectorAll(".wo-combo").forEach((other) => {
+      if (other !== combo) closeCombo(other);
+    });
+    list.hidden = !opening;
+    btn.setAttribute("aria-expanded", String(opening));
+    return;
+  }
+
+  if (action === "pick-combo-option") {
+    const combo = btn.closest(".wo-combo");
+    const nativeSelect = combo.querySelector(".wo-combo-native");
+    const label = combo.querySelector(".wo-combo-trigger-label");
+    nativeSelect.value = btn.dataset.value;
+    label.textContent = btn.textContent;
+    combo.querySelectorAll(".wo-combo-option").forEach((opt) => {
+      opt.setAttribute("aria-selected", String(opt === btn));
+    });
+    closeCombo(combo);
+    combo.querySelector(".wo-combo-trigger")?.focus();
+    return;
+  }
+
   if (action === "back-to-work-orders") {
     // Above the `.wo-card` lookup below: this control lives in the list but
     // outside any card, so the `if (!cardEl) return` guard would swallow it.
@@ -1787,16 +1882,29 @@ listEl.addEventListener("click", async (event) => {
 });
 
 listEl.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape" || !event.target.classList.contains("wo-tech-search")) return;
-  closeTechnicianResults(event.target.closest(".wo-tech-picker"));
+  if (event.key !== "Escape") return;
+  if (event.target.classList.contains("wo-tech-search")) {
+    closeTechnicianResults(event.target.closest(".wo-tech-picker"));
+    return;
+  }
+  const combo = event.target.closest(".wo-combo");
+  if (combo) closeCombo(combo);
 });
 
 listEl.addEventListener("focusout", (event) => {
   const picker = event.target.closest(".wo-tech-picker");
-  if (!picker) return;
-  setTimeout(() => {
-    if (!picker.contains(document.activeElement)) closeTechnicianResults(picker);
-  }, 0);
+  if (picker) {
+    setTimeout(() => {
+      if (!picker.contains(document.activeElement)) closeTechnicianResults(picker);
+    }, 0);
+    return;
+  }
+  const combo = event.target.closest(".wo-combo");
+  if (combo) {
+    setTimeout(() => {
+      if (!combo.contains(document.activeElement)) closeCombo(combo);
+    }, 0);
+  }
 });
 
 // --- Inline line-billing editor (Admin/Owner) ----------------------------

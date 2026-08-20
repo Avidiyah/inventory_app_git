@@ -170,7 +170,9 @@ def test_import_emits_one_collection_invalidation(monkeypatch):
         lambda db, *, csv_bytes, user: IMPORT_SUMMARY,
     )
 
-    result = work_orders_router.import_work_orders(file=object(), user=user, db=None)
+    result = work_orders_router.import_work_orders(
+        BackgroundTasks(), file=object(), user=user, db=None
+    )
 
     assert result.created == 1
     assert envelopes == [

@@ -390,10 +390,10 @@ def test_approving_ready_to_complete_fires_the_completion_rule(db, configured):
     assert admin.id in _recipients(background)
 
 
-def test_sending_work_back_notifies_nobody(db, configured):
-    """A stated gap, not an omission: `in_progress` matches no arm of the
-    chain, so the technician learns their work came back when they next open
-    the app."""
+def test_sending_work_back_notifies_the_assigned_technician(db, configured):
+    """The supervisor rejecting a handoff is the whole point of Send Back,
+    and the technician is the one who has to act on it. The supervisor here
+    is the actor and drops out."""
     admin = _seed_user(db, roles.ROLE_ADMIN)
     supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
     worker = _seed_user(db, roles.ROLE_TECHNICIAN)
@@ -402,6 +402,73 @@ def test_sending_work_back_notifies_nobody(db, configured):
     )
     wos.start_work_order(db, work_order.id, user=worker)
     wos.complete_work_order(db, work_order.id, user=worker)
+
+    background = BackgroundTasks()
+    _patch(db, background, work_order.id, user=supervisor, status="in_progress")
+
+    assert _recipients(background) == [worker.id]
+
+
+def test_an_admin_sending_work_back_also_tells_the_routed_supervisor(
+    db, configured
+):
+    """The row that earns the supervisor a place in this audience. When an
+    Admin rejects work over the owning supervisor's head, that supervisor's
+    crew is back on the job and nothing else would tell them."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+    wos.start_work_order(db, work_order.id, user=worker)
+    wos.complete_work_order(db, work_order.id, user=worker)
+
+    background = BackgroundTasks()
+    _patch(db, background, work_order.id, user=admin, status="in_progress")
+
+    assert _recipients(background) == [worker.id, supervisor.id]
+
+
+def test_send_back_is_its_own_event_not_a_return_from_review(db, configured):
+    """Send Back and the Admin Review return send the identical payload --
+    `{"status": "in_progress"}` -- and are told apart only by `previous`.
+    They share an audience, so nothing but the words would catch a mix-up,
+    which is exactly why this asserts on the words."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+    wos.start_work_order(db, work_order.id, user=worker)
+    wos.complete_work_order(db, work_order.id, user=worker)
+
+    background = BackgroundTasks()
+    _patch(db, background, work_order.id, user=supervisor, status="in_progress")
+
+    _, title, _body = background.tasks[0].args
+    assert title == "Work order sent back"
+
+
+def test_sending_back_a_row_already_in_progress_alerts_nobody(db, configured):
+    """A second tap on Send Back, or a stale card sending the status it
+    already has. `previous == status` is what stops the repeat."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+    wos.start_work_order(db, work_order.id, user=worker)
+    wos.complete_work_order(db, work_order.id, user=worker)
+    _patch(
+        db,
+        BackgroundTasks(),
+        work_order.id,
+        user=supervisor,
+        status="in_progress",
+    )
 
     background = BackgroundTasks()
     _patch(db, background, work_order.id, user=supervisor, status="in_progress")
@@ -777,3 +844,95 @@ def test_a_broken_notification_rule_never_fails_the_write(db, monkeypatch, confi
     assert wos.assigned_technician_ids(
         wos.get_work_order(db, work_order.id, user=None)
     ) == [worker.id]
+
+
+# --- routing a supervisor -----------------------------------------------
+
+def test_routing_a_work_order_notifies_that_supervisor(db, configured):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    work_order = _wo(db, created_by=admin)
+
+    background = BackgroundTasks()
+    _patch(db, background, work_order.id, user=admin, supervisor_id=supervisor.id)
+
+    assert _recipients(background) == [supervisor.id]
+    _, title, body = background.tasks[0].args
+    assert title == "Work order assigned to you"
+    assert work_order.number in body
+
+
+def test_re_routing_tells_the_new_supervisor_and_not_the_old_one(db, configured):
+    """A named gap rather than an oversight: losing a work order is real
+    news and nothing sends it today. See `docs/notification-events.md`."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    old = _seed_user(db, roles.ROLE_SUPERVISOR)
+    new = _seed_user(db, roles.ROLE_SUPERVISOR)
+    work_order = _wo(db, created_by=admin, supervisor=old)
+
+    background = BackgroundTasks()
+    _patch(db, background, work_order.id, user=admin, supervisor_id=new.id)
+
+    assert _recipients(background) == [new.id]
+
+
+def test_re_saving_an_unchanged_supervisor_notifies_nobody(db, configured):
+    """The editor sends the whole form. A supervisor already routed to a
+    work order must not be re-notified every time somebody saves a note."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    work_order = _wo(db, created_by=admin, supervisor=supervisor)
+
+    background = BackgroundTasks()
+    _patch(db, background, work_order.id, user=admin, supervisor_id=supervisor.id)
+
+    assert background.tasks == []
+
+
+def test_clearing_the_routing_notifies_nobody(db, configured):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    work_order = _wo(db, created_by=admin, supervisor=supervisor)
+
+    background = BackgroundTasks()
+    _patch(db, background, work_order.id, user=admin, supervisor_id=None)
+
+    assert background.tasks == []
+
+
+def test_a_supervisor_claiming_an_unrouted_work_order_wakes_nobody(db, configured):
+    """The common case on this path, and the reason the rule goes through
+    actor suppression rather than returning a one-element list."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    work_order = _wo(db, created_by=admin)
+
+    background = BackgroundTasks()
+    _patch(
+        db, background, work_order.id, user=supervisor, supervisor_id=supervisor.id
+    )
+
+    assert background.tasks == []
+
+
+def test_routing_and_a_status_move_in_one_patch_fire_both_rules(db, configured):
+    """Assignment is evaluated independently of the transition chain. One
+    write is one write, not one event."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(db, created_by=admin, assigned_to=worker)
+
+    background = BackgroundTasks()
+    _patch(
+        db,
+        background,
+        work_order.id,
+        user=admin,
+        supervisor_id=supervisor.id,
+        status="on_hold",
+    )
+
+    titles = [title for _ids, title, _body in
+              (task.args for task in background.tasks)]
+    assert titles == ["Work order assigned to you", "Work order on hold"]
