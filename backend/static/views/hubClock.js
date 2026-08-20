@@ -240,3 +240,11 @@ export function mountHubClock(mountEl, newPayload, { onChanged } = {}) {
 export function stopHubClockTicking() {
   stopTicking();
 }
+
+// The resume side of the same safety net: called when the tab returns to
+// foreground while the hub is still the active page. `tick()` recomputes
+// elapsed from `started_at` + skew on its own, so restarting the interval is
+// enough to snap the figure back to correct -- no fetch needed.
+export function startHubClockTicking() {
+  if (container) startTicking();
+}

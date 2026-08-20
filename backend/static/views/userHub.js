@@ -9,7 +9,7 @@
 
 import { apiGetHub } from "../api.js";
 import { friendlyError } from "../format.js";
-import { mountHubClock, stopHubClockTicking } from "./hubClock.js";
+import { mountHubClock, startHubClockTicking, stopHubClockTicking } from "./hubClock.js";
 import { mountHubDashboard, mountHubWorkOrders } from "./hubTechnician.js";
 
 const tabButtons = document.querySelectorAll(".hub-tab");
@@ -74,5 +74,10 @@ export async function refreshUserHub() {
 }
 
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) stopHubClockTicking();
+  if (document.hidden) {
+    stopHubClockTicking();
+    return;
+  }
+  if (!document.getElementById("user-hub-page").classList.contains("active")) return;
+  startHubClockTicking();
 });
