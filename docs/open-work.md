@@ -90,15 +90,20 @@ locked decisions. Four phases:
 - **P1 · Time engine — shipped.** `domain/labor_day.py`,
   `services/labor_summary.py`, `services/hub.py`, `GET /hub`, and the global
   stale-session sweep. Backend only; no UI.
-- **P2 · Technician hub — next.** The page fragment, tab shell, clock widget,
-  technician dashboard, the `mountWorkOrderList({container, lockedFilter})`
-  extraction from `views/workOrders.js`, and the nav/landing changes. Carries
-  the schedule risk: if the extraction proves messier than it looks, the
-  fallback is a read-only card list.
-- **P3 · Supervisor hub.** `GET /hub/crew`, crew board, attention flags, the
-  `labor.session.changed` realtime event (plus its row in
-  `docs/notification-events.md`), **and** `GET /hub/timesheets` with the grid
-  and CSV export. The larger of the two remaining phases.
+- **P2 · Technician hub — shipped.** The page fragment, tab shell, clock
+  widget, technician dashboard, the `mountWorkOrderList({container,
+  lockedFilter})` extraction from `views/workOrders.js`, and the nav/landing
+  changes. Built on `user-hub-p2-technician-hub`; not yet merged to `main`.
+- **P3a · Supervisor crew board — shipped.** `GET /hub/crew`,
+  `domain/hub.py`'s attention flags, `crew_day_summaries`/`last_worked` in
+  `services/labor_summary.py`, and the `labor.session.changed` realtime event
+  (registered in `docs/notification-events.md`). Split out of the original
+  P3 scope; the crew board renders inside the Dashboard tab, no new tab.
+  Built on `user-hub-p3-crew`; not yet merged.
+- **P3b · Timesheets — next.** `GET /hub/timesheets`, the grid, per-cell
+  drill-down, and CSV export, reusing P3a's crew-scope query. D17 moved this
+  down from P4, making the split P3a/P3b the larger of the two remaining
+  phases.
 - **P4 · Admin hub.** `GET /hub/admin`, the four tile groups, the conditional
   crew board, and widening the timesheet row scope from "my crew" to
   everyone.

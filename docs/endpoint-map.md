@@ -44,7 +44,7 @@ Paths below are relative to `backend/`. `domain/*`, `routers/*`, `services/*`,
 
 ## Master Endpoint Index
 
-Every endpoint, one row each — 84 in total: 80 router operations (79 HTTP plus
+Every endpoint, one row each — 85 in total: 81 router operations (80 HTTP plus
 the `/ws` WebSocket, row WS1) and 4 app-level routes in `main.py`. "Tables"
 lists what the call reads (r) and writes (w).
 
@@ -135,7 +135,8 @@ lists what the call reads (r) and writes (w).
 | NF2 | POST | `/integrations/netfacilities/work-orders/enrich` | techfm_oa+ | `netfacilities.py` → `netfacilities_jobs.start` → `netfacilities.enrich_work_orders` | work_orders (r/w, existing live candidates only; short compare-and-set locks) | `apiStartNetFacilitiesEnrichment` | `workOrders.js` |
 | NF3 | GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | techfm_oa+ | `netfacilities.py` → `netfacilities_jobs.get` | no DB; process-local aggregate-only job snapshot | `apiGetNetFacilitiesEnrichment` | `workOrders.js` |
 | WS1 | WS | `/ws` | session cookie + same-origin | `realtime.py` → `services/realtime` registry → `domain/realtime` policy | **none** — carries no row data, reads and writes nothing | — (`static/realtime.js` owns the socket; not an `api.js` wrapper) | `adminReview.js` (subscriber), `auth.js` + `nav.js` (lifecycle) |
-| H1 | GET | `/hub` | any authenticated | `hub.py` → `hub.personal_hub` → `work_orders.sweep_stale_sessions` + `labor_summary.day_summary` + `tools.user_custody_detail` | work_order_labor_sessions (r/w on sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), tool_transactions (r), tools (r), users (r) | — (P2) | — (P2) |
+| H1 | GET | `/hub` | any authenticated | `hub.py` → `hub.personal_hub` → `work_orders.sweep_stale_sessions` + `labor_summary.day_summary` + `tools.user_custody_detail` | work_order_labor_sessions (r/w on sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), tool_transactions (r), tools (r), users (r) | `apiGetHub` | `userHub.js`, `hubClock.js`, `hubTechnician.js` |
+| H2 | GET | `/hub/crew` | supervisor+ | `hub.py` → `hub.crew_hub` → `work_orders.sweep_stale_sessions` (per crew member) + `labor_summary.crew_day_summaries` + `labor_summary.last_worked` | work_order_labor_sessions (r/w on per-member sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), users (r) | `apiGetHubCrew` | `userHub.js`, `hubSupervisor.js` |
 
 (Rows 55 onward and NF1–NF3/NF1a–NF1c were appended out of resource order to keep the existing
 #1–54 numbering — and the footnote / per-table references to it — stable. WS1 is the one
@@ -288,6 +289,37 @@ What populates each screen. Format: **table → … → view → what the user s
   unique index, idempotent, and taken under the same row lock the stop path
   uses. It does **not** auto-hold, and a swept session still closes at
   `started_at + 720min` — only the `auto_closed_at` flag is late.
+- **work_orders ⋈ work_order_technicians (`supervisor_id` = caller)** →
+  `hub.crew_hub` → `GET /hub/crew` → *(P3a)*: crew membership. Derived from
+  routing (D6), not a stored roster — distinct technicians on non-archived
+  work orders the caller supervises, matched through both `assigned_to_id` and
+  `work_order_technicians` the same way `H1`'s own counts are. **The caller's
+  own row is excluded** from the cards and from `crew_minutes_today` (D13);
+  their clock is already the widget every role gets from `H1`.
+- **work_order_labor_sessions (per crew member)** → `labor_summary.crew_day_summaries`
+  + `labor_summary.last_worked` → `GET /hub/crew` → *(P3a)*: each card's
+  running session, today's tracked minutes, and `last_worked` — the most
+  recent session `ended_at`, never a union across notes/materials (D11). A
+  currently running session has no `ended_at` and is excluded, so a person
+  mid-shift reads by their *previous* stop here.
+- **This GET is also not side-effect-free**, narrower than `H1`'s: it sweeps
+  each crew member's stale session **individually**
+  (`sweep_stale_sessions(technician_id=...)`, bounded to at most one row each)
+  rather than globally, since it only reads the sessions of people routed to
+  the caller. Spec §3.5 assigns the global sweep to the Admin hub only and is
+  silent on the crew board; this scopes the write to exactly what the read
+  covers, the same reasoning `H1` already applies to itself.
+- **Attention flags** (`domain/hub.py`, pure, no DB): `long_session` (running
+  > 8h), `approaching_cap` (running > 11h — the last hour before the 12h cap
+  truncates recorded time), `assigned_idle` (≥1 assigned, 0 tracked minutes
+  today, past 10:00 AM Central), `stale_work_order` (in_progress/on_hold, no
+  labor-session activity for 3 days). Rendered as icon + word, never color
+  alone.
+- **`labor.session.changed`** (`domain/realtime.py`, audience Supervisor+):
+  emitted from the two tracking routes after every clock start/stop, `id:
+  null` — a crew-board membership change, so the recipient refetches the
+  board rather than targeting a card. See Part 2 of
+  `docs/notification-events.md`.
 
 ### Cross-feature read (copy-table billing summary)
 `history.js` copy button reads `GET /transactions/` (all matching rows) **and**,
@@ -1111,6 +1143,26 @@ owns every address in the app.
 
 **`HubToolOut`**: `tool_id`, `name`, `barcode`, `quantity: Decimal`,
 `since: datetime?` — oldest spell first.
+
+**`HubCrewResponse`** — `GET /hub/crew` (supervisor+): `server_now: datetime`,
+`led: HubLedCounts`, `crew_on_clock: int`, `crew_total: int`,
+`crew_minutes_today: int`, `technicians: list[HubCrewTechnician] = []`,
+`attention: list[HubAttentionItem] = []`. Minutes only — cost figures stay
+redacted below TechFM OA per the existing role rule; nothing here needs one.
+
+**`HubLedCounts`**: `total`, `in_progress`, `ready_to_complete` — a total and
+two subsets of the work orders this supervisor leads, same convention as
+`HubCounts`.
+
+**`HubCrewTechnician`**: `user: HubUser`, `running_session: HubRunningSession?
+= null`, `minutes_today: int`, `assigned`, `in_progress`,
+`ready_to_complete`, `last_worked: datetime? = null`, `flags: list[str] = []`.
+`flags` is drawn from `domain/hub.py`'s vocabulary
+(`long_session`/`approaching_cap`/`assigned_idle`); rendered as icon + word.
+
+**`HubAttentionItem`**: `kind` (`"technician"` | `"work_order"`), `subject`,
+`detail` — a server-composed sentence, matching spec §7's abbreviated
+`{kind, subject, detail}` contract for this list.
 
 ---
 
