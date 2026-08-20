@@ -517,3 +517,23 @@ def test_the_sweep_repairs_a_crew_members_forgotten_clock(db):
     assert payload.technicians[0].running_session is None
     db.refresh(session)
     assert session.ended_at == started + timedelta(minutes=wo.LABOR_SESSION_MAX_MINUTES)
+
+
+def test_the_crew_payload_serialises_into_the_response_schema(db):
+    from app.routers.hub import get_hub_crew
+
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    tech = _seed_user(db, first_name="Jose", last_name="Rivera")
+    work_order = _seed_work_order(
+        db, created_by=supervisor, assigned_to=tech, supervisor=supervisor,
+        number="88214", status=wo.STATUS_IN_PROGRESS,
+    )
+    wos.start_labor_session(db, work_order.id, user=tech)
+
+    body = get_hub_crew(user=supervisor, db=db).model_dump()
+
+    assert body["led"]["total"] == 1
+    assert body["crew_total"] == 1
+    assert body["crew_on_clock"] == 1
+    assert body["technicians"][0]["user"]["id"] == tech.id
+    assert body["technicians"][0]["running_session"]["number"] == "88214"

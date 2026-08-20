@@ -159,3 +159,61 @@ class HubResponse(BaseModel):
     tools_out: list[HubToolOut] = []
 
     model_config = {"from_attributes": True}
+
+
+# --- GET /hub/crew (P3a) ----------------------------------------------------
+
+
+class HubLedCounts(BaseModel):
+    """A total and two subsets of the work orders this supervisor leads --
+    same convention as `HubCounts`."""
+
+    total: int
+    in_progress: int
+    ready_to_complete: int
+
+    model_config = {"from_attributes": True}
+
+
+class HubCrewTechnician(BaseModel):
+    """One card on the crew board. Minutes, never dollars -- cost figures
+    stay redacted below TechFM OA (spec §9); nothing here needs one."""
+
+    user: HubUser
+    running_session: Optional[HubRunningSession] = None
+    minutes_today: int
+    assigned: int
+    in_progress: int
+    ready_to_complete: int
+    last_worked: Optional[datetime] = None
+    flags: list[str] = []
+
+    model_config = {"from_attributes": True}
+
+
+class HubAttentionItem(BaseModel):
+    """One row in the "Needs attention" list. `detail` is a server-composed
+    sentence -- spec §7 abbreviates this contract to exactly
+    `{kind, subject, detail}`."""
+
+    kind: str
+    subject: str
+    detail: str
+
+    model_config = {"from_attributes": True}
+
+
+class HubCrewResponse(BaseModel):
+    """`GET /hub/crew`. Crew membership is derived from routing (D6); the
+    supervisor's own row is excluded from both `technicians` and
+    `crew_minutes_today` (D13)."""
+
+    server_now: datetime
+    led: HubLedCounts
+    crew_on_clock: int
+    crew_total: int
+    crew_minutes_today: int
+    technicians: list[HubCrewTechnician] = []
+    attention: list[HubAttentionItem] = []
+
+    model_config = {"from_attributes": True}

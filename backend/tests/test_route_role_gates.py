@@ -530,3 +530,9 @@ def test_the_hub_route_still_requires_a_session():
         )
 
     assert _uses(_route(hub_router, "get_hub").dependant) is True
+
+
+def test_the_crew_board_requires_supervisor():
+    # A technician gets 403 on their own crew board; a supervisor gets 200
+    # (spec §4.1: `/hub/crew` is `supervisor+`).
+    assert _min_role_for(hub_router, "get_hub_crew") == roles.ROLE_SUPERVISOR
