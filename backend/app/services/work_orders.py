@@ -2068,6 +2068,11 @@ _TRACKING_START_STATUSES = (
     wo.STATUS_ON_HOLD,
 )
 
+# Public alias. The hub builds its `Start on...` picker from exactly the
+# statuses this path accepts, so the picker can never offer a row that
+# `start_labor_session` would then refuse. One tuple, two readers.
+TRACKING_START_STATUSES = _TRACKING_START_STATUSES
+
 # Statuses a supervisor's PATCH may drive a row into that end the work for
 # everyone on it. Review is absent because a row can only reach it from
 # Completed, which already stopped every clock.
@@ -2258,6 +2263,82 @@ def _apply_session_cap(db: Session, work_order: WorkOrder) -> bool:
             noticed_at=noticed_at,
         )
     return bool(stale)
+
+
+def sweep_stale_sessions(
+    db: Session, *, technician_id: Optional[uuid.UUID] = None
+) -> int:
+    """Close every over-cap running session, for one person or for everyone.
+
+    `_apply_session_cap` repairs one work order, lazily, whenever somebody
+    opens it -- which never fires for a session on a row nobody happens to
+    look at. The hub is the first surface that reads sessions *across* work
+    orders, so it is the first that can sweep them all, and it must: a
+    technician who forgot to clock out on Tuesday would otherwise open their
+    hub on Wednesday to a twenty-hour running clock spanning two days, a
+    number that is both alarming and wrong.
+
+    Scoped to `technician_id`, the cost is bounded to **at most one row** --
+    the partial unique index permits one running session per person, so this
+    is a single indexed lookup, not a scan. Unscoped, it is the whole
+    company's running clocks, which is a handful.
+
+    Two properties inherited from `_apply_session_cap`, both load-bearing:
+
+    - **No auto-hold.** A status change (and the supervisor's phone buzzing)
+      as a side effect of somebody opening a dashboard would be indefensible.
+    - **The capped instant is authoritative.** A swept session still closes at
+      `started_at + 720min`, so the billed figure is right and only the
+      `auto_closed_at` flag is late.
+
+    Idempotent, and safe against a concurrent caller: each work order is
+    locked with `FOR UPDATE` before its sessions are touched, and rows are
+    locked in a stable order so two dashboards loading at once cannot
+    deadlock. A second caller simply finds nothing left to close.
+
+    Returns the number of sessions closed, so the caller can log or skip work.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(
+        minutes=wo.LABOR_SESSION_MAX_MINUTES
+    )
+    query = db.query(WorkOrderLaborSession.work_order_id).filter(
+        WorkOrderLaborSession.ended_at.is_(None),
+        WorkOrderLaborSession.started_at < cutoff,
+    )
+    if technician_id is not None:
+        query = query.filter(WorkOrderLaborSession.technician_id == technician_id)
+    work_order_ids = sorted({row[0] for row in query.all()}, key=str)
+
+    closed = 0
+    for work_order_id in work_order_ids:
+        work_order = _get_locked(db, work_order_id)
+        if work_order is None:
+            continue
+        stale = _stale_running_sessions(db, work_order)
+        if technician_id is not None:
+            # `_apply_session_cap` closes every stale session on the work
+            # order, which would reach past `technician_id` on a row shared
+            # with someone else's forgotten clock. Close only this person's
+            # sessions directly, through the same `_close_session` routine
+            # `_apply_session_cap` itself calls, so the capped-instant and
+            # no-auto-hold rules stay in the one place that defines them.
+            stale = [s for s in stale if s.technician_id == technician_id]
+        if not stale:
+            continue
+        noticed_at = datetime.now(timezone.utc)
+        for session in stale:
+            _close_session(
+                db,
+                session,
+                work_order=work_order,
+                actor=None,
+                ended_at=noticed_at,
+                noticed_at=noticed_at,
+            )
+        closed += len(stale)
+    if closed:
+        db.commit()
+    return closed
 
 
 def _auto_hold_if_idle(db: Session, work_order: WorkOrder) -> Optional[str]:
