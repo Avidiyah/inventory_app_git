@@ -143,7 +143,11 @@
             </div>
         </nav>
         <div id="auth-bar">
-            <span id="auth-user-indicator"></span>
+            <button id="auth-user-indicator" type="button" class="nav-btn user-hub-btn" data-page="user-hub">
+                <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>
+                <span class="user-hub-name"></span>
+                <span class="user-hub-role"></span>
+            </button>
             <!-- Starts hidden and is revealed by role in
                  views/push.js::initPushForUser -- Owner only. Notifications
                  themselves are opted into at login (see the login screen's

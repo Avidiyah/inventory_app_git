@@ -218,7 +218,14 @@ usersTbody.addEventListener("click", async (event) => {
       if (getCurrentUser()?.id === user.id) {
         setCurrentUser(updated);
         const indicator = document.getElementById("auth-user-indicator");
-        if (indicator) indicator.textContent = `${formatUserName(updated)} (${updated.role})`;
+        if (indicator) {
+          indicator.querySelector(".user-hub-name").textContent = formatUserName(updated);
+          indicator.querySelector(".user-hub-role").textContent = roleLabel(updated.role);
+          indicator.setAttribute(
+            "aria-label",
+            `Your hub — ${formatUserName(updated)}, ${roleLabel(updated.role)}`
+          );
+        }
       }
       document.dispatchEvent(new Event("user-names-updated"));
       // Name the account by its *new* username: after a username change the

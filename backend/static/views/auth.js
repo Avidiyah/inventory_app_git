@@ -18,6 +18,7 @@ import { setCurrentUser } from "../state.js";
 import { setMessage } from "../dom.js";
 import { friendlyError, formatUserName } from "../format.js";
 import { applyRoleVisibility, canAccessPage, landingPageForRole, showPage } from "./nav.js";
+import { roleLabel } from "../roles.js";
 import { loadUsers } from "./users.js";
 import { setHistoryTab } from "./history.js";
 import { resetBatch, tryResumeBatch } from "./transactions.js";
@@ -99,7 +100,12 @@ async function enterApp(user, { resume = false } = {}) {
   }
   loginScreen.hidden = true;
   appRoot.hidden = false;
-  authUserIndicator.textContent = `${formatUserName(user)} (${user.role})`;
+  authUserIndicator.querySelector(".user-hub-name").textContent = formatUserName(user);
+  authUserIndicator.querySelector(".user-hub-role").textContent = roleLabel(user.role);
+  authUserIndicator.setAttribute(
+    "aria-label",
+    `Your hub — ${formatUserName(user)}, ${roleLabel(user.role)}`
+  );
   applyRoleVisibility(user.role);
 
   // History keeps its "All" sub-tab primed (and the user dropdown

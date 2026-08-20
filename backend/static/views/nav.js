@@ -12,6 +12,7 @@ import { loadItems } from "./items.js";
 import { loadUsers } from "./users.js";
 import { loadStages } from "./massStage.js";
 import { loadWorkOrders, loadIntegrationsPage } from "./workOrders.js";
+import { loadUserHub } from "./userHub.js";
 import { loadAdminReview } from "./adminReview.js";
 import { loadUserRequests } from "./userRequests.js";
 import { loadTools, toolsScanner, toolScanWidget } from "./tools.js";
@@ -74,6 +75,11 @@ document.addEventListener("visibilitychange", () => {
 // nav visibility AND for the post-login boot in `auth.js`. It mirrors
 // the backend route gates; the backend still enforces them.
 export const PAGE_ACCESS = {
+  // The landing page for every role (D4). No nav button reads this key --
+  // the header identity button is wired directly, and this entry exists so
+  // `canAccessPage`/`landingPageForRole` have one source of truth to check
+  // against, same as every other page.
+  "user-hub": ["owner", "admin", "techfm_oa", "supervisor", "technician"],
   "create-item": ["owner", "admin", "techfm_oa"],
   "saved-items": ["owner", "admin", "techfm_oa", "supervisor", "technician"],
   "create-user": ["owner", "admin", "techfm_oa", "supervisor"],
@@ -109,11 +115,11 @@ export function canAccessPage(role, pageName) {
 // Consumed by `auth.js`; every entry must also be allowed by PAGE_ACCESS
 // above (landingPageForRole falls back if it is not).
 const LANDING_PAGE_BY_ROLE = {
-  technician: "transaction",
-  supervisor: "work-orders",
-  techfm_oa: "history",
-  admin: "history",
-  owner: "history",
+  technician: "user-hub",
+  supervisor: "user-hub",
+  techfm_oa: "user-hub",
+  admin: "user-hub",
+  owner: "user-hub",
 };
 
 const DEFAULT_LANDING_PAGE = "transaction";
@@ -142,7 +148,9 @@ export function applyRoleVisibility(role) {
     group.hidden = Array.from(buttons).every(btn => btn.hidden);
   });
 
-  const visiblePageCount = Object.keys(PAGE_ACCESS).filter(page => canAccessPage(role, page)).length;
+  const visiblePageCount = Object.keys(PAGE_ACCESS)
+    .filter((page) => page !== "user-hub")
+    .filter(page => canAccessPage(role, page)).length;
   closeAllGroupMenus();
   mainNav.classList.toggle("nav-compact", visiblePageCount > COMPACT_NAV_THRESHOLD);
 }
@@ -199,6 +207,8 @@ export function showPage(pageName) {
 
   if (pageName === "transaction") {
     enterTransactionPage();
+  } else if (pageName === "user-hub") {
+    loadUserHub();
   } else if (pageName === "history") {
     loadHistory();
   } else if (pageName === "saved-items") {
