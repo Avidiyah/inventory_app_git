@@ -61,3 +61,72 @@ def day_bounds(day: date, *, tz: ZoneInfo = CENTRAL) -> tuple[datetime, datetime
 def central_date_of(instant: datetime, *, tz: ZoneInfo = CENTRAL) -> date:
     """Which Central calendar day `instant` falls on."""
     return as_utc(instant).astimezone(tz).date()
+
+
+def overlap_minutes(
+    start: datetime,
+    end: Optional[datetime],
+    window_start: datetime,
+    window_end: datetime,
+    *,
+    now: datetime,
+) -> int:
+    """Whole minutes a session occupies inside a window.
+
+    `end=None` means the clock is still running and `now` stands in for it --
+    which is what makes a running session's contribution climb through the
+    day. Returns 0 when the session lies wholly outside the window, and 0 when
+    it merely touches a boundary: a stop at exactly midnight gives the next day
+    nothing.
+
+    **No floor at 1.** `work_orders.capped_session_minutes` floors at 1 so a
+    twenty-second visit survives `validate_labor_minutes`; a daily timesheet
+    has no such constraint, and flooring here would invent a minute on every
+    midnight crossing. The two functions are allowed to disagree -- each is
+    right for its own job.
+
+    Rounding happens **once per (session, window) pair**, on the clipped
+    span's total seconds. Summing a day's pairs can therefore differ from the
+    session's own `minutes` column by up to a minute per crossing. That is
+    accepted, and written down so a future reader does not treat it as a bug.
+    Rounding is Python's `round` (half-to-even), the same rule
+    `capped_session_minutes` uses.
+    """
+    stop = end if end is not None else now
+    begin = max(as_utc(start), window_start)
+    finish = min(as_utc(stop), window_end)
+    if finish <= begin:
+        return 0
+    return round((finish - begin).total_seconds() / 60)
+
+
+def split_by_day(
+    start: datetime,
+    end: Optional[datetime],
+    *,
+    now: datetime,
+    tz: ZoneInfo = CENTRAL,
+) -> list[tuple[date, int]]:
+    """One `(central_date, minutes)` pair per day the session contributes to.
+
+    Ascending by date. A day the session only touches -- a stop at exactly
+    midnight, a start at exactly midnight -- contributes zero and is omitted
+    rather than reported as an empty day, because "the session touched Friday"
+    and "the session earned Friday nothing" are the same statement and the
+    caller should not have to filter.
+    """
+    stop = end if end is not None else now
+    first = central_date_of(start, tz=tz)
+    last = central_date_of(stop, tz=tz)
+    if last < first:
+        return []
+
+    pairs: list[tuple[date, int]] = []
+    day = first
+    while day <= last:
+        window_start, window_end = day_bounds(day, tz=tz)
+        minutes = overlap_minutes(start, end, window_start, window_end, now=now)
+        if minutes > 0:
+            pairs.append((day, minutes))
+        day += timedelta(days=1)
+    return pairs
