@@ -77,6 +77,32 @@ under the Communities cards.
 
 Request logged only; no implementation yet.
 
+### IMP-034 — User Hub (role-scoped landing page)
+
+- **Logged** 2026-08-20 · *Landing / Time tracking*
+
+A new role-scoped landing page — the front door every user signs in to —
+answering "what am I responsible for right now, and how long have I been
+working" without opening a work order. Settled with the owner 2026-08-20;
+design spec at `docs/superpowers/specs/2026-08-20-user-hub-design.md`, 18
+locked decisions. Four phases:
+
+- **P1 · Time engine — shipped.** `domain/labor_day.py`,
+  `services/labor_summary.py`, `services/hub.py`, `GET /hub`, and the global
+  stale-session sweep. Backend only; no UI.
+- **P2 · Technician hub — next.** The page fragment, tab shell, clock widget,
+  technician dashboard, the `mountWorkOrderList({container, lockedFilter})`
+  extraction from `views/workOrders.js`, and the nav/landing changes. Carries
+  the schedule risk: if the extraction proves messier than it looks, the
+  fallback is a read-only card list.
+- **P3 · Supervisor hub.** `GET /hub/crew`, crew board, attention flags, the
+  `labor.session.changed` realtime event (plus its row in
+  `docs/notification-events.md`), **and** `GET /hub/timesheets` with the grid
+  and CSV export. The larger of the two remaining phases.
+- **P4 · Admin hub.** `GET /hub/admin`, the four tile groups, the conditional
+  crew board, and widening the timesheet row scope from "my crew" to
+  everyone.
+
 ---
 
 ## 2. Hardening — standing notes

@@ -44,7 +44,7 @@ Paths below are relative to `backend/`. `domain/*`, `routers/*`, `services/*`,
 
 ## Master Endpoint Index
 
-Every endpoint, one row each — 83 in total: 79 router operations (78 HTTP plus
+Every endpoint, one row each — 84 in total: 80 router operations (79 HTTP plus
 the `/ws` WebSocket, row WS1) and 4 app-level routes in `main.py`. "Tables"
 lists what the call reads (r) and writes (w).
 
@@ -135,10 +135,12 @@ lists what the call reads (r) and writes (w).
 | NF2 | POST | `/integrations/netfacilities/work-orders/enrich` | techfm_oa+ | `netfacilities.py` → `netfacilities_jobs.start` → `netfacilities.enrich_work_orders` | work_orders (r/w, existing live candidates only; short compare-and-set locks) | `apiStartNetFacilitiesEnrichment` | `workOrders.js` |
 | NF3 | GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | techfm_oa+ | `netfacilities.py` → `netfacilities_jobs.get` | no DB; process-local aggregate-only job snapshot | `apiGetNetFacilitiesEnrichment` | `workOrders.js` |
 | WS1 | WS | `/ws` | session cookie + same-origin | `realtime.py` → `services/realtime` registry → `domain/realtime` policy | **none** — carries no row data, reads and writes nothing | — (`static/realtime.js` owns the socket; not an `api.js` wrapper) | `adminReview.js` (subscriber), `auth.js` + `nav.js` (lifecycle) |
+| H1 | GET | `/hub` | any authenticated | `hub.py` → `hub.personal_hub` → `work_orders.sweep_stale_sessions` + `labor_summary.day_summary` + `tools.user_custody_detail` | work_order_labor_sessions (r/w on sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), tool_transactions (r), tools (r), users (r) | — (P2) | — (P2) |
 
 (Rows 55 onward and NF1–NF3/NF1a–NF1c were appended out of resource order to keep the existing
 #1–54 numbering — and the footnote / per-table references to it — stable. WS1 is the one
-non-HTTP operation and is numbered apart from the resource rows for the same reason.)
+non-HTTP operation and is numbered apart from the resource rows for the same reason. H1 is the
+first User Hub row, numbered apart for the same reason; P2 onward add `H2`, `H3`, ….)
 
 Footnotes:
 1. `POST /transactions/`: dispense = any authenticated user; stock = supervisor+ (`domain.roles.can_transact`). A Scan/Stock dispense may take expected quantity below zero and opens a recount request. Work Orders Add Item has the same deliberate exception; Work Order quantity edits and the other stock-out paths retain the strict no-overdraft domain rule.
@@ -244,6 +246,48 @@ What populates each screen. Format: **table → … → view → what the user s
   `tool_custody` → `GET /tools/{barcode}` → `apiGetToolByBarcode` →
   `tools.js`: either an Inventory lookup or a selected-user checkout
   confirmation, depending on scanner context.
+
+### User Hub
+- **work_order_labor_sessions ⋈ work_orders** → `labor_summary.day_summary` →
+  `GET /hub` → *(P2)*: today's tracked minutes and the timeline strip. Aggregated
+  by **interval overlap** against the Central calendar day, not by a
+  `started_at` range filter — a session running 11:30 PM Monday to 12:30 AM
+  Tuesday gives 30 minutes to each day. The day is `[00:00, 24:00)` in
+  `America/Chicago`, the same zone `NOTE_TIMEZONE` stamps the note log with, so
+  the hub and the note timeline never disagree about which day a stop belongs
+  to. DST is handled by `zoneinfo`: the day is 23 or 25 hours and the
+  arithmetic is instant-based.
+- **work_order_labor (no session) ⋈ users ⋈ work_orders** →
+  `labor_summary._adjustments_for_day` → `GET /hub` → *(P2)*: hand-entered
+  labor, identified by the LEFT JOIN to `work_order_labor_sessions` finding
+  nothing. Reported on its own `Adjustments` line with the recorder's name,
+  **counted in the day total**, and absent from the timeline — it carries no
+  start or stop, so there is nothing to draw. Filed under the Central date of
+  `created_at`, so a Friday correction to Tuesday's work lands on Friday
+  (known limitation, iteration 1).
+- **work_orders ⋈ work_order_technicians** → `hub.personal_hub` → `GET /hub` →
+  *(P2)*: the three counts and the `Start on…` picker. Assignment is matched
+  through **both** the legacy `assigned_to_id` column and
+  `work_order_technicians` rows — the same `or_` pair
+  `work_orders._scoped_to_user` uses — so the hub's count and the Work Orders
+  page can never disagree about what somebody has been given. Counts are a
+  total and two subsets of it, not three disjoint buckets.
+- **tool_transactions ⋈ tools** → `tools.user_custody_detail` → `GET /hub` →
+  *(P2)*: tools the caller is still holding, with how long each has been out.
+  `since` is the checkout that opened the current unbroken spell
+  (`domain.tools.custody_since`); a partial return does not end a spell.
+- **Minutes on this endpoint are *tracked* minutes** — real wall-clock overlap.
+  They are not `capped_session_minutes` (floors at 1, caps at 720) and not
+  `billed_labor_minutes` (rounds up to 30 min at $62.50/hr). No hub surface
+  shows a billed figure under a "time worked" label.
+- **This GET is not side-effect-free.** It calls
+  `work_orders.sweep_stale_sessions(technician_id=caller)` before reading, so a
+  clock forgotten on Tuesday does not read as a 20-hour running total on
+  Wednesday. Precedent: `get_work_order` already both sweeps sessions and heals
+  orphaned material lines on a read. Bounded to at most one row by the partial
+  unique index, idempotent, and taken under the same row lock the stop path
+  uses. It does **not** auto-hold, and a swept session still closes at
+  `started_at + 720min` — only the `auto_closed_at` flag is late.
 
 ### Cross-feature read (copy-table billing summary)
 `history.js` copy button reads `GET /transactions/` (all matching rows) **and**,
@@ -1010,6 +1054,63 @@ never required; no find-or-create — stored as-is).
 mirrors `CorrectionCreate`): `new_quantity: Decimal` (≥ 0, **absolute**
 target — the service computes the signed delta), `reason: str` (non-blank).
 No custody holder involved.
+
+### User Hub (`schemas/hub.py`)
+
+**`HubResponse`** — `GET /hub` (any authenticated role): `user: HubUser`,
+`server_now: datetime`, `day: date` (Central), `clock: HubClock`,
+`timeline: list[HubTimelineEntry] = []`, `counts: HubCounts`,
+`startable: list[HubStartable] = []`, `tools_out: list[HubToolOut] = []`.
+`server_now` is the client's clock-skew anchor — it records
+`skew = server_now − Date.now()` at fetch time and renders elapsed against
+it, so a field phone with a wrong system clock still shows the right number.
+
+**`HubUser`**: `id`, `first_name?`, `last_name?`, `role`. Deliberately not the
+full user record — no username, no timestamps; the hub needs an identity, not
+an account.
+
+**`HubClock`**: `running_session: HubRunningSession? = null`,
+`closed_minutes_today: int`, `running_minutes_today: int`,
+`adjustment_minutes_today: int`, `adjustments: list[HubAdjustment] = []`, and
+a computed `total_minutes_today` = the sum of the three. Anchors, not a
+ticking number: the server sends what is fixed and the client renders the live
+figure on a 1-second interval, so nothing polls for a value that changes once
+a minute. **`total_minutes_today` includes adjustments** — one number means
+one thing on every surface, and the tracked/adjusted split is one expand away.
+
+**`HubRunningSession`**: `work_order_id`, `number`, `started_at`,
+`day_counting_from`. **Two anchors, and they are not interchangeable.**
+`started_at` drives the widget's session elapsed ("started 8:12 AM");
+`day_counting_from` drives *today's* total and equals midnight Central for a
+clock inherited from yesterday. Ticking the day total from `started_at` would
+report an hour for a session that has given today thirty minutes.
+
+**`HubTimelineEntry`**: `work_order_id`, `number`, `started_at`, `ended_at?`,
+`auto_closed: bool`, `minutes: int`. `minutes` is that session's share of
+**this** day, so a midnight crossing appears on both days at its real weight
+and is not `ended_at − started_at`. `auto_closed` marks a session the 12-hour
+cap ended — an estimate a supervisor should correct, not a fact. A session
+that only touches the day (a stop at exactly midnight) is omitted.
+
+**`HubAdjustment`**: `minutes`, `recorded_by_name` (`"Name unavailable"` when
+the recorder is unset), `work_order_number`.
+
+**`HubCounts`**: `assigned`, `in_progress`, `ready_to_complete` — a **total and
+two subsets of it**. `assigned` is every non-archived work order the caller is
+an assigned technician on, whatever its status; the other two count members of
+that same set. "8 assigned, 1 in progress, 2 ready" describes 8 work orders,
+not 11.
+
+**`HubStartable`**: `work_order_id`, `number`, `status`, `community?`,
+`building_number?`, `unit_number?`, `location?` — one option in the
+`Start on…` picker, limited to `work_orders.TRACKING_START_STATUSES` so the
+picker can never offer a row `start_labor_session` would refuse. Ordered
+In-Progress → On-Hold → Assigned → Created, then by number. Place fields are
+raw; `static/views/workOrders.js::placeMeta` composes them, so one composer
+owns every address in the app.
+
+**`HubToolOut`**: `tool_id`, `name`, `barcode`, `quantity: Decimal`,
+`since: datetime?` — oldest spell first.
 
 ---
 
