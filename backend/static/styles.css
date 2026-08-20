@@ -1907,6 +1907,116 @@ tr.archived-user {
     text-align: right;
 }
 
+/* Supervisor crew board (P3a) -- lives inside the Dashboard tab body, below
+   the tiles above (spec §5.3). No new tokens: frosted panel comes free from
+   the global `section` rule; nested content uses --panel-nested. */
+#hub-crew-mount:empty {
+    display: none;
+}
+
+.hub-attention {
+    margin-bottom: var(--space-6);
+}
+
+.hub-attention-list {
+    list-style: none;
+    margin: var(--space-2) 0 0;
+    padding: 0;
+}
+
+.hub-attention-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    /* Attention is a left-accent rule, never a fill (spec §8). */
+    border-left: 3px solid var(--color-error);
+    background: var(--panel-well);
+    margin-bottom: var(--space-1);
+    border-radius: var(--radius-sm);
+}
+
+.hub-attention-icon {
+    color: var(--color-error);
+}
+
+.hub-crew {
+    margin-top: var(--space-2);
+}
+
+.hub-crew-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: var(--space-4);
+    margin-top: var(--space-3);
+}
+
+.hub-crew-card {
+    background: var(--panel-nested);
+    border-radius: var(--radius-sm);
+    border: var(--border);
+    padding: var(--space-4);
+}
+
+.hub-crew-status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-weight: var(--fw-semibold);
+    margin: 0;
+}
+
+.hub-crew-name {
+    flex: 1;
+}
+
+.hub-crew-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--text-panel-mute);
+    display: inline-block;
+}
+
+.hub-crew-dot-on {
+    background-color: var(--color-success);
+}
+
+.hub-crew-clock-label {
+    color: var(--text-panel-mute);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-regular);
+}
+
+.hub-crew-card-on .hub-crew-clock-label {
+    color: var(--color-success);
+}
+
+.hub-crew-subject,
+.hub-crew-running,
+.hub-crew-today,
+.hub-crew-counts {
+    margin: var(--space-1) 0 0;
+    color: var(--text-panel-mute);
+    font-size: var(--fs-sm);
+}
+
+.hub-crew-today {
+    color: var(--text-panel);
+}
+
+.hub-crew-flags {
+    margin: var(--space-2) 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.hub-crew-flag {
+    color: var(--color-error);
+    font-size: var(--fs-xs);
+}
+
 /* Logout: white outline button on the dark header. */
 #logout-btn {
     margin-top: 0;
