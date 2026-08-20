@@ -485,6 +485,10 @@ export async function apiGetHub() {
   return liveGet("/hub");
 }
 
+export async function apiGetHubCrew() {
+  return liveGet("/hub/crew");
+}
+
 // Bulk-import work orders from the mass CSV export (Admin+). multipart upload --
 // do NOT set Content-Type by hand (the browser adds the multipart boundary),
 // mirroring apiDecodeBarcode. Returns the WorkOrderImportResult summary.
