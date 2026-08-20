@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.domain import labor_day
@@ -246,3 +246,40 @@ def day_summary(
         timeline=timeline,
         adjustments=adjustments,
     )
+
+
+def crew_day_summaries(
+    db: Session,
+    technician_ids: list[uuid.UUID],
+    day: date,
+    *,
+    now: datetime,
+) -> dict[uuid.UUID, DaySummary]:
+    """One `DaySummary` per technician, keyed by id.
+
+    A loop over the existing `day_summary`, not a reimplementation -- N
+    indexed lookups, N bounded by routing (a crew is tens of people, not
+    thousands). The shared `now` keeps every technician's row anchored to
+    the same instant, so a crew board never shows two people's clocks
+    computed a second apart.
+    """
+    return {
+        technician_id: day_summary(db, technician_id, day, now=now)
+        for technician_id in technician_ids
+    }
+
+
+def last_worked(db: Session, technician_id: uuid.UUID) -> Optional[datetime]:
+    """This person's most recent session `ended_at` -- nothing else (D11).
+
+    Deliberately not a union across notes, materials, or transactions: the
+    label this feeds is "Last worked," and the honest answer to that
+    question is when they were last on a clock. A currently running session
+    has no `ended_at` and is excluded by the `is_not(None)` filter, so a
+    person mid-shift reads by their *previous* stop here -- the clock widget
+    is what shows they are on the clock right now.
+    """
+    return db.query(func.max(WorkOrderLaborSession.ended_at)).filter(
+        WorkOrderLaborSession.technician_id == technician_id,
+        WorkOrderLaborSession.ended_at.is_not(None),
+    ).scalar()

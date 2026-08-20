@@ -460,3 +460,69 @@ def test_an_empty_day_reports_zeros_not_none(db):
     assert summary.running is None
     assert summary.timeline == []
     assert summary.adjustments == []
+
+
+# --- crew_day_summaries and last_worked (P3a) -----------------------------
+
+
+def test_crew_day_summaries_returns_one_entry_per_technician(db):
+    a = _seed_user(db, first_name="Jose", last_name="Rivera")
+    b = _seed_user(db, first_name="Marisol", last_name="Chen")
+    work_order = _seed_work_order(db, created_by=a, assigned_to=a)
+    _seed_session(db, work_order, a, started_at=_at(13, 0), ended_at=_at(15, 0))
+    _seed_session(db, work_order, b, started_at=_at(14, 0), ended_at=_at(14, 30))
+
+    summaries = labor_summary.crew_day_summaries(db, [a.id, b.id], DAY, now=_at(18, 0))
+
+    assert set(summaries.keys()) == {a.id, b.id}
+    assert summaries[a.id].closed_minutes == 120
+    assert summaries[b.id].closed_minutes == 30
+
+
+def test_crew_day_summaries_reports_a_zero_day_for_a_technician_with_no_activity(db):
+    a = _seed_user(db)
+    b = _seed_user(db, first_name="Marisol", last_name="Chen")
+
+    summaries = labor_summary.crew_day_summaries(db, [a.id, b.id], DAY, now=_at(18, 0))
+
+    assert summaries[b.id].closed_minutes == 0
+    assert summaries[b.id].total_minutes == 0
+
+
+def test_crew_day_summaries_of_an_empty_crew_is_an_empty_dict(db):
+    assert labor_summary.crew_day_summaries(db, [], DAY, now=_at(18, 0)) == {}
+
+
+def test_last_worked_is_the_most_recent_sessions_ended_at(db):
+    tech = _seed_user(db)
+    work_order = _seed_work_order(db, created_by=tech, assigned_to=tech)
+    _seed_session(db, work_order, tech, started_at=_at(9, 0, day=18), ended_at=_at(10, 0, day=18))
+    _seed_session(db, work_order, tech, started_at=_at(9, 0, day=19), ended_at=_at(10, 0, day=19))
+
+    assert labor_summary.last_worked(db, tech.id) == _at(10, 0, day=19)
+
+
+def test_last_worked_ignores_a_currently_running_session(db):
+    # D11: "Last worked" is the most recent *stop*. A running session has no
+    # `ended_at` and must not be read as "still going" here -- the clock
+    # widget already shows that; this is specifically the off-clock label.
+    tech = _seed_user(db)
+    work_order = _seed_work_order(db, created_by=tech, assigned_to=tech)
+    _seed_session(db, work_order, tech, started_at=_at(9, 0, day=18), ended_at=_at(10, 0, day=18))
+    _seed_session(db, work_order, tech, started_at=_at(9, 0, day=20))
+
+    assert labor_summary.last_worked(db, tech.id) == _at(10, 0, day=18)
+
+
+def test_last_worked_is_none_for_a_technician_who_has_never_tracked_time(db):
+    tech = _seed_user(db)
+    assert labor_summary.last_worked(db, tech.id) is None
+
+
+def test_last_worked_only_considers_the_named_technician(db):
+    mine = _seed_user(db)
+    theirs = _seed_user(db, first_name="Marisol", last_name="Chen")
+    work_order = _seed_work_order(db, created_by=mine, assigned_to=mine)
+    _seed_session(db, work_order, theirs, started_at=_at(9, 0), ended_at=_at(10, 0))
+
+    assert labor_summary.last_worked(db, mine.id) is None
