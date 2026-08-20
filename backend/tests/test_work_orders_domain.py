@@ -1,7 +1,8 @@
 """Pure tests for work-order domain rules (no DB).
 
-Covers number normalization, the six-state live workflow/mode validators,
-multi-technician assignment, labor billing, fill-blanks, and visibility scope.
+Covers number normalization, the seven-state live workflow/mode validators,
+multi-technician assignment, labor billing and the tracked-session cap, the
+note-log format, fill-blanks, and visibility scope.
 """
 
 import os
@@ -31,12 +32,13 @@ def test_normalize_number_trims_and_lowercases():
 
 # --- status / mode validators --------------------------------------------
 
-def test_validate_status_accepts_six_live_states():
+def test_validate_status_accepts_seven_live_states():
     for status in (
         wo.STATUS_CREATED,
         wo.STATUS_ASSIGNED,
         wo.STATUS_IN_PROGRESS,
         wo.STATUS_ON_HOLD,
+        wo.STATUS_READY_TO_COMPLETE,
         wo.STATUS_COMPLETED,
         wo.STATUS_REVIEW,
     ):
@@ -99,19 +101,32 @@ def test_initial_status_and_technician_assignment_reconciliation():
 
 
 def test_first_activity_advances_only_prework_states():
+    """Unchanged by tracked time. Its "On-Hold is intentionally stable" rule
+    still governs material and labor activity -- a supervisor logging a part
+    against a held job must not restart it. Start Tracking performs its own
+    explicit On-Hold -> In-Progress transition rather than widening this."""
     assert wo.status_after_activity(wo.STATUS_CREATED) == wo.STATUS_IN_PROGRESS
     assert wo.status_after_activity(wo.STATUS_ASSIGNED) == wo.STATUS_IN_PROGRESS
     assert wo.status_after_activity(wo.STATUS_IN_PROGRESS) == wo.STATUS_IN_PROGRESS
     assert wo.status_after_activity(wo.STATUS_ON_HOLD) == wo.STATUS_ON_HOLD
+    assert (
+        wo.status_after_activity(wo.STATUS_READY_TO_COMPLETE)
+        == wo.STATUS_READY_TO_COMPLETE
+    )
     assert wo.status_after_activity(wo.STATUS_COMPLETED) == wo.STATUS_COMPLETED
     assert wo.status_after_activity(wo.STATUS_REVIEW) == wo.STATUS_REVIEW
 
 
-def test_a_technicians_completion_lands_on_hold():
+def test_a_technicians_completion_lands_ready_to_complete():
     """A Technician may finish work but may not declare it Completed --
-    Completed is the billing state the Admin review queue reads."""
+    Completed is the billing state the Admin review queue reads.
+
+    It lands in its own status rather than On-Hold with a note, so a
+    supervisor's filter separates "the job is done and waiting on you" from
+    "the crew is at lunch" without anyone opening the card."""
     assert (
-        wo.completion_target_status(roles.ROLE_TECHNICIAN) == wo.STATUS_ON_HOLD
+        wo.completion_target_status(roles.ROLE_TECHNICIAN)
+        == wo.STATUS_READY_TO_COMPLETE
     )
 
 
@@ -133,7 +148,9 @@ def test_an_internal_caller_completes():
 def test_an_unknown_role_cannot_complete():
     """`roles.rank` puts a corrupt value below Technician, so the safe
     destination is the one that bills nobody."""
-    assert wo.completion_target_status("intern") == wo.STATUS_ON_HOLD
+    assert (
+        wo.completion_target_status("intern") == wo.STATUS_READY_TO_COMPLETE
+    )
 
 
 def test_note_log_appends_central_timestamp_date_and_author():
@@ -146,7 +163,7 @@ def test_note_log_appends_central_timestamp_date_and_author():
         occurred_at=occurred_at,
     )
     assert first == (
-        "[2:07 PM] [080526] [Jamie Rivera] Resident requested a return visit."
+        "08/05/26 02:07 PM Jamie Rivera Resident requested a return visit."
     )
 
     second = wo.append_note_log(
@@ -157,7 +174,7 @@ def test_note_log_appends_central_timestamp_date_and_author():
     )
     assert second == (
         "Legacy note without metadata.\n\n"
-        "[2:07 PM] [080526] [Alex Morgan] Parts ordered."
+        "08/05/26 02:07 PM Alex Morgan Parts ordered."
     )
 
     with pytest.raises(WorkOrderStateError, match="Note text"):
@@ -279,3 +296,150 @@ def test_technician_visibility_accepts_any_plural_assignment():
         assigned_to_ids=[primary, me],
         user_id=me,
     )
+
+
+# --- ready_to_complete in the vocabulary ---------------------------------
+
+def test_ready_to_complete_sits_between_on_hold_and_completed():
+    """Lifecycle order is also the order every dropdown and filter renders
+    in, so its position in the tuple is part of the contract."""
+    assert wo.STATUS_READY_TO_COMPLETE in wo.ALL_STATUSES
+    order = list(wo.ALL_STATUSES)
+    assert (
+        order.index(wo.STATUS_ON_HOLD)
+        < order.index(wo.STATUS_READY_TO_COMPLETE)
+        < order.index(wo.STATUS_COMPLETED)
+    )
+    # Ready to Complete is live work. Closed is still `archived_at`.
+    assert wo.ACTIVE_STATUSES == wo.ALL_STATUSES
+
+
+def test_validate_status_accepts_and_names_ready_to_complete():
+    wo.validate_status(wo.STATUS_READY_TO_COMPLETE)
+    with pytest.raises(WorkOrderStateError) as exc:
+        wo.validate_status("nonsense")
+    assert "ready_to_complete" in str(exc.value)
+
+
+def test_export_scope_accepts_the_new_status():
+    """`validate_export_scope` reads `ALL_STATUSES`, so a supervisor can
+    export their review queue the moment the constant lands."""
+    wo.validate_export_scope(wo.STATUS_READY_TO_COMPLETE)
+
+
+# --- note log format -----------------------------------------------------
+
+def test_note_log_zero_pads_the_hour():
+    """The old format stripped the leading zero. A padded hour is what keeps
+    a column of log lines aligned."""
+    entry = wo.append_note_log(
+        None,
+        "began work",
+        author_name="Jane Doe",
+        occurred_at=datetime(2026, 8, 19, 14, 5, tzinfo=timezone.utc),
+    )
+    assert entry == "08/19/26 09:05 AM Jane Doe began work"
+
+
+def test_note_log_renders_midnight_and_noon_unambiguously():
+    """12-hour clocks are where off-by-twelve bugs live."""
+    midnight = wo.append_note_log(
+        None,
+        "began work",
+        author_name="J",
+        occurred_at=datetime(2026, 8, 19, 5, 0, tzinfo=timezone.utc),
+    )
+    noon = wo.append_note_log(
+        None,
+        "began work",
+        author_name="J",
+        occurred_at=datetime(2026, 8, 19, 17, 0, tzinfo=timezone.utc),
+    )
+    assert midnight.startswith("08/19/26 12:00 AM ")
+    assert noon.startswith("08/19/26 12:00 PM ")
+
+
+def test_note_log_treats_a_naive_timestamp_as_utc():
+    naive = wo.append_note_log(
+        None,
+        "began work",
+        author_name="J",
+        occurred_at=datetime(2026, 8, 19, 19, 30),
+    )
+    aware = wo.append_note_log(
+        None,
+        "began work",
+        author_name="J",
+        occurred_at=datetime(2026, 8, 19, 19, 30, tzinfo=timezone.utc),
+    )
+    assert naive == aware == "08/19/26 02:30 PM J began work"
+
+
+def test_note_log_still_rejects_an_empty_body():
+    with pytest.raises(WorkOrderStateError):
+        wo.append_note_log(
+            None,
+            "   ",
+            author_name="J",
+            occurred_at=datetime(2026, 8, 19, tzinfo=timezone.utc),
+        )
+
+
+def test_prior_lines_in_the_old_format_are_preserved_verbatim():
+    """Mixed shapes coexist and age out. Rewriting stored prose would mean
+    regex-parsing every work order with no verification and no undo."""
+    legacy = "[2:07 PM] [080526] [Alex Morgan] Parts ordered."
+    appended = wo.append_note_log(
+        legacy,
+        "began work",
+        author_name="Jane Doe",
+        occurred_at=datetime(2026, 8, 19, 19, 30, tzinfo=timezone.utc),
+    )
+    assert appended == legacy + "\n\n08/19/26 02:30 PM Jane Doe began work"
+
+
+# --- the 12-hour session cap ---------------------------------------------
+
+def _at(hour, minute=0, second=0):
+    return datetime(2026, 8, 19, hour, minute, second, tzinfo=timezone.utc)
+
+
+def test_capped_session_minutes_under_the_cap_is_the_real_duration():
+    assert wo.capped_session_minutes(_at(8), _at(9, 45), now=_at(12)) == (105, False)
+
+
+def test_capped_session_minutes_at_the_cap_is_not_flagged():
+    """Exactly 12 hours is a real (if long) shift, not an invented figure."""
+    assert wo.capped_session_minutes(_at(8), _at(20), now=_at(21)) == (720, False)
+
+
+def test_capped_session_minutes_truncates_and_flags_beyond_the_cap():
+    minutes, capped = wo.capped_session_minutes(_at(8), _at(23), now=_at(23))
+    assert (minutes, capped) == (wo.LABOR_SESSION_MAX_MINUTES, True)
+
+
+def test_a_sub_minute_session_floors_to_one_minute():
+    """Zero would trip `validate_labor_minutes`' positive-integer rule and
+    turn a legitimate short visit into an error."""
+    minutes, capped = wo.capped_session_minutes(_at(8), _at(8, 0, 20), now=_at(9))
+    assert (minutes, capped) == (1, False)
+    wo.validate_labor_minutes(minutes)
+
+
+def test_a_running_session_is_measured_against_now():
+    """`ended_at=None` asks what the session would bill if closed right now,
+    which is how the lazy cap decides a clock has outrun itself."""
+    assert wo.capped_session_minutes(_at(8), None, now=_at(9, 30)) == (90, False)
+    assert wo.capped_session_minutes(_at(8), None, now=_at(23))[1] is True
+
+
+def test_billed_labor_minutes_is_unchanged_by_tracking():
+    """Rounding stays once, over the work order's combined total -- not per
+    session. A tracker makes short sessions easy, and rounding each one to
+    half an hour would silently inflate every invoice."""
+    assert wo.billed_labor_minutes(0) == 0
+    assert wo.billed_labor_minutes(1) == 30
+    assert wo.billed_labor_minutes(30) == 30
+    assert wo.billed_labor_minutes(31) == 60
+    # Three 5-minute return trips bill as one half hour, not three.
+    assert wo.billed_labor_minutes(5 + 5 + 5) == 30

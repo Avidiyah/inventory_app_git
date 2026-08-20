@@ -392,7 +392,7 @@ def test_import_counts_and_ignores_closed_work_orders(db):
     assert work_order.location == "Original location"
     assert work_order.description == "Original task"
     assert work_order.notes == notes_before_import
-    assert work_order.notes.endswith("[Name unavailable] Keep this note.")
+    assert work_order.notes.endswith("Name unavailable Keep this note.")
     assert len(work_order.items) == 1
     assert work_order.items[0].quantity == Decimal("2")
     assert len(work_order.labor_entries) == 1

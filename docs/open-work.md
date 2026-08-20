@@ -383,6 +383,45 @@ value-to-effort:
 detail in a notification body (the lock-screen rule), and any digest or batching
 scheme — premature until real volume is observed.
 
+### N12 — Auto-hold is the largest source of notification volume ever added
+
+**Trigger: a supervisor saying the On-Hold alerts have become noise, or
+observably ignoring them.**
+
+Shipped 2026-08-19 with work-order time tracking. Stopping the last clock on an
+In-Progress work order now moves it to On-Hold, and every entry into On-Hold
+notifies the routed supervisor — a rule written when On-Hold happened only by
+deliberate tap. It now happens several times a day per crew: lunch, a parts run,
+the end of a shift.
+
+This is the chosen behavior, not an oversight. It was shipped notifying rather
+than pre-suppressed because the honest first version is the one that reveals
+whether the volume is actually a problem, and because a silent status change is
+harder to debug than a loud one.
+
+**The mitigation is already scoped and deliberately narrow:** add one condition
+at the `/tracking/stop` trigger site so the auto-hold path alone stays silent,
+leaving `/hold` and the PATCH arm untouched. No change to the audience, the
+rule, the wording, or the other three trigger sites. See
+`docs/notification-events.md`.
+
+### N13 — Send Back tells the technician nothing
+
+**Trigger: a technician reporting they did not know work had been returned to
+them, or a supervisor asking whether Send Back "went through".**
+
+A supervisor rejecting work from Ready to Complete sends
+`PATCH {status: "in_progress"}`, which matches no arm of
+`_notify_work_order_patch`'s chain. The technician learns their work came back
+when they next open the app.
+
+Stated as a gap rather than a defect: it was left out to keep the tracking
+change from also growing a new event, and the alternative — reusing
+`work_order.reopened` — is wrong, because that rule means "your finished job is
+no longer Completed" and this row never reached Completed. Closing it is a new
+arm and a new event following the three steps in
+`docs/adding-a-notification-trigger.md`.
+
 ---
 
 ## 3. UX observations — never re-audited

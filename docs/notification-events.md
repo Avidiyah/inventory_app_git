@@ -38,8 +38,8 @@ screen whether or not the app is open.
 | `work_order.completed` | an assigned worker who is Supervisor+, or any Supervisor+ editor | `POST /work-orders/{id}/complete`, and `PATCH` to `completed` | everyone at `COMPLETED_AUDIENCE_MIN_ROLE` (**Admin** and above) |
 | `work_order.reopened` | Supervisor+ | `PATCH` only | assigned technicians + the routed supervisor |
 | `work_order.returned_from_review` | Supervisor+ — in practice the Admin Review page's Return button, the only UI that sends it | `PATCH`, `review → in_progress` | assigned technicians + the routed supervisor |
-| `work_order.held` | an assigned worker (Technician+), or any Supervisor+ editor | `POST /work-orders/{id}/hold`, and `PATCH` to `on_hold` | the routed supervisor — or `UNROUTED_HOLD_AUDIENCE_MIN_ROLE` (**Admin** and above) when nobody is routed |
-| `work_order.held_for_review` | an assigned **Technician** — the role is what makes their finish a hold | `POST /work-orders/{id}/complete` | the routed supervisor — or **Admin** and above when nobody is routed |
+| `work_order.held` | an assigned worker (Technician+), or any Supervisor+ editor | `POST /work-orders/{id}/hold`, `PATCH` to `on_hold`, and `POST /work-orders/{id}/tracking/stop` **only when it auto-holds** (see below) | the routed supervisor — or `UNROUTED_HOLD_AUDIENCE_MIN_ROLE` (**Admin** and above) when nobody is routed |
+| `work_order.held_for_review` | an assigned **Technician** — the role is what makes their finish a handoff | `POST /work-orders/{id}/complete` when it lands `ready_to_complete` | the routed supervisor — or **Admin** and above when nobody is routed |
 
 **Every rule suppresses the acting user, by id.** A supervisor completing work
 on someone else's behalf is as much the actor as a technician is, so
@@ -132,7 +132,37 @@ Read this before "simplifying" two rows into one.
   function of the caller's role (`domain.work_orders.completion_target_status`).
   The router chooses from the **resulting status**, never by re-reading the
   role — reading it twice is how the notification and the database start
-  disagreeing.
+  disagreeing. When tracked time promoted the technician's destination from
+  `on_hold` to `ready_to_complete`, that comparison was the only line that had
+  to move, which is the payoff of choosing from the row.
+- **`work_order.held` has a fourth trigger site, and it is conditional.**
+  `POST /tracking/stop` fires it *only* when the stop closed the last running
+  clock on an In-Progress row and the work order therefore put itself On-Hold.
+  A stop that leaves a co-worker tracking changes no status and notifies
+  nobody, and an idempotent repeat closes nothing — the standard
+  `previous is not None and previous != status` guard is what makes both
+  correct. The rule, the audience, and the wording are reused unchanged; only
+  the trigger site is new.
+  **This is the design's largest new source of alert volume** and is named
+  rather than smoothed over: every lunch break, parts run, and end of shift now
+  moves a row into On-Hold and pushes to the routed supervisor. That is
+  consistent with the existing rule that every entry into On-Hold notifies, but
+  that rule was written when On-Hold happened only by deliberate tap. If it
+  proves noisy the mitigation is narrow — suppress on the auto-hold path only,
+  one condition at one trigger site, leaving `/hold` and the PATCH arm alone.
+- **Starting a clock notifies nobody.** `POST /tracking/start` is silent by
+  decision, not by omission: starting a timer is not news to a supervisor, and
+  the Assigned → In-Progress transition it performs matches no arm of any
+  chain. It can still emit one `held` indirectly — if the caller had a clock
+  running on a *different* work order, that row is closed here and may
+  auto-hold, and it is handed back through `side_transitions` precisely so its
+  alert is not silently dropped.
+- **Send Back notifies nobody, and that is a stated gap.** A supervisor
+  rejecting work from Ready to Complete sends `PATCH {status: "in_progress"}`,
+  which matches no arm of the chain, so the technician learns their work came
+  back when they next open the app. If field use shows they need a push, it is
+  a new arm and a new event following this document — not a change to the
+  existing chain.
 - **An audience of one still needs a fallback.** Both hold events address the
   routed supervisor, and an unrouted work order would otherwise alert nobody.
   The fallback branches on *who is routed*, never on how many recipients

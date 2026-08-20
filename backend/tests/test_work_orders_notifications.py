@@ -77,7 +77,7 @@ def _recipients(background):
 def _to_completed(db, work_order, *, worker, manager):
     """Walk a work order to Completed the way the app does now.
 
-    A technician's finish stops at On-Hold for review, so reaching Completed
+    A technician's finish stops at Ready to Complete, so reaching Completed
     takes a supervisory PATCH afterwards. Written as one helper because
     almost every rule below needs a Completed row as a *starting point*
     rather than as the thing under test.
@@ -189,8 +189,9 @@ def test_a_technicians_finish_alerts_the_routed_supervisor(db, configured):
 
 
 def test_a_technicians_finish_does_not_tell_the_admins_it_completed(db, configured):
-    """The row is On-Hold, not Completed. Firing the completion rule here
-    would put unreviewed work in front of the Admin review queue."""
+    """The row is Ready to Complete, not Completed. Firing the completion
+    rule here would put unreviewed work in front of the Admin review
+    queue."""
     admin = _seed_user(db, roles.ROLE_ADMIN)
     supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
     worker = _seed_user(db, roles.ROLE_TECHNICIAN)
@@ -245,6 +246,185 @@ def test_a_technician_finishing_twice_alerts_once(db, configured):
 
     assert len(first.tasks) == 1
     assert second.tasks == []
+
+
+# --- tracking: start is silent, stop speaks only when it auto-holds -----
+
+def _start_tracking(db, background, work_order_id, *, user):
+    return work_orders_router.start_work_order_tracking(
+        work_order_id, background, user=user, db=db
+    )
+
+
+def _stop_tracking(db, background, work_order_id, *, user):
+    return work_orders_router.stop_work_order_tracking(
+        work_order_id, background, user=user, db=db
+    )
+
+
+def test_starting_a_clock_notifies_nobody(db, configured):
+    """Starting a timer is not news to a supervisor, and the Assigned ->
+    In-Progress transition it performs matches no arm of any rule."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+
+    background = BackgroundTasks()
+    _start_tracking(db, background, work_order.id, user=worker)
+
+    assert background.tasks == []
+
+
+def test_the_last_clock_out_alerts_the_routed_supervisor(db, configured):
+    """The auto-hold is a real entry into On-Hold, so it reuses the existing
+    rule at a fourth trigger site rather than inventing an event."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+    _start_tracking(db, BackgroundTasks(), work_order.id, user=worker)
+
+    background = BackgroundTasks()
+    _stop_tracking(db, background, work_order.id, user=worker)
+
+    assert _recipients(background) == [supervisor.id]
+
+
+def test_the_clocking_out_technician_is_not_buzzed_by_their_own_stop(db, configured):
+    """Actor suppression, at the site most likely to expose a gap in it: the
+    person tapping Stop is the person the hold is about.
+
+    The supervisor here is routed to *themselves*, so suppression is the only
+    thing that can keep them off the list -- and a routed-but-suppressed hold
+    deliberately does not escalate to Admins, so the correct outcome is that
+    nothing is dispatched at all rather than a task addressed to somebody
+    else."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    worker = _seed_user(db, roles.ROLE_SUPERVISOR)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=worker
+    )
+    _start_tracking(db, BackgroundTasks(), work_order.id, user=worker)
+
+    background = BackgroundTasks()
+    _stop_tracking(db, background, work_order.id, user=worker)
+
+    assert background.tasks == []
+
+
+def test_a_stop_that_leaves_a_co_worker_on_the_clock_notifies_nobody(db, configured):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    a = _seed_user(db, roles.ROLE_TECHNICIAN)
+    b = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(db, created_by=admin, supervisor=supervisor)
+    wos.update_work_order(
+        db, work_order.id, user=admin, fields={"assigned_to_ids": [a.id, b.id]}
+    )
+    _start_tracking(db, BackgroundTasks(), work_order.id, user=a)
+    _start_tracking(db, BackgroundTasks(), work_order.id, user=b)
+
+    background = BackgroundTasks()
+    _stop_tracking(db, background, work_order.id, user=a)
+
+    assert background.tasks == []
+
+
+def test_an_idempotent_repeat_stop_notifies_nobody(db, configured):
+    """A repeat closes no session, performs no transition, and therefore
+    sends nothing -- the standard double-tap guard, at a new site."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+    _start_tracking(db, BackgroundTasks(), work_order.id, user=worker)
+
+    first = BackgroundTasks()
+    _stop_tracking(db, first, work_order.id, user=worker)
+    second = BackgroundTasks()
+    _stop_tracking(db, second, work_order.id, user=worker)
+
+    assert len(first.tasks) == 1
+    assert second.tasks == []
+
+
+def test_starting_elsewhere_alerts_the_abandoned_work_orders_supervisor(db, configured):
+    """The auto-hold on the *other* work order is a real event with a real
+    audience. The router only receives the row it asked about, so the write
+    hands the extra back rather than letting its alert go missing."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    first = _wo(db, created_by=admin, assigned_to=worker, supervisor=supervisor)
+    second = _wo(db, created_by=admin, assigned_to=worker, supervisor=supervisor)
+    _start_tracking(db, BackgroundTasks(), first.id, user=worker)
+
+    background = BackgroundTasks()
+    _start_tracking(db, background, second.id, user=worker)
+
+    assert _recipients(background) == [supervisor.id]
+
+
+# --- the Ready to Complete review gate ----------------------------------
+
+def test_approving_ready_to_complete_fires_the_completion_rule(db, configured):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+    wos.start_work_order(db, work_order.id, user=worker)
+    wos.complete_work_order(db, work_order.id, user=worker)
+
+    background = BackgroundTasks()
+    _patch(db, background, work_order.id, user=supervisor, status="completed")
+
+    assert admin.id in _recipients(background)
+
+
+def test_sending_work_back_notifies_nobody(db, configured):
+    """A stated gap, not an omission: `in_progress` matches no arm of the
+    chain, so the technician learns their work came back when they next open
+    the app."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+    wos.start_work_order(db, work_order.id, user=worker)
+    wos.complete_work_order(db, work_order.id, user=worker)
+
+    background = BackgroundTasks()
+    _patch(db, background, work_order.id, user=supervisor, status="in_progress")
+
+    assert background.tasks == []
+
+
+def test_pausing_a_ready_to_complete_row_is_an_ordinary_hold(db, configured):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    worker = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _wo(
+        db, created_by=admin, assigned_to=worker, supervisor=supervisor
+    )
+    wos.start_work_order(db, work_order.id, user=worker)
+    wos.complete_work_order(db, work_order.id, user=worker)
+
+    background = BackgroundTasks()
+    _patch(db, background, work_order.id, user=admin, status="on_hold")
+
+    _, title, _body = background.tasks[0].args
+    assert title != "Work order ready for review"
+    assert _recipients(background) == [supervisor.id]
 
 
 # --- every entry into On-Hold reaches the supervisor --------------------

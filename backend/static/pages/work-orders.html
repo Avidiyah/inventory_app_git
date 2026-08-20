@@ -11,58 +11,8 @@
          collapsed "Edit details" card. See docs/current-state.md. -->
     <div class="page" id="work-orders-page">
 
-        <!-- Admin+ only; views/workOrders.js reveals it by role. Bulk-imports the
-             mass work-order CSV export -- the only way work orders are added --
-             and retains the existing scope-based client billing export. -->
-        <section id="work-orders-import-section" hidden>
-            <h2>Import / Export</h2>
-            <p class="hint">Work orders come from the CSV export — upload the
-               latest one. Existing numbers are updated in place, so nothing is
-               duplicated and edits made here survive a re-import. Closed work
-               orders are ignored. For Client
-               writes the billing sheet: work order number, material and labor
-               totals, and the full receipt. The operational, re-importable CSV
-               export is next to the Work Orders filters below.</p>
-            <input type="file" id="wo-import-file" accept=".csv,text/csv" hidden>
-            <p id="wo-netfacilities-status" class="hint">
-                Choose the CSV already downloaded here; after the CSV import, the app
-                will seek Task/Symptom and Priority from NetFacilities when saved
-                authentication is ready.
-            </p>
-            <div class="filter-row">
-                <button id="wo-netfacilities-sign-in-btn" type="button" class="secondary-btn" hidden>Sign in to NetFacilities</button>
-                <button id="wo-netfacilities-confirm-btn" type="button" hidden>I finished signing in</button>
-                <button id="wo-netfacilities-cancel-btn" type="button" class="secondary-btn" hidden>Cancel sign-in</button>
-                <button id="wo-import-btn" type="button">Import from CSV…</button>
-                <button id="wo-netfacilities-enrich-btn" type="button" class="secondary-btn" hidden>Import Tasks and Priority</button>
-                <select id="wo-export-scope" aria-label="Work orders to export">
-                    <option value="all">All (live)</option>
-                    <option value="created">Created</option>
-                    <option value="assigned">Assigned</option>
-                    <option value="in_progress">In-Progress</option>
-                    <option value="on_hold">On-Hold</option>
-                    <option value="completed">Completed</option>
-                    <option value="review">Review</option>
-                    <option value="archived">Archived (closed)</option>
-                </select>
-                <button id="wo-export-client-btn" type="button" class="secondary-btn">For Client</button>
-                <button id="wo-archive-legacy-btn" type="button" class="btn-danger" hidden>Re-archive legacy work orders...</button>
-            </div>
-            <p id="wo-import-message"></p>
-        </section>
-
         <section id="work-orders-controls-section">
             <h2>Work Orders</h2>
-            <p class="hint">Work orders start Created and become Assigned only
-               when one or more Technicians or Supervisors are selected. An assigned worker
-               can use the card's Set In-Progress and Mark Completed walkthrough, with a
-               separate Place On-Hold button available only while In-Progress; sending
-               work On-Hold replaces those actions with Resume In-Progress until resumed;
-               Completed work to Review requires a second, unassigned routed Supervisor or
-               an Admin. Assigned work can also be started from Scan / Stock. Supervisors
-               manage assignment, status, and labor; Admins can also correct imported details
-               and archive a work order from any status. Technicians can append timestamped
-               Notes and add items. Labor is billed in rounded-up 30-minute increments.</p>
             <div class="wo-filter-grid" aria-label="Work order filters">
                 <div class="wo-filter-field">
                     <label for="work-orders-status-filter">Status</label>
@@ -72,6 +22,7 @@
                         <option value="assigned">Assigned</option>
                         <option value="in_progress">In-Progress</option>
                         <option value="on_hold">On-Hold</option>
+                        <option value="ready_to_complete">Ready to Complete</option>
                         <option value="completed">Completed</option>
                         <option value="review">Review</option>
                     </select>

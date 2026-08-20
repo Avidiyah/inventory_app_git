@@ -2,9 +2,12 @@
 //
 // Layer: views. Owns the Work Orders page: a server-scoped list of standalone
 // work orders (identity = number). Work orders are IMPORT-ONLY -- the Admin+ CSV
-// import is the only way one appears; there is no create form. Admin+ can export
-// the current filtered list as the operational CSV; the separate client export
-// retains its scope dropdown. Admin+ Edit details includes imported metadata;
+// import is the only way one appears; there is no create form. The CSV import,
+// NetFacilities/Langston University card, and "For Client" export render on
+// the separate Integrations page (loadIntegrationsPage, pages/integrations.html)
+// but are still owned by this module, since they share state with the list
+// below. Admin+ can export the current filtered list as the operational CSV
+// from this page. Admin+ Edit details includes imported metadata;
 // Supervisor sees only routing, technicians, and status, and also manages labor,
 // entry mode, and material corrections. Assigned Technicians/Supervisors get a
 // narrow Set In-Progress -> Mark Completed walkthrough plus an In-Progress-only
@@ -20,7 +23,8 @@ import {
   apiGetWorkOrderFilterOptions,
   apiGetWorkOrder,
   apiUpdateWorkOrder,
-  apiStartWorkOrder,
+  apiStartWorkOrderTracking,
+  apiStopWorkOrderTracking,
   apiCompleteWorkOrder,
   apiHoldWorkOrder,
   apiResumeWorkOrder,
@@ -34,8 +38,6 @@ import {
   apiArchiveWorkOrder,
   apiLookupWorkOrder,
   apiRestoreWorkOrder,
-  apiGetLegacyWorkOrderArchivePreview,
-  apiArchiveLegacyWorkOrders,
   apiImportWorkOrders,
   apiGetNetFacilitiesSession,
   apiStartNetFacilitiesAuthentication,
@@ -83,7 +85,7 @@ const moreEl = document.getElementById("work-orders-more");
 // holds one work order and there is nothing to filter.
 const controlsSection = document.getElementById("work-orders-controls-section");
 
-const importSection = document.getElementById("work-orders-import-section");
+const importSection = document.getElementById("integrations-import-section");
 const importFile = document.getElementById("wo-import-file");
 const importBtn = document.getElementById("wo-import-btn");
 const importMessage = document.getElementById("wo-import-message");
@@ -95,7 +97,6 @@ const netFacilitiesEnrichBtn = document.getElementById("wo-netfacilities-enrich-
 const exportScope = document.getElementById("wo-export-scope");
 const exportBtn = document.getElementById("wo-export-btn");
 const exportClientBtn = document.getElementById("wo-export-client-btn");
-const archiveLegacyBtn = document.getElementById("wo-archive-legacy-btn");
 
 // Reference lists are reused during interactions within one visit (for example,
 // debounced Work Order searches), then refreshed when nav.js activates the page
@@ -164,13 +165,12 @@ export function soloNumberFromPath(pathname = window.location.pathname) {
   }
 }
 
-// Show/hide everything around the card. `importSection`'s hidden state is
-// role-derived (loadWorkOrders sets it from isAdminPlus), so restoring it must
-// recompute rather than blindly unhide -- otherwise leaving a card page would
-// expose the Admin+ import block to a technician.
+// Show/hide everything around the card. The Import/Export section now lives
+// on its own Integrations page (see loadIntegrationsPage), so solo mode no
+// longer needs to touch it -- it is already hidden whenever Work Orders
+// isn't the active page.
 function setSoloChrome(on) {
   if (controlsSection) controlsSection.hidden = on;
-  if (importSection) importSection.hidden = on || !isAdminPlus();
   if (moreEl) {
     if (on) moreEl.innerHTML = "";
     moreEl.hidden = true;
@@ -219,10 +219,6 @@ function isSupervisorPlus() {
 // Admin proper.
 function isAdminPlus() {
   return roleAtLeast(getRole(), "techfm_oa");
-}
-
-function isOwner() {
-  return getRole() === "owner";
 }
 
 // Matches `domain.work_orders.PRIORITY_FILTER_NONE`: the work orders whose
@@ -391,31 +387,38 @@ function renderLaborEntryHtml(entry) {
          <button type="button" class="btn-danger" data-action="remove-labor">Remove</button>
        </div>`
     : "";
+  // A tracked entry shows the window it came from; a hand-entered correction
+  // and every row predating tracked time have no session and show the duration
+  // alone. The server pre-formats the window, so there is nothing to parse.
+  const window = entry.session_window
+    ? `<span class="hint wo-labor-window">${escapeHtml(entry.session_window)}</span>`
+    : "";
+  // The 12-hour cap invented this figure. Flagged so a supervisor scanning the
+  // card can see which numbers are estimates; nothing blocks it from billing.
+  const autoStopped = entry.auto_closed
+    ? `<span class="wo-labor-auto-stopped" title="A clock left running was closed automatically after 12 hours. Check this figure.">auto-stopped</span>`
+    : "";
   return `<div class="wo-labor-entry" data-labor-id="${escapeHtml(entry.id)}" data-technician-id="${escapeHtml(entry.technician_id)}">
-            <div><strong>${escapeHtml(entry.technician_name)}</strong><span class="hint">${escapeHtml(formatMinutes(entry.minutes))} actual</span></div>
+            <div><strong>${escapeHtml(entry.technician_name)}</strong><span class="hint">${escapeHtml(formatMinutes(entry.minutes))} actual</span>${window}${autoStopped}</div>
             ${actions}
           </div>`;
 }
 
-// A Technician may record only their own hours, so they get no picker to aim
-// at somebody else -- their id travels in a hidden field carrying the same
-// class, which is what the add-labor handler reads either way. The server
-// enforces the same rule (`_require_labor_author`); this only keeps the UI
-// from offering a control that would be refused.
+// Hand-entered labor is Supervisor+ only, so this picker is Supervisor+ only.
+// A supervisor may also credit themselves without being on the crew (the
+// server allows "assigned, or the Supervisor recording themselves"), so they
+// are appended to the list when they are not already in it.
 function laborTechnicianControl(detail) {
-  const ids = assignedIds(detail);
-  const names = assignedNames(detail);
+  if (!isSupervisorPlus()) return "";
+  const ids = assignedIds(detail).slice();
+  const names = assignedNames(detail).slice();
+  const user = getCurrentUser();
+  if (user?.id && !ids.includes(user.id)) {
+    ids.push(user.id);
+    names.push(`${user.full_name || "You"} (not assigned)`);
+  }
   if (!ids.length) {
     return `<p class="hint">Assign at least one technician before recording labor.</p>`;
-  }
-  if (!isSupervisorPlus()) {
-    const user = getCurrentUser();
-    const index = ids.indexOf(user?.id);
-    if (index < 0) return "";
-    return `<label><span>Technician</span>
-              <input type="hidden" class="wo-labor-technician" value="${escapeHtml(user.id)}">
-              <span class="wo-labor-technician-name">${escapeHtml(names[index] || user.full_name || "You")}</span>
-            </label>`;
   }
   const options = ids
     .map((id, index) => `<option value="${escapeHtml(id)}">${escapeHtml(names[index] || "Assigned technician")}</option>`)
@@ -426,24 +429,29 @@ function laborTechnicianControl(detail) {
 function laborSectionHtml(detail) {
   const entries = (detail.labor || []).map(renderLaborEntryHtml).join("") ||
     `<p class="hint">No labor recorded yet.</p>`;
-  // A technician with no add control left (not assigned, or no assignments at
-  // all) would otherwise open an empty card.
-  const canAdd = Boolean(laborTechnicianControl(detail)) &&
-    (isSupervisorPlus() || isAssignedToCurrentUser(detail));
-  const hasAssignments = assignedIds(detail).length > 0 && canAdd;
+  // Tracked time is authoritative: a technician's labor card is a read-only
+  // list of the sessions they clocked, and only a Supervisor can key a figure
+  // by hand to correct a forgotten Start Tracking.
+  const technicianControl = laborTechnicianControl(detail);
+  const canAdd = isSupervisorPlus() && Boolean(technicianControl) &&
+    !technicianControl.startsWith("<p");
   const rateText = detail.labor_rate === null || detail.labor_rate === undefined
     ? "The combined actual time is rounded up to the next 30 minutes for billing."
     : `Labor is billed at ${formatMoney(detail.labor_rate)}/hour. The combined actual time is rounded up to the next 30 minutes.`;
+  const trackedHint = isSupervisorPlus()
+    ? "Entries come from tracked sessions. Add one by hand only to correct a missed clock-in."
+    : "Your hours come from Start Tracking. Ask a supervisor to correct anything that looks wrong.";
   return `<details class="wo-section-card wo-labor-section">
             <summary class="wo-section-summary">Labor</summary>
             <div class="wo-section-content">
               <p class="hint">${escapeHtml(rateText)}</p>
+              <p class="hint">${escapeHtml(trackedHint)}</p>
               <div class="wo-labor-list">${entries}</div>
               ${laborSummaryHtml(detail)}
-              <div class="wo-add-labor">
-                ${laborTechnicianControl(detail)}
-                ${hasAssignments ? `<label><span>Actual hours</span><input type="number" class="wo-new-labor-hours" min="0.01" step="0.01" placeholder="e.g. 1.25"></label><button type="button" data-action="add-labor">Add labor</button>` : ""}
-              </div>
+              ${isSupervisorPlus() ? `<div class="wo-add-labor">
+                ${technicianControl}
+                ${canAdd ? `<label><span>Actual hours</span><input type="number" class="wo-new-labor-hours" min="0.01" step="0.01" placeholder="e.g. 1.25"></label><button type="button" data-action="add-labor">Add labor</button>` : ""}
+              </div>` : ""}
             </div>
           </details>`;
 }
@@ -454,6 +462,7 @@ function statusLabel(status) {
     assigned: "Assigned",
     in_progress: "In-Progress",
     on_hold: "On-Hold",
+    ready_to_complete: "Ready to Complete",
     completed: "Completed",
     review: "Review",
   }[status] || status;
@@ -709,9 +718,14 @@ function editField(field, label, value) {
 function editableStatusOptions(detail) {
   const prework = assignedIds(detail).length ? "assigned" : "created";
   let statuses;
-  if (detail.status === "on_hold") {
+  if (detail.status === "on_hold" || detail.status === "ready_to_complete") {
     // A hold does not remember which step it paused. Let the supervisor resume
-    // at the appropriate non-Review step or leave it held.
+    // at the appropriate non-Review step or leave it held. Ready to Complete
+    // gets the same set: it is an ordinary supervisory decision point, so the
+    // full rollback path stays open. `ready_to_complete` itself is deliberately
+    // absent -- like Review it is reached by an action, and a supervisor
+    // selecting it from a menu would be asserting on a technician's behalf that
+    // the work is done.
     statuses = [prework, "in_progress", "on_hold", "completed"];
   } else {
     const rank = { created: 0, assigned: 1, in_progress: 2, completed: 3 }[detail.status];
@@ -903,12 +917,7 @@ export async function loadWorkOrders({
       filterOptionsLoaded = false;
     }
   }
-  if (importSection) importSection.hidden = !isAdminPlus();
   if (exportBtn) exportBtn.hidden = !isAdminPlus();
-  if (archiveLegacyBtn) archiveLegacyBtn.hidden = !isOwner();
-  if (isAdminPlus() && (refreshReferenceData || !netFacilitiesCapability)) {
-    void refreshNetFacilitiesSession();
-  }
 
   const filters = currentFilters();
   // The cap applies only to a completely unfiltered browse. Any advanced filter
@@ -957,6 +966,16 @@ export async function loadWorkOrders({
     }
     setMessage(listMessage, friendlyError(err, "Could not load work orders."), "error");
   }
+}
+
+// Called by nav.js on entry to the Integrations page. Owns the role gate on
+// the NetFacilities/Langston University card and refreshes its session state
+// -- the counterpart of the importSection/netFacilities handling loadWorkOrders
+// used to do when the card lived on the Work Orders page.
+export async function loadIntegrationsPage() {
+  if (importSection) importSection.hidden = !isAdminPlus();
+  if (!isAdminPlus()) return;
+  void refreshNetFacilitiesSession();
 }
 
 function renderCards(cards) {
@@ -1320,26 +1339,59 @@ function renderBody(detail, bodyEl) {
     detail.items.map((it) => renderLineHtml(it)).join("") ||
     `<p class="hint">No materials logged yet.</p>`;
 
+  // Whoever may hold a clock on this row: assigned workers, plus a Supervisor+
+  // on any work order they can see (they need not be on the crew to do the
+  // work and record it).
+  const canTrack = assignedToCurrentUser || sup;
+  const tracking = Boolean(detail.active_labor_session);
+  const startTracking = `<button type="button" data-action="start-tracking-wo">Start Tracking</button>`;
+
   let statusActions = "";
-  if (assignedToCurrentUser && detail.status === "assigned") {
-    statusActions = `<button type="button" data-action="start-wo">Set In-Progress</button>`;
-  } else if (assignedToCurrentUser && detail.status === "in_progress") {
-    statusActions =
-      `<button type="button" data-action="complete-assigned-wo">Mark Completed</button>` +
-      `<button type="button" class="secondary-btn" data-action="hold-assigned-wo">Place On-Hold</button>`;
-  } else if (detail.status === "on_hold" && (assignedToCurrentUser || sup)) {
-    // Not an either/or: a Supervisor who is also an assigned worker needs both
-    // halves. With Technicians out of Completed every job now lands here first,
-    // so a supervisor closing one out must not have to open Edit details.
+  if (canTrack && (detail.status === "created" || detail.status === "assigned")) {
+    // "Set In-Progress" is gone: that transition is now a side effect of
+    // starting work, which is what the button always meant.
+    statusActions = startTracking;
+  } else if (canTrack && detail.status === "in_progress") {
+    statusActions = tracking
+      ? `<button type="button" data-action="stop-tracking-wo">Stop Tracking</button>`
+      : startTracking;
+    // Notify Supervisor is the "I'm done" button and belongs to someone with a
+    // clock running; Stop Tracking is the "I'm pausing" one. Both /complete and
+    // /hold require assignment server-side, so an unassigned supervisor who is
+    // only tracking gets neither -- they close the row out with Mark Completed.
+    if (assignedToCurrentUser && tracking) {
+      statusActions += `<button type="button" data-action="notify-supervisor-wo">Notify Supervisor</button>`;
+    }
     if (assignedToCurrentUser) {
-      statusActions += `<button type="button" data-action="resume-assigned-wo">Resume In-Progress</button>`;
+      statusActions += `<button type="button" class="secondary-btn" data-action="hold-assigned-wo">Place On-Hold</button>`;
     }
     if (sup) {
       statusActions += `<button type="button" data-action="complete-wo">Mark Completed</button>`;
-      statusActions += `<span class="hint wo-status-note">On-Hold — a supervisor can also resume or roll back this work order in the Edit details card.</span>`;
     }
-  } else if (sup && detail.status === "in_progress") {
-    statusActions = `<button type="button" data-action="complete-wo">Mark Completed</button>`;
+  } else if (detail.status === "on_hold" && canTrack) {
+    // Start Tracking sits beside Resume and is the one a returning technician
+    // taps: it does the same transition *and* starts the clock. Resume stays
+    // for the case where work resumes without the tapper being the one doing
+    // it. Not an either/or with the supervisor half either -- a Supervisor who
+    // is also an assigned worker needs both.
+    statusActions += startTracking;
+    if (assignedToCurrentUser) {
+      statusActions += `<button type="button" class="secondary-btn" data-action="resume-assigned-wo">Resume In-Progress</button>`;
+    }
+    if (sup) {
+      statusActions += `<button type="button" data-action="complete-wo">Mark Completed</button>`;
+      statusActions += `<span class="hint wo-status-note">On-Hold — nobody is tracking time. A supervisor can also resume or roll back this work order in the Edit details card.</span>`;
+    }
+  } else if (detail.status === "ready_to_complete") {
+    // The first review gate: one supervisor confirming the work happened.
+    // Distinct from Send to Review, which is the later Admin handoff.
+    if (sup) {
+      statusActions =
+        `<button type="button" data-action="complete-wo">Approve — Mark Completed</button>` +
+        `<button type="button" class="secondary-btn" data-action="send-back-wo">Send Back</button>`;
+    } else {
+      statusActions = `<span class="hint wo-status-note">Sent to your supervisor for review.</span>`;
+    }
   } else if (detail.status === "completed") {
     if (canSendToReview) {
       statusActions += `<button type="button" data-action="review-wo">Send to Review</button>`;
@@ -1551,24 +1603,42 @@ listEl.addEventListener("click", async (event) => {
   if (msg) setMessage(msg, "", "");
 
   try {
-    if (action === "start-wo") {
-      await apiStartWorkOrder(workOrderId);
+    if (action === "start-tracking-wo") {
+      await apiStartWorkOrderTracking(workOrderId);
       await refreshCard(cardEl);
-    } else if (action === "complete-assigned-wo") {
+    } else if (action === "stop-tracking-wo") {
+      const stopped = await apiStopWorkOrderTracking(workOrderId);
+      await refreshCard(cardEl);
+      // Stopping the last clock on a job moves it On-Hold by itself. Without
+      // saying so, the badge changing on its own reads as something going
+      // wrong. Chosen from the refreshed row, so the message and the server
+      // cannot disagree. Re-queried after the refresh: renderBody replaced the
+      // old element.
+      if (stopped?.status === "on_hold") {
+        setMessage(
+          cardEl.querySelector(".wo-message"),
+          "Work stopped. Nobody is tracking, so this is now On-Hold.",
+          "success"
+        );
+      }
+    } else if (action === "notify-supervisor-wo") {
       const finished = await apiCompleteWorkOrder(workOrderId);
       await refreshCard(cardEl);
-      // A Technician's finish lands On-Hold for supervisor review, so the
-      // badge that appears a moment later would otherwise read as a failed
-      // save. Chosen from the row the server returned rather than from the
-      // role, so this can never disagree with what was actually written.
-      // Re-queried after the refresh: renderBody replaced the old element.
-      if (finished?.status === "on_hold") {
+      // A Technician's finish lands Ready to Complete, so the badge that
+      // appears a moment later would otherwise read as a failed save. Chosen
+      // from the row the server returned rather than from the role.
+      if (finished?.status === "ready_to_complete") {
         setMessage(
           cardEl.querySelector(".wo-message"),
           "Sent to your supervisor for review.",
           "success"
         );
       }
+    } else if (action === "send-back-wo") {
+      // Rejection means "go finish the job", so the crew is live again rather
+      // than paused -- which keeps On-Hold meaning purely "nobody is on it".
+      await apiUpdateWorkOrder(workOrderId, { status: "in_progress" });
+      await refreshCard(cardEl);
     } else if (action === "hold-assigned-wo") {
       await apiHoldWorkOrder(workOrderId);
       await refreshCard(cardEl);
@@ -2039,54 +2109,6 @@ async function handleImport() {
 
 if (importBtn) importBtn.addEventListener("click", () => importFile && importFile.click());
 if (importFile) importFile.addEventListener("change", handleImport);
-
-// --- Legacy work-order re-archive (Owner only) ---------------------------
-
-async function handleArchiveLegacyWorkOrders() {
-  setMessage(importMessage, "Checking legacy work orders...", "");
-  archiveLegacyBtn.disabled = true;
-  try {
-    const preview = await apiGetLegacyWorkOrderArchivePreview();
-    const count = preview.count || 0;
-    setMessage(importMessage, "", "");
-
-    if (count === 0) {
-      await messageDialog("There are 0 live legacy work orders to archive.");
-      return;
-    }
-
-    const noun = count === 1 ? "work order" : "work orders";
-    const approved = await confirmDialog(
-      `There ${count === 1 ? "is" : "are"} ${count} live legacy ${noun}. ` +
-      `Re-archive ${count === 1 ? "it" : "all of them"}? ` +
-      "They will leave the active list and can still be restored from History."
-    );
-    if (!approved) return;
-
-    setMessage(importMessage, "Archiving legacy work orders...", "");
-    const result = await apiArchiveLegacyWorkOrders();
-    const archived = result.archived || 0;
-    setMessage(
-      importMessage,
-      `Archived ${archived} legacy work order${archived === 1 ? "" : "s"}.`,
-      "success"
-    );
-    filterOptionsLoaded = false;
-    await loadWorkOrders();
-  } catch (err) {
-    setMessage(
-      importMessage,
-      friendlyError(err, "Could not archive legacy work orders."),
-      "error"
-    );
-  } finally {
-    archiveLegacyBtn.disabled = false;
-  }
-}
-
-if (archiveLegacyBtn) {
-  archiveLegacyBtn.addEventListener("click", handleArchiveLegacyWorkOrders);
-}
 
 // --- CSV export (Admin+) --------------------------------------------------
 

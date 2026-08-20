@@ -24,6 +24,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.domain import list_limits
 from app.domain import roles
@@ -37,7 +38,14 @@ from app.domain.errors import (
     WorkOrderNotFoundError,
     WorkOrderStateError,
 )
-from app.models import Item, Transaction, User, UserRequest
+from app.models import (
+    Item,
+    Transaction,
+    User,
+    UserRequest,
+    WorkOrderLabor,
+    WorkOrderLaborSession,
+)
 from app.services import auth
 from app.services import work_orders as wos
 from app.services.history import list_history
@@ -264,8 +272,8 @@ def test_an_assigned_supervisor_completes_directly(db):
 
 def test_a_technicians_completion_parks_the_work_order_for_review(db):
     """A Technician finishes the job but does not get to declare it
-    billable. The note is the only thing separating this hold from an
-    ordinary mid-job pause, so it is part of the contract."""
+    billable. The status now carries that state, so the note describes the
+    person's action rather than the row's condition."""
     manager = _seed_user(db, "admin")
     worker = _seed_user(db, "technician", first_name="Dale", last_name="Grubb")
     work_order = _wo(db, created_by=manager, assigned_to=worker)
@@ -273,9 +281,9 @@ def test_a_technicians_completion_parks_the_work_order_for_review(db):
 
     held = wos.complete_work_order(db, work_order.id, user=worker)
 
-    assert held.status == "on_hold"
+    assert held.status == "ready_to_complete"
     assert held.completed_at is None
-    assert wo.REVIEW_HOLD_NOTE in held.notes
+    assert wo.NOTE_READY_TO_COMPLETE in held.notes
     assert "Dale Grubb" in held.notes
 
 
@@ -292,9 +300,9 @@ def test_a_repeated_technician_completion_does_not_duplicate_the_note(db):
 
     repeated = wos.complete_work_order(db, work_order.id, user=worker)
 
-    assert repeated.status == "on_hold"
+    assert repeated.status == "ready_to_complete"
     assert repeated.notes == notes_after_first
-    assert repeated.notes.count(wo.REVIEW_HOLD_NOTE) == 1
+    assert repeated.notes.count(wo.NOTE_READY_TO_COMPLETE) == 1
 
 
 @pytest.mark.parametrize("worker_role", ["technician", "supervisor"])
@@ -443,9 +451,11 @@ def test_labor_tracks_technician_and_advances_first_activity(db):
     assert detail.status == "in_progress"
 
 
-def test_a_technician_records_their_own_labor(db):
-    """The point of the change: a tech logs the hours they just worked
-    instead of texting them to somebody with a bigger role."""
+def test_a_technician_cannot_key_labor_by_hand(db):
+    """Tracked time is authoritative, so a Technician does not type a
+    duration at all -- their rows come from stopping a session. This is the
+    direct cost of that: a forgotten Start Tracking is only recoverable by a
+    Supervisor."""
     sup = _seed_user(db, "supervisor")
     tech = _seed_user(db, "technician")
     w = _wo(db, created_by=sup)
@@ -453,18 +463,15 @@ def test_a_technician_records_their_own_labor(db):
         db, w.id, user=sup, fields={"assigned_to_ids": [tech.id]}
     )
 
-    entry = wos.add_work_order_labor(
-        db, w.id, user=tech, technician_id=tech.id, minutes=35
-    )
-
-    assert entry.technician_id == tech.id
-    assert entry.minutes == 35
+    with pytest.raises(RoleManagementError):
+        wos.add_work_order_labor(
+            db, w.id, user=tech, technician_id=tech.id, minutes=35
+        )
 
 
-def test_a_technician_cannot_revise_or_erase_their_own_labor(db):
-    """Add-only is what keeps the billed figure trustworthy: hours can be
-    corrected by a supervisor but never quietly rewritten by the person
-    they belong to."""
+def test_a_technician_cannot_revise_or_erase_labor(db):
+    """Hours are never written, rewritten, or erased by the person they are
+    attributed to -- which is what keeps the billed figure trustworthy."""
     sup = _seed_user(db, "supervisor")
     tech = _seed_user(db, "technician")
     w = _wo(db, created_by=sup)
@@ -472,13 +479,30 @@ def test_a_technician_cannot_revise_or_erase_their_own_labor(db):
         db, w.id, user=sup, fields={"assigned_to_ids": [tech.id]}
     )
     entry = wos.add_work_order_labor(
-        db, w.id, user=tech, technician_id=tech.id, minutes=35
+        db, w.id, user=sup, technician_id=tech.id, minutes=35
     )
 
     with pytest.raises(RoleManagementError):
         wos.update_work_order_labor(db, w.id, entry.id, user=tech, minutes=5)
     with pytest.raises(RoleManagementError):
         wos.delete_work_order_labor(db, w.id, entry.id, user=tech)
+
+
+def test_a_supervisor_records_their_own_labor_without_being_assigned(db):
+    """A supervisor who does the work should record it without adding
+    themselves to the crew list. A genuine permission widening: bounded by
+    visibility and attributed by name."""
+    sup = _seed_user(db, "supervisor", first_name="Robin", last_name="Vance")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+
+    entry = wos.add_work_order_labor(
+        db, w.id, user=sup, technician_id=sup.id, minutes=40
+    )
+
+    assert entry.technician_id == sup.id
+    assert entry.minutes == 40
+    assert sup.id not in wos.assigned_technician_ids(w)
 
 
 def test_a_technician_still_needs_the_assignment_to_log_their_own_labor(db):
@@ -1002,8 +1026,10 @@ def test_work_order_notes_append_timestamped_authenticated_user_log(db):
     saved = wos.update_work_order(
         db, w.id, user=tech, fields={"notes": "Call resident before arrival."}
     )
+    # A human-typed note goes through the same `append_note_log` a
+    # server-authored one does, which is what "normalized" means here.
     assert re.fullmatch(
-        r"\[\d{1,2}:\d{2} [AP]M\] \[\d{6}\] \[Jamie Rivera\] "
+        r"\d{2}/\d{2}/\d{2} \d{2}:\d{2} [AP]M Jamie Rivera "
         r"Call resident before arrival\.",
         saved.notes,
     )
@@ -1013,7 +1039,7 @@ def test_work_order_notes_append_timestamped_authenticated_user_log(db):
         db, w.id, user=tech, fields={"notes": "Parts ordered."}
     )
     assert appended.notes.startswith(first_entry + "\n\n")
-    assert appended.notes.endswith("[Jamie Rivera] Parts ordered.")
+    assert appended.notes.endswith("Jamie Rivera Parts ordered.")
 
     # The log is append-only; an old client's null clear cannot erase history.
     unchanged = wos.update_work_order(
@@ -1753,6 +1779,421 @@ def test_unassigned_routed_supervisor_still_sends_to_review():
     wos._require_review_handoff_permission(
         _review_stub_work_order(supervisor_id=actor.id), actor
     )
+
+
+# --- tracked labor sessions ----------------------------------------------
+
+def _sessions(db, work_order):
+    return (
+        db.query(WorkOrderLaborSession)
+        .filter(WorkOrderLaborSession.work_order_id == work_order.id)
+        .order_by(WorkOrderLaborSession.started_at)
+        .all()
+    )
+
+
+def _labor(db, work_order):
+    return (
+        db.query(WorkOrderLabor)
+        .filter(WorkOrderLabor.work_order_id == work_order.id)
+        .all()
+    )
+
+
+def _age_session(db, session, minutes):
+    """Backdate a running session so the 12-hour cap can be exercised without
+    a clock that actually runs for half a day."""
+    session.started_at = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    db.flush()
+
+
+def test_start_tracking_opens_a_session_and_advances_to_in_progress(db):
+    """Starting the clock *is* the activity that moves a pre-work row, which
+    is why "Set In-Progress" stops being a button a technician has to find."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician", first_name="Dale", last_name="Grubb")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    assert w.status == "assigned"
+
+    started = wos.start_labor_session(db, w.id, user=tech)
+
+    assert started.status == "in_progress"
+    sessions = _sessions(db, w)
+    assert len(sessions) == 1
+    assert sessions[0].technician_id == tech.id
+    assert sessions[0].ended_at is None
+    assert started.notes.endswith(f"Dale Grubb {wo.NOTE_BEGAN_WORK}")
+
+
+def test_start_tracking_resumes_an_on_hold_row(db):
+    """Once "nobody is tracking" *causes* On-Hold, the inverse has to hold
+    too -- otherwise clocking back in after lunch costs two taps every time."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.start_work_order(db, w.id, user=tech)
+    wos.hold_work_order(db, w.id, user=tech)
+    assert w.status == "on_hold"
+
+    started = wos.start_labor_session(db, w.id, user=tech)
+
+    assert started.status == "in_progress"
+    assert len([s for s in _sessions(db, w) if s.ended_at is None]) == 1
+
+
+def test_start_tracking_is_idempotent(db):
+    """The primary field button, tapped with gloves on."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+
+    wos.start_labor_session(db, w.id, user=tech)
+    notes_after_first = w.notes
+    repeated = wos.start_labor_session(db, w.id, user=tech)
+
+    assert repeated.status == "in_progress"
+    assert repeated.notes == notes_after_first
+    assert len(_sessions(db, w)) == 1
+
+
+@pytest.mark.parametrize("blocked", ["ready_to_complete", "completed"])
+def test_start_tracking_is_refused_once_the_work_is_declared_finished(db, blocked):
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.update_work_order(db, w.id, user=sup, fields={"status": blocked})
+
+    with pytest.raises(WorkOrderStateError):
+        wos.start_labor_session(db, w.id, user=tech)
+
+
+def test_stop_writes_a_labor_row_linked_to_its_session(db):
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician", first_name="Dale", last_name="Grubb")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.start_labor_session(db, w.id, user=tech)
+
+    stopped = wos.stop_labor_session(db, w.id, user=tech)
+
+    entries = _labor(db, w)
+    assert len(entries) == 1
+    # A session measured in milliseconds still records a minute rather than
+    # zero, which `validate_labor_minutes` would refuse.
+    assert entries[0].minutes == 1
+    assert entries[0].technician_id == tech.id
+    assert entries[0].recorded_by_id == tech.id
+    session = _sessions(db, w)[0]
+    assert session.ended_at is not None
+    assert session.labor_id == entries[0].id
+    assert session.auto_closed_at is None
+    assert f"Dale Grubb {wo.NOTE_STOPPED_WORK}" in stopped.notes
+
+
+def test_the_last_clock_out_puts_the_work_order_on_hold(db):
+    """Nobody is working on it, and that is precisely what On-Hold now means.
+    A short job therefore ends On-Hold, not finished -- finishing is Notify
+    Supervisor, which is a different button."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.start_labor_session(db, w.id, user=tech)
+
+    stopped = wos.stop_labor_session(db, w.id, user=tech)
+
+    assert stopped.status == "on_hold"
+    assert wos.previous_status(stopped) == "in_progress"
+
+
+def test_a_co_worker_still_tracking_keeps_the_row_in_progress(db):
+    sup = _seed_user(db, "supervisor")
+    a = _seed_user(db, "technician")
+    b = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup)
+    wos.update_work_order(db, w.id, user=sup, fields={"assigned_to_ids": [a.id, b.id]})
+    wos.start_labor_session(db, w.id, user=a)
+    wos.start_labor_session(db, w.id, user=b)
+
+    stopped = wos.stop_labor_session(db, w.id, user=a)
+
+    assert stopped.status == "in_progress"
+    # No transition, so the router sends nothing.
+    assert wos.previous_status(stopped) == "in_progress"
+
+
+def test_an_idempotent_repeat_stop_neither_transitions_nor_writes_a_note(db):
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.start_labor_session(db, w.id, user=tech)
+    wos.stop_labor_session(db, w.id, user=tech)
+    notes_after_first = w.notes
+
+    repeated = wos.stop_labor_session(db, w.id, user=tech)
+
+    assert repeated.status == "on_hold"
+    assert repeated.notes == notes_after_first
+    assert wos.previous_status(repeated) == "on_hold"
+    assert len(_labor(db, w)) == 1
+
+
+def test_hold_stops_every_clock_on_the_work_order(db):
+    """The job is paused for everyone, which is what the status means."""
+    sup = _seed_user(db, "supervisor")
+    a = _seed_user(db, "technician", first_name="Ada", last_name="Nunez")
+    b = _seed_user(db, "technician", first_name="Bo", last_name="Reyes")
+    w = _wo(db, created_by=sup)
+    wos.update_work_order(db, w.id, user=sup, fields={"assigned_to_ids": [a.id, b.id]})
+    wos.start_labor_session(db, w.id, user=a)
+    wos.start_labor_session(db, w.id, user=b)
+
+    held = wos.hold_work_order(db, w.id, user=a)
+
+    assert held.status == "on_hold"
+    assert all(s.ended_at is not None for s in _sessions(db, w))
+    assert len(_labor(db, w)) == 2
+    # Each line names the person whose clock it was, not the person who tapped.
+    assert f"Ada Nunez {wo.NOTE_STOPPED_WORK}" in held.notes
+    assert f"Bo Reyes {wo.NOTE_STOPPED_WORK}" in held.notes
+
+
+def test_resume_starts_no_clock(db):
+    """Stopping a clock can only under-bill; starting one bills somebody for
+    time they may not be working."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.start_labor_session(db, w.id, user=tech)
+    wos.hold_work_order(db, w.id, user=tech)
+
+    resumed = wos.resume_work_order(db, w.id, user=tech)
+
+    assert resumed.status == "in_progress"
+    assert not [s for s in _sessions(db, w) if s.ended_at is None]
+
+
+def test_notify_supervisor_stops_every_clock_including_a_co_workers(db):
+    """The row has been declared finished, so no clock survives it. B is not
+    billed for time after the job was handed to a supervisor, and B's real
+    time up to that moment is recorded in full."""
+    sup = _seed_user(db, "supervisor")
+    a = _seed_user(db, "technician", first_name="Ada", last_name="Nunez")
+    b = _seed_user(db, "technician", first_name="Bo", last_name="Reyes")
+    w = _wo(db, created_by=sup)
+    wos.update_work_order(db, w.id, user=sup, fields={"assigned_to_ids": [a.id, b.id]})
+    wos.start_labor_session(db, w.id, user=a)
+    wos.start_labor_session(db, w.id, user=b)
+
+    finished = wos.complete_work_order(db, w.id, user=a)
+
+    assert finished.status == "ready_to_complete"
+    assert finished.completed_at is None
+    assert all(s.ended_at is not None for s in _sessions(db, w))
+    assert len(_labor(db, w)) == 2
+    # B's line is authored by B, not by the technician who tapped the button.
+    assert f"Bo Reyes {wo.NOTE_STOPPED_WORK}" in finished.notes
+    # The actor stopped, then marked it ready -- in that order.
+    assert finished.notes.index(f"Ada Nunez {wo.NOTE_STOPPED_WORK}") < finished.notes.index(
+        wo.NOTE_READY_TO_COMPLETE
+    )
+
+
+def test_notify_supervisor_does_not_auto_hold_despite_stopping_every_clock(db):
+    """Auto-hold belongs to `/tracking/stop`. This action has its own
+    destination and must not be intercepted by it."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.start_labor_session(db, w.id, user=tech)
+
+    finished = wos.complete_work_order(db, w.id, user=tech)
+
+    assert finished.status == "ready_to_complete"
+
+
+def test_a_co_worker_cannot_start_again_on_a_ready_to_complete_row(db):
+    sup = _seed_user(db, "supervisor")
+    a = _seed_user(db, "technician")
+    b = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup)
+    wos.update_work_order(db, w.id, user=sup, fields={"assigned_to_ids": [a.id, b.id]})
+    wos.start_labor_session(db, w.id, user=a)
+    wos.complete_work_order(db, w.id, user=a)
+
+    with pytest.raises(WorkOrderStateError):
+        wos.start_labor_session(db, w.id, user=b)
+
+    # Send Back puts the crew live again.
+    wos.update_work_order(db, w.id, user=sup, fields={"status": "in_progress"})
+    assert wos.start_labor_session(db, w.id, user=b).status == "in_progress"
+
+
+def test_a_supervisor_tracks_a_work_order_they_are_not_assigned_to(db):
+    """A supervisor who does the work records it without joining the crew."""
+    sup = _seed_user(db, "supervisor", first_name="Robin", last_name="Vance")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+
+    wos.start_labor_session(db, w.id, user=sup)
+    wos.stop_labor_session(db, w.id, user=sup)
+
+    entries = _labor(db, w)
+    assert [e.technician_id for e in entries] == [sup.id]
+    assert sup.id not in wos.assigned_technician_ids(w)
+
+
+def test_an_unassigned_technician_cannot_track(db):
+    """The Supervisor widening does not reach down a rank."""
+    sup = _seed_user(db, "supervisor")
+    assigned = _seed_user(db, "technician")
+    outsider = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=assigned)
+
+    # Not visible to them at all, so it is a 404 rather than a 403 -- the
+    # existence of the row is not leaked.
+    with pytest.raises(WorkOrderNotFoundError):
+        wos.start_labor_session(db, w.id, user=outsider)
+
+
+def test_starting_elsewhere_closes_the_clock_on_the_previous_work_order(db):
+    """A technician who drove to the next job should not have to remember to
+    clock out of the last one -- and the unique index makes two open sessions
+    impossible anyway. The abandoned row auto-holds and is handed back through
+    `side_transitions` so its notification is not lost."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician", first_name="Dale", last_name="Grubb")
+    first = _wo(db, created_by=sup, assigned_to=tech)
+    second = _wo(db, created_by=sup, assigned_to=tech)
+    wos.start_labor_session(db, first.id, user=tech)
+
+    started = wos.start_labor_session(db, second.id, user=tech)
+
+    assert started.status == "in_progress"
+    assert len([s for s in _sessions(db, second) if s.ended_at is None]) == 1
+    # The abandoned job closed, billed, and put itself On-Hold.
+    assert not [s for s in _sessions(db, first) if s.ended_at is None]
+    assert len(_labor(db, first)) == 1
+    db.refresh(first)
+    assert first.status == "on_hold"
+    carried = wos.side_transitions(started)
+    assert [row.id for row in carried] == [first.id]
+    assert wos.previous_status(carried[0]) == "in_progress"
+
+
+def test_only_one_running_session_per_person_is_possible(db):
+    """Enforced by the partial unique index rather than by a service check
+    that races."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.start_labor_session(db, w.id, user=tech)
+
+    db.add(
+        WorkOrderLaborSession(
+            id=uuid.uuid4(),
+            work_order_id=w.id,
+            technician_id=tech.id,
+            started_at=datetime.now(timezone.utc),
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db.flush()
+    db.rollback()
+
+
+def test_archive_stops_running_sessions(db):
+    """An explicit action with an actor, so the stop is at the real clock
+    time and there is nothing to guess."""
+    admin = _seed_user(db, "admin")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=admin, assigned_to=tech)
+    wos.start_labor_session(db, w.id, user=tech)
+
+    wos.archive_work_order(db, w.id, user=admin)
+
+    assert not [s for s in _sessions(db, w) if s.ended_at is None]
+    assert len(_labor(db, w)) == 1
+    # Restoring does not resume it.
+    wos.restore_work_order(db, w.id, user=admin)
+    assert not [s for s in _sessions(db, w) if s.ended_at is None]
+
+
+@pytest.mark.parametrize("target", ["on_hold", "ready_to_complete", "completed"])
+def test_a_supervisor_patch_into_a_stopping_status_stops_every_clock(db, target):
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.start_labor_session(db, w.id, user=tech)
+
+    wos.update_work_order(db, w.id, user=sup, fields={"status": target})
+
+    assert not [s for s in _sessions(db, w) if s.ended_at is None]
+    assert len(_labor(db, w)) == 1
+
+
+def test_an_over_cap_session_closes_at_the_capped_time_and_is_flagged(db):
+    """The log must agree with the labor row it produced, so the line is
+    stamped at the capped instant rather than at the moment it was noticed."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.start_labor_session(db, w.id, user=tech)
+    session = _sessions(db, w)[0]
+    _age_session(db, session, 14 * 60)
+    started_at = session.started_at
+
+    # Any read repairs it -- the cap is lazy because this app has no scheduler.
+    wos.get_work_order(db, w.id, user=sup)
+
+    session = _sessions(db, w)[0]
+    assert session.ended_at is not None
+    assert session.auto_closed_at is not None
+    assert session.ended_at == started_at + timedelta(
+        minutes=wo.LABOR_SESSION_MAX_MINUTES
+    )
+    entries = _labor(db, w)
+    assert [e.minutes for e in entries] == [wo.LABOR_SESSION_MAX_MINUTES]
+    # Nobody stopped it, so no actor is credited with recording it.
+    assert entries[0].recorded_by_id is None
+    db.refresh(w)
+    assert wo.format_note_timestamp(session.ended_at) in w.notes
+
+
+def test_the_lazy_cap_does_not_auto_hold(db):
+    """A status change and a supervisor's phone buzzing as a side effect of
+    somebody opening a card would be indefensible."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.start_labor_session(db, w.id, user=tech)
+    _age_session(db, _sessions(db, w)[0], 14 * 60)
+
+    refreshed = wos.get_work_order(db, w.id, user=sup)
+
+    assert refreshed.status == "in_progress"
+
+
+def test_an_open_session_contributes_nothing_to_billing(db):
+    """The property that makes tracked time additive rather than a rewrite of
+    the billing path."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.start_labor_session(db, w.id, user=tech)
+
+    assert _labor(db, w) == []
+    assert wo.billed_labor_minutes(sum(e.minutes for e in _labor(db, w))) == 0
+
+
+def test_start_and_stop_each_append_exactly_one_note_line(db):
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+
+    started = wos.start_labor_session(db, w.id, user=tech)
+    assert started.notes.count(wo.NOTE_BEGAN_WORK) == 1
+    stopped = wos.stop_labor_session(db, w.id, user=tech)
+    assert stopped.notes.count(wo.NOTE_BEGAN_WORK) == 1
+    assert stopped.notes.count(wo.NOTE_STOPPED_WORK) == 1
 
 
 # --- transition facts, for notification triggers -------------------------

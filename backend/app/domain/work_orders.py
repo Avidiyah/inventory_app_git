@@ -5,10 +5,12 @@ unit tests, like `domain.mass_staging` and `domain.roles`.
 
 A work order is a standalone entity whose identity is its `number` (unique
 case-insensitively + trimmed). Its live lifecycle is `created -> assigned ->
-in_progress -> completed -> review`, with `on_hold` as a supervisor-controlled
+in_progress -> ready_to_complete -> completed -> review`, with `on_hold` as a
 pause: technician assignment derives `assigned`, and the first material/labor
-activity derives `in_progress`. `closed` is the row's `archived_at`, not
-duplicated in `status`. `entry_mode` is the default mode
+activity derives `in_progress`. `ready_to_complete` is the crew's handoff to a
+supervisor, and `on_hold` now means purely "nobody is working on this" -- the
+tracking service sets it when the last clock stops. `closed` is the row's
+`archived_at`, not duplicated in `status`. `entry_mode` is the default mode
 for newly logged materials: `dispense` moves stock, `retroactive` is a
 stock-neutral paper backfill.
 """
@@ -41,14 +43,23 @@ STATUS_CREATED = "created"
 STATUS_ASSIGNED = "assigned"
 STATUS_IN_PROGRESS = "in_progress"
 STATUS_ON_HOLD = "on_hold"
+# The crew has finished and handed the work to a supervisor to confirm. A
+# deliberately *earlier* gate than `STATUS_REVIEW`, which is the Admin Review
+# queue that produces the client receipt: a row moves ready_to_complete ->
+# completed -> review, in that order. Promoted from a note string
+# (`REVIEW_HOLD_NOTE`) because reading note text was the only way to tell a
+# finished job apart from a crew at lunch on the On-Hold filter.
+STATUS_READY_TO_COMPLETE = "ready_to_complete"
 STATUS_COMPLETED = "completed"
 STATUS_REVIEW = "review"
 
+# Lifecycle order, which is also the order every dropdown and filter renders in.
 ALL_STATUSES: tuple[str, ...] = (
     STATUS_CREATED,
     STATUS_ASSIGNED,
     STATUS_IN_PROGRESS,
     STATUS_ON_HOLD,
+    STATUS_READY_TO_COMPLETE,
     STATUS_COMPLETED,
     STATUS_REVIEW,
 )
@@ -69,11 +80,34 @@ ALL_MODES: tuple[str, ...] = (MODE_DISPENSE, MODE_RETROACTIVE)
 
 NOTE_TIMEZONE = ZoneInfo("America/Chicago")
 
-# Written to the note log when a Technician's completion parks the work order
-# On-Hold (`completion_target_status`). It is the only thing distinguishing that
-# hold from an ordinary mid-job pause, so it is a constant rather than a string
-# typed at the call site -- the Supervisor reading the log is the audience.
-REVIEW_HOLD_NOTE = "Placed On-Hold for Supervisor Review"
+# Server-authored note bodies. The note log is the *public* record -- every role
+# that can open the card reads it -- so the work timeline is written there in
+# plain language even though the billable arithmetic lives in
+# `work_order_labor_sessions`. Constants rather than strings typed at the call
+# site: the Supervisor reading the log is the audience, and these three lines
+# are what they scan for.
+NOTE_BEGAN_WORK = "began work"
+NOTE_STOPPED_WORK = "stopped work"
+# Replaces the former `REVIEW_HOLD_NOTE`, which described the *row's state*
+# ("Placed On-Hold for Supervisor Review") because no status could. The status
+# can now (`STATUS_READY_TO_COMPLETE`), so the line describes the person's
+# action instead. Historical lines carrying the old text stay as they are: the
+# log is append-only and they remain true about what happened at the time.
+NOTE_READY_TO_COMPLETE = "marked work ready to complete"
+
+
+def format_note_timestamp(occurred_at: datetime) -> str:
+    """``MM/DD/YY hh:MM AM/PM`` for one instant, in the app's Central timezone.
+
+    Split out of `append_note_log` so anything else that shows a work-order
+    time to a human -- a labor entry's session window, today -- can render it
+    the same way rather than reimplementing the padding and the conversion.
+    A naive value is read as UTC, matching how the rest of the app stores time.
+    """
+    instant = occurred_at
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=timezone.utc)
+    return instant.astimezone(NOTE_TIMEZONE).strftime("%m/%d/%y %I:%M %p")
 
 
 def append_note_log(
@@ -85,23 +119,25 @@ def append_note_log(
 ) -> str:
     """Append one server-authored plain-text entry to a Work Order note log.
 
-    New entries use the requested ``[TIME] [MMDDYY] [User] text`` shape in the
-    application's Central timezone. Existing free-form text is retained as-is,
-    so notes written before the log format was introduced are never discarded.
+    New entries use the ``MM/DD/YY hh:MM AM/PM Author text`` shape in the
+    application's Central timezone -- a zero-padded 12-hour clock and a slashed
+    date, with no bracket delimiters. Existing free-form text is retained as-is,
+    so notes written before the log format was introduced, and lines written in
+    the earlier ``[TIME] [MMDDYY] [User]`` shape, are never rewritten. The two
+    shapes coexist and age out; retroactively normalizing stored prose would
+    mean regex-parsing every work order with no reliable verification and no
+    undo.
+
+    This is the single place any note line is built, which is why reformatting
+    is a one-function change with a repo-wide effect: human-typed notes route
+    through here too (`services.work_orders.update_work_order`), so a typed note
+    and a system-written one come out in the same shape.
     """
     body = note.strip()
     if not body:
         raise WorkOrderStateError("Note text is required.")
     author = author_name.strip() or "Name unavailable"
-    instant = occurred_at
-    if instant.tzinfo is None:
-        instant = instant.replace(tzinfo=timezone.utc)
-    local = instant.astimezone(NOTE_TIMEZONE)
-    hour = local.strftime("%I").lstrip("0") or "12"
-    entry = (
-        f"[{hour}:{local.strftime('%M %p')}] "
-        f"[{local.strftime('%m%d%y')}] [{author}] {body}"
-    )
+    entry = f"{format_note_timestamp(occurred_at)} {author} {body}"
     prior = (existing or "").rstrip()
     return f"{prior}\n\n{entry}" if prior else entry
 
@@ -233,6 +269,44 @@ def labor_charge(total_minutes: int) -> Decimal:
     return LABOR_RATE * Decimal(billed) / Decimal(60)
 
 
+# --- tracked labor sessions ----------------------------------------------
+
+# A session left running overnight must not bill fourteen hours. Twelve is
+# longer than any real shift and short enough that the invented figure stays
+# recognisable as one.
+LABOR_SESSION_MAX_MINUTES = 720
+
+
+def capped_session_minutes(
+    started_at: datetime,
+    ended_at: Optional[datetime],
+    *,
+    now: datetime,
+) -> tuple[int, bool]:
+    """Billable minutes for a session and whether the cap truncated it.
+
+    `ended_at` is the real stop time, or `None` for a session still running --
+    in which case `now` stands in for it, which is how a caller asks "what
+    would this bill if I closed it right now".
+
+    Two rounding rules, both deliberate:
+
+    - The result floors at **1**. A twenty-second session would otherwise
+      record zero minutes and trip `validate_labor_minutes`'s positive-integer
+      rule, turning a legitimate short visit into an error.
+    - Anything past `LABOR_SESSION_MAX_MINUTES` is truncated to it, and the
+      second element of the tuple says so. That flag is what marks the produced
+      labor row as an estimate a supervisor should look at, rather than a
+      billing fact accepted on its own.
+    """
+    stop = ended_at if ended_at is not None else now
+    elapsed = (stop - started_at).total_seconds() / 60
+    minutes = max(1, round(elapsed))
+    if minutes > LABOR_SESSION_MAX_MINUTES:
+        return LABOR_SESSION_MAX_MINUTES, True
+    return minutes, False
+
+
 def effective_billable(quantity: Decimal, billable_quantity: Optional[Decimal]) -> Decimal:
     """Units actually charged on a material line: the billing override when one is
     set, otherwise the full recorded quantity. Shared by the card/detail
@@ -247,7 +321,8 @@ def validate_status(status: str) -> None:
     """Raise `WorkOrderStateError` unless `status` is a live workflow state."""
     if status not in ALL_STATUSES:
         raise WorkOrderStateError(
-            "Status must be created, assigned, in_progress, on_hold, completed, or review."
+            "Status must be created, assigned, in_progress, on_hold, "
+            "ready_to_complete, completed, or review."
         )
 
 
@@ -292,9 +367,9 @@ def completion_target_status(role: Optional[str]) -> str:
     """Where an assigned worker's walkthrough completion actually lands.
 
     A Technician finishes the work but does not get to declare it billable:
-    their completion parks the row On-Hold for a supervisor to review.
-    Supervisor and above -- and the `None`-role internal caller -- reach
-    Completed directly.
+    their completion moves the row to Ready to Complete for a supervisor to
+    review. Supervisor and above -- and the `None`-role internal caller --
+    reach Completed directly.
 
     Keyed on role rather than on assignment, deliberately. A Supervisor may
     also be an assigned worker (`roles.WORK_ORDER_TECHNICIAN_ROLES`), and the
@@ -302,12 +377,12 @@ def completion_target_status(role: Optional[str]) -> str:
     rule would quietly take completion away from supervisors too.
 
     An unrecognised role ranks below Technician (`roles.rank` returns -1) and
-    therefore lands On-Hold. A corrupt role value must never reach a billing
-    state.
+    therefore lands Ready to Complete. A corrupt role value must never reach a
+    billing state.
     """
     if role is None or roles.role_at_least(role, roles.ROLE_SUPERVISOR):
         return STATUS_COMPLETED
-    return STATUS_ON_HOLD
+    return STATUS_READY_TO_COMPLETE
 
 
 def validate_mode(mode: str) -> None:

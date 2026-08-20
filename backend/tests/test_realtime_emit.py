@@ -57,7 +57,7 @@ def _passthrough_detail(monkeypatch):
     monkeypatch.setattr(
         work_orders_router,
         "_detail",
-        lambda work_order, *, include_price: work_order,
+        lambda work_order, *, include_price, viewer_id=None: work_order,
     )
 
 
@@ -385,9 +385,14 @@ def test_archive_emits_an_entity_style_status_invalidation(monkeypatch):
     }
 
 
-def test_the_status_emitter_set_is_exactly_the_seven_capable_routes():
+def test_the_status_emitter_set_is_exactly_the_nine_capable_routes():
     """Mirrors the review-queue emitter-set test. Any future route able to change
-    a work order's status or its card summary must join this set deliberately."""
+    a work order's status or its card summary must join this set deliberately.
+
+    The two tracking routes belong here because starting a clock advances a
+    pre-work row to In-Progress (and resumes an On-Hold one), and stopping the
+    last clock puts the row back On-Hold -- both change the badge on a card
+    somebody else may be looking at."""
     emitters = {
         route.endpoint.__name__
         for route in work_orders_router.router.routes
@@ -397,6 +402,8 @@ def test_the_status_emitter_set_is_exactly_the_seven_capable_routes():
 
     assert emitters == {
         "start_work_order",
+        "start_work_order_tracking",
+        "stop_work_order_tracking",
         "complete_work_order",
         "hold_work_order",
         "resume_work_order",
