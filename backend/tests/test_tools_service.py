@@ -430,3 +430,93 @@ def test_adjust_unknown_tool_raises_not_found(db):
         tools_service.adjust_tool_quantity(
             db, uuid.uuid4(), new_quantity=Decimal(1), reason="x", performed_by_id=admin.id
         )
+
+
+# --- custody detail with a since ----------------------------------------
+
+def test_user_custody_detail_reports_when_the_tool_went_out(db):
+    holder = _seed_user(db)
+    tool = _seed_tool(db)
+    tools_service.checkout_tool(
+        db,
+        tool.id,
+        quantity=Decimal("1"),
+        assigned_to_id=holder.id,
+        performed_by_id=holder.id,
+    )
+
+    rows = tools_service.user_custody_detail(db, holder.id)
+
+    assert len(rows) == 1
+    tool_id, name, barcode, quantity, since = rows[0]
+    assert tool_id == tool.id
+    assert name == "Cordless Drill"
+    assert barcode == tool.barcode
+    assert quantity == Decimal("1")
+    assert since is not None
+
+
+def test_user_custody_detail_omits_a_fully_returned_tool(db):
+    holder = _seed_user(db)
+    tool = _seed_tool(db)
+    tools_service.checkout_tool(
+        db,
+        tool.id,
+        quantity=Decimal("1"),
+        assigned_to_id=holder.id,
+        performed_by_id=holder.id,
+    )
+    tools_service.return_tool(
+        db,
+        tool.id,
+        quantity=Decimal("1"),
+        assigned_to_id=holder.id,
+        performed_by_id=holder.id,
+    )
+
+    assert tools_service.user_custody_detail(db, holder.id) == []
+
+
+def test_user_custody_detail_keeps_the_spell_open_after_a_partial_return(db):
+    holder = _seed_user(db)
+    tool = _seed_tool(db)
+    tools_service.checkout_tool(
+        db,
+        tool.id,
+        quantity=Decimal("2"),
+        assigned_to_id=holder.id,
+        performed_by_id=holder.id,
+    )
+    first_out = tools_service.user_custody_detail(db, holder.id)[0][4]
+    tools_service.return_tool(
+        db,
+        tool.id,
+        quantity=Decimal("1"),
+        assigned_to_id=holder.id,
+        performed_by_id=holder.id,
+    )
+
+    rows = tools_service.user_custody_detail(db, holder.id)
+
+    assert rows[0][3] == Decimal("1")
+    # Still holding one, so "since" never moved.
+    assert rows[0][4] == first_out
+
+
+def test_user_custody_detail_agrees_with_user_custody(db):
+    # The two must never disagree about who holds what -- only about whether
+    # a timestamp is included.
+    holder = _seed_user(db)
+    tool = _seed_tool(db)
+    tools_service.checkout_tool(
+        db,
+        tool.id,
+        quantity=Decimal("2"),
+        assigned_to_id=holder.id,
+        performed_by_id=holder.id,
+    )
+
+    plain = tools_service.user_custody(db, holder.id)
+    detailed = tools_service.user_custody_detail(db, holder.id)
+
+    assert [row[:4] for row in detailed] == plain

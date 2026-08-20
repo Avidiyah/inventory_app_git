@@ -34,9 +34,11 @@ from app.domain.errors import (
 )
 from app.domain.list_limits import fetch_limit
 from app.domain.quantity import apply_delta
-from app.domain.tools import validate_return
+from app.domain.tools import custody_since, validate_return
 from app.models import Tool, ToolTransaction, User
 from app.services._list_cap import capped
+
+_OLDEST = datetime.min.replace(tzinfo=timezone.utc)
 
 
 def _ensure_barcode_free(
@@ -271,6 +273,60 @@ def user_custody(
         (tool_id, name, barcode, quantity)
         for tool_id, name, barcode, quantity in rows
     ]
+
+
+def user_custody_detail(
+    db: Session, assigned_to_id: uuid.UUID
+) -> list[tuple[uuid.UUID, str, str, Decimal, Optional[datetime]]]:
+    """`user_custody` plus how long each tool has been out.
+
+    Returns `(tool_id, tool_name, barcode, quantity, since)`, oldest spell
+    first, for every positive balance -- the same rows `user_custody`
+    returns, in the same shape with one field appended.
+
+    A separate function rather than a widened `user_custody` on purpose:
+    that one feeds user archival and force check-in, neither of which cares
+    when a tool went out, and changing a shipped return shape to add a field
+    two callers would ignore is how a small addition becomes a regression.
+    `since` comes from `domain.tools.custody_since`, so the "when did this
+    spell start" rule is testable without a database.
+    """
+    outstanding = {
+        tool_id: (name, barcode, quantity)
+        for tool_id, name, barcode, quantity in user_custody(db, assigned_to_id)
+    }
+    if not outstanding:
+        return []
+
+    rows = (
+        db.query(
+            ToolTransaction.tool_id,
+            ToolTransaction.transaction_type,
+            ToolTransaction.quantity,
+            ToolTransaction.created_at,
+        )
+        .filter(
+            ToolTransaction.assigned_to_id == assigned_to_id,
+            ToolTransaction.tool_id.in_(outstanding.keys()),
+            ToolTransaction.transaction_type.in_(("checkout", "return")),
+        )
+        .order_by(ToolTransaction.created_at)
+        .all()
+    )
+    events: dict[uuid.UUID, list[tuple[str, Decimal, datetime]]] = {}
+    for tool_id, transaction_type, quantity, created_at in rows:
+        events.setdefault(tool_id, []).append(
+            (transaction_type, quantity, created_at)
+        )
+
+    detail = [
+        (tool_id, name, barcode, quantity, custody_since(events.get(tool_id, [])))
+        for tool_id, (name, barcode, quantity) in outstanding.items()
+    ]
+    # Oldest spell first: the tool somebody has been sitting on for a week is
+    # the one worth reading first. Unknowns sort last.
+    detail.sort(key=lambda row: (row[4] is None, row[4] or _OLDEST))
+    return detail
 
 
 def return_all_for_user(
