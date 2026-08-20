@@ -203,3 +203,31 @@ def test_an_empty_hub_is_all_zeros_and_empty_lists(db):
     assert payload.startable == []
     assert payload.tools_out == []
     assert payload.clock.total_minutes == 0
+
+
+def test_the_payload_serialises_into_the_response_schema(db):
+    # The handler is called directly -- its two parameters are `Depends`
+    # defaults, so this needs no HTTP client. A field renamed on either side
+    # of the service/schema boundary has to fail here rather than at runtime.
+    from app.routers.hub import get_hub
+
+    tech = _seed_user(db)
+    work_order = _seed_work_order(
+        db, created_by=tech, assigned_to=tech, number="88214",
+        status=wo.STATUS_ASSIGNED,
+    )
+    wos.start_labor_session(db, work_order.id, user=tech)
+
+    body = get_hub(user=tech, db=db).model_dump()
+
+    assert body["user"]["role"] == roles.ROLE_TECHNICIAN
+    assert body["counts"]["assigned"] == 1
+    assert body["clock"]["running_session"]["number"] == "88214"
+    assert body["clock"]["running_session"]["day_counting_from"] is not None
+    assert body["clock"]["total_minutes_today"] == (
+        body["clock"]["closed_minutes_today"]
+        + body["clock"]["running_minutes_today"]
+        + body["clock"]["adjustment_minutes_today"]
+    )
+    assert [e["number"] for e in body["timeline"]] == ["88214"]
+    assert body["startable"][0]["status"] == wo.STATUS_IN_PROGRESS

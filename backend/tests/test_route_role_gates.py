@@ -29,6 +29,7 @@ from fastapi import BackgroundTasks
 
 from app.domain import roles
 from app.domain.errors import WorkOrderAssignmentConflictError
+from app.routers import hub as hub_router
 from app.routers import items as items_router
 from app.routers import netfacilities as netfacilities_router
 from app.routers import tools as tools_router
@@ -507,3 +508,25 @@ def test_no_route_gate_is_left_at_the_admin_floor():
         and _find_min_role(route.dependant) == roles.ROLE_ADMIN
     }
     assert offenders == set()
+
+
+def test_the_hub_is_open_to_any_authenticated_role():
+    # Every role gets the personal block, Admin included: `POST
+    # /tracking/start` is already Supervisor+ on any visible row, so a
+    # supervisor with a running clock and no way to see it would be a
+    # regression. The rank-gated payloads are separate endpoints.
+    assert _min_role_for(hub_router, "get_hub") is None
+
+
+def test_the_hub_route_still_requires_a_session():
+    # "No minimum role" must not mean "no gate". `get_current_user` is the
+    # 401 boundary and has to be in the dependant tree.
+    from app.auth_deps import get_current_user
+
+    def _uses(dependant):
+        return any(
+            sub.call is get_current_user or _uses(sub)
+            for sub in dependant.dependencies
+        )
+
+    assert _uses(_route(hub_router, "get_hub").dependant) is True

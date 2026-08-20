@@ -48,6 +48,7 @@ from app.services import rate_limit as rate_limit_service
 from app.routers import (
     auth,
     barcodes,
+    hub,
     items,
     mass_stages,
     netfacilities,
@@ -304,6 +305,7 @@ async def log_request(request, call_next):
 # `/transactions`, `/users`); ordering here is irrelevant.
 app.include_router(auth.router)
 app.include_router(barcodes.router)
+app.include_router(hub.router)
 app.include_router(items.router)
 app.include_router(mass_stages.router)
 app.include_router(netfacilities.router)
