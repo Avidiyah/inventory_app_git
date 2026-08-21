@@ -453,6 +453,7 @@ export async function apiListWorkOrders({
   status = null,
   serviceType = null,
   supervisorId = null,
+  assignedToId = null,
   community = null,
   priority = null,
   scheduledDate = null,
@@ -463,6 +464,7 @@ export async function apiListWorkOrders({
   if (status) params.set("status", status);
   if (serviceType) params.set("service_type", serviceType);
   if (supervisorId) params.set("supervisor_id", supervisorId);
+  if (assignedToId) params.set("assigned_to_id", assignedToId);
   if (community) params.set("community", community);
   if (priority) params.set("priority", priority);
   if (scheduledDate) params.set("scheduled_date", scheduledDate);

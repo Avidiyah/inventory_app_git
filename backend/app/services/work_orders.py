@@ -900,6 +900,7 @@ def _apply_work_order_filters(
     status: Optional[str] = None,
     service_type: Optional[str] = None,
     supervisor_id: Optional[uuid.UUID] = None,
+    assigned_to_id: Optional[uuid.UUID] = None,
     community: Optional[str] = None,
     priority: Optional[str] = None,
     search: Optional[str] = None,
@@ -917,6 +918,20 @@ def _apply_work_order_filters(
 
     if supervisor_id is not None:
         query = query.filter(WorkOrder.supervisor_id == supervisor_id)
+
+    if assigned_to_id is not None:
+        # Legacy singular column OR the plural assignment table -- same
+        # "explicitly assigned to this person" test `_scoped_to_user`'s own
+        # Technician branch already uses, just as an opt-in filter here
+        # rather than the caller's own implicit scope.
+        query = query.filter(
+            or_(
+                WorkOrder.assigned_to_id == assigned_to_id,
+                WorkOrder.technician_assignments.any(
+                    WorkOrderTechnician.technician_id == assigned_to_id
+                ),
+            )
+        )
 
     query = _apply_community_filter(query, community)
     query = _apply_priority_filter(query, priority)
@@ -976,6 +991,7 @@ def list_work_orders(
     status: Optional[str] = None,
     service_type: Optional[str] = None,
     supervisor_id: Optional[uuid.UUID] = None,
+    assigned_to_id: Optional[uuid.UUID] = None,
     community: Optional[str] = None,
     priority: Optional[str] = None,
     scheduled_date: Optional[date] = None,
@@ -1015,6 +1031,7 @@ def list_work_orders(
             status=status,
             service_type=service_type,
             supervisor_id=supervisor_id,
+            assigned_to_id=assigned_to_id,
             community=community,
             priority=priority,
             search=search,

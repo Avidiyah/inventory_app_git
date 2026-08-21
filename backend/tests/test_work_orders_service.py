@@ -1403,6 +1403,46 @@ def test_advanced_filters_combine_with_and(db):
     assert [work_order.id for work_order in matches] == [target.id]
 
 
+def test_assigned_to_id_filter_narrows_to_explicit_assignment(db):
+    # A Supervisor's own scope (`_scoped_to_user`) also includes the
+    # unrouted pickup queue and everything they supervise -- `assigned_to_id`
+    # narrows within that to exactly what is explicitly assigned to them,
+    # the same test the User Hub's "My Work Orders" tab now applies.
+    supervisor = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+
+    assigned_to_supervisor = wos.get_or_create_work_order(
+        db,
+        number=f"WO-ASSIGN-{uuid.uuid4().hex[:8]}",
+        created_by_id=supervisor.id,
+        supervisor_id=supervisor.id,
+        assigned_to_id=supervisor.id,
+    )
+    supervised_but_unassigned = wos.get_or_create_work_order(
+        db,
+        number=f"WO-ASSIGN-{uuid.uuid4().hex[:8]}",
+        created_by_id=supervisor.id,
+        supervisor_id=supervisor.id,
+    )
+    wos.get_or_create_work_order(
+        db,
+        number=f"WO-ASSIGN-{uuid.uuid4().hex[:8]}",
+        created_by_id=supervisor.id,
+        assigned_to_id=tech.id,
+    )
+
+    # Sanity check: without the filter, the supervisor's own broader scope
+    # already includes the unassigned-but-supervised row.
+    unfiltered = wos.list_work_orders(db, user=supervisor)
+    assert supervised_but_unassigned.id in [w.id for w in unfiltered]
+
+    matches = wos.list_work_orders(
+        db, user=supervisor, assigned_to_id=supervisor.id
+    )
+
+    assert [w.id for w in matches] == [assigned_to_supervisor.id]
+
+
 def test_list_sorts_by_scheduled_date_descending_and_filters_exact_date(db):
     admin = _seed_user(db, "admin")
     prefix = f"WO-SCHEDULE-{uuid.uuid4().hex[:8]}"

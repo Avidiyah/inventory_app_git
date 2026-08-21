@@ -517,6 +517,7 @@ def list_work_orders(
     status: Optional[str] = Query(None),
     service_type: Optional[str] = Query(None),
     supervisor_id: Optional[uuid.UUID] = Query(None),
+    assigned_to_id: Optional[uuid.UUID] = Query(None),
     community: Optional[str] = Query(None),
     priority: Optional[str] = Query(None),
     scheduled_date: Optional[date] = Query(None),
@@ -526,20 +527,19 @@ def list_work_orders(
     db: Session = Depends(get_db),
 ):
     """List the caller's work orders, newest scheduled date first. Optional `status`, exact
-    `service_type`, routed `supervisor_id`, derived `community`, exact
-    `priority`, exact `scheduled_date`, and number `q` filters combine with AND.
-    Community is
+    `service_type`, routed `supervisor_id`, explicitly-assigned `assigned_to_id`,
+    derived `community`, exact `priority`, exact `scheduled_date`, and number
+    `q` filters combine with AND. Community is
     membership-based over structured community plus raw CSV location; Academics
     is the no-known-term fallback. Priority is an exact vendor value, or
     `__none__` for work orders NetFacilities enrichment never reached.
     `limit` caps that scheduled-date ordering (the
     page browses the first 10 by default and omits `limit` for Show all / search).
     Blank or malformed schedule values sort last. Any authenticated user;
-    server-scoped.
-
-    `limit` gained its `le` bound in X3 -- it was `ge=1` with no upper bound, so
-    a caller could ask for any integer. Omitting it still means "the full
-    matching set", which the service now caps at `MAX_LIST_ROWS`."""
+    server-scoped -- `assigned_to_id` only narrows within that scope, it
+    never widens it (e.g. a Technician cannot pass someone else's id to see
+    their work orders; the caller's own `_scoped_to_user` filter still
+    applies on top of it)."""
     try:
         return [
             _card(w)
@@ -549,6 +549,7 @@ def list_work_orders(
                 status=status,
                 service_type=service_type,
                 supervisor_id=supervisor_id,
+                assigned_to_id=assigned_to_id,
                 community=community,
                 priority=priority,
                 scheduled_date=scheduled_date,

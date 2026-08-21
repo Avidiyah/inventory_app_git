@@ -95,7 +95,7 @@ function timelineHtml(payload) {
   const { timeline, clock } = payload;
   const nowMinutes = minutesSinceMidnight(payload.server_now);
   if (!timeline.length && !clock.running_session) {
-    return `<p class="hint">No time tracked yet today. Start a clock from a work order or use Start on… above.</p>`;
+    return `<p class="hint">No time charged yet today. Start a clock from a work order or use Start on… above.</p>`;
   }
   const { start, end } = timelineRangeMinutes(timeline, nowMinutes);
   return `
@@ -126,7 +126,7 @@ function timeTodayHtml(payload) {
         <p class="hub-clock-hero">${escapeHtml(formatHm(clock.total_minutes_today))}</p>
         ${clock.running_session ? `<span class="hub-running-badge">● running</span>` : ""}
       </div>
-      <p class="hub-time-today-line">Tracked &nbsp;<strong>${escapeHtml(formatHm(clock.closed_minutes_today + clock.running_minutes_today))}</strong></p>
+      <p class="hub-time-today-line">Charged &nbsp;<strong>${escapeHtml(formatHm(clock.closed_minutes_today + clock.running_minutes_today))}</strong></p>
       ${adjustmentsHtml(clock.adjustments)}
       ${timelineHtml(payload)}
     </section>`;
@@ -170,10 +170,10 @@ export function mountHubDashboard(container, payload) {
   });
 }
 
-// Capped so an Admin/Owner's (currently company-wide, until P4 scopes it)
-// call does not render hundreds of cards in a hub tab -- the escape hatch
-// is the "View all" link, not client-side pagination duplicating the real
-// page's "Show all" control.
+// Capped so an Admin/Owner's company-wide call (P4 Tab 3, unscoped by
+// design) does not render hundreds of cards in a hub tab -- the escape
+// hatch is the "View all" link, not client-side pagination duplicating the
+// real page's "Show all" control.
 const HUB_WORK_ORDERS_LIMIT = 10;
 
 let mountedList = null;
@@ -184,9 +184,21 @@ export function mountHubWorkOrders(container, payload) {
     <p class="hub-wo-view-all"><button type="button" class="secondary-btn" data-action="hub-view-all-work-orders">View all in Work Orders →</button></p>
   `;
   const listContainer = container.querySelector(".hub-wo-list");
+  // A Supervisor's server-side scope (`_scoped_to_user`) also includes the
+  // unrouted pickup queue and every work order they supervise, so a bare
+  // fetch here would show more than the tab's own "My Work Orders" label
+  // promises. Narrowing with `assignedToId` keeps this tab to exactly what
+  // is explicitly assigned to them -- unassigned/routed-only work still
+  // reachable from the standalone Work Orders page. Technician scope is
+  // already exactly this by role; Admin+'s Tab 3 is intentionally unscoped
+  // and skips the filter.
+  const lockedFilter = { limit: HUB_WORK_ORDERS_LIMIT };
+  if (payload.user.role === "supervisor") {
+    lockedFilter.assignedToId = payload.user.id;
+  }
   mountedList = mountWorkOrderList({
     container: listContainer,
-    lockedFilter: { limit: HUB_WORK_ORDERS_LIMIT },
+    lockedFilter,
     onOpen: (card) => {
       focusWorkOrderNumber(card.number);
       showPage("work-orders");

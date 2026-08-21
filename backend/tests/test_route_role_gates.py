@@ -153,6 +153,7 @@ def test_work_order_routes_have_no_static_min_role(endpoint_name):
 
 def test_work_order_list_forwards_joinable_filters(monkeypatch):
     supervisor_id = uuid.uuid4()
+    assigned_to_id = uuid.uuid4()
     user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_ADMIN)
     captured = {}
 
@@ -168,6 +169,7 @@ def test_work_order_list_forwards_joinable_filters(monkeypatch):
         status="in_progress",
         service_type="SMR27 - Belfor",
         supervisor_id=supervisor_id,
+        assigned_to_id=assigned_to_id,
         community="commons",
         priority="Emergency",
         scheduled_date=date(2026, 7, 28),
@@ -183,6 +185,7 @@ def test_work_order_list_forwards_joinable_filters(monkeypatch):
         "status": "in_progress",
         "service_type": "SMR27 - Belfor",
         "supervisor_id": supervisor_id,
+        "assigned_to_id": assigned_to_id,
         "community": "commons",
         "priority": "Emergency",
         "scheduled_date": date(2026, 7, 28),
