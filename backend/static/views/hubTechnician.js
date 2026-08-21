@@ -154,6 +154,7 @@ function toolsOutHtml(toolsOut) {
 export function mountHubDashboard(container, payload) {
   const isAdminPlus = roleAtLeast(payload.user.role, "techfm_oa");
   container.innerHTML =
+    `<div id="hub-priorities-mount"></div>` +
     countsHtml(payload.counts) +
     (isAdminPlus ? "" : timeTodayHtml(payload)) +
     (isAdminPlus ? "" : toolsOutHtml(payload.tools_out)) +

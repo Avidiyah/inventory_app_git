@@ -74,6 +74,16 @@
     --status-dispense-text: #F5A524;
     --status-adjust-text:   #7DA6FF;
 
+    /* Work-order lifecycle colors. Shared by tactile cards and the narrow
+       categorical exception in the Hub Graphs tab; legends always add text. */
+    --wo-status-created: #D1D5DB;
+    --wo-status-assigned: #B91C1C;
+    --wo-status-in-progress: #FACC15;
+    --wo-status-on-hold: #C2410C;
+    --wo-status-ready-to-complete: #6D28D9;
+    --wo-status-completed: #2563EB;
+    --wo-status-review: #15803D;
+
     /* Feedback text */
     /* Text and left-accent rules only -- never a fill -- so these move to
        their lifted values wholesale. On the frosted panel the originals
@@ -1718,6 +1728,51 @@ tr.archived-user {
     display: block;
 }
 
+/* TechFM OA+ guided report. SVG is intentionally paired with an HTML legend
+   or table so exact values never depend on hover, touch, or color vision. */
+.hub-graphs > section { margin-bottom: var(--space-8); }
+.hub-graphs-header { display: flex; justify-content: space-between; gap: var(--space-4); align-items: start; margin-bottom: var(--space-5); }
+.hub-graphs-header h2, .hub-graphs h2, .hub-graph-card h3 { margin-top: 0; }
+.hub-graphs-range { display: flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
+.hub-graphs-range select { margin-top: 0; }
+.hub-graph-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: var(--space-4); }
+.hub-graph-card, .hub-duration-section { background: var(--panel-nested); border: var(--border); border-radius: var(--radius-md); padding: var(--space-4); }
+.hub-graph-card h3 { font-size: var(--fs-lg); }
+.hub-donut-wrap { width: min(190px, 100%); margin: var(--space-3) auto; position: relative; }
+.hub-donut { display: block; width: 100%; overflow: visible; fill: none; stroke-width: 17; transform: rotate(0deg); }
+.hub-graph-slice { stroke-linecap: butt; }
+.hub-graph-slice-created, .hub-graph-swatch-created { stroke: var(--wo-status-created); background: var(--wo-status-created); }
+.hub-graph-slice-assigned, .hub-graph-swatch-assigned { stroke: var(--wo-status-assigned); background: var(--wo-status-assigned); }
+.hub-graph-slice-in_progress, .hub-graph-swatch-in_progress { stroke: var(--wo-status-in-progress); background: var(--wo-status-in-progress); }
+.hub-graph-slice-on_hold, .hub-graph-swatch-on_hold { stroke: var(--wo-status-on-hold); background: var(--wo-status-on-hold); }
+.hub-graph-slice-ready_to_complete, .hub-graph-swatch-ready_to_complete { stroke: var(--wo-status-ready-to-complete); background: var(--wo-status-ready-to-complete); }
+.hub-graph-slice-completed, .hub-graph-swatch-completed { stroke: var(--wo-status-completed); background: var(--wo-status-completed); }
+.hub-graph-slice-review, .hub-graph-swatch-review { stroke: var(--wo-status-review); background: var(--wo-status-review); }
+.hub-donut-total { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; font-weight: var(--fw-bold); font-size: var(--fs-xl); }
+.hub-donut-total small { display: block; color: var(--text-panel-mute); font-size: var(--fs-xs); font-weight: var(--fw-regular); }
+.hub-graph-empty { min-height: 150px; display: grid; place-items: center; text-align: center; color: var(--text-panel-mute); }
+.hub-graph-legend { list-style: none; margin: 0; padding: 0; font-size: var(--fs-sm); }
+.hub-graph-legend li { display: flex; justify-content: space-between; gap: var(--space-2); border-top: 1px solid var(--panel-rule-soft); padding: var(--space-1) 0; font-variant-numeric: tabular-nums; }
+.hub-graph-key { display: flex; align-items: center; gap: var(--space-2); }
+.hub-graph-swatch { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
+.hub-graphs-service-toggle { margin-top: var(--space-4); }
+.hub-duration-section { overflow: hidden; }
+.hub-duration-chart { display: block; width: 100%; min-height: 190px; margin: var(--space-3) 0; color: var(--text-panel-mute); font-size: 12px; }
+.hub-duration-axis { stroke: var(--panel-rule); stroke-width: 1; }
+.hub-duration-line { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.hub-duration-age { stroke: var(--status-adjust-text); }
+.hub-duration-close { stroke: var(--color-success); stroke-dasharray: 6 4; }
+.hub-duration-key { display: inline-block; width: 11px; height: 3px; margin: 0 var(--space-1); vertical-align: middle; }
+.hub-duration-key-age { background: var(--status-adjust-text); }
+.hub-duration-key-close { background: var(--color-success); }
+.hub-duration-details summary { cursor: pointer; margin-bottom: var(--space-2); }
+.hub-graphs-load-error { padding: var(--space-4); background: var(--panel-nested); border: var(--border); border-radius: var(--radius-md); }
+
+@media (max-width: 600px) {
+    .hub-graphs-header { flex-direction: column; }
+    .hub-graph-legend li { align-items: flex-start; }
+}
+
 .hub-clock-status {
     font-weight: var(--fw-semibold);
     display: flex;
@@ -1790,6 +1845,13 @@ tr.archived-user {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     gap: var(--space-4);
+    margin-bottom: var(--space-6);
+}
+
+/* The Priorities card at the top of the Dashboard tab. Reuses .hub-tile-grid
+   and .hub-tile wholesale (hubPriorities.js), so the only rule this needs is
+   spacing before the counts grid below it. */
+.hub-priorities {
     margin-bottom: var(--space-6);
 }
 
@@ -3168,19 +3230,19 @@ details[open] > .community-summary::before { content: "\25BE"; }
    at equal specificity it would otherwise win here on source order and
    paint over the status color the instant a status card is hovered or
    clicked. Keep the status color through hover. */
-.wo-card-status-created:hover { border-color: #D1D5DB; }
-.wo-card-status-assigned:hover { border-color: #B91C1C; }
-.wo-card-status-in_progress:hover { border-color: #FACC15; }
-.wo-card-status-on_hold:hover { border-color: #C2410C; }
-.wo-card-status-ready_to_complete:hover { border-color: #6D28D9; }
-.wo-card-status-completed:hover { border-color: #2563EB; }
-.wo-card-status-review:hover { border-color: #15803D; }
+.wo-card-status-created:hover { border-color: var(--wo-status-created); }
+.wo-card-status-assigned:hover { border-color: var(--wo-status-assigned); }
+.wo-card-status-in_progress:hover { border-color: var(--wo-status-in-progress); }
+.wo-card-status-on_hold:hover { border-color: var(--wo-status-on-hold); }
+.wo-card-status-ready_to_complete:hover { border-color: var(--wo-status-ready-to-complete); }
+.wo-card-status-completed:hover { border-color: var(--wo-status-completed); }
+.wo-card-status-review:hover { border-color: var(--wo-status-review); }
 /* Keycap illusion: a hard-edged "wall" shadow (no blur) reads as the key's
    physical thickness; the soft glow beneath sells the lift off the board.
    :active shrinks the wall and nudges the card down by the same amount, so
    it looks pressed rather than just re-shadowed. */
 .wo-card-status-created {
-    --card-accent: #D1D5DB;
+    --card-accent: var(--wo-status-created);
     --card-accent-rgb: 209, 213, 219;
     background-color: rgba(0, 0, 0, .55);
     border-color: #D1D5DB;
@@ -3192,7 +3254,7 @@ details[open] > .community-summary::before { content: "\25BE"; }
     box-shadow: 0 1px 0 0 #9CA3AF, 0 2px 6px -2px rgba(209, 213, 219, .35), var(--shadow-card);
 }
 .wo-card-status-assigned {
-    --card-accent: #B91C1C;
+    --card-accent: var(--wo-status-assigned);
     --card-accent-rgb: 185, 28, 28;
     background-color: rgba(0, 0, 0, .55);
     border-color: #B91C1C;
@@ -3204,7 +3266,7 @@ details[open] > .community-summary::before { content: "\25BE"; }
     box-shadow: 0 1px 0 0 #991B1B, 0 2px 6px -2px rgba(185, 28, 28, .35), var(--shadow-card);
 }
 .wo-card-status-in_progress {
-    --card-accent: #FACC15;
+    --card-accent: var(--wo-status-in-progress);
     --card-accent-rgb: 250, 204, 21;
     background-color: rgba(0, 0, 0, .55);
     border-color: #FACC15;
@@ -3216,7 +3278,7 @@ details[open] > .community-summary::before { content: "\25BE"; }
     box-shadow: 0 1px 0 0 #CA8A04, 0 2px 6px -2px rgba(250, 204, 21, .35), var(--shadow-card);
 }
 .wo-card-status-on_hold {
-    --card-accent: #C2410C;
+    --card-accent: var(--wo-status-on-hold);
     --card-accent-rgb: 194, 65, 12;
     background-color: rgba(0, 0, 0, .55);
     border-color: #C2410C;
@@ -3231,7 +3293,7 @@ details[open] > .community-summary::before { content: "\25BE"; }
    blue, and green at a glance on a phone in daylight. Badge / accent / wall
    follow the established -900 / -700 / -800 tone pattern. */
 .wo-card-status-ready_to_complete {
-    --card-accent: #6D28D9;
+    --card-accent: var(--wo-status-ready-to-complete);
     --card-accent-rgb: 109, 40, 217;
     background-color: rgba(0, 0, 0, .55);
     border-color: #6D28D9;
@@ -3243,7 +3305,7 @@ details[open] > .community-summary::before { content: "\25BE"; }
     box-shadow: 0 1px 0 0 #5B21B6, 0 2px 6px -2px rgba(109, 40, 217, .35), var(--shadow-card);
 }
 .wo-card-status-completed {
-    --card-accent: #2563EB;
+    --card-accent: var(--wo-status-completed);
     --card-accent-rgb: 37, 99, 235;
     background-color: rgba(0, 0, 0, .55);
     border-color: #2563EB;
@@ -3255,7 +3317,7 @@ details[open] > .community-summary::before { content: "\25BE"; }
     box-shadow: 0 1px 0 0 #1D4ED8, 0 2px 6px -2px rgba(37, 99, 235, .35), var(--shadow-card);
 }
 .wo-card-status-review {
-    --card-accent: #15803D;
+    --card-accent: var(--wo-status-review);
     --card-accent-rgb: 21, 128, 61;
     background-color: rgba(0, 0, 0, .55);
     border-color: #15803D;

@@ -5,21 +5,24 @@
 // (mounted once, refreshed on every reload), switching between the
 // role-scoped tab bodies, and -- for supervisor+ viewers -- the crew board's
 // freshness plus the lazily fetched Timesheets tab (spec §5.3, §6.2).
-// Admin dashboards are P4; every role below TechFM OA sees this same shape
-// for now, built from the same role-agnostic GET /hub payload.
+// TechFM OA+ additionally receives the lazy Admin summary and Graphs tab;
+// lower roles keep the role-agnostic GET /hub shape.
 
-import { apiGetHub, apiGetHubAdmin, apiGetHubCrew, apiGetHubTimesheets } from "../api.js";
+import { apiGetHub, apiGetHubAdmin, apiGetHubCrew, apiGetHubGraphs, apiGetHubTimesheets } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
 import { roleAtLeast } from "../roles.js";
 import { mountHubClock, startHubClockTicking, stopHubClockTicking } from "./hubClock.js";
 import { mountHubDashboard, mountHubWorkOrders } from "./hubTechnician.js";
+import { mountHubPriorities } from "./hubPriorities.js";
 import { mountHubCrew } from "./hubSupervisor.js";
 import { mountHubAdminSummary } from "./hubAdmin.js";
 import { mountHubTimesheets } from "./hubTimesheets.js";
+import { destroyHubGraphs, mountHubGraphs } from "./hubGraphs.js";
 
 const HUB_PAGE = "user-hub";
 const LABOR_SESSION_CHANGED_EVENT = "labor.session.changed";
+const WORK_ORDER_STATUS_CHANGED_EVENT = "work_order.status.changed";
 
 // Spec §6.2: while the hub is the active page and the tab is visible, a full
 // crew refetch every 60 seconds -- a safety net for a dropped envelope, on
@@ -31,9 +34,26 @@ const tabPanels = {
   dashboard: document.getElementById("hub-tabpanel-dashboard"),
   timesheets: document.getElementById("hub-tabpanel-timesheets"),
   "work-orders": document.getElementById("hub-tabpanel-work-orders"),
+  graphs: document.getElementById("hub-tabpanel-graphs"),
 };
 const clockMount = document.getElementById("hub-clock-mount");
+const hubPage = document.getElementById("user-hub-page");
+const hubTabsNav = document.getElementById("hub-tabs");
 const timesheetsTabButton = document.getElementById("hub-tab-timesheets");
+const graphsTabButton = document.getElementById("hub-tab-graphs");
+
+// Admin+ viewers spend most of their hub time on the tab content (crew,
+// timesheets, company summary) rather than their own clock, so the widget
+// drops to the bottom instead of pushing that content down. Repositioning in
+// the DOM (rather than a second mount point) keeps the widget's own state
+// and event wiring untouched regardless of where it lands.
+function placeClockMount(isAdminPlus) {
+  if (isAdminPlus) {
+    hubPage.appendChild(clockMount);
+  } else {
+    hubPage.insertBefore(clockMount, hubTabsNav);
+  }
+}
 
 let activeTab = "dashboard";
 let latestPayload = null;
@@ -45,6 +65,10 @@ let adminRequestId = 0;
 let latestTimesheetPayload = null;
 let timesheetRange = null;
 let timesheetRequestId = 0;
+let latestGraphsPayload = null;
+let graphWeeks = 12;
+let graphRequestId = 0;
+let showAllServiceTypes = false;
 let loadedUserId = null;
 
 function showTab(name) {
@@ -67,6 +91,22 @@ function crewMount() {
 
 function adminMount() {
   return tabPanels.dashboard.querySelector("#hub-admin-mount");
+}
+
+function priorityMount() {
+  return tabPanels.dashboard.querySelector("#hub-priorities-mount");
+}
+
+function renderPriorities() {
+  if (!latestPayload) return;
+  const mount = priorityMount();
+  if (!mount) return;
+  mountHubPriorities(mount, {
+    role: latestPayload.user.role,
+    personal: latestPayload.priority,
+    crew: latestCrewPayload?.priority,
+    admin: latestAdminPayload?.priority,
+  });
 }
 
 function viewerCanSeeAdminTiles() {
@@ -93,20 +133,24 @@ function renderCrew() {
   if (!mount) return;
   if (!crewBoardShouldRender(latestCrewPayload)) {
     mount.innerHTML = "";
+    renderPriorities();
     return;
   }
   mountHubCrew(mount, latestCrewPayload, { isAdminPlus: viewerCanSeeAdminTiles() });
+  renderPriorities();
 }
 
 function renderAdmin() {
   if (!latestAdminPayload) return;
   const mount = adminMount();
   if (mount) mountHubAdminSummary(mount, latestAdminPayload);
+  renderPriorities();
 }
 
 function renderActiveTab() {
   if (activeTab === "dashboard") {
     mountHubDashboard(tabPanels.dashboard, latestPayload);
+    renderPriorities();
     renderCrew();
     renderAdmin();
   } else if (activeTab === "timesheets") {
@@ -118,15 +162,41 @@ function renderActiveTab() {
     } else {
       void loadTimesheets(timesheetRange || {});
     }
+  } else if (activeTab === "graphs") {
+    if (latestGraphsPayload) renderGraphs();
+    else void loadGraphs();
   } else {
     mountHubWorkOrders(tabPanels["work-orders"], latestPayload);
   }
+}
+
+function renderGraphs() {
+  const mount = tabPanels.graphs;
+  if (!mount || !latestGraphsPayload) return;
+  destroyHubGraphs();
+  mountHubGraphs(mount, latestGraphsPayload, {
+    showAllServiceTypes,
+    onToggleServiceTypes: () => {
+      showAllServiceTypes = !showAllServiceTypes;
+      renderGraphs();
+    },
+    onWeekChange: (weeks) => {
+      graphWeeks = weeks;
+      void loadGraphs();
+    },
+  });
 }
 
 function setTimesheetsTabVisible(visible) {
   if (!timesheetsTabButton) return;
   timesheetsTabButton.hidden = !visible;
   timesheetsTabButton.classList.toggle("hidden", !visible);
+}
+
+function setGraphsTabVisible(visible) {
+  if (!graphsTabButton) return;
+  graphsTabButton.hidden = !visible;
+  graphsTabButton.classList.toggle("hidden", !visible);
 }
 
 function showTimesheetLoadError(mount, err, requestedRange) {
@@ -171,6 +241,31 @@ async function loadTimesheets({ start = null, end = null } = {}) {
   }
 }
 
+function showGraphLoadError(mount, err) {
+  const message = escapeHtml(friendlyError(err, "Could not load graphs."));
+  mount.innerHTML = `<div class="hub-graphs-load-error"><p class="error">${message}</p><button type="button" class="secondary-btn hub-graphs-retry">Retry</button></div>`;
+  mount.querySelector(".hub-graphs-retry")?.addEventListener("click", () => void loadGraphs());
+}
+
+async function loadGraphs({ background = false } = {}) {
+  const mount = tabPanels.graphs;
+  if (!mount || !viewerCanSeeAdminTiles()) return;
+  const requestId = ++graphRequestId;
+  if (!latestGraphsPayload && !background) {
+    mount.innerHTML = `<p class="hint">Loading graphs…</p>`;
+  }
+  try {
+    const payload = await apiGetHubGraphs({ weeks: graphWeeks });
+    if (requestId !== graphRequestId) return;
+    latestGraphsPayload = payload;
+    graphWeeks = payload.weeks;
+    if (activeTab === "graphs") renderGraphs();
+  } catch (err) {
+    if (requestId !== graphRequestId || background || latestGraphsPayload) return;
+    showGraphLoadError(mount, err);
+  }
+}
+
 // `background: true` mirrors `adminReview.js::loadAdminReview` -- a
 // socket-driven or safety-timer refresh keeps the last good board on
 // failure rather than blanking it (spec §10); only the first, foreground
@@ -208,6 +303,23 @@ async function refreshAdmin({ background = false } = {}) {
   }
 }
 
+// Mirrors refreshCrew/refreshAdmin -- background-only, keeps the last good
+// numbers on failure. Every role gets this: a plain Technician has no other
+// periodic refresh, and the Priorities card is the one thing on their
+// Dashboard that needs to stay live without a manual reload.
+async function refreshPersonal({ background = false } = {}) {
+  try {
+    const payload = await apiGetHub();
+    latestPayload = payload;
+    if (activeTab === "dashboard") mountHubDashboard(tabPanels.dashboard, latestPayload);
+    renderPriorities();
+    renderCrew();
+    renderAdmin();
+  } catch (err) {
+    if (background) return;
+  }
+}
+
 function stopCrewSafetyRefresh() {
   if (crewSafetyTimer !== null) {
     clearInterval(crewSafetyTimer);
@@ -219,13 +331,18 @@ function startCrewSafetyRefresh() {
   stopCrewSafetyRefresh();
   crewSafetyTimer = setInterval(() => {
     if (document.hidden) return;
-    void refreshCrew({ background: true });
+    void refreshPersonal({ background: true });
+    if (roleAtLeast(latestPayload?.user.role, "supervisor")) void refreshCrew({ background: true });
     if (viewerCanSeeAdminTiles()) void refreshAdmin({ background: true });
+    if (activeTab === "graphs" && viewerCanSeeAdminTiles()) void loadGraphs({ background: true });
   }, CREW_SAFETY_REFRESH_MS);
 }
 
 tabButtons.forEach((btn) => {
-  btn.addEventListener("click", () => showTab(btn.dataset.hubTab));
+  btn.addEventListener("click", () => {
+    showTab(btn.dataset.hubTab);
+    if (btn.dataset.hubTab === "graphs") void loadGraphs({ background: Boolean(latestGraphsPayload) });
+  });
 });
 
 // Called by nav.js on every activation of the hub page. A fresh fetch on
@@ -255,12 +372,19 @@ export async function loadUserHub() {
   if (userChanged || !canViewAdminTiles) {
     latestAdminPayload = null;
     adminRequestId += 1;
+    latestGraphsPayload = null;
+    graphRequestId += 1;
+    graphWeeks = 12;
+    showAllServiceTypes = false;
+    tabPanels.graphs.replaceChildren();
   }
   if (userChanged) activeTab = "dashboard";
   if (!canViewSupervisorTabs && activeTab === "timesheets") activeTab = "dashboard";
+  if (!canViewAdminTiles && activeTab === "graphs") activeTab = "dashboard";
   loadedUserId = nextUserId;
   latestPayload = payload;
   setTimesheetsTabVisible(canViewSupervisorTabs);
+  setGraphsTabVisible(canViewAdminTiles);
   // P4 Tab 3 (spec §5.4): for a techfm_oa+ viewer this tab is an embedded,
   // unscoped company-wide list -- `apiListWorkOrders` already returns every
   // live work order for that role tier (`_scoped_to_user`), so "My Work
@@ -268,15 +392,14 @@ export async function loadUserHub() {
   document.getElementById("hub-tab-work-orders").textContent = canViewAdminTiles
     ? "Work Orders"
     : `My Work Orders (${latestPayload.counts.assigned})`;
+  placeClockMount(canViewAdminTiles);
   mountHubClock(clockMount, latestPayload, { onChanged: refreshUserHub });
   showTab(activeTab);
 
   if (canViewSupervisorTabs) {
     await refreshCrew();
-    startCrewSafetyRefresh();
-  } else {
-    stopCrewSafetyRefresh();
   }
+  startCrewSafetyRefresh();
 
   if (canViewAdminTiles) {
     await refreshAdmin();
@@ -301,6 +424,18 @@ subscribe(LABOR_SESSION_CHANGED_EVENT, ({ activePage }) => {
   if (viewerCanSeeAdminTiles()) void refreshAdmin({ background: true });
 });
 
+subscribe(WORK_ORDER_STATUS_CHANGED_EVENT, ({ activePage, reason }) => {
+  if (activePage !== HUB_PAGE) return;
+  void refreshPersonal({ background: true });
+  if (roleAtLeast(latestPayload?.user.role, "supervisor")) void refreshCrew({ background: true });
+  if (viewerCanSeeAdminTiles()) {
+    void refreshAdmin({ background: true });
+    if (activeTab === "graphs" || reason === "reconnect") {
+      void loadGraphs({ background: true });
+    }
+  }
+});
+
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     stopHubClockTicking();
@@ -309,7 +444,5 @@ document.addEventListener("visibilitychange", () => {
   }
   if (!document.getElementById("user-hub-page").classList.contains("active")) return;
   startHubClockTicking();
-  if (latestPayload && roleAtLeast(latestPayload.user.role, "supervisor")) {
-    startCrewSafetyRefresh();
-  }
+  if (latestPayload) startCrewSafetyRefresh();
 });
