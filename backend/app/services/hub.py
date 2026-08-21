@@ -7,8 +7,8 @@ sweep is `services.work_orders`. This module's whole job is to run them in
 the right order and hand back one object the router can serialise, so the
 router stays the thin translation layer every other one in this app is.
 
-The module now composes the personal block, the routed crew board, and the
-same crew's timesheets. The Admin-wide payload remains a later phase.
+The module now composes the personal block, the routed crew board, the
+crew's timesheets, and the company-wide admin summary.
 """
 
 import csv
@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.domain import hub as hub_domain
 from app.domain import labor_day
+from app.domain import roles
 from app.domain import work_orders as wo
 from app.domain.errors import TimesheetRangeInvalidError, TimesheetRangeTooLargeError
 from app.models import User, WorkOrder, WorkOrderLaborSession, WorkOrderTechnician
@@ -463,6 +464,67 @@ def crew_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> HubC
         crew_minutes_today=crew_minutes_today,
         technicians=technicians,
         attention=attention,
+    )
+
+
+# --- the admin payload (P4 slice 1: company-wide time summary) -------------
+
+
+@dataclass(frozen=True)
+class HubAdminPayload:
+    """`GET /hub/admin`'s whole contract: today's tracked minutes, summed
+    by account role across the whole company.
+
+    Bucketed by account role, not by what work was clocked on -- a
+    Supervisor's own hands-on hours count as Supervisor Time; a TechFM
+    OA/Admin/Owner's hours (if any) land in neither bucket, since their own
+    time is already the personal clock widget above the tabs.
+    """
+
+    server_now: datetime
+    supervisor_minutes_today: int
+    technician_minutes_today: int
+
+
+def admin_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> HubAdminPayload:
+    """The `GET /hub/admin` payload: how much the company tracked today,
+    split into Supervisor Time and Technician Time.
+
+    **Not side-effect-free**, deliberately the widest sweep in the module:
+    unscoped (no `technician_id`), so every over-cap running session in the
+    company is closed before anything is summed. This is the call site the
+    router module's own docstring already reserves for the global sweep
+    (spec §3.5), and it is safe under concurrent callers for the same
+    reason `crew_hub`'s per-member sweep is -- `sweep_stale_sessions` locks
+    each work order `FOR UPDATE` before touching its sessions.
+    """
+    now = now or datetime.now(timezone.utc)
+    day = labor_day.central_date_of(now)
+
+    work_orders_service.sweep_stale_sessions(db, now=now)
+
+    supervisors = (
+        db.query(User)
+        .filter(User.role == roles.ROLE_SUPERVISOR, User.archived_at.is_(None))
+        .all()
+    )
+    technicians = (
+        db.query(User)
+        .filter(User.role == roles.ROLE_TECHNICIAN, User.archived_at.is_(None))
+        .all()
+    )
+
+    supervisor_summaries = labor_summary.crew_day_summaries(
+        db, [u.id for u in supervisors], day, now=now
+    )
+    technician_summaries = labor_summary.crew_day_summaries(
+        db, [u.id for u in technicians], day, now=now
+    )
+
+    return HubAdminPayload(
+        server_now=now,
+        supervisor_minutes_today=sum(s.total_minutes for s in supervisor_summaries.values()),
+        technician_minutes_today=sum(s.total_minutes for s in technician_summaries.values()),
     )
 
 

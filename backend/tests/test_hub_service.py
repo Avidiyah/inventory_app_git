@@ -540,6 +540,106 @@ def test_the_crew_payload_serialises_into_the_response_schema(db):
     assert body["technicians"][0]["running_session"]["number"] == "88214"
 
 
+# --- admin_hub (P4 slice 1: the company-wide time summary) -----------------
+
+
+def test_admin_hub_sums_supervisors_and_technicians_separately(db):
+    # Bucketed by account role, not by what work was clocked on: a
+    # supervisor doing hands-on work still lands in the supervisor bucket.
+    creator = _seed_user(db, roles.ROLE_SUPERVISOR)
+    supervisor_a = _seed_user(db, roles.ROLE_SUPERVISOR, first_name="Jose", last_name="Rivera")
+    supervisor_b = _seed_user(db, roles.ROLE_SUPERVISOR, first_name="Dana", last_name="Ortiz")
+    tech = _seed_user(db, roles.ROLE_TECHNICIAN, first_name="Marisol", last_name="Chen")
+    wo_a = _seed_work_order(db, created_by=creator, assigned_to=supervisor_a, status=wo.STATUS_IN_PROGRESS)
+    wo_b = _seed_work_order(db, created_by=creator, assigned_to=supervisor_b, status=wo.STATUS_IN_PROGRESS)
+    wo_c = _seed_work_order(db, created_by=creator, assigned_to=tech, status=wo.STATUS_IN_PROGRESS)
+    _seed_session(db, wo_a, supervisor_a, started_at=NOW - timedelta(hours=1), ended_at=NOW)
+    _seed_session(db, wo_b, supervisor_b, started_at=NOW - timedelta(hours=2), ended_at=NOW)
+    _seed_session(db, wo_c, tech, started_at=NOW - timedelta(minutes=30), ended_at=NOW)
+
+    payload = hub_service.admin_hub(db, creator, now=NOW)
+
+    assert payload.supervisor_minutes_today == 180  # 60 + 120
+    assert payload.technician_minutes_today == 30
+
+
+def test_admin_hub_excludes_techfm_oa_admin_and_owner_from_both_buckets(db):
+    creator = _seed_user(db, roles.ROLE_SUPERVISOR)
+    oa = _seed_user(db, roles.ROLE_TECHFM_OA, first_name="Pat", last_name="Nguyen")
+    admin = _seed_user(db, roles.ROLE_ADMIN, first_name="Lee", last_name="Park")
+    owner = _seed_user(db, roles.ROLE_OWNER, first_name="Sam", last_name="Boyd")
+    # `assigned_to` can't be an OA/Admin/Owner (WORK_ORDER_TECHNICIAN_ROLES
+    # forbids it) -- seed the session directly against an unassigned work
+    # order instead; admin_hub buckets by the session's technician_id, not
+    # by work-order assignment.
+    work_order = _seed_work_order(db, created_by=creator, status=wo.STATUS_IN_PROGRESS)
+    for person in (oa, admin, owner):
+        _seed_session(db, work_order, person, started_at=NOW - timedelta(hours=1), ended_at=NOW)
+
+    payload = hub_service.admin_hub(db, creator, now=NOW)
+
+    assert payload.supervisor_minutes_today == 0
+    assert payload.technician_minutes_today == 0
+
+
+def test_admin_hub_excludes_archived_users(db):
+    creator = _seed_user(db, roles.ROLE_SUPERVISOR)
+    departed = _seed_user(db, roles.ROLE_SUPERVISOR, first_name="Former", last_name="Employee")
+    work_order = _seed_work_order(
+        db, created_by=creator, assigned_to=departed, status=wo.STATUS_IN_PROGRESS
+    )
+    _seed_session(db, work_order, departed, started_at=NOW - timedelta(hours=1), ended_at=NOW)
+    departed.archived_at = datetime.now(timezone.utc)
+    db.flush()
+
+    payload = hub_service.admin_hub(db, creator, now=NOW)
+
+    assert payload.supervisor_minutes_today == 0
+
+
+def test_admin_hub_sweeps_a_forgotten_clock_before_summing(db):
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    tech = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _seed_work_order(
+        db, created_by=supervisor, assigned_to=tech, status=wo.STATUS_IN_PROGRESS
+    )
+    started = datetime.now(timezone.utc) - timedelta(hours=20)
+    session = WorkOrderLaborSession(
+        id=uuid.uuid4(), work_order_id=work_order.id, technician_id=tech.id,
+        started_at=started,
+    )
+    db.add(session)
+    db.flush()
+
+    payload = hub_service.admin_hub(db, supervisor)
+
+    db.refresh(session)
+    assert session.ended_at == started + timedelta(minutes=wo.LABOR_SESSION_MAX_MINUTES)
+    # The capped session straddles a Central day boundary (started 20h ago,
+    # real wall clock), so only part of it falls in "today" -- same reason
+    # the sibling crew_hub sweep test above doesn't assert an exact total.
+    # What matters here is that the sweep ran before the sum: a still-open
+    # session would read as 0 minutes, so any positive total proves it.
+    assert payload.technician_minutes_today > 0
+
+
+def test_the_admin_payload_serialises_into_the_response_schema(db):
+    from app.routers.hub import get_hub_admin
+
+    oa = _seed_user(db, roles.ROLE_TECHFM_OA)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR, first_name="Jose", last_name="Rivera")
+    work_order = _seed_work_order(
+        db, created_by=oa, assigned_to=supervisor, status=wo.STATUS_IN_PROGRESS
+    )
+    wos.start_labor_session(db, work_order.id, user=supervisor)
+
+    body = get_hub_admin(user=oa, db=db).model_dump()
+
+    assert body["supervisor_minutes_today"] >= 0
+    assert "technician_minutes_today" in body
+    assert "server_now" in body
+
+
 # --- the supervisor timesheet payload (P3b) -------------------------------
 
 
