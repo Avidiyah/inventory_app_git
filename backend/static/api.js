@@ -489,6 +489,10 @@ export async function apiGetHubCrew() {
   return liveGet("/hub/crew");
 }
 
+export async function apiGetHubAdmin() {
+  return liveGet("/hub/admin");
+}
+
 export async function apiGetHubTimesheets({ start = null, end = null, userId = null } = {}) {
   const params = new URLSearchParams();
   if (start) params.set("start", start);
