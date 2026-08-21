@@ -429,9 +429,9 @@ function laborTechnicianControl(detail) {
 function laborSectionHtml(detail) {
   const entries = (detail.labor || []).map(renderLaborEntryHtml).join("") ||
     `<p class="hint">No labor recorded yet.</p>`;
-  // Tracked time is authoritative: a technician's labor card is a read-only
+  // Charged time is authoritative: a technician's labor card is a read-only
   // list of the sessions they clocked, and only a Supervisor can key a figure
-  // by hand to correct a forgotten Start Tracking.
+  // by hand to correct a forgotten Begin Charging.
   const technicianControl = laborTechnicianControl(detail);
   const canAdd = isSupervisorPlus() && Boolean(technicianControl) &&
     !technicianControl.startsWith("<p");
@@ -439,8 +439,8 @@ function laborSectionHtml(detail) {
     ? "The combined actual time is rounded up to the next 30 minutes for billing."
     : `Labor is billed at ${formatMoney(detail.labor_rate)}/hour. The combined actual time is rounded up to the next 30 minutes.`;
   const trackedHint = isSupervisorPlus()
-    ? "Entries come from tracked sessions. Add one by hand only to correct a missed clock-in."
-    : "Your hours come from Start Tracking. Ask a supervisor to correct anything that looks wrong.";
+    ? "Entries come from charged sessions. Add one by hand only to correct a missed clock-in."
+    : "Your hours come from Begin Charging. Ask a supervisor to correct anything that looks wrong.";
   return `<details class="wo-section-card wo-labor-section">
             <summary class="wo-section-summary">Labor</summary>
             <div class="wo-section-content">
@@ -1463,7 +1463,7 @@ function renderBody(detail, bodyEl) {
   // work and record it).
   const canTrack = assignedToCurrentUser || sup;
   const tracking = Boolean(detail.active_labor_session);
-  const startTracking = `<button type="button" data-action="start-tracking-wo">W.O. Received, Begin Tracking</button>`;
+  const startTracking = `<button type="button" data-action="start-tracking-wo">W.O. Received, Begin Charging</button>`;
 
   let statusActions = "";
   if (canTrack && (detail.status === "created" || detail.status === "assigned")) {
@@ -1472,12 +1472,12 @@ function renderBody(detail, bodyEl) {
     statusActions = startTracking;
   } else if (canTrack && detail.status === "in_progress") {
     statusActions = tracking
-      ? `<button type="button" data-action="stop-tracking-wo">Stop Tracking</button>`
+      ? `<button type="button" data-action="stop-tracking-wo">Stop Charging</button>`
       : startTracking;
     // Notify Supervisor is the "I'm done" button and belongs to someone with a
-    // clock running; Stop Tracking is the "I'm pausing" one. Both /complete and
+    // clock running; Stop Charging is the "I'm pausing" one. Both /complete and
     // /hold require assignment server-side, so an unassigned supervisor who is
-    // only tracking gets neither -- they close the row out with Mark Completed.
+    // only charging gets neither -- they close the row out with Mark Completed.
     if (assignedToCurrentUser && tracking) {
       statusActions += `<button type="button" data-action="notify-supervisor-wo">Notify Supervisor</button>`;
     }
@@ -1488,7 +1488,7 @@ function renderBody(detail, bodyEl) {
       statusActions += `<button type="button" data-action="complete-wo">Mark Completed</button>`;
     }
   } else if (detail.status === "on_hold" && canTrack) {
-    // Start Tracking sits beside Resume and is the one a returning technician
+    // Begin Charging sits beside Resume and is the one a returning technician
     // taps: it does the same transition *and* starts the clock. Resume stays
     // for the case where work resumes without the tapper being the one doing
     // it. Not an either/or with the supervisor half either -- a Supervisor who
@@ -1499,7 +1499,7 @@ function renderBody(detail, bodyEl) {
     }
     if (sup) {
       statusActions += `<button type="button" data-action="complete-wo">Mark Completed</button>`;
-      statusActions += `<span class="hint wo-status-note">On-Hold — nobody is tracking time. A supervisor can also resume or roll back this work order in the Edit details card.</span>`;
+      statusActions += `<span class="hint wo-status-note">On-Hold — nobody is charging time. A supervisor can also resume or roll back this work order in the Edit details card.</span>`;
     }
   } else if (detail.status === "ready_to_complete") {
     // The first review gate: one supervisor confirming the work happened.
@@ -1764,7 +1764,7 @@ listEl.addEventListener("click", async (event) => {
       if (stopped?.status === "on_hold") {
         setMessage(
           cardEl.querySelector(".wo-message"),
-          "Work stopped. Nobody is tracking, so this is now On-Hold.",
+          "Work stopped. Nobody is charging, so this is now On-Hold.",
           "success"
         );
       }

@@ -104,7 +104,7 @@ function offClockHtml() {
           .join("")}</select>`,
         options,
         selectedValue: null,
-        ariaLabel: "Start tracking on…",
+        ariaLabel: "Start charging on…",
       })
     : `<p class="hint">Nothing assigned to start a clock on yet.</p>`;
   return `
@@ -155,7 +155,7 @@ async function handleStart(workOrderId) {
   try {
     await apiStartWorkOrderTracking(workOrderId);
   } catch (err) {
-    setMessage(message, friendlyError(err, "Could not start tracking."), "error");
+    setMessage(message, friendlyError(err, "Could not start charging."), "error");
     return;
   }
   if (refreshCallback) await refreshCallback();
@@ -168,7 +168,7 @@ async function handleStop() {
   try {
     await apiStopWorkOrderTracking(session.work_order_id);
   } catch (err) {
-    setMessage(message, friendlyError(err, "Could not stop tracking."), "error");
+    setMessage(message, friendlyError(err, "Could not stop charging."), "error");
     return;
   }
   if (refreshCallback) await refreshCallback();
