@@ -261,8 +261,13 @@ export async function loadUserHub() {
   loadedUserId = nextUserId;
   latestPayload = payload;
   setTimesheetsTabVisible(canViewSupervisorTabs);
-  document.getElementById("hub-tab-work-orders").textContent =
-    `My Work Orders (${latestPayload.counts.assigned})`;
+  // P4 Tab 3 (spec §5.4): for a techfm_oa+ viewer this tab is an embedded,
+  // unscoped company-wide list -- `apiListWorkOrders` already returns every
+  // live work order for that role tier (`_scoped_to_user`), so "My Work
+  // Orders (0)" would misreport both the scope and the count.
+  document.getElementById("hub-tab-work-orders").textContent = canViewAdminTiles
+    ? "Work Orders"
+    : `My Work Orders (${latestPayload.counts.assigned})`;
   mountHubClock(clockMount, latestPayload, { onChanged: refreshUserHub });
   showTab(activeTab);
 
