@@ -73,13 +73,29 @@ function viewerCanSeeAdminTiles() {
   return Boolean(latestPayload) && roleAtLeast(latestPayload.user.role, "techfm_oa");
 }
 
+// D16 (spec §5.4): the crew board is absent -- not an empty state -- for a
+// viewer who isn't personally routed as the supervisor on at least one live
+// work order. A plain Supervisor keeps P3a's original always-shown
+// behavior, since an empty board is meaningful information about their own
+// team; this only changes what an admin+ viewer with zero led work orders
+// sees. The condition itself has no role special-case (spec's own wording):
+// it reads `led.total`, the same field either viewer's payload carries.
+function crewBoardShouldRender(payload) {
+  return latestPayload?.user.role === "supervisor" || payload.led.total > 0;
+}
+
 // Repaints the crew board from whatever was last fetched, without a network
 // call -- used after `mountHubDashboard` rebuilds the tab body (which wipes
 // `#hub-crew-mount`) and on every tab switch back to Dashboard.
 function renderCrew() {
   if (!latestCrewPayload) return;
   const mount = crewMount();
-  if (mount) mountHubCrew(mount, latestCrewPayload, { isAdminPlus: viewerCanSeeAdminTiles() });
+  if (!mount) return;
+  if (!crewBoardShouldRender(latestCrewPayload)) {
+    mount.innerHTML = "";
+    return;
+  }
+  mountHubCrew(mount, latestCrewPayload, { isAdminPlus: viewerCanSeeAdminTiles() });
 }
 
 function renderAdmin() {
@@ -165,7 +181,7 @@ async function refreshCrew({ background = false } = {}) {
     const payload = await apiGetHubCrew();
     if (requestId !== crewRequestId) return;
     latestCrewPayload = payload;
-    mountHubCrew(mount, payload, { isAdminPlus: viewerCanSeeAdminTiles() });
+    renderCrew();
   } catch (err) {
     if (requestId !== crewRequestId) return;
     if (background) return;
