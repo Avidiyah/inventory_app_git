@@ -899,6 +899,20 @@ button:focus-visible {
     font-size: var(--fs-sm);
 }
 
+/* --- Value picker (combo) --------------------------------------------
+   Same trigger and popover as the action menu; the difference is that a
+   combo persists a selection and keeps a real <select> holding the value. */
+.menu-native { display: none; }
+
+.menu-option[aria-selected="true"] {
+    background-color: var(--color-brand);
+    color: var(--color-white);
+}
+
+.menu-option[aria-selected="true"]:hover {
+    background-color: var(--color-brand-hover);
+}
+
 /* =================== TABLES =================== */
 table {
     width: 100%;
@@ -3698,109 +3712,36 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 
 /* Shared scrollbar theme for the app's scrollable dropdown/results lists
    (.wo-tech-results here, .manual-results in the manual-entry search,
-   .wo-combo-list below) so they match instead of each falling back to a
-   different browser default. */
+   .menu-list in the shared popup menus) so they match instead of each
+   falling back to a different browser default. */
 .wo-tech-results,
 .manual-results,
-.wo-combo-list {
+.menu-list {
     scrollbar-width: thin;
     scrollbar-color: var(--gray-700) transparent;
 }
 .wo-tech-results::-webkit-scrollbar,
 .manual-results::-webkit-scrollbar,
-.wo-combo-list::-webkit-scrollbar {
+.menu-list::-webkit-scrollbar {
     width: 8px;
 }
 .wo-tech-results::-webkit-scrollbar-track,
 .manual-results::-webkit-scrollbar-track,
-.wo-combo-list::-webkit-scrollbar-track {
+.menu-list::-webkit-scrollbar-track {
     background: transparent;
 }
 .wo-tech-results::-webkit-scrollbar-thumb,
 .manual-results::-webkit-scrollbar-thumb,
-.wo-combo-list::-webkit-scrollbar-thumb {
+.menu-list::-webkit-scrollbar-thumb {
     background-color: var(--gray-700);
     border-radius: var(--radius-sm);
 }
 .wo-tech-results::-webkit-scrollbar-thumb:hover,
 .manual-results::-webkit-scrollbar-thumb:hover,
-.wo-combo-list::-webkit-scrollbar-thumb:hover {
+.menu-list::-webkit-scrollbar-thumb:hover {
     background-color: var(--panel-hover);
 }
 
-/* Custom dropdown ("combo") for Status/Supervisor: a real <select> stays in
-   the DOM (hidden) to hold the value for save/read logic unchanged; this is
-   the visible trigger + listbox, styled like .wo-tech-results so the two
-   pickers on this card read as one system instead of a native popup that
-   escapes our CSS (see docs/design-system.md's note on OS-rendered <select>
-   popups). */
-.wo-combo { position: relative; }
-.wo-combo-native { display: none; }
-
-.wo-combo-trigger {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-    width: 100%;
-    min-height: var(--control-h);
-    padding: 0 var(--space-3);
-    margin-top: 0;
-    border: var(--border-input);
-    border-radius: var(--radius-md);
-    background-color: var(--input-bg);
-    color: var(--text-panel);
-    font-size: var(--fs-base);
-    font-family: inherit;
-    font-weight: normal;
-    text-align: left;
-    cursor: pointer;
-    box-shadow: inset 0 1px 3px rgba(0, 0, 0, .35);
-}
-.wo-combo-trigger:hover { background-color: var(--panel-hover); }
-
-.wo-combo-chevron {
-    width: 16px;
-    height: 16px;
-    flex: 0 0 auto;
-    color: var(--text-panel-mute);
-    transition: transform .12s ease;
-}
-.wo-combo-trigger[aria-expanded="true"] .wo-combo-chevron { transform: rotate(180deg); }
-
-.wo-combo-list {
-    position: absolute;
-    z-index: 20;
-    top: calc(100% + var(--space-1));
-    right: 0;
-    left: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-    max-height: 240px;
-    overflow-y: auto;
-    padding: var(--space-2);
-    border: 1px solid var(--gray-700);
-    border-radius: var(--radius-sm);
-    background-color: var(--color-header);
-    box-shadow: var(--shadow-md);
-}
-.wo-combo-list[hidden] { display: none; }
-
-.wo-combo-option {
-    justify-content: flex-start;
-    width: 100%;
-    min-height: var(--btn-h-sm);
-    margin-top: 0;
-    text-align: left;
-}
-.wo-combo-option[aria-selected="true"] {
-    background-color: var(--color-brand);
-    color: var(--color-white);
-}
-.wo-combo-option[aria-selected="true"]:hover {
-    background-color: var(--color-brand-hover);
-}
 .wo-tech-result {
     justify-content: flex-start;
     width: 100%;

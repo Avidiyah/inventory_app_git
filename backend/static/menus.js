@@ -10,11 +10,10 @@
 // field testing on 2026-08-20. See docs/design-system.md. Anything whose popup
 // must match the theme is built here instead of with a real <select>.
 //
-// One shape for now; comboHtml (a value picker that keeps a hidden real
-// <select>) moves in alongside it in a later task.
-//
 //   actionMenuHtml()  fire-and-close command menu (role="menu"). Picking an
 //                     option runs an action; nothing stays selected.
+//   comboHtml()       value picker (role="listbox") that keeps a hidden real
+//                     <select> holding the value.
 
 import { escapeHtml } from "./format.js";
 
@@ -45,6 +44,40 @@ export function actionMenuHtml({ id, triggerLabel = "Actions", ariaLabel, itemId
             <div class="menu-list" id="${escapeHtml(id)}" role="menu" aria-label="${escapeHtml(ariaLabel)}" hidden>
               ${items}
             </div>
+          </div>`;
+}
+
+// Value picker. A real <select> stays in the DOM, hidden, purely to hold the
+// value so existing save/read code (and the class name callers query for) is
+// unchanged; the styled trigger and popover are what the user sees and
+// clicks.
+export function comboHtml({ id, extraClass, nativeSelectHtml, options, selectedValue, ariaLabel }) {
+  // `nativeSelectHtml` must carry the `menu-native` class (hidden by the CSS
+  // rule of that name) -- comboHtml renders it verbatim rather than building
+  // it, since the caller owns the real select's other classes and options.
+  const selected = options.find((opt) => opt.value === selectedValue);
+  const triggerLabel = selected ? selected.label : options[0]?.label || "";
+  const items = options
+    .map(
+      ({ value, label }) =>
+        `<button type="button" role="option" class="menu-option" data-menu-action="pick" data-value="${escapeHtml(value)}" aria-selected="${value === selectedValue}">${escapeHtml(label)}</button>`
+    )
+    .join("");
+  // The trigger renders before the hidden native select: both are "labelable"
+  // and this sits inside a <label>, which forwards a caption click to the
+  // first labelable descendant in tree order. Button first means the click
+  // opens the combo instead of landing on a select that's hidden and can't
+  // respond.
+  return `<div class="menu menu-combo${extraClass ? ` ${extraClass}` : ""}" data-menu>
+            <button type="button" class="menu-trigger" data-menu-action="toggle"
+                    aria-haspopup="listbox" aria-expanded="false" aria-controls="${escapeHtml(id)}">
+              <span class="menu-trigger-label">${escapeHtml(triggerLabel)}</span>
+              ${CHEVRON}
+            </button>
+            <div class="menu-list" id="${escapeHtml(id)}" role="listbox" aria-label="${escapeHtml(ariaLabel)}" hidden>
+              ${items}
+            </div>
+            ${nativeSelectHtml}
           </div>`;
 }
 
@@ -109,10 +142,27 @@ document.addEventListener("click", (event) => {
   }
 
   if (btn.dataset.menuAction === "pick") {
+    // A combo carries a hidden real <select>; an action menu does not. That
+    // is the only difference in what a pick means.
+    const native = menu.querySelector(".menu-native");
+    if (native) {
+      native.value = btn.dataset.value;
+      const label = menu.querySelector(".menu-trigger-label");
+      if (label) label.textContent = btn.textContent;
+      optionsOf(menu).forEach((opt) =>
+        opt.setAttribute("aria-selected", String(opt === btn))
+      );
+      // Callers that watch the select for changes (the Notes editor swaps its
+      // value input on type change) get the event they already listen for.
+      native.dispatchEvent(new Event("change", { bubbles: true }));
+    }
     closeMenu(menu);
     triggerOf(menu)?.focus();
-    const entry = pickHandlers.find((handler) => handler.root.contains(menu));
-    entry?.onPick(btn.dataset.value, menu.dataset.id);
+    if (!native) {
+      const entry = pickHandlers.find((handler) => handler.root.contains(menu));
+      entry?.onPick(btn.dataset.value, menu.dataset.id);
+    }
+    return;
   }
 });
 

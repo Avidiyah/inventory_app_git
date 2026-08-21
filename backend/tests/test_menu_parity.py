@@ -217,3 +217,45 @@ def test_tools_no_longer_uses_a_native_select_for_row_actions():
 def test_tools_menu_options_all_have_handlers():
     source = TOOLS_JS.read_text(encoding="utf-8")
     assert _rendered_menu_values(source) <= _handled_action_values(source)
+
+
+WORK_ORDERS_JS = STATIC / "views" / "workOrders.js"
+NOTES_JS = STATIC / "views" / "notes.js"
+
+
+def test_the_combo_lives_in_the_shared_module():
+    """Notes (Find Item) needs the value picker too; importing a 2000-line
+    page module to get it would drag the whole Work Orders page along."""
+    assert "export function comboHtml" in MENUS_JS.read_text(encoding="utf-8")
+
+
+def test_work_orders_imports_the_combo_rather_than_defining_one():
+    source = WORK_ORDERS_JS.read_text(encoding="utf-8")
+    assert "function comboHtml" not in source, "workOrders.js still defines its own combo"
+    assert "function closeCombo" not in source
+    assert "comboHtml" in source, "workOrders.js should still use the shared combo"
+
+
+def test_the_wo_prefixed_combo_styles_are_gone():
+    """A .wo- prefix on a component the Notes editor renders is a lie about
+    where it belongs."""
+    css = _css()
+    for selector in (".wo-combo-trigger", ".wo-combo-list", ".wo-combo-option"):
+        assert selector not in css, f"{selector} survived the move to .menu-*"
+
+
+def test_the_combo_keeps_a_real_select_holding_the_value():
+    """The hidden <select> is the whole point: existing save/read code
+    (`value('.wo-edit-status')`) keeps working untouched."""
+    source = MENUS_JS.read_text(encoding="utf-8")
+    combo = re.search(r"export function comboHtml\(.*?\n\}", source, re.DOTALL)
+    assert combo, "comboHtml was not found in menus.js"
+    assert 'role="listbox"' in combo.group(0)
+    assert 'role="option"' in combo.group(0)
+    assert "menu-native" in combo.group(0)
+
+
+def test_the_combo_has_the_css_it_renders_against():
+    css = _css()
+    assert ".menu-native" in css, "the hidden native select must be display:none"
+    assert '.menu-option[aria-selected="true"]' in css

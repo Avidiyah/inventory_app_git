@@ -67,6 +67,7 @@ import {
 } from "../roles.js";
 import { openBillingEditor } from "./billingEditor.js";
 import { subscribe } from "../realtime.js";
+import { comboHtml } from "../menus.js";
 
 const listEl = document.getElementById("work-orders-list");
 const listMessage = document.getElementById("work-orders-list-message");
@@ -646,47 +647,6 @@ function supervisorChoices() {
   );
 }
 
-// A custom-styled stand-in for a native <select>, used where the OS-rendered
-// popup of a real select can't be reached by our CSS (see docs/design-system.md).
-// `nativeSelectHtml` is a real, hidden <select> that still holds the value --
-// save/read logic (and the class name callers already query for) is
-// unchanged; this only replaces what the user sees and clicks.
-function comboListHtml(id, options, selectedValue, ariaLabel) {
-  return `<div class="wo-combo-list" id="${escapeHtml(id)}" role="listbox" aria-label="${escapeHtml(ariaLabel)}" hidden>
-            ${options
-              .map(
-                ({ value, label }) =>
-                  `<button type="button" class="secondary-btn wo-combo-option" role="option" data-action="pick-combo-option" data-value="${escapeHtml(value)}" aria-selected="${value === selectedValue}">${escapeHtml(label)}</button>`
-              )
-              .join("")}
-          </div>`;
-}
-
-export function comboHtml({ id, extraClass, nativeSelectHtml, options, selectedValue, ariaLabel }) {
-  const selected = options.find((opt) => opt.value === selectedValue);
-  const triggerLabel = selected ? selected.label : options[0]?.label || "";
-  // The trigger button renders before the hidden native select: both are
-  // "labelable" and this whole thing sits inside a <label>, which forwards a
-  // caption click to the first labelable descendant in tree order. Button
-  // first means the click opens the combo instead of landing on a select
-  // that's hidden and can't respond.
-  return `<div class="wo-combo${extraClass ? ` ${extraClass}` : ""}" data-combo>
-            <button type="button" class="wo-combo-trigger" data-action="toggle-combo" aria-haspopup="listbox" aria-expanded="false" aria-controls="${escapeHtml(id)}">
-              <span class="wo-combo-trigger-label">${escapeHtml(triggerLabel)}</span>
-              <svg class="wo-combo-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
-            ${comboListHtml(id, options, selectedValue, ariaLabel)}
-            ${nativeSelectHtml}
-          </div>`;
-}
-
-function closeCombo(combo) {
-  const list = combo?.querySelector(".wo-combo-list");
-  const trigger = combo?.querySelector(".wo-combo-trigger");
-  if (list) list.hidden = true;
-  if (trigger) trigger.setAttribute("aria-expanded", "false");
-}
-
 // True when a work order still carries the pre-import community/building/unit
 // attributes. Those fields are dead weight on an imported work order (which
 // describes its place in the free-text `location`), so they are shown and
@@ -800,7 +760,7 @@ function statusEditorHtml(detail) {
             </label>`;
   }
   const options = editableStatusValues(detail).map((status) => ({ value: status, label: statusLabel(status) }));
-  const nativeSelect = `<select class="wo-edit-status wo-combo-native" hidden>${editableStatusOptions(detail)}</select>`;
+  const nativeSelect = `<select class="wo-edit-status menu-native" hidden>${editableStatusOptions(detail)}</select>`;
   return `<label class="wo-edit-field wo-edit-status-field">
             <span>Status</span>
             ${comboHtml({
@@ -845,7 +805,7 @@ function detailsEditorHtml(detail) {
                   ${comboHtml({
                     id: `wo-supervisor-list-${detail.id}`,
                     extraClass: "wo-supervisor-combo",
-                    nativeSelectHtml: `<select class="wo-edit-supervisor wo-combo-native" hidden>${supervisorOptions(detail.supervisor_id || "")}</select>`,
+                    nativeSelectHtml: `<select class="wo-edit-supervisor menu-native" hidden>${supervisorOptions(detail.supervisor_id || "")}</select>`,
                     options: supervisorChoices(),
                     selectedValue: detail.supervisor_id || "",
                     ariaLabel: "Supervisor",
@@ -1699,33 +1659,6 @@ listEl.addEventListener("click", async (event) => {
     return;
   }
 
-  if (action === "toggle-combo") {
-    const combo = btn.closest(".wo-combo");
-    const list = combo.querySelector(".wo-combo-list");
-    const opening = list.hidden;
-    // Only one open at a time -- picking in one shouldn't leave another
-    // combo's listbox stranded open behind it.
-    listEl.querySelectorAll(".wo-combo").forEach((other) => {
-      if (other !== combo) closeCombo(other);
-    });
-    list.hidden = !opening;
-    btn.setAttribute("aria-expanded", String(opening));
-    return;
-  }
-
-  if (action === "pick-combo-option") {
-    const combo = btn.closest(".wo-combo");
-    const nativeSelect = combo.querySelector(".wo-combo-native");
-    const label = combo.querySelector(".wo-combo-trigger-label");
-    nativeSelect.value = btn.dataset.value;
-    label.textContent = btn.textContent;
-    combo.querySelectorAll(".wo-combo-option").forEach((opt) => {
-      opt.setAttribute("aria-selected", String(opt === btn));
-    });
-    closeCombo(combo);
-    combo.querySelector(".wo-combo-trigger")?.focus();
-    return;
-  }
 
   if (action === "back-to-work-orders") {
     // Above the `.wo-card` lookup below: this control lives in the list but
@@ -1939,8 +1872,6 @@ listEl.addEventListener("keydown", (event) => {
     closeTechnicianResults(event.target.closest(".wo-tech-picker"));
     return;
   }
-  const combo = event.target.closest(".wo-combo");
-  if (combo) closeCombo(combo);
 });
 
 listEl.addEventListener("focusout", (event) => {
@@ -1950,12 +1881,6 @@ listEl.addEventListener("focusout", (event) => {
       if (!picker.contains(document.activeElement)) closeTechnicianResults(picker);
     }, 0);
     return;
-  }
-  const combo = event.target.closest(".wo-combo");
-  if (combo) {
-    setTimeout(() => {
-      if (!combo.contains(document.activeElement)) closeCombo(combo);
-    }, 0);
   }
 });
 
