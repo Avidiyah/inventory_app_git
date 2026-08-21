@@ -1836,6 +1836,39 @@ tr.archived-user {
     border-color: var(--color-primary);
 }
 
+/* P4 "On the clock now" (spec §5.4) -- a compact row list, not tiles, since
+   the count is unbounded (could be dozens of technicians company-wide). */
+.hub-onclock-section {
+    margin-bottom: var(--space-6);
+}
+
+.hub-onclock-list {
+    list-style: none;
+    margin: var(--space-2) 0 0;
+    padding: 0;
+}
+
+.hub-onclock-row {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    background: var(--panel-well);
+    margin-bottom: var(--space-1);
+    border-radius: var(--radius-sm);
+}
+
+.hub-onclock-name {
+    font-weight: var(--fw-semibold);
+    min-width: 10ch;
+}
+
+.hub-onclock-subject {
+    color: var(--text-panel-mute);
+    flex: 1;
+}
+
 .hub-time-today-row {
     display: flex;
     align-items: baseline;

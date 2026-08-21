@@ -678,6 +678,56 @@ def test_admin_hub_pipeline_excludes_on_hold_and_archived(db):
     assert pipeline.review == baseline.review
 
 
+def test_admin_hub_on_the_clock_lists_a_running_session_company_wide(db):
+    creator = _seed_user(db, roles.ROLE_SUPERVISOR)
+    tech = _seed_user(db, roles.ROLE_TECHNICIAN, first_name="Marisol", last_name="Chen")
+    work_order = _seed_work_order(
+        db, created_by=creator, assigned_to=tech, status=wo.STATUS_IN_PROGRESS
+    )
+    work_order.community = "Commons B3"
+    db.flush()
+    started = NOW - timedelta(minutes=30)
+    _seed_session(db, work_order, tech, started_at=started)
+
+    payload = hub_service.admin_hub(db, creator, now=NOW)
+
+    entry = next(e for e in payload.on_the_clock if e.work_order_number == work_order.number)
+    assert entry.technician_name == "Marisol Chen"
+    assert entry.community == "Commons B3"
+    assert entry.elapsed_minutes == 30
+    assert entry.flag is None
+
+
+def test_admin_hub_on_the_clock_flags_a_long_running_session(db):
+    creator = _seed_user(db, roles.ROLE_SUPERVISOR)
+    tech = _seed_user(db, roles.ROLE_TECHNICIAN, first_name="Dana", last_name="Ortiz")
+    work_order = _seed_work_order(
+        db, created_by=creator, assigned_to=tech, status=wo.STATUS_IN_PROGRESS
+    )
+    started = NOW - timedelta(minutes=hub_domain.LONG_SESSION_WARN_MINUTES)
+    _seed_session(db, work_order, tech, started_at=started)
+
+    payload = hub_service.admin_hub(db, creator, now=NOW)
+
+    entry = next(e for e in payload.on_the_clock if e.work_order_number == work_order.number)
+    assert entry.flag == hub_domain.FLAG_LONG_SESSION
+
+
+def test_admin_hub_on_the_clock_excludes_closed_sessions(db):
+    creator = _seed_user(db, roles.ROLE_SUPERVISOR)
+    tech = _seed_user(db, roles.ROLE_TECHNICIAN)
+    work_order = _seed_work_order(
+        db, created_by=creator, assigned_to=tech, status=wo.STATUS_COMPLETED
+    )
+    _seed_session(
+        db, work_order, tech, started_at=NOW - timedelta(hours=1), ended_at=NOW
+    )
+
+    payload = hub_service.admin_hub(db, creator, now=NOW)
+
+    assert all(e.work_order_number != work_order.number for e in payload.on_the_clock)
+
+
 def test_the_admin_payload_serialises_into_the_response_schema(db):
     from app.routers.hub import get_hub_admin
 
@@ -695,6 +745,11 @@ def test_the_admin_payload_serialises_into_the_response_schema(db):
     assert "server_now" in body
     assert "pipeline" in body
     assert "in_progress" in body["pipeline"]
+    assert "on_the_clock" in body
+    entry = next(
+        e for e in body["on_the_clock"] if e["work_order_number"] == work_order.number
+    )
+    assert entry["technician_name"] == "Jose Rivera"
 
 
 # --- the supervisor timesheet payload (P3b) -------------------------------

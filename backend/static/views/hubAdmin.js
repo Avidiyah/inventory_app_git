@@ -25,6 +25,39 @@ function tileHtml(label, value) {
     </section>`;
 }
 
+// `domain/hub.py`'s flag vocabulary -- same map `hubSupervisor.js` uses for
+// the crew board's flag badges (spec §8: icon plus word, never color alone).
+const FLAG_LABELS = {
+  long_session: "long session",
+  approaching_cap: "approaching cap",
+};
+
+function onClockRowHtml(entry) {
+  const subject = [`WO ${entry.work_order_number}`, entry.community]
+    .filter(Boolean)
+    .join(" · ");
+  const flag = entry.flag
+    ? ` <span class="hub-attention-icon" aria-hidden="true">⚠ ${escapeHtml(FLAG_LABELS[entry.flag] || entry.flag.replace(/_/g, " "))}</span>`
+    : "";
+  return `
+    <li class="hub-onclock-row">
+      <span class="hub-onclock-name">${escapeHtml(entry.technician_name)}</span>
+      <span class="hub-onclock-subject">${escapeHtml(subject)}</span>
+      <span class="hub-onclock-elapsed">${escapeHtml(formatHm(entry.elapsed_minutes))}${flag}</span>
+    </li>`;
+}
+
+function onClockHtml(onTheClock) {
+  const body = onTheClock.length
+    ? `<ul class="hub-onclock-list">${onTheClock.map(onClockRowHtml).join("")}</ul>`
+    : `<p class="hint">Nobody is on the clock right now.</p>`;
+  return `
+    <section class="hub-onclock-section">
+      <p class="hub-tile-label">On the clock now <span class="hub-tile-count">${onTheClock.length}</span></p>
+      ${body}
+    </section>`;
+}
+
 // Order and labels match `backend/static/pages/work-orders.html`'s own
 // status filter `<option>`s verbatim (Global Constraints) -- the tile's
 // label and the page it opens must always agree.
@@ -60,6 +93,7 @@ function pipelineHtml(pipeline) {
 
 export function mountHubAdminSummary(container, payload) {
   container.innerHTML = `
+    ${onClockHtml(payload.on_the_clock)}
     <div class="hub-tile-grid">
       ${tileHtml("Supervisor Time", formatHm(payload.supervisor_minutes_today))}
       ${tileHtml("Technician Time", formatHm(payload.technician_minutes_today))}

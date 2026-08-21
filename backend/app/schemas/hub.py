@@ -236,6 +236,19 @@ class HubAdminPipeline(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class HubAdminOnClockEntry(BaseModel):
+    """One row of the company-wide "On the clock now" list."""
+
+    technician_name: str
+    work_order_number: str
+    community: Optional[str]
+    started_at: datetime
+    elapsed_minutes: int
+    flag: Optional[str]
+
+    model_config = {"from_attributes": True}
+
+
 class HubAdminResponse(BaseModel):
     """`GET /hub/admin`. Bucketed by account role, not by what work was
     clocked on -- a TechFM OA/Admin/Owner's own hours (if any) land in
@@ -245,6 +258,7 @@ class HubAdminResponse(BaseModel):
     supervisor_minutes_today: int
     technician_minutes_today: int
     pipeline: HubAdminPipeline
+    on_the_clock: list[HubAdminOnClockEntry] = []
 
     model_config = {"from_attributes": True}
 

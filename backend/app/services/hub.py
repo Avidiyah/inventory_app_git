@@ -504,6 +504,58 @@ def _pipeline_counts(db: Session) -> AdminPipelineCounts:
 
 
 @dataclass(frozen=True)
+class OnClockEntry:
+    """One row of the "On the clock now" list (spec §5.4) -- a currently
+    running labor session, company-wide. `flag` reuses the crew board's own
+    vocabulary (`hub_domain.FLAG_LONG_SESSION` / `FLAG_APPROACHING_CAP`) so
+    the same icon-plus-word rendering rule (spec §8) applies here too."""
+
+    technician_name: str
+    work_order_number: str
+    community: Optional[str]
+    started_at: datetime
+    elapsed_minutes: int
+    flag: Optional[str]
+
+
+def _on_the_clock(
+    db: Session,
+    now: datetime,
+    users_by_id: dict[uuid.UUID, User],
+    summaries_by_user_id: dict[uuid.UUID, labor_summary.DaySummary],
+) -> list[OnClockEntry]:
+    running = [
+        (user_id, summary.running)
+        for user_id, summary in summaries_by_user_id.items()
+        if summary.running is not None
+    ]
+    work_order_ids = [session.work_order_id for _, session in running]
+    communities = (
+        dict(
+            db.query(WorkOrder.id, WorkOrder.community)
+            .filter(WorkOrder.id.in_(work_order_ids))
+            .all()
+        )
+        if work_order_ids
+        else {}
+    )
+    entries = [
+        OnClockEntry(
+            technician_name=users_by_id[user_id].full_name,
+            work_order_number=session.number,
+            community=communities.get(session.work_order_id),
+            started_at=session.started_at,
+            elapsed_minutes=elapsed_minutes,
+            flag=hub_domain.session_flag(elapsed_minutes),
+        )
+        for user_id, session in running
+        for elapsed_minutes in [int((now - session.started_at).total_seconds() // 60)]
+    ]
+    entries.sort(key=lambda e: e.elapsed_minutes, reverse=True)
+    return entries
+
+
+@dataclass(frozen=True)
 class HubAdminPayload:
     """`GET /hub/admin`'s whole contract: today's tracked minutes, summed
     by account role across the whole company.
@@ -518,6 +570,7 @@ class HubAdminPayload:
     supervisor_minutes_today: int
     technician_minutes_today: int
     pipeline: AdminPipelineCounts
+    on_the_clock: list[OnClockEntry]
 
 
 def admin_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> HubAdminPayload:
@@ -554,12 +607,15 @@ def admin_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> Hub
     technician_summaries = labor_summary.crew_day_summaries(
         db, [u.id for u in technicians], day, now=now
     )
+    users_by_id = {u.id: u for u in supervisors + technicians}
+    all_summaries = {**supervisor_summaries, **technician_summaries}
 
     return HubAdminPayload(
         server_now=now,
         supervisor_minutes_today=sum(s.total_minutes for s in supervisor_summaries.values()),
         technician_minutes_today=sum(s.total_minutes for s in technician_summaries.values()),
         pipeline=_pipeline_counts(db),
+        on_the_clock=_on_the_clock(db, now, users_by_id, all_summaries),
     )
 
 
