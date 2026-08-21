@@ -32,21 +32,28 @@ function tileHtml(label, value, sub) {
     </section>`;
 }
 
-function rollUpsHtml(payload) {
-  return `
-    <div class="hub-tile-grid">
-      ${tileHtml(
-        "Work orders I lead",
-        payload.led.total,
-        payload.led.in_progress ? `${payload.led.in_progress} in progress` : ""
-      )}
-      ${tileHtml("Crew on the clock", `${payload.crew_on_clock} of ${payload.crew_total}`, "")}
-      ${tileHtml(
-        "Crew time today",
-        formatHm(payload.crew_minutes_today),
-        payload.crew_on_clock ? "ticking" : ""
-      )}
-    </div>`;
+function rollUpsHtml(payload, { isAdminPlus = false } = {}) {
+  const tiles = [
+    tileHtml(
+      "Work orders I lead",
+      payload.led.total,
+      payload.led.in_progress ? `${payload.led.in_progress} in progress` : ""
+    ),
+  ];
+  // "Crew on the clock" is dropped for techfm_oa+ viewers -- the new
+  // company-wide Supervisor Time / Technician Time tiles (hubAdmin.js)
+  // supersede it for that role tier.
+  if (!isAdminPlus) {
+    tiles.push(tileHtml("Crew on the clock", `${payload.crew_on_clock} of ${payload.crew_total}`, ""));
+  }
+  tiles.push(
+    tileHtml(
+      "Crew time today",
+      formatHm(payload.crew_minutes_today),
+      payload.crew_on_clock ? "ticking" : ""
+    )
+  );
+  return `<div class="hub-tile-grid">${tiles.join("")}</div>`;
 }
 
 function attentionHtml(attention) {
@@ -134,6 +141,6 @@ function crewHtml(payload) {
     </section>`;
 }
 
-export function mountHubCrew(container, payload) {
-  container.innerHTML = rollUpsHtml(payload) + attentionHtml(payload.attention) + crewHtml(payload);
+export function mountHubCrew(container, payload, { isAdminPlus = false } = {}) {
+  container.innerHTML = rollUpsHtml(payload, { isAdminPlus }) + attentionHtml(payload.attention) + crewHtml(payload);
 }

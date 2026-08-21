@@ -8,13 +8,14 @@
 // Admin dashboards are P4; every role below TechFM OA sees this same shape
 // for now, built from the same role-agnostic GET /hub payload.
 
-import { apiGetHub, apiGetHubCrew, apiGetHubTimesheets } from "../api.js";
+import { apiGetHub, apiGetHubAdmin, apiGetHubCrew, apiGetHubTimesheets } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
 import { roleAtLeast } from "../roles.js";
 import { mountHubClock, startHubClockTicking, stopHubClockTicking } from "./hubClock.js";
 import { mountHubDashboard, mountHubWorkOrders } from "./hubTechnician.js";
 import { mountHubCrew } from "./hubSupervisor.js";
+import { mountHubAdminSummary } from "./hubAdmin.js";
 import { mountHubTimesheets } from "./hubTimesheets.js";
 
 const HUB_PAGE = "user-hub";
@@ -39,6 +40,8 @@ let latestPayload = null;
 let latestCrewPayload = null;
 let crewRequestId = 0;
 let crewSafetyTimer = null;
+let latestAdminPayload = null;
+let adminRequestId = 0;
 let latestTimesheetPayload = null;
 let timesheetRange = null;
 let timesheetRequestId = 0;
@@ -62,19 +65,34 @@ function crewMount() {
   return tabPanels.dashboard.querySelector("#hub-crew-mount");
 }
 
+function adminMount() {
+  return tabPanels.dashboard.querySelector("#hub-admin-mount");
+}
+
+function viewerCanSeeAdminTiles() {
+  return Boolean(latestPayload) && roleAtLeast(latestPayload.user.role, "techfm_oa");
+}
+
 // Repaints the crew board from whatever was last fetched, without a network
 // call -- used after `mountHubDashboard` rebuilds the tab body (which wipes
 // `#hub-crew-mount`) and on every tab switch back to Dashboard.
 function renderCrew() {
   if (!latestCrewPayload) return;
   const mount = crewMount();
-  if (mount) mountHubCrew(mount, latestCrewPayload);
+  if (mount) mountHubCrew(mount, latestCrewPayload, { isAdminPlus: viewerCanSeeAdminTiles() });
+}
+
+function renderAdmin() {
+  if (!latestAdminPayload) return;
+  const mount = adminMount();
+  if (mount) mountHubAdminSummary(mount, latestAdminPayload);
 }
 
 function renderActiveTab() {
   if (activeTab === "dashboard") {
     mountHubDashboard(tabPanels.dashboard, latestPayload);
     renderCrew();
+    renderAdmin();
   } else if (activeTab === "timesheets") {
     if (latestTimesheetPayload) {
       mountHubTimesheets(tabPanels.timesheets, latestTimesheetPayload, {
@@ -147,11 +165,28 @@ async function refreshCrew({ background = false } = {}) {
     const payload = await apiGetHubCrew();
     if (requestId !== crewRequestId) return;
     latestCrewPayload = payload;
-    mountHubCrew(mount, payload);
+    mountHubCrew(mount, payload, { isAdminPlus: viewerCanSeeAdminTiles() });
   } catch (err) {
     if (requestId !== crewRequestId) return;
     if (background) return;
     mount.innerHTML = `<p class="error">${friendlyError(err, "Could not load your crew.")}</p>`;
+  }
+}
+
+// Mirrors `refreshCrew` -- same background/foreground error-handling split.
+async function refreshAdmin({ background = false } = {}) {
+  const mount = adminMount();
+  if (!mount) return;
+  const requestId = ++adminRequestId;
+  try {
+    const payload = await apiGetHubAdmin();
+    if (requestId !== adminRequestId) return;
+    latestAdminPayload = payload;
+    mountHubAdminSummary(mount, payload);
+  } catch (err) {
+    if (requestId !== adminRequestId) return;
+    if (background) return;
+    mount.innerHTML = `<p class="error">${friendlyError(err, "Could not load the company summary.")}</p>`;
   }
 }
 
@@ -167,6 +202,7 @@ function startCrewSafetyRefresh() {
   crewSafetyTimer = setInterval(() => {
     if (document.hidden) return;
     void refreshCrew({ background: true });
+    if (viewerCanSeeAdminTiles()) void refreshAdmin({ background: true });
   }, CREW_SAFETY_REFRESH_MS);
 }
 
@@ -189,6 +225,7 @@ export async function loadUserHub() {
   const nextUserId = String(payload.user.id);
   const userChanged = loadedUserId !== nextUserId;
   const canViewSupervisorTabs = roleAtLeast(payload.user.role, "supervisor");
+  const canViewAdminTiles = roleAtLeast(payload.user.role, "techfm_oa");
   if (userChanged || !canViewSupervisorTabs) {
     latestCrewPayload = null;
     latestTimesheetPayload = null;
@@ -196,6 +233,10 @@ export async function loadUserHub() {
     crewRequestId += 1;
     timesheetRequestId += 1;
     tabPanels.timesheets.replaceChildren();
+  }
+  if (userChanged || !canViewAdminTiles) {
+    latestAdminPayload = null;
+    adminRequestId += 1;
   }
   if (userChanged) activeTab = "dashboard";
   if (!canViewSupervisorTabs && activeTab === "timesheets") activeTab = "dashboard";
@@ -213,6 +254,10 @@ export async function loadUserHub() {
   } else {
     stopCrewSafetyRefresh();
   }
+
+  if (canViewAdminTiles) {
+    await refreshAdmin();
+  }
 }
 
 // Exposed so hubClock.js can ask for a fresh payload after a Start/Stop
@@ -229,7 +274,8 @@ export async function refreshUserHub() {
 // Background: this is a socket signal, not a user action.
 subscribe(LABOR_SESSION_CHANGED_EVENT, ({ activePage }) => {
   if (activePage !== HUB_PAGE) return;
-  return refreshCrew({ background: true });
+  void refreshCrew({ background: true });
+  if (viewerCanSeeAdminTiles()) void refreshAdmin({ background: true });
 });
 
 document.addEventListener("visibilitychange", () => {

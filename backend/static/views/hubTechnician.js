@@ -7,6 +7,7 @@
 import { escapeHtml } from "../format.js";
 import { mountWorkOrderList, focusWorkOrderNumber } from "./workOrders.js";
 import { showPage } from "./nav.js";
+import { roleAtLeast } from "../roles.js";
 
 // Mirrors `domain.labor_day.DISPLAY_ANCHOR_HOUR` -- the timeline strip's
 // axis starts here unless work began earlier. A *display* anchor only,
@@ -151,14 +152,17 @@ function toolsOutHtml(toolsOut) {
 }
 
 export function mountHubDashboard(container, payload) {
+  const isAdminPlus = roleAtLeast(payload.user.role, "techfm_oa");
   container.innerHTML =
     countsHtml(payload.counts) +
-    timeTodayHtml(payload) +
-    toolsOutHtml(payload.tools_out) +
-    // Empty for a Technician; userHub.js mounts the crew board here for
-    // supervisor+ viewers (spec §5.3: the crew board lives inside this same
-    // Dashboard tab, not a new one). Present unconditionally so userHub.js
-    // never has to special-case whether this element exists.
+    (isAdminPlus ? "" : timeTodayHtml(payload)) +
+    (isAdminPlus ? "" : toolsOutHtml(payload.tools_out)) +
+    // Present unconditionally so userHub.js never has to special-case
+    // whether these elements exist. #hub-admin-mount is only ever
+    // populated for techfm_oa+ viewers (spec: the admin time summary);
+    // #hub-crew-mount is populated when the viewer is a routed supervisor
+    // (D16), any role.
+    `<div id="hub-admin-mount"></div>` +
     `<div id="hub-crew-mount"></div>`;
   container.querySelectorAll(".hub-timeline-block").forEach((block) => {
     block.style.left = `${block.dataset.left}%`;
