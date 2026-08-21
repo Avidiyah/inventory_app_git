@@ -5,7 +5,7 @@
 // `GET /hub/admin` payload `userHub.js` fetches for techfm_oa+ viewers;
 // makes no requests of its own.
 
-import { escapeHtml } from "../format.js";
+import { escapeHtml, formatMoney } from "../format.js";
 import { showPage } from "./nav.js";
 import { openWorkOrdersFilteredByStatus } from "./workOrders.js";
 
@@ -114,6 +114,41 @@ function exceptionsHtml(exceptions) {
     </section>`;
 }
 
+// Unicode block levels, low to high -- a single-series sparkline needs no
+// legend (the section title carries it, spec §5.4).
+const SPARK_LEVELS = "▁▂▃▄▅▆▇█";
+
+function sparkline(values) {
+  if (!values.length) return "";
+  const max = Math.max(1, ...values);
+  return values
+    .map((v) => SPARK_LEVELS[Math.min(SPARK_LEVELS.length - 1, Math.floor((v / max) * (SPARK_LEVELS.length - 1)))])
+    .join("");
+}
+
+function billingHtml(billing) {
+  const legacyRow =
+    billing.legacy_live_count === null || billing.legacy_live_count === undefined
+      ? ""
+      : `<li class="hub-exceptions-row"><span>Legacy work orders live</span><span>${escapeHtml(String(billing.legacy_live_count))}</span></li>`;
+  const avg =
+    billing.avg_days_to_complete === null || billing.avg_days_to_complete === undefined
+      ? "—"
+      : `${billing.avg_days_to_complete.toFixed(1)} d`;
+  return `
+    <section class="hub-billing">
+      <p class="hub-tile-label">Billing · this week</p>
+      <ul class="hub-exceptions-list">
+        <li class="hub-exceptions-row"><span>Materials</span><span>${escapeHtml(formatMoney(billing.materials_total))}</span></li>
+        <li class="hub-exceptions-row"><span>Labor</span><span>${escapeHtml(formatMoney(billing.labor_total))}</span></li>
+        <li class="hub-exceptions-row hub-billing-total"><span>Total</span><span>${escapeHtml(formatMoney(billing.total))}</span></li>
+        <li class="hub-exceptions-row"><span>Avg time to complete</span><span>${escapeHtml(avg)}</span></li>
+        <li class="hub-exceptions-row"><span>Completed / day</span><span class="hub-billing-sparkline">${escapeHtml(sparkline(billing.completed_per_day))}</span></li>
+        ${legacyRow}
+      </ul>
+    </section>`;
+}
+
 export function mountHubAdminSummary(container, payload) {
   container.innerHTML = `
     ${onClockHtml(payload.on_the_clock)}
@@ -122,7 +157,10 @@ export function mountHubAdminSummary(container, payload) {
       ${tileHtml("Technician Time", formatHm(payload.technician_minutes_today))}
     </div>
     ${pipelineHtml(payload.pipeline)}
-    ${exceptionsHtml(payload.exceptions)}`;
+    <div class="hub-exceptions-billing-grid">
+      ${exceptionsHtml(payload.exceptions)}
+      ${billingHtml(payload.billing)}
+    </div>`;
 
   // Bound once per container element, guarded by a dataset flag -- this
   // function re-runs on every live refresh (initial load, the

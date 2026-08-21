@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.domain import hub as hub_domain
 from app.domain import labor_day
+from app.domain import receipt
 from app.domain import roles
 from app.domain import work_orders as wo
 from app.domain.errors import TimesheetRangeInvalidError, TimesheetRangeTooLargeError
@@ -561,6 +562,104 @@ def _exception_counts(
 
 
 @dataclass(frozen=True)
+class AdminBilling:
+    """The "Billing" tile group (spec §5.4). `materials_total`/`labor_total`
+    are locked to the **current Central week** (D12) -- the receipt's own
+    numbers (`domain.receipt`: billed labor minutes, 15% material mark-up),
+    summed over every work order completed inside it. `avg_days_to_complete`
+    and `completed_per_day` are not pinned by D12 (which only fixes the $
+    figures' range) and instead look at the trailing 14 Central days -- long
+    enough for a meaningful average and for the spec's 14-point sparkline; a
+    single week would be too small a sample for either."""
+
+    materials_total: Decimal
+    labor_total: Decimal
+    avg_days_to_complete: Optional[float]
+    completed_per_day: list[int]
+    legacy_live_count: Optional[int]
+
+    @property
+    def total(self) -> Decimal:
+        return self.materials_total + self.labor_total
+
+
+def _materials_and_labor(work_orders: list[WorkOrder]) -> tuple[Decimal, Decimal]:
+    materials_total = Decimal(0)
+    labor_total = Decimal(0)
+    for work_order in work_orders:
+        for line in work_order.items:
+            charge = receipt.marked_material_charge(
+                receipt.ReceiptLine(
+                    name=line.item.name,
+                    quantity=line.quantity,
+                    billable_quantity=line.billable_quantity,
+                    unit_price=line.item.price,
+                )
+            )
+            if charge is not None:
+                materials_total += charge
+        labor_minutes = sum(entry.minutes for entry in work_order.labor_entries)
+        labor_total += wo.labor_charge(labor_minutes)
+    return materials_total, labor_total
+
+
+def _billing(db: Session, now: datetime, user: User) -> AdminBilling:
+    today = labor_day.central_date_of(now)
+    week_start, week_end = labor_day.week_bounds_containing(today)
+    week_window_start, _ = labor_day.day_bounds(week_start)
+    _, week_window_end = labor_day.day_bounds(week_end)
+
+    this_week = (
+        db.query(WorkOrder)
+        .filter(
+            WorkOrder.completed_at.is_not(None),
+            WorkOrder.completed_at >= week_window_start,
+            WorkOrder.completed_at < week_window_end,
+        )
+        .all()
+    )
+    materials_total, labor_total = _materials_and_labor(this_week)
+
+    trailing_days = [today - timedelta(days=offset) for offset in range(13, -1, -1)]
+    trailing_start, _ = labor_day.day_bounds(trailing_days[0])
+    _, trailing_end = labor_day.day_bounds(trailing_days[-1])
+    trailing = (
+        db.query(WorkOrder.created_at, WorkOrder.completed_at)
+        .filter(
+            WorkOrder.completed_at.is_not(None),
+            WorkOrder.completed_at >= trailing_start,
+            WorkOrder.completed_at < trailing_end,
+        )
+        .all()
+    )
+    per_day = {day: 0 for day in trailing_days}
+    for created_at, completed_at in trailing:
+        day = labor_day.central_date_of(completed_at)
+        if day in per_day:
+            per_day[day] += 1
+    completed_per_day = [per_day[day] for day in trailing_days]
+    avg_days_to_complete = (
+        sum((c - cr).total_seconds() for cr, c in trailing) / len(trailing) / 86400
+        if trailing
+        else None
+    )
+
+    legacy_live_count = (
+        work_orders_service.count_live_legacy_work_orders(db, user=user)
+        if roles.role_at_least(user.role, roles.ROLE_OWNER)
+        else None
+    )
+
+    return AdminBilling(
+        materials_total=materials_total,
+        labor_total=labor_total,
+        avg_days_to_complete=avg_days_to_complete,
+        completed_per_day=completed_per_day,
+        legacy_live_count=legacy_live_count,
+    )
+
+
+@dataclass(frozen=True)
 class OnClockEntry:
     """One row of the "On the clock now" list (spec §5.4) -- a currently
     running labor session, company-wide. `flag` reuses the crew board's own
@@ -629,6 +728,7 @@ class HubAdminPayload:
     pipeline: AdminPipelineCounts
     on_the_clock: list[OnClockEntry]
     exceptions: AdminExceptionCounts
+    billing: AdminBilling
 
 
 def admin_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> HubAdminPayload:
@@ -676,6 +776,7 @@ def admin_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> Hub
         pipeline=pipeline,
         on_the_clock=_on_the_clock(db, now, users_by_id, all_summaries),
         exceptions=_exception_counts(db, now, pipeline),
+        billing=_billing(db, now, user),
     )
 
 

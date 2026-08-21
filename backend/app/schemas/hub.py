@@ -261,6 +261,23 @@ class HubAdminExceptions(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class HubAdminBilling(BaseModel):
+    """Billing · this week (D12: current Central week for the $ figures;
+    the average and sparkline look at the trailing 14 days instead -- see
+    the service dataclass's docstring). `legacy_live_count` is `None`
+    unless the viewer is the Owner, matching the existing Owner-exactly
+    gate on the legacy re-archive endpoints."""
+
+    materials_total: Decimal
+    labor_total: Decimal
+    total: Decimal
+    avg_days_to_complete: Optional[float]
+    completed_per_day: list[int]
+    legacy_live_count: Optional[int]
+
+    model_config = {"from_attributes": True}
+
+
 class HubAdminResponse(BaseModel):
     """`GET /hub/admin`. Bucketed by account role, not by what work was
     clocked on -- a TechFM OA/Admin/Owner's own hours (if any) land in
@@ -272,6 +289,7 @@ class HubAdminResponse(BaseModel):
     pipeline: HubAdminPipeline
     on_the_clock: list[HubAdminOnClockEntry] = []
     exceptions: HubAdminExceptions
+    billing: HubAdminBilling
 
     model_config = {"from_attributes": True}
 

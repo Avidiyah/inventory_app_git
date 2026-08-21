@@ -1893,6 +1893,23 @@ tr.archived-user {
     border-bottom: none;
 }
 
+/* Exceptions + Billing sit side by side on wide screens (spec §5.4's
+   mockup), stacking on narrow ones like every other hub grid. */
+.hub-exceptions-billing-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--space-4);
+}
+
+.hub-billing-total span {
+    font-weight: var(--fw-semibold);
+}
+
+.hub-billing-sparkline {
+    font-family: monospace;
+    letter-spacing: 1px;
+}
+
 .hub-time-today-row {
     display: flex;
     align-items: baseline;

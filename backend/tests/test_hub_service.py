@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 
 import pytest
 
@@ -22,7 +23,7 @@ from app.domain import labor_day
 from app.domain import roles
 from app.domain import work_orders as wo
 from app.domain.errors import TimesheetRangeInvalidError, TimesheetRangeTooLargeError
-from app.models import User, WorkOrderLaborSession, WorkOrderTechnician
+from app.models import Item, User, WorkOrderItem, WorkOrderLaborSession, WorkOrderTechnician
 from app.services import auth
 from app.services import hub as hub_service
 from app.services import work_orders as wos
@@ -68,6 +69,47 @@ def _seed_session(db, work_order, technician, *, started_at, ended_at=None):
     db.add(session)
     db.flush()
     return session
+
+
+def _seed_item(db, price="10.00"):
+    item = Item(
+        barcode=f"BC-{uuid.uuid4().hex[:10]}",
+        name="Test Material",
+        quantity=Decimal(100),
+        location="Bay 1",
+        price=Decimal(price),
+    )
+    db.add(item)
+    db.flush()
+    return item
+
+
+def _seed_work_order_item(db, work_order, item, *, quantity):
+    line = WorkOrderItem(
+        id=uuid.uuid4(),
+        work_order_id=work_order.id,
+        item_id=item.id,
+        quantity=Decimal(quantity),
+        mode="dispense",
+    )
+    db.add(line)
+    db.flush()
+    return line
+
+
+def _seed_labor_entry(db, work_order, technician, *, minutes):
+    from app.models import WorkOrderLabor
+
+    entry = WorkOrderLabor(
+        id=uuid.uuid4(),
+        work_order_id=work_order.id,
+        technician_id=technician.id,
+        recorded_by_id=technician.id,
+        minutes=minutes,
+    )
+    db.add(entry)
+    db.flush()
+    return entry
 
 
 def test_counts_are_a_total_and_two_subsets(db):
@@ -759,6 +801,74 @@ def test_admin_hub_exceptions_counts_a_stale_in_progress_work_order(db):
     assert exceptions.stale_work_orders - baseline.stale_work_orders == 1
 
 
+def test_admin_hub_billing_sums_materials_and_labor_completed_this_week(db):
+    # NOW (2026-08-20, a Thursday) falls in the Central week Aug 17-23.
+    creator = _seed_user(db, roles.ROLE_SUPERVISOR)
+    tech = _seed_user(db, roles.ROLE_TECHNICIAN)
+    baseline = hub_service.admin_hub(db, creator, now=NOW).billing
+
+    item = _seed_item(db, price="10.00")
+    work_order = _seed_work_order(
+        db, created_by=creator, assigned_to=tech, status=wo.STATUS_COMPLETED
+    )
+    work_order.completed_at = NOW
+    _seed_work_order_item(db, work_order, item, quantity=2)
+    _seed_labor_entry(db, work_order, tech, minutes=90)
+    db.flush()
+
+    billing = hub_service.admin_hub(db, creator, now=NOW).billing
+
+    # 2 units * $10.00 * 1.15 markup = $23.00.
+    assert billing.materials_total - baseline.materials_total == Decimal("23.00")
+    # 90 minutes already lands on a 30-min increment; $62.50/hr * 1.5h.
+    assert billing.labor_total - baseline.labor_total == Decimal("93.75")
+    assert billing.total - baseline.total == Decimal("116.75")
+
+
+def test_admin_hub_billing_excludes_work_completed_outside_this_week(db):
+    creator = _seed_user(db, roles.ROLE_SUPERVISOR)
+    tech = _seed_user(db, roles.ROLE_TECHNICIAN)
+    baseline = hub_service.admin_hub(db, creator, now=NOW).billing
+
+    item = _seed_item(db, price="10.00")
+    work_order = _seed_work_order(
+        db, created_by=creator, assigned_to=tech, status=wo.STATUS_COMPLETED
+    )
+    work_order.completed_at = NOW - timedelta(days=8)
+    _seed_work_order_item(db, work_order, item, quantity=2)
+    db.flush()
+
+    billing = hub_service.admin_hub(db, creator, now=NOW).billing
+
+    assert billing.materials_total == baseline.materials_total
+
+
+def test_admin_hub_billing_sparkline_has_fourteen_points_and_counts_completions(db):
+    creator = _seed_user(db, roles.ROLE_SUPERVISOR)
+    tech = _seed_user(db, roles.ROLE_TECHNICIAN)
+    baseline = hub_service.admin_hub(db, creator, now=NOW).billing
+
+    work_order = _seed_work_order(
+        db, created_by=creator, assigned_to=tech, status=wo.STATUS_COMPLETED
+    )
+    work_order.completed_at = NOW
+    db.flush()
+
+    billing = hub_service.admin_hub(db, creator, now=NOW).billing
+
+    assert len(billing.completed_per_day) == 14
+    assert sum(billing.completed_per_day) - sum(baseline.completed_per_day) == 1
+    assert billing.avg_days_to_complete is not None
+
+
+def test_admin_hub_billing_legacy_count_is_owner_only(db):
+    creator = _seed_user(db, roles.ROLE_SUPERVISOR)
+    owner = _seed_user(db, roles.ROLE_OWNER, first_name="Sam", last_name="Boyd")
+
+    assert hub_service.admin_hub(db, creator, now=NOW).billing.legacy_live_count is None
+    assert hub_service.admin_hub(db, owner, now=NOW).billing.legacy_live_count is not None
+
+
 def test_admin_hub_on_the_clock_lists_a_running_session_company_wide(db):
     creator = _seed_user(db, roles.ROLE_SUPERVISOR)
     tech = _seed_user(db, roles.ROLE_TECHNICIAN, first_name="Marisol", last_name="Chen")
@@ -833,6 +943,9 @@ def test_the_admin_payload_serialises_into_the_response_schema(db):
     assert entry["technician_name"] == "Jose Rivera"
     assert "exceptions" in body
     assert "stale_work_orders" in body["exceptions"]
+    assert "billing" in body
+    assert "total" in body["billing"]
+    assert body["billing"]["legacy_live_count"] is None
 
 
 # --- the supervisor timesheet payload (P3b) -------------------------------
