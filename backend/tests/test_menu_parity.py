@@ -221,6 +221,7 @@ def test_tools_menu_options_all_have_handlers():
 
 WORK_ORDERS_JS = STATIC / "views" / "workOrders.js"
 NOTES_JS = STATIC / "views" / "notes.js"
+HUB_CLOCK_JS = STATIC / "views" / "hubClock.js"
 
 
 def test_the_combo_lives_in_the_shared_module():
@@ -276,3 +277,30 @@ def test_the_notes_value_reader_still_finds_the_value():
     puts that class on the hidden native select, so the reader is unchanged."""
     source = NOTES_JS.read_text(encoding="utf-8")
     assert "note-value" in source
+
+
+def test_the_hub_clock_imports_and_uses_the_shared_combo_contract():
+    """Moving comboHtml out of workOrders.js must update every importer and
+    remove handlers for the deleted .wo-combo-* markup."""
+    source = HUB_CLOCK_JS.read_text(encoding="utf-8")
+    assert 'import { comboHtml } from "../menus.js";' in source
+    assert 'from "./workOrders.js"' not in source
+    assert "wo-combo" not in source
+    assert "menu-native" in source
+
+
+def test_the_empty_state_text_is_readable_on_a_panel():
+    """Find Item's opening state -- 'nothing searched yet' -- is the first
+    thing on the page. It kept --gray-500 (#6B6B6B, a light-panel secondary
+    text color) through the flip to a dark canvas, which lands at 2.7:1."""
+    body = _rule_body(".empty-state")
+    token = re.search(r"color:\s*var\((--[\w-]+)\)", body)
+    assert token, ".empty-state does not set a color token"
+    ratio = _contrast(_root_token(token.group(1)), COMPOSITED_PANEL)
+    assert ratio >= 4.5, f"{token.group(1)} is {ratio:.1f}:1 on a panel, under the 4.5 floor"
+
+
+def test_motion_is_reduced_when_the_reader_asks_for_it():
+    """styles.css animates inputs, chevrons and cards. The quality floor is
+    that a reader who sets prefers-reduced-motion gets none of it."""
+    assert "prefers-reduced-motion" in _css()

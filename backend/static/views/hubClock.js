@@ -13,7 +13,7 @@
 // Global Constraints for why they must stay separate.
 
 import { apiStartWorkOrderTracking, apiStopWorkOrderTracking } from "../api.js";
-import { comboHtml } from "./workOrders.js";
+import { comboHtml } from "../menus.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage } from "../dom.js";
 
@@ -28,7 +28,6 @@ let container = null;
 let payload = null;
 let skewMs = 0; // server_now - Date.now() at fetch time
 let tickHandle = null;
-let comboOpen = false;
 let refreshCallback = null; // set by mountHubClock's `onChanged` option
 
 function formatHm(totalMinutes) {
@@ -99,7 +98,7 @@ function offClockHtml() {
     ? comboHtml({
         id: "hub-clock-start-list",
         extraClass: "hub-clock-combo",
-        nativeSelectHtml: `<select class="wo-combo-native" hidden aria-hidden="true">${options
+        nativeSelectHtml: `<select class="hub-clock-work-order menu-native" hidden aria-hidden="true">${options
           .map((opt) => `<option value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</option>`)
           .join("")}</select>`,
         options,
@@ -195,40 +194,9 @@ export function mountHubClock(mountEl, newPayload, { onChanged } = {}) {
         return;
       }
       if (btn?.dataset.action === "hub-clock-start") {
-        const select = container.querySelector(".wo-combo-native");
+        const select = container.querySelector(".hub-clock-work-order");
         if (select?.value) void handleStart(select.value);
-        return;
       }
-      if (btn?.dataset.action === "toggle-combo") {
-        const combo = btn.closest(".wo-combo");
-        const list = combo.querySelector(".wo-combo-list");
-        comboOpen = list.hidden;
-        list.hidden = !comboOpen;
-        btn.setAttribute("aria-expanded", String(comboOpen));
-        return;
-      }
-      if (btn?.dataset.action === "pick-combo-option") {
-        const combo = btn.closest(".wo-combo");
-        const nativeSelect = combo.querySelector(".wo-combo-native");
-        const label = combo.querySelector(".wo-combo-trigger-label");
-        nativeSelect.value = btn.dataset.value;
-        label.textContent = btn.textContent;
-        combo.querySelectorAll(".wo-combo-option").forEach((opt) => {
-          opt.setAttribute("aria-selected", String(opt === btn));
-        });
-        combo.querySelector(".wo-combo-list").hidden = true;
-        comboOpen = false;
-        return;
-      }
-    });
-    container.addEventListener("focusout", (event) => {
-      const combo = event.target.closest(".wo-combo");
-      if (!combo) return;
-      setTimeout(() => {
-        if (!combo.contains(document.activeElement)) {
-          combo.querySelector(".wo-combo-list").hidden = true;
-        }
-      }, 0);
     });
   }
 }

@@ -959,7 +959,11 @@ tr:last-child td {
     padding: var(--space-8) var(--space-4);
     text-align: center;
     font-size: var(--fs-sm);
-    color: var(--gray-500);
+    /* --text-panel-mute, not --gray-500: #6B6B6B was a secondary-text color
+       for a white panel and reads at 2.7:1 on the dark one, under the 4.5
+       floor. This is Find Item's opening state, so it is the first text on
+       the page. */
+    color: var(--text-panel-mute);
 }
 
 .empty-state-icon {
@@ -4135,5 +4139,21 @@ details[open] > .wo-summary::before { content: "\25BE"; }
         justify-self: end;
         width: auto;
         padding: 0 var(--space-4);
+    }
+}
+
+/* =================== REDUCED MOTION =================== */
+/* Inputs, menu chevrons and cards all transition. A reader who has asked the
+   OS for less movement gets the end state immediately instead. Kept as a
+   blanket rule rather than per-component opt-outs so a new transition is
+   covered the day it lands. */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+        scroll-behavior: auto !important;
     }
 }
