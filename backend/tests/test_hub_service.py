@@ -679,6 +679,33 @@ def test_graphs_hub_counts_live_statuses_by_community_and_service_type(db):
     assert current.closed_avg_days is not None
 
 
+def test_graphs_hub_adds_high_and_medium_priority_status_distributions(db):
+    creator = _seed_user(db, roles.ROLE_TECHFM_OA)
+    baseline = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
+
+    high = _seed_work_order(db, created_by=creator, status=wo.STATUS_ASSIGNED)
+    high.priority = "Emergency"
+    medium = _seed_work_order(db, created_by=creator, status=wo.STATUS_CREATED)
+    medium.priority = "Routine"
+    low = _seed_work_order(db, created_by=creator, status=wo.STATUS_CREATED)
+    low.priority = "Low"
+    archived_high = _seed_work_order(db, created_by=creator, status=wo.STATUS_COMPLETED)
+    archived_high.priority = "High"
+    archived_high.archived_at = NOW
+    db.flush()
+
+    payload = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
+
+    assert payload.priority_high.key == wo.PRIORITY_HIGH
+    assert payload.priority_high.total == baseline.priority_high.total + 1
+    assert payload.priority_high.counts[wo.STATUS_ASSIGNED] == baseline.priority_high.counts[wo.STATUS_ASSIGNED] + 1
+    assert payload.priority_medium.key == wo.PRIORITY_MEDIUM
+    assert payload.priority_medium.total == baseline.priority_medium.total + 1
+    assert payload.priority_medium.counts[wo.STATUS_CREATED] == baseline.priority_medium.counts[wo.STATUS_CREATED] + 1
+    assert payload.priority_high.total == sum(payload.priority_high.counts.values())
+    assert payload.priority_medium.total == sum(payload.priority_medium.counts.values())
+
+
 def test_graphs_hub_keeps_empty_duration_samples_as_null(db):
     viewer = _seed_user(db, roles.ROLE_TECHFM_OA)
     payload = hub_service.graphs_hub(db, viewer, weeks=12, now=NOW)

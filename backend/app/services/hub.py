@@ -897,6 +897,8 @@ class HubGraphsPayload:
     generated_at: datetime
     weeks: int
     statuses: list[GraphStatus]
+    priority_high: GraphDistribution
+    priority_medium: GraphDistribution
     communities: list[GraphDistribution]
     service_types: list[GraphDistribution]
     duration: GraphDuration
@@ -947,12 +949,22 @@ def graphs_hub(
     community_counts = {key: _empty_graph_counts() for key in wo.ALL_COMMUNITY_FILTERS}
     service_counts: dict[str, dict[str, int]] = {}
     service_labels: dict[str, str] = {}
+    priority_counts = {
+        wo.PRIORITY_HIGH: _empty_graph_counts(),
+        wo.PRIORITY_MEDIUM: _empty_graph_counts(),
+    }
     live_rows = (
-        db.query(WorkOrder.status, WorkOrder.community, WorkOrder.location, WorkOrder.service_type)
+        db.query(
+            WorkOrder.status,
+            WorkOrder.community,
+            WorkOrder.location,
+            WorkOrder.service_type,
+            WorkOrder.priority,
+        )
         .filter(WorkOrder.archived_at.is_(None))
         .all()
     )
-    for status, community, location, service_type in live_rows:
+    for status, community, location, service_type, priority in live_rows:
         # A defensive unknown-status guard preserves an exhaustive response if
         # a legacy row predates today's validation vocabulary.
         if status not in wo.ALL_STATUSES:
@@ -964,6 +976,22 @@ def graphs_hub(
         prior_label = service_labels.get(service_key)
         if prior_label is None or service_label.casefold() < prior_label.casefold():
             service_labels[service_key] = service_label
+        bucket = wo.priority_bucket(priority)
+        if bucket in priority_counts:
+            priority_counts[bucket][status] += 1
+
+    priority_high = GraphDistribution(
+        key=wo.PRIORITY_HIGH,
+        label="High priority",
+        total=sum(priority_counts[wo.PRIORITY_HIGH].values()),
+        counts=priority_counts[wo.PRIORITY_HIGH],
+    )
+    priority_medium = GraphDistribution(
+        key=wo.PRIORITY_MEDIUM,
+        label="Medium priority",
+        total=sum(priority_counts[wo.PRIORITY_MEDIUM].values()),
+        counts=priority_counts[wo.PRIORITY_MEDIUM],
+    )
 
     communities = [
         GraphDistribution(
@@ -1030,6 +1058,8 @@ def graphs_hub(
         generated_at=now,
         weeks=weeks,
         statuses=statuses,
+        priority_high=priority_high,
+        priority_medium=priority_medium,
         communities=communities,
         service_types=service_types,
         duration=GraphDuration(
