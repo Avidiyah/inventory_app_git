@@ -287,6 +287,42 @@ def test_a_technicians_completion_parks_the_work_order_for_review(db):
     assert "Dale Grubb" in held.notes
 
 
+def test_notify_supervisor_is_blocked_while_a_co_worker_is_charging(db):
+    """One tech's finish must not silently end a colleague's charged time --
+    the crew has to be off the clock first, or the finisher has to get them
+    off it."""
+    manager = _seed_user(db, "admin")
+    a = _seed_user(db, "technician", first_name="Ada", last_name="Nunez")
+    b = _seed_user(db, "technician", first_name="Bo", last_name="Reyes")
+    work_order = _wo(db, created_by=manager)
+    wos.update_work_order(
+        db, work_order.id, user=manager, fields={"assigned_to_ids": [a.id, b.id]}
+    )
+    wos.start_labor_session(db, work_order.id, user=a)
+    wos.start_labor_session(db, work_order.id, user=b)
+
+    with pytest.raises(WorkOrderStateError):
+        wos.complete_work_order(db, work_order.id, user=a)
+
+    # Nothing moved: both clocks are still running and the row is untouched.
+    db.refresh(work_order)
+    assert work_order.status == "in_progress"
+    assert sum(1 for s in _sessions(db, work_order) if s.ended_at is None) == 2
+
+
+def test_notify_supervisor_still_works_for_a_lone_charger(db):
+    """The rule only blocks on *someone else's* clock -- a tech alone on the
+    row can still finish, same as before."""
+    manager = _seed_user(db, "admin")
+    worker = _seed_user(db, "technician")
+    work_order = _wo(db, created_by=manager, assigned_to=worker)
+    wos.start_labor_session(db, work_order.id, user=worker)
+
+    held = wos.complete_work_order(db, work_order.id, user=worker)
+
+    assert held.status == "ready_to_complete"
+
+
 def test_a_repeated_technician_completion_does_not_duplicate_the_note(db):
     """The endpoint is idempotent by contract, so a slow double tap must
     not write a second note -- nor, downstream, fire a second alert."""
@@ -2011,10 +2047,10 @@ def test_resume_starts_no_clock(db):
     assert not [s for s in _sessions(db, w) if s.ended_at is None]
 
 
-def test_notify_supervisor_stops_every_clock_including_a_co_workers(db):
-    """The row has been declared finished, so no clock survives it. B is not
-    billed for time after the job was handed to a supervisor, and B's real
-    time up to that moment is recorded in full."""
+def test_notify_supervisor_refuses_while_a_co_worker_is_still_charging(db):
+    """Superseded: a co-worker's clock is no longer auto-stopped by another
+    technician's finish -- see
+    test_notify_supervisor_is_blocked_while_a_co_worker_is_charging."""
     sup = _seed_user(db, "supervisor")
     a = _seed_user(db, "technician", first_name="Ada", last_name="Nunez")
     b = _seed_user(db, "technician", first_name="Bo", last_name="Reyes")
@@ -2023,18 +2059,10 @@ def test_notify_supervisor_stops_every_clock_including_a_co_workers(db):
     wos.start_labor_session(db, w.id, user=a)
     wos.start_labor_session(db, w.id, user=b)
 
-    finished = wos.complete_work_order(db, w.id, user=a)
+    with pytest.raises(WorkOrderStateError):
+        wos.complete_work_order(db, w.id, user=a)
 
-    assert finished.status == "ready_to_complete"
-    assert finished.completed_at is None
-    assert all(s.ended_at is not None for s in _sessions(db, w))
-    assert len(_labor(db, w)) == 2
-    # B's line is authored by B, not by the technician who tapped the button.
-    assert f"Bo Reyes {wo.NOTE_STOPPED_WORK}" in finished.notes
-    # The actor stopped, then marked it ready -- in that order.
-    assert finished.notes.index(f"Ada Nunez {wo.NOTE_STOPPED_WORK}") < finished.notes.index(
-        wo.NOTE_READY_TO_COMPLETE
-    )
+    assert sum(1 for s in _sessions(db, w) if s.ended_at is None) == 2
 
 
 def test_notify_supervisor_does_not_auto_hold_despite_stopping_every_clock(db):
@@ -2349,6 +2377,81 @@ def test_removing_an_assignee_adds_nobody(db):
     )
 
     assert wos.newly_assigned_ids(emptied) == []
+
+
+def test_reassigning_the_only_charging_technician_auto_holds(db):
+    """Closing the last running clock via reassignment must put the row
+    On-Hold, same as `stop_labor_session` already does -- nobody should have
+    to notice nobody is charging and push a button."""
+    manager = _seed_user(db, "admin")
+    old = _seed_user(db, "technician", first_name="Old", last_name="Hand")
+    new = _seed_user(db, "technician", first_name="New", last_name="Hire")
+    work_order = _wo(db, created_by=manager, assigned_to=old)
+    wos.start_labor_session(db, work_order.id, user=old)
+
+    updated = wos.update_work_order(
+        db, work_order.id, user=manager, fields={"assigned_to_ids": [new.id]}
+    )
+
+    assert updated.status == "on_hold"
+
+
+def test_reassigning_a_technician_stops_their_running_clock(db):
+    """Swapping the assignee must not leave the old tech's clock running
+    forever -- the row no longer belongs to them."""
+    manager = _seed_user(db, "admin")
+    old = _seed_user(db, "technician", first_name="Old", last_name="Hand")
+    new = _seed_user(db, "technician", first_name="New", last_name="Hire")
+    work_order = _wo(db, created_by=manager, assigned_to=old)
+    wos.start_labor_session(db, work_order.id, user=old)
+
+    wos.update_work_order(
+        db, work_order.id, user=manager, fields={"assigned_to_ids": [new.id]}
+    )
+
+    sessions = _sessions(db, work_order)
+    assert len(sessions) == 1
+    assert sessions[0].technician_id == old.id
+    assert sessions[0].ended_at is not None
+
+
+def test_removing_a_technician_stops_their_running_clock(db):
+    """Unassigning a tech entirely -- not swapping them for someone else --
+    must also close their clock."""
+    manager = _seed_user(db, "admin")
+    worker = _seed_user(db, "technician")
+    work_order = _wo(db, created_by=manager, assigned_to=worker)
+    wos.start_labor_session(db, work_order.id, user=worker)
+
+    wos.update_work_order(
+        db, work_order.id, user=manager, fields={"assigned_to_ids": []}
+    )
+
+    sessions = _sessions(db, work_order)
+    assert len(sessions) == 1
+    assert sessions[0].ended_at is not None
+
+
+def test_reassignment_only_stops_the_removed_technicians_clock(db):
+    """A co-worker who stays on the row keeps running; only the one who was
+    taken off it gets closed out."""
+    manager = _seed_user(db, "admin")
+    a = _seed_user(db, "technician", first_name="Ada", last_name="Nunez")
+    b = _seed_user(db, "technician", first_name="Bo", last_name="Reyes")
+    work_order = _wo(db, created_by=manager)
+    wos.update_work_order(
+        db, work_order.id, user=manager, fields={"assigned_to_ids": [a.id, b.id]}
+    )
+    wos.start_labor_session(db, work_order.id, user=a)
+    wos.start_labor_session(db, work_order.id, user=b)
+
+    wos.update_work_order(
+        db, work_order.id, user=manager, fields={"assigned_to_ids": [b.id]}
+    )
+
+    sessions = {s.technician_id: s for s in _sessions(db, work_order)}
+    assert sessions[a.id].ended_at is not None
+    assert sessions[b.id].ended_at is None
 
 
 def test_a_patch_that_touches_no_assignments_adds_nobody(db):

@@ -428,6 +428,7 @@ def _sync_technician_assignments(
     technician_ids: Sequence[uuid.UUID],
     *,
     assigned_by_id: Optional[uuid.UUID],
+    actor: Optional[User] = None,
 ) -> list[uuid.UUID]:
     """Replace a work order's normalized assignment set and legacy mirror.
 
@@ -435,15 +436,24 @@ def _sync_technician_assignments(
     The prior membership is already computed here to decide the deletes,
     so reporting the additions costs nothing and spares every caller from
     recovering a set that no longer exists once the replace has run.
+
+    **A removed technician's running clock is closed here, not left for the
+    caller to notice.** The assignment row and the labor session are two
+    different tables, so deleting the former does nothing to the latter on
+    its own -- without this, reassigning or unassigning someone mid-shift
+    orphans their session and it keeps accruing minutes against a row they
+    are no longer on.
     """
     desired = list(dict.fromkeys(technician_ids))
     existing = {
         assignment.technician_id: assignment
         for assignment in work_order.technician_assignments
     }
+    removed_ids: set[uuid.UUID] = set()
     for technician_id, assignment in existing.items():
         if technician_id not in desired:
             db.delete(assignment)
+            removed_ids.add(technician_id)
     added: list[uuid.UUID] = []
     for technician_id in desired:
         if technician_id not in existing:
@@ -457,6 +467,18 @@ def _sync_technician_assignments(
             )
     # Compatibility for Mass Stage and old response consumers.
     work_order.assigned_to_id = desired[0] if desired else None
+    if removed_ids:
+        now = datetime.now(timezone.utc)
+        for session in _running_sessions(db, work_order):
+            if session.technician_id in removed_ids:
+                _close_session(
+                    db, session, work_order=work_order, actor=actor, ended_at=now
+                )
+        # The removal may have taken the last running clock off an
+        # In-Progress row -- nobody should have to notice that and push a
+        # button; the caller's own explicit "status" field, applied after
+        # this returns, still wins if present.
+        _auto_hold_if_idle(db, work_order)
     return added
 
 
@@ -1490,13 +1512,17 @@ def complete_work_order(
     with a server-authored note. Completed is the billing state, so it stays a
     supervisory decision even though the work itself is done.
 
-    **Every running session on the row stops**, not just the caller's. The work
-    has been declared finished, so no clock survives it -- a co-worker is not
-    billed for time after the job was handed to a supervisor, and their real
-    time up to that moment is still recorded in full. This is the one place a
-    technician can stop a colleague's clock; the alternative, refusing the
-    finish until everyone has stopped, blocks the crew's last member on
-    somebody else's forgotten timer.
+    **Refuses if anyone else is still charging.** Raises `WorkOrderStateError`
+    when another technician's session on this row is still running -- the
+    caller must get everyone off the clock (or a colleague must Stop Charging
+    themselves) before Notify Supervisor can fire. This replaced an earlier
+    design where the caller's finish silently stopped every co-worker's clock;
+    Owner decision, 2026-08-21, to keep one tech from ending another's charged
+    time without their knowledge.
+
+    Once that check passes, the caller's own running session (if any) is
+    stopped the same way `_stop_all_sessions` always has -- there is at most
+    one clock left at that point, and it is the caller's.
 
     It does **not** auto-hold despite stopping every session: that rule belongs
     to `stop_labor_session`, and this action has its own destination.
@@ -1531,6 +1557,13 @@ def complete_work_order(
         raise WorkOrderStateError(
             "Only an In-Progress work order can be finished by its "
             "assigned worker."
+        )
+    if any(
+        session.technician_id != user.id
+        for session in _running_sessions(db, work_order)
+    ):
+        raise WorkOrderStateError(
+            "All Users must Stop Charging before a Supervisor can be notified."
         )
 
     previous = work_order.status
@@ -1725,6 +1758,7 @@ def update_work_order(
             work_order,
             technician_ids,
             assigned_by_id=user.id if user else None,
+            actor=user,
         )
         assignment_changed = True
     elif "assigned_to_id" in fields:
@@ -1738,6 +1772,7 @@ def update_work_order(
             work_order,
             technician_ids,
             assigned_by_id=user.id if user else None,
+            actor=user,
         )
         assignment_changed = True
 

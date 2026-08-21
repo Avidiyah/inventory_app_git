@@ -94,6 +94,7 @@ const netFacilitiesSignInBtn = document.getElementById("wo-netfacilities-sign-in
 const netFacilitiesConfirmBtn = document.getElementById("wo-netfacilities-confirm-btn");
 const netFacilitiesCancelBtn = document.getElementById("wo-netfacilities-cancel-btn");
 const netFacilitiesEnrichBtn = document.getElementById("wo-netfacilities-enrich-btn");
+const netFacilitiesOpenBtn = document.getElementById("wo-netfacilities-open-btn");
 const exportScope = document.getElementById("wo-export-scope");
 const exportBtn = document.getElementById("wo-export-btn");
 const exportClientBtn = document.getElementById("wo-export-client-btn");
@@ -1478,7 +1479,12 @@ function renderBody(detail, bodyEl) {
     // clock running; Stop Charging is the "I'm pausing" one. Both /complete and
     // /hold require assignment server-side, so an unassigned supervisor who is
     // only charging gets neither -- they close the row out with Mark Completed.
-    if (assignedToCurrentUser && tracking) {
+    // A Supervisor+ who is *also* assigned skips this button entirely: they
+    // already have Mark Completed below, which is the real completion action
+    // for them, and complete_work_order's target status for a Supervisor+ is
+    // Completed anyway -- Notify Supervisor's "ask someone else" framing
+    // doesn't apply to the person who'd be notifying themself.
+    if (assignedToCurrentUser && tracking && !sup) {
       statusActions += `<button type="button" data-action="notify-supervisor-wo">Notify Supervisor</button>`;
     }
     if (assignedToCurrentUser) {
@@ -1769,7 +1775,23 @@ listEl.addEventListener("click", async (event) => {
         );
       }
     } else if (action === "notify-supervisor-wo") {
-      const finished = await apiCompleteWorkOrder(workOrderId);
+      let finished;
+      try {
+        finished = await apiCompleteWorkOrder(workOrderId);
+      } catch (err) {
+        // A co-worker's clock is still running: this is not a failure to
+        // report inline, it's a rule the tapper needs to act on -- go find
+        // that person -- so it gets the same pop-up treatment as the other
+        // hard stop above rather than the quiet inline .wo-message text.
+        if (
+          err?.status === 400 &&
+          err.detail === "All Users must Stop Charging before a Supervisor can be notified."
+        ) {
+          await messageDialog(err.detail);
+          return;
+        }
+        throw err;
+      }
       await refreshCard(cardEl);
       // A Technician's finish lands Ready to Complete, so the badge that
       // appears a moment later would otherwise read as a failed save. Chosen
@@ -2228,6 +2250,12 @@ if (netFacilitiesCancelBtn) {
 
 if (netFacilitiesEnrichBtn) {
   netFacilitiesEnrichBtn.addEventListener("click", runNetFacilitiesEnrichment);
+}
+
+if (netFacilitiesOpenBtn) {
+  netFacilitiesOpenBtn.addEventListener("click", () => {
+    window.open("https://system.netfacilities.com/tools/viewworkorders", "_blank", "noopener,noreferrer");
+  });
 }
 
 // --- CSV import (Admin+) --------------------------------------------------
