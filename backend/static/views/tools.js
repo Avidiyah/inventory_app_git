@@ -20,6 +20,7 @@ import { setMessage, confirmDialog } from "../dom.js";
 import { roleAtLeast, roleLabel } from "../roles.js";
 import { mountScanner } from "./scan.js";
 import { initSubNav } from "./subnav.js";
+import { actionMenuHtml, initActionMenus } from "../menus.js";
 import {
   openToolCheckout,
   closeToolCheckout,
@@ -418,17 +419,16 @@ function custodyCell(tool) {
 
 function actionsCell(tool) {
   if (!canManageCustody()) return "";
-  const ariaLabel = "Actions for " + tool.name;
-  return '<label class="sr-only" for="tool-row-actions-' + escapeHtml(tool.id) + '">' +
-      escapeHtml(ariaLabel) + '</label>' +
-    '<select id="tool-row-actions-' + escapeHtml(tool.id) +
-      '" class="row-actions-select" data-id="' + escapeHtml(tool.id) +
-      '" aria-label="' + escapeHtml(ariaLabel) + '">' +
-      '<option value="" disabled selected>Actions</option>' +
-      '<option value="edit">Edit</option>' +
-      '<option value="correct">Correct Count</option>' +
-      '<option value="delete">Archive</option>' +
-    '</select>';
+  return actionMenuHtml({
+    id: "tool-row-actions-" + tool.id,
+    ariaLabel: "Actions for " + tool.name,
+    itemId: tool.id,
+    options: [
+      { value: "edit", label: "Edit" },
+      { value: "correct", label: "Correct Count" },
+      { value: "delete", label: "Archive", danger: true },
+    ],
+  });
 }
 
 export function renderTools() {
@@ -486,13 +486,7 @@ setOnCheckoutSaved(refreshTools);
 setOnReturnSaved(refreshTools);
 setOnCorrectionSaved(refreshTools);
 
-toolsTbody.addEventListener("change", async (event) => {
-  const target = event.target;
-  if (!target.classList.contains("row-actions-select")) return;
-
-  const action = target.value;
-  const toolId = target.dataset.id;
-  target.value = "";
+initActionMenus(toolsTbody, async (action, toolId) => {
   if (!action || !toolId) return;
 
   const tool = getTools().find((candidate) => candidate.id === toolId);

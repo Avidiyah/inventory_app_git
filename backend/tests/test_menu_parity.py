@@ -173,7 +173,10 @@ def _rendered_menu_values(source: str) -> set:
 
 
 def _handled_action_values(source: str) -> set:
-    return set(re.findall(r'action === "([a-z-]+)"', source))
+    # Most branches read `action === "x"`; a trailing guard clause reads
+    # `action !== "x") return;` instead (tools.js's delete branch). Both are
+    # a handler for that value.
+    return set(re.findall(r'action [!=]== "([a-z-]+)"', source))
 
 
 def test_find_item_no_longer_uses_a_native_select_for_row_actions():
@@ -203,3 +206,14 @@ def test_find_items_archive_option_is_marked_dangerous():
 
 def test_the_dead_row_action_select_style_is_gone():
     assert ".row-actions-select" not in _css()
+
+
+def test_tools_no_longer_uses_a_native_select_for_row_actions():
+    source = TOOLS_JS.read_text(encoding="utf-8")
+    assert "row-actions-select" not in source
+    assert "actionMenuHtml" in source
+
+
+def test_tools_menu_options_all_have_handlers():
+    source = TOOLS_JS.read_text(encoding="utf-8")
+    assert _rendered_menu_values(source) <= _handled_action_values(source)
