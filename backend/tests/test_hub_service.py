@@ -166,6 +166,24 @@ def test_someone_elses_work_order_is_not_mine(db):
     assert hub_service.personal_hub(db, mine).counts.assigned == 0
 
 
+def test_personal_hub_counts_high_priority_work_assigned_to_me(db):
+    tech = _seed_user(db)
+    other = _seed_user(db, first_name="Other", last_name="Tech")
+
+    mine_high = _seed_work_order(db, created_by=tech, assigned_to=tech, status=wo.STATUS_ASSIGNED)
+    mine_high.priority = "High"
+    mine_low = _seed_work_order(db, created_by=tech, assigned_to=tech, status=wo.STATUS_ASSIGNED)
+    mine_low.priority = "Low"
+    someone_elses_high = _seed_work_order(db, created_by=tech, assigned_to=other, status=wo.STATUS_ASSIGNED)
+    someone_elses_high.priority = "Emergency"
+    db.flush()
+
+    payload = hub_service.personal_hub(db, tech)
+
+    assert payload.priority.assigned == 1
+    assert payload.priority.unassigned is None
+
+
 def test_the_picker_offers_only_startable_statuses(db):
     tech = _seed_user(db)
     _seed_work_order(db, created_by=tech, assigned_to=tech, status=wo.STATUS_ASSIGNED)
@@ -580,6 +598,59 @@ def test_the_crew_payload_serialises_into_the_response_schema(db):
     assert body["crew_on_clock"] == 1
     assert body["technicians"][0]["user"]["id"] == tech.id
     assert body["technicians"][0]["running_session"]["number"] == "88214"
+
+
+# --- graphs_hub (P4 slice 2: guided company-wide graphs) -------------------
+
+
+def test_graphs_hub_counts_live_statuses_by_community_and_service_type(db):
+    creator = _seed_user(db, roles.ROLE_TECHFM_OA)
+    baseline = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
+    scholar = _seed_work_order(db, created_by=creator, status=wo.STATUS_CREATED)
+    scholar.community = "Scholars"
+    scholar.service_type = "Electrical"
+    scholar.created_at = NOW - timedelta(days=10)
+    shared = _seed_work_order(db, created_by=creator, status=wo.STATUS_ON_HOLD)
+    shared.location = "Cimarron / Young Hall"
+    shared.service_type = " electrical "
+    shared.created_at = NOW - timedelta(days=4)
+    closed = _seed_work_order(db, created_by=creator, status=wo.STATUS_COMPLETED)
+    closed.community = "Scholars"
+    closed.service_type = "Plumbing"
+    closed.created_at = NOW - timedelta(days=12)
+    closed.archived_at = NOW - timedelta(days=2)
+    db.flush()
+
+    payload = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
+    before_communities = {row.key: row for row in baseline.communities}
+    communities = {row.key: row for row in payload.communities}
+    before_services = {row.key: row for row in baseline.service_types}
+    services = {row.key: row for row in payload.service_types}
+
+    assert communities[wo.COMMUNITY_SCHOLARS].counts[wo.STATUS_CREATED] == before_communities[wo.COMMUNITY_SCHOLARS].counts[wo.STATUS_CREATED] + 1
+    assert communities[wo.COMMUNITY_COMMONS].counts[wo.STATUS_ON_HOLD] == before_communities[wo.COMMUNITY_COMMONS].counts[wo.STATUS_ON_HOLD] + 1
+    assert communities[wo.COMMUNITY_YOUNG_HALL].counts[wo.STATUS_ON_HOLD] == before_communities[wo.COMMUNITY_YOUNG_HALL].counts[wo.STATUS_ON_HOLD] + 1
+    assert services["electrical"].total == before_services.get("electrical", hub_service.GraphDistribution("", "", 0, {})).total + 2
+    assert all(row.total == sum(row.counts.values()) for row in payload.communities + payload.service_types)
+
+    before_current = baseline.duration.buckets[-1]
+    current = payload.duration.buckets[-1]
+    assert current.closed_count == before_current.closed_count + 1
+    assert current.closed_avg_days is not None
+
+
+def test_graphs_hub_keeps_empty_duration_samples_as_null(db):
+    viewer = _seed_user(db, roles.ROLE_TECHFM_OA)
+    payload = hub_service.graphs_hub(db, viewer, weeks=12, now=NOW)
+
+    assert all(
+        bucket.circulating_avg_age_days is None or bucket.circulating_count > 0
+        for bucket in payload.duration.buckets
+    )
+    assert all(
+        bucket.closed_avg_days is None or bucket.closed_count > 0
+        for bucket in payload.duration.buckets
+    )
 
 
 # --- admin_hub (P4 slice 1: the company-wide time summary) -----------------

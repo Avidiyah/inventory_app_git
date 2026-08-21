@@ -7,8 +7,8 @@ sweep is `services.work_orders`. This module's whole job is to run them in
 the right order and hand back one object the router can serialise, so the
 router stays the thin translation layer every other one in this app is.
 
-The module now composes the personal block, the routed crew board, the
-crew's timesheets, and the company-wide admin summary.
+The module now composes the personal block, routed crew board, crew timesheets,
+company-wide admin summary, and the lazy company-wide Graphs report.
 """
 
 import csv
@@ -72,6 +72,21 @@ class AssignedCounts:
 
 
 @dataclass(frozen=True)
+class PriorityCounts:
+    """High-priority live-work-order counts for the Priorities card.
+
+    `assigned` and `unassigned` share one denominator that differs by scope:
+    a Technician's own assignments (personal_hub), a Supervisor's led work
+    orders (crew_hub), or every live work order company-wide (admin_hub).
+    `unassigned` is `None` for a Technician's card, which has no such number
+    -- a Technician only ever sees what is assigned to them.
+    """
+
+    assigned: int
+    unassigned: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class StartableWorkOrder:
     """One option in the `Start on...` picker.
 
@@ -105,6 +120,7 @@ class HubPayload:
     server_now: datetime
     day: date
     counts: AssignedCounts
+    priority: PriorityCounts
     clock: labor_summary.DaySummary
     startable: list[StartableWorkOrder]
     tools_out: list[ToolOut]
@@ -177,6 +193,9 @@ def personal_hub(db: Session, user: User) -> HubPayload:
 
     mine = _assigned_work_orders(db, user.id)
     counts = _assigned_counts(mine)
+    priority = PriorityCounts(
+        assigned=sum(1 for w in mine if wo.priority_bucket(w.priority) == wo.PRIORITY_HIGH)
+    )
 
     startable = [
         StartableWorkOrder(
@@ -203,6 +222,7 @@ def personal_hub(db: Session, user: User) -> HubPayload:
         server_now=now,
         day=day,
         counts=counts,
+        priority=priority,
         clock=labor_summary.day_summary(db, user.id, day, now=now),
         startable=startable,
         tools_out=[
@@ -777,6 +797,193 @@ def admin_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> Hub
         on_the_clock=_on_the_clock(db, now, users_by_id, all_summaries),
         exceptions=_exception_counts(db, now, pipeline),
         billing=_billing(db, now, user),
+    )
+
+
+# --- the admin graphs payload ------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GraphStatus:
+    key: str
+    label: str
+
+
+@dataclass(frozen=True)
+class GraphDistribution:
+    key: str
+    label: str
+    total: int
+    counts: dict[str, int]
+
+
+@dataclass(frozen=True)
+class GraphDurationRange:
+    start: date
+    end: date
+
+
+@dataclass(frozen=True)
+class GraphDurationBucket:
+    start: date
+    end: date
+    partial: bool
+    circulating_avg_age_days: Optional[float]
+    circulating_count: int
+    closed_avg_days: Optional[float]
+    closed_count: int
+
+
+@dataclass(frozen=True)
+class GraphDuration:
+    range: GraphDurationRange
+    buckets: list[GraphDurationBucket]
+
+
+@dataclass(frozen=True)
+class HubGraphsPayload:
+    generated_at: datetime
+    weeks: int
+    statuses: list[GraphStatus]
+    communities: list[GraphDistribution]
+    service_types: list[GraphDistribution]
+    duration: GraphDuration
+
+
+_GRAPH_STATUS_LABELS = {
+    wo.STATUS_CREATED: "Created",
+    wo.STATUS_ASSIGNED: "Assigned",
+    wo.STATUS_IN_PROGRESS: "In-Progress",
+    wo.STATUS_ON_HOLD: "On Hold",
+    wo.STATUS_READY_TO_COMPLETE: "Ready to Complete",
+    wo.STATUS_COMPLETED: "Completed",
+    wo.STATUS_REVIEW: "Review",
+}
+
+
+def _empty_graph_counts() -> dict[str, int]:
+    return {status: 0 for status in wo.ALL_STATUSES}
+
+
+def _average_days(durations: list[float]) -> Optional[float]:
+    return round(sum(durations) / len(durations), 2) if durations else None
+
+
+def graphs_hub(
+    db: Session, user: User, *, weeks: int, now: Optional[datetime] = None
+) -> HubGraphsPayload:
+    """Compose the lazy, company-wide Graphs-tab report.
+
+    Live distributions read only non-archived rows. The duration series has
+    two intentionally different measures: each bucket's circulating age is a
+    historical snapshot, while close-out time uses ``archived_at`` for rows
+    closed in that bucket. ``completed_at`` remains exclusive to the existing
+    dashboard's "time to complete" metric.
+
+    A restored work order has its ``archived_at`` cleared, so this can only
+    report closure intervals still represented by the current row; it does
+    not claim audit-grade historical close data.
+    """
+    del user  # Auth is the router's concern; this payload is company-wide.
+    now = now or datetime.now(timezone.utc)
+    periods = hub_domain.graph_week_ranges(now, weeks)
+    statuses = [
+        GraphStatus(key=status, label=_GRAPH_STATUS_LABELS[status])
+        for status in wo.ALL_STATUSES
+    ]
+
+    community_counts = {key: _empty_graph_counts() for key in wo.ALL_COMMUNITY_FILTERS}
+    service_counts: dict[str, dict[str, int]] = {}
+    service_labels: dict[str, str] = {}
+    live_rows = (
+        db.query(WorkOrder.status, WorkOrder.community, WorkOrder.location, WorkOrder.service_type)
+        .filter(WorkOrder.archived_at.is_(None))
+        .all()
+    )
+    for status, community, location, service_type in live_rows:
+        # A defensive unknown-status guard preserves an exhaustive response if
+        # a legacy row predates today's validation vocabulary.
+        if status not in wo.ALL_STATUSES:
+            continue
+        for key in wo.community_memberships(community, location):
+            community_counts[key][status] += 1
+        service_key, service_label = wo.normalize_service_type(service_type)
+        service_counts.setdefault(service_key, _empty_graph_counts())[status] += 1
+        prior_label = service_labels.get(service_key)
+        if prior_label is None or service_label.casefold() < prior_label.casefold():
+            service_labels[service_key] = service_label
+
+    communities = [
+        GraphDistribution(
+            key=key,
+            label=wo.COMMUNITY_LABELS[key],
+            total=sum(community_counts[key].values()),
+            counts=community_counts[key],
+        )
+        for key in wo.ALL_COMMUNITY_FILTERS
+    ]
+    service_types = [
+        GraphDistribution(
+            key=key,
+            label=service_labels[key],
+            total=sum(counts.values()),
+            counts=counts,
+        )
+        for key, counts in service_counts.items()
+    ]
+    service_types.sort(key=lambda row: (-row.total, row.label.casefold()))
+
+    first_start, _, _ = periods[0]
+    _, last_end, _ = periods[-1]
+    first_start_at = labor_day.day_bounds(first_start)[0]
+    last_end_at = labor_day.day_bounds(last_end)[1]
+    history_rows = (
+        db.query(WorkOrder.created_at, WorkOrder.archived_at)
+        .filter(WorkOrder.created_at.is_not(None))
+        .filter(WorkOrder.created_at < last_end_at)
+        .filter(or_(WorkOrder.archived_at.is_(None), WorkOrder.archived_at >= first_start_at))
+        .all()
+    )
+
+    buckets: list[GraphDurationBucket] = []
+    for start, end, partial in periods:
+        start_at = labor_day.day_bounds(start)[0]
+        end_at = labor_day.day_bounds(end)[1]
+        snapshot_at = now if partial else end_at
+        circulating = [
+            (snapshot_at - labor_day.as_utc(created_at)).total_seconds() / 86400
+            for created_at, archived_at in history_rows
+            if labor_day.as_utc(created_at) <= snapshot_at
+            and (archived_at is None or labor_day.as_utc(archived_at) > snapshot_at)
+        ]
+        closed = [
+            (labor_day.as_utc(archived_at) - labor_day.as_utc(created_at)).total_seconds() / 86400
+            for created_at, archived_at in history_rows
+            if archived_at is not None
+            and start_at <= labor_day.as_utc(archived_at) < end_at
+        ]
+        buckets.append(
+            GraphDurationBucket(
+                start=start,
+                end=end,
+                partial=partial,
+                circulating_avg_age_days=_average_days(circulating),
+                circulating_count=len(circulating),
+                closed_avg_days=_average_days(closed),
+                closed_count=len(closed),
+            )
+        )
+
+    return HubGraphsPayload(
+        generated_at=now,
+        weeks=weeks,
+        statuses=statuses,
+        communities=communities,
+        service_types=service_types,
+        duration=GraphDuration(
+            range=GraphDurationRange(start=first_start, end=last_end),
+            buckets=buckets,
+        ),
     )
 
 
