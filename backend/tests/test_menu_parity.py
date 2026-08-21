@@ -100,3 +100,65 @@ def test_no_light_neutral_is_used_as_a_background_anywhere():
         if re.search(r"background(-color)?:\s*var\(--gray-(50|100|200)\)", line)
     ]
     assert offenders == [], f"light neutral used as a fill on a dark surface: {offenders}"
+
+
+MENUS_JS = STATIC / "menus.js"
+
+
+def test_the_shared_menu_module_exists_and_exports_its_api():
+    """items.js, tools.js, workOrders.js and notes.js all import from here.
+    A rename that misses one is a dead dropdown with no error anywhere."""
+    source = MENUS_JS.read_text(encoding="utf-8")
+    for export in (
+        "export function actionMenuHtml",
+        "export function initActionMenus",
+        "export function closeMenu",
+        "export function closeAllMenus",
+    ):
+        assert export in source, f"menus.js is missing: {export}"
+
+
+def test_the_action_menu_is_a_menu_not_a_listbox():
+    """A fire-and-close command menu. role=listbox + aria-selected would
+    promise a persistent selection the Actions column never has."""
+    source = MENUS_JS.read_text(encoding="utf-8")
+    action_menu = re.search(
+        r"export function actionMenuHtml\(.*?\n\}", source, re.DOTALL
+    )
+    assert action_menu, "actionMenuHtml was not found in menus.js"
+    body = action_menu.group(0)
+    assert 'role="menu"' in body
+    assert 'role="menuitem"' in body
+    assert 'aria-haspopup="menu"' in body
+    assert "aria-selected" not in body
+
+
+def test_the_menu_has_the_css_it_renders_against():
+    """menus.js writes these class names; without a rule each one falls back
+    to the global `button` style, which is a solid brand-red block."""
+    css = _css()
+    for selector in (
+        ".menu {",
+        ".menu-trigger {",
+        ".menu-trigger:hover",
+        ".menu-list {",
+        ".menu-list[hidden]",
+        ".menu-option {",
+        ".menu-option-danger {",
+        ".menu-chevron {",
+    ):
+        assert selector in css, f"menus.js renders markup with no rule for {selector!r}"
+
+
+def test_the_menu_popover_is_readable_on_its_own_background():
+    """The popover is --color-header, darker than a panel, so panel text
+    tokens have to be re-checked against it rather than assumed."""
+    header = _root_token("--color-header")
+    assert _contrast(_root_token("--text-panel"), header) >= 4.5
+    assert _contrast(_root_token("--color-brand-light"), header) >= 4.5
+
+
+def test_the_hidden_menu_list_actually_hides():
+    """.menu-list sets display:flex, and [hidden] is only display:none in the
+    UA sheet -- the flex wins unless this rule exists to outrank it."""
+    assert re.search(r"\.menu-list\[hidden\]\s*\{\s*display:\s*none", _css())

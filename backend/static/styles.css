@@ -770,6 +770,135 @@ button:focus-visible {
     outline-offset: 2px;
 }
 
+/* =================== POPUP MENUS =================== */
+/* Shared trigger + popover for anything that used to be a native <select>.
+   A native select's open popup is drawn by the OS on some Windows/Chromium
+   builds and ignores page CSS, so it renders as a white system list on our
+   dark UI -- see docs/design-system.md. Rendered by static/menus.js.
+   Every rule here has to out-specify the global `button` style, which is a
+   solid brand-red block; `.menu-trigger` (0,1,0) beats `button` (0,0,1) and
+   `.menu-trigger:hover` (0,2,0) beats `button:hover` (0,1,1). */
+.menu { position: relative; }
+
+.menu-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    width: 100%;
+    min-height: var(--control-h);
+    padding: 0 var(--space-3);
+    margin-top: 0;
+    border: var(--border-input);
+    border-radius: var(--radius-md);
+    background-color: var(--input-bg);
+    color: var(--text-panel);
+    font-size: var(--fs-base);
+    font-family: inherit;
+    font-weight: normal;
+    text-align: left;
+    cursor: pointer;
+    /* Matches the inset well on input/select/textarea so a menu trigger and a
+       text field read as the same class of control. */
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, .35);
+}
+
+.menu-trigger:hover { background-color: var(--panel-hover); }
+
+.menu-chevron {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+    color: var(--text-panel-mute);
+    transition: transform .12s ease;
+}
+
+.menu-trigger[aria-expanded="true"] .menu-chevron { transform: rotate(180deg); }
+
+/* Right-aligned with min-width rather than left/right pinned: the Actions
+   column is the last one, so a left-aligned popover would run off the
+   viewport, while a full-width trigger still gets a full-width popover. */
+.menu-list {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + var(--space-1));
+    right: 0;
+    min-width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    max-height: 240px;
+    overflow-y: auto;
+    padding: var(--space-2);
+    border: 1px solid var(--gray-700);
+    border-radius: var(--radius-sm);
+    /* --color-header, not --panel-bg: a translucent popover over a
+       translucent panel composites to mud and the text behind shows through. */
+    background-color: var(--color-header);
+    box-shadow: var(--shadow-md);
+    scrollbar-width: thin;
+    scrollbar-color: var(--gray-700) transparent;
+}
+
+/* [hidden] is only display:none in the UA sheet, which the display:flex above
+   outranks. Without this the popover is always open. */
+.menu-list[hidden] { display: none; }
+
+.menu-option {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    min-height: var(--btn-h-sm);
+    margin-top: 0;
+    padding: 0 var(--space-3);
+    border: none;
+    border-radius: var(--radius-sm);
+    background-color: transparent;
+    color: var(--text-panel);
+    font-size: var(--fs-sm);
+    font-family: inherit;
+    font-weight: normal;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.menu-option:hover,
+.menu-option:focus-visible { background-color: var(--panel-hover); }
+
+/* Archive/remove. Ghost red below a hairline -- the treatment
+   .delete-user-btn already uses for exactly this action. Red here is the
+   brand red doing double duty as emphasis, not a "delete hue": the real
+   safeguard is the separating rule plus confirmDialog().
+   Hover keeps --color-brand-light rather than dropping to
+   --color-brand-hover the way .note-remove-btn does; #A50D25 on this
+   near-black popover is about 2:1, whereas .note-remove-btn sits on a
+   lighter panel. */
+.menu-option-danger {
+    margin-top: var(--space-1);
+    padding-top: var(--space-1);
+    border-top: 1px solid var(--panel-rule);
+    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+    color: var(--color-brand-light);
+}
+
+.menu-option-danger:hover,
+.menu-option-danger:focus-visible {
+    background-color: var(--color-brand-tint);
+    color: var(--color-brand-light);
+}
+
+/* In a table cell the trigger is a compact control, not a full-width field. */
+.action-menu { display: inline-block; }
+
+.action-menu .menu-trigger {
+    width: auto;
+    min-height: var(--btn-h-sm);
+    padding: 0 var(--space-2);
+    font-size: var(--fs-sm);
+}
+
 /* =================== TABLES =================== */
 table {
     width: 100%;
