@@ -7,7 +7,7 @@ stays the only place a role 403 is raised:
 
 - `GET /hub`             any authenticated  -- the personal block
 - `GET /hub/crew`        supervisor+        -- the crew board
-- `GET /hub/admin`       techfm_oa+         -- later phase
+- `GET /hub/admin`       techfm_oa+         -- the company-wide time summary
 - `GET /hub/timesheets`  supervisor+        -- routed-crew timesheets
 
 The personal, crew, and timesheet reads are not side-effect-free. They sweep
@@ -37,7 +37,7 @@ from app.domain import labor_day, roles
 from app.domain.errors import DomainError
 from app.models import User
 from app.routers._errors import to_http
-from app.schemas.hub import HubClock, HubCrewResponse, HubResponse, HubTimesheetResponse
+from app.schemas.hub import HubAdminResponse, HubClock, HubCrewResponse, HubResponse, HubTimesheetResponse
 from app.services import hub as hub_service
 
 router = APIRouter(prefix="/hub", tags=["hub"])
@@ -96,6 +96,20 @@ def get_hub_crew(
     dataclasses pass straight through.
     """
     return HubCrewResponse.model_validate(hub_service.crew_hub(db, user))
+
+
+@router.get("/admin", response_model=HubAdminResponse)
+def get_hub_admin(
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
+    db: Session = Depends(get_db),
+):
+    """The company-wide time summary: today's tracked minutes for every
+    active Supervisor and every active Technician, summed separately.
+
+    One declarative gate, same pattern as `get_hub_crew` -- `auth_deps.py`
+    stays the only place a role 403 is raised.
+    """
+    return HubAdminResponse.model_validate(hub_service.admin_hub(db, user))
 
 
 def _default_range(now: datetime) -> tuple[date, date]:

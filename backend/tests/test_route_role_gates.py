@@ -538,6 +538,12 @@ def test_the_crew_board_requires_supervisor():
     assert _min_role_for(hub_router, "get_hub_crew") == roles.ROLE_SUPERVISOR
 
 
+def test_the_admin_summary_requires_techfm_oa():
+    # `GET /hub/admin` is techfm_oa+ (router module docstring) -- a
+    # supervisor gets 403, a TechFM OA gets 200.
+    assert _min_role_for(hub_router, "get_hub_admin") == roles.ROLE_TECHFM_OA
+
+
 def test_timesheets_and_export_require_supervisor():
     assert _min_role_for(hub_router, "get_hub_timesheets") == roles.ROLE_SUPERVISOR
     assert _min_role_for(hub_router, "export_hub_timesheets") == roles.ROLE_SUPERVISOR

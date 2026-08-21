@@ -546,7 +546,12 @@ def test_the_crew_payload_serialises_into_the_response_schema(db):
 def test_admin_hub_sums_supervisors_and_technicians_separately(db):
     # Bucketed by account role, not by what work was clocked on: a
     # supervisor doing hands-on work still lands in the supervisor bucket.
+    # admin_hub is deliberately unscoped (company-wide), so pre-existing
+    # rows in the shared dev database (e.g. real manual-QA sessions) can
+    # already be non-zero for this day -- assert on the delta this test's
+    # own fixtures caused, not on an absolute total.
     creator = _seed_user(db, roles.ROLE_SUPERVISOR)
+    baseline = hub_service.admin_hub(db, creator, now=NOW)
     supervisor_a = _seed_user(db, roles.ROLE_SUPERVISOR, first_name="Jose", last_name="Rivera")
     supervisor_b = _seed_user(db, roles.ROLE_SUPERVISOR, first_name="Dana", last_name="Ortiz")
     tech = _seed_user(db, roles.ROLE_TECHNICIAN, first_name="Marisol", last_name="Chen")
@@ -559,12 +564,13 @@ def test_admin_hub_sums_supervisors_and_technicians_separately(db):
 
     payload = hub_service.admin_hub(db, creator, now=NOW)
 
-    assert payload.supervisor_minutes_today == 180  # 60 + 120
-    assert payload.technician_minutes_today == 30
+    assert payload.supervisor_minutes_today - baseline.supervisor_minutes_today == 180  # 60 + 120
+    assert payload.technician_minutes_today - baseline.technician_minutes_today == 30
 
 
 def test_admin_hub_excludes_techfm_oa_admin_and_owner_from_both_buckets(db):
     creator = _seed_user(db, roles.ROLE_SUPERVISOR)
+    baseline = hub_service.admin_hub(db, creator, now=NOW)
     oa = _seed_user(db, roles.ROLE_TECHFM_OA, first_name="Pat", last_name="Nguyen")
     admin = _seed_user(db, roles.ROLE_ADMIN, first_name="Lee", last_name="Park")
     owner = _seed_user(db, roles.ROLE_OWNER, first_name="Sam", last_name="Boyd")
@@ -578,8 +584,8 @@ def test_admin_hub_excludes_techfm_oa_admin_and_owner_from_both_buckets(db):
 
     payload = hub_service.admin_hub(db, creator, now=NOW)
 
-    assert payload.supervisor_minutes_today == 0
-    assert payload.technician_minutes_today == 0
+    assert payload.supervisor_minutes_today == baseline.supervisor_minutes_today
+    assert payload.technician_minutes_today == baseline.technician_minutes_today
 
 
 def test_admin_hub_excludes_archived_users(db):

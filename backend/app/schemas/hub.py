@@ -219,6 +219,21 @@ class HubCrewResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# --- GET /hub/admin (P4 slice 1) --------------------------------------------
+
+
+class HubAdminResponse(BaseModel):
+    """`GET /hub/admin`. Bucketed by account role, not by what work was
+    clocked on -- a TechFM OA/Admin/Owner's own hours (if any) land in
+    neither bucket; their own time is already the personal clock widget."""
+
+    server_now: datetime
+    supervisor_minutes_today: int
+    technician_minutes_today: int
+
+    model_config = {"from_attributes": True}
+
+
 # --- GET /hub/timesheets (P3b) ---------------------------------------------
 
 
