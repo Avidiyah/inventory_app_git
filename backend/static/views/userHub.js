@@ -113,6 +113,7 @@ function renderActiveTab() {
     if (latestTimesheetPayload) {
       mountHubTimesheets(tabPanels.timesheets, latestTimesheetPayload, {
         onWeekChange: (start, end) => void loadTimesheets({ start, end }),
+        isAdminPlus: viewerCanSeeAdminTiles(),
       });
     } else {
       void loadTimesheets(timesheetRange || {});
@@ -162,6 +163,7 @@ async function loadTimesheets({ start = null, end = null } = {}) {
     mountHubTimesheets(mount, payload, {
       onWeekChange: (rangeStart, rangeEnd) =>
         void loadTimesheets({ start: rangeStart, end: rangeEnd }),
+      isAdminPlus: viewerCanSeeAdminTiles(),
     });
   } catch (err) {
     if (requestId !== timesheetRequestId) return;

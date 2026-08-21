@@ -968,6 +968,41 @@ def test_timesheets_hub_is_scoped_to_the_supervisors_routed_crew(db):
     assert supervisor.id not in [row.user.id for row in payload.rows]
 
 
+def test_timesheets_hub_widens_to_everyone_for_a_techfm_oa_caller(db):
+    oa = _seed_user(db, roles.ROLE_TECHFM_OA, first_name="Pat", last_name="Nguyen")
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR, first_name="Sam", last_name="Boss")
+    stranger_tech = _seed_user(db, first_name="Not", last_name="Routed")
+    # No work order routes stranger_tech to the OA caller at all -- P3b's
+    # scope would have excluded them; P4 includes every live technician.
+    _seed_work_order(db, created_by=supervisor, assigned_to=stranger_tech)
+
+    payload = hub_service.timesheets_hub(
+        db, oa, start=date(2026, 8, 17), end=date(2026, 8, 17), now=NOW
+    )
+
+    row_ids = {row.user.id for row in payload.rows}
+    assert stranger_tech.id in row_ids
+    assert supervisor.id in row_ids
+    # The caller's own account (techfm_oa) is excluded, same as admin_hub's
+    # two time buckets exclude it -- their own time is the clock widget.
+    assert oa.id not in row_ids
+
+
+def test_timesheets_hub_a_supervisor_caller_still_sees_only_their_own_crew(db):
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR, first_name="Sam", last_name="Boss")
+    stranger_tech = _seed_user(db, first_name="Not", last_name="Mine")
+    other_supervisor = _seed_user(
+        db, roles.ROLE_SUPERVISOR, first_name="Other", last_name="Boss"
+    )
+    _seed_work_order(db, created_by=other_supervisor, assigned_to=stranger_tech)
+
+    payload = hub_service.timesheets_hub(
+        db, supervisor, start=date(2026, 8, 17), end=date(2026, 8, 17), now=NOW
+    )
+
+    assert payload.rows == []
+
+
 def test_timesheets_hub_totals_include_adjustments_at_every_level(db):
     from app.models import WorkOrderLabor
 

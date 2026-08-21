@@ -104,7 +104,7 @@ function drilldownHtml(day, name) {
       <strong>${formatHm(day.total_minutes)} total</strong>
     </div>
     ${sessionRows}${empty}
-    <div class="hub-timesheet-drilldown-row hub-timesheet-subtotal"><span>Tracked</span><span>${formatHm(day.tracked_minutes)}</span></div>
+    <div class="hub-timesheet-drilldown-row hub-timesheet-subtotal"><span>Charged</span><span>${formatHm(day.tracked_minutes)}</span></div>
     ${adjustmentRows}
     <div class="hub-timesheet-drilldown-row hub-timesheet-total"><span>Total</span><span>${formatHm(day.total_minutes)}</span></div>
   </div>`;
@@ -117,7 +117,7 @@ function setStatus(container, message, type = "") {
   status.className = `hub-timesheet-message${type ? ` ${type}` : ""}`;
 }
 
-export function mountHubTimesheets(container, payload, { onWeekChange } = {}) {
+export function mountHubTimesheets(container, payload, { onWeekChange, isAdminPlus = false } = {}) {
   const dates = payload.crew_totals_by_day.map((entry) => entry.date);
   let expanded = null;
 
@@ -162,16 +162,25 @@ export function mountHubTimesheets(container, payload, { onWeekChange } = {}) {
       (sum, entry) => sum + entry.minutes,
       0,
     );
+    // P4 widens the underlying scope to everyone company-wide for a
+    // techfm_oa+ viewer (hub_service.timesheets_hub) -- the caption, footer
+    // label, and empty-state copy say so, rather than repeating a
+    // Supervisor's "routed to you" framing that would be wrong here.
+    const totalLabel = isAdminPlus ? "Company total" : "Crew total";
+    const captionScope = isAdminPlus ? "Company" : "Crew";
+    const emptyHint = isAdminPlus
+      ? "No live Supervisors or Technicians to show."
+      : "No one is currently routed to you. Crew hours appear here after a work order is routed to you and assigned.";
     const table = payload.rows.length
       ? `<div class="hub-timesheet-table-wrap">
           <table class="hub-timesheet-table">
-            <caption class="sr-only">Crew timesheets for ${escapeHtml(payload.range.start)} through ${escapeHtml(payload.range.end)}</caption>
+            <caption class="sr-only">${escapeHtml(captionScope)} timesheets for ${escapeHtml(payload.range.start)} through ${escapeHtml(payload.range.end)}</caption>
             <thead><tr><th scope="col">Technician</th>${headers}<th scope="col">Total</th></tr></thead>
             <tbody>${rows}</tbody>
-            <tfoot><tr><th scope="row">Crew total</th>${totals}<td>${formatHm(grandTotal)}</td></tr></tfoot>
+            <tfoot><tr><th scope="row">${escapeHtml(totalLabel)}</th>${totals}<td>${formatHm(grandTotal)}</td></tr></tfoot>
           </table>
         </div>`
-      : `<p class="hint hub-timesheet-empty">No one is currently routed to you. Crew hours appear here after a work order is routed to you and assigned.</p>`;
+      : `<p class="hint hub-timesheet-empty">${escapeHtml(emptyHint)}</p>`;
 
     container.innerHTML = `<section class="hub-timesheets" aria-labelledby="hub-timesheets-heading">
       <h2 id="hub-timesheets-heading" class="sr-only">Timesheets</h2>

@@ -837,12 +837,16 @@ def timesheets_hub(
     user_id: Optional[uuid.UUID] = None,
     now: Optional[datetime] = None,
 ) -> HubTimesheetPayload:
-    """Compose the routed crew's timesheet cells for an inclusive range.
+    """Compose the timesheet grid's cells for an inclusive range.
 
-    P3b uses the exact same D6 membership as the crew board for every caller,
-    including higher-ranked callers. P4 owns the later widening to an
-    all-company scope. A ``user_id`` can only narrow that already-authorized
-    set; an id outside it returns no rows without revealing whether it exists.
+    P3b used the exact same D6 crew membership as the crew board for every
+    caller, including higher-ranked ones. P4 widens that to an all-company
+    scope (every live Supervisor and Technician, the same population
+    `admin_hub`'s two time buckets sum) for a techfm_oa+ caller -- a
+    Supervisor caller is unaffected and still sees only their own routed
+    crew. A ``user_id`` can only narrow whichever set the caller is
+    authorized to see; an id outside it returns no rows without revealing
+    whether it exists.
 
     Each in-scope technician is swept before reading so a forgotten clock is
     shown as the established 12-hour estimate, not unbounded running time.
@@ -854,7 +858,18 @@ def timesheets_hub(
 
     now = now or datetime.now(timezone.utc)
     today = labor_day.central_date_of(now)
-    crew_ids = _crew_ids_from(_led_work_orders(db, user.id), user.id)
+    if roles.role_at_least(user.role, roles.ROLE_TECHFM_OA):
+        crew_ids = {
+            person.id
+            for person in db.query(User)
+            .filter(
+                User.role.in_((roles.ROLE_SUPERVISOR, roles.ROLE_TECHNICIAN)),
+                User.archived_at.is_(None),
+            )
+            .all()
+        }
+    else:
+        crew_ids = _crew_ids_from(_led_work_orders(db, user.id), user.id)
     if user_id is not None:
         crew_ids.intersection_update({user_id})
 
