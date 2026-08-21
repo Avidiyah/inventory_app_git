@@ -222,6 +222,20 @@ class HubCrewResponse(BaseModel):
 # --- GET /hub/admin (P4 slice 1) --------------------------------------------
 
 
+class HubAdminPipeline(BaseModel):
+    """Company-wide, unscoped work-order status counts -- six columns, not
+    seven (`on_hold` has no column; see the service dataclass's docstring)."""
+
+    created: int
+    assigned: int
+    in_progress: int
+    ready_to_complete: int
+    completed: int
+    review: int
+
+    model_config = {"from_attributes": True}
+
+
 class HubAdminResponse(BaseModel):
     """`GET /hub/admin`. Bucketed by account role, not by what work was
     clocked on -- a TechFM OA/Admin/Owner's own hours (if any) land in
@@ -230,6 +244,7 @@ class HubAdminResponse(BaseModel):
     server_now: datetime
     supervisor_minutes_today: int
     technician_minutes_today: int
+    pipeline: HubAdminPipeline
 
     model_config = {"from_attributes": True}
 
