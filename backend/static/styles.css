@@ -1815,6 +1815,27 @@ tr.archived-user {
     font-weight: var(--fw-regular);
 }
 
+/* The hub's first clickable tile (P4 pipeline row). A real <button> does
+   not inherit the global `section { ... }` card look every other `.hub-tile`
+   gets for free, so this reproduces it explicitly, plus a hover state. */
+.hub-tile-pipeline-item {
+    background-color: var(--panel-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--panel-border);
+    color: var(--text-panel);
+    border-radius: var(--radius-md);
+    padding: var(--space-6);
+    margin-bottom: 0;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+}
+
+.hub-tile-pipeline-item:hover {
+    border-color: var(--color-primary);
+}
+
 .hub-time-today-row {
     display: flex;
     align-items: baseline;
