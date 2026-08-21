@@ -1320,6 +1320,18 @@ export function focusWorkOrderNumber(number) {
   pendingSoloNumber = number;
 }
 
+// Called from the Admin Dashboard's pipeline tiles (hubAdmin.js). Sets the
+// status filter and clears every other one, so the tile always lands on
+// exactly that status's full company-wide list -- never a stale filter left
+// over from the last time someone visited this page. Does not itself fetch:
+// `showPage("work-orders")` (nav.js) already calls `loadWorkOrders` on every
+// page entry, and that reads these dropdowns' live values.
+export function openWorkOrdersFilteredByStatus(status) {
+  resetFilterControls();
+  if (statusFilter) statusFilter.value = status;
+  showAll = false;
+}
+
 // A second, independent card-list renderer for a container other than
 // `#work-orders-list` -- the User Hub's "My Work Orders" tab (spec §4.4).
 // Deliberately does NOT reuse listEl, the six delegated listeners, solo
