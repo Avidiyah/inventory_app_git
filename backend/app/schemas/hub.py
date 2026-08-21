@@ -115,6 +115,17 @@ class HubCounts(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class HubPriorityCounts(BaseModel):
+    """High-priority live-work-order counts for the Priorities card.
+    `unassigned` is omitted (stays `None`) for a Technician's personal
+    payload, which has no such number."""
+
+    assigned: int
+    unassigned: Optional[int] = None
+
+    model_config = {"from_attributes": True}
+
+
 class HubStartable(BaseModel):
     """One option in the `Start on...` picker. Place fields are raw; the
     frontend's existing `placeMeta` composes them."""
@@ -155,6 +166,7 @@ class HubResponse(BaseModel):
     clock: HubClock
     timeline: list[HubTimelineEntry] = []
     counts: HubCounts
+    priority: HubPriorityCounts
     startable: list[HubStartable] = []
     tools_out: list[HubToolOut] = []
 
@@ -210,6 +222,7 @@ class HubCrewResponse(BaseModel):
 
     server_now: datetime
     led: HubLedCounts
+    priority: HubPriorityCounts
     crew_on_clock: int
     crew_total: int
     crew_minutes_today: int
@@ -287,9 +300,70 @@ class HubAdminResponse(BaseModel):
     supervisor_minutes_today: int
     technician_minutes_today: int
     pipeline: HubAdminPipeline
+    priority: HubPriorityCounts
     on_the_clock: list[HubAdminOnClockEntry] = []
     exceptions: HubAdminExceptions
     billing: HubAdminBilling
+
+    model_config = {"from_attributes": True}
+
+
+# --- GET /hub/graphs -------------------------------------------------------
+
+
+class HubGraphStatus(BaseModel):
+    key: str
+    label: str
+
+    model_config = {"from_attributes": True}
+
+
+class HubGraphDistribution(BaseModel):
+    key: str
+    label: str
+    total: int
+    counts: dict[str, int]
+
+    model_config = {"from_attributes": True}
+
+
+class HubGraphDurationRange(BaseModel):
+    start: date
+    end: date
+
+    model_config = {"from_attributes": True}
+
+
+class HubGraphDurationBucket(BaseModel):
+    start: date
+    end: date
+    partial: bool
+    circulating_avg_age_days: Optional[float] = None
+    circulating_count: int
+    closed_avg_days: Optional[float] = None
+    closed_count: int
+
+    model_config = {"from_attributes": True}
+
+
+class HubGraphDuration(BaseModel):
+    range: HubGraphDurationRange
+    buckets: list[HubGraphDurationBucket] = []
+
+    model_config = {"from_attributes": True}
+
+
+class HubGraphsResponse(BaseModel):
+    """`GET /hub/graphs`: a guided report for TechFM OA and above."""
+
+    generated_at: datetime
+    weeks: int
+    statuses: list[HubGraphStatus] = []
+    priority_high: HubGraphDistribution
+    priority_medium: HubGraphDistribution
+    communities: list[HubGraphDistribution] = []
+    service_types: list[HubGraphDistribution] = []
+    duration: HubGraphDuration
 
     model_config = {"from_attributes": True}
 

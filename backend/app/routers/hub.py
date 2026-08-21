@@ -8,6 +8,7 @@ stays the only place a role 403 is raised:
 - `GET /hub`             any authenticated  -- the personal block
 - `GET /hub/crew`        supervisor+        -- the crew board
 - `GET /hub/admin`       techfm_oa+         -- the company-wide time summary
+- `GET /hub/graphs`      techfm_oa+         -- the lazy company-wide report
 - `GET /hub/timesheets`  supervisor+        -- routed-crew timesheets
 
 The personal, crew, and timesheet reads are not side-effect-free. They sweep
@@ -28,7 +29,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from app.auth_deps import get_current_user, require_min_role
@@ -37,7 +38,7 @@ from app.domain import labor_day, roles
 from app.domain.errors import DomainError
 from app.models import User
 from app.routers._errors import to_http
-from app.schemas.hub import HubAdminResponse, HubClock, HubCrewResponse, HubResponse, HubTimesheetResponse
+from app.schemas.hub import HubAdminResponse, HubClock, HubCrewResponse, HubGraphsResponse, HubResponse, HubTimesheetResponse
 from app.services import hub as hub_service
 
 router = APIRouter(prefix="/hub", tags=["hub"])
@@ -77,6 +78,7 @@ def get_hub(
         ),
         timeline=clock.timeline,
         counts=payload.counts,
+        priority=payload.priority,
         startable=payload.startable,
         tools_out=payload.tools_out,
     )
@@ -110,6 +112,29 @@ def get_hub_admin(
     stays the only place a role 403 is raised.
     """
     return HubAdminResponse.model_validate(hub_service.admin_hub(db, user))
+
+
+@router.get("/graphs", response_model=HubGraphsResponse)
+def get_hub_graphs(
+    weeks: int = Query(12),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
+    db: Session = Depends(get_db),
+):
+    """Lazy company-wide work-order status and duration report.
+
+    Unlike the Admin summary, this read has no labor-session dependency and
+    therefore does not run a global stale-session sweep.
+
+    `weeks` is declared `int` rather than `Literal[12, 26, 52]`: FastAPI
+    0.136 / Pydantic 2.13 do not coerce a numeric query string into an int
+    `Literal`, so `?weeks=12` 422s on every real HTTP request even though
+    12 is a valid member. Validate the guided presets by hand instead.
+    """
+    if weeks not in (12, 26, 52):
+        raise HTTPException(status_code=422, detail="weeks must be 12, 26, or 52")
+    return HubGraphsResponse.model_validate(
+        hub_service.graphs_hub(db, user, weeks=weeks)
+    )
 
 
 def _default_range(now: datetime) -> tuple[date, date]:
