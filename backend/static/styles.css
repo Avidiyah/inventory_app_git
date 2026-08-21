@@ -998,18 +998,6 @@ tr:last-child td {
     flex-wrap: wrap;
 }
 
-.row-actions-select {
-    padding: 0 var(--space-2);
-    min-height: var(--btn-h-sm);
-    font-size: var(--fs-sm);
-    margin-top: 0;
-    border: var(--border-input);
-    border-radius: var(--radius-md);
-    background-color: var(--input-bg);
-    color: var(--text-panel);
-    cursor: pointer;
-}
-
 .sr-only {
     position: absolute;
     width: 1px;
@@ -4190,7 +4178,8 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     .stack-table td[colspan]::before { content: none; }
 
     /* The single Actions menu fills the card width. */
-    .stack-table .row-actions-select { width: 100%; }
+    .stack-table .action-menu,
+    .stack-table .action-menu .menu-trigger { width: 100%; }
 
     /* Notes editor: stack each note's fields so they're scannable on a
        phone instead of cramming four controls into one row. */

@@ -162,3 +162,44 @@ def test_the_hidden_menu_list_actually_hides():
     """.menu-list sets display:flex, and [hidden] is only display:none in the
     UA sheet -- the flex wins unless this rule exists to outrank it."""
     assert re.search(r"\.menu-list\[hidden\]\s*\{\s*display:\s*none", _css())
+
+
+ITEMS_JS = STATIC / "views" / "items.js"
+TOOLS_JS = STATIC / "views" / "tools.js"
+
+
+def _rendered_menu_values(source: str) -> set:
+    return set(re.findall(r'value:\s*"([a-z-]+)"', source))
+
+
+def _handled_action_values(source: str) -> set:
+    return set(re.findall(r'action === "([a-z-]+)"', source))
+
+
+def test_find_item_no_longer_uses_a_native_select_for_row_actions():
+    """The one control on this page whose popup the OS may draw itself."""
+    source = ITEMS_JS.read_text(encoding="utf-8")
+    assert "row-actions-select" not in source
+    assert "<select" not in source
+    assert "actionMenuHtml" in source
+
+
+def test_find_items_menu_options_all_have_handlers():
+    """actionsCell writes value strings that the pick callback reads back by
+    string. A rename in one place and not the other is a dead menu item with
+    no error anywhere -- same guard as the work-order walkthrough actions."""
+    source = ITEMS_JS.read_text(encoding="utf-8")
+    assert _rendered_menu_values(source) <= _handled_action_values(source)
+
+
+def test_find_items_archive_option_is_marked_dangerous():
+    """Archive is the one irreversible-looking action in the menu; it gets
+    the separating rule and the ghost-red treatment."""
+    source = ITEMS_JS.read_text(encoding="utf-8")
+    archive = re.search(r'\{[^}]*value:\s*"delete"[^}]*\}', source)
+    assert archive, 'no menu option with value "delete" found in items.js'
+    assert "danger: true" in archive.group(0)
+
+
+def test_the_dead_row_action_select_style_is_gone():
+    assert ".row-actions-select" not in _css()
