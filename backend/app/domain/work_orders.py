@@ -171,6 +171,40 @@ COMMUNITY_SEARCH_TERMS: dict[str, tuple[str, ...]] = {
 ALL_COMMUNITY_FILTERS: tuple[str, ...] = tuple(COMMUNITY_LABELS)
 
 
+def community_memberships(
+    community: Optional[str], location: Optional[str]
+) -> tuple[str, ...]:
+    """Return every stable community a work order belongs to.
+
+    This is the in-memory counterpart to the list service's SQL community
+    predicate: structured community and raw location are both searched, a row
+    may belong to several named communities, and Academics is the fallback
+    when none of the named terms appear. Keeping the vocabulary here prevents
+    the Hub's aggregate cards from quietly disagreeing with the Work Orders
+    filter.
+    """
+    haystack = f"{community or ''} {location or ''}".casefold()
+    matches = tuple(
+        key
+        for key, terms in COMMUNITY_SEARCH_TERMS.items()
+        if any(term in haystack for term in terms)
+    )
+    return matches or (COMMUNITY_ACADEMICS,)
+
+
+def normalize_service_type(value: Optional[str]) -> tuple[str, str]:
+    """Return a stable grouping key and a readable service-type label.
+
+    Vendor service types are free text. Grouping case-insensitively and
+    trimming whitespace avoids duplicate chart cards, while blank values stay
+    visible under a deliberate Unspecified bucket instead of disappearing.
+    """
+    label = (value or "").strip()
+    if not label:
+        return "__unspecified__", "Unspecified"
+    return label.casefold(), label
+
+
 def normalize_community_filter(value: Optional[str]) -> Optional[str]:
     """Normalize and validate the Work Orders community query value.
 
@@ -208,6 +242,42 @@ def normalize_priority_filter(value: Optional[str]) -> Optional[str]:
     if value is None or not value.strip():
         return None
     return value.strip()
+
+
+# The severity classification the Priorities card and the Graphs-tab priority
+# pies both key off. Deliberately narrower than `priorityBucket()` in
+# `static/views/workOrders.js` (which also distinguishes "emergency" and
+# "urgent" as their own badge colors) -- this rule folds all three into one
+# High bucket, and normal/routine/standard into one Medium bucket, because
+# neither surface this feeds needs a finer severity ladder than the vendor's
+# free text actually supports.
+PRIORITY_HIGH = "high"
+PRIORITY_MEDIUM = "medium"
+PRIORITY_LOW = "low"
+PRIORITY_NONE = "none"
+PRIORITY_UNKNOWN = "unknown"
+
+_PRIORITY_HIGH_KEYWORDS = ("high", "urgent", "emergency")
+_PRIORITY_MEDIUM_KEYWORDS = ("normal", "routine", "standard")
+
+
+def priority_bucket(value: Optional[str]) -> str:
+    """Classify raw vendor priority text into one shared severity bucket.
+
+    Order matters: high keywords are checked before "low" and before medium
+    keywords, matching `priorityBucket()` in workOrders.js, so a value like
+    "High/Urgent" cannot be mis-read as anything but High.
+    """
+    if value is None or not value.strip():
+        return PRIORITY_NONE
+    normalized = value.strip().casefold()
+    if any(keyword in normalized for keyword in _PRIORITY_HIGH_KEYWORDS):
+        return PRIORITY_HIGH
+    if "low" in normalized:
+        return PRIORITY_LOW
+    if any(keyword in normalized for keyword in _PRIORITY_MEDIUM_KEYWORDS):
+        return PRIORITY_MEDIUM
+    return PRIORITY_UNKNOWN
 
 
 def parse_schedule_date(value: Optional[str]) -> Optional[date]:

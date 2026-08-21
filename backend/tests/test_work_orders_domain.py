@@ -30,6 +30,32 @@ def test_normalize_number_trims_and_lowercases():
     assert wo.normalize_number("A B") == "a b"
 
 
+# --- priority bucket -------------------------------------------------------
+
+def test_priority_bucket_folds_urgent_and_emergency_into_high():
+    assert wo.priority_bucket("High") == wo.PRIORITY_HIGH
+    assert wo.priority_bucket("URGENT") == wo.PRIORITY_HIGH
+    assert wo.priority_bucket("Emergency Call-Out") == wo.PRIORITY_HIGH
+
+
+def test_priority_bucket_folds_routine_and_standard_into_medium():
+    assert wo.priority_bucket("Normal") == wo.PRIORITY_MEDIUM
+    assert wo.priority_bucket("Routine Maintenance") == wo.PRIORITY_MEDIUM
+    assert wo.priority_bucket("Standard") == wo.PRIORITY_MEDIUM
+
+
+def test_priority_bucket_low_and_unknown_and_none():
+    assert wo.priority_bucket("Low") == wo.PRIORITY_LOW
+    assert wo.priority_bucket("Priority 3") == wo.PRIORITY_UNKNOWN
+    assert wo.priority_bucket(None) == wo.PRIORITY_NONE
+    assert wo.priority_bucket("") == wo.PRIORITY_NONE
+    assert wo.priority_bucket("   ") == wo.PRIORITY_NONE
+
+
+def test_priority_bucket_is_case_and_whitespace_insensitive():
+    assert wo.priority_bucket("  hIgH  ") == wo.PRIORITY_HIGH
+
+
 # --- status / mode validators --------------------------------------------
 
 def test_validate_status_accepts_seven_live_states():
