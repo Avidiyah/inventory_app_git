@@ -539,6 +539,41 @@ def _pipeline_counts(db: Session) -> AdminPipelineCounts:
     )
 
 
+def _company_wide_priority_counts(db: Session) -> PriorityCounts:
+    """Every live work order, unscoped -- the Admin+ mirror of `_priority_counts`.
+
+    A narrow two-query projection rather than hydrating full `WorkOrder` rows
+    with a `technicians` join (the way `_priority_counts` does for a
+    supervisor's much smaller led set): company-wide, that join would be the
+    most expensive read on this payload for no benefit, since only
+    `priority`, `assigned_to_id`, and technician-assignment existence are
+    needed.
+    """
+    rows = (
+        db.query(WorkOrder.id, WorkOrder.priority, WorkOrder.assigned_to_id)
+        .filter(WorkOrder.archived_at.is_(None))
+        .all()
+    )
+    high_ids = {row.id for row in rows if wo.priority_bucket(row.priority) == wo.PRIORITY_HIGH}
+    if not high_ids:
+        return PriorityCounts(assigned=0, unassigned=0)
+    technician_assigned_ids = {
+        row.work_order_id
+        for row in db.query(WorkOrderTechnician.work_order_id)
+        .filter(WorkOrderTechnician.work_order_id.in_(high_ids))
+        .distinct()
+        .all()
+    }
+    unassigned = sum(
+        1
+        for row in rows
+        if row.id in high_ids
+        and row.assigned_to_id is None
+        and row.id not in technician_assigned_ids
+    )
+    return PriorityCounts(assigned=len(high_ids), unassigned=unassigned)
+
+
 @dataclass(frozen=True)
 class AdminExceptionCounts:
     """The "Exceptions" tile group (spec §5.4) -- five open-work counts
@@ -760,6 +795,7 @@ class HubAdminPayload:
     supervisor_minutes_today: int
     technician_minutes_today: int
     pipeline: AdminPipelineCounts
+    priority: PriorityCounts
     on_the_clock: list[OnClockEntry]
     exceptions: AdminExceptionCounts
     billing: AdminBilling
@@ -802,12 +838,14 @@ def admin_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> Hub
     users_by_id = {u.id: u for u in supervisors + technicians}
     all_summaries = {**supervisor_summaries, **technician_summaries}
     pipeline = _pipeline_counts(db)
+    priority = _company_wide_priority_counts(db)
 
     return HubAdminPayload(
         server_now=now,
         supervisor_minutes_today=sum(s.total_minutes for s in supervisor_summaries.values()),
         technician_minutes_today=sum(s.total_minutes for s in technician_summaries.values()),
         pipeline=pipeline,
+        priority=priority,
         on_the_clock=_on_the_clock(db, now, users_by_id, all_summaries),
         exceptions=_exception_counts(db, now, pipeline),
         billing=_billing(db, now, user),

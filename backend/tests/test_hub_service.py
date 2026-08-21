@@ -810,6 +810,40 @@ def test_admin_hub_pipeline_counts_are_company_wide_and_unscoped(db):
     assert pipeline.review - baseline.review == 1
 
 
+def test_admin_hub_counts_high_priority_company_wide_assigned_and_unassigned(db):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    tech = _seed_user(db, roles.ROLE_TECHNICIAN, first_name="Jose", last_name="Rivera")
+    baseline = hub_service.admin_hub(db, admin, now=NOW).priority
+
+    assigned_high = _seed_work_order(db, created_by=admin, assigned_to=tech, status=wo.STATUS_ASSIGNED)
+    assigned_high.priority = "High"
+    unassigned_high = _seed_work_order(db, created_by=admin, status=wo.STATUS_CREATED)
+    unassigned_high.priority = "Emergency"
+    low = _seed_work_order(db, created_by=admin, status=wo.STATUS_CREATED)
+    low.priority = "Low"
+    db.flush()
+
+    payload = hub_service.admin_hub(db, admin, now=NOW)
+
+    assert payload.priority.assigned - baseline.assigned == 2
+    assert payload.priority.unassigned - baseline.unassigned == 1
+
+
+def test_admin_hub_priority_counts_exclude_archived_work_orders(db):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    baseline = hub_service.admin_hub(db, admin, now=NOW).priority
+
+    archived = _seed_work_order(db, created_by=admin, status=wo.STATUS_CREATED)
+    archived.priority = "High"
+    archived.archived_at = NOW
+    db.flush()
+
+    payload = hub_service.admin_hub(db, admin, now=NOW)
+
+    assert payload.priority.assigned == baseline.assigned
+    assert payload.priority.unassigned == baseline.unassigned
+
+
 def test_admin_hub_pipeline_excludes_on_hold_and_archived(db):
     creator = _seed_user(db, roles.ROLE_SUPERVISOR)
     baseline = hub_service.admin_hub(db, creator).pipeline
