@@ -283,6 +283,7 @@ class AttentionItem:
 class HubCrewPayload:
     server_now: datetime
     led: LedCounts
+    priority: PriorityCounts
     crew_on_clock: int
     crew_total: int
     crew_minutes_today: int
@@ -361,6 +362,17 @@ def _crew_ids_from(
     return crew_ids
 
 
+def _priority_counts(work_orders: list[WorkOrder]) -> PriorityCounts:
+    """Shared by `crew_hub` (already has `technicians` eager-loaded on each
+    row via `_led_work_orders`'s `joinedload`) -- `admin_hub` cannot reuse
+    this directly because hydrating every company-wide WorkOrder row with
+    that join would be far more expensive than the narrow projection it uses
+    instead (see `_company_wide_priority_counts`)."""
+    high = [w for w in work_orders if wo.priority_bucket(w.priority) == wo.PRIORITY_HIGH]
+    unassigned = sum(1 for w in high if w.assigned_to_id is None and not w.technicians)
+    return PriorityCounts(assigned=len(high), unassigned=unassigned)
+
+
 def crew_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> HubCrewPayload:
     """The `GET /hub/crew` payload: who I lead, who is on the clock, and
     what needs a look.
@@ -399,6 +411,7 @@ def crew_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> HubC
             1 for w in led_work_orders if w.status == wo.STATUS_READY_TO_COMPLETE
         ),
     )
+    priority = _priority_counts(led_work_orders)
 
     crew_ids = _crew_ids_from(led_work_orders, user.id)
 
@@ -481,6 +494,7 @@ def crew_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> HubC
     return HubCrewPayload(
         server_now=now,
         led=led,
+        priority=priority,
         crew_on_clock=crew_on_clock,
         crew_total=len(crew_ids),
         crew_minutes_today=crew_minutes_today,

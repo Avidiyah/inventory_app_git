@@ -409,6 +409,46 @@ def test_led_counts_are_a_total_and_two_subsets(db):
     assert payload.led.ready_to_complete == 2
 
 
+def test_crew_hub_counts_high_priority_led_and_unassigned(db):
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    tech = _seed_user(db)
+
+    led_assigned_high = _seed_work_order(
+        db, created_by=supervisor, supervisor=supervisor, assigned_to=tech, status=wo.STATUS_ASSIGNED
+    )
+    led_assigned_high.priority = "High"
+    led_unassigned_high = _seed_work_order(
+        db, created_by=supervisor, supervisor=supervisor, status=wo.STATUS_CREATED
+    )
+    led_unassigned_high.priority = "Urgent"
+    led_low = _seed_work_order(
+        db, created_by=supervisor, supervisor=supervisor, status=wo.STATUS_CREATED
+    )
+    led_low.priority = "Low"
+    db.flush()
+
+    payload = hub_service.crew_hub(db, supervisor, now=NOW)
+
+    assert payload.priority.assigned == 2
+    assert payload.priority.unassigned == 1
+
+
+def test_crew_hub_priority_counts_exclude_other_supervisors_led_work(db):
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    other_supervisor = _seed_user(db, roles.ROLE_SUPERVISOR, first_name="Other")
+
+    not_mine = _seed_work_order(
+        db, created_by=supervisor, supervisor=other_supervisor, status=wo.STATUS_CREATED
+    )
+    not_mine.priority = "High"
+    db.flush()
+
+    payload = hub_service.crew_hub(db, supervisor, now=NOW)
+
+    assert payload.priority.assigned == 0
+    assert payload.priority.unassigned == 0
+
+
 def test_roll_ups_reconcile_with_the_cards(db):
     supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
     a = _seed_user(db, first_name="Jose", last_name="Rivera")
