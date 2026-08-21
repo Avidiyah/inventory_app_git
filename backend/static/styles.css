@@ -1621,7 +1621,7 @@ tr:last-child td {
 }
 
 .note-row input,
-.note-row select {
+.note-row .menu {
     width: 100%;
     margin: 0;
 }

@@ -21,6 +21,7 @@ import { getItems, getEditingNotesItemId, setEditingNotesItemId } from "../state
 import { apiUpdateNotes } from "../api.js";
 import { escapeHtml, formatNoteValue, detectNoteType, friendlyError } from "../format.js";
 import { setMessage, getNoteValueRaw } from "../dom.js";
+import { comboHtml } from "../menus.js";
 
 const notesEditorSection = document.getElementById("notes-editor-section");
 const notesEditorSelected = document.getElementById("notes-editor-selected");
@@ -72,26 +73,41 @@ export function closeNotesEditor() {
   setMessage(notesMessage, "", "");
 }
 
+let noteRowSeq = 0;
+
+const NOTE_TYPES = [
+  { value: "string", label: "String" },
+  { value: "number", label: "Number" },
+  { value: "boolean", label: "Boolean" },
+];
+
 function addNoteRow(key = "", type = "string", value = "") {
+  const rowId = `note-row-${noteRowSeq++}`;
   const row = document.createElement("div");
   row.className = "note-row";
   row.innerHTML = `
     <input type="text" class="note-key" placeholder="Note name" aria-label="Note name" value="${escapeHtml(key)}">
-    <select class="note-type" aria-label="Note type">
-      <option value="string">String</option>
-      <option value="number">Number</option>
-      <option value="boolean">Boolean</option>
-    </select>
+    ${comboHtml({
+      id: `${rowId}-type`,
+      ariaLabel: "Note type",
+      options: NOTE_TYPES,
+      selectedValue: type,
+      nativeSelectHtml: `<select class="note-type menu-native" hidden>${NOTE_TYPES.map(
+        (option) => `<option value="${option.value}">${option.label}</option>`
+      ).join("")}</select>`,
+    })}
     <span class="note-value-wrapper"></span>
     <button type="button" class="note-remove-btn" title="Remove" aria-label="Remove note">×</button>
   `;
   const typeSelect = row.querySelector(".note-type");
   typeSelect.value = type;
   const valueWrapper = row.querySelector(".note-value-wrapper");
-  renderNoteValueInput(valueWrapper, type, value);
+  renderNoteValueInput(valueWrapper, type, value, rowId);
 
+  // menus.js dispatches `change` on the hidden select when an option is
+  // picked, so this listener is unchanged from the native-select version.
   typeSelect.addEventListener("change", () => {
-    renderNoteValueInput(valueWrapper, typeSelect.value, getNoteValueRaw(valueWrapper));
+    renderNoteValueInput(valueWrapper, typeSelect.value, getNoteValueRaw(valueWrapper), rowId);
   });
 
   row.querySelector(".note-remove-btn").addEventListener("click", () => row.remove());
@@ -99,15 +115,25 @@ function addNoteRow(key = "", type = "string", value = "") {
   notesRows.appendChild(row);
 }
 
-function renderNoteValueInput(wrapper, type, currentValue) {
+const NOTE_BOOLEANS = [
+  { value: "true", label: "true" },
+  { value: "false", label: "false" },
+];
+
+function renderNoteValueInput(wrapper, type, currentValue, rowId) {
   wrapper.innerHTML = "";
   if (type === "boolean") {
-    const sel = document.createElement("select");
-    sel.className = "note-value";
-    sel.setAttribute("aria-label", "Note value");
-    sel.innerHTML = '<option value="true">true</option><option value="false">false</option>';
-    sel.value = (currentValue === true || currentValue === "true") ? "true" : "false";
-    wrapper.appendChild(sel);
+    const selected = (currentValue === true || currentValue === "true") ? "true" : "false";
+    wrapper.innerHTML = comboHtml({
+      id: `${rowId}-value`,
+      ariaLabel: "Note value",
+      options: NOTE_BOOLEANS,
+      selectedValue: selected,
+      // `note-value` stays on the real select: dom.js's getNoteValueRaw()
+      // reads `.note-value`.value, and that contract does not change.
+      nativeSelectHtml: `<select class="note-value menu-native" hidden><option value="true">true</option><option value="false">false</option></select>`,
+    });
+    wrapper.querySelector(".note-value").value = selected;
   } else if (type === "number") {
     const input = document.createElement("input");
     input.type = "number";

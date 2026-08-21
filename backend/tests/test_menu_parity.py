@@ -259,3 +259,20 @@ def test_the_combo_has_the_css_it_renders_against():
     css = _css()
     assert ".menu-native" in css, "the hidden native select must be display:none"
     assert '.menu-option[aria-selected="true"]' in css
+
+
+def test_the_notes_editor_uses_combos_not_native_selects():
+    """Reachable from Find Item's row menu, so it inherits the same
+    OS-drawn-popup problem."""
+    source = NOTES_JS.read_text(encoding="utf-8")
+    assert "comboHtml" in source
+    # The only <select> left is the hidden one the combo keeps for its value.
+    for match in re.findall(r"<select[^>]*>", source):
+        assert "menu-native" in match, f"unthemed native select in notes.js: {match}"
+
+
+def test_the_notes_value_reader_still_finds_the_value():
+    """dom.js's getNoteValueRaw() reads `.note-value` off the row. The combo
+    puts that class on the hidden native select, so the reader is unchanged."""
+    source = NOTES_JS.read_text(encoding="utf-8")
+    assert "note-value" in source
