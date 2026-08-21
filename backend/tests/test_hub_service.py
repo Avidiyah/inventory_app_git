@@ -678,6 +678,87 @@ def test_admin_hub_pipeline_excludes_on_hold_and_archived(db):
     assert pipeline.review == baseline.review
 
 
+def _seed_user_request(db, *, request_type, status="open", created_by):
+    from app.models import UserRequest
+
+    request = UserRequest(
+        id=uuid.uuid4(),
+        request_type=request_type,
+        status=status,
+        message="test",
+        created_by_id=created_by.id,
+    )
+    db.add(request)
+    db.flush()
+    return request
+
+
+def test_admin_hub_exceptions_count_each_open_request_type(db):
+    from app.services import user_requests as user_requests_service
+
+    creator = _seed_user(db, roles.ROLE_SUPERVISOR)
+    baseline = hub_service.admin_hub(db, creator, now=NOW).exceptions
+
+    _seed_user_request(
+        db, request_type=user_requests_service.REQUEST_INVENTORY_RECOUNT, created_by=creator
+    )
+    _seed_user_request(
+        db, request_type=user_requests_service.REQUEST_MISSING_ITEM_PRICE, created_by=creator
+    )
+    _seed_user_request(
+        db, request_type=user_requests_service.REQUEST_ITEM, created_by=creator
+    )
+    # A resolved request must not count -- exceptions are open work only.
+    _seed_user_request(
+        db,
+        request_type=user_requests_service.REQUEST_ITEM,
+        status=user_requests_service.STATUS_RESOLVED,
+        created_by=creator,
+    )
+
+    exceptions = hub_service.admin_hub(db, creator, now=NOW).exceptions
+
+    assert exceptions.inventory_recounts - baseline.inventory_recounts == 1
+    assert exceptions.missing_item_price - baseline.missing_item_price == 1
+    assert exceptions.item_requests - baseline.item_requests == 1
+
+
+def test_admin_hub_exceptions_admin_review_queue_matches_pipeline_review(db):
+    creator = _seed_user(db, roles.ROLE_SUPERVISOR)
+    _seed_work_order(db, created_by=creator, status=wo.STATUS_REVIEW)
+
+    payload = hub_service.admin_hub(db, creator, now=NOW)
+
+    assert payload.exceptions.admin_review_queue == payload.pipeline.review
+
+
+def test_admin_hub_exceptions_counts_a_stale_in_progress_work_order(db):
+    creator = _seed_user(db, roles.ROLE_SUPERVISOR)
+    tech = _seed_user(db, roles.ROLE_TECHNICIAN)
+    baseline = hub_service.admin_hub(db, creator, now=NOW).exceptions
+
+    stale = _seed_work_order(
+        db, created_by=creator, assigned_to=tech, status=wo.STATUS_IN_PROGRESS
+    )
+    _seed_session(
+        db,
+        stale,
+        tech,
+        started_at=NOW - timedelta(days=4, minutes=30),
+        ended_at=NOW - timedelta(days=4),
+    )
+    fresh = _seed_work_order(
+        db, created_by=creator, assigned_to=tech, status=wo.STATUS_IN_PROGRESS
+    )
+    _seed_session(
+        db, fresh, tech, started_at=NOW - timedelta(minutes=30), ended_at=NOW - timedelta(minutes=10)
+    )
+
+    exceptions = hub_service.admin_hub(db, creator, now=NOW).exceptions
+
+    assert exceptions.stale_work_orders - baseline.stale_work_orders == 1
+
+
 def test_admin_hub_on_the_clock_lists_a_running_session_company_wide(db):
     creator = _seed_user(db, roles.ROLE_SUPERVISOR)
     tech = _seed_user(db, roles.ROLE_TECHNICIAN, first_name="Marisol", last_name="Chen")
@@ -750,6 +831,8 @@ def test_the_admin_payload_serialises_into_the_response_schema(db):
         e for e in body["on_the_clock"] if e["work_order_number"] == work_order.number
     )
     assert entry["technician_name"] == "Jose Rivera"
+    assert "exceptions" in body
+    assert "stale_work_orders" in body["exceptions"]
 
 
 # --- the supervisor timesheet payload (P3b) -------------------------------

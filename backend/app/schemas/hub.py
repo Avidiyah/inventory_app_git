@@ -249,6 +249,18 @@ class HubAdminOnClockEntry(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class HubAdminExceptions(BaseModel):
+    """The "Exceptions" tile group -- five open-work counts."""
+
+    inventory_recounts: int
+    missing_item_price: int
+    item_requests: int
+    admin_review_queue: int
+    stale_work_orders: int
+
+    model_config = {"from_attributes": True}
+
+
 class HubAdminResponse(BaseModel):
     """`GET /hub/admin`. Bucketed by account role, not by what work was
     clocked on -- a TechFM OA/Admin/Owner's own hours (if any) land in
@@ -259,6 +271,7 @@ class HubAdminResponse(BaseModel):
     technician_minutes_today: int
     pipeline: HubAdminPipeline
     on_the_clock: list[HubAdminOnClockEntry] = []
+    exceptions: HubAdminExceptions
 
     model_config = {"from_attributes": True}
 

@@ -91,6 +91,29 @@ function pipelineHtml(pipeline) {
   return `<div class="hub-tile-grid">${tiles}</div>`;
 }
 
+// `open`-suffixed rows read as "N open"; the last two (review queue, stale)
+// are already a count of open work on their own and don't repeat the word.
+const EXCEPTION_ROWS = [
+  ["inventory_recounts", "Inventory recounts", true],
+  ["missing_item_price", "Missing price / link", true],
+  ["item_requests", "Item requests", true],
+  ["admin_review_queue", "Admin review queue", false],
+  ["stale_work_orders", "Stale > 3 days", false],
+];
+
+function exceptionsHtml(exceptions) {
+  const rows = EXCEPTION_ROWS.map(([key, label, showOpenSuffix]) => {
+    const count = exceptions[key];
+    const value = showOpenSuffix ? `${count} open` : String(count);
+    return `<li class="hub-exceptions-row"><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></li>`;
+  }).join("");
+  return `
+    <section class="hub-exceptions">
+      <p class="hub-tile-label">Exceptions</p>
+      <ul class="hub-exceptions-list">${rows}</ul>
+    </section>`;
+}
+
 export function mountHubAdminSummary(container, payload) {
   container.innerHTML = `
     ${onClockHtml(payload.on_the_clock)}
@@ -98,7 +121,8 @@ export function mountHubAdminSummary(container, payload) {
       ${tileHtml("Supervisor Time", formatHm(payload.supervisor_minutes_today))}
       ${tileHtml("Technician Time", formatHm(payload.technician_minutes_today))}
     </div>
-    ${pipelineHtml(payload.pipeline)}`;
+    ${pipelineHtml(payload.pipeline)}
+    ${exceptionsHtml(payload.exceptions)}`;
 
   // Bound once per container element, guarded by a dataset flag -- this
   // function re-runs on every live refresh (initial load, the

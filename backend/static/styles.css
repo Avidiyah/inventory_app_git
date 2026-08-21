@@ -1869,6 +1869,30 @@ tr.archived-user {
     flex: 1;
 }
 
+/* P4 Exceptions tile group (spec §5.4) -- a label/count row list, styled
+   like the timesheet drill-down's subtotal rows. */
+.hub-exceptions {
+    margin-bottom: var(--space-6);
+}
+
+.hub-exceptions-list {
+    list-style: none;
+    margin: var(--space-2) 0 0;
+    padding: 0;
+}
+
+.hub-exceptions-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.hub-exceptions-row:last-child {
+    border-bottom: none;
+}
+
 .hub-time-today-row {
     display: flex;
     align-items: baseline;

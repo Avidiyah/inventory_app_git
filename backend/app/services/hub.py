@@ -27,9 +27,10 @@ from app.domain import labor_day
 from app.domain import roles
 from app.domain import work_orders as wo
 from app.domain.errors import TimesheetRangeInvalidError, TimesheetRangeTooLargeError
-from app.models import User, WorkOrder, WorkOrderLaborSession, WorkOrderTechnician
+from app.models import User, UserRequest, WorkOrder, WorkOrderLaborSession, WorkOrderTechnician
 from app.services import labor_summary
 from app.services import tools as tools_service
+from app.services import user_requests as user_requests_service
 from app.services import work_orders as work_orders_service
 
 # Work-order statuses that read as "the crew is on it" -- a stale one has
@@ -504,6 +505,62 @@ def _pipeline_counts(db: Session) -> AdminPipelineCounts:
 
 
 @dataclass(frozen=True)
+class AdminExceptionCounts:
+    """The "Exceptions" tile group (spec §5.4) -- five open-work counts
+    pulled from three different subsystems. `admin_review_queue` is not a
+    new query: it is `AdminPipelineCounts.review`, the same live-status
+    count the pipeline row already shows, surfaced a second time here
+    because Exceptions is where an admin looks for open work, not for the
+    full six-stage breakdown."""
+
+    inventory_recounts: int
+    missing_item_price: int
+    item_requests: int
+    admin_review_queue: int
+    stale_work_orders: int
+
+
+def _exception_counts(
+    db: Session, now: datetime, pipeline: AdminPipelineCounts
+) -> AdminExceptionCounts:
+    rows = (
+        db.query(UserRequest.request_type, func.count(UserRequest.id))
+        .filter(UserRequest.status == user_requests_service.STATUS_OPEN)
+        .group_by(UserRequest.request_type)
+        .all()
+    )
+    open_counts = dict(rows)
+
+    stale_eligible = (
+        db.query(WorkOrder.id)
+        .filter(
+            WorkOrder.archived_at.is_(None),
+            WorkOrder.status.in_(_STALE_ELIGIBLE_STATUSES),
+        )
+        .all()
+    )
+    stale_work_orders = sum(
+        1
+        for (work_order_id,) in stale_eligible
+        if hub_domain.is_stale_work_order(
+            last_activity_at=_last_activity_at(db, work_order_id), now=now
+        )
+    )
+
+    return AdminExceptionCounts(
+        inventory_recounts=open_counts.get(
+            user_requests_service.REQUEST_INVENTORY_RECOUNT, 0
+        ),
+        missing_item_price=open_counts.get(
+            user_requests_service.REQUEST_MISSING_ITEM_PRICE, 0
+        ),
+        item_requests=open_counts.get(user_requests_service.REQUEST_ITEM, 0),
+        admin_review_queue=pipeline.review,
+        stale_work_orders=stale_work_orders,
+    )
+
+
+@dataclass(frozen=True)
 class OnClockEntry:
     """One row of the "On the clock now" list (spec §5.4) -- a currently
     running labor session, company-wide. `flag` reuses the crew board's own
@@ -571,6 +628,7 @@ class HubAdminPayload:
     technician_minutes_today: int
     pipeline: AdminPipelineCounts
     on_the_clock: list[OnClockEntry]
+    exceptions: AdminExceptionCounts
 
 
 def admin_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> HubAdminPayload:
@@ -609,13 +667,15 @@ def admin_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> Hub
     )
     users_by_id = {u.id: u for u in supervisors + technicians}
     all_summaries = {**supervisor_summaries, **technician_summaries}
+    pipeline = _pipeline_counts(db)
 
     return HubAdminPayload(
         server_now=now,
         supervisor_minutes_today=sum(s.total_minutes for s in supervisor_summaries.values()),
         technician_minutes_today=sum(s.total_minutes for s in technician_summaries.values()),
-        pipeline=_pipeline_counts(db),
+        pipeline=pipeline,
         on_the_clock=_on_the_clock(db, now, users_by_id, all_summaries),
+        exceptions=_exception_counts(db, now, pipeline),
     )
 
 
