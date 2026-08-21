@@ -30,7 +30,7 @@ For review/debugging work:
 3. Use `Test Map` to find existing coverage and missing coverage.
 
 If this file conflicts with code, trust the code and update this file as part of
-the change. The 2026-08-19 baseline is **85 router operations** across 12
+the change. The 2026-08-21 baseline is **94 router operations** across 12
 routers (84 HTTP + the `/ws` WebSocket) plus 4 app-level routes in `main.py`,
 Alembic head **`a2c4e6b8d0f1`** (34 revisions), and **1205 collected backend
 tests**.
@@ -130,6 +130,7 @@ Path shorthand:
 | Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | mass-stage tests plus manual UI check |
 | Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
 | Work Orders UI | `static/views/workOrders.js`, `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | work-order tests plus manual UI check |
+| User Hub Graphs | `domain/hub.py`, `domain/work_orders.py`, `services/hub.py`, `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubGraphs.js`, `static/pages/user-hub.html`, `static/styles.css`, `static/api.js` | `test_hub_graphs_domain.py`, hub service/router/gate/realtime tests; frontend syntax checks and manual role/realtime checks |
 | NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_auth.py`, `services/netfacilities_jobs.py`, `services/netfacilities_operations.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | TechFM OA+ local headed sign-in saves protected state; Render consumes an operator-provisioned secret state file through isolated bundled Chromium document navigation with JavaScript/subresources blocked; CSV import remains the sole creator and starts one serialized enrichment job only when auth is ready; the existing one-second poll exposes the current requested number while running; only exact fallback Task/Symptom and blank Priority may change; local live happy path and hosted capability enablement accepted; hosted Priority retrieval remains pending acceptance |
 | Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, manual UI check |
 | Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
@@ -380,7 +381,8 @@ Real-time invalidation (`domain/realtime.py`, `services/realtime.py`,
   (membership plus the number/location/assignee card fields), not the whole
   work-order aggregate and not an open Admin Review receipt.
   `work_order.status.changed`, delivered to every role that can open the Work
-  Orders page (technician and above), invalidates the Work Orders card list.
+  Orders page (technician and above), invalidates the Work Orders card list and
+  the active TechFM OA+ Hub Graphs aggregate.
 - Exactly five work-order commands emit `work_order.review_queue.changed`
   after their mutating service returns: CSV import and bulk legacy archive
   once each with `id: null`, plus update, archive, and restore with the
@@ -390,20 +392,21 @@ Real-time invalidation (`domain/realtime.py`, `services/realtime.py`,
   review-queue event. Any future route capable of changing Review membership
   or the queue's displayed card fields must call the same helper and extend
   `test_realtime_emit.py`'s exact emitter-set assertion.
-- Seven work-order commands emit `work_order.status.changed` after their
-  mutating service returns: start, complete, hold, resume, update, archive,
-  and restore, each with the work-order UUID -- except restore, which emits
+- Eleven work-order commands emit `work_order.status.changed` after their
+  mutating service returns: CSV import, bulk legacy archive, start, tracking
+  start/stop, complete, hold, resume, update, archive, and restore. Import and
+  bulk legacy archive emit `id: null` once each as aggregate membership
+  commands; the ordinary status routes use the work-order UUID -- except restore, which emits
   `id: null` because it is a membership command: it can put a row back into a
   recipient's list when no on-screen card represents it yet, so the client
   must refetch the list rather than target one card. `update_work_order` emits
-  unconditionally, with no "did status change" check. On the three routes that
+  unconditionally, with no "did status change" check. On the five routes that
   emit both events, `_emit_review_queue_changed` runs first and
   `_emit_status_changed` second; the order is pinned, not incidental, because
   restore's status envelope carries `id: null` and a caller inspecting
   `envelopes[0]` must still find the review-queue entity invalidation.
-- CSV import (`import_work_orders`), bulk legacy archive
-  (`archive_legacy_work_orders`), and materials, labor, and billing changes do
-  not emit `work_order.status.changed`; only the seven commands above do.
+- Materials, billing, and non-tracking labor changes do not emit
+  `work_order.status.changed`; only the eleven commands above do.
 - The audience map is a noise/efficiency rule, not a security boundary.
   Envelopes carry no row data, so scoping is enforced where it always was: by
   `can_view_work_order` on the client's REST re-fetch. Neither event type

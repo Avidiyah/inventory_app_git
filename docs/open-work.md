@@ -106,9 +106,11 @@ locked decisions. Four phases:
   crew derivation and scopes every caller to their own routed crew; P4 owns
   the higher-rank widening to everyone. Built on `user-hub-p3-crew`; not yet
   merged.
-- **P4 · Admin hub — next.** `GET /hub/admin`, the four tile groups, the
-  conditional crew board, and widening `/hub/timesheets` from "my crew" to
-  everyone for TechFM OA+ and above.
+- **P4 · Admin hub — shipped.** The company Dashboard, conditional crew board,
+  TechFM OA+-wide Timesheets, embedded Work Orders, and the guided Graphs tab
+  are implemented. Graphs provides live status distributions by community and
+  service type plus 12/26/52-week circulating-age versus close-out-time trends;
+  it intentionally does not expose a custom graph builder.
 
 ---
 

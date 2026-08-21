@@ -495,6 +495,10 @@ export async function apiGetHubAdmin() {
   return liveGet("/hub/admin");
 }
 
+export async function apiGetHubGraphs({ weeks = 12 } = {}) {
+  return liveGet(`/hub/graphs?weeks=${encodeURIComponent(weeks)}`);
+}
+
 export async function apiGetHubTimesheets({ start = null, end = null, userId = null } = {}) {
   const params = new URLSearchParams();
   if (start) params.set("start", start);

@@ -622,6 +622,7 @@ def import_work_orders(
     try:
         summary = wo_service.import_work_orders(db, csv_bytes=data, user=user)
         _emit_review_queue_changed(None)
+        _emit_status_changed(None)
     except DomainError as exc:
         raise to_http(exc)
     # Popped rather than passed through: the routing map exists to address a
@@ -760,6 +761,7 @@ def archive_legacy_work_orders(
     try:
         archived = wo_service.archive_live_legacy_work_orders(db, user=user)
         _emit_review_queue_changed(None)
+        _emit_status_changed(None)
     except DomainError as exc:
         raise to_http(exc)
     return LegacyWorkOrderArchiveResult(archived=archived)

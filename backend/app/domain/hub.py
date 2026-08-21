@@ -12,9 +12,10 @@ color alone -- required by spec §8 and by the fact that these are read in
 jobsite glare.
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
+from app.domain import labor_day
 from app.domain.labor_day import CENTRAL
 
 # 8 h running -- an early warning ahead of the 12 h cap.
@@ -36,6 +37,8 @@ FLAG_APPROACHING_CAP = "approaching_cap"
 FLAG_ASSIGNED_IDLE = "assigned_idle"
 FLAG_STALE_WORK_ORDER = "stale_work_order"
 FLAG_RUNNING = "running"
+
+GRAPH_WEEK_OPTIONS: tuple[int, ...] = (12, 26, 52)
 
 
 def session_flag(running_minutes: int) -> Optional[str]:
@@ -81,3 +84,25 @@ def is_stale_work_order(*, last_activity_at: Optional[datetime], now: datetime) 
     if last_activity_at is None:
         return True
     return (now - last_activity_at) >= timedelta(days=STALE_WORK_ORDER_DAYS)
+
+
+def graph_week_ranges(now: datetime, weeks: int) -> list[tuple[date, date, bool]]:
+    """Return Monday-Sunday Central graph buckets, oldest first.
+
+    The current Central week is intentionally included and marked partial;
+    callers use its current instant as the circulating-work snapshot rather
+    than inventing a Sunday-end value that has not happened yet.
+    """
+    if weeks not in GRAPH_WEEK_OPTIONS:
+        raise ValueError("weeks must be one of 12, 26, or 52")
+    today = labor_day.central_date_of(now)
+    current_start, current_end = labor_day.week_bounds_containing(today)
+    first_start = current_start - timedelta(days=7 * (weeks - 1))
+    return [
+        (
+            first_start + timedelta(days=7 * offset),
+            first_start + timedelta(days=7 * offset + 6),
+            offset == weeks - 1,
+        )
+        for offset in range(weeks)
+    ]

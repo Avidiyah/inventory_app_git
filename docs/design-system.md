@@ -160,6 +160,15 @@ never a fill, so those two tokens moved wholesale (`#45D07E`, `#FF7585`) rather
 than gaining variants. The `.type-badge.*` hues are untouched: they are
 backgrounds carrying white text, which the dark canvas does not affect.
 
+### Work-order status charts
+
+The User Hub Graphs tab is the sole categorical-color exception. It may reuse
+the seven named `--wo-status-*` lifecycle tokens already used by work-order
+cards, but each donut must have an adjacent text legend with status, count, and
+percentage. Color, hover, and a pointer device are never required to read an
+exact value. Other charts remain single-series or text-first unless this policy
+is deliberately amended.
+
 ### Text on dark glass
 
 `#login-section` is itself a `<section>`, so it now inherits the frosted

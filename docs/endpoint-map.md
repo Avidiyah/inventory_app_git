@@ -139,6 +139,7 @@ lists what the call reads (r) and writes (w).
 | H2 | GET | `/hub/crew` | supervisor+ | `hub.py` → `hub.crew_hub` → `work_orders.sweep_stale_sessions` (per crew member) + `labor_summary.crew_day_summaries` + `labor_summary.last_worked` | work_order_labor_sessions (r/w on per-member sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), users (r) | `apiGetHubCrew` | `userHub.js`, `hubSupervisor.js` |
 | H3 | GET | `/hub/timesheets` | supervisor+ | `hub.py` → `hub.timesheets_hub` → `work_orders.sweep_stale_sessions` (per crew member) + `labor_summary.crew_range_summaries` | work_order_labor_sessions (r/w on per-member sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), users (r) | `apiGetHubTimesheets` | `userHub.js`, `hubTimesheets.js` |
 | H4 | GET | `/hub/timesheets/export` | supervisor+ | `hub.py` → `hub.timesheets_hub` + `hub.timesheet_csv` | same as H3 | `apiExportHubTimesheets` | `hubTimesheets.js` |
+| H5 | GET | `/hub/graphs?weeks=12\|26\|52` | techfm_oa+ | `hub.py` → `hub.graphs_hub` → shared graph/community rules | work_orders (narrow status/location/service/timestamp projections; read-only) | `apiGetHubGraphs` | `userHub.js`, `hubGraphs.js` |
 
 (Rows 55 onward and NF1–NF3/NF1a–NF1c were appended out of resource order to keep the existing
 #1–54 numbering — and the footnote / per-table references to it — stable. WS1 is the one
@@ -275,6 +276,13 @@ What populates each screen. Format: **table → … → view → what the user s
   `work_orders._scoped_to_user` uses — so the hub's count and the Work Orders
   page can never disagree about what somebody has been given. Counts are a
   total and two subsets of it, not three disjoint buckets.
+- **work_orders (live)** → `hub.graphs_hub` → `GET /hub/graphs` → *(P4 Graphs)*:
+  five membership-based community distributions and normalized service-type
+  distributions. Every live status, including On Hold, is counted; a raw
+  location may belong to more than one named community, and Academics is the
+  no-named-community fallback. Weekly duration buckets are Central Monday-
+  Sunday snapshots: circulating age uses `snapshot - created_at`, while close-
+  out time uses `archived_at - created_at` for rows closed in that bucket.
 - **tool_transactions ⋈ tools** → `tools.user_custody_detail` → `GET /hub` →
   *(P2)*: tools the caller is still holding, with how long each has been out.
   `since` is the checkout that opened the current unbroken spell

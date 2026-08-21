@@ -180,6 +180,11 @@ def test_import_emits_one_collection_invalidation(monkeypatch):
             "type": realtime_policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED,
             "id": None,
             "req": REQUEST_ID,
+        },
+        {
+            "type": realtime_policy.EVENT_WORK_ORDER_STATUS_CHANGED,
+            "id": None,
+            "req": REQUEST_ID,
         }
     ]
 
@@ -199,6 +204,11 @@ def test_zero_row_legacy_archive_still_emits_one_collection_invalidation(monkeyp
     assert envelopes == [
         {
             "type": realtime_policy.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED,
+            "id": None,
+            "req": REQUEST_ID,
+        },
+        {
+            "type": realtime_policy.EVENT_WORK_ORDER_STATUS_CHANGED,
             "id": None,
             "req": REQUEST_ID,
         }
@@ -387,7 +397,7 @@ def test_archive_emits_an_entity_style_status_invalidation(monkeypatch):
     }
 
 
-def test_the_status_emitter_set_is_exactly_the_nine_capable_routes():
+def test_the_status_emitter_set_includes_the_two_membership_commands():
     """Mirrors the review-queue emitter-set test. Any future route able to change
     a work order's status or its card summary must join this set deliberately.
 
@@ -403,6 +413,8 @@ def test_the_status_emitter_set_is_exactly_the_nine_capable_routes():
     }
 
     assert emitters == {
+        "import_work_orders",
+        "archive_legacy_work_orders",
         "start_work_order",
         "start_work_order_tracking",
         "stop_work_order_tracking",

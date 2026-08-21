@@ -38,7 +38,7 @@ Settled with the owner on 2026-08-20. Changing any of these reopens the design.
 | D6 | Supervisor crew scope | **Technicians assigned to work orders routed to me.** Derived from the existing routing, not a new roster concept. |
 | D7 | Work Orders tab | **Embed the real `views/workOrders.js` card list**, filter locked to the viewer's scope. |
 | D8 | Clock control | **A persistent clock widget on the hub** — Stop always, Start against any assigned work order. |
-| D9 | Admin tabs | **Three:** Dashboard · Crew & Timesheets · Work Orders. |
+| D9 | Admin tabs | **Four:** Dashboard · Timesheets · Work Orders · Graphs. Graphs is visible to TechFM OA+ only; lower roles keep their existing tabs. |
 | D10 | Nav entry | **No nav button.** The header's existing user/role indicator becomes the button, with a home icon beside it. The username and role *are* the label. |
 | D11 | Off-clock timestamp | **Last clock-out only**, labeled **"Last worked"**. Sessions are the only source; no activity union. |
 | D12 | Billing tile range | **This week**, matching the week-based Timesheets tab so both Admin tabs speak one period. |
@@ -896,8 +896,15 @@ Bound by `docs/design-system.md`. The hub introduces no new tokens.
   survives only as a fill. Never brand red as text on the canvas — 2.6:1, under
   the minimum.
 
-**Charts.** The red/black/white/gray constraint rules out a categorical hue set,
-which is fine because **none of the hub's charts are categorical**:
+**Charts.** The red/black/white/gray constraint rules out a general categorical
+hue set. The one narrow exception is the TechFM OA+ Graphs tab's work-order
+status distributions: they reuse the seven existing work-order status colors,
+but every chart has a direct legend with status, count, and percentage, so color
+is never the only encoding. The guided Graphs tab has no custom graph builder.
+Its weekly age series is `snapshot - created_at` for work still circulating at
+that snapshot; its close-out series is `archived_at - created_at` for work
+closed in that week. A restore clears `archived_at`, so restored closure history
+cannot be represented as audit-grade historical data.
 
 | Element | Form | Color |
 |---|---|---|
@@ -906,6 +913,7 @@ which is fine because **none of the hub's charts are categorical**:
 | Timeline strip | interval blocks | uniform white-at-alpha fill; the **running** block in `--color-brand`; identity from direct labels |
 | Sparkline | single series, 14 points, 2px line | one hue; no legend |
 | Timesheet grid | numeric table, `tabular-nums` in columns | text tokens |
+| Status distributions | donut plus direct text legend | existing named work-order status tokens only |
 
 Because there is no categorical palette, the palette validator's adjacent-pair CVD
 checks do not apply. What **does** apply and must be verified at implementation:

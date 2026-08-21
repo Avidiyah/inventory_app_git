@@ -13,7 +13,6 @@
 // Global Constraints for why they must stay separate.
 
 import { apiStartWorkOrderTracking, apiStopWorkOrderTracking } from "../api.js";
-import { comboHtml } from "./workOrders.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage } from "../dom.js";
 
@@ -28,7 +27,6 @@ let container = null;
 let payload = null;
 let skewMs = 0; // server_now - Date.now() at fetch time
 let tickHandle = null;
-let comboOpen = false;
 let refreshCallback = null; // set by mountHubClock's `onChanged` option
 
 function formatHm(totalMinutes) {
@@ -83,29 +81,26 @@ function onClockHtml() {
     </div>`;
 }
 
-function startableOptionsHtml() {
-  return (payload.startable || []).map((wo) => {
-    const place = [wo.community, wo.building_number ? `Bldg ${wo.building_number}` : null, wo.unit_number ? `Unit ${wo.unit_number}` : null]
-      .filter(Boolean)
-      .join(" · ") || wo.location || "";
-    const label = place ? `WO ${wo.number} — ${place}` : `WO ${wo.number}`;
-    return { value: wo.work_order_id, label };
-  });
+// The top of `payload.startable` is already priority-ordered (In-Progress >
+// On-Hold > Assigned > Created, see `hub.py::_STARTABLE_ORDER`) -- that's the
+// work order someone would reach for first, so it's the one-click default.
+// No picker: this widget only ever offers that top pick.
+function topStartable() {
+  const wo = (payload.startable || [])[0];
+  if (!wo) return null;
+  const place = [wo.community, wo.building_number ? `Bldg ${wo.building_number}` : null, wo.unit_number ? `Unit ${wo.unit_number}` : null]
+    .filter(Boolean)
+    .join(" · ") || wo.location || "";
+  const label = place ? `WO ${wo.number} — ${place}` : `WO ${wo.number}`;
+  return { value: wo.work_order_id, label };
 }
 
 function offClockHtml() {
-  const options = startableOptionsHtml();
-  const combo = options.length
-    ? comboHtml({
-        id: "hub-clock-start-list",
-        extraClass: "hub-clock-combo",
-        nativeSelectHtml: `<select class="wo-combo-native" hidden aria-hidden="true">${options
-          .map((opt) => `<option value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</option>`)
-          .join("")}</select>`,
-        options,
-        selectedValue: null,
-        ariaLabel: "Start charging on…",
-      })
+  const top = topStartable();
+  const startBtn = top
+    ? `<button type="button" class="hub-clock-start-btn" data-action="hub-clock-start" data-value="${escapeHtml(
+        top.value
+      )}">Track ${escapeHtml(top.label)}</button>`
     : `<p class="hint">Nothing assigned to start a clock on yet.</p>`;
   return `
     <div class="hub-clock hub-clock-off">
@@ -113,8 +108,7 @@ function offClockHtml() {
       <div class="hub-clock-row">
         <p class="hub-clock-today">Today <strong>${escapeHtml(formatHm(payload.clock.total_minutes_today))}</strong></p>
         <div class="hub-clock-start-wrap">
-          ${combo}
-          <button type="button" class="hub-clock-start-btn" data-action="hub-clock-start" ${options.length ? "" : "disabled"}>Start</button>
+          ${startBtn}
         </div>
       </div>
       <p class="hub-clock-message" id="hub-clock-message"></p>
@@ -195,40 +189,9 @@ export function mountHubClock(mountEl, newPayload, { onChanged } = {}) {
         return;
       }
       if (btn?.dataset.action === "hub-clock-start") {
-        const select = container.querySelector(".wo-combo-native");
-        if (select?.value) void handleStart(select.value);
+        if (btn.dataset.value) void handleStart(btn.dataset.value);
         return;
       }
-      if (btn?.dataset.action === "toggle-combo") {
-        const combo = btn.closest(".wo-combo");
-        const list = combo.querySelector(".wo-combo-list");
-        comboOpen = list.hidden;
-        list.hidden = !comboOpen;
-        btn.setAttribute("aria-expanded", String(comboOpen));
-        return;
-      }
-      if (btn?.dataset.action === "pick-combo-option") {
-        const combo = btn.closest(".wo-combo");
-        const nativeSelect = combo.querySelector(".wo-combo-native");
-        const label = combo.querySelector(".wo-combo-trigger-label");
-        nativeSelect.value = btn.dataset.value;
-        label.textContent = btn.textContent;
-        combo.querySelectorAll(".wo-combo-option").forEach((opt) => {
-          opt.setAttribute("aria-selected", String(opt === btn));
-        });
-        combo.querySelector(".wo-combo-list").hidden = true;
-        comboOpen = false;
-        return;
-      }
-    });
-    container.addEventListener("focusout", (event) => {
-      const combo = event.target.closest(".wo-combo");
-      if (!combo) return;
-      setTimeout(() => {
-        if (!combo.contains(document.activeElement)) {
-          combo.querySelector(".wo-combo-list").hidden = true;
-        }
-      }, 0);
     });
   }
 }

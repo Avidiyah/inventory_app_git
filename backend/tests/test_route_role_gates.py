@@ -547,6 +547,10 @@ def test_the_admin_summary_requires_techfm_oa():
     assert _min_role_for(hub_router, "get_hub_admin") == roles.ROLE_TECHFM_OA
 
 
+def test_hub_graphs_require_techfm_oa():
+    assert _min_role_for(hub_router, "get_hub_graphs") == roles.ROLE_TECHFM_OA
+
+
 def test_timesheets_and_export_require_supervisor():
     assert _min_role_for(hub_router, "get_hub_timesheets") == roles.ROLE_SUPERVISOR
     assert _min_role_for(hub_router, "export_hub_timesheets") == roles.ROLE_SUPERVISOR
