@@ -795,11 +795,13 @@ tr:last-child td {
 }
 
 /* Find Item results: row hover, gated on a real pointer so a tapped row on a
-   phone doesn't keep the highlight stuck to it. Scoped to this table -- the
-   other .stack-table users get it in their own branding pass. */
+   phone doesn't keep the highlight stuck to it.
+   --panel-hover, not --gray-50: this rule survived the flip to a dark canvas
+   unchanged, and a #F7F7F7 fill under --text-panel (#EDEEF0) row text made a
+   hovered row white-on-white. */
 @media (hover: hover) {
     #items-table tbody tr:hover {
-        background-color: var(--gray-50);
+        background-color: var(--panel-hover);
     }
 }
 
