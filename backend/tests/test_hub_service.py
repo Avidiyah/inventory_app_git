@@ -629,6 +629,55 @@ def test_admin_hub_sweeps_a_forgotten_clock_before_summing(db):
     assert payload.technician_minutes_today > 0
 
 
+def test_admin_hub_pipeline_counts_are_company_wide_and_unscoped(db):
+    # The shared dev database already has live rows in it (see this plan's
+    # Global Constraints), so assert on the delta this test's own fixtures
+    # caused, not on an absolute total.
+    creator = _seed_user(db, roles.ROLE_SUPERVISOR)
+    stranger = _seed_user(db, roles.ROLE_SUPERVISOR, first_name="Dana", last_name="Ortiz")
+    baseline = hub_service.admin_hub(db, creator).pipeline
+
+    _seed_work_order(db, created_by=creator, status=wo.STATUS_CREATED)
+    _seed_work_order(db, created_by=creator, status=wo.STATUS_ASSIGNED)
+    _seed_work_order(db, created_by=creator, status=wo.STATUS_IN_PROGRESS)
+    _seed_work_order(db, created_by=creator, status=wo.STATUS_READY_TO_COMPLETE)
+    _seed_work_order(db, created_by=creator, status=wo.STATUS_COMPLETED)
+    _seed_work_order(db, created_by=creator, status=wo.STATUS_REVIEW)
+    # A stranger's work order still counts -- the pipeline is company-wide,
+    # not scoped to the caller the way `GET /hub`'s own counts are.
+    _seed_work_order(db, created_by=stranger, status=wo.STATUS_CREATED)
+
+    pipeline = hub_service.admin_hub(db, creator).pipeline
+
+    assert pipeline.created - baseline.created == 2
+    assert pipeline.assigned - baseline.assigned == 1
+    assert pipeline.in_progress - baseline.in_progress == 1
+    assert pipeline.ready_to_complete - baseline.ready_to_complete == 1
+    assert pipeline.completed - baseline.completed == 1
+    assert pipeline.review - baseline.review == 1
+
+
+def test_admin_hub_pipeline_excludes_on_hold_and_archived(db):
+    creator = _seed_user(db, roles.ROLE_SUPERVISOR)
+    baseline = hub_service.admin_hub(db, creator).pipeline
+
+    _seed_work_order(db, created_by=creator, status=wo.STATUS_ON_HOLD)
+    archived = _seed_work_order(db, created_by=creator, status=wo.STATUS_IN_PROGRESS)
+    archived.archived_at = datetime.now(timezone.utc)
+    db.flush()
+
+    pipeline = hub_service.admin_hub(db, creator).pipeline
+
+    # Six columns, not seven (Global Constraints) -- on_hold has nowhere to
+    # land, and the archived row is excluded everywhere.
+    assert pipeline.created == baseline.created
+    assert pipeline.assigned == baseline.assigned
+    assert pipeline.in_progress == baseline.in_progress
+    assert pipeline.ready_to_complete == baseline.ready_to_complete
+    assert pipeline.completed == baseline.completed
+    assert pipeline.review == baseline.review
+
+
 def test_the_admin_payload_serialises_into_the_response_schema(db):
     from app.routers.hub import get_hub_admin
 
@@ -644,6 +693,8 @@ def test_the_admin_payload_serialises_into_the_response_schema(db):
     assert body["supervisor_minutes_today"] >= 0
     assert "technician_minutes_today" in body
     assert "server_now" in body
+    assert "pipeline" in body
+    assert "in_progress" in body["pipeline"]
 
 
 # --- the supervisor timesheet payload (P3b) -------------------------------

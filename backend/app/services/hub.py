@@ -471,6 +471,39 @@ def crew_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> HubC
 
 
 @dataclass(frozen=True)
+class AdminPipelineCounts:
+    """Company-wide, unscoped work-order status counts -- the "Work Order
+    Pipeline" row (spec §5.4). Six columns, not seven: `on_hold` is a
+    temporal pause on `in_progress`, not a pipeline stage of its own, and
+    has no column here."""
+
+    created: int
+    assigned: int
+    in_progress: int
+    ready_to_complete: int
+    completed: int
+    review: int
+
+
+def _pipeline_counts(db: Session) -> AdminPipelineCounts:
+    rows = (
+        db.query(WorkOrder.status, func.count(WorkOrder.id))
+        .filter(WorkOrder.archived_at.is_(None))
+        .group_by(WorkOrder.status)
+        .all()
+    )
+    counts = dict(rows)
+    return AdminPipelineCounts(
+        created=counts.get(wo.STATUS_CREATED, 0),
+        assigned=counts.get(wo.STATUS_ASSIGNED, 0),
+        in_progress=counts.get(wo.STATUS_IN_PROGRESS, 0),
+        ready_to_complete=counts.get(wo.STATUS_READY_TO_COMPLETE, 0),
+        completed=counts.get(wo.STATUS_COMPLETED, 0),
+        review=counts.get(wo.STATUS_REVIEW, 0),
+    )
+
+
+@dataclass(frozen=True)
 class HubAdminPayload:
     """`GET /hub/admin`'s whole contract: today's tracked minutes, summed
     by account role across the whole company.
@@ -484,6 +517,7 @@ class HubAdminPayload:
     server_now: datetime
     supervisor_minutes_today: int
     technician_minutes_today: int
+    pipeline: AdminPipelineCounts
 
 
 def admin_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> HubAdminPayload:
@@ -525,6 +559,7 @@ def admin_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> Hub
         server_now=now,
         supervisor_minutes_today=sum(s.total_minutes for s in supervisor_summaries.values()),
         technician_minutes_today=sum(s.total_minutes for s in technician_summaries.values()),
+        pipeline=_pipeline_counts(db),
     )
 
 
