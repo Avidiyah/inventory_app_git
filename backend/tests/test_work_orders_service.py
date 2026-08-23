@@ -1481,11 +1481,15 @@ def test_assigned_to_id_filter_narrows_to_explicit_assignment(db):
     assert [w.id for w in matches] == [assigned_to_supervisor.id]
 
 
-def test_mine_covers_routing_assignment_and_the_pickup_queue(db):
+def test_mine_covers_routing_and_assignment_but_not_the_pickup_queue(db):
     # The User Hub's "My Work Orders" tab. `assigned_to_id` cannot express
     # this: routing is not part of its or_ pair, so a work order an Admin
     # routed to a Supervisor was invisible on their own dashboard while the
     # "Work orders I lead" tile counted it.
+    #
+    # The unrouted row is the other half of the contract: a Supervisor's own
+    # scope admits the pickup queue, and about half of all live work orders
+    # are unrouted, so letting it through turned this list into "everything".
     supervisor = _seed_user(db, "supervisor")
     admin = _seed_user(db, "admin")
     other_supervisor = _seed_user(db, "supervisor")
@@ -1511,8 +1515,12 @@ def test_mine_covers_routing_assignment_and_the_pickup_queue(db):
 
     assert routed.id in found
     assert assigned.id in found
-    assert unrouted.id in found
+    assert unrouted.id not in found
     assert someone_elses.id not in found
+
+    # The unrouted row is not missing because it is invisible -- the
+    # Supervisor's own scope does reach it. `mine` is what holds it back.
+    assert unrouted.id in {w.id for w in wos.list_work_orders(db, user=supervisor)}
 
 
 def test_mine_never_widens_a_technicians_scope(db):

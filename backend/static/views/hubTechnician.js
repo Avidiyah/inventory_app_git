@@ -185,8 +185,11 @@ export function mountHubWorkOrders(container, payload) {
     <p class="hub-wo-view-all"><button type="button" class="secondary-btn" data-action="hub-view-all-work-orders">View all in Work Orders →</button></p>
   `;
   const listContainer = container.querySelector(".hub-wo-list");
-  // `mine` -- routed to me, assigned to me, or nobody's yet -- is what this
-  // tab means by "My Work Orders" for a Supervisor.
+  // `mine` -- routed to me or assigned to me -- is what this tab means by
+  // "My Work Orders" for a Supervisor. It deliberately excludes the unrouted
+  // pickup queue that their server-side scope would otherwise admit: about
+  // half of all live work orders are unrouted, so including it made this
+  // read as "every work order in the company".
   //
   // This used to narrow with `assignedToId`, which was wrong: that filter
   // tests *worker* assignment only (the legacy column plus

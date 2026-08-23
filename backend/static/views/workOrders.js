@@ -1211,7 +1211,7 @@ function runOrDeferListRefresh() {
   void loadWorkOrders({ background: true });
 }
 
-function buildCard(card, { onOpen } = {}) {
+function buildCard(card, { onOpen, solo = false } = {}) {
   const el = document.createElement("details");
   el.className = `wo-card wo-card-status-${card.status}`;
   el.dataset.id = card.id;
@@ -1236,7 +1236,14 @@ function buildCard(card, { onOpen } = {}) {
     // to intercept. It also makes the card page's own card non-collapsible,
     // which is right -- there is nothing to collapse to.
     event.preventDefault();
-    if (soloActive) return;
+    // Being *the* solo card is a property of this card, passed in by
+    // `showSoloCard`. It used to read the module-global `soloActive`, which
+    // silently broke every other list: `exitSolo` runs only inside
+    // `loadWorkOrders`, so leaving the card page for the User Hub left the
+    // flag set, and the hub's own cards (built by `mountWorkOrderList`, a
+    // different container on a different page) went dead on click until the
+    // Work Orders page was visited again.
+    if (solo) return;
     if (onOpen) {
       onOpen(card);
       return;
@@ -1372,8 +1379,8 @@ export function openWorkOrdersFilteredByDistribution({
 // technician's own scope needs no filter at all -- `apiListWorkOrders` is
 // already scoped server-side per role (`_scoped_to_user`), so an unfiltered
 // call already returns exactly "my work orders" for a Technician. The
-// Supervisor caller passes `{ mine: true }` -- routed to me, assigned to me,
-// or unrouted -- and the Admin caller passes nothing.
+// Supervisor caller passes `{ mine: true }` -- routed to me or assigned to
+// me -- and the Admin caller passes nothing.
 export function mountWorkOrderList({ container, lockedFilter = null, onOpen } = {}) {
   async function refresh() {
     container.innerHTML = skeletonCard({ lines: 1 }).repeat(3);
@@ -1414,7 +1421,7 @@ function showSoloCard(detail) {
 
   listEl.innerHTML = "";
   listEl.appendChild(soloBackControl());
-  const cardEl = buildCard(detail);
+  const cardEl = buildCard(detail, { solo: true });
   cardEl.classList.add("wo-solo");
   listEl.appendChild(cardEl);
   // Paint before opening. `paintDetail` sets `dataset.loaded`, so `buildCard`'s

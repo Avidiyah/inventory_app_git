@@ -540,11 +540,12 @@ def list_work_orders(
     `__none__` for work orders NetFacilities enrichment never reached.
     `priority_bucket` (`high`/`medium`) is the separate, coarser severity
     grouping the Graphs tab uses, and may combine with `priority`. `mine`
-    narrows to work routed to the caller, assigned to the caller, or still
-    unrouted -- the User Hub's "My Work Orders" tab. It is the only filter
-    that covers *routing*: `assigned_to_id` tests worker assignment alone,
-    so it can never match a work order that was routed to a Supervisor
-    rather than handed to them as a worker. `limit`
+    narrows to work routed to the caller or assigned to the caller -- the
+    User Hub's "My Work Orders" tab. It is the only filter that covers
+    *routing*: `assigned_to_id` tests worker assignment alone, so it can
+    never match a work order that was routed to a Supervisor rather than
+    handed to them as a worker. It also excludes the unrouted pickup queue
+    a Supervisor's own scope would otherwise admit. `limit`
     caps that scheduled-date ordering (the
     page browses the first 10 by default and omits `limit` for Show all / search).
     Blank or malformed schedule values sort last. Any authenticated user;

@@ -973,20 +973,21 @@ def _apply_work_order_filters(
         )
 
     if mine and user is not None:
-        # "Work that is mine to look at" -- routed to me, assigned to me, or
-        # nobody's yet. Deliberately *not* expressible as `assigned_to_id`:
+        # "Work with my name on it" -- routed to me or assigned to me, and
+        # nothing else. Deliberately *not* expressible as `assigned_to_id`:
         # that filter's or_ pair covers worker assignment only, so a work
         # order an Admin routed to a Supervisor matched nothing and vanished
         # from their own dashboard while the "Work orders I lead" tile
         # counted it.
         #
-        # The unrouted disjunct widens nothing on its own: `_scoped_to_user`
-        # still runs on top, and only a routing-eligible caller's own scope
-        # admits the pickup queue. A Technician passing this flag still sees
-        # exactly their own assignments.
+        # The unrouted pickup queue is deliberately excluded even though a
+        # Supervisor's own `_scoped_to_user` scope admits it. Roughly half of
+        # all live work orders are unrouted at any time, so including it made
+        # this list read as "every work order in the company" -- which is the
+        # opposite of what a personal list is for. The pickup queue is still
+        # one click away on the standalone Work Orders page.
         query = query.filter(
             or_(
-                WorkOrder.supervisor_id.is_(None),
                 WorkOrder.supervisor_id == user.id,
                 WorkOrder.assigned_to_id == user.id,
                 WorkOrder.technician_assignments.any(
@@ -1073,8 +1074,9 @@ def list_work_orders(
     `PRIORITY_FILTER_NONE` for the rows enrichment never reached -- `priority_bucket`
     is the separate, coarser high/medium severity grouping the Graphs tab uses
     and may be combined with `priority` freely. `mine` narrows to what is
-    routed to `user`, assigned to `user`, or still unrouted -- the User Hub's
-    "My Work Orders" tab, and the only filter that covers routing (see
+    routed to `user` or assigned to `user` -- the User Hub's "My Work Orders"
+    tab, and the only filter that covers routing. It excludes the unrouted
+    pickup queue that a Supervisor's own scope would otherwise admit (see
     `_apply_work_order_filters`). Blank or malformed schedule
     values sort last, with creation time
     breaking ties. `limit`, when set, caps this ordering; filters and Show all

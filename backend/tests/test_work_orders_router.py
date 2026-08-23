@@ -14,6 +14,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import uuid
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -92,3 +93,57 @@ def test_mine_defaults_to_off(db):
     assert someone_elses.number not in _numbers(
         db, token, f"?mine=true&q={prefix}"
     )
+
+
+# --- UI wiring guards ----------------------------------------------------
+#
+# Same idiom as `test_work_order_priority.py::test_work_orders_ui_wires_a_
+# priority_filter`: the browser half has no test framework in this repo, so
+# the wiring that connects it to the API above is pinned as source text.
+
+def _view(name):
+    static_dir = Path(__file__).resolve().parents[1] / "static"
+    return (static_dir / "views" / name).read_text(encoding="utf-8")
+
+
+def _code(name):
+    """`_view` with `//` comment lines dropped.
+
+    These files carry long explanatory comments that name the very
+    identifiers under test -- including the ones recording why they were
+    removed -- so a raw substring check reads the prose and fails.
+    """
+    return "\n".join(
+        line
+        for line in _view(name).splitlines()
+        if not line.lstrip().startswith("//")
+    )
+
+
+def test_hub_work_orders_tab_requests_mine_not_assigned_to_id():
+    """The Supervisor's dashboard tab must ask for `mine`. `assignedToId`
+    cannot see routing, which is what emptied the tab in deployment."""
+    code = _code("hubTechnician.js")
+
+    assert "lockedFilter.mine = true" in code
+    assert "assignedToId" not in code
+
+
+def test_api_client_sends_the_mine_flag():
+    view = _view("../api.js")
+
+    assert 'params.set("mine", "true")' in view
+
+
+def test_only_the_solo_card_suppresses_its_own_click():
+    """A card's click handler must decide from the card, not from the
+    module-global `soloActive`. That global is cleared only inside
+    `loadWorkOrders`, so leaving the card page for the User Hub left it set
+    and the hub's own cards stopped responding to clicks entirely."""
+    code = _code("workOrders.js")
+
+    assert "function buildCard(card, { onOpen, solo = false } = {})" in code
+    assert "if (solo) return;" in code
+    assert "if (soloActive) return;" not in code
+    # The card page's own card is the one that opts in.
+    assert "buildCard(detail, { solo: true })" in code
