@@ -526,6 +526,7 @@ def list_work_orders(
     priority_bucket: Optional[str] = Query(None),
     scheduled_date: Optional[date] = Query(None),
     q: Optional[str] = Query(None),
+    mine: bool = Query(False),
     limit: Optional[int] = Query(None, ge=1, le=MAX_LIST_ROWS),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -538,7 +539,12 @@ def list_work_orders(
     is the no-known-term fallback. Priority is an exact vendor value, or
     `__none__` for work orders NetFacilities enrichment never reached.
     `priority_bucket` (`high`/`medium`) is the separate, coarser severity
-    grouping the Graphs tab uses, and may combine with `priority`. `limit`
+    grouping the Graphs tab uses, and may combine with `priority`. `mine`
+    narrows to work routed to the caller, assigned to the caller, or still
+    unrouted -- the User Hub's "My Work Orders" tab. It is the only filter
+    that covers *routing*: `assigned_to_id` tests worker assignment alone,
+    so it can never match a work order that was routed to a Supervisor
+    rather than handed to them as a worker. `limit`
     caps that scheduled-date ordering (the
     page browses the first 10 by default and omits `limit` for Show all / search).
     Blank or malformed schedule values sort last. Any authenticated user;
@@ -561,6 +567,7 @@ def list_work_orders(
                 priority_bucket=priority_bucket,
                 scheduled_date=scheduled_date,
                 search=q,
+                mine=mine,
                 limit=limit,
             )
         ]

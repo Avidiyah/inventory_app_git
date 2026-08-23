@@ -459,6 +459,7 @@ export async function apiListWorkOrders({
   priorityBucket = null,
   scheduledDate = null,
   q = null,
+  mine = false,
   limit = null,
 } = {}) {
   const params = new URLSearchParams();
@@ -471,6 +472,7 @@ export async function apiListWorkOrders({
   if (priorityBucket) params.set("priority_bucket", priorityBucket);
   if (scheduledDate) params.set("scheduled_date", scheduledDate);
   if (q) params.set("q", q);
+  if (mine) params.set("mine", "true");
   if (limit != null) params.set("limit", limit);
   const qs = params.toString();
   return liveGet(`/work-orders/${qs ? `?${qs}` : ""}`);

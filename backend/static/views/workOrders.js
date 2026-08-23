@@ -1368,11 +1368,12 @@ export function openWorkOrdersFilteredByDistribution({
 //
 // `lockedFilter` is forwarded to `apiListWorkOrders` as-is (the same
 // {status, serviceType, supervisorId, assignedToId, community, priority,
-// scheduledDate, q, limit} shape that function already accepts). The
+// scheduledDate, q, mine, limit} shape that function already accepts). The
 // technician's own scope needs no filter at all -- `apiListWorkOrders` is
 // already scoped server-side per role (`_scoped_to_user`), so an unfiltered
-// call already returns exactly "my work orders" for a Technician. A future Supervisor/
-// Admin caller (P3/P4) passes `{ supervisorId }` or nothing, respectively.
+// call already returns exactly "my work orders" for a Technician. The
+// Supervisor caller passes `{ mine: true }` -- routed to me, assigned to me,
+// or unrouted -- and the Admin caller passes nothing.
 export function mountWorkOrderList({ container, lockedFilter = null, onOpen } = {}) {
   async function refresh() {
     container.innerHTML = skeletonCard({ lines: 1 }).repeat(3);

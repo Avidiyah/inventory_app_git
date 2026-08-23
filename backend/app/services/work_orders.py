@@ -941,6 +941,8 @@ def _apply_work_order_filters(
     priority: Optional[str] = None,
     priority_bucket: Optional[str] = None,
     search: Optional[str] = None,
+    mine: bool = False,
+    user: Optional[User] = None,
 ):
     """Apply the joinable Work Orders predicates shared by list and export."""
     if status is not None:
@@ -966,6 +968,29 @@ def _apply_work_order_filters(
                 WorkOrder.assigned_to_id == assigned_to_id,
                 WorkOrder.technician_assignments.any(
                     WorkOrderTechnician.technician_id == assigned_to_id
+                ),
+            )
+        )
+
+    if mine and user is not None:
+        # "Work that is mine to look at" -- routed to me, assigned to me, or
+        # nobody's yet. Deliberately *not* expressible as `assigned_to_id`:
+        # that filter's or_ pair covers worker assignment only, so a work
+        # order an Admin routed to a Supervisor matched nothing and vanished
+        # from their own dashboard while the "Work orders I lead" tile
+        # counted it.
+        #
+        # The unrouted disjunct widens nothing on its own: `_scoped_to_user`
+        # still runs on top, and only a routing-eligible caller's own scope
+        # admits the pickup queue. A Technician passing this flag still sees
+        # exactly their own assignments.
+        query = query.filter(
+            or_(
+                WorkOrder.supervisor_id.is_(None),
+                WorkOrder.supervisor_id == user.id,
+                WorkOrder.assigned_to_id == user.id,
+                WorkOrder.technician_assignments.any(
+                    WorkOrderTechnician.technician_id == user.id
                 ),
             )
         )
@@ -1035,6 +1060,7 @@ def list_work_orders(
     priority_bucket: Optional[str] = None,
     scheduled_date: Optional[date] = None,
     search: Optional[str] = None,
+    mine: bool = False,
     limit: Optional[int] = None,
 ) -> Sequence[WorkOrder]:
     """Live work orders by scheduled date descending, scoped to `user`
@@ -1046,7 +1072,10 @@ def list_work_orders(
     known term appears in either. Priority is an exact vendor value, or
     `PRIORITY_FILTER_NONE` for the rows enrichment never reached -- `priority_bucket`
     is the separate, coarser high/medium severity grouping the Graphs tab uses
-    and may be combined with `priority` freely. Blank or malformed schedule
+    and may be combined with `priority` freely. `mine` narrows to what is
+    routed to `user`, assigned to `user`, or still unrouted -- the User Hub's
+    "My Work Orders" tab, and the only filter that covers routing (see
+    `_apply_work_order_filters`). Blank or malformed schedule
     values sort last, with creation time
     breaking ties. `limit`, when set, caps this ordering; filters and Show all
     omit it to reach the full matching set.
@@ -1078,6 +1107,8 @@ def list_work_orders(
             priority=priority,
             priority_bucket=priority_bucket,
             search=search,
+            mine=mine,
+            user=user,
         )
         return _scoped_to_user(query, user)
 

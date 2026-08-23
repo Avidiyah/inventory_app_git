@@ -175,6 +175,7 @@ def test_work_order_list_forwards_joinable_filters(monkeypatch):
         priority_bucket="high",
         scheduled_date=date(2026, 7, 28),
         q="2349",
+        mine=True,
         limit=None,
         user=user,
         db=None,
@@ -192,6 +193,7 @@ def test_work_order_list_forwards_joinable_filters(monkeypatch):
         "priority_bucket": "high",
         "scheduled_date": date(2026, 7, 28),
         "search": "2349",
+        "mine": True,
         "limit": None,
     }
 

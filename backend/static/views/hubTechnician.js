@@ -185,17 +185,23 @@ export function mountHubWorkOrders(container, payload) {
     <p class="hub-wo-view-all"><button type="button" class="secondary-btn" data-action="hub-view-all-work-orders">View all in Work Orders →</button></p>
   `;
   const listContainer = container.querySelector(".hub-wo-list");
-  // A Supervisor's server-side scope (`_scoped_to_user`) also includes the
-  // unrouted pickup queue and every work order they supervise, so a bare
-  // fetch here would show more than the tab's own "My Work Orders" label
-  // promises. Narrowing with `assignedToId` keeps this tab to exactly what
-  // is explicitly assigned to them -- unassigned/routed-only work still
-  // reachable from the standalone Work Orders page. Technician scope is
-  // already exactly this by role; Admin+'s Tab 3 is intentionally unscoped
-  // and skips the filter.
+  // `mine` -- routed to me, assigned to me, or nobody's yet -- is what this
+  // tab means by "My Work Orders" for a Supervisor.
+  //
+  // This used to narrow with `assignedToId`, which was wrong: that filter
+  // tests *worker* assignment only (the legacy column plus
+  // `work_order_technicians`), and routing lives in `supervisor_id`. So a
+  // work order an Admin routed to a Supervisor matched nothing and this tab
+  // stayed empty, while the Dashboard tab's "Work orders I lead" tile
+  // counted the very same rows. Passing both filters would not have helped
+  // either -- the server ANDs them, so the pair intersects to nothing.
+  //
+  // Technician scope is already exactly this by role, so the flag would be
+  // redundant for them; Admin+'s Tab 3 is intentionally unscoped and skips
+  // it deliberately.
   const lockedFilter = { limit: HUB_WORK_ORDERS_LIMIT };
   if (payload.user.role === "supervisor") {
-    lockedFilter.assignedToId = payload.user.id;
+    lockedFilter.mine = true;
   }
   mountedList = mountWorkOrderList({
     container: listContainer,

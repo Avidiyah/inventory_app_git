@@ -1442,8 +1442,10 @@ def test_advanced_filters_combine_with_and(db):
 def test_assigned_to_id_filter_narrows_to_explicit_assignment(db):
     # A Supervisor's own scope (`_scoped_to_user`) also includes the
     # unrouted pickup queue and everything they supervise -- `assigned_to_id`
-    # narrows within that to exactly what is explicitly assigned to them,
-    # the same test the User Hub's "My Work Orders" tab now applies.
+    # narrows within that to exactly what is explicitly assigned to them.
+    # This is the Work Orders page's opt-in filter. The User Hub's "My Work
+    # Orders" tab deliberately does *not* use it (see `mine` below): worker
+    # assignment is not routing, and the tab needs both.
     supervisor = _seed_user(db, "supervisor")
     tech = _seed_user(db, "technician")
 
@@ -1477,6 +1479,84 @@ def test_assigned_to_id_filter_narrows_to_explicit_assignment(db):
     )
 
     assert [w.id for w in matches] == [assigned_to_supervisor.id]
+
+
+def test_mine_covers_routing_assignment_and_the_pickup_queue(db):
+    # The User Hub's "My Work Orders" tab. `assigned_to_id` cannot express
+    # this: routing is not part of its or_ pair, so a work order an Admin
+    # routed to a Supervisor was invisible on their own dashboard while the
+    # "Work orders I lead" tile counted it.
+    supervisor = _seed_user(db, "supervisor")
+    admin = _seed_user(db, "admin")
+    other_supervisor = _seed_user(db, "supervisor")
+    prefix = f"WO-MINE-{uuid.uuid4().hex[:8]}"
+
+    routed = wos.get_or_create_work_order(
+        db, number=f"{prefix}-R", created_by_id=admin.id, supervisor_id=supervisor.id
+    )
+    assigned = wos.get_or_create_work_order(
+        db, number=f"{prefix}-A", created_by_id=admin.id, assigned_to_id=supervisor.id
+    )
+    unrouted = wos.get_or_create_work_order(
+        db, number=f"{prefix}-U", created_by_id=admin.id
+    )
+    someone_elses = wos.get_or_create_work_order(
+        db,
+        number=f"{prefix}-X",
+        created_by_id=admin.id,
+        supervisor_id=other_supervisor.id,
+    )
+
+    found = {w.id for w in wos.list_work_orders(db, user=supervisor, mine=True)}
+
+    assert routed.id in found
+    assert assigned.id in found
+    assert unrouted.id in found
+    assert someone_elses.id not in found
+
+
+def test_mine_never_widens_a_technicians_scope(db):
+    # `mine` admits the unrouted pickup queue, but `_scoped_to_user` still
+    # runs on top of it -- a Technician has no pickup queue and must not
+    # acquire one by passing the flag.
+    tech = _seed_user(db, "technician")
+    admin = _seed_user(db, "admin")
+    prefix = f"WO-MINETECH-{uuid.uuid4().hex[:8]}"
+
+    assigned = wos.get_or_create_work_order(
+        db, number=f"{prefix}-A", created_by_id=admin.id, assigned_to_id=tech.id
+    )
+    unrouted = wos.get_or_create_work_order(
+        db, number=f"{prefix}-U", created_by_id=admin.id
+    )
+
+    found = {w.id for w in wos.list_work_orders(db, user=tech, mine=True)}
+
+    assert assigned.id in found
+    assert unrouted.id not in found
+
+
+def test_mine_narrows_an_admins_company_wide_list(db):
+    admin = _seed_user(db, "admin")
+    other_supervisor = _seed_user(db, "supervisor")
+    prefix = f"WO-MINEADMIN-{uuid.uuid4().hex[:8]}"
+
+    routed_to_admin = wos.get_or_create_work_order(
+        db, number=f"{prefix}-R", created_by_id=admin.id, supervisor_id=admin.id
+    )
+    someone_elses = wos.get_or_create_work_order(
+        db,
+        number=f"{prefix}-X",
+        created_by_id=admin.id,
+        supervisor_id=other_supervisor.id,
+    )
+
+    unfiltered = {w.id for w in wos.list_work_orders(db, user=admin)}
+    found = {w.id for w in wos.list_work_orders(db, user=admin, mine=True)}
+
+    assert someone_elses.id in unfiltered
+    assert routed_to_admin.id in found
+    assert someone_elses.id not in found
 
 
 def test_list_sorts_by_scheduled_date_descending_and_filters_exact_date(db):
