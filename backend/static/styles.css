@@ -3837,6 +3837,79 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 }
 .wo-combo-list[hidden] { display: none; }
 
+/* =================== FIELD-HELP TOOLTIPS (`?` bubbles) =================== */
+/* See docs/superpowers/specs/2026-08-23-tooltips-design.md.
+
+   The trigger renders INSIDE the <label> / <h2> / <th> it annotates, as an
+   inline child after the text -- never as a new sibling, because several of
+   those labels live in `.filter-row` flex containers where a new child
+   redistributes space across the whole row. Everything here is sized in `em`
+   and constrained to the parent's line box, so adding a `?` moves nothing.
+
+   The bubble copies the `.wo-combo-list` recipe directly above: opaque
+   --color-header, --gray-700 hairline, --shadow-md. A floating layer over a
+   frosted panel has to be opaque to stay readable -- do NOT reach for the
+   --glass-* tokens here (docs/design-system.md). */
+.tip-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.05em;
+    height: 1.05em;
+    /* The global `button` rule sets a brand-red fill, generous padding, a
+       min-height and a top margin. All four have to go or the `?` renders as
+       a red pill the size of a Save button and shoves the line box open. */
+    min-height: 0;
+    margin: 0 0 0 .35em;
+    padding: 0;
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-pill);
+    background: none;
+    /* Muted, not --color-brand: red is the primary-action colour and this is
+       a quiet affordance, not a call to action (docs/design-system.md). */
+    color: var(--text-panel-mute);
+    font-size: .85em;
+    font-weight: var(--fw-regular);
+    line-height: 1;
+    vertical-align: -.08em;
+    cursor: help; /* not `pointer` -- it is not an action */
+}
+.tip-btn:hover,
+.tip-btn[aria-expanded="true"] {
+    background: none; /* `button:hover` would fill it brand red */
+    border-color: var(--text-panel-mute);
+    color: var(--text-panel);
+}
+/* The global `button:focus-visible` white ring is sized for a solid-red
+   button; on a transparent 1em circle the red ring reads better. */
+.tip-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+/* `fixed` and parented to <body>, so no ancestor's `overflow-x: auto` (the
+   table wrappers) can clip it. `left`/`top` are placeholders -- tooltip.js
+   overwrites them through CSSOM on every open, because the CSP drops inline
+   style attributes. Above the .wo-combo-list popovers (20), below the modal
+   overlay (1000). */
+.tip-bubble {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 30;
+    max-width: min(280px, calc(100vw - 2 * var(--space-2)));
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--gray-700);
+    border-radius: var(--radius-sm);
+    background-color: var(--color-header);
+    color: var(--text-panel);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-regular);
+    line-height: var(--lh-body);
+    box-shadow: var(--shadow-md);
+}
+.tip-bubble[hidden] { display: none; }
+
 .wo-combo-option {
     justify-content: flex-start;
     width: 100%;
