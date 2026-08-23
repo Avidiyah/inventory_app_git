@@ -45,6 +45,7 @@ import { openAddBarcode, closeAddBarcode, setOnSaved as setOnAddBarcodeSaved } f
 import { itemRequestPromptHtml } from "./itemRequest.js";
 import { initSubNav } from "./subnav.js";
 import { toolScanWidget } from "./tools.js";
+import { skeletonTableRows } from "../skeleton.js";
 
 const createItemBtn = document.getElementById("create-item-btn");
 const createItemMessage = document.getElementById("create-item-message");
@@ -100,7 +101,7 @@ function setResultsBusy(busy) {
   itemsLoadAllBtn.disabled = busy;
 }
 
-// The results area shows exactly one of: the table (rows, "Loading…", or a
+// The results area shows exactly one of: the table (rows, a skeleton, or a
 // load error) or the empty-state panel. `extraHtml` carries the
 // "request this item" prompt on a search that found nothing.
 function showEmptyState(text, { icon = "search", extraHtml = "" } = {}) {
@@ -128,13 +129,24 @@ function setResultCount(count) {
   itemsCount.hidden = false;
 }
 
+// Shape-matched in-flight state: the real header row is painted too, so the
+// skeleton has the same column count and widths the results will land in
+// (on a first search the header would otherwise be empty).
+function renderItemsSkeleton() {
+  const columns = itemColumns();
+  itemsTheadRow.innerHTML = columns.map(c => `<th>${escapeHtml(c.label)}</th>`).join("");
+  itemsTbody.innerHTML = skeletonTableRows(columns.length, 6, {
+    widths: columns.map(c => c.skelWidth),
+  });
+}
+
 async function loadItemResults({ query = null, emptyMessage }) {
   const requestId = ++resultRequestId;
   setResultsBusy(true);
   hideEmptyState();
   setResultCount(0);
   itemsTable.hidden = false;
-  itemsTbody.innerHTML = `<tr><td colspan="8" class="hint">Loading…</td></tr>`;
+  renderItemsSkeleton();
 
   try {
     const items = query === null
@@ -182,14 +194,15 @@ async function refreshDisplayedItems() {
   }
 }
 
-export function renderItems(emptyMessage = "No items match that search.") {
-  const items = getItems();
-  hideEmptyState();
-  itemsTable.hidden = false;
-
-  // Items are read/write for TechFM OA and above; Supervisor may edit notes
-  // only; Technician is read-only. The backend is still the source of
-  // truth -- this is purely UI gating.
+// Column model in render order, shared by the real table and its skeleton so
+// they can never desync. `primary` marks the name cell (hoisted big on mobile
+// cards); `tdClass` styles the cell; `skelWidth` is the placeholder bar width
+// for that column, chosen to echo how wide the real content usually is.
+//
+// Items are read/write for TechFM OA and above; Supervisor may edit notes
+// only; Technician is read-only. The backend is still the source of truth --
+// this is purely UI gating.
+function itemColumns() {
   const role = getRole();
   const canAdmin = roleAtLeast(role, "techfm_oa");
   const canNotes = roleAtLeast(role, "supervisor");
@@ -218,15 +231,12 @@ export function renderItems(emptyMessage = "No items match that search.") {
        </select>`;
   }
 
-  // Column model in render order; header and rows are both built from this so
-  // they can never desync. `primary` marks the name cell (hoisted big on
-  // mobile cards); `tdClass` styles the cell.
   const cols = {
-    barcode: { label: "Barcode", cell: i => escapeHtml(i.barcode) },
-    name: { label: "Name", primary: true, cell: i => escapeHtml(i.name) },
-    quantity: { label: "Quantity", cell: i => `<strong>${escapeHtml(i.quantity)}</strong>` },
-    location: { label: "Location", cell: i => escapeHtml(i.location) },
-    notes: { label: "Notes", tdClass: "notes-cell", cell: i => renderNotesSummary(i.notes) },
+    barcode: { label: "Barcode", skelWidth: "70%", cell: i => escapeHtml(i.barcode) },
+    name: { label: "Name", primary: true, skelWidth: "88%", cell: i => escapeHtml(i.name) },
+    quantity: { label: "Quantity", skelWidth: "30%", cell: i => `<strong>${escapeHtml(i.quantity)}</strong>` },
+    location: { label: "Location", skelWidth: "55%", cell: i => escapeHtml(i.location) },
+    notes: { label: "Notes", tdClass: "notes-cell", skelWidth: "80%", cell: i => renderNotesSummary(i.notes) },
   };
 
   // Technicians lead with quantity/location and drop barcode-first ordering;
@@ -236,15 +246,23 @@ export function renderItems(emptyMessage = "No items match that search.") {
     : [cols.barcode, cols.name, cols.quantity, cols.location, cols.notes];
 
   if (canAdmin) {
-    columns.push({ label: "Price", cell: i => escapeHtml(formatMoney(i.price)) || "—" });
-    columns.push({ label: "Link", cell: i => productLinkCell(i.product_link) });
+    columns.push({ label: "Price", skelWidth: "40%", cell: i => escapeHtml(formatMoney(i.price)) || "—" });
+    columns.push({ label: "Link", skelWidth: "28%", cell: i => productLinkCell(i.product_link) });
   }
   if (!isWorker) {
-    columns.push({ label: "Created", cell: i => escapeHtml(new Date(i.created_at).toLocaleString()) });
+    columns.push({ label: "Created", skelWidth: "72%", cell: i => escapeHtml(new Date(i.created_at).toLocaleString()) });
   }
   if (canAdmin || canNotes) {
-    columns.push({ label: "Actions", cell: actionsCell });
+    columns.push({ label: "Actions", skelWidth: "50%", cell: actionsCell });
   }
+  return columns;
+}
+
+export function renderItems(emptyMessage = "No items match that search.") {
+  const items = getItems();
+  hideEmptyState();
+  itemsTable.hidden = false;
+  const columns = itemColumns();
 
   // Header.
   itemsTheadRow.innerHTML = columns.map(c => `<th>${escapeHtml(c.label)}</th>`).join("");
