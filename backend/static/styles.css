@@ -790,12 +790,39 @@ button:focus-visible {
 
 .skel-line {
     display: block;
+    /* Fallback only. Every bar skeleton.js emits carries a .skel-w-NN class;
+       this keeps a bar that somehow missed one looking like a bar rather than
+       stretching the full cell. */
+    width: 80%;
     height: .8em;
     margin: var(--space-1) 0;
     background-color: var(--panel-well);
     border-radius: var(--radius-sm);
     animation: skel-pulse 1.5s ease-in-out infinite;
 }
+
+/* Bar-width ladder, 25%-95% in steps of 5. These exist as classes rather than
+   an inline `style="width:…"` because the app's CSP has no `style-src` and so
+   falls back to `default-src 'self'` -- the browser silently DROPS style
+   attributes parsed out of markup. The original IMP-036 implementation used
+   inline widths and every bar rendered full-width as a result. Do not
+   "simplify" this back to an inline style. See
+   docs/superpowers/specs/2026-08-23-tooltips-design.md §3.1. */
+.skel-w-25 { width: 25%; }
+.skel-w-30 { width: 30%; }
+.skel-w-35 { width: 35%; }
+.skel-w-40 { width: 40%; }
+.skel-w-45 { width: 45%; }
+.skel-w-50 { width: 50%; }
+.skel-w-55 { width: 55%; }
+.skel-w-60 { width: 60%; }
+.skel-w-65 { width: 65%; }
+.skel-w-70 { width: 70%; }
+.skel-w-75 { width: 75%; }
+.skel-w-80 { width: 80%; }
+.skel-w-85 { width: 85%; }
+.skel-w-90 { width: 90%; }
+.skel-w-95 { width: 95%; }
 
 .skel-line--head {
     height: 1.15em;

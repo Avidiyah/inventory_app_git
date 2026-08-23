@@ -77,6 +77,25 @@ under the Communities cards.
 
 Request logged only; no implementation yet.
 
+### IMP-035 — Item/work-order photo attachments
+
+- **Logged** 2026-08-23 · *Items / Work Orders* · raised by the owner's team
+  during `DEC-002` scoping, not yet scoped in detail
+
+Wanted: attach photos to items and/or work orders (e.g., damage evidence,
+install proof, part identification). Explicitly flagged by the owner at
+logging time as a storage- and processing-growth risk, not a plain feature
+add — uploaded images could scale data volume and compute cost by an order of
+magnitude versus today's text-only rows. Ties to `SCL-017` (retention/
+archival/partition — currently `Measured trigger`, unfired) as the mechanism
+that would eventually need to trigger per instance once photo volume is real.
+
+Request logged only; no implementation, storage design, or size/retention
+policy decided yet. Needs its own scoping pass (upload limits, storage
+backend, retention/deletion policy, and whether it reuses or extends the
+`SEC-003` image-bounding work already written for barcode decode) before
+promotion.
+
 ### IMP-034 — User Hub (role-scoped landing page)
 
 - **Logged** 2026-08-20 · *Landing / Time tracking*
@@ -610,6 +629,412 @@ into a roadmap without inventing requirements.
 | DEC-011 | Whether mobile, third-party, sibling-domain, or other cross-origin clients are planned. | Activates API versioning, non-cookie auth, and origin/CSRF work. |
 | DEC-012 | Whether exported files must round-trip into this app unchanged. | Selects safe CSV encoding versus explicit-text XLSX output. |
 
+### Recorded decisions
+
+#### DEC-001 — Resolved 2026-08-23
+
+**Business-critical, single-region, moderate growth — confirmed for now.** The
+owner wants the stack architecturally capable of scaling to enterprise later,
+but the current user base does not yet justify building enterprise controls
+today.
+
+Per graduation rule 4, this is an explicit exclusion, not a deferral:
+`SEC-019`, `SCL-020`, and `SCL-021` are declined from the target operating
+model and marked `Declined` below. This does **not** relax any `Must-fix` or
+`Production baseline` item — those apply at full weight to any business-critical
+app regardless of enterprise scope.
+
+**Revisit trigger:** a material change in `DEC-002`'s growth numbers (expected
+users, peak concurrency, or data growth) that puts multi-zone HA, a secondary
+read store, or contractual/legal-hold obligations back in scope. Until then,
+`N3` (multi-instance readiness) is the concrete near-term item to watch, not
+`SCL-020` — it has its own trigger ("adding a second instance") and doesn't
+require enterprise scope to matter.
+
+#### DEC-002 — Resolved 2026-08-23
+
+**Current:** peak concurrency around 100 users, typical load under 50. Fine as
+today's baseline; nothing should be built that would block scaling past it.
+
+**24-month target: ~10,000 users total, achieved by horizontal growth across
+independent deployments** (one app instance + one database per university),
+not by one instance growing to that size. Each individual instance is expected
+to stay in roughly today's range — dozens to a couple hundred concurrent
+users — for the foreseeable future. This confirms `DEC-001`'s "moderate growth"
+framing holds **at the instance level**: `SCL-020` (multi-zone HA), `SCL-021`
+(read replica), and the DB-load-sizing half of `SCL-008` do not need
+enterprise-grade headroom on a per-instance basis, and stay `Declined`/sized to
+current scale.
+
+**The real growth axis this reveals is fleet repeatability, not per-instance
+capacity.** Standing up university #50 or #100 cheaply and identically is the
+actual scaling story, which reprioritizes (without changing scope of):
+
+- `PRO-016` (reproducible onboarding) — the 30-minute clean-clone target
+  becomes load-bearing once it's the repeated cost of every new deployment,
+  not a one-time convenience.
+- `PRO-001` (one immutable, CI-built production artifact) and `PRO-006`
+  (reproducible supply chain) — the same artifact needs to deploy identically
+  to instance #1 and instance #100.
+- `SCL-010` (controlled schema rollout) — matters more once there are many
+  independent instances each needing the same migration applied safely, rather
+  than one instance being carefully babysat through a change.
+
+**Data growth:** stable for now. **Picture/photo uploads were raised as a
+wanted feature but are not yet a logged item** — per this document's own rule
+("if an item is not here, it is not open"), it needs an `IMP-` entry before it
+can be treated as active. Logged below as `IMP-035` with the storage/processing
+concern captured up front, rather than discovered after the fact the way N9/N10
+were. It also gives `SCL-017` (retention/archival/partition) a concrete future
+trigger it doesn't have today — image storage is exactly the kind of durable
+growth that item is written for.
+
+**Import ceiling:** confirmed at ~800 rows (the "every vendor in the
+university" case) as a realistic upper bound *per instance*. Because
+scaling is per-university-per-instance rather than one shared database, cross-
+institution import volume is not a concern — `SCL-005` (staged/reversible
+imports) can be sized against roughly this figure rather than an unbounded
+one.
+
+#### DEC-003 — Resolved 2026-08-23
+
+**True 24/7 availability, no usable maintenance window.** RTO ~15-30 minutes.
+RPO ~15 minutes. Latency: no new hard target — protect current p95 as load
+grows toward `DEC-002`'s ~100-concurrent peak, don't chase a lower number.
+
+**This is a materially harder bar than a shift-hours target would have been,**
+and it changes urgency on several items already in the register rather than
+introducing new ones:
+
+- **`PRO-004`** (always-on compute) goes from a general recommendation to a
+  direct contradiction with current state. `render.yaml` declares a free web
+  service that can sleep — a sleeping/cold-start instance cannot meet a 15-30
+  minute RTO by definition, independent of anything else in this queue. This
+  is the item to close first.
+- **`SCL-010`** (controlled schema rollout) now requires an actual
+  expand/contract migration policy, not just "any window works" — 24/7 means
+  every schema change has to be safe with old and new app code running against
+  the same database simultaneously.
+- **`PRO-002`** (serialized, observable deployment + tested rollback) needs to
+  hit the RTO on its own: a 15-30 minute target means rollback has to be fast
+  and rehearsed, not manual improvisation under pressure.
+- **`PRO-014`** (backup/PITR/restoration) has real work to do here: Render's
+  dashboard claims 3-day point-in-time recovery, but that describes *retention
+  window*, not *recovery granularity* — it says nothing about whether a
+  restore can actually land within 15 minutes of the failure point. That gap
+  is exactly what "no restore-drill evidence exists" (the item's own evidence
+  line) means in practice, and it's now the thing standing between the current
+  setup and a stated RPO rather than an abstract professionalism gap.
+- **`PRO-012`** (SLOs + capacity proof) load-tests against the `DEC-002`
+  peak (~100 concurrent) with the goal of *no regression* from current
+  response times, not a new latency bar.
+- **`SCL-020`** (multi-zone HA) stays `Declined` per `DEC-001` — a tight RTO
+  raises the bar on *this* region's reliability (fast rollback, no-sleep
+  compute, drilled restore), it does not by itself require multi-region
+  failover. Worth re-checking only if a single-region outage (not a bad
+  deploy or bad data) turns out to be the actual failure mode observed in
+  practice.
+
+#### DEC-004 — Resolved 2026-08-23
+
+**Local credentials remain, with TOTP (authenticator-app) MFA added on top —
+no external IdP.** MFA is mandatory for Admin/Owner only; Supervisor and
+Technician continue on password-only. Chosen for speed and to avoid a
+per-instance IdP-configuration dependency, with the tradeoff noted and
+accepted: each future per-university deployment (`DEC-002`) owns its own MFA
+enrollment/recovery rather than delegating to an institution's existing SSO.
+
+**This splits `SEC-004`'s password-policy bar by role**, per the item's own
+branching "done when" language:
+
+- **Admin/Owner** — MFA-backed, so the *"approved current standard"* password
+  length applies rather than the harsher sole-factor minimum (NIST 800-63B is
+  the cited reference standard for that tier).
+- **Supervisor/Technician** — passwords remain the sole factor, so the
+  ≥15-character minimum (with ≥64 accepted) is the binding requirement for
+  these roles specifically, not just a general recommendation.
+- The measured enumeration-timing gap (79.55ms known-wrong vs. 0.028ms unknown
+  username) and the current 4-character minimum in `schemas/auth.py` are
+  unaffected by this split — both are defects regardless of which roles get
+  MFA, and stay in scope for every account.
+
+**`SEC-011`** now has a concrete target instead of an open design space: build
+TOTP enrollment/recovery/step-up scoped to Admin/Owner, not a broader
+population, and not IdP federation. Recovery-path design (lost authenticator
+device) is the part most likely to need its own follow-up decision once
+scoped — noted here so it isn't rediscovered as a support incident later.
+
+**`SEC-016`** is largely unaffected by *this* decision — it still depends on
+`DEC-010` (governance) for named privileged owners and offboarding SLAs — but
+inherits a smaller surface: only Admin/Owner MFA lifecycle needs to be audited
+and offboarded, not a broader population.
+
+#### DEC-005 — Resolved 2026-08-23
+
+**Simplest possible answer: the existing `can_view_work_order` predicate
+(`backend/app/domain/work_orders.py:655-682`) is correct as written and does
+not need a policy exception.** A Technician sees only work orders currently
+assigned to them — reassignment and archiving both revoke access immediately
+and completely, with no read-only carve-out for their own past work. This
+matches the general archived-work-order rule already in effect for every
+other role, so there's no special case to design or document going forward.
+
+**Mutation follows automatically, not as a separate rule:** since visibility
+is the gate, and mutation always requires visibility first, "never mutate a
+reassigned-off or archived work order" isn't a distinct policy — it falls out
+of the same predicate once it's actually enforced.
+
+**This closes the open policy question for both defects; the code fix is
+still outstanding:**
+
+- **`SEC-002`** — `routers/transactions.py:66-85` needs to call
+  `can_view_work_order` instead of checking existence only. No further design
+  needed; ready to implement.
+- **`SEC-021`** — `routers/user_requests.py:96-105` needs the same fix, same
+  predicate, same file it already imports from elsewhere in the codebase for
+  exactly this purpose.
+
+Both remain `Candidate`/unimplemented — this resolves the *policy*, not the
+code.
+
+#### DEC-006 — Resolved 2026-08-23
+
+**Creator-owned.** Only the Supervisor who created a Mass Stage — plus
+Admin/Owner/TechFM OA, who already bypass the scope everywhere else in this
+service — can view or act on it. This matches `list_stages`'s existing,
+deliberate scoping (`services/mass_staging.py:166`); the fix is tightening
+`get_stage` and the mutation functions it feeds to match, not loosening the
+list view.
+
+**Accepted tradeoff:** no peer-Supervisor coverage. If the creating Supervisor
+is out, another Supervisor cannot view or continue their in-progress Mass
+Stage — only Admin/Owner/TechFM OA can. Noted explicitly rather than
+discovered later: if this turns out to be an operational problem in practice
+(a Supervisor out sick with active staging work blocking a crew), the fix is
+narrower than reopening this decision — an explicit hand-off/transfer action
+on the stage (reassign `created_by_id`, logged, Admin-gated) rather than
+loosening the ownership model itself.
+
+**`SEC-007`** now has a concrete target: every Mass Stage route (list, detail,
+slots, transitions, load/return, reuse, deletion) enforces
+`created_by_id == caller` for Supervisors, `True` for Admin/Owner/TechFM OA,
+and returns `404` (not `403`) for inaccessible IDs — matching the pattern
+`SEC-002`/`SEC-021` are converging on for work orders. Still `Candidate`;
+policy is resolved, code is not.
+
+#### DEC-007 — Resolved 2026-08-23
+
+**Preview-then-commit, with undo, and skip-and-report (with skipped rows
+individually identified) for bad rows.** Reframed from the doc's original
+framing after reading the actual import code (`services/work_orders.py:820-928,
+687-786`): the prior 800-row incident that required a database cutover was a
+**correctness failure, not a partial-failure one** — the import completed
+successfully on the wrong file, and there was no way to reverse a *successful*
+import short of restoring the whole database. The import is also already
+idempotent by design (a re-upload safely merges rather than duplicates),
+which already covers the crash-mid-import case reasonably well — so this
+decision targets what actually failed, not a generic atomicity concern.
+
+- **Preview/diff required.** Upload parses and computes the full summary
+  (create/update/match/skip counts) with **nothing committed**, and requires
+  an explicit confirm step before any row is written. This is the direct
+  catch for a wrong file or bad mapping before it lands.
+- **Undo required.** Each import gets a batch identity; an Admin can reverse
+  a specific completed import within a window, restoring the fields it
+  changed and removing rows it created — with rows independently edited since
+  the import flagged rather than silently reverted (an import shouldn't be
+  able to clobber a technician's manual edit made after the fact). This
+  requires the import to durably record *what it changed*, not just a summary
+  count, which is new — nothing in the current code retains that today.
+- **Row failures stay skip-and-report, and the report must name the specific
+  work orders skipped, not just a count.** Current code
+  (`import_work_orders`, `services/work_orders.py:867-926`) only increments
+  `skipped`/`closed` counters — it never records *which* numbers those were.
+  That's not enough on its own: an operator told "4 skipped" has no way to
+  find and fix those four rows without re-diffing the whole file by hand.
+  The summary (and the preview, once built) must list the actual work-order
+  numbers or row identifiers for every skipped/errored row, the same way
+  `supervisor_routing` already names numbers instead of just counting matches
+  (line 839-845's own docstring makes exactly this argument for the
+  supervisor-match case; skipped rows need the same treatment).
+
+**What this means for `SCL-005` and `SCL-006`:**
+
+- **`SCL-005`** is now fully scoped: preview endpoint (dry-run, no commit),
+  confirm-to-apply, batch identity + change log, per-row skip/error identity
+  (not just counts), and an undo action gated to Admin. This is a real
+  feature build (schema for the change log, two new endpoints, UI for
+  preview/confirm/undo), not a policy tweak — sizing stays `XL`.
+- **`SCL-006`** (explicit top-level transaction ownership) is still relevant
+  but narrower than the doc's original framing implied: because row failures
+  stay skip-and-report rather than moving to one all-or-nothing transaction,
+  import doesn't need the whole batch wrapped in a single transaction. What
+  it *does* need is each row's commit to also durably write that row's
+  change-log entry (and, for skips, its identifying number/reason) in the
+  same transaction, so preview/undo/skip-reporting can never drift from what
+  actually persisted.
+
+#### DEC-008 — Resolved 2026-08-23
+
+**Philosophy: small now, nothing structurally in the way of future growth.**
+Worked through category by category rather than as one number, because most
+of these categories aren't actually in tension with that philosophy — only
+one is.
+
+- **Always-on web** — mandatory regardless of budget preference (`DEC-003`
+  already forced this: a sleeping free tier cannot meet a 15-30 minute RTO).
+  Cheapest paid tier that removes cold starts. Tier size is a dashboard
+  setting, not an architecture decision — bumping it later, per instance, is
+  free of rework.
+- **Monitoring** (`PRO-013`) — start on a free-tier uptime/alerting option;
+  upgrade to paid dashboards/alerting later. Purely additive.
+- **Scanning** (`PRO-006`) — start with GitHub's built-in Dependabot + secret
+  scanning (free, already available); add paid depth later without rework.
+- **Staging** (`PRO-003`) — **deferred deliberately, not just for cost.**
+  Building it now against the current one-off deployment risks being rebuilt
+  once `PRO-016` (repeatable per-university deployment) exists — building it
+  once, later, against the real template is less total work than building it
+  twice. This is the "nothing in the way of growth" philosophy actively
+  choosing to wait, not a budget shortfall.
+- **Log retention** (`SEC-012`) — **the one exception, started now anyway.**
+  Unlike every other category, deferring this has an irreversible cost: there
+  is currently no durable external log sink at all, and any day without one
+  is audit history that can never be recovered retroactively later, however
+  much is later spent on it. Cheap tier, started now.
+- **Identity** — already resolved and already free: `DEC-004` chose local
+  credentials + TOTP over an external IdP, so there's no ongoing per-seat
+  identity cost regardless of this decision.
+
+**Per-instance vs. fleet-wide framing (from the open sub-question):** resolved
+implicitly by the philosophy itself. Because every category above is either
+free-tier-first-and-cheaply-upgradable or deliberately deferred, there's no
+fleet-wide number that needs committing to yet — the per-instance cost stays
+small by construction, so it multiplies safely toward `DEC-002`'s ~100-instance
+future without a separate budget decision being required now. Revisit only if
+a future category (e.g. `SCL-020`/`SCL-021`, still `Declined` per `DEC-001`)
+stops being free/deferrable.
+
+#### DEC-009 — Resolved 2026-08-23
+
+**No known external obligation; archive-forever remains permanent policy;
+exports become an audited event.** Checked the actual `User` model
+(`backend/app/models.py:34-59`) before asking anything: there's no deep PII
+surface here to begin with (no email, phone, SSN, or payment data — just
+username, name, password hash, role), and the rest of the app's data is
+operational (items, work orders, transactions), not personal records. That
+materially narrows this decision from what "privacy, contractual, legal-hold"
+sounds like in the abstract.
+
+- **No known university/legal obligation** applies independent of this app's
+  own compliance ambitions. Proceeds as an internal policy decision; revisit
+  if IT/legal ever surfaces a specific requirement.
+- **Archive-forever confirmed as permanent, not a stopgap.** The existing
+  soft-delete pattern (`archived_at`, documented in the model's own
+  docstring: *"a user is archived rather than hard-deleted, so the
+  transaction history... stays intact after a departure"*) stays exactly as
+  it is. No hard-delete or anonymization path gets built. This also answers
+  the retention-horizon question by implication: there is no time-based
+  deletion of historical records at all — ledger data is retained
+  indefinitely. `SCL-017`'s eventual archival/partition trigger stays purely
+  storage/performance-driven (a high-water mark or query-SLO breach), never a
+  policy-driven purge — there is no purge.
+- **Exports are now an audited event.** Every CSV/report export records
+  actor, export type, row count, and timestamp into the log sink `DEC-008`
+  already committed to funding — a small addition to something already being
+  built, not a new system. This gives `SEC-012`'s "material event coverage"
+  list a concrete entry for exports rather than a placeholder.
+
+**What this resolves:** `SEC-018` (baseline data classification/retention/
+export governance) now has an actual policy to implement against — data
+classes are operational-plus-minimal-identity, retention is indefinite,
+deletion is archive-only, exports are logged. `SEC-012` gains a defined event
+(exports) beyond the categories it already listed. `SCL-017` keeps its
+existing measured-trigger status, now confirmed to never be policy-triggered.
+
+#### DEC-010 — Resolved 2026-08-23
+
+**Solo-maintainer, no substitute review process, no backup access — all
+accepted plainly rather than left unstated.**
+
+- **Governance model:** one person merges changes. Branch protection enforces
+  required CI checks and blocks force-push/branch deletion; the human
+  PR-approval requirement is waived under a documented solo-maintainer
+  exception, exactly the shape `PRO-018`'s own evidence anticipated.
+- **No formal AI-review substitute.** Considered and declined: the
+  solo-maintainer exception is recorded as-is, an accepted gap rather than
+  something papered over with a formalized process. (Nothing here prevents
+  using AI-assisted review informally — it's just not the documented
+  governance control.)
+- **No backup/break-glass access.** Bus factor of one, explicitly accepted
+  rather than assumed away. No break-glass process is defined, because
+  there's no second person to invoke one.
+
+**What this resolves:** `PRO-018` now has a concrete, honest target — protected
+`main`, required checks, blocked force-push/deletion, a recorded
+solo-maintainer exception in place of CODEOWNERS-enforced review, and an
+explicit statement (not a silence) that no break-glass process exists.
+`SEC-013` and `SEC-016` inherit the same reality: incident response and
+privileged-access review both have exactly one person in the loop, which
+should be reflected as a named constraint in those items' eventual design
+rather than assumed to be a team process.
+
+#### DEC-011 — Resolved 2026-08-23
+
+**None planned now; likely later — kept architecturally open rather than
+built for.** Same "small now, nothing in the way of growth" philosophy as
+`DEC-008`. Nothing gets built today: `SEC-017` stays a `Measured trigger`,
+unbuilt, and same-origin cookie auth remains the only mechanism. API
+versioning stays a non-issue while the SPA is the only client.
+
+**What "kept open" actually means here, concretely, since a vague intention
+isn't a real answer:** the domain-layer authorization predicates in this
+codebase (`can_view_work_order` and its siblings) already take plain values
+— role, user ID, ownership — not the request or cookie itself. That
+separation is what makes a future second auth transport (bearer-token auth
+for a native mobile app or a third-party integration) additive later rather
+than a rewrite: a new endpoint issues tokens, middleware accepts either a
+valid session cookie or a valid bearer token, and every existing
+authorization check underneath is unaffected. There's no build-now item this
+implies — it's a standing discipline: new work should keep going through
+that same `user`-object pattern rather than reaching into cookies directly
+inside services, so the transport layer stays swappable when `DEC-011` is
+eventually revisited.
+
+**Trigger to revisit:** a concrete native app, third-party integration, or
+sibling domain actually being planned — at that point `SEC-017` (origin/CSRF
+enforcement) and a real token-auth design both get scoped together, since
+they're the same underlying change.
+
+#### DEC-012 — Resolved 2026-08-23
+
+**Split by export variant, following the design that already exists.**
+Checked `export_work_orders_csv` (`services/work_orders.py:1375-1421`) before
+asking anything: its own docstring already declares two variants with
+different intentions, so this wasn't really a decision to make from scratch
+— it was a question of respecting an existing distinction rather than
+picking one fix for both.
+
+- **`full` (operational export) — must round-trip, stays CSV.** Its entire
+  purpose is re-import: *"led by the import's own headers, so the file
+  round-trips -- re-importing it is the idempotent fill-blanks path, not a
+  duplicate."* `SEC-006`'s fix for this variant has to be CSV-safe escaping
+  (neutralizing leading `=`, `+`, `-`, `@`, tab, CR) that leaves the file
+  byte-compatible with what `import_work_orders`'s `csv.DictReader` expects.
+  XLSX is ruled out here — it would break the variant's stated purpose.
+- **`client` (billing export) — purely external, never re-imported.**
+  Confirmed: no path exists or is expected to bring this variant back into
+  the app. `SEC-006`'s fix here is free to be whichever format is simplest
+  to implement safely — CSV-escaping (consistent with the other variant) or
+  a switch to XLSX with explicit-text cells (which sidesteps formula
+  injection by construction rather than by escaping). Implementation detail,
+  not a policy question.
+
+**What this resolves:** `SEC-006` now has a variant-specific target instead
+of one ambiguous "make exports safe" instruction — the `full` export's fix is
+constrained to preserve round-tripping, the `client` export's fix is not.
+Both still need the fixture + Excel/LibreOffice verification the item's
+"done when" already calls for.
+
 ### Security candidates
 
 | ID | Risk reduction/value | Owner input required |
@@ -884,7 +1309,8 @@ status `Candidate`.
 #### SEC-019 - Contractual, privacy, legal-hold, and regulated deletion controls
 
 `Optional enterprise/compliance`; `L`; Security + Governance;
-`External verification`; status `Candidate`.
+`External verification`; status `Declined` (DEC-001, 2026-08-23 — revisit if
+DEC-002 growth changes the target).
 
 - **Evidence/outcome:** applicable jurisdictions, customer contracts, privacy
   rights, legal holds, and regulated deletion requirements are unknown. Add only
@@ -1557,7 +1983,8 @@ Existing standing notes remain part of this register without duplicate tickets:
 #### SCL-020 - Multi-zone high availability
 
 `Optional enterprise`; `XL`; Reliability + Scalability;
-`External verification`; status `Candidate`.
+`External verification`; status `Declined` (DEC-001, 2026-08-23 — revisit if
+DEC-002 growth changes the target).
 
 - **Evidence/outcome:** one region/zone and one managed primary DB remain failure
   domains. N3 separately owns ordinary second-worker/second-instance readiness.
@@ -1571,7 +1998,8 @@ Existing standing notes remain part of this register without duplicate tickets:
 #### SCL-021 - Read replica, search index, or analytical store
 
 `Optional enterprise`; `XL`; Scalability; `Confirmed`;
-status `Candidate`.
+status `Declined` (DEC-001, 2026-08-23 — revisit if DEC-002 growth changes the
+target).
 
 - **Evidence/outcome:** all reads/reports use the primary. Add a secondary store
   only after query/index/export improvements leave sustained primary read
