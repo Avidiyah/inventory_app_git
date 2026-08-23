@@ -20,6 +20,7 @@ import { setMessage, confirmDialog } from "../dom.js";
 import { roleAtLeast, roleLabel } from "../roles.js";
 import { mountScanner } from "./scan.js";
 import { initSubNav } from "./subnav.js";
+import { skeletonTableRows } from "../skeleton.js";
 import {
   openToolCheckout,
   closeToolCheckout,
@@ -683,7 +684,14 @@ toolsSubNav = initSubNav(toolsPage, {
 // --- Page load / auth reset ---------------------------------------------
 
 export async function loadTools() {
-  toolsTbody.innerHTML = '<tr><td colspan="5" class="hint">Loading…</td></tr>';
+  // 4 base columns (Barcode, Name, On Hand, Checked Out); Actions is the 5th
+  // for a custody manager -- the same split renderTools uses.
+  const toolSkelCols = canManageCustody() ? 5 : 4;
+  toolsTbody.innerHTML = skeletonTableRows(toolSkelCols, 5, {
+    widths: toolSkelCols === 5
+      ? ["70%", "88%", "25%", "30%", "50%"]
+      : ["70%", "88%", "25%", "30%"],
+  });
   setMessage(toolsMessage, "", "");
   setMessage(custodyMessage, "Loading tool custody…", "");
 

@@ -33,6 +33,7 @@ import {
   promptUserRole,
 } from "../dom.js";
 import { assignableRoles, canManage, roleAtLeast, roleLabel } from "../roles.js";
+import { skeletonTableRows } from "../skeleton.js";
 
 const createUserBtn = document.getElementById("create-user-btn");
 const createUserMessage = document.getElementById("create-user-message");
@@ -67,7 +68,9 @@ export async function loadUsers() {
   // #9: in-progress placeholder (see loadItems for why this lives in the
   // table body rather than the #users-message slot, which carries
   // archive/restore/reset success text set just before a reload).
-  usersTbody.innerHTML = `<tr><td colspan="6" class="hint">Loading…</td></tr>`;
+  usersTbody.innerHTML = skeletonTableRows(6, 5, {
+    widths: ["55%", "60%", "70%", "40%", "75%", "50%"],
+  });
   try {
     // Include archived users so the History "by user" filter can still
     // select a departed user; the Saved Users table marks archived rows

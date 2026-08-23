@@ -44,6 +44,7 @@ import {
   sanitisePricingText,
 } from "../pricingText.js";
 import { roleAtLeast } from "../roles.js";
+import { skeletonTableRows } from "../skeleton.js";
 import { setMessage, confirmDialog } from "../dom.js";
 import { initSubNav } from "./subnav.js";
 import { openBillingEditor } from "./billingEditor.js";
@@ -119,7 +120,14 @@ export async function loadHistory() {
   // table is already visible avoids a flicker on the debounced work-order /
   // date filters, which reload on every change.
   if (historyResults.hidden) {
-    historyTbody.innerHTML = `<tr><td colspan="8" class="hint">Loading…</td></tr>`;
+    // Same column count the results will use: 7 base columns, plus Charge for
+    // Admin/Owner (see renderHistory).
+    const skelCols = roleAtLeast(getRole(), "techfm_oa") ? 8 : 7;
+    historyTbody.innerHTML = skeletonTableRows(skelCols, 6, {
+      widths: skelCols === 8
+        ? ["78%", "85%", "40%", "25%", "60%", "55%", "35%", "45%"]
+        : ["78%", "85%", "40%", "25%", "60%", "55%", "45%"],
+    });
     historyResults.hidden = false;
   }
 
