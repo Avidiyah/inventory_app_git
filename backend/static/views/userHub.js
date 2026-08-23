@@ -21,6 +21,7 @@ import { mountHubTimesheets } from "./hubTimesheets.js";
 import { destroyHubGraphs, mountHubGraphs } from "./hubGraphs.js";
 import { openWorkOrdersFilteredByDistribution } from "./workOrders.js";
 import { showPage } from "./nav.js";
+import { skeletonCard } from "../skeleton.js";
 
 const HUB_PAGE = "user-hub";
 const LABOR_SESSION_CHANGED_EVENT = "labor.session.changed";
@@ -72,6 +73,13 @@ let graphWeeks = 12;
 let graphRequestId = 0;
 let showAllServiceTypes = false;
 let loadedUserId = null;
+
+// Hub tabs are card grids, so their in-flight state is a grid of skeleton
+// cards rather than one block -- the tab keeps roughly the height it will
+// have once the payload lands, so the page doesn't jump on arrival.
+function hubSkeletonGrid(cardCount = 4, { lines = 3 } = {}) {
+  return `<div class="skel-grid">${skeletonCard({ lines }).repeat(cardCount)}</div>`;
+}
 
 function showTab(name) {
   activeTab = name;
@@ -231,7 +239,7 @@ async function loadTimesheets({ start = null, end = null } = {}) {
     existingStatus.className = "hub-timesheet-message";
     existingStatus.textContent = "Loading…";
   } else {
-    mount.innerHTML = `<p class="hint hub-timesheet-message">Loading…</p>`;
+    mount.innerHTML = hubSkeletonGrid(2, { lines: 6 });
   }
   try {
     const payload = await apiGetHubTimesheets({ start, end });
@@ -260,7 +268,7 @@ async function loadGraphs({ background = false } = {}) {
   if (!mount || !viewerCanSeeAdminTiles()) return;
   const requestId = ++graphRequestId;
   if (!latestGraphsPayload && !background) {
-    mount.innerHTML = `<p class="hint">Loading graphs…</p>`;
+    mount.innerHTML = hubSkeletonGrid(4);
   }
   try {
     const payload = await apiGetHubGraphs({ weeks: graphWeeks });
@@ -282,6 +290,9 @@ async function refreshCrew({ background = false } = {}) {
   const mount = crewMount();
   if (!mount) return;
   const requestId = ++crewRequestId;
+  // Foreground first load only: a background refresh keeps the last good
+  // board on screen (same rule the error path below follows).
+  if (!background && !latestCrewPayload) mount.innerHTML = skeletonCard({ lines: 4 });
   try {
     const payload = await apiGetHubCrew();
     if (requestId !== crewRequestId) return;
@@ -359,6 +370,10 @@ tabButtons.forEach((btn) => {
 // where "stale since I last looked" is the failure mode to avoid.
 export async function loadUserHub() {
   let payload;
+  // First entry only: the dashboard tab is empty until the payload lands, so
+  // it gets structure to look at. On a return visit the previous render is
+  // still mounted and is better than a skeleton.
+  if (!latestPayload) tabPanels.dashboard.innerHTML = hubSkeletonGrid(3);
   try {
     payload = await apiGetHub();
   } catch (err) {
