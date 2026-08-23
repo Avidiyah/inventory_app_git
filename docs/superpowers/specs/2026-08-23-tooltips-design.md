@@ -1,8 +1,8 @@
 # Field-Help Tooltips (`?` bubbles) — Design Spec
 
-Status: **designed 2026-08-23, not yet implemented.** Written to be picked up
-cold by a later session — read this file top to bottom, then work §8's numbered
-steps in order.
+Status: **designed 2026-08-23. Step 0 done; steps 1–7 open.** Written to be
+picked up cold by a later session — read this file top to bottom, then work
+§8's numbered steps in order, starting at **step 1**.
 
 Adds a small `?` bubble beside labels, headings and controls that carry
 non-obvious domain rules. Hovering (desktop) or tapping (mobile) opens a short
@@ -73,11 +73,19 @@ around it by writing positions through CSSOM after insertion.
 template literal emitting `style="left:…"` will silently do nothing. There can
 also be no `<style>` block — every rule goes in `styles.css`.
 
-> **Pre-existing bug to fix first, see §8 step 0.** `skeleton.js:31` emits
-> `style="width: ${width}"` and `.skel-line` (`styles.css:791`) declares no
-> `width`. That inline style is being dropped by this same CSP, so every
-> skeleton bar currently renders full-width instead of the intended varied
-> widths. Same root cause; fix it while the knowledge is fresh.
+> **This already bit us once — fixed 2026-08-23 in commit `b008cc3`.**
+> `skeleton.js` emitted `style="width: ${width}"` and `.skel-line` declared no
+> `width`, so every skeleton bar from `IMP-036` rendered full-width instead of
+> the intended varied widths. Nobody noticed because there is no error — the
+> attribute simply vanishes. Widths now ride on a `.skel-w-NN` class ladder
+> (25–95 in steps of 5, `styles.css`), with `snapWidth()` rounding
+> caller-supplied percentage strings onto it so all ~12 call sites were
+> unchanged.
+>
+> **Carry the lesson into the tooltip work:** the failure mode is silent. When
+> the bubble does not appear where it should, check first whether the position
+> was written as an attribute rather than through CSSOM — that will look like a
+> positioning bug and is not one.
 
 ### 3.2 Table scroll containers clip anything positioned inside them
 
@@ -452,16 +460,25 @@ more, the underlying UI needs fixing instead.
 
 Work these in order. Each step is independently verifiable; do not batch them.
 
-**Step 0 — Fix the skeleton width bug (§3.1).**
-Move the width cycle out of the dropped inline `style=`. Either add a small set
-of width modifier classes to `styles.css` and have `skeleton.js:31` emit a class
-name, or set widths via CSSOM after insertion the way `hubTechnician.js` does.
-The class-based fix is simpler and keeps `skeleton.js` a pure string function.
-Verify by loading any table view and confirming the bars are no longer uniform.
-*Why first: it proves the CSP constraint is real and understood before that same
-constraint shapes the tooltip code.*
+**Step 0 — Fix the skeleton width bug (§3.1). — ✅ DONE 2026-08-23, `b008cc3`.**
+Widths moved onto a `.skel-w-NN` class ladder; `skeleton.js` stays a pure string
+builder. Verified by asserting the rendered output contains zero `style=`
+attributes, that every emitted `.skel-w-NN` class has a matching CSS rule, and
+that non-percentage inputs (`"auto"`) fall back to the deterministic cycle.
 
-**Step 1 — `backend/static/tooltip.js`, mechanism only.**
+*Two things to inherit from it:* the class-ladder pattern is the house answer
+for "dynamic value that can't be an inline style" when the emitting module is a
+pure string builder; CSSOM (`el.style.x = …`) is the answer when the module
+already touches the DOM. `tooltip.js` is the second kind — it owns the bubble
+node — so it uses CSSOM, per §4.5 step 6.
+
+⚠️ **Note for whoever picks this up:** `b008cc3` is a broad auto-generated
+commit that swept the skeleton fix together with unrelated pre-existing changes
+to `docs/open-work.md` and the `IMP-036` plan file. The skeleton fix itself is
+correct and verified; just don't expect that SHA to be a clean single-purpose
+diff when reading history.
+
+**Step 1 — `backend/static/tooltip.js`, mechanism only. ← START HERE**
 `tipHtml`, `closeTip`, `installTooltips`, the singleton bubble, the positioning
 algorithm (§4.5), the delegated listeners (§4.6). Import a two-entry stub
 registry so the module is testable before the copy exists.
