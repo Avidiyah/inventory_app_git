@@ -77,6 +77,31 @@ under the Communities cards.
 
 Request logged only; no implementation yet.
 
+### IMP-037 — Field-help `?` tooltips — IN PROGRESS
+
+- **Logged** 2026-08-23 · *App-wide* · designed with the owner the same day
+- Spec: `docs/superpowers/specs/2026-08-23-tooltips-design.md`
+
+A `?` bubble beside labels and headings that carry non-obvious domain rules,
+replacing nothing — the existing `.hint` paragraphs stay on this pass (D7).
+Three files: `static/tips.js` (copy registry, 35 keys), `static/tooltip.js`
+(singleton fixed bubble + one delegated listener on `document`), and rules in
+`styles.css`. No backend change.
+
+Done: spec steps 0–4 and 6 — mechanism, all 35 strings of copy, styling, the
+Work Orders filter grid wired end to end, and `closeTip()` on page-leave.
+Open: step 5 (the remaining 11 pages) and step 7 (docs), both waiting on the
+owner's manual check of Work Orders — there is no automated frontend render
+coverage (`PRO-008`), so the additive guarantee is verified by eye.
+
+**Constraint found during step 4, not in the original spec:** roughly nine of
+the 35 anchors are `<button>`s, and a `<button>` cannot contain a `<button>` —
+the HTML parser hoists the nested one out into a sibling, silently producing
+exactly the flex-row reflow §5.1 forbids. Owner's call 2026-08-23: those tips
+move to the nearest heading or `<label>` instead, and the three with no such
+neighbour (`wo.export`, `txn.quick-mode`, `txn.advanced`) are dropped rather
+than fought.
+
 ### IMP-035 — Item/work-order photo attachments
 
 - **Logged** 2026-08-23 · *Items / Work Orders* · raised by the owner's team

@@ -1,8 +1,12 @@
 # Field-Help Tooltips (`?` bubbles) — Design Spec
 
-Status: **designed 2026-08-23. Step 0 done; steps 1–7 open.** Written to be
-picked up cold by a later session — read this file top to bottom, then work
-§8's numbered steps in order, starting at **step 1**.
+Status: **designed 2026-08-23. Steps 0–4 and 6 done; steps 5 and 7 open.**
+Written to be picked up cold by a later session — read this file top to bottom,
+then work §8's numbered steps in order, starting at **step 5**. Step 5 is
+gated on the owner's manual check of Work Orders (§8 step 4).
+
+**Read §5.5 before wiring any anchor.** It records a constraint found during
+step 4 that the original design missed and that changes nine of §7's anchors.
 
 Adds a small `?` bubble beside labels, headings and controls that carry
 non-obvious domain rules. Hovering (desktop) or tapping (mobile) opens a short
@@ -341,6 +345,39 @@ column. Exactly one anchor in §7 is a `<th>`: `history.charge-col`
 button. Verify that one specifically at narrow widths, and if the column shifts,
 drop the tip rather than fight it — the table layout matters more than the tip.
 
+### 5.5 A `<button>` anchor is impossible — found during step 4
+
+§5.4 called `<th>` the one risky anchor. It is not. **Nine of §7's anchors are
+`<button>`s, and a `<button>` cannot contain a `<button>`.** This is not a
+styling problem, it is the HTML parser: on a `<button>` start tag while another
+button is open, the "in body" insertion mode acts as if `</button>` had been
+seen and reprocesses the token. The nested trigger is silently hoisted out and
+becomes a *sibling* — which is precisely the new-flex-child reflow §5.1 forbids.
+Like the CSP trap in §3.1, the failure mode is silent: no error, valid-looking
+markup, a shifted row.
+
+**Owner's call, 2026-08-23:** move each of those tips to the nearest heading or
+`<label>`, and drop the ones with no such neighbour rather than fight the
+layout — the same reasoning §5.4 already applies to the `<th>`.
+
+| Key | §7 said | Anchor instead |
+|---|---|---|
+| `tools.custody-vs-inventory` | sub-nav buttons | `<h2>Tool Custody</h2>` (`tools.html:12`) |
+| `item.load-all` | Load All Items button | `<label for="items-search">Search</label>` (`saved-items.html:23`) |
+| `history.pricing-list` | Pricing list button | `<h2>Transaction History</h2>` (`history.html:5`) |
+| `review.reopen-vs-close` | the two action buttons | `<h3 id="admin-review-receipt-title">` (`admin-review.html:18`) |
+| `hub.graphs` | Graphs tab button | the Graphs panel's own JS-rendered heading |
+| `requests.types` | Type filter `<label>` | unchanged — it was already a label |
+| `wo.export` | Export filtered CSV button | **dropped.** `.wo-number-search-row` has no heading, and its `flex: 1 1 260px` input would absorb the loss |
+| `txn.quick-mode` | Quick mode toggle | **dropped.** `#scango-active` has no heading |
+| `txn.advanced` | Manual entry toggle | **dropped.** Same |
+| `txn.direction` | segmented toggle | `<h2>Scan item</h2>` (`transaction.html:71`) — that heading does head the section the toggle sits in. Judgment call at step 5; drop it if it reads as being about scanning rather than direction |
+
+The copy for the dropped keys stays in `tips.js`. It is written and reviewed,
+it costs nothing parked, and if any of those controls later grows a heading the
+anchor is a one-line change. `installTooltips()` never looks at unreferenced
+keys, so an unused entry is inert.
+
 ---
 
 ## 6. Accessibility
@@ -478,24 +515,44 @@ to `docs/open-work.md` and the `IMP-036` plan file. The skeleton fix itself is
 correct and verified; just don't expect that SHA to be a clean single-purpose
 diff when reading history.
 
-**Step 1 — `backend/static/tooltip.js`, mechanism only. ← START HERE**
+**Step 1 — `backend/static/tooltip.js`, mechanism only. — ✅ DONE, `7b0a828`.**
 `tipHtml`, `closeTip`, `installTooltips`, the singleton bubble, the positioning
 algorithm (§4.5), the delegated listeners (§4.6). Import a two-entry stub
 registry so the module is testable before the copy exists.
 Verify: nothing yet — no anchors are wired.
 
-**Step 2 — `backend/static/tips.js`, the copy.**
+**Step 2 — `backend/static/tips.js`, the copy. — ✅ DONE, `a2d598a`.**
+All 35 keys written. Four of them (`wo.export`, `txn.quick-mode`,
+`txn.advanced`, and possibly `txn.direction`) are parked unreferenced per §5.5.
+
 Write all ~30 entries from §7. This is a writing task, not a coding task; treat
 it that way. Read the referenced `.hint` paragraphs and the code comments in
 each page — most of the substance is already written there, just too verbosely.
 
-**Step 3 — Styling in `styles.css`.**
+**Step 3 — Styling in `styles.css`. — ✅ DONE, `79eaa7f`.**
+Landed beside `.wo-combo-list`. No new tokens, no new surface type. One thing
+§5.2 missed: the global `button` rule also sets `min-height: var(--btn-h)` and
+`margin-top: var(--space-1)`, and `button:hover` re-fills brand red — all three
+are reset in `.tip-btn` alongside the documented `background`/`padding`.
+Note `--fw-normal` does **not** exist in `:root` (two pre-existing rules
+reference it and silently get nothing); `.tip-btn` uses `--fw-regular`.
+
 `.tip-btn` per §5.2 and `.tip-bubble` per §3.4. Place them near the other
 floating-popover rules (~line 3700-3810), not in `:root` — this adds no tokens.
 Add the `docs/design-system.md` note only if a new surface type emerged; it
 should not have, since §3.4 reuses the existing recipe.
 
-**Step 4 — Wire one page end to end: Work Orders.**
+**Step 4 — Wire one page end to end: Work Orders. — ✅ DONE, `43f4ddb`.
+Owner's visual check still outstanding; step 5 is gated on it.**
+Four of the five anchors landed (`wo.status`, `wo.priority-vs-level`,
+`wo.community`, `wo.scheduled-date`), each inside its existing `<label>`.
+`wo.export` did not — see §5.5.
+Machine-verified through `TestClient`: all four keys appear in the served DOM,
+`tooltip.js` / `tips.js` / the CSS rules are all reachable, the assembled page
+emits **zero** `style=` attributes, and the backend suite passes (1426).
+What is *not* verified and needs eyes: hover / click / keyboard / Escape /
+scroll behaviour, and the no-reflow claim against a before-screenshot.
+
 Add the five `work-orders.html` anchors and call `installTooltips()` from
 `main.js`. Work Orders first because it has the highest-value tip
 (`wo.priority-vs-level`), it has both static filter labels and JS-rendered
@@ -504,17 +561,22 @@ guarantee holds here it holds everywhere.
 Verify: open/close by hover, by click, by keyboard; Escape; scroll; rotate to
 portrait; confirm no layout shift against a before-screenshot.
 
-**Step 5 — Roll out the remaining pages.**
+**Step 5 — Roll out the remaining pages. ← RESUME HERE, once the owner has
+looked at Work Orders.**
+Apply §5.5's revised anchor table as you go.
 One page per commit, in this order: Transaction, Add Item, Find Item, History,
 Tools, User Requests, Admin Review, Mass Stage, Add User, Integrations, User
 Hub. Screenshot-diff each page before and after (§5.3). User Hub last because
 it is entirely JS-rendered and depends on the delegation working.
 
-**Step 6 — `nav.js` page-change hook.**
-Call `closeTip()` from the page-leave path alongside the existing scanner stop.
+**Step 6 — `nav.js` page-change hook. — ✅ DONE, `43f4ddb`.**
+`closeTip()` is called from `showPage`'s page-leave path alongside the existing
+scanner stop. It landed with step 4 rather than after step 5 because the hook
+is needed the moment the first page has a live anchor.
 
 **Step 7 — Docs.**
-Add the `IMP-037` entry to `docs/open-work.md` at step 1 and mark it closed here
+The `IMP-037` entry is already in `docs/open-work.md` (added late, at step 4,
+carrying §5.5's constraint). At step 7, mark it closed there and mark it closed
 at step 7, matching how `IMP-036` was tracked. Add a short section to
 `docs/design-system.md` covering when a `?` is warranted versus a visible
 `.hint` — the rule of thumb being: a `?` for a rule you need once while
