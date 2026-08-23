@@ -18,6 +18,7 @@ import { loadUserRequests } from "./userRequests.js";
 import { loadTools, toolsScanner, toolScanWidget } from "./tools.js";
 import { txnScanner } from "./scan.js";
 import { itemsScanner, itemScanWidget } from "./items.js";
+import { closeTip } from "../tooltip.js";
 
 const navButtons = document.querySelectorAll(".nav-btn");
 const navGroups = document.querySelectorAll(".nav-group");
@@ -192,6 +193,11 @@ export function showPage(pageName) {
   // page's permission state. reset() also calls stopLive() internally.
   const leaving = SCANNERS_BY_PAGE[activePage];
   if (leaving && activePage !== pageName) leaving.reset();
+
+  // Same page-leave lifecycle as the scanners above. The tip bubble is
+  // `position: fixed` and body-parented, so one left open across a page swap
+  // would hang over markup it has nothing to do with.
+  closeTip();
 
   pages.forEach(page => {
     page.classList.toggle("active", page.id === `${pageName}-page`);

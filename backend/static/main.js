@@ -44,6 +44,7 @@ import { resetScan, autoStartTxnScan } from "./views/scan.js";
 import { initAuth } from "./views/auth.js";
 import { getActivePage } from "./views/nav.js";
 import { setActivePageGetter } from "./realtime.js";
+import { installTooltips } from "./tooltip.js";
 
 // Let the scan-and-go flow stop the live camera + clear the scan UI when
 // the operator changes the work order. Same one-way-dependency reasoning.
@@ -56,6 +57,10 @@ setScanAutostarter(autoStartTxnScan);
 // Give the foundation transport read-only page state without teaching it about
 // DOM structure or importing a view module from below the composition root.
 setActivePageGetter(getActivePage);
+
+// Field-help `?` bubbles. One call, once: the runtime delegates on `document`,
+// so it covers markup that does not exist yet -- views never register anything.
+installTooltips();
 
 // --- Auth gate ---------------------------------------------------
 // `initAuth` checks /auth/me and then either shows the login screen or

@@ -15,7 +15,11 @@
             <h2>Work Orders</h2>
             <div class="wo-filter-grid" aria-label="Work order filters">
                 <div class="wo-filter-field">
-                    <label for="work-orders-status-filter">Status</label>
+                    <!-- Field-help `?`: inside the label as an inline child,
+                         never as a sibling -- see docs/superpowers/specs/
+                         2026-08-23-tooltips-design.md. Copy lives in
+                         static/tips.js; the markup carries only the key. -->
+                    <label for="work-orders-status-filter">Status<button type="button" class="tip-btn" data-tip="wo.status">?</button></label>
                     <select id="work-orders-status-filter">
                         <option value="">All statuses</option>
                         <option value="created">Created</option>
@@ -40,7 +44,10 @@
                     </select>
                 </div>
                 <div class="wo-filter-field">
-                    <label for="work-orders-priority-level-filter">Priority level</label>
+                    <!-- One tip covers this filter and the Priority filter
+                         above it; it is anchored here because "Priority level"
+                         is the one people reach for by mistake. -->
+                    <label for="work-orders-priority-level-filter">Priority level<button type="button" class="tip-btn" data-tip="wo.priority-vs-level">?</button></label>
                     <select id="work-orders-priority-level-filter">
                         <option value="">All priority levels</option>
                         <option value="high">High</option>
@@ -54,13 +61,13 @@
                     </select>
                 </div>
                 <div class="wo-filter-field">
-                    <label for="work-orders-community-filter">Community</label>
+                    <label for="work-orders-community-filter">Community<button type="button" class="tip-btn" data-tip="wo.community">?</button></label>
                     <select id="work-orders-community-filter">
                         <option value="">All communities</option>
                     </select>
                 </div>
                 <div class="wo-filter-field">
-                    <label for="work-orders-date-filter">Scheduled date</label>
+                    <label for="work-orders-date-filter">Scheduled date<button type="button" class="tip-btn" data-tip="wo.scheduled-date">?</button></label>
                     <input id="work-orders-date-filter" type="date">
                 </div>
             </div>
