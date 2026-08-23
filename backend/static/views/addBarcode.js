@@ -20,6 +20,7 @@
 import { apiListItems, apiUpdateBarcodes, apiGetItemByBarcode } from "../api.js";
 import { escapeHtml, friendlyError, filterRanked } from "../format.js";
 import { setMessage, confirmArchivedReuse, confirmDialog } from "../dom.js";
+import { skeletonList } from "../skeleton.js";
 
 const section = document.getElementById("add-barcode-section");
 const scannedEl = document.getElementById("add-barcode-scanned");
@@ -84,7 +85,10 @@ function renderResults() {
     return;
   }
 
-  resultsEl.innerHTML = `<p class="hint">Loading…</p>`;
+  // Three, not four: this list is capped by MAX_RESULTS and sits in a narrow
+  // editor panel, so a taller placeholder would shove the form controls
+  // around when it collapses to real results.
+  resultsEl.innerHTML = skeletonList(3);
   resultsEl.hidden = false;
   searchTimer = setTimeout(() => loadResults(term, requestId), 200);
 }
