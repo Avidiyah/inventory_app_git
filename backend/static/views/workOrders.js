@@ -67,6 +67,7 @@ import {
 } from "../roles.js";
 import { openBillingEditor } from "./billingEditor.js";
 import { subscribe } from "../realtime.js";
+import { skeletonCard } from "../skeleton.js";
 
 const listEl = document.getElementById("work-orders-list");
 const listMessage = document.getElementById("work-orders-list-message");
@@ -1219,7 +1220,7 @@ function buildCard(card, { onOpen } = {}) {
 
   const body = document.createElement("div");
   body.className = "wo-body";
-  body.innerHTML = `<p class="hint">Loading…</p>`;
+  body.innerHTML = skeletonCard({ lines: 3, hasHeader: false });
 
   el.appendChild(summary);
   el.appendChild(body);
@@ -1266,7 +1267,7 @@ async function openWorkOrderPage({ id, number = null }) {
   soloNumber = number;
   setSoloChrome(true);
   if (listMessage) setMessage(listMessage, "", "");
-  listEl.innerHTML = `<p class="hint">Loading…</p>`;
+  listEl.innerHTML = skeletonCard({ lines: 6 });
 
   let detail;
   try {
@@ -1293,7 +1294,7 @@ async function openWorkOrderPageByNumber(number) {
   soloNumber = number;
   setSoloChrome(true);
   if (listMessage) setMessage(listMessage, "", "");
-  listEl.innerHTML = `<p class="hint">Loading…</p>`;
+  listEl.innerHTML = skeletonCard({ lines: 6 });
 
   let matches;
   try {
@@ -1372,7 +1373,7 @@ export function openWorkOrdersFilteredByDistribution({
 // Admin caller (P3/P4) passes `{ supervisorId }` or nothing, respectively.
 export function mountWorkOrderList({ container, lockedFilter = null, onOpen } = {}) {
   async function refresh() {
-    container.innerHTML = `<p class="hint">Loading…</p>`;
+    container.innerHTML = skeletonCard({ lines: 1 }).repeat(3);
     let cards;
     try {
       cards = await apiListWorkOrders(lockedFilter || {});

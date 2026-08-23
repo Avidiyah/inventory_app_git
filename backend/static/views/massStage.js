@@ -28,6 +28,7 @@ import { setMessage, confirmDialog } from "../dom.js";
 import { canBeWorkOrderTechnician } from "../roles.js";
 import { showPage } from "./nav.js";
 import { focusWorkOrder } from "./workOrders.js";
+import { skeletonCard } from "../skeleton.js";
 
 const listEl = document.getElementById("mass-stage-list");
 const listMessage = document.getElementById("mass-stage-list-message");
@@ -117,7 +118,7 @@ function buildStageCard(stage) {
 
   const body = document.createElement("div");
   body.className = "stage-body";
-  body.innerHTML = `<p class="hint">Loading…</p>`;
+  body.innerHTML = skeletonCard({ lines: 4, hasHeader: false });
 
   card.appendChild(summary);
   card.appendChild(body);
