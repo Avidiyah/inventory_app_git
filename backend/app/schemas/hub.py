@@ -165,6 +165,10 @@ class HubResponse(BaseModel):
     day: date
     clock: HubClock
     timeline: list[HubTimelineEntry] = []
+    # The "My Work Orders" tab label's number: routed to me or assigned to me,
+    # matching exactly what that tab lists. Distinct from `counts.assigned`,
+    # which is worker assignment alone -- see `services.hub.HubPayload`.
+    mine_total: int
     counts: HubCounts
     priority: HubPriorityCounts
     startable: list[HubStartable] = []

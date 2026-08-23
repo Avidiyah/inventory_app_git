@@ -119,6 +119,13 @@ class HubPayload:
     user: User
     server_now: datetime
     day: date
+    # The number on the "My Work Orders" tab label. Deliberately separate from
+    # `counts.assigned`: that one is worker assignment only (it feeds the
+    # Dashboard's own tiles and every crew card), while this counts exactly
+    # what the tab lists -- routed to me *or* assigned to me. A Supervisor with
+    # nothing but routed work has `counts.assigned == 0` and `mine_total > 0`,
+    # which is precisely the disagreement that put "(0)" over a list of cards.
+    mine_total: int
     counts: AssignedCounts
     priority: PriorityCounts
     clock: labor_summary.DaySummary
@@ -153,6 +160,33 @@ def _assigned_work_orders(db: Session, user_id: uuid.UUID) -> list[WorkOrder]:
         )
         .order_by(WorkOrder.number)
         .all()
+    )
+
+
+def _mine_total(db: Session, user_id: uuid.UUID) -> int:
+    """How many live work orders sit behind the "My Work Orders" tab.
+
+    Counted in SQL rather than by loading rows the way `_assigned_work_orders`
+    does: this number feeds a tab label and nothing else, so there is no second
+    consumer to justify hydrating entities.
+
+    The predicate is imported from the list service rather than restated here
+    -- `mine_predicate` is the single definition the tab's own card list also
+    filters on, so the label and the cards behind it cannot drift apart.
+
+    Note this is the *true* total, not the capped ten the tab renders. A
+    Technician's tile count has always worked that way, and "(12)" over ten
+    cards and a "View all" link is the honest reading of how much work the
+    person has.
+    """
+    return (
+        db.query(func.count(WorkOrder.id))
+        .filter(
+            WorkOrder.archived_at.is_(None),
+            work_orders_service.mine_predicate(user_id),
+        )
+        .scalar()
+        or 0
     )
 
 
@@ -221,6 +255,7 @@ def personal_hub(db: Session, user: User) -> HubPayload:
         user=user,
         server_now=now,
         day=day,
+        mine_total=_mine_total(db, user.id),
         counts=counts,
         priority=priority,
         clock=labor_summary.day_summary(db, user.id, day, now=now),

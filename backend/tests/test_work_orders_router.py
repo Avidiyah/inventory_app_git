@@ -129,6 +129,33 @@ def test_hub_work_orders_tab_requests_mine_not_assigned_to_id():
     assert "assignedToId" not in code
 
 
+def test_the_tab_label_count_is_live_and_reads_mine_total():
+    """Two separate defects, both pinned here.
+
+    The number: `counts.assigned` is worker assignment only, so it read "(0)"
+    for a Supervisor whose work was all routed to them.
+
+    The liveness: the label used to be written in exactly one place, inside
+    `loadUserHub`. Every background refresh replaced `latestPayload` without
+    touching it, so the count only moved on a full page re-entry.
+    """
+    code = _code("userHub.js")
+
+    assert "`My Work Orders (${latestPayload.mine_total})`" in code
+    assert "counts.assigned" not in code
+    # Rendered from a helper rather than inline, and called on the refresh
+    # path as well as the initial load -- that pair is what makes it live.
+    assert "function renderWorkOrdersTabLabel()" in code
+    assert code.count("renderWorkOrdersTabLabel();") >= 2
+
+    refresh_body = code.split("async function refreshPersonal")[1]
+    assert "renderWorkOrdersTabLabel();" in refresh_body
+    # The cards move with the number. A live count over a stale list is the
+    # same disagreement wearing a different hat.
+    assert "refreshHubWorkOrders();" in refresh_body
+    assert "export function refreshHubWorkOrders()" in _code("hubTechnician.js")
+
+
 def test_api_client_sends_the_mine_flag():
     view = _view("../api.js")
 

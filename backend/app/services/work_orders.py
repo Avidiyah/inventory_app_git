@@ -930,6 +930,36 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
 
 # --- list + detail -------------------------------------------------------
 
+def mine_predicate(user_id: uuid.UUID):
+    """"Work with my name on it" -- routed to this person or assigned to them.
+
+    Exported rather than inlined because two surfaces must agree on it: the
+    Work Orders list's `mine` filter (the User Hub's "My Work Orders" tab) and
+    the count rendered on that tab's own label (`services.hub.personal_hub`).
+    They did not agree, and that is the whole bug this exists to prevent -- the
+    tab read "My Work Orders (0)" over a list of cards.
+
+    Deliberately *not* expressible as `assigned_to_id`: that filter's or_ pair
+    covers worker assignment only, so a work order an Admin routed to a
+    Supervisor matched nothing and vanished from their own dashboard while the
+    "Work orders I lead" tile counted it.
+
+    The unrouted pickup queue is deliberately excluded even though a
+    Supervisor's own `_scoped_to_user` scope admits it. Roughly half of all
+    live work orders are unrouted at any time, so including it made this read
+    as "every work order in the company" -- the opposite of what a personal
+    list is for. The pickup queue is still one click away on the standalone
+    Work Orders page.
+    """
+    return or_(
+        WorkOrder.supervisor_id == user_id,
+        WorkOrder.assigned_to_id == user_id,
+        WorkOrder.technician_assignments.any(
+            WorkOrderTechnician.technician_id == user_id
+        ),
+    )
+
+
 def _apply_work_order_filters(
     query,
     *,
@@ -973,28 +1003,7 @@ def _apply_work_order_filters(
         )
 
     if mine and user is not None:
-        # "Work with my name on it" -- routed to me or assigned to me, and
-        # nothing else. Deliberately *not* expressible as `assigned_to_id`:
-        # that filter's or_ pair covers worker assignment only, so a work
-        # order an Admin routed to a Supervisor matched nothing and vanished
-        # from their own dashboard while the "Work orders I lead" tile
-        # counted it.
-        #
-        # The unrouted pickup queue is deliberately excluded even though a
-        # Supervisor's own `_scoped_to_user` scope admits it. Roughly half of
-        # all live work orders are unrouted at any time, so including it made
-        # this list read as "every work order in the company" -- which is the
-        # opposite of what a personal list is for. The pickup queue is still
-        # one click away on the standalone Work Orders page.
-        query = query.filter(
-            or_(
-                WorkOrder.supervisor_id == user.id,
-                WorkOrder.assigned_to_id == user.id,
-                WorkOrder.technician_assignments.any(
-                    WorkOrderTechnician.technician_id == user.id
-                ),
-            )
-        )
+        query = query.filter(mine_predicate(user.id))
 
     query = _apply_community_filter(query, community)
     query = _apply_priority_filter(query, priority)

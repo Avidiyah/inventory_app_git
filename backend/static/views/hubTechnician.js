@@ -220,3 +220,11 @@ export function mountHubWorkOrders(container, payload) {
     showPage("work-orders");
   });
 }
+
+// Refetch the cards without rebuilding the tab around them. Called by
+// userHub.js's background refresh while this tab is the active one, so the
+// count on the tab label and the cards behind it move together -- a live
+// count over a stale list is the same disagreement in a new place.
+export function refreshHubWorkOrders() {
+  if (mountedList) void mountedList.refresh();
+}

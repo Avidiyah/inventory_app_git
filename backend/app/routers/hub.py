@@ -77,6 +77,7 @@ def get_hub(
             adjustments=clock.adjustments,
         ),
         timeline=clock.timeline,
+        mine_total=payload.mine_total,
         counts=payload.counts,
         priority=payload.priority,
         startable=payload.startable,

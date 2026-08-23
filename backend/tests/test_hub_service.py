@@ -1354,3 +1354,59 @@ def test_timesheet_csv_uses_h_mm_and_includes_the_crew_total(db):
         "Jordan Rivera,7:05,7:05",
         "Crew total,7:05,7:05",
     ]
+
+
+# --- the "My Work Orders" tab label count --------------------------------
+
+def test_mine_total_counts_routed_work_that_assigned_counts_miss(db):
+    """The tab label's number and the cards behind it must agree.
+
+    `counts.assigned` is worker assignment only, so a Supervisor whose work is
+    all *routed* to them saw "My Work Orders (0)" sitting over a list that had
+    cards in it. `mine_total` is the number the label actually renders.
+    """
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+
+    _seed_work_order(db, created_by=admin, supervisor=supervisor)
+    _seed_work_order(db, created_by=admin, supervisor=supervisor)
+
+    payload = hub_service.personal_hub(db, supervisor)
+
+    assert payload.counts.assigned == 0
+    assert payload.mine_total == 2
+
+
+def test_mine_total_equals_the_cards_the_tab_lists(db):
+    """Pins the label to its list. Both read `work_orders.mine_predicate`, and
+    this is the assertion that keeps them reading the same one."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+    other_supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
+
+    _seed_work_order(db, created_by=admin, supervisor=supervisor)
+    _seed_work_order(db, created_by=admin, assigned_to=supervisor)
+    # Neither of these is "mine": someone else's routing, and the unrouted
+    # pickup queue that the Supervisor's own scope would otherwise admit.
+    _seed_work_order(db, created_by=admin, supervisor=other_supervisor)
+    _seed_work_order(db, created_by=admin)
+
+    payload = hub_service.personal_hub(db, supervisor)
+    listed = wos.list_work_orders(db, user=supervisor, mine=True)
+
+    assert payload.mine_total == len(listed)
+    assert payload.mine_total == 2
+
+
+def test_mine_total_matches_assigned_for_a_technician(db):
+    """A Technician cannot be routed anything, so the two numbers coincide --
+    which is why the old label looked correct for years."""
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    tech = _seed_user(db, roles.ROLE_TECHNICIAN)
+
+    _seed_work_order(db, created_by=admin, assigned_to=tech)
+    _seed_work_order(db, created_by=admin)
+
+    payload = hub_service.personal_hub(db, tech)
+
+    assert payload.mine_total == payload.counts.assigned == 1

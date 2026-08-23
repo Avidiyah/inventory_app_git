@@ -13,7 +13,11 @@ import { escapeHtml, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
 import { roleAtLeast } from "../roles.js";
 import { mountHubClock, startHubClockTicking, stopHubClockTicking } from "./hubClock.js";
-import { mountHubDashboard, mountHubWorkOrders } from "./hubTechnician.js";
+import {
+  mountHubDashboard,
+  mountHubWorkOrders,
+  refreshHubWorkOrders,
+} from "./hubTechnician.js";
 import { mountHubPriorities } from "./hubPriorities.js";
 import { mountHubCrew } from "./hubSupervisor.js";
 import { mountHubAdminSummary } from "./hubAdmin.js";
@@ -322,6 +326,29 @@ async function refreshAdmin({ background = false } = {}) {
   }
 }
 
+// The count on the "My Work Orders" tab, rendered from whatever payload is
+// current. Called on every path that replaces `latestPayload` -- the initial
+// load *and* each background refresh -- because the number is the tab's only
+// signal while the tab is closed, and a count that only updates on a full page
+// re-entry is not a live count.
+//
+// `mine_total`, not `counts.assigned`: the latter is worker assignment alone,
+// so a Supervisor whose work is all routed to them read "(0)" over a list that
+// had cards in it. `mine_total` is built from the same predicate the tab's
+// card list filters on (`work_orders.mine_predicate`).
+//
+// P4 Tab 3 (spec §5.4): for a techfm_oa+ viewer this tab is an embedded,
+// unscoped company-wide list -- `apiListWorkOrders` already returns every live
+// work order for that role tier (`_scoped_to_user`), so any personal count
+// would misreport both the scope and the number. That tab keeps a bare label.
+function renderWorkOrdersTabLabel() {
+  const tab = document.getElementById("hub-tab-work-orders");
+  if (!tab || !latestPayload) return;
+  tab.textContent = viewerCanSeeAdminTiles()
+    ? "Work Orders"
+    : `My Work Orders (${latestPayload.mine_total})`;
+}
+
 // Mirrors refreshCrew/refreshAdmin -- background-only, keeps the last good
 // numbers on failure. Every role gets this: a plain Technician has no other
 // periodic refresh, and the Priorities card is the one thing on their
@@ -330,7 +357,9 @@ async function refreshPersonal({ background = false } = {}) {
   try {
     const payload = await apiGetHub();
     latestPayload = payload;
+    renderWorkOrdersTabLabel();
     if (activeTab === "dashboard") mountHubDashboard(tabPanels.dashboard, latestPayload);
+    else if (activeTab === "work-orders") refreshHubWorkOrders();
     renderPriorities();
     renderCrew();
     renderAdmin();
@@ -408,13 +437,7 @@ export async function loadUserHub() {
   latestPayload = payload;
   setTimesheetsTabVisible(canViewSupervisorTabs);
   setGraphsTabVisible(canViewAdminTiles);
-  // P4 Tab 3 (spec §5.4): for a techfm_oa+ viewer this tab is an embedded,
-  // unscoped company-wide list -- `apiListWorkOrders` already returns every
-  // live work order for that role tier (`_scoped_to_user`), so "My Work
-  // Orders (0)" would misreport both the scope and the count.
-  document.getElementById("hub-tab-work-orders").textContent = canViewAdminTiles
-    ? "Work Orders"
-    : `My Work Orders (${latestPayload.counts.assigned})`;
+  renderWorkOrdersTabLabel();
   placeClockMount(canViewAdminTiles);
   mountHubClock(clockMount, latestPayload, { onChanged: refreshUserHub });
   showTab(activeTab);
