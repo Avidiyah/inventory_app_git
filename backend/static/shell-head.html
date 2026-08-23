@@ -59,13 +59,19 @@
                     <button type="button" id="login-password-toggle" class="password-toggle-btn" aria-pressed="false" aria-label="Show password">Show</button>
                 </div>
 
-                <label class="checkbox-row" for="login-remember">
-                    <input type="checkbox" id="login-remember"> Stay signed in for this shift
-                </label>
+                <div class="checkbox-help-row">
+                    <label class="checkbox-row" for="login-remember">
+                        <input type="checkbox" id="login-remember"> Stay signed in for this shift
+                    </label>
+                    <button type="button" class="tip-btn" data-tip="auth.shift-session">?</button>
+                </div>
 
-                <label class="checkbox-row" for="login-notifications">
-                    <input type="checkbox" id="login-notifications"> Enable notifications
-                </label>
+                <div class="checkbox-help-row">
+                    <label class="checkbox-row" for="login-notifications">
+                        <input type="checkbox" id="login-notifications"> Enable notifications
+                    </label>
+                    <button type="button" class="tip-btn" data-tip="auth.notifications">?</button>
+                </div>
 
                 <button id="login-btn">Sign In</button>
                 <p id="login-message"></p>

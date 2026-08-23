@@ -20,7 +20,7 @@
         <section id="items-section" class="feature-panel" data-feature="find">
             <h2><svg class="section-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>Find Item</h2>
             <div class="filter-row">
-                <label for="items-search">Search</label>
+                <label for="items-search">Search<button type="button" class="tip-btn" data-tip="item.load-all">?</button></label>
                 <!-- Keep this as a plain text field. Browser-native datalist
                      popups can cover most of the screen on mobile; results
                      should appear only after an explicit Search/Enter. -->
@@ -88,7 +88,7 @@
         <!-- ----- Contextual sub-flows (opened from a Find row action) ----- -->
 
         <section id="notes-editor-section" hidden>
-            <h2><svg class="section-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>Notes</h2>
+            <h2><svg class="section-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>Notes<button type="button" class="tip-btn" data-tip="item.notes">?</button></h2>
             <div class="form-stack">
                 <p id="notes-editor-selected"></p>
 
@@ -109,24 +109,24 @@
             <div class="form-stack">
                 <p id="item-editor-selected"></p>
 
-                <label for="item-editor-barcode">Barcode</label>
+                <label for="item-editor-barcode">Barcode<button type="button" class="tip-btn" data-tip="item.barcode">?</button></label>
                 <input type="text" id="item-editor-barcode" placeholder="Barcode">
 
                 <label for="item-editor-name">Name</label>
                 <input type="text" id="item-editor-name" placeholder="Item name">
 
-                <label for="item-editor-location">Location</label>
+                <label for="item-editor-location">Location<button type="button" class="tip-btn" data-tip="item.location">?</button></label>
                 <input type="text" id="item-editor-location" placeholder="Location">
 
-                <label>Additional barcodes</label>
+                <label>Additional barcodes<button type="button" class="tip-btn" data-tip="item.extra-barcodes">?</button></label>
                 <p class="field-hint">Extra codes on the packaging that should scan to this item.</p>
                 <div id="item-editor-barcodes-rows"></div>
                 <button id="item-editor-add-barcode-btn" type="button" class="secondary-btn">Add Another Barcode</button>
 
-                <label for="item-editor-price">Price</label>
+                <label for="item-editor-price">Price<button type="button" class="tip-btn" data-tip="item.price">?</button></label>
                 <input type="number" id="item-editor-price" placeholder="0.00" min="0" step="0.01">
 
-                <label for="item-editor-product-link">Product Link</label>
+                <label for="item-editor-product-link">Product Link<button type="button" class="tip-btn" data-tip="item.product-link">?</button></label>
                 <input type="url" id="item-editor-product-link" placeholder="Enter product link">
 
                 <div class="form-buttons">
@@ -140,7 +140,7 @@
         <section id="correction-section" hidden>
             <!-- Ink-coloured check, deliberately not --status-adjust blue:
                  status hues stay on .type-badge (docs/design-system.md). -->
-            <h2><svg class="section-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>Correct Count</h2>
+            <h2><svg class="section-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>Correct Count<button type="button" class="tip-btn" data-tip="item.correct-count">?</button></h2>
             <p class="hint">Use this when the shelf count is wrong.</p>
             <div class="form-stack">
                 <p id="correction-selected"></p>
@@ -149,7 +149,7 @@
                 <label for="correction-new-quantity">New Count</label>
                 <input type="number" id="correction-new-quantity" step="any" min="0" placeholder="0">
 
-                <label for="correction-reason">Why are you changing it?</label>
+                <label for="correction-reason">Why are you changing it?<button type="button" class="tip-btn" data-tip="item.correct-reason">?</button></label>
                 <input type="text" id="correction-reason" placeholder="Reason for the correction">
 
                 <div class="form-buttons">
@@ -161,7 +161,7 @@
         </section>
 
         <section id="add-barcode-section" hidden>
-            <h2><svg class="section-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M6 8v8M9 8v8M12 8v8M15 8v8M18 8v8"/></svg>Add Barcode to an Item</h2>
+            <h2><svg class="section-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M6 8v8M9 8v8M12 8v8M15 8v8M18 8v8"/></svg>Add Barcode to an Item<button type="button" class="tip-btn" data-tip="item.add-barcode">?</button></h2>
             <p class="hint">Attach the scanned code to an item you already have.</p>
             <div class="form-stack">
                 <p id="add-barcode-scanned"></p>

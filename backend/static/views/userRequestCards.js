@@ -14,6 +14,7 @@
 // services/user_requests.py.
 
 import { escapeHtml, formatMoney } from "../format.js";
+import { tipHtml } from "../tooltip.js";
 
 export function formatDate(value) {
   if (!value) return "Unknown time";
@@ -100,11 +101,15 @@ function recountActions(request) {
       `<button type="button" class="secondary-btn user-request-edit-open">Edit</button>`
     );
   }
+  const countInputId = `user-request-count-${escapeHtml(request.id)}`;
   return (
     `<div class="user-request-count-fix">
-       <label class="user-request-count-label">Correct count to
-         <input type="number" class="user-request-count-input" min="0" step="any" placeholder="0" inputmode="decimal">
-       </label>
+       <div class="user-request-count-field">
+         <div class="user-request-count-field-label">
+           <label for="${countInputId}">Correct count to</label>${tipHtml("requests.recount")}
+         </div>
+         <input type="number" id="${countInputId}" class="user-request-count-input" min="0" step="any" placeholder="0" inputmode="decimal">
+       </div>
        <label class="user-request-count-label">Reason
          <input type="text" class="user-request-count-reason" placeholder="Recounted the shelf">
        </label>
@@ -263,8 +268,8 @@ export function siblingsHtml(siblings) {
     .join("");
   return `<p class="user-request-siblings-title"><strong>Also close these ${
     siblings.length
-  } request${siblings.length === 1 ? "" : "s"} for the same material?</strong></p>
-    <p class="hint">Each is added to its own work order at its own quantity. Uncheck any that are not the same material.</p>
+  } request${siblings.length === 1 ? "" : "s"} for the same material?</strong>${tipHtml("requests.siblings")}</p>
+    <p class="hint">Each selected request with a live work order is added at its own quantity. Closed or absent work orders receive no line. Uncheck any that are not the same material.</p>
     ${rows}`;
 }
 

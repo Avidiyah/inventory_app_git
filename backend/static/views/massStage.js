@@ -29,6 +29,7 @@ import { canBeWorkOrderTechnician } from "../roles.js";
 import { showPage } from "./nav.js";
 import { focusWorkOrder } from "./workOrders.js";
 import { skeletonCard } from "../skeleton.js";
+import { tipHtml } from "../tooltip.js";
 
 const listEl = document.getElementById("mass-stage-list");
 const listMessage = document.getElementById("mass-stage-list-message");
@@ -240,7 +241,7 @@ function renderLoadingBody(stage, bodyEl) {
     : "";
 
   bodyEl.innerHTML =
-    `<h3 class="ms-subhead">Load list</h3>` +
+    `<h3 class="ms-subhead">Load list${tipHtml("stage.load-list")}</h3>` +
     `<div class="ms-merged">${merged}</div>` +
     `<h3 class="ms-subhead">Units</h3>` +
     `<div class="ms-rooms">${slots}</div>` +

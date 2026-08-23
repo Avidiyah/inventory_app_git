@@ -2,7 +2,7 @@
     <div class="page" id="history-page">
 
         <section id="history-section">
-            <h2>Transaction History</h2>
+            <h2>Transaction History<button type="button" class="tip-btn" data-tip="history.pricing-list">?</button></h2>
 
             <!-- Work-order overlay filter: visible on every sub-tab, composes
                  with item / user filters via AND. Filters on the work-order
@@ -11,7 +11,7 @@
                  here names an ARCHIVED work order, views/history.js offers to
                  restore it (Supervisor+) -- see #history-wo-message. -->
             <div class="filter-row">
-                <label for="history-wo-filter">Filter by Work Order</label>
+                <label for="history-wo-filter">Filter by Work Order<button type="button" class="tip-btn" data-tip="history.wo-filter">?</button></label>
                 <input type="text" id="history-wo-filter" placeholder="Filter by work order number">
                 <button id="history-wo-clear-btn" type="button" class="secondary-btn">Clear</button>
             </div>
@@ -21,7 +21,7 @@
                  combines via AND. Either side may be left blank for an open
                  range; the To date is included in full. -->
             <div class="filter-row">
-                <label for="history-date-from">From</label>
+                <label for="history-date-from">From<button type="button" class="tip-btn" data-tip="history.date-range">?</button></label>
                 <input type="date" id="history-date-from">
                 <label for="history-date-to">To</label>
                 <input type="date" id="history-date-to">
@@ -80,7 +80,7 @@
                             <th>Quantity</th>
                             <th>WO / Reason</th>
                             <th>User</th>
-                            <th class="admin-col" hidden>Charge</th>
+                            <th class="admin-col" hidden>Charge<button type="button" class="tip-btn" data-tip="history.charge-col">?</button></th>
                             <th>Actions</th>
                         </tr>
                     </thead>

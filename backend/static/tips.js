@@ -14,6 +14,16 @@
 // A tip explains a rule you need once while learning. A rule you need every
 // time you touch the control stays a visible `.hint` paragraph.
 export const TIPS = {
+  // --- Login (shell-head.html) ------------------------------------------
+  "auth.shift-session": {
+    label: "Stay signed in for this shift",
+    text: "Every sign-in expires after 12 hours. Turn this on only to keep the session cookie when the browser closes; it does not extend the 12-hour limit.",
+  },
+  "auth.notifications": {
+    label: "Enable notifications",
+    text: "Allows this device to receive work-order alerts for the signed-in account. On iPhone and iPad, push works only when the app is installed to the Home Screen; logging out removes this device's subscription.",
+  },
+
   // --- Transaction (pages/transaction.html) ------------------------------
   "txn.wo-gate": {
     label: "Selecting a work order",
@@ -53,6 +63,10 @@ export const TIPS = {
     label: "Tool quantity",
     text: "Use 1 for a single serialized tool. Use a higher count for an unserialized batch that is tracked as a pool rather than as individual tools.",
   },
+  "tool.barcode": {
+    label: "Tool barcode",
+    text: "The label used to find this tool for checkout, return, and inventory. It must be unique among active tools; archiving a tool frees its barcode for reuse.",
+  },
 
   // --- Find Item (pages/saved-items.html) --------------------------------
   "item.load-all": {
@@ -74,6 +88,10 @@ export const TIPS = {
   "item.add-barcode": {
     label: "Add Barcode to an Item",
     text: "Attaches a code you just scanned to an item that already exists, instead of creating a duplicate item. Use it when a scan finds nothing but you know the item is in the catalogue.",
+  },
+  "item.notes": {
+    label: "Item notes",
+    text: "Each note has a unique name and a stored type: text, number, or true/false. Choosing the right type keeps later displays and edits consistent.",
   },
 
   // --- Tools (pages/tools.html) ------------------------------------------
@@ -115,6 +133,24 @@ export const TIPS = {
     label: "Export filtered CSV",
     text: "Exports every work order matching the filters above, not just the ones shown on screen. The file re-imports cleanly, so it doubles as a way to bulk-correct rows and load them back.",
   },
+  "wo.routing": {
+    label: "Assigned technicians",
+    text: "The routed Supervisor oversees the order. More than one technician can be assigned. Technicians must be assigned to track time; Supervisors and higher roles may also work and record time on any order they can see.",
+  },
+  "wo.entry-mode": {
+    label: "New material entry mode",
+    text: "Dispense records new material as stock-moving usage. Retroactive adds a paper-sheet entry to the work order without changing on-hand stock; the mode applies only to entries added after the selection changes.",
+  },
+  "wo.auto-stopped": {
+    label: "Auto-stopped labor",
+    text: "A clock found running past 12 hours is closed at the 12-hour cap and marked as an estimate. Review the entry before billing it.",
+  },
+
+  // --- Billing (shared History / Work Orders editor) --------------------
+  "billing.quantity": {
+    label: "Billable quantity",
+    text: "This changes the invoice only; it never puts material back in stock. Zero keeps the line but charges nothing, while a blank value or the full recorded quantity clears the override and bills all units.",
+  },
 
   // --- History (pages/history.html) --------------------------------------
   "history.wo-filter": {
@@ -149,17 +185,33 @@ export const TIPS = {
     label: "Request types",
     text: "Recount requests flag stock that came up short. Missing price requests collect a price and product link for unpriced material used on a work order. Item requests report material a user searched for and could not find; fulfilling one adds it to the catalogue and logs it back onto the work order it came from.",
   },
+  "requests.recount": {
+    label: "Correcting a recount request",
+    text: "Saving a corrected count writes an inventory adjustment with this reason. Mark resolved only closes the request; it does not change stock.",
+  },
+  "requests.siblings": {
+    label: "Closing matching item requests",
+    text: "Matching item requests start checked because one catalogue fix can close them together. Each selected request with a live work order adds its own quantity there; closed or absent work orders receive no line, and unchecked requests stay open.",
+  },
 
   // --- Mass Stage (pages/mass-stage.html) --------------------------------
   "stage.new": {
     label: "New Mass Stage",
     text: "A stage plans truck loading around work orders that are already imported. It cannot create a work order, and only one active stage exists per community and building at a time.",
   },
+  "stage.load-list": {
+    label: "Mass Stage load list",
+    text: "The load list merges the same item across every unit. Planned is the requested total, Loaded is what has been staged, Remaining is the planned quantity not yet loaded, and Return records unused staged stock back into inventory.",
+  },
 
   // --- Add User (pages/create-user.html) ---------------------------------
   "user.role": {
     label: "Role",
     text: "Technicians scan and work assigned jobs; Supervisors run the board and approve finished work. TechFM OA handles imports, exports, and the request queues, and Admin and Owner add billing review and full account management. You can only create roles at or below your own.",
+  },
+  "user.lifecycle": {
+    label: "User lifecycle",
+    text: "Archiving blocks sign-in but keeps the user's history and allows restoration later. A user holding tools must return them first, or the archive confirmation can check them all in.",
   },
 
   // --- User Hub (pages/user-hub.html) ------------------------------------
@@ -170,6 +222,34 @@ export const TIPS = {
   "hub.graphs": {
     label: "Graphs",
     text: "The donuts are a shape, not a readout. The exact counts sit in the legend beside each one, and clicking a slice opens the matching work orders.",
+  },
+  "hub.priorities": {
+    label: "Hub priorities",
+    text: "Technicians see high-priority work assigned to them. Supervisors see high-priority live work orders routed to them, and TechFM OA and above see company-wide counts. The main count includes the unassigned subset shown beside it.",
+  },
+  "hub.crew": {
+    label: "My crew",
+    text: "Crew membership is derived from live work orders routed to you, not from a permanent team list. A person appears after a work order is assigned under your supervision.",
+  },
+  "hub.timesheets": {
+    label: "Timesheets",
+    text: "Each day includes tracked sessions plus manual adjustments. Supervisors see their routed crew; TechFM OA and above see every live Supervisor and Technician account. Open a day cell to see the tracked/adjustment split and any estimate flags.",
+  },
+  "hub.attention": {
+    label: "Needs attention",
+    text: "Long session starts at 8 hours and approaching cap at 11. Idle means assigned work with no recorded time at 10:00 a.m. Central. Stale means an In-Progress or On-Hold order has no session activity recorded, or its last activity was at least three days ago.",
+  },
+  "hub.clock-attention": {
+    label: "On the clock now",
+    text: "Long session starts at 8 hours and approaching cap at 11. A clock found running past 12 hours is auto-stopped at the cap and should be reviewed as an estimate.",
+  },
+  "hub.exceptions": {
+    label: "Hub exceptions",
+    text: "Counts open recount, missing-price, and item requests, plus the Admin Review queue. A live In-Progress or On-Hold order is stale when no session activity is recorded, or its last activity was at least three days ago.",
+  },
+  "hub.billing-week": {
+    label: "Hub billing periods",
+    text: "Material and labor dollars use receipt billing for work orders completed in the current Central-time week. Average completion time and the daily sparkline use the trailing 14 Central days, so they do not share the dollar totals' date window.",
   },
 
   // --- Integrations (pages/integrations.html) ----------------------------

@@ -6,6 +6,7 @@
 // makes no requests of its own.
 
 import { escapeHtml, formatMoney } from "../format.js";
+import { tipHtml } from "../tooltip.js";
 import { showPage } from "./nav.js";
 import { openWorkOrdersFilteredByStatus } from "./workOrders.js";
 
@@ -53,7 +54,7 @@ function onClockHtml(onTheClock) {
     : `<p class="hint">Nobody is on the clock right now.</p>`;
   return `
     <section class="hub-onclock-section">
-      <p class="hub-tile-label">On the clock now <span class="hub-tile-count">${onTheClock.length}</span></p>
+      <p class="hub-tile-label">On the clock now${tipHtml("hub.clock-attention")} <span class="hub-tile-count">${onTheClock.length}</span></p>
       ${body}
     </section>`;
 }
@@ -109,7 +110,7 @@ function exceptionsHtml(exceptions) {
   }).join("");
   return `
     <section class="hub-exceptions">
-      <p class="hub-tile-label">Exceptions</p>
+      <p class="hub-tile-label">Exceptions${tipHtml("hub.exceptions")}</p>
       <ul class="hub-exceptions-list">${rows}</ul>
     </section>`;
 }
@@ -137,7 +138,7 @@ function billingHtml(billing) {
       : `${billing.avg_days_to_complete.toFixed(1)} d`;
   return `
     <section class="hub-billing">
-      <p class="hub-tile-label">Billing · this week</p>
+      <p class="hub-tile-label">Billing · this week${tipHtml("hub.billing-week")}</p>
       <ul class="hub-exceptions-list">
         <li class="hub-exceptions-row"><span>Materials</span><span>${escapeHtml(formatMoney(billing.materials_total))}</span></li>
         <li class="hub-exceptions-row"><span>Labor</span><span>${escapeHtml(formatMoney(billing.labor_total))}</span></li>

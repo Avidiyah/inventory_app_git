@@ -9,7 +9,7 @@
 
         <!-- User-first checkout / check-in workflow. -->
         <section id="tool-custody-section" class="feature-panel" data-feature="custody">
-            <h2>Tool Custody</h2>
+            <h2>Tool Custody<button type="button" class="tip-btn" data-tip="tools.custody-vs-inventory">?</button></h2>
             <p class="hint">Choose a user to see their checked-out tools and record a checkout or check-in.</p>
 
             <div id="tool-user-picker" class="tool-picker">
@@ -67,7 +67,7 @@
                     <label for="tool-checkout-quantity">Quantity</label>
                     <input type="number" id="tool-checkout-quantity" step="any" min="0" placeholder="1" value="1">
 
-                    <label for="tool-checkout-work-order">Work Order (optional)</label>
+                    <label for="tool-checkout-work-order">Work Order (optional)<button type="button" class="tip-btn" data-tip="tools.checkout-wo">?</button></label>
                     <input type="text" id="tool-checkout-work-order" placeholder="Work order number">
 
                     <div class="form-buttons">
@@ -87,7 +87,7 @@
                     <label for="tool-return-quantity">Quantity</label>
                     <input type="number" id="tool-return-quantity" step="any" min="0" placeholder="1" value="1">
 
-                    <label for="tool-return-work-order">Work Order (optional)</label>
+                    <label for="tool-return-work-order">Work Order (optional)<button type="button" class="tip-btn" data-tip="tools.return-wo">?</button></label>
                     <input type="text" id="tool-return-work-order" placeholder="Work order number">
 
                     <div class="form-buttons">
@@ -143,7 +143,7 @@
                     <label for="tool-correction-new-quantity">New Count</label>
                     <input type="number" id="tool-correction-new-quantity" step="any" min="0" placeholder="0">
 
-                    <label for="tool-correction-reason">Why are you changing it?</label>
+                    <label for="tool-correction-reason">Why are you changing it?<button type="button" class="tip-btn" data-tip="tools.correct-reason">?</button></label>
                     <input type="text" id="tool-correction-reason" placeholder="Reason for the correction">
 
                     <div class="form-buttons">

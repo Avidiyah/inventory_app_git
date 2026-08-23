@@ -14,6 +14,7 @@
 // number I am personally staring at while it climbs."
 
 import { escapeHtml } from "../format.js";
+import { tipHtml } from "../tooltip.js";
 
 function formatHm(totalMinutes) {
   const minutes = Math.max(0, Math.round(totalMinutes));
@@ -66,7 +67,7 @@ function attentionHtml(attention) {
     .join("");
   return `
     <section class="hub-attention">
-      <p class="hub-tile-label">⚠ Needs attention <span class="hub-tile-count">${attention.length}</span></p>
+      <p class="hub-tile-label">⚠ Needs attention${tipHtml("hub.attention")} <span class="hub-tile-count">${attention.length}</span></p>
       <ul class="hub-attention-list">${rows}</ul>
     </section>`;
 }
@@ -128,13 +129,13 @@ function crewHtml(payload) {
   if (!payload.technicians.length) {
     return `
       <section class="hub-crew">
-        <p class="hub-tile-label">My crew</p>
+        <p class="hub-tile-label">My crew${tipHtml("hub.crew")}</p>
         <p class="hint">No one is currently routed to you. Your crew appears here once a work order is assigned under your supervision.</p>
       </section>`;
   }
   return `
     <section class="hub-crew">
-      <p class="hub-tile-label">My crew</p>
+      <p class="hub-tile-label">My crew${tipHtml("hub.crew")}</p>
       <div class="hub-crew-grid">
         ${payload.technicians.map((tech) => technicianCardHtml(tech, payload.server_now)).join("")}
       </div>

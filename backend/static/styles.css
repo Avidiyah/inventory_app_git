@@ -594,6 +594,18 @@ textarea {
     cursor: pointer;
 }
 
+/* A tooltip button cannot live inside a checkbox label: it would become a
+   second interactive descendant and, because .checkbox-row is flex, a new
+   label item. Keep the label and its help trigger as aligned siblings. */
+.checkbox-help-row {
+    display: flex;
+    align-items: center;
+}
+
+.checkbox-help-row .checkbox-row {
+    flex: 0 1 auto;
+}
+
 /* Password field + inline show/hide toggle (login form). The toggle sits
    inside the input's right edge, so the input needs right padding to keep
    typed text from running under it. */
@@ -1456,6 +1468,22 @@ tr:last-child td {
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
+    font-weight: var(--fw-bold);
+    font-size: var(--fs-sm);
+}
+
+/* The recount tip sits beside a real `for` label rather than inside the label
+   that owns the number input. The outer field preserves the existing stacked
+   label/input shape inside .user-request-count-fix. */
+.user-request-count-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.user-request-count-field-label {
+    display: flex;
+    align-items: center;
     font-weight: var(--fw-bold);
     font-size: var(--fs-sm);
 }
@@ -3840,11 +3868,12 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 /* =================== FIELD-HELP TOOLTIPS (`?` bubbles) =================== */
 /* See docs/superpowers/specs/2026-08-23-tooltips-design.md.
 
-   The trigger renders INSIDE the <label> / <h2> / <th> it annotates, as an
-   inline child after the text -- never as a new sibling, because several of
-   those labels live in `.filter-row` flex containers where a new child
-   redistributes space across the whole row. Everything here is sized in `em`
-   and constrained to the parent's line box, so adding a `?` moves nothing.
+   Most triggers render INSIDE the <label> / <h2> / <th> they annotate, as an
+   inline child after the text -- never as a loose sibling in a surrounding
+   flex row, where a new child can redistribute space. A label that already
+   wraps a form control is the exception: a scoped wrapper keeps the label and
+   tip as siblings, avoiding a second interactive descendant. Everything here
+   is sized in `em` and constrained to the line box.
 
    The bubble copies the `.wo-combo-list` recipe directly above: opaque
    --color-header, --gray-700 hairline, --shadow-md. A floating layer over a

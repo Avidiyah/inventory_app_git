@@ -10,13 +10,14 @@
 
 import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage } from "../dom.js";
+import { tipHtml } from "../tooltip.js";
 
 // Markup for the editor that replaces a charge cell: a "Bill for N of M"
 // number input plus Save / Don't charge / Cancel and a live-region message.
 function billingEditorHtml(quantity, billable) {
   return `
     <div class="charge-editor">
-      <label class="charge-editor-label">Bill for
+      <label class="charge-editor-label">Bill for${tipHtml("billing.quantity")}
         <input type="number" class="charge-input" min="0" max="${escapeHtml(String(quantity))}" step="any" value="${escapeHtml(String(billable))}">
         of ${escapeHtml(String(quantity))}
       </label>

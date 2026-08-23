@@ -1,9 +1,8 @@
 # Field-Help Tooltips (`?` bubbles) — Design Spec
 
-Status: **designed 2026-08-23. Steps 0–4 and 6 done; steps 5 and 7 open.**
-Written to be picked up cold by a later session — read this file top to bottom,
-then work §8's numbered steps in order, starting at **step 5**. Step 5 is
-gated on the owner's manual check of Work Orders (§8 step 4).
+Status: **implemented 2026-08-23. Steps 0–7 done.** Hands-on hover, tap,
+keyboard, Escape, rotation, and screenshot comparison remain manual browser
+checks under `PRO-008`.
 
 **Read §5.5 before wiring any anchor.** It records a constraint found during
 step 4 that the original design missed and that changes nine of §7's anchors.
@@ -561,20 +560,23 @@ guarantee holds here it holds everywhere.
 Verify: open/close by hover, by click, by keyboard; Escape; scroll; rotate to
 portrait; confirm no layout shift against a before-screenshot.
 
-**Step 5 — Roll out the remaining pages. ← RESUME HERE, once the owner has
-looked at Work Orders.**
+**Step 5 — Roll out the remaining pages. — ✅ DONE.**
 Apply §5.5's revised anchor table as you go.
 One page per commit, in this order: Transaction, Add Item, Find Item, History,
 Tools, User Requests, Admin Review, Mass Stage, Add User, Integrations, User
 Hub. Screenshot-diff each page before and after (§5.3). User Hub last because
 it is entirely JS-rendered and depends on the delegation working.
 
+All 11 pages are wired. The served shell contains 30 static anchors and User
+Hub renders two more through `tipHtml()`. All 32 references resolve against the
+35-key registry; the three button-only keys parked by §5.5 remain unreferenced.
+
 **Step 6 — `nav.js` page-change hook. — ✅ DONE, `43f4ddb`.**
 `closeTip()` is called from `showPage`'s page-leave path alongside the existing
 scanner stop. It landed with step 4 rather than after step 5 because the hook
 is needed the moment the first page has a live anchor.
 
-**Step 7 — Docs.**
+**Step 7 — Docs. — ✅ DONE.**
 The `IMP-037` entry is already in `docs/open-work.md` (added late, at step 4,
 carrying §5.5's constraint). At step 7, mark it closed there and mark it closed
 at step 7, matching how `IMP-036` was tracked. Add a short section to

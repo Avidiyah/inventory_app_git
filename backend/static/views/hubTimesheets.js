@@ -6,6 +6,7 @@
 
 import { apiExportHubTimesheets } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
+import { tipHtml } from "../tooltip.js";
 
 const CENTRAL_TIME_ZONE = "America/Chicago";
 const FLAG_LABELS = {
@@ -187,7 +188,7 @@ export function mountHubTimesheets(container, payload, { onWeekChange, isAdminPl
       <div class="hub-timesheet-toolbar">
         <div class="hub-timesheet-week-nav">
           <button type="button" class="secondary-btn hub-timesheet-prev" aria-label="Previous week">◀</button>
-          <strong>${escapeHtml(rangeLabel(payload.range.start, payload.range.end))}</strong>
+          <strong>${escapeHtml(rangeLabel(payload.range.start, payload.range.end))}${tipHtml("hub.timesheets")}</strong>
           <button type="button" class="secondary-btn hub-timesheet-next" aria-label="Next week">▶</button>
         </div>
         <button type="button" class="hub-timesheet-export">Export CSV</button>

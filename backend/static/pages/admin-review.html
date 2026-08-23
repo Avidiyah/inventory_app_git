@@ -6,7 +6,7 @@
     <div class="page" id="admin-review-page">
 
         <section id="admin-review-queue-section">
-            <h2>Admin Review</h2>
+            <h2>Admin Review<button type="button" class="tip-btn" data-tip="review.receipt">?</button></h2>
             <p class="hint">Select a Review work order to build its 41-character
                receipt. Verify the material and billed labor charges, then close
                it or return it to In-Progress for corrections.</p>
@@ -15,7 +15,7 @@
         </section>
 
         <section id="admin-review-receipt-section" hidden>
-            <h3 id="admin-review-receipt-title">Work Order Receipt</h3>
+            <h3 id="admin-review-receipt-title">Work Order Receipt<button type="button" class="tip-btn" data-tip="review.reopen-vs-close">?</button></h3>
             <textarea id="admin-review-receipt-output" class="pricing-output admin-review-receipt-output" rows="14" wrap="off" readonly aria-label="Selected work order receipt"></textarea>
             <p id="admin-review-receipt-message" aria-live="polite"></p>
             <div class="admin-review-actions">

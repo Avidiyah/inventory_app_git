@@ -8,7 +8,7 @@
              Driven by views/transactions.js; see docs/current-state.md. -->
         <section id="txn-scango-section">
             <div id="wo-gate">
-                <h2>Select a work order</h2>
+                <h2>Select a work order<button type="button" class="tip-btn" data-tip="txn.wo-gate">?</button></h2>
 
                 <!-- Supervisor+ number search. This is a live filter over the
                      server-scoped, imported work orders below; typing never
@@ -68,7 +68,7 @@
         </section>
 
         <section id="txn-scan-section" hidden>
-            <h2>Scan item</h2>
+            <h2>Scan item<button type="button" class="tip-btn" data-tip="txn.direction">?</button></h2>
             <p class="hint">Point your camera at a barcode, or upload a photo. Each scan is saved to the work order automatically.</p>
             <div class="scan-controls">
                 <!-- File input is hidden via CSS; the Upload button

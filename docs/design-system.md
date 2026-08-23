@@ -204,6 +204,23 @@ Inputs (`input`, `select`, `textarea`) keep their normal dark `--input-bg` +
 `--text-panel` treatment on *any* surface, glass included — see the "Inputs
 stay white with dark text" rule change above.
 
+## Field-help tooltips
+
+Use a `?` tooltip for a non-obvious domain rule that a person mainly needs
+while learning the app. Keep a visible `.hint` when the guidance is needed
+every time the control is used, prevents a costly mistake, or is part of the
+normal completion flow. Tooltips supplement labels; they do not replace them.
+
+Static markup hand-authors a `.tip-btn[data-tip="<registry-key>"]` inside the
+existing label or heading. JS-rendered markup uses
+`tipHtml("<registry-key>")`. When a label already wraps a form control or is
+itself a flex layout, do not add a second interactive descendant: use an
+approved, scoped wrapper that keeps the label and tooltip trigger as siblings.
+Copy belongs in `backend/static/tips.js`, stays plain text, and should fit in
+one to three short sentences. Never put a tooltip trigger inside another
+`<button>` or `<summary>`; move it to the nearest meaningful label or heading,
+use the scoped label wrapper above, or omit it when no valid anchor exists.
+
 ## Loading states
 
 A DB-backed view shows shape-matched skeleton blocks while its fetch is in

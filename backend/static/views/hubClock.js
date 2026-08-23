@@ -15,6 +15,7 @@
 import { apiStartWorkOrderTracking, apiStopWorkOrderTracking } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { setMessage } from "../dom.js";
+import { tipHtml } from "../tooltip.js";
 
 // D18: the technician's own long-clock warnings, keyed off *session*
 // elapsed minutes -- mirrors the constants the design spec assigns to
@@ -65,7 +66,7 @@ function onClockHtml() {
     .join(" · ");
   return `
     <div class="hub-clock hub-clock-on">
-      <p class="hub-clock-status"><span class="hub-clock-dot"></span> ON THE CLOCK</p>
+      <p class="hub-clock-status"><span class="hub-clock-dot"></span> ON THE CLOCK${tipHtml("hub.clock")}</p>
       <p class="hub-clock-subject">${escapeHtml(place)}</p>
       <div class="hub-clock-row">
         <div>
@@ -104,7 +105,7 @@ function offClockHtml() {
     : `<p class="hint">Nothing assigned to start a clock on yet.</p>`;
   return `
     <div class="hub-clock hub-clock-off">
-      <p class="hub-clock-status">○ Not clocked in</p>
+      <p class="hub-clock-status">○ Not clocked in${tipHtml("hub.clock")}</p>
       <div class="hub-clock-row">
         <p class="hub-clock-today">Today <strong>${escapeHtml(formatHm(payload.clock.total_minutes_today))}</strong></p>
         <div class="hub-clock-start-wrap">

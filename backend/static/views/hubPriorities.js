@@ -10,6 +10,7 @@
 
 import { escapeHtml } from "../format.js";
 import { roleAtLeast } from "../roles.js";
+import { tipHtml } from "../tooltip.js";
 
 function tileHtml(label, value, sub) {
   return `
@@ -59,5 +60,5 @@ export function mountHubPriorities(container, { role, personal, crew, admin } = 
     body = `<div class="hub-tile-grid">${tileHtml("High priority — assigned to you", personal.assigned, "")}</div>`;
   }
 
-  container.innerHTML = `<section class="hub-priorities"><p class="hub-tile-label">Priorities</p>${body}</section>`;
+  container.innerHTML = `<section class="hub-priorities"><p class="hub-tile-label">Priorities${tipHtml("hub.priorities")}</p>${body}</section>`;
 }

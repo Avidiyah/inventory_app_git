@@ -60,7 +60,7 @@ feature request, and measurement corrected its premise on the way through.
 ## 1. Requested feature
 
 User-requested behavior, not framework work. IMP-001–003 and IMP-005–033 are
-implemented; IMP-004 is the only open request.
+implemented; IMP-004 and IMP-038 are open requests.
 
 ### IMP-004 — Mass Stage redesign
 
@@ -77,7 +77,7 @@ under the Communities cards.
 
 Request logged only; no implementation yet.
 
-### IMP-037 — Field-help `?` tooltips — IN PROGRESS
+### IMP-037 — Field-help `?` tooltips — CLOSED
 
 - **Logged** 2026-08-23 · *App-wide* · designed with the owner the same day
 - Spec: `docs/superpowers/specs/2026-08-23-tooltips-design.md`
@@ -88,11 +88,18 @@ Three files: `static/tips.js` (copy registry, 35 keys), `static/tooltip.js`
 (singleton fixed bubble + one delegated listener on `document`), and rules in
 `styles.css`. No backend change.
 
-Done: spec steps 0–4 and 6 — mechanism, all 35 strings of copy, styling, the
-Work Orders filter grid wired end to end, and `closeTip()` on page-leave.
-Open: step 5 (the remaining 11 pages) and step 7 (docs), both waiting on the
-owner's manual check of Work Orders — there is no automated frontend render
-coverage (`PRO-008`), so the additive guarantee is verified by eye.
+Closed 2026-08-23. Spec steps 0–7 are complete: mechanism, all 35 strings of
+copy, styling, Work Orders plus the remaining 11 pages wired end to end,
+`closeTip()` on page-leave, and design-system guidance. The app references 32
+keys; `wo.export`, `txn.quick-mode`, and `txn.advanced` remain intentionally
+parked in the registry because their controls have no valid label or heading
+anchor.
+
+Machine verification assembled all 30 static anchors into the served shell,
+found both User Hub `tipHtml()` anchors, resolved every reference against the
+registry, loaded all tooltip assets, and found no inline `style=` attributes.
+Hands-on hover, tap, keyboard, Escape, and screenshot comparison remain manual
+browser checks under `PRO-008`.
 
 **Constraint found during step 4, not in the original spec:** roughly nine of
 the 35 anchors are `<button>`s, and a `<button>` cannot contain a `<button>` —
@@ -101,6 +108,25 @@ exactly the flex-row reflow §5.1 forbids. Owner's call 2026-08-23: those tips
 move to the nearest heading or `<label>` instead, and the three with no such
 neighbour (`wo.export`, `txn.quick-mode`, `txn.advanced`) are dropped rather
 than fought.
+
+### IMP-038 — Field-help tooltip coverage phase 2 — IN PROGRESS
+
+- **Logged** 2026-08-23 · *App-wide* · requested after the `IMP-037` rollout
+- Plan/handoff:
+  `docs/superpowers/plans/2026-08-23-tooltips-phase-2-app-coverage.md`
+
+Extend the shared tooltip system into the remaining high-value dynamic
+workflows: login/session choices, user lifecycle, item notes, Work Order
+routing/entry mode/billing, User Hub operational summaries, Mass Stage loading,
+and request resolution. This is curated field help, not a `?` beside every
+routine input. It inherits `IMP-037`'s central registry, delegated runtime,
+plain-text copy, no-nested-button rule, and `.hint` preservation policy.
+
+Implementation is code-complete: the 54-key registry has 51 referenced keys,
+all 25 Phase 2 source placements are wired, and the approved scoped wrappers
+keep the two login tips and recount tip outside their form-control labels.
+Machine verification is complete. Browser interaction, responsive screenshots,
+and final closeout remain open because no connected browser was available.
 
 ### IMP-035 — Item/work-order photo attachments
 

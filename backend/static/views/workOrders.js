@@ -58,6 +58,7 @@ import {
   safeHttpUrl,
 } from "../format.js";
 import { setMessage, confirmDialog, messageDialog } from "../dom.js";
+import { tipHtml } from "../tooltip.js";
 import { itemRequestPromptHtml } from "./itemRequest.js";
 import { getCurrentUser, getRole } from "../state.js";
 import {
@@ -400,7 +401,7 @@ function renderLaborEntryHtml(entry) {
   // The 12-hour cap invented this figure. Flagged so a supervisor scanning the
   // card can see which numbers are estimates; nothing blocks it from billing.
   const autoStopped = entry.auto_closed
-    ? `<span class="wo-labor-auto-stopped" title="A clock left running was closed automatically after 12 hours. Check this figure.">auto-stopped</span>`
+    ? `<span class="wo-labor-auto-stopped">auto-stopped</span>${tipHtml("wo.auto-stopped")}`
     : "";
   return `<div class="wo-labor-entry" data-labor-id="${escapeHtml(entry.id)}" data-technician-id="${escapeHtml(entry.technician_id)}">
             <div><strong>${escapeHtml(entry.technician_name)}</strong><span class="hint">${escapeHtml(formatMinutes(entry.minutes))} actual</span>${window}${autoStopped}</div>
@@ -797,16 +798,17 @@ function editableStatusOptions(detail) {
 }
 
 function statusEditorHtml(detail) {
+  const label = `Status${tipHtml("wo.status")}`;
   if (detail.status === "review") {
     return `<label class="wo-edit-field">
-              <span>Status</span>
+              <span>${label}</span>
               <input type="text" value="Review" disabled>
             </label>`;
   }
   const options = editableStatusValues(detail).map((status) => ({ value: status, label: statusLabel(status) }));
   const nativeSelect = `<select class="wo-edit-status wo-combo-native" hidden>${editableStatusOptions(detail)}</select>`;
   return `<label class="wo-edit-field wo-edit-status-field">
-            <span>Status</span>
+            <span>${label}</span>
             ${comboHtml({
               id: `wo-status-list-${detail.id}`,
               extraClass: "wo-status-combo",
@@ -856,7 +858,7 @@ function detailsEditorHtml(detail) {
                   })}
                 </label>
                 <fieldset class="wo-edit-field wo-edit-technicians">
-                  <legend>Assigned technicians</legend>
+                  <legend>Assigned technicians${tipHtml("wo.routing")}</legend>
                   ${technicianPickerHtml(detail)}
                 </fieldset>
                 ${statusEditorHtml(detail)}
@@ -1566,7 +1568,7 @@ function renderBody(detail, bodyEl) {
 
   const modeControl = sup
     ? `<div class="wo-mode-row">
-       <label>New entries:</label>
+       <label>New entries:${tipHtml("wo.entry-mode")}</label>
        <select class="wo-mode-select">
          <option value="dispense"${detail.entry_mode === "dispense" ? " selected" : ""}>Dispense (moves stock)</option>
          <option value="retroactive"${detail.entry_mode === "retroactive" ? " selected" : ""}>Retroactive (paper sheet, no stock)</option>

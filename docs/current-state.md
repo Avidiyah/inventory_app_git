@@ -2531,12 +2531,14 @@ Behavior:
   and Tools use the first + last display name from the response contract.
 - `authenticate` rejects archived users (indistinguishable from bad
   credentials); `get_active_session_user` also filters archived users.
-- Session token is random URL-safe string stored in `sessions`.
+- The session token is a random URL-safe string; only its SHA-256 hash is
+  stored in `sessions`.
 - Cookie is HttpOnly, SameSite=Lax, path `/`, Secure controlled by
   `COOKIE_SECURE`.
-- Remembered login sets cookie max-age and server `expires_at` to 12 hours.
-- Non-remembered login has no server cap and relies on browser session cookie.
-- Expired remembered session is deleted on first request after expiry.
+- Every login sets server `expires_at` to a 12-hour absolute cap. Remembered
+  login also sets cookie max-age; non-remembered login uses a browser-session
+  cookie, but both have the same server-side lifetime.
+- An expired session is deleted on the first request after expiry.
 
 ### Items
 
