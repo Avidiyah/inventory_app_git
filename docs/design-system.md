@@ -204,6 +204,30 @@ Inputs (`input`, `select`, `textarea`) keep their normal dark `--input-bg` +
 `--text-panel` treatment on *any* surface, glass included — see the "Inputs
 stay white with dark text" rule change above.
 
+## Loading states
+
+A DB-backed view shows shape-matched skeleton blocks while its fetch is in
+flight — never bare "Loading…" text. All of the markup comes from
+`backend/static/skeleton.js`; a view calls a helper and never hand-writes
+`.skel-*` HTML, so the look is retuned in one place:
+
+- `skeletonTableRows(colCount, rowCount = 5, { widths })` — table bodies. Pass
+  `widths` so narrow columns (quantity, status, actions) get narrow bars.
+- `skeletonCard({ lines = 3, hasHeader = true })` — one card-shaped block.
+- `skeletonList(itemCount = 4)` — stacked title/subtitle pairs for list panels.
+
+Color reuses the panel tokens rather than adding its own: `--panel-well` at
+rest pulsing to `--panel-hover` over 1.5s, on `--panel-nested` card surfaces.
+The pulse is decoration, not information, so it is removed outright under
+`prefers-reduced-motion: reduce` rather than slowed. Each block carries an
+`.sr-only` "Loading…" and marks its bars `aria-hidden`, preserving the
+announcement the old text placeholder made.
+
+Skeletons are for a *fetch*, not for work: client-side filtering or sorting of
+data already in memory has nothing to mask and gets no skeleton. Transient
+status text beside already-rendered content (`setMessage(el, "Loading…")`)
+stays text.
+
 ## Brand art assets
 
 Source art (logo lockups, background photography) gets dropped at the repo

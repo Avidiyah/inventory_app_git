@@ -1,6 +1,8 @@
 # App-wide Skeleton Loading States — Design Spec
 
-Status: **draft, iteration 1.** Written 2026-08-23. Not yet approved; not yet planned.
+Status: **implemented 2026-08-23.** Planned in
+`docs/superpowers/plans/2026-08-23-skeleton-loaders.md`; see that plan's
+"Spec-vs-code reconciliation" section for the corrections to §5's file list.
 
 Replaces the app's text-only `Loading…` placeholders with shape-matched skeleton
 blocks, shown immediately while a DB-backed view's data is in flight. Tracks
