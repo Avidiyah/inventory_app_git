@@ -56,6 +56,25 @@ def test_priority_bucket_is_case_and_whitespace_insensitive():
     assert wo.priority_bucket("  hIgH  ") == wo.PRIORITY_HIGH
 
 
+def test_normalize_priority_bucket_filter_accepts_high_and_medium():
+    assert wo.normalize_priority_bucket_filter("high") == wo.PRIORITY_HIGH
+    assert wo.normalize_priority_bucket_filter("Medium") == wo.PRIORITY_MEDIUM
+    assert wo.normalize_priority_bucket_filter("  HIGH  ") == wo.PRIORITY_HIGH
+
+
+def test_normalize_priority_bucket_filter_blank_means_no_filter():
+    assert wo.normalize_priority_bucket_filter(None) is None
+    assert wo.normalize_priority_bucket_filter("") is None
+    assert wo.normalize_priority_bucket_filter("   ") is None
+
+
+def test_normalize_priority_bucket_filter_rejects_unknown_values():
+    with pytest.raises(WorkOrderStateError):
+        wo.normalize_priority_bucket_filter("low")
+    with pytest.raises(WorkOrderStateError):
+        wo.normalize_priority_bucket_filter("urgent")
+
+
 # --- status / mode validators --------------------------------------------
 
 def test_validate_status_accepts_seven_live_states():

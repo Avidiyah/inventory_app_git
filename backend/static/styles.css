@@ -158,10 +158,12 @@
     --btn-h-sm: 44px;    /* compact/toolbar buttons (min touch) */
     --focus-ring: 0 0 0 3px rgba(200, 16, 46, .40);
 
-    /* Langston University brand (NetFacilities integration card only).
-       Pulled from langston.edu's own stylesheet, NOT part of the TechFM
-       red/black/white system -- see .lu-card below and docs/design-system.md.
-       Do not reuse these outside that card. */
+    /* Langston University brand. Pulled from langston.edu's own stylesheet,
+       NOT part of the TechFM red/black/white system -- see .lu-card and
+       .btn-netfacilities below, and docs/design-system.md. Reuse only for
+       chrome that specifically represents the NetFacilities/Langston side of
+       the integration (the Integrations page card, and the per-work-order
+       "Open Netfacilities" button); nowhere else. */
     --lu-navy:        #152B51;
     --lu-orange:      #F2682B;
     --lu-orange-hover:#D4551C;
@@ -1738,6 +1740,12 @@ tr.archived-user {
 .hub-graph-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: var(--space-4); }
 .hub-graph-card, .hub-duration-section { background: var(--panel-nested); border: var(--border); border-radius: var(--radius-md); padding: var(--space-4); }
 .hub-graph-card h3 { font-size: var(--fs-lg); }
+/* A distribution card is a real <button> so it opens the matching Work
+   Orders filter with native keyboard/focus support -- a <button> does not
+   inherit `.hub-graph-card`'s text alignment or cursor for free, so those
+   are reset explicitly here, matching `.hub-tile-pipeline-item`'s pattern. */
+.hub-graph-card-clickable { display: block; width: 100%; margin: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.hub-graph-card-clickable:hover, .hub-graph-card-clickable:focus-visible { border-color: var(--color-primary); }
 .hub-donut-wrap { width: min(190px, 100%); margin: var(--space-3) auto; position: relative; }
 .hub-donut { display: block; width: 100%; overflow: visible; fill: none; stroke-width: 17; transform: rotate(0deg); }
 .hub-graph-slice { stroke-linecap: butt; }
@@ -3527,6 +3535,20 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .lu-card-body .secondary-btn:hover {
     background-color: var(--lu-navy-tint);
     color: var(--lu-navy);
+}
+
+/* "Open Netfacilities" on a work-order card (Admin+ only). Carries the same
+   Langston University navy/orange as .lu-card (see --lu-* vars above) since
+   it points at the same vendor system, even though it sits on an otherwise
+   red/black/white card. */
+.btn-netfacilities {
+    background-color: var(--lu-navy);
+    color: var(--color-white);
+    border-bottom: 3px solid var(--lu-orange);
+}
+.btn-netfacilities:hover {
+    background-color: var(--lu-navy);
+    border-bottom-color: var(--lu-orange-hover);
 }
 
 /* Controls row: mode selector + complete/reopen. */

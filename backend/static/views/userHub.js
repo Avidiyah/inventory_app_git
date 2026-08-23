@@ -19,6 +19,8 @@ import { mountHubCrew } from "./hubSupervisor.js";
 import { mountHubAdminSummary } from "./hubAdmin.js";
 import { mountHubTimesheets } from "./hubTimesheets.js";
 import { destroyHubGraphs, mountHubGraphs } from "./hubGraphs.js";
+import { openWorkOrdersFilteredByDistribution } from "./workOrders.js";
+import { showPage } from "./nav.js";
 
 const HUB_PAGE = "user-hub";
 const LABOR_SESSION_CHANGED_EVENT = "labor.session.changed";
@@ -183,6 +185,12 @@ function renderGraphs() {
     onWeekChange: (weeks) => {
       graphWeeks = weeks;
       void loadGraphs();
+    },
+    onDistributionClick: (kind, value) => {
+      if (kind === "community") openWorkOrdersFilteredByDistribution({ community: value });
+      else if (kind === "service_type") openWorkOrdersFilteredByDistribution({ serviceType: value });
+      else if (kind === "priority") openWorkOrdersFilteredByDistribution({ priorityBucket: value });
+      showPage("work-orders");
     },
   });
 }

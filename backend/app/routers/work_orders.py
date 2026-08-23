@@ -299,6 +299,7 @@ def _export_filename(
     supervisor_id: Optional[uuid.UUID],
     community: Optional[str],
     priority: Optional[str],
+    priority_bucket: Optional[str],
     scheduled_date: Optional[date],
     search: Optional[str],
 ) -> str:
@@ -324,6 +325,8 @@ def _export_filename(
             parts.extend(("community", community))
         if priority and priority.strip():
             parts.extend(("priority", priority))
+        if priority_bucket and priority_bucket.strip():
+            parts.extend(("level", priority_bucket))
         if scheduled_date is not None:
             parts.extend(("date", scheduled_date.isoformat()))
         if search and search.strip():
@@ -520,6 +523,7 @@ def list_work_orders(
     assigned_to_id: Optional[uuid.UUID] = Query(None),
     community: Optional[str] = Query(None),
     priority: Optional[str] = Query(None),
+    priority_bucket: Optional[str] = Query(None),
     scheduled_date: Optional[date] = Query(None),
     q: Optional[str] = Query(None),
     limit: Optional[int] = Query(None, ge=1, le=MAX_LIST_ROWS),
@@ -528,12 +532,14 @@ def list_work_orders(
 ):
     """List the caller's work orders, newest scheduled date first. Optional `status`, exact
     `service_type`, routed `supervisor_id`, explicitly-assigned `assigned_to_id`,
-    derived `community`, exact `priority`, exact `scheduled_date`, and number
-    `q` filters combine with AND. Community is
+    derived `community`, exact `priority`, `priority_bucket`, exact
+    `scheduled_date`, and number `q` filters combine with AND. Community is
     membership-based over structured community plus raw CSV location; Academics
     is the no-known-term fallback. Priority is an exact vendor value, or
     `__none__` for work orders NetFacilities enrichment never reached.
-    `limit` caps that scheduled-date ordering (the
+    `priority_bucket` (`high`/`medium`) is the separate, coarser severity
+    grouping the Graphs tab uses, and may combine with `priority`. `limit`
+    caps that scheduled-date ordering (the
     page browses the first 10 by default and omits `limit` for Show all / search).
     Blank or malformed schedule values sort last. Any authenticated user;
     server-scoped -- `assigned_to_id` only narrows within that scope, it
@@ -552,6 +558,7 @@ def list_work_orders(
                 assigned_to_id=assigned_to_id,
                 community=community,
                 priority=priority,
+                priority_bucket=priority_bucket,
                 scheduled_date=scheduled_date,
                 search=q,
                 limit=limit,
@@ -648,6 +655,7 @@ def export_work_orders(
     supervisor_id: Optional[uuid.UUID] = None,
     community: Optional[str] = None,
     priority: Optional[str] = None,
+    priority_bucket: Optional[str] = None,
     scheduled_date: Optional[date] = None,
     q: Optional[str] = None,
     user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
@@ -661,8 +669,8 @@ def export_work_orders(
 
     `variant=full` leads with the import's own headers and also accepts the Work
     Orders page's exact `service_type`, routed `supervisor_id`, derived
-    `community`, exact `priority`, exact `scheduled_date`, and number `q`
-    filters. They combine
+    `community`, exact `priority`, `priority_bucket`, exact `scheduled_date`,
+    and number `q` filters. They combine
     with `scope` using AND and have no result cap. `variant=client` remains the
     existing scope-only billing sheet. 400 on an unrecognised scope, community,
     or variant.
@@ -678,6 +686,7 @@ def export_work_orders(
             supervisor_id=supervisor_id,
             community=community,
             priority=priority,
+            priority_bucket=priority_bucket,
             scheduled_date=scheduled_date,
             search=q,
         )
@@ -691,6 +700,7 @@ def export_work_orders(
         supervisor_id=supervisor_id,
         community=community,
         priority=priority,
+        priority_bucket=priority_bucket,
         scheduled_date=scheduled_date,
         search=q,
     )

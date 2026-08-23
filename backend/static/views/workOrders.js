@@ -73,6 +73,7 @@ const listMessage = document.getElementById("work-orders-list-message");
 const statusFilter = document.getElementById("work-orders-status-filter");
 const serviceTypeFilter = document.getElementById("work-orders-service-filter");
 const priorityFilter = document.getElementById("work-orders-priority-filter");
+const priorityLevelFilter = document.getElementById("work-orders-priority-level-filter");
 const supervisorFilter = document.getElementById("work-orders-supervisor-filter");
 const communityFilter = document.getElementById("work-orders-community-filter");
 const scheduledDateFilter = document.getElementById("work-orders-date-filter");
@@ -279,6 +280,7 @@ function currentFilters() {
     supervisorId: supervisorFilter ? supervisorFilter.value : "",
     community: communityFilter ? communityFilter.value : "",
     priority: priorityFilter ? priorityFilter.value : "",
+    priorityBucket: priorityLevelFilter ? priorityLevelFilter.value : "",
     scheduledDate: scheduledDateFilter ? scheduledDateFilter.value : "",
     q: searchInput ? searchInput.value.trim() : "",
   };
@@ -289,7 +291,7 @@ function hasActiveFilters() {
 }
 
 function resetFilterControls() {
-  [statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
+  [statusFilter, serviceTypeFilter, priorityFilter, priorityLevelFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
     if (control) control.value = "";
   });
   if (searchInput) searchInput.value = "";
@@ -1333,6 +1335,25 @@ export function openWorkOrdersFilteredByStatus(status) {
   showAll = false;
 }
 
+// Called from the User Hub's Graphs tab (hubGraphs.js via userHub.js), one
+// donut click each. Same shape as `openWorkOrdersFilteredByStatus` -- reset
+// every other filter first, so a graph always lands on exactly that slice's
+// full company-wide list. `community` and `serviceType` set the same
+// dropdowns the page's own controls do; `priorityBucket` sets the
+// high/medium "Priority level" control, which is a distinct, coarser filter
+// from the exact-vendor-text "Priority" dropdown above it.
+export function openWorkOrdersFilteredByDistribution({
+  community = null,
+  serviceType = null,
+  priorityBucket = null,
+} = {}) {
+  resetFilterControls();
+  if (community && communityFilter) communityFilter.value = community;
+  if (serviceType && serviceTypeFilter) serviceTypeFilter.value = serviceType;
+  if (priorityBucket && priorityLevelFilter) priorityLevelFilter.value = priorityBucket;
+  showAll = false;
+}
+
 // A second, independent card-list renderer for a container other than
 // `#work-orders-list` -- the User Hub's "My Work Orders" tab (spec §4.4).
 // Deliberately does NOT reuse listEl, the six delegated listeners, solo
@@ -1538,6 +1559,7 @@ function renderBody(detail, bodyEl) {
       `<button type="button" class="secondary-btn" data-action="reopen-wo">Reopen</button>`;
   }
   if (isAdminPlus()) {
+    statusActions += `<button type="button" class="btn-netfacilities" data-action="open-netfacilities-wo" data-number="${escapeHtml(detail.number)}">Open Netfacilities</button>`;
     statusActions += `<button type="button" class="btn-danger" data-action="archive-wo">Archive</button>`;
   }
 
@@ -1746,6 +1768,15 @@ listEl.addEventListener("click", async (event) => {
       // (exitSolo).
       void loadWorkOrders();
     }
+    return;
+  }
+
+  if (action === "open-netfacilities-wo") {
+    // Placeholder pending real NetFacilities integration on this button --
+    // same destination the domain layer's work_order_task_fallback generates
+    // (app/domain/work_orders.py) for an imported task with no real one yet.
+    const url = `https://system.netfacilities.com/tools/viewworkorders/${encodeURIComponent(btn.dataset.number)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
     return;
   }
 
@@ -2388,7 +2419,7 @@ if (searchInput) {
     }
   });
 }
-[statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
+[statusFilter, serviceTypeFilter, priorityFilter, priorityLevelFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
   if (!control) return;
   control.addEventListener("change", () => {
     showAll = false;

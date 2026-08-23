@@ -456,6 +456,7 @@ export async function apiListWorkOrders({
   assignedToId = null,
   community = null,
   priority = null,
+  priorityBucket = null,
   scheduledDate = null,
   q = null,
   limit = null,
@@ -467,6 +468,7 @@ export async function apiListWorkOrders({
   if (assignedToId) params.set("assigned_to_id", assignedToId);
   if (community) params.set("community", community);
   if (priority) params.set("priority", priority);
+  if (priorityBucket) params.set("priority_bucket", priorityBucket);
   if (scheduledDate) params.set("scheduled_date", scheduledDate);
   if (q) params.set("q", q);
   if (limit != null) params.set("limit", limit);
@@ -593,6 +595,7 @@ export async function apiExportWorkOrders(
   if (filters.supervisorId) params.set("supervisor_id", filters.supervisorId);
   if (filters.community) params.set("community", filters.community);
   if (filters.priority) params.set("priority", filters.priority);
+  if (filters.priorityBucket) params.set("priority_bucket", filters.priorityBucket);
   if (filters.scheduledDate) params.set("scheduled_date", filters.scheduledDate);
   if (filters.q) params.set("q", filters.q);
   const response = await fetch(`/work-orders/export?${params}`, {

@@ -1661,6 +1661,40 @@ def test_list_priority_none_filter_matches_null_and_blank(db):
     assert {w.number for w in found} == {never_enriched.number, blank.number}
 
 
+def test_priority_bucket_filter_matches_the_graphs_tab_grouping(db):
+    """The Work Orders "Priority level" filter must agree with the same
+    high/medium grouping `priority_bucket()` gives the Graphs-tab pies --
+    otherwise a donut click would land on a different set than it pictured."""
+    admin = _seed_user(db, "admin")
+    tech = _seed_user(db, "technician")
+    emergency = _wo(db, created_by=admin, assigned_to=tech)
+    high = _wo(db, created_by=admin, assigned_to=tech)
+    normal = _wo(db, created_by=admin, assigned_to=tech)
+    routine = _wo(db, created_by=admin, assigned_to=tech)
+    low = _wo(db, created_by=admin, assigned_to=tech)
+    unimported = _wo(db, created_by=admin, assigned_to=tech)
+    emergency.priority = "Emergency Call-Out"
+    high.priority = "High"
+    normal.priority = "Normal"
+    routine.priority = "Routine Maintenance"
+    low.priority = "Low"
+    db.flush()
+
+    def numbers(bucket):
+        return {w.number for w in wos.list_work_orders(db, user=tech, priority_bucket=bucket)}
+
+    high_numbers = numbers("high")
+    assert {emergency.number, high.number} <= high_numbers
+    assert not {normal.number, routine.number, low.number, unimported.number} & high_numbers
+
+    medium_numbers = numbers("medium")
+    assert {normal.number, routine.number} <= medium_numbers
+    assert not {emergency.number, high.number, low.number, unimported.number} & medium_numbers
+
+    with pytest.raises(WorkOrderStateError):
+        wos.list_work_orders(db, user=tech, priority_bucket="low")
+
+
 def test_filter_options_report_distinct_priorities(db):
     admin = _seed_user(db, "admin")
     tech = _seed_user(db, "technician")
