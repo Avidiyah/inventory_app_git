@@ -782,6 +782,64 @@ button:focus-visible {
     outline-offset: 2px;
 }
 
+/* =================== SKELETON LOADERS =================== */
+/* In-flight placeholders for DB-backed views (IMP-036). Markup comes from
+   static/skeleton.js -- no view hand-writes these classes. Colors reuse the
+   existing panel tokens (spec D3): --panel-well at rest, --panel-hover at the
+   pulse peak, so no new :root token is introduced. */
+
+.skel-line {
+    display: block;
+    height: .8em;
+    margin: var(--space-1) 0;
+    background-color: var(--panel-well);
+    border-radius: var(--radius-sm);
+    animation: skel-pulse 1.5s ease-in-out infinite;
+}
+
+.skel-line--head {
+    height: 1.15em;
+    margin-bottom: var(--space-3);
+}
+
+.skel-line--sub {
+    height: .65em;
+}
+
+.skel-card {
+    background: var(--panel-nested);
+    border: var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    margin-bottom: var(--space-3);
+}
+
+.skel-list-item {
+    padding: var(--space-2) 0;
+}
+
+/* Card-grid loading state, sized to match .hub-graph-grid so the Hub tabs
+   don't reflow when the real cards land. */
+.skel-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(245px, 1fr));
+    gap: var(--space-4);
+}
+
+@keyframes skel-pulse {
+    0%, 100% { background-color: var(--panel-well); }
+    50%      { background-color: var(--panel-hover); }
+}
+
+/* Spec D2: the pulse is decoration, not information -- it goes away entirely
+   rather than slowing down. */
+@media (prefers-reduced-motion: reduce) {
+    .skel-line {
+        animation: none;
+        background-color: var(--panel-well);
+    }
+}
+
 /* =================== TABLES =================== */
 table {
     width: 100%;
