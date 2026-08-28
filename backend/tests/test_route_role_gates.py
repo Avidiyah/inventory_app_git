@@ -215,6 +215,10 @@ def test_archive_work_order_requires_techfm_oa():
         "start_netfacilities_enrichment",
         "get_netfacilities_enrichment",
         "import_netfacilities_download",
+        "netfacilities_cloud_session",
+        "start_netfacilities_cloud_authentication",
+        "cancel_netfacilities_cloud_authentication",
+        "import_netfacilities_cloud_download",
     ],
 )
 def test_netfacilities_routes_require_techfm_oa_and_document_403(endpoint_name):

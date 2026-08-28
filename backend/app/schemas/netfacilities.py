@@ -100,3 +100,39 @@ class NetFacilitiesCapability(BaseModel):
     message: str
     latest_job: NetFacilitiesEnrichmentJob | None = None
     latest_authentication: NetFacilitiesAuthenticationAttempt | None = None
+
+
+NetFacilitiesCloudSessionState = Literal[
+    "starting",
+    "awaiting_sign_in",
+    "signed_in",
+    "closed",
+    "failed",
+    "cancelled",
+    "timed_out",
+]
+
+
+class NetFacilitiesCloudSessionStatus(BaseModel):
+    """Per-user cloud-auth ceremony state (spec D7). Never carries
+    `storage_state` or `steel_profile_id` (spec D9)."""
+
+    attempt_id: UUID
+    state: NetFacilitiesCloudSessionState
+    started_at: datetime
+    finished_at: datetime | None = None
+    failure: Literal["unavailable", "cancelled", "timed_out"] | None = None
+    signed_in_at: datetime | None = None
+    last_download_filename: str | None = None
+    last_download_at: datetime | None = None
+    session_viewer_url: str | None = None
+
+
+class NetFacilitiesCloudCapability(BaseModel):
+    """Whether cloud auth is enabled at all, and the calling user's own
+    ceremony state -- never anyone else's (spec D2, D7)."""
+
+    available: bool
+    message: str
+    status: NetFacilitiesCloudSessionStatus | None = None
+    has_saved_session: bool = False

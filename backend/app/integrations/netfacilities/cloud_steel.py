@@ -17,11 +17,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import logging
+from typing import TYPE_CHECKING
 
-from playwright.async_api import async_playwright
-
-from .client import NetFacilitiesClient
 from .errors import NetFacilitiesAuthenticationRequired, NetFacilitiesUnavailable
+
+if TYPE_CHECKING:  # pragma: no cover - import cycle / laziness guard for type checkers only
+    from .client import NetFacilitiesClient
 
 CSV_SUFFIX = ".csv"
 DOWNLOAD_PATH = "/downloads"
@@ -36,6 +37,13 @@ def _create_steel_client(api_key: str):
 
 
 async def _connect_over_cdp(websocket_url: str, api_key: str):
+    # Lazy: this module must stay importable (spec D11, and the repo-wide
+    # `test_boundary_modules_remain_lazy_without_concrete_dependencies`
+    # invariant) on a host with NetFacilities disabled and Playwright not
+    # installed -- mirrors `factory.py`'s lazy `from .client import
+    # NetFacilitiesClient` for the same reason.
+    from playwright.async_api import async_playwright
+
     playwright = await async_playwright().start()
     browser = await playwright.chromium.connect_over_cdp(f"{websocket_url}&apiKey={api_key}")
     return playwright, browser
@@ -59,6 +67,8 @@ class SteelCloudBrowserProvider:
         self._client = _create_steel_client(api_key)
 
     async def open_login_session(self) -> _SteelLoginSession:
+        from .client import NetFacilitiesClient
+
         try:
             steel_session = await self._client.sessions.create()
         except Exception as exc:  # vendor SDK's exception hierarchy, reclassified
@@ -154,9 +164,11 @@ class _SteelEnrichmentContext:
     playwright: object
     browser: object
     context: object
-    _wrapped: NetFacilitiesClient | None = None
+    _wrapped: "NetFacilitiesClient | None" = None
 
-    async def __aenter__(self) -> NetFacilitiesClient:
+    async def __aenter__(self) -> "NetFacilitiesClient":
+        from .client import NetFacilitiesClient
+
         self._wrapped = NetFacilitiesClient(
             profile_dir=None, headless=True, _context=self.context
         )
