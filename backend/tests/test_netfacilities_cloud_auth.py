@@ -1,0 +1,155 @@
+"""Offline tests for the per-user NetFacilities cloud-auth coordinator
+(spec D2, D3, D7)."""
+
+from __future__ import annotations
+
+import asyncio
+import uuid
+
+from cryptography.fernet import Fernet
+from sqlalchemy.orm import Session
+
+from app.integrations.netfacilities.cloud_config import NetFacilitiesCloudConfig
+from app.models import NetFacilitiesCloudSession, User
+from app.services.netfacilities_cloud_auth import (
+    NetFacilitiesCloudAuthenticationCoordinator,
+)
+
+
+def _session_factory(db):
+    """Fresh sessions sharing pytest's rollback-owned connection."""
+
+    connection = db.connection()
+
+    def factory():
+        return Session(
+            bind=connection,
+            join_transaction_mode="create_savepoint",
+            autoflush=False,
+        )
+
+    return factory
+
+
+class FakeLoginSession:
+    def __init__(self, session_id="sess-1"):
+        self.session_id = session_id
+        self.session_viewer_url = f"https://app.steel.dev/sessions/{session_id}"
+
+
+class FakeCloudBrowserProvider:
+    def __init__(self):
+        self.signed_in_after_polls = 1
+        self._polls = 0
+        self.closed_sessions = []
+        self.csv_to_return = None
+
+    async def open_login_session(self):
+        return FakeLoginSession()
+
+    async def poll_signed_in(self, session):
+        self._polls += 1
+        if self._polls < self.signed_in_after_polls:
+            return None
+        return '{"cookies": [{"name": "session", "value": "abc"}]}'
+
+    async def poll_downloaded_csv(self, session):
+        return self.csv_to_return
+
+    async def close_login_session(self, session):
+        self.closed_sessions.append(session.session_id)
+
+    async def open_replay_context(self, storage_state):
+        raise NotImplementedError
+
+
+def _config(**overrides):
+    settings = {"enabled": True, "steel_api_key": "test-key", "login_timeout_seconds": 60}
+    settings.update(overrides)
+    return NetFacilitiesCloudConfig(**settings)
+
+
+def _user(db):
+    user = User(
+        username=f"tech-{uuid.uuid4().hex[:8]}",
+        first_name="Test",
+        last_name="User",
+        password_hash="x",
+        role="technician",
+    )
+    db.add(user)
+    db.commit()
+    return user
+
+
+def test_start_then_captures_state_and_writes_encrypted_row(db, monkeypatch):
+    monkeypatch.setenv(
+        "NETFACILITIES_CLOUD_SESSION_ENCRYPTION_KEY", Fernet.generate_key().decode()
+    )
+    user = _user(db)
+    provider = FakeCloudBrowserProvider()
+    coordinator = NetFacilitiesCloudAuthenticationCoordinator(
+        provider_factory=lambda _config: provider,
+        session_factory=_session_factory(db),
+        poll_seconds=0.01,
+    )
+
+    async def _run():
+        snapshot = await coordinator.start(user.id, _config())
+        assert snapshot.session_viewer_url.endswith("sess-1")
+        for _ in range(200):
+            latest = await coordinator.latest(user.id)
+            if latest.state == "signed_in":
+                return latest
+            await asyncio.sleep(0.01)
+        raise AssertionError("never reached signed_in")
+
+    signed_in = asyncio.run(_run())
+    assert signed_in.signed_in_at is not None
+
+    row = (
+        db.query(NetFacilitiesCloudSession)
+        .filter_by(user_id=user.id)
+        .one()
+    )
+    assert row.storage_state != '{"cookies": [{"name": "session", "value": "abc"}]}'
+
+
+def test_two_users_get_independent_ceremonies(db, monkeypatch):
+    monkeypatch.setenv("NETFACILITIES_CLOUD_SESSION_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    user_a = _user(db)
+    user_b = _user(db)
+    coordinator = NetFacilitiesCloudAuthenticationCoordinator(
+        provider_factory=lambda _config: FakeCloudBrowserProvider(),
+        session_factory=_session_factory(db),
+        poll_seconds=0.01,
+    )
+
+    async def _run():
+        snap_a = await coordinator.start(user_a.id, _config())
+        snap_b = await coordinator.start(user_b.id, _config())
+        return snap_a, snap_b
+
+    snap_a, snap_b = asyncio.run(_run())
+    assert snap_a.attempt_id != snap_b.attempt_id
+
+
+def test_cancel_closes_the_cloud_session(db, monkeypatch):
+    monkeypatch.setenv("NETFACILITIES_CLOUD_SESSION_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    user = _user(db)
+    provider = FakeCloudBrowserProvider()
+    provider.signed_in_after_polls = 10_000  # never signs in during this test
+    coordinator = NetFacilitiesCloudAuthenticationCoordinator(
+        provider_factory=lambda _config: provider,
+        session_factory=_session_factory(db),
+        poll_seconds=0.01,
+    )
+
+    async def _run():
+        await coordinator.start(user.id, _config())
+        await asyncio.sleep(0.02)
+        return await coordinator.cancel(user.id)
+
+    result = asyncio.run(_run())
+    assert result.state == "cancelled"
+    assert provider.closed_sessions == ["sess-1"]
