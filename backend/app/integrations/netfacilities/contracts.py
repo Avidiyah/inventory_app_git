@@ -7,6 +7,8 @@ constructing the concrete integration runtime.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from pathlib import Path
 from types import TracebackType
 from typing import Protocol
 
@@ -42,14 +44,29 @@ class NetFacilitiesClientContextProtocol(NetFacilitiesClientProtocol, Protocol):
     ) -> None: ...
 
 
-class NetFacilitiesAuthenticationClientProtocol(Protocol):
-    """Headed-browser actions used by the in-app manual sign-in ceremony."""
+class NetFacilitiesAuthenticationClientProtocol(NetFacilitiesClientProtocol, Protocol):
+    """Headed-browser actions for the in-app sign-in and the live session.
+
+    The same client reads work orders once signed in, which is why this extends
+    the read protocol: enrichment borrows it instead of launching a second
+    browser (spec D4).
+    """
 
     async def open_authentication_page(self) -> None: ...
 
     async def verify_authentication_page(self) -> None: ...
 
+    async def prime_session(self) -> None: ...
+
     async def persist_authentication_state(self) -> None: ...
+
+    def capture_downloads(
+        self,
+        destination: Path,
+        on_saved: Callable[[Path], Awaitable[None]],
+    ) -> None: ...
+
+    def on_context_closed(self, callback: Callable[[], None]) -> None: ...
 
 
 class NetFacilitiesAuthenticationContextProtocol(Protocol):

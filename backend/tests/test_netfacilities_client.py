@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
 from app.integrations.netfacilities import client as client_module
 from app.integrations.netfacilities.client import (
@@ -71,6 +71,10 @@ class FakeBrowserContext:
         self.closed = 0
         self.rendered_html = rendered_html
         self.redirect_to = None
+        self.handlers = {}
+
+    def on(self, event, handler):
+        self.handlers[event] = handler
 
     async def storage_state(self, **kwargs):
         self.storage_state_calls.append(kwargs)
@@ -125,11 +129,13 @@ class FakePage:
         self.route_calls = []
         self.waited_for = []
         self.listeners = []
+        self.handlers = {}
         self._route_handler = None
         self.closed = 0
 
     def on(self, event, handler):
         self.listeners.append(event)
+        self.handlers[event] = handler
 
     async def route(self, pattern, handler):
         self.route_calls.append((pattern, handler))
@@ -181,6 +187,50 @@ class FakePage:
 
     async def close(self):
         self.closed += 1
+
+
+class FakeDownload:
+    def __init__(self, suggested_filename, *, save_error=None):
+        self.suggested_filename = suggested_filename
+        self.save_error = save_error
+        self.saved_to = None
+
+    async def save_as(self, path):
+        if self.save_error is not None:
+            raise self.save_error
+        self.saved_to = Path(path)
+        self.saved_to.write_text("WORK ORDER\n", encoding="utf-8")
+
+
+def _persistent_runtime(monkeypatch, context):
+    """Fake Playwright whose chromium launches the given persistent context."""
+
+    class FakeChromium:
+        def __init__(self):
+            self.persistent_calls = []
+
+        async def launch_persistent_context(self, **kwargs):
+            self.persistent_calls.append(kwargs)
+            return context
+
+    class FakePlaywright:
+        def __init__(self, chromium):
+            self.chromium = chromium
+            self.stopped = 0
+
+        async def stop(self):
+            self.stopped += 1
+
+    chromium = FakeChromium()
+    runtime = FakePlaywright(chromium)
+
+    class FakeStarter:
+        async def start(self):
+            return runtime
+
+    monkeypatch.setattr(client_module.sys, "platform", "linux")
+    monkeypatch.setattr(client_module, "async_playwright", lambda: FakeStarter())
+    return chromium, runtime
 
 
 def _client(response):
@@ -779,3 +829,138 @@ def test_production_image_installs_only_the_configured_bundled_browser():
     assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" in dockerfile
     assert "NETFACILITIES_BROWSER_CHANNEL=bundled-chromium" in dockerfile
     assert "playwright install --with-deps chromium" in dockerfile
+
+
+def test_interactive_profile_accepts_downloads(tmp_path, monkeypatch):
+    context = FakeBrowserContext(FakeResponse())
+    chromium, runtime = _persistent_runtime(monkeypatch, context)
+    client = NetFacilitiesClient(
+        profile_dir=tmp_path, headless=False, browser_channel="chrome"
+    )
+
+    async def exercise():
+        async with client:
+            pass
+
+    asyncio.run(exercise())
+    assert chromium.persistent_calls == [
+        {
+            "user_data_dir": str(tmp_path),
+            "channel": "chrome",
+            "headless": False,
+            "accept_downloads": True,
+        }
+    ]
+    assert context.closed == 1
+    assert runtime.stopped == 1
+
+
+def test_context_closed_by_the_operator_is_reported_and_not_closed_again(
+    tmp_path, monkeypatch
+):
+    context = FakeBrowserContext(FakeResponse())
+    _chromium, runtime = _persistent_runtime(monkeypatch, context)
+    client = NetFacilitiesClient(
+        profile_dir=tmp_path, headless=False, browser_channel="chrome"
+    )
+    seen = []
+
+    async def exercise():
+        async with client:
+            client.on_context_closed(lambda: seen.append("closed"))
+            context.handlers["close"](context)
+
+    asyncio.run(exercise())
+    assert seen == ["closed"]
+    assert context.closed == 0
+    assert runtime.stopped == 1
+
+
+def test_capture_downloads_saves_under_the_suggested_name_and_reports_the_path(
+    tmp_path,
+):
+    client, context = _client(FakeResponse())
+    page = FakePage("https://system.netfacilities.com/myhome")
+    context.pages.append(page)
+    saved = []
+
+    async def on_saved(path):
+        saved.append(path)
+
+    async def exercise():
+        client.capture_downloads(tmp_path / "downloads", on_saved)
+        page.handlers["download"](FakeDownload("WorkOrders.csv"))
+        await client.wait_for_downloads()
+        page.handlers["download"](FakeDownload("WorkOrders.csv"))
+        await client.wait_for_downloads()
+
+    asyncio.run(exercise())
+    assert saved == [
+        tmp_path / "downloads" / "WorkOrders.csv",
+        tmp_path / "downloads" / "WorkOrders (1).csv",
+    ]
+    assert all(path.is_file() for path in saved)
+    assert "page" in context.handlers
+
+
+def test_capture_downloads_attaches_to_pages_opened_later(tmp_path):
+    client, context = _client(FakeResponse())
+
+    async def on_saved(_path):
+        return None
+
+    async def exercise():
+        client.capture_downloads(tmp_path, on_saved)
+        later = FakePage("https://system.netfacilities.com/tools/viewworkorders")
+        context.handlers["page"](later)
+        assert "download" in later.handlers
+
+    asyncio.run(exercise())
+
+
+def test_download_save_failure_is_swallowed_and_never_reported(tmp_path):
+    client, context = _client(FakeResponse())
+    page = FakePage("https://system.netfacilities.com/myhome")
+    context.pages.append(page)
+    saved = []
+
+    async def on_saved(path):
+        saved.append(path)
+
+    async def exercise():
+        client.capture_downloads(tmp_path, on_saved)
+        page.handlers["download"](
+            FakeDownload("x.csv", save_error=PlaywrightError("disk"))
+        )
+        await client.wait_for_downloads()
+
+    asyncio.run(exercise())
+    assert saved == []
+
+
+def test_prime_session_always_probes_the_server_and_leaves_it_primed():
+    client, context = _client(FakeResponse())
+
+    async def exercise():
+        await client.prime_session()
+        await client.prime_session()
+        await client.get_work_order("12345678")
+
+    asyncio.run(exercise())
+    urls = [call[0] for call in context.request.calls]
+    assert urls == [
+        f"{BASE_URL}/myhome",
+        f"{BASE_URL}/myhome",
+        f"{BASE_URL}/tools/viewworkorders/12345678",
+    ]
+
+
+def test_unique_download_path_strips_directories_and_numbers_duplicates(tmp_path):
+    (tmp_path / "export.csv").write_text("", encoding="utf-8")
+    (tmp_path / "export (1).csv").write_text("", encoding="utf-8")
+
+    assert (
+        client_module._unique_download_path(tmp_path, "../export.csv")
+        == tmp_path / "export (2).csv"
+    )
+    assert client_module._unique_download_path(tmp_path, "") == tmp_path / "download"

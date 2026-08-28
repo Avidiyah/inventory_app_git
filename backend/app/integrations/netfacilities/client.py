@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 import sys
 from typing import Any
@@ -48,6 +50,8 @@ DEFAULT_RENDER_SETTLE_MS = 5_000
 PRIORITY_SELECTOR = "#priority-level"
 # First-party scripts build the Priority row; nothing else is needed to read text.
 RENDER_ALLOWED_RESOURCE_TYPES = frozenset({"script", "xhr", "fetch"})
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +109,8 @@ class NetFacilitiesClient:
         self._playwright: Any | None = None
         self._owns_context = _context is None
         self._session_primed = False
+        self._context_closed = False
+        self._download_tasks: set[asyncio.Task[None]] = set()
 
     async def __aenter__(self) -> "NetFacilitiesClient":
         if self._context is not None:
@@ -142,7 +148,7 @@ class NetFacilitiesClient:
                     user_data_dir=str(self.profile_dir),
                     channel=self.browser_channel,
                     headless=self.headless,
-                    accept_downloads=False,
+                    accept_downloads=True,
                 )
         except NetFacilitiesAuthenticationRequired:
             await self._stop_runtime()
@@ -162,7 +168,17 @@ class NetFacilitiesClient:
 
     async def __aexit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
         try:
-            if self._owns_context and self._context is not None:
+            try:
+                await asyncio.wait_for(
+                    self.wait_for_downloads(), timeout=self.timeout_ms / 1_000
+                )
+            except TimeoutError:
+                logger.error("netfacilities.download_wait_timed_out")
+            if (
+                self._owns_context
+                and self._context is not None
+                and not self._context_closed
+            ):
                 await self._context.close()
         finally:
             if self._owns_context:
@@ -229,6 +245,84 @@ class NetFacilitiesClient:
             raise NetFacilitiesUnavailable(
                 "Authenticated NetFacilities state could not be saved."
             ) from exc
+
+    async def prime_session(self) -> None:
+        """Verify the session against the server and leave it primed.
+
+        ``confirm`` uses this as the authoritative "are we signed in" probe (spec
+        §3.4); a URL check alone can be fooled by the instant before a redirect.
+        The successful probe also primes the session, so the enrichment that
+        follows pays no extra request.
+        """
+
+        self._session_primed = False
+        await self._ensure_session_primed()
+
+    def on_context_closed(self, callback: Callable[[], None]) -> None:
+        """Run ``callback`` once if the operator closes the dedicated window."""
+
+        context = self._require_context()
+
+        def handle_close(_context: Any) -> None:
+            self._context_closed = True
+            callback()
+
+        context.on("close", handle_close)
+
+    def capture_downloads(
+        self,
+        destination: Path,
+        on_saved: Callable[[Path], Awaitable[None]],
+    ) -> None:
+        """Save every download the operator triggers under its suggested name.
+
+        Playwright never writes a download to the OS Downloads folder on its own
+        (spec §3.1), so each one is saved explicitly. Attaches to the pages that
+        exist now and to every page the context opens later.
+        """
+
+        context = self._require_context()
+
+        def attach(page: Any) -> None:
+            def handle_download(download: Any) -> None:
+                task = asyncio.get_running_loop().create_task(
+                    self._save_download(download, destination, on_saved)
+                )
+                self._download_tasks.add(task)
+                task.add_done_callback(self._download_tasks.discard)
+
+            page.on("download", handle_download)
+
+        for page in context.pages:
+            attach(page)
+        context.on("page", attach)
+
+    async def wait_for_downloads(self) -> None:
+        """Await in-flight saves so a close never truncates a file."""
+
+        pending = [task for task in self._download_tasks if not task.done()]
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    async def _save_download(
+        self,
+        download: Any,
+        destination: Path,
+        on_saved: Callable[[Path], Awaitable[None]],
+    ) -> None:
+        try:
+            destination.mkdir(parents=True, exist_ok=True)
+            target = _unique_download_path(destination, download.suggested_filename)
+            await download.save_as(str(target))
+        except (OSError, PlaywrightError) as exc:
+            # The exception class is the only thing logged: a message could
+            # echo the filename's directory, which never leaves this process.
+            logger.error(
+                "netfacilities.download_save_failed",
+                extra={"fields": {"exc_type": type(exc).__name__}},
+            )
+            return
+        await on_saved(target)
 
     async def get_work_order(self, work_order_number: str) -> ParsedWorkOrder:
         """Retrieve and parse one work order without executing document actions."""
@@ -655,6 +749,19 @@ def _unrendered_retrieval(
         raw_byte_count=len(body),
         rendered_byte_count=None,
     )
+
+
+def _unique_download_path(directory: Path, suggested_filename: str) -> Path:
+    """Keep the vendor's filename, minus any path, and never overwrite."""
+
+    name = Path(suggested_filename or "").name or "download"
+    candidate = directory / name
+    stem, suffix = candidate.stem, candidate.suffix
+    counter = 1
+    while candidate.exists():
+        candidate = directory / f"{stem} ({counter}){suffix}"
+        counter += 1
+    return candidate
 
 
 def _is_allowed_host(url: str) -> bool:
