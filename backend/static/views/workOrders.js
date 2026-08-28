@@ -98,7 +98,6 @@ const netFacilitiesSignInBtn = document.getElementById("wo-netfacilities-sign-in
 const netFacilitiesConfirmBtn = document.getElementById("wo-netfacilities-confirm-btn");
 const netFacilitiesCancelBtn = document.getElementById("wo-netfacilities-cancel-btn");
 const netFacilitiesEnrichBtn = document.getElementById("wo-netfacilities-enrich-btn");
-const netFacilitiesOpenBtn = document.getElementById("wo-netfacilities-open-btn");
 const netFacilitiesImportDownloadBtn = document.getElementById("wo-netfacilities-import-download-btn");
 const exportScope = document.getElementById("wo-export-scope");
 const exportBtn = document.getElementById("wo-export-btn");
@@ -2355,12 +2354,6 @@ if (netFacilitiesCancelBtn) {
 
 if (netFacilitiesEnrichBtn) {
   netFacilitiesEnrichBtn.addEventListener("click", runNetFacilitiesEnrichment);
-}
-
-if (netFacilitiesOpenBtn) {
-  netFacilitiesOpenBtn.addEventListener("click", () => {
-    window.open("https://system.netfacilities.com/tools/viewworkorders", "_blank", "noopener,noreferrer");
-  });
 }
 
 // --- CSV import (Admin+) --------------------------------------------------
