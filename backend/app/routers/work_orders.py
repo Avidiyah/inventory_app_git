@@ -592,6 +592,43 @@ def work_order_filter_options(
     )
 
 
+def run_csv_import(
+    db: Session,
+    background: BackgroundTasks,
+    *,
+    data: bytes,
+    user: User,
+) -> WorkOrderImportResult:
+    """Run one CSV import end to end.
+
+    The idempotent service call, the two realtime invalidations, and the
+    batched supervisor notification, in that order. Shared by
+    `POST /work-orders/import` (an upload) and
+    `POST /integrations/netfacilities/downloads/import` (the CSV the live
+    NetFacilities window saved) so the two can never drift -- an import route
+    that called only the service would silently drop the push (spec §3.6).
+    """
+    try:
+        summary = wo_service.import_work_orders(db, csv_bytes=data, user=user)
+        _emit_review_queue_changed(None)
+        _emit_status_changed(None)
+    except DomainError as exc:
+        raise to_http(exc)
+    # Popped rather than passed through: the routing map exists to address a
+    # notification and is not part of the API contract, and
+    # `WorkOrderImportResult` would have to grow a field to carry it.
+    routing = summary.pop("supervisor_routing", {})
+    if routing:
+        _notify(
+            notifications_service.notify_supervisors_assigned_bulk,
+            db,
+            background,
+            routing=routing,
+            actor_id=user.id,
+        )
+    return WorkOrderImportResult(**summary)
+
+
 @router.post(
     "/import",
     response_model=WorkOrderImportResult,
@@ -634,25 +671,7 @@ def import_work_orders(
     it reads the form body. Pinned by
     `test_the_role_gate_still_runs_before_the_size_check`."""
     data = read_capped(file, limit=MAX_CSV_UPLOAD_BYTES, what="CSV file")
-    try:
-        summary = wo_service.import_work_orders(db, csv_bytes=data, user=user)
-        _emit_review_queue_changed(None)
-        _emit_status_changed(None)
-    except DomainError as exc:
-        raise to_http(exc)
-    # Popped rather than passed through: the routing map exists to address a
-    # notification and is not part of the API contract, and
-    # `WorkOrderImportResult` would have to grow a field to carry it.
-    routing = summary.pop("supervisor_routing", {})
-    if routing:
-        _notify(
-            notifications_service.notify_supervisors_assigned_bulk,
-            db,
-            background,
-            routing=routing,
-            actor_id=user.id,
-        )
-    return WorkOrderImportResult(**summary)
+    return run_csv_import(db, background, data=data, user=user)
 
 
 @router.get("/export", responses=_forbidden(roles.ROLE_TECHFM_OA))

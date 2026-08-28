@@ -6,9 +6,11 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
 from app.auth_deps import require_min_role
+from app.database import get_db
 from app.domain import roles
 from app.integrations.netfacilities.config import (
     NetFacilitiesConfig,
@@ -22,12 +24,15 @@ from app.integrations.netfacilities.errors import (
     NetFacilitiesUnavailable,
 )
 from app.models import User
+from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_file_capped
+from app.routers.work_orders import run_csv_import
 from app.schemas.netfacilities import (
     NetFacilitiesAuthenticationAttempt,
     NetFacilitiesCapability,
     NetFacilitiesEnrichmentCounts,
     NetFacilitiesEnrichmentJob,
 )
+from app.schemas.work_orders import WorkOrderImportResult
 from app.services.netfacilities_auth import (
     PENDING_STATES,
     NetFacilitiesAuthenticationCoordinator,
@@ -431,3 +436,57 @@ async def get_netfacilities_enrichment(
             detail="NetFacilities enrichment job was not found on this process.",
         )
     return _job_response(snapshot)
+
+
+@router.post(
+    "/downloads/import",
+    response_model=WorkOrderImportResult,
+    responses={
+        **_forbidden(),
+        409: {
+            "description": (
+                "No CSV has been exported through the live NetFacilities window, "
+                "or the file is gone."
+            )
+        },
+        413: {"description": "CSV exceeds the upload size cap."},
+    },
+)
+def import_netfacilities_download(
+    background: BackgroundTasks,
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
+    db: Session = Depends(get_db),
+    authentication: NetFacilitiesAuthenticationCoordinator = Depends(
+        get_netfacilities_authentication_coordinator
+    ),
+) -> WorkOrderImportResult:
+    """Import the CSV the operator most recently exported through the live
+    NetFacilities window (spec D5).
+
+    One click instead of a file chooser, through exactly the pipeline
+    `POST /work-orders/import` uses. The file's location stays on the server;
+    the operator only ever sees its name. Deliberately `def`, not `async def`,
+    for the same reason as the upload route: the import is one long
+    synchronous transaction and belongs in the threadpool.
+    """
+
+    path = authentication.captured_csv_path()
+    if path is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "No CSV has been exported through the NetFacilities window yet. "
+                "Export it there, or use Import from CSV…."
+            ),
+        )
+    try:
+        data = read_file_capped(path, limit=MAX_CSV_UPLOAD_BYTES, what="CSV file")
+    except OSError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "The exported CSV is no longer where it was saved. Export it "
+                "again, or use Import from CSV…."
+            ),
+        ) from exc
+    return run_csv_import(db, background, data=data, user=user)

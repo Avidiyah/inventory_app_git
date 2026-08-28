@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 import pytest
 
 from app.integrations.netfacilities.config import NetFacilitiesConfig
@@ -16,6 +16,7 @@ from app.integrations.netfacilities.errors import (
     NetFacilitiesOperationInProgress,
 )
 from app.routers import netfacilities as router
+from app.schemas.work_orders import WorkOrderImportResult
 from app.services.netfacilities import NetFacilitiesEnrichmentSummary
 from app.services.netfacilities_auth import NetFacilitiesAuthenticationSnapshot
 from app.services.netfacilities_jobs import NetFacilitiesJobSnapshot
@@ -518,3 +519,90 @@ def test_cancel_reports_a_closed_live_session():
 
     assert result.state == "closed"
     assert result.failure is None
+
+
+def _import_result(**overrides):
+    values = {
+        "total": 1,
+        "created": 1,
+        "opened": 0,
+        "closed": 0,
+        "supervisors_matched": 0,
+        "supervisors_unmatched": 1,
+        "skipped": 0,
+    }
+    values.update(overrides)
+    return WorkOrderImportResult(**values)
+
+
+def test_import_download_returns_409_without_a_captured_csv():
+    with pytest.raises(HTTPException) as exc:
+        router.import_netfacilities_download(
+            background=BackgroundTasks(),
+            user=SimpleNamespace(id=uuid4()),
+            db=object(),
+            authentication=FakeAuthentication(),
+        )
+
+    assert exc.value.status_code == 409
+    assert "Import from CSV" in exc.value.detail
+
+
+def test_import_download_runs_the_shared_import_pipeline(tmp_path, monkeypatch):
+    csv_path = tmp_path / "WorkOrders.csv"
+    csv_path.write_bytes(b"WORK ORDER\n12345678\n")
+    received = {}
+
+    def fake_run_csv_import(db, background, *, data, user):
+        received.update(db=db, background=background, data=data, user=user)
+        return _import_result()
+
+    monkeypatch.setattr(router, "run_csv_import", fake_run_csv_import)
+    db = object()
+    background = BackgroundTasks()
+    user = SimpleNamespace(id=uuid4())
+
+    result = router.import_netfacilities_download(
+        background=background,
+        user=user,
+        db=db,
+        authentication=FakeAuthentication(csv_path=csv_path),
+    )
+
+    assert result.created == 1
+    assert received == {
+        "db": db,
+        "background": background,
+        "data": b"WORK ORDER\n12345678\n",
+        "user": user,
+    }
+
+
+def test_import_download_reports_a_missing_file_as_409(tmp_path):
+    with pytest.raises(HTTPException) as exc:
+        router.import_netfacilities_download(
+            background=BackgroundTasks(),
+            user=SimpleNamespace(id=uuid4()),
+            db=object(),
+            authentication=FakeAuthentication(csv_path=tmp_path / "gone.csv"),
+        )
+
+    assert exc.value.status_code == 409
+    assert "no longer where it was saved" in exc.value.detail
+    assert str(tmp_path) not in exc.value.detail
+
+
+def test_import_download_refuses_an_oversized_file(tmp_path, monkeypatch):
+    csv_path = tmp_path / "huge.csv"
+    csv_path.write_bytes(b"x")
+    monkeypatch.setattr(router, "MAX_CSV_UPLOAD_BYTES", 0)
+
+    with pytest.raises(HTTPException) as exc:
+        router.import_netfacilities_download(
+            background=BackgroundTasks(),
+            user=SimpleNamespace(id=uuid4()),
+            db=object(),
+            authentication=FakeAuthentication(csv_path=csv_path),
+        )
+
+    assert exc.value.status_code == 413

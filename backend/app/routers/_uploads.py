@@ -3,8 +3,9 @@
 Layer: routers (internal helper), sibling to `_errors.py`. This is the
 single place that knows how big an upload is allowed to be and what a
 caller is told when it is too big. The two upload routes
-(`POST /barcodes/decode`, `POST /work-orders/import`) are its only
-callers; anything that adds a third should call this rather than
+(`POST /barcodes/decode`, `POST /work-orders/import`) and the one on-host
+file route (`POST /integrations/netfacilities/downloads/import`) are its
+only callers; anything that adds another should call this rather than
 `file.file.read()`.
 
 **What this does and does not protect (B1).** By the time a handler
@@ -35,6 +36,7 @@ kind of reason.
 """
 
 import logging
+from pathlib import Path
 from typing import Optional
 
 from fastapi import HTTPException, UploadFile
@@ -106,3 +108,21 @@ def read_capped(file: UploadFile, *, limit: int, what: str) -> bytes:
         raise _too_large(what, limit)
 
     return data
+
+
+def read_file_capped(path: Path, *, limit: int, what: str) -> bytes:
+    """Bounded read of a file already on this host.
+
+    The CSV the live NetFacilities window saved is imported from disk rather
+    than uploaded, so it bypasses the multipart parser -- and would bypass the
+    cap too, unless it is applied here. Same limit, same 413, same log line as
+    the upload routes. ``OSError`` (missing, unreadable) propagates: the caller
+    decides what a vanished file means.
+    """
+
+    size = path.stat().st_size
+    if size > limit:
+        _log_rejection(what, limit=limit, size=size)
+        raise _too_large(what, limit)
+    with path.open("rb") as handle:
+        return handle.read(limit)
