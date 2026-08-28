@@ -29,6 +29,7 @@ from app.schemas.netfacilities import (
     NetFacilitiesEnrichmentJob,
 )
 from app.services.netfacilities_auth import (
+    PENDING_STATES,
     NetFacilitiesAuthenticationCoordinator,
     NetFacilitiesAuthenticationSnapshot,
     authentication_coordinator,
@@ -74,6 +75,7 @@ def _job_response(snapshot: NetFacilitiesJobSnapshot) -> NetFacilitiesEnrichment
         current_work_order_number=snapshot.current_work_order_number,
         failure=snapshot.failure,
         counts=counts,
+        source=snapshot.source,
     )
 
 
@@ -86,6 +88,25 @@ def _authentication_response(
         started_at=snapshot.started_at,
         finished_at=snapshot.finished_at,
         failure=snapshot.failure,
+        signed_in_at=snapshot.signed_in_at,
+        last_download_filename=snapshot.last_download_filename,
+        last_download_at=snapshot.last_download_at,
+    )
+
+
+def _live_session_lost_authentication(
+    session: NetFacilitiesAuthenticationSnapshot,
+    job: NetFacilitiesJobSnapshot | None,
+) -> bool:
+    """A job that borrowed *this* window and was told to sign in again."""
+
+    return (
+        job is not None
+        and job.state == "authentication_required"
+        and job.source == "live_session"
+        and job.finished_at is not None
+        and session.signed_in_at is not None
+        and job.finished_at >= session.signed_in_at
     )
 
 
@@ -140,34 +161,44 @@ async def netfacilities_session(
         if latest_authentication is not None
         else None
     )
-    if latest is not None and latest.state in {"queued", "running"}:
+
+    def capability(state: str, message: str) -> NetFacilitiesCapability:
         return NetFacilitiesCapability(
             available=True,
             interactive_authentication_available=(
                 config.interactive_authentication_available
             ),
-            state="running",
-            message="NetFacilities is seeking Task/Symptom and Priority data.",
+            state=state,
+            message=message,
             latest_job=latest_response,
             latest_authentication=authentication_response,
         )
+
+    if latest is not None and latest.state in {"queued", "running"}:
+        return capability(
+            "running", "NetFacilities is seeking Task/Symptom and Priority data."
+        )
     if (
         latest_authentication is not None
-        and latest_authentication.state
-        in {"starting", "awaiting_confirmation", "confirming"}
+        and latest_authentication.state in PENDING_STATES
     ):
-        return NetFacilitiesCapability(
-            available=True,
-            interactive_authentication_available=(
-                config.interactive_authentication_available
-            ),
-            state="authenticating",
-            message=(
-                "Complete NetFacilities sign-in in the opened browser, then confirm "
-                "it here."
-            ),
-            latest_job=latest_response,
-            latest_authentication=authentication_response,
+        return capability(
+            "authenticating",
+            "Complete NetFacilities sign-in in the opened browser, then confirm "
+            "it here.",
+        )
+    if latest_authentication is not None and latest_authentication.state == "signed_in":
+        if _live_session_lost_authentication(latest_authentication, latest):
+            return capability(
+                "expired",
+                "Your NetFacilities window is no longer logged in. Close it and "
+                "log in again.",
+            )
+        return capability(
+            "signed_in",
+            "NetFacilities is open and logged in. Export the work-order CSV in "
+            "that window; it is saved to your Downloads folder and can be "
+            "imported from here.",
         )
     if not config.has_saved_authentication:
         message = (
@@ -178,16 +209,7 @@ async def netfacilities_session(
                 "secret file."
             )
         )
-        return NetFacilitiesCapability(
-            available=True,
-            interactive_authentication_available=(
-                config.interactive_authentication_available
-            ),
-            state="not_authenticated",
-            message=message,
-            latest_job=latest_response,
-            latest_authentication=authentication_response,
-        )
+        return capability("not_authenticated", message)
     if (
         latest is not None
         and latest.state == "authentication_required"
@@ -201,23 +223,9 @@ async def netfacilities_session(
                 "file and redeploy."
             )
         )
-        return NetFacilitiesCapability(
-            available=True,
-            interactive_authentication_available=(
-                config.interactive_authentication_available
-            ),
-            state="expired",
-            message=message,
-            latest_job=latest_response,
-            latest_authentication=authentication_response,
-        )
-    return NetFacilitiesCapability(
-        available=True,
-        interactive_authentication_available=config.interactive_authentication_available,
-        state="ready",
-        message="Saved NetFacilities authentication is ready for enrichment.",
-        latest_job=latest_response,
-        latest_authentication=authentication_response,
+        return capability("expired", message)
+    return capability(
+        "ready", "Saved NetFacilities authentication is ready for enrichment."
     )
 
 
@@ -319,7 +327,7 @@ async def confirm_netfacilities_authentication(
     response_model=NetFacilitiesAuthenticationAttempt,
     responses={
         **_forbidden(),
-        409: {"description": "No NetFacilities sign-in is active."},
+        409: {"description": "No NetFacilities window is open, or enrichment is still using it."},
     },
 )
 async def cancel_netfacilities_authentication(
@@ -328,10 +336,18 @@ async def cancel_netfacilities_authentication(
         get_netfacilities_authentication_coordinator
     ),
 ) -> NetFacilitiesAuthenticationAttempt:
-    """Close the pending headed browser without saving its state."""
+    """Close the dedicated window: a pending sign-in or the live session."""
 
     try:
         snapshot = await authentication.cancel()
+    except NetFacilitiesOperationInProgress as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Enrichment is still using the NetFacilities window; wait for it "
+                "to finish."
+            ),
+        ) from exc
     except NetFacilitiesAuthenticationNotPending as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -353,8 +369,11 @@ async def cancel_netfacilities_authentication(
 async def start_netfacilities_enrichment(
     _user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     jobs: NetFacilitiesJobCoordinator = Depends(get_netfacilities_coordinator),
+    authentication: NetFacilitiesAuthenticationCoordinator = Depends(
+        get_netfacilities_authentication_coordinator
+    ),
 ) -> NetFacilitiesEnrichmentJob:
-    """Start one saved-session batch; duplicate starts return the active job."""
+    """Start one batch through the open window if there is one, else the saved state."""
 
     try:
         config = load_netfacilities_config()
@@ -369,7 +388,8 @@ async def start_netfacilities_enrichment(
             detail="NetFacilities enrichment is disabled on this host.",
         )
     try:
-        snapshot, _created = await jobs.start(config)
+        live = await authentication.borrow_live_client()
+        snapshot, _created = await jobs.start(config, live_client_context=live)
     except NetFacilitiesAuthenticationRequired as exc:
         detail = (
             "Sign in to NetFacilities before enrichment."

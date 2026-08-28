@@ -18,6 +18,7 @@ NetFacilitiesJobState = Literal[
     "failed",
     "cancelled",
 ]
+NetFacilitiesJobSource = Literal["live_session", "saved_state"]
 
 
 class NetFacilitiesEnrichmentCounts(BaseModel):
@@ -51,17 +52,25 @@ class NetFacilitiesEnrichmentJob(BaseModel):
         "cancelled",
     ] | None = None
     counts: NetFacilitiesEnrichmentCounts | None = None
+    # Which session read the source: the operator's open window or the saved
+    # storage-state file. Lets the card say which one it is using.
+    source: NetFacilitiesJobSource | None = None
 
 
 class NetFacilitiesAuthenticationAttempt(BaseModel):
-    """Process-local headed sign-in state without browser or profile details."""
+    """Process-local headed sign-in / live-session state.
+
+    ``last_download_filename`` is a bare filename -- never a directory or path;
+    the operator already knows where their Downloads folder is.
+    """
 
     attempt_id: UUID
     state: Literal[
         "starting",
         "awaiting_confirmation",
         "confirming",
-        "authenticated",
+        "signed_in",
+        "closed",
         "failed",
         "cancelled",
         "timed_out",
@@ -69,6 +78,9 @@ class NetFacilitiesAuthenticationAttempt(BaseModel):
     started_at: datetime
     finished_at: datetime | None = None
     failure: Literal["unavailable", "cancelled", "timed_out"] | None = None
+    signed_in_at: datetime | None = None
+    last_download_filename: str | None = None
+    last_download_at: datetime | None = None
 
 
 class NetFacilitiesCapability(BaseModel):
@@ -83,6 +95,7 @@ class NetFacilitiesCapability(BaseModel):
         "running",
         "expired",
         "authenticating",
+        "signed_in",
     ]
     message: str
     latest_job: NetFacilitiesEnrichmentJob | None = None
