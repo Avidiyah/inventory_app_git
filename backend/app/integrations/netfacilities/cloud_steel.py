@@ -52,7 +52,7 @@ async def _connect_over_cdp(websocket_url: str, api_key: str):
 @dataclass
 class _SteelLoginSession:
     session_id: str
-    session_viewer_url: str
+    live_view_url: str
     _playwright: object
     _browser: object
     _client: NetFacilitiesClient
@@ -94,7 +94,9 @@ class SteelCloudBrowserProvider:
 
         return _SteelLoginSession(
             session_id=steel_session.id,
-            session_viewer_url=steel_session.session_viewer_url,
+            # `debug_url`, not `session_viewer_url` -- see CloudLoginSession's
+            # docstring for why. Confirmed against a real session 2026-08-28.
+            live_view_url=steel_session.debug_url,
             _playwright=playwright,
             _browser=browser,
             _client=client,

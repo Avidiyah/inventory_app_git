@@ -69,7 +69,7 @@ def _snapshot(*, state="awaiting_sign_in", user_id=None):
         attempt_id=uuid4(),
         state=state,
         started_at=now,
-        session_viewer_url="https://app.steel.dev/sessions/sess-1",
+        live_view_url="https://api.steel.dev/v1/sessions/sess-1/player",
     )
 
 

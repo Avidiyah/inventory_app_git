@@ -578,7 +578,7 @@ def _cloud_status_response(
         signed_in_at=snapshot.signed_in_at,
         last_download_filename=snapshot.last_download_filename,
         last_download_at=snapshot.last_download_at,
-        session_viewer_url=snapshot.session_viewer_url,
+        live_view_url=snapshot.live_view_url,
     )
 
 

@@ -308,6 +308,10 @@ def test_start_translates_missing_authentication_to_recoverable_409(
 ):
     config = _config(tmp_path, authenticated=False)
     monkeypatch.setattr(router, "load_netfacilities_config", lambda: config)
+    # Force cloud auth off regardless of ambient env (e.g. a local .env with
+    # it enabled for manual testing) -- this test exercises the no-live,
+    # no-cloud, no-saved-state 409 path specifically.
+    monkeypatch.delenv("NETFACILITIES_CLOUD_AUTH_ENABLED", raising=False)
     jobs = FakeJobs(
         start_error=NetFacilitiesAuthenticationRequired("protected path omitted")
     )
@@ -332,6 +336,9 @@ def test_job_response_contains_approved_progress_and_counts_but_no_source_values
 ):
     config = _config(tmp_path)
     monkeypatch.setattr(router, "load_netfacilities_config", lambda: config)
+    # Same isolation as above: this test doesn't pass a real `db`, so cloud
+    # auth must not appear enabled regardless of the local environment.
+    monkeypatch.delenv("NETFACILITIES_CLOUD_AUTH_ENABLED", raising=False)
     snapshot = NetFacilitiesJobSnapshot(
         job_id=uuid4(),
         state="completed",

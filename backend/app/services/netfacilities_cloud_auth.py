@@ -55,7 +55,7 @@ class NetFacilitiesCloudAuthenticationSnapshot:
     signed_in_at: datetime | None = None
     last_download_filename: str | None = None
     last_download_at: datetime | None = None
-    session_viewer_url: str | None = None
+    live_view_url: str | None = None
 
 
 def _now() -> datetime:
@@ -116,7 +116,7 @@ class NetFacilitiesCloudAuthenticationCoordinator:
             awaiting = replace(
                 attempt,
                 state="awaiting_sign_in",
-                session_viewer_url=cloud_session.session_viewer_url,
+                live_view_url=cloud_session.live_view_url,
             )
             ceremony = _Ceremony(snapshot=awaiting, provider=provider, cloud_session=cloud_session)
             self._ceremonies[user_id] = ceremony

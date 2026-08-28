@@ -1024,7 +1024,10 @@ returns a filesystem path or browser content.
 optional `status` — the calling user's own state, never another user's.
 **`NetFacilitiesCloudSessionStatus`** mirrors `NetFacilitiesAuthenticationAttempt`'s shape
 (attempt ID, lifecycle state, timestamps, safe failure class, `last_download_filename` /
-`last_download_at`) plus `session_viewer_url` while a ceremony is open; lifecycle states are
+`last_download_at`) plus `live_view_url` while a ceremony is open — Steel's `debug_url`
+(a bare WebRTC session player), never `session_viewer_url` (Steel's own account-gated
+dashboard; confirmed 2026-08-28 against a real session that only `debug_url` renders an
+interactive view usable without a Steel login). Lifecycle states are
 `starting|awaiting_sign_in|signed_in|closed|failed|cancelled|timed_out` — no separate
 manual-confirm state, since the cloud ceremony auto-polls with no confirm click. Neither
 schema, nor any other NetFacilities response, ever carries `storage_state` or

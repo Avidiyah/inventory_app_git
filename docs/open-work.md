@@ -109,9 +109,13 @@ reconnects by replaying it into a fresh, short-lived Steel session per job,
 bounded to Steel's 15-minute session cap. Manually verified end-to-end in
 Chrome against the real Steel API (fake key correctly rejected, error
 propagated cleanly through every layer) and against the feature-flag-off
-default; **the one thing not yet done is the manual D5/D6 replay spike**
-(plan Task 1) against a real Steel account and a real NetFacilities login —
-required before this can be called done, and the owner still needs to
+default; that pass used a fake key and never opened the live-view URL, so it
+missed that the URL opened was wrong (Steel's account dashboard instead of
+an interactive NetFacilities view) — found and fixed against a real session
+the same day, see *Cloud auth (IMP-040, 2026-08-28)* in `current-state.md`.
+**The one thing not yet done is the manual D5/D6 replay spike** (plan Task
+1) against a real Steel account and a real NetFacilities login — required
+before this can be called done, and the owner still needs to
 rotate/invalidate the NetFacilities session flagged in the IMP-039 handoff.
 
 ### IMP-037 — Field-help `?` tooltips — CLOSED

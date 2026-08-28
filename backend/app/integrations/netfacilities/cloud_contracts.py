@@ -20,7 +20,15 @@ class CloudLoginSession(Protocol):
     for every poll until `close_login_session`)."""
 
     session_id: str
-    session_viewer_url: str
+    # The bare interactive live-view URL (Steel's `debug_url`, a WebRTC
+    # session player) -- NOT `session_viewer_url`, which is Steel's own
+    # account dashboard page for the session and requires a Steel login to
+    # mean anything. Confirmed 2026-08-28 against a real session: opening
+    # `session_viewer_url` shows Steel's dashboard chrome (team/project
+    # picker, event log, cost); opening `debug_url` shows the bare remote
+    # browser with no Steel UI at all -- the one an end user with no Steel
+    # account can actually use.
+    live_view_url: str
 
 
 class CloudBrowserProvider(Protocol):

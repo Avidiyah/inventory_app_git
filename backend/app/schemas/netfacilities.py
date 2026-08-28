@@ -125,7 +125,10 @@ class NetFacilitiesCloudSessionStatus(BaseModel):
     signed_in_at: datetime | None = None
     last_download_filename: str | None = None
     last_download_at: datetime | None = None
-    session_viewer_url: str | None = None
+    # Steel's `debug_url` (WebRTC session player), not `sessionViewerUrl`
+    # (Steel's own account-gated dashboard) -- see CloudLoginSession's
+    # docstring for why the distinction matters.
+    live_view_url: str | None = None
 
 
 class NetFacilitiesCloudCapability(BaseModel):

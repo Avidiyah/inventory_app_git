@@ -1871,13 +1871,19 @@ bound the login ceremony and each reconnected enrichment job under Steel's
 15-minute session cap.
 
 `POST /integrations/netfacilities/cloud/auth/start` opens a Steel session,
-returns its `session_viewer_url` for the frontend to open in a new tab, and
+returns its `live_view_url` for the frontend to open in a new tab, and
 polls it server-side the same way the live session auto-confirms — no
-explicit confirm step. Once signed in, the same session captures the CSV the
-user exports via Steel's Files API; `POST
-/integrations/netfacilities/cloud/downloads/import` imports it through the
-shared `run_csv_import` pipeline. `GET /integrations/netfacilities/cloud/session`
-reports only the calling user's own ceremony state, never anyone else's.
+explicit confirm step. `live_view_url` is Steel's `debug_url` (a bare
+WebRTC session player), deliberately not `session_viewer_url` — confirmed
+2026-08-28 against a real session that `session_viewer_url` opens Steel's
+own account-gated dashboard (team/project picker, event log, cost), which
+means nothing to an end user with no Steel login, while `debug_url` opens
+the interactive remote browser directly with no Steel UI at all. Once
+signed in, the same session captures the CSV the user exports via Steel's
+Files API; `POST /integrations/netfacilities/cloud/downloads/import` imports
+it through the shared `run_csv_import` pipeline. `GET
+/integrations/netfacilities/cloud/session` reports only the calling user's
+own ceremony state, never anyone else's.
 
 Captured `storage_state()` is Fernet-encrypted and stored per-user (unique
 `user_id`) in the new `netfacilities_cloud_sessions` table — never returned
@@ -1895,6 +1901,14 @@ with `401`; the failure propagated cleanly as a `503` and a friendly frontend
 message with no crash, and the capability endpoint recovered normally
 afterward. With the flag off, the cloud button is absent and the existing
 local flow is unaffected, in both cases with no browser console errors.
+
+That verification pass used a fake `STEEL_API_KEY` and never actually opened
+the live-view URL, so it did not catch that the URL opened was wrong: with a
+real key, in production, the owner found "Log in to NetFacilities (any
+device)" opened Steel's own account dashboard instead of an interactive
+NetFacilities page. Fixed the same day (`session.debug_url`, not
+`session.session_viewer_url` — see above); confirmed against the real
+session that was open at the time.
 
 **Not yet done:** the manual D5/D6 replay spike (a real Steel account, a real
 NetFacilities login, verifying a raw `storage_state()` snapshot actually

@@ -61,7 +61,11 @@ class FakeBrowser:
 class FakeSteelSession:
     def __init__(self, session_id="sess-1"):
         self.id = session_id
+        # `session_viewer_url` is Steel's own dashboard page (unused by the
+        # adapter -- see cloud_contracts.CloudLoginSession); `debug_url` is
+        # the bare interactive live view the adapter actually reads.
         self.session_viewer_url = f"https://app.steel.dev/sessions/{session_id}"
+        self.debug_url = f"https://api.steel.dev/v1/sessions/{session_id}/player"
         self.websocket_url = f"wss://connect.steel.dev/{session_id}"
 
 
@@ -107,7 +111,9 @@ def test_open_login_session_creates_and_tracks_a_context(monkeypatch):
     session = asyncio.run(provider.open_login_session())
 
     assert session.session_id == "sess-1"
-    assert session.session_viewer_url.endswith("sess-1")
+    # The bare live-view player URL, not Steel's account dashboard.
+    assert session.live_view_url.endswith("/player")
+    assert "sess-1" in session.live_view_url
     assert len(fake_client.sessions.created) == 1
 
 

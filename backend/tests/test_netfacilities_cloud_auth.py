@@ -34,7 +34,7 @@ def _session_factory(db):
 class FakeLoginSession:
     def __init__(self, session_id="sess-1"):
         self.session_id = session_id
-        self.session_viewer_url = f"https://app.steel.dev/sessions/{session_id}"
+        self.live_view_url = f"https://api.steel.dev/v1/sessions/{session_id}/player"
 
 
 class FakeCloudBrowserProvider:
@@ -96,7 +96,7 @@ def test_start_then_captures_state_and_writes_encrypted_row(db, monkeypatch):
 
     async def _run():
         snapshot = await coordinator.start(user.id, _config())
-        assert snapshot.session_viewer_url.endswith("sess-1")
+        assert snapshot.live_view_url.endswith("/player")
         for _ in range(200):
             latest = await coordinator.latest(user.id)
             if latest.state == "signed_in":

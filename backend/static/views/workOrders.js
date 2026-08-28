@@ -2418,8 +2418,8 @@ async function startNetFacilitiesCloudAuthentication() {
   if (netFacilitiesCloudSignInBtn) netFacilitiesCloudSignInBtn.disabled = true;
   try {
     const status = await apiStartNetFacilitiesCloudAuthentication();
-    if (status && status.session_viewer_url) {
-      window.open(status.session_viewer_url, "_blank", "noopener");
+    if (status && status.live_view_url) {
+      window.open(status.live_view_url, "_blank", "noopener");
     }
   } catch (err) {
     setMessage(netFacilitiesStatus, friendlyError(err, "Could not open a NetFacilities cloud session."), "error");
