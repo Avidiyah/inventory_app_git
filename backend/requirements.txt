@@ -73,3 +73,12 @@ pywebpush==2.4.0
 # -> 50.0.0); pinned directly now that app code imports it, not just a
 # transitive dependency's transitive dependency.
 cryptography==50.0.0
+# Per-user NetFacilities cloud-auth login (spec D1). Verified against the
+# installed SDK 2026-08-28: package name `steel-sdk`, imports as `from steel
+# import AsyncSteel`; session.session_viewer_url, session.websocket_url,
+# session.id, and sessions.files.list/.download are real fields/methods on
+# this pinned version (confirmed via `Session.model_fields` and
+# `dir(client.sessions.files)`, not just vendor docs). httpx ships
+# transitively as steel-sdk's HTTP client -- no direct pin needed since
+# nothing in this repo imports httpx itself.
+steel-sdk==0.19.0
