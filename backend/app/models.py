@@ -65,6 +65,12 @@ class User(Base):
     push_subscriptions = relationship(
         "PushSubscription", back_populates="user", cascade="all, delete-orphan"
     )
+    netfacilities_cloud_session = relationship(
+        "NetFacilitiesCloudSession",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     @property
     def full_name(self) -> str:
@@ -992,4 +998,44 @@ class PushSubscription(Base):
 
     # The fan-out selects by recipient; the endpoint primary key does not
     # serve that query.
+    __table_args__ = (Index("ix_push_subscriptions_user_id", "user_id"),)
+
+
+class NetFacilitiesCloudSession(Base):
+    """One user's captured NetFacilities cloud-auth session (spec D8, D9).
+
+    Per-user, not shared (spec D2): `user_id` is unique, so each authorized
+    user has at most one captured session. `storage_state` is Fernet
+    ciphertext (`app.services.netfacilities_cloud_crypto`), never the
+    plaintext Playwright snapshot -- decrypt it only at the moment a
+    reconnect needs it, and never return it or `steel_profile_id` in any
+    API response. `steel_profile_id` is populated only if the D6
+    Profiles-API fallback is in use; both columns exist from day one so
+    that fallback needs no migration, only a code path change.
+
+    `expires_at` is set only once an enrichment attempt actually reports
+    `authentication_required` against this session, mirroring how the
+    existing saved-state expiry is detected today
+    (`routers/netfacilities.py::_saved_state_refreshed_after`) rather than
+    guessed from a TTL.
+    """
+
+    __tablename__ = "netfacilities_cloud_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    storage_state = Column(Text, nullable=False)
+    steel_profile_id = Column(Text, nullable=True)
+    signed_in_at = Column(DateTime(timezone=True), nullable=False)
+    last_download_filename = Column(Text, nullable=True)
+    last_download_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", back_populates="netfacilities_cloud_session")
     __table_args__ = (Index("ix_push_subscriptions_user_id", "user_id"),)
