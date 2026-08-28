@@ -12,6 +12,7 @@ from app.integrations.netfacilities.config import (
     DEFAULT_AUTH_TIMEOUT_SECONDS,
     DEFAULT_BATCH_TIMEOUT_SECONDS,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_SESSION_TIMEOUT_SECONDS,
     NetFacilitiesConfig,
     STORAGE_STATE_FILENAME,
     _repository_root,
@@ -379,3 +380,89 @@ assert "app.integrations.netfacilities.client" not in sys.modules
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def _windows_env(profile):
+    return {
+        "NETFACILITIES_ENABLED": "true",
+        "NETFACILITIES_PROFILE_DIR": str(profile),
+    }
+
+
+def test_windows_download_dir_defaults_to_home_downloads_when_present(
+    tmp_path, monkeypatch
+):
+    home = tmp_path / "home"
+    (home / "Downloads").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", lambda: home)
+    profile = tmp_path / "profile"
+
+    config = load_netfacilities_config(_windows_env(profile), platform="win32")
+
+    assert config.download_dir == (home / "Downloads").resolve()
+    assert config.session_timeout_seconds == DEFAULT_SESSION_TIMEOUT_SECONDS
+
+
+def test_windows_download_dir_falls_back_inside_the_profile(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: home)
+    profile = tmp_path / "profile"
+
+    config = load_netfacilities_config(_windows_env(profile), platform="win32")
+
+    assert config.download_dir == profile.resolve() / "downloads"
+
+
+def test_explicit_download_dir_and_session_timeout_are_honored(tmp_path):
+    profile = tmp_path / "profile"
+    downloads = tmp_path / "exports"
+    env = {
+        **_windows_env(profile),
+        "NETFACILITIES_DOWNLOAD_DIR": str(downloads),
+        "NETFACILITIES_SESSION_TIMEOUT_SECONDS": "600",
+    }
+
+    config = load_netfacilities_config(env, platform="win32")
+
+    assert config.download_dir == downloads.resolve()
+    assert config.session_timeout_seconds == 600
+
+
+@pytest.mark.parametrize("value", ["relative/dir", "0", "-5", "soon"])
+def test_download_dir_and_session_timeout_reject_bad_values(tmp_path, value):
+    profile = tmp_path / "profile"
+    if value == "relative/dir":
+        env = {**_windows_env(profile), "NETFACILITIES_DOWNLOAD_DIR": value}
+    else:
+        env = {**_windows_env(profile), "NETFACILITIES_SESSION_TIMEOUT_SECONDS": value}
+
+    with pytest.raises(NetFacilitiesUnavailable):
+        load_netfacilities_config(env, platform="win32")
+
+
+def test_download_dir_may_not_live_inside_the_repository(tmp_path):
+    repository = tmp_path / "repo"
+    profile = tmp_path / "profile"
+    env = {
+        **_windows_env(profile),
+        "NETFACILITIES_DOWNLOAD_DIR": str(repository / "downloads"),
+    }
+
+    with pytest.raises(NetFacilitiesUnavailable, match="outside the repository"):
+        load_netfacilities_config(env, platform="win32", repository_root=repository)
+
+
+def test_disabled_and_hosted_configs_have_no_download_dir(tmp_path):
+    disabled = load_netfacilities_config({}, platform="win32")
+    hosted = load_netfacilities_config(
+        {
+            "NETFACILITIES_ENABLED": "true",
+            "NETFACILITIES_STORAGE_STATE_PATH": str(tmp_path / "state.json"),
+        },
+        platform="linux",
+    )
+
+    assert disabled.download_dir is None
+    assert hosted.download_dir is None
+    assert hosted.session_timeout_seconds == DEFAULT_SESSION_TIMEOUT_SECONDS

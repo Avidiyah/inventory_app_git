@@ -27,6 +27,8 @@ DEFAULT_REQUEST_TIMEOUT_SECONDS = 30
 DEFAULT_AUTH_TIMEOUT_SECONDS = 900
 DEFAULT_BATCH_TIMEOUT_SECONDS = 1_800
 DEFAULT_RENDER_SETTLE_SECONDS = 5
+DEFAULT_SESSION_TIMEOUT_SECONDS = 7_200
+DOWNLOADS_FALLBACK_DIRNAME = "downloads"
 STORAGE_STATE_FILENAME = "playwright-storage-state.json"
 
 
@@ -44,6 +46,12 @@ class NetFacilitiesConfig:
     interactive_authentication_available: bool = True
     render_document: bool = False
     render_settle_seconds: int = DEFAULT_RENDER_SETTLE_SECONDS
+    # Idle limit for a signed-in live window (spec D1). Pending sign-in keeps
+    # using auth_timeout_seconds.
+    session_timeout_seconds: int = DEFAULT_SESSION_TIMEOUT_SECONDS
+    # Where a download the operator triggers in the live window is saved (spec
+    # D3). None when disabled or hosted: Linux never opens a window.
+    download_dir: Path | None = None
 
     @property
     def render_settle_ms(self) -> int:
@@ -115,6 +123,11 @@ def load_netfacilities_config(
         )
         storage_state_file = None
         interactive_authentication_available = True
+        download_dir: Path | None = _download_dir(
+            values.get("NETFACILITIES_DOWNLOAD_DIR"),
+            profile_dir=profile_dir,
+            repository_root=repository_root,
+        )
     elif current_platform == "linux":
         profile_dir = None
         storage_state_file = _storage_state_file(
@@ -122,6 +135,7 @@ def load_netfacilities_config(
             repository_root=repository_root,
         )
         interactive_authentication_available = False
+        download_dir = None
     else:
         raise NetFacilitiesUnavailable(
             "NetFacilities enrichment is supported only on Windows or Linux hosts."
@@ -169,6 +183,12 @@ def load_netfacilities_config(
             "NETFACILITIES_RENDER_SETTLE_SECONDS",
             DEFAULT_RENDER_SETTLE_SECONDS,
         ),
+        session_timeout_seconds=_positive_seconds(
+            values,
+            "NETFACILITIES_SESSION_TIMEOUT_SECONDS",
+            DEFAULT_SESSION_TIMEOUT_SECONDS,
+        ),
+        download_dir=download_dir,
     )
 
 
@@ -222,6 +242,48 @@ def _profile_dir(raw: str | None, *, repository_root: Path) -> Path:
     if path.exists() and not path.is_dir():
         raise NetFacilitiesUnavailable(
             "NETFACILITIES_PROFILE_DIR must refer to a directory."
+        )
+    return path
+
+
+def _download_dir(
+    raw: str | None,
+    *,
+    profile_dir: Path,
+    repository_root: Path,
+) -> Path:
+    """Resolve where the live window's downloads are saved.
+
+    Unset picks the operator's own Downloads folder when it exists, because that
+    is where they will look for the CSV they just exported; otherwise a folder
+    inside the protected profile. An explicit value obeys the same three checks
+    as NETFACILITIES_PROFILE_DIR: absolute, outside the repository, a directory.
+    """
+
+    if raw is None or not raw.strip():
+        home_downloads = Path.home() / "Downloads"
+        if home_downloads.is_dir():
+            return home_downloads.resolve(strict=False)
+        return profile_dir / DOWNLOADS_FALLBACK_DIRNAME
+    expanded = Path(raw.strip()).expanduser()
+    if not expanded.is_absolute():
+        raise NetFacilitiesUnavailable(
+            "NETFACILITIES_DOWNLOAD_DIR must be an absolute path outside the repository."
+        )
+
+    path = expanded.resolve(strict=False)
+    root = repository_root.resolve(strict=False)
+    try:
+        path.relative_to(root)
+    except ValueError:
+        pass
+    else:
+        raise NetFacilitiesUnavailable(
+            "NETFACILITIES_DOWNLOAD_DIR must be outside the repository."
+        )
+    if path.exists() and not path.is_dir():
+        raise NetFacilitiesUnavailable(
+            "NETFACILITIES_DOWNLOAD_DIR must refer to a directory."
         )
     return path
 
