@@ -67,3 +67,9 @@ playwright==1.62.0
 # Project" maintained by one person, so a version bump is a supply-chain event
 # to choose deliberately rather than inherit.
 pywebpush==2.4.0
+# Encrypts NetFacilities cloud-auth session state at rest (spec D9). Already
+# present transitively via pywebpush -> py_vapid at this exact version
+# (verified via `python -c "import cryptography; print(cryptography.__version__)"`
+# -> 50.0.0); pinned directly now that app code imports it, not just a
+# transitive dependency's transitive dependency.
+cryptography==50.0.0
