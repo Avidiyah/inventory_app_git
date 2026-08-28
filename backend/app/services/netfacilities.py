@@ -71,19 +71,30 @@ async def enrich_work_orders(
     client: NetFacilitiesClientProtocol,
     batch_timeout_seconds: float,
     on_request_started: RequestProgressObserver | None = None,
+    cloud_session_deadline_seconds: float | None = None,
 ) -> NetFacilitiesEnrichmentSummary:
     """Enrich eligible existing rows serially through a fakeable source client.
 
     Candidate reads and conditional writes run in worker threads with separate
     sessions.  No database transaction or row lock is retained while awaiting
     NetFacilities.
+
+    ``cloud_session_deadline_seconds``, when given, bounds a cloud-sourced
+    batch to Steel's 15-minute session cap (spec §4) independently of
+    ``batch_timeout_seconds`` -- whichever deadline is tighter governs, so a
+    generously configured batch timeout never lets the reconnected session
+    outlive the vendor's own cap.
     """
 
     if batch_timeout_seconds <= 0:
         raise ValueError("batch_timeout_seconds must be positive")
+    if cloud_session_deadline_seconds is not None and cloud_session_deadline_seconds <= 0:
+        raise ValueError("cloud_session_deadline_seconds must be positive")
 
     loop = asyncio.get_running_loop()
     deadline = loop.time() + batch_timeout_seconds
+    if cloud_session_deadline_seconds is not None:
+        deadline = min(deadline, loop.time() + cloud_session_deadline_seconds)
     candidates = await asyncio.to_thread(_load_candidates, session_factory)
     summary = NetFacilitiesEnrichmentSummary(candidates=len(candidates))
 

@@ -113,6 +113,7 @@ class NetFacilitiesJobCoordinator:
         live_client_context: NetFacilitiesClientContextProtocol | None = None,
         cloud_client_context: NetFacilitiesClientContextProtocol | None = None,
         cloud_user_id: UUID | None = None,
+        cloud_batch_session_seconds: float | None = None,
     ) -> tuple[NetFacilitiesJobSnapshot, bool]:
         """Start a batch, or return the currently active batch unchanged.
 
@@ -162,7 +163,14 @@ class NetFacilitiesJobCoordinator:
             self._lease = lease
             try:
                 self._task = asyncio.create_task(
-                    self._run(job.job_id, config, client_context, source, job.user_id),
+                    self._run(
+                        job.job_id,
+                        config,
+                        client_context,
+                        source,
+                        job.user_id,
+                        cloud_batch_session_seconds if source == "cloud_session" else None,
+                    ),
                     name=f"netfacilities-enrichment-{job.job_id}",
                 )
             except BaseException:
@@ -224,6 +232,7 @@ class NetFacilitiesJobCoordinator:
         client_context: NetFacilitiesClientContextProtocol | None,
         source: JobSource,
         user_id: UUID | None = None,
+        cloud_batch_session_seconds: float | None = None,
     ) -> None:
         started_at = datetime.now(timezone.utc)
         started_clock = asyncio.get_running_loop().time()
@@ -256,6 +265,7 @@ class NetFacilitiesJobCoordinator:
                         job_id,
                         number,
                     ),
+                    cloud_session_deadline_seconds=cloud_batch_session_seconds,
                 )
         except asyncio.CancelledError:
             await self._finish(

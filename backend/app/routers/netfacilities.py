@@ -413,13 +413,17 @@ async def start_netfacilities_enrichment(
     try:
         live = await authentication.borrow_live_client()
         cloud_context = None
+        cloud_batch_seconds = None
         if live is None:
-            cloud_context = _resolve_cloud_enrichment_context(config, db, user)
+            cloud_context, cloud_batch_seconds = _resolve_cloud_enrichment_context(
+                config, db, user
+            )
         snapshot, _created = await jobs.start(
             config,
             live_client_context=live,
             cloud_client_context=cloud_context,
             cloud_user_id=user.id if cloud_context is not None else None,
+            cloud_batch_session_seconds=cloud_batch_seconds,
         )
     except NetFacilitiesAuthenticationRequired as exc:
         detail = (
@@ -443,12 +447,13 @@ async def start_netfacilities_enrichment(
 
 
 def _resolve_cloud_enrichment_context(config, db: Session, user: User):
-    """The calling user's own cloud session, ready to reconnect, or None if
-    they have none or theirs has expired (spec D10)."""
+    """The calling user's own cloud session, ready to reconnect, and the
+    batch deadline it must respect (spec §4), or `(None, None)` if they have
+    none or theirs has expired (spec D10)."""
 
     cloud_config = load_netfacilities_cloud_config(config)
     if not cloud_config.enabled:
-        return None
+        return None, None
     from app.integrations.netfacilities.factory import (
         create_netfacilities_cloud_enrichment_client,
     )
@@ -456,10 +461,11 @@ def _resolve_cloud_enrichment_context(config, db: Session, user: User):
 
     row = db.query(NetFacilitiesCloudSession).filter_by(user_id=user.id).one_or_none()
     if row is None or row.expires_at is not None:
-        return None
-    return create_netfacilities_cloud_enrichment_client(
+        return None, None
+    context = create_netfacilities_cloud_enrichment_client(
         cloud_config, row.storage_state.encode("ascii")
     )
+    return context, cloud_config.batch_session_seconds
 
 
 def _mark_cloud_session_expired_if_needed(

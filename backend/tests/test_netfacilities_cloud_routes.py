@@ -164,9 +164,18 @@ def test_enrichment_uses_the_callers_cloud_session_when_no_live_window(
     )
 
     class FakeJobsCapturingCloud:
-        async def start(self, _config, *, live_client_context=None, cloud_client_context=None, cloud_user_id=None):
+        async def start(
+            self,
+            _config,
+            *,
+            live_client_context=None,
+            cloud_client_context=None,
+            cloud_user_id=None,
+            cloud_batch_session_seconds=None,
+        ):
             captured["cloud_client_context"] = cloud_client_context
             captured["cloud_user_id"] = cloud_user_id
+            captured["cloud_batch_session_seconds"] = cloud_batch_session_seconds
             return snapshot, True
 
     caller_id = uuid4()
@@ -183,3 +192,6 @@ def test_enrichment_uses_the_callers_cloud_session_when_no_live_window(
     assert captured["called"] is True
     assert captured["cloud_client_context"] is not None
     assert captured["cloud_user_id"] == caller_id
+    # Default login/batch cap (spec §4): 840s, leaving margin under Steel's
+    # 15-minute session cap.
+    assert captured["cloud_batch_session_seconds"] == 840

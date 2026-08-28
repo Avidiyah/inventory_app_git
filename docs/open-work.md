@@ -93,6 +93,27 @@ route. Local Windows only; Render keeps the secret-file path. Manual
 acceptance is spec §11 — step 4 doubles as the still-pending live acceptance of
 the `/myhome` priming fix.
 
+### IMP-040 — NetFacilities cloud auth (per-user, Steel) — IN PROGRESS
+
+- **Logged** 2026-08-28 · *Integrations / Work Orders* · designed with the owner the same day
+- Spec: `docs/superpowers/specs/2026-08-28-netfacilities-cloud-auth-design.md`
+- Plan: `docs/superpowers/plans/2026-08-28-netfacilities-cloud-auth.md`
+
+A third, additive NetFacilities auth path: any authorized user, on any
+device, logs into NetFacilities live through a Steel cloud browser from the
+deployed Render app instead of needing the owner's Windows machine (IMP-039's
+live session and the shared Render secret file both keep working unchanged).
+Captured session state is Fernet-encrypted at rest in a new
+`netfacilities_cloud_sessions` table, keyed one-per-user; enrichment
+reconnects by replaying it into a fresh, short-lived Steel session per job,
+bounded to Steel's 15-minute session cap. Manually verified end-to-end in
+Chrome against the real Steel API (fake key correctly rejected, error
+propagated cleanly through every layer) and against the feature-flag-off
+default; **the one thing not yet done is the manual D5/D6 replay spike**
+(plan Task 1) against a real Steel account and a real NetFacilities login —
+required before this can be called done, and the owner still needs to
+rotate/invalidate the NetFacilities session flagged in the IMP-039 handoff.
+
 ### IMP-037 — Field-help `?` tooltips — CLOSED
 
 - **Logged** 2026-08-23 · *App-wide* · designed with the owner the same day

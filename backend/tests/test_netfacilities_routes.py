@@ -72,10 +72,12 @@ class FakeJobs:
         live_client_context=None,
         cloud_client_context=None,
         cloud_user_id=None,
+        cloud_batch_session_seconds=None,
     ):
         self.live_client_context = live_client_context
         self.cloud_client_context = cloud_client_context
         self.cloud_user_id = cloud_user_id
+        self.cloud_batch_session_seconds = cloud_batch_session_seconds
         if self.start_error is not None:
             raise self.start_error
         return self.snapshot, True

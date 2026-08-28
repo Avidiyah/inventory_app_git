@@ -96,12 +96,13 @@ def _candidate(row: WorkOrder) -> service.EnrichmentCandidate:
     )
 
 
-def _run(factory, client, *, timeout=30):
+def _run(factory, client, *, timeout=30, cloud_session_deadline_seconds=None):
     return asyncio.run(
         service.enrich_work_orders(
             session_factory=factory,
             client=client,
             batch_timeout_seconds=timeout,
+            cloud_session_deadline_seconds=cloud_session_deadline_seconds,
         )
     )
 
@@ -449,6 +450,38 @@ def test_batch_timeout_cancels_current_read_and_leaves_remaining(monkeypatch):
     assert summary.timed_out
     assert summary.requests_attempted == 1
     assert summary.other_failures == 1
+    assert summary.remaining == 1
+    assert client.calls == [numbers[0]]
+
+
+def test_cloud_session_deadline_stops_a_batch_before_the_configured_timeout(monkeypatch):
+    """Spec §4: a cloud-sourced batch must stop at Steel's session cap even
+    when batch_timeout_seconds itself is much larger -- the two deadlines are
+    independent, and the tighter one governs."""
+
+    numbers = [_number(), _number()]
+    candidates = [
+        service.EnrichmentCandidate(uuid.uuid4(), number, None, None)
+        for number in numbers
+    ]
+    monkeypatch.setattr(service, "_load_candidates", lambda _factory: candidates)
+    client = FakeClient(
+        {
+            number: SourceWorkOrder(number, "Source task", "Routine")
+            for number in numbers
+        },
+        delay=0.1,
+    )
+
+    summary = _run(
+        lambda: Session(),
+        client,
+        timeout=30,
+        cloud_session_deadline_seconds=0.01,
+    )
+
+    assert summary.timed_out
+    assert summary.requests_attempted == 1
     assert summary.remaining == 1
     assert client.calls == [numbers[0]]
 
