@@ -32,7 +32,10 @@ A **self-hosted inventory + work-order staging system** for physical materials t
   serialized job then re-reads existing live work orders through an isolated
   bundled Chromium with subresources blocked, and may fill only exact-fallback
   Task/Symptom and blank Priority. It never creates a work order — CSV import
-  remains the sole create path.
+  remains the sole create path. Since IMP-039 the local sign-in is a **live session**: the window
+  stays open, the CSV exported from it is saved to the operator's Downloads
+  folder, enrichment borrows the open window, and **Import downloaded CSV**
+  imports the capture in one click.
 - **Real-time invalidation** — one same-origin `/ws` WebSocket per authenticated
   browser. The envelope is exactly `type`, `id`, `req` and never carries row data
   or an actor; it tells a subscribed view to refetch over REST. The only current
@@ -89,10 +92,10 @@ reference `current-state.md` already owns:
 ## Current baseline
 
 Last reconciled: 2026-08-16 against `main` at `4a211fb`. The backend declares
-**79 router operations** across 11 routers (78 HTTP + the `/ws` WebSocket), plus
-3 app-level routes in `main.py` (`/`, `/healthz`, `/db-test`) for **82 total**.
+**80 router operations** across 11 routers (79 HTTP + the `/ws` WebSocket), plus
+3 app-level routes in `main.py` (`/`, `/healthz`, `/db-test`) for **83 total**.
 Alembic head is **`0c1d2e3f4a5b`** (32 revisions) and the suite collects
-**1135 tests** (2026-08-18).
+**1479 tests** (2026-08-28).
 
 Older documents are historical if they use `73bdc95`, `19e661c`, `0566a64`, or
 `Sane Roles` as the baseline, or if they quote any of these superseded figures:
@@ -192,10 +195,16 @@ Capabilities added after the improvement batch include:
   `legacy=true` rows in the existing modal, atomically soft-archives them after
   confirmation, reports the actual affected count, and reloads the list. Both
   route and service gates require Owner exactly.
+- NetFacilities live session (IMP-039): sign-in auto-confirms and keeps the
+  headed window open; downloads from it are saved under their real names;
+  enrichment runs through the open window (`source: live_session`) with the
+  saved-state headless path as fallback; `POST
+  /integrations/netfacilities/downloads/import` imports the captured CSV
+  through the shared `run_csv_import` pipeline.
 
 ## Verification baseline
 
-- Backend suite as of 2026-08-18: **1135 tests collected**
+- Backend suite as of 2026-08-28: **1479 tests collected**
   (`backend\venv\Scripts\python.exe -m pytest --collect-only -q`). Collection
   needs no database. The authoritative **pass** count comes from CI, which runs
   the suite against its own Postgres service — a local run additionally needs a
@@ -210,8 +219,8 @@ Capabilities added after the improvement batch include:
   the NetFacilities enrichment stack, the real-time invalidation layer, and the
   rate-limit (B3) and list-ceiling (X3) suites.
 - All frontend JavaScript modules pass `node --check`; Python compilation is clean.
-- 79 router operations across 11 routers, including work-order
-  start/complete/hold/resume, both User Requests routes, the six NetFacilities
+- 80 router operations across 11 routers, including the NetFacilities `downloads/import` route, work-order
+  start/complete/hold/resume, both User Requests routes, the seven NetFacilities
   routes, and the `/ws` WebSocket; Alembic head is `0c1d2e3f4a5b`.
 - CI is the deploy path: a green run on `main` deploys to Render. A red build
   skips the deploy — observed 2026-08-10 on run `31425413107`.

@@ -131,9 +131,10 @@ lists what the call reads (r) and writes (w).
 | NF1 | GET | `/integrations/netfacilities/session` | techfm_oa+ | `netfacilities.py` → dependency-free config + authentication/job coordinators | no DB; protected saved-state existence + process-local safe snapshots | `apiGetNetFacilitiesSession` | `workOrders.js` |
 | NF1a | POST | `/integrations/netfacilities/auth/start` | techfm_oa+ | `netfacilities.py` → `netfacilities_auth.start` → lazy headed client | no DB; opens dedicated local browser and acquires protected-profile lease | `apiStartNetFacilitiesAuthentication` | `workOrders.js` |
 | NF1b | POST | `/integrations/netfacilities/auth/confirm` | techfm_oa+ | `netfacilities.py` → `netfacilities_auth.confirm` → allowlisted page verification + storage-state save | no DB; secret-safe attempt state only | `apiConfirmNetFacilitiesAuthentication` | `workOrders.js` |
-| NF1c | POST | `/integrations/netfacilities/auth/cancel` | techfm_oa+ | `netfacilities.py` → `netfacilities_auth.cancel` | no DB; closes pending headed browser and releases profile | `apiCancelNetFacilitiesAuthentication` | `workOrders.js` |
+| NF1c | POST | `/integrations/netfacilities/auth/cancel` | techfm_oa+ | `netfacilities.py` → `netfacilities_auth.cancel` | no DB; closes the dedicated window in any state — `cancelled` when pending, `closed` when signed in — and is 409 while enrichment borrows it | `apiCancelNetFacilitiesAuthentication` | `workOrders.js` |
 | NF2 | POST | `/integrations/netfacilities/work-orders/enrich` | techfm_oa+ | `netfacilities.py` → `netfacilities_jobs.start` → `netfacilities.enrich_work_orders` | work_orders (r/w, existing live candidates only; short compare-and-set locks) | `apiStartNetFacilitiesEnrichment` | `workOrders.js` |
 | NF3 | GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | techfm_oa+ | `netfacilities.py` → `netfacilities_jobs.get` | no DB; process-local aggregate-only job snapshot | `apiGetNetFacilitiesEnrichment` | `workOrders.js` |
+| NF4 | POST | `/integrations/netfacilities/downloads/import` | techfm_oa+ | `netfacilities.py` → `netfacilities_auth.captured_csv_path` → `_uploads.read_file_capped` → `work_orders.run_csv_import` → `services/work_orders.import_work_orders` | **work_orders** (find-or-create by number), same realtime + push side effects as WO import | `apiImportNetFacilitiesDownload` | `workOrders.js` (Integrations card, **Import downloaded CSV**) |
 | WS1 | WS | `/ws` | session cookie + same-origin | `realtime.py` → `services/realtime` registry → `domain/realtime` policy | **none** — carries no row data, reads and writes nothing | — (`static/realtime.js` owns the socket; not an `api.js` wrapper) | `adminReview.js` (subscriber), `auth.js` + `nav.js` (lifecycle) |
 | H1 | GET | `/hub` | any authenticated | `hub.py` → `hub.personal_hub` → `work_orders.sweep_stale_sessions` + `labor_summary.day_summary` + `tools.user_custody_detail` | work_order_labor_sessions (r/w on sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), tool_transactions (r), tools (r), users (r) | `apiGetHub` | `userHub.js`, `hubClock.js`, `hubTechnician.js` |
 | H2 | GET | `/hub/crew` | supervisor+ | `hub.py` → `hub.crew_hub` → `work_orders.sweep_stale_sessions` (per crew member) + `labor_summary.crew_day_summaries` + `labor_summary.last_worked` | work_order_labor_sessions (r/w on per-member sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), users (r) | `apiGetHubCrew` | `userHub.js`, `hubSupervisor.js` |
@@ -141,7 +142,7 @@ lists what the call reads (r) and writes (w).
 | H4 | GET | `/hub/timesheets/export` | supervisor+ | `hub.py` → `hub.timesheets_hub` + `hub.timesheet_csv` | same as H3 | `apiExportHubTimesheets` | `hubTimesheets.js` |
 | H5 | GET | `/hub/graphs?weeks=12\|26\|52` | techfm_oa+ | `hub.py` → `hub.graphs_hub` → shared graph/community rules | work_orders (narrow status/location/service/timestamp projections; read-only) | `apiGetHubGraphs` | `userHub.js`, `hubGraphs.js` |
 
-(Rows 55 onward and NF1–NF3/NF1a–NF1c were appended out of resource order to keep the existing
+(Rows 55 onward and NF1–NF4/NF1a–NF1c were appended out of resource order to keep the existing
 #1–54 numbering — and the footnote / per-table references to it — stable. WS1 is the one
 non-HTTP operation and is numbered apart from the resource rows for the same reason. H1 is the
 first User Hub row, numbered apart for the same reason; P2 onward add `H2`, `H3`, `H4`, ….)
@@ -467,24 +468,34 @@ one no import has brought in.
   created — the same branch `supervisors_matched` is computed on, so the push
   and the on-screen summary cannot disagree. *The only path that creates a work
   order.*
-- On the local Windows host, an Admin may call
-  `apiStartNetFacilitiesAuthentication`, complete credentials/CAPTCHA/MFA directly in
-  the dedicated headed browser, then call `apiConfirmNetFacilitiesAuthentication` (or
-  cancel). On Render, interactive sign-in is unavailable and the saved state comes from
-  a protected secret file. Authentication and enrichment share one process-local
-  operation lease; responses never contain credentials, browser storage, paths, or
-  source values.
+- On the local Windows host, an Admin calls `apiStartNetFacilitiesAuthentication`
+  and completes credentials/CAPTCHA/MFA in the dedicated headed browser. The
+  coordinator confirms on its own once a page leaves the login screen
+  (`apiConfirmNetFacilitiesAuthentication` remains the manual fallback) and the
+  window **stays open** (`state: signed_in`). Downloads the Admin triggers there
+  are saved to their Downloads folder; a `.csv` shows up as
+  `latest_authentication.last_download_filename`. `apiCancelNetFacilitiesAuthentication`
+  closes the window. On Render, interactive sign-in is unavailable and the saved
+  state comes from a protected secret file. Authentication and enrichment share
+  one process-local operation lease; a job that borrows the live window runs
+  under the session's lease. Responses never contain credentials, browser
+  storage, paths, or source values.
 - After CSV import succeeds, `workOrders.js` checks
-  `apiGetNetFacilitiesSession` → `GET /integrations/netfacilities/session`. On the
-  configured local Windows host or Render service with ready saved auth state, it calls
-  `apiStartNetFacilitiesEnrichment` → `POST
-  /integrations/netfacilities/work-orders/enrich`. One process-local job snapshots
+  `apiGetNetFacilitiesSession` → `GET /integrations/netfacilities/session`. When
+  the state is `signed_in` (the open window) or `ready` (saved auth state), it
+  calls `apiStartNetFacilitiesEnrichment` → `POST
+  /integrations/netfacilities/work-orders/enrich`. One process-local job
+  (`source: live_session` through the open window, else `saved_state`) snapshots
   existing eligible **work_orders**, performs serial allowlisted source reads, then
   briefly locks/rechecks each row. Only an exact generated Task/Symptom fallback and a
   blank Priority may be filled. `apiGetNetFacilitiesEnrichment` polls aggregate-only
   state; completion/timeout reloads cards. Missing/expired auth preserves the completed
   CSV import. Recovery is local in-app sign-in or, on Render, replacing the saved-state
   secret and redeploying before using **Import Tasks and Priority**.
+- `workOrders.js` (**Import downloaded CSV**) calls `apiImportNetFacilitiesDownload`
+  → `POST /integrations/netfacilities/downloads/import`, which imports the CSV the
+  live window most recently saved through the same `run_csv_import` the upload
+  route uses, then continues into the enrichment flow above.
 - `workOrders.js` (Re-archive legacy work orders..., Owner only) first calls
   `apiGetLegacyWorkOrderArchivePreview` → `GET /work-orders/legacy/archive` →
   `count_live_legacy_work_orders` and shows the returned live-row count in the
@@ -981,15 +992,19 @@ solving the dependency before it reads the form body, not statement order). **`W
 
 ### NetFacilities (`schemas/netfacilities.py`)
 
-All six routes are TechFM OA+. **`NetFacilitiesCapability`** returns `available`,
+All seven routes are TechFM OA+. **`NetFacilitiesCapability`** returns `available`,
 `interactive_authentication_available`, one of
-`unavailable|not_authenticated|authenticating|ready|running|expired`, a secret-safe
+`unavailable|not_authenticated|authenticating|signed_in|ready|running|expired`, a secret-safe
 `message`, and optional `latest_authentication` / `latest_job`. **`NetFacilitiesAuthenticationAttempt`**
-returns only an attempt ID, lifecycle state, timestamps, and a safe failure class.
+returns only an attempt ID, lifecycle state, timestamps, and a safe failure class. Lifecycle
+states are `starting|awaiting_confirmation|confirming|signed_in|closed|failed|cancelled|timed_out`;
+a signed-in attempt also carries `signed_in_at`, and `last_download_filename` /
+`last_download_at` name the CSV most recently saved from the window (filename only).
 **`NetFacilitiesEnrichmentJob`** returns `job_id`, one of
 `queued|running|completed|authentication_required|timed_out|failed|cancelled`, optional
 UTC `started_at` / `finished_at`, optional safe `failure`, and optional aggregate
-`counts`. Counts contain candidate/request/fetch/update/unchanged/failure/remaining
+`counts`, and `source` (`live_session|saved_state`). Counts contain
+candidate/request/fetch/update/unchanged/failure/remaining
 integers and `timed_out`; no work-order number or source value is returned.
 
 Start has no request body. It returns 202, including for a duplicate that resolves to
@@ -999,6 +1014,11 @@ Polling accepts only the UUID path parameter and returns 404 after a process res
 when the id is not the coordinator's latest job. The session endpoint reads only
 validated config, saved-state file existence/mtime, and process-local state; it never
 returns a filesystem path or browser content.
+
+`POST /downloads/import` has no request body and returns `WorkOrderImportResult`
+(the upload route's schema). 409 when no CSV has been captured in this process
+or the file has since been removed; 413 over the CSV cap; `DomainError`s map
+exactly as on the upload route.
 
 ### Real-time (`domain/realtime.py` — no Pydantic schema)
 

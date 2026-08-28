@@ -77,6 +77,22 @@ under the Communities cards.
 
 Request logged only; no implementation yet.
 
+### IMP-039 — NetFacilities live session — IN PROGRESS
+
+- **Logged** 2026-08-28 · *Integrations / Work Orders* · designed with the owner the same day
+- Spec: `docs/superpowers/specs/2026-08-28-netfacilities-live-session-design.md`
+- Plan: `docs/superpowers/plans/2026-08-28-netfacilities-live-session.md`
+
+The dedicated NetFacilities window stays open after login (new `signed_in`
+state, auto-confirmed once a page leaves the login screen), the CSV the
+operator exports from it is saved under its real name in their Downloads
+folder, enrichment runs through that same signed-in window instead of a second
+headless browser, and `POST /integrations/netfacilities/downloads/import`
+imports the captured CSV in one click through the same pipeline as the upload
+route. Local Windows only; Render keeps the secret-file path. Manual
+acceptance is spec §11 — step 4 doubles as the still-pending live acceptance of
+the `/myhome` priming fix.
+
 ### IMP-037 — Field-help `?` tooltips — CLOSED
 
 - **Logged** 2026-08-23 · *App-wide* · designed with the owner the same day

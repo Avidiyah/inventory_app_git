@@ -131,7 +131,7 @@ Path shorthand:
 | Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
 | Work Orders UI | `static/views/workOrders.js`, `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | work-order tests plus manual UI check |
 | User Hub Graphs | `domain/hub.py`, `domain/work_orders.py`, `services/hub.py`, `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubGraphs.js`, `static/pages/user-hub.html`, `static/styles.css`, `static/api.js` | `test_hub_graphs_domain.py`, hub service/router/gate/realtime tests; frontend syntax checks and manual role/realtime checks |
-| NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_auth.py`, `services/netfacilities_jobs.py`, `services/netfacilities_operations.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | TechFM OA+ local headed sign-in saves protected state; Render consumes an operator-provisioned secret state file through isolated bundled Chromium document navigation with JavaScript/subresources blocked; CSV import remains the sole creator and starts one serialized enrichment job only when auth is ready; the existing one-second poll exposes the current requested number while running; only exact fallback Task/Symptom and blank Priority may change; local live happy path and hosted capability enablement accepted; hosted Priority retrieval remains pending acceptance |
+| NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_auth.py`, `services/netfacilities_jobs.py`, `services/netfacilities_operations.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | TechFM OA+ local headed sign-in saves protected state; Render consumes an operator-provisioned secret state file through isolated bundled Chromium document navigation with JavaScript/subresources blocked; CSV import remains the sole creator and starts one serialized enrichment job only when auth is ready; the existing one-second poll exposes the current requested number while running; only exact fallback Task/Symptom and blank Priority may change; local live happy path and hosted capability enablement accepted; hosted Priority retrieval remains pending acceptance · **IMP-039 live session:** the headed window stays open after login, downloads are saved to the operator's Downloads folder, enrichment borrows the open window, and `downloads/import` imports the captured CSV |
 | Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, manual UI check |
 | Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
 | Tools API/domain/service (custody) | `domain/tools.py`, `domain/quantity.py` (reused), `services/tools.py`, `routers/tools.py`, `schemas/tools.py`, `models.py` | `test_tools_domain.py`, `test_tools_service.py`, `test_route_role_gates.py` |
@@ -1681,7 +1681,7 @@ authentication modes exist:
 - **Local Windows:** `NETFACILITIES_ENABLED=true` plus an absolute external
   `NETFACILITIES_PROFILE_DIR`. An TechFM OA and above uses the in-app headed sign-in, completes
   credentials/CAPTCHA/MFA directly in dedicated Chrome, and confirms the session. The
-  app saves `playwright-storage-state.json`; the CLI `auth` command is a fallback.
+  app saves `playwright-storage-state.json`; the CLI `auth` command is a fallback. `NETFACILITIES_SESSION_TIMEOUT_SECONDS` and `NETFACILITIES_DOWNLOAD_DIR` (both optional) tune the live session; see *Live session (IMP-039)* below.
 - **Linux/Render:** `NETFACILITIES_ENABLED=true` plus an absolute
   `NETFACILITIES_STORAGE_STATE_PATH`. Render points this at
   `/etc/secrets/netfacilities-storage-state.json`, which the operator provisions as a
@@ -1769,8 +1769,52 @@ continued. Live acceptance still requires one Render diagnostic with
 Browser-enabled local Uvicorn must run as one process without `--reload` or multiple
 workers: those Windows modes use `SelectorEventLoop`, which cannot start Playwright's
 driver subprocess. The client rejects that incompatible loop as `unavailable` before
-browser startup. The application never downloads the vendor CSV or receives
-NetFacilities credential fields.
+browser startup. The application never initiates a NetFacilities download or receives credential fields; on the local host it saves the CSV the operator exports through the live window.
+
+#### Live session (IMP-039, 2026-08-28)
+
+On the local Windows host the sign-in ceremony is a **live session**. `POST
+/auth/start` opens the dedicated headed Chrome as before; a coordinator task
+then polls once a second with a local URL check and, once any page is on the
+allowlisted host and off the login path, calls `confirm` on the operator's
+behalf. `confirm` runs the server-verified probe (`GET /myhome`, the priming
+request), saves `playwright-storage-state.json` for the headless fallback, and
+**leaves the window open** in the new `signed_in` state. **I finished signing
+in** still calls the same `confirm` as a manual fallback; a probe that fails
+keeps the session pending rather than failing it.
+
+The headed context now launches with `accept_downloads=True` and saves every
+download the operator triggers under its suggested filename into
+`NETFACILITIES_DOWNLOAD_DIR` — default `%USERPROFILE%\Downloads` when that
+directory exists, else `<profile>\downloads`; a collision appends ` (1)`,
+` (2)`. Only a `.csv` is recorded as the captured CSV; the snapshot and the API
+carry its **filename only**, never a path. The app never *initiates* a
+download.
+
+`POST /work-orders/enrich` asks the session coordinator for the live client
+first. When the window is signed in, the job reads through the persistent
+context's `request` API (the same pure-HTTP path priming uses), takes no
+profile lease, and reports `source: live_session`; otherwise it runs the
+saved-state headless path (`source: saved_state`). While a job borrows the
+window, `POST /auth/cancel` is 409 and the idle timeout defers. `POST
+/auth/cancel` now also closes a signed-in window (`state: closed`); the
+operator closing the window by hand, `NETFACILITIES_SESSION_TIMEOUT_SECONDS`
+(default 7200) of idleness, and application shutdown do the same. Shutdown
+cancels the job before closing the window.
+
+`POST /downloads/import` imports the captured CSV through
+`routers.work_orders.run_csv_import` — the function `POST /work-orders/import`
+itself now calls — so both paths emit the same realtime invalidations and the
+same batched supervisor push. It is 409 when nothing was captured or the file
+is gone, 413 over `MAX_CSV_UPLOAD_BYTES`.
+
+Capability precedence in `GET /session`: `unavailable` → `running` →
+`authenticating` → `signed_in` → `not_authenticated` → `expired` → `ready`,
+except that a signed-in window whose *own* job (`source: live_session`,
+finished after `signed_in_at`) ended `authentication_required` reports
+`expired` with *Your NetFacilities window is no longer logged in. Close it and
+log in again.* The `authenticated` attempt state no longer exists. Render is
+unchanged: no window, secret-file state, `download_dir` is `None`.
 
 The TechFM OA and above then uses the existing **Import from CSV…** chooser for a file already
 on the computer. The unchanged `/work-orders/import` transaction creates/updates rows;
@@ -1809,12 +1853,13 @@ did not make a live request or change persistence, selectors, or candidate rules
 
 | Method | Path | Gate | Behavior |
 | --- | --- | --- | --- |
-| GET | `/integrations/netfacilities/session` | techfm_oa+ | capability state (`unavailable`, `not_authenticated`, `authenticating`, `ready`, `running`, `expired`), whether interactive authentication is available, plus safe authentication/job snapshots |
+| GET | `/integrations/netfacilities/session` | techfm_oa+ | capability state (`unavailable`, `not_authenticated`, `authenticating`, `signed_in`, `ready`, `running`, `expired`), whether interactive authentication is available, plus safe authentication/job snapshots |
 | POST | `/integrations/netfacilities/auth/start` | techfm_oa+ | acquire the shared profile lease and open the local dedicated headed browser |
 | POST | `/integrations/netfacilities/auth/confirm` | techfm_oa+ | verify an allowlisted non-login page, save protected state, close browser, release lease |
-| POST | `/integrations/netfacilities/auth/cancel` | techfm_oa+ | close the pending browser without saving and release the lease |
-| POST | `/integrations/netfacilities/work-orders/enrich` | techfm_oa+ | start one process-local saved-state job or return the active duplicate; 409 when auth is absent or another profile operation is active and 503 when the capability is disabled/unavailable |
+| POST | `/integrations/netfacilities/auth/cancel` | techfm_oa+ | close the dedicated window — a pending sign-in (`cancelled`) or the live session (`closed`); 409 while enrichment borrows it |
+| POST | `/integrations/netfacilities/work-orders/enrich` | techfm_oa+ | start one process-local saved-state job or return the active duplicate; 409 when auth is absent or another profile operation is active and 503 when the capability is disabled/unavailable — prefers the open signed-in window (`source: live_session`), else saved state |
 | GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | techfm_oa+ | poll the latest process-local job; state/timestamps/nullable current requested work-order number/safe failure class/counts only |
+| POST | `/integrations/netfacilities/downloads/import` | techfm_oa+ | import the CSV most recently saved from the live window through the shared `run_csv_import` pipeline; 409 when none was captured or the file is gone, 413 over the CSV cap |
 
 `services.netfacilities_auth` owns the local headed browser between start and confirm/cancel;
 early confirmation keeps it open, while cancel, configured timeout, or shutdown closes
