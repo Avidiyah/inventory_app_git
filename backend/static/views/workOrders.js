@@ -45,6 +45,7 @@ import {
   apiCancelNetFacilitiesAuthentication,
   apiStartNetFacilitiesEnrichment,
   apiGetNetFacilitiesEnrichment,
+  apiImportNetFacilitiesDownload,
   apiExportWorkOrders,
   apiListItems,
   apiListUsers,
@@ -98,6 +99,7 @@ const netFacilitiesConfirmBtn = document.getElementById("wo-netfacilities-confir
 const netFacilitiesCancelBtn = document.getElementById("wo-netfacilities-cancel-btn");
 const netFacilitiesEnrichBtn = document.getElementById("wo-netfacilities-enrich-btn");
 const netFacilitiesOpenBtn = document.getElementById("wo-netfacilities-open-btn");
+const netFacilitiesImportDownloadBtn = document.getElementById("wo-netfacilities-import-download-btn");
 const exportScope = document.getElementById("wo-export-scope");
 const exportBtn = document.getElementById("wo-export-btn");
 const exportClientBtn = document.getElementById("wo-export-client-btn");
@@ -113,6 +115,7 @@ let usersLoaded = false;
 let filterOptionsLoaded = false;
 let netFacilitiesCapability = null;
 let netFacilitiesPollingJobId = null;
+let netFacilitiesSessionPolling = false;
 document.addEventListener("user-names-updated", () => {
   allTechs = [];
   allSupers = [];
@@ -2072,30 +2075,36 @@ const NETFACILITIES_ACTIVE_AUTH_STATES = new Set([
   "awaiting_confirmation",
   "confirming",
 ]);
+// Capability states in which the card keeps refreshing on its own, so that
+// auto-confirm, a saved CSV, and a closed window show up without a click.
+const NETFACILITIES_LIVE_STATES = new Set(["authenticating", "signed_in"]);
+const NETFACILITIES_SESSION_POLL_MS = 3000;
 
 function updateNetFacilitiesControls(capability) {
   const authentication = capability && capability.latest_authentication;
   const authActive = Boolean(
     authentication && NETFACILITIES_ACTIVE_AUTH_STATES.has(authentication.state),
   );
+  // "Window open" is read from the attempt, not the capability, so that an
+  // `expired` capability with the window still open (a live job lost auth)
+  // offers Close instead of a second Log in.
+  const windowSignedIn = Boolean(authentication && authentication.state === "signed_in");
+  const windowOpen = authActive || windowSignedIn;
+  const signedIn = Boolean(capability && capability.state === "signed_in");
   const available = Boolean(capability && capability.available);
   const interactiveAuthentication = Boolean(
     capability && capability.interactive_authentication_available,
   );
-  const enrichmentRunning = capability && capability.state === "running";
+  const enrichmentRunning = Boolean(capability && capability.state === "running");
+  const hasCsv = Boolean(authentication && authentication.last_download_filename);
 
   if (netFacilitiesSignInBtn) {
-    netFacilitiesSignInBtn.hidden = !available
-      || !interactiveAuthentication
-      || authActive
-      || enrichmentRunning;
-    netFacilitiesSignInBtn.disabled = !available
-      || !interactiveAuthentication
-      || authActive
-      || enrichmentRunning;
+    const hide = !available || !interactiveAuthentication || windowOpen || enrichmentRunning;
+    netFacilitiesSignInBtn.hidden = hide;
+    netFacilitiesSignInBtn.disabled = hide;
     netFacilitiesSignInBtn.textContent = capability && capability.state === "ready"
-      ? "Sign in again"
-      : "Sign in to NetFacilities";
+      ? "Log in again"
+      : "Log in to NetFacilities";
   }
   if (netFacilitiesConfirmBtn) {
     netFacilitiesConfirmBtn.hidden = !authActive;
@@ -2103,14 +2112,20 @@ function updateNetFacilitiesControls(capability) {
       || authentication.state !== "awaiting_confirmation";
   }
   if (netFacilitiesCancelBtn) {
-    netFacilitiesCancelBtn.hidden = !authActive;
+    netFacilitiesCancelBtn.hidden = !windowOpen;
     netFacilitiesCancelBtn.disabled = !authentication
-      || authentication.state === "confirming";
+      || authentication.state === "confirming"
+      || enrichmentRunning;
+  }
+  if (netFacilitiesImportDownloadBtn) {
+    netFacilitiesImportDownloadBtn.hidden = !(signedIn && hasCsv);
+    netFacilitiesImportDownloadBtn.disabled = enrichmentRunning
+      || Boolean(netFacilitiesPollingJobId);
   }
   if (netFacilitiesEnrichBtn) {
     netFacilitiesEnrichBtn.hidden = !available;
     netFacilitiesEnrichBtn.disabled = !capability
-      || capability.state !== "ready"
+      || !(capability.state === "ready" || signedIn)
       || Boolean(netFacilitiesPollingJobId);
   }
 }
@@ -2118,7 +2133,7 @@ function updateNetFacilitiesControls(capability) {
 function netFacilitiesReauthenticationAction() {
   return netFacilitiesCapability
     && netFacilitiesCapability.interactive_authentication_available
-    ? "Sign in again"
+    ? "Log in again"
     : "Refresh the saved authentication secret and redeploy";
 }
 
@@ -2136,40 +2151,65 @@ function netFacilitiesCountsMessage(job) {
   ].join(" · ");
 }
 
-function renderNetFacilitiesJob(job) {
-  if (!job || !netFacilitiesStatus) return;
+// Pure: one job snapshot -> the line the card shows and its message kind.
+// Split from the renderer so the signed-in view can prefix a job result to
+// its own guidance in a single status line.
+function describeNetFacilitiesJob(job) {
   if (job.state === "queued" || job.state === "running") {
     const currentRequest = job.current_work_order_number
       ? ` Currently requesting work order ${job.current_work_order_number}.`
       : "";
-    setMessage(
-      netFacilitiesStatus,
-      `Seeking Task/Symptom and Priority in NetFacilities…${currentRequest}`,
-      "",
-    );
-    return;
+    return { text: `Seeking Task/Symptom and Priority in NetFacilities…${currentRequest}`, kind: "" };
   }
   if (job.state === "completed") {
-    setMessage(netFacilitiesStatus, `NetFacilities enrichment completed: ${netFacilitiesCountsMessage(job)}.`, "success");
-    return;
+    return { text: `NetFacilities enrichment completed: ${netFacilitiesCountsMessage(job)}.`, kind: "success" };
   }
   if (job.state === "authentication_required") {
-    setMessage(
-      netFacilitiesStatus,
-      `NetFacilities authentication is missing or expired. ${netFacilitiesReauthenticationAction()}, then click Import Tasks and Priority.`,
-      "error",
-    );
-    return;
+    return {
+      text: `NetFacilities authentication is missing or expired. ${netFacilitiesReauthenticationAction()}, then click Import Tasks and Priority.`,
+      kind: "error",
+    };
   }
   if (job.state === "timed_out") {
-    setMessage(netFacilitiesStatus, `NetFacilities enrichment timed out with partial results: ${netFacilitiesCountsMessage(job)}.`, "error");
-    return;
+    return { text: `NetFacilities enrichment timed out with partial results: ${netFacilitiesCountsMessage(job)}.`, kind: "error" };
   }
   if (job.state === "cancelled") {
-    setMessage(netFacilitiesStatus, "NetFacilities enrichment stopped when the local app shut down.", "error");
-    return;
+    return { text: "NetFacilities enrichment stopped when the local app shut down.", kind: "error" };
   }
-  setMessage(netFacilitiesStatus, "NetFacilities enrichment failed without changing unapproved work-order fields. Try again or sign in again.", "error");
+  return {
+    text: "NetFacilities enrichment failed without changing unapproved work-order fields. Try again or log in again.",
+    kind: "error",
+  };
+}
+
+function renderNetFacilitiesJob(job) {
+  if (!job || !netFacilitiesStatus) return;
+  const described = describeNetFacilitiesJob(job);
+  setMessage(netFacilitiesStatus, described.text, described.kind);
+}
+
+// The signed-in status line: the latest job's result, if it ran in this
+// session, followed by what to do next in the open window.
+function renderNetFacilitiesSignedIn(capability) {
+  const job = capability.latest_job;
+  const authentication = capability.latest_authentication;
+  const parts = [];
+  let kind = "success";
+  const jobFinished = job && job.state !== "queued" && job.state !== "running";
+  const jobIsFromThisSession = jobFinished
+    && job.finished_at && authentication && authentication.signed_in_at
+    && new Date(job.finished_at) >= new Date(authentication.signed_in_at);
+  if (jobIsFromThisSession) {
+    const described = describeNetFacilitiesJob(job);
+    parts.push(described.text);
+    kind = described.kind || kind;
+  }
+  if (authentication && authentication.last_download_filename) {
+    parts.push(`Saved ${authentication.last_download_filename} to your Downloads folder. Click Import downloaded CSV to import it and fill in Task/Symptom and Priority.`);
+  } else {
+    parts.push("NetFacilities is open and logged in. Export the work-order CSV in that window; it is saved to your Downloads folder and can be imported from here.");
+  }
+  setMessage(netFacilitiesStatus, parts.join(" "), kind);
 }
 
 async function pollNetFacilitiesJob(jobId) {
@@ -2208,20 +2248,24 @@ async function refreshNetFacilitiesSession({ preserveJobResult = false } = {}) {
     netFacilitiesCapability = capability;
     updateNetFacilitiesControls(capability);
     const job = capability.latest_job;
-    if (job && (job.state === "queued" || job.state === "running")) {
+    const jobActive = job && (job.state === "queued" || job.state === "running");
+    if (jobActive) {
       renderNetFacilitiesJob(job);
       void pollNetFacilitiesJob(job.job_id);
+    } else if (capability.state === "signed_in") {
+      renderNetFacilitiesSignedIn(capability);
     } else if (preserveJobResult && job) {
       renderNetFacilitiesJob(job);
     } else if (capability.state === "authenticating") {
-      setMessage(netFacilitiesStatus, capability.message, "");
+      setMessage(netFacilitiesStatus, "Log in to NetFacilities in the window that opened. This page will notice when you're in.", "");
     } else if (capability.state === "ready") {
-      setMessage(netFacilitiesStatus, "NetFacilities authentication is ready. Choose the downloaded CSV; the app will import it and then seek Task/Symptom and Priority.", "success");
+      setMessage(netFacilitiesStatus, "Saved NetFacilities login is ready. Choose a downloaded CSV to import it and seek Task/Symptom and Priority, or log in to export a fresh one.", "success");
     } else if (capability.state === "not_authenticated" || capability.state === "expired") {
-      setMessage(netFacilitiesStatus, `${capability.message} Then choose the downloaded CSV, or use Import Tasks and Priority to retry existing rows.`, "error");
+      setMessage(netFacilitiesStatus, `${capability.message} Then export and import the CSV, or use Import Tasks and Priority to retry existing rows.`, "error");
     } else {
       setMessage(netFacilitiesStatus, `${capability.message} CSV import still works normally.`, "");
     }
+    if (NETFACILITIES_LIVE_STATES.has(capability.state)) ensureNetFacilitiesSessionPolling();
     return capability;
   } catch (err) {
     netFacilitiesCapability = null;
@@ -2229,6 +2273,25 @@ async function refreshNetFacilitiesSession({ preserveJobResult = false } = {}) {
     setMessage(netFacilitiesStatus, friendlyError(err, "NetFacilities status is unavailable. CSV import still works normally."), "error");
     return null;
   }
+}
+
+// Keep the card current while the window is open. One loop at a time; it
+// ends on its own when the session leaves the live states. Skips a tick
+// while the tab is hidden or the 1-second job poll is already refreshing.
+function ensureNetFacilitiesSessionPolling() {
+  if (netFacilitiesSessionPolling) return;
+  netFacilitiesSessionPolling = true;
+  void (async () => {
+    try {
+      while (netFacilitiesCapability && NETFACILITIES_LIVE_STATES.has(netFacilitiesCapability.state)) {
+        await new Promise((resolve) => setTimeout(resolve, NETFACILITIES_SESSION_POLL_MS));
+        if (document.hidden || netFacilitiesPollingJobId) continue;
+        await refreshNetFacilitiesSession();
+      }
+    } finally {
+      netFacilitiesSessionPolling = false;
+    }
+  })();
 }
 
 async function runNetFacilitiesEnrichment() {
@@ -2311,6 +2374,23 @@ function importSummary(r) {
   return `${r.created} ${noun} · ${r.supervisors_matched} with a supervisor name match.`;
 }
 
+// Everything that follows a successful import, whether the CSV was uploaded
+// or captured from the live window: summary, list reload, then enrichment
+// through whichever session is available (the open window or saved state).
+async function afterWorkOrderImport(r) {
+  // Only the new work orders are worth reporting: re-imported numbers keep
+  // their own routing, and rows the import passed over changed nothing.
+  setMessage(importMessage, importSummary(r), "success");
+  // Reset caches so a re-import reflects fresh data, then reload the list.
+  usersLoaded = false;
+  filterOptionsLoaded = false;
+  await loadWorkOrders();
+  const capability = await refreshNetFacilitiesSession();
+  if (capability && (capability.state === "ready" || capability.state === "signed_in")) {
+    await runNetFacilitiesEnrichment();
+  }
+}
+
 async function handleImport() {
   const file = importFile.files && importFile.files[0];
   if (!file) return;
@@ -2318,17 +2398,7 @@ async function handleImport() {
   importBtn.disabled = true;
   try {
     const r = await apiImportWorkOrders(file);
-    // Only the new work orders are worth reporting: re-imported numbers keep
-    // their own routing, and rows the import passed over changed nothing.
-    setMessage(importMessage, importSummary(r), "success");
-    // Reset caches so a re-import reflects fresh data, then reload the list.
-    usersLoaded = false;
-    filterOptionsLoaded = false;
-    await loadWorkOrders();
-    const capability = await refreshNetFacilitiesSession();
-    if (capability && capability.state === "ready") {
-      await runNetFacilitiesEnrichment();
-    }
+    await afterWorkOrderImport(r);
   } catch (err) {
     setMessage(importMessage, friendlyError(err, "Could not import that file."), "error");
   } finally {
@@ -2337,8 +2407,23 @@ async function handleImport() {
   }
 }
 
+async function importNetFacilitiesDownload() {
+  if (netFacilitiesImportDownloadBtn) netFacilitiesImportDownloadBtn.disabled = true;
+  setMessage(importMessage, "Importing…", "");
+  try {
+    const r = await apiImportNetFacilitiesDownload();
+    await afterWorkOrderImport(r);
+  } catch (err) {
+    setMessage(importMessage, friendlyError(err, "Could not import the downloaded CSV."), "error");
+    updateNetFacilitiesControls(netFacilitiesCapability);
+  }
+}
+
 if (importBtn) importBtn.addEventListener("click", () => importFile && importFile.click());
 if (importFile) importFile.addEventListener("change", handleImport);
+if (netFacilitiesImportDownloadBtn) {
+  netFacilitiesImportDownloadBtn.addEventListener("click", importNetFacilitiesDownload);
+}
 
 // --- CSV export (Admin+) --------------------------------------------------
 

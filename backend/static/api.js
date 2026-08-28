@@ -584,6 +584,15 @@ export async function apiGetNetFacilitiesEnrichment(jobId) {
   return liveGet(`/integrations/netfacilities/work-orders/enrich/${encodeURIComponent(jobId)}`);
 }
 
+// Import the CSV the live NetFacilities window saved (Admin+). The server
+// reads it from disk; the browser never sees a path.
+export async function apiImportNetFacilitiesDownload() {
+  return parseResponse(await fetch(
+    "/integrations/netfacilities/downloads/import",
+    { method: "POST", credentials: "include" },
+  ));
+}
+
 // Download work orders as CSV (Admin+). The operational `full` export may carry
 // the same active service/supervisor/community/number filters as the card list;
 // status remains the existing `scope`. The `client` caller deliberately omits
