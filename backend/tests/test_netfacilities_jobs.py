@@ -305,3 +305,119 @@ def test_shutdown_cancels_the_batch_and_closes_its_client(tmp_path):
     asyncio.run(exercise())
     assert context.entered == 1
     assert context.exited == 1
+
+
+class FakeLiveContext:
+    def __init__(self, *, enter_error=None):
+        self.enter_error = enter_error
+        self.entered = 0
+        self.exited = 0
+        self.client = object()
+
+    async def __aenter__(self):
+        self.entered += 1
+        if self.enter_error is not None:
+            raise self.enter_error
+        return self.client
+
+    async def __aexit__(self, *_args):
+        self.exited += 1
+
+
+class RefusingGate:
+    async def acquire(self, kind):
+        raise AssertionError(f"live-session job must not take the {kind} lease")
+
+    async def release(self, _lease):
+        raise AssertionError("live-session job has nothing to release")
+
+    async def active_kind(self):
+        return None
+
+
+def _must_not_launch(_config):
+    raise AssertionError("a live-session job must not launch a browser")
+
+
+async def _never_called(**_kwargs):
+    raise AssertionError("enrichment must not run without a client")
+
+
+def test_live_session_job_borrows_the_client_and_skips_the_profile_gate(tmp_path):
+    live = FakeLiveContext()
+    captured = {}
+
+    async def enrich(**kwargs):
+        captured.update(kwargs)
+        return NetFacilitiesEnrichmentSummary(
+            candidates=1, requests_attempted=1, fetched=1
+        )
+
+    coordinator = NetFacilitiesJobCoordinator(
+        session_factory=lambda: None,
+        client_factory=_must_not_launch,
+        enrichment_runner=enrich,
+        profile_gate=RefusingGate(),
+    )
+
+    async def exercise():
+        started, created = await coordinator.start(
+            _config(tmp_path, authenticated=False),
+            live_client_context=live,
+        )
+        assert created
+        assert started.source == "live_session"
+        finished = await _wait_for_terminal(coordinator, started.job_id)
+        assert finished.state == "completed"
+        assert finished.source == "live_session"
+
+    asyncio.run(exercise())
+    assert live.entered == 1
+    assert live.exited == 1
+    assert captured["client"] is live.client
+
+
+def test_saved_state_job_reports_its_source(tmp_path):
+    context = FakeClientContext()
+
+    async def enrich(**_kwargs):
+        return NetFacilitiesEnrichmentSummary()
+
+    coordinator = NetFacilitiesJobCoordinator(
+        client_factory=lambda _config: context,
+        enrichment_runner=enrich,
+    )
+
+    async def exercise():
+        started, _created = await coordinator.start(_config(tmp_path))
+        finished = await _wait_for_terminal(coordinator, started.job_id)
+        assert started.source == "saved_state"
+        assert finished.source == "saved_state"
+
+    asyncio.run(exercise())
+
+
+def test_live_session_that_lost_authentication_ends_authentication_required(
+    tmp_path,
+):
+    live = FakeLiveContext(
+        enter_error=NetFacilitiesAuthenticationRequired("window closed")
+    )
+    coordinator = NetFacilitiesJobCoordinator(
+        client_factory=_must_not_launch,
+        enrichment_runner=_never_called,
+        profile_gate=RefusingGate(),
+    )
+
+    async def exercise():
+        started, _created = await coordinator.start(
+            _config(tmp_path, authenticated=False),
+            live_client_context=live,
+        )
+        finished = await _wait_for_terminal(coordinator, started.job_id)
+        assert finished.state == "authentication_required"
+        assert finished.failure == "authentication_required"
+        assert finished.source == "live_session"
+
+    asyncio.run(exercise())
+    assert live.entered == 1

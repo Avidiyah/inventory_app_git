@@ -48,6 +48,7 @@ FailureClass: TypeAlias = Literal[
     "unexpected_failure",
     "cancelled",
 ]
+JobSource: TypeAlias = Literal["live_session", "saved_state"]
 ClientFactory: TypeAlias = Callable[
     [NetFacilitiesConfig], NetFacilitiesClientContextProtocol
 ]
@@ -65,6 +66,7 @@ class NetFacilitiesJobSnapshot:
     failure: FailureClass | None = None
     summary: NetFacilitiesEnrichmentSummary | None = None
     current_work_order_number: str | None = None
+    source: JobSource | None = None
 
 
 def _default_client_factory(
@@ -100,14 +102,21 @@ class NetFacilitiesJobCoordinator:
     async def start(
         self,
         config: NetFacilitiesConfig,
+        *,
+        live_client_context: NetFacilitiesClientContextProtocol | None = None,
     ) -> tuple[NetFacilitiesJobSnapshot, bool]:
-        """Start a batch, or return the currently active batch unchanged."""
+        """Start a batch, or return the currently active batch unchanged.
+
+        With ``live_client_context`` the job reads through the operator's open,
+        signed-in window: no saved-state file is needed and no profile lease is
+        taken, because the live session already holds it (spec D4, D8).
+        """
 
         if not config.enabled:
             raise NetFacilitiesAuthenticationRequired(
                 "NetFacilities enrichment is not enabled on this host."
             )
-        if not config.has_saved_authentication:
+        if live_client_context is None and not config.has_saved_authentication:
             raise NetFacilitiesAuthenticationRequired(
                 "Sign in to NetFacilities before enrichment."
             )
@@ -118,18 +127,24 @@ class NetFacilitiesJobCoordinator:
                     raise RuntimeError("active NetFacilities task has no job state")
                 return self._latest, False
 
-            lease = await self._profile_gate.acquire("enrichment")
-            job = NetFacilitiesJobSnapshot(job_id=uuid4(), state="queued")
+            source: JobSource = (
+                "live_session" if live_client_context is not None else "saved_state"
+            )
+            lease = None
+            if live_client_context is None:
+                lease = await self._profile_gate.acquire("enrichment")
+            job = NetFacilitiesJobSnapshot(job_id=uuid4(), state="queued", source=source)
             self._latest = job
             self._lease = lease
             try:
                 self._task = asyncio.create_task(
-                    self._run(job.job_id, config),
+                    self._run(job.job_id, config, live_client_context, source),
                     name=f"netfacilities-enrichment-{job.job_id}",
                 )
             except BaseException:
                 self._lease = None
-                await self._profile_gate.release(lease)
+                if lease is not None:
+                    await self._profile_gate.release(lease)
                 raise
             return job, True
 
@@ -178,7 +193,13 @@ class NetFacilitiesJobCoordinator:
                     current_work_order_number=work_order_number,
                 )
 
-    async def _run(self, job_id: UUID, config: NetFacilitiesConfig) -> None:
+    async def _run(
+        self,
+        job_id: UUID,
+        config: NetFacilitiesConfig,
+        live_client_context: NetFacilitiesClientContextProtocol | None,
+        source: JobSource,
+    ) -> None:
         started_at = datetime.now(timezone.utc)
         started_clock = asyncio.get_running_loop().time()
         await self._set(
@@ -186,6 +207,7 @@ class NetFacilitiesJobCoordinator:
                 job_id=job_id,
                 state="running",
                 started_at=started_at,
+                source=source,
             )
         )
         logger.info(
@@ -194,7 +216,12 @@ class NetFacilitiesJobCoordinator:
         )
 
         try:
-            async with self._client_factory(config) as client:
+            client_context = (
+                live_client_context
+                if live_client_context is not None
+                else self._client_factory(config)
+            )
+            async with client_context as client:
                 summary = await self._enrichment_runner(
                     session_factory=self._session_factory,
                     client=client,
@@ -210,6 +237,7 @@ class NetFacilitiesJobCoordinator:
                 started_at,
                 state="cancelled",
                 failure="cancelled",
+                source=source,
             )
             raise
         except NetFacilitiesAuthenticationRequired:
@@ -218,6 +246,7 @@ class NetFacilitiesJobCoordinator:
                 started_at,
                 state="authentication_required",
                 failure="authentication_required",
+                source=source,
             )
         except NetFacilitiesError:
             await self._finish(
@@ -225,6 +254,7 @@ class NetFacilitiesJobCoordinator:
                 started_at,
                 state="failed",
                 failure="unavailable",
+                source=source,
             )
         except Exception:
             logger.error(
@@ -241,6 +271,7 @@ class NetFacilitiesJobCoordinator:
                 started_at,
                 state="failed",
                 failure="unexpected_failure",
+                source=source,
             )
         else:
             if summary.authentication_required:
@@ -258,6 +289,7 @@ class NetFacilitiesJobCoordinator:
                 state=state,
                 failure=failure,
                 summary=summary,
+                source=source,
             )
         finally:
             elapsed_ms = round(
@@ -303,6 +335,7 @@ class NetFacilitiesJobCoordinator:
         *,
         state: JobState,
         failure: FailureClass | None,
+        source: JobSource,
         summary: NetFacilitiesEnrichmentSummary | None = None,
     ) -> None:
         await self._set(
@@ -313,6 +346,7 @@ class NetFacilitiesJobCoordinator:
                 finished_at=datetime.now(timezone.utc),
                 failure=failure,
                 summary=summary,
+                source=source,
             )
         )
 

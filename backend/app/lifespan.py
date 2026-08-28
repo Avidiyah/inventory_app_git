@@ -19,6 +19,9 @@ async def lifespan(app):
     try:
         yield
     finally:
-        await netfacilities_authentication.shutdown()
+        # Jobs first: a running job may be borrowing the live window, and
+        # closing the window under it would turn a clean cancel into a browser
+        # error (spec D8).
         await netfacilities_jobs.shutdown()
+        await netfacilities_authentication.shutdown()
         await stop_dispatch()
