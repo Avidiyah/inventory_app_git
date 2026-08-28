@@ -19,6 +19,8 @@ venv/
 # depth against an accidentally copied profile.
 .netfacilities-profile/
 netfacilities-profile/
+playwright-storage-state.json
+--profile-dir
 
 # Agent settings -- personal and machine-specific (absolute vault paths, local
 # permission grants). Was tracked until 2026-08-09; untracked deliberately.
