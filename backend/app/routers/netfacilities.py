@@ -388,13 +388,15 @@ async def cancel_netfacilities_authentication(
     },
 )
 async def start_netfacilities_enrichment(
-    _user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
+    db: Session = Depends(get_db),
     jobs: NetFacilitiesJobCoordinator = Depends(get_netfacilities_coordinator),
     authentication: NetFacilitiesAuthenticationCoordinator = Depends(
         get_netfacilities_authentication_coordinator
     ),
 ) -> NetFacilitiesEnrichmentJob:
-    """Start one batch through the open window if there is one, else the saved state."""
+    """Start one batch: the operator's open window, else the calling user's
+    own cloud session, else the shared saved state."""
 
     try:
         config = load_netfacilities_config()
@@ -410,7 +412,15 @@ async def start_netfacilities_enrichment(
         )
     try:
         live = await authentication.borrow_live_client()
-        snapshot, _created = await jobs.start(config, live_client_context=live)
+        cloud_context = None
+        if live is None:
+            cloud_context = _resolve_cloud_enrichment_context(config, db, user)
+        snapshot, _created = await jobs.start(
+            config,
+            live_client_context=live,
+            cloud_client_context=cloud_context,
+            cloud_user_id=user.id if cloud_context is not None else None,
+        )
     except NetFacilitiesAuthenticationRequired as exc:
         detail = (
             "Sign in to NetFacilities before enrichment."
@@ -432,6 +442,46 @@ async def start_netfacilities_enrichment(
     return _job_response(snapshot)
 
 
+def _resolve_cloud_enrichment_context(config, db: Session, user: User):
+    """The calling user's own cloud session, ready to reconnect, or None if
+    they have none or theirs has expired (spec D10)."""
+
+    cloud_config = load_netfacilities_cloud_config(config)
+    if not cloud_config.enabled:
+        return None
+    from app.integrations.netfacilities.factory import (
+        create_netfacilities_cloud_enrichment_client,
+    )
+    from app.models import NetFacilitiesCloudSession
+
+    row = db.query(NetFacilitiesCloudSession).filter_by(user_id=user.id).one_or_none()
+    if row is None or row.expires_at is not None:
+        return None
+    return create_netfacilities_cloud_enrichment_client(
+        cloud_config, row.storage_state.encode("ascii")
+    )
+
+
+def _mark_cloud_session_expired_if_needed(
+    db: Session, job: NetFacilitiesJobSnapshot
+) -> None:
+    """A cloud-sourced job that lost authentication expires that user's saved
+    session (spec D8: set only once an attempt actually reports it)."""
+
+    if job.source != "cloud_session" or job.state != "authentication_required":
+        return
+    from app.models import NetFacilitiesCloudSession
+
+    row = (
+        db.query(NetFacilitiesCloudSession)
+        .filter_by(user_id=job.user_id)
+        .one_or_none()
+    )
+    if row is not None and row.expires_at is None:
+        row.expires_at = job.finished_at
+        db.commit()
+
+
 @router.get(
     "/work-orders/enrich/{job_id}",
     response_model=NetFacilitiesEnrichmentJob,
@@ -443,6 +493,7 @@ async def start_netfacilities_enrichment(
 async def get_netfacilities_enrichment(
     job_id: UUID,
     _user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
+    db: Session = Depends(get_db),
     jobs: NetFacilitiesJobCoordinator = Depends(get_netfacilities_coordinator),
 ) -> NetFacilitiesEnrichmentJob:
     snapshot = await jobs.get(job_id)
@@ -451,6 +502,7 @@ async def get_netfacilities_enrichment(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="NetFacilities enrichment job was not found on this process.",
         )
+    _mark_cloud_session_expired_if_needed(db, snapshot)
     return _job_response(snapshot)
 
 

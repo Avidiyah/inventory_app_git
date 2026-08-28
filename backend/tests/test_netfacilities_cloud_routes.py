@@ -107,3 +107,79 @@ def test_cloud_session_response_never_carries_storage_state(tmp_path, monkeypatc
     dumped = str(result.model_dump())
     assert "storage_state" not in dumped
     assert "steel_profile_id" not in dumped
+
+
+class FakeDbWithCloudRow:
+    """Returns one NetFacilitiesCloudSession-shaped row for any query."""
+
+    def __init__(self, row):
+        self._row = row
+
+    def query(self, *_args, **_kwargs):
+        return self
+
+    def filter_by(self, *_args, **_kwargs):
+        return self
+
+    def one_or_none(self):
+        return self._row
+
+
+def test_enrichment_uses_the_callers_cloud_session_when_no_live_window(
+    tmp_path, monkeypatch
+):
+    from app.integrations.netfacilities import factory as factory_module
+
+    monkeypatch.setattr(router, "load_netfacilities_config", lambda: _enabled_config(tmp_path))
+    monkeypatch.setenv("NETFACILITIES_CLOUD_AUTH_ENABLED", "true")
+    monkeypatch.setenv("STEEL_API_KEY", "test-key")
+    from cryptography.fernet import Fernet
+
+    monkeypatch.setenv("NETFACILITIES_CLOUD_SESSION_ENCRYPTION_KEY", Fernet.generate_key().decode())
+
+    from app.services import netfacilities_cloud_crypto as crypto
+
+    token = crypto.encrypt_storage_state('{"cookies": []}').decode("ascii")
+    row = SimpleNamespace(storage_state=token, expires_at=None)
+    db = FakeDbWithCloudRow(row)
+
+    captured = {}
+
+    def fake_create(config, encrypted_storage_state):
+        captured["called"] = True
+        return object()
+
+    monkeypatch.setattr(
+        factory_module, "create_netfacilities_cloud_enrichment_client", fake_create
+    )
+
+    class NoLiveAuth:
+        async def borrow_live_client(self):
+            return None
+
+    from app.services.netfacilities_jobs import NetFacilitiesJobSnapshot
+
+    snapshot = NetFacilitiesJobSnapshot(
+        job_id=uuid4(), state="queued", source="cloud_session"
+    )
+
+    class FakeJobsCapturingCloud:
+        async def start(self, _config, *, live_client_context=None, cloud_client_context=None, cloud_user_id=None):
+            captured["cloud_client_context"] = cloud_client_context
+            captured["cloud_user_id"] = cloud_user_id
+            return snapshot, True
+
+    caller_id = uuid4()
+    result = asyncio.run(
+        router.start_netfacilities_enrichment(
+            user=SimpleNamespace(id=caller_id),
+            db=db,
+            jobs=FakeJobsCapturingCloud(),
+            authentication=NoLiveAuth(),
+        )
+    )
+
+    assert result.source == "cloud_session"
+    assert captured["called"] is True
+    assert captured["cloud_client_context"] is not None
+    assert captured["cloud_user_id"] == caller_id

@@ -18,7 +18,7 @@ NetFacilitiesJobState = Literal[
     "failed",
     "cancelled",
 ]
-NetFacilitiesJobSource = Literal["live_session", "saved_state"]
+NetFacilitiesJobSource = Literal["live_session", "saved_state", "cloud_session"]
 
 
 class NetFacilitiesEnrichmentCounts(BaseModel):

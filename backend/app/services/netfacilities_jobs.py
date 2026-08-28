@@ -48,7 +48,7 @@ FailureClass: TypeAlias = Literal[
     "unexpected_failure",
     "cancelled",
 ]
-JobSource: TypeAlias = Literal["live_session", "saved_state"]
+JobSource: TypeAlias = Literal["live_session", "saved_state", "cloud_session"]
 ClientFactory: TypeAlias = Callable[
     [NetFacilitiesConfig], NetFacilitiesClientContextProtocol
 ]
@@ -57,7 +57,13 @@ EnrichmentRunner: TypeAlias = Callable[..., Awaitable[NetFacilitiesEnrichmentSum
 
 @dataclass(frozen=True, slots=True)
 class NetFacilitiesJobSnapshot:
-    """Immutable, source-value-free state safe for a gated API response."""
+    """Immutable, source-value-free state safe for a gated API response.
+
+    ``user_id`` is populated only for a ``cloud_session`` job -- internal
+    plumbing so the router can find and expire that user's saved cloud
+    session on `authentication_required` (spec D8); it is never part of the
+    response schema (`schemas.netfacilities.NetFacilitiesEnrichmentJob`
+    has no such field)."""
 
     job_id: UUID
     state: JobState
@@ -67,6 +73,7 @@ class NetFacilitiesJobSnapshot:
     summary: NetFacilitiesEnrichmentSummary | None = None
     current_work_order_number: str | None = None
     source: JobSource | None = None
+    user_id: UUID | None = None
 
 
 def _default_client_factory(
@@ -104,19 +111,27 @@ class NetFacilitiesJobCoordinator:
         config: NetFacilitiesConfig,
         *,
         live_client_context: NetFacilitiesClientContextProtocol | None = None,
+        cloud_client_context: NetFacilitiesClientContextProtocol | None = None,
+        cloud_user_id: UUID | None = None,
     ) -> tuple[NetFacilitiesJobSnapshot, bool]:
         """Start a batch, or return the currently active batch unchanged.
 
-        With ``live_client_context`` the job reads through the operator's open,
-        signed-in window: no saved-state file is needed and no profile lease is
-        taken, because the live session already holds it (spec D4, D8).
+        Precedence: the operator's open live window (spec D4, D8) first, then
+        the calling user's own cloud session (spec D10), then the shared
+        saved-state file. A cloud session never takes the shared profile
+        lease -- it is not the same physical resource live_session/saved_state
+        contend for (spec D10).
         """
 
         if not config.enabled:
             raise NetFacilitiesAuthenticationRequired(
                 "NetFacilities enrichment is not enabled on this host."
             )
-        if live_client_context is None and not config.has_saved_authentication:
+        if (
+            live_client_context is None
+            and cloud_client_context is None
+            and not config.has_saved_authentication
+        ):
             raise NetFacilitiesAuthenticationRequired(
                 "Sign in to NetFacilities before enrichment."
             )
@@ -127,18 +142,27 @@ class NetFacilitiesJobCoordinator:
                     raise RuntimeError("active NetFacilities task has no job state")
                 return self._latest, False
 
-            source: JobSource = (
-                "live_session" if live_client_context is not None else "saved_state"
-            )
+            if live_client_context is not None:
+                source: JobSource = "live_session"
+            elif cloud_client_context is not None:
+                source = "cloud_session"
+            else:
+                source = "saved_state"
+            client_context = live_client_context or cloud_client_context
             lease = None
-            if live_client_context is None:
+            if client_context is None:
                 lease = await self._profile_gate.acquire("enrichment")
-            job = NetFacilitiesJobSnapshot(job_id=uuid4(), state="queued", source=source)
+            job = NetFacilitiesJobSnapshot(
+                job_id=uuid4(),
+                state="queued",
+                source=source,
+                user_id=cloud_user_id if source == "cloud_session" else None,
+            )
             self._latest = job
             self._lease = lease
             try:
                 self._task = asyncio.create_task(
-                    self._run(job.job_id, config, live_client_context, source),
+                    self._run(job.job_id, config, client_context, source, job.user_id),
                     name=f"netfacilities-enrichment-{job.job_id}",
                 )
             except BaseException:
@@ -197,8 +221,9 @@ class NetFacilitiesJobCoordinator:
         self,
         job_id: UUID,
         config: NetFacilitiesConfig,
-        live_client_context: NetFacilitiesClientContextProtocol | None,
+        client_context: NetFacilitiesClientContextProtocol | None,
         source: JobSource,
+        user_id: UUID | None = None,
     ) -> None:
         started_at = datetime.now(timezone.utc)
         started_clock = asyncio.get_running_loop().time()
@@ -208,6 +233,7 @@ class NetFacilitiesJobCoordinator:
                 state="running",
                 started_at=started_at,
                 source=source,
+                user_id=user_id,
             )
         )
         logger.info(
@@ -217,8 +243,8 @@ class NetFacilitiesJobCoordinator:
 
         try:
             client_context = (
-                live_client_context
-                if live_client_context is not None
+                client_context
+                if client_context is not None
                 else self._client_factory(config)
             )
             async with client_context as client:
@@ -238,6 +264,7 @@ class NetFacilitiesJobCoordinator:
                 state="cancelled",
                 failure="cancelled",
                 source=source,
+                user_id=user_id,
             )
             raise
         except NetFacilitiesAuthenticationRequired:
@@ -247,6 +274,7 @@ class NetFacilitiesJobCoordinator:
                 state="authentication_required",
                 failure="authentication_required",
                 source=source,
+                user_id=user_id,
             )
         except NetFacilitiesError:
             await self._finish(
@@ -255,6 +283,7 @@ class NetFacilitiesJobCoordinator:
                 state="failed",
                 failure="unavailable",
                 source=source,
+                user_id=user_id,
             )
         except Exception:
             logger.error(
@@ -272,6 +301,7 @@ class NetFacilitiesJobCoordinator:
                 state="failed",
                 failure="unexpected_failure",
                 source=source,
+                user_id=user_id,
             )
         else:
             if summary.authentication_required:
@@ -290,6 +320,7 @@ class NetFacilitiesJobCoordinator:
                 failure=failure,
                 summary=summary,
                 source=source,
+                user_id=user_id,
             )
         finally:
             elapsed_ms = round(
@@ -337,6 +368,7 @@ class NetFacilitiesJobCoordinator:
         failure: FailureClass | None,
         source: JobSource,
         summary: NetFacilitiesEnrichmentSummary | None = None,
+        user_id: UUID | None = None,
     ) -> None:
         await self._set(
             NetFacilitiesJobSnapshot(
@@ -347,6 +379,7 @@ class NetFacilitiesJobCoordinator:
                 failure=failure,
                 summary=summary,
                 source=source,
+                user_id=user_id,
             )
         )
 

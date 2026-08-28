@@ -421,3 +421,36 @@ def test_live_session_that_lost_authentication_ends_authentication_required(
 
     asyncio.run(exercise())
     assert live.entered == 1
+
+
+def test_cloud_session_source_used_when_no_live_session(tmp_path):
+    """A cloud_client_context, with no live_client_context, sources the job
+    as cloud_session and never takes the shared profile lease (spec D10) --
+    RefusingGate proves the lease is never acquired, the same way it already
+    proves this for a live-session job above."""
+
+    cloud = FakeClientContext()
+
+    async def enrich(**_kwargs):
+        return NetFacilitiesEnrichmentSummary()
+
+    coordinator = NetFacilitiesJobCoordinator(
+        client_factory=_must_not_launch,
+        enrichment_runner=enrich,
+        profile_gate=RefusingGate(),
+    )
+
+    async def exercise():
+        started, created = await coordinator.start(
+            _config(tmp_path, authenticated=False),
+            cloud_client_context=cloud,
+        )
+        assert created
+        assert started.source == "cloud_session"
+        finished = await _wait_for_terminal(coordinator, started.job_id)
+        assert finished.state == "completed"
+        assert finished.source == "cloud_session"
+
+    asyncio.run(exercise())
+    assert cloud.entered == 1
+    assert cloud.exited == 1

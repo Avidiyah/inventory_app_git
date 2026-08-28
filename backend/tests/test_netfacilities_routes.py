@@ -59,12 +59,23 @@ class FakeJobs:
         self.snapshot = snapshot
         self.start_error = start_error
         self.live_client_context = None
+        self.cloud_client_context = None
+        self.cloud_user_id = None
 
     async def latest(self):
         return self.snapshot
 
-    async def start(self, _config, *, live_client_context=None):
+    async def start(
+        self,
+        _config,
+        *,
+        live_client_context=None,
+        cloud_client_context=None,
+        cloud_user_id=None,
+    ):
         self.live_client_context = live_client_context
+        self.cloud_client_context = cloud_client_context
+        self.cloud_user_id = cloud_user_id
         if self.start_error is not None:
             raise self.start_error
         return self.snapshot, True
@@ -302,7 +313,7 @@ def test_start_translates_missing_authentication_to_recoverable_409(
     with pytest.raises(HTTPException) as exc:
         asyncio.run(
             router.start_netfacilities_enrichment(
-                _user=SimpleNamespace(),
+                user=SimpleNamespace(id=uuid4()),
                 jobs=jobs,
                 authentication=FakeAuthentication(),
             )
@@ -334,7 +345,7 @@ def test_job_response_contains_approved_progress_and_counts_but_no_source_values
 
     response = asyncio.run(
         router.start_netfacilities_enrichment(
-            _user=SimpleNamespace(),
+            user=SimpleNamespace(id=uuid4()),
             jobs=FakeJobs(snapshot=snapshot),
             authentication=FakeAuthentication(),
         )
@@ -473,7 +484,7 @@ def test_enrich_hands_the_live_window_to_the_job(tmp_path, monkeypatch):
 
     response = asyncio.run(
         router.start_netfacilities_enrichment(
-            _user=SimpleNamespace(),
+            user=SimpleNamespace(id=uuid4()),
             jobs=jobs,
             authentication=FakeAuthentication(live=live),
         )
