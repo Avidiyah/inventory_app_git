@@ -593,6 +593,33 @@ export async function apiImportNetFacilitiesDownload() {
   ));
 }
 
+// Per-user NetFacilities cloud sign-in (spec D2, D7). Never returns
+// storage_state or steel_profile_id.
+export async function apiGetNetFacilitiesCloudSession() {
+  return liveGet("/integrations/netfacilities/cloud/session");
+}
+
+export async function apiStartNetFacilitiesCloudAuthentication() {
+  return parseResponse(await fetch(
+    "/integrations/netfacilities/cloud/auth/start",
+    { method: "POST", credentials: "include" },
+  ));
+}
+
+export async function apiCancelNetFacilitiesCloudAuthentication() {
+  return parseResponse(await fetch(
+    "/integrations/netfacilities/cloud/auth/cancel",
+    { method: "POST", credentials: "include" },
+  ));
+}
+
+export async function apiImportNetFacilitiesCloudDownload() {
+  return parseResponse(await fetch(
+    "/integrations/netfacilities/cloud/downloads/import",
+    { method: "POST", credentials: "include" },
+  ));
+}
+
 // Download work orders as CSV (Admin+). The operational `full` export may carry
 // the same active service/supervisor/community/number filters as the card list;
 // status remains the existing `scope`. The `client` caller deliberately omits

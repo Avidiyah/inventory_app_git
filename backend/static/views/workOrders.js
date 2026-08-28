@@ -46,6 +46,10 @@ import {
   apiStartNetFacilitiesEnrichment,
   apiGetNetFacilitiesEnrichment,
   apiImportNetFacilitiesDownload,
+  apiGetNetFacilitiesCloudSession,
+  apiStartNetFacilitiesCloudAuthentication,
+  apiCancelNetFacilitiesCloudAuthentication,
+  apiImportNetFacilitiesCloudDownload,
   apiExportWorkOrders,
   apiListItems,
   apiListUsers,
@@ -99,6 +103,9 @@ const netFacilitiesConfirmBtn = document.getElementById("wo-netfacilities-confir
 const netFacilitiesCancelBtn = document.getElementById("wo-netfacilities-cancel-btn");
 const netFacilitiesEnrichBtn = document.getElementById("wo-netfacilities-enrich-btn");
 const netFacilitiesImportDownloadBtn = document.getElementById("wo-netfacilities-import-download-btn");
+const netFacilitiesCloudSignInBtn = document.getElementById("wo-netfacilities-cloud-sign-in-btn");
+const netFacilitiesCloudCancelBtn = document.getElementById("wo-netfacilities-cloud-cancel-btn");
+const netFacilitiesCloudImportDownloadBtn = document.getElementById("wo-netfacilities-cloud-import-download-btn");
 const exportScope = document.getElementById("wo-export-scope");
 const exportBtn = document.getElementById("wo-export-btn");
 const exportClientBtn = document.getElementById("wo-export-client-btn");
@@ -1051,6 +1058,7 @@ export async function loadIntegrationsPage() {
   if (importSection) importSection.hidden = !isAdminPlus();
   if (!isAdminPlus()) return;
   void refreshNetFacilitiesSession();
+  void refreshNetFacilitiesCloudSession();
 }
 
 function renderCards(cards) {
@@ -2354,6 +2362,106 @@ if (netFacilitiesCancelBtn) {
 
 if (netFacilitiesEnrichBtn) {
   netFacilitiesEnrichBtn.addEventListener("click", runNetFacilitiesEnrichment);
+}
+
+// --- Per-user NetFacilities cloud sign-in (Admin+, spec D2, D3, D7) -------
+//
+// Independent of the local flow above: any authorized user, on any device,
+// signs into NetFacilities through a Steel cloud browser instead of the
+// owner's Windows machine. Only rendered when the backend reports the
+// capability as available (NETFACILITIES_CLOUD_AUTH_ENABLED and its
+// prerequisites -- see cloud_config.py).
+
+let netFacilitiesCloudPollTimer = null;
+
+async function refreshNetFacilitiesCloudSession() {
+  let capability;
+  try {
+    capability = await apiGetNetFacilitiesCloudSession();
+  } catch {
+    capability = null;
+  }
+  updateNetFacilitiesCloudControls(capability);
+  return capability;
+}
+
+function updateNetFacilitiesCloudControls(capability) {
+  const available = Boolean(capability && capability.available);
+  const cloudStatus = capability && capability.status;
+  const awaitingSignIn = Boolean(cloudStatus && cloudStatus.state === "awaiting_sign_in");
+  const signedIn = Boolean(cloudStatus && cloudStatus.state === "signed_in");
+  const hasCsv = signedIn && Boolean(cloudStatus.last_download_filename);
+
+  if (netFacilitiesCloudSignInBtn) {
+    netFacilitiesCloudSignInBtn.hidden = !available || awaitingSignIn || signedIn;
+  }
+  if (netFacilitiesCloudCancelBtn) {
+    netFacilitiesCloudCancelBtn.hidden = !(awaitingSignIn || signedIn);
+  }
+  if (netFacilitiesCloudImportDownloadBtn) {
+    netFacilitiesCloudImportDownloadBtn.hidden = !hasCsv;
+  }
+
+  const shouldPoll = available && (awaitingSignIn || signedIn);
+  if (shouldPoll && !netFacilitiesCloudPollTimer) {
+    netFacilitiesCloudPollTimer = setInterval(
+      refreshNetFacilitiesCloudSession,
+      NETFACILITIES_SESSION_POLL_MS,
+    );
+  } else if (!shouldPoll && netFacilitiesCloudPollTimer) {
+    clearInterval(netFacilitiesCloudPollTimer);
+    netFacilitiesCloudPollTimer = null;
+  }
+}
+
+async function startNetFacilitiesCloudAuthentication() {
+  if (netFacilitiesCloudSignInBtn) netFacilitiesCloudSignInBtn.disabled = true;
+  try {
+    const status = await apiStartNetFacilitiesCloudAuthentication();
+    if (status && status.session_viewer_url) {
+      window.open(status.session_viewer_url, "_blank", "noopener");
+    }
+  } catch (err) {
+    setMessage(netFacilitiesStatus, friendlyError(err, "Could not open a NetFacilities cloud session."), "error");
+  } finally {
+    if (netFacilitiesCloudSignInBtn) netFacilitiesCloudSignInBtn.disabled = false;
+    await refreshNetFacilitiesCloudSession();
+  }
+}
+
+async function cancelNetFacilitiesCloudAuthentication() {
+  if (netFacilitiesCloudCancelBtn) netFacilitiesCloudCancelBtn.disabled = true;
+  try {
+    await apiCancelNetFacilitiesCloudAuthentication();
+  } catch (err) {
+    setMessage(netFacilitiesStatus, friendlyError(err, "Could not close the NetFacilities cloud session."), "error");
+  } finally {
+    if (netFacilitiesCloudCancelBtn) netFacilitiesCloudCancelBtn.disabled = false;
+    await refreshNetFacilitiesCloudSession();
+  }
+}
+
+async function importNetFacilitiesCloudDownload() {
+  if (netFacilitiesCloudImportDownloadBtn) netFacilitiesCloudImportDownloadBtn.disabled = true;
+  setMessage(importMessage, "Importing…", "");
+  try {
+    const r = await apiImportNetFacilitiesCloudDownload();
+    await afterWorkOrderImport(r);
+  } catch (err) {
+    setMessage(importMessage, friendlyError(err, "Could not import the downloaded CSV."), "error");
+  } finally {
+    await refreshNetFacilitiesCloudSession();
+  }
+}
+
+if (netFacilitiesCloudSignInBtn) {
+  netFacilitiesCloudSignInBtn.addEventListener("click", startNetFacilitiesCloudAuthentication);
+}
+if (netFacilitiesCloudCancelBtn) {
+  netFacilitiesCloudCancelBtn.addEventListener("click", cancelNetFacilitiesCloudAuthentication);
+}
+if (netFacilitiesCloudImportDownloadBtn) {
+  netFacilitiesCloudImportDownloadBtn.addEventListener("click", importNetFacilitiesCloudDownload);
 }
 
 // --- CSV import (Admin+) --------------------------------------------------
