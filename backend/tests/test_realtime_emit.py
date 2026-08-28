@@ -330,12 +330,25 @@ def test_a_failed_transition_emits_nothing(monkeypatch):
     assert envelopes == []
 
 
+def _route_source(endpoint):
+    """A route's own source, plus `run_csv_import`'s when it delegates there.
+
+    `import_work_orders` calls the shared `run_csv_import` (IMP-039) rather
+    than emitting inline, so a literal scan of the route alone would miss it.
+    """
+
+    source = inspect.getsource(endpoint)
+    if "run_csv_import(" in source:
+        source += inspect.getsource(work_orders_router.run_csv_import)
+    return source
+
+
 def test_the_review_queue_emitter_set_is_exactly_the_five_capable_routes():
     emitters = {
         route.endpoint.__name__
         for route in work_orders_router.router.routes
         if route.endpoint.__module__ == work_orders_router.__name__
-        and "_emit_review_queue_changed(" in inspect.getsource(route.endpoint)
+        and "_emit_review_queue_changed(" in _route_source(route.endpoint)
     }
 
     assert emitters == {
@@ -409,7 +422,7 @@ def test_the_status_emitter_set_includes_the_two_membership_commands():
         route.endpoint.__name__
         for route in work_orders_router.router.routes
         if route.endpoint.__module__ == work_orders_router.__name__
-        and "_emit_status_changed(" in inspect.getsource(route.endpoint)
+        and "_emit_status_changed(" in _route_source(route.endpoint)
     }
 
     assert emitters == {
