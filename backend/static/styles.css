@@ -908,7 +908,7 @@ tr:last-child td {
    other .stack-table users get it in their own branding pass. */
 @media (hover: hover) {
     #items-table tbody tr:hover {
-        background-color: var(--gray-50);
+        background-color: var(--panel-hover);
     }
 }
 
