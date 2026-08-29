@@ -120,9 +120,13 @@ own cap reaps it.
 | E3 | Capture fallback | **A safety-net poll stays**, at a slower interval than today. If the listener never fires over `connect_over_cdp` (unverified — see §3), capture still works, a few seconds later. |
 | E4 | Import trigger | **Automatic and unconditional** on capture. No confirmation step. |
 | E5 | Enrichment on collision | **Queued.** `jobs.start()` returns `(snapshot, created=False)` while a batch runs; the chain retries until `created` is true, under a cap. Nothing is dropped. |
-| E6 | Session lifetime | **Closed immediately after the first successful capture.** One export per sign-in. `storage_state` is already persisted, so enrichment is unaffected. |
-| E7 | Signed-in ceremonies get a deadline | A signed-in ceremony that never produces a CSV now expires (E6 covers the success path; this covers abandonment). Fixes the billing leak in D-C. |
-| E8 | Manual import button | **Kept**, hidden unless a capture is sitting unconsumed. It is the fallback when the chain fails, and removing it would leave no recovery path. |
+| E6 | Session lifetime | **Closed after a *successful* import.** One export per sign-in on the happy path. A failed import (wrong or malformed CSV) **keeps the session open** so the user can immediately download the right file without repeating the sign-in ceremony. `storage_state` is already persisted, so enrichment is unaffected either way. |
+| E7 | Signed-in ceremonies get a deadline | **10 minutes** with no successful capture, then close and expire. Sits under Steel's own 15-minute session cap. E6 covers the success path; this covers abandonment and the failed-import case, so a kept-open session cannot leak. Fixes the billing leak in D-C. |
+| E8 | Manual import button | **Kept**, hidden unless a capture is sitting unconsumed, and it **runs the same chain** — import *and* enrichment. Whether capture was automatic or the user clicked the fallback, behavior is identical. |
+| E9 | Enrichment scope | **Global sweep, unchanged.** `_load_candidates` already selects every work order with a blank description or priority org-wide, so imported rows are covered and the existing backlog is cleaned up as a side effect. No candidate-filter plumbing. |
+| E10 | Completion reporting | **Web push on completion *and* on failure**, via the existing VAPID setup. An unattended chain must reach the user whether or not the tab is still open. The in-page status line stays as the live narration. |
+| E11 | Calling `run_csv_import` | The chain **opens its own `Session` and constructs its own `BackgroundTasks()`**, then awaits it. No refactor of `run_csv_import`, which two live routes already depend on. |
+| E12 | Timings | Ceremony deadline **10 min**; safety-net poll **5 s** (slower than today's 3 s, since the listener is primary); enrichment collision retry cap **2 min**. |
 
 ## 3. The one thing still unverified
 
@@ -147,6 +151,21 @@ production rather than by argument.
 This is deliberate: the defect in D-A shipped because a vendor API shape
 went to production untested. Betting the capture path on a second
 unverified vendor behavior would repeat that mistake.
+
+## 3a. Delivery in two phases
+
+**Phase 1 — unblock capture.** D-A and D-B plus their tests: path
+normalization, the guarded loop, retryable `_seen_files`, and the
+`files` resource the existing fake lacks. A handful of lines. Exports
+stop vanishing, and the manual Import button starts working again.
+
+**Phase 2 — the chain.** Listener, automatic import, session lifetime,
+enrichment queueing, expiry, push, frontend narration.
+
+The split is deliberate: Phase 2 gets built on a capture path already
+proven in production, so a chain bug and a capture bug can never be
+confused for one another. It also gives §3's open question a known-good
+baseline to be answered against.
 
 ## 4. Design
 
@@ -180,21 +199,29 @@ On capture:
 2. **Import.** The chain has no request scope, so it opens its own
    `Session` from `self._session_factory` and constructs its own
    `BackgroundTasks()`, then awaits it after `run_csv_import` returns so
-   the supervisor notifications still fire. Import runs in a worker
+   the supervisor notifications still fire (E11). Import runs in a worker
    thread — `import_work_orders` is synchronous and must not block the
    event loop.
-3. **Close the session** (E6): `close_login_session`, snapshot moves to
-   `closed`.
+3. **Close the session — only if the import succeeded** (E6):
+   `close_login_session`, snapshot moves to `closed`. On failure the
+   session stays open and the ceremony keeps its E7 deadline, so the user
+   can re-export immediately and a kept-open session still cannot leak.
 4. **Enrich.** Resolve the user's cloud enrichment context and call
-   `jobs.start()`, retrying while `created is False` under a cap (E5).
+   `jobs.start()`, retrying while `created is False` under the E12 cap.
+5. **Notify** (E10).
 
 Import result and enrichment job id are recorded on the snapshot so the
 UI can report both without inventing a second polling channel.
 
-Ordering note: the session closes *before* enrichment starts, and
-enrichment opens its own short-lived replay session from the persisted
-`storage_state`. The two never overlap, so a user's ceremony and their
-enrichment job cannot contend for the same Steel session.
+Ordering note: on the success path the session closes *before*
+enrichment starts, and enrichment opens its own short-lived replay
+session from the persisted `storage_state`. The two never overlap, so a
+user's ceremony and their enrichment job cannot contend for the same
+Steel session. On the failure path no enrichment starts at all, so the
+still-open ceremony has nothing to contend with either.
+
+This whole sequence is a single function shared by the automatic trigger
+and the manual button (E8), so the two routes cannot drift.
 
 ### 4.3 Shared helper (`_resolve_cloud_enrichment_context`)
 
@@ -218,15 +245,32 @@ The status line narrates the chain: captured → importing → imported (with
 counts) → enriching → done. The existing `NETFACILITIES_SESSION_POLL_MS`
 loop already polls `/cloud/session`; it carries the new fields. The
 manual Import button (E8) appears only when a capture was not
-automatically consumed.
+automatically consumed, and triggers the same chain as the automatic
+path — including enrichment.
+
+### 4.6 Completion notification (E10)
+
+The chain sends a web push on both outcomes, through the existing VAPID
+setup, addressed to the ceremony's own user:
+
+- **Success** — imported *n* work orders, enrichment started (or queued).
+- **Failure** — which stage failed (capture, import, enrichment) and what
+  the user can do: re-export while still signed in (import failure, E6),
+  or click Enrich later (collision cap reached, E5).
+
+This is the only channel that reaches a user who closed the tab, which
+an unattended chain makes the normal case rather than the exception.
+Notification content is defined in `docs/notification-events.md`, the
+repo's single trigger table — this adds rows there rather than starting
+a new vocabulary.
 
 ## 5. Error handling
 
 | Failure | Behavior |
 |---|---|
 | Files API error on retrieval | Log, continue polling. Never kills the loop (D-B). |
-| Import raises `DomainError` (malformed CSV) | Capture retained, snapshot records the error, manual button offered (E8). Session still closes. No enrichment. |
-| Enrichment still busy after the retry cap | Import stands. Snapshot says enrichment was not started; UI offers the Enrich button. |
+| Import raises `DomainError` (malformed CSV) | **Session stays open** (E6) so the user can re-export without signing in again; the E7 deadline still bounds it. Capture retained, snapshot records the error, manual button offered (E8), failure push sent (E10). No enrichment. |
+| Enrichment still busy after the retry cap | Import stands. Snapshot says enrichment was not started; UI offers the Enrich button; push says so (E10). |
 | `setDownloadBehavior` fails | Ceremony fails at `open_login_session` with `NetFacilitiesUnavailable`. No silent half-working session. |
 | Steel session dies mid-ceremony | Bounded by the E7 deadline. |
 
@@ -248,8 +292,12 @@ Offline, no live vendor, matching this suite's `asyncio.run()` convention:
   session closed → `jobs.start` called.
 - **Collision**: `jobs.start` returning `created=False` retries and
   eventually starts (E5).
-- **Import failure**: session still closes, capture retained, no
-  enrichment.
+- **Import failure**: session stays **open** (E6), capture retained, no
+  enrichment, failure push sent.
+- **The manual button runs the same chain** — import *and* enrichment
+  (E8), asserted against the same shared function the automatic trigger
+  uses.
+- **Push fires on both outcomes** (E10), with the failing stage named.
 - **Expiry**: a signed-in ceremony past its deadline closes and reports
   `timed_out` (E7).
 
