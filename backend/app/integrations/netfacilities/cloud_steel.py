@@ -100,14 +100,21 @@ class SteelCloudBrowserProvider:
             steel_session.websocket_url, self._api_key
         )
         context = browser.contexts[0]
+        # Browser-level, not page-level: the behavior must outlive any one
+        # page, and creating a page here left a stray blank tab in the live
+        # view the user is looking at. A ceremony that cannot capture
+        # downloads is not a working ceremony, so this no longer swallows.
         try:
-            cdp_session = await context.new_cdp_session(await context.new_page())
+            cdp_session = await browser.new_browser_cdp_session()
             await cdp_session.send(
                 "Browser.setDownloadBehavior",
                 {"behavior": "allow", "downloadPath": DOWNLOAD_PATH, "eventsEnabled": True},
             )
-        except Exception:
+        except Exception as exc:
             logger.error("netfacilities.cloud_download_behavior_setup_failed")
+            raise NetFacilitiesUnavailable(
+                "Could not prepare the NetFacilities cloud browser for downloads."
+            ) from exc
 
         # The sign-in ceremony never reads a work order, so rendering is moot here.
         client = NetFacilitiesClient(headless=True, _context=context)

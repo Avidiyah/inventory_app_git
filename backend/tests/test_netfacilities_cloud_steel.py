@@ -13,11 +13,16 @@ from __future__ import annotations
 import asyncio
 
 from app.integrations.netfacilities import cloud_steel
+from app.integrations.netfacilities.errors import NetFacilitiesUnavailable
 
 
 class FakePage:
     def __init__(self, url):
         self.url = url
+        self.handlers = {}
+
+    def on(self, event, handler):
+        self.handlers[event] = handler
 
     async def goto(self, *_args, **_kwargs):
         return None
@@ -35,24 +40,48 @@ class FakeRequestContext:
         return FakeResponse()
 
 
+class FakeCdpSession:
+    def __init__(self, *, fail=False):
+        self.sent = []
+        self._fail = fail
+
+    async def send(self, method, params=None):
+        if self._fail:
+            raise RuntimeError("CDP refused setDownloadBehavior")
+        self.sent.append((method, params))
+        return {}
+
+
 class FakeContext:
     def __init__(self, *, pages=None, state=None):
         self.pages = pages or []
         self._state = state or {"cookies": []}
         self.closed = False
         self.request = FakeRequestContext()
+        self.created_pages = []
+        self.handlers = {}
 
     async def storage_state(self):
         return self._state
 
-    def on(self, *_args, **_kwargs):
-        return None
+    def on(self, event, handler):
+        self.handlers[event] = handler
+
+    async def new_page(self):
+        page = FakePage("about:blank")
+        self.created_pages.append(page)
+        self.pages.append(page)
+        return page
 
 
 class FakeBrowser:
-    def __init__(self, context):
+    def __init__(self, context, *, cdp_fails=False):
         self.contexts = [context]
         self.closed = False
+        self.cdp_session = FakeCdpSession(fail=cdp_fails)
+
+    async def new_browser_cdp_session(self):
+        return self.cdp_session
 
     async def close(self):
         self.closed = True
@@ -197,6 +226,40 @@ def test_poll_signed_in_returns_state_json_after_login(monkeypatch):
 
     assert result is not None
     assert "abc" in result
+
+
+def test_download_behavior_is_set_on_a_browser_level_cdp_session(monkeypatch):
+    provider, _fake_client = _provider(monkeypatch)
+    context = FakeContext(pages=[FakePage("https://system.netfacilities.com/account/login")])
+    browser = FakeBrowser(context)
+    monkeypatch.setattr(
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((None, browser))
+    )
+
+    asyncio.run(provider.open_login_session())
+
+    method, params = browser.cdp_session.sent[0]
+    assert method == "Browser.setDownloadBehavior"
+    assert params["downloadPath"] == "/files"
+    assert params["eventsEnabled"] is True
+    # No stray blank page: the ceremony's only page is the sign-in page the
+    # user is looking at in the live view.
+    assert context.created_pages == []
+
+
+def test_a_ceremony_that_cannot_capture_downloads_fails_to_open(monkeypatch):
+    provider, _fake_client = _provider(monkeypatch)
+    context = FakeContext(pages=[FakePage("https://system.netfacilities.com/account/login")])
+    browser = FakeBrowser(context, cdp_fails=True)
+    monkeypatch.setattr(
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((None, browser))
+    )
+
+    try:
+        asyncio.run(provider.open_login_session())
+    except NetFacilitiesUnavailable:
+        return
+    raise AssertionError("expected NetFacilitiesUnavailable")
 
 
 def _provider_with_files(monkeypatch):
