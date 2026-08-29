@@ -8,12 +8,11 @@ ENV PYTHONUNBUFFERED=1 \
 # The deploy hook rebuilds this image but does not synchronize render.yaml into an
 # existing Render service. Keep the hosted NetFacilities capability enabled in the
 # image itself so a normal gated deploy cannot silently fall back to "disabled".
-# The authentication state remains an operator-provisioned Render Secret File; a
-# missing/expired file reports not_authenticated rather than exposing or inventing
-# credentials. Runtime environment values can still override either default.
-ENV NETFACILITIES_ENABLED=true \
-    NETFACILITIES_STORAGE_STATE_PATH=/etc/secrets/netfacilities-storage-state.json \
-    NETFACILITIES_BROWSER_CHANNEL=bundled-chromium
+# Authentication is per user, captured through Steel cloud sign-in and stored
+# encrypted in netfacilities_cloud_sessions; a missing or expired session asks
+# that user to sign in again rather than exposing or inventing credentials.
+# Runtime environment values can still override this default.
+ENV NETFACILITIES_ENABLED=true
 
 # pyzbar wraps the native zbar C library; libzbar0 provides it on Debian.
 # Without it, `import pyzbar` fails at runtime (missing libzbar.so).

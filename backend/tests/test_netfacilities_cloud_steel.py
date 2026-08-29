@@ -5,7 +5,7 @@ adapter's own state machine (session bookkeeping, seen-files tracking,
 session teardown) is what these tests verify, not the real vendor.
 
 This project has no pytest-asyncio -- every async exercise is wrapped in a
-plain `def test_...(): asyncio.run(...)`, matching test_netfacilities_auth.py.
+plain `def test_...(): asyncio.run(...)`, the convention across this suite.
 """
 
 from __future__ import annotations

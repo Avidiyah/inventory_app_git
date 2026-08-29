@@ -1,12 +1,11 @@
 """Per-user NetFacilities cloud-auth login ceremony (spec D2, D3, D7).
 
-Structurally mirrors `NetFacilitiesAuthenticationCoordinator`
-(`services/netfacilities_auth.py`) -- same starting/signed_in/closed state
-machine, same auto-poll-until-signed-in idea -- but keyed per `user_id`
-instead of one process-global window, and persisting the successful capture
-to `netfacilities_cloud_sessions` (encrypted, spec D9) instead of a local
-file. No sharing between users (spec D2): each user's ceremony and captured
-session are independent.
+A starting/signed_in/closed state machine that auto-polls until signed in,
+keyed per `user_id` and persisting the successful capture to
+`netfacilities_cloud_sessions` (encrypted, spec D9). No sharing between
+users (spec D2): each user's ceremony and captured session are independent.
+This replaced the process-global headed-window coordinator, removed
+2026-08-29 along with the rest of the local-auth system.
 """
 
 from __future__ import annotations

@@ -44,19 +44,16 @@ services:
       # independent of this and stays on.
       - key: LOG_LEVEL
         value: "INFO"
-      # Hosted enrichment performs read-only HTTP requests from an operator-created
-      # Playwright storage-state file. Add that file in Render's Environment page as
-      # the secret file `netfacilities-storage-state.json`; never commit its contents.
-      # These values are repeated as production-image defaults in backend/Dockerfile:
+      # Hosted enrichment reads a per-user NetFacilities session captured through
+      # Steel cloud sign-in (see STEEL_API_KEY and
+      # NETFACILITIES_CLOUD_SESSION_ENCRYPTION_KEY, set via the dashboard's
+      # Environment page since they're credentials, not committed here). This
+      # value is repeated as a production-image default in backend/Dockerfile:
       # the deploy hook rebuilds the image but does not sync Blueprint environment
       # changes into an existing service. Keeping both declarations prevents a normal
       # gated deploy from silently leaving the capability disabled.
       - key: NETFACILITIES_ENABLED
         value: "true"
-      - key: NETFACILITIES_STORAGE_STATE_PATH
-        value: "/etc/secrets/netfacilities-storage-state.json"
-      - key: NETFACILITIES_BROWSER_CHANNEL
-        value: "bundled-chromium"
       # VAPID signing key for Web Push (app/services/push.py). Declared
       # here without a value -- `sync: false` means Render keeps the real
       # one in the dashboard's Environment page and never reads it from
