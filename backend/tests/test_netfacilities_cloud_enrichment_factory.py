@@ -31,8 +31,12 @@ def test_decrypts_and_delegates_to_the_provider(monkeypatch):
         def __init__(self, *, api_key):
             captured["api_key"] = api_key
 
-        async def open_replay_context(self, storage_state):
+        async def open_replay_context(
+            self, storage_state, *, render_document, render_settle_ms
+        ):
             captured["storage_state"] = storage_state
+            captured["render_document"] = render_document
+            captured["render_settle_ms"] = render_settle_ms
             return FakeContext()
 
     # `factory.py`'s implementation imports SteelCloudBrowserProvider lazily,
@@ -44,7 +48,12 @@ def test_decrypts_and_delegates_to_the_provider(monkeypatch):
     )
 
     config = NetFacilitiesCloudConfig(enabled=True, steel_api_key="test-key")
-    context = create_netfacilities_cloud_enrichment_client(config, token)
+    context = create_netfacilities_cloud_enrichment_client(
+        config,
+        token,
+        render_document=True,
+        render_settle_ms=5_000,
+    )
 
     async def _enter_and_exit():
         async with context as client:
@@ -55,3 +64,6 @@ def test_decrypts_and_delegates_to_the_provider(monkeypatch):
     assert client == "fake-client"
     assert captured["api_key"] == "test-key"
     assert captured["storage_state"] == '{"cookies": []}'
+    # NETFACILITIES_RENDER_DOCUMENT reaches the only client that still exists.
+    assert captured["render_document"] is True
+    assert captured["render_settle_ms"] == 5_000

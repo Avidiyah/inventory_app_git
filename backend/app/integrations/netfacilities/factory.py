@@ -10,6 +10,9 @@ from .errors import NetFacilitiesUnavailable
 def create_netfacilities_cloud_enrichment_client(
     config: NetFacilitiesCloudConfig,
     encrypted_storage_state: bytes,
+    *,
+    render_document: bool,
+    render_settle_ms: int,
 ) -> NetFacilitiesClientContextProtocol:
     """Reconnect to a fresh, short-lived Steel session and replay a user's
     saved storage_state() for one enrichment job (spec D5, verified by the
@@ -27,20 +30,38 @@ def create_netfacilities_cloud_enrichment_client(
         )
     storage_state = crypto.decrypt_storage_state(encrypted_storage_state)
     provider = SteelCloudBrowserProvider(api_key=config.steel_api_key)
-    return _CloudEnrichmentContextAdapter(provider, storage_state)
+    return _CloudEnrichmentContextAdapter(
+        provider,
+        storage_state,
+        render_document=render_document,
+        render_settle_ms=render_settle_ms,
+    )
 
 
 class _CloudEnrichmentContextAdapter:
     """Defers `open_replay_context` (async) until `__aenter__`, since
     `create_netfacilities_cloud_enrichment_client` itself is sync."""
 
-    def __init__(self, provider, storage_state: str) -> None:
+    def __init__(
+        self,
+        provider,
+        storage_state: str,
+        *,
+        render_document: bool,
+        render_settle_ms: int,
+    ) -> None:
         self._provider = provider
         self._storage_state = storage_state
+        self._render_document = render_document
+        self._render_settle_ms = render_settle_ms
         self._inner = None
 
     async def __aenter__(self):
-        self._inner = await self._provider.open_replay_context(self._storage_state)
+        self._inner = await self._provider.open_replay_context(
+            self._storage_state,
+            render_document=self._render_document,
+            render_settle_ms=self._render_settle_ms,
+        )
         return await self._inner.__aenter__()
 
     async def __aexit__(self, exc_type, exc, traceback) -> None:

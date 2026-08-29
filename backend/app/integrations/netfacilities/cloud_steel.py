@@ -89,7 +89,8 @@ class SteelCloudBrowserProvider:
         except Exception:
             logger.error("netfacilities.cloud_download_behavior_setup_failed")
 
-        client = NetFacilitiesClient(profile_dir=None, headless=True, _context=context)
+        # The sign-in ceremony never reads a work order, so rendering is moot here.
+        client = NetFacilitiesClient(headless=True, _context=context)
         await client.open_authentication_page()
 
         return _SteelLoginSession(
@@ -134,7 +135,13 @@ class SteelCloudBrowserProvider:
         await session._browser.close()
         await self._client.sessions.release(session.session_id)
 
-    async def open_replay_context(self, storage_state: str):
+    async def open_replay_context(
+        self,
+        storage_state: str,
+        *,
+        render_document: bool,
+        render_settle_ms: int,
+    ):
         """Open a fresh, short-lived session and replay saved storage_state
         into it (spec D5). Task 8 wraps the returned context."""
 
@@ -154,6 +161,8 @@ class SteelCloudBrowserProvider:
             playwright=playwright,
             browser=browser,
             context=context,
+            render_document=render_document,
+            render_settle_ms=render_settle_ms,
         )
 
 
@@ -166,13 +175,18 @@ class _SteelEnrichmentContext:
     playwright: object
     browser: object
     context: object
+    render_document: bool
+    render_settle_ms: int
     _wrapped: "NetFacilitiesClient | None" = None
 
     async def __aenter__(self) -> "NetFacilitiesClient":
         from .client import NetFacilitiesClient
 
         self._wrapped = NetFacilitiesClient(
-            profile_dir=None, headless=True, _context=self.context
+            headless=True,
+            _context=self.context,
+            render_document=self.render_document,
+            render_settle_ms=self.render_settle_ms,
         )
         return self._wrapped
 
