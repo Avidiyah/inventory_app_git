@@ -255,6 +255,6 @@ export const TIPS = {
   // --- Integrations (pages/integrations.html) ----------------------------
   "integrations.netfacilities": {
     label: "NetFacilities import and export",
-    text: "Log in to NetFacilities opens a window that stays open. Export the work-order CSV there; it lands in your Downloads folder and Import downloaded CSV brings it in, then Task/Symptom and Priority fill in through the same window. Import from CSV still accepts any file you already have. For Client exports the billing sheet with totals and receipts, scoped by the dropdown beside it.",
+    text: "Log in to NetFacilities opens a cloud sign-in window from any device. Export the work-order CSV there; Import downloaded CSV brings it in, then Import Tasks and Priority fills in Task/Symptom and Priority from the same session. Import from CSV still accepts any file you already have. For Client exports the billing sheet with totals and receipts, scoped by the dropdown beside it.",
   },
 };

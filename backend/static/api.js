@@ -545,34 +545,9 @@ export async function apiImportWorkOrders(file) {
   return parseResponse(response);
 }
 
-// Local-only NetFacilities sign-in and enrichment. Credentials/CAPTCHA/MFA stay
-// in the headed browser; these endpoints never return browser state, profile
-// paths, or source field values.
-export async function apiGetNetFacilitiesSession() {
-  return liveGet("/integrations/netfacilities/session");
-}
-
-export async function apiStartNetFacilitiesAuthentication() {
-  return parseResponse(await fetch(
-    "/integrations/netfacilities/auth/start",
-    { method: "POST", credentials: "include" },
-  ));
-}
-
-export async function apiConfirmNetFacilitiesAuthentication() {
-  return parseResponse(await fetch(
-    "/integrations/netfacilities/auth/confirm",
-    { method: "POST", credentials: "include" },
-  ));
-}
-
-export async function apiCancelNetFacilitiesAuthentication() {
-  return parseResponse(await fetch(
-    "/integrations/netfacilities/auth/cancel",
-    { method: "POST", credentials: "include" },
-  ));
-}
-
+// NetFacilities enrichment: runs against the calling user's own cloud
+// session (see the cloud sign-in functions below). Never returns browser
+// state or source field values.
 export async function apiStartNetFacilitiesEnrichment() {
   return parseResponse(await fetch(
     "/integrations/netfacilities/work-orders/enrich",
@@ -582,15 +557,6 @@ export async function apiStartNetFacilitiesEnrichment() {
 
 export async function apiGetNetFacilitiesEnrichment(jobId) {
   return liveGet(`/integrations/netfacilities/work-orders/enrich/${encodeURIComponent(jobId)}`);
-}
-
-// Import the CSV the live NetFacilities window saved (Admin+). The server
-// reads it from disk; the browser never sees a path.
-export async function apiImportNetFacilitiesDownload() {
-  return parseResponse(await fetch(
-    "/integrations/netfacilities/downloads/import",
-    { method: "POST", credentials: "include" },
-  ));
 }
 
 // Per-user NetFacilities cloud sign-in (spec D2, D7). Never returns
