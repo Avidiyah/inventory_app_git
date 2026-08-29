@@ -43,6 +43,8 @@ class FakeCloudBrowserProvider:
         self._polls = 0
         self.closed_sessions = []
         self.csv_to_return = None
+        self.csv_poll_calls = 0
+        self.raise_on_csv_poll = 0
 
     async def open_login_session(self):
         return FakeLoginSession()
@@ -54,6 +56,9 @@ class FakeCloudBrowserProvider:
         return '{"cookies": [{"name": "session", "value": "abc"}]}'
 
     async def poll_downloaded_csv(self, session):
+        self.csv_poll_calls += 1
+        if self.csv_poll_calls <= self.raise_on_csv_poll:
+            raise RuntimeError("Error code: 400 - Bad Request")
         return self.csv_to_return
 
     async def close_login_session(self, session):
@@ -153,3 +158,33 @@ def test_cancel_closes_the_cloud_session(db, monkeypatch):
     result = asyncio.run(_run())
     assert result.state == "cancelled"
     assert provider.closed_sessions == ["sess-1"]
+
+
+def test_a_provider_error_does_not_kill_the_capture_loop(db, monkeypatch):
+    # The shipped bug: one BadRequestError unwound the whole poll task and
+    # nothing ever polled again for the life of the process.
+    monkeypatch.setenv(
+        "NETFACILITIES_CLOUD_SESSION_ENCRYPTION_KEY", Fernet.generate_key().decode()
+    )
+    user = _user(db)
+    provider = FakeCloudBrowserProvider()
+    provider.raise_on_csv_poll = 1
+    provider.csv_to_return = ("work-orders.csv", b"NUMBER\n1001\n")
+    coordinator = NetFacilitiesCloudAuthenticationCoordinator(
+        provider_factory=lambda _config: provider,
+        session_factory=_session_factory(db),
+        poll_seconds=0.01,
+    )
+
+    async def _exercise():
+        await coordinator.start(user.id, _config())
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            if coordinator.captured_csv_bytes(user.id) is not None:
+                break
+        return coordinator.captured_csv_bytes(user.id)
+
+    captured = asyncio.run(_exercise())
+
+    assert provider.csv_poll_calls >= 2
+    assert captured == ("work-orders.csv", b"NUMBER\n1001\n")

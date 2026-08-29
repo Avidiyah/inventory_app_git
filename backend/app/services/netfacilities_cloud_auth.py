@@ -189,7 +189,19 @@ class NetFacilitiesCloudAuthenticationCoordinator:
                 ):
                     return
                 provider, cloud_session = ceremony.provider, ceremony.cloud_session
-            found = await provider.poll_downloaded_csv(cloud_session)
+            try:
+                found = await provider.poll_downloaded_csv(cloud_session)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # A vendor error is a bad poll, not a dead ceremony. The
+                # shipped 400 unwound this task and left the user parked in
+                # `signed_in` with nothing ever polling again (D-B).
+                logger.exception(
+                    "netfacilities.cloud_csv_poll_failed",
+                    extra={"fields": {"user_id": str(user_id)}},
+                )
+                continue
             if found is None:
                 continue
             filename, data = found
