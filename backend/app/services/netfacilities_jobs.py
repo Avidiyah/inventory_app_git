@@ -19,15 +19,10 @@ from app.integrations.netfacilities.errors import (
     NetFacilitiesAuthenticationRequired,
     NetFacilitiesError,
 )
-from app.integrations.netfacilities.factory import create_netfacilities_client
 from app.services.netfacilities import (
     NetFacilitiesEnrichmentSummary,
     SessionFactory,
     enrich_work_orders,
-)
-from app.services.netfacilities_operations import (
-    NetFacilitiesOperationGate,
-    operation_gate,
 )
 
 
@@ -48,10 +43,7 @@ FailureClass: TypeAlias = Literal[
     "unexpected_failure",
     "cancelled",
 ]
-JobSource: TypeAlias = Literal["live_session", "saved_state", "cloud_session"]
-ClientFactory: TypeAlias = Callable[
-    [NetFacilitiesConfig], NetFacilitiesClientContextProtocol
-]
+JobSource: TypeAlias = Literal["cloud_session"]
 EnrichmentRunner: TypeAlias = Callable[..., Awaitable[NetFacilitiesEnrichmentSummary]]
 
 
@@ -59,11 +51,10 @@ EnrichmentRunner: TypeAlias = Callable[..., Awaitable[NetFacilitiesEnrichmentSum
 class NetFacilitiesJobSnapshot:
     """Immutable, source-value-free state safe for a gated API response.
 
-    ``user_id`` is populated only for a ``cloud_session`` job -- internal
-    plumbing so the router can find and expire that user's saved cloud
-    session on `authentication_required` (spec D8); it is never part of the
-    response schema (`schemas.netfacilities.NetFacilitiesEnrichmentJob`
-    has no such field)."""
+    ``user_id`` is internal plumbing so the router can find and expire that
+    user's saved cloud session on `authentication_required` (spec D8); it is
+    never part of the response schema
+    (`schemas.netfacilities.NetFacilitiesEnrichmentJob` has no such field)."""
 
     job_id: UUID
     state: JobState
@@ -76,16 +67,6 @@ class NetFacilitiesJobSnapshot:
     user_id: UUID | None = None
 
 
-def _default_client_factory(
-    config: NetFacilitiesConfig,
-) -> NetFacilitiesClientContextProtocol:
-    return create_netfacilities_client(
-        config,
-        headless=True,
-        use_saved_state=True,
-    )
-
-
 class NetFacilitiesJobCoordinator:
     """Admit at most one batch and own its browser lifetime through shutdown."""
 
@@ -93,46 +74,30 @@ class NetFacilitiesJobCoordinator:
         self,
         *,
         session_factory: SessionFactory = SessionLocal,
-        client_factory: ClientFactory = _default_client_factory,
         enrichment_runner: EnrichmentRunner = enrich_work_orders,
-        profile_gate: NetFacilitiesOperationGate = operation_gate,
     ) -> None:
         self._session_factory = session_factory
-        self._client_factory = client_factory
         self._enrichment_runner = enrichment_runner
-        self._profile_gate = profile_gate
         self._lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
         self._latest: NetFacilitiesJobSnapshot | None = None
-        self._lease: UUID | None = None
 
     async def start(
         self,
         config: NetFacilitiesConfig,
         *,
-        live_client_context: NetFacilitiesClientContextProtocol | None = None,
         cloud_client_context: NetFacilitiesClientContextProtocol | None = None,
         cloud_user_id: UUID | None = None,
         cloud_batch_session_seconds: float | None = None,
     ) -> tuple[NetFacilitiesJobSnapshot, bool]:
-        """Start a batch, or return the currently active batch unchanged.
-
-        Precedence: the operator's open live window (spec D4, D8) first, then
-        the calling user's own cloud session (spec D10), then the shared
-        saved-state file. A cloud session never takes the shared profile
-        lease -- it is not the same physical resource live_session/saved_state
-        contend for (spec D10).
-        """
+        """Start a batch using the calling user's own cloud session, or
+        return the currently active batch unchanged."""
 
         if not config.enabled:
             raise NetFacilitiesAuthenticationRequired(
                 "NetFacilities enrichment is not enabled on this host."
             )
-        if (
-            live_client_context is None
-            and cloud_client_context is None
-            and not config.has_saved_authentication
-        ):
+        if cloud_client_context is None:
             raise NetFacilitiesAuthenticationRequired(
                 "Sign in to NetFacilities before enrichment."
             )
@@ -143,41 +108,23 @@ class NetFacilitiesJobCoordinator:
                     raise RuntimeError("active NetFacilities task has no job state")
                 return self._latest, False
 
-            if live_client_context is not None:
-                source: JobSource = "live_session"
-            elif cloud_client_context is not None:
-                source = "cloud_session"
-            else:
-                source = "saved_state"
-            client_context = live_client_context or cloud_client_context
-            lease = None
-            if client_context is None:
-                lease = await self._profile_gate.acquire("enrichment")
             job = NetFacilitiesJobSnapshot(
                 job_id=uuid4(),
                 state="queued",
-                source=source,
-                user_id=cloud_user_id if source == "cloud_session" else None,
+                source="cloud_session",
+                user_id=cloud_user_id,
             )
             self._latest = job
-            self._lease = lease
-            try:
-                self._task = asyncio.create_task(
-                    self._run(
-                        job.job_id,
-                        config,
-                        client_context,
-                        source,
-                        job.user_id,
-                        cloud_batch_session_seconds if source == "cloud_session" else None,
-                    ),
-                    name=f"netfacilities-enrichment-{job.job_id}",
-                )
-            except BaseException:
-                self._lease = None
-                if lease is not None:
-                    await self._profile_gate.release(lease)
-                raise
+            self._task = asyncio.create_task(
+                self._run(
+                    job.job_id,
+                    cloud_client_context,
+                    job.user_id,
+                    config.batch_timeout_seconds,
+                    cloud_batch_session_seconds,
+                ),
+                name=f"netfacilities-enrichment-{job.job_id}",
+            )
             return job, True
 
     async def latest(self) -> NetFacilitiesJobSnapshot | None:
@@ -228,11 +175,10 @@ class NetFacilitiesJobCoordinator:
     async def _run(
         self,
         job_id: UUID,
-        config: NetFacilitiesConfig,
-        client_context: NetFacilitiesClientContextProtocol | None,
-        source: JobSource,
-        user_id: UUID | None = None,
-        cloud_batch_session_seconds: float | None = None,
+        client_context: NetFacilitiesClientContextProtocol,
+        user_id: UUID | None,
+        batch_timeout_seconds: float,
+        cloud_batch_session_seconds: float | None,
     ) -> None:
         started_at = datetime.now(timezone.utc)
         started_clock = asyncio.get_running_loop().time()
@@ -241,7 +187,7 @@ class NetFacilitiesJobCoordinator:
                 job_id=job_id,
                 state="running",
                 started_at=started_at,
-                source=source,
+                source="cloud_session",
                 user_id=user_id,
             )
         )
@@ -251,20 +197,17 @@ class NetFacilitiesJobCoordinator:
         )
 
         try:
-            client_context = (
-                client_context
-                if client_context is not None
-                else self._client_factory(config)
-            )
             async with client_context as client:
                 summary = await self._enrichment_runner(
                     session_factory=self._session_factory,
                     client=client,
-                    batch_timeout_seconds=config.batch_timeout_seconds,
+                    batch_timeout_seconds=batch_timeout_seconds,
                     on_request_started=lambda number: self._report_request_started(
                         job_id,
                         number,
                     ),
+                    # Steel caps a session at 15 minutes (spec §4); whichever
+                    # deadline is tighter governs.
                     cloud_session_deadline_seconds=cloud_batch_session_seconds,
                 )
         except asyncio.CancelledError:
@@ -273,7 +216,6 @@ class NetFacilitiesJobCoordinator:
                 started_at,
                 state="cancelled",
                 failure="cancelled",
-                source=source,
                 user_id=user_id,
             )
             raise
@@ -283,7 +225,6 @@ class NetFacilitiesJobCoordinator:
                 started_at,
                 state="authentication_required",
                 failure="authentication_required",
-                source=source,
                 user_id=user_id,
             )
         except NetFacilitiesError:
@@ -292,7 +233,6 @@ class NetFacilitiesJobCoordinator:
                 started_at,
                 state="failed",
                 failure="unavailable",
-                source=source,
                 user_id=user_id,
             )
         except Exception:
@@ -310,7 +250,6 @@ class NetFacilitiesJobCoordinator:
                 started_at,
                 state="failed",
                 failure="unexpected_failure",
-                source=source,
                 user_id=user_id,
             )
         else:
@@ -329,7 +268,6 @@ class NetFacilitiesJobCoordinator:
                 state=state,
                 failure=failure,
                 summary=summary,
-                source=source,
                 user_id=user_id,
             )
         finally:
@@ -358,16 +296,6 @@ class NetFacilitiesJobCoordinator:
                 "netfacilities.enrichment_finished",
                 extra={"fields": fields},
             )
-            await self._release_profile(job_id)
-
-    async def _release_profile(self, job_id: UUID) -> None:
-        async with self._lock:
-            if self._latest is None or self._latest.job_id != job_id:
-                return
-            lease = self._lease
-            self._lease = None
-        if lease is not None:
-            await self._profile_gate.release(lease)
 
     async def _finish(
         self,
@@ -376,7 +304,6 @@ class NetFacilitiesJobCoordinator:
         *,
         state: JobState,
         failure: FailureClass | None,
-        source: JobSource,
         summary: NetFacilitiesEnrichmentSummary | None = None,
         user_id: UUID | None = None,
     ) -> None:
@@ -388,7 +315,7 @@ class NetFacilitiesJobCoordinator:
                 finished_at=datetime.now(timezone.utc),
                 failure=failure,
                 summary=summary,
-                source=source,
+                source="cloud_session",
                 user_id=user_id,
             )
         )
