@@ -25,6 +25,7 @@ if TYPE_CHECKING:  # pragma: no cover - import cycle / laziness guard for type c
     from .client import NetFacilitiesClient
 
 CSV_SUFFIX = ".csv"
+PARTIAL_SUFFIX = ".crdownload"
 # Steel's documented download directory. The listing returns paths carrying
 # a `/files/` prefix that must be stripped before interpolation -- see
 # `_relative`.
@@ -138,16 +139,26 @@ class SteelCloudBrowserProvider:
         listing = await self._client.sessions.files.list(session.session_id)
         for entry in listing.data:
             path = entry.path
-            if not path.casefold().endswith(CSV_SUFFIX):
-                continue
             if path in session._seen_files:
                 continue
-            session._seen_files.add(path)
+            # A `.crdownload` is Chrome mid-write and a zero-byte entry is
+            # an export that has not flushed; capturing either would import
+            # half a file.
+            if path.casefold().endswith(PARTIAL_SUFFIX):
+                continue
+            if not path.casefold().endswith(CSV_SUFFIX):
+                continue
+            if getattr(entry, "size", None) == 0:
+                continue
+            relative = _relative(path)
             response = await self._client.sessions.files.download(
-                path, session_id=session.session_id
+                relative, session_id=session.session_id
             )
             content = await response.read()
-            return path.rsplit("/", 1)[-1], content
+            # Recorded only after a successful read: marking it before the
+            # download made one transient vendor failure permanent.
+            session._seen_files.add(path)
+            return relative.rsplit("/", 1)[-1], content
         return None
 
     async def close_login_session(self, session: _SteelLoginSession) -> None:

@@ -83,6 +83,50 @@ class FakeSessionsResource:
         self.released.append(session_id)
 
 
+class FakeFileEntry:
+    def __init__(self, path, size=128):
+        self.path = path
+        self.size = size
+
+
+class FakeFileListing:
+    def __init__(self, data):
+        self.data = data
+
+
+class FakeDownloadResponse:
+    def __init__(self, content):
+        self._content = content
+
+    async def read(self):
+        return self._content
+
+
+class FakeFilesResource:
+    """Mirrors Steel's real shape: listing returns `/files/`-prefixed
+    absolute paths, download takes a *relative* one and 400s otherwise."""
+
+    def __init__(self):
+        self.entries = []
+        self.requested_paths = []
+        self.contents = {}
+        self.fail_next_download = False
+
+    async def list(self, _session_id):
+        return FakeFileListing(list(self.entries))
+
+    async def download(self, path, *, session_id):  # noqa: ARG002
+        self.requested_paths.append(path)
+        if path.startswith("/"):
+            raise AssertionError(
+                "Steel rejects a leading '/' in the download path (400)."
+            )
+        if self.fail_next_download:
+            self.fail_next_download = False
+            raise RuntimeError("transient vendor failure")
+        return FakeDownloadResponse(self.contents.get(path, b"col\n1\n"))
+
+
 class FakeSteelClient:
     def __init__(self):
         self.sessions = FakeSessionsResource()
@@ -153,6 +197,89 @@ def test_poll_signed_in_returns_state_json_after_login(monkeypatch):
 
     assert result is not None
     assert "abc" in result
+
+
+def _provider_with_files(monkeypatch):
+    provider, fake_client = _provider(monkeypatch)
+    fake_client.sessions.files = FakeFilesResource()
+    context = FakeContext(pages=[FakePage("https://system.netfacilities.com/myhome")])
+    browser = FakeBrowser(context)
+    monkeypatch.setattr(
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((None, browser))
+    )
+    return provider, fake_client
+
+
+def test_poll_downloaded_csv_strips_the_listed_prefix_before_downloading(monkeypatch):
+    provider, fake_client = _provider_with_files(monkeypatch)
+    files = fake_client.sessions.files
+    files.entries = [FakeFileEntry("/files/work-orders.csv")]
+    files.contents["work-orders.csv"] = b"NUMBER\n1001\n"
+
+    async def _exercise():
+        session = await provider.open_login_session()
+        return await provider.poll_downloaded_csv(session)
+
+    found = asyncio.run(_exercise())
+
+    assert found == ("work-orders.csv", b"NUMBER\n1001\n")
+    assert files.requested_paths == ["work-orders.csv"]
+
+
+def test_poll_downloaded_csv_skips_zero_byte_and_partial_entries(monkeypatch):
+    provider, fake_client = _provider_with_files(monkeypatch)
+    files = fake_client.sessions.files
+    files.entries = [
+        FakeFileEntry("/files/half.csv", size=0),
+        FakeFileEntry("/files/still-writing.csv.crdownload"),
+        FakeFileEntry("/files/done.csv"),
+    ]
+
+    async def _exercise():
+        session = await provider.open_login_session()
+        return await provider.poll_downloaded_csv(session)
+
+    filename, _content = asyncio.run(_exercise())
+
+    assert filename == "done.csv"
+    assert files.requested_paths == ["done.csv"]
+
+
+def test_a_failed_download_is_retried_on_the_next_poll(monkeypatch):
+    provider, fake_client = _provider_with_files(monkeypatch)
+    files = fake_client.sessions.files
+    files.entries = [FakeFileEntry("/files/work-orders.csv")]
+    files.fail_next_download = True
+
+    async def _exercise():
+        session = await provider.open_login_session()
+        try:
+            await provider.poll_downloaded_csv(session)
+        except RuntimeError:
+            pass
+        return await provider.poll_downloaded_csv(session)
+
+    found = asyncio.run(_exercise())
+
+    # Blacklisting before the read is what made a transient failure permanent.
+    assert found is not None
+    assert files.requested_paths == ["work-orders.csv", "work-orders.csv"]
+
+
+def test_an_already_captured_file_is_not_captured_twice(monkeypatch):
+    provider, fake_client = _provider_with_files(monkeypatch)
+    fake_client.sessions.files.entries = [FakeFileEntry("/files/work-orders.csv")]
+
+    async def _exercise():
+        session = await provider.open_login_session()
+        first = await provider.poll_downloaded_csv(session)
+        second = await provider.poll_downloaded_csv(session)
+        return first, second
+
+    first, second = asyncio.run(_exercise())
+
+    assert first is not None
+    assert second is None
 
 
 def test_relative_strips_the_files_prefix_the_listing_returns():
