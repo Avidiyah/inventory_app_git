@@ -11,18 +11,12 @@ from app.integrations.netfacilities.config import NetFacilitiesConfig
 VALID_KEY = Fernet.generate_key().decode("ascii")
 ENABLED_BASE = NetFacilitiesConfig(
     enabled=True,
-    profile_dir=None,
-    browser_channel="chrome",
     request_timeout_seconds=30,
-    auth_timeout_seconds=900,
     batch_timeout_seconds=1_800,
 )
 DISABLED_BASE = NetFacilitiesConfig(
     enabled=False,
-    profile_dir=None,
-    browser_channel="chrome",
     request_timeout_seconds=30,
-    auth_timeout_seconds=900,
     batch_timeout_seconds=1_800,
 )
 
