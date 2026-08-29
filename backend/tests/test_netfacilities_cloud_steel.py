@@ -155,6 +155,30 @@ def test_poll_signed_in_returns_state_json_after_login(monkeypatch):
     assert "abc" in result
 
 
+def test_relative_strips_the_files_prefix_the_listing_returns():
+    # Steel's listing returns `/files/`-prefixed paths and its download
+    # endpoint rejects any leading slash -- the 400 that shipped.
+    assert cloud_steel._relative("/files/export.csv") == "export.csv"
+
+
+def test_relative_strips_a_bare_leading_slash():
+    assert cloud_steel._relative("/downloads/export.csv") == "downloads/export.csv"
+
+
+def test_relative_leaves_an_already_relative_path_alone():
+    assert cloud_steel._relative("files/export.csv") == "files/export.csv"
+    assert cloud_steel._relative("export.csv") == "export.csv"
+
+
+def test_relative_keeps_interior_separators():
+    # Steel accepts nested relative paths; only the leading slash is fatal.
+    assert cloud_steel._relative("/files/a/b/export.csv") == "a/b/export.csv"
+
+
+def test_download_path_is_steels_documented_directory():
+    assert cloud_steel.DOWNLOAD_PATH == "/files"
+
+
 def test_close_login_session_releases_the_steel_session(monkeypatch):
     provider, fake_client = _provider(monkeypatch)
     context = FakeContext(pages=[FakePage("https://system.netfacilities.com/myhome")])

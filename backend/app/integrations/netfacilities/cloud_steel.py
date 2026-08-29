@@ -25,9 +25,28 @@ if TYPE_CHECKING:  # pragma: no cover - import cycle / laziness guard for type c
     from .client import NetFacilitiesClient
 
 CSV_SUFFIX = ".csv"
-DOWNLOAD_PATH = "/downloads"
+# Steel's documented download directory. The listing returns paths carrying
+# a `/files/` prefix that must be stripped before interpolation -- see
+# `_relative`.
+DOWNLOAD_PATH = "/files"
+FILES_PREFIX = "/files/"
 
 logger = logging.getLogger(__name__)
+
+
+def _relative(path: str) -> str:
+    """Steel's Files API rejects any leading `/` in the download path.
+
+    `files.list()` returns `/files/`-prefixed absolute paths and
+    `files.download()` interpolates its argument into
+    `/v1/sessions/{id}/files/{path}` with `/` percent-encoded, so a leading
+    slash survives encoding and reaches the server as `%2F`. That is the
+    400 this repairs. Interior separators are fine -- Steel accepts nested
+    relative paths -- so only the prefix comes off.
+    """
+    if path.startswith(FILES_PREFIX):
+        return path[len(FILES_PREFIX):]
+    return path.lstrip("/")
 
 
 def _create_steel_client(api_key: str):
