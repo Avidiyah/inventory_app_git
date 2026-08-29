@@ -77,21 +77,18 @@ under the Communities cards.
 
 Request logged only; no implementation yet.
 
-### IMP-039 — NetFacilities live session — IN PROGRESS
+### IMP-039 — NetFacilities live session — RETIRED
 
-- **Logged** 2026-08-28 · *Integrations / Work Orders* · designed with the owner the same day
-- Spec: `docs/superpowers/specs/2026-08-28-netfacilities-live-session-design.md`
-- Plan: `docs/superpowers/plans/2026-08-28-netfacilities-live-session.md`
+- **Logged** 2026-08-28 · **Retired** 2026-08-29 · *Integrations / Work Orders*
+- Spec: `docs/superpowers/specs/2026-08-28-netfacilities-live-session-design.md` (superseded)
+- Removal plan: `docs/superpowers/plans/2026-08-29-netfacilities-legacy-cleanup.md`
 
-The dedicated NetFacilities window stays open after login (new `signed_in`
-state, auto-confirmed once a page leaves the login screen), the CSV the
-operator exports from it is saved under its real name in their Downloads
-folder, enrichment runs through that same signed-in window instead of a second
-headless browser, and `POST /integrations/netfacilities/downloads/import`
-imports the captured CSV in one click through the same pipeline as the upload
-route. Local Windows only; Render keeps the secret-file path. Manual
-acceptance is spec §11 — step 4 doubles as the still-pending live acceptance of
-the `/myhome` priming fix.
+The whole pre-Steel auth system — the local headed Windows sign-in, the shared
+Render storage-state secret file, the borrowed live-session window, and the
+`/session` + `/auth/*` + `/downloads/import` routes behind them — was removed on
+2026-08-29 in favour of IMP-040's per-user Steel cloud auth, which is now the
+only way enrichment authenticates. See that plan's commit range for what
+changed.
 
 ### IMP-040 — NetFacilities cloud auth (per-user, Steel) — IN PROGRESS
 
@@ -99,10 +96,10 @@ the `/myhome` priming fix.
 - Spec: `docs/superpowers/specs/2026-08-28-netfacilities-cloud-auth-design.md`
 - Plan: `docs/superpowers/plans/2026-08-28-netfacilities-cloud-auth.md`
 
-A third, additive NetFacilities auth path: any authorized user, on any
-device, logs into NetFacilities live through a Steel cloud browser from the
-deployed Render app instead of needing the owner's Windows machine (IMP-039's
-live session and the shared Render secret file both keep working unchanged).
+The only NetFacilities auth path as of 2026-08-29 (IMP-039's live session and
+the shared Render secret file were removed that day): any authorized user, on
+any device, logs into NetFacilities live through a Steel cloud browser from the
+deployed Render app instead of needing the owner's Windows machine.
 Captured session state is Fernet-encrypted at rest in a new
 `netfacilities_cloud_sessions` table, keyed one-per-user; enrichment
 reconnects by replaying it into a fresh, short-lived Steel session per job,

@@ -195,12 +195,14 @@ Capabilities added after the improvement batch include:
   `legacy=true` rows in the existing modal, atomically soft-archives them after
   confirmation, reports the actual affected count, and reloads the list. Both
   route and service gates require Owner exactly.
-- NetFacilities live session (IMP-039): sign-in auto-confirms and keeps the
-  headed window open; downloads from it are saved under their real names;
-  enrichment runs through the open window (`source: live_session`) with the
-  saved-state headless path as fallback; `POST
-  /integrations/netfacilities/downloads/import` imports the captured CSV
-  through the shared `run_csv_import` pipeline.
+- NetFacilities cloud auth (IMP-040) is the only sign-in path as of 2026-08-29,
+  when the pre-Steel local system (IMP-039's live session and the shared Render
+  secret file) was removed. Each TechFM OA+ user signs in through their own Steel
+  cloud browser from any device; the session is encrypted per user and replayed
+  into a fresh, short-lived Steel session for each enrichment job
+  (`source: cloud_session`, always). `POST
+  /integrations/netfacilities/cloud/downloads/import` imports the CSV captured
+  from that user's window through the shared `run_csv_import` pipeline.
 
 ## Verification baseline
 

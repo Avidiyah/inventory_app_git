@@ -56,8 +56,8 @@ Runtime shape:
 - Live camera scanning through vendored `@zxing/browser`.
 - One same-origin `/ws` WebSocket per authenticated browser for cache
   invalidation only; REST remains the source of truth.
-- Read-only NetFacilities work-order enrichment through a bundled Playwright
-  Chromium, Admin-gated and disabled by default.
+- Read-only NetFacilities work-order enrichment through each user's own Steel
+  cloud browser session, Admin-gated and disabled by default.
 - Render deployment: one Docker web service wired to an existing managed
   Postgres instance.
 
@@ -131,7 +131,7 @@ Path shorthand:
 | Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
 | Work Orders UI | `static/views/workOrders.js`, `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | work-order tests plus manual UI check |
 | User Hub Graphs | `domain/hub.py`, `domain/work_orders.py`, `services/hub.py`, `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubGraphs.js`, `static/pages/user-hub.html`, `static/styles.css`, `static/api.js` | `test_hub_graphs_domain.py`, hub service/router/gate/realtime tests; frontend syntax checks and manual role/realtime checks |
-| NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_auth.py`, `services/netfacilities_jobs.py`, `services/netfacilities_operations.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | TechFM OA+ local headed sign-in saves protected state; Render consumes an operator-provisioned secret state file through isolated bundled Chromium document navigation with JavaScript/subresources blocked; CSV import remains the sole creator and starts one serialized enrichment job only when auth is ready; the existing one-second poll exposes the current requested number while running; only exact fallback Task/Symptom and blank Priority may change; local live happy path and hosted capability enablement accepted; hosted Priority retrieval remains pending acceptance · **IMP-039 live session:** the headed window stays open after login, downloads are saved to the operator's Downloads folder, enrichment borrows the open window, and `downloads/import` imports the captured CSV |
+| NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_cloud_auth.py`, `services/netfacilities_cloud_crypto.py`, `services/netfacilities_jobs.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | Each TechFM OA+ user signs in through their own Steel cloud browser from any device; the captured session is Fernet-encrypted per user in `netfacilities_cloud_sessions` and replayed into a fresh, short-lived Steel session per enrichment job. CSV import remains the sole creator and starts one serialized enrichment job only when that caller has a saved session; the existing one-second poll exposes the current requested number while running; only exact fallback Task/Symptom and blank Priority may change. **2026-08-29:** the pre-Steel local system (headed Windows sign-in, shared Render storage-state secret file, borrowed live-session window) was removed; cloud auth is the only path |
 | Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, manual UI check |
 | Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
 | Tools API/domain/service (custody) | `domain/tools.py`, `domain/quantity.py` (reused), `services/tools.py`, `routers/tools.py`, `schemas/tools.py`, `models.py` | `test_tools_domain.py`, `test_tools_service.py`, `test_route_role_gates.py` |
@@ -160,11 +160,11 @@ backend/app/services/*.py        DB-backed application logic
 backend/app/services/work_orders.py Work Orders materials log (dispense/retro)
 backend/app/services/tools.py    Tool CRUD + checkout/return + custody aggregate
 backend/app/services/user_requests.py durable operational exception queue
-backend/app/integrations/netfacilities/*.py local/hosted NetFacilities config/contracts/validation + concrete read-only boundary
-backend/app/services/netfacilities_auth.py process-local headed sign-in start/confirm/cancel lifecycle
-backend/app/services/netfacilities_jobs.py serialized saved-state enrichment job coordinator
-backend/app/services/netfacilities_operations.py one shared protected-profile operation lease
-backend/app/routers/netfacilities.py Admin-only auth/capability/start/poll routes
+backend/app/integrations/netfacilities/*.py NetFacilities config/contracts/validation, Steel cloud adapter + concrete read-only boundary
+backend/app/services/netfacilities_cloud_auth.py per-user cloud sign-in ceremony (start/poll/cancel), one row per user
+backend/app/services/netfacilities_cloud_crypto.py Fernet encrypt/decrypt for a stored session
+backend/app/services/netfacilities_jobs.py serialized cloud-session enrichment job coordinator
+backend/app/routers/netfacilities.py Admin-only cloud sign-in/capability/start/poll routes
 backend/app/services/netfacilities.py enrichment pass over live work-order candidates
 backend/app/domain/realtime.py   pure envelope/audience rules + every policy constant
 backend/app/services/realtime.py in-process connection registry, per-user cap, dispatch
@@ -180,8 +180,7 @@ backend/app/lifespan.py          composed realtime + NetFacilities task shutdown
 backend/alembic/versions/*.py    migrations
 backend/scripts/create_owner.py  owner bootstrap
 backend/scripts/import_local_data.ps1 local data import helper
-backend/scripts/netfacilities_poc.py manual-auth/read-only local lookup CLI; auth state feeds the local app job
-backend/scripts/netfacilities_diagnostic.py one-work-order safe-shape markup diagnostic
+backend/scripts/generate_netfacilities_cloud_encryption_key.py one-time Fernet key generator
 backend/scripts/generate_vapid_keys.py VAPID keypair generator; run once per environment
 ```
 
@@ -1675,59 +1674,45 @@ The capability remains disabled by default in application configuration. Product
 enables it in both `backend/Dockerfile` and `render.yaml`: the image defaults make the
 normal CI deploy-hook path reliable for an existing Render service, while the Blueprint
 declaration documents and restores the intended service configuration when synced.
-Runtime environment values may deliberately override the image defaults. Two
-authentication modes exist:
+Runtime environment values may deliberately override the image defaults.
 
-- **Local Windows:** `NETFACILITIES_ENABLED=true` plus an absolute external
-  `NETFACILITIES_PROFILE_DIR`. An TechFM OA and above uses the in-app headed sign-in, completes
-  credentials/CAPTCHA/MFA directly in dedicated Chrome, and confirms the session. The
-  app saves `playwright-storage-state.json`; the CLI `auth` command is a fallback. `NETFACILITIES_SESSION_TIMEOUT_SECONDS` and `NETFACILITIES_DOWNLOAD_DIR` (both optional) tune the live session; see *Live session (IMP-039)* below.
-- **Linux/Render:** `NETFACILITIES_ENABLED=true` plus an absolute
-  `NETFACILITIES_STORAGE_STATE_PATH`. Render points this at
-  `/etc/secrets/netfacilities-storage-state.json`, which the operator provisions as a
-  Render secret file from the locally generated state. Hosted mode exposes no sign-in
-  control; bundled headless Chromium performs one allowlisted document navigation with
-  service workers blocked. JavaScript runs so first-party scripts can build the Priority
-  row, and only same-origin `GET` script/XHR subresources are allowed; every other
-  request, including anything cross-origin or non-`GET`, is aborted. Setting
-  `NETFACILITIES_RENDER_DOCUMENT=false` restores the JavaScript-disabled raw read.
-  Protected-path validation derives the source
-  root for both checkout and `/app` production-image layouts, so `/app` remains blocked
-  without incorrectly treating `/` as the repository and rejecting `/etc/secrets`.
+**Authentication is per user, through Steel cloud sign-in, everywhere.**
+`NETFACILITIES_ENABLED=true` turns on enrichment; the cloud sign-in variables
+described under *Cloud auth (IMP-040)* below turn on the only way to
+authenticate it. Each user signs in through their own Steel cloud browser, and
+the captured session is Fernet-encrypted into their own
+`netfacilities_cloud_sessions` row. An enrichment job replays that one user's
+session into a fresh, short-lived Steel session and performs one allowlisted
+read per work order. `NETFACILITIES_RENDER_DOCUMENT` (default `false`) chooses
+between the bounded raw request read and a rendered document navigation, in
+which only same-origin `GET` script/XHR subresources are allowed and every
+other request, including anything cross-origin or non-`GET`, is aborted.
 
 Render's deploy hook rebuilds the configured branch but does not synchronize new
 `render.yaml` environment declarations into an existing service. This previously left
 production reporting `NetFacilities enrichment is disabled on this host.` even after a
-successful code deploy. The production image now carries the same enablement/path
-defaults, so a regular gated deploy enables the capability. The secret file itself is
-still never embedded in the image and must be provisioned in Render's Environment page.
+successful code deploy. The production image now carries the same enablement
+default, so a regular gated deploy enables the capability.
 
-The saved state is bearer-equivalent. Never commit, log, return, or place it in an
-ordinary environment variable. On expiration, refresh it through the authorized local
-headed flow, replace the Render secret file, and redeploy. The owner confirmed hosted
-capability enablement on 2026-08-15 after commit `0679c52` corrected production root
-detection. A hosted retry fetched all 290 Priority candidates with no categorized
-request failure or timeout, but every row was unchanged and no Priority was updated.
-The owner clarified that Task/Symptom is always empty in the CSV and earlier enrichment
-had populated it; zero description updates on this retry therefore did not establish a
-CSV source. End-to-end hosted Priority enrichment remains unaccepted.
+A captured session is bearer-equivalent. It is never committed, logged, returned
+by any endpoint, or placed in an ordinary environment variable; only the
+encrypted column holds it. On expiration the affected user signs in again — there
+is no shared credential to rotate and no redeploy involved.
 
-`python -m scripts.netfacilities_diagnostic WORK_ORDER_NUMBER`, run from the Render
-Shell, performs one request through that same production client. It returns only
-booleans, structural counts, transport classification, and a safe exception class. It
-never returns the number, source values, HTML, URL, path, headers, cookies, or storage
-state. The client reads the bounded response only once, then supplies it to both the
-normal parser and `inspect_priority_markup()`. The latter distinguishes the supported
-`#priority-level`/`Priority Level` body markup from script-only token references. This
-is an observation tool, not a second endpoint or alternate extraction path.
+*Historical note (2026-08-15, pre-Steel):* a hosted retry through the then-shared
+secret-file path fetched all 290 Priority candidates with no categorized request
+failure or timeout, but every row was unchanged and no Priority was updated. The
+owner clarified that Task/Symptom is always empty in the CSV and earlier
+enrichment had populated it, so zero description updates did not establish a CSV
+source. That investigation produced the `/myhome` priming fix described below.
 
-Because that one navigation keeps `response.body()` available after rendering, the
-diagnostic classifies both views of it: `priority_markup` describes the document the
-parser saw, and `raw_priority_markup` describes the wire response it was rendered from.
-A `render` block reports whether the Priority selector attached, how many subresources
-were allowed and blocked, the console-error count, and both byte counts. Those fields
-exist so that a *failed* attempt still identifies the failing boundary instead of
-reporting an undifferentiated set of zeros.
+`get_work_order_with_diagnostics()` keeps the observation path the investigation
+below relied on: one navigation, classified in both views — `priority_markup`
+describes the document the parser saw and `raw_priority_markup` the wire response
+it was rendered from, alongside selector-attachment, subresource allow/block
+counts, console-error count, and byte counts. The CLI that wrapped it
+(`scripts/netfacilities_diagnostic.py`) was removed on 2026-08-29 with the shared
+saved-state file it authenticated against; the client method remains.
 
 The first production diagnostic returned the correct work order and a populated
 description but no Priority selector, label, named element, or body token; only two
@@ -1766,62 +1751,17 @@ unchanged, and the integration stays read-only because no non-`GET` route is eve
 continued. Live acceptance still requires one Render diagnostic with
 `priority_populated: true` followed by a successful blank-Priority enrichment retry.
 
-Browser-enabled local Uvicorn must run as one process without `--reload` or multiple
-workers: those Windows modes use `SelectorEventLoop`, which cannot start Playwright's
-driver subprocess. The client rejects that incompatible loop as `unavailable` before
-browser startup. The application never initiates a NetFacilities download or receives credential fields; on the local host it saves the CSV the operator exports through the live window.
-
-#### Live session (IMP-039, 2026-08-28)
-
-On the local Windows host the sign-in ceremony is a **live session**. `POST
-/auth/start` opens the dedicated headed Chrome as before; a coordinator task
-then polls once a second with a local URL check and, once any page is on the
-allowlisted host and off the login path, calls `confirm` on the operator's
-behalf. `confirm` runs the server-verified probe (`GET /myhome`, the priming
-request), saves `playwright-storage-state.json` for the headless fallback, and
-**leaves the window open** in the new `signed_in` state. **I finished signing
-in** still calls the same `confirm` as a manual fallback; a probe that fails
-keeps the session pending rather than failing it.
-
-The headed context now launches with `accept_downloads=True` and saves every
-download the operator triggers under its suggested filename into
-`NETFACILITIES_DOWNLOAD_DIR` — default `%USERPROFILE%\Downloads` when that
-directory exists, else `<profile>\downloads`; a collision appends ` (1)`,
-` (2)`. Only a `.csv` is recorded as the captured CSV; the snapshot and the API
-carry its **filename only**, never a path. The app never *initiates* a
-download.
-
-`POST /work-orders/enrich` asks the session coordinator for the live client
-first. When the window is signed in, the job reads through the persistent
-context's `request` API (the same pure-HTTP path priming uses), takes no
-profile lease, and reports `source: live_session`; otherwise it runs the
-saved-state headless path (`source: saved_state`). While a job borrows the
-window, `POST /auth/cancel` is 409 and the idle timeout defers. `POST
-/auth/cancel` now also closes a signed-in window (`state: closed`); the
-operator closing the window by hand, `NETFACILITIES_SESSION_TIMEOUT_SECONDS`
-(default 7200) of idleness, and application shutdown do the same. Shutdown
-cancels the job before closing the window.
-
-`POST /downloads/import` imports the captured CSV through
-`routers.work_orders.run_csv_import` — the function `POST /work-orders/import`
-itself now calls — so both paths emit the same realtime invalidations and the
-same batched supervisor push. It is 409 when nothing was captured or the file
-is gone, 413 over `MAX_CSV_UPLOAD_BYTES`.
-
-Capability precedence in `GET /session`: `unavailable` → `running` →
-`authenticating` → `signed_in` → `not_authenticated` → `expired` → `ready`,
-except that a signed-in window whose *own* job (`source: live_session`,
-finished after `signed_in_at`) ended `authentication_required` reports
-`expired` with *Your NetFacilities window is no longer logged in. Close it and
-log in again.* The `authenticated` attempt state no longer exists. Render is
-unchanged: no window, secret-file state, `download_dir` is `None`.
+`NetFacilitiesClient` no longer launches a browser of its own: it requires an
+existing context, which only the Steel cloud adapter supplies. The application
+never initiates a NetFacilities download or receives credential fields; a CSV the
+user exports inside their cloud window is retrieved through Steel's Files API and
+carried by **filename only**, never a path.
 
 The TechFM OA and above then uses the existing **Import from CSV…** chooser for a file already
 on the computer. The unchanged `/work-orders/import` transaction creates/updates rows;
 after success the frontend starts and polls the separate enrichment job. Missing or
-expired auth leaves the CSV import committed. Locally, sign in again; on Render, replace
-the saved-state secret and redeploy. Then use **Import Tasks and Priority** without
-re-uploading.
+expired auth leaves the CSV import committed and expires that user's saved session
+row; they sign in again, then use **Import Tasks and Priority** without re-uploading.
 
 During the serialized candidate loop, an optional async observer receives each validated
 work-order number immediately before its source request. The job coordinator publishes
@@ -1853,12 +1793,12 @@ did not make a live request or change persistence, selectors, or candidate rules
 
 #### Cloud auth (IMP-040, 2026-08-28)
 
-A third, additive auth path (spec
+The only auth path as of 2026-08-29 (spec
 `docs/superpowers/specs/2026-08-28-netfacilities-cloud-auth-design.md`): any
 TechFM OA+ user, on any device, signs into NetFacilities live through a Steel
-cloud browser from the deployed Render app, without needing the Windows live
-session or a shared secret file. `services/netfacilities_auth.py` and the
-existing saved-state path are untouched.
+cloud browser from the deployed Render app. It was introduced as a third,
+additive path alongside the Windows live session and the shared secret file;
+both of those were removed the following day.
 
 Gated behind five environment variables, all required together and all
 defaulting to disabled: `NETFACILITIES_CLOUD_AUTH_ENABLED` (also requires the
@@ -1920,24 +1860,23 @@ exists if it does not.
 
 | Method | Path | Gate | Behavior |
 | --- | --- | --- | --- |
-| GET | `/integrations/netfacilities/session` | techfm_oa+ | capability state (`unavailable`, `not_authenticated`, `authenticating`, `signed_in`, `ready`, `running`, `expired`), whether interactive authentication is available, plus safe authentication/job snapshots |
-| POST | `/integrations/netfacilities/auth/start` | techfm_oa+ | acquire the shared profile lease and open the local dedicated headed browser |
-| POST | `/integrations/netfacilities/auth/confirm` | techfm_oa+ | verify an allowlisted non-login page, save protected state, close browser, release lease |
-| POST | `/integrations/netfacilities/auth/cancel` | techfm_oa+ | close the dedicated window — a pending sign-in (`cancelled`) or the live session (`closed`); 409 while enrichment borrows it |
-| POST | `/integrations/netfacilities/work-orders/enrich` | techfm_oa+ | start one process-local saved-state job or return the active duplicate; 409 when auth is absent or another profile operation is active and 503 when the capability is disabled/unavailable — prefers the open signed-in window (`source: live_session`), else saved state |
+| POST | `/integrations/netfacilities/work-orders/enrich` | techfm_oa+ | start one process-local job through the caller's own cloud session (`source: cloud_session`, always) or return the active duplicate; 409 when that caller has no saved session and 503 when the capability is disabled/unavailable |
 | GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | techfm_oa+ | poll the latest process-local job; state/timestamps/nullable current requested work-order number/safe failure class/counts only |
-| POST | `/integrations/netfacilities/downloads/import` | techfm_oa+ | import the CSV most recently saved from the live window through the shared `run_csv_import` pipeline; 409 when none was captured or the file is gone, 413 over the CSV cap |
+| GET | `/integrations/netfacilities/cloud/session` | techfm_oa+ | the calling user's own cloud capability: availability, safe message, whether they have a saved session, and their own ceremony status |
+| POST | `/integrations/netfacilities/cloud/auth/start` | techfm_oa+ | open a Steel cloud session and return its live-view URL |
+| POST | `/integrations/netfacilities/cloud/auth/cancel` | techfm_oa+ | release that user's Steel session |
+| POST | `/integrations/netfacilities/cloud/downloads/import` | techfm_oa+ | import the CSV most recently captured from that user's cloud window through the shared `run_csv_import` pipeline; 409 when none was captured |
 
-`services.netfacilities_auth` owns the local headed browser between start and confirm/cancel;
-early confirmation keeps it open, while cancel, configured timeout, or shutdown closes
-it. It and `services.netfacilities_jobs` share one operation lease. The job lazily
-creates a local or hosted headless browser context with saved state, then calls the
-serial compare-and-set service with fresh short
-database sessions. Disabled startup still avoids importing the concrete client.
-Responses may expose only the current work-order number as Admin-visible in-flight
-progress; they retain no completed-number history. Responses and logs never contain
-source descriptions, Priority values, storage paths, cookies, HTML, or headers.
-Browser-managed CSV downloading and hosted interactive authentication are out of scope.
+The five local-auth routes (`/session`, `/auth/start`, `/auth/confirm`,
+`/auth/cancel`, `/downloads/import`) were removed 2026-08-29 with the system
+behind them. `services.netfacilities_cloud_auth` owns each user's ceremony;
+`services.netfacilities_jobs` admits one enrichment batch at a time and owns its
+reconnected Steel session through shutdown, calling the serial compare-and-set
+service with fresh short database sessions. Disabled startup still avoids
+importing the concrete client. Responses may expose only the current work-order
+number as Admin-visible in-flight progress; they retain no completed-number
+history. Responses and logs never contain source descriptions, Priority values,
+storage state, cookies, HTML, or headers.
 
 **403-before-422 on the billing route** is the one observable behavior change
 C1 made (2026-08-10). Its gate used to be `_can_see_price(user)` in the handler
@@ -2965,13 +2904,10 @@ Coverage map:
 | `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin; history row exposes `work_order_id` |
 | `test_work_order_export.py` | TechFM OA+ scoped full/client CSV exports, joined operational filters (including date), unchanged client scope behavior, import-header compatibility including generated-task round-trip, billing totals, and receipt cells |
 | `test_netfacilities_parser.py` | sanitized server-rendered HTML parsing, identifier/status fail-closed checks, login-document detection, required fields, input validation, and safe Priority body-vs-script structure classification |
-| `test_netfacilities_client.py` | one allowlisted authenticated GET, isolated browser document routing with all subresources blocked, disabled execution/full lifetime cleanup, one-read diagnostic reuse, response metadata/size boundaries, auth redirect detection, and runtime browser placement |
-| `test_netfacilities_diagnostic.py` | one-work-order Render CLI safe-shape output, identifier/source-value omission, and exception-message redaction |
-| `test_netfacilities_poc.py` | dedicated profile-path boundary, explicit profile requirement, browser-channel choice, and pre-I/O identifier validation |
-| `test_netfacilities_config.py` | disabled default, Windows profile vs Linux secret-state modes, external-path/channel/timeout validation, lazy imports, and production-safe startup |
+| `test_netfacilities_client.py` | one allowlisted authenticated GET, refusal to run without an injected browser context, rendered document routing with only same-origin `GET` subresources allowed, one-read diagnostic reuse, response metadata/size boundaries, auth redirect detection, and runtime browser placement |
+| `test_netfacilities_config.py` | disabled default, timeout/render-flag validation, lazy imports, and production-safe startup |
 | `test_netfacilities_service.py` | exact live candidate union, serial fake reads, pre-request progress ordering/validated-number filtering, two-field compare-and-set writes, idempotency/concurrent-edit protection, error counts, auth stop, timeout, and no-create behavior |
-| `test_netfacilities_jobs.py` | local/hosted saved-auth precondition, owned client lifetime, serialized duplicate admission, shared in-flight current-number snapshots, terminal progress clearing, aggregate results, auth-loss state, and clean shutdown cancellation |
-| `test_netfacilities_routes.py` | disabled/local/hosted capability state, interactive-auth availability, recoverable missing-auth 409, approved nullable progress plus source-value-free result contracts, and process-local 404 |
+| `test_netfacilities_jobs.py` | cloud-session-only precondition (no session means sign in, never a silent fallback), owned client lifetime, serialized duplicate admission, shared in-flight current-number snapshots, terminal progress clearing, aggregate results, auth-loss state carrying the user to expire, and clean shutdown cancellation |
 | `test_work_order_priority.py` | nullable ORM/response contract, generic-update exclusion, and read-only UI source contract |
 | `test_receipt.py` | backend fixed-width receipt output matches the frontend contract for markup, truncation, quantities, missing prices, and labor rounding |
 | `test_tools_domain.py` | pure `domain.tools.validate_return` outstanding-balance cap |
@@ -2994,7 +2930,6 @@ Coverage map:
 | `test_docs_endpoints.py` | C4: `/docs`, `/redoc`, `/openapi.json` are un-mounted when `COOKIE_SECURE=true` |
 | `test_logging.py` | `logging_config.py` and its three call sites: per-request id, JSON formatter, request context |
 | `test_db_availability_guard.py` | stops CI reporting success over a half-skipped suite — DB-backed tests must not silently skip in CI |
-| `test_netfacilities_auth.py` | offline coverage of the in-app headed sign-in start/confirm/cancel lifecycle |
 | `test_realtime_dependency.py` | the WebSocket protocol library is actually installed — `TestClient` drives ASGI directly and would pass without it |
 | `test_realtime_domain.py` | pure envelope/audience rules and policy constants; no sockets, clock, or DB |
 | `test_realtime_registry.py` | connection registry, per-user cap, bounded handoff, and dispatch supervision |
@@ -3024,15 +2959,24 @@ Do not "fix" these accidentally unless the task asks for it.
 - Completed mass stages cannot be reopened.
 - Stage deletion does not reverse load transactions already written.
 - Frontend has no bundler/type checker; ID and module contract drift is manual.
-- NetFacilities local happy-path acceptance passed on 2026-08-15. Render capability
-  enablement is owner-confirmed, but the first hosted pass updated zero priorities,
-  including newly imported blank-priority rows. Current requested-number progress is now
-  implemented through the existing polled job contract. The next session must still
-  investigate live Priority parsing versus candidate/application behavior; selectors
-  remain unchanged pending aggregate counts and a sanitized DOM observation. Session
-  expiration requires local reauthentication, secret replacement, and redeploy.
-  Browser-managed downloading, app-side credential/MFA handling, and secondary-data
-  retrieval remain absent. Default tests never make a live NetFacilities request.
+- NetFacilities authentication is per-user Steel cloud sign-in only, as of
+  2026-08-29. The pre-Steel system was removed that day: the local headed Windows
+  sign-in, the shared Render `netfacilities-storage-state.json` secret file, the
+  borrowed live-session window, the `/session` + `/auth/*` + `/downloads/import`
+  routes, `services/netfacilities_auth.py`, `services/netfacilities_live_session.py`,
+  `services/netfacilities_operations.py`, the local factory functions, the local-profile
+  CLIs, and the `NETFACILITIES_STORAGE_STATE_PATH` / `NETFACILITIES_BROWSER_CHANNEL`
+  settings. `NetFacilitiesClient` keeps its whole fetch/parse behavior but now requires
+  an injected browser context, so the Steel adapter is the only thing that can construct
+  a working one, and `NETFACILITIES_RENDER_DOCUMENT` now actually reaches it (it never
+  did on the cloud path before). Session expiration is recovered by that one user signing
+  in again — there is no shared credential to rotate and no redeploy involved. The
+  Integrations card shows one capability, one status line, and one Enrich button gated on
+  it. Browser-managed downloading, app-side credential/MFA handling, and secondary-data
+  retrieval remain absent. Default tests never make a live NetFacilities request. **Not
+  yet done:** the manual D5/D6 replay spike against a real Steel account and a real
+  NetFacilities login, and deleting the now-unused `netfacilities-storage-state.json`
+  secret file in Render's dashboard.
 - Editing a dispense-mode work-order line auto-corrects stock by the delta and
   appends one reconciling `adjust` transaction (signed stock delta; the original
   scan rows stay intact). That `adjust` is an inventory record only -- it is not

@@ -128,17 +128,12 @@ lists what the call reads (r) and writes (w).
 | 71 | POST | `/work-orders/{id}/resume` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.resume_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiResumeWorkOrder` | `workOrders.js` |
 | 71a | POST | `/work-orders/{id}/tracking/start` | assigned Technician, or Supervisor+ on any visible row | `work_orders.py` → `work_orders.start_labor_session` | work_orders (r/w status + notes, row lock), work_order_technicians (r), work_order_labor_sessions (r/w), work_order_labor (w, when it closes a clock elsewhere), push_subscriptions (r, via notify on that row's auto-hold) | `apiStartWorkOrderTracking` | `workOrders.js` |
 | 71b | POST | `/work-orders/{id}/tracking/stop` | assigned Technician, or Supervisor+ on any visible row | `work_orders.py` → `work_orders.stop_labor_session` | work_orders (r/w status + notes, row lock), work_order_technicians (r), work_order_labor_sessions (r/w), work_order_labor (w), push_subscriptions (r, via notify on auto-hold) | `apiStopWorkOrderTracking` | `workOrders.js` |
-| NF1 | GET | `/integrations/netfacilities/session` | techfm_oa+ | `netfacilities.py` → dependency-free config + authentication/job coordinators | no DB; protected saved-state existence + process-local safe snapshots | `apiGetNetFacilitiesSession` | `workOrders.js` |
-| NF1a | POST | `/integrations/netfacilities/auth/start` | techfm_oa+ | `netfacilities.py` → `netfacilities_auth.start` → lazy headed client | no DB; opens dedicated local browser and acquires protected-profile lease | `apiStartNetFacilitiesAuthentication` | `workOrders.js` |
-| NF1b | POST | `/integrations/netfacilities/auth/confirm` | techfm_oa+ | `netfacilities.py` → `netfacilities_auth.confirm` → allowlisted page verification + storage-state save | no DB; secret-safe attempt state only | `apiConfirmNetFacilitiesAuthentication` | `workOrders.js` |
-| NF1c | POST | `/integrations/netfacilities/auth/cancel` | techfm_oa+ | `netfacilities.py` → `netfacilities_auth.cancel` | no DB; closes the dedicated window in any state — `cancelled` when pending, `closed` when signed in — and is 409 while enrichment borrows it | `apiCancelNetFacilitiesAuthentication` | `workOrders.js` |
-| NF2 | POST | `/integrations/netfacilities/work-orders/enrich` | techfm_oa+ | `netfacilities.py` → `_resolve_cloud_enrichment_context` (if no live window) → `netfacilities_jobs.start` → `netfacilities.enrich_work_orders` | work_orders (r/w, existing live candidates only; short compare-and-set locks); netfacilities_cloud_sessions (r, caller's own row only) | `apiStartNetFacilitiesEnrichment` | `workOrders.js` |
+| NF2 | POST | `/integrations/netfacilities/work-orders/enrich` | techfm_oa+ | `netfacilities.py` → `_resolve_cloud_enrichment_context` (the caller's own cloud session) → `netfacilities_jobs.start` → `netfacilities.enrich_work_orders` | work_orders (r/w, existing live candidates only; short compare-and-set locks); netfacilities_cloud_sessions (r, caller's own row only) | `apiStartNetFacilitiesEnrichment` | `workOrders.js` |
 | NF3 | GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | techfm_oa+ | `netfacilities.py` → `netfacilities_jobs.get` | no DB; process-local aggregate-only job snapshot | `apiGetNetFacilitiesEnrichment` | `workOrders.js` |
-| NF4 | POST | `/integrations/netfacilities/downloads/import` | techfm_oa+ | `netfacilities.py` → `netfacilities_auth.captured_csv_path` → `_uploads.read_file_capped` → `work_orders.run_csv_import` → `services/work_orders.import_work_orders` | **work_orders** (find-or-create by number), same realtime + push side effects as WO import | `apiImportNetFacilitiesDownload` | `workOrders.js` (Integrations card, **Import downloaded CSV**) |
 | NF5 | GET | `/integrations/netfacilities/cloud/session` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.latest` + `NetFacilitiesCloudSession` existence check | netfacilities_cloud_sessions (r, existence only) | `apiGetNetFacilitiesCloudSession` | `workOrders.js` (Integrations card, cloud sign-in) |
 | NF5a | POST | `/integrations/netfacilities/cloud/auth/start` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.start` → `SteelCloudBrowserProvider.open_login_session` | no DB; opens a Steel cloud session, per-user in-memory ceremony state | `apiStartNetFacilitiesCloudAuthentication` | `workOrders.js` |
 | NF5b | POST | `/integrations/netfacilities/cloud/auth/cancel` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.cancel` → `SteelCloudBrowserProvider.close_login_session` | no DB; releases the Steel session | `apiCancelNetFacilitiesCloudAuthentication` | `workOrders.js` |
-| NF6 | POST | `/integrations/netfacilities/cloud/downloads/import` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.captured_csv_bytes` → `work_orders.run_csv_import` → `services/work_orders.import_work_orders` | **work_orders** (find-or-create by number), same realtime + push side effects as WO import | `apiImportNetFacilitiesCloudDownload` | `workOrders.js` (Integrations card, **Import downloaded CSV (cloud)**) |
+| NF6 | POST | `/integrations/netfacilities/cloud/downloads/import` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.captured_csv_bytes` → `work_orders.run_csv_import` → `services/work_orders.import_work_orders` | **work_orders** (find-or-create by number), same realtime + push side effects as WO import | `apiImportNetFacilitiesCloudDownload` | `workOrders.js` (Integrations card, **Import downloaded CSV**) |
 | WS1 | WS | `/ws` | session cookie + same-origin | `realtime.py` → `services/realtime` registry → `domain/realtime` policy | **none** — carries no row data, reads and writes nothing | — (`static/realtime.js` owns the socket; not an `api.js` wrapper) | `adminReview.js` (subscriber), `auth.js` + `nav.js` (lifecycle) |
 | H1 | GET | `/hub` | any authenticated | `hub.py` → `hub.personal_hub` → `work_orders.sweep_stale_sessions` + `labor_summary.day_summary` + `tools.user_custody_detail` | work_order_labor_sessions (r/w on sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), tool_transactions (r), tools (r), users (r) | `apiGetHub` | `userHub.js`, `hubClock.js`, `hubTechnician.js` |
 | H2 | GET | `/hub/crew` | supervisor+ | `hub.py` → `hub.crew_hub` → `work_orders.sweep_stale_sessions` (per crew member) + `labor_summary.crew_day_summaries` + `labor_summary.last_worked` | work_order_labor_sessions (r/w on per-member sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), users (r) | `apiGetHubCrew` | `userHub.js`, `hubSupervisor.js` |
@@ -146,8 +141,10 @@ lists what the call reads (r) and writes (w).
 | H4 | GET | `/hub/timesheets/export` | supervisor+ | `hub.py` → `hub.timesheets_hub` + `hub.timesheet_csv` | same as H3 | `apiExportHubTimesheets` | `hubTimesheets.js` |
 | H5 | GET | `/hub/graphs?weeks=12\|26\|52` | techfm_oa+ | `hub.py` → `hub.graphs_hub` → shared graph/community rules | work_orders (narrow status/location/service/timestamp projections; read-only) | `apiGetHubGraphs` | `userHub.js`, `hubGraphs.js` |
 
-(Rows 55 onward and NF1–NF4/NF1a–NF1c were appended out of resource order to keep the existing
-#1–54 numbering — and the footnote / per-table references to it — stable. WS1 is the one
+(Rows 55 onward and the NF rows were appended out of resource order to keep the existing
+#1–54 numbering — and the footnote / per-table references to it — stable. NF1, NF1a–NF1c,
+and NF4 were removed 2026-08-29 with the local NetFacilities auth system; the surviving
+ids are deliberately not renumbered, since other docs cite them. WS1 is the one
 non-HTTP operation and is numbered apart from the resource rows for the same reason. H1 is the
 first User Hub row, numbered apart for the same reason; P2 onward add `H2`, `H3`, `H4`, ….)
 
@@ -472,34 +469,32 @@ one no import has brought in.
   created — the same branch `supervisors_matched` is computed on, so the push
   and the on-screen summary cannot disagree. *The only path that creates a work
   order.*
-- On the local Windows host, an Admin calls `apiStartNetFacilitiesAuthentication`
-  and completes credentials/CAPTCHA/MFA in the dedicated headed browser. The
-  coordinator confirms on its own once a page leaves the login screen
-  (`apiConfirmNetFacilitiesAuthentication` remains the manual fallback) and the
-  window **stays open** (`state: signed_in`). Downloads the Admin triggers there
-  are saved to their Downloads folder; a `.csv` shows up as
-  `latest_authentication.last_download_filename`. `apiCancelNetFacilitiesAuthentication`
-  closes the window. On Render, interactive sign-in is unavailable and the saved
-  state comes from a protected secret file. Authentication and enrichment share
-  one process-local operation lease; a job that borrows the live window runs
-  under the session's lease. Responses never contain credentials, browser
-  storage, paths, or source values.
+- From any device, a TechFM OA+ user calls `apiStartNetFacilitiesCloudAuthentication`
+  → `POST /integrations/netfacilities/cloud/auth/start`, which opens a Steel cloud
+  browser and returns its live-view URL. Credentials/CAPTCHA/MFA are completed in
+  that window; the coordinator confirms on its own once a page leaves the login
+  screen (`state: signed_in`) and encrypts the captured session into
+  **netfacilities_cloud_sessions**, one row per user (spec D2, D9). A `.csv` the
+  user exports there shows up as `status.last_download_filename`.
+  `apiCancelNetFacilitiesCloudAuthentication` releases the Steel session.
+  Responses never contain credentials, browser storage, paths, or source values.
 - After CSV import succeeds, `workOrders.js` checks
-  `apiGetNetFacilitiesSession` → `GET /integrations/netfacilities/session`. When
-  the state is `signed_in` (the open window) or `ready` (saved auth state), it
-  calls `apiStartNetFacilitiesEnrichment` → `POST
+  `apiGetNetFacilitiesCloudSession` → `GET /integrations/netfacilities/cloud/session`.
+  When that user has a saved session (or is signed in right now), it calls
+  `apiStartNetFacilitiesEnrichment` → `POST
   /integrations/netfacilities/work-orders/enrich`. One process-local job
-  (`source: live_session` through the open window, else `saved_state`) snapshots
-  existing eligible **work_orders**, performs serial allowlisted source reads, then
-  briefly locks/rechecks each row. Only an exact generated Task/Symptom fallback and a
+  (`source: cloud_session`, always) reconnects by replaying that user's decrypted
+  session into a fresh, short-lived Steel session, snapshots existing eligible
+  **work_orders**, performs serial allowlisted source reads, then briefly
+  locks/rechecks each row. Only an exact generated Task/Symptom fallback and a
   blank Priority may be filled. `apiGetNetFacilitiesEnrichment` polls aggregate-only
   state; completion/timeout reloads cards. Missing/expired auth preserves the completed
-  CSV import. Recovery is local in-app sign-in or, on Render, replacing the saved-state
-  secret and redeploying before using **Import Tasks and Priority**.
-- `workOrders.js` (**Import downloaded CSV**) calls `apiImportNetFacilitiesDownload`
-  → `POST /integrations/netfacilities/downloads/import`, which imports the CSV the
-  live window most recently saved through the same `run_csv_import` the upload
-  route uses, then continues into the enrichment flow above.
+  CSV import, expires that user's saved row (spec D8), and recovery is signing in
+  again before using **Import Tasks and Priority**.
+- `workOrders.js` (**Import downloaded CSV**) calls `apiImportNetFacilitiesCloudDownload`
+  → `POST /integrations/netfacilities/cloud/downloads/import`, which imports the CSV
+  the cloud window most recently captured through the same `run_csv_import` the
+  upload route uses, then continues into the enrichment flow above.
 - `workOrders.js` (Re-archive legacy work orders..., Owner only) first calls
   `apiGetLegacyWorkOrderArchivePreview` → `GET /work-orders/legacy/archive` →
   `count_live_legacy_work_orders` and shows the returned live-row count in the
@@ -996,47 +991,39 @@ solving the dependency before it reads the form body, not statement order). **`W
 
 ### NetFacilities (`schemas/netfacilities.py`)
 
-All eleven routes are TechFM OA+. **`NetFacilitiesCapability`** returns `available`,
-`interactive_authentication_available`, one of
-`unavailable|not_authenticated|authenticating|signed_in|ready|running|expired`, a secret-safe
-`message`, and optional `latest_authentication` / `latest_job`. **`NetFacilitiesAuthenticationAttempt`**
-returns only an attempt ID, lifecycle state, timestamps, and a safe failure class. Lifecycle
-states are `starting|awaiting_confirmation|confirming|signed_in|closed|failed|cancelled|timed_out`;
-a signed-in attempt also carries `signed_in_at`, and `last_download_filename` /
-`last_download_at` name the CSV most recently saved from the window (filename only).
+All six routes are TechFM OA+. The pre-Steel local-auth schemas
+(`NetFacilitiesCapability`, `NetFacilitiesAuthenticationAttempt`) were removed
+2026-08-29 along with rows NF1/NF1a-c/NF4; cloud auth is the only path.
 **`NetFacilitiesEnrichmentJob`** returns `job_id`, one of
 `queued|running|completed|authentication_required|timed_out|failed|cancelled`, optional
-UTC `started_at` / `finished_at`, optional safe `failure`, and optional aggregate
-`counts`, and `source` (`live_session|saved_state|cloud_session`). Counts contain
+UTC `started_at` / `finished_at`, optional safe `failure`, optional aggregate
+`counts`, and `source` -- now `cloud_session` only. Counts contain
 candidate/request/fetch/update/unchanged/failure/remaining
 integers and `timed_out`; no work-order number or source value is returned.
 
 Start has no request body. It returns 202, including for a duplicate that resolves to
-the active job; absent saved auth state is 409 and disabled/unavailable capability is
-503. Hosted interactive-auth start is also 503.
-Polling accepts only the UUID path parameter and returns 404 after a process restart or
-when the id is not the coordinator's latest job. The session endpoint reads only
-validated config, saved-state file existence/mtime, and process-local state; it never
-returns a filesystem path or browser content.
+the active job; a caller with no saved cloud session is 409 and disabled/unavailable
+capability is 503. Polling accepts only the UUID path parameter and returns 404 after a
+process restart or when the id is not the coordinator's latest job.
 
 **`NetFacilitiesCloudCapability`** (NF5) returns `available`, a secret-safe `message`,
 `has_saved_session` (a persisted row exists, independent of any live ceremony), and
 optional `status` — the calling user's own state, never another user's.
-**`NetFacilitiesCloudSessionStatus`** mirrors `NetFacilitiesAuthenticationAttempt`'s shape
-(attempt ID, lifecycle state, timestamps, safe failure class, `last_download_filename` /
-`last_download_at`) plus `live_view_url` while a ceremony is open — Steel's `debug_url`
+**`NetFacilitiesCloudSessionStatus`** carries an attempt ID, lifecycle state,
+timestamps, a safe failure class, and `last_download_filename` / `last_download_at`
+(filename only, naming the CSV most recently captured from the window), plus
+`live_view_url` while a ceremony is open — Steel's `debug_url`
 (a bare WebRTC session player), never `session_viewer_url` (Steel's own account-gated
 dashboard; confirmed 2026-08-28 against a real session that only `debug_url` renders an
 interactive view usable without a Steel login). Lifecycle states are
-`starting|awaiting_sign_in|signed_in|closed|failed|cancelled|timed_out` — no separate
-manual-confirm state, since the cloud ceremony auto-polls with no confirm click. Neither
+`starting|awaiting_sign_in|signed_in|closed|failed|cancelled|timed_out` — there is no
+manual-confirm state, since the ceremony auto-polls with no confirm click. Neither
 schema, nor any other NetFacilities response, ever carries `storage_state` or
 `steel_profile_id`.
 
-`POST /downloads/import` has no request body and returns `WorkOrderImportResult`
-(the upload route's schema). 409 when no CSV has been captured in this process
-or the file has since been removed; 413 over the CSV cap; `DomainError`s map
-exactly as on the upload route.
+`POST /cloud/downloads/import` has no request body and returns `WorkOrderImportResult`
+(the upload route's schema). 409 when no CSV has been captured for that user in this
+process; `DomainError`s map exactly as on the upload route.
 
 ### Real-time (`domain/realtime.py` — no Pydantic schema)
 
