@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
+from fastapi import HTTPException
+import pytest
+
 from app.integrations.netfacilities.config import NetFacilitiesConfig
 from app.routers import netfacilities as router
 from app.services.netfacilities_cloud_auth import (
@@ -14,13 +17,10 @@ from app.services.netfacilities_cloud_auth import (
 )
 
 
-def _enabled_config(tmp_path):
+def _enabled_config(_tmp_path=None):
     return NetFacilitiesConfig(
         enabled=True,
-        profile_dir=tmp_path,
-        browser_channel="chrome",
         request_timeout_seconds=30,
-        auth_timeout_seconds=900,
         batch_timeout_seconds=1_800,
     )
 
@@ -125,9 +125,7 @@ class FakeDbWithCloudRow:
         return self._row
 
 
-def test_enrichment_uses_the_callers_cloud_session_when_no_live_window(
-    tmp_path, monkeypatch
-):
+def test_enrichment_uses_the_callers_own_cloud_session(tmp_path, monkeypatch):
     from app.integrations.netfacilities import factory as factory_module
 
     monkeypatch.setattr(router, "load_netfacilities_config", lambda: _enabled_config(tmp_path))
@@ -145,17 +143,17 @@ def test_enrichment_uses_the_callers_cloud_session_when_no_live_window(
 
     captured = {}
 
-    def fake_create(config, encrypted_storage_state):
+    def fake_create(
+        config, encrypted_storage_state, *, render_document, render_settle_ms
+    ):
         captured["called"] = True
+        captured["render_document"] = render_document
+        captured["render_settle_ms"] = render_settle_ms
         return object()
 
     monkeypatch.setattr(
         factory_module, "create_netfacilities_cloud_enrichment_client", fake_create
     )
-
-    class NoLiveAuth:
-        async def borrow_live_client(self):
-            return None
 
     from app.services.netfacilities_jobs import NetFacilitiesJobSnapshot
 
@@ -168,7 +166,6 @@ def test_enrichment_uses_the_callers_cloud_session_when_no_live_window(
             self,
             _config,
             *,
-            live_client_context=None,
             cloud_client_context=None,
             cloud_user_id=None,
             cloud_batch_session_seconds=None,
@@ -184,7 +181,6 @@ def test_enrichment_uses_the_callers_cloud_session_when_no_live_window(
             user=SimpleNamespace(id=caller_id),
             db=db,
             jobs=FakeJobsCapturingCloud(),
-            authentication=NoLiveAuth(),
         )
     )
 
@@ -195,3 +191,151 @@ def test_enrichment_uses_the_callers_cloud_session_when_no_live_window(
     # Default login/batch cap (spec §4): 840s, leaving margin under Steel's
     # 15-minute session cap.
     assert captured["cloud_batch_session_seconds"] == 840
+    # The render settings reach the only enrichment client that still exists.
+    assert captured["render_document"] is False
+    assert captured["render_settle_ms"] == 5_000
+
+
+class RefusingJobs:
+    async def start(self, *_args, **_kwargs):
+        raise AssertionError("a job must not start without a usable configuration")
+
+    async def get(self, _job_id):
+        return None
+
+
+def _disabled_config():
+    return NetFacilitiesConfig(
+        enabled=False,
+        request_timeout_seconds=30,
+        batch_timeout_seconds=1_800,
+    )
+
+
+def test_enrichment_is_unavailable_when_the_host_has_it_disabled(monkeypatch):
+    monkeypatch.setattr(router, "load_netfacilities_config", _disabled_config)
+
+    with pytest.raises(HTTPException) as raised:
+        asyncio.run(
+            router.start_netfacilities_enrichment(
+                user=SimpleNamespace(id=uuid4()),
+                db=FakeDbNoRow(),
+                jobs=RefusingJobs(),
+            )
+        )
+
+    assert raised.value.status_code == 503
+
+
+def test_enrichment_without_a_saved_cloud_session_asks_the_caller_to_sign_in(
+    monkeypatch,
+):
+    """No shared saved-state fallback survives: no session means 409, not a run."""
+
+    monkeypatch.setattr(router, "load_netfacilities_config", _enabled_config)
+    monkeypatch.setenv("NETFACILITIES_CLOUD_AUTH_ENABLED", "true")
+    monkeypatch.setenv("STEEL_API_KEY", "test-key")
+
+    from app.services.netfacilities_jobs import NetFacilitiesJobCoordinator
+
+    with pytest.raises(HTTPException) as raised:
+        asyncio.run(
+            router.start_netfacilities_enrichment(
+                user=SimpleNamespace(id=uuid4()),
+                db=FakeDbNoRow(),
+                jobs=NetFacilitiesJobCoordinator(),
+            )
+        )
+
+    assert raised.value.status_code == 409
+    assert "Sign in" in raised.value.detail
+
+
+def test_enrichment_status_is_404_for_a_job_this_process_never_ran():
+    with pytest.raises(HTTPException) as raised:
+        asyncio.run(
+            router.get_netfacilities_enrichment(
+                job_id=uuid4(),
+                _user=SimpleNamespace(id=uuid4()),
+                db=FakeDbNoRow(),
+                jobs=RefusingJobs(),
+            )
+        )
+
+    assert raised.value.status_code == 404
+
+
+def test_enrichment_status_returns_only_aggregate_counts():
+    from app.services.netfacilities import NetFacilitiesEnrichmentSummary
+    from app.services.netfacilities_jobs import NetFacilitiesJobSnapshot
+
+    job_id = uuid4()
+    snapshot = NetFacilitiesJobSnapshot(
+        job_id=job_id,
+        state="completed",
+        source="cloud_session",
+        summary=NetFacilitiesEnrichmentSummary(candidates=3, fetched=3),
+    )
+
+    class FakeJobs:
+        async def get(self, requested_id):
+            assert requested_id == job_id
+            return snapshot
+
+    result = asyncio.run(
+        router.get_netfacilities_enrichment(
+            job_id=job_id,
+            _user=SimpleNamespace(id=uuid4()),
+            db=FakeDbNoRow(),
+            jobs=FakeJobs(),
+        )
+    )
+
+    assert result.state == "completed"
+    assert result.source == "cloud_session"
+    assert result.counts.candidates == 3
+
+
+def test_authentication_loss_expires_that_users_saved_cloud_session():
+    """Spec D8: the row is expired only once an attempt actually reports it."""
+
+    from app.services.netfacilities_jobs import NetFacilitiesJobSnapshot
+
+    job_id = uuid4()
+    user_id = uuid4()
+    finished_at = datetime.now(timezone.utc)
+    row = SimpleNamespace(storage_state="token", expires_at=None)
+
+    class FakeDb(FakeDbWithCloudRow):
+        def __init__(self):
+            super().__init__(row)
+            self.commits = 0
+
+        def commit(self):
+            self.commits += 1
+
+    snapshot = NetFacilitiesJobSnapshot(
+        job_id=job_id,
+        state="authentication_required",
+        failure="authentication_required",
+        finished_at=finished_at,
+        source="cloud_session",
+        user_id=user_id,
+    )
+
+    class FakeJobs:
+        async def get(self, _job_id):
+            return snapshot
+
+    db = FakeDb()
+    asyncio.run(
+        router.get_netfacilities_enrichment(
+            job_id=job_id,
+            _user=SimpleNamespace(id=user_id),
+            db=db,
+            jobs=FakeJobs(),
+        )
+    )
+
+    assert row.expires_at == finished_at
+    assert db.commits == 1

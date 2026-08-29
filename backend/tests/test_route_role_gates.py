@@ -208,13 +208,8 @@ def test_archive_work_order_requires_techfm_oa():
 @pytest.mark.parametrize(
     "endpoint_name",
     [
-        "netfacilities_session",
-        "start_netfacilities_authentication",
-        "confirm_netfacilities_authentication",
-        "cancel_netfacilities_authentication",
         "start_netfacilities_enrichment",
         "get_netfacilities_enrichment",
-        "import_netfacilities_download",
         "netfacilities_cloud_session",
         "start_netfacilities_cloud_authentication",
         "cancel_netfacilities_cloud_authentication",

@@ -1,4 +1,4 @@
-"""Secret-safe HTTP contracts for local NetFacilities enrichment."""
+"""Secret-safe HTTP contracts for NetFacilities enrichment."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ NetFacilitiesJobState = Literal[
     "failed",
     "cancelled",
 ]
-NetFacilitiesJobSource = Literal["live_session", "saved_state", "cloud_session"]
+NetFacilitiesJobSource = Literal["cloud_session"]
 
 
 class NetFacilitiesEnrichmentCounts(BaseModel):
@@ -52,54 +52,9 @@ class NetFacilitiesEnrichmentJob(BaseModel):
         "cancelled",
     ] | None = None
     counts: NetFacilitiesEnrichmentCounts | None = None
-    # Which session read the source: the operator's open window or the saved
-    # storage-state file. Lets the card say which one it is using.
+    # Which session read the source. Only the caller's own cloud session can,
+    # so this is a single value the card can state plainly.
     source: NetFacilitiesJobSource | None = None
-
-
-class NetFacilitiesAuthenticationAttempt(BaseModel):
-    """Process-local headed sign-in / live-session state.
-
-    ``last_download_filename`` is a bare filename -- never a directory or path;
-    the operator already knows where their Downloads folder is.
-    """
-
-    attempt_id: UUID
-    state: Literal[
-        "starting",
-        "awaiting_confirmation",
-        "confirming",
-        "signed_in",
-        "closed",
-        "failed",
-        "cancelled",
-        "timed_out",
-    ]
-    started_at: datetime
-    finished_at: datetime | None = None
-    failure: Literal["unavailable", "cancelled", "timed_out"] | None = None
-    signed_in_at: datetime | None = None
-    last_download_filename: str | None = None
-    last_download_at: datetime | None = None
-
-
-class NetFacilitiesCapability(BaseModel):
-    """Capability state without protected paths or browser contents."""
-
-    available: bool
-    interactive_authentication_available: bool = False
-    state: Literal[
-        "unavailable",
-        "not_authenticated",
-        "ready",
-        "running",
-        "expired",
-        "authenticating",
-        "signed_in",
-    ]
-    message: str
-    latest_job: NetFacilitiesEnrichmentJob | None = None
-    latest_authentication: NetFacilitiesAuthenticationAttempt | None = None
 
 
 NetFacilitiesCloudSessionState = Literal[
