@@ -2,12 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-import logging
-from pathlib import Path
-import sys
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -15,7 +10,6 @@ from playwright.async_api import (
     BrowserContext,
     Error as PlaywrightError,
     TimeoutError as PlaywrightTimeoutError,
-    async_playwright,
 )
 
 from .errors import (
@@ -25,7 +19,6 @@ from .errors import (
     NetFacilitiesUnavailable,
     NetFacilitiesWorkOrderNotFound,
 )
-from .config import STORAGE_STATE_FILENAME
 from .parser import (
     ParsedWorkOrder,
     PriorityMarkupDiagnostics,
@@ -50,8 +43,6 @@ DEFAULT_RENDER_SETTLE_MS = 5_000
 PRIORITY_SELECTOR = "#priority-level"
 # First-party scripts build the Priority row; nothing else is needed to read text.
 RENDER_ALLOWED_RESOURCE_TYPES = frozenset({"script", "xhr", "fetch"})
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,30 +70,20 @@ class NetFacilitiesClient:
     def __init__(
         self,
         *,
-        profile_dir: Path | None,
-        storage_state_path: Path | None = None,
         headless: bool,
-        browser_channel: str | None = "chrome",
         timeout_ms: int = REQUEST_TIMEOUT_MS,
         max_response_bytes: int = MAX_RESPONSE_BYTES,
-        use_saved_state: bool = False,
         request_only: bool = False,
         render_document: bool = False,
         render_settle_ms: int = DEFAULT_RENDER_SETTLE_MS,
         _context: BrowserContext | Any | None = None,
     ) -> None:
-        self.profile_dir = profile_dir
         self.headless = headless
-        self.browser_channel = browser_channel
         self.timeout_ms = timeout_ms
         self.max_response_bytes = max_response_bytes
-        self.use_saved_state = use_saved_state
         self.request_only = request_only
         self.render_document = render_document
         self.render_settle_ms = render_settle_ms
-        self.storage_state_path = storage_state_path or (
-            profile_dir / STORAGE_STATE_FILENAME if profile_dir is not None else None
-        )
         self._context = _context
         self._request_context: Any | None = None
         self._browser: Any | None = None
@@ -110,70 +91,16 @@ class NetFacilitiesClient:
         self._owns_context = _context is None
         self._session_primed = False
         self._context_closed = False
-        self._download_tasks: set[asyncio.Task[None]] = set()
 
     async def __aenter__(self) -> "NetFacilitiesClient":
         if self._context is not None:
             return self
-        _require_subprocess_capable_event_loop()
-        try:
-            self._playwright = await async_playwright().start()
-            if self.use_saved_state:
-                if self.storage_state_path is None or not self.storage_state_path.is_file():
-                    raise NetFacilitiesAuthenticationRequired(
-                        "No saved NetFacilities authentication state; sign in first."
-                    )
-                if self.request_only:
-                    self._request_context = await self._playwright.request.new_context(
-                        storage_state=str(self.storage_state_path),
-                        timeout=self.timeout_ms,
-                    )
-                else:
-                    self._browser = await self._playwright.chromium.launch(
-                        channel=self.browser_channel,
-                        headless=self.headless,
-                    )
-                    self._context = await self._browser.new_context(
-                        storage_state=str(self.storage_state_path),
-                        accept_downloads=False,
-                        java_script_enabled=self.render_document,
-                        service_workers="block",
-                    )
-            else:
-                if self.profile_dir is None:
-                    raise NetFacilitiesUnavailable(
-                        "Interactive NetFacilities sign-in requires a dedicated profile."
-                    )
-                self._context = await self._playwright.chromium.launch_persistent_context(
-                    user_data_dir=str(self.profile_dir),
-                    channel=self.browser_channel,
-                    headless=self.headless,
-                    accept_downloads=True,
-                )
-        except NetFacilitiesAuthenticationRequired:
-            await self._stop_runtime()
-            raise
-        except PlaywrightError as exc:
-            await self._stop_runtime()
-            if self.use_saved_state:
-                raise NetFacilitiesAuthenticationRequired(
-                    "Saved NetFacilities authentication state could not be loaded; "
-                    "sign in again."
-                ) from exc
-            raise NetFacilitiesUnavailable(
-                "Could not start the dedicated browser. Verify the browser channel "
-                "and that no other process is using this profile."
-            ) from exc
-        return self
+        raise NetFacilitiesUnavailable(
+            "NetFacilitiesClient requires an existing browser context."
+        )
 
     async def __aexit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
         try:
-            try:
-                await asyncio.wait_for(
-                    self.wait_for_downloads(), timeout=self.timeout_ms / 1_000
-                )
-            except TimeoutError:
-                logger.error("netfacilities.download_wait_timed_out")
             if (
                 self._owns_context
                 and self._context is not None
@@ -184,16 +111,6 @@ class NetFacilitiesClient:
             if self._owns_context:
                 self._context = None
             await self._stop_runtime()
-
-    async def authenticate_interactively(self) -> None:
-        """Open the dedicated profile and let the authorized user sign in manually."""
-
-        await self.open_authentication_page()
-        await asyncio.to_thread(
-            input,
-            "Complete NetFacilities login in the dedicated browser, then press Enter here: ",
-        )
-        await self.verify_authentication_page()
 
     async def open_authentication_page(self) -> None:
         """Open the allowlisted sign-in site without collecting credentials."""
@@ -228,24 +145,6 @@ class NetFacilitiesClient:
             "The dedicated browser is not on an authenticated NetFacilities page."
         )
 
-    async def persist_authentication_state(self) -> None:
-        """Save cookies and browser storage, including session cookies, before close."""
-
-        if self.storage_state_path is None:
-            raise NetFacilitiesUnavailable(
-                "NetFacilities authentication state has no configured destination."
-            )
-        context = self._require_context()
-        try:
-            await context.storage_state(
-                path=str(self.storage_state_path),
-                indexed_db=True,
-            )
-        except PlaywrightError as exc:
-            raise NetFacilitiesUnavailable(
-                "Authenticated NetFacilities state could not be saved."
-            ) from exc
-
     async def prime_session(self) -> None:
         """Verify the session against the server and leave it primed.
 
@@ -257,72 +156,6 @@ class NetFacilitiesClient:
 
         self._session_primed = False
         await self._ensure_session_primed()
-
-    def on_context_closed(self, callback: Callable[[], None]) -> None:
-        """Run ``callback`` once if the operator closes the dedicated window."""
-
-        context = self._require_context()
-
-        def handle_close(_context: Any) -> None:
-            self._context_closed = True
-            callback()
-
-        context.on("close", handle_close)
-
-    def capture_downloads(
-        self,
-        destination: Path,
-        on_saved: Callable[[Path], Awaitable[None]],
-    ) -> None:
-        """Save every download the operator triggers under its suggested name.
-
-        Playwright never writes a download to the OS Downloads folder on its own
-        (spec §3.1), so each one is saved explicitly. Attaches to the pages that
-        exist now and to every page the context opens later.
-        """
-
-        context = self._require_context()
-
-        def attach(page: Any) -> None:
-            def handle_download(download: Any) -> None:
-                task = asyncio.get_running_loop().create_task(
-                    self._save_download(download, destination, on_saved)
-                )
-                self._download_tasks.add(task)
-                task.add_done_callback(self._download_tasks.discard)
-
-            page.on("download", handle_download)
-
-        for page in context.pages:
-            attach(page)
-        context.on("page", attach)
-
-    async def wait_for_downloads(self) -> None:
-        """Await in-flight saves so a close never truncates a file."""
-
-        pending = [task for task in self._download_tasks if not task.done()]
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
-
-    async def _save_download(
-        self,
-        download: Any,
-        destination: Path,
-        on_saved: Callable[[Path], Awaitable[None]],
-    ) -> None:
-        try:
-            destination.mkdir(parents=True, exist_ok=True)
-            target = _unique_download_path(destination, download.suggested_filename)
-            await download.save_as(str(target))
-        except (OSError, PlaywrightError) as exc:
-            # The exception class is the only thing logged: a message could
-            # echo the filename's directory, which never leaves this process.
-            logger.error(
-                "netfacilities.download_save_failed",
-                extra={"fields": {"exc_type": type(exc).__name__}},
-            )
-            return
-        await on_saved(target)
 
     async def get_work_order(self, work_order_number: str) -> ParsedWorkOrder:
         """Retrieve and parse one work order without executing document actions."""
@@ -392,9 +225,14 @@ class NetFacilitiesClient:
         *,
         expected_path: str,
     ) -> DocumentRetrieval:
-        """Perform the one allowlisted read through whichever transport is in use."""
+        """Perform the one allowlisted read through whichever transport is in use.
 
-        if self.use_saved_state and self._request_context is None:
+        The bounded request read is the default: Priority is server-rendered, so
+        the primed raw response already carries it. Rendering needs a real page,
+        so it is the one case that navigates instead.
+        """
+
+        if self.render_document:
             return await self._navigate_to_work_order_document(
                 url,
                 expected_path=expected_path,
@@ -751,19 +589,6 @@ def _unrendered_retrieval(
     )
 
 
-def _unique_download_path(directory: Path, suggested_filename: str) -> Path:
-    """Keep the vendor's filename, minus any path, and never overwrite."""
-
-    name = Path(suggested_filename or "").name or "download"
-    candidate = directory / name
-    stem, suffix = candidate.stem, candidate.suffix
-    counter = 1
-    while candidate.exists():
-        candidate = directory / f"{stem} ({counter}){suffix}"
-        counter += 1
-    return candidate
-
-
 def _is_allowed_host(url: str) -> bool:
     parsed = urlsplit(url)
     return parsed.scheme == "https" and parsed.hostname == "system.netfacilities.com"
@@ -772,15 +597,3 @@ def _is_allowed_host(url: str) -> bool:
 def _is_login_url(url: str) -> bool:
     parsed = urlsplit(url)
     return parsed.path.casefold().startswith(LOGIN_PATH_PREFIX)
-
-
-def _require_subprocess_capable_event_loop() -> None:
-    """Reject the Windows selector loop before Playwright starts its driver."""
-
-    if sys.platform == "win32" and isinstance(
-        asyncio.get_running_loop(), asyncio.SelectorEventLoop
-    ):
-        raise NetFacilitiesUnavailable(
-            "The NetFacilities browser requires a subprocess-capable Windows event "
-            "loop. Restart Uvicorn without auto-reload or multiple workers."
-        )

@@ -4,14 +4,13 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from app.integrations.netfacilities import client as client_module
 from app.integrations.netfacilities.client import (
     BASE_URL,
     MAX_RESPONSE_BYTES,
     NetFacilitiesClient,
-    STORAGE_STATE_FILENAME,
 )
 from app.integrations.netfacilities.errors import (
     NetFacilitiesAuthenticationRequired,
@@ -53,20 +52,10 @@ class FakeRequestContext:
         return self.response
 
 
-class FakeStandaloneRequestContext(FakeRequestContext):
-    def __init__(self, response):
-        super().__init__(response)
-        self.disposed = 0
-
-    async def dispose(self):
-        self.disposed += 1
-
-
 class FakeBrowserContext:
     def __init__(self, response, *, pages=None, rendered_html=None):
         self.response = response
         self.request = FakeRequestContext(response)
-        self.storage_state_calls = []
         self.pages = pages or []
         self.closed = 0
         self.rendered_html = rendered_html
@@ -75,10 +64,6 @@ class FakeBrowserContext:
 
     def on(self, event, handler):
         self.handlers[event] = handler
-
-    async def storage_state(self, **kwargs):
-        self.storage_state_calls.append(kwargs)
-        return {"cookies": [], "origins": []}
 
     async def new_page(self):
         page = FakePage(
@@ -189,58 +174,19 @@ class FakePage:
         self.closed += 1
 
 
-class FakeDownload:
-    def __init__(self, suggested_filename, *, save_error=None):
-        self.suggested_filename = suggested_filename
-        self.save_error = save_error
-        self.saved_to = None
-
-    async def save_as(self, path):
-        if self.save_error is not None:
-            raise self.save_error
-        self.saved_to = Path(path)
-        self.saved_to.write_text("WORK ORDER\n", encoding="utf-8")
-
-
-def _persistent_runtime(monkeypatch, context):
-    """Fake Playwright whose chromium launches the given persistent context."""
-
-    class FakeChromium:
-        def __init__(self):
-            self.persistent_calls = []
-
-        async def launch_persistent_context(self, **kwargs):
-            self.persistent_calls.append(kwargs)
-            return context
-
-    class FakePlaywright:
-        def __init__(self, chromium):
-            self.chromium = chromium
-            self.stopped = 0
-
-        async def stop(self):
-            self.stopped += 1
-
-    chromium = FakeChromium()
-    runtime = FakePlaywright(chromium)
-
-    class FakeStarter:
-        async def start(self):
-            return runtime
-
-    monkeypatch.setattr(client_module.sys, "platform", "linux")
-    monkeypatch.setattr(client_module, "async_playwright", lambda: FakeStarter())
-    return chromium, runtime
-
-
 def _client(response):
     context = FakeBrowserContext(response)
-    client = NetFacilitiesClient(
-        profile_dir=Path("unused-in-offline-test"),
-        headless=True,
-        _context=context,
-    )
+    client = NetFacilitiesClient(headless=True, _context=context)
     return client, context
+
+
+def test_a_client_without_a_context_cannot_be_entered():
+    """The Steel cloud session is the only way to get a working client."""
+
+    client = NetFacilitiesClient(headless=True)
+
+    with pytest.raises(NetFacilitiesUnavailable, match="existing browser context"):
+        asyncio.run(client.__aenter__())
 
 
 def test_get_work_order_uses_only_the_allowlisted_read_request():
@@ -321,11 +267,7 @@ def _sequenced_client(bodies):
     context.request = FakeSequencedRequestContext(
         [FakeResponse(body=body) for body in bodies]
     )
-    client = NetFacilitiesClient(
-        profile_dir=Path("unused-in-offline-test"),
-        headless=True,
-        _context=context,
-    )
+    client = NetFacilitiesClient(headless=True, _context=context)
     return client, context
 
 
@@ -379,11 +321,7 @@ def test_priming_redirected_to_login_is_authentication_required():
     context.request = FakeRequestContext(
         FakeResponse(status=302, headers={"location": "/Account/loginfrm"})
     )
-    client = NetFacilitiesClient(
-        profile_dir=Path("unused-in-offline-test"),
-        headless=True,
-        _context=context,
-    )
+    client = NetFacilitiesClient(headless=True, _context=context)
 
     with pytest.raises(NetFacilitiesAuthenticationRequired):
         asyncio.run(client.get_work_order("12345678"))
@@ -392,40 +330,14 @@ def test_priming_redirected_to_login_is_authentication_required():
     assert len(context.request.calls) == 1
 
 
-def test_saved_state_uses_one_browser_document_and_aborts_every_subresource():
-    context = FakeBrowserContext(FakeResponse())
-    client = NetFacilitiesClient(
-        profile_dir=None,
-        storage_state_path=Path("unused-saved-state"),
-        headless=True,
-        use_saved_state=True,
-        _context=context,
-    )
+def test_unrendered_reads_never_open_a_page():
+    """Priority is server-rendered, so the default read needs no page at all."""
 
-    parsed = asyncio.run(client.get_work_order("12345678"))
+    client, context = _client(FakeResponse())
 
-    assert parsed.priority == "Normal"
-    # Priming shares the context cookies, so it needs no page of its own.
-    assert [url for url, _ in context.request.calls] == [
-        "https://system.netfacilities.com/myhome"
-    ]
-    assert len(context.pages) == 1
-    page = context.pages[0]
-    assert page.goto_calls == [
-        (
-            "https://system.netfacilities.com/tools/viewworkorders/12345678",
-            {"wait_until": "commit", "timeout": 30_000},
-        )
-    ]
-    assert page.route_calls[0][0] == "**/*"
-    document_route, *subresource_routes = page.route_calls[1:]
-    assert document_route.action == "continued"
-    # Kill switch off: nothing but the one document is allowed, not even
-    # same-origin scripts.
-    assert [route.action for route in subresource_routes] == ["aborted"] * 3
-    assert {route.abort_code for route in subresource_routes} == {"blockedbyclient"}
-    assert page.waited_for == []
-    assert page.closed == 1
+    asyncio.run(client.get_work_order("12345678"))
+
+    assert context.pages == []
 
 
 RENDERED_HTML = (
@@ -456,10 +368,7 @@ RAW_HTML_WITHOUT_PRIORITY = (
 def _rendering_client(response, rendered_html=RENDERED_HTML):
     context = FakeBrowserContext(response, rendered_html=rendered_html)
     client = NetFacilitiesClient(
-        profile_dir=None,
-        storage_state_path=Path("unused-saved-state"),
         headless=True,
-        use_saved_state=True,
         render_document=True,
         _context=context,
     )
@@ -533,10 +442,7 @@ def test_client_side_redirect_to_login_fails_closed():
     context = FakeBrowserContext(FakeResponse(), rendered_html=RENDERED_HTML)
     context.redirect_to = "https://system.netfacilities.com/account/login"
     client = NetFacilitiesClient(
-        profile_dir=None,
-        storage_state_path=Path("unused-saved-state"),
         headless=True,
-        use_saved_state=True,
         render_document=True,
         _context=context,
     )
@@ -553,19 +459,6 @@ def test_rendered_document_is_bounded():
 
     with pytest.raises(NetFacilitiesUnexpectedResponse, match="size limit"):
         asyncio.run(client.get_work_order("12345678"))
-
-
-def test_persists_playwright_storage_state_inside_the_protected_profile():
-    client, context = _client(FakeResponse())
-
-    asyncio.run(client.persist_authentication_state())
-
-    assert context.storage_state_calls == [
-        {
-            "path": str(Path("unused-in-offline-test") / STORAGE_STATE_FILENAME),
-            "indexed_db": True,
-        }
-    ]
 
 
 def test_in_app_authentication_opens_only_the_allowlisted_site():
@@ -597,163 +490,6 @@ def test_in_app_authentication_accepts_allowlisted_authenticated_popup():
     )
 
     asyncio.run(client.verify_authentication_page())
-
-
-def test_windows_selector_loop_fails_closed_before_playwright_start(
-    tmp_path, monkeypatch
-):
-    class PlaywrightMustNotStart:
-        def start(self):
-            raise AssertionError("Playwright started under an incompatible event loop")
-
-    monkeypatch.setattr(client_module.sys, "platform", "win32")
-    monkeypatch.setattr(
-        client_module,
-        "async_playwright",
-        lambda: PlaywrightMustNotStart(),
-    )
-    client = NetFacilitiesClient(profile_dir=tmp_path, headless=False)
-
-    async def enter_client():
-        await client.__aenter__()
-
-    with pytest.raises(NetFacilitiesUnavailable, match="without auto-reload"):
-        with asyncio.Runner(loop_factory=asyncio.SelectorEventLoop) as runner:
-            runner.run(enter_client())
-
-
-def test_request_only_saved_state_never_launches_a_browser(tmp_path, monkeypatch):
-    storage_state = tmp_path / STORAGE_STATE_FILENAME
-    storage_state.write_text('{"cookies": [], "origins": []}', encoding="utf-8")
-    request_context = FakeStandaloneRequestContext(FakeResponse())
-
-    class FakeRequestFactory:
-        def __init__(self):
-            self.calls = []
-
-        async def new_context(self, **kwargs):
-            self.calls.append(kwargs)
-            return request_context
-
-    class FakePlaywright:
-        def __init__(self):
-            self.request = FakeRequestFactory()
-            self.stopped = 0
-
-        @property
-        def chromium(self):
-            raise AssertionError("request-only enrichment launched a browser")
-
-        async def stop(self):
-            self.stopped += 1
-
-    runtime = FakePlaywright()
-
-    class FakeStarter:
-        async def start(self):
-            return runtime
-
-    monkeypatch.setattr(client_module.sys, "platform", "linux")
-    monkeypatch.setattr(client_module, "async_playwright", lambda: FakeStarter())
-    client = NetFacilitiesClient(
-        profile_dir=None,
-        storage_state_path=storage_state,
-        headless=True,
-        use_saved_state=True,
-        request_only=True,
-    )
-
-    async def exercise():
-        async with client:
-            parsed = await client.get_work_order("12345678")
-            assert parsed.work_order_number == "12345678"
-
-    asyncio.run(exercise())
-
-    assert runtime.request.calls == [
-        {"storage_state": str(storage_state), "timeout": 30_000}
-    ]
-    # Priming and the read both go through the standalone request context.
-    assert [url for url, _ in request_context.calls] == [
-        "https://system.netfacilities.com/myhome",
-        "https://system.netfacilities.com/tools/viewworkorders/12345678",
-    ]
-    assert request_context.disposed == 1
-    assert runtime.stopped == 1
-
-
-def test_saved_state_browser_runtime_disables_page_execution(tmp_path, monkeypatch):
-    storage_state = tmp_path / STORAGE_STATE_FILENAME
-    storage_state.write_text('{"cookies": [], "origins": []}', encoding="utf-8")
-    context = FakeBrowserContext(FakeResponse())
-
-    class FakeBrowser:
-        def __init__(self):
-            self.context_calls = []
-            self.closed = 0
-
-        async def new_context(self, **kwargs):
-            self.context_calls.append(kwargs)
-            return context
-
-        async def close(self):
-            self.closed += 1
-
-    class FakeChromium:
-        def __init__(self, browser):
-            self.browser = browser
-            self.launch_calls = []
-
-        async def launch(self, **kwargs):
-            self.launch_calls.append(kwargs)
-            return self.browser
-
-    class FakePlaywright:
-        def __init__(self, chromium):
-            self.chromium = chromium
-            self.stopped = 0
-
-        async def stop(self):
-            self.stopped += 1
-
-    browser = FakeBrowser()
-    chromium = FakeChromium(browser)
-    runtime = FakePlaywright(chromium)
-
-    class FakeStarter:
-        async def start(self):
-            return runtime
-
-    monkeypatch.setattr(client_module.sys, "platform", "linux")
-    monkeypatch.setattr(client_module, "async_playwright", lambda: FakeStarter())
-    client = NetFacilitiesClient(
-        profile_dir=None,
-        storage_state_path=storage_state,
-        headless=True,
-        browser_channel=None,
-        use_saved_state=True,
-        request_only=False,
-    )
-
-    async def exercise():
-        async with client:
-            parsed = await client.get_work_order("12345678")
-            assert parsed.priority == "Normal"
-
-    asyncio.run(exercise())
-
-    assert chromium.launch_calls == [{"channel": None, "headless": True}]
-    assert browser.context_calls == [
-        {
-            "storage_state": str(storage_state),
-            "accept_downloads": False,
-            "java_script_enabled": False,
-            "service_workers": "block",
-        }
-    ]
-    assert context.closed == 1
-    assert browser.closed == 1
-    assert runtime.stopped == 1
 
 
 def test_login_redirect_is_authentication_required():
@@ -827,115 +563,7 @@ def test_production_image_installs_only_the_configured_bundled_browser():
     dockerfile = (backend / "Dockerfile").read_text(encoding="utf-8")
 
     assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" in dockerfile
-    assert "NETFACILITIES_BROWSER_CHANNEL=bundled-chromium" in dockerfile
     assert "playwright install --with-deps chromium" in dockerfile
-
-
-def test_interactive_profile_accepts_downloads(tmp_path, monkeypatch):
-    context = FakeBrowserContext(FakeResponse())
-    chromium, runtime = _persistent_runtime(monkeypatch, context)
-    client = NetFacilitiesClient(
-        profile_dir=tmp_path, headless=False, browser_channel="chrome"
-    )
-
-    async def exercise():
-        async with client:
-            pass
-
-    asyncio.run(exercise())
-    assert chromium.persistent_calls == [
-        {
-            "user_data_dir": str(tmp_path),
-            "channel": "chrome",
-            "headless": False,
-            "accept_downloads": True,
-        }
-    ]
-    assert context.closed == 1
-    assert runtime.stopped == 1
-
-
-def test_context_closed_by_the_operator_is_reported_and_not_closed_again(
-    tmp_path, monkeypatch
-):
-    context = FakeBrowserContext(FakeResponse())
-    _chromium, runtime = _persistent_runtime(monkeypatch, context)
-    client = NetFacilitiesClient(
-        profile_dir=tmp_path, headless=False, browser_channel="chrome"
-    )
-    seen = []
-
-    async def exercise():
-        async with client:
-            client.on_context_closed(lambda: seen.append("closed"))
-            context.handlers["close"](context)
-
-    asyncio.run(exercise())
-    assert seen == ["closed"]
-    assert context.closed == 0
-    assert runtime.stopped == 1
-
-
-def test_capture_downloads_saves_under_the_suggested_name_and_reports_the_path(
-    tmp_path,
-):
-    client, context = _client(FakeResponse())
-    page = FakePage("https://system.netfacilities.com/myhome")
-    context.pages.append(page)
-    saved = []
-
-    async def on_saved(path):
-        saved.append(path)
-
-    async def exercise():
-        client.capture_downloads(tmp_path / "downloads", on_saved)
-        page.handlers["download"](FakeDownload("WorkOrders.csv"))
-        await client.wait_for_downloads()
-        page.handlers["download"](FakeDownload("WorkOrders.csv"))
-        await client.wait_for_downloads()
-
-    asyncio.run(exercise())
-    assert saved == [
-        tmp_path / "downloads" / "WorkOrders.csv",
-        tmp_path / "downloads" / "WorkOrders (1).csv",
-    ]
-    assert all(path.is_file() for path in saved)
-    assert "page" in context.handlers
-
-
-def test_capture_downloads_attaches_to_pages_opened_later(tmp_path):
-    client, context = _client(FakeResponse())
-
-    async def on_saved(_path):
-        return None
-
-    async def exercise():
-        client.capture_downloads(tmp_path, on_saved)
-        later = FakePage("https://system.netfacilities.com/tools/viewworkorders")
-        context.handlers["page"](later)
-        assert "download" in later.handlers
-
-    asyncio.run(exercise())
-
-
-def test_download_save_failure_is_swallowed_and_never_reported(tmp_path):
-    client, context = _client(FakeResponse())
-    page = FakePage("https://system.netfacilities.com/myhome")
-    context.pages.append(page)
-    saved = []
-
-    async def on_saved(path):
-        saved.append(path)
-
-    async def exercise():
-        client.capture_downloads(tmp_path, on_saved)
-        page.handlers["download"](
-            FakeDownload("x.csv", save_error=PlaywrightError("disk"))
-        )
-        await client.wait_for_downloads()
-
-    asyncio.run(exercise())
-    assert saved == []
 
 
 def test_prime_session_always_probes_the_server_and_leaves_it_primed():
@@ -953,14 +581,3 @@ def test_prime_session_always_probes_the_server_and_leaves_it_primed():
         f"{BASE_URL}/myhome",
         f"{BASE_URL}/tools/viewworkorders/12345678",
     ]
-
-
-def test_unique_download_path_strips_directories_and_numbers_duplicates(tmp_path):
-    (tmp_path / "export.csv").write_text("", encoding="utf-8")
-    (tmp_path / "export (1).csv").write_text("", encoding="utf-8")
-
-    assert (
-        client_module._unique_download_path(tmp_path, "../export.csv")
-        == tmp_path / "export (2).csv"
-    )
-    assert client_module._unique_download_path(tmp_path, "") == tmp_path / "download"
