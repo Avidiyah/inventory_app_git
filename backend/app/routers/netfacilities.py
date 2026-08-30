@@ -13,10 +13,7 @@ from app.database import get_db
 from app.domain import roles
 from app.integrations.netfacilities.cloud_config import load_netfacilities_cloud_config
 from app.integrations.netfacilities.cloud_steel import SteelCloudBrowserProvider
-from app.integrations.netfacilities.config import (
-    NetFacilitiesConfig,
-    load_netfacilities_config,
-)
+from app.integrations.netfacilities.config import load_netfacilities_config
 from app.integrations.netfacilities.errors import (
     NetFacilitiesAuthenticationRequired,
     NetFacilitiesError,
@@ -34,6 +31,9 @@ from app.schemas.netfacilities import (
 from app.schemas.work_orders import WorkOrderImportResult
 from app.services.netfacilities_cloud_auth import (
     NetFacilitiesCloudAuthenticationCoordinator,
+)
+from app.services.netfacilities_cloud_enrichment import (
+    resolve_cloud_enrichment_context,
 )
 from app.services.netfacilities_jobs import (
     NetFacilitiesJobCoordinator,
@@ -114,8 +114,8 @@ async def start_netfacilities_enrichment(
             detail="NetFacilities enrichment is disabled on this host.",
         )
     try:
-        cloud_context, cloud_batch_seconds = _resolve_cloud_enrichment_context(
-            config, db, user
+        cloud_context, cloud_batch_seconds = resolve_cloud_enrichment_context(
+            config, db, user.id
         )
         snapshot, _created = await jobs.start(
             config,
@@ -134,35 +134,6 @@ async def start_netfacilities_enrichment(
             detail="Another NetFacilities operation is already running.",
         ) from exc
     return _job_response(snapshot)
-
-
-def _resolve_cloud_enrichment_context(
-    config: NetFacilitiesConfig,
-    db: Session,
-    user: User,
-):
-    """The calling user's own cloud session, ready to reconnect, and the
-    batch deadline it must respect (spec §4), or `(None, None)` if they have
-    none or theirs has expired (spec D10)."""
-
-    cloud_config = load_netfacilities_cloud_config(config)
-    if not cloud_config.enabled:
-        return None, None
-    from app.integrations.netfacilities.factory import (
-        create_netfacilities_cloud_enrichment_client,
-    )
-    from app.models import NetFacilitiesCloudSession
-
-    row = db.query(NetFacilitiesCloudSession).filter_by(user_id=user.id).one_or_none()
-    if row is None or row.expires_at is not None:
-        return None, None
-    context = create_netfacilities_cloud_enrichment_client(
-        cloud_config,
-        row.storage_state.encode("ascii"),
-        render_document=config.render_document,
-        render_settle_ms=config.render_settle_ms,
-    )
-    return context, cloud_config.batch_session_seconds
 
 
 def _mark_cloud_session_expired_if_needed(
