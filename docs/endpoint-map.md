@@ -133,7 +133,7 @@ lists what the call reads (r) and writes (w).
 | NF5 | GET | `/integrations/netfacilities/cloud/session` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.latest` + `NetFacilitiesCloudSession` existence check | netfacilities_cloud_sessions (r, existence only) | `apiGetNetFacilitiesCloudSession` | `workOrders.js` (Integrations card, cloud sign-in) |
 | NF5a | POST | `/integrations/netfacilities/cloud/auth/start` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.start` → `SteelCloudBrowserProvider.open_login_session` | no DB; opens a Steel cloud session, per-user in-memory ceremony state | `apiStartNetFacilitiesCloudAuthentication` | `workOrders.js` |
 | NF5b | POST | `/integrations/netfacilities/cloud/auth/cancel` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.cancel` → `SteelCloudBrowserProvider.close_login_session` | no DB; releases the Steel session | `apiCancelNetFacilitiesCloudAuthentication` | `workOrders.js` |
-| NF6 | POST | `/integrations/netfacilities/cloud/downloads/import` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.captured_csv_bytes` → `work_orders.run_csv_import` → `services/work_orders.import_work_orders` | **work_orders** (find-or-create by number), same realtime + push side effects as WO import | `apiImportNetFacilitiesCloudDownload` | `workOrders.js` (Integrations card, **Import downloaded CSV**) |
+| NF6 | POST | `/integrations/netfacilities/cloud/downloads/import` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.dispatch_capture` → `work_orders.run_csv_import` → close session → `netfacilities_jobs.start` → chain push | **work_orders** (find-or-create by number, same realtime + push side effects as WO import), netfacilities_cloud_sessions (r), push_subscriptions (r, chain outcome push) | `apiImportNetFacilitiesCloudDownload` | `workOrders.js` (Integrations card, **Import downloaded CSV** — returns `NetFacilitiesCloudSessionStatus`, runs the same chain the automatic capture trigger does) |
 | WS1 | WS | `/ws` | session cookie + same-origin | `realtime.py` → `services/realtime` registry → `domain/realtime` policy | **none** — carries no row data, reads and writes nothing | — (`static/realtime.js` owns the socket; not an `api.js` wrapper) | `adminReview.js` (subscriber), `auth.js` + `nav.js` (lifecycle) |
 | H1 | GET | `/hub` | any authenticated | `hub.py` → `hub.personal_hub` → `work_orders.sweep_stale_sessions` + `labor_summary.day_summary` + `tools.user_custody_detail` | work_order_labor_sessions (r/w on sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), tool_transactions (r), tools (r), users (r) | `apiGetHub` | `userHub.js`, `hubClock.js`, `hubTechnician.js` |
 | H2 | GET | `/hub/crew` | supervisor+ | `hub.py` → `hub.crew_hub` → `work_orders.sweep_stale_sessions` (per crew member) + `labor_summary.crew_day_summaries` + `labor_summary.last_worked` | work_order_labor_sessions (r/w on per-member sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), users (r) | `apiGetHubCrew` | `userHub.js`, `hubSupervisor.js` |
@@ -491,10 +491,19 @@ one no import has brought in.
   state; completion/timeout reloads cards. Missing/expired auth preserves the completed
   CSV import, expires that user's saved row (spec D8), and recovery is signing in
   again before using **Import Tasks and Priority**.
-- `workOrders.js` (**Import downloaded CSV**) calls `apiImportNetFacilitiesCloudDownload`
-  → `POST /integrations/netfacilities/cloud/downloads/import`, which imports the CSV
-  the cloud window most recently captured through the same `run_csv_import` the
-  upload route uses, then continues into the enrichment flow above.
+- A CSV exported in the cloud window is captured and dispatched **unattended**
+  (auto-capture spec, E4): `netfacilities_cloud_auth.dispatch_capture` imports it
+  through the same `run_csv_import` the upload route uses, closes the Steel
+  session on success (kept open on a failed import so the user can re-export,
+  E6), starts enrichment through the caller's own saved session (retrying while
+  a batch is running, E5), and pushes the outcome to that user (E10). The
+  session poll narrates the chain (`chain_stage`, `import_result`,
+  `enrichment_job_id` on `NetFacilitiesCloudSessionStatus`). `workOrders.js`
+  (**Import downloaded CSV**, shown only for an unconsumed capture) calls
+  `apiImportNetFacilitiesCloudDownload` →
+  `POST /integrations/netfacilities/cloud/downloads/import`, which runs the
+  **same** `dispatch_capture` chain — the manual and automatic paths cannot
+  drift.
 - `workOrders.js` (Re-archive legacy work orders..., Owner only) first calls
   `apiGetLegacyWorkOrderArchivePreview` → `GET /work-orders/legacy/archive` →
   `count_live_legacy_work_orders` and shows the returned live-row count in the

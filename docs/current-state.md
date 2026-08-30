@@ -1808,7 +1808,14 @@ base `NETFACILITIES_ENABLED`), `STEEL_API_KEY`, and
 pattern as `VAPID_PRIVATE_KEY`). `NETFACILITIES_CLOUD_LOGIN_TIMEOUT_SECONDS`
 and `NETFACILITIES_CLOUD_BATCH_SESSION_SECONDS` (both optional, default 840)
 bound the login ceremony and each reconnected enrichment job under Steel's
-15-minute session cap.
+15-minute session cap. Three more optional timings govern the capture chain
+(2026-08-30): `NETFACILITIES_CLOUD_SIGNED_IN_TIMEOUT_SECONDS` (default 600)
+ends a signed-in ceremony that never captures — the deadline that fixed the
+released-but-still-advertised session leak (D-C);
+`NETFACILITIES_CLOUD_CAPTURE_POLL_SECONDS` (default 5) paces the safety-net
+capture poll behind the Playwright `download` listener; and
+`NETFACILITIES_CLOUD_ENRICHMENT_RETRY_SECONDS` (default 120) caps how long
+the chain retries `jobs.start()` while another enrichment batch is running.
 
 `POST /integrations/netfacilities/cloud/auth/start` opens a Steel session,
 returns its `live_view_url` for the frontend to open in a new tab, and
@@ -1820,8 +1827,15 @@ own account-gated dashboard (team/project picker, event log, cost), which
 means nothing to an end user with no Steel login, while `debug_url` opens
 the interactive remote browser directly with no Steel UI at all. Once
 signed in, the same session captures the CSV the user exports via Steel's
-Files API; `POST /integrations/netfacilities/cloud/downloads/import` imports
-it through the shared `run_csv_import` pipeline. `GET
+Files API (a Playwright `download` listener records the event; the poll is
+the safety net, and the `capture_path` log line reports which one won). As
+of 2026-08-30 the capture is dispatched unattended: import through the
+shared `run_csv_import` pipeline, session closed on success (kept open on a
+failed import so the user can re-export without signing in again),
+enrichment started through the caller's own saved session, and a web push
+sent to that user on both outcomes.
+`POST /integrations/netfacilities/cloud/downloads/import` is the manual
+fallback for an unconsumed capture and runs the same chain. `GET
 /integrations/netfacilities/cloud/session` reports only the calling user's
 own ceremony state, never anyone else's.
 
@@ -1865,7 +1879,7 @@ exists if it does not.
 | GET | `/integrations/netfacilities/cloud/session` | techfm_oa+ | the calling user's own cloud capability: availability, safe message, whether they have a saved session, and their own ceremony status |
 | POST | `/integrations/netfacilities/cloud/auth/start` | techfm_oa+ | open a Steel cloud session and return its live-view URL |
 | POST | `/integrations/netfacilities/cloud/auth/cancel` | techfm_oa+ | release that user's Steel session |
-| POST | `/integrations/netfacilities/cloud/downloads/import` | techfm_oa+ | import the CSV most recently captured from that user's cloud window through the shared `run_csv_import` pipeline; 409 when none was captured |
+| POST | `/integrations/netfacilities/cloud/downloads/import` | techfm_oa+ | run the capture chain (import → close session → enrich → push) on the unconsumed capture, returning the ceremony status; 409 when none was captured or it was already consumed |
 
 The five local-auth routes (`/session`, `/auth/start`, `/auth/confirm`,
 `/auth/cancel`, `/downloads/import`) were removed 2026-08-29 with the system

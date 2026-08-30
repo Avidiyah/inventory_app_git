@@ -115,6 +115,27 @@ the same day, see *Cloud auth (IMP-040, 2026-08-28)* in `current-state.md`.
 before this can be called done, and the owner still needs to
 rotate/invalidate the NetFacilities session flagged in the IMP-039 handoff.
 
+**2026-08-30 — auto-capture chain implemented** (spec
+`2026-08-29-netfacilities-auto-capture-design.md`, plan
+`2026-08-29-netfacilities-auto-capture.md`). Phase 1 (D-A path
+normalization, D-B loop guard, retryable capture, browser-level download
+behavior) shipped 2026-08-29. **The plan's production gate — confirming in
+production logs that a real Download CSV click produces
+`netfacilities.cloud_csv_captured` and the manual import works — has not
+been recorded yet**; record the result here when it happens. Phase 2 turns
+the capture into an unattended chain: automatic import, session closed on
+success / kept open on a failed import (E6), a 10-minute signed-in deadline
+(E7, fixes the D-C billing leak), enrichment started through the caller's
+own session with a 2-minute collision retry (E5), a web push on both
+outcomes (E10), and the manual button running the same
+`dispatch_capture` chain (E8). Follow-ups, from the spec's known gaps:
+
+- Vendor-side session health checking (spec §4.4): the E7 deadline bounds a
+  reaped session but nothing detects Steel reaping one early.
+- The Playwright `download` listener (spec §3): unverified over
+  `connect_over_cdp`. Production logs now carry `capture_path=listener|poll`
+  on every capture — if it reads `poll` every time, delete the listener.
+
 ### IMP-037 — Field-help `?` tooltips — CLOSED
 
 - **Logged** 2026-08-23 · *App-wide* · designed with the owner the same day
