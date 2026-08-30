@@ -1,6 +1,7 @@
 # Work Order Daily Report — design
 
-Status: approved for planning · 2026-08-30
+Status: approved for planning · 2026-08-30 (expanded the same day after
+spec review; review-settled points are marked *review*)
 
 An Admin-only daily digest on the User Hub: what closed, what is on its way
 to closing, and what arrived. Rendered on the page and downloadable as one
@@ -36,6 +37,9 @@ no notion of a time window. This report is that missing surface.
 | R7 | **One CSV, `SECTION`-prefixed.** A single file whose rows are the existing 26-column `EXPORT_HEADERS` row preceded by a `SECTION` cell. |
 | R8 | **Endpoint pair, new service module.** `GET /hub/report` (JSON) and `GET /hub/report/export` (CSV), mirroring the timesheets pair. Logic lives in a new `services/work_order_report.py`. |
 | R9 | **The CSV is a pure function of the JSON payload.** Both endpoints compose the same payload; the exporter only renders it. Screen and file cannot drift. |
+| R10 | *review* **Closes no person made here are included and marked.** A close by the NetFacilities reconcile sweep, or an archived `legacy` row, stays in `closed_*` and in the counts, with a badge on the page and a sub-count in the header. The CSV rows and `SECTION` keys are unchanged. Not excluded, not a separate section: a close is a close, but the Admin must be able to tell 6 finished jobs from 14 tickets NetFacilities closed. |
+| R11 | *review* **A closed row's click lands on the exact-number search.** The Work Orders page hides archived rows, so a closed row routes there with its number in the search box, which triggers the shipped "Work Order has been closed. Restore?" prompt. A live row opens its card page. |
+| R12 | *review* **Operational columns on the page.** Number · Status · Community / Location · Service type · Supervisor · Technicians · the section's timestamp. Money stays in the CSV. |
 
 ### Decisions deliberately *not* taken
 
@@ -71,7 +75,8 @@ around:
    caveat ("does not claim audit-grade historical close data") and this
    report inherits it. **The report is a live view, not an archival record.**
    Two runs of the same window on different days may legitimately differ.
-   This is stated on the page, not buried here.
+   This is stated on the page, not buried here. The reconcile sweep's
+   reopen-on-reappearance is one more way a close can vanish.
 
 3. **`created_at` is import time, not vendor time.** Work orders are
    import-only. "New today" means "first imported into this system today,"
@@ -112,6 +117,23 @@ A closed work order is in `closed_*`, never in `closing`.
 same day appears in both `new_today` and `closed_today`. Correct, and worth
 seeing.
 
+**Who closed it (R10).** Every row carries two booleans the page turns into
+badges: `auto_closed` (`auto_closed_batch_id IS NOT NULL`, the reconcile
+sweep's provenance column) and `legacy` (`WorkOrder.legacy`). Each
+`closed_*` section also carries `auto_closed_count`, computed server-side
+over the same predicate. Ordering dependency: the column comes from the
+reconcile migration (`2026-08-30-netfacilities-reconcile-design.md`); if
+this report is built first, `auto_closed` is a constant `false` and
+`auto_closed_count` is `0` until that migration lands. The contract does
+not change either way.
+
+**Sort order** (a call made on review, not a user decision — override
+freely): `closed_*` by `archived_at` descending, which floats today's rows
+above the rest of the week on its own; `new_*` by `created_at` descending;
+`closing` by status in lifecycle order (`ready_to_complete`, `completed`,
+`review`) then `created_at` ascending, so the longest-waiting row in each
+stage is first. The CSV writes rows in the same order.
+
 ### Window arithmetic
 
 All of it comes from `domain/labor_day.py`, already used by timesheets:
@@ -144,21 +166,29 @@ report. Returns `HubReportResponse`.
   "day": "2026-08-30",
   "week": { "start": "2026-08-24", "end": "2026-08-30" },
   "sections": {
-    "closed_today": { "count": 6,  "rows": [...] },
-    "closed_week":  { "count": 12, "rows": [...] },
-    "closing":      { "count": 9,  "rows": [...], "truncated": false },
+    "closed_today": { "count": 20, "auto_closed_count": 14, "rows": [...] },
+    "closed_week":  { "count": 31, "auto_closed_count": 14, "rows": [...] },
+    "closing":      { "count": 9,
+                      "by_status": { "ready_to_complete": 4, "completed": 3, "review": 2 },
+                      "truncated": false, "rows": [...] },
     "new_today":    { "count": 4,  "rows": [...] },
     "new_week":     { "count": 21, "rows": [...] }
   }
 }
 ```
 
+Three section models, not one with optional fields: `HubReportClosedSection`
+(`count`, `auto_closed_count`, `rows`), `HubReportClosingSection` (`count`,
+`by_status`, `truncated`, `rows`), `HubReportNewSection` (`count`, `rows`).
+`by_status` is a separate count query, not a tally over `rows`, so the
+sub-counts stay right when `closing` is truncated (§7).
+
 `week.end` is the Sunday of the current week (the calendar week's end, for
 labelling); the *data* stops at `generated_at`. The page renders "Week of
 Aug 24 – Aug 30" from this pair and week-to-date numbers from the counts.
 
-**Row shape.** Each row is the report's own display projection, not the
-26-column CSV row:
+**Row shape** (`HubReportRow`). The report's own display projection, not
+the 26-column CSV row:
 
 | Field | Note |
 |---|---|
@@ -167,9 +197,10 @@ Aug 24 – Aug 30" from this pair and week-to-date numbers from the counts.
 | `community`, `location`, `building_number`, `unit_number` | placement |
 | `service_type`, `priority` | |
 | `supervisor_name` | `null` when unrouted |
-| `technician_names` | list; may be empty |
+| `technician_names` | list from `work_order.technicians`; may be empty |
 | `materials_total`, `labor_minutes`, `labor_total`, `total` | reuses `wo.effective_billable` / `wo.labor_charge`, so the money matches the export and Admin Review exactly |
-| `created_at`, `completed_at`, `archived_at` | UTC instants; the client formats |
+| `created_at`, `completed_at`, `archived_at` | UTC instants; the client formats in Central |
+| `auto_closed`, `legacy` | R10 badges |
 
 Rendering money and minutes server-side from the same domain helpers is the
 existing rule (`services/work_orders.py:1331` and the export docstring) —
@@ -188,18 +219,19 @@ the name.
 
 **Body:** a header row of `("SECTION",) + wo.EXPORT_HEADERS`, then, for each
 section in the fixed order `closed_today, closed_week, closing, new_today,
-new_week`, one row per work order: the section key followed by
-`services.work_orders._export_row(work_order)` verbatim.
+new_week`, one row per work order in the section's sort order: the section
+key followed by `services.work_orders.export_row(work_order)` verbatim.
 
-Reusing `_export_row` (promoted from `_export_row` to a public
-`export_row`, since it now has a second caller) is load-bearing: it keeps
-report rows byte-identical to the full export's, which means the file
-still round-trips through `POST /work-orders/import` — the importer reads
-its seven headers by name and ignores every column after them, including a
-column *before* them. `\r\n` line endings and the `csv` module's quoting,
-as everywhere else.
+Reusing `_export_row` (promoted to a public `export_row`, since it now has
+a second caller) is load-bearing: it keeps report rows byte-identical to
+the full export's, which means the file still round-trips through
+`POST /work-orders/import` — the importer reads its seven headers by name
+and ignores every column after them, including a column *before* them.
+`\r\n` line endings and the `csv` module's quoting, as everywhere else.
+The R10 badges are page-only: adding a column to `export_row` would change
+the operational export's shape for every consumer.
 
-**Timestamp seam — document it.** `_export_row` writes UTC via
+**Timestamp seam — document it.** `export_row` writes UTC via
 `_csv_timestamp`, but the sections are Central calendar periods. A work
 order closed at 8:00 PM Central on the 30th sits in `closed_today` for the
 30th while its `ARCHIVED AT` cell reads `2026-08-31 01:00`. This is not a
@@ -245,7 +277,8 @@ ceiling bites (the cap also emits `event=list.truncated`, which is the
 signal that this section needs real pagination). The page shows a plain
 notice when truncated; the CSV, being a render of the same payload, is
 truncated identically. **The two must never diverge**, which is why the cap
-lives in the payload builder and not in either renderer.
+lives in the payload builder and not in either renderer. `count` and
+`by_status` are always the true totals, cap or no cap.
 
 The time-windowed sections take no cap. This mirrors the work-order
 export's considered exemption — a report that silently omits closures while
@@ -260,12 +293,13 @@ here the window itself is the bound.
 |---|---|
 | `backend/app/services/work_order_report.py` | **New.** Payload dataclasses, `daily_report(db, *, now)`, `report_csv(payload)`. The whole feature's logic. |
 | `backend/app/services/work_orders.py` | Promote `_export_row` → `export_row` (public); no behaviour change. |
-| `backend/app/schemas/hub.py` | Add `HubReportRow`, `HubReportSection`, `HubReportWeek`, `HubReportResponse`. |
+| `backend/app/schemas/hub.py` | Add `HubReportRow`, the three section models, `HubReportWeek`, `HubReportSections`, `HubReportResponse`. |
 | `backend/app/routers/hub.py` | Add the two handlers. Thin, like the rest of the file. |
 | `backend/static/api.js` | Add `apiGetHubReport()`; the CSV is a plain link/`window.location`, as the timesheet export is. |
-| `backend/static/pages/user-hub.html` | Fifth tab button + panel, `hidden` by default. |
-| `backend/static/views/userHub.js` | Reveal the tab for Admin+, lazy-fetch on first open, skeleton while loading. |
+| `backend/static/pages/user-hub.html` | Fifth tab button + panel (`hub-tab-report`, `hub-tabpanel-report`), after Graphs, `hidden` by default. |
+| `backend/static/views/userHub.js` | `viewerIsAdmin()` (`roleAtLeast(role, "admin")`); reveal the tab; lazy-fetch on first open; skeleton while loading; reset the cached payload alongside the admin state in `loadUserHub`, and fall back to the dashboard if a non-Admin's `activeTab` is `report`. |
 | `backend/static/views/hubReport.js` | **New.** Renders the five sections. |
+| `backend/static/views/workOrders.js` | **New export** `openWorkOrdersByNumberSearch(number)` (R11, §9). |
 | `backend/static/styles.css` (or the hub partial) | Section/table styles; no inline `style=` attributes — CSP drops them. |
 | `docs/endpoint-map.md`, `docs/current-state.md` | Document the two routes and the report. |
 
@@ -285,7 +319,7 @@ Daily Report                          Thu, Aug 30 2026   [ Download CSV ]
 Week of Aug 24 – Aug 30 · week to date
 
 ┌ Closed ─────────────────────────────────────────────────────────────┐
-│   Today  6            This week  12                                 │
+│   Today  20 (14 in NetFacilities)    This week  31 (14 in NetFacilities)
 │   [table of closed_week rows, today's marked]                       │
 └─────────────────────────────────────────────────────────────────────┘
 ┌ Closing ────────────────────────────────────────────────────────────┐
@@ -299,24 +333,58 @@ Week of Aug 24 – Aug 30 · week to date
 ```
 
 **Nested windows render as one table, not two.** Closed and New each show
-the week's rows with today's rows marked (a "Today" badge and a sort that
-floats them to the top), rather than repeating six rows in a second table.
-The two counts sit above as a total and its subset — the same "total plus
-subsets, not disjoint buckets" idiom `HubCounts` already establishes. The
-CSV still writes both sections, because a spreadsheet filters on a column
-where a page uses a badge.
+the week's rows with today's rows marked (a "Today" badge; the server's
+sort already puts them first), rather than repeating six rows in a second
+table. The two counts sit above as a total and its subset — the same
+"total plus subsets, not disjoint buckets" idiom `HubCounts` already
+establishes. The CSV still writes both sections, because a spreadsheet
+filters on a column where a page uses a badge.
 
-**Row click** opens the work order, reusing whatever `hubAdmin.js` already
-does to jump into the Work Orders page. **Status badges** follow the
-existing badge-only status-accent rule from the design system; red stays
-the primary brand colour and is not used to mean "bad".
+**Header sub-counts (R10).** The parenthetical `(14 in NetFacilities)`
+appears after a Closed count only when its `auto_closed_count` is
+non-zero. Closing's `ready to complete 4 · completed 3 · review 2` comes
+from `by_status`, never from counting rows.
+
+**Columns (R12).** Number · Status · Community / Location · Service type ·
+Supervisor · Technicians · timestamp. The timestamp column is `Closed`
+(`archived_at`) in the Closed section and `Created` (`created_at`) in the
+Closing and New sections — for Closing it reads as the row's age, which is
+what an Admin looking at a queue wants. Central time, formatted by the
+client. Location composes `community`, `building_number`, `unit_number`,
+`location` the way the Work Orders card already does. Tables sit in the
+existing `.hub-timesheet-table-wrap` so a narrow screen scrolls the table,
+not the page.
+
+**Badges.** Status follows the existing badge-only status-accent rule from
+the design system; red stays the primary brand colour and is not used to
+mean "bad". Additional badges, all neutral: `Today` (row is in the
+`*_today` subset), `Closed in NetFacilities` (`auto_closed`), `Legacy`
+(`legacy`).
+
+**Row click (R11).** Every row is a real `<button>` inside its first cell
+(number), so it is keyboard-reachable; no nested buttons. The handler
+branches on `archived_at`:
+
+- **Live row** (`archived_at === null`) — Closing rows, and New rows still
+  open: `focusWorkOrderNumber(number)` then `showPage("work-orders")`,
+  which opens the work order's card page by number.
+- **Closed row** — `openWorkOrdersByNumberSearch(number)` then
+  `showPage("work-orders")`. The new export in `workOrders.js` resets the
+  filter controls, puts the number in the search box, and arms a one-shot
+  `pendingArchivedCheck` that the next `loadWorkOrders` (the one
+  `showPage` triggers) consumes as `checkArchivedSearch: true` — the same
+  one-shot idiom `pendingSoloNumber` already uses. That runs the shipped
+  `offerRestoreForExactArchivedSearch`, so the Admin lands on the "Work
+  Order has been closed. Restore?" prompt. Choosing *Close* leaves them on
+  the empty search with the number filled in; *Clear filters* is one click
+  away. No new UI.
 
 **Empty states** are per-section and plainly worded ("Nothing closed yet
 today."), not an empty table.
 
 **The live-view caveat (§3.2)** appears once, as a footnote under the
-Closed section: restoring a closed work order removes it from these
-numbers.
+Closed section: restoring a closed work order — by hand, by the auto-close
+undo, or by a NetFacilities reappearance — removes it from these numbers.
 
 **Refresh.** Fetched on first open and re-fetched on tab re-entry, matching
 Graphs. No polling — a daily report does not need a live socket, and
@@ -346,6 +414,8 @@ Named so they are decisions, not omissions:
 - **Date navigation** (previous days/weeks). The windows are always
   current. Historical navigation would immediately hit §3.2's restore
   problem and should wait for the events table.
+- **A `SECTION`-style column for the R10 badges in the CSV.** `export_row`
+  is shared with the operational export; the badges stay on the page.
 
 ---
 
@@ -366,14 +436,20 @@ Named so they are decisions, not omissions:
   and excludes live rows in earlier statuses.
 - Created-and-closed-same-day appears in both `new_today` and
   `closed_today`.
-- `closing` truncation sets `truncated` and caps rows at `MAX_LIST_ROWS`.
+- `closing` truncation sets `truncated`, caps rows at `MAX_LIST_ROWS`, and
+  leaves `count` and `by_status` at the true totals.
+- Sort: `closed_*` newest close first; `closing` in lifecycle order then
+  oldest first.
+- R10: a row with `auto_closed_batch_id` set reports `auto_closed = true`
+  and is counted in `auto_closed_count`; a `legacy` archived row reports
+  `legacy = true`; a hand-archived row reports both `false`.
 - Money and minutes match `export_row`'s values for the same work order —
   the guard against a fourth totals implementation.
 
 **CSV, same file:**
 
 - Header is `("SECTION",) + EXPORT_HEADERS`; sections appear in the fixed
-  order.
+  order and rows in each section's sort order.
 - A row's 26 cells are identical to `export_row`'s output for that work
   order (the round-trip guarantee).
 - The emitted CSV, with its `SECTION` column present, still parses through
@@ -392,7 +468,11 @@ Named so they are decisions, not omissions:
 
 **HTTP, via `TestClient`** (not direct handler calls — `int`-`Literal`
 query params are not involved here, but the suite's convention holds):
-happy path shape, the CSV's content-type and disposition header.
+happy path shape including the three section models, the CSV's
+content-type and disposition header.
+
+**Frontend:** manual validation on the running app — the JS has no test
+harness. Check both click branches of R11 and the header parenthetical.
 
 ---
 
@@ -402,7 +482,7 @@ happy path shape, the CSV's content-type and disposition header.
    provable without HTTP or UI.
 2. `export_row` promotion + the CSV renderer + round-trip tests.
 3. Schemas + the two routes + the role-gate test change.
-4. The tab shell, `hubReport.js`, styles.
+4. `openWorkOrdersByNumberSearch`, the tab shell, `hubReport.js`, styles.
 5. Docs (`endpoint-map.md`, `current-state.md`, `open-work.md` follow-ons).
 
 Steps 1–3 are shippable and verifiable with no UI at all.
