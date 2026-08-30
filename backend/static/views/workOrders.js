@@ -38,7 +38,9 @@ import {
   apiArchiveWorkOrder,
   apiLookupWorkOrder,
   apiRestoreWorkOrder,
+  apiGetWorkOrderAutoClosePending,
   apiImportWorkOrders,
+  apiUndoWorkOrderAutoClose,
   apiStartNetFacilitiesEnrichment,
   apiGetNetFacilitiesEnrichment,
   apiGetNetFacilitiesCloudSession,
@@ -100,6 +102,7 @@ const netFacilitiesCloudImportDownloadBtn = document.getElementById("wo-netfacil
 const exportScope = document.getElementById("wo-export-scope");
 const exportBtn = document.getElementById("wo-export-btn");
 const exportClientBtn = document.getElementById("wo-export-client-btn");
+const autoCloseUndoBtn = document.getElementById("wo-auto-close-undo-btn");
 
 // Reference lists are reused during interactions within one visit (for example,
 // debounced Work Order searches), then refreshed when nav.js activates the page
@@ -1047,6 +1050,9 @@ export async function loadIntegrationsPage() {
   if (importSection) importSection.hidden = !isAdminPlus();
   if (!isAdminPlus()) return;
   void refreshNetFacilitiesCloudSession();
+  // So the undo button survives a browser refresh inside its 24-hour window,
+  // and so an OA who was not the one importing still finds it waiting.
+  void refreshAutoClosePending();
 }
 
 function renderCards(cards) {
@@ -2291,15 +2297,81 @@ if (netFacilitiesCloudImportDownloadBtn) {
   netFacilitiesCloudImportDownloadBtn.addEventListener("click", importNetFacilitiesCloudDownload);
 }
 
+// --- undo the import's auto-close (TechFM OA+) ----------------------------
+
+// Show or hide the red button from what the server says is still undoable, and
+// label it with the count it would restore. `null` means nothing pending, which
+// is the hidden state -- so a lapsed window puts the button away on its own.
+//
+// CSP drops inline `style` attributes here, so visibility is the `hidden`
+// attribute and nothing else.
+async function refreshAutoClosePending() {
+  if (!autoCloseUndoBtn) return;
+  try {
+    const pending = await apiGetWorkOrderAutoClosePending();
+    if (!pending || !pending.closed_count) {
+      autoCloseUndoBtn.hidden = true;
+      return;
+    }
+    autoCloseUndoBtn.textContent = `Undo auto-close (${pending.closed_count})`;
+    autoCloseUndoBtn.hidden = false;
+  } catch {
+    // A caller below TechFM OA gets a 403 here. Nothing to say: they cannot
+    // import either, so the button simply is not theirs.
+    autoCloseUndoBtn.hidden = true;
+  }
+}
+
+// No confirmation dialog. This button *is* the safety valve for the sweep;
+// putting friction in front of it defeats its purpose, and restoring work
+// orders is not itself destructive.
+async function undoAutoClose() {
+  autoCloseUndoBtn.disabled = true;
+  try {
+    const r = await apiUndoWorkOrderAutoClose();
+    const noun = r.restored === 1 ? "work order" : "work orders";
+    setMessage(importMessage, `${r.restored} ${noun} restored.`, "success");
+    await loadWorkOrders();
+  } catch (err) {
+    setMessage(importMessage, friendlyError(err, "Could not undo the auto-close."), "error");
+  } finally {
+    autoCloseUndoBtn.disabled = false;
+    await refreshAutoClosePending();
+  }
+}
+
+if (autoCloseUndoBtn) {
+  autoCloseUndoBtn.addEventListener("click", undoAutoClose);
+}
+
 // --- CSV import (Admin+) --------------------------------------------------
 
-// How many work orders the import added, and how many of those the CSV's
-// `ASSIGNED TO` name routed to a supervisor on its own. `supervisors_matched`
-// counts new work orders only, so the match count never exceeds `created`.
+// What one import did, as clauses joined by " · ", each appearing only when its
+// count is non-zero. `supervisors_matched` counts new work orders only, so the
+// match count never exceeds `created`.
+//
+// The closed clause is why this is a list rather than one sentence: an import
+// that created nothing and closed fourteen work orders is the single most
+// important thing the operator needs to see, and it used to fall through to the
+// flat "No new work orders." -- which was true and completely misleading.
+//
+// Also renders the auto-capture chain's "imported" narration step, so the
+// on-page story reads the same whether the import was clicked or captured.
 function importSummary(r) {
-  if (!r.created) return "No new work orders.";
-  const noun = r.created === 1 ? "new work order" : "new work orders";
-  return `${r.created} ${noun} · ${r.supervisors_matched} with a supervisor name match.`;
+  const clauses = [];
+  if (r.created) {
+    const noun = r.created === 1 ? "new work order" : "new work orders";
+    clauses.push(`${r.created} ${noun}`);
+    clauses.push(`${r.supervisors_matched} with a supervisor name match`);
+  }
+  if (r.auto_closed) {
+    clauses.push(`${r.auto_closed} closed (not in NetFacilities)`);
+  }
+  if (r.reopened) {
+    clauses.push(`${r.reopened} reopened (back in NetFacilities)`);
+  }
+  if (!clauses.length) return "No new work orders.";
+  return `${clauses.join(" · ")}.`;
 }
 
 // Everything that follows a successful import, whether the CSV was uploaded
@@ -2313,6 +2385,10 @@ async function afterWorkOrderImport(r) {
   usersLoaded = false;
   filterOptionsLoaded = false;
   await loadWorkOrders();
+  // After *every* import, whatever its counts: one that closed rows raises the
+  // pending count and one that reopened rows lowers it, so the label is only
+  // right if it is re-read either way.
+  await refreshAutoClosePending();
   const capability = await refreshNetFacilitiesCloudSession();
   const cloudStatus = capability && capability.status;
   if (

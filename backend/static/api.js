@@ -630,6 +630,21 @@ export async function apiArchiveLegacyWorkOrders() {
   }));
 }
 
+// Import reconciliation's undo (TechFM OA+). The GET answers `null` when there
+// is nothing to take back, which is what hides the button; the POST returns the
+// number actually restored, which can be lower than the label if somebody
+// restored rows by hand or a later import reopened them in between.
+export async function apiGetWorkOrderAutoClosePending() {
+  return liveGet("/work-orders/auto-close/pending");
+}
+
+export async function apiUndoWorkOrderAutoClose() {
+  return parseResponse(await fetch("/work-orders/auto-close/undo", {
+    method: "POST",
+    credentials: "include",
+  }));
+}
+
 // `patch` is any subset of {status, entry_mode, number, community,
 // building_number, unit_number, description, notes, location, output_to,
 // vendor_assignee, service_type, schedule_date, supervisor_id,

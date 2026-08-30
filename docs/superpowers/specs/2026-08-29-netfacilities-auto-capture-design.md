@@ -124,9 +124,33 @@ own cap reaps it.
 | E7 | Signed-in ceremonies get a deadline | **10 minutes** with no successful capture, then close and expire. Sits under Steel's own 15-minute session cap. E6 covers the success path; this covers abandonment and the failed-import case, so a kept-open session cannot leak. Fixes the billing leak in D-C. |
 | E8 | Manual import button | **Kept**, hidden unless a capture is sitting unconsumed, and it **runs the same chain** — import *and* enrichment. Whether capture was automatic or the user clicked the fallback, behavior is identical. |
 | E9 | Enrichment scope | **Global sweep, unchanged.** `_load_candidates` already selects every work order with a blank description or priority org-wide, so imported rows are covered and the existing backlog is cleaned up as a side effect. No candidate-filter plumbing. |
-| E10 | Completion reporting | **Web push on completion *and* on failure**, via the existing VAPID setup. An unattended chain must reach the user whether or not the tab is still open. The in-page status line stays as the live narration. |
+| E10 | Completion reporting | **Web push on completion *and* on failure**, via the existing VAPID setup. An unattended chain must reach the user whether or not the tab is still open. The in-page status line stays as the live narration. Both carry the reconcile sweep's counts — see §2a. |
 | E11 | Calling `run_csv_import` | The chain **opens its own `Session` and constructs its own `BackgroundTasks()`**, then awaits it. No refactor of `run_csv_import`, which two live routes already depend on. |
 | E12 | Timings | Ceremony deadline **10 min**; safety-net poll **5 s** (slower than today's 3 s, since the listener is primary); enrichment collision retry cap **2 min**. |
+
+## 2a. Amendment (2026-08-30): the import now reconciles
+
+`2026-08-30-netfacilities-reconcile-design.md` adds two things to
+`import_work_orders`, which this chain reaches through `run_csv_import`
+(E11) and therefore inherits with no plumbing: live work orders absent
+from the CSV are auto-closed, and sweep-closed ones listed again are
+reopened. `WorkOrderImportResult` gains `auto_closed` and `reopened`.
+
+An unattended import has nobody watching the summary line, so this spec
+absorbs the reporting duty (reconcile decision 9):
+
+- **Snapshot.** `import_result` on the ceremony snapshot is the whole
+  `WorkOrderImportResult`, so the frontend narration (§4.5) renders the
+  "imported" step with `workOrders.js::importSummary` — the same text a
+  clicked import shows, including `14 closed (not in NetFacilities)` and
+  `1 reopened (back in NetFacilities)` clauses when non-zero.
+- **Push (E10, §4.6).** The success body names the closes and reopens when
+  non-zero: *imported 3 work orders · 14 closed (not in NetFacilities) · 1
+  reopened; enrichment started.* The `docs/notification-events.md` row for
+  this push carries that shape.
+- **Nothing else changes.** The sweep's own safety valve is the
+  Integrations-page *Undo auto-close* button, which reads pending state on
+  page entry and so needs no hook here.
 
 ## 3. The one thing still unverified
 
@@ -210,8 +234,9 @@ On capture:
    `jobs.start()`, retrying while `created is False` under the E12 cap.
 5. **Notify** (E10).
 
-Import result and enrichment job id are recorded on the snapshot so the
-UI can report both without inventing a second polling channel.
+Import result (the full `WorkOrderImportResult`, so the reconcile counts
+ride along — §2a) and enrichment job id are recorded on the snapshot so
+the UI can report both without inventing a second polling channel.
 
 Ordering note: on the success path the session closes *before*
 enrichment starts, and enrichment opens its own short-lived replay
@@ -253,7 +278,9 @@ path — including enrichment.
 The chain sends a web push on both outcomes, through the existing VAPID
 setup, addressed to the ceremony's own user:
 
-- **Success** — imported *n* work orders, enrichment started (or queued).
+- **Success** — imported *n* work orders, plus *m closed (not in
+  NetFacilities)* and *k reopened* when those counts are non-zero (§2a);
+  enrichment started (or queued).
 - **Failure** — which stage failed (capture, import, enrichment) and what
   the user can do: re-export while still signed in (import failure, E6),
   or click Enrich later (collision cap reached, E5).
