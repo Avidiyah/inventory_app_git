@@ -70,14 +70,6 @@
                     <label for="work-orders-date-filter">Scheduled date<button type="button" class="tip-btn" data-tip="wo.scheduled-date">?</button></label>
                     <input id="work-orders-date-filter" type="date">
                 </div>
-                <div class="wo-filter-field">
-                    <label for="work-orders-location-search">Location</label>
-                    <input type="text" id="work-orders-location-search" placeholder="Search location">
-                </div>
-                <div class="wo-filter-field">
-                    <label for="work-orders-task-search">Task / symptom</label>
-                    <input type="text" id="work-orders-task-search" placeholder="Search task keywords">
-                </div>
             </div>
             <div class="filter-row wo-number-search-row">
                 <label for="work-orders-search">Work order #</label>
@@ -85,6 +77,12 @@
                 <button id="work-orders-search-btn" type="button">Search</button>
                 <button id="work-orders-clear-filters" type="button" class="secondary-btn">Clear filters</button>
                 <button id="wo-export-btn" type="button" class="secondary-btn" hidden>Export filtered CSV…</button>
+            </div>
+            <div class="filter-row wo-keyword-search-row">
+                <label for="work-orders-location-search">Location</label>
+                <input type="text" id="work-orders-location-search" placeholder="Search location">
+                <label for="work-orders-task-search">Task / symptom</label>
+                <input type="text" id="work-orders-task-search" placeholder="Search task keywords">
             </div>
             <p id="work-orders-export-message"></p>
         </section>

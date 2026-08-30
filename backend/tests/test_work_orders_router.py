@@ -232,6 +232,9 @@ def test_work_orders_ui_wires_location_and_task_searches():
     ).read_text(encoding="utf-8")
     assert 'id="work-orders-location-search"' in html
     assert 'id="work-orders-task-search"' in html
+    # Both live in their own inline row beneath the number-search bar --
+    # deliberately out of the filter grid.
+    assert '<div class="filter-row wo-keyword-search-row">' in html
 
     code = _code("workOrders.js")
     assert 'getElementById("work-orders-location-search")' in code
