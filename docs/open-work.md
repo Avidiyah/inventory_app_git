@@ -237,9 +237,12 @@ locked decisions. Four phases:
   merged.
 - **P4 · Admin hub — shipped.** The company Dashboard, conditional crew board,
   TechFM OA+-wide Timesheets, embedded Work Orders, and the guided Graphs tab
-  are implemented. Graphs provides live status distributions by community and
-  service type plus 12/26/52-week circulating-age versus close-out-time trends;
-  it intentionally does not expose a custom graph builder.
+  are implemented. Graphs makes community the primary axis: a community
+  sub-tab strip, that community's own live status donut, and an inner
+  Service Type / Priority split beneath it, every card drillable to the
+  matching Work Orders list at slice level — plus 12/26/52-week
+  circulating-age versus close-out-time trends. It intentionally does not
+  expose a custom graph builder.
 - **P5 · Admin daily report — shipped 2026-08-30.** `GET /hub/report`, `GET
   /hub/report/export`, `services/work_order_report.py`, and the Report tab.
   Design spec at

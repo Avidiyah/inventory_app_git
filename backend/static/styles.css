@@ -1853,12 +1853,22 @@ tr.archived-user {
 .hub-graph-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: var(--space-4); }
 .hub-graph-card, .hub-duration-section { background: var(--panel-nested); border: var(--border); border-radius: var(--radius-md); padding: var(--space-4); }
 .hub-graph-card h3 { font-size: var(--fs-lg); }
-/* A distribution card is a real <button> so it opens the matching Work
-   Orders filter with native keyboard/focus support -- a <button> does not
-   inherit `.hub-graph-card`'s text alignment or cursor for free, so those
-   are reset explicitly here, matching `.hub-tile-pipeline-item`'s pattern. */
-.hub-graph-card-clickable { display: block; width: 100%; margin: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; }
-.hub-graph-card-clickable:hover, .hub-graph-card-clickable:focus-visible { border-color: var(--color-primary); }
+/* Nested tab strips inside the Graphs panel: community first, then the
+   service-type/priority split within it. Reuses the page-level `.hub-tab`
+   visual language; the community strip wraps rather than scrolling, since
+   five labels with counts overflow a narrow viewport. */
+.hub-graphs-tabs { flex-wrap: wrap; margin-bottom: var(--space-3); }
+.hub-graphs-tab { font-size: var(--fs-sm); }
+.hub-graph-community { max-width: 320px; margin-bottom: var(--space-5); }
+/* The card is a plain div now (it holds buttons, and HTML forbids nesting
+   them), so the drill targets carry their own hover/focus affordance. */
+.hub-graph-card:hover, .hub-graph-card:focus-within { border-color: var(--color-brand); }
+.hub-graph-slice { cursor: pointer; }
+.hub-graph-slice:hover { opacity: 0.78; }
+.hub-graph-legend-row { display: flex; width: 100%; justify-content: space-between; gap: var(--space-2); align-items: center; background: none; border: none; margin: 0; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.hub-graph-legend-row:hover, .hub-graph-legend-row:focus-visible { color: var(--color-brand); }
+.hub-graph-card-all { display: block; width: 100%; margin-top: var(--space-3); background: none; border: var(--border); border-radius: var(--radius-sm); padding: var(--space-1) var(--space-2); min-height: var(--btn-h-sm); font: inherit; font-weight: var(--fw-semibold); font-size: var(--fs-sm); color: var(--text-panel-mute); cursor: pointer; }
+.hub-graph-card-all:hover, .hub-graph-card-all:focus-visible { border-color: var(--color-brand); color: var(--text-panel); }
 .hub-donut-wrap { width: min(190px, 100%); margin: var(--space-3) auto; position: relative; }
 .hub-donut { display: block; width: 100%; overflow: visible; fill: none; stroke-width: 17; transform: rotate(0deg); }
 .hub-graph-slice { stroke-linecap: butt; }
@@ -1873,10 +1883,9 @@ tr.archived-user {
 .hub-donut-total small { display: block; color: var(--text-panel-mute); font-size: var(--fs-xs); font-weight: var(--fw-regular); }
 .hub-graph-empty { min-height: 150px; display: grid; place-items: center; text-align: center; color: var(--text-panel-mute); }
 .hub-graph-legend { list-style: none; margin: 0; padding: 0; font-size: var(--fs-sm); }
-.hub-graph-legend li { display: flex; justify-content: space-between; gap: var(--space-2); border-top: 1px solid var(--panel-rule-soft); padding: var(--space-1) 0; font-variant-numeric: tabular-nums; }
+.hub-graph-legend li { display: flex; border-top: 1px solid var(--panel-rule-soft); padding: var(--space-1) 0; font-variant-numeric: tabular-nums; }
 .hub-graph-key { display: flex; align-items: center; gap: var(--space-2); }
 .hub-graph-swatch { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
-.hub-graphs-service-toggle { margin-top: var(--space-4); }
 .hub-duration-section { overflow: hidden; }
 .hub-duration-chart { display: block; width: 100%; min-height: 190px; margin: var(--space-3) 0; color: var(--text-panel-mute); font-size: 12px; }
 .hub-duration-axis { stroke: var(--panel-rule); stroke-width: 1; }
@@ -1891,7 +1900,7 @@ tr.archived-user {
 
 @media (max-width: 600px) {
     .hub-graphs-header { flex-direction: column; }
-    .hub-graph-legend li { align-items: flex-start; }
+    .hub-graph-legend-row { align-items: flex-start; }
 }
 
 .hub-clock-status {

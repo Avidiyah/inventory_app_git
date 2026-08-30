@@ -331,6 +331,19 @@ class HubGraphDistribution(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class HubGraphCommunity(BaseModel):
+    """One community's own status donut plus its two inner grids."""
+
+    key: str
+    label: str
+    total: int
+    counts: dict[str, int]
+    service_types: list[HubGraphDistribution] = []
+    priorities: list[HubGraphDistribution] = []
+
+    model_config = {"from_attributes": True}
+
+
 class HubGraphDurationRange(BaseModel):
     start: date
     end: date
@@ -363,10 +376,7 @@ class HubGraphsResponse(BaseModel):
     generated_at: datetime
     weeks: int
     statuses: list[HubGraphStatus] = []
-    priority_high: HubGraphDistribution
-    priority_medium: HubGraphDistribution
-    communities: list[HubGraphDistribution] = []
-    service_types: list[HubGraphDistribution] = []
+    communities: list[HubGraphCommunity] = []
     duration: HubGraphDuration
 
     model_config = {"from_attributes": True}

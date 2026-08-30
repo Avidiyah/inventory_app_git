@@ -643,67 +643,142 @@ def test_the_crew_payload_serialises_into_the_response_schema(db):
 # --- graphs_hub (P4 slice 2: guided company-wide graphs) -------------------
 
 
-def test_graphs_hub_counts_live_statuses_by_community_and_service_type(db):
+def _graph_communities(payload):
+    return {row.key: row for row in payload.communities}
+
+
+def _distribution_count(rows, key, status):
+    """The status count on one inner card, or 0 when the card is absent.
+
+    The dev database this fixture runs against already holds rows, so every
+    graphs assertion below is a delta against a baseline payload rather than
+    an absolute count.
+    """
+    for row in rows:
+        if row.key == key:
+            return row.counts[status]
+    return 0
+
+
+def test_graphs_hub_nests_service_type_and_priority_under_each_community(db):
     creator = _seed_user(db, roles.ROLE_TECHFM_OA)
     baseline = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
-    scholar = _seed_work_order(db, created_by=creator, status=wo.STATUS_CREATED)
-    scholar.community = "Scholars"
-    scholar.service_type = "Electrical"
-    scholar.created_at = NOW - timedelta(days=10)
-    shared = _seed_work_order(db, created_by=creator, status=wo.STATUS_ON_HOLD)
-    shared.location = "Cimarron / Young Hall"
-    shared.service_type = " electrical "
-    shared.created_at = NOW - timedelta(days=4)
+    commons = _seed_work_order(db, created_by=creator, status=wo.STATUS_CREATED)
+    commons.community = "Commons"
+    commons.service_type = "HVAC"
+    commons.priority = "High"
+    commons.created_at = NOW - timedelta(days=10)
     closed = _seed_work_order(db, created_by=creator, status=wo.STATUS_COMPLETED)
-    closed.community = "Scholars"
-    closed.service_type = "Plumbing"
+    closed.community = "Commons"
+    closed.service_type = "HVAC"
+    closed.priority = "High"
     closed.created_at = NOW - timedelta(days=12)
     closed.archived_at = NOW - timedelta(days=2)
     db.flush()
 
     payload = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
-    before_communities = {row.key: row for row in baseline.communities}
-    communities = {row.key: row for row in payload.communities}
-    before_services = {row.key: row for row in baseline.service_types}
-    services = {row.key: row for row in payload.service_types}
+    before = _graph_communities(baseline)[wo.COMMUNITY_COMMONS]
+    after = _graph_communities(payload)[wo.COMMUNITY_COMMONS]
 
-    assert communities[wo.COMMUNITY_SCHOLARS].counts[wo.STATUS_CREATED] == before_communities[wo.COMMUNITY_SCHOLARS].counts[wo.STATUS_CREATED] + 1
-    assert communities[wo.COMMUNITY_COMMONS].counts[wo.STATUS_ON_HOLD] == before_communities[wo.COMMUNITY_COMMONS].counts[wo.STATUS_ON_HOLD] + 1
-    assert communities[wo.COMMUNITY_YOUNG_HALL].counts[wo.STATUS_ON_HOLD] == before_communities[wo.COMMUNITY_YOUNG_HALL].counts[wo.STATUS_ON_HOLD] + 1
-    assert services["electrical"].total == before_services.get("electrical", hub_service.GraphDistribution("", "", 0, {})).total + 2
-    assert all(row.total == sum(row.counts.values()) for row in payload.communities + payload.service_types)
+    # One live row lands in all three places under the same status key; the
+    # archived one lands in none of them.
+    assert after.counts[wo.STATUS_CREATED] == before.counts[wo.STATUS_CREATED] + 1
+    assert _distribution_count(after.service_types, "hvac", wo.STATUS_CREATED) == (
+        _distribution_count(before.service_types, "hvac", wo.STATUS_CREATED) + 1
+    )
+    assert _distribution_count(after.priorities, "high", wo.STATUS_CREATED) == (
+        _distribution_count(before.priorities, "high", wo.STATUS_CREATED) + 1
+    )
 
-    before_current = baseline.duration.buckets[-1]
     current = payload.duration.buckets[-1]
-    assert current.closed_count == before_current.closed_count + 1
+    assert current.closed_count == baseline.duration.buckets[-1].closed_count + 1
     assert current.closed_avg_days is not None
 
 
-def test_graphs_hub_adds_high_and_medium_priority_status_distributions(db):
+def test_graphs_hub_counts_a_two_community_row_in_both_communities(db):
     creator = _seed_user(db, roles.ROLE_TECHFM_OA)
     baseline = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
-
-    high = _seed_work_order(db, created_by=creator, status=wo.STATUS_ASSIGNED)
-    high.priority = "Emergency"
-    medium = _seed_work_order(db, created_by=creator, status=wo.STATUS_CREATED)
-    medium.priority = "Routine"
-    low = _seed_work_order(db, created_by=creator, status=wo.STATUS_CREATED)
-    low.priority = "Low"
-    archived_high = _seed_work_order(db, created_by=creator, status=wo.STATUS_COMPLETED)
-    archived_high.priority = "High"
-    archived_high.archived_at = NOW
+    shared = _seed_work_order(db, created_by=creator, status=wo.STATUS_ON_HOLD)
+    shared.location = "Cimarron / Young Hall"
+    shared.service_type = "Electrical"
+    shared.priority = "Medium"
     db.flush()
 
     payload = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
 
-    assert payload.priority_high.key == wo.PRIORITY_HIGH
-    assert payload.priority_high.total == baseline.priority_high.total + 1
-    assert payload.priority_high.counts[wo.STATUS_ASSIGNED] == baseline.priority_high.counts[wo.STATUS_ASSIGNED] + 1
-    assert payload.priority_medium.key == wo.PRIORITY_MEDIUM
-    assert payload.priority_medium.total == baseline.priority_medium.total + 1
-    assert payload.priority_medium.counts[wo.STATUS_CREATED] == baseline.priority_medium.counts[wo.STATUS_CREATED] + 1
-    assert payload.priority_high.total == sum(payload.priority_high.counts.values())
-    assert payload.priority_medium.total == sum(payload.priority_medium.counts.values())
+    for key in (wo.COMMUNITY_COMMONS, wo.COMMUNITY_YOUNG_HALL):
+        before = _graph_communities(baseline)[key]
+        after = _graph_communities(payload)[key]
+        assert after.counts[wo.STATUS_ON_HOLD] == before.counts[wo.STATUS_ON_HOLD] + 1
+        assert _distribution_count(after.service_types, "electrical", wo.STATUS_ON_HOLD) == (
+            _distribution_count(before.service_types, "electrical", wo.STATUS_ON_HOLD) + 1
+        )
+        assert _distribution_count(after.priorities, "medium", wo.STATUS_ON_HOLD) == (
+            _distribution_count(before.priorities, "medium", wo.STATUS_ON_HOLD) + 1
+        )
+
+
+def test_graphs_hub_gives_a_blank_priority_no_card_but_still_counts_it(db):
+    creator = _seed_user(db, roles.ROLE_TECHFM_OA)
+    baseline = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
+    unpriced = _seed_work_order(db, created_by=creator, status=wo.STATUS_ASSIGNED)
+    unpriced.community = "Scholars"
+    unpriced.service_type = "Plumbing"
+    unpriced.priority = "   "
+    db.flush()
+
+    payload = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
+    before = _graph_communities(baseline)[wo.COMMUNITY_SCHOLARS]
+    after = _graph_communities(payload)[wo.COMMUNITY_SCHOLARS]
+
+    assert after.counts[wo.STATUS_ASSIGNED] == before.counts[wo.STATUS_ASSIGNED] + 1
+    assert _distribution_count(after.service_types, "plumbing", wo.STATUS_ASSIGNED) == (
+        _distribution_count(before.service_types, "plumbing", wo.STATUS_ASSIGNED) + 1
+    )
+    # No blank-priority card, so the priority cards do not sum to the total.
+    assert sum(row.total for row in after.priorities) == sum(row.total for row in before.priorities)
+    assert all(row.key for row in after.priorities)
+
+
+def test_graphs_hub_labels_are_always_selectable_in_the_work_orders_filters(db):
+    # The click-through assigns a card's label straight into the Work Orders
+    # `<select>` controls, which silently ignore an unknown value -- so every
+    # label has to be one the filter-options endpoint also offers. Case-only
+    # variants collapse to the smallest spelling by code point, the same rule
+    # `_distinct_filter_values` uses.
+    creator = _seed_user(db, roles.ROLE_TECHFM_OA)
+    for priority, service_type in (("High", "HVAC"), ("high", "hvac"), ("HIGH", " HVAC ")):
+        row = _seed_work_order(db, created_by=creator, status=wo.STATUS_CREATED)
+        row.community = "Centennial"
+        row.priority = priority
+        row.service_type = service_type
+    db.flush()
+
+    payload = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
+    options = wos.get_work_order_filter_options(db, user=creator)
+    centennial = _graph_communities(payload)[wo.COMMUNITY_CENTENNIAL]
+
+    assert _distribution_count(centennial.priorities, "high", wo.STATUS_CREATED) >= 3
+    assert _distribution_count(centennial.service_types, "hvac", wo.STATUS_CREATED) >= 3
+    for community in payload.communities:
+        for row in community.priorities:
+            assert row.label in options["priorities"]
+        for row in community.service_types:
+            assert row.label == "Unspecified" or row.label in options["service_types"]
+
+
+def test_graphs_hub_emits_every_community_with_sorted_inner_lists(db):
+    creator = _seed_user(db, roles.ROLE_TECHFM_OA)
+
+    payload = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
+
+    assert [row.key for row in payload.communities] == list(wo.ALL_COMMUNITY_FILTERS)
+    for community in payload.communities:
+        assert community.total == sum(community.counts.values())
+        assert set(community.counts) == set(wo.ALL_STATUSES)
+        for rows in (community.service_types, community.priorities):
+            assert all(row.total == sum(row.counts.values()) for row in rows)
+            assert rows == sorted(rows, key=lambda row: (-row.total, row.label.casefold()))
 
 
 def test_graphs_hub_keeps_empty_duration_samples_as_null(db):
