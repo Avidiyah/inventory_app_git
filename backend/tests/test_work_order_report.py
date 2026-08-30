@@ -13,8 +13,12 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+import pytest
+
+from app.domain import labor_day
 from app.domain import work_orders as wo
 from app.models import Item, User, WorkOrder, WorkOrderItem, WorkOrderLabor
+from app.services import work_order_report
 from app.services import work_orders as work_orders_service
 
 
@@ -120,3 +124,257 @@ def test_totals_sum_materials_and_labor(db):
     assert totals.labor_minutes == 60
     assert totals.labor_total == wo.labor_charge(60)
     assert totals.total == totals.materials_total + totals.labor_total
+
+
+# --- window derivation (R1, §4) --------------------------------------------
+
+
+def _central_noon(year, month, day):
+    """A UTC instant that is unambiguously midday on that Central date.
+
+    17:00 UTC is 12:00 CDT in summer and 11:00 CST in winter -- nowhere near
+    either midnight boundary, so the Central date is never in question."""
+    return datetime(year, month, day, 17, 0, tzinfo=timezone.utc)
+
+
+def test_monday_reads_today_and_week_the_same(db):
+    # 2026-08-24 is a Monday: This Week is week-to-date, so on Monday it is
+    # exactly Today (R1).
+    now = _central_noon(2026, 8, 24)
+    day_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    _work_order(
+        db, archived_at=day_start + timedelta(hours=2), status=wo.STATUS_COMPLETED
+    )
+
+    payload = work_order_report.daily_report(db, now=now)
+
+    assert payload.day.isoformat() == "2026-08-24"
+    assert payload.week.start.isoformat() == "2026-08-24"
+    assert payload.week.end.isoformat() == "2026-08-30"
+    assert payload.sections.closed_today.count == payload.sections.closed_week.count
+
+
+def test_tuesday_week_covers_monday_and_tuesday(db):
+    # The spec's own worked example: 6 closed Monday, 6 more on Tuesday.
+    now = _central_noon(2026, 8, 25)
+    monday_start, _ = labor_day.day_bounds(
+        labor_day.central_date_of(_central_noon(2026, 8, 24))
+    )
+    tuesday_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    for _ in range(6):
+        _work_order(
+            db,
+            archived_at=monday_start + timedelta(hours=3),
+            status=wo.STATUS_COMPLETED,
+        )
+    for _ in range(6):
+        _work_order(
+            db,
+            archived_at=tuesday_start + timedelta(hours=3),
+            status=wo.STATUS_COMPLETED,
+        )
+
+    payload = work_order_report.daily_report(db, now=now)
+
+    assert payload.sections.closed_today.count == 6
+    assert payload.sections.closed_week.count == 12
+
+
+def test_a_close_at_2330_central_lands_in_that_central_day(db):
+    # 23:30 Central on the 25th is 04:30 UTC on the 26th. The section is a
+    # Central day, so it belongs to the 25th.
+    now = _central_noon(2026, 8, 25)
+    _, day_end = labor_day.day_bounds(labor_day.central_date_of(now))
+    order = _work_order(
+        db, archived_at=day_end - timedelta(minutes=30), status=wo.STATUS_COMPLETED
+    )
+
+    payload = work_order_report.daily_report(db, now=now)
+
+    assert [row.number for row in payload.sections.closed_today.rows] == [order.number]
+
+
+@pytest.mark.parametrize("month,day", [(3, 8), (11, 1)])
+def test_dst_weeks_produce_sane_bounds(db, month, day):
+    # 2026-03-08 springs forward and 2026-11-01 falls back; each date's
+    # Monday-Sunday week contains its own transition.
+    now = _central_noon(2026, month, day)
+
+    payload = work_order_report.daily_report(db, now=now)
+
+    assert payload.week.start.weekday() == 0
+    assert (payload.week.end - payload.week.start).days == 6
+    week_start_at, _ = labor_day.day_bounds(payload.week.start)
+    assert week_start_at < now
+
+
+# --- sections (§4) ----------------------------------------------------------
+
+
+def test_a_row_closed_today_is_in_both_closed_sections(db):
+    now = _central_noon(2026, 8, 25)
+    day_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    order = _work_order(
+        db, archived_at=day_start + timedelta(hours=1), status=wo.STATUS_COMPLETED
+    )
+
+    payload = work_order_report.daily_report(db, now=now)
+
+    assert order.number in [row.number for row in payload.sections.closed_today.rows]
+    assert order.number in [row.number for row in payload.sections.closed_week.rows]
+
+
+def test_created_and_closed_today_appears_in_both_new_and_closed(db):
+    now = _central_noon(2026, 8, 25)
+    day_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    stamp = day_start + timedelta(hours=1)
+    order = _work_order(
+        db, created_at=stamp, archived_at=stamp, status=wo.STATUS_COMPLETED
+    )
+
+    payload = work_order_report.daily_report(db, now=now)
+
+    assert order.number in [row.number for row in payload.sections.new_today.rows]
+    assert order.number in [row.number for row in payload.sections.closed_today.rows]
+
+
+def test_closing_holds_exactly_the_three_live_statuses(db):
+    now = _central_noon(2026, 8, 25)
+    day_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    wanted = {
+        status: _work_order(db, status=status).number
+        for status in (
+            wo.STATUS_READY_TO_COMPLETE,
+            wo.STATUS_COMPLETED,
+            wo.STATUS_REVIEW,
+        )
+    }
+    early = [
+        _work_order(db, status=wo.STATUS_IN_PROGRESS).number,
+        _work_order(db, status=wo.STATUS_ON_HOLD).number,
+    ]
+    archived = _work_order(  # archived: belongs to closed_*, never to closing
+        db, status=wo.STATUS_REVIEW, archived_at=day_start + timedelta(hours=1)
+    )
+
+    payload = work_order_report.daily_report(db, now=now)
+    numbers = {row.number for row in payload.sections.closing.rows}
+
+    assert set(wanted.values()) <= numbers
+    assert archived.number not in numbers
+    assert not (set(early) & numbers)
+    # Scoped to this test's rows: a developer database holds its own pipeline.
+    for status in wanted:
+        assert payload.sections.closing.by_status[status] >= 1
+
+
+def test_closing_is_sorted_by_lifecycle_then_oldest_first(db):
+    now = _central_noon(2026, 8, 25)
+    base = now - timedelta(days=3)
+    newer_ready = _work_order(
+        db, status=wo.STATUS_READY_TO_COMPLETE, created_at=base + timedelta(hours=2)
+    )
+    older_ready = _work_order(db, status=wo.STATUS_READY_TO_COMPLETE, created_at=base)
+    review = _work_order(db, status=wo.STATUS_REVIEW, created_at=base)
+    completed = _work_order(db, status=wo.STATUS_COMPLETED, created_at=base)
+
+    payload = work_order_report.daily_report(db, now=now)
+    mine = {older_ready.number, newer_ready.number, completed.number, review.number}
+    ordered = [
+        row.number for row in payload.sections.closing.rows if row.number in mine
+    ]
+
+    assert ordered == [
+        older_ready.number,
+        newer_ready.number,
+        completed.number,
+        review.number,
+    ]
+
+
+def test_closed_sections_are_newest_close_first(db):
+    now = _central_noon(2026, 8, 26)
+    day_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    older = _work_order(
+        db, status=wo.STATUS_COMPLETED, archived_at=day_start + timedelta(hours=1)
+    )
+    newer = _work_order(
+        db, status=wo.STATUS_COMPLETED, archived_at=day_start + timedelta(hours=5)
+    )
+
+    payload = work_order_report.daily_report(db, now=now)
+
+    assert [row.number for row in payload.sections.closed_today.rows] == [
+        newer.number,
+        older.number,
+    ]
+
+
+def test_closing_truncation_caps_rows_but_not_counts(db, monkeypatch):
+    # Lower the ceiling instead of building 5,001 rows -- `_list_cap` reads the
+    # module at call time precisely so a test can do this.
+    from app.domain import list_limits
+
+    monkeypatch.setattr(list_limits, "MAX_LIST_ROWS", 2)
+    now = _central_noon(2026, 8, 25)
+    for _ in range(4):
+        _work_order(db, status=wo.STATUS_REVIEW)
+
+    payload = work_order_report.daily_report(db, now=now)
+
+    assert payload.sections.closing.truncated is True
+    assert len(payload.sections.closing.rows) == 2
+    assert payload.sections.closing.count >= 4
+    assert payload.sections.closing.by_status[wo.STATUS_REVIEW] >= 4
+
+
+# --- R10 provenance ---------------------------------------------------------
+
+
+def test_a_legacy_archived_row_is_flagged_and_a_hand_closed_one_is_not(db):
+    now = _central_noon(2026, 8, 25)
+    day_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    _work_order(
+        db,
+        status=wo.STATUS_COMPLETED,
+        legacy=True,
+        archived_at=day_start + timedelta(hours=1),
+    )
+    _work_order(
+        db,
+        status=wo.STATUS_COMPLETED,
+        legacy=False,
+        archived_at=day_start + timedelta(hours=2),
+    )
+
+    payload = work_order_report.daily_report(db, now=now)
+    flags = sorted(
+        (row.legacy, row.auto_closed) for row in payload.sections.closed_today.rows
+    )
+
+    # `auto_closed` is a constant False until the reconcile migration lands.
+    assert flags == [(False, False), (True, False)]
+    assert payload.sections.closed_today.auto_closed_count == 0
+
+
+def test_report_row_money_matches_export_row(db):
+    now = _central_noon(2026, 8, 25)
+    day_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    item = _priced_item(db, Decimal("7.50"))
+    order = _work_order(
+        db, status=wo.STATUS_COMPLETED, archived_at=day_start + timedelta(hours=1)
+    )
+    _add_material(db, order, item, 4)
+    _add_labor(db, order, 45)
+    db.refresh(order)
+
+    payload = work_order_report.daily_report(db, now=now)
+    row = next(r for r in payload.sections.closed_today.rows if r.number == order.number)
+    totals = work_orders_service.work_order_totals(order)
+
+    assert (row.materials_total, row.labor_minutes, row.labor_total, row.total) == (
+        totals.materials_total,
+        totals.labor_minutes,
+        totals.labor_total,
+        totals.total,
+    )
