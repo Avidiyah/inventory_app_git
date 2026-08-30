@@ -156,6 +156,13 @@ const SOLO_PATH_PREFIX = "/workorder_card/";
 // rendering the list, which is what keeps the two renders from racing.
 let pendingSoloNumber = null;
 
+// A second one-shot, deliberately independent of `pendingSoloNumber`: the solo
+// lookup above returns before the archived-number prompt, so a caller that
+// wants the "Work Order has been closed. Restore?" path needs its own flag.
+// Consumed by the next `loadWorkOrders` -- the one `showPage` triggers on page
+// entry -- as `checkArchivedSearch`. Set by `openWorkOrdersByNumberSearch`.
+let pendingArchivedCheck = false;
+
 // The work-order number in `pathname`, or null if it is not a card-page URL.
 export function soloNumberFromPath(pathname = window.location.pathname) {
   if (!pathname.startsWith(SOLO_PATH_PREFIX)) return null;
@@ -962,6 +969,14 @@ export async function loadWorkOrders({
   // refresh, so this states a truth rather than defends against a bug.
   deferredListRefresh = false;
 
+  // Promote the one-shot before the solo branch below can return early: a
+  // number-search request arrives via `openWorkOrdersByNumberSearch`, which
+  // never sets `pendingSoloNumber`, so the two paths cannot both be pending.
+  if (pendingArchivedCheck) {
+    pendingArchivedCheck = false;
+    checkArchivedSearch = true;
+  }
+
   // A pending card-page open wins: rendering the list first and the card
   // second is the same two renders racing, and whichever settled last would
   // win. nav.js calls this on page entry, so consuming the request here is the
@@ -1335,6 +1350,20 @@ async function openWorkOrderPageByNumber(number) {
 // consumes this instead of rendering the list, so the two cannot race.
 export function focusWorkOrderNumber(number) {
   pendingSoloNumber = number;
+}
+
+// Called from the Admin daily report (hubReport.js) for a *closed* row. A
+// closed work order has no card page to open -- this list hides archived rows
+// -- so route to its exact number instead and let the shipped "Work Order has
+// been closed. Restore?" prompt fire. Resets every other control first, for the
+// same reason the tile and graph entry points above do: a stale status or
+// community filter left over from a previous visit would hide the very row we
+// just navigated to. Does not fetch; `showPage("work-orders")` does that.
+export function openWorkOrdersByNumberSearch(number) {
+  resetFilterControls();
+  if (searchInput) searchInput.value = number;
+  showAll = false;
+  pendingArchivedCheck = true;
 }
 
 // Called from the Admin Dashboard's pipeline tiles (hubAdmin.js). Sets the

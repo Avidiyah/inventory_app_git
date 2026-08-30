@@ -503,6 +503,13 @@ export async function apiGetHubGraphs({ weeks = 12 } = {}) {
   return liveGet(`/hub/graphs?weeks=${encodeURIComponent(weeks)}`);
 }
 
+export async function apiGetHubReport() {
+  // No parameters by design: the report's two windows are derived from server
+  // time, which is what makes it a daily report rather than a filter. The CSV
+  // needs no wrapper -- it is a plain link, as the timesheet export is.
+  return liveGet("/hub/report");
+}
+
 export async function apiGetHubTimesheets({ start = null, end = null, userId = null } = {}) {
   const params = new URLSearchParams();
   if (start) params.set("start", start);

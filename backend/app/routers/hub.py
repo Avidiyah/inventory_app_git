@@ -10,6 +10,7 @@ stays the only place a role 403 is raised:
 - `GET /hub/admin`       techfm_oa+         -- the company-wide time summary
 - `GET /hub/graphs`      techfm_oa+         -- the lazy company-wide report
 - `GET /hub/timesheets`  supervisor+        -- routed-crew timesheets
+- `GET /hub/report`      admin only         -- the company-wide daily digest
 
 The personal, crew, and timesheet reads are not side-effect-free. They sweep
 over-cap sessions before reading and therefore commit when they find one --
@@ -38,8 +39,9 @@ from app.domain import labor_day, roles
 from app.domain.errors import DomainError
 from app.models import User
 from app.routers._errors import to_http
-from app.schemas.hub import HubAdminResponse, HubClock, HubCrewResponse, HubGraphsResponse, HubResponse, HubTimesheetResponse
+from app.schemas.hub import HubAdminResponse, HubClock, HubCrewResponse, HubGraphsResponse, HubReportResponse, HubResponse, HubTimesheetResponse
 from app.services import hub as hub_service
+from app.services import work_order_report
 
 router = APIRouter(prefix="/hub", tags=["hub"])
 
@@ -225,6 +227,41 @@ def export_hub_timesheets(
     filename = _timesheet_filename(payload, technician=technician)
     return Response(
         content=hub_service.timesheet_csv(payload),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/report", response_model=HubReportResponse)
+def get_hub_report(
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """The company-wide daily digest: what closed, what is closing, what arrived.
+
+    **Admin, not TechFM OA.** The only route in the app floored at Admin --
+    `tests/test_route_role_gates.py` carries the matching exemption, so changing
+    this floor means changing that test deliberately.
+
+    No query parameters: the windows come from server time, which is what makes
+    this a daily report rather than a filter."""
+    payload = work_order_report.daily_report(db, now=datetime.now(timezone.utc))
+    return HubReportResponse.model_validate(payload)
+
+
+@router.get("/report/export")
+def export_hub_report(
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """The same payload as one `SECTION`-prefixed CSV.
+
+    Composed from `daily_report` rather than from its own query, so the file and
+    the screen -- truncation included -- cannot disagree."""
+    payload = work_order_report.daily_report(db, now=datetime.now(timezone.utc))
+    filename = work_order_report.report_filename(payload)
+    return Response(
+        content=work_order_report.report_csv(payload),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

@@ -516,7 +516,22 @@ def test_no_route_gate_is_left_at_the_admin_floor():
         if isinstance(route, APIRoute)
         and _find_min_role(route.dependant) == roles.ROLE_ADMIN
     }
-    assert offenders == set()
+    # The Admin daily report is the one genuinely Admin-only surface in the
+    # app: a company-wide digest of what closed and what is closing, which
+    # deliberately sits above TechFM OA despite OA holding the rest of the
+    # admin toolkit -- the admin hub tiles, Graphs, and the work-order export.
+    # See docs/superpowers/specs/2026-08-30-work-order-daily-report-design.md
+    # §6. If that proves wrong in use, lowering the floor to techfm_oa is a
+    # one-line change in the gate plus removing this exemption; nothing else in
+    # the design depends on it.
+    assert offenders == {"get_hub_report", "export_hub_report"}
+
+
+def test_the_admin_daily_report_sits_above_techfm_oa():
+    # The explicit pin for the accepted consequence of §6: TechFM OA holds the
+    # rest of the admin toolkit but does not see this report.
+    assert _min_role_for(hub_router, "get_hub_report") == roles.ROLE_ADMIN
+    assert _min_role_for(hub_router, "export_hub_report") == roles.ROLE_ADMIN
 
 
 def test_the_hub_is_open_to_any_authenticated_role():
