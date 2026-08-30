@@ -9,6 +9,8 @@ rows the test created, or to a window no pre-existing row can fall into.
 
 from __future__ import annotations
 
+import csv
+import io
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -378,3 +380,127 @@ def test_report_row_money_matches_export_row(db):
         totals.labor_total,
         totals.total,
     )
+
+
+# --- CSV (§5) ---------------------------------------------------------------
+
+
+def _parse_csv(text):
+    return list(csv.reader(io.StringIO(text)))
+
+
+def test_csv_header_is_section_plus_the_export_headers(db):
+    now = _central_noon(2026, 8, 25)
+    payload = work_order_report.daily_report(db, now=now)
+
+    rows = _parse_csv(work_order_report.report_csv(payload))
+
+    assert tuple(rows[0]) == ("SECTION",) + wo.EXPORT_HEADERS
+
+
+def test_csv_writes_sections_in_the_fixed_order(db):
+    now = _central_noon(2026, 8, 25)
+    day_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    _work_order(
+        db,
+        status=wo.STATUS_COMPLETED,
+        created_at=day_start + timedelta(hours=1),
+        archived_at=day_start + timedelta(hours=2),
+    )
+    _work_order(
+        db, status=wo.STATUS_REVIEW, created_at=day_start + timedelta(hours=1)
+    )
+
+    rows = _parse_csv(
+        work_order_report.report_csv(work_order_report.daily_report(db, now=now))
+    )
+    seen = []
+    for row in rows[1:]:
+        if not seen or seen[-1] != row[0]:
+            seen.append(row[0])
+
+    # Every section that appears does so once, in SECTION_ORDER's order.
+    assert seen == [key for key in work_order_report.SECTION_ORDER if key in seen]
+    assert len(seen) == len(set(seen))
+
+
+def test_a_csv_rows_26_cells_are_export_rows_output(db):
+    now = _central_noon(2026, 8, 25)
+    day_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    order = _work_order(
+        db, status=wo.STATUS_COMPLETED, archived_at=day_start + timedelta(hours=1)
+    )
+    db.refresh(order)
+
+    rows = _parse_csv(
+        work_order_report.report_csv(work_order_report.daily_report(db, now=now))
+    )
+    written = next(
+        r for r in rows[1:] if r[0] == "closed_today" and r[1] == order.number
+    )
+    expected = [str(cell) for cell in work_orders_service.export_row(order)]
+
+    assert written[1:] == expected
+
+
+def test_a_row_closed_today_is_written_under_both_closed_keys(db):
+    # The nesting (R1) made filterable: the file carries the row twice, under
+    # two SECTION values, because a spreadsheet filters on a column.
+    now = _central_noon(2026, 8, 25)
+    day_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    order = _work_order(
+        db, status=wo.STATUS_COMPLETED, archived_at=day_start + timedelta(hours=1)
+    )
+
+    rows = _parse_csv(
+        work_order_report.report_csv(work_order_report.daily_report(db, now=now))
+    )
+    sections = {r[0] for r in rows[1:] if r[1] == order.number}
+
+    assert {"closed_today", "closed_week"} <= sections
+
+
+def test_the_report_csv_still_reimports(db):
+    # The round-trip guarantee: `parse_import_row` reads its seven headers by
+    # name, so a column *before* them must not break re-import.
+    now = _central_noon(2026, 8, 25)
+    day_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    order = _work_order(
+        db, status=wo.STATUS_COMPLETED, archived_at=day_start + timedelta(hours=1)
+    )
+
+    text = work_order_report.report_csv(
+        work_order_report.daily_report(db, now=now)
+    )
+    parsed = [wo.parse_import_row(row) for row in csv.DictReader(io.StringIO(text))]
+    mine = [entry for entry in parsed if entry["number"] == order.number]
+
+    assert mine
+    assert mine[0]["location"] == order.location
+    assert mine[0]["service_type"] == order.service_type
+
+
+def test_csv_uses_crlf_and_quotes_embedded_commas_and_newlines(db):
+    now = _central_noon(2026, 8, 25)
+    day_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    _work_order(
+        db,
+        status=wo.STATUS_COMPLETED,
+        archived_at=day_start + timedelta(hours=1),
+        notes="one, two\nthree",
+    )
+
+    text = work_order_report.report_csv(
+        work_order_report.daily_report(db, now=now)
+    )
+
+    assert text.endswith("\r\n")
+    assert '"one, two\nthree"' in text
+    assert len(_parse_csv(text)[0]) == len(wo.EXPORT_HEADERS) + 1
+
+
+def test_filename_names_the_central_report_day(db):
+    now = _central_noon(2026, 8, 25)
+    payload = work_order_report.daily_report(db, now=now)
+
+    assert work_order_report.report_filename(payload) == "wo-report_2026-08-25.csv"

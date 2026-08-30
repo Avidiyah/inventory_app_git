@@ -281,3 +281,44 @@ def daily_report(db: Session, *, now: datetime) -> DailyReport:
             new_week=_new_section(db, start=week_start_at, end=now),
         ),
     )
+
+
+def _section_rows(payload: DailyReport, key: str) -> list[ReportRow]:
+    return getattr(payload.sections, key).rows
+
+
+def report_csv(payload: DailyReport) -> str:
+    """The whole report as one `SECTION`-prefixed CSV.
+
+    A pure render of `payload` -- no queries, no clock -- so the file can never
+    disagree with the screen, cap included (R9, §7).
+
+    **The 26 cells after `SECTION` are `export_row`'s, verbatim.** That is what
+    keeps the file re-importable: `parse_import_row` reads its seven headers by
+    name and ignores every other column, a column *before* them included. Do not
+    add the R10 badge columns here -- `export_row` is shared with the operational
+    export and its consumers (§10).
+
+    **A row can appear twice**, under `closed_today` and `closed_week` (or the
+    two `new_*` keys). That is the nesting (R1) made filterable: a spreadsheet
+    narrows on `SECTION`, where the page uses a badge.
+
+    **Timestamp seam, deliberate:** `export_row` writes UTC while the sections
+    are Central calendar periods, so a row closed at 8 PM Central on the 30th
+    sits in `closed_today` with an `ARCHIVED AT` cell reading the 31st. The
+    covered day is in the filename, not the cells. Do not "fix" this by
+    reformatting the shared export."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\r\n")
+    writer.writerow((CSV_SECTION_HEADER,) + wo.EXPORT_HEADERS)
+    for key in SECTION_ORDER:
+        for row in _section_rows(payload, key):
+            writer.writerow([key, *row.export_cells])
+    return buffer.getvalue()
+
+
+def report_filename(payload: DailyReport) -> str:
+    """Named for the period it covers, not the moment of export -- the timesheet
+    convention (user-hub-design.md D14). This report *is* the day, so the day is
+    the name."""
+    return f"wo-report_{payload.day.isoformat()}.csv"
