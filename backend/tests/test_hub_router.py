@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.database import get_db
+from app.domain import work_orders as wo
 from app.main import app
 from app.models import User
 from app.routers import hub as hub_router
@@ -88,10 +89,7 @@ def test_graphs_route_passes_the_guided_range_and_serializes(monkeypatch):
         generated_at=datetime(2026, 8, 20, tzinfo=timezone.utc),
         weeks=26,
         statuses=[],
-        priority_high=SimpleNamespace(key="high", label="High priority", total=0, counts={}),
-        priority_medium=SimpleNamespace(key="medium", label="Medium priority", total=0, counts={}),
         communities=[],
-        service_types=[],
         duration=SimpleNamespace(
             range=SimpleNamespace(start=date(2026, 2, 23), end=date(2026, 8, 23)),
             buckets=[],
@@ -109,15 +107,25 @@ def test_graphs_route_passes_the_guided_range_and_serializes(monkeypatch):
     assert body["duration"]["range"]["start"] == date(2026, 2, 23)
 
 
-def test_graphs_route_serializes_the_two_priority_distributions(monkeypatch):
+def test_graphs_route_serializes_the_nested_community_shape(monkeypatch):
     payload = SimpleNamespace(
         generated_at=datetime(2026, 8, 20, tzinfo=timezone.utc),
         weeks=12,
         statuses=[],
-        priority_high=SimpleNamespace(key="high", label="High priority", total=3, counts={"created": 3}),
-        priority_medium=SimpleNamespace(key="medium", label="Medium priority", total=1, counts={"created": 1}),
-        communities=[],
-        service_types=[],
+        communities=[
+            SimpleNamespace(
+                key="commons",
+                label="Commons",
+                total=4,
+                counts={"created": 4},
+                service_types=[
+                    SimpleNamespace(key="hvac", label="HVAC", total=3, counts={"created": 3})
+                ],
+                priorities=[
+                    SimpleNamespace(key="high", label="High", total=1, counts={"created": 1})
+                ],
+            )
+        ],
         duration=SimpleNamespace(
             range=SimpleNamespace(start=date(2026, 2, 23), end=date(2026, 8, 23)),
             buckets=[],
@@ -127,8 +135,14 @@ def test_graphs_route_serializes_the_two_priority_distributions(monkeypatch):
 
     body = hub_router.get_hub_graphs(weeks=12, user=SimpleNamespace(), db=None).model_dump()
 
-    assert body["priority_high"]["total"] == 3
-    assert body["priority_medium"]["counts"]["created"] == 1
+    community = body["communities"][0]
+    assert community["total"] == 4
+    assert community["service_types"][0]["label"] == "HVAC"
+    assert community["priorities"][0]["counts"]["created"] == 1
+    # The three flat cross-sections the nested shape replaced are gone.
+    assert "priority_high" not in body
+    assert "priority_medium" not in body
+    assert "service_types" not in body
 
 
 def test_graphs_route_rejects_an_unsupported_week_count():
@@ -168,4 +182,12 @@ def test_graphs_route_accepts_the_default_week_count_over_real_http(db):
         del app.dependency_overrides[get_db]
 
     assert response.status_code == 200
-    assert response.json()["weeks"] == 12
+    body = response.json()
+    assert body["weeks"] == 12
+    # The nested shape survives real serialization, not just a direct
+    # handler call: five communities, each carrying its own two inner grids.
+    assert [row["key"] for row in body["communities"]] == list(wo.ALL_COMMUNITY_FILTERS)
+    assert all(
+        isinstance(row["service_types"], list) and isinstance(row["priorities"], list)
+        for row in body["communities"]
+    )

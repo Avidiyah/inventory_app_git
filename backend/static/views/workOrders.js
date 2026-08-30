@@ -1344,21 +1344,26 @@ export function openWorkOrdersFilteredByStatus(status) {
 }
 
 // Called from the User Hub's Graphs tab (hubGraphs.js via userHub.js), one
-// donut click each. Same shape as `openWorkOrdersFilteredByStatus` -- reset
-// every other filter first, so a graph always lands on exactly that slice's
-// full company-wide list. `community` and `serviceType` set the same
-// dropdowns the page's own controls do; `priorityBucket` sets the
-// high/medium "Priority level" control, which is a distinct, coarser filter
-// from the exact-vendor-text "Priority" dropdown above it.
+// click each on a donut slice, a legend row, or a card's "View all". Same
+// shape as `openWorkOrdersFilteredByStatus` -- reset every other filter
+// first, so a graph always lands on exactly that slice's full company-wide
+// list and nothing carries over from a previous visit.
+//
+// All four set the same dropdowns the page's own controls do. `priority` is
+// the exact-vendor-text "Priority" control, not the coarser high/medium
+// "Priority level" one: the Graphs cards are cut from raw priority text, so
+// their labels round-trip through this filter exactly.
 export function openWorkOrdersFilteredByDistribution({
   community = null,
   serviceType = null,
-  priorityBucket = null,
+  priority = null,
+  status = null,
 } = {}) {
   resetFilterControls();
   if (community && communityFilter) communityFilter.value = community;
   if (serviceType && serviceTypeFilter) serviceTypeFilter.value = serviceType;
-  if (priorityBucket && priorityLevelFilter) priorityLevelFilter.value = priorityBucket;
+  if (priority && priorityFilter) priorityFilter.value = priority;
+  if (status && statusFilter) statusFilter.value = status;
   showAll = false;
 }
 

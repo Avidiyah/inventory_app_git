@@ -248,9 +248,8 @@ def normalize_priority_bucket_filter(value: Optional[str]) -> Optional[str]:
     """Normalize and validate the Work Orders "Priority level" query value.
 
     Unlike `normalize_priority_filter` (exact vendor text, open vocabulary),
-    this filters on the same fixed severity bucket the Graphs-tab priority
-    pies use, so it validates against that fixed set like
-    `normalize_community_filter` does.
+    this filters on a fixed severity bucket, so it validates against that
+    fixed set like `normalize_community_filter` does.
     """
     if value is None or not value.strip():
         return None
@@ -260,9 +259,10 @@ def normalize_priority_bucket_filter(value: Optional[str]) -> Optional[str]:
     return normalized
 
 
-# The severity classification the Priorities card and the Graphs-tab priority
-# pies both key off. Deliberately narrower than `priorityBucket()` in
-# `static/views/workOrders.js` (which also distinguishes "emergency" and
+# The severity classification the Priorities card and the Work Orders
+# "Priority level" filter both key off. Deliberately narrower than
+# `priorityBucket()` in `static/views/workOrders.js` (which also
+# distinguishes "emergency" and
 # "urgent" as their own badge colors) -- this rule folds all three into one
 # High bucket, and normal/routine/standard into one Medium bucket, because
 # neither surface this feeds needs a finer severity ladder than the vendor's
@@ -278,8 +278,9 @@ _PRIORITY_MEDIUM_KEYWORDS = ("normal", "routine", "standard")
 
 # Public so the list/export service's SQL predicate (`_apply_priority_bucket_filter`)
 # can match the same keywords `priority_bucket()` classifies with in Python --
-# the Work Orders "Priority level" filter and the Graphs-tab priority pies
-# must never quietly disagree, same reasoning as `COMMUNITY_SEARCH_TERMS`.
+# the SQL predicate and the Python classifier behind the Work Orders
+# "Priority level" filter must never quietly disagree, same reasoning as
+# `COMMUNITY_SEARCH_TERMS`.
 PRIORITY_BUCKET_KEYWORDS: dict[str, tuple[str, ...]] = {
     PRIORITY_HIGH: _PRIORITY_HIGH_KEYWORDS,
     PRIORITY_MEDIUM: _PRIORITY_MEDIUM_KEYWORDS,

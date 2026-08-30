@@ -1,6 +1,11 @@
 // Guided, dependency-free SVG charts for the TechFM OA+ User Hub report.
 // Exact values are always repeated in HTML legends/tables; the SVG is an
 // at-a-glance aid, never the only way to understand a number.
+//
+// The Graphs panel is a two-level drill: community first, then either
+// service type or priority within it. Every donut in the tree -- the
+// community's own and every card in either grid -- is a status distribution
+// over the same seven statuses; only the row set narrows.
 
 import { escapeHtml } from "../format.js";
 import { tipHtml } from "../tooltip.js";
@@ -20,6 +25,11 @@ function arcPath(startAngle, endAngle) {
   return `M ${x1} ${y1} A 40 40 0 ${endAngle - startAngle > 180 ? 1 : 0} 0 ${x2} ${y2}`;
 }
 
+// Each arc carries `data-status` so a pointer click on the slice drills the
+// same way its legend row does. The <path> is deliberately pointer-only --
+// no `role`, no tab stop -- because a 40px-radius stroke is a poor keyboard
+// target; the legend row below is the real, focusable control for the same
+// status, which is why every status gets a legend row even at zero.
 function donutSvg(distribution, statuses) {
   if (!distribution.total) {
     return `<div class="hub-graph-empty" role="img" aria-label="No circulating work orders">No circulating work orders</div>`;
@@ -29,31 +39,56 @@ function donutSvg(distribution, statuses) {
     const count = distribution.counts[status.key] || 0;
     if (!count) return [];
     const next = angle + (count / distribution.total) * 360;
-    const path = `<path d="${arcPath(angle, next)}" class="hub-graph-slice hub-graph-slice-${status.key}"/>`;
+    const path = `<path d="${arcPath(angle, next)}" class="hub-graph-slice hub-graph-slice-${status.key}" data-status="${status.key}"/>`;
     angle = next;
     return path;
   }).join("");
   return `<div class="hub-donut-wrap"><svg class="hub-donut" viewBox="0 0 100 100" role="img" aria-label="${escapeHtml(distribution.label)} status distribution, ${distribution.total} circulating work orders">${arcs}</svg><span class="hub-donut-total">${distribution.total}<small>circulating</small></span></div>`;
 }
 
-// `kind` identifies which Work Orders filter a click should apply --
-// "priority", "community", or "service_type" -- read back by the delegated
-// click listener in `mountHubGraphs` below. The filter *value* to send
-// differs by kind: priority/community keys line up 1:1 with the Work Orders
-// dropdowns' option values, but a service-type key is casefolded for
-// grouping (`normalize_service_type` in domain/work_orders.py) while its
-// dropdown is populated from raw, case-preserved text -- so service type
-// sends `distribution.label` instead, which is always one exact raw value.
-// A real <button> gets keyboard activation and focus handling for free,
-// matching the Admin Dashboard's existing `hub-tile-pipeline-item` pattern
-// (hubAdmin.js).
-function distributionCard(distribution, statuses, kind) {
+// The card is a <div>, not a <button>: it now holds buttons of its own, and
+// HTML forbids nesting them -- the browser hoists an inner button out into a
+// sibling, silently breaking the flex layout.
+//
+// The dimension lives on the card (`data-community` plus at most one of
+// `data-service-type` / `data-priority`); the status lives on whichever
+// target was clicked. `dataset` values are the raw, case-preserved labels the
+// Work Orders <select> options are built from, never the casefolded grouping
+// keys -- a <select> silently ignores a value matching no <option>.
+function distributionCard(distribution, statuses, dimension) {
   const rows = statuses.map((status) => {
     const count = distribution.counts[status.key] || 0;
-    return `<li><span class="hub-graph-key"><i class="hub-graph-swatch hub-graph-swatch-${status.key}"></i>${escapeHtml(status.label)}</span><span>${count} · ${percent(count, distribution.total)}</span></li>`;
+    return `<li><button type="button" class="hub-graph-legend-row" data-status="${status.key}" aria-label="View ${escapeHtml(distribution.label)} work orders with status ${escapeHtml(status.label)}"><span class="hub-graph-key"><i class="hub-graph-swatch hub-graph-swatch-${status.key}"></i>${escapeHtml(status.label)}</span><span>${count} · ${percent(count, distribution.total)}</span></button></li>`;
   }).join("");
-  const value = kind === "service_type" ? distribution.label : distribution.key;
-  return `<button type="button" class="hub-graph-card hub-graph-card-clickable" data-distribution-kind="${kind}" data-distribution-value="${escapeHtml(value)}" aria-label="View ${escapeHtml(distribution.label)} work orders"><h3>${escapeHtml(distribution.label)}</h3>${donutSvg(distribution, statuses)}<ul class="hub-graph-legend">${rows}</ul></button>`;
+  return `<div class="hub-graph-card"${dimension}><h3>${escapeHtml(distribution.label)}</h3>${donutSvg(distribution, statuses)}<ul class="hub-graph-legend">${rows}</ul><button type="button" class="hub-graph-card-all" data-status="" aria-label="View all ${escapeHtml(distribution.label)} work orders">View all ${distribution.total}</button></div>`;
+}
+
+function communityDimension(community) {
+  return ` data-community="${escapeHtml(community.key)}"`;
+}
+
+function innerGrid(community, statuses, inner) {
+  const rows = inner === "priority" ? community.priorities : community.service_types;
+  if (!rows.length) {
+    const reason = inner === "priority"
+      ? (community.total ? "No imported priorities in this community" : "No circulating work orders")
+      : "No circulating work orders";
+    return `<div class="hub-graph-empty">${escapeHtml(reason)}</div>`;
+  }
+  const attribute = inner === "priority" ? "data-priority" : "data-service-type";
+  return `<div class="hub-graph-grid">${rows.map((row) => distributionCard(
+    row,
+    statuses,
+    `${communityDimension(community)} ${attribute}="${escapeHtml(row.label)}"`,
+  )).join("")}</div>`;
+}
+
+function tabStrip(tabs, activeKey, { attribute, label }) {
+  const buttons = tabs.map((tab) => {
+    const active = tab.key === activeKey;
+    return `<button type="button" role="tab" class="hub-tab hub-graphs-tab${active ? " active" : ""}" ${attribute}="${escapeHtml(tab.key)}" aria-selected="${active ? "true" : "false"}">${escapeHtml(tab.label)}</button>`;
+  }).join("");
+  return `<nav class="hub-tabs hub-graphs-tabs" role="tablist" aria-label="${escapeHtml(label)}">${buttons}</nav>`;
 }
 
 function durationSvg(buckets) {
@@ -90,25 +125,58 @@ function durationTable(buckets) {
   return `<details class="hub-duration-details"><summary>View exact weekly values</summary><div class="hub-timesheet-table-wrap"><table class="hub-timesheet-table"><thead><tr><th>Week</th><th>Average circulating age</th><th>Average time to close</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
 }
 
-export function mountHubGraphs(container, payload, { showAllServiceTypes, onToggleServiceTypes, onWeekChange, onDistributionClick } = {}) {
-  const services = showAllServiceTypes ? payload.service_types : payload.service_types.slice(0, 6);
-  const serviceToggle = payload.service_types.length > 6
-    ? `<button type="button" class="secondary-btn hub-graphs-service-toggle">${showAllServiceTypes ? "Show fewer service types" : `Show all ${payload.service_types.length} service types`}</button>`
-    : "";
+// The largest community, ties broken by the payload's own (fixed) community
+// order. On an empty database every total is 0, so this lands on the first --
+// Scholars.
+export function largestCommunityKey(payload) {
+  let best = null;
+  for (const community of payload.communities || []) {
+    if (!best || community.total > best.total) best = community;
+  }
+  return best ? best.key : null;
+}
+
+const INNER_TABS = [
+  { key: "service_type", label: "Service Type" },
+  { key: "priority", label: "Priority" },
+];
+
+export function mountHubGraphs(container, payload, { community, inner, onWeekChange, onTabChange, onDistributionClick } = {}) {
+  const activeCommunity = payload.communities.find((row) => row.key === community) || payload.communities[0];
+  const activeInner = inner === "priority" ? "priority" : "service_type";
   const updated = new Date(payload.generated_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  container.innerHTML = `<section class="hub-graphs"><header class="hub-graphs-header"><div><h2>Graphs${tipHtml("hub.graphs")}</h2><p class="hint">Live circulating work orders. Updated ${escapeHtml(updated)}.</p></div><label class="hub-graphs-range">Range <select class="hub-graphs-weeks" aria-label="Duration graph range"><option value="12" ${payload.weeks === 12 ? "selected" : ""}>12 weeks</option><option value="26" ${payload.weeks === 26 ? "selected" : ""}>26 weeks</option><option value="52" ${payload.weeks === 52 ? "selected" : ""}>52 weeks</option></select></label></header><section><h2>Status by priority</h2><div class="hub-graph-grid">${distributionCard(payload.priority_high, payload.statuses, "priority")}${distributionCard(payload.priority_medium, payload.statuses, "priority")}</div></section><section><h2>Status by community</h2><p class="hint">A work order that names multiple communities appears in each matching community chart; do not add community totals together.</p><div class="hub-graph-grid">${payload.communities.map((row) => distributionCard(row, payload.statuses, "community")).join("")}</div></section><section><h2>Status by service type</h2><div class="hub-graph-grid">${services.map((row) => distributionCard(row, payload.statuses, "service_type")).join("")}</div>${serviceToggle}</section><section class="hub-duration-section"><h2>Work-order age and close-out time</h2><p class="hint"><span class="hub-duration-key hub-duration-key-age"></span>Average circulating age at each week end <span class="hub-duration-key hub-duration-key-close"></span>Average time from creation to Closed for work orders closed that week.</p>${durationSvg(payload.duration.buckets)}${durationTable(payload.duration.buckets)}</section></section>`;
-  container.querySelector(".hub-graphs-service-toggle")?.addEventListener("click", onToggleServiceTypes);
+  // Community sub-tabs carry their totals; the inner two stay plain -- every
+  // card beneath them shows its own total, and a Priority count would have to
+  // explain why it is lower than the community's (blank priorities get no card).
+  const communityTabs = payload.communities.map((row) => ({ key: row.key, label: `${row.label} (${row.total})` }));
+  container.innerHTML = `<section class="hub-graphs"><header class="hub-graphs-header"><div><h2>Graphs${tipHtml("hub.graphs")}</h2><p class="hint">Live circulating work orders. Updated ${escapeHtml(updated)}.</p></div><label class="hub-graphs-range">Range <select class="hub-graphs-weeks" aria-label="Duration graph range"><option value="12" ${payload.weeks === 12 ? "selected" : ""}>12 weeks</option><option value="26" ${payload.weeks === 26 ? "selected" : ""}>26 weeks</option><option value="52" ${payload.weeks === 52 ? "selected" : ""}>52 weeks</option></select></label></header><section>${tabStrip(communityTabs, activeCommunity.key, { attribute: "data-graph-tab", label: "Community" })}<p class="hint">A work order that names multiple communities appears in each matching community chart; do not add community totals together.</p><div class="hub-graph-community">${distributionCard(activeCommunity, payload.statuses, communityDimension(activeCommunity))}</div>${tabStrip(INNER_TABS, activeInner, { attribute: "data-graph-inner", label: `Split ${activeCommunity.label} by` })}${innerGrid(activeCommunity, payload.statuses, activeInner)}</section><section class="hub-duration-section"><h2>Work-order age and close-out time</h2><p class="hint"><span class="hub-duration-key hub-duration-key-age"></span>Average circulating age at each week end <span class="hub-duration-key hub-duration-key-close"></span>Average time from creation to Closed for work orders closed that week.</p>${durationSvg(payload.duration.buckets)}${durationTable(payload.duration.buckets)}</section></section>`;
   // Bound once per container element, guarded like hubAdmin.js's own pipeline
-  // tiles: `mountHubGraphs` re-runs against the same container on every
-  // service-type toggle and range change, and `container.innerHTML = ...`
-  // above only replaces children, not listeners bound to the container
-  // itself -- an unguarded bind here would stack up duplicates over a session.
+  // tiles: `mountHubGraphs` re-runs against the same container on every tab
+  // switch and range change, and `container.innerHTML = ...` above only
+  // replaces children, not listeners bound to the container itself -- an
+  // unguarded bind here would stack up duplicates over a session. The tab
+  // strips ride the same listener so there is still exactly one.
   if (!container.dataset.distributionClickBound) {
     container.dataset.distributionClickBound = "true";
     container.addEventListener("click", (event) => {
-      const card = event.target.closest("[data-distribution-kind]");
+      const tab = event.target.closest("[data-graph-tab], [data-graph-inner]");
+      if (tab) {
+        if (tab.dataset.graphTab) onTabChange?.({ community: tab.dataset.graphTab });
+        else onTabChange?.({ inner: tab.dataset.graphInner });
+        return;
+      }
+      // The status lives on the clicked target (a slice, a legend row, or the
+      // card's "View all"); the dimension lives on the card around it.
+      const target = event.target.closest("[data-status]");
+      if (!target) return;
+      const card = target.closest(".hub-graph-card");
       if (!card) return;
-      onDistributionClick?.(card.dataset.distributionKind, card.dataset.distributionValue);
+      onDistributionClick?.({
+        community: card.dataset.community || null,
+        serviceType: card.dataset.serviceType || null,
+        priority: card.dataset.priority || null,
+        status: target.dataset.status || null,
+      });
     });
   }
   container.querySelector(".hub-graphs-weeks")?.addEventListener("change", (event) => onWeekChange?.(Number(event.target.value)));

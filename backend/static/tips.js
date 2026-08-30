@@ -221,7 +221,7 @@ export const TIPS = {
   },
   "hub.graphs": {
     label: "Graphs",
-    text: "The donuts are a shape, not a readout. The exact counts sit in the legend beside each one, and clicking a slice opens the matching work orders.",
+    text: "The donuts are a shape, not a readout. The exact counts sit in the legend beside each one, and clicking a slice opens the matching work orders. Pick a community first, then split it by service type or priority.",
   },
   "hub.priorities": {
     label: "Hub priorities",

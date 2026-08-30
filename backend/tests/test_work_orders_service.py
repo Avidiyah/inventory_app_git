@@ -1749,10 +1749,11 @@ def test_list_priority_none_filter_matches_null_and_blank(db):
     assert {w.number for w in found} == {never_enriched.number, blank.number}
 
 
-def test_priority_bucket_filter_matches_the_graphs_tab_grouping(db):
-    """The Work Orders "Priority level" filter must agree with the same
-    high/medium grouping `priority_bucket()` gives the Graphs-tab pies --
-    otherwise a donut click would land on a different set than it pictured."""
+def test_priority_bucket_filter_matches_the_domain_bucket_grouping(db):
+    """The Work Orders "Priority level" filter runs as a SQL predicate
+    (`_apply_priority_bucket_filter`) while `priority_bucket()` classifies in
+    Python. The two must agree, or the same value would be bucketed one way
+    on the list and another way anywhere the classifier is read."""
     admin = _seed_user(db, "admin")
     tech = _seed_user(db, "technician")
     emergency = _wo(db, created_by=admin, assigned_to=tech)

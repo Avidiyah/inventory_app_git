@@ -279,10 +279,17 @@ What populates each screen. Format: **table → … → view → what the user s
   page can never disagree about what somebody has been given. Counts are a
   total and two subsets of it, not three disjoint buckets.
 - **work_orders (live)** → `hub.graphs_hub` → `GET /hub/graphs` → *(P4 Graphs)*:
-  five membership-based community distributions and normalized service-type
+  five membership-based community distributions, each nesting its own
+  normalized service-type distributions and its raw-vendor-text priority
   distributions. Every live status, including On Hold, is counted; a raw
   location may belong to more than one named community, and Academics is the
-  no-named-community fallback. Weekly duration buckets are Central Monday-
+  no-named-community fallback, so community totals do not sum to a company
+  total. A blank priority gets no card at all (the priority cards therefore
+  do not sum to their community's total), while a blank service type keeps
+  its Unspecified bucket. Card labels are the smallest raw spelling by code
+  point — the same rule `work_orders._distinct_filter_values` uses — chosen
+  company-wide rather than per community, so every label is one the Work
+  Orders dropdowns can actually select on a drill-through. Weekly duration buckets are Central Monday-
   Sunday snapshots: circulating age uses `snapshot - created_at`, while close-
   out time uses `archived_at - created_at` for rows closed in that bucket.
 - **tool_transactions ⋈ tools** → `tools.user_custody_detail` → `GET /hub` →
