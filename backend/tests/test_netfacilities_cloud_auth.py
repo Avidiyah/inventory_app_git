@@ -69,7 +69,14 @@ class FakeCloudBrowserProvider:
 
 
 def _config(**overrides):
-    settings = {"enabled": True, "steel_api_key": "test-key", "login_timeout_seconds": 60}
+    settings = {
+        "enabled": True,
+        "steel_api_key": "test-key",
+        "login_timeout_seconds": 60,
+        "signed_in_timeout_seconds": 600,
+        "capture_poll_seconds": 5,
+        "enrichment_retry_seconds": 120,
+    }
     settings.update(overrides)
     return NetFacilitiesCloudConfig(**settings)
 
@@ -177,7 +184,7 @@ def test_a_provider_error_does_not_kill_the_capture_loop(db, monkeypatch):
     )
 
     async def _exercise():
-        await coordinator.start(user.id, _config())
+        await coordinator.start(user.id, _config(capture_poll_seconds=0.01))
         for _ in range(200):
             await asyncio.sleep(0.01)
             if coordinator.captured_csv_bytes(user.id) is not None:
@@ -188,3 +195,64 @@ def test_a_provider_error_does_not_kill_the_capture_loop(db, monkeypatch):
 
     assert provider.csv_poll_calls >= 2
     assert captured == ("work-orders.csv", b"NUMBER\n1001\n")
+
+
+def test_a_signed_in_ceremony_expires_and_releases_the_session(db, monkeypatch):
+    # Observed in production: signed_in for 18 minutes against a session
+    # Steel had already reaped, still billed, still advertising a dead
+    # live-view URL (D-C). E7 gives the signed-in half its own deadline.
+    monkeypatch.setenv(
+        "NETFACILITIES_CLOUD_SESSION_ENCRYPTION_KEY", Fernet.generate_key().decode()
+    )
+    user = _user(db)
+    provider = FakeCloudBrowserProvider()
+    coordinator = NetFacilitiesCloudAuthenticationCoordinator(
+        provider_factory=lambda _config: provider,
+        session_factory=_session_factory(db),
+        poll_seconds=0.01,
+    )
+
+    async def _exercise():
+        await coordinator.start(
+            user.id, _config(signed_in_timeout_seconds=0.2, capture_poll_seconds=0.01)
+        )
+        for _ in range(300):
+            await asyncio.sleep(0.01)
+            snapshot = await coordinator.latest(user.id)
+            if snapshot.state == "timed_out":
+                break
+        return await coordinator.latest(user.id)
+
+    snapshot = asyncio.run(_exercise())
+
+    assert snapshot.state == "timed_out"
+    assert snapshot.failure == "timed_out"
+    assert snapshot.live_view_url is None
+    assert provider.closed_sessions == ["sess-1"]
+
+
+def test_an_unconsumed_capture_is_reported_as_unconsumed(db, monkeypatch):
+    monkeypatch.setenv(
+        "NETFACILITIES_CLOUD_SESSION_ENCRYPTION_KEY", Fernet.generate_key().decode()
+    )
+    user = _user(db)
+    provider = FakeCloudBrowserProvider()
+    provider.csv_to_return = ("work-orders.csv", b"NUMBER\n1001\n")
+    coordinator = NetFacilitiesCloudAuthenticationCoordinator(
+        provider_factory=lambda _config: provider,
+        session_factory=_session_factory(db),
+        poll_seconds=0.01,
+    )
+
+    async def _exercise():
+        await coordinator.start(user.id, _config(capture_poll_seconds=0.01))
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            if coordinator.captured_csv_bytes(user.id) is not None:
+                break
+        return await coordinator.latest(user.id)
+
+    snapshot = asyncio.run(_exercise())
+
+    assert snapshot.last_download_filename == "work-orders.csv"
+    assert snapshot.capture_consumed is False
