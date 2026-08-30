@@ -504,3 +504,122 @@ def test_filename_names_the_central_report_day(db):
     payload = work_order_report.daily_report(db, now=now)
 
     assert work_order_report.report_filename(payload) == "wo-report_2026-08-25.csv"
+
+
+# --- the E1 population (xlsx redesign spec §2.1, E1, E4) -------------------
+
+
+def test_all_rows_is_live_plus_closed_this_week_and_nothing_else(db):
+    now = _central_noon(2026, 8, 26)
+    week_start_at, _ = labor_day.day_bounds(
+        labor_day.central_date_of(_central_noon(2026, 8, 24))
+    )
+    live = _work_order(db, status=wo.STATUS_IN_PROGRESS)
+    closed_this_week = _work_order(
+        db, status=wo.STATUS_COMPLETED, archived_at=week_start_at + timedelta(hours=1)
+    )
+    closed_last_week = _work_order(
+        db, status=wo.STATUS_COMPLETED, archived_at=week_start_at - timedelta(hours=1)
+    )
+
+    payload = work_order_report.daily_report(db, now=now)
+    numbers = [row.number for row in payload.all_rows]
+
+    assert live.number in numbers
+    assert closed_this_week.number in numbers
+    assert closed_last_week.number not in numbers
+    assert len(numbers) == len(set(numbers))
+
+
+def test_all_rows_reads_closed_first_then_the_live_buckets_in_reverse_lifecycle(db):
+    now = _central_noon(2026, 8, 26)
+    day_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    older_close = _work_order(
+        db, status=wo.STATUS_COMPLETED, archived_at=day_start + timedelta(hours=1)
+    )
+    newer_close = _work_order(
+        db, status=wo.STATUS_COMPLETED, archived_at=day_start + timedelta(hours=2)
+    )
+    accepted = _work_order(db, status=wo.STATUS_CREATED)
+    working = _work_order(db, status=wo.STATUS_ON_HOLD)
+    ready = _work_order(db, status=wo.STATUS_REVIEW)
+    mine = {r.number for r in (older_close, newer_close, accepted, working, ready)}
+
+    payload = work_order_report.daily_report(db, now=now)
+    ordered = [row.number for row in payload.all_rows if row.number in mine]
+
+    assert ordered == [
+        newer_close.number,
+        older_close.number,
+        ready.number,
+        working.number,
+        accepted.number,
+    ]
+
+
+def test_distribution_is_built_over_all_rows_and_rows_carry_notes(db):
+    now = _central_noon(2026, 8, 26)
+    day_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    order = _work_order(
+        db,
+        status=wo.STATUS_COMPLETED,
+        archived_at=day_start + timedelta(hours=1),
+        notes="call first",
+        community="Commons",
+    )
+
+    payload = work_order_report.daily_report(db, now=now)
+    row = next(r for r in payload.all_rows if r.number == order.number)
+
+    # Company Closed is closed_week by another name: same window, same rows.
+    assert payload.distribution.company.counts["closed"] == payload.sections.closed_week.count
+    assert payload.distribution.company.total == len(payload.all_rows)
+    assert row.notes == "call first"
+    assert row.material_lines == 0
+
+
+def test_status_labels_cover_every_status_in_the_pages_spelling():
+    assert [work_order_report.STATUS_LABELS[s] for s in wo.ALL_STATUSES] == [
+        "Created",
+        "Assigned",
+        "In progress",
+        "On hold",
+        "Ready to complete",
+        "Completed",
+        "Review",
+    ]
+
+
+def test_reading_order_is_a_pure_sort_key():
+    from datetime import datetime, timezone
+    from decimal import Decimal
+    from uuid import uuid4
+
+    def row(number, status, archived_at=None):
+        return work_order_report.ReportRow(
+            work_order_id=uuid4(), number=number, status=status, community=None,
+            location=None, building_number=None, unit_number=None, service_type=None,
+            priority=None, supervisor_name=None, technician_names=[],
+            materials_total=Decimal("0"), labor_minutes=0, labor_total=Decimal("0"),
+            total=Decimal("0"), created_at=None, completed_at=None,
+            archived_at=archived_at, auto_closed=False, legacy=False,
+        )
+
+    stamp = datetime(2026, 8, 25, 15, 0, tzinfo=timezone.utc)
+    rows = [
+        row("B-accepted", wo.STATUS_CREATED),
+        row("A-accepted", wo.STATUS_CREATED),
+        row("closed-older", wo.STATUS_REVIEW, stamp),
+        row("closed-newer", wo.STATUS_COMPLETED, stamp + timedelta(hours=1)),
+        row("working", wo.STATUS_ASSIGNED),
+        row("ready", wo.STATUS_READY_TO_COMPLETE),
+    ]
+
+    assert [r.number for r in sorted(rows, key=work_order_report.reading_order)] == [
+        "closed-newer",
+        "closed-older",
+        "ready",
+        "working",
+        "A-accepted",
+        "B-accepted",
+    ]

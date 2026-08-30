@@ -9,10 +9,12 @@ Spec: docs/superpowers/specs/2026-08-30-work-order-daily-report-design.md
 
 Two things about this module are load-bearing:
 
-**One payload, two renderers.** `daily_report` composes everything; the JSON
+**One payload, three renderers.** `daily_report` composes everything; the JSON
 route validates it and `report_csv` renders it. Neither renderer queries. That
 is what makes the screen and the file incapable of disagreeing (R9), including
-when the `closing` cap bites (§7).
+when the `closing` cap bites (§7). The Excel workbook
+(`work_order_report_xlsx.py`) renders the same payload plus its `distribution`
+/ `all_rows`, computed here for the same reason.
 
 **There is no status-history table.** So `closing` is a snapshot of current
 state, not a delta, and a restore erases a close retroactively -- this is a
@@ -38,6 +40,12 @@ from app.domain import work_orders as wo
 from app.domain.list_limits import fetch_limit
 from app.models import WorkOrder, WorkOrderItem
 from app.services._list_cap import capped
+from app.services.work_order_report_buckets import (
+    BUCKET_KEYS,
+    ReportDistribution,
+    distribution,
+    row_bucket,
+)
 from app.services.work_orders import export_row, work_order_totals
 
 # Lifecycle order, not alphabetical: this is the order the `closing` section
@@ -58,6 +66,18 @@ SECTION_ORDER: tuple[str, ...] = (
 )
 
 CSV_SECTION_HEADER = "SECTION"
+
+# The page's own labels (`static/views/hubReport.js` STATUS_LABELS), so the
+# workbook's STATUS column and the screen name a status the same way.
+STATUS_LABELS: dict[str, str] = {
+    wo.STATUS_CREATED: "Created",
+    wo.STATUS_ASSIGNED: "Assigned",
+    wo.STATUS_IN_PROGRESS: "In progress",
+    wo.STATUS_ON_HOLD: "On hold",
+    wo.STATUS_READY_TO_COMPLETE: "Ready to complete",
+    wo.STATUS_COMPLETED: "Completed",
+    wo.STATUS_REVIEW: "Review",
+}
 
 
 @dataclass(frozen=True)
@@ -92,6 +112,10 @@ class ReportRow:
     archived_at: Optional[datetime]
     auto_closed: bool
     legacy: bool
+    # Read by the workbook's Work Orders sheet (redesign E5); absent from
+    # `schemas.hub.HubReportRow`, so neither reaches the JSON.
+    notes: Optional[str] = None
+    material_lines: int = 0
     export_cells: list = field(default_factory=list)
 
 
@@ -137,6 +161,11 @@ class DailyReport:
     day: date
     week: ReportWeek
     sections: ReportSections
+    # The workbook's population (redesign E1): every live row plus every row
+    # closed this week, in `reading_order`, and the four-bucket distribution
+    # computed over exactly that list. Neither reaches the JSON response.
+    distribution: ReportDistribution
+    all_rows: list[ReportRow]
 
 
 def _auto_closed(work_order: WorkOrder) -> bool:
@@ -185,6 +214,8 @@ def _row(work_order: WorkOrder) -> ReportRow:
         archived_at=work_order.archived_at,
         auto_closed=_auto_closed(work_order),
         legacy=bool(work_order.legacy),
+        notes=work_order.notes,
+        material_lines=len(work_order.items),
         export_cells=export_row(work_order),
     )
 
@@ -255,6 +286,36 @@ def _closing_section(db: Session) -> ClosingSection:
     )
 
 
+def _live_rows(db: Session) -> list[ReportRow]:
+    """Every non-archived work order, uncapped (redesign E4).
+
+    The workbook's Work Orders sheet is a downloadable record; one that
+    silently omitted rows while looking complete would be a record-keeping
+    problem, not a performance one -- the reasoning that already exempts the
+    `closed_*` and `new_*` sections from the cap. The on-screen `closing` list
+    keeps its cap; the file does not."""
+    records = _base_query(db).filter(WorkOrder.archived_at.is_(None)).all()
+    return [_row(record) for record in records]
+
+
+# Reading order for `all_rows` (redesign §4.3): Closed first, then the live
+# buckets in reverse lifecycle order -- what came off the plate this week,
+# then what is nearest to coming off it.
+_BUCKET_RANK: dict[str, int] = {
+    key: rank for rank, key in enumerate(reversed(BUCKET_KEYS))
+}
+
+
+def reading_order(row: ReportRow) -> tuple:
+    """Sort key: bucket rank, then most recent close first, then number."""
+    closed_at = (
+        -labor_day.as_utc(row.archived_at).timestamp()
+        if row.archived_at is not None
+        else 0.0
+    )
+    return (_BUCKET_RANK[row_bucket(row)], closed_at, row.number)
+
+
 def daily_report(db: Session, *, now: datetime) -> DailyReport:
     """The whole report for the Central day containing `now`.
 
@@ -269,17 +330,24 @@ def daily_report(db: Session, *, now: datetime) -> DailyReport:
     # Today's upper bound is `day_end`, the week's is `now`: the week is
     # explicitly week-to-date, while the day stays a clean half-open Central
     # day. Nothing is stamped in the future, so the difference is immaterial.
+    closed_week = _closed_section(db, start=week_start_at, end=now)
+    # The one population (E1): everything live right now, plus everything
+    # closed this week. Disjoint by construction -- a row is archived or it is
+    # not -- so this is a union, not a merge, and it needs no dedup.
+    all_rows = sorted([*_live_rows(db), *closed_week.rows], key=reading_order)
     return DailyReport(
         generated_at=now,
         day=today,
         week=ReportWeek(start=week_start, end=week_end),
         sections=ReportSections(
             closed_today=_closed_section(db, start=day_start, end=day_end),
-            closed_week=_closed_section(db, start=week_start_at, end=now),
+            closed_week=closed_week,
             closing=_closing_section(db),
             new_today=_new_section(db, start=day_start, end=day_end),
             new_week=_new_section(db, start=week_start_at, end=now),
         ),
+        distribution=distribution(all_rows),
+        all_rows=all_rows,
     )
 
 
