@@ -1,7 +1,7 @@
 # NetFacilities import reconciliation: auto-close absent work orders
 
 Date: 2026-08-30 (expanded the same day after spec review)
-Status: approved design, not yet implemented
+Status: implemented (branch `worktree-netfacilities-reconcile`, migration `b3d5f7a9c1e2`)
 
 ## Problem
 
