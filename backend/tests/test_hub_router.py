@@ -5,10 +5,12 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import io
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import openpyxl
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -20,6 +22,7 @@ from app.models import User
 from app.routers import hub as hub_router
 from app.services import auth as auth_service
 from app.services import hub as hub_service
+from app.services import work_order_report_xlsx as report_xlsx
 
 
 def _empty_payload(start=date(2026, 8, 17), end=date(2026, 8, 23)):
@@ -264,11 +267,18 @@ def test_techfm_oa_is_forbidden_from_the_report(db, path):
     assert response.status_code == 403
 
 
-def test_report_export_is_an_attachment_csv(db):
+def test_report_export_is_an_attachment_xlsx(db):
     response = _get(db, _signed_in(db, "admin"), "/hub/report/export")
 
     assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/csv")
-    assert "attachment" in response.headers["content-disposition"]
-    assert "wo-report_" in response.headers["content-disposition"]
-    assert response.text.startswith("SECTION,WORK ORDER,")
+    assert response.headers["content-type"] == report_xlsx.XLSX_MEDIA_TYPE
+    disposition = response.headers["content-disposition"]
+    assert "attachment" in disposition
+    assert "wo-report_" in disposition
+    assert disposition.endswith('.xlsx"')
+
+    workbook = openpyxl.load_workbook(io.BytesIO(response.content))
+    assert workbook.sheetnames == ["Summary", "Data"]
+    assert tuple(cell.value for cell in workbook["Data"][1]) == (
+        "SECTION",
+    ) + wo.EXPORT_HEADERS

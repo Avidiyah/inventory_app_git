@@ -41,7 +41,7 @@ from app.models import User
 from app.routers._errors import to_http
 from app.schemas.hub import HubAdminResponse, HubClock, HubCrewResponse, HubGraphsResponse, HubReportResponse, HubResponse, HubTimesheetResponse
 from app.services import hub as hub_service
-from app.services import work_order_report
+from app.services import work_order_report, work_order_report_xlsx
 
 router = APIRouter(prefix="/hub", tags=["hub"])
 
@@ -254,14 +254,17 @@ def export_hub_report(
     user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ):
-    """The same payload as one `SECTION`-prefixed CSV.
+    """The same payload as an Excel workbook: a charted `Summary` sheet over a
+    `Data` sheet that is the `SECTION`-prefixed CSV, cell for cell.
 
     Composed from `daily_report` rather than from its own query, so the file and
-    the screen -- truncation included -- cannot disagree."""
+    the screen -- truncation included -- cannot disagree. `report_csv` is still
+    the executable contract the `Data` sheet is tested against; restoring a CSV
+    download is a one-line flip back to it."""
     payload = work_order_report.daily_report(db, now=datetime.now(timezone.utc))
-    filename = work_order_report.report_filename(payload)
+    filename = work_order_report_xlsx.report_xlsx_filename(payload)
     return Response(
-        content=work_order_report.report_csv(payload),
-        media_type="text/csv; charset=utf-8",
+        content=work_order_report_xlsx.report_xlsx(payload),
+        media_type=work_order_report_xlsx.XLSX_MEDIA_TYPE,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

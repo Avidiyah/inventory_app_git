@@ -89,3 +89,13 @@ cryptography==50.0.0
 # (requires a Steel login), while `debug_url` opens the bare interactive
 # remote browser with no Steel UI at all.
 steel-sdk==0.19.0
+# The Hub daily report's Excel export (docs/superpowers/specs/
+# 2026-08-30-hub-report-xlsx-export-design.md). Pure Python -- its only
+# dependency is et_xmlfile -- so no native libraries, no CI or Docker change.
+#
+# It builds the workbook programmatically because it cannot do otherwise:
+# openpyxl DISCARDS charts from any workbook it loads and re-saves, silently.
+# That is why there is no committed .xlsx template, and why the charts in the
+# download are asserted at the zip level rather than read back through this
+# library. 3.1.5 is the current release, verified at install.
+openpyxl==3.1.5

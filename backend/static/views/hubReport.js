@@ -6,8 +6,8 @@
 // their *week* rows with today's marked, rather than repeating rows in a second
 // table. The two counts sit above as a total and its subset -- the same "total
 // plus subsets, not disjoint buckets" idiom HubCounts already establishes. The
-// CSV still writes all five sections, because a spreadsheet filters on a column
-// where a page uses a badge.
+// export's Data sheet still writes all five sections, because a spreadsheet
+// filters on a column where a page uses a badge.
 //
 // Every number on screen comes from the payload's own counts, never from
 // counting rows: `closing` can be capped, and a tally over the rendered rows
@@ -234,7 +234,7 @@ function headerHtml(payload) {
         <p class="hub-report-generated">Generated ${escapeHtml(
           centralStamp(payload.generated_at)
         )}</p>
-        <a class="secondary-btn hub-report-download" href="/hub/report/export">Download CSV</a>
+        <a class="secondary-btn hub-report-download" href="/hub/report/export">Download Excel</a>
       </div>
     </header>`;
 }

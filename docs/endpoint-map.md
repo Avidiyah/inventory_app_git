@@ -143,7 +143,7 @@ lists what the call reads (r) and writes (w).
 | H4 | GET | `/hub/timesheets/export` | supervisor+ | `hub.py` → `hub.timesheets_hub` + `hub.timesheet_csv` | same as H3 | `apiExportHubTimesheets` | `hubTimesheets.js` |
 | H5 | GET | `/hub/graphs?weeks=12\|26\|52` | techfm_oa+ | `hub.py` → `hub.graphs_hub` → shared graph/community rules | work_orders (narrow status/location/service/timestamp projections; read-only) | `apiGetHubGraphs` | `userHub.js`, `hubGraphs.js` |
 | H6 | GET | `/hub/report` | **admin only** | `hub.py` → `work_order_report.daily_report` → `labor_day` windows + `work_orders.export_row` / `work_order_totals` | work_orders (r), work_order_items + items (r), work_order_labor (r), work_order_technicians (r), users (r) | `apiGetHubReport` | `userHub.js`, `hubReport.js` |
-| H7 | GET | `/hub/report/export` | **admin only** | `hub.py` → `work_order_report.daily_report` + `work_order_report.report_csv` | same as H6 | — (plain link, as H4 is) | `hubReport.js` |
+| H7 | GET | `/hub/report/export` | **admin only** | `hub.py` → `work_order_report.daily_report` + `work_order_report_xlsx.report_xlsx` | same as H6 | — (plain link, as H4 is) | `hubReport.js` |
 
 (Rows 55 onward and the NF rows were appended out of resource order to keep the existing
 #1–54 numbering — and the footnote / per-table references to it — stable. NF1, NF1a–NF1c,
@@ -1255,9 +1255,10 @@ so This Week always *includes* Today. `sections` carries five keys —
 (`created_at` windows). Rows nest: a work order closed today appears in both
 `closed_*` sections. `closing` is the only capped section
 (`list=hub_report_closing`); its `count` and `by_status` stay true when the cap
-bites. `GET /hub/report/export` serializes the same payload as one CSV whose
-header is `SECTION` + the 26 `EXPORT_HEADERS`, so the file re-imports through
-`POST /work-orders/import`. **A live view, not an archival record:** a restore
+bites. `GET /hub/report/export` serializes the same payload as an `.xlsx` workbook: a
+charted `Summary` sheet over a `Data` sheet that is the `SECTION`-prefixed CSV
+cell for cell — header `SECTION` + the 26 `EXPORT_HEADERS` — so a save-as-CSV
+from Excel still re-imports through `POST /work-orders/import`. **A live view, not an archival record:** a restore
 clears `archived_at`, so a past close can vanish from these numbers.
 
 **`HubTimesheetResponse`** — `GET /hub/timesheets` (supervisor+; P3b scopes
