@@ -128,6 +128,8 @@ lists what the call reads (r) and writes (w).
 | 71 | POST | `/work-orders/{id}/resume` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.resume_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiResumeWorkOrder` | `workOrders.js` |
 | 71a | POST | `/work-orders/{id}/tracking/start` | assigned Technician, or Supervisor+ on any visible row | `work_orders.py` → `work_orders.start_labor_session` | work_orders (r/w status + notes, row lock), work_order_technicians (r), work_order_labor_sessions (r/w), work_order_labor (w, when it closes a clock elsewhere), push_subscriptions (r, via notify on that row's auto-hold) | `apiStartWorkOrderTracking` | `workOrders.js` |
 | 71b | POST | `/work-orders/{id}/tracking/stop` | assigned Technician, or Supervisor+ on any visible row | `work_orders.py` → `work_orders.stop_labor_session` | work_orders (r/w status + notes, row lock), work_order_technicians (r), work_order_labor_sessions (r/w), work_order_labor (w), push_subscriptions (r, via notify on auto-hold) | `apiStopWorkOrderTracking` | `workOrders.js` |
+| 72 | GET | `/work-orders/auto-close/pending` | techfm_oa+ | `work_orders.py` → `work_orders.pending_auto_close` | work_orders (r; sweep-closed rows inside the 24h window) | `apiGetWorkOrderAutoClosePending` | `workOrders.js` (Integrations card) |
+| 73 | POST | `/work-orders/auto-close/undo` | techfm_oa+ | `work_orders.py` → `work_orders.undo_auto_close` | work_orders (r/w, row lock; un-archive + note per row) | `apiUndoWorkOrderAutoClose` | `workOrders.js` (Integrations card) |
 | NF2 | POST | `/integrations/netfacilities/work-orders/enrich` | techfm_oa+ | `netfacilities.py` → `_resolve_cloud_enrichment_context` (the caller's own cloud session) → `netfacilities_jobs.start` → `netfacilities.enrich_work_orders` | work_orders (r/w, existing live candidates only; short compare-and-set locks); netfacilities_cloud_sessions (r, caller's own row only) | `apiStartNetFacilitiesEnrichment` | `workOrders.js` |
 | NF3 | GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | techfm_oa+ | `netfacilities.py` → `netfacilities_jobs.get` | no DB; process-local aggregate-only job snapshot | `apiGetNetFacilitiesEnrichment` | `workOrders.js` |
 | NF5 | GET | `/integrations/netfacilities/cloud/session` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.latest` + `NetFacilitiesCloudSession` existence check | netfacilities_cloud_sessions (r, existence only) | `apiGetNetFacilitiesCloudSession` | `workOrders.js` (Integrations card, cloud sign-in) |
@@ -461,8 +463,15 @@ one no import has brought in.
   Blank/missing tasks store a canonical NetFacilities URL that remains
   replaceable by a later real CSV task; real/manual tasks stay authoritative.
   Supervisor routing fills only while the locked row is still NULL, so a manual reroute
-  wins over a later or concurrent import. An archived match is counted as
-  closed and ignored before merge/routing. Reads **users** to
+  wins over a later or concurrent import. An archived match a *person* made is
+  counted as closed and ignored before merge/routing; one an earlier sweep made
+  is un-archived (`reopened`) and then merged like any live row. After the row
+  loop, one transaction closes every live non-`legacy` work order the CSV did
+  **not** list (`auto_closed`), stopping any clock on it and stamping
+  `auto_closed_batch_id` / `auto_closed_at` — the export is the full list of
+  what is open upstream, so absence from it means closed upstream. A CSV whose
+  rows all lack a number sweeps nothing, which is what stops a header-only file
+  from closing the whole company. Reads **users** to
   name-match the vendor `ASSIGNED TO` to a supervisor (`supervisor_id`) for live
   rows. Each matched supervisor is then notified **once for the whole import**
   (`work_order.supervisor_assigned_bulk`), counting only rows this import
@@ -955,6 +964,19 @@ matching `legacy=true AND archived_at IS NULL`.
 `POST /work-orders/legacy/archive`: `archived: int`, the bulk update's actual
 affected-row count (not a replay of the earlier preview).
 
+**`WorkOrderAutoClosePending`** — return of TechFM OA+
+`GET /work-orders/auto-close/pending`: `closed_count: int`, `batch_count: int`,
+`newest_ran_at`, `oldest_ran_at` (datetimes) — or **`null`** when nothing is
+pending, which is what hides the Integrations page's "Undo auto-close" button.
+The set is company-wide and covers every sweep still inside the 24-hour window,
+so `batch_count` can exceed one when two imports ran the same day.
+
+**`WorkOrderAutoCloseUndoResult`** — return of TechFM OA+
+`POST /work-orders/auto-close/undo`: `restored: int`, the number actually
+un-archived. Can be lower than a count read a moment earlier if rows were
+restored by hand or reopened by a later import in between. Nothing pending is
+`200 {"restored": 0}`, not an error.
+
 **`WorkOrderItemCreate`** — `POST .../items`: `item_id: UUID`, `quantity: Decimal`
 (> 0). **`WorkOrderItemUpdate`** — `PATCH .../items/{wid}`: `quantity: Decimal`
 (> 0). **`WorkOrderItemBilling`** — `PATCH .../items/{wid}/billing`:
@@ -976,7 +998,11 @@ fields `location?`, `output_to?`, `vendor_assignee?`, `service_type?`,
 The service applies the Technician-notes / Supervisor-operations / Admin-metadata
 matrix. **`WorkOrderImportResult`** (return of
 `POST /work-orders/import`): `total`, `created`, `opened`, `closed`, `supervisors_matched`,
-`supervisors_unmatched`, `skipped` (all int). The request is a `multipart/form-data`
+`supervisors_unmatched`, `skipped`, `auto_closed`, `reopened` (all int).
+`auto_closed` are live work orders the import closed because the CSV did not
+list them; `reopened` are sweep-closed work orders it brought back because the
+CSV listed them again. `total` includes `reopened` but not `auto_closed` — a
+swept work order is by definition one the CSV did not contain. The request is a `multipart/form-data`
 CSV file upload (`UploadFile`), no JSON body, capped at **25 MB** by
 `routers/_uploads.py::read_capped` (413 above it — but the TechFM OA+ gate runs first,
 so an unauthorised oversized upload is a 403; since C1 that ordering is FastAPI

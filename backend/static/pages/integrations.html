@@ -38,6 +38,12 @@
                             <option value="archived">Archived (closed)</option>
                         </select>
                         <button id="wo-export-client-btn" type="button" class="secondary-btn">For Client</button>
+                        <!-- The safety valve under the import's auto-close
+                             sweep: shown only while a sweep from the last 24
+                             hours is still undoable, labelled with the count
+                             it would restore. Outline-red because it reverses
+                             a bulk close; brand red stays on primary actions. -->
+                        <button id="wo-auto-close-undo-btn" type="button" class="btn-danger" hidden>Undo auto-close</button>
                     </div>
                     <p id="wo-import-message"></p>
                 </div>

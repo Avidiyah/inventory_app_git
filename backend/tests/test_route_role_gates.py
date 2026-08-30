@@ -303,6 +303,8 @@ def test_billing_gate_answers_before_the_body_is_validated():
         "archive_work_order",
         "preview_legacy_work_order_archive",
         "archive_legacy_work_orders",
+        "pending_work_order_auto_close",
+        "undo_work_order_auto_close",
     ],
 )
 def test_every_gated_work_order_route_documents_its_403(endpoint_name):

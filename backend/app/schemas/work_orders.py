@@ -306,6 +306,31 @@ class LegacyWorkOrderArchiveResult(BaseModel):
     archived: int
 
 
+class WorkOrderAutoClosePending(BaseModel):
+    """What the Integrations page's "Undo auto-close" button would restore.
+
+    Covers every sweep still inside the 24-hour window rather than only the
+    most recent import's, which is why `batch_count` is here: two OAs importing
+    on the same day produce two batches, and the operator pressing the button
+    should be able to see that it reaches past the import they just ran.
+    """
+
+    closed_count: int
+    batch_count: int
+    newest_ran_at: datetime
+    oldest_ran_at: datetime
+
+
+class WorkOrderAutoCloseUndoResult(BaseModel):
+    """How many work orders the undo actually restored.
+
+    Can be lower than the count the button was labelled with: somebody may have
+    restored rows by hand, or a later import may have reopened them, since that
+    label was read."""
+
+    restored: int
+
+
 class WorkOrderImportResult(BaseModel):
     """Summary of a `POST /work-orders/import` CSV upload. `created` are new work
     orders, `opened` matched an existing number (fill-blanks, no duplicate);
@@ -313,7 +338,18 @@ class WorkOrderImportResult(BaseModel):
     `supervisors_matched`/`supervisors_unmatched` count only the newly created
     work orders whose vendor name did / did not resolve to a system supervisor
     (a re-imported number keeps its existing routing and is not recounted);
-    `skipped` had a blank number."""
+    `skipped` had a blank number.
+
+    The last two describe the reconciliation the import performs on top of the
+    rows it read. `auto_closed` are live work orders this import closed because
+    the CSV did not list them -- the export is the full list of what is open in
+    NetFacilities, so absence from it means closed upstream. `reopened` are work
+    orders an earlier sweep closed that this CSV listed again, brought back
+    because the same evidence read the other way says they are still open.
+
+    `total` counts the CSV rows the import accounted for, so it includes
+    `reopened` but not `auto_closed` -- a swept work order is, by definition,
+    one the CSV did not contain."""
 
     total: int
     created: int
@@ -322,6 +358,8 @@ class WorkOrderImportResult(BaseModel):
     supervisors_matched: int
     supervisors_unmatched: int
     skipped: int
+    auto_closed: int
+    reopened: int
 
 
 class WorkOrderDetail(WorkOrderCard):
