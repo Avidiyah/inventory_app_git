@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Mirror docs/*.md into the Obsidian vault.
+    Mirror docs/ into the Obsidian vault.
 
 .DESCRIPTION
     The repo is authoritative. Each mirrored note carries a provenance header
@@ -10,7 +10,17 @@
     copy actually changed. Re-running this produces no writes and no vault git
     churn, which is what makes it safe to call from a Stop hook on every turn.
 
+    Four folders are mirrored, each non-recursively, into a matching vault
+    folder: docs/ -> reviews/, and the three levels of docs/superpowers/ ->
+    superpowers/. A source folder that does not exist is skipped, so retiring
+    docs/superpowers/ again needs no change here.
+
     Vault edits are NOT merged back. The header says as much on every note.
+
+    Deletions are NOT propagated: a doc removed from the repo lingers in the
+    vault, which is not git-backed, so an automatic delete could destroy the
+    only copy of something. Orphans are reported instead -- remove them by hand
+    once you have looked at them.
 
 .PARAMETER VaultDocs
     Destination folder. Defaults to the known vault path; override with the
@@ -50,7 +60,43 @@ if (-not $RepoRoot) {
 }
 
 $docsDir = Join-Path $RepoRoot 'docs'
-$target  = Join-Path $VaultDocs 'reviews'
+
+# The mirror set. Each entry is one repo folder mirrored non-recursively into
+# one vault folder; nesting is expressed by listing the child folders, so no
+# file is picked up twice. `Type` drives the note's frontmatter type/tag.
+#
+# `Related` marks the folder whose files may draw a wikilink from $related
+# below -- only the docs root has hand-written links.
+$mirrors = @(
+    [pscustomobject]@{
+        Label   = 'docs'
+        Source  = $docsDir
+        Dest    = Join-Path $VaultDocs 'reviews'
+        Type    = 'reference'
+        Related = $true
+    }
+    [pscustomobject]@{
+        Label   = 'docs/superpowers'
+        Source  = Join-Path $docsDir 'superpowers'
+        Dest    = Join-Path $VaultDocs 'superpowers'
+        Type    = 'note'
+        Related = $false
+    }
+    [pscustomobject]@{
+        Label   = 'docs/superpowers/plans'
+        Source  = Join-Path $docsDir 'superpowers\plans'
+        Dest    = Join-Path $VaultDocs 'superpowers\plans'
+        Type    = 'plan'
+        Related = $false
+    }
+    [pscustomobject]@{
+        Label   = 'docs/superpowers/specs'
+        Source  = Join-Path $docsDir 'superpowers\specs'
+        Dest    = Join-Path $VaultDocs 'superpowers\specs'
+        Type    = 'spec'
+        Related = $false
+    }
+)
 
 # Vault-only wikilinks, added per note. These are the reason the mirror is
 # generated rather than copied -- a plain copy would drop them every sync.
@@ -82,10 +128,10 @@ function Get-MirrorSha([string]$path) {
 }
 
 if (-not (Test-Path $docsDir)) { throw "docs/ not found under '$RepoRoot'." }
-if (-not (Test-Path $target)) {
-    if ($Check) { throw "Vault target '$target' does not exist." }
-    New-Item -ItemType Directory -Path $target -Force | Out-Null
-}
+# The vault root must already exist -- if it does not, this is the wrong machine
+# or a bad -VaultDocs, and creating it would scatter a fresh tree somewhere odd.
+# Individual mirror folders below are created on demand.
+if (-not (Test-Path $VaultDocs)) { throw "Vault folder '$VaultDocs' does not exist." }
 
 $sha = try { (git -C $RepoRoot rev-parse --short HEAD 2>$null).Trim() } catch { 'unknown' }
 if (-not $sha) { $sha = 'unknown' }
@@ -95,65 +141,87 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 $written = @()
 $skipped = @()
+$orphans = @()
 
-foreach ($doc in (Get-ChildItem $docsDir -Filter *.md -File | Sort-Object Name)) {
-    $srcHash = Get-FileSha256 $doc.FullName
-    $dest    = Join-Path $target $doc.Name
+foreach ($mirror in $mirrors) {
+    # A source folder that no longer exists is not an error -- docs/superpowers/
+    # has been retired once already and may be again.
+    if (-not (Test-Path $mirror.Source)) { continue }
 
-    if ((Get-MirrorSha $dest) -eq $srcHash) { $skipped += $doc.Name; continue }
+    $docs = @(Get-ChildItem $mirror.Source -Filter *.md -File | Sort-Object Name)
 
-    $written += $doc.Name
-    if ($Check) { continue }
-
-    $lines = @(Get-Content $doc.FullName -Encoding UTF8)
-    $title = [System.IO.Path]::GetFileNameWithoutExtension($doc.Name)
-
-    $header = @(
-        '---'
-        "title: `"$title`""
-        'aliases: []'
-        "updated: $today"
-        'status: stable'
-        'type: reference'
-        'project: "John_Vault"'
-        'area: "repository-docs"'
-        'tags:'
-        '  - project/john-vault'
-        '  - area/repository-docs'
-        '  - type/reference'
-        '  - status/stable'
-        'related: []'
-        "summary: `"Mirror of docs/$($doc.Name) from the inventory_app_git repository.`""
-        'source: "agent"'
-        '---'
-        ''
-    )
-
-    $provenance = @(
-        ''
-        "> **Vault mirror.** The authoritative copy is ``docs/$($doc.Name)`` in the"
-        '> `inventory_app_git` repository. Edit the repo copy and re-sync -- never the'
-        '> reverse. Edits made here are overwritten on the next sync.'
-        '>'
-        "> Synced $stamp local, from repo commit ``$sha``."
-    )
-    if ($related.ContainsKey($doc.Name)) {
-        $provenance += '>'
-        $provenance += "> Related: $($related[$doc.Name])"
-    }
-    $provenance += "> <!-- sync-source-sha256: $srcHash -->"
-    $provenance += ''
-
-    # Slot the provenance under the document's own H1 so the note still opens
-    # with its real title in Obsidian's preview and graph.
-    if ($lines.Count -gt 1 -and $lines[0] -match '^#\s') {
-        $body = @($lines[0]) + $provenance + $lines[1..($lines.Count - 1)]
-    } else {
-        $body = $provenance + $lines
+    if (Test-Path $mirror.Dest) {
+        $sourceNames = @($docs | ForEach-Object { $_.Name })
+        foreach ($stale in (Get-ChildItem $mirror.Dest -Filter *.md -File | Sort-Object Name)) {
+            if ($sourceNames -notcontains $stale.Name) {
+                $orphans += "$($mirror.Label)/$($stale.Name)"
+            }
+        }
+    } elseif ($docs.Count -gt 0 -and -not $Check) {
+        New-Item -ItemType Directory -Path $mirror.Dest -Force | Out-Null
     }
 
-    $text = (($header + $body) -join "`r`n") + "`r`n"
-    [System.IO.File]::WriteAllText($dest, $text, $utf8NoBom)
+    foreach ($doc in $docs) {
+        $relPath = "$($mirror.Label)/$($doc.Name)"
+        $srcHash = Get-FileSha256 $doc.FullName
+        $dest    = Join-Path $mirror.Dest $doc.Name
+
+        if ((Get-MirrorSha $dest) -eq $srcHash) { $skipped += $relPath; continue }
+
+        $written += $relPath
+        if ($Check) { continue }
+
+        $lines = @(Get-Content $doc.FullName -Encoding UTF8)
+        $title = [System.IO.Path]::GetFileNameWithoutExtension($doc.Name)
+        $type  = $mirror.Type
+
+        $header = @(
+            '---'
+            "title: `"$title`""
+            'aliases: []'
+            "updated: $today"
+            'status: stable'
+            "type: $type"
+            'project: "John_Vault"'
+            'area: "repository-docs"'
+            'tags:'
+            '  - project/john-vault'
+            '  - area/repository-docs'
+            "  - type/$type"
+            '  - status/stable'
+            'related: []'
+            "summary: `"Mirror of $relPath from the inventory_app_git repository.`""
+            'source: "agent"'
+            '---'
+            ''
+        )
+
+        $provenance = @(
+            ''
+            "> **Vault mirror.** The authoritative copy is ``$relPath`` in the"
+            '> `inventory_app_git` repository. Edit the repo copy and re-sync -- never the'
+            '> reverse. Edits made here are overwritten on the next sync.'
+            '>'
+            "> Synced $stamp local, from repo commit ``$sha``."
+        )
+        if ($mirror.Related -and $related.ContainsKey($doc.Name)) {
+            $provenance += '>'
+            $provenance += "> Related: $($related[$doc.Name])"
+        }
+        $provenance += "> <!-- sync-source-sha256: $srcHash -->"
+        $provenance += ''
+
+        # Slot the provenance under the document's own H1 so the note still opens
+        # with its real title in Obsidian's preview and graph.
+        if ($lines.Count -gt 1 -and $lines[0] -match '^#\s') {
+            $body = @($lines[0]) + $provenance + $lines[1..($lines.Count - 1)]
+        } else {
+            $body = $provenance + $lines
+        }
+
+        $text = (($header + $body) -join "`r`n") + "`r`n"
+        [System.IO.File]::WriteAllText($dest, $text, $utf8NoBom)
+    }
 }
 
 if (-not $Quiet) {
@@ -167,6 +235,12 @@ if (-not $Quiet) {
         Write-Host "Synced $($written.Count) file(s) from $sha`: $($written -join ', ')"
     } else {
         Write-Host "Vault mirror already current ($($skipped.Count) file(s), commit $sha)."
+    }
+
+    # Reported, never deleted: the vault is not git-backed, so removing a note
+    # here could destroy the only copy. This is a prompt to look, not a failure.
+    if ($orphans.Count -gt 0) {
+        Write-Host "ORPHANS ($($orphans.Count)) -- in the vault, gone from the repo; remove by hand after checking: $($orphans -join ', ')"
     }
 }
 
