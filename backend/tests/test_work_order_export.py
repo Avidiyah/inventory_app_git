@@ -446,6 +446,8 @@ def test_client_variant_remains_scope_only_when_operational_filters_are_supplied
         community="commons",
         scheduled_date=date(2099, 1, 1),
         search="does-not-match",
+        location_search="does-not-match",
+        task_search="does-not-match",
     )
     rows = list(csv.DictReader(io.StringIO(text)))
     assert work_order.number in {row["WORK ORDER"] for row in rows}
@@ -575,3 +577,34 @@ def test_route_reports_an_unknown_variant_as_400(db):
         export_route(scope="all", variant="invoice", user=admin, db=db)
     assert exc.value.status_code == 400
     assert "variant" in exc.value.detail
+
+
+
+def test_operational_export_honors_location_and_task_search(db):
+    admin = _seed_user(db, "admin")
+    prefix = f"WO-EXP-{uuid.uuid4().hex[:8]}"
+    target = wos.get_or_create_work_order(
+        db,
+        number=f"{prefix}-T",
+        created_by_id=admin.id,
+        location="Building 2312",
+        description="leaking sink trap",
+    )
+    wos.get_or_create_work_order(
+        db,
+        number=f"{prefix}-O",
+        created_by_id=admin.id,
+        location="Building 9000",
+        description="door hinge",
+    )
+
+    body = wos.export_work_orders_csv(
+        db,
+        user=admin,
+        scope="all",
+        search=prefix,
+        location_search="2312",
+        task_search="sink",
+    )
+    assert target.number in body
+    assert f"{prefix}-O" not in body

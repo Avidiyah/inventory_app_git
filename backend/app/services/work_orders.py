@@ -1490,6 +1490,8 @@ def list_work_orders_for_export(
     priority_bucket: Optional[str] = None,
     scheduled_date: Optional[date] = None,
     search: Optional[str] = None,
+    location_search: Optional[str] = None,
+    task_search: Optional[str] = None,
 ) -> Sequence[WorkOrder]:
     """Work orders for the CSV export in the page's scheduled-date ordering and
     scoped to `user` exactly as the page list is.
@@ -1528,6 +1530,8 @@ def list_work_orders_for_export(
         priority=priority,
         priority_bucket=priority_bucket,
         search=search,
+        location_search=location_search,
+        task_search=task_search,
     )
 
     return _filter_and_sort_by_schedule(
@@ -1673,6 +1677,8 @@ def export_work_orders_csv(
     priority_bucket: Optional[str] = None,
     scheduled_date: Optional[date] = None,
     search: Optional[str] = None,
+    location_search: Optional[str] = None,
+    task_search: Optional[str] = None,
 ) -> str:
     """The `scope` work orders as CSV text, one row each.
 
@@ -1701,6 +1707,8 @@ def export_work_orders_csv(
         "priority_bucket": priority_bucket,
         "scheduled_date": scheduled_date,
         "search": search,
+        "location_search": location_search,
+        "task_search": task_search,
     }
     for work_order in list_work_orders_for_export(
         db, user=user, scope=scope, **export_filters
