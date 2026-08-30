@@ -169,3 +169,84 @@ def test_graphs_route_accepts_the_default_week_count_over_real_http(db):
 
     assert response.status_code == 200
     assert response.json()["weeks"] == 12
+
+
+# --- the Admin daily report (2026-08-30-work-order-daily-report-design) -----
+
+
+def _signed_in(db, role):
+    user = User(
+        username=f"report_{role}_{uuid.uuid4().hex[:8]}",
+        first_name="Report",
+        last_name=role.title(),
+        role=role,
+        password_hash=auth_service.hash_password("correct horse"),
+    )
+    db.add(user)
+    db.flush()
+    db.commit()
+    return auth_service.create_session(db, user)
+
+
+def _get(db, token, path):
+    """Drive the route the way a browser does -- through FastAPI's own gate,
+    not by calling the handler, which would skip the role dependency."""
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        with TestClient(app) as client:
+            client.cookies.set("session", token)
+            return client.get(path)
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_admin_daily_report_returns_the_five_sections(db):
+    response = _get(db, _signed_in(db, "admin"), "/hub/report")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body["sections"]) == {
+        "closed_today",
+        "closed_week",
+        "closing",
+        "new_today",
+        "new_week",
+    }
+    assert set(body["week"]) == {"start", "end"}
+    assert body["day"]
+    # Three section models, not one with optional fields.
+    assert "auto_closed_count" in body["sections"]["closed_today"]
+    assert set(body["sections"]["closing"]) >= {
+        "count",
+        "by_status",
+        "truncated",
+        "rows",
+    }
+    assert "auto_closed_count" not in body["sections"]["new_today"]
+
+
+def test_admin_daily_report_row_never_leaks_export_cells(db):
+    # `export_cells` lives on the payload so the CSV is a pure render of it; it
+    # must not travel in the JSON.
+    body = _get(db, _signed_in(db, "admin"), "/hub/report").json()
+
+    for section in body["sections"].values():
+        for row in section["rows"]:
+            assert "export_cells" not in row
+
+
+@pytest.mark.parametrize("path", ["/hub/report", "/hub/report/export"])
+def test_techfm_oa_is_forbidden_from_the_report(db, path):
+    response = _get(db, _signed_in(db, "techfm_oa"), path)
+
+    assert response.status_code == 403
+
+
+def test_report_export_is_an_attachment_csv(db):
+    response = _get(db, _signed_in(db, "admin"), "/hub/report/export")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment" in response.headers["content-disposition"]
+    assert "wo-report_" in response.headers["content-disposition"]
+    assert response.text.startswith("SECTION,WORK ORDER,")
