@@ -276,6 +276,8 @@ IMPORT_SUMMARY = {
     "supervisors_matched": 1,
     "supervisors_unmatched": 2,
     "skipped": 0,
+    "auto_closed": 0,
+    "reopened": 0,
 }
 
 
