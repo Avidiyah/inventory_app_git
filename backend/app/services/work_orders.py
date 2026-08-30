@@ -36,6 +36,7 @@ append-only ledger.
 import csv
 import io
 import uuid
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional, Sequence
@@ -1328,8 +1329,21 @@ def _csv_timestamp(value: Optional[datetime]) -> str:
     return value.strftime("%Y-%m-%d %H:%M")
 
 
-def _export_row(work_order: WorkOrder) -> list:
-    """One work order as a row of `domain.work_orders.EXPORT_HEADERS` values."""
+@dataclass(frozen=True)
+class WorkOrderTotals:
+    """A work order's money and minutes, computed once.
+
+    The single source for every surface that shows a work order's totals: the
+    CSV export, Admin Review, and the Admin daily report. Adding a fourth
+    independent computation is what this exists to prevent."""
+
+    materials_total: Decimal
+    labor_minutes: int
+    labor_total: Decimal
+    total: Decimal
+
+
+def work_order_totals(work_order: WorkOrder) -> WorkOrderTotals:
     materials_total = Decimal(0)
     for line in work_order.items:
         price = line.item.price or Decimal(0)
@@ -1338,6 +1352,22 @@ def _export_row(work_order: WorkOrder) -> list:
         )
     labor_minutes = sum(entry.minutes for entry in work_order.labor_entries)
     labor_total = wo.labor_charge(labor_minutes)
+    return WorkOrderTotals(
+        materials_total=materials_total,
+        labor_minutes=labor_minutes,
+        labor_total=labor_total,
+        total=materials_total + labor_total,
+    )
+
+
+def export_row(work_order: WorkOrder) -> list:
+    """One work order as a row of `domain.work_orders.EXPORT_HEADERS` values.
+
+    Public because the Admin daily report (`services/work_order_report.py`)
+    renders the same cells into its `SECTION`-prefixed CSV. Changing this row's
+    shape changes the operational export for every consumer *and* breaks the
+    report's import round-trip -- treat it as a contract."""
+    totals = work_order_totals(work_order)
 
     return [
         work_order.number,
@@ -1358,11 +1388,11 @@ def _export_row(work_order: WorkOrder) -> list:
         work_order.unit_number or "",
         work_order.entry_mode,
         len(work_order.items),
-        f"{materials_total:.2f}",
-        labor_minutes,
-        wo.billed_labor_minutes(labor_minutes),
-        f"{labor_total:.2f}",
-        f"{materials_total + labor_total:.2f}",
+        f"{totals.materials_total:.2f}",
+        totals.labor_minutes,
+        wo.billed_labor_minutes(totals.labor_minutes),
+        f"{totals.labor_total:.2f}",
+        f"{totals.total:.2f}",
         work_order.notes or "",
         _csv_timestamp(work_order.created_at),
         _csv_timestamp(work_order.updated_at),
@@ -1446,7 +1476,7 @@ def export_work_orders_csv(
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\r\n")
     writer.writerow(wo.CLIENT_EXPORT_HEADERS if is_client else wo.EXPORT_HEADERS)
-    build_row = _client_export_row if is_client else _export_row
+    build_row = _client_export_row if is_client else export_row
     export_filters = {} if is_client else {
         "service_type": service_type,
         "supervisor_id": supervisor_id,
