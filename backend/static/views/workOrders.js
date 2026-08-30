@@ -2194,7 +2194,12 @@ function updateNetFacilitiesCloudControls(capability) {
   const cloudStatus = capability && capability.status;
   const awaitingSignIn = Boolean(cloudStatus && cloudStatus.state === "awaiting_sign_in");
   const signedIn = Boolean(cloudStatus && cloudStatus.state === "signed_in");
-  const hasCsv = signedIn && Boolean(cloudStatus.last_download_filename);
+  // E8: the fallback appears only when a capture is sitting unconsumed --
+  // the chain normally consumes it before the next poll lands.
+  const hasUnconsumedCsv = signedIn
+    && Boolean(cloudStatus.last_download_filename)
+    && !cloudStatus.capture_consumed;
+  const chainStage = cloudStatus ? cloudStatus.chain_stage : null;
 
   if (netFacilitiesCloudSignInBtn) {
     netFacilitiesCloudSignInBtn.hidden = !available || awaitingSignIn || signedIn;
@@ -2203,7 +2208,7 @@ function updateNetFacilitiesCloudControls(capability) {
     netFacilitiesCloudCancelBtn.hidden = !(awaitingSignIn || signedIn);
   }
   if (netFacilitiesCloudImportDownloadBtn) {
-    netFacilitiesCloudImportDownloadBtn.hidden = !hasCsv;
+    netFacilitiesCloudImportDownloadBtn.hidden = !hasUnconsumedCsv;
   }
   // The Enrich button is driven by this one capability: enrichment runs
   // through the caller's own saved cloud session or not at all.
@@ -2216,11 +2221,21 @@ function updateNetFacilitiesCloudControls(capability) {
   if (netFacilitiesStatus && !awaitingSignIn && !netFacilitiesPollingJobId) {
     if (!available) {
       setMessage(netFacilitiesStatus, capability ? capability.message : "NetFacilities status is unavailable. CSV import still works normally.", "");
+    } else if (chainStage === "importing") {
+      setMessage(netFacilitiesStatus, `Importing ${cloudStatus.last_download_filename}…`, "");
+    } else if (chainStage === "imported" || chainStage === "enriching") {
+      setMessage(netFacilitiesStatus, `${importSummary(cloudStatus.import_result)} Starting Task/Symptom and Priority…`, "success");
+    } else if (chainStage === "done") {
+      // The reconcile counts ride along in import_result, so this line and a
+      // clicked import's line can never tell two different stories.
+      setMessage(netFacilitiesStatus, `${importSummary(cloudStatus.import_result)} ${cloudStatus.enrichment_job_id ? "Enrichment is running." : "Enrichment is busy — click Import Tasks and Priority when it frees up."}`, "success");
+    } else if (chainStage === "failed") {
+      setMessage(netFacilitiesStatus, `${cloudStatus.import_error || "That import did not finish."} You are still signed in — export the right CSV in the NetFacilities window and it will import automatically.`, "error");
     } else if (signedIn) {
-      if (cloudStatus.last_download_filename) {
+      if (hasUnconsumedCsv) {
         setMessage(netFacilitiesStatus, `Saved ${cloudStatus.last_download_filename}. Click Import downloaded CSV to import it and fill in Task/Symptom and Priority.`, "success");
       } else {
-        setMessage(netFacilitiesStatus, "NetFacilities is open and logged in. Export the work-order CSV in that window; it can be imported from here.", "success");
+        setMessage(netFacilitiesStatus, "NetFacilities is open and logged in. Export the work-order CSV in that window — it imports and enriches on its own.", "success");
       }
     } else if (capability.has_saved_session) {
       setMessage(netFacilitiesStatus, "Saved NetFacilities login is ready. Choose a downloaded CSV to import it and seek Task/Symptom and Priority, or log in to export a fresh one.", "success");
@@ -2229,7 +2244,8 @@ function updateNetFacilitiesCloudControls(capability) {
     }
   }
 
-  const shouldPoll = available && (awaitingSignIn || signedIn);
+  const chainRunning = Boolean(cloudStatus && ["importing", "imported", "enriching"].includes(cloudStatus.chain_stage));
+  const shouldPoll = available && (awaitingSignIn || signedIn || chainRunning);
   if (shouldPoll && !netFacilitiesCloudPollTimer) {
     netFacilitiesCloudPollTimer = setInterval(
       refreshNetFacilitiesCloudSession,
@@ -2238,6 +2254,29 @@ function updateNetFacilitiesCloudControls(capability) {
   } else if (!shouldPoll && netFacilitiesCloudPollTimer) {
     clearInterval(netFacilitiesCloudPollTimer);
     netFacilitiesCloudPollTimer = null;
+  }
+
+  maybeHandleChainCompletion(cloudStatus).catch(() => {});
+}
+
+// One-shot handling of a finished chain observed through the session poll:
+// reload the list the import changed, then hand the status line to the
+// enrichment job's own poller. Keyed by attempt and stage so the poll (or a
+// page re-entry) does not replay it, and set eagerly by the manual button,
+// which already did both itself.
+let handledChainCompletion = null;
+
+async function maybeHandleChainCompletion(cloudStatus) {
+  if (!cloudStatus || !["done", "failed"].includes(cloudStatus.chain_stage)) return;
+  const key = `${cloudStatus.attempt_id}:${cloudStatus.chain_stage}`;
+  if (handledChainCompletion === key) return;
+  handledChainCompletion = key;
+  if (cloudStatus.chain_stage !== "done") return;
+  usersLoaded = false;
+  filterOptionsLoaded = false;
+  await loadWorkOrders();
+  if (cloudStatus.enrichment_job_id) {
+    await pollNetFacilitiesJob(cloudStatus.enrichment_job_id);
   }
 }
 
@@ -2272,11 +2311,23 @@ async function importNetFacilitiesCloudDownload() {
   if (netFacilitiesCloudImportDownloadBtn) netFacilitiesCloudImportDownloadBtn.disabled = true;
   setMessage(importMessage, "Importing…", "");
   try {
-    const r = await apiImportNetFacilitiesCloudDownload();
-    await afterWorkOrderImport(r);
+    // The route now runs the whole chain the automatic path does (E8) --
+    // import, session close, enrichment -- and returns the ceremony status,
+    // not a bare import summary.
+    const status = await apiImportNetFacilitiesCloudDownload();
+    handledChainCompletion = `${status.attempt_id}:${status.chain_stage}`;
+    if (status.chain_stage === "failed") {
+      setMessage(importMessage, status.import_error || "Could not import the downloaded CSV.", "error");
+    } else {
+      await afterWorkOrderImport(status.import_result, { chainOwnsEnrichment: true });
+      if (status.enrichment_job_id) {
+        await pollNetFacilitiesJob(status.enrichment_job_id);
+      }
+    }
   } catch (err) {
     setMessage(importMessage, friendlyError(err, "Could not import the downloaded CSV."), "error");
   } finally {
+    if (netFacilitiesCloudImportDownloadBtn) netFacilitiesCloudImportDownloadBtn.disabled = false;
     await refreshNetFacilitiesCloudSession();
   }
 }
@@ -2305,7 +2356,11 @@ function importSummary(r) {
 // Everything that follows a successful import, whether the CSV was uploaded
 // or captured from the cloud window: summary, list reload, then enrichment
 // through the caller's own cloud session when they have one.
-async function afterWorkOrderImport(r) {
+// `chainOwnsEnrichment` is true for the cloud path, where the server's
+// capture chain starts enrichment itself (E8). Enriching again here would
+// collide with that job, burn the chain's retry budget, and narrate a
+// queue that is really our own duplicate.
+async function afterWorkOrderImport(r, { chainOwnsEnrichment = false } = {}) {
   // Only the new work orders are worth reporting: re-imported numbers keep
   // their own routing, and rows the import passed over changed nothing.
   setMessage(importMessage, importSummary(r), "success");
@@ -2316,7 +2371,8 @@ async function afterWorkOrderImport(r) {
   const capability = await refreshNetFacilitiesCloudSession();
   const cloudStatus = capability && capability.status;
   if (
-    capability
+    !chainOwnsEnrichment
+    && capability
     && capability.available
     && (capability.has_saved_session || (cloudStatus && cloudStatus.state === "signed_in"))
   ) {
