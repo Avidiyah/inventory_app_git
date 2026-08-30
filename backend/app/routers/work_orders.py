@@ -528,6 +528,8 @@ def list_work_orders(
     priority_bucket: Optional[str] = Query(None),
     scheduled_date: Optional[date] = Query(None),
     q: Optional[str] = Query(None),
+    location_q: Optional[str] = Query(None),
+    task_q: Optional[str] = Query(None),
     mine: bool = Query(False),
     limit: Optional[int] = Query(None, ge=1, le=MAX_LIST_ROWS),
     user: User = Depends(get_current_user),
@@ -536,7 +538,10 @@ def list_work_orders(
     """List the caller's work orders, newest scheduled date first. Optional `status`, exact
     `service_type`, routed `supervisor_id`, explicitly-assigned `assigned_to_id`,
     derived `community`, exact `priority`, `priority_bucket`, exact
-    `scheduled_date`, and number `q` filters combine with AND. Community is
+    `scheduled_date`, number `q`, `location_q` (substring over raw location
+    plus structured community/building/unit), and `task_q` (substring over
+    the Task/Symptom description; never `notes`) filters combine with AND.
+    Community is
     membership-based over structured community plus raw CSV location; Academics
     is the no-known-term fallback. Priority is an exact vendor value, or
     `__none__` for work orders NetFacilities enrichment never reached.
@@ -570,6 +575,8 @@ def list_work_orders(
                 priority_bucket=priority_bucket,
                 scheduled_date=scheduled_date,
                 search=q,
+                location_search=location_q,
+                task_search=task_q,
                 mine=mine,
                 limit=limit,
             )

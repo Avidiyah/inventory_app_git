@@ -95,6 +95,52 @@ def test_mine_defaults_to_off(db):
     )
 
 
+
+
+def test_location_q_and_task_q_filter_over_real_http(db):
+    admin = _seed_user(db, "admin")
+    prefix = f"WO-KW-{uuid.uuid4().hex[:8]}"
+    match = wos.get_or_create_work_order(
+        db,
+        number=f"{prefix}-M",
+        created_by_id=admin.id,
+        location="Building 2312",
+        description="leaking sink trap",
+    )
+    miss = wos.get_or_create_work_order(
+        db,
+        number=f"{prefix}-X",
+        created_by_id=admin.id,
+        location="Building 9000",
+        description="door hinge",
+    )
+    db.commit()
+    token = auth_service.create_session(db, admin)
+
+    by_location = _numbers(db, token, f"?q={prefix}&location_q=2312")
+    assert match.number in by_location and miss.number not in by_location
+
+    by_task = _numbers(db, token, f"?q={prefix}&task_q=sink")
+    assert match.number in by_task and miss.number not in by_task
+
+    # All three text searches AND together: location matches only -M,
+    # task matches only -X, so their intersection is empty.
+    assert _numbers(db, token, f"?q={prefix}&location_q=2312&task_q=hinge") == set()
+
+
+def test_blank_keyword_params_are_noops_over_real_http(db):
+    admin = _seed_user(db, "admin")
+    prefix = f"WO-KWB-{uuid.uuid4().hex[:8]}"
+    work_order = wos.get_or_create_work_order(
+        db, number=f"{prefix}-B", created_by_id=admin.id
+    )
+    db.commit()
+    token = auth_service.create_session(db, admin)
+
+    assert work_order.number in _numbers(
+        db, token, f"?q={prefix}&location_q=&task_q="
+    )
+
 # --- UI wiring guards ----------------------------------------------------
 #
 # Same idiom as `test_work_order_priority.py::test_work_orders_ui_wires_a_
