@@ -119,10 +119,11 @@ rotate/invalidate the NetFacilities session flagged in the IMP-039 handoff.
 `2026-08-29-netfacilities-auto-capture-design.md`, plan
 `2026-08-29-netfacilities-auto-capture.md`). Phase 1 (D-A path
 normalization, D-B loop guard, retryable capture, browser-level download
-behavior) shipped 2026-08-29. **The plan's production gate — confirming in
-production logs that a real Download CSV click produces
-`netfacilities.cloud_csv_captured` and the manual import works — has not
-been recorded yet**; record the result here when it happens. Phase 2 turns
+behavior) shipped 2026-08-29. **The plan's production gate was recorded 2026-08-30 20:45Z**: a real
+Download CSV click produced `netfacilities.cloud_csv_captured` in the
+production logs, and the whole unattended chain ran clean — capture,
+import, session release, enrichment started and completed, web push
+delivered (`sent=2 dropped=0 failed=0`) — owner-verified end to end. Phase 2 turns
 the capture into an unattended chain: automatic import, session closed on
 success / kept open on a failed import (E6), a 10-minute signed-in deadline
 (E7, fixes the D-C billing leak), enrichment started through the caller's
@@ -135,6 +136,9 @@ outcomes (E10), and the manual button running the same
 - The Playwright `download` listener (spec §3): unverified over
   `connect_over_cdp`. Production logs now carry `capture_path=listener|poll`
   on every capture — if it reads `poll` every time, delete the listener.
+  First production capture (2026-08-30 20:45Z) read `capture_path=poll`:
+  the listener did not fire; the 5s file poll did the capture. One more
+  `poll` reading and the listener should go.
 
 ### IMP-037 — Field-help `?` tooltips — CLOSED
 
