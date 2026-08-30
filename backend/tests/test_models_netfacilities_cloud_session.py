@@ -66,4 +66,11 @@ def test_cascade_deletes_with_user(db):
     db.delete(user)
     db.commit()
 
-    assert db.query(NetFacilitiesCloudSession).count() == 0
+    # Scoped to this user: a developer database can hold a real cloud session
+    # for another account, and an unscoped count would see that row.
+    assert (
+        db.query(NetFacilitiesCloudSession)
+        .filter(NetFacilitiesCloudSession.user_id == user.id)
+        .count()
+        == 0
+    )
