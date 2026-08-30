@@ -1,9 +1,12 @@
 # NetFacilities Auto-Capture → Import → Enrich — Design Spec
 
-Status: **designed 2026-08-29, not yet implemented.** Builds on
+Status: **implemented 2026-08-30** (plan:
+`docs/superpowers/plans/2026-08-29-netfacilities-auto-capture.md`; Phase 1
+shipped 2026-08-29, Phase 2 — the unattended chain — 2026-08-30). Builds on
 `docs/superpowers/specs/2026-08-28-netfacilities-cloud-auth-design.md`
-(the per-user Steel cloud-auth path, now shipped) and repairs it. No
-implementation plan exists yet.
+(the per-user Steel cloud-auth path, now shipped) and repairs it. The
+production-gate capture confirmation is tracked in `docs/open-work.md`
+(IMP-040).
 
 Turns the cloud-browser CSV export into one unattended chain: the user
 clicks *Download CSV* in the Steel live view, and the app captures the

@@ -62,7 +62,7 @@ class FakeDbNoRow:
         return None
 
 
-def _snapshot(*, state="awaiting_sign_in", user_id=None):
+def _snapshot(*, state="awaiting_sign_in", user_id=None, **extra):
     now = datetime.now(timezone.utc)
     return NetFacilitiesCloudAuthenticationSnapshot(
         user_id=user_id or uuid4(),
@@ -70,6 +70,7 @@ def _snapshot(*, state="awaiting_sign_in", user_id=None):
         state=state,
         started_at=now,
         live_view_url="https://api.steel.dev/v1/sessions/sess-1/player",
+        **extra,
     )
 
 
@@ -339,3 +340,101 @@ def test_authentication_loss_expires_that_users_saved_cloud_session():
 
     assert row.expires_at == finished_at
     assert db.commits == 1
+
+
+# --- the manual Import button (E8) ----------------------------------------
+#
+# Through the real TestClient rather than the handler: this repo's pinned
+# FastAPI has bitten direct-handler tests before, and the point here is the
+# route contract -- the response model now carries the chain fields.
+
+
+def _seed_oa(db):
+    from app.models import User
+    from app.services import auth as auth_service
+
+    user = User(
+        username=f"oa-{uuid4().hex[:8]}",
+        first_name="Test",
+        last_name="User",
+        password_hash=auth_service.hash_password("hunter2"),
+        role="techfm_oa",
+    )
+    db.add(user)
+    db.commit()
+    return user
+
+
+def _post_cloud_import(db, user):
+    from fastapi.testclient import TestClient
+
+    from app.database import get_db
+    from app.main import app
+    from app.services import auth as auth_service
+
+    token = auth_service.create_session(db, user)
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        with TestClient(app) as client:
+            client.cookies.set("session", token)
+            return client.post("/integrations/netfacilities/cloud/downloads/import")
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_the_manual_import_button_runs_the_whole_chain(db, monkeypatch):
+    # E8: whether capture was automatic or the user clicked the fallback,
+    # behavior is identical -- the route delegates to `dispatch_capture`,
+    # the same function the automatic trigger runs.
+    user = _seed_oa(db)
+    calls = []
+    job_id = uuid4()
+    snapshot = _snapshot(
+        state="closed",
+        user_id=user.id,
+        chain_stage="done",
+        capture_consumed=True,
+        import_result={
+            "total": 3,
+            "created": 3,
+            "opened": 0,
+            "closed": 0,
+            "supervisors_matched": 1,
+            "supervisors_unmatched": 2,
+            "skipped": 0,
+            "auto_closed": 0,
+            "reopened": 0,
+        },
+        enrichment_job_id=job_id,
+        last_download_filename="work-orders.csv",
+    )
+
+    async def _dispatch(user_id):
+        calls.append(user_id)
+        return snapshot
+
+    monkeypatch.setattr(
+        router.cloud_authentication_coordinator, "dispatch_capture", _dispatch
+    )
+
+    response = _post_cloud_import(db, user)
+
+    assert response.status_code == 200, response.text
+    assert calls == [user.id]
+    body = response.json()
+    assert body["chain_stage"] == "done"
+    assert body["capture_consumed"] is True
+    assert body["import_result"]["created"] == 3
+    assert body["enrichment_job_id"] == str(job_id)
+    assert body["state"] == "closed"
+
+
+def test_the_manual_import_button_is_409_with_nothing_captured(db):
+    # The real coordinator holds no ceremony for this user, so the shared
+    # chain refuses -- the route's 409, previously decided by the route
+    # itself, now comes from the same place the automatic path decides.
+    user = _seed_oa(db)
+
+    response = _post_cloud_import(db, user)
+
+    assert response.status_code == 409

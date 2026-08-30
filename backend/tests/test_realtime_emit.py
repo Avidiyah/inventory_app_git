@@ -30,6 +30,8 @@ IMPORT_SUMMARY = {
     "supervisors_matched": 0,
     "supervisors_unmatched": 0,
     "skipped": 0,
+    "auto_closed": 0,
+    "reopened": 0,
 }
 
 
@@ -343,7 +345,7 @@ def _route_source(endpoint):
     return source
 
 
-def test_the_review_queue_emitter_set_is_exactly_the_five_capable_routes():
+def test_the_review_queue_emitter_set_is_exactly_the_capable_routes():
     emitters = {
         route.endpoint.__name__
         for route in work_orders_router.router.routes
@@ -357,6 +359,9 @@ def test_the_review_queue_emitter_set_is_exactly_the_five_capable_routes():
         "update_work_order",
         "archive_work_order",
         "restore_work_order",
+        # The auto-close undo restores work orders in bulk, so it invalidates
+        # the review queue for the same reason a single restore does.
+        "undo_work_order_auto_close",
     }
 
 
@@ -437,6 +442,10 @@ def test_the_status_emitter_set_includes_the_two_membership_commands():
         "update_work_order",
         "archive_work_order",
         "restore_work_order",
+        # The auto-close undo brings a whole sweep's worth of cards back, so
+        # every list on every screen is stale -- the collection signal, same as
+        # import and the bulk legacy archive.
+        "undo_work_order_auto_close",
     }
 
 

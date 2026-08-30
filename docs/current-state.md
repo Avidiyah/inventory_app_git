@@ -131,6 +131,7 @@ Path shorthand:
 | Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
 | Work Orders UI | `static/views/workOrders.js`, `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | work-order tests plus manual UI check |
 | User Hub Graphs | `domain/hub.py`, `domain/work_orders.py`, `services/hub.py`, `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubGraphs.js`, `static/views/workOrders.js`, `static/pages/user-hub.html`, `static/styles.css`, `static/tips.js`, `static/api.js` | Nested, not flat: `GET /hub/graphs` returns five communities, each carrying its own status donut plus a service-type list and a raw-priority list, and the tab drills community → Service Type \| Priority → a filtered Work Orders list at slice level. Tab position lives in `userHub.js` (largest community on first open, kept across a range change, reset with the rest of the admin state). `test_hub_graphs_domain.py`, hub service/router/gate/realtime tests; frontend syntax checks and manual role/realtime checks |
+| User Hub Report (Admin daily report) | `services/work_order_report.py`, `services/work_orders.py` (`export_row`, `work_order_totals`), `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubReport.js`, `static/views/workOrders.js` (`openWorkOrdersByNumberSearch`), `static/pages/user-hub.html`, `static/styles.css`, `static/api.js` | `test_work_order_report.py` (windows, DST, sections, sort, cap, CSV round-trip), hub router + role-gate tests; frontend syntax checks and manual role/click checks. **Admin-only** and company-wide — the only routes in the app floored at Admin, which `test_route_role_gates.py` records deliberately. Two nested Central windows: Today, and the Monday–Sunday week containing it evaluated week-to-date, so This Week includes Today. Closed is `archived_at`, New is `created_at`, Closing is a snapshot of live rows in the three closing statuses. **A live view, not an archival record:** a restore clears `archived_at`, so a past close can leave these numbers (see `N-WO-STATUS-EVENTS`). One CSV whose `SECTION` column precedes the 26 export columns, so it still re-imports |
 | NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_cloud_auth.py`, `services/netfacilities_cloud_crypto.py`, `services/netfacilities_jobs.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | Each TechFM OA+ user signs in through their own Steel cloud browser from any device; the captured session is Fernet-encrypted per user in `netfacilities_cloud_sessions` and replayed into a fresh, short-lived Steel session per enrichment job. CSV import remains the sole creator and starts one serialized enrichment job only when that caller has a saved session; the existing one-second poll exposes the current requested number while running; only exact fallback Task/Symptom and blank Priority may change. **2026-08-29:** the pre-Steel local system (headed Windows sign-in, shared Render storage-state secret file, borrowed live-session window) was removed; cloud auth is the only path |
 | Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, manual UI check |
 | Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
@@ -382,20 +383,20 @@ Real-time invalidation (`domain/realtime.py`, `services/realtime.py`,
   `work_order.status.changed`, delivered to every role that can open the Work
   Orders page (technician and above), invalidates the Work Orders card list and
   the active TechFM OA+ Hub Graphs aggregate.
-- Exactly five work-order commands emit `work_order.review_queue.changed`
-  after their mutating service returns: CSV import and bulk legacy archive
-  once each with `id: null`, plus update, archive, and restore with the
-  work-order UUID. Successful capable no-ops emit intentionally; the extra
+- Exactly six work-order commands emit `work_order.review_queue.changed`
+  after their mutating service returns: CSV import, bulk legacy archive, and
+  the auto-close undo once each with `id: null`, plus update, archive, and
+  restore with the work-order UUID. Successful capable no-ops emit intentionally; the extra
   refetch is cheaper and safer than before/after state plumbing.
 - Start, complete, hold, resume, materials, billing, and labor do not emit the
   review-queue event. Any future route capable of changing Review membership
   or the queue's displayed card fields must call the same helper and extend
   `test_realtime_emit.py`'s exact emitter-set assertion.
-- Eleven work-order commands emit `work_order.status.changed` after their
-  mutating service returns: CSV import, bulk legacy archive, start, tracking
-  start/stop, complete, hold, resume, update, archive, and restore. Import and
-  bulk legacy archive emit `id: null` once each as aggregate membership
-  commands; the ordinary status routes use the work-order UUID -- except restore, which emits
+- Twelve work-order commands emit `work_order.status.changed` after their
+  mutating service returns: CSV import, bulk legacy archive, the auto-close
+  undo, start, tracking start/stop, complete, hold, resume, update, archive,
+  and restore. Import, bulk legacy archive, and the undo emit `id: null` once
+  each as aggregate membership commands; the ordinary status routes use the work-order UUID -- except restore, which emits
   `id: null` because it is a membership command: it can put a row back into a
   recipient's list when no on-screen card represents it yet, so the client
   must refetch the list rather than target one card. `update_work_order` emits
@@ -871,6 +872,7 @@ owner > admin > techfm_oa > supervisor > technician
 | Import work orders (CSV) | techfm_oa+ |
 | Export work orders (CSV, full or For Client) | techfm_oa+, server-scoped |
 | Preview/re-archive all live legacy work orders | owner exactly; server gate and service check |
+| Undo the import's auto-close (last 24 hours, company-wide) | techfm_oa+ — the role that imports and the role that archives, deliberately not the Supervisor gate on single-work-order restore |
 | Admin Review page / receipt | techfm_oa+; lists every live Review work order |
 | User Requests page / request status | techfm_oa+; list, edit, resolve/reopen, and fulfil operational exceptions |
 | File an item request | any authenticated user, from an empty search on Work Orders or Find Item |
@@ -1133,7 +1135,7 @@ Fields: `id`, `number`, `community`, `building_number`, `unit_number`,
 `description`, `notes`, `status`, `entry_mode`, `assigned_to_id`, `created_by_id`,
 `created_at`, `updated_at`, `completed_at`, `archived_at`, `location`,
 `output_to`, `vendor_assignee`, `service_type`, `schedule_date`,
-`supervisor_id`, `legacy`.
+`supervisor_id`, `legacy`, `auto_closed_batch_id`, `auto_closed_at`.
 
 Rules:
 
@@ -1227,6 +1229,29 @@ Rules:
 - The Owner-only legacy re-archive action counts and soft-archives only rows
   where `legacy=true` and `archived_at IS NULL`. Its bulk update is atomic;
   already archived legacy rows and live current-schema rows are untouched.
+- **Import reconciliation.** The NetFacilities export is the full list of what
+  is open upstream, so after each import's row loop one transaction closes every
+  live non-`legacy` work order the CSV did not list, stamping
+  `auto_closed_batch_id` (one uuid per import that closed anything) and
+  `auto_closed_at`. Absence is the whole signal: nothing else ever takes a work
+  order closed in NetFacilities out of this app's queues. A CSV with no usable
+  numbers sweeps nothing, which is what stops a header-only export from closing
+  the company. `legacy` rows are excluded because they can never appear in any
+  export — sweeping them would close all of them on every run.
+- `archived_at` stays the only source of truth for closed/live; the two
+  auto-close columns are provenance. They are set together by the sweep and
+  cleared together by everything that un-archives a row — the undo, the reopen,
+  and `restore_work_order` — so a live row never carries either, and a restored
+  row stops counting as pending.
+- A sweep-closed work order the *next* CSV lists again is un-archived and
+  merged like any live row ("reopened"), which makes a partial or wrong export
+  self-healing after the undo window lapses. A work order a **person** archived
+  is still left alone by any import.
+- `undo_auto_close` restores every sweep-closed row whose `auto_closed_at` is
+  within 24 hours — every sweep in the window, not just the last import's — and
+  each restore appends its own note. A restored row is eligible to be swept
+  again by the next import: it is still absent upstream, and the remedy lives in
+  NetFacilities. Labor sessions the sweep stopped do not restart.
 
 ### `work_order_items`
 
@@ -1637,7 +1662,9 @@ the only way in.
 | GET | `/work-orders/filter-options` | session scoped | distinct service types and routed supervisors from caller-visible live work orders plus stable community choices |
 | GET | `/work-orders/legacy/archive` | owner exactly | count currently live legacy work orders (`legacy=true`, `archived_at IS NULL`) before confirmation; returns `{count}` |
 | POST | `/work-orders/legacy/archive` | owner exactly | atomically soft-archive every currently live legacy work order and return the actual `{archived}` count |
-| POST | `/work-orders/import` | techfm_oa+ | preflight a UTF-8 mass CSV with exactly one `WORK ORDER` header, then locked find-or-create; blank/missing task stores a replaceable NetFacilities URL, supervisor fills only while NULL, and archived matches are ignored; **the only path that creates a work order**; returns created/opened/closed/matched/skipped counts; a CSV over **25 MB** returns 413 before the parse (see *Upload size caps*) |
+| POST | `/work-orders/import` | techfm_oa+ | preflight a UTF-8 mass CSV with exactly one `WORK ORDER` header, then locked find-or-create; blank/missing task stores a replaceable NetFacilities URL, supervisor fills only while NULL, and a hand-archived match is ignored while a sweep-closed one is reopened; then closes every live non-legacy work order the CSV omitted; **the only path that creates a work order**; returns created/opened/closed/matched/skipped plus `auto_closed`/`reopened` counts; a CSV over **25 MB** returns 413 before the parse (see *Upload size caps*) |
+| GET | `/work-orders/auto-close/pending` | techfm_oa+ | what the Integrations page's undo button would restore — `{closed_count, batch_count, newest_ran_at, oldest_ran_at}` over every sweep-closed row inside the 24-hour window, or `null` when nothing is pending |
+| POST | `/work-orders/auto-close/undo` | techfm_oa+ | restore every work order swept in the last 24 hours, company-wide, each with its own note naming the operator; returns the actual `{restored}` count, and `{"restored": 0}` (200) when nothing is pending |
 | GET | `/work-orders/export` | techfm_oa+ scoped | export `scope=all\|archived\|<live-status>` as `variant=full` (re-importable operational CSV; accepts the live page's service/supervisor/community/date/number filters) or `variant=client` (unchanged scope-only billing totals + fixed-width receipt) |
 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | does this number name a work order, and is it archived? the one read that reports an archived one, so History can offer a restore |
 | GET | `/work-orders/{id}` | session scoped | work-order detail + append-only authored/timestamped note log + logged materials + labor totals |
@@ -1808,7 +1835,14 @@ base `NETFACILITIES_ENABLED`), `STEEL_API_KEY`, and
 pattern as `VAPID_PRIVATE_KEY`). `NETFACILITIES_CLOUD_LOGIN_TIMEOUT_SECONDS`
 and `NETFACILITIES_CLOUD_BATCH_SESSION_SECONDS` (both optional, default 840)
 bound the login ceremony and each reconnected enrichment job under Steel's
-15-minute session cap.
+15-minute session cap. Three more optional timings govern the capture chain
+(2026-08-30): `NETFACILITIES_CLOUD_SIGNED_IN_TIMEOUT_SECONDS` (default 600)
+ends a signed-in ceremony that never captures — the deadline that fixed the
+released-but-still-advertised session leak (D-C);
+`NETFACILITIES_CLOUD_CAPTURE_POLL_SECONDS` (default 5) paces the safety-net
+capture poll behind the Playwright `download` listener; and
+`NETFACILITIES_CLOUD_ENRICHMENT_RETRY_SECONDS` (default 120) caps how long
+the chain retries `jobs.start()` while another enrichment batch is running.
 
 `POST /integrations/netfacilities/cloud/auth/start` opens a Steel session,
 returns its `live_view_url` for the frontend to open in a new tab, and
@@ -1820,8 +1854,15 @@ own account-gated dashboard (team/project picker, event log, cost), which
 means nothing to an end user with no Steel login, while `debug_url` opens
 the interactive remote browser directly with no Steel UI at all. Once
 signed in, the same session captures the CSV the user exports via Steel's
-Files API; `POST /integrations/netfacilities/cloud/downloads/import` imports
-it through the shared `run_csv_import` pipeline. `GET
+Files API (a Playwright `download` listener records the event; the poll is
+the safety net, and the `capture_path` log line reports which one won). As
+of 2026-08-30 the capture is dispatched unattended: import through the
+shared `run_csv_import` pipeline, session closed on success (kept open on a
+failed import so the user can re-export without signing in again),
+enrichment started through the caller's own saved session, and a web push
+sent to that user on both outcomes.
+`POST /integrations/netfacilities/cloud/downloads/import` is the manual
+fallback for an unconsumed capture and runs the same chain. `GET
 /integrations/netfacilities/cloud/session` reports only the calling user's
 own ceremony state, never anyone else's.
 
@@ -1865,7 +1906,7 @@ exists if it does not.
 | GET | `/integrations/netfacilities/cloud/session` | techfm_oa+ | the calling user's own cloud capability: availability, safe message, whether they have a saved session, and their own ceremony status |
 | POST | `/integrations/netfacilities/cloud/auth/start` | techfm_oa+ | open a Steel cloud session and return its live-view URL |
 | POST | `/integrations/netfacilities/cloud/auth/cancel` | techfm_oa+ | release that user's Steel session |
-| POST | `/integrations/netfacilities/cloud/downloads/import` | techfm_oa+ | import the CSV most recently captured from that user's cloud window through the shared `run_csv_import` pipeline; 409 when none was captured |
+| POST | `/integrations/netfacilities/cloud/downloads/import` | techfm_oa+ | run the capture chain (import → close session → enrich → push) on the unconsumed capture, returning the ceremony status; 409 when none was captured or it was already consumed |
 
 The five local-auth routes (`/session`, `/auth/start`, `/auth/confirm`,
 `/auth/cancel`, `/downloads/import`) were removed 2026-08-29 with the system

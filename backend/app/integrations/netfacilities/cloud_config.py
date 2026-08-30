@@ -29,6 +29,17 @@ from .errors import NetFacilitiesUnavailable
 # cut off mid-request.
 DEFAULT_LOGIN_TIMEOUT_SECONDS = 840
 DEFAULT_BATCH_SESSION_SECONDS = 840
+# The signed-in half of the ceremony gets its own deadline, under Steel's
+# own 15-minute session cap: without one, nothing but an explicit Cancel or
+# a process restart ever ended a signed-in ceremony, and the session stayed
+# billed (D-C, E7).
+DEFAULT_SIGNED_IN_TIMEOUT_SECONDS = 600
+# The `download` listener is primary; this is the safety net, so it can be
+# slower than the 3 s the capture poll used to run at (E3, E12).
+DEFAULT_CAPTURE_POLL_SECONDS = 5
+# How long the capture chain keeps retrying `jobs.start()` while another
+# enrichment batch holds the coordinator (E5, E12).
+DEFAULT_ENRICHMENT_RETRY_SECONDS = 120
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +50,9 @@ class NetFacilitiesCloudConfig:
     steel_api_key: str | None = None
     login_timeout_seconds: int = DEFAULT_LOGIN_TIMEOUT_SECONDS
     batch_session_seconds: int = DEFAULT_BATCH_SESSION_SECONDS
+    signed_in_timeout_seconds: int = DEFAULT_SIGNED_IN_TIMEOUT_SECONDS
+    capture_poll_seconds: int = DEFAULT_CAPTURE_POLL_SECONDS
+    enrichment_retry_seconds: int = DEFAULT_ENRICHMENT_RETRY_SECONDS
 
 
 def load_netfacilities_cloud_config(
@@ -79,6 +93,21 @@ def load_netfacilities_cloud_config(
             values,
             "NETFACILITIES_CLOUD_BATCH_SESSION_SECONDS",
             DEFAULT_BATCH_SESSION_SECONDS,
+        ),
+        signed_in_timeout_seconds=_positive_seconds(
+            values,
+            "NETFACILITIES_CLOUD_SIGNED_IN_TIMEOUT_SECONDS",
+            DEFAULT_SIGNED_IN_TIMEOUT_SECONDS,
+        ),
+        capture_poll_seconds=_positive_seconds(
+            values,
+            "NETFACILITIES_CLOUD_CAPTURE_POLL_SECONDS",
+            DEFAULT_CAPTURE_POLL_SECONDS,
+        ),
+        enrichment_retry_seconds=_positive_seconds(
+            values,
+            "NETFACILITIES_CLOUD_ENRICHMENT_RETRY_SECONDS",
+            DEFAULT_ENRICHMENT_RETRY_SECONDS,
         ),
     )
 

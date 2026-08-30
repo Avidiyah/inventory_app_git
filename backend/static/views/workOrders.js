@@ -38,7 +38,9 @@ import {
   apiArchiveWorkOrder,
   apiLookupWorkOrder,
   apiRestoreWorkOrder,
+  apiGetWorkOrderAutoClosePending,
   apiImportWorkOrders,
+  apiUndoWorkOrderAutoClose,
   apiStartNetFacilitiesEnrichment,
   apiGetNetFacilitiesEnrichment,
   apiGetNetFacilitiesCloudSession,
@@ -100,6 +102,7 @@ const netFacilitiesCloudImportDownloadBtn = document.getElementById("wo-netfacil
 const exportScope = document.getElementById("wo-export-scope");
 const exportBtn = document.getElementById("wo-export-btn");
 const exportClientBtn = document.getElementById("wo-export-client-btn");
+const autoCloseUndoBtn = document.getElementById("wo-auto-close-undo-btn");
 
 // Reference lists are reused during interactions within one visit (for example,
 // debounced Work Order searches), then refreshed when nav.js activates the page
@@ -152,6 +155,13 @@ const SOLO_PATH_PREFIX = "/workorder_card/";
 // focusWorkOrderNumber / focusWorkOrder). loadWorkOrders consumes it instead of
 // rendering the list, which is what keeps the two renders from racing.
 let pendingSoloNumber = null;
+
+// A second one-shot, deliberately independent of `pendingSoloNumber`: the solo
+// lookup above returns before the archived-number prompt, so a caller that
+// wants the "Work Order has been closed. Restore?" path needs its own flag.
+// Consumed by the next `loadWorkOrders` -- the one `showPage` triggers on page
+// entry -- as `checkArchivedSearch`. Set by `openWorkOrdersByNumberSearch`.
+let pendingArchivedCheck = false;
 
 // The work-order number in `pathname`, or null if it is not a card-page URL.
 export function soloNumberFromPath(pathname = window.location.pathname) {
@@ -959,6 +969,14 @@ export async function loadWorkOrders({
   // refresh, so this states a truth rather than defends against a bug.
   deferredListRefresh = false;
 
+  // Promote the one-shot before the solo branch below can return early: a
+  // number-search request arrives via `openWorkOrdersByNumberSearch`, which
+  // never sets `pendingSoloNumber`, so the two paths cannot both be pending.
+  if (pendingArchivedCheck) {
+    pendingArchivedCheck = false;
+    checkArchivedSearch = true;
+  }
+
   // A pending card-page open wins: rendering the list first and the card
   // second is the same two renders racing, and whichever settled last would
   // win. nav.js calls this on page entry, so consuming the request here is the
@@ -1047,6 +1065,9 @@ export async function loadIntegrationsPage() {
   if (importSection) importSection.hidden = !isAdminPlus();
   if (!isAdminPlus()) return;
   void refreshNetFacilitiesCloudSession();
+  // So the undo button survives a browser refresh inside its 24-hour window,
+  // and so an OA who was not the one importing still finds it waiting.
+  void refreshAutoClosePending();
 }
 
 function renderCards(cards) {
@@ -1329,6 +1350,20 @@ async function openWorkOrderPageByNumber(number) {
 // consumes this instead of rendering the list, so the two cannot race.
 export function focusWorkOrderNumber(number) {
   pendingSoloNumber = number;
+}
+
+// Called from the Admin daily report (hubReport.js) for a *closed* row. A
+// closed work order has no card page to open -- this list hides archived rows
+// -- so route to its exact number instead and let the shipped "Work Order has
+// been closed. Restore?" prompt fire. Resets every other control first, for the
+// same reason the tile and graph entry points above do: a stale status or
+// community filter left over from a previous visit would hide the very row we
+// just navigated to. Does not fetch; `showPage("work-orders")` does that.
+export function openWorkOrdersByNumberSearch(number) {
+  resetFilterControls();
+  if (searchInput) searchInput.value = number;
+  showAll = false;
+  pendingArchivedCheck = true;
 }
 
 // Called from the Admin Dashboard's pipeline tiles (hubAdmin.js). Sets the
@@ -2199,7 +2234,12 @@ function updateNetFacilitiesCloudControls(capability) {
   const cloudStatus = capability && capability.status;
   const awaitingSignIn = Boolean(cloudStatus && cloudStatus.state === "awaiting_sign_in");
   const signedIn = Boolean(cloudStatus && cloudStatus.state === "signed_in");
-  const hasCsv = signedIn && Boolean(cloudStatus.last_download_filename);
+  // E8: the fallback appears only when a capture is sitting unconsumed --
+  // the chain normally consumes it before the next poll lands.
+  const hasUnconsumedCsv = signedIn
+    && Boolean(cloudStatus.last_download_filename)
+    && !cloudStatus.capture_consumed;
+  const chainStage = cloudStatus ? cloudStatus.chain_stage : null;
 
   if (netFacilitiesCloudSignInBtn) {
     netFacilitiesCloudSignInBtn.hidden = !available || awaitingSignIn || signedIn;
@@ -2208,7 +2248,7 @@ function updateNetFacilitiesCloudControls(capability) {
     netFacilitiesCloudCancelBtn.hidden = !(awaitingSignIn || signedIn);
   }
   if (netFacilitiesCloudImportDownloadBtn) {
-    netFacilitiesCloudImportDownloadBtn.hidden = !hasCsv;
+    netFacilitiesCloudImportDownloadBtn.hidden = !hasUnconsumedCsv;
   }
   // The Enrich button is driven by this one capability: enrichment runs
   // through the caller's own saved cloud session or not at all.
@@ -2221,11 +2261,21 @@ function updateNetFacilitiesCloudControls(capability) {
   if (netFacilitiesStatus && !awaitingSignIn && !netFacilitiesPollingJobId) {
     if (!available) {
       setMessage(netFacilitiesStatus, capability ? capability.message : "NetFacilities status is unavailable. CSV import still works normally.", "");
+    } else if (chainStage === "importing") {
+      setMessage(netFacilitiesStatus, `Importing ${cloudStatus.last_download_filename}…`, "");
+    } else if (chainStage === "imported" || chainStage === "enriching") {
+      setMessage(netFacilitiesStatus, `${importSummary(cloudStatus.import_result)} Starting Task/Symptom and Priority…`, "success");
+    } else if (chainStage === "done") {
+      // The reconcile counts ride along in import_result, so this line and a
+      // clicked import's line can never tell two different stories.
+      setMessage(netFacilitiesStatus, `${importSummary(cloudStatus.import_result)} ${cloudStatus.enrichment_job_id ? "Enrichment is running." : "Enrichment is busy — click Import Tasks and Priority when it frees up."}`, "success");
+    } else if (chainStage === "failed") {
+      setMessage(netFacilitiesStatus, `${cloudStatus.import_error || "That import did not finish."} You are still signed in — export the right CSV in the NetFacilities window and it will import automatically.`, "error");
     } else if (signedIn) {
-      if (cloudStatus.last_download_filename) {
+      if (hasUnconsumedCsv) {
         setMessage(netFacilitiesStatus, `Saved ${cloudStatus.last_download_filename}. Click Import downloaded CSV to import it and fill in Task/Symptom and Priority.`, "success");
       } else {
-        setMessage(netFacilitiesStatus, "NetFacilities is open and logged in. Export the work-order CSV in that window; it can be imported from here.", "success");
+        setMessage(netFacilitiesStatus, "NetFacilities is open and logged in. Export the work-order CSV in that window — it imports and enriches on its own.", "success");
       }
     } else if (capability.has_saved_session) {
       setMessage(netFacilitiesStatus, "Saved NetFacilities login is ready. Choose a downloaded CSV to import it and seek Task/Symptom and Priority, or log in to export a fresh one.", "success");
@@ -2234,7 +2284,8 @@ function updateNetFacilitiesCloudControls(capability) {
     }
   }
 
-  const shouldPoll = available && (awaitingSignIn || signedIn);
+  const chainRunning = Boolean(cloudStatus && ["importing", "imported", "enriching"].includes(cloudStatus.chain_stage));
+  const shouldPoll = available && (awaitingSignIn || signedIn || chainRunning);
   if (shouldPoll && !netFacilitiesCloudPollTimer) {
     netFacilitiesCloudPollTimer = setInterval(
       refreshNetFacilitiesCloudSession,
@@ -2243,6 +2294,29 @@ function updateNetFacilitiesCloudControls(capability) {
   } else if (!shouldPoll && netFacilitiesCloudPollTimer) {
     clearInterval(netFacilitiesCloudPollTimer);
     netFacilitiesCloudPollTimer = null;
+  }
+
+  maybeHandleChainCompletion(cloudStatus).catch(() => {});
+}
+
+// One-shot handling of a finished chain observed through the session poll:
+// reload the list the import changed, then hand the status line to the
+// enrichment job's own poller. Keyed by attempt and stage so the poll (or a
+// page re-entry) does not replay it, and set eagerly by the manual button,
+// which already did both itself.
+let handledChainCompletion = null;
+
+async function maybeHandleChainCompletion(cloudStatus) {
+  if (!cloudStatus || !["done", "failed"].includes(cloudStatus.chain_stage)) return;
+  const key = `${cloudStatus.attempt_id}:${cloudStatus.chain_stage}`;
+  if (handledChainCompletion === key) return;
+  handledChainCompletion = key;
+  if (cloudStatus.chain_stage !== "done") return;
+  usersLoaded = false;
+  filterOptionsLoaded = false;
+  await loadWorkOrders();
+  if (cloudStatus.enrichment_job_id) {
+    await pollNetFacilitiesJob(cloudStatus.enrichment_job_id);
   }
 }
 
@@ -2277,11 +2351,23 @@ async function importNetFacilitiesCloudDownload() {
   if (netFacilitiesCloudImportDownloadBtn) netFacilitiesCloudImportDownloadBtn.disabled = true;
   setMessage(importMessage, "Importing…", "");
   try {
-    const r = await apiImportNetFacilitiesCloudDownload();
-    await afterWorkOrderImport(r);
+    // The route now runs the whole chain the automatic path does (E8) --
+    // import, session close, enrichment -- and returns the ceremony status,
+    // not a bare import summary.
+    const status = await apiImportNetFacilitiesCloudDownload();
+    handledChainCompletion = `${status.attempt_id}:${status.chain_stage}`;
+    if (status.chain_stage === "failed") {
+      setMessage(importMessage, status.import_error || "Could not import the downloaded CSV.", "error");
+    } else {
+      await afterWorkOrderImport(status.import_result, { chainOwnsEnrichment: true });
+      if (status.enrichment_job_id) {
+        await pollNetFacilitiesJob(status.enrichment_job_id);
+      }
+    }
   } catch (err) {
     setMessage(importMessage, friendlyError(err, "Could not import the downloaded CSV."), "error");
   } finally {
+    if (netFacilitiesCloudImportDownloadBtn) netFacilitiesCloudImportDownloadBtn.disabled = false;
     await refreshNetFacilitiesCloudSession();
   }
 }
@@ -2296,21 +2382,91 @@ if (netFacilitiesCloudImportDownloadBtn) {
   netFacilitiesCloudImportDownloadBtn.addEventListener("click", importNetFacilitiesCloudDownload);
 }
 
+// --- undo the import's auto-close (TechFM OA+) ----------------------------
+
+// Show or hide the red button from what the server says is still undoable, and
+// label it with the count it would restore. `null` means nothing pending, which
+// is the hidden state -- so a lapsed window puts the button away on its own.
+//
+// CSP drops inline `style` attributes here, so visibility is the `hidden`
+// attribute and nothing else.
+async function refreshAutoClosePending() {
+  if (!autoCloseUndoBtn) return;
+  try {
+    const pending = await apiGetWorkOrderAutoClosePending();
+    if (!pending || !pending.closed_count) {
+      autoCloseUndoBtn.hidden = true;
+      return;
+    }
+    autoCloseUndoBtn.textContent = `Undo auto-close (${pending.closed_count})`;
+    autoCloseUndoBtn.hidden = false;
+  } catch {
+    // A caller below TechFM OA gets a 403 here. Nothing to say: they cannot
+    // import either, so the button simply is not theirs.
+    autoCloseUndoBtn.hidden = true;
+  }
+}
+
+// No confirmation dialog. This button *is* the safety valve for the sweep;
+// putting friction in front of it defeats its purpose, and restoring work
+// orders is not itself destructive.
+async function undoAutoClose() {
+  autoCloseUndoBtn.disabled = true;
+  try {
+    const r = await apiUndoWorkOrderAutoClose();
+    const noun = r.restored === 1 ? "work order" : "work orders";
+    setMessage(importMessage, `${r.restored} ${noun} restored.`, "success");
+    await loadWorkOrders();
+  } catch (err) {
+    setMessage(importMessage, friendlyError(err, "Could not undo the auto-close."), "error");
+  } finally {
+    autoCloseUndoBtn.disabled = false;
+    await refreshAutoClosePending();
+  }
+}
+
+if (autoCloseUndoBtn) {
+  autoCloseUndoBtn.addEventListener("click", undoAutoClose);
+}
+
 // --- CSV import (Admin+) --------------------------------------------------
 
-// How many work orders the import added, and how many of those the CSV's
-// `ASSIGNED TO` name routed to a supervisor on its own. `supervisors_matched`
-// counts new work orders only, so the match count never exceeds `created`.
+// What one import did, as clauses joined by " · ", each appearing only when its
+// count is non-zero. `supervisors_matched` counts new work orders only, so the
+// match count never exceeds `created`.
+//
+// The closed clause is why this is a list rather than one sentence: an import
+// that created nothing and closed fourteen work orders is the single most
+// important thing the operator needs to see, and it used to fall through to the
+// flat "No new work orders." -- which was true and completely misleading.
+//
+// Also renders the auto-capture chain's "imported" narration step, so the
+// on-page story reads the same whether the import was clicked or captured.
 function importSummary(r) {
-  if (!r.created) return "No new work orders.";
-  const noun = r.created === 1 ? "new work order" : "new work orders";
-  return `${r.created} ${noun} · ${r.supervisors_matched} with a supervisor name match.`;
+  const clauses = [];
+  if (r.created) {
+    const noun = r.created === 1 ? "new work order" : "new work orders";
+    clauses.push(`${r.created} ${noun}`);
+    clauses.push(`${r.supervisors_matched} with a supervisor name match`);
+  }
+  if (r.auto_closed) {
+    clauses.push(`${r.auto_closed} closed (not in NetFacilities)`);
+  }
+  if (r.reopened) {
+    clauses.push(`${r.reopened} reopened (back in NetFacilities)`);
+  }
+  if (!clauses.length) return "No new work orders.";
+  return `${clauses.join(" · ")}.`;
 }
 
 // Everything that follows a successful import, whether the CSV was uploaded
 // or captured from the cloud window: summary, list reload, then enrichment
 // through the caller's own cloud session when they have one.
-async function afterWorkOrderImport(r) {
+// `chainOwnsEnrichment` is true for the cloud path, where the server's
+// capture chain starts enrichment itself (E8). Enriching again here would
+// collide with that job, burn the chain's retry budget, and narrate a
+// queue that is really our own duplicate.
+async function afterWorkOrderImport(r, { chainOwnsEnrichment = false } = {}) {
   // Only the new work orders are worth reporting: re-imported numbers keep
   // their own routing, and rows the import passed over changed nothing.
   setMessage(importMessage, importSummary(r), "success");
@@ -2318,10 +2474,15 @@ async function afterWorkOrderImport(r) {
   usersLoaded = false;
   filterOptionsLoaded = false;
   await loadWorkOrders();
+  // After *every* import, whatever its counts: one that closed rows raises the
+  // pending count and one that reopened rows lowers it, so the label is only
+  // right if it is re-read either way.
+  await refreshAutoClosePending();
   const capability = await refreshNetFacilitiesCloudSession();
   const cloudStatus = capability && capability.status;
   if (
-    capability
+    !chainOwnsEnrichment
+    && capability
     && capability.available
     && (capability.has_saved_session || (cloudStatus && cloudStatus.state === "signed_in"))
   ) {

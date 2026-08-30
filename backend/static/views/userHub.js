@@ -8,7 +8,7 @@
 // TechFM OA+ additionally receives the lazy Admin summary and Graphs tab;
 // lower roles keep the role-agnostic GET /hub shape.
 
-import { apiGetHub, apiGetHubAdmin, apiGetHubCrew, apiGetHubGraphs, apiGetHubTimesheets } from "../api.js";
+import { apiGetHub, apiGetHubAdmin, apiGetHubCrew, apiGetHubGraphs, apiGetHubReport, apiGetHubTimesheets } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
 import { roleAtLeast } from "../roles.js";
@@ -23,6 +23,7 @@ import { mountHubCrew } from "./hubSupervisor.js";
 import { mountHubAdminSummary } from "./hubAdmin.js";
 import { mountHubTimesheets } from "./hubTimesheets.js";
 import { destroyHubGraphs, largestCommunityKey, mountHubGraphs } from "./hubGraphs.js";
+import { mountHubReport, renderReportError, renderReportSkeleton } from "./hubReport.js";
 import { openWorkOrdersFilteredByDistribution } from "./workOrders.js";
 import { showPage } from "./nav.js";
 import { skeletonCard } from "../skeleton.js";
@@ -42,12 +43,14 @@ const tabPanels = {
   timesheets: document.getElementById("hub-tabpanel-timesheets"),
   "work-orders": document.getElementById("hub-tabpanel-work-orders"),
   graphs: document.getElementById("hub-tabpanel-graphs"),
+  report: document.getElementById("hub-tabpanel-report"),
 };
 const clockMount = document.getElementById("hub-clock-mount");
 const hubPage = document.getElementById("user-hub-page");
 const hubTabsNav = document.getElementById("hub-tabs");
 const timesheetsTabButton = document.getElementById("hub-tab-timesheets");
 const graphsTabButton = document.getElementById("hub-tab-graphs");
+const reportTabButton = document.getElementById("hub-tab-report");
 
 // Admin+ viewers spend most of their hub time on the tab content (crew,
 // timesheets, company summary) rather than their own clock, so the widget
@@ -82,6 +85,8 @@ let graphRequestId = 0;
 // a page reload.
 let graphCommunity = null;
 let graphInner = "service_type";
+let latestReportPayload = null;
+let reportRequestId = 0;
 let loadedUserId = null;
 
 // Hub tabs are card grids, so their in-flight state is a grid of skeleton
@@ -131,6 +136,13 @@ function renderPriorities() {
 
 function viewerCanSeeAdminTiles() {
   return Boolean(latestPayload) && roleAtLeast(latestPayload.user.role, "techfm_oa");
+}
+
+// Admin, not TechFM OA -- the one place this app draws the line above OA, and
+// it matches `GET /hub/report`'s own floor. A TechFM OA holds the rest of the
+// admin toolkit (the tiles above, Graphs, the work-order export) but not this.
+function viewerIsAdmin() {
+  return Boolean(latestPayload) && roleAtLeast(latestPayload.user.role, "admin");
 }
 
 // D16 (spec §5.4): the crew board is absent -- not an empty state -- for a
@@ -185,6 +197,11 @@ function renderActiveTab() {
   } else if (activeTab === "graphs") {
     if (latestGraphsPayload) renderGraphs();
     else void loadGraphs();
+  } else if (activeTab === "report") {
+    // Re-fetched on every tab re-entry, matching Graphs: a daily report does
+    // not need a socket, but it should not be yesterday's either.
+    if (latestReportPayload) renderReport();
+    void loadReport({ background: Boolean(latestReportPayload) });
   } else {
     mountHubWorkOrders(tabPanels["work-orders"], latestPayload);
   }
@@ -225,6 +242,36 @@ function setGraphsTabVisible(visible) {
   if (!graphsTabButton) return;
   graphsTabButton.hidden = !visible;
   graphsTabButton.classList.toggle("hidden", !visible);
+}
+
+function setReportTabVisible(visible) {
+  if (!reportTabButton) return;
+  reportTabButton.hidden = !visible;
+  reportTabButton.classList.toggle("hidden", !visible);
+}
+
+function renderReport() {
+  const mount = tabPanels.report;
+  if (!mount || !latestReportPayload) return;
+  mountHubReport(mount, latestReportPayload);
+}
+
+async function loadReport({ background = false } = {}) {
+  const mount = tabPanels.report;
+  if (!mount || !viewerIsAdmin()) return;
+  const requestId = ++reportRequestId;
+  if (!latestReportPayload && !background) renderReportSkeleton(mount);
+  try {
+    const payload = await apiGetHubReport();
+    if (requestId !== reportRequestId) return;
+    latestReportPayload = payload;
+    if (activeTab === "report") renderReport();
+  } catch (err) {
+    // A refresh over an already-rendered report keeps the last good one on
+    // screen rather than blanking it -- the rule loadGraphs follows.
+    if (requestId !== reportRequestId || background || latestReportPayload) return;
+    renderReportError(mount, err, () => void loadReport());
+  }
 }
 
 function showTimesheetLoadError(mount, err, requestedRange) {
@@ -421,6 +468,7 @@ export async function loadUserHub() {
   const userChanged = loadedUserId !== nextUserId;
   const canViewSupervisorTabs = roleAtLeast(payload.user.role, "supervisor");
   const canViewAdminTiles = roleAtLeast(payload.user.role, "techfm_oa");
+  const canViewReport = roleAtLeast(payload.user.role, "admin");
   if (userChanged || !canViewSupervisorTabs) {
     latestCrewPayload = null;
     latestTimesheetPayload = null;
@@ -439,13 +487,22 @@ export async function loadUserHub() {
     graphInner = "service_type";
     tabPanels.graphs.replaceChildren();
   }
+  // Reset with the admin state, not after `showTab`: otherwise a role change
+  // renders the previous Admin's report for one frame.
+  if (userChanged || !canViewReport) {
+    latestReportPayload = null;
+    reportRequestId += 1;
+    tabPanels.report.replaceChildren();
+  }
   if (userChanged) activeTab = "dashboard";
   if (!canViewSupervisorTabs && activeTab === "timesheets") activeTab = "dashboard";
   if (!canViewAdminTiles && activeTab === "graphs") activeTab = "dashboard";
+  if (!canViewReport && activeTab === "report") activeTab = "dashboard";
   loadedUserId = nextUserId;
   latestPayload = payload;
   setTimesheetsTabVisible(canViewSupervisorTabs);
   setGraphsTabVisible(canViewAdminTiles);
+  setReportTabVisible(canViewReport);
   renderWorkOrdersTabLabel();
   placeClockMount(canViewAdminTiles);
   mountHubClock(clockMount, latestPayload, { onChanged: refreshUserHub });

@@ -2351,6 +2351,149 @@ tr.archived-user {
     border-radius: var(--radius-sm);
 }
 
+/* --- Admin daily report (User Hub > Report) ---------------------------- */
+/* Badges carry the only status accents here, per the design system's
+   badge-only rule; red stays the brand primary and never means "bad". */
+
+.hub-report-header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+}
+
+.hub-report-title h2 {
+    margin: 0;
+}
+
+.hub-report-week,
+.hub-report-day,
+.hub-report-generated {
+    margin: var(--space-1) 0 0;
+    color: var(--text-panel-mute);
+    font-size: var(--fs-sm);
+}
+
+.hub-report-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--space-1);
+}
+
+.hub-report-download {
+    margin-top: var(--space-2);
+}
+
+.hub-report-section {
+    margin-bottom: var(--space-5);
+}
+
+.hub-report-section h3 {
+    margin: 0 0 var(--space-2);
+}
+
+.hub-report-counts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-4);
+    margin-bottom: var(--space-2);
+}
+
+.hub-report-count-label {
+    color: var(--text-panel-mute);
+    font-size: var(--fs-sm);
+}
+
+.hub-report-count-value {
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-semibold);
+    font-variant-numeric: tabular-nums;
+}
+
+.hub-report-subcount,
+.hub-report-breakdown {
+    color: var(--text-panel-mute);
+    font-size: var(--fs-sm);
+}
+
+.hub-report-table {
+    width: 100%;
+    min-width: 900px;
+    border-collapse: collapse;
+}
+
+.hub-report-table th,
+.hub-report-table td {
+    padding: var(--space-2) var(--space-3);
+    text-align: left;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--panel-rule-soft);
+}
+
+.hub-report-table thead th {
+    border-bottom: 1px solid var(--panel-rule);
+    color: var(--text-panel-mute);
+    font-size: var(--fs-sm);
+}
+
+.hub-report-table tbody > tr:nth-child(even) {
+    background: var(--panel-well);
+}
+
+.hub-report-number-cell {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.hub-report-row-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    font-weight: var(--fw-semibold);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+/* The lifted hue, not --color-brand: red TEXT on a frosted panel needs the
+   5.5:1 variant, per the token block's own note. */
+.hub-report-row-btn:hover,
+.hub-report-row-btn:focus-visible {
+    color: var(--color-brand-light);
+}
+
+.hub-report-badge {
+    padding: 0 var(--space-2);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-pill);
+    color: var(--text-panel-mute);
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+}
+
+.hub-report-empty,
+.hub-report-footnote,
+.hub-report-truncated,
+.hub-report-loading {
+    color: var(--text-panel-mute);
+    font-size: var(--fs-sm);
+}
+
+.hub-report-footnote {
+    margin-top: var(--space-2);
+}
+
+.hub-report-retry {
+    margin-top: var(--space-2);
+}
+
 .hub-timesheet-table {
     width: 100%;
     min-width: 760px;

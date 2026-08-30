@@ -503,6 +503,13 @@ export async function apiGetHubGraphs({ weeks = 12 } = {}) {
   return liveGet(`/hub/graphs?weeks=${encodeURIComponent(weeks)}`);
 }
 
+export async function apiGetHubReport() {
+  // No parameters by design: the report's two windows are derived from server
+  // time, which is what makes it a daily report rather than a filter. The CSV
+  // needs no wrapper -- it is a plain link, as the timesheet export is.
+  return liveGet("/hub/report");
+}
+
 export async function apiGetHubTimesheets({ start = null, end = null, userId = null } = {}) {
   const params = new URLSearchParams();
   if (start) params.set("start", start);
@@ -625,6 +632,21 @@ export async function apiGetLegacyWorkOrderArchivePreview() {
 
 export async function apiArchiveLegacyWorkOrders() {
   return parseResponse(await fetch("/work-orders/legacy/archive", {
+    method: "POST",
+    credentials: "include",
+  }));
+}
+
+// Import reconciliation's undo (TechFM OA+). The GET answers `null` when there
+// is nothing to take back, which is what hides the button; the POST returns the
+// number actually restored, which can be lower than the label if somebody
+// restored rows by hand or a later import reopened them in between.
+export async function apiGetWorkOrderAutoClosePending() {
+  return liveGet("/work-orders/auto-close/pending");
+}
+
+export async function apiUndoWorkOrderAutoClose() {
+  return parseResponse(await fetch("/work-orders/auto-close/undo", {
     method: "POST",
     credentials: "include",
   }));

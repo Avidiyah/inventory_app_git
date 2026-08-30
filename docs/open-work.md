@@ -115,6 +115,27 @@ the same day, see *Cloud auth (IMP-040, 2026-08-28)* in `current-state.md`.
 before this can be called done, and the owner still needs to
 rotate/invalidate the NetFacilities session flagged in the IMP-039 handoff.
 
+**2026-08-30 — auto-capture chain implemented** (spec
+`2026-08-29-netfacilities-auto-capture-design.md`, plan
+`2026-08-29-netfacilities-auto-capture.md`). Phase 1 (D-A path
+normalization, D-B loop guard, retryable capture, browser-level download
+behavior) shipped 2026-08-29. **The plan's production gate — confirming in
+production logs that a real Download CSV click produces
+`netfacilities.cloud_csv_captured` and the manual import works — has not
+been recorded yet**; record the result here when it happens. Phase 2 turns
+the capture into an unattended chain: automatic import, session closed on
+success / kept open on a failed import (E6), a 10-minute signed-in deadline
+(E7, fixes the D-C billing leak), enrichment started through the caller's
+own session with a 2-minute collision retry (E5), a web push on both
+outcomes (E10), and the manual button running the same
+`dispatch_capture` chain (E8). Follow-ups, from the spec's known gaps:
+
+- Vendor-side session health checking (spec §4.4): the E7 deadline bounds a
+  reaped session but nothing detects Steel reaping one early.
+- The Playwright `download` listener (spec §3): unverified over
+  `connect_over_cdp`. Production logs now carry `capture_path=listener|poll`
+  on every capture — if it reads `poll` every time, delete the listener.
+
 ### IMP-037 — Field-help `?` tooltips — CLOSED
 
 - **Logged** 2026-08-23 · *App-wide* · designed with the owner the same day
@@ -222,6 +243,18 @@ locked decisions. Four phases:
   matching Work Orders list at slice level — plus 12/26/52-week
   circulating-age versus close-out-time trends. It intentionally does not
   expose a custom graph builder.
+- **P5 · Admin daily report — shipped 2026-08-30.** `GET /hub/report`, `GET
+  /hub/report/export`, `services/work_order_report.py`, and the Report tab.
+  Design spec at
+  `docs/superpowers/specs/2026-08-30-work-order-daily-report-design.md`. Two
+  nested Central windows (Today, and the Monday–Sunday week containing it
+  evaluated week-to-date) over Closed / Closing / New, plus one
+  `SECTION`-prefixed CSV that re-imports through `POST /work-orders/import`.
+  **The only Admin-floored routes in the app** — TechFM OA deliberately does
+  not see this despite holding the rest of the admin toolkit; the exemption is
+  recorded in `tests/test_route_role_gates.py`. Three follow-ons below:
+  `N-WO-STATUS-EVENTS`, `N-REPORT-EXPORT-AUDIT`, and the `closing` pagination
+  trigger.
 
 ---
 
@@ -230,6 +263,74 @@ locked decisions. Four phases:
 None of these is scheduled work. Each is a real property of the system with a
 **named trigger** that would promote it, written down so the trigger is
 recognized when it arrives rather than rediscovered.
+
+### N-HUB-TAB-SHELL — `userHub.js` crossed 500 lines on the fifth tab
+
+`static/views/userHub.js` is 551 lines, over `CLAUDE.md`'s 500-line rule. It sat
+at 494 before the Report tab, so the fifth tab was always going to cross it: the
+file is a tab shell that grows by a fixed ~55 lines per tab (a button handle, a
+visibility setter, a payload cache, a request counter, a lazy loader, an error
+renderer, a reset branch, and an `activeTab` fallback).
+
+The Report tab was wired in the same shape as Timesheets and Graphs rather than
+inventing a second pattern to dodge the count — one inconsistent tab would cost
+more than the overrun does. **This was not silently accepted; it is recorded
+here because the addition, not the file, is the small part.**
+
+**Trigger:** a sixth tab, or any substantive edit to the lazy-loading machinery.
+The extraction is mechanical and self-contained: `loadTimesheets`, `loadGraphs`,
+`loadReport`, and their two error renderers are the same lazy-tab pattern five
+times over and belong in a `hubTabs.js` that owns the caches and request
+counters, leaving `userHub.js` the payload fetch, the clock, and tab switching.
+Do it as its own change with the three tabs verified by hand, not folded into a
+feature.
+
+### N-WO-STATUS-EVENTS — A work order has no status history, so a close can vanish
+
+A work order carries exactly four timestamps: `created_at`, `updated_at`,
+`completed_at`, `archived_at`. Nothing records *when* it entered a status. Two
+consequences the Admin daily report accepts rather than works around:
+
+- **Closing cannot be a delta.** "What moved into a closing status since
+  yesterday" is unanswerable from this schema, so the report's Closing section
+  is an honest snapshot of the current queue instead.
+- **A restore erases a close.** `restore_work_order` clears `archived_at`, so a
+  work order closed Monday and restored Wednesday drops out of Monday's numbers
+  retroactively. The reconcile sweep's reopen-on-reappearance is another way
+  this happens. `graphs_hub` already carries the same caveat. Both surfaces are
+  live views, not archival records, and say so on the page.
+
+**Trigger:** anyone needing to reconcile a past day's report against what it
+said at the time, or asking for date navigation on the report (deliberately out
+of scope for exactly this reason). The fix is a `work_order_status_events`
+table, which makes Closing a real delta *and* Closed an audit-grade history. Do
+not attempt to infer either from `updated_at`.
+
+### N-REPORT-EXPORT-AUDIT — The report's CSV joins the unlogged-export set
+
+`docs/open-work.md`'s 2026-08-23 DEC commits every CSV/report export to
+recording actor, export type, row count, and timestamp into a log sink that is
+not yet built. `GET /hub/report/export` is a member of that set from the day it
+shipped and is not separately logged today.
+
+**Trigger:** the sink landing. Wire this export into it then, rather than
+inventing a private log here — a second, differently-shaped export log is worse
+than the gap it closes. Note this export is Admin-only and company-wide, which
+makes it a higher-value audit record than the viewer-scoped work-order export.
+
+### N-REPORT-CLOSING-PAGINATION — The one report section that can outgrow its cap
+
+Four of the daily report's five sections are bounded by their time window. The
+fifth, `closing`, is every live work order in `ready_to_complete` / `completed`
+/ `review` and grows with any pipeline backlog, so it passes through
+`services/_list_cap.py` at `MAX_LIST_ROWS` and carries `truncated` in its
+payload. The cap lives in the payload builder, never in a renderer, so the page
+and the CSV truncate identically; `count` and `by_status` stay true regardless.
+
+**Trigger:** `event=list.truncated` with `list=hub_report_closing` appearing in
+the logs. That line means the backlog has outgrown the ceiling and this section
+— not all six capped lists — needs real pagination. Until it fires, this is a
+safety ceiling doing its job.
 
 ### N-ITEM-RESTORE — There is no item unarchive, and item requests now expose it
 

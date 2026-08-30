@@ -128,18 +128,22 @@ lists what the call reads (r) and writes (w).
 | 71 | POST | `/work-orders/{id}/resume` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.resume_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiResumeWorkOrder` | `workOrders.js` |
 | 71a | POST | `/work-orders/{id}/tracking/start` | assigned Technician, or Supervisor+ on any visible row | `work_orders.py` → `work_orders.start_labor_session` | work_orders (r/w status + notes, row lock), work_order_technicians (r), work_order_labor_sessions (r/w), work_order_labor (w, when it closes a clock elsewhere), push_subscriptions (r, via notify on that row's auto-hold) | `apiStartWorkOrderTracking` | `workOrders.js` |
 | 71b | POST | `/work-orders/{id}/tracking/stop` | assigned Technician, or Supervisor+ on any visible row | `work_orders.py` → `work_orders.stop_labor_session` | work_orders (r/w status + notes, row lock), work_order_technicians (r), work_order_labor_sessions (r/w), work_order_labor (w), push_subscriptions (r, via notify on auto-hold) | `apiStopWorkOrderTracking` | `workOrders.js` |
+| 72 | GET | `/work-orders/auto-close/pending` | techfm_oa+ | `work_orders.py` → `work_orders.pending_auto_close` | work_orders (r; sweep-closed rows inside the 24h window) | `apiGetWorkOrderAutoClosePending` | `workOrders.js` (Integrations card) |
+| 73 | POST | `/work-orders/auto-close/undo` | techfm_oa+ | `work_orders.py` → `work_orders.undo_auto_close` | work_orders (r/w, row lock; un-archive + note per row) | `apiUndoWorkOrderAutoClose` | `workOrders.js` (Integrations card) |
 | NF2 | POST | `/integrations/netfacilities/work-orders/enrich` | techfm_oa+ | `netfacilities.py` → `_resolve_cloud_enrichment_context` (the caller's own cloud session) → `netfacilities_jobs.start` → `netfacilities.enrich_work_orders` | work_orders (r/w, existing live candidates only; short compare-and-set locks); netfacilities_cloud_sessions (r, caller's own row only) | `apiStartNetFacilitiesEnrichment` | `workOrders.js` |
 | NF3 | GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | techfm_oa+ | `netfacilities.py` → `netfacilities_jobs.get` | no DB; process-local aggregate-only job snapshot | `apiGetNetFacilitiesEnrichment` | `workOrders.js` |
 | NF5 | GET | `/integrations/netfacilities/cloud/session` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.latest` + `NetFacilitiesCloudSession` existence check | netfacilities_cloud_sessions (r, existence only) | `apiGetNetFacilitiesCloudSession` | `workOrders.js` (Integrations card, cloud sign-in) |
 | NF5a | POST | `/integrations/netfacilities/cloud/auth/start` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.start` → `SteelCloudBrowserProvider.open_login_session` | no DB; opens a Steel cloud session, per-user in-memory ceremony state | `apiStartNetFacilitiesCloudAuthentication` | `workOrders.js` |
 | NF5b | POST | `/integrations/netfacilities/cloud/auth/cancel` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.cancel` → `SteelCloudBrowserProvider.close_login_session` | no DB; releases the Steel session | `apiCancelNetFacilitiesCloudAuthentication` | `workOrders.js` |
-| NF6 | POST | `/integrations/netfacilities/cloud/downloads/import` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.captured_csv_bytes` → `work_orders.run_csv_import` → `services/work_orders.import_work_orders` | **work_orders** (find-or-create by number), same realtime + push side effects as WO import | `apiImportNetFacilitiesCloudDownload` | `workOrders.js` (Integrations card, **Import downloaded CSV**) |
+| NF6 | POST | `/integrations/netfacilities/cloud/downloads/import` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.dispatch_capture` → `work_orders.run_csv_import` → close session → `netfacilities_jobs.start` → chain push | **work_orders** (find-or-create by number, same realtime + push side effects as WO import), netfacilities_cloud_sessions (r), push_subscriptions (r, chain outcome push) | `apiImportNetFacilitiesCloudDownload` | `workOrders.js` (Integrations card, **Import downloaded CSV** — returns `NetFacilitiesCloudSessionStatus`, runs the same chain the automatic capture trigger does) |
 | WS1 | WS | `/ws` | session cookie + same-origin | `realtime.py` → `services/realtime` registry → `domain/realtime` policy | **none** — carries no row data, reads and writes nothing | — (`static/realtime.js` owns the socket; not an `api.js` wrapper) | `adminReview.js` (subscriber), `auth.js` + `nav.js` (lifecycle) |
 | H1 | GET | `/hub` | any authenticated | `hub.py` → `hub.personal_hub` → `work_orders.sweep_stale_sessions` + `labor_summary.day_summary` + `tools.user_custody_detail` | work_order_labor_sessions (r/w on sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), tool_transactions (r), tools (r), users (r) | `apiGetHub` | `userHub.js`, `hubClock.js`, `hubTechnician.js` |
 | H2 | GET | `/hub/crew` | supervisor+ | `hub.py` → `hub.crew_hub` → `work_orders.sweep_stale_sessions` (per crew member) + `labor_summary.crew_day_summaries` + `labor_summary.last_worked` | work_order_labor_sessions (r/w on per-member sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), users (r) | `apiGetHubCrew` | `userHub.js`, `hubSupervisor.js` |
 | H3 | GET | `/hub/timesheets` | supervisor+ | `hub.py` → `hub.timesheets_hub` → `work_orders.sweep_stale_sessions` (per crew member) + `labor_summary.crew_range_summaries` | work_order_labor_sessions (r/w on per-member sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), users (r) | `apiGetHubTimesheets` | `userHub.js`, `hubTimesheets.js` |
 | H4 | GET | `/hub/timesheets/export` | supervisor+ | `hub.py` → `hub.timesheets_hub` + `hub.timesheet_csv` | same as H3 | `apiExportHubTimesheets` | `hubTimesheets.js` |
 | H5 | GET | `/hub/graphs?weeks=12\|26\|52` | techfm_oa+ | `hub.py` → `hub.graphs_hub` → shared graph/community rules | work_orders (narrow status/location/service/timestamp projections; read-only) | `apiGetHubGraphs` | `userHub.js`, `hubGraphs.js` |
+| H6 | GET | `/hub/report` | **admin only** | `hub.py` → `work_order_report.daily_report` → `labor_day` windows + `work_orders.export_row` / `work_order_totals` | work_orders (r), work_order_items + items (r), work_order_labor (r), work_order_technicians (r), users (r) | `apiGetHubReport` | `userHub.js`, `hubReport.js` |
+| H7 | GET | `/hub/report/export` | **admin only** | `hub.py` → `work_order_report.daily_report` + `work_order_report.report_csv` | same as H6 | — (plain link, as H4 is) | `hubReport.js` |
 
 (Rows 55 onward and the NF rows were appended out of resource order to keep the existing
 #1–54 numbering — and the footnote / per-table references to it — stable. NF1, NF1a–NF1c,
@@ -468,8 +472,15 @@ one no import has brought in.
   Blank/missing tasks store a canonical NetFacilities URL that remains
   replaceable by a later real CSV task; real/manual tasks stay authoritative.
   Supervisor routing fills only while the locked row is still NULL, so a manual reroute
-  wins over a later or concurrent import. An archived match is counted as
-  closed and ignored before merge/routing. Reads **users** to
+  wins over a later or concurrent import. An archived match a *person* made is
+  counted as closed and ignored before merge/routing; one an earlier sweep made
+  is un-archived (`reopened`) and then merged like any live row. After the row
+  loop, one transaction closes every live non-`legacy` work order the CSV did
+  **not** list (`auto_closed`), stopping any clock on it and stamping
+  `auto_closed_batch_id` / `auto_closed_at` — the export is the full list of
+  what is open upstream, so absence from it means closed upstream. A CSV whose
+  rows all lack a number sweeps nothing, which is what stops a header-only file
+  from closing the whole company. Reads **users** to
   name-match the vendor `ASSIGNED TO` to a supervisor (`supervisor_id`) for live
   rows. Each matched supervisor is then notified **once for the whole import**
   (`work_order.supervisor_assigned_bulk`), counting only rows this import
@@ -498,10 +509,19 @@ one no import has brought in.
   state; completion/timeout reloads cards. Missing/expired auth preserves the completed
   CSV import, expires that user's saved row (spec D8), and recovery is signing in
   again before using **Import Tasks and Priority**.
-- `workOrders.js` (**Import downloaded CSV**) calls `apiImportNetFacilitiesCloudDownload`
-  → `POST /integrations/netfacilities/cloud/downloads/import`, which imports the CSV
-  the cloud window most recently captured through the same `run_csv_import` the
-  upload route uses, then continues into the enrichment flow above.
+- A CSV exported in the cloud window is captured and dispatched **unattended**
+  (auto-capture spec, E4): `netfacilities_cloud_auth.dispatch_capture` imports it
+  through the same `run_csv_import` the upload route uses, closes the Steel
+  session on success (kept open on a failed import so the user can re-export,
+  E6), starts enrichment through the caller's own saved session (retrying while
+  a batch is running, E5), and pushes the outcome to that user (E10). The
+  session poll narrates the chain (`chain_stage`, `import_result`,
+  `enrichment_job_id` on `NetFacilitiesCloudSessionStatus`). `workOrders.js`
+  (**Import downloaded CSV**, shown only for an unconsumed capture) calls
+  `apiImportNetFacilitiesCloudDownload` →
+  `POST /integrations/netfacilities/cloud/downloads/import`, which runs the
+  **same** `dispatch_capture` chain — the manual and automatic paths cannot
+  drift.
 - `workOrders.js` (Re-archive legacy work orders..., Owner only) first calls
   `apiGetLegacyWorkOrderArchivePreview` → `GET /work-orders/legacy/archive` →
   `count_live_legacy_work_orders` and shows the returned live-row count in the
@@ -962,6 +982,19 @@ matching `legacy=true AND archived_at IS NULL`.
 `POST /work-orders/legacy/archive`: `archived: int`, the bulk update's actual
 affected-row count (not a replay of the earlier preview).
 
+**`WorkOrderAutoClosePending`** — return of TechFM OA+
+`GET /work-orders/auto-close/pending`: `closed_count: int`, `batch_count: int`,
+`newest_ran_at`, `oldest_ran_at` (datetimes) — or **`null`** when nothing is
+pending, which is what hides the Integrations page's "Undo auto-close" button.
+The set is company-wide and covers every sweep still inside the 24-hour window,
+so `batch_count` can exceed one when two imports ran the same day.
+
+**`WorkOrderAutoCloseUndoResult`** — return of TechFM OA+
+`POST /work-orders/auto-close/undo`: `restored: int`, the number actually
+un-archived. Can be lower than a count read a moment earlier if rows were
+restored by hand or reopened by a later import in between. Nothing pending is
+`200 {"restored": 0}`, not an error.
+
 **`WorkOrderItemCreate`** — `POST .../items`: `item_id: UUID`, `quantity: Decimal`
 (> 0). **`WorkOrderItemUpdate`** — `PATCH .../items/{wid}`: `quantity: Decimal`
 (> 0). **`WorkOrderItemBilling`** — `PATCH .../items/{wid}/billing`:
@@ -983,7 +1016,11 @@ fields `location?`, `output_to?`, `vendor_assignee?`, `service_type?`,
 The service applies the Technician-notes / Supervisor-operations / Admin-metadata
 matrix. **`WorkOrderImportResult`** (return of
 `POST /work-orders/import`): `total`, `created`, `opened`, `closed`, `supervisors_matched`,
-`supervisors_unmatched`, `skipped` (all int). The request is a `multipart/form-data`
+`supervisors_unmatched`, `skipped`, `auto_closed`, `reopened` (all int).
+`auto_closed` are live work orders the import closed because the CSV did not
+list them; `reopened` are sweep-closed work orders it brought back because the
+CSV listed them again. `total` includes `reopened` but not `auto_closed` — a
+swept work order is by definition one the CSV did not contain. The request is a `multipart/form-data`
 CSV file upload (`UploadFile`), no JSON body, capped at **25 MB** by
 `routers/_uploads.py::read_capped` (413 above it — but the TechFM OA+ gate runs first,
 so an unauthorised oversized upload is a 403; since C1 that ordering is FastAPI
@@ -1205,6 +1242,23 @@ two subsets of the work orders this supervisor leads, same convention as
 **`HubAttentionItem`**: `kind` (`"technician"` | `"work_order"`), `subject`,
 `detail` — a server-composed sentence, matching spec §7's abbreviated
 `{kind, subject, detail}` contract for this list.
+
+**`HubReportResponse`** — `GET /hub/report` (**admin only** — the one route in
+this app floored at Admin, which `tests/test_route_role_gates.py` records as a
+deliberate exemption). Parameterless: both windows are derived from server time
+via `domain/labor_day.py`. `day` is the Central calendar day; `week` is the
+Monday–Sunday week containing it, labelled in full but evaluated **week-to-date**,
+so This Week always *includes* Today. `sections` carries five keys —
+`closed_today`, `closed_week` (`archived_at` windows, each with
+`auto_closed_count`), `closing` (live rows in `ready_to_complete` / `completed` /
+`review`, with `by_status` and `truncated`), and `new_today`, `new_week`
+(`created_at` windows). Rows nest: a work order closed today appears in both
+`closed_*` sections. `closing` is the only capped section
+(`list=hub_report_closing`); its `count` and `by_status` stay true when the cap
+bites. `GET /hub/report/export` serializes the same payload as one CSV whose
+header is `SECTION` + the 26 `EXPORT_HEADERS`, so the file re-imports through
+`POST /work-orders/import`. **A live view, not an archival record:** a restore
+clears `archived_at`, so a past close can vanish from these numbers.
 
 **`HubTimesheetResponse`** — `GET /hub/timesheets` (supervisor+; P3b scopes
 every caller to their own routed crew): `range: HubTimesheetRange`, `rows:
