@@ -220,3 +220,31 @@ def test_only_the_solo_card_suppresses_its_own_click():
     assert "if (soloActive) return;" not in code
     # The card page's own card is the one that opts in.
     assert "buildCard(detail, { solo: true })" in code
+
+
+
+def test_work_orders_ui_wires_location_and_task_searches():
+    """The two keyword filters exist in the grid, feed currentFilters, clear
+    with Clear filters, and reach the API as `location_q` / `task_q` --
+    without inheriting the number bar's archived-restore lookup."""
+    html = (
+        Path(__file__).resolve().parents[1] / "static" / "pages" / "work-orders.html"
+    ).read_text(encoding="utf-8")
+    assert 'id="work-orders-location-search"' in html
+    assert 'id="work-orders-task-search"' in html
+
+    code = _code("workOrders.js")
+    assert 'getElementById("work-orders-location-search")' in code
+    assert 'getElementById("work-orders-task-search")' in code
+    assert "locationQ: locationSearchInput" in code
+    assert "taskQ: taskSearchInput" in code
+    assert "wireKeywordSearch(locationSearchInput)" in code
+    assert "wireKeywordSearch(taskSearchInput)" in code
+    assert 'if (locationSearchInput) locationSearchInput.value = "";' in code
+    assert 'if (taskSearchInput) taskSearchInput.value = "";' in code
+
+    view = _view("../api.js")
+    assert 'params.set("location_q", locationQ)' in view
+    assert 'params.set("task_q", taskQ)' in view
+    assert 'params.set("location_q", filters.locationQ)' in view
+    assert 'params.set("task_q", filters.taskQ)' in view

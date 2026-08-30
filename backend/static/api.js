@@ -459,6 +459,8 @@ export async function apiListWorkOrders({
   priorityBucket = null,
   scheduledDate = null,
   q = null,
+  locationQ = null,
+  taskQ = null,
   mine = false,
   limit = null,
 } = {}) {
@@ -472,6 +474,8 @@ export async function apiListWorkOrders({
   if (priorityBucket) params.set("priority_bucket", priorityBucket);
   if (scheduledDate) params.set("scheduled_date", scheduledDate);
   if (q) params.set("q", q);
+  if (locationQ) params.set("location_q", locationQ);
+  if (taskQ) params.set("task_q", taskQ);
   if (mine) params.set("mine", "true");
   if (limit != null) params.set("limit", limit);
   const qs = params.toString();
@@ -609,6 +613,8 @@ export async function apiExportWorkOrders(
   if (filters.priorityBucket) params.set("priority_bucket", filters.priorityBucket);
   if (filters.scheduledDate) params.set("scheduled_date", filters.scheduledDate);
   if (filters.q) params.set("q", filters.q);
+  if (filters.locationQ) params.set("location_q", filters.locationQ);
+  if (filters.taskQ) params.set("task_q", filters.taskQ);
   const response = await fetch(`/work-orders/export?${params}`, {
     credentials: "include",
     cache: "no-store",

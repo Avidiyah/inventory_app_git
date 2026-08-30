@@ -83,6 +83,8 @@ const communityFilter = document.getElementById("work-orders-community-filter");
 const scheduledDateFilter = document.getElementById("work-orders-date-filter");
 const searchInput = document.getElementById("work-orders-search");
 const searchBtn = document.getElementById("work-orders-search-btn");
+const locationSearchInput = document.getElementById("work-orders-location-search");
+const taskSearchInput = document.getElementById("work-orders-task-search");
 const clearFiltersBtn = document.getElementById("work-orders-clear-filters");
 const exportMessage = document.getElementById("work-orders-export-message");
 const moreEl = document.getElementById("work-orders-more");
@@ -293,6 +295,8 @@ function currentFilters() {
     priorityBucket: priorityLevelFilter ? priorityLevelFilter.value : "",
     scheduledDate: scheduledDateFilter ? scheduledDateFilter.value : "",
     q: searchInput ? searchInput.value.trim() : "",
+    locationQ: locationSearchInput ? locationSearchInput.value.trim() : "",
+    taskQ: taskSearchInput ? taskSearchInput.value.trim() : "",
   };
 }
 
@@ -305,6 +309,8 @@ function resetFilterControls() {
     if (control) control.value = "";
   });
   if (searchInput) searchInput.value = "";
+  if (locationSearchInput) locationSearchInput.value = "";
+  if (taskSearchInput) taskSearchInput.value = "";
 }
 
 // Fixed company mark-up on the line total (mirrors history.js MARKUP_RATE).
@@ -2599,6 +2605,29 @@ if (searchInput) {
     }
   });
 }
+
+// The Location and Task/symptom keyword searches reuse the number bar's
+// 250 ms debounce + immediate Enter, but run plain loadWorkOrders():
+// checkArchivedSearch stays a number-search-only behavior, because only an
+// exact number can name an archived work order.
+function wireKeywordSearch(input) {
+  if (!input) return () => {};
+  let debounce = null;
+  const run = () => loadWorkOrders();
+  input.addEventListener("input", () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(run, 250);
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      clearTimeout(debounce);
+      run();
+    }
+  });
+  return () => clearTimeout(debounce);
+}
+const cancelLocationSearchDebounce = wireKeywordSearch(locationSearchInput);
+const cancelTaskSearchDebounce = wireKeywordSearch(taskSearchInput);
 [statusFilter, serviceTypeFilter, priorityFilter, priorityLevelFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
   if (!control) return;
   control.addEventListener("change", () => {
@@ -2610,6 +2639,8 @@ if (searchInput) {
 if (clearFiltersBtn) {
   clearFiltersBtn.addEventListener("click", () => {
     clearTimeout(woSearchDebounce);
+    cancelLocationSearchDebounce();
+    cancelTaskSearchDebounce();
     resetFilterControls();
     showAll = false;
     loadWorkOrders();
