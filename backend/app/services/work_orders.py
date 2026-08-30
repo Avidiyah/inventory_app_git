@@ -1153,6 +1153,8 @@ def _apply_work_order_filters(
     priority: Optional[str] = None,
     priority_bucket: Optional[str] = None,
     search: Optional[str] = None,
+    location_search: Optional[str] = None,
+    task_search: Optional[str] = None,
     mine: bool = False,
     user: Optional[User] = None,
 ):
@@ -1195,6 +1197,33 @@ def _apply_work_order_filters(
     if pattern is not None:
         like, escape = pattern
         query = query.filter(WorkOrder.number.ilike(like, escape=escape))
+
+    location_pattern = _search_pattern(location_search)
+    if location_pattern is not None:
+        like, escape = location_pattern
+        # One bar finds both shapes of location data: imported rows carry the
+        # raw multi-line `location` text, hand-created rows carry structured
+        # community/building/unit instead (the same bridge `_community_match`
+        # and the frontend's `placeMeta` already make).
+        query = query.filter(
+            or_(
+                func.coalesce(WorkOrder.location, "").ilike(like, escape=escape),
+                func.coalesce(WorkOrder.community, "").ilike(like, escape=escape),
+                func.coalesce(WorkOrder.building_number, "").ilike(
+                    like, escape=escape
+                ),
+                func.coalesce(WorkOrder.unit_number, "").ilike(like, escape=escape),
+            )
+        )
+
+    task_pattern = _search_pattern(task_search)
+    if task_pattern is not None:
+        like, escape = task_pattern
+        # `description` is the Task/Symptom field. `notes` is a separate
+        # append-only log and is deliberately NOT searched here.
+        query = query.filter(
+            func.coalesce(WorkOrder.description, "").ilike(like, escape=escape)
+        )
 
     return query
 
@@ -1252,6 +1281,8 @@ def list_work_orders(
     priority_bucket: Optional[str] = None,
     scheduled_date: Optional[date] = None,
     search: Optional[str] = None,
+    location_search: Optional[str] = None,
+    task_search: Optional[str] = None,
     mine: bool = False,
     limit: Optional[int] = None,
 ) -> Sequence[WorkOrder]:
@@ -1259,7 +1290,9 @@ def list_work_orders(
     (technician -> assigned, supervisor -> created/routed, admin/owner -> all).
     Optional status, service type, routed supervisor, derived community,
     priority, priority level (high/medium bucket), exact scheduled date, and
-    number-substring filters combine with AND. Community membership searches
+    number-substring filters combine with AND. `location_search` matches raw
+    location plus structured community/building/unit; `task_search` matches
+    the Task/Symptom `description` only. Community membership searches
     both structured `community` and raw CSV `location`; Academics means no
     known term appears in either. Priority is an exact vendor value, or
     `PRIORITY_FILTER_NONE` for the rows enrichment never reached -- `priority_bucket`
@@ -1300,6 +1333,8 @@ def list_work_orders(
             priority=priority,
             priority_bucket=priority_bucket,
             search=search,
+            location_search=location_search,
+            task_search=task_search,
             mine=mine,
             user=user,
         )

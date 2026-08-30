@@ -2588,3 +2588,153 @@ def test_a_patch_that_touches_no_assignments_adds_nobody(db):
     )
 
     assert wos.newly_assigned_ids(noted) == []
+
+
+
+def test_location_search_matches_raw_and_structured_locations(db):
+    sup = _seed_user(db, "supervisor")
+    raw = wos.get_or_create_work_order(
+        db,
+        number=f"WO-LOC-{uuid.uuid4().hex[:8]}",
+        created_by_id=sup.id,
+        location="Building 2312\nDenton TX",
+    )
+    structured = wos.get_or_create_work_order(
+        db,
+        number=f"WO-LOC-{uuid.uuid4().hex[:8]}",
+        created_by_id=sup.id,
+        community="Commons Apartments",
+        building_number="2312",
+        unit_number="7A",
+    )
+    other = wos.get_or_create_work_order(
+        db,
+        number=f"WO-LOC-{uuid.uuid4().hex[:8]}",
+        created_by_id=sup.id,
+        location="Building 9000",
+    )
+
+    found = {w.id for w in wos.list_work_orders(db, user=sup, location_search="2312")}
+    assert raw.id in found and structured.id in found
+    assert other.id not in found
+
+    # Case-insensitive, and community / unit_number participate too.
+    assert structured.id in {
+        w.id for w in wos.list_work_orders(db, user=sup, location_search="commons")
+    }
+    assert structured.id in {
+        w.id for w in wos.list_work_orders(db, user=sup, location_search="7a")
+    }
+
+
+def test_task_search_matches_description_not_notes(db):
+    sup = _seed_user(db, "supervisor")
+    described = wos.get_or_create_work_order(
+        db,
+        number=f"WO-TASK-{uuid.uuid4().hex[:8]}",
+        created_by_id=sup.id,
+        description="Broken toilet flapper in unit bath",
+    )
+    noted = wos.get_or_create_work_order(
+        db,
+        number=f"WO-TASK-{uuid.uuid4().hex[:8]}",
+        created_by_id=sup.id,
+        description="Paint touch-up",
+    )
+    wos.update_work_order(
+        db, noted.id, user=sup, fields={"notes": "toilet flapper mentioned in notes"}
+    )
+
+    found = {w.id for w in wos.list_work_orders(db, user=sup, task_search="FLAPPER")}
+    assert described.id in found
+    assert noted.id not in found
+
+
+def test_keyword_searches_escape_like_wildcards(db):
+    sup = _seed_user(db, "supervisor")
+    literal = wos.get_or_create_work_order(
+        db,
+        number=f"WO-ESC-{uuid.uuid4().hex[:8]}",
+        created_by_id=sup.id,
+        location="50% Building",
+        description="fix under_score panel",
+    )
+    decoy = wos.get_or_create_work_order(
+        db,
+        number=f"WO-ESC-{uuid.uuid4().hex[:8]}",
+        created_by_id=sup.id,
+        location="50x Building",
+        description="fix underXscore panel",
+    )
+
+    by_location = {
+        w.id for w in wos.list_work_orders(db, user=sup, location_search="50%")
+    }
+    assert literal.id in by_location and decoy.id not in by_location
+
+    by_task = {
+        w.id for w in wos.list_work_orders(db, user=sup, task_search="under_score")
+    }
+    assert literal.id in by_task and decoy.id not in by_task
+
+
+def test_keyword_searches_combine_with_and(db):
+    sup = _seed_user(db, "supervisor")
+    prefix = f"WO-AND-{uuid.uuid4().hex[:8]}"
+    target = wos.get_or_create_work_order(
+        db,
+        number=f"{prefix}-T",
+        created_by_id=sup.id,
+        location="Building 2312",
+        description="leaking sink",
+    )
+    wos.get_or_create_work_order(
+        db,
+        number=f"{prefix}-L",
+        created_by_id=sup.id,
+        location="Building 2312",
+        description="door hinge",
+    )
+
+    narrowed = {
+        w.id
+        for w in wos.list_work_orders(
+            db, user=sup, search=prefix, location_search="2312", task_search="sink"
+        )
+    }
+    assert narrowed == {target.id}
+
+    # Still narrows alongside the dropdown filters.
+    wos.update_work_order(db, target.id, user=sup, fields={"status": "in_progress"})
+    assert {
+        w.id
+        for w in wos.list_work_orders(
+            db,
+            user=sup,
+            status="in_progress",
+            search=prefix,
+            location_search="2312",
+            task_search="sink",
+        )
+    } == {target.id}
+    assert not wos.list_work_orders(
+        db,
+        user=sup,
+        status="completed",
+        search=prefix,
+        location_search="2312",
+        task_search="sink",
+    )
+
+
+def test_blank_keyword_searches_are_noops(db):
+    sup = _seed_user(db, "supervisor")
+    work_order = _wo(db, created_by=sup)
+
+    found = {
+        w.id
+        for w in wos.list_work_orders(
+            db, user=sup, location_search="   ", task_search=""
+        )
+    }
+    assert work_order.id in found
