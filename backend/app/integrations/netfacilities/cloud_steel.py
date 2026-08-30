@@ -77,6 +77,11 @@ class _SteelLoginSession:
     _browser: object
     _client: NetFacilitiesClient
     _seen_files: set[str] = field(default_factory=set)
+    # Filenames Playwright's `download` event reported (E2). The event is
+    # the trigger; the bytes still come from the Files API. Whether it fires
+    # at all over `connect_over_cdp` is unverified (spec 3) -- the safety-net
+    # poll is what makes that an optimisation rather than a dependency.
+    download_events: list[str] = field(default_factory=list)
 
 
 class SteelCloudBrowserProvider:
@@ -120,7 +125,7 @@ class SteelCloudBrowserProvider:
         client = NetFacilitiesClient(headless=True, _context=context)
         await client.open_authentication_page()
 
-        return _SteelLoginSession(
+        session = _SteelLoginSession(
             session_id=steel_session.id,
             # `debug_url`, not `session_viewer_url` -- see CloudLoginSession's
             # docstring for why. Confirmed against a real session 2026-08-28.
@@ -129,6 +134,22 @@ class SteelCloudBrowserProvider:
             _browser=browser,
             _client=client,
         )
+
+        # Recorded for every page open now and opened later, so an export
+        # clicked from any tab of the live view counts. The recording is
+        # what lets `poll_downloaded_csv` log which capture path won
+        # (listener or poll) and settle spec 3's open question from
+        # production logs rather than argument.
+        def _record(download) -> None:
+            session.download_events.append(download.suggested_filename)
+
+        def _watch(page) -> None:
+            page.on("download", _record)
+
+        for existing in context.pages:
+            _watch(existing)
+        context.on("page", _watch)
+        return session
 
     async def poll_signed_in(self, session: _SteelLoginSession) -> str | None:
         try:
@@ -165,6 +186,14 @@ class SteelCloudBrowserProvider:
             # Recorded only after a successful read: marking it before the
             # download made one transient vendor failure permanent.
             session._seen_files.add(path)
+            logger.info(
+                "netfacilities.cloud_csv_capture",
+                extra={
+                    "fields": {
+                        "capture_path": "listener" if session.download_events else "poll",
+                    }
+                },
+            )
             return relative.rsplit("/", 1)[-1], content
         return None
 

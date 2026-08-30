@@ -156,6 +156,11 @@ class FakeFilesResource:
         return FakeDownloadResponse(self.contents.get(path, b"col\n1\n"))
 
 
+class FakeDownload:
+    def __init__(self, suggested_filename):
+        self.suggested_filename = suggested_filename
+
+
 class FakeSteelClient:
     def __init__(self):
         self.sessions = FakeSessionsResource()
@@ -385,3 +390,33 @@ def test_close_login_session_releases_the_steel_session(monkeypatch):
 
     assert browser.closed is True
     assert fake_client.sessions.released == ["sess-1"]
+
+
+def test_a_download_event_is_recorded_for_pages_open_and_pages_created(monkeypatch):
+    # E2: the listener is the trigger; the bytes still come from the Files
+    # API. Whether it fires at all over `connect_over_cdp` is unverified
+    # (spec 3) -- the safety-net poll is what makes that acceptable, and
+    # the capture_path log line settles it in production.
+    provider, _fake_client = _provider(monkeypatch)
+    page = FakePage("https://system.netfacilities.com/account/login")
+    context = FakeContext(pages=[page])
+    browser = FakeBrowser(context)
+    monkeypatch.setattr(
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((None, browser))
+    )
+
+    async def _exercise():
+        session = await provider.open_login_session()
+        # The live view's own export click, as Playwright would report it.
+        page.handlers["download"](FakeDownload("work-orders.csv"))
+        return session
+
+    session = asyncio.run(_exercise())
+
+    # Pages the user opens later are covered too.
+    assert "page" in context.handlers
+    late_page = FakePage("https://system.netfacilities.com/tools")
+    context.handlers["page"](late_page)
+    late_page.handlers["download"](FakeDownload("late.csv"))
+
+    assert session.download_events == ["work-orders.csv", "late.csv"]

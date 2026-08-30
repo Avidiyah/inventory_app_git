@@ -68,3 +68,29 @@ def test_custom_login_timeout():
         _environ(NETFACILITIES_CLOUD_LOGIN_TIMEOUT_SECONDS="300"),
     )
     assert config.login_timeout_seconds == 300
+
+
+def test_chain_timings_default_to_the_spec_values():
+    # E12: signed-in deadline 10 min (under Steel's 15-minute cap), safety-net
+    # poll 5 s (slower than the old 3 s -- the listener is primary), and a
+    # 2-minute cap on retrying a busy enrichment coordinator.
+    config = load_netfacilities_cloud_config(ENABLED_BASE, _environ())
+
+    assert config.signed_in_timeout_seconds == 600
+    assert config.capture_poll_seconds == 5
+    assert config.enrichment_retry_seconds == 120
+
+
+def test_chain_timings_are_env_overridable():
+    config = load_netfacilities_cloud_config(
+        ENABLED_BASE,
+        _environ(
+            NETFACILITIES_CLOUD_SIGNED_IN_TIMEOUT_SECONDS="300",
+            NETFACILITIES_CLOUD_CAPTURE_POLL_SECONDS="2",
+            NETFACILITIES_CLOUD_ENRICHMENT_RETRY_SECONDS="45",
+        ),
+    )
+
+    assert config.signed_in_timeout_seconds == 300
+    assert config.capture_poll_seconds == 2
+    assert config.enrichment_retry_seconds == 45

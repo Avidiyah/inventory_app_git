@@ -232,6 +232,32 @@ def notify_supervisor_assigned(
     )
 
 
+def notify_netfacilities_chain_finished(
+    *,
+    user_id: uuid.UUID,
+    ok: bool,
+    stage: Optional[str],
+    import_result: Optional[dict],
+    job_id: Optional[uuid.UUID] = None,  # noqa: ARG001 - on the snapshot, not in the text
+) -> None:
+    """The unattended capture chain's only channel to a user who closed the
+    tab (E10).
+
+    Synchronous and immediate, unlike every other notifier here: the chain
+    has no request and no `BackgroundTasks`, so there is nothing to queue
+    behind -- it calls this off the event loop and `_deliver` opens its own
+    session as always. Addressed to the acting user on purpose; the
+    registry's actor-suppression rule is deliberately inverted for this one
+    event pair (see `docs/notification-events.md`).
+    """
+    if not push_service.is_configured():
+        return
+    title, body = policy.build_netfacilities_chain_message(
+        ok=ok, stage=stage, import_result=import_result
+    )
+    _deliver([user_id], title, body)
+
+
 def notify_supervisors_assigned_bulk(
     db: Session,
     background: BackgroundTasks,

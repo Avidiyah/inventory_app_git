@@ -216,14 +216,28 @@ def test_a_return_from_review_reads_differently_from_a_reopen():
 # `test_every_event_is_either_a_number_event_or_a_count_event` fails if
 # somebody adds one and skips that step.
 _COUNT_EVENTS = (notif.EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED_BULK,)
+# The capture chain's two events build their bodies from several counts and
+# a stage word, so they have their own builder
+# (`build_netfacilities_chain_message`) rather than a `build_message`
+# template -- sorted here deliberately, as this partition demands.
+_CHAIN_EVENTS = (
+    notif.EVENT_NETFACILITIES_IMPORT_FINISHED,
+    notif.EVENT_NETFACILITIES_IMPORT_FAILED,
+)
 _NUMBER_EVENTS = tuple(
-    event for event in notif.ALL_EVENTS if event not in _COUNT_EVENTS
+    event
+    for event in notif.ALL_EVENTS
+    if event not in _COUNT_EVENTS + _CHAIN_EVENTS
 )
 
 
-def test_every_event_is_either_a_number_event_or_a_count_event():
-    assert set(_NUMBER_EVENTS) | set(_COUNT_EVENTS) == set(notif.ALL_EVENTS)
+def test_every_event_is_either_a_number_a_count_or_a_chain_event():
+    assert set(_NUMBER_EVENTS) | set(_COUNT_EVENTS) | set(_CHAIN_EVENTS) == set(
+        notif.ALL_EVENTS
+    )
     assert not set(_NUMBER_EVENTS) & set(_COUNT_EVENTS)
+    assert not set(_NUMBER_EVENTS) & set(_CHAIN_EVENTS)
+    assert not set(_COUNT_EVENTS) & set(_CHAIN_EVENTS)
 
 
 @pytest.mark.parametrize("event", _NUMBER_EVENTS)
@@ -350,3 +364,50 @@ def test_clearing_the_routing_notifies_nobody():
     assert notif.recipients_for_supervisor_assignment(
         supervisor_id=None, actor_id=uuid.uuid4()
     ) == []
+
+
+# --- the capture chain's push text (E10, auto-capture spec 2a, 4.6) -------
+#
+# Locked-screen rule holds: counts and a stage word, never customer detail.
+
+
+def test_the_chain_success_push_names_the_reconcile_counts():
+    title, body = notif.build_netfacilities_chain_message(
+        ok=True,
+        stage=None,
+        import_result={"created": 3, "auto_closed": 14, "reopened": 1},
+    )
+
+    assert title == "NetFacilities import finished"
+    assert "3 work orders" in body
+    assert "14 closed (not in NetFacilities)" in body
+    assert "1 reopened" in body
+    assert "enrichment started" in body
+
+
+def test_the_chain_success_push_omits_zero_counts():
+    _, body = notif.build_netfacilities_chain_message(
+        ok=True, stage=None, import_result={"created": 2}
+    )
+
+    assert "closed" not in body
+    assert "reopened" not in body
+
+
+def test_the_chain_import_failure_push_says_to_re_export():
+    title, body = notif.build_netfacilities_chain_message(
+        ok=False, stage="import", import_result=None
+    )
+
+    assert title == "NetFacilities import needs you"
+    assert "still signed in" in body
+    assert "export" in body.lower()
+
+
+def test_the_chain_enrichment_failure_push_says_the_import_stood():
+    _, body = notif.build_netfacilities_chain_message(
+        ok=False, stage="enrichment", import_result={"created": 5}
+    )
+
+    assert "5 work orders" in body
+    assert "Enrich" in body

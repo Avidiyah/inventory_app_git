@@ -24,6 +24,7 @@ from app.database import SessionLocal
 from app.integrations.netfacilities.cloud_config import NetFacilitiesCloudConfig
 from app.integrations.netfacilities.cloud_contracts import CloudBrowserProvider
 from app.integrations.netfacilities.errors import NetFacilitiesError
+from app.services.netfacilities_cloud_chain import CaptureChainMixin, ChainStage
 from app.models import NetFacilitiesCloudSession
 from app.services import netfacilities_cloud_crypto as crypto
 
@@ -55,6 +56,16 @@ class NetFacilitiesCloudAuthenticationSnapshot:
     last_download_filename: str | None = None
     last_download_at: datetime | None = None
     live_view_url: str | None = None
+    # Whether the chain (or the manual button) already imported the capture
+    # named above. The fallback Import button keys off this (E8).
+    capture_consumed: bool = False
+    # The whole `WorkOrderImportResult` as a dict (spec 2a), so reconcile's
+    # auto_closed/reopened counts ride along once that work lands, with no
+    # plumbing here.
+    import_result: dict | None = None
+    import_error: str | None = None
+    enrichment_job_id: UUID | None = None
+    chain_stage: ChainStage | None = None
 
 
 def _now() -> datetime:
@@ -66,12 +77,19 @@ class _Ceremony:
     snapshot: NetFacilitiesCloudAuthenticationSnapshot
     provider: CloudBrowserProvider
     cloud_session: object
+    config: NetFacilitiesCloudConfig | None = None
     poll_task: "asyncio.Task[None] | None" = None
     captured_csv: tuple[str, bytes] | None = None
+    capture_consumed: bool = False
 
 
-class NetFacilitiesCloudAuthenticationCoordinator:
-    """Own one login ceremony per user, keyed by `user_id`."""
+class NetFacilitiesCloudAuthenticationCoordinator(CaptureChainMixin):
+    """Own one login ceremony per user, keyed by `user_id`.
+
+    The capture -> import -> enrich -> notify half lives in
+    `CaptureChainMixin` (`netfacilities_cloud_chain.py`) -- one class split
+    across two modules purely for file-size reasons, not a boundary.
+    """
 
     def __init__(
         self,
@@ -79,10 +97,22 @@ class NetFacilitiesCloudAuthenticationCoordinator:
         provider_factory: ProviderFactory,
         session_factory: SessionFactory = SessionLocal,
         poll_seconds: float = DEFAULT_POLL_SECONDS,
+        import_runner: "Callable[..., dict] | None" = None,
+        job_coordinator: object | None = None,
+        notifier: "Callable[..., None] | None" = None,
+        enrichment_resolver: "Callable[..., tuple] | None" = None,
     ) -> None:
         self._provider_factory = provider_factory
         self._session_factory = session_factory
         self._poll_seconds = poll_seconds
+        # Chain collaborators. `None` means "resolve the real one lazily":
+        # importing routers or push delivery at module scope from a service
+        # would invert the dependency direction, and tests substitute all
+        # four without patching module globals.
+        self._import_runner = import_runner
+        self._job_coordinator = job_coordinator
+        self._notifier = notifier
+        self._enrichment_resolver = enrichment_resolver
         self._lock = asyncio.Lock()
         self._ceremonies: dict[UUID, _Ceremony] = {}
 
@@ -108,7 +138,7 @@ class NetFacilitiesCloudAuthenticationCoordinator:
                     attempt, state="failed", finished_at=_now(), failure="unavailable"
                 )
                 self._ceremonies[user_id] = _Ceremony(
-                    snapshot=failed, provider=provider, cloud_session=None
+                    snapshot=failed, provider=provider, cloud_session=None, config=config
                 )
                 raise
 
@@ -117,7 +147,9 @@ class NetFacilitiesCloudAuthenticationCoordinator:
                 state="awaiting_sign_in",
                 live_view_url=cloud_session.live_view_url,
             )
-            ceremony = _Ceremony(snapshot=awaiting, provider=provider, cloud_session=cloud_session)
+            ceremony = _Ceremony(
+                snapshot=awaiting, provider=provider, cloud_session=cloud_session, config=config
+            )
             self._ceremonies[user_id] = ceremony
             ceremony.poll_task = asyncio.create_task(
                 self._poll_until_signed_in(user_id, attempt.attempt_id, config),
@@ -139,7 +171,11 @@ class NetFacilitiesCloudAuthenticationCoordinator:
                 ceremony.poll_task.cancel()
             await ceremony.provider.close_login_session(ceremony.cloud_session)
             finished = replace(
-                ceremony.snapshot, state="cancelled", finished_at=_now(), failure="cancelled"
+                ceremony.snapshot,
+                state="cancelled",
+                finished_at=_now(),
+                failure="cancelled",
+                live_view_url=None,
             )
             ceremony.snapshot = finished
             return finished
@@ -171,15 +207,22 @@ class NetFacilitiesCloudAuthenticationCoordinator:
                     ceremony.snapshot = replace(
                         ceremony.snapshot, state="signed_in", signed_in_at=_now()
                     )
-                await self._poll_for_csv(user_id, attempt_id)
+                await self._poll_for_csv(user_id, attempt_id, config)
                 return
             await self._timeout(user_id, attempt_id)
         except asyncio.CancelledError:
             pass
 
-    async def _poll_for_csv(self, user_id: UUID, attempt_id: UUID) -> None:
-        while True:
-            await asyncio.sleep(self._poll_seconds * 3)
+    async def _poll_for_csv(
+        self, user_id: UUID, attempt_id: UUID, config: NetFacilitiesCloudConfig
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        # A signed-in ceremony without a deadline is what left a released
+        # Steel session advertised as live -- and billed -- for 18 minutes
+        # (D-C). E7 bounds it under Steel's own 15-minute cap.
+        deadline = loop.time() + config.signed_in_timeout_seconds
+        while loop.time() < deadline:
+            await asyncio.sleep(config.capture_poll_seconds)
             async with self._lock:
                 ceremony = self._ceremonies.get(user_id)
                 if (
@@ -219,6 +262,19 @@ class NetFacilitiesCloudAuthenticationCoordinator:
                 "netfacilities.cloud_csv_captured",
                 extra={"fields": {"user_id": str(user_id)}},
             )
+            # E4: automatic and unconditional. A chain failure is recorded
+            # on the snapshot and pushed to the user; the loop survives it
+            # for the same reason it survives a vendor error (D-B).
+            try:
+                await self.dispatch_capture(user_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(
+                    "netfacilities.cloud_chain_failed",
+                    extra={"fields": {"user_id": str(user_id)}},
+                )
+        await self._timeout(user_id, attempt_id)
 
     async def _persist(self, user_id: UUID, state_json: str) -> None:
         token = crypto.encrypt_storage_state(state_json)
@@ -244,9 +300,20 @@ class NetFacilitiesCloudAuthenticationCoordinator:
             ceremony = self._ceremonies.get(user_id)
             if ceremony is None or ceremony.snapshot.attempt_id != attempt_id:
                 return
+            # Only a still-open ceremony can time out: a chain that closed
+            # (or a cancel that already released the session) must not be
+            # re-labelled or double-released here.
+            if ceremony.snapshot.state not in {"awaiting_sign_in", "signed_in"}:
+                return
             provider, cloud_session = ceremony.provider, ceremony.cloud_session
+            # `live_view_url` is cleared with the release: the status endpoint
+            # must never advertise a player for a session we let go (§4.4).
             ceremony.snapshot = replace(
-                ceremony.snapshot, state="timed_out", finished_at=_now(), failure="timed_out"
+                ceremony.snapshot,
+                state="timed_out",
+                finished_at=_now(),
+                failure="timed_out",
+                live_view_url=None,
             )
         await provider.close_login_session(cloud_session)
         logger.info(
