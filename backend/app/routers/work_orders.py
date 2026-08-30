@@ -304,6 +304,8 @@ def _export_filename(
     priority_bucket: Optional[str],
     scheduled_date: Optional[date],
     search: Optional[str],
+    location_search: Optional[str],
+    task_search: Optional[str],
 ) -> str:
     """`MM-DD-YY_HH-MM_filter1-filter2.csv` for the honored filters.
 
@@ -333,6 +335,10 @@ def _export_filename(
             parts.extend(("date", scheduled_date.isoformat()))
         if search and search.strip():
             parts.extend(("number", search))
+        if location_search and location_search.strip():
+            parts.extend(("location", location_search))
+        if task_search and task_search.strip():
+            parts.extend(("task", task_search))
     tokens = [_filename_slug(part) for part in parts]
     filters = "-".join(token for token in tokens if token) or "all"
     return f"{stamp}_{filters}.csv"
@@ -694,6 +700,8 @@ def export_work_orders(
     priority_bucket: Optional[str] = None,
     scheduled_date: Optional[date] = None,
     q: Optional[str] = None,
+    location_q: Optional[str] = None,
+    task_q: Optional[str] = None,
     user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
@@ -706,7 +714,8 @@ def export_work_orders(
     `variant=full` leads with the import's own headers and also accepts the Work
     Orders page's exact `service_type`, routed `supervisor_id`, derived
     `community`, exact `priority`, `priority_bucket`, exact `scheduled_date`,
-    and number `q` filters. They combine
+    number `q`, location keyword `location_q`, and task keyword `task_q`
+    filters. They combine
     with `scope` using AND and have no result cap. `variant=client` remains the
     existing scope-only billing sheet. 400 on an unrecognised scope, community,
     or variant.
@@ -725,6 +734,8 @@ def export_work_orders(
             priority_bucket=priority_bucket,
             scheduled_date=scheduled_date,
             search=q,
+            location_search=location_q,
+            task_search=task_q,
         )
     except DomainError as exc:
         raise to_http(exc)
@@ -739,6 +750,8 @@ def export_work_orders(
         priority_bucket=priority_bucket,
         scheduled_date=scheduled_date,
         search=q,
+        location_search=location_q,
+        task_search=task_q,
     )
     return Response(
         content=body,

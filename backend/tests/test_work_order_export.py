@@ -507,6 +507,8 @@ def test_route_forwards_operational_export_filters(db, monkeypatch):
         priority_bucket="high",
         scheduled_date=date(2026, 7, 28),
         q="WO-123",
+        location_q="Bldg 7",
+        task_q="leak",
         user=admin,
         db=db,
     )
@@ -515,7 +517,7 @@ def test_route_forwards_operational_export_filters(db, monkeypatch):
     assert re.search(
         r'filename="\d{2}-\d{2}-\d{2}_\d{2}-\d{2}_status-in-progress-service-repair-'
         r'supervisor-avery-able-community-commons-priority-emergency-level-high-'
-        r'date-2026-07-28-number-wo-123\.csv"',
+        r'date-2026-07-28-number-wo-123-location-bldg-7-task-leak\.csv"',
         response.headers["content-disposition"],
     )
     assert captured == {
@@ -529,6 +531,8 @@ def test_route_forwards_operational_export_filters(db, monkeypatch):
         "priority_bucket": "high",
         "scheduled_date": date(2026, 7, 28),
         "search": "WO-123",
+        "location_search": "Bldg 7",
+        "task_search": "leak",
     }
 
 
