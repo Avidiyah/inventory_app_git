@@ -240,6 +240,27 @@ None of these is scheduled work. Each is a real property of the system with a
 **named trigger** that would promote it, written down so the trigger is
 recognized when it arrives rather than rediscovered.
 
+### N-HUB-TAB-SHELL — `userHub.js` crossed 500 lines on the fifth tab
+
+`static/views/userHub.js` is 551 lines, over `CLAUDE.md`'s 500-line rule. It sat
+at 494 before the Report tab, so the fifth tab was always going to cross it: the
+file is a tab shell that grows by a fixed ~55 lines per tab (a button handle, a
+visibility setter, a payload cache, a request counter, a lazy loader, an error
+renderer, a reset branch, and an `activeTab` fallback).
+
+The Report tab was wired in the same shape as Timesheets and Graphs rather than
+inventing a second pattern to dodge the count — one inconsistent tab would cost
+more than the overrun does. **This was not silently accepted; it is recorded
+here because the addition, not the file, is the small part.**
+
+**Trigger:** a sixth tab, or any substantive edit to the lazy-loading machinery.
+The extraction is mechanical and self-contained: `loadTimesheets`, `loadGraphs`,
+`loadReport`, and their two error renderers are the same lazy-tab pattern five
+times over and belong in a `hubTabs.js` that owns the caches and request
+counters, leaving `userHub.js` the payload fetch, the clock, and tab switching.
+Do it as its own change with the three tabs verified by hand, not folded into a
+feature.
+
 ### N-WO-STATUS-EVENTS — A work order has no status history, so a close can vanish
 
 A work order carries exactly four timestamps: `created_at`, `updated_at`,
