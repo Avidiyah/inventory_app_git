@@ -8,6 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from app.schemas.work_orders import WorkOrderImportResult
+
 
 NetFacilitiesJobState = Literal[
     "queued",
@@ -84,6 +86,17 @@ class NetFacilitiesCloudSessionStatus(BaseModel):
     # (Steel's own account-gated dashboard) -- see CloudLoginSession's
     # docstring for why the distinction matters.
     live_view_url: str | None = None
+    # The unattended chain (auto-capture spec 4.2, 2a). `import_result` is
+    # the whole import summary so the frontend renders the same line a
+    # clicked import shows -- reconcile's auto_closed/reopened counts
+    # included, once that work lands.
+    capture_consumed: bool = False
+    import_result: WorkOrderImportResult | None = None
+    import_error: str | None = None
+    enrichment_job_id: UUID | None = None
+    chain_stage: Literal[
+        "importing", "imported", "enriching", "done", "failed"
+    ] | None = None
 
 
 class NetFacilitiesCloudCapability(BaseModel):

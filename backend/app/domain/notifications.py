@@ -38,6 +38,8 @@ EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED = "work_order.supervisor_assigned"
 EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED_BULK = (
     "work_order.supervisor_assigned_bulk"
 )
+EVENT_NETFACILITIES_IMPORT_FINISHED = "netfacilities.import_finished"
+EVENT_NETFACILITIES_IMPORT_FAILED = "netfacilities.import_failed"
 
 ALL_EVENTS = (
     EVENT_WORK_ORDER_ASSIGNED,
@@ -49,6 +51,8 @@ ALL_EVENTS = (
     EVENT_WORK_ORDER_SENT_BACK,
     EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED,
     EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED_BULK,
+    EVENT_NETFACILITIES_IMPORT_FINISHED,
+    EVENT_NETFACILITIES_IMPORT_FAILED,
 )
 
 # Completion is the one rule addressed to a rank rather than to named
@@ -312,3 +316,59 @@ def build_message(
         raise ValueError(
             f"notification text for event {event_type!r} needs {exc.args[0]!r}"
         ) from exc
+
+
+def build_netfacilities_chain_message(
+    *,
+    ok: bool,
+    stage: Optional[str],
+    import_result: Optional[dict],
+) -> tuple[str, str]:
+    """The `(title, body)` for the unattended capture chain's push (E10).
+
+    Its own builder rather than a `build_message` template: the body is
+    several *conditional* count clauses (auto-capture spec 2a) plus a stage
+    word, which a single format string cannot express. The lock-screen line
+    still holds -- counts and a stage, never customer detail. `auto_closed`
+    and `reopened` are read tolerantly so the reconcile sweep's counts
+    appear here the moment `WorkOrderImportResult` grows them, with no
+    change in this module.
+
+    Deliberately addressed to the acting user (the ceremony's owner): an
+    unattended chain's owner is the one person who must hear how it ended,
+    tab open or not. That inverts the actor-suppression rule every other
+    event follows, and the registry names the inversion.
+    """
+    counts = import_result or {}
+    created = counts.get("created") or 0
+    auto_closed = counts.get("auto_closed") or 0
+    reopened = counts.get("reopened") or 0
+    created_clause = f"Imported {created} work order" + ("" if created == 1 else "s")
+
+    if ok:
+        clauses = [created_clause]
+        if auto_closed:
+            clauses.append(f"{auto_closed} closed (not in NetFacilities)")
+        if reopened:
+            clauses.append(f"{reopened} reopened (back in NetFacilities)")
+        return (
+            "NetFacilities import finished",
+            " \u00b7 ".join(clauses) + "; enrichment started.",
+        )
+    if stage == "import":
+        return (
+            "NetFacilities import needs you",
+            "The CSV did not import. You are still signed in, so export the "
+            "work-order CSV again and it will import automatically.",
+        )
+    if stage == "enrichment":
+        return (
+            "NetFacilities import needs you",
+            created_clause + ", but enrichment could not start. Open Work "
+            "Orders and click Enrich when it frees up.",
+        )
+    return (
+        "NetFacilities import needs you",
+        "The NetFacilities import did not finish. Open Work Orders to see "
+        "what to do next.",
+    )

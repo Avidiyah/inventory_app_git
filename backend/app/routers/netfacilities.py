@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.auth_deps import require_min_role
@@ -21,14 +21,12 @@ from app.integrations.netfacilities.errors import (
     NetFacilitiesUnavailable,
 )
 from app.models import User
-from app.routers.work_orders import run_csv_import
 from app.schemas.netfacilities import (
     NetFacilitiesCloudCapability,
     NetFacilitiesCloudSessionStatus,
     NetFacilitiesEnrichmentCounts,
     NetFacilitiesEnrichmentJob,
 )
-from app.schemas.work_orders import WorkOrderImportResult
 from app.services.netfacilities_cloud_auth import (
     NetFacilitiesCloudAuthenticationCoordinator,
 )
@@ -193,6 +191,11 @@ def _cloud_status_response(
         last_download_filename=snapshot.last_download_filename,
         last_download_at=snapshot.last_download_at,
         live_view_url=snapshot.live_view_url,
+        capture_consumed=snapshot.capture_consumed,
+        import_result=snapshot.import_result,
+        import_error=snapshot.import_error,
+        enrichment_job_id=snapshot.enrichment_job_id,
+        chain_stage=snapshot.chain_stage,
     )
 
 
@@ -277,22 +280,24 @@ async def cancel_netfacilities_cloud_authentication(
 
 @router.post(
     "/cloud/downloads/import",
-    response_model=WorkOrderImportResult,
+    response_model=NetFacilitiesCloudSessionStatus,
     responses={**_forbidden(), 409: {"description": "No CSV has been captured yet."}},
 )
-def import_netfacilities_cloud_download(
-    background: BackgroundTasks,
+async def import_netfacilities_cloud_download(
     user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
-    db: Session = Depends(get_db),
     cloud_auth: NetFacilitiesCloudAuthenticationCoordinator = Depends(
         get_netfacilities_cloud_authentication_coordinator
     ),
-) -> WorkOrderImportResult:
-    found = cloud_auth.captured_csv_bytes(user.id)
-    if found is None:
+) -> NetFacilitiesCloudSessionStatus:
+    """The fallback for a capture the chain did not consume. Runs the same
+    chain the automatic trigger does (E8) -- import *and* enrichment -- so
+    the two paths cannot drift."""
+
+    try:
+        snapshot = await cloud_auth.dispatch_capture(user.id)
+    except NetFacilitiesError as exc:
         raise HTTPException(
             status_code=409,
             detail="No CSV has been exported through the NetFacilities cloud window yet.",
-        )
-    _filename, data = found
-    return run_csv_import(db, background, data=data, user=user)
+        ) from exc
+    return _cloud_status_response(snapshot)

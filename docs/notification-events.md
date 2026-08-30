@@ -18,7 +18,7 @@ audience from a screen.
 | --- | --- |
 | Event names, audiences, message text | `backend/app/domain/notifications.py` |
 | Recipient resolution against the database | `backend/app/services/notifications.py` |
-| Trigger sites | `backend/app/routers/work_orders.py` |
+| Trigger sites | `backend/app/routers/work_orders.py`, `backend/app/services/netfacilities_cloud_auth.py` |
 | Subscription floors, the Owner probe | `backend/app/routers/push.py` |
 | Realtime vocabulary and audiences | `backend/app/domain/realtime.py` |
 
@@ -43,6 +43,8 @@ screen whether or not the app is open.
 | `work_order.sent_back` | Supervisor+ — in practice the work-order card's **Send Back** button, the only UI that sends it | `PATCH`, `ready_to_complete → in_progress` | assigned technicians + the routed supervisor |
 | `work_order.supervisor_assigned` | Supervisor+ (routing is a `_SUPERVISOR_UPDATE_FIELDS` edit, **not** Admin-only) | `PATCH` that *changes* `supervisor_id` to somebody | the newly routed supervisor, and nobody else |
 | `work_order.supervisor_assigned_bulk` | TechFM OA+ (whoever ran the import) | `POST /work-orders/import` | each supervisor the import name-matched, **once for the whole import** |
+| `netfacilities.import_finished` | the capture chain, acting for the TechFM OA+ user who exported the CSV | `netfacilities_cloud_auth.dispatch_capture` -- the automatic capture trigger and `POST /integrations/netfacilities/cloud/downloads/import` both run it | **the ceremony's own user** -- deliberately the actor; see below |
+| `netfacilities.import_failed` | same chain | same -- fired instead of `import_finished` when the import or the enrichment start fails | the ceremony's own user |
 
 **Every rule suppresses the acting user, by id.** A supervisor completing work
 on someone else's behalf is as much the actor as a technician is, so
@@ -73,11 +75,25 @@ extend to a third field.
 | `work_order.sent_back` | Work order sent back | `{number}` was sent back and needs more work. |
 | `work_order.supervisor_assigned` | Work order assigned to you | `{number}` has been assigned to you. |
 | `work_order.supervisor_assigned_bulk` | Work orders assigned to you | `{count}` work orders have been assigned to you. |
+| `netfacilities.import_finished` | NetFacilities import finished | Imported `{created}` work orders[ · `{auto_closed}` closed (not in NetFacilities)][ · `{reopened}` reopened (back in NetFacilities)]; enrichment started. Zero-count clauses are omitted. |
+| `netfacilities.import_failed` | NetFacilities import needs you | Names the failing stage and the next move: *import* → still signed in, export again; *enrichment* → imported `{created}` work orders, click Enrich when it frees up. |
 
 An import that matched a supervisor to exactly **one** work order sends the
 singular `work_order.supervisor_assigned` text instead, naming the number. Correct
 grammar is the smaller reason; the larger one is that a supervisor who received
 one work order can be told which one.
+
+## Why the chain events notify the actor
+
+`netfacilities.import_finished` / `netfacilities.import_failed` are the one
+deliberate inversion of the actor-suppression rule. The unattended capture
+chain (auto-capture spec, E10) runs after the user clicked *Download CSV* in
+a cloud browser window and possibly closed the tab; its owner is the one
+person who must hear how it ended, and a push is the only channel that still
+reaches them. Their bodies are counts and a stage word only -- built by
+`build_netfacilities_chain_message`, not a `build_message` template, because
+the reconcile clauses appear only when non-zero. Text lives beside the other
+events in `domain/notifications.py`.
 
 ## The one non-work-order send
 

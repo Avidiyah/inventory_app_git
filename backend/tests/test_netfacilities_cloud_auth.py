@@ -464,3 +464,15 @@ def test_dispatch_capture_without_a_capture_is_refused(db, monkeypatch):
 
     assert asyncio.run(_exercise()) == "refused"
     assert importer.calls == []
+
+
+def test_the_default_notifier_is_the_real_chain_push():
+    # Pins the lazy wiring: a renamed service function would otherwise fail
+    # only in production, as a logged exception after every chain.
+    from app.services.notifications import notify_netfacilities_chain_finished
+
+    coordinator = NetFacilitiesCloudAuthenticationCoordinator(
+        provider_factory=lambda _config: None
+    )
+
+    assert coordinator._resolve_notifier() is notify_netfacilities_chain_finished
