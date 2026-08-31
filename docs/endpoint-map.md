@@ -22,9 +22,10 @@ Paths are relative to `backend/` (`domain/*`, `routers/*`, `services/*`,
 
 ## Master Endpoint Index
 
-Every endpoint, one row each — 85 in total: 81 router operations (80 HTTP plus
-the `/ws` WebSocket, row WS1) and 4 app-level routes in `main.py`. "Tables"
-lists what the call reads (r) and writes (w).
+Every endpoint, one row each: 4 app-level routes in `main.py` plus every
+router operation (the `/ws` WebSocket is row WS1; exact counts are volatile —
+verify against `app.openapi()`). "Tables" lists what the call reads (r) and
+writes (w).
 
 | # | Method | Path | Gate | Router → Service | Tables | api.js wrapper | View(s) |
 |---|--------|------|------|------------------|--------|----------------|---------|
@@ -122,6 +123,10 @@ lists what the call reads (r) and writes (w).
 | H5 | GET | `/hub/graphs?weeks=12\|26\|52` | techfm_oa+ | `hub.py` → `hub.graphs_hub` → shared graph/community rules | work_orders (narrow status/location/service/timestamp projections; read-only) | `apiGetHubGraphs` | `userHub.js`, `hubGraphs.js` |
 | H6 | GET | `/hub/report` | **admin only** | `hub.py` → `work_order_report.daily_report` → `labor_day` windows + `work_orders.export_row` / `work_order_totals` | work_orders (r), work_order_items + items (r), work_order_labor (r), work_order_technicians (r), users (r) | `apiGetHubReport` | `userHub.js`, `hubReport.js` |
 | H7 | GET | `/hub/report/export` | **admin only** | `hub.py` → `work_order_report.daily_report` + `work_order_report_xlsx.report_xlsx` | same as H6 | — (plain link, as H4 is) | `hubReport.js` |
+| P1 | GET | `/push/config` | any authenticated | `push.py` → `services/push.is_configured` | — (503 when `VAPID_PRIVATE_KEY` unset) | `apiPushConfig` | `push.js` |
+| P2 | POST | `/push/subscribe` | any authenticated | `push.py` → subscription store | push_subscriptions (w — upsert; **reassigns** the endpoint row to the caller) | `apiPushSubscribe` | `push.js` |
+| P3 | POST | `/push/unsubscribe` | any authenticated | `push.py` → subscription store | push_subscriptions (w, delete caller's device row) | `apiPushUnsubscribe` | `push.js`, `auth.js` (logout, this device only) |
+| P4 | POST | `/push/test` | **owner** | `push.py` → `services/push` fan-out | push_subscriptions (r; w on 404/410 prune), users (r, Admin+ audience) | `apiPushTest` | `push.js` (Owner test trigger) |
 
 (Numbering is append-only and stable — other docs cite it. Gaps (NF1, NF1a–c,
 NF4) are removed endpoints; WS1 and the H*/NF* rows are numbered apart from the
@@ -260,11 +265,17 @@ endpoint or form exists; every other surface resolves an existing number and
   selector offers In-Progress from Created/Assigned (replacing the old
   standalone start action), rollback, and On-Hold; Review stays outside it.
   Created/Assigned is normalized from technician presence.
-- Assigned-worker walkthrough: one quick button = Set In-Progress (Assigned)
-  or Mark Completed (In-Progress); separate Place On-Hold (In-Progress only)
-  and Resume (On-Hold only) buttons. These narrow routes require current
-  assignment and grant no general status authority. Material/labor activity
-  still auto-advances pre-work rows.
+- Assigned-worker walkthrough (built on the clock, not status buttons): the
+  seven-status lifecycle is created → assigned → in_progress →
+  ready_to_complete → completed → review, with on_hold as the pause. Where
+  `POST .../complete` ("Notify Supervisor") lands is the **caller's role**
+  (`domain.work_orders.completion_target_status`): Supervisor+ reaches
+  Completed; a Technician's finish lands **Ready to Complete** with a
+  server-authored note, and Supervisor+ then Approve (PATCH completed) or
+  Send Back (PATCH in_progress). Complete/hold stop every clock; resume
+  starts none. These narrow routes require current assignment and grant no
+  general status authority. Material/labor activity still auto-advances
+  pre-work rows; tracking start rejects Ready to Complete and Completed.
 - Notes: any in-scope user; the server prefixes Central `MM/DD/YY hh:MM AM/PM`
   and the author's full name; append-only (null cannot clear); the response
   returns the whole log. A Symptom/Task that is a safe HTTP(S) URL renders as
@@ -383,6 +394,7 @@ Quick reverse lookup: "which endpoints touch table X?"
 | `tools` | 47, 50, 51, 52, 53, 54 | 48, 49, 52, 53, 54 |
 | `tool_transactions` | 52, 53, 54 | 48, 49, 53 (outstanding-balance check) |
 | `user_requests` | 9 (price/link auto-resolve), 21 (shortage/unpriced), 24 (recount auto-resolve), 30/45 (unpriced), 69 | 68–69 |
+| `push_subscriptions` | P2 (upsert/reassign), P3 (delete own), sends prune dead rows on 404/410 | P4 and the notify fan-outs (rows 69/70/71a/71b, NF6) |
 
 f-o-c = find-or-create.
 
@@ -572,8 +584,12 @@ returns `WORK ORDER`, `MATERIAL TOTAL`, `LABOR TOTAL`, and `RECEIPT`.
 `entry_mode?`, `assigned_to_ids?` (complete replacement; empty clears).
 `assigned_to_id?` remains a legacy-compatible singular alternative. ≥ 1 field
 required; `status`/`entry_mode`
-validated in the service. Live statuses are `created`, `assigned`, `in_progress`,
-`on_hold`, `completed`, and `review`; Closed is `archived_at`, not a PATCH value.
+validated in the service. Live statuses are `created`, `assigned`,
+`in_progress`, `on_hold`, `ready_to_complete`, `completed`, and `review`;
+Closed is `archived_at`, not a PATCH value. A PATCH into `on_hold`,
+`ready_to_complete`, or `completed` stops every running clock; the general
+selector does not offer `ready_to_complete` (reached by a Technician's
+complete action only).
 Notes are trimmed per-entry text; every in-scope user may append one. The
 service supplies timestamp/date/author metadata and preserves the prior log.
 `status`, `entry_mode`, supervisor, and technician assignment require
@@ -1040,7 +1056,9 @@ Pure functions (no DB) in `domain/*.py` — the business rules, testable in isol
 - Identity: `normalize_number(n) = n.strip().lower()` — mirrors the DB index
   `lower(btrim(number))`. Internal whitespace preserved.
 - Stored/live statuses: `created`, `assigned`, `in_progress`, `on_hold`,
-  `completed`, `review`; Closed is archive state. `initial_status(assigned_to_id)` and
+  `ready_to_complete`, `completed`, `review`; Closed is archive state.
+  `completion_target_status(role)`: Supervisor+ → completed, Technician →
+  ready_to_complete. `initial_status(assigned_to_id)` and
   `reconcile_assignment_status` align only Created/Assigned with technician
   assignment without rewinding work underway. `status_after_activity` advances
   either pre-work state to In-Progress for material/labor activity but preserves
