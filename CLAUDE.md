@@ -49,3 +49,30 @@ gathered in the parent.
 
 Standard tools (Read/Grep/Glob/Bash/Edit) remain the default for anything
 the graph doesn't cover: reading full files, editing, running the app, git.
+
+## Documentation conventions (token cost)
+
+Living docs in `docs/` are current-truth only: state what is true now.
+Delete history, superseded designs, and how-we-got-here narrative on
+sight — git and `docs/superpowers/` own the past. A settled choice gets
+at most one line of rationale, only where a future session would
+otherwise re-litigate it. Form: tables for enumerable facts, clipped
+bullets elsewhere, no paragraph over ~3 sentences, never restate what
+code or another doc owns. Soft word budgets (also stated in each doc's
+header): `current-state.md` 8,000 · `endpoint-map.md` 6,500 ·
+`open-work.md` 5,500. Budgets bound form, not content — compress
+phrasing first, delete only what is stale, and exceed a budget rather
+than drop a load-bearing fact. An update that breaches a budget should
+delete something stale in the same edit when one exists.
+
+## Response protocols (token cost)
+
+Chat: outcome first; default reply under ~200 words; no per-step
+narration; no recap tables or headers for simple answers; detail on
+request. Completion reports: one sentence plus verification evidence.
+Plan-then-implement and options-first workflows remain mandatory, but
+present options as a tight table with one-line trade-offs and a
+recommendation, not essays. Authored artifacts carry soft budgets under
+the same content-over-form rule: specs ≤ 1,800 words; plans ≤ 3,500
+using a compact per-task template (goal / files / steps / test) that
+never restates spec content; session handoffs ≤ 500.
