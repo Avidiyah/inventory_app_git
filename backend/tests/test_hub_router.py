@@ -278,7 +278,19 @@ def test_report_export_is_an_attachment_xlsx(db):
     assert disposition.endswith('.xlsx"')
 
     workbook = openpyxl.load_workbook(io.BytesIO(response.content))
-    assert workbook.sheetnames == ["Summary", "Data"]
+    assert workbook.sheetnames == [
+        "Report",
+        "Scholars",
+        "Centennial",
+        "Commons",
+        "Young Hall",
+        "Academics",
+        "Work Orders",
+        "Chart Data",
+        "Data",
+    ]
+    assert workbook["Chart Data"].sheet_state == "hidden"
+    assert workbook["Work Orders"]["C5"].value == "NOTES"
     assert tuple(cell.value for cell in workbook["Data"][1]) == (
         "SECTION",
     ) + wo.EXPORT_HEADERS

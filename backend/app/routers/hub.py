@@ -254,13 +254,15 @@ def export_hub_report(
     user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ):
-    """The same payload as an Excel workbook: a charted `Summary` sheet over a
-    `Data` sheet that is the `SECTION`-prefixed CSV, cell for cell.
+    """The same payload as an Excel workbook: a designed `Report` overview, one
+    four-bucket chart sheet per community, a readable deduped `Work Orders`
+    sheet, and -- last -- a `Data` sheet that is the `SECTION`-prefixed CSV,
+    cell for cell.
 
     Composed from `daily_report` rather than from its own query, so the file and
-    the screen -- truncation included -- cannot disagree. `report_csv` is still
-    the executable contract the `Data` sheet is tested against; restoring a CSV
-    download is a one-line flip back to it."""
+    the screen cannot disagree. `report_csv` is still the executable contract
+    the `Data` sheet is tested against; restoring a CSV download is a one-line
+    flip back to it."""
     payload = work_order_report.daily_report(db, now=datetime.now(timezone.utc))
     filename = work_order_report_xlsx.report_xlsx_filename(payload)
     return Response(

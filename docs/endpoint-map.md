@@ -1255,10 +1255,18 @@ so This Week always *includes* Today. `sections` carries five keys —
 (`created_at` windows). Rows nest: a work order closed today appears in both
 `closed_*` sections. `closing` is the only capped section
 (`list=hub_report_closing`); its `count` and `by_status` stay true when the cap
-bites. `GET /hub/report/export` serializes the same payload as an `.xlsx` workbook: a
-charted `Summary` sheet over a `Data` sheet that is the `SECTION`-prefixed CSV
-cell for cell — header `SECTION` + the 26 `EXPORT_HEADERS` — so a save-as-CSV
-from Excel still re-imports through `POST /work-orders/import`. **A live view, not an archival record:** a restore
+bites. `GET /hub/report/export` serializes the same payload as an `.xlsx` workbook
+(`work_order_report_xlsx.report_xlsx`, styled by `_xlsx_theme`): a `Report`
+overview (KPI strip, company four-bucket pie, activity, dollars, by-community
+table), one chart sheet per community (status pie plus a 3×3 service-type
+grid over the same four buckets — Accepted / In progress / Ready to close /
+Closed, `work_order_report_buckets.REPORT_BUCKETS`), a deduped `Work Orders`
+sheet (Notes in column C) over the live-plus-closed-this-week population
+(`DailyReport.all_rows`, uncapped), and — last, after a hidden `Chart Data`
+sheet — a `Data` sheet that is the `SECTION`-prefixed CSV cell for cell —
+header `SECTION` + the 26 `EXPORT_HEADERS` — so a save-as-CSV from Excel still
+re-imports through `POST /work-orders/import`. `distribution` and `all_rows`
+are not in the JSON response. **A live view, not an archival record:** a restore
 clears `archived_at`, so a past close can vanish from these numbers.
 
 **`HubTimesheetResponse`** — `GET /hub/timesheets` (supervisor+; P3b scopes
