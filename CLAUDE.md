@@ -60,7 +60,7 @@ otherwise re-litigate it. Form: tables for enumerable facts, clipped
 bullets elsewhere, no paragraph over ~3 sentences, never restate what
 code or another doc owns. Soft word budgets (also stated in each doc's
 header): `current-state.md` 8,000 · `endpoint-map.md` 11,000 ·
-`open-work.md` 5,500. Budgets bound form, not content — compress
+`open-work.md` 12,000. Budgets bound form, not content — compress
 phrasing first, delete only what is stale, and exceed a budget rather
 than drop a load-bearing fact. An update that breaches a budget should
 delete something stale in the same edit when one exists.

@@ -1,697 +1,291 @@
 # Open Work — every named improvement not yet implemented
 
 **This is the only backlog file.** It owns the full write-up for every open
-item; there is no other doc to consult and no index to keep in sync. If an item
-is not here, it is not open.
+item; there is no other doc to consult and no index to keep in sync. If an
+item is not here, it is not open. Soft word budget: 12,000 (CLAUDE.md →
+Documentation conventions).
 
-Consolidated **2026-08-10** from six files (`improvement-tracker.md`,
-`api-hardening-checklist.md`, `ux-review.md`, their two archives, and
-`handoff.md`). Shipped history was dropped — git holds it. All figures below
-were re-verified against the code during that consolidation.
-
-Expanded **2026-08-11** at `ac99487` with the evidence-backed stack maturity
-register in section 4. The register is a candidate inventory for later
-roadmapping, not a committed schedule. It deliberately separates confirmed
-defects, production-baseline controls, measured triggers, and optional
-enterprise/compliance work.
-
-The three files that remain beside this one describe **what the system is**, not
-what is left to do:
+The three files beside this one describe **what the system is**, not what is
+left to do:
 
 | Doc | Holds |
 |---|---|
 | `docs/current-state.md` | contracts, invariants, data model, roles, known gaps — **the authority**; if it conflicts with code, trust the code |
-| `docs/endpoint-map.md` | every endpoint traced DB↔view, request/response contracts, error catalog, service algorithms |
+| `docs/endpoint-map.md` | every endpoint traced DB↔view, request/response contracts, error catalog |
 | `docs/project-summary.md` | what the app is, stack, architecture, verification baseline |
 
----
+**Nothing is scheduled.** Every item is an owner-requested feature, a
+confirmed defect, a production-baseline candidate, a standing note with a
+named trigger, optional enterprise/compliance work, or ruled out of scope.
 
-## The state of things
-
-**Nothing is scheduled.** The items below are real, but none is queued and none
-has a date. Every item is either an owner-requested feature, a confirmed defect,
-a production-baseline candidate, a standing note with a named trigger, optional
-enterprise/compliance work, or ruled out of scope.
-
-**Do not invent work to fill the queue.** The last three items questioned before
-being built — C2, B3, X3 — all described symptoms that were **not occurring**,
-and all three got dramatically cheaper for being checked against data first:
-
-- **C2** cited "200 tools = 201 queries" from reading the code. The owner
-  confirmed the Tools page was fine. Half a day became five minutes.
-- **B3** was to be sized from real request volume. The measurement that did get
-  done — a cold SPA load is ~35 requests through the same middleware — ruled out
-  a global cap that would have served 429s for JavaScript modules at shift
-  change.
-- **X3** was logged as *paginate six endpoints*, which implied a frontend
-  rewrite. Row counts in the hundreds, plus the discovery that `/items/` and
-  `/users/` back *client-side* search rather than list views, turned it into a
-  backend-only ceiling.
-
-**Ask what the number actually is before building what an item describes.**
-#23 and #24 below are both visibly exposed to this.
-
-The worked example of promotion is **#19 → IMP-033**, shipped 2026-08-10:
-a Tier 3 observation became active work only after being logged as a tracked
-feature request, and measurement corrected its premise on the way through.
+**Do not invent work to fill the queue — ask what the number actually is
+before building what an item describes.** The last three items questioned
+before being built (C2, B3, X3) all described symptoms that were not
+occurring, and all got dramatically cheaper for being checked against data
+first. Promotion into section 1 as an `IMP-` item is mandatory before an
+observation becomes active work.
 
 ---
 
 ## 1. Requested feature
 
-User-requested behavior, not framework work. IMP-001–003 and IMP-005–033 are
-implemented; IMP-004 and IMP-038 are open requests.
+User-requested behavior, not framework work. IMP-001–003 and IMP-005–034 are
+implemented (IMP-034, the User Hub, shipped in phases P1–P5 ending
+2026-08-30; spec `docs/superpowers/specs/2026-08-20-user-hub-design.md`; its
+three follow-ons live in section 2 as `N-WO-STATUS-EVENTS`,
+`N-REPORT-EXPORT-AUDIT`, and `N-REPORT-CLOSING-PAGINATION`). IMP-004 and
+IMP-035 are open requests; IMP-038 and IMP-040 are in progress.
 
 ### IMP-004 — Mass Stage redesign
 
-- **Logged** 2026-08-03 · **very low priority** (the owner's label, not an
-  inherited guess) · *Mass Stage*
+- **Logged** 2026-08-03 · **very low priority** (the owner's label) · *Mass
+  Stage*
 
 Make *New Mass Stage* a collapsible card, collapsed by default. Remove the
-redundant Unit # field under Communities. Change the workflow so the user first
-inputs/searches a work order **number** — the search queries only the number —
-and loads the rest of the work-order data after a result is selected. Use mass
-staging primarily to group work orders by Location: if a saved Community from
-mass staging appears in a work order's Location field, display that work order
-under the Communities cards.
-
-Request logged only; no implementation yet.
-
-### IMP-039 — NetFacilities live session — RETIRED
-
-- **Logged** 2026-08-28 · **Retired** 2026-08-29 · *Integrations / Work Orders*
-- Spec: `docs/superpowers/specs/2026-08-28-netfacilities-live-session-design.md` (superseded)
-- Removal plan: `docs/superpowers/plans/2026-08-29-netfacilities-legacy-cleanup.md`
-
-The whole pre-Steel auth system — the local headed Windows sign-in, the shared
-Render storage-state secret file, the borrowed live-session window, and the
-`/session` + `/auth/*` + `/downloads/import` routes behind them — was removed on
-2026-08-29 in favour of IMP-040's per-user Steel cloud auth, which is now the
-only way enrichment authenticates. See that plan's commit range for what
-changed.
-
-### IMP-040 — NetFacilities cloud auth (per-user, Steel) — IN PROGRESS
-
-- **Logged** 2026-08-28 · *Integrations / Work Orders* · designed with the owner the same day
-- Spec: `docs/superpowers/specs/2026-08-28-netfacilities-cloud-auth-design.md`
-- Plan: `docs/superpowers/plans/2026-08-28-netfacilities-cloud-auth.md`
-
-The only NetFacilities auth path as of 2026-08-29 (IMP-039's live session and
-the shared Render secret file were removed that day): any authorized user, on
-any device, logs into NetFacilities live through a Steel cloud browser from the
-deployed Render app instead of needing the owner's Windows machine.
-Captured session state is Fernet-encrypted at rest in a new
-`netfacilities_cloud_sessions` table, keyed one-per-user; enrichment
-reconnects by replaying it into a fresh, short-lived Steel session per job,
-bounded to Steel's 15-minute session cap. Manually verified end-to-end in
-Chrome against the real Steel API (fake key correctly rejected, error
-propagated cleanly through every layer) and against the feature-flag-off
-default; that pass used a fake key and never opened the live-view URL, so it
-missed that the URL opened was wrong (Steel's account dashboard instead of
-an interactive NetFacilities view) — found and fixed against a real session
-the same day, see *Cloud auth (IMP-040, 2026-08-28)* in `current-state.md`.
-**The one thing not yet done is the manual D5/D6 replay spike** (plan Task
-1) against a real Steel account and a real NetFacilities login — required
-before this can be called done, and the owner still needs to
-rotate/invalidate the NetFacilities session flagged in the IMP-039 handoff.
-
-**2026-08-30 — auto-capture chain implemented** (spec
-`2026-08-29-netfacilities-auto-capture-design.md`, plan
-`2026-08-29-netfacilities-auto-capture.md`). Phase 1 (D-A path
-normalization, D-B loop guard, retryable capture, browser-level download
-behavior) shipped 2026-08-29. **The plan's production gate was recorded 2026-08-30 20:45Z**: a real
-Download CSV click produced `netfacilities.cloud_csv_captured` in the
-production logs, and the whole unattended chain ran clean — capture,
-import, session release, enrichment started and completed, web push
-delivered (`sent=2 dropped=0 failed=0`) — owner-verified end to end. Phase 2 turns
-the capture into an unattended chain: automatic import, session closed on
-success / kept open on a failed import (E6), a 10-minute signed-in deadline
-(E7, fixes the D-C billing leak), enrichment started through the caller's
-own session with a 2-minute collision retry (E5), a web push on both
-outcomes (E10), and the manual button running the same
-`dispatch_capture` chain (E8). Follow-ups, from the spec's known gaps:
-
-- Vendor-side session health checking (spec §4.4): the E7 deadline bounds a
-  reaped session but nothing detects Steel reaping one early.
-- The Playwright `download` listener (spec §3): unverified over
-  `connect_over_cdp`. Production logs now carry `capture_path=listener|poll`
-  on every capture — if it reads `poll` every time, delete the listener.
-  First production capture (2026-08-30 20:45Z) read `capture_path=poll`:
-  the listener did not fire; the 5s file poll did the capture. One more
-  `poll` reading and the listener should go.
-
-### IMP-037 — Field-help `?` tooltips — CLOSED
-
-- **Logged** 2026-08-23 · *App-wide* · designed with the owner the same day
-- Spec: `docs/superpowers/specs/2026-08-23-tooltips-design.md`
-
-A `?` bubble beside labels and headings that carry non-obvious domain rules,
-replacing nothing — the existing `.hint` paragraphs stay on this pass (D7).
-Three files: `static/tips.js` (copy registry, 35 keys), `static/tooltip.js`
-(singleton fixed bubble + one delegated listener on `document`), and rules in
-`styles.css`. No backend change.
-
-Closed 2026-08-23. Spec steps 0–7 are complete: mechanism, all 35 strings of
-copy, styling, Work Orders plus the remaining 11 pages wired end to end,
-`closeTip()` on page-leave, and design-system guidance. The app references 32
-keys; `wo.export`, `txn.quick-mode`, and `txn.advanced` remain intentionally
-parked in the registry because their controls have no valid label or heading
-anchor.
-
-Machine verification assembled all 30 static anchors into the served shell,
-found both User Hub `tipHtml()` anchors, resolved every reference against the
-registry, loaded all tooltip assets, and found no inline `style=` attributes.
-Hands-on hover, tap, keyboard, Escape, and screenshot comparison remain manual
-browser checks under `PRO-008`.
-
-**Constraint found during step 4, not in the original spec:** roughly nine of
-the 35 anchors are `<button>`s, and a `<button>` cannot contain a `<button>` —
-the HTML parser hoists the nested one out into a sibling, silently producing
-exactly the flex-row reflow §5.1 forbids. Owner's call 2026-08-23: those tips
-move to the nearest heading or `<label>` instead, and the three with no such
-neighbour (`wo.export`, `txn.quick-mode`, `txn.advanced`) are dropped rather
-than fought.
-
-### IMP-038 — Field-help tooltip coverage phase 2 — IN PROGRESS
-
-- **Logged** 2026-08-23 · *App-wide* · requested after the `IMP-037` rollout
-- Plan/handoff:
-  `docs/superpowers/plans/2026-08-23-tooltips-phase-2-app-coverage.md`
-
-Extend the shared tooltip system into the remaining high-value dynamic
-workflows: login/session choices, user lifecycle, item notes, Work Order
-routing/entry mode/billing, User Hub operational summaries, Mass Stage loading,
-and request resolution. This is curated field help, not a `?` beside every
-routine input. It inherits `IMP-037`'s central registry, delegated runtime,
-plain-text copy, no-nested-button rule, and `.hint` preservation policy.
-
-Implementation is code-complete: the 54-key registry has 51 referenced keys,
-all 25 Phase 2 source placements are wired, and the approved scoped wrappers
-keep the two login tips and recount tip outside their form-control labels.
-Machine verification is complete. Browser interaction, responsive screenshots,
-and final closeout remain open because no connected browser was available.
+redundant Unit # field under Communities. Workflow becomes: input/search a
+work-order **number** first (the search queries only the number), and load
+the rest of the work-order data after a result is selected. Use mass staging
+primarily to group work orders by Location: if a saved Community from mass
+staging appears in a work order's Location field, display that work order
+under the Communities cards. Request logged only.
 
 ### IMP-035 — Item/work-order photo attachments
 
-- **Logged** 2026-08-23 · *Items / Work Orders* · raised by the owner's team
-  during `DEC-002` scoping, not yet scoped in detail
+- **Logged** 2026-08-23 · *Items / Work Orders* · raised during `DEC-002`
+  scoping
 
-Wanted: attach photos to items and/or work orders (e.g., damage evidence,
-install proof, part identification). Explicitly flagged by the owner at
-logging time as a storage- and processing-growth risk, not a plain feature
-add — uploaded images could scale data volume and compute cost by an order of
-magnitude versus today's text-only rows. Ties to `SCL-017` (retention/
-archival/partition — currently `Measured trigger`, unfired) as the mechanism
-that would eventually need to trigger per instance once photo volume is real.
+Attach photos to items and/or work orders (damage evidence, install proof,
+part identification). Owner-flagged as a storage/processing-growth risk, not
+a plain feature add — images could scale data volume and compute by an order
+of magnitude versus text-only rows; this is also `SCL-017`'s concrete future
+trigger. Needs its own scoping pass (upload limits, storage backend,
+retention/deletion policy, whether it reuses `SEC-003`'s image bounding)
+before promotion.
 
-Request logged only; no implementation, storage design, or size/retention
-policy decided yet. Needs its own scoping pass (upload limits, storage
-backend, retention/deletion policy, and whether it reuses or extends the
-`SEC-003` image-bounding work already written for barcode decode) before
-promotion.
+### IMP-038 — Field-help tooltip coverage phase 2 — IN PROGRESS
 
-### IMP-034 — User Hub (role-scoped landing page)
+- **Logged** 2026-08-23 · *App-wide* · extends the shipped IMP-037 system
+- Plan: `docs/superpowers/plans/2026-08-23-tooltips-phase-2-app-coverage.md`
 
-- **Logged** 2026-08-20 · *Landing / Time tracking*
+Curated field help in the remaining dynamic workflows, inheriting IMP-037's
+central registry, delegated runtime, plain-text copy, no-nested-button rule,
+and `.hint` preservation. Code-complete: 54-key registry (51 referenced; the
+three parked keys have no valid label/heading anchor), all 25 Phase 2
+placements wired, machine verification done. **Open: browser interaction,
+responsive screenshots, and closeout** — manual validation; no connected
+browser was available.
 
-A new role-scoped landing page — the front door every user signs in to —
-answering "what am I responsible for right now, and how long have I been
-working" without opening a work order. Settled with the owner 2026-08-20;
-design spec at `docs/superpowers/specs/2026-08-20-user-hub-design.md`, 18
-locked decisions. Four phases:
+### IMP-040 — NetFacilities cloud auth (per-user, Steel) — IN PROGRESS
 
-- **P1 · Time engine — shipped.** `domain/labor_day.py`,
-  `services/labor_summary.py`, `services/hub.py`, `GET /hub`, and the global
-  stale-session sweep. Backend only; no UI.
-- **P2 · Technician hub — shipped.** The page fragment, tab shell, clock
-  widget, technician dashboard, the `mountWorkOrderList({container,
-  lockedFilter})` extraction from `views/workOrders.js`, and the nav/landing
-  changes. Built on `user-hub-p2-technician-hub`; not yet merged to `main`.
-- **P3a · Supervisor crew board — shipped.** `GET /hub/crew`,
-  `domain/hub.py`'s attention flags, `crew_day_summaries`/`last_worked` in
-  `services/labor_summary.py`, and the `labor.session.changed` realtime event
-  (registered in `docs/notification-events.md`). Split out of the original
-  P3 scope; the crew board renders inside the Dashboard tab, no new tab.
-  Built on `user-hub-p3-crew`; not yet merged.
-- **P3b · Timesheets — shipped.** `GET /hub/timesheets`, `GET
-  /hub/timesheets/export`, the weekly grid, per-cell session/adjustment
-  drill-down, navigation, and payroll-friendly CSV export. Reuses P3a's D6
-  crew derivation and scopes every caller to their own routed crew; P4 owns
-  the higher-rank widening to everyone. Built on `user-hub-p3-crew`; not yet
-  merged.
-- **P4 · Admin hub — shipped.** The company Dashboard, conditional crew board,
-  TechFM OA+-wide Timesheets, embedded Work Orders, and the guided Graphs tab
-  are implemented. Graphs makes community the primary axis: a community
-  sub-tab strip, that community's own live status donut, and an inner
-  Service Type / Priority split beneath it, every card drillable to the
-  matching Work Orders list at slice level — plus 12/26/52-week
-  circulating-age versus close-out-time trends. It intentionally does not
-  expose a custom graph builder.
-- **P5 · Admin daily report — shipped 2026-08-30.** `GET /hub/report`, `GET
-  /hub/report/export`, `services/work_order_report.py`, and the Report tab.
-  Design spec at
-  `docs/superpowers/specs/2026-08-30-work-order-daily-report-design.md`. Two
-  nested Central windows (Today, and the Monday–Sunday week containing it
-  evaluated week-to-date) over Closed / Closing / New, plus one
-  `SECTION`-prefixed CSV that re-imports through `POST /work-orders/import`.
-  **The only Admin-floored routes in the app** — TechFM OA deliberately does
-  not see this despite holding the rest of the admin toolkit; the exemption is
-  recorded in `tests/test_route_role_gates.py`. Three follow-ons below:
-  `N-WO-STATUS-EVENTS`, `N-REPORT-EXPORT-AUDIT`, and the `closing` pagination
-  trigger.
+- **Logged** 2026-08-28 · *Integrations / Work Orders*
+- Specs/plans: `2026-08-28-netfacilities-cloud-auth` and
+  `2026-08-29-netfacilities-auto-capture` (design under
+  `docs/superpowers/specs/`, plan under `docs/superpowers/plans/`)
+
+The only NetFacilities auth path (the pre-Steel system, IMP-039, was removed
+2026-08-29): per-user Steel cloud sign-in from any device, Fernet-encrypted
+one-row-per-user session state, enrichment by replaying it into a fresh
+short-lived Steel session. The unattended capture → import → session release
+→ enrichment → web-push chain was owner-verified end to end in production
+2026-08-30 20:45Z. Open work:
+
+- **Manual D5/D6 replay spike** (plan Task 1) against a real Steel account
+  and a real NetFacilities login — required before this can be called done.
+- **Owner action: rotate/invalidate the NetFacilities session** flagged in
+  the IMP-039 hand-off.
+- Vendor-side session health checking (spec §4.4): the E7 deadline bounds a
+  reaped session; nothing detects Steel reaping one early.
+- The Playwright `download` listener is unverified over `connect_over_cdp`;
+  every capture logs `capture_path=listener|poll`, and the first production
+  capture read `poll`. **One more `poll` reading and the listener should be
+  deleted.**
 
 ---
 
 ## 2. Hardening — standing notes
 
-None of these is scheduled work. Each is a real property of the system with a
-**named trigger** that would promote it, written down so the trigger is
-recognized when it arrives rather than rediscovered.
+None of this is scheduled work. Each is a real property of the system with a
+**named trigger** that promotes it, written down so the trigger is recognized
+when it arrives rather than rediscovered.
 
-### N-HUB-TAB-SHELL — `userHub.js` crossed 500 lines on the fifth tab
+### N-HUB-TAB-SHELL — `userHub.js` is over the 500-line rule (551)
 
-`static/views/userHub.js` is 551 lines, over `CLAUDE.md`'s 500-line rule. It sat
-at 494 before the Report tab, so the fifth tab was always going to cross it: the
-file is a tab shell that grows by a fixed ~55 lines per tab (a button handle, a
-visibility setter, a payload cache, a request counter, a lazy loader, an error
-renderer, a reset branch, and an `activeTab` fallback).
+A tab shell that grows ~55 lines per tab; the fifth tab (Report) crossed the
+limit and was wired in the established shape deliberately — one inconsistent
+tab would cost more than the overrun. **Trigger:** a sixth tab, or any
+substantive edit to the lazy-loading machinery. The extraction is mechanical:
+`loadTimesheets`/`loadGraphs`/`loadReport` and their error renderers into a
+`hubTabs.js` that owns the caches and request counters. Do it as its own
+change, verified by hand.
 
-The Report tab was wired in the same shape as Timesheets and Graphs rather than
-inventing a second pattern to dodge the count — one inconsistent tab would cost
-more than the overrun does. **This was not silently accepted; it is recorded
-here because the addition, not the file, is the small part.**
+### N-WO-STATUS-EVENTS — no status history, so a close can vanish
 
-**Trigger:** a sixth tab, or any substantive edit to the lazy-loading machinery.
-The extraction is mechanical and self-contained: `loadTimesheets`, `loadGraphs`,
-`loadReport`, and their two error renderers are the same lazy-tab pattern five
-times over and belong in a `hubTabs.js` that owns the caches and request
-counters, leaving `userHub.js` the payload fetch, the clock, and tab switching.
-Do it as its own change with the three tabs verified by hand, not folded into a
-feature.
+Work orders carry only `created_at`/`updated_at`/`completed_at`/
+`archived_at`; nothing records when a status was entered. The daily report
+accepts two consequences: Closing is an honest snapshot, not a delta; and a
+restore (or the sweep's reopen-on-reappearance) retroactively erases a close
+from past numbers — both surfaces are live views and say so on the page.
+**Trigger:** needing to reconcile a past day's report against what it said at
+the time, or date navigation on the report. Fix: a `work_order_status_events`
+table. Do not infer history from `updated_at`.
 
-### N-WO-STATUS-EVENTS — A work order has no status history, so a close can vanish
+### N-REPORT-EXPORT-AUDIT — the report CSV joins the unlogged-export set
 
-A work order carries exactly four timestamps: `created_at`, `updated_at`,
-`completed_at`, `archived_at`. Nothing records *when* it entered a status. Two
-consequences the Admin daily report accepts rather than works around:
+DEC-009 commits every CSV/report export to an audit record (actor, type, row
+count, timestamp) in the log sink DEC-008 funds; `GET /hub/report/export` is
+a member from the day it shipped and is not separately logged today.
+**Trigger:** the sink landing — wire this export in then; a second,
+differently-shaped export log is worse than the gap. It is Admin-only and
+company-wide, so it is the higher-value audit record.
 
-- **Closing cannot be a delta.** "What moved into a closing status since
-  yesterday" is unanswerable from this schema, so the report's Closing section
-  is an honest snapshot of the current queue instead.
-- **A restore erases a close.** `restore_work_order` clears `archived_at`, so a
-  work order closed Monday and restored Wednesday drops out of Monday's numbers
-  retroactively. The reconcile sweep's reopen-on-reappearance is another way
-  this happens. `graphs_hub` already carries the same caveat. Both surfaces are
-  live views, not archival records, and say so on the page.
+### N-REPORT-CLOSING-PAGINATION — the one report section that can outgrow its cap
 
-**Trigger:** anyone needing to reconcile a past day's report against what it
-said at the time, or asking for date navigation on the report (deliberately out
-of scope for exactly this reason). The fix is a `work_order_status_events`
-table, which makes Closing a real delta *and* Closed an audit-grade history. Do
-not attempt to infer either from `updated_at`.
+`closing` is every live `ready_to_complete`/`completed`/`review` row and
+grows with any backlog; it passes through `MAX_LIST_ROWS` and carries
+`truncated` in its payload. The cap lives in the payload builder, so page and
+CSV truncate identically; `count` and `by_status` stay true regardless.
+**Trigger:** `event=list.truncated` with `list=hub_report_closing` in the
+logs — then this section (not all capped lists) needs real pagination.
 
-### N-REPORT-EXPORT-AUDIT — The report's CSV joins the unlogged-export set
+### N-ITEM-RESTORE — no item unarchive, and item requests expose it
 
-`docs/open-work.md`'s 2026-08-23 DEC commits every CSV/report export to
-recording actor, export type, row count, and timestamp into a log sink that is
-not yet built. `GET /hub/report/export` is a member of that set from the day it
-shipped and is not separately logged today.
+An archived item is search-invisible (`archived_at IS NULL` filter), so a
+user searching a real-but-archived material files an item request. The Admin
+fulfilling it has no restore path: `override_archived` frees the *barcode*
+(purging or retiring the archived row); creating a fresh row silently forks
+the item's identity. Same shape as the archived-work-order gotcha, same
+likely fix: an explicit gated `restore_item`. **Trigger:** an item request
+naming an archived item with any regularity. **Done when triggered:** an
+Admin can restore from the fulfil form, and the request links to the original
+row.
 
-**Trigger:** the sink landing. Wire this export into it then, rather than
-inventing a private log here — a second, differently-shaped export log is worse
-than the gap it closes. Note this export is Admin-only and company-wide, which
-makes it a higher-value audit record than the viewer-scoped work-order export.
+### N3 — decide the multi-instance story before scaling horizontally
 
-### N-REPORT-CLOSING-PAGINATION — The one report section that can outgrow its cap
+**Trigger: adding a second instance.** Three things inherit it, worst last:
+`entrypoint.sh` runs `alembic upgrade head` on every cold start (races across
+instances); B3's rate limiter holds counters in process memory (the cap
+becomes 60/s per process, a deliberate trade); a realtime connection registry
+does not degrade — it **silently halves delivery**, since connections are
+process-local and instance A's users never receive instance B's events, with
+no error on either side. The archived design note survives in the vault under
+`archive/superpowers/`.
 
-Four of the daily report's five sections are bounded by their time window. The
-fifth, `closing`, is every live work order in `ready_to_complete` / `completed`
-/ `review` and grows with any pipeline backlog, so it passes through
-`services/_list_cap.py` at `MAX_LIST_ROWS` and carries `truncated` in its
-payload. The cap lives in the payload builder, never in a renderer, so the page
-and the CSV truncate identically; `count` and `by_status` stay true regardless.
+### N4 — reconsider serving the SPA from the API process
 
-**Trigger:** `event=list.truncated` with `list=hub_report_closing` appearing in
-the logs. That line means the backlog has outgrown the ceiling and this section
-— not all six capped lists — needs real pagination. Until it fires, this is a
-safety ceiling doing its job.
-
-### N-ITEM-RESTORE — There is no item unarchive, and item requests now expose it
-
-**Trigger: an item request that turns out to name an archived item.**
-
-An archived item is invisible to search in exactly the same way an uncatalogued
-one is — `list_items` filters on `archived_at IS NULL` — so a user who searches
-for a real-but-archived material gets an empty result and files an item request.
-The Admin fulfilling it has no restore path: `services/items.py` has no
-unarchive function. `override_archived` (`items.py:116`) frees an archived
-item's *barcode* via `_free_archived_holder`, which purges or retires the
-archived row; it does not bring it back.
-
-So today the only way to fulfil such a request is to create a fresh row,
-reclaiming the barcode with `override_archived=True`. That is a working path,
-but it silently forks the item's identity: the archived row's history stays
-attached to the retired barcode while new activity accrues to the new row.
-
-This is the same shape as the archived-work-order gotcha, which was solved with
-an explicit restore workflow (`restore_work_order`, supervisor+). If archived
-items start showing up in item requests with any regularity, the answer is
-probably the same: an explicit `restore_item`, gated and confirmed, rather than
-teaching the fulfil form more tricks.
-
-**Done when triggered:** an Admin can restore an archived item from the fulfil
-form, and the resulting request links to the original row rather than a new one.
-
-### N3 — Decide the multi-instance story before scaling horizontally
-
-**Trigger: adding a second instance.**
-
-`backend/entrypoint.sh` runs `alembic upgrade head` on every cold start; its own
-comment acknowledges this cannot race on a single instance and must be revisited
-before adding a second. `render.yaml` is explicitly one instance.
-
-Neither X1's session sweep nor C3's throttle inherits this problem — both are
-DB-backed and driven by login traffic rather than by a scheduler, which was a
-deliberate design choice.
-
-**B3's rate limiter does inherit it, and is the first thing here that does.**
-`services/rate_limit.py` holds its counters in process memory, so a second
-worker or instance makes the effective cap 60/s *per process* rather than per
-caller. That was a deliberate trade — a one-second window makes persistence
-worthless, and a Postgres write per request would cost more than the runaway
-client it catches — but this note now has a concrete second item to revisit, not
-just the Alembic race.
-
-**A real-time connection registry would be the third thing to inherit it, and
-the worst of the three.** The other two *degrade* under a second instance: the
-Alembic race is a startup window, and the rate limiter's cap becomes 60/s per
-process instead of per caller. A registry does not degrade — it **silently
-halves delivery**. Connections are held in process memory, so a user on instance
-A would never receive an event emitted on instance B, with no error anywhere on
-either side. The screens that failed to update would look exactly like screens
-with nothing to update.
-
-Nothing is built yet. The design note that recorded this — whose §15 lists
-horizontal scaling as an explicit non-goal precisely because of this item — was
-archived out of the repo on 2026-08-16; it survives in the Obsidian vault under
-`archive/superpowers/`. Recorded here now so that adding a second instance
-surfaces it as a known constraint rather than a production mystery.
-
-### N4 — Reconsider serving the SPA from the API process
-
-**Trigger: introducing a CDN** · *deferred by design*
-
-`main.py` mounts `NoCacheStaticFiles` with `Cache-Control: no-cache` on every
-asset and re-reads/concatenates the HTML fragments from disk on **every**
-request to `/`. Both are deliberate and solve the real blank-page stale-cache
-failure. The cost: every asset request is a Python round-trip, no CDN, no
-content hashing. Fine at current scale — the first thing to change if a CDN is
-ever introduced.
-
-Scale note: `static/styles.css` is **2,710 lines** (2,546 at the 2026-08-10
-consolidation), unminified, and re-fetched on every navigation because of the
-blanket `no-cache`. That is the concrete cost of this trade, and the number to
-watch.
+**Trigger: introducing a CDN** · deferred by design. `NoCacheStaticFiles`
+plus per-request shell assembly deliberately solve the real blank-page
+stale-cache failure; the cost is a Python round-trip per asset, no CDN, no
+content hashing. `static/styles.css` is 2,710 lines, unminified, re-fetched
+on every navigation — the number to watch.
 
 ### N6 — `services/work_orders.py` is 2,034 lines / 59 functions
 
-**Trigger: none — this is a boundary rule, not a refactor request.**
+**Trigger: none — this is a boundary rule, not a refactor request.** Its
+frontend counterpart `workOrders.js` (1,705 lines) grows faster than the
+service; change risk concentrates in these two files. The extraction target
+already exists and works: `domain/work_orders.py` holds the pure rules.
+**Further rule-shaped logic belongs behind that boundary**; splitting the
+module for its own sake is churn with no behavior change.
 
-Roughly 3.7× the next-largest service (`mass_staging.py`, 549) and larger than
-any other file in the repo except `styles.css`. Its frontend counterpart
-`static/views/workOrders.js` is **1,705 lines** (1,442 at the 2026-08-10
-consolidation — it has grown 18% since, faster than the service it fronts, which
-is unchanged at 2,034). Change risk in this codebase is concentrated in these
-two files.
+### C2 — tool-custody N+1 (its risky half is already gone)
 
-Not a defect — the layering it sits inside is sound, and the extraction target
-already exists and already works: `domain/work_orders.py` (461 lines) holds the
-pure rules, so the pattern is established rather than hypothetical.
+**Trigger: the Tools page feels slow, or the tool count grows enough to
+matter.** `list_tools` still costs N+1 queries per page load (bounded by the
+X3 cap); the symptom is not occurring. The custody order is now pinned (first
+name, last name, then `assigned_to_id`; tests in `test_tools_service.py`), so
+a consolidated all-tools query returns provably identical order — the fix is
+cheap and safe whenever someone wants the query count back. Only the list
+path needs it: `_outstanding_for_user` and the archive guard don't care about
+order.
 
-The standing rule is that **further rule-shaped logic belongs behind that
-boundary**. Splitting the module for its own sake would churn the
-highest-traffic file in the project for no behavior change.
+### N7 — `pyzbar` can break a fresh environment
 
-### C2 — Tool-custody N+1 (its risky half is already gone)
+**Trigger: new dev machine, or a runtime/base-image change.** It needs the
+Visual C++ 2013 redistributable on Windows; the failure is a missing
+`libiconv.dll` at import — naming neither `pyzbar` nor the real cause — and
+takes down the whole app at import time rather than degrading decode alone.
+Containerized deploys are unaffected. Also noted in `requirements.txt` and
+`current-state.md`.
 
-**Trigger: the Tools page feels slow, or the tool count grows enough to matter**
-· *demoted from Tier 1 on 2026-08-10*
+### N8 — `/docs` and `/redoc` are CSP-broken
 
-`routers/tools.py` calls `_tool_response` per tool, and each invocation runs
-`_custody_query` (`services/tools.py`), a `GROUP BY` aggregate over
-`tool_transactions`. `list_tools` is capped at 5,000 by X3, so N returned tools
-still cost **N+1 queries per page load**, but memory/result cardinality is bounded.
+**Trigger: someone actually wants a working API explorer.** A4's
+`default-src 'self'` CSP blocks their only assets (cdn.jsdelivr.net), so both
+pages render ~1 KB blank shells; `/openapi.json` is unaffected. Fix: vendor
+`swagger-ui-dist` into `static/vendor/` (the ZXing precedent) and pass
+`swagger_js_url`/`swagger_css_url`. **Do not loosen CSP** for a developer
+convenience.
 
-**Demoted because the symptom is not occurring** — the owner confirmed the Tools
-page is accurate and performing as expected, and the "200 tools" figure came
-from reading the code, not from the data.
+### N9 — Web Push: remaining deliberate limits (feature shipped)
 
-**The ordering half shipped instead, and it was the part that carried the risk.**
-`_custody_query` ended at `.having(net > 0)` with no `ORDER BY`, so the order of
-holders within a tool was whatever Postgres returned — a user-visible list free
-to change after a vacuum or plan change. It is now ordered by first name, last
-name, then `assigned_to_id`. That last key is not decoration: **full names are
-not unique**, so name alone would leave two same-named holders undefined
-relative to each other. Legacy NULL names sort last under Postgres's default
-`NULLS LAST`, putting `Name unavailable` at the bottom. Pinned by
-`test_custody_is_ordered_by_name` and
-`test_custody_order_is_deterministic_for_duplicate_full_names`
-(`tests/test_tools_service.py`).
-
-**This is why the item is now cheap and safe.** With the order pinned, a
-consolidated all-tools query returns the *same* order as the per-tool one, so
-eliminating the N+1 becomes provably invisible — no reshuffle to validate,
-whenever someone wants the query count back.
-
-Scope note: `_custody_query` has three callers and only `tool_custody` cares
-about order. `_outstanding_for_user` filters to one user and takes `.first()`,
-and `delete_tool`'s archive guard only tests truthiness — so the consolidation
-work is confined to the list path.
-
-### N7 — `pyzbar` is the one dependency that can break a fresh environment
-
-**Trigger: new dev machine, or a runtime/base-image change.**
-
-It wraps native `zbar`; the wheel bundles the DLLs but they need the Visual C++
-2013 redistributable on Windows, and the failure surfaces as a missing
-`libiconv.dll` on import — an error message naming neither `pyzbar` nor the real
-cause. It takes down the **whole app at import time** rather than degrading
-barcode decode alone. Containerized deploys are unaffected; this is a
-local-setup and future-runtime-change hazard. Also noted in `requirements.txt`
-and `docs/current-state.md`.
-
-### N8 — `/docs` and `/redoc` are CSP-broken wherever they are enabled
-
-**Trigger: someone actually wants a working API explorer** · *found while
-shipping C4, 2026-08-10*
-
-A4's CSP is `default-src 'self'` and `add_security_headers` applies it to
-**every** response, production and local alike. FastAPI's Swagger UI and ReDoc
-load their only assets from `cdn.jsdelivr.net` (`swagger-ui-bundle.js` +
-`swagger-ui.css`; `redoc.standalone.js`). The browser refuses all three, so both
-pages render blank. Measured by driving the ASGI stack: `/docs` returns 200 with
-**1,023 bytes** and `/redoc` 200 with **905 bytes** — HTML shells with nothing
-that can load. True since A4 shipped (2026-08-07); nobody noticed, which is its
-own data point about how much these pages were used.
-
-`/openapi.json` was never affected — plain JSON with no assets, which is why it
-was the only real exposure C4 closed, and why it measured **113,156 bytes**
-against their ~1 KB.
-
-**Not fixed as part of C4, deliberately.** The fix is to vendor
-`swagger-ui-dist` into `static/vendor/` (beside the ZXing bundle, the
-established precedent) and pass `swagger_js_url` / `swagger_css_url` to
-`get_swagger_ui_html`. That adds a dependency to keep updated and does not
-belong inside a security item whose point was removing a surface. The
-alternative — loosening CSP to allow the CDN — would trade a real defence for a
-developer convenience and **should not be done**.
-
-### N9 — Web Push Phase A sits on `main` wired to nothing — RESOLVED 2026-08-18
-
-**Resumed.** The wiring landed: `push_subscriptions` + migration
-`1d2e3f4a5b6c`, `services/push.py`, `routers/push.py`, `static/service-worker.js`,
-`static/manifest.json`, and the opt-in UI in `static/views/push.js`.
-`domain/push.py` is now imported by the service rather than only by its own
-test, and `pywebpush` is called. See *API Surface → Web Push* in
-`current-state.md` for the behavior.
-
-One correction worth preserving, because this entry asserted it twice and it was
-wrong: the remaining work was **not** stranded on `feat/push-notifications`.
-That branch was fully merged into `main` (PRs #8 and #9) and held nothing
-unique — it was the vehicle for the NetFacilities work, and push Phase A merely
-rode along in #8. There was no rebase to do and nothing to recover; the rest of
-the feature had simply never been written.
-
-**Phase B — real triggers — landed the same day.** Four work-order events now
-send: assignment (to the newly added technicians), completion (Admin and
-above), leaving Completed for any live status other than Review, and being
-returned from Review to In-Progress — the last two to the assignees plus the
-routed supervisor. Recipients are resolved during the request and delivered on a
-`BackgroundTasks` handoff. See *API Surface → Web Push* in `current-state.md`
-for the rules, and `docs/adding-a-notification-trigger.md` for the procedure to
-add a fourth.
-
-Two corrections this entry and the planning document both got wrong, preserved
-because each cost time:
-
-- *"Technicians cannot subscribe."* They always could. `/push/subscribe`
-  depends only on `get_current_user`; the restriction was one constant in
-  `static/views/push.js`.
-- The fan-out tests were not hermetic. They assumed `push_subscriptions` held
-  only what they seeded, so they passed in CI and failed on any machine with a
-  genuinely enrolled device.
-
-**Remaining deliberate limits, none of which are defects:**
-
-- The fan-out is sequential inside the background task. Crew-sized audiences are
-  fine; hundreds of devices would need a queue.
-- No per-user opt-out and no per-event preferences. Routing is by role and
-  assignment only.
-- No delivery record. `{sent, dropped, failed}` is logged and discarded, so
-  "was this person notified?" has no answer beyond the log.
-- iOS requires a manual Home-Screen install per device before push works at all,
-  and the installed app has its own cookie jar, so users log in again inside it.
-  Accepted, not solvable — Apple exposes no programmatic install.
-- Frontend coverage is manual-validation only, same class of gap as N10 and
-  PRO-008. `views/push.js` has no automated test.
+Phases A+B shipped 2026-08-18 — see *API Surface → Web Push* in
+`current-state.md`, and `docs/adding-a-notification-trigger.md` for adding a
+trigger. Standing limits, none defects: the fan-out is sequential inside the
+background task (hundreds of devices would need a queue); no per-user opt-out
+or per-event preferences (routing is role + assignment only); no delivery
+record beyond the discarded `{sent, dropped, failed}` log line; iOS requires
+a manual Home-Screen install per device, with its own cookie jar; and
+`views/push.js` has no automated test (PRO-008 class).
 
 ### N10 — Work Orders live status: frontend gaps with no automated coverage
 
-**Trigger: none for the coverage gap itself — this is a testing gap, not a
-defect. The other three each have their own trigger, named below.**
+There is no JS test runner; CI runs `node --check` only, so the subscriber,
+hold rule, in-place card update, and deferred list refetch are
+manual-validation only (PRO-008 owns the class). Three specific gaps, all
+frontend-only:
 
-There is no `package.json` and no JS test runner anywhere in this repository;
-CI verifies `backend/static/views/workOrders.js` with `node --check` only. The
-subscriber, the hold rule, the in-place card update, and the deferred list
-refetch (`refreshCardSummary`, `isHeld`, `runOrDeferListRefresh`) are all
-manual-validation only, same as the rest of the frontend (PRO-008 is the
-general-purpose item for closing this class of gap).
-
-Three more specific gaps live in the same feature and are recorded here rather
-than separately, since they share both a trigger class (manual validation) and
-a fix class (frontend-only):
-
-- **Reassignment is asymmetric.** `update_work_order`
-  (`routers/work_orders.py:533`) emits `_emit_status_changed(work_order.id)`
-  (`:562`) unconditionally, including on a technician reassignment. The
-  technician who *loses* the work order has its card on screen, so their
-  refetch 404s and the row disappears live. The technician who *gains* it has
-  no card on screen for the subscriber to match
-  (`views/workOrders.js`'s `subscribe(STATUS_CHANGED_EVENT, ...)` ignores any
-  id it cannot find in the DOM), so it does not appear until they next enter
-  the page. Only `restore_work_order` (`:681`, `_emit_status_changed(None)` at
-  `:693`) emits the null-id membership signal that would cover this, and
-  reassignment does not use it. **Trigger: a technician reports a newly
-  assigned work order not appearing until they reload.**
+- **Reassignment is asymmetric.** The losing technician's on-screen card
+  refetches, 404s, and disappears live; the gaining technician sees nothing
+  until next page entry — the subscriber ignores ids with no card in the
+  DOM, and only restore emits the null-id membership signal. **Trigger:** a
+  technician reports a new assignment not appearing until reload.
 - **Two rapid status events on one card can resolve out of order.**
-  `refreshCardSummary` (`views/workOrders.js:872`) calls `apiGetWorkOrder` with
-  no request-ordering guard, so a slower response to an older event can
-  overwrite a newer one already rendered. `views/adminReview.js` already solves
-  this class of race with a monotonically increasing request id
-  (`queueRequestId` / `committedQueueRequestId`, `loadAdminReview`,
-  `adminReview.js:122-143`) that only commits a response at least as new as the
-  last one rendered. **Trigger: a card observed showing an older status than
-  the one just set, immediately after a fast double status change.**
-- **A card collapsed while its editor is still open stays held indefinitely.**
-  `isHeld` (`views/workOrders.js:913`) checks whether any editor `<details>`
-  inside a card is open regardless of whether the card itself is expanded, so
-  collapsing the outer card without closing its editor leaves the card held.
-  No refresh reaches it, and because `anyCardHeld()` also stays true, a
-  deferred full list refetch is blocked until that specific card is
-  re-expanded and its editor closed. **Trigger: a badge observed stuck on an
-  old status with no open card visible anywhere in the list.**
+  `refreshCardSummary` has no request-ordering guard; `adminReview.js`
+  already solves this class with a monotonic request id. **Trigger:** a card
+  showing an older status immediately after a fast double change.
+- **A card collapsed while its editor is open stays held indefinitely** —
+  `isHeld` checks editor `<details>` regardless of card expansion, blocking
+  that card's refresh and the deferred full-list refetch. **Trigger:** a
+  badge stuck on an old status with no open card visible anywhere.
 
-### N11 — Notification triggers considered and deliberately deferred
+### N11 — notification triggers considered and deliberately deferred
 
-**Trigger: a user asking to be told about one of these, or the first time
-somebody drives to a job that was archived under them.**
+**Trigger: a user asking to be told about one of these, or the first drive
+to a job archived under them.** Five candidates, ordered by value-to-effort,
+each costing the three steps in `docs/adding-a-notification-trigger.md`:
+(1) Completed → Review notifies Admin — the forward handoff deliberately
+notifies nobody on the crew; (2) On-Hold notifies supervisor and assignees;
+(3) Archive notifies assignees — the one with real operational cost attached;
+(4) new user request/recount notifies TechFM OA+ (different router and
+audience); (5) NetFacilities enrichment finished notifies the starting Admin
+(currently poll-only). Excluded outright, not deferred: customer/job detail
+in notification bodies (the lock-screen rule), and any digest/batching scheme
+until real volume is observed (see N14).
 
-Five triggers were proposed alongside the three that shipped in N9 and were
-scoped out to keep that batch tight. None is blocked; each reuses an existing
-emitter and the machinery is now in place, so the cost is the three steps in
-`docs/adding-a-notification-trigger.md` rather than any new design. Ordered by
-value-to-effort:
+### N12 — auto-hold is the largest source of notification volume ever added
 
-1. **Completed → Review notifies Admin.** The Review handoff is already
-   Admin-only and is the queue they watch. The assignee half of this transition
-   was considered and deliberately dropped: Completed → Review notifies nobody
-   on the crew, because it is the forward handoff rather than work coming back.
-   The *return* out of Review does notify them, and shipped as a fourth
-   trigger.
-2. **On-Hold notifies the supervisor and assignees.** Same shape as the reopen
-   rule, different trigger (`hold_work_order`).
-3. **Archive notifies assignees.** Someone actively working a job currently
-   learns it was closed by arriving at it. The one item here with a real
-   operational cost attached to not doing it.
-4. **New user request / recount notifies TechFM OA and above.** Different
-   router (`routers/user_requests.py`) and a different audience — genuinely
-   useful, but a larger step than 1-3.
-5. **NetFacilities enrichment finished notifies the Admin who started it.**
-   Long-running and currently poll-only. Touches
-   `services/netfacilities_jobs.py` and is the least related to work orders.
-
-**Deliberately excluded rather than deferred:** anything putting customer or job
-detail in a notification body (the lock-screen rule), and any general digest or
-batching scheme — premature until real volume is observed. The one batched send
-that exists, `work_order.supervisor_assigned_bulk`, is scoped to the CSV import
-and argued from its volume; see N14.
-
-### N12 — Auto-hold is the largest source of notification volume ever added
-
-**Trigger: a supervisor saying the On-Hold alerts have become noise, or
-observably ignoring them.**
-
-Shipped 2026-08-19 with work-order time tracking. Stopping the last clock on an
-In-Progress work order now moves it to On-Hold, and every entry into On-Hold
-notifies the routed supervisor — a rule written when On-Hold happened only by
-deliberate tap. It now happens several times a day per crew: lunch, a parts run,
-the end of a shift.
-
-This is the chosen behavior, not an oversight. It was shipped notifying rather
-than pre-suppressed because the honest first version is the one that reveals
-whether the volume is actually a problem, and because a silent status change is
-harder to debug than a loud one.
-
-**The mitigation is already scoped and deliberately narrow:** add one condition
-at the `/tracking/stop` trigger site so the auto-hold path alone stays silent,
-leaving `/hold` and the PATCH arm untouched. No change to the audience, the
-rule, the wording, or the other three trigger sites. See
+**Trigger: a supervisor saying the On-Hold alerts are noise, or observably
+ignoring them.** Stopping the last clock on an In-Progress work order
+auto-holds it, and every entry into On-Hold notifies the routed supervisor —
+a rule written when On-Hold was deliberate, now firing several times a day
+per crew (lunch, parts runs, end of shift). Chosen behavior: shipped loud to
+reveal whether the volume is actually a problem. The mitigation is already
+scoped and deliberately narrow: silence the `/tracking/stop` trigger site
+alone, leaving `/hold` and the PATCH arm untouched. See
 `docs/notification-events.md`.
 
-### N13 — Send Back tells the technician nothing — CLOSED
+### N14 — the bulk import send is the first batched notification
 
-Closed 2026-08-20 by `work_order.sent_back`, a fifth arm on
-`_notify_work_order_patch` addressed to the assignees and the routed supervisor.
-It is its own event rather than a reuse of `work_order.reopened`, for the reason
-this item always gave: that rule means "your finished job is no longer
-Completed" and a sent-back row never reached Completed.
-
-Shipped alongside `work_order.supervisor_assigned` and
-`work_order.supervisor_assigned_bulk`. See `docs/notification-events.md`.
-
-### N14 — The bulk import send is the first batched notification
-
-**Trigger: a second batching case appearing, or an import send that is wrong in
-a way per-work-order sends would not have been.**
-
-`work_order.supervisor_assigned_bulk` collapses a whole import into one push per
-matched supervisor, which is the only place in this system where one
-notification stands for more than one event. The argument for it is volume — an
-import creating forty work orders for one supervisor would otherwise fire forty
-pushes in seconds — and it is deliberately scoped to the import rather than
-generalised into a digest layer.
-
-Two things follow, and both are the reason this is written down:
-
-- **It is not precedent.** "Do not batch or digest" still holds everywhere else.
-  A second batching case should be argued on its own volume evidence, not by
-  pointing at this one.
-- **It under-counts on purpose.** Only work orders the import *created* count.
-  An import that routes an existing unrouted work order to a supervisor is
-  silent, so that the push and the on-screen `supervisors_matched` can never
-  disagree. If that silence turns out to matter more than the agreement does,
-  the fix is to widen both together — the import summary and the notification
-  read off the same branch precisely so that stays one change.
+**Trigger: a second batching case appearing, or an import send that is wrong
+in a way per-work-order sends would not have been.**
+`work_order.supervisor_assigned_bulk` collapses a whole import into one push
+per matched supervisor — the only place one notification stands for many
+events, argued from import volume. **It is not precedent** — a second
+batching case argues its own volume evidence. **It under-counts on purpose**
+— only work orders the import *created* count, so the push and the on-screen
+`supervisors_matched` can never disagree; if the silence ever matters more
+than the agreement, widen both together — they read off the same branch so
+that stays one change.
 
 ---
 
@@ -806,431 +400,87 @@ roadmap-export rules for fields not repeated on every entry are:
   `External verification` closes with dated dashboard/process evidence. Combined
   labels require both.
 
-### Owner decision queue
-
-These are inputs, not implementation tickets. Answering them turns the register
-into a roadmap without inventing requirements.
-
-| ID | Open decision | Why it gates work |
-|---|---|---|
-| DEC-001 | Confirm the provisional target: business-critical, single-region, moderate growth; or choose enterprise/audited scope. | Determines whether optional HA/compliance items are required for 10/10. |
-| DEC-002 | Expected users, simultaneous peak, item/work-order/history growth, and largest import/export over 12-24 months. | Sets load fixtures, pool size, query budgets, and scale triggers. |
-| DEC-003 | Availability SLO, request latency target, maintenance tolerance, RPO, and RTO. | Defines acceptable platform, alerts, backups, and rollback behavior. |
-| DEC-004 | Use local credentials with enforced MFA, or adopt an OIDC/SAML identity provider with enforced MFA. Password-only auth cannot graduate. | Determines password migration, session, recovery, and offboarding work. |
-| DEC-005 | Exact Technician visibility and mutation rules for reassigned/archived work orders. | Required to close SEC-002 without guessing policy. |
-| DEC-006 | Whether Mass Stages are creator-owned, team-owned, or shared to all Supervisors. | Required to make list/detail/mutation authorization consistent. |
-| DEC-007 | Whether imports require atomic rejection, partial success, preview, approval, and/or undo. | Defines the import transaction and audit model. |
-| DEC-008 | Budget for always-on web, staging, monitoring, log retention, scans, and identity. | Determines feasible production controls and provider choices. |
-| DEC-009 | Data classification, retention, audit, privacy, contractual, and legal-hold obligations. | Determines logging, exports, backups, deletion, and compliance scope. |
-| DEC-010 | Solo-maintainer or reviewed-change governance, and named incident/release approvers. | Determines branch protection, CODEOWNERS, production approvals, and break-glass process. |
-| DEC-011 | Whether mobile, third-party, sibling-domain, or other cross-origin clients are planned. | Activates API versioning, non-cookie auth, and origin/CSRF work. |
-| DEC-012 | Whether exported files must round-trip into this app unchanged. | Selects safe CSV encoding versus explicit-text XLSX output. |
-
 ### Recorded decisions
 
-#### DEC-001 — Resolved 2026-08-23
+All twelve owner decisions (DEC-001–012) were resolved 2026-08-23. What each
+binds:
 
-**Business-critical, single-region, moderate growth — confirmed for now.** The
-owner wants the stack architecturally capable of scaling to enterprise later,
-but the current user base does not yet justify building enterprise controls
-today.
-
-Per graduation rule 4, this is an explicit exclusion, not a deferral:
-`SEC-019`, `SCL-020`, and `SCL-021` are declined from the target operating
-model and marked `Declined` below. This does **not** relax any `Must-fix` or
-`Production baseline` item — those apply at full weight to any business-critical
-app regardless of enterprise scope.
-
-**Revisit trigger:** a material change in `DEC-002`'s growth numbers (expected
-users, peak concurrency, or data growth) that puts multi-zone HA, a secondary
-read store, or contractual/legal-hold obligations back in scope. Until then,
-`N3` (multi-instance readiness) is the concrete near-term item to watch, not
-`SCL-020` — it has its own trigger ("adding a second instance") and doesn't
-require enterprise scope to matter.
-
-#### DEC-002 — Resolved 2026-08-23
-
-**Current:** peak concurrency around 100 users, typical load under 50. Fine as
-today's baseline; nothing should be built that would block scaling past it.
-
-**24-month target: ~10,000 users total, achieved by horizontal growth across
-independent deployments** (one app instance + one database per university),
-not by one instance growing to that size. Each individual instance is expected
-to stay in roughly today's range — dozens to a couple hundred concurrent
-users — for the foreseeable future. This confirms `DEC-001`'s "moderate growth"
-framing holds **at the instance level**: `SCL-020` (multi-zone HA), `SCL-021`
-(read replica), and the DB-load-sizing half of `SCL-008` do not need
-enterprise-grade headroom on a per-instance basis, and stay `Declined`/sized to
-current scale.
-
-**The real growth axis this reveals is fleet repeatability, not per-instance
-capacity.** Standing up university #50 or #100 cheaply and identically is the
-actual scaling story, which reprioritizes (without changing scope of):
-
-- `PRO-016` (reproducible onboarding) — the 30-minute clean-clone target
-  becomes load-bearing once it's the repeated cost of every new deployment,
-  not a one-time convenience.
-- `PRO-001` (one immutable, CI-built production artifact) and `PRO-006`
-  (reproducible supply chain) — the same artifact needs to deploy identically
-  to instance #1 and instance #100.
-- `SCL-010` (controlled schema rollout) — matters more once there are many
-  independent instances each needing the same migration applied safely, rather
-  than one instance being carefully babysat through a change.
-
-**Data growth:** stable for now. **Picture/photo uploads were raised as a
-wanted feature but are not yet a logged item** — per this document's own rule
-("if an item is not here, it is not open"), it needs an `IMP-` entry before it
-can be treated as active. Logged below as `IMP-035` with the storage/processing
-concern captured up front, rather than discovered after the fact the way N9/N10
-were. It also gives `SCL-017` (retention/archival/partition) a concrete future
-trigger it doesn't have today — image storage is exactly the kind of durable
-growth that item is written for.
-
-**Import ceiling:** confirmed at ~800 rows (the "every vendor in the
-university" case) as a realistic upper bound *per instance*. Because
-scaling is per-university-per-instance rather than one shared database, cross-
-institution import volume is not a concern — `SCL-005` (staged/reversible
-imports) can be sized against roughly this figure rather than an unbounded
-one.
-
-#### DEC-003 — Resolved 2026-08-23
-
-**True 24/7 availability, no usable maintenance window.** RTO ~15-30 minutes.
-RPO ~15 minutes. Latency: no new hard target — protect current p95 as load
-grows toward `DEC-002`'s ~100-concurrent peak, don't chase a lower number.
-
-**This is a materially harder bar than a shift-hours target would have been,**
-and it changes urgency on several items already in the register rather than
-introducing new ones:
-
-- **`PRO-004`** (always-on compute) goes from a general recommendation to a
-  direct contradiction with current state. `render.yaml` declares a free web
-  service that can sleep — a sleeping/cold-start instance cannot meet a 15-30
-  minute RTO by definition, independent of anything else in this queue. This
-  is the item to close first.
-- **`SCL-010`** (controlled schema rollout) now requires an actual
-  expand/contract migration policy, not just "any window works" — 24/7 means
-  every schema change has to be safe with old and new app code running against
-  the same database simultaneously.
-- **`PRO-002`** (serialized, observable deployment + tested rollback) needs to
-  hit the RTO on its own: a 15-30 minute target means rollback has to be fast
-  and rehearsed, not manual improvisation under pressure.
-- **`PRO-014`** (backup/PITR/restoration) has real work to do here: Render's
-  dashboard claims 3-day point-in-time recovery, but that describes *retention
-  window*, not *recovery granularity* — it says nothing about whether a
-  restore can actually land within 15 minutes of the failure point. That gap
-  is exactly what "no restore-drill evidence exists" (the item's own evidence
-  line) means in practice, and it's now the thing standing between the current
-  setup and a stated RPO rather than an abstract professionalism gap.
-- **`PRO-012`** (SLOs + capacity proof) load-tests against the `DEC-002`
-  peak (~100 concurrent) with the goal of *no regression* from current
-  response times, not a new latency bar.
-- **`SCL-020`** (multi-zone HA) stays `Declined` per `DEC-001` — a tight RTO
-  raises the bar on *this* region's reliability (fast rollback, no-sleep
-  compute, drilled restore), it does not by itself require multi-region
-  failover. Worth re-checking only if a single-region outage (not a bad
-  deploy or bad data) turns out to be the actual failure mode observed in
-  practice.
-
-#### DEC-004 — Resolved 2026-08-23
-
-**Local credentials remain, with TOTP (authenticator-app) MFA added on top —
-no external IdP.** MFA is mandatory for Admin/Owner only; Supervisor and
-Technician continue on password-only. Chosen for speed and to avoid a
-per-instance IdP-configuration dependency, with the tradeoff noted and
-accepted: each future per-university deployment (`DEC-002`) owns its own MFA
-enrollment/recovery rather than delegating to an institution's existing SSO.
-
-**This splits `SEC-004`'s password-policy bar by role**, per the item's own
-branching "done when" language:
-
-- **Admin/Owner** — MFA-backed, so the *"approved current standard"* password
-  length applies rather than the harsher sole-factor minimum (NIST 800-63B is
-  the cited reference standard for that tier).
-- **Supervisor/Technician** — passwords remain the sole factor, so the
-  ≥15-character minimum (with ≥64 accepted) is the binding requirement for
-  these roles specifically, not just a general recommendation.
-- The measured enumeration-timing gap (79.55ms known-wrong vs. 0.028ms unknown
-  username) and the current 4-character minimum in `schemas/auth.py` are
-  unaffected by this split — both are defects regardless of which roles get
-  MFA, and stay in scope for every account.
-
-**`SEC-011`** now has a concrete target instead of an open design space: build
-TOTP enrollment/recovery/step-up scoped to Admin/Owner, not a broader
-population, and not IdP federation. Recovery-path design (lost authenticator
-device) is the part most likely to need its own follow-up decision once
-scoped — noted here so it isn't rediscovered as a support incident later.
-
-**`SEC-016`** is largely unaffected by *this* decision — it still depends on
-`DEC-010` (governance) for named privileged owners and offboarding SLAs — but
-inherits a smaller surface: only Admin/Owner MFA lifecycle needs to be audited
-and offboarded, not a broader population.
-
-#### DEC-005 — Resolved 2026-08-23
-
-**Simplest possible answer: the existing `can_view_work_order` predicate
-(`backend/app/domain/work_orders.py:655-682`) is correct as written and does
-not need a policy exception.** A Technician sees only work orders currently
-assigned to them — reassignment and archiving both revoke access immediately
-and completely, with no read-only carve-out for their own past work. This
-matches the general archived-work-order rule already in effect for every
-other role, so there's no special case to design or document going forward.
-
-**Mutation follows automatically, not as a separate rule:** since visibility
-is the gate, and mutation always requires visibility first, "never mutate a
-reassigned-off or archived work order" isn't a distinct policy — it falls out
-of the same predicate once it's actually enforced.
-
-**This closes the open policy question for both defects; the code fix is
-still outstanding:**
-
-- **`SEC-002`** — `routers/transactions.py:66-85` needs to call
-  `can_view_work_order` instead of checking existence only. No further design
-  needed; ready to implement.
-- **`SEC-021`** — `routers/user_requests.py:96-105` needs the same fix, same
-  predicate, same file it already imports from elsewhere in the codebase for
-  exactly this purpose.
-
-Both remain `Candidate`/unimplemented — this resolves the *policy*, not the
-code.
-
-#### DEC-006 — Resolved 2026-08-23
-
-**Creator-owned.** Only the Supervisor who created a Mass Stage — plus
-Admin/Owner/TechFM OA, who already bypass the scope everywhere else in this
-service — can view or act on it. This matches `list_stages`'s existing,
-deliberate scoping (`services/mass_staging.py:166`); the fix is tightening
-`get_stage` and the mutation functions it feeds to match, not loosening the
-list view.
-
-**Accepted tradeoff:** no peer-Supervisor coverage. If the creating Supervisor
-is out, another Supervisor cannot view or continue their in-progress Mass
-Stage — only Admin/Owner/TechFM OA can. Noted explicitly rather than
-discovered later: if this turns out to be an operational problem in practice
-(a Supervisor out sick with active staging work blocking a crew), the fix is
-narrower than reopening this decision — an explicit hand-off/transfer action
-on the stage (reassign `created_by_id`, logged, Admin-gated) rather than
-loosening the ownership model itself.
-
-**`SEC-007`** now has a concrete target: every Mass Stage route (list, detail,
-slots, transitions, load/return, reuse, deletion) enforces
-`created_by_id == caller` for Supervisors, `True` for Admin/Owner/TechFM OA,
-and returns `404` (not `403`) for inaccessible IDs — matching the pattern
-`SEC-002`/`SEC-021` are converging on for work orders. Still `Candidate`;
-policy is resolved, code is not.
-
-#### DEC-007 — Resolved 2026-08-23
-
-**Preview-then-commit, with undo, and skip-and-report (with skipped rows
-individually identified) for bad rows.** Reframed from the doc's original
-framing after reading the actual import code (`services/work_orders.py:820-928,
-687-786`): the prior 800-row incident that required a database cutover was a
-**correctness failure, not a partial-failure one** — the import completed
-successfully on the wrong file, and there was no way to reverse a *successful*
-import short of restoring the whole database. The import is also already
-idempotent by design (a re-upload safely merges rather than duplicates),
-which already covers the crash-mid-import case reasonably well — so this
-decision targets what actually failed, not a generic atomicity concern.
-
-- **Preview/diff required.** Upload parses and computes the full summary
-  (create/update/match/skip counts) with **nothing committed**, and requires
-  an explicit confirm step before any row is written. This is the direct
-  catch for a wrong file or bad mapping before it lands.
-- **Undo required.** Each import gets a batch identity; an Admin can reverse
-  a specific completed import within a window, restoring the fields it
-  changed and removing rows it created — with rows independently edited since
-  the import flagged rather than silently reverted (an import shouldn't be
-  able to clobber a technician's manual edit made after the fact). This
-  requires the import to durably record *what it changed*, not just a summary
-  count, which is new — nothing in the current code retains that today.
-- **Row failures stay skip-and-report, and the report must name the specific
-  work orders skipped, not just a count.** Current code
-  (`import_work_orders`, `services/work_orders.py:867-926`) only increments
-  `skipped`/`closed` counters — it never records *which* numbers those were.
-  That's not enough on its own: an operator told "4 skipped" has no way to
-  find and fix those four rows without re-diffing the whole file by hand.
-  The summary (and the preview, once built) must list the actual work-order
-  numbers or row identifiers for every skipped/errored row, the same way
-  `supervisor_routing` already names numbers instead of just counting matches
-  (line 839-845's own docstring makes exactly this argument for the
-  supervisor-match case; skipped rows need the same treatment).
-
-**What this means for `SCL-005` and `SCL-006`:**
-
-- **`SCL-005`** is now fully scoped: preview endpoint (dry-run, no commit),
-  confirm-to-apply, batch identity + change log, per-row skip/error identity
-  (not just counts), and an undo action gated to Admin. This is a real
-  feature build (schema for the change log, two new endpoints, UI for
-  preview/confirm/undo), not a policy tweak — sizing stays `XL`.
-- **`SCL-006`** (explicit top-level transaction ownership) is still relevant
-  but narrower than the doc's original framing implied: because row failures
-  stay skip-and-report rather than moving to one all-or-nothing transaction,
-  import doesn't need the whole batch wrapped in a single transaction. What
-  it *does* need is each row's commit to also durably write that row's
-  change-log entry (and, for skips, its identifying number/reason) in the
-  same transaction, so preview/undo/skip-reporting can never drift from what
-  actually persisted.
-
-#### DEC-008 — Resolved 2026-08-23
-
-**Philosophy: small now, nothing structurally in the way of future growth.**
-Worked through category by category rather than as one number, because most
-of these categories aren't actually in tension with that philosophy — only
-one is.
-
-- **Always-on web** — mandatory regardless of budget preference (`DEC-003`
-  already forced this: a sleeping free tier cannot meet a 15-30 minute RTO).
-  Cheapest paid tier that removes cold starts. Tier size is a dashboard
-  setting, not an architecture decision — bumping it later, per instance, is
-  free of rework.
-- **Monitoring** (`PRO-013`) — start on a free-tier uptime/alerting option;
-  upgrade to paid dashboards/alerting later. Purely additive.
-- **Scanning** (`PRO-006`) — start with GitHub's built-in Dependabot + secret
-  scanning (free, already available); add paid depth later without rework.
-- **Staging** (`PRO-003`) — **deferred deliberately, not just for cost.**
-  Building it now against the current one-off deployment risks being rebuilt
-  once `PRO-016` (repeatable per-university deployment) exists — building it
-  once, later, against the real template is less total work than building it
-  twice. This is the "nothing in the way of growth" philosophy actively
-  choosing to wait, not a budget shortfall.
-- **Log retention** (`SEC-012`) — **the one exception, started now anyway.**
-  Unlike every other category, deferring this has an irreversible cost: there
-  is currently no durable external log sink at all, and any day without one
-  is audit history that can never be recovered retroactively later, however
-  much is later spent on it. Cheap tier, started now.
-- **Identity** — already resolved and already free: `DEC-004` chose local
-  credentials + TOTP over an external IdP, so there's no ongoing per-seat
-  identity cost regardless of this decision.
-
-**Per-instance vs. fleet-wide framing (from the open sub-question):** resolved
-implicitly by the philosophy itself. Because every category above is either
-free-tier-first-and-cheaply-upgradable or deliberately deferred, there's no
-fleet-wide number that needs committing to yet — the per-instance cost stays
-small by construction, so it multiplies safely toward `DEC-002`'s ~100-instance
-future without a separate budget decision being required now. Revisit only if
-a future category (e.g. `SCL-020`/`SCL-021`, still `Declined` per `DEC-001`)
-stops being free/deferrable.
-
-#### DEC-009 — Resolved 2026-08-23
-
-**No known external obligation; archive-forever remains permanent policy;
-exports become an audited event.** Checked the actual `User` model
-(`backend/app/models.py:34-59`) before asking anything: there's no deep PII
-surface here to begin with (no email, phone, SSN, or payment data — just
-username, name, password hash, role), and the rest of the app's data is
-operational (items, work orders, transactions), not personal records. That
-materially narrows this decision from what "privacy, contractual, legal-hold"
-sounds like in the abstract.
-
-- **No known university/legal obligation** applies independent of this app's
-  own compliance ambitions. Proceeds as an internal policy decision; revisit
-  if IT/legal ever surfaces a specific requirement.
-- **Archive-forever confirmed as permanent, not a stopgap.** The existing
-  soft-delete pattern (`archived_at`, documented in the model's own
-  docstring: *"a user is archived rather than hard-deleted, so the
-  transaction history... stays intact after a departure"*) stays exactly as
-  it is. No hard-delete or anonymization path gets built. This also answers
-  the retention-horizon question by implication: there is no time-based
-  deletion of historical records at all — ledger data is retained
-  indefinitely. `SCL-017`'s eventual archival/partition trigger stays purely
-  storage/performance-driven (a high-water mark or query-SLO breach), never a
-  policy-driven purge — there is no purge.
-- **Exports are now an audited event.** Every CSV/report export records
-  actor, export type, row count, and timestamp into the log sink `DEC-008`
-  already committed to funding — a small addition to something already being
-  built, not a new system. This gives `SEC-012`'s "material event coverage"
-  list a concrete entry for exports rather than a placeholder.
-
-**What this resolves:** `SEC-018` (baseline data classification/retention/
-export governance) now has an actual policy to implement against — data
-classes are operational-plus-minimal-identity, retention is indefinite,
-deletion is archive-only, exports are logged. `SEC-012` gains a defined event
-(exports) beyond the categories it already listed. `SCL-017` keeps its
-existing measured-trigger status, now confirmed to never be policy-triggered.
-
-#### DEC-010 — Resolved 2026-08-23
-
-**Solo-maintainer, no substitute review process, no backup access — all
-accepted plainly rather than left unstated.**
-
-- **Governance model:** one person merges changes. Branch protection enforces
-  required CI checks and blocks force-push/branch deletion; the human
-  PR-approval requirement is waived under a documented solo-maintainer
-  exception, exactly the shape `PRO-018`'s own evidence anticipated.
-- **No formal AI-review substitute.** Considered and declined: the
-  solo-maintainer exception is recorded as-is, an accepted gap rather than
-  something papered over with a formalized process. (Nothing here prevents
-  using AI-assisted review informally — it's just not the documented
-  governance control.)
-- **No backup/break-glass access.** Bus factor of one, explicitly accepted
-  rather than assumed away. No break-glass process is defined, because
-  there's no second person to invoke one.
-
-**What this resolves:** `PRO-018` now has a concrete, honest target — protected
-`main`, required checks, blocked force-push/deletion, a recorded
-solo-maintainer exception in place of CODEOWNERS-enforced review, and an
-explicit statement (not a silence) that no break-glass process exists.
-`SEC-013` and `SEC-016` inherit the same reality: incident response and
-privileged-access review both have exactly one person in the loop, which
-should be reflected as a named constraint in those items' eventual design
-rather than assumed to be a team process.
-
-#### DEC-011 — Resolved 2026-08-23
-
-**None planned now; likely later — kept architecturally open rather than
-built for.** Same "small now, nothing in the way of growth" philosophy as
-`DEC-008`. Nothing gets built today: `SEC-017` stays a `Measured trigger`,
-unbuilt, and same-origin cookie auth remains the only mechanism. API
-versioning stays a non-issue while the SPA is the only client.
-
-**What "kept open" actually means here, concretely, since a vague intention
-isn't a real answer:** the domain-layer authorization predicates in this
-codebase (`can_view_work_order` and its siblings) already take plain values
-— role, user ID, ownership — not the request or cookie itself. That
-separation is what makes a future second auth transport (bearer-token auth
-for a native mobile app or a third-party integration) additive later rather
-than a rewrite: a new endpoint issues tokens, middleware accepts either a
-valid session cookie or a valid bearer token, and every existing
-authorization check underneath is unaffected. There's no build-now item this
-implies — it's a standing discipline: new work should keep going through
-that same `user`-object pattern rather than reaching into cookies directly
-inside services, so the transport layer stays swappable when `DEC-011` is
-eventually revisited.
-
-**Trigger to revisit:** a concrete native app, third-party integration, or
-sibling domain actually being planned — at that point `SEC-017` (origin/CSRF
-enforcement) and a real token-auth design both get scoped together, since
-they're the same underlying change.
-
-#### DEC-012 — Resolved 2026-08-23
-
-**Split by export variant, following the design that already exists.**
-Checked `export_work_orders_csv` (`services/work_orders.py:1375-1421`) before
-asking anything: its own docstring already declares two variants with
-different intentions, so this wasn't really a decision to make from scratch
-— it was a question of respecting an existing distinction rather than
-picking one fix for both.
-
-- **`full` (operational export) — must round-trip, stays CSV.** Its entire
-  purpose is re-import: *"led by the import's own headers, so the file
-  round-trips -- re-importing it is the idempotent fill-blanks path, not a
-  duplicate."* `SEC-006`'s fix for this variant has to be CSV-safe escaping
-  (neutralizing leading `=`, `+`, `-`, `@`, tab, CR) that leaves the file
-  byte-compatible with what `import_work_orders`'s `csv.DictReader` expects.
-  XLSX is ruled out here — it would break the variant's stated purpose.
-- **`client` (billing export) — purely external, never re-imported.**
-  Confirmed: no path exists or is expected to bring this variant back into
-  the app. `SEC-006`'s fix here is free to be whichever format is simplest
-  to implement safely — CSV-escaping (consistent with the other variant) or
-  a switch to XLSX with explicit-text cells (which sidesteps formula
-  injection by construction rather than by escaping). Implementation detail,
-  not a policy question.
-
-**What this resolves:** `SEC-006` now has a variant-specific target instead
-of one ambiguous "make exports safe" instruction — the `full` export's fix is
-constrained to preserve round-tripping, the `client` export's fix is not.
-Both still need the fixture + Excel/LibreOffice verification the item's
-"done when" already calls for.
+- **DEC-001 — target:** business-critical, single-region, moderate growth.
+  `SEC-019`/`SCL-020`/`SCL-021` are `Declined` — explicit exclusion, not
+  deferral; Must-fix and Production-baseline items apply at full weight.
+  Revisit on a material change in DEC-002's growth numbers.
+- **DEC-002 — scale:** ~100 concurrent peak per instance, today and for the
+  foreseeable future. 24-month growth (~10k users) comes from **fleet
+  repeatability** — one app + one DB per university — not per-instance
+  capacity, which makes `PRO-016`, `PRO-001`/`PRO-006`, and `SCL-010`
+  load-bearing as repeated per-deployment costs. Import ceiling ~800 rows per
+  instance (sizes `SCL-005`). Photo uploads were logged as `IMP-035`.
+- **DEC-003 — SLO:** true 24/7, no maintenance window; RTO 15–30 min; RPO
+  ~15 min; protect current p95 as load grows, no new latency bar.
+  Consequences: `PRO-004` first (a sleeping free tier contradicts the RTO by
+  definition); `SCL-010` needs a real expand/contract policy; `PRO-002`'s
+  rollback must hit the RTO rehearsed; `PRO-014` must drill restores —
+  Render's 3-day PITR describes retention, not proven recovery granularity;
+  `PRO-012` load-tests ~100 concurrent with a no-regression goal. `SCL-020`
+  stays Declined.
+- **DEC-004 — identity:** local credentials + TOTP MFA for Admin/Owner only;
+  no external IdP (each future per-university deployment owns its own MFA
+  enrollment/recovery). Splits `SEC-004` by role: Admin/Owner get the
+  approved-standard length (NIST 800-63B); Supervisor/Technician stay
+  sole-factor, so the ≥15-character minimum binds them. The measured
+  enumeration-timing gap and the 4-character minimum stay in scope for every
+  account. `SEC-011` becomes TOTP enrollment/recovery/step-up for Admin/Owner
+  only; the lost-authenticator recovery path will need its own follow-up
+  decision.
+- **DEC-005 — technician visibility:** `can_view_work_order` is correct as
+  written — reassignment and archiving revoke access immediately and
+  completely, no read-only carve-out; mutation falls out of visibility, not a
+  separate rule. Policy closed; **code fixes still outstanding**: `SEC-002`
+  (`routers/transactions.py`) and `SEC-021` (`routers/user_requests.py`) each
+  just need to call the predicate.
+- **DEC-006 — Mass Stage ownership:** creator-owned; Admin/Owner/TechFM OA
+  bypass as everywhere else. The fix tightens `get_stage` and the mutations
+  to match `list_stages`'s existing scoping; inaccessible IDs return 404.
+  Accepted tradeoff: no peer-Supervisor coverage — if that bites, add a
+  logged Admin-gated transfer action rather than reopening the model. Scopes
+  `SEC-007`.
+- **DEC-007 — imports:** preview-then-commit, undo, and skip-and-report with
+  skipped rows **individually named** — counts alone leave an operator unable
+  to find the bad rows. (The prior 800-row incident was a correctness failure
+  on a *successful* import; idempotent merge already covers crash-mid-import.)
+  Undo requires each import to durably record what it changed — new schema.
+  Fully scopes `SCL-005` (stays `XL`); narrows `SCL-006` to per-row commit +
+  change-log atomicity rather than one all-or-nothing batch transaction.
+- **DEC-008 — budget:** small now, nothing structurally in the way of
+  growth. Always-on web is mandatory (DEC-003 forced it); monitoring
+  (`PRO-013`) and scanning (`PRO-006`) start free-tier and upgrade without
+  rework; staging (`PRO-003`) deliberately waits for `PRO-016`'s deployment
+  template rather than being built twice; **log retention (`SEC-012`) is the
+  one exception, started now** — every day without a durable external sink is
+  audit history that can never be recovered later.
+- **DEC-009 — data policy:** no known external obligation; archive-forever is
+  permanent policy — no purge, ever, so `SCL-017` is storage/performance-
+  triggered only; exports become audited events (actor, type, row count,
+  timestamp) in the DEC-008 sink. The data is operational plus minimal
+  identity (no email/phone/SSN/payment). Scopes `SEC-018`.
+- **DEC-010 — governance:** solo maintainer, accepted plainly. Branch
+  protection with required checks and blocked force-push/deletion; the
+  human-review requirement is waived under a recorded solo-maintainer
+  exception (no formal AI-review substitute); no backup/break-glass access
+  exists — bus factor of one, stated rather than assumed away. `PRO-018`
+  targets exactly this; `SEC-013`/`SEC-016` inherit the one-person loop as a
+  named design constraint.
+- **DEC-011 — cross-origin clients:** none planned; likely later; kept open
+  by discipline, not build. Authorization predicates take plain values (role,
+  user id, ownership), never the request or cookie — keep new work on that
+  `user`-object pattern so a future bearer-token transport is additive.
+  `SEC-017` stays a measured trigger; revisit when a native app, integration,
+  or sibling domain is actually planned (that and token auth are one change).
+- **DEC-012 — exports:** split by variant, following the code's own design.
+  `full` must round-trip into the import → CSV-safe escaping only, XLSX ruled
+  out; `client` is never re-imported → escaping or explicit-text XLSX,
+  implementer's choice. Scopes `SEC-006`; both variants still need the
+  fixture + Excel/LibreOffice verification.
 
 ### Security candidates
 
