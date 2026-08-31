@@ -206,12 +206,57 @@ def _pie(
 
 
 # --------------------------------------------------------------------------
-# Report  (body added in Task 5)
+# Report
 # --------------------------------------------------------------------------
+
+REPORT_WIDTHS = {"A": 28, "B": 14, "C": 14, "D": 14, "E": 14, "F": 3}
+
+# Fixed rows (§4.1). Every block is fixed-height: dollars are grouped by
+# primary community (E14), so that block is at most five rows plus a
+# footnote, and "By community" sits at BY_COMMUNITY_ROW (P8).
+KPI_ROW = 6
+STATUS_ROW = 10
+ACTIVITY_ROW = 26
+DOLLARS_ROW = 42
+BY_COMMUNITY_ROW = 58
+
+# Charts fill G:M beside the A:E blocks, 15 rows tall (about 8 cm).
+CHART_ROWS = 15
+
+# Under the dollars block (E14): primary attribution, stated on the sheet.
+DOLLARS_FOOTNOTE = "Dollars count a work order under its first community."
+
+
+def _chart_cells(top: int) -> str:
+    return f"G{top}:M{top + CHART_ROWS - 1}"
+
+
+def _community_money(
+    rows: list[ReportRow],
+) -> list[tuple[str, Decimal, Decimal]]:
+    """Labor and materials dollars per primary community, biggest combined
+    first (E14).
+
+    `primary_community` -- a row's first membership -- rather than the raw
+    `community` column (NULL on every imported row) or the full membership
+    list (a row named in two communities must not have its dollars counted
+    twice). Decimals throughout -- openpyxl writes them natively, and the
+    report's money is never a float anywhere else either."""
+    totals: dict[str, list[Decimal]] = {}
+    for row in rows:
+        key = primary_community(row)
+        bucket = totals.setdefault(key, [Decimal("0.00"), Decimal("0.00")])
+        bucket[0] += row.labor_total
+        bucket[1] += row.materials_total
+    return sorted(
+        ((name, labor, materials) for name, (labor, materials) in totals.items()),
+        key=lambda entry: (-(entry[1] + entry[2]), entry[0]),
+    )
 
 
 def _report_sheet(sheet: Worksheet, payload: DailyReport, chart_data: _ChartData) -> None:
     theme.setup_sheet(sheet, tab_color=theme.BRAND_RED)
+    theme.set_widths(sheet, REPORT_WIDTHS)
     week = payload.week
     generated = payload.generated_at.astimezone(labor_day.CENTRAL)
     theme.title_block(
@@ -223,6 +268,135 @@ def _report_sheet(sheet: Worksheet, payload: DailyReport, chart_data: _ChartData
             f"Generated {generated.strftime('%Y-%m-%d %H:%M')} Central",
             _population_caveat(payload),
         ],
+    )
+    company = payload.distribution.company
+    sections = payload.sections
+
+    # KPI strip. "Open" is the three live buckets; Closed is the week's
+    # output -- the deleted pipeline chart's numbers, restated (§4.1).
+    open_count = company.total - company.counts[BUCKET_CLOSED]
+    tiles = [
+        ("Open work orders", open_count),
+        (BUCKET_LABELS["accepted"], company.counts["accepted"]),
+        (BUCKET_LABELS["in_progress"], company.counts["in_progress"]),
+        (BUCKET_LABELS["ready_to_close"], company.counts["ready_to_close"]),
+        ("Closed this week", company.counts[BUCKET_CLOSED]),
+    ]
+    for column, (label, value) in enumerate(tiles, start=1):
+        theme.kpi(sheet, KPI_ROW, column, label, value)
+
+    # Company status: the four-slice pie beside its exact-value block (E9).
+    theme.section(sheet, STATUS_ROW, "Company status")
+    theme.header_row(sheet, STATUS_ROW + 1, ("Bucket", "Count", "Share"))
+    theme.write_rows(
+        sheet,
+        STATUS_ROW + 2,
+        _bucket_rows(company),
+        formats={1: theme.COUNT, 2: theme.PERCENT},
+    )
+    _pie(
+        sheet,
+        chart_data,
+        name="company",
+        title="Company status",
+        group=company,
+        cells=_chart_cells(STATUS_ROW),
+        legend="r",
+        percent_labels=True,
+    )
+
+    # Activity: section counts, never row tallies -- `closing` can be capped
+    # and the page follows the same rule (X8).
+    theme.section(sheet, ACTIVITY_ROW, "Activity")
+    activity = [
+        ["Closed", sections.closed_today.count, sections.closed_week.count],
+        ["New", sections.new_today.count, sections.new_week.count],
+    ]
+    theme.header_row(sheet, ACTIVITY_ROW + 1, (None, "Today", "Week to date"))
+    theme.write_rows(
+        sheet, ACTIVITY_ROW + 2, activity, formats={1: theme.COUNT, 2: theme.COUNT}
+    )
+    auto_today = sections.closed_today.auto_closed_count
+    auto_week = sections.closed_week.auto_closed_count
+    if auto_today or auto_week:
+        # The page's own phrasing (R10), so the file reads like the screen.
+        theme.note(
+            sheet,
+            ACTIVITY_ROW + 4,
+            f"Closed today includes ({auto_today} in NetFacilities); "
+            f"this week ({auto_week} in NetFacilities)",
+        )
+    header_row, last_row = chart_data.block("activity", [None, "Today", "Week to date"], activity)
+    theme.place(
+        sheet,
+        theme.column_chart_of(
+            chart_data.sheet,
+            title="Activity",
+            header_row=header_row,
+            last_row=last_row,
+            y_title="Work orders",
+        ),
+        _chart_cells(ACTIVITY_ROW),
+    )
+
+    # Dollars closed this week, stacked labor over materials (X11).
+    theme.section(sheet, DOLLARS_ROW, "Dollars closed this week")
+    money = _community_money(sections.closed_week.rows) or [
+        (PLACEHOLDER, Decimal("0.00"), Decimal("0.00"))
+    ]
+    theme.header_row(sheet, DOLLARS_ROW + 1, ("Community", "Labor", "Materials", "Total"))
+    dollars_last = theme.write_rows(
+        sheet,
+        DOLLARS_ROW + 2,
+        [[name, labor, materials, labor + materials] for name, labor, materials in money],
+        formats={1: theme.MONEY, 2: theme.MONEY, 3: theme.MONEY},
+    )
+    theme.note(sheet, dollars_last + 1, DOLLARS_FOOTNOTE)
+    header_row, last_row = chart_data.block(
+        "dollars",
+        ["Community", "Labor", "Materials"],
+        [[name, labor, materials] for name, labor, materials in money],
+    )
+    theme.place(
+        sheet,
+        theme.column_chart_of(
+            chart_data.sheet,
+            title="Dollars closed this week",
+            header_row=header_row,
+            last_row=last_row,
+            stacked=True,
+            y_title="Dollars",
+        ),
+        _chart_cells(DOLLARS_ROW),
+    )
+
+    # By community: the four buckets per community, then the Ready-to-close
+    # three-status split as a footnote (E11) and the memberships caveat.
+    # Fixed row (P8): the dollars block above is bounded by E14.
+    top = BY_COMMUNITY_ROW
+    theme.section(sheet, top, "By community")
+    last = theme.table_of(
+        sheet,
+        name="ByCommunity",
+        row=top + 1,
+        headers=("Community", *BUCKET_LABELS.values(), "Total"),
+        rows=[
+            [entry.label, *(entry.counts[key] for key in BUCKET_KEYS), entry.total]
+            for entry in payload.distribution.communities
+        ],
+        formats={offset: theme.COUNT for offset in range(1, 6)},
+    )
+    by_status = sections.closing.by_status
+    split = ", ".join(
+        f"{by_status.get(status, 0):,} {STATUS_LABELS[status].lower()}"
+        for status in CLOSING_STATUSES
+    )
+    theme.note(sheet, last + 2, f"Ready to close = {split}.")
+    theme.note(
+        sheet,
+        last + 3,
+        "A work order named in two communities is counted in both; community "
+        "rows do not sum to the company figures above.",
     )
 
 

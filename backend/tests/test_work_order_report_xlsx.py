@@ -412,3 +412,133 @@ def test_empty_population_renders_a_header_and_an_empty_state_without_a_table():
     assert sheet["C5"].value == "NOTES"
     assert sheet["A6"].value == "No live or recently closed work orders."
     assert sheet.tables == {}
+
+
+# --- Report (§4.1, E11) -----------------------------------------------------
+
+
+def test_report_title_block_names_the_day_week_and_population():
+    sheet = _workbook(_scholars_payload())["Report"]
+
+    assert sheet["A1"].value == "Weekly Work Order Report"
+    assert sheet["A2"].value == "Tue, Aug 25, 2026 · week of 2026-08-24 – 2026-08-30 (week to date)"
+    assert sheet["A3"].value == "Generated 2026-08-25 17:30 Central"
+    assert sheet["A4"].value.startswith("Live work orders as of 2026-08-25 17:30 Central, plus work orders closed 2026-08-24 – 2026-08-30.")
+    assert "counted in both" in sheet["A4"].value
+    assert sheet.freeze_panes == "A5"
+
+
+def test_report_kpi_strip_is_open_then_the_three_live_buckets_then_closed():
+    sheet = _workbook(_scholars_payload())["Report"]
+
+    assert [cell.value for cell in sheet[xlsx.KPI_ROW]][:5] == [
+        "Open work orders",
+        "Accepted",
+        "In progress",
+        "Ready to close",
+        "Closed this week",
+    ]
+    assert [cell.value for cell in sheet[xlsx.KPI_ROW + 1]][:5] == [5, 3, 1, 1, 2]
+    assert sheet.cell(row=xlsx.KPI_ROW + 1, column=1).border.bottom.color.rgb.endswith("C8102E")
+
+
+def test_report_company_status_block_has_counts_and_real_shares():
+    sheet = _workbook(_scholars_payload())["Report"]
+
+    assert sheet.cell(row=xlsx.STATUS_ROW, column=1).value == "Company status"
+    assert [cell.value for cell in sheet[xlsx.STATUS_ROW + 1]][:3] == ["Bucket", "Count", "Share"]
+    rows = [
+        [sheet.cell(row=row, column=col).value for col in (1, 2, 3)]
+        for row in range(xlsx.STATUS_ROW + 2, xlsx.STATUS_ROW + 6)
+    ]
+    assert [row[:2] for row in rows] == [
+        ["Accepted", 3],
+        ["In progress", 1],
+        ["Ready to close", 1],
+        ["Closed", 2],
+    ]
+    assert [row[2] for row in rows] == pytest.approx([3 / 7, 1 / 7, 1 / 7, 2 / 7])
+    assert sheet.cell(row=xlsx.STATUS_ROW + 2, column=3).number_format == "0.0%"
+
+
+def test_report_activity_block_matches_the_payload_counts():
+    sheet = _workbook(_scholars_payload())["Report"]
+
+    assert sheet.cell(row=xlsx.ACTIVITY_ROW, column=1).value == "Activity"
+    # The corner cell is written as None: openpyxl reloads "" as None anyway.
+    assert [cell.value for cell in sheet[xlsx.ACTIVITY_ROW + 1]][:3] == [None, "Today", "Week to date"]
+    assert [
+        [sheet.cell(row=row, column=col).value for col in (1, 2, 3)]
+        for row in (xlsx.ACTIVITY_ROW + 2, xlsx.ACTIVITY_ROW + 3)
+    ] == [["Closed", 1, 2], ["New", 1, 2]]
+    assert sheet.cell(row=xlsx.ACTIVITY_ROW + 4, column=1).value is None
+
+
+def test_report_activity_block_notes_auto_closed_work_orders():
+    payload = _payload(
+        closed_today=[_row(status=wo.STATUS_COMPLETED, archived=True)],
+        auto_closed_today=1,
+    )
+    sheet = _workbook(payload)["Report"]
+
+    assert sheet.cell(row=xlsx.ACTIVITY_ROW + 4, column=1).value == (
+        "Closed today includes (1 in NetFacilities); this week (0 in NetFacilities)"
+    )
+
+
+def test_report_dollars_block_is_by_primary_community_and_counts_each_row_once():
+    week = [
+        _row(number="WO-1", community="Centennial", status=wo.STATUS_COMPLETED, archived=True,
+             labor_total="100.00", materials_total="10.00"),
+        # Named in two communities: attributed to Scholars (first in filter
+        # order) and counted once (E14).
+        _row(number="WO-2", location="Commons annex / Scholars 3", status=wo.STATUS_COMPLETED,
+             archived=True, labor_total="5.00", materials_total="0.00"),
+        _row(number="WO-3", community="Centennial", status=wo.STATUS_COMPLETED, archived=True,
+             labor_total="50.00", materials_total="20.00"),
+        # Nothing named: Academics, never "(no community)".
+        _row(number="WO-4", status=wo.STATUS_COMPLETED, archived=True,
+             labor_total="1.00", materials_total="0.00"),
+    ]
+
+    assert xlsx._community_money(week) == [
+        ("Centennial", Decimal("150.00"), Decimal("30.00")),
+        ("Scholars", Decimal("5.00"), Decimal("0.00")),
+        ("Academics", Decimal("1.00"), Decimal("0.00")),
+    ]
+
+    sheet = _workbook(_payload(closed_week=week))["Report"]
+    assert sheet.cell(row=xlsx.DOLLARS_ROW, column=1).value == "Dollars closed this week"
+    assert [cell.value for cell in sheet[xlsx.DOLLARS_ROW + 1]][:4] == ["Community", "Labor", "Materials", "Total"]
+    assert [cell.value for cell in sheet[xlsx.DOLLARS_ROW + 2]][:4] == [
+        "Centennial", Decimal("150.00"), Decimal("30.00"), Decimal("180.00"),
+    ]
+    assert sheet.cell(row=xlsx.DOLLARS_ROW + 2, column=2).number_format == "$#,##0.00"
+    # Three money rows (44-46), footnote on the next row (E14).
+    assert sheet.cell(row=xlsx.DOLLARS_ROW + 5, column=1).value == xlsx.DOLLARS_FOOTNOTE
+    assert xlsx.DOLLARS_FOOTNOTE == "Dollars count a work order under its first community."
+
+
+def test_report_by_community_table_and_the_ready_to_close_footnote():
+    sheet = _workbook(_scholars_payload())["Report"]
+    grid = _cells(sheet)
+    top = next(index for index, row in enumerate(grid, start=1) if row and row[0] == "By community")
+
+    assert top == xlsx.BY_COMMUNITY_ROW  # fixed (P8): the dollars block is bounded by E14
+    assert grid[top][:6] == ["Community", "Accepted", "In progress", "Ready to close", "Closed", "Total"]
+    assert grid[top + 1][:6] == ["Scholars", 3, 1, 1, 2, 7]
+    assert grid[top + 5][:6] == ["Academics", 0, 0, 0, 0, 0]
+    assert [t.displayName for t in sheet.tables.values()] == ["ByCommunity"]
+    footnotes = [row[0] for row in grid[top + 6 : top + 9] if row and row[0]]
+    assert footnotes[0] == "Ready to close = 0 ready to complete, 0 completed, 1 review."
+    assert "counted in both" in footnotes[1]
+
+
+def test_report_with_nothing_to_plot_shows_the_empty_state_instead_of_a_zero_pie():
+    sheet = _workbook(_payload())["Report"]
+
+    assert sheet.cell(row=xlsx.STATUS_ROW, column=7).value == "No live or recently closed work orders."
+    assert [cell.value for cell in sheet[xlsx.KPI_ROW + 1]][:5] == [0, 0, 0, 0, 0]
+    assert [cell.value for cell in sheet[xlsx.DOLLARS_ROW + 2]][:4] == [
+        "(none)", Decimal("0.00"), Decimal("0.00"), Decimal("0.00"),
+    ]
