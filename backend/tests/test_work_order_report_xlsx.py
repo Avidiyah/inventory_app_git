@@ -542,3 +542,126 @@ def test_report_with_nothing_to_plot_shows_the_empty_state_instead_of_a_zero_pie
     assert [cell.value for cell in sheet[xlsx.DOLLARS_ROW + 2]][:4] == [
         "(none)", Decimal("0.00"), Decimal("0.00"), Decimal("0.00"),
     ]
+
+
+# --- community sheets (§4.2, E6, E8, E9) ------------------------------------
+
+
+def test_community_sheet_title_pie_block_and_detail_table():
+    sheet = _workbook(_scholars_payload())["Scholars"]
+
+    assert sheet["A1"].value == "Scholars"
+    assert sheet["A2"].value == "Weekly status · 7 work orders"
+    assert "counted in both" in sheet["A3"].value
+    assert sheet["A5"].value == "Status"
+    assert sheet.column_dimensions["A"].width == 22
+    assert all(sheet.column_dimensions[letter].width == 11 for letter in "BCDEFGHIJ")
+
+    # Exact-value block beside the pie (E9): F6 header, F7:H10 buckets.
+    assert [cell.value for cell in sheet[6]][5:8] == ["Bucket", "Count", "Share"]
+    assert [
+        [sheet.cell(row=row, column=col).value for col in (6, 7)] for row in range(7, 11)
+    ] == [["Accepted", 3], ["In progress", 1], ["Ready to close", 1], ["Closed", 2]]
+    assert sheet["H7"].value == pytest.approx(3 / 7)
+
+    assert sheet["A22"].value == "By service type"
+    assert sheet["A23"].value is None
+    assert sheet["A64"].value == "Service type detail"
+    assert [cell.value for cell in sheet[65]][:6] == [
+        "Service type", "Accepted", "In progress", "Ready to close", "Closed", "Total",
+    ]
+    assert [cell.value for cell in sheet[66]][:6] == ["Plumbing", 3, 0, 1, 2, 6]
+    assert [cell.value for cell in sheet[67]][:6] == ["HVAC", 0, 1, 0, 0, 1]
+    assert [(t.displayName, t.ref) for t in sheet.tables.values()] == [
+        ("ServiceTypes_scholars", "A65:F67")
+    ]
+
+
+def test_empty_community_renders_the_empty_state_and_nothing_else():
+    sheet = _workbook(_scholars_payload())["Centennial"]
+
+    assert sheet["A2"].value == "Weekly status · 0 work orders"
+    assert sheet["A5"].value == "No live or recently closed work orders in this community."
+    assert sheet.max_row == 5
+    assert sheet.tables == {}
+
+
+def _eleven_service_types_in_commons():
+    live = [
+        _row(number=f"WO-{index}", community="Commons", service_type=f"Trade {index:02d}")
+        for index in range(11)
+    ] + [_row(number="WO-extra", community="Commons", service_type="Trade 00")]
+    return _payload(live=live)
+
+
+def test_grid_caps_at_nine_cards_and_says_so():
+    sheet = _workbook(_eleven_service_types_in_commons())["Commons"]
+
+    assert sheet["A23"].value == '"Other" combines 3 further service types.'
+    # The detail table still lists every service type, so the cap costs no
+    # information (E8).
+    labels = _column(sheet, 1, 66, 76)
+    assert labels[0] == "Trade 00" and len(labels) == 11 and "Other" not in labels
+    assert sheet.cell(row=77, column=1).value is None
+
+
+# --- charts, at the zip level (§7) ------------------------------------------
+
+
+def test_chart_count_is_three_plus_one_per_community_plus_one_per_card():
+    parts = _chart_parts(_scholars_payload())
+
+    # Report: pie + activity + dollars. Scholars: pie + Plumbing + HVAC.
+    assert len(parts) == 6
+    assert all('plotVisOnly val="0"' in xml for xml in parts.values())
+
+
+def test_every_pie_is_fixed_order_and_fixed_color():
+    parts = _chart_parts(_scholars_payload())
+    pies = [xml for xml in parts.values() if "<pieChart>" in xml]
+
+    # Company pie, Scholars status pie, and the Plumbing and HVAC cards.
+    assert len(pies) == 4
+    for xml in pies:
+        assert 'firstSliceAng val="0"' in xml
+        assert xml.index("9CA3AF") < xml.index("D97706") < xml.index("6D28D9") < xml.index("15803D")
+        assert "C8102E" not in xml
+
+
+def test_grid_cards_have_no_legend_but_every_other_chart_does():
+    parts = _chart_parts(_scholars_payload())
+
+    # Report pie + activity + dollars, plus the Scholars status pie: four
+    # legends. The two Scholars cards (Plumbing, HVAC) carry none (E15).
+    assert sum("<legend>" in xml for xml in parts.values()) == 4
+
+
+def test_grid_cards_are_capped_at_nine_charts():
+    parts = _chart_parts(_eleven_service_types_in_commons())
+
+    # Report pie + activity + dollars, Commons pie, nine cards.
+    assert len(parts) == 3 + 1 + 9
+
+
+def test_empty_workbook_has_no_pies_and_every_community_is_an_empty_state():
+    payload = _payload()
+    workbook = _workbook(payload)
+    parts = _chart_parts(payload)
+
+    # Activity and Dollars always render; every pie is an empty state.
+    assert len(parts) == 2
+    assert not any("<pieChart>" in xml for xml in parts.values())
+    for name in ("Scholars", "Centennial", "Commons", "Young Hall", "Academics"):
+        assert workbook[name]["A5"].value == (
+            "No live or recently closed work orders in this community."
+        )
+
+
+def test_chart_data_blocks_are_named_and_hidden():
+    sheet = _workbook(_scholars_payload())["Chart Data"]
+    names = [row[0] for row in _cells(sheet) if row and isinstance(row[0], str)]
+
+    assert sheet.sheet_state == "hidden"
+    assert names[:3] == ["company", "Bucket", "Accepted"]
+    assert "activity" in names and "dollars" in names
+    assert "scholars" in names and "scholars:plumbing" in names and "scholars:hvac" in names
