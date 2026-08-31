@@ -1,46 +1,23 @@
 # Inventory App Current State
 
-Last reviewed: 2026-08-15
+Last reviewed: 2026-08-31 · Soft word budget: 16,500 (CLAUDE.md → Documentation
+conventions)
 
-Purpose of this file: give an AI or developer enough current-state context to
-make technical changes without rereading the whole repository. Start here, then
-open only the files named for the task.
+Contracts and invariants — **the authority**; enough current-state context to
+make changes without rereading the repository. `docs/endpoint-map.md` owns the
+endpoint trace, request/response contracts, and error catalog;
+`docs/open-work.md` is the only backlog.
 
-This is the single durable repo documentation artifact for contracts and
-invariants. Its companion `docs/endpoint-map.md` traces every endpoint
-Database ↔ User View (router → service → table, and `api.js` → view) — use it to
-locate the files for an endpoint without searching. What is still *open* lives
-in `docs/open-work.md`, the only backlog file.
+For implementation work: read `Fast Orientation`, `Architecture Rules`, and
+`Hard Invariants`; pick files via `Task Routing Map`; run the focused tests in
+`Test Map`; update this file when shipped behavior, schema, deployment, or
+known gaps change. For review/debugging: `Data Model` + `Known Gaps` identify
+the contract and the intentional limitations.
 
-## How To Use This Doc
-
-For implementation work:
-
-1. Read `Fast Orientation`, `Architecture Rules`, and `Hard Invariants`.
-2. Use `Task Routing Map` to pick the relevant files.
-3. Read the matching `Feature Context` and `API Surface` rows.
-4. Run the focused tests named in `Test Map`.
-5. Update this file if shipped behavior, routes, schema, deployment, or known
-   gaps change.
-
-For review/debugging work:
-
-1. Use `Data Model` and `API Surface` to identify the contract.
-2. Use `Known Gaps` to avoid confusing intentional limitations with regressions.
-3. Use `Test Map` to find existing coverage and missing coverage.
-
-If this file conflicts with code, trust the code and update this file as part of
-the change. The 2026-08-21 baseline is **94 router operations** across 12
-routers (84 HTTP + the `/ws` WebSocket) plus 4 app-level routes in `main.py`,
-Alembic head **`a2c4e6b8d0f1`** (34 revisions), and **1205 collected backend
-tests**.
-
-A document is describing a superseded baseline if it quotes 83 operations across
-12 routers / `1d2e3f4a5b6c` / 33 revisions / 1031 tests (2026-08-18),
-79 operations across
-11 routers / `0c1d2e3f4a5b` / 32 revisions / 974 tests (2026-08-16, `4a211fb`),
-72 operations / `faa2c4e6b8d0` / 478 tests (2026-08-06), or 69 operations across
-9 routers / `fbc4e6a8d0f2` / 31 revisions / 659 tests (2026-08-10, `f0e3b3c`).
+If this file conflicts with code, trust the code and update this file as part
+of the change. Alembic head is **`a2c4e6b8d0f1`** (34 revisions). Operation
+and test counts are volatile — verify via `app.openapi()` and
+`pytest --collect-only` rather than trusting any quoted number.
 
 ## Fast Orientation
 
@@ -130,9 +107,9 @@ Path shorthand:
 | Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | mass-stage tests plus manual UI check |
 | Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
 | Work Orders UI | `static/views/workOrders.js`, `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | work-order tests plus manual UI check |
-| User Hub Graphs | `domain/hub.py`, `domain/work_orders.py`, `services/hub.py`, `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubGraphs.js`, `static/views/workOrders.js`, `static/pages/user-hub.html`, `static/styles.css`, `static/tips.js`, `static/api.js` | Nested, not flat: `GET /hub/graphs` returns five communities, each carrying its own status donut plus a service-type list and a raw-priority list, and the tab drills community → Service Type \| Priority → a filtered Work Orders list at slice level. Tab position lives in `userHub.js` (largest community on first open, kept across a range change, reset with the rest of the admin state). `test_hub_graphs_domain.py`, hub service/router/gate/realtime tests; frontend syntax checks and manual role/realtime checks |
-| User Hub Report (Admin daily report) | `services/work_order_report.py`, `services/work_orders.py` (`export_row`, `work_order_totals`), `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubReport.js`, `static/views/workOrders.js` (`openWorkOrdersByNumberSearch`), `static/pages/user-hub.html`, `static/styles.css`, `static/api.js` | `test_work_order_report.py` (windows, DST, sections, sort, cap, CSV round-trip), hub router + role-gate tests; frontend syntax checks and manual role/click checks. **Admin-only** and company-wide — the only routes in the app floored at Admin, which `test_route_role_gates.py` records deliberately. Two nested Central windows: Today, and the Monday–Sunday week containing it evaluated week-to-date, so This Week includes Today. Closed is `archived_at`, New is `created_at`, Closing is a snapshot of live rows in the three closing statuses. **A live view, not an archival record:** a restore clears `archived_at`, so a past close can leave these numbers (see `N-WO-STATUS-EVENTS`). One CSV whose `SECTION` column precedes the 26 export columns, so it still re-imports |
-| NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_cloud_auth.py`, `services/netfacilities_cloud_crypto.py`, `services/netfacilities_jobs.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | Each TechFM OA+ user signs in through their own Steel cloud browser from any device; the captured session is Fernet-encrypted per user in `netfacilities_cloud_sessions` and replayed into a fresh, short-lived Steel session per enrichment job. CSV import remains the sole creator and starts one serialized enrichment job only when that caller has a saved session; the existing one-second poll exposes the current requested number while running; only exact fallback Task/Symptom and blank Priority may change. **2026-08-29:** the pre-Steel local system (headed Windows sign-in, shared Render storage-state secret file, borrowed live-session window) was removed; cloud auth is the only path |
+| User Hub Graphs | `domain/hub.py`, `domain/work_orders.py`, `services/hub.py`, `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubGraphs.js`, `static/views/workOrders.js`, `static/pages/user-hub.html`, `static/styles.css`, `static/tips.js`, `static/api.js` | `test_hub_graphs_domain.py`, hub service/router/gate/realtime tests; manual role/realtime checks. Aggregation semantics: endpoint-map → User Hub reads |
+| User Hub Report (Admin daily report) | `services/work_order_report.py`, `services/work_orders.py` (`export_row`, `work_order_totals`), `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubReport.js`, `static/views/workOrders.js` (`openWorkOrdersByNumberSearch`), `static/pages/user-hub.html`, `static/styles.css`, `static/api.js` | `test_work_order_report.py`, hub router + role-gate tests; manual role/click checks. **Admin-only** (the app's only Admin-floored routes, recorded in `test_route_role_gates.py`); a live view, not an archival record (`N-WO-STATUS-EVENTS`); contract in endpoint-map → `HubReportResponse` |
+| NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_cloud_auth.py`, `services/netfacilities_cloud_crypto.py`, `services/netfacilities_jobs.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | `test_netfacilities_*.py`; behavior under API Surface → NetFacilities |
 | Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, manual UI check |
 | Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
 | Tools API/domain/service (custody) | `domain/tools.py`, `domain/quantity.py` (reused), `services/tools.py`, `routers/tools.py`, `schemas/tools.py`, `models.py` | `test_tools_domain.py`, `test_tools_service.py`, `test_route_role_gates.py` |
@@ -259,84 +236,42 @@ is a routing aid, not an inventory.
 | Fixture generation only | python-barcode 0.16.1 |
 | NetFacilities integration | Playwright 1.62.0, Beautiful Soup 4.15.0 (runtime requirements; installed Chrome is used for local interactive sign-in and bundled Chromium performs isolated hosted document reads) |
 
+
 Deployment:
 
-- Docker image: `python:3.12-slim`.
-- Native package: Debian `libzbar0`.
-- Playwright, bundled Chromium, and Beautiful Soup are included in the production image.
-  Render uses saved state for an isolated headless document navigation; the local
-  Windows authentication flow uses installed Chrome by default.
-- Entrypoint: `alembic upgrade head`, then Uvicorn on `${PORT:-8124}`.
-- Render blueprint: `render.yaml`. Service name `inventory-app`, repo-declared
-  production database target `inventory-db-copy`.
-- `DATABASE_URL` is intended to be populated by
-  `fromDatabase.name: inventory-db-copy` using Render's internal connection
-  string. The original `inventory-db` is no longer declared in `render.yaml`
-  after the 2026-08-10 work-order import rollback cutover. A CI deploy hook
-  restart does not by itself prove this environment binding changed; verify a
-  cutover with the Render service Environment page, Blueprint sync status, or
-  the Admin-gated `/db-test` route. Public `/healthz` proves only database
-  reachability, not the database identity. Owner confirmed later the same day
-  that the Render environment/Blueprint binding was applied and the database
-  rollback/cutover is successful and closed. The incident cause was an import
-  of 800+ work orders that did not belong to the company.
-- **`inventory-db-copy`, verified in the Render dashboard 2026-08-10:** plan
-  **`basic-256mb`** (256 MB RAM, 0.1 CPU, **1 GB storage**), **point-in-time
-  recovery available up to 3 days**, and the `inventory-app` binding confirmed
-  and intended to stay. So the guarantees N5 closed on -- no expiry clock, a
-  3-day recovery floor -- apply to the *active* production database and not
-  merely to the instance N5 was written about. **`render.yaml` no longer
-  declares any `databases:` block**, so these values exist only in the Render
-  dashboard and in this line; nothing in the repo can detect them changing.
-- The 1 GB storage ceiling is years away at this app's scale, structurally
-  rather than by estimate: **no binary data is persisted anywhere.**
-  `POST /barcodes/decode` stores nothing, the CSV import keeps parsed rows and
-  discards the file, and there is no attachment feature. Growth is rows only --
-  `transactions` grows forever, `sessions` is bounded by the 12h cap and the
-  login sweep, `login_attempts` is swept after 24h. Revisit if the app ever
-  stores files or if bulk imports become routine.
-- Production URL: `https://inventory-app-gb1c.onrender.com` (owner-supplied
-  2026-08-09; verified `GET /healthz` -> 200 `{"status":"ok"}` that day, which
-  is the first confirmation that the B4 deploy came up healthy). **The Render
-  dashboard is the authority, not this line** -- the hostname can change, and it
-  had previously been recorded nowhere at all, which left `/healthz` unreachable
-  for a full session after B2 built it.
-- `healthCheckPath: /healthz` -- a real database query. It pointed at `/` until
-  2026-08-09; `/` is a filesystem-only read, so deploys went green while
-  Postgres was unreachable. A deploy that cannot reach the database now fails
-  instead of succeeding silently. Render's own health polling does **not**
-  keep a free instance awake (free services still spin down after ~15 min
-  idle), so this changed nothing about spin-down behavior.
-- Required env: `DATABASE_URL`.
-- Production env should set `COOKIE_SECURE=true`, `SQL_ECHO=false`, and
-  `LOG_LEVEL=INFO`.
-- **`VAPID_PRIVATE_KEY` enables Web Push** and is the only secret the feature
-  needs. Set in Render's Environment page — `render.yaml` declares it
-  `sync: false` and it is deliberately **not** mirrored into `backend/Dockerfile`
-  the way the NetFacilities settings are, because that file is committed. Absent,
-  push disables itself (`services.push.is_configured`) and `/push/config` and
-  `/push/test` return 503; nothing else is affected. Rotating it invalidates
-  every existing subscription, since the browser bound the public half in at
-  `subscribe()` time.
-- **`COOKIE_SECURE` now controls three things**, all meaning "this deployment is
-  HTTPS/production": the session cookie's `Secure` flag, whether HSTS is sent
-  (A4), and whether FastAPI's built-in docs endpoints exist at all (C4). It is
-  deliberately one flag rather than three, so a deployment cannot be half
-  production. `render.yaml` sets it to `"true"`.
-- **`/docs`, `/docs/oauth2-redirect`, `/redoc`, and `/openapi.json` are absent in
-  production** — `main._doc_urls` passes `None` for all three URLs when
-  `COOKIE_SECURE` is true, which un-mounts the routes rather than gating them,
-  so they return a plain 404. They are mounted normally when it is false.
-  Closing `/openapi.json` removes the route, **not** the schema:
-  `app.openapi()` still returns the full dict, which is what every
-  operation-count check relies on. There is no override env var; re-enabling in
-  production takes a code change.
-  Note that `/docs` and `/redoc` render blank wherever they *are* enabled,
-  because A4's CSP blocks their CDN-hosted assets — see N8 in
-  `docs/open-work.md`.
-- Static assets are served with `Cache-Control: no-cache`.
-- App sends `Permissions-Policy: camera=(self)` and `X-Request-ID: <12 hex>`.
-- Windows local pyzbar may need Visual C++ 2013 runtime (`msvcr120.dll`).
+- Docker image `python:3.12-slim` + Debian `libzbar0`; Playwright, bundled
+  Chromium, and Beautiful Soup ship in the production image. Entrypoint:
+  `alembic upgrade head`, then Uvicorn on `${PORT:-8124}`.
+- Render blueprint `render.yaml`: service `inventory-app`, production database
+  `inventory-db-copy` via `fromDatabase` internal connection string.
+  **`render.yaml` declares no `databases:` block** — the DB plan
+  (`basic-256mb`, 1 GB storage) and 3-day point-in-time recovery exist only in
+  the Render dashboard; nothing in the repo can detect them changing. The
+  dashboard is also the authority for the production hostname
+  (`https://inventory-app-gb1c.onrender.com` when last recorded).
+- The 1 GB ceiling is structurally distant: **no binary data is persisted
+  anywhere** — decode stores nothing, imports discard the file, there is no
+  attachment feature. Growth is rows only (`transactions` grows forever;
+  `sessions` and `login_attempts` are swept). Revisit if files are ever stored.
+- `healthCheckPath: /healthz` runs a real database query, so a deploy that
+  cannot reach Postgres fails instead of going green; it does not keep a free
+  instance awake. `/db-test` (TechFM OA+) verifies database identity;
+  `/healthz` proves only reachability.
+- Required env: `DATABASE_URL`. Production sets `COOKIE_SECURE=true`,
+  `SQL_ECHO=false`, `LOG_LEVEL=INFO`.
+- **`VAPID_PRIVATE_KEY` enables Web Push** — set in Render's Environment page
+  (`sync: false`; deliberately not mirrored into the committed Dockerfile).
+  Absent, push disables itself and `/push/config` / `/push/test` return 503.
+  Rotating it invalidates every existing subscription.
+- **`COOKIE_SECURE` controls three things** — the cookie `Secure` flag, HSTS,
+  and whether FastAPI's docs endpoints exist at all; one flag so a deployment
+  cannot be half production. When true, `/docs`, `/redoc`, and
+  `/openapi.json` are **un-mounted** (plain 404) — `app.openapi()` still
+  returns the schema, and re-enabling takes a code change. Where mounted they
+  render blank anyway (CSP; see N8 in `docs/open-work.md`).
+- Static assets are served `Cache-Control: no-cache`; the app sends
+  `Permissions-Policy: camera=(self)` and `X-Request-ID: <12 hex>`. Windows
+  local pyzbar may need the Visual C++ 2013 runtime (`msvcr120.dll`).
 
 Logging (`app/logging_config.py`, added 2026-08-09 as N1):
 
@@ -367,138 +302,46 @@ Logging (`app/logging_config.py`, added 2026-08-09 as N1):
   `extra={"fields": {...}}`. The request context is read at format time, so it
   attaches itself.
 
-Real-time invalidation (`domain/realtime.py`, `services/realtime.py`,
-`routers/realtime.py`, `static/realtime.js`, `static/views/adminReview.js`,
-`static/views/workOrders.js`; implementation Tasks 1-12 on
-`feat/realtime-live-layer`, Work Orders live status added later):
+Real-time invalidation (`domain/realtime.py`, `services/realtime*.py`,
+`routers/realtime.py`, `static/realtime.js`):
 
-- The wire envelope is exactly `type`, `id`, and `req`. It never carries row
-  data or an actor. `req` is copied from `logging_config.current_request_id()`
-  into ordinary event data so the independent dispatch task can preserve the
-  originating HTTP request's causal trace.
-- Two application events exist. `work_order.review_queue.changed`, delivered
-  to TechFM OA and above, invalidates the Review-status queue projection
-  (membership plus the number/location/assignee card fields), not the whole
-  work-order aggregate and not an open Admin Review receipt.
-  `work_order.status.changed`, delivered to every role that can open the Work
-  Orders page (technician and above), invalidates the Work Orders card list and
-  the active TechFM OA+ Hub Graphs aggregate.
-- Exactly six work-order commands emit `work_order.review_queue.changed`
-  after their mutating service returns: CSV import, bulk legacy archive, and
-  the auto-close undo once each with `id: null`, plus update, archive, and
-  restore with the work-order UUID. Successful capable no-ops emit intentionally; the extra
-  refetch is cheaper and safer than before/after state plumbing.
-- Start, complete, hold, resume, materials, billing, and labor do not emit the
-  review-queue event. Any future route capable of changing Review membership
-  or the queue's displayed card fields must call the same helper and extend
-  `test_realtime_emit.py`'s exact emitter-set assertion.
-- Twelve work-order commands emit `work_order.status.changed` after their
-  mutating service returns: CSV import, bulk legacy archive, the auto-close
-  undo, start, tracking start/stop, complete, hold, resume, update, archive,
-  and restore. Import, bulk legacy archive, and the undo emit `id: null` once
-  each as aggregate membership commands; the ordinary status routes use the work-order UUID -- except restore, which emits
-  `id: null` because it is a membership command: it can put a row back into a
-  recipient's list when no on-screen card represents it yet, so the client
-  must refetch the list rather than target one card. `update_work_order` emits
-  unconditionally, with no "did status change" check. On the five routes that
-  emit both events, `_emit_review_queue_changed` runs first and
-  `_emit_status_changed` second; the order is pinned, not incidental, because
-  restore's status envelope carries `id: null` and a caller inspecting
-  `envelopes[0]` must still find the review-queue entity invalidation.
-- Materials, billing, and non-tracking labor changes do not emit
-  `work_order.status.changed`; only the eleven commands above do.
-- The audience map is a noise/efficiency rule, not a security boundary.
-  Envelopes carry no row data, so scoping is enforced where it always was: by
-  `can_view_work_order` on the client's REST re-fetch. Neither event type
-  needed new authorization code.
-- Emission is non-blocking and best-effort. A full handoff drops and counts the
-  newest invalidation but never changes the durable HTTP write. REST remains the
-  source of truth.
-- The browser transport owns one same-origin `/ws` connection. It connects only
-  after authentication, disconnects on logout or any global 401, and uses a
-  generation guard so callbacks from an old socket cannot reconnect after the
-  session has been cleared.
-- Failed connections retry silently with equal-jitter exponential backoff:
-  0.5-1s, 1-2s, 2-4s, 4-8s, 8-16s, then 15-30s. A successful recovery notifies
-  each registered handler once because invalidations may have been missed; the
-  first successful connection does not produce a recovery notification.
-- `static/realtime.js` has no DOM or view dependency. `main.js` injects
-  `views/nav.js::getActivePage`, and notifications expose `reason`, `envelope`,
-  and `activePage`. Only explicitly subscribed, UX-6-reviewed views may refresh;
-  there is no global page reload, actor suppression, socket status UI, or
-  client-to-server application message.
-- Admin Review subscribes to the queue event and to reconnect recovery. It
-  refreshes only while `admin-review` is active; inactive notifications need no
-  dirty flag because navigation already performs a fresh REST load on entry.
-- Work Orders (`views/workOrders.js`) subscribes to `work_order.status.changed`
-  and, like Admin Review, refreshes only while its own page is active. An
-  entity event for a card on screen refetches that one work order via
-  `apiGetWorkOrder` and rewrites its summary and status badge in place; a 404
-  on that refetch removes the row instead, since the work order left this
-  user's view entirely (archived, or unassigned from them). An entity event
-  for a work order not on screen is ignored outright -- chasing it would mean
-  every client refetches the whole list on every status change anywhere. A
-  null id (restore) or a `reason: "reconnect"` notification refetches the
-  full list, since a membership change or missed events can leave the list
-  itself wrong in ways a single card can't fix.
-- A card with any of its four editor sections open (`.wo-edit-card`,
-  `.wo-notes-section`, `.wo-materials-section`, `.wo-labor-section`) is held:
-  no refresh touches it, so an in-progress note, material quantity, labor
-  entry, or technician selection is never discarded out from under the user.
-  A held card is flagged with `data-missed-update` and catches up once its
-  last open editor closes; `openDetail`'s own repaint on close already brings
-  the card current, so it clears the flag itself. A full list refetch is
-  deferred entirely while any card is held -- `renderCards` clears the list
-  wholesale, which would destroy an open editor -- and runs once the last
-  hold clears.
-- A filtered Work Orders list is a snapshot refined by live badges, not a
-  live query. If a status filter is active and a work order's new status no
-  longer matches it, the row stays visible with its badge updated rather than
-  being removed; only a 404 on refetch removes a row. Rebuilding the filtered view
-  from the server on every status change would collapse every expanded card
-  while filtered, which is worse than the staleness it would fix, and
-  evaluating the filter client-side was rejected to avoid drifting from
-  server filter semantics. The stale row self-corrects on the next full
-  list load.
-- Socket-driven queue refreshes are silent: they do not show the loading copy,
-  and a failed automatic REST refetch preserves the usable queue. Foreground
-  navigation and Reopen/Close loads retain their existing loading and error UI.
-- Queue requests carry a monotonically increasing id. Only a result at least as
-  new as the last DOM commit may render, preventing an older response from
-  repainting stale cards when the writer's event overlaps its explicit post-
-  action reload. `selectedDetail` and the open receipt are never replaced by a
-  queue refresh.
-- Tasks 1-12 are technically implemented and owner-validated in a local browser
-  on 2026-08-13. The owner confirmed the real `ws://localhost:8124/ws`
-  handshake, two-browser live updates, inactive-page behavior, writer echo,
-  receipt preservation, reconnect recovery, blocked-socket REST fallback,
-  logout cleanup, local CSP behavior, and expected connection/delivery logs.
-  Codex did not operate the browser; this acceptance evidence is owner-reported.
+- The wire envelope is exactly `type`, `id`, `req` — no row data, no actor.
+  **Three events**; the vocabulary, audiences, and pinned emitter sets live in
+  `docs/endpoint-map.md` → Real-time, asserted by `test_realtime_emit.py`.
+  Audience is a noise rule, not a security boundary — scoping happens on the
+  client's REST refetch. Emission is non-blocking and best-effort, after the
+  mutating service returns; REST remains the source of truth.
+- The browser owns one same-origin `/ws` connection: connect after auth,
+  disconnect on logout or any global 401, generation-guarded so an old
+  socket's callbacks cannot reconnect over a cleared session. Failed
+  connections retry with equal-jitter exponential backoff (0.5–1s doubling to
+  15–30s); a successful **recovery** (never the first connect) notifies each
+  handler once, since invalidations may have been missed.
+- `static/realtime.js` has no DOM/view dependency; only explicitly subscribed
+  views refresh, and only while their own page is active. No global reload,
+  no actor suppression, no status UI, no client→server messages.
+- Work Orders: an entity event for an on-screen card refetches that one work
+  order and repaints in place; a 404 removes the row; an off-screen id is
+  ignored; a null id or a reconnect refetches the full list. A card with any
+  editor section open is **held** — no refresh touches it, it is flagged
+  `data-missed-update` and catches up when its last editor closes, and a
+  full-list refetch is deferred while any card is held. A filtered list is a
+  snapshot refined by live badges: a row whose new status no longer matches
+  the filter keeps its updated badge and stays until the next full load.
+- Admin Review: socket-driven refreshes are silent and never replace the open
+  receipt; queue requests carry a monotonic id so an older response cannot
+  repaint newer cards.
 
-Upload size caps (`app/routers/_uploads.py`, added 2026-08-09 as B1):
-
-- The app has exactly **two** upload routes and both are capped:
-  `POST /barcodes/decode` at **10 MB**, `POST /work-orders/import` at **25 MB**.
-  Both call `read_capped`; neither calls `file.file.read()` directly, and a
-  third upload route should call it too.
-- Over the cap is **413** with a `detail` naming the limit in MB. `api.js`
-  surfaces `detail` for any non-2xx, so this renders in the existing error UI
-  with no frontend code. Under the cap the behavior is byte-identical.
-- The caps are **constants, not env vars** -- deliberately unlike `LOG_LEVEL`.
-  Verbosity is operational; an upload limit is a contract, and one that varies
-  per environment cannot be reasoned about from the code.
-- **What the cap does not do:** Starlette's multipart parser has already
-  received the whole body and spooled it (to disk past 1 MB) before any handler
-  runs, so this bounds what is held **in memory** and what reaches Pillow or the
-  CSV parser -- it does not stop a large body being transmitted. Refusing that
-  early would need a `Content-Length` check in middleware; that was considered
-  and rejected as a global interceptor against an already-disk-bounded threat.
-- On `/work-orders/import` the TechFM OA+ gate runs **before** the size check, so an
-  unauthorised caller gets 403 and learns nothing about the cap. Since C1
-  (2026-08-10) that ordering is FastAPI's rather than statement order in the
-  handler: the gate is a dependency and the upload is a body param, and
-  dependencies are solved before the form body is read.
-- A refusal logs `event=upload.rejected_too_large` with `size` and `limit`.
+Upload size caps (`app/routers/_uploads.py`): exactly two upload routes, both
+capped — `POST /barcodes/decode` **10 MB**, `POST /work-orders/import`
+**25 MB** — via `read_capped` (a third upload route should call it too). Over
+the cap is 413 naming the limit; `api.js` surfaces `detail`, so it renders in
+the existing error UI. Caps are constants, not env vars — an upload limit is
+a contract. The cap bounds what is held in memory and reaches Pillow/CSV, not
+what is transmitted (Starlette has already spooled the body). On the import
+route the TechFM OA+ gate resolves before the body is read, so an
+unauthorised oversized upload is 403. Refusals log
+`event=upload.rejected_too_large`.
 
 ## Hard Invariants
 
@@ -1500,1355 +1343,211 @@ Rules:
 
 ## API Surface
 
-All routes except `POST /auth/login` and `GET /` require authentication unless
-specified.
-
-### App
-
-| Method | Path | Gate | Behavior |
-| --- | --- | --- | --- |
-| GET | `/` | public | assembled SPA shell |
-| GET | `/healthz` | public | liveness probe: runs `SELECT 1`; `{"status":"ok"}` or 503 `Database unavailable.` Reports no database detail -- it is unauthenticated |
-| GET | `/db-test` | techfm_oa+ | database/user probe |
-| GET | `/docs`, `/redoc`, `/openapi.json` | public **locally only** | FastAPI's built-ins. Un-mounted entirely when `COOKIE_SECURE=true`, so production returns 404 (C4). Not counted among the 79 router operations |
-
-### Auth
-
-| Method | Path | Gate | Behavior |
-| --- | --- | --- | --- |
-| POST | `/auth/login` | public | authenticate, create session, set cookie; 401 on bad credentials, **429 + `Retry-After`** while throttled |
-| POST | `/auth/logout` | session | delete session, clear cookie |
-| GET | `/auth/me` | session | return username plus first/last/full display name, role, and profile timestamps |
-
-### Items
-
-| Method | Path | Gate | Behavior |
-| --- | --- | --- | --- |
-| POST | `/items/` | techfm_oa+ | create item |
-| GET | `/items/` | session | list non-archived items newest-first; optional `q` performs case-insensitive literal substring search on name/primary barcode; blank `q` returns no rows |
-| GET | `/items/{barcode}` | session | lookup live item by primary or additional barcode |
-| PATCH | `/items/{item_id}` | techfm_oa+ | partial edit of barcode/name/location/price/product link; explicit null clears price/link |
-| PATCH | `/items/{item_id}/notes` | supervisor+ | replace notes object |
-| PATCH | `/items/{item_id}/barcodes` | techfm_oa+ | replace additional barcodes |
-| DELETE | `/items/{item_id}` | techfm_oa+ | archive item |
-
-### Users
-
-| Method | Path | Gate | Behavior |
-| --- | --- | --- | --- |
-| POST | `/users/` | actor outranks target role | create user; username + first/last name required |
-| GET | `/users/` | supervisor+ | list users; `include_archived` adds archived users |
-| PATCH | `/users/{user_id}/name` | self or actor outranks target | replace required first + last name and, when supplied, the unique login username; legacy-account remediation |
-| PATCH | `/users/{user_id}/role` | techfm_oa+ and actor outranks current + new role | change role and revoke the target's sessions |
-| POST | `/users/{user_id}/reset-password` | actor outranks target | reset password |
-| POST | `/users/{user_id}/archive` | actor outranks target | archive (soft delete) user; revokes sessions; optional `force_return_tools=true` checks in all held tools first |
-| POST | `/users/{user_id}/restore` | actor outranks target | reactivate archived user |
-| DELETE | `/users/{user_id}` | actor outranks target | hard delete unreferenced user |
-
-### Transactions And History
-
-| Method | Path | Gate | Behavior |
-| --- | --- | --- | --- |
-| POST | `/transactions/` | session plus direction rule | create stock/dispense; a short Scan/Stock dispense returns recount metadata and creates a User Request |
-| POST | `/transactions/adjust` | techfm_oa+ | absolute count correction |
-| PATCH | `/transactions/{transaction_id}/billing` | techfm_oa+ | set/clear billing override |
-| DELETE | `/transactions/{transaction_id}` | session; Supervisor+ any row, Technician own work-order dispense only | void transaction, reverse stock/line, resolve linked recount request |
-| GET | `/transactions/` | supervisor+ | paginated history, voided rows excluded |
-
-History filters:
-
-- `item_id`
-- `user_id`
-- `work_order_number`
-- `date_from`, inclusive UTC calendar date
-- `date_to`, inclusive UTC calendar date
-- `page`, default 1
-- `page_size`, default 10, max 100
-
-Filter behavior:
-
-- filters combine with AND
-- work-order filter is case-sensitive substring match
-- SQL `%`, `_`, and escape characters are escaped
-- TechFM OA and above rows include `item_price` and `billable_quantity`, EXCEPT
-  work-order rows (`work_order_id` set) which null both -- that material bills
-  via its work-order line, not the row
-- Supervisor rows receive null for cost/billing fields
-- every row carries `work_order_id` (NULL for ad-hoc / legacy number-only rows)
-  so the client can resolve a row to its work order (e.g. the copy-table summary)
-
-### Barcodes
-
-| Method | Path | Gate | Behavior |
-| --- | --- | --- | --- |
-| POST | `/barcodes/decode` | session | decode uploaded image bytes, no persistence |
-
-Readable image with no barcode returns `200 {"barcodes": []}`.
-Unreadable image returns 400.
-An image over **10 MB** returns 413 without being decoded (see *Upload size
-caps*).
-
-### User Requests
-
-| Method | Path | Gate | Behavior |
-| --- | --- | --- | --- |
-| GET | `/user-requests/?status=open\|resolved` | techfm_oa+ | list newest-first requests with item/work-order/user context plus current item price/link |
-| POST | `/user-requests/item-request` | any session | file a request for material with no catalogue row; the only non-admin route on this router |
-| GET | `/user-requests/{request_id}/siblings` | techfm_oa+ | other open item requests naming the same material, for the admin to confirm before a cascade |
-| POST | `/user-requests/{request_id}/fulfill` | techfm_oa+ | create or link the item, log it retroactively on every live work order across the request and its confirmed siblings, resolve them all |
-| PATCH | `/user-requests/{request_id}` | techfm_oa+ | resolve/reopen a durable request and/or correct its wording (`details` whitelisted per type) |
-
-### Tools
-
-| Method | Path | Gate | Behavior |
-| --- | --- | --- | --- |
-| POST | `/tools/` | techfm_oa+ | create tool |
-| GET | `/tools/` | session | list live tools, each with current custody breakdown |
-| GET | `/tools/{barcode}` | session | lookup live tool by barcode |
-| PATCH | `/tools/{tool_id}` | techfm_oa+ | partial edit of barcode/name |
-| DELETE | `/tools/{tool_id}` | techfm_oa+ | archive tool |
-| POST | `/tools/{tool_id}/checkout` | techfm_oa+ | check out to `assigned_to_id`; decrements on-hand |
-| POST | `/tools/{tool_id}/return` | session | return from `assigned_to_id`'s custody; increments on-hand |
-| POST | `/tools/{tool_id}/adjust` | techfm_oa+ | "Correct Count": set on-hand to an absolute value with a required reason; no custody holder |
-
-`work_order_id`/`work_order_number` on checkout/return are optional and
-never required, with no find-or-create behavior (a free-text number is
-stored as-is). Every response includes `custody: [{user_id, user_name,
-quantity}]`, the tool's current outstanding balances (net > 0 only). Login
-usernames are not present in this operational contract.
-
-### Mass Stages
-
-| Method | Path | Gate | Behavior |
-| --- | --- | --- | --- |
-| POST | `/mass-stages/` | supervisor+ | create planning stage (community + building) |
-| GET | `/mass-stages/` | supervisor+ scoped | list stages, optional `status` |
-| GET | `/mass-stages/{stage_id}` | supervisor+ | full stage detail (slots + planned items) |
-| PATCH | `/mass-stages/{stage_id}` | supervisor+ | rename (community/building) and/or transition status |
-| DELETE | `/mass-stages/{stage_id}` | supervisor+ | delete stage; does not reverse dispenses |
-| POST | `/mass-stages/{stage_id}/reuse` | supervisor+ | fresh empty planning stage for the same building |
-| POST | `/mass-stages/{stage_id}/work-orders` | supervisor+ | add an already-imported work order to the plan (resolve — 404 if unknown — + enforce match) |
-| DELETE | `/mass-stages/{stage_id}/work-orders/{slot_id}` | supervisor+ | remove a work order from the plan |
-| POST | `/mass-stages/{stage_id}/work-orders/{slot_id}/items` | supervisor+ | add/upsert planned item |
-| PATCH | `/mass-stages/{stage_id}/work-orders/{slot_id}/items/{stage_item_id}` | supervisor+ | edit planned quantity |
-| DELETE | `/mass-stages/{stage_id}/work-orders/{slot_id}/items/{stage_item_id}` | supervisor+ | remove planned item |
-| POST | `/mass-stages/{stage_id}/load` | supervisor+ | load merged item as per-slot dispenses |
-| POST | `/mass-stages/{stage_id}/return` | supervisor+ | return unused material silently to stock |
-
-The old `/quick-room`, `/active-rooms`, and per-room assign/edit routes are gone:
-the scan gate lists scoped Created/Assigned/In-Progress rows from `/work-orders/`;
-assignment/edits live on the work order. Work orders are import-only and the
-scan gate does not create them. Selecting In-Progress arms the batch; selecting
-Assigned confirms the narrow in-place start action and arms the batch; selecting
-Created can navigate to the expanded Work Order card for assignment first.
-
-### Work Orders
-
-List/get/items are open to any authenticated user but **server-scoped**: a
-Technician sees/acts on only work orders assigned to them; a Supervisor sees
-unassigned work orders, ones routed to them, and ones where they are assigned as
-a worker; TechFM OA and above see all.
-Notes/add-material and the assigned-worker start/complete walkthrough are
-Technician+; general operations/labor/material corrections and restore are
-Supervisor+; metadata and closing are TechFM OA+. Review additionally requires
-a Completed row and a second, unassigned responsible user, and is the one gate
-still floored at Admin rather than TechFM OA. Archive accepts every live status. Out-of-scope, closed, or
-unknown work orders return 404. **There is no create route** — the CSV import is
-the only way in.
-
-| Method | Path | Gate | Behavior |
-| --- | --- | --- | --- |
-| GET | `/work-orders/` | session scoped | list live Created through Review work orders by scheduled date descending; joinable `status`, `service_type`, `supervisor_id`, `community`, `scheduled_date`, `q` filters plus `limit` |
-| GET | `/work-orders/filter-options` | session scoped | distinct service types and routed supervisors from caller-visible live work orders plus stable community choices |
-| GET | `/work-orders/legacy/archive` | owner exactly | count currently live legacy work orders (`legacy=true`, `archived_at IS NULL`) before confirmation; returns `{count}` |
-| POST | `/work-orders/legacy/archive` | owner exactly | atomically soft-archive every currently live legacy work order and return the actual `{archived}` count |
-| POST | `/work-orders/import` | techfm_oa+ | preflight a UTF-8 mass CSV with exactly one `WORK ORDER` header, then locked find-or-create; blank/missing task stores a replaceable NetFacilities URL, supervisor fills only while NULL, and a hand-archived match is ignored while a sweep-closed one is reopened; then closes every live non-legacy work order the CSV omitted; **the only path that creates a work order**; returns created/opened/closed/matched/skipped plus `auto_closed`/`reopened` counts; a CSV over **25 MB** returns 413 before the parse (see *Upload size caps*) |
-| GET | `/work-orders/auto-close/pending` | techfm_oa+ | what the Integrations page's undo button would restore — `{closed_count, batch_count, newest_ran_at, oldest_ran_at}` over every sweep-closed row inside the 24-hour window, or `null` when nothing is pending |
-| POST | `/work-orders/auto-close/undo` | techfm_oa+ | restore every work order swept in the last 24 hours, company-wide, each with its own note naming the operator; returns the actual `{restored}` count, and `{"restored": 0}` (200) when nothing is pending |
-| GET | `/work-orders/export` | techfm_oa+ scoped | export `scope=all\|archived\|<live-status>` as `variant=full` (re-importable operational CSV; accepts the live page's service/supervisor/community/date/number filters) or `variant=client` (unchanged scope-only billing totals + fixed-width receipt) |
-| GET | `/work-orders/lookup?number=` | supervisor+ scoped | does this number name a work order, and is it archived? the one read that reports an archived one, so History can offer a restore |
-| GET | `/work-orders/{id}` | session scoped | work-order detail + append-only authored/timestamped note log + logged materials + labor totals |
-| PATCH | `/work-orders/{id}` | session scoped; field-sensitive | a nonblank note appends a server-stamped/authored log entry at Technician+; supervisor/technicians/general status/entry mode = Supervisor+; imported/legacy metadata = TechFM OA+; Review only from Completed by an unassigned routed Supervisor or TechFM OA+ (Admin, not TechFM OA); optional original supervisor precondition returns a named 409 on stale pickup |
-| POST | `/work-orders/{id}/start` | session scoped; Technician+ | idempotently move Assigned to In-Progress; no general Technician status-edit permission |
-| POST | `/work-orders/{id}/tracking/start` | assigned worker, or supervisor+ on any visible row | idempotently open the caller's labor session; advances Created/Assigned to In-Progress and resumes On-Hold; rejects Ready to Complete and Completed; closes the caller's clock on any other work order first (which may auto-hold that row); fires no notification of its own |
-| POST | `/work-orders/{id}/tracking/stop` | assigned worker, or supervisor+ on any visible row | idempotently close the caller's session and write its labor row; moves an In-Progress row to On-Hold and alerts the routed supervisor **only** when it closed the last running clock |
-| POST | `/work-orders/{id}/complete` | assigned worker | idempotently finish In-Progress work and stop every clock on it — Supervisor+ lands Completed, a Technician lands Ready to Complete with a note and alerts the routed supervisor; rejects unassigned callers and grants no general status or Review permission |
-| POST | `/work-orders/{id}/hold` | assigned worker | idempotently move In-Progress to On-Hold, stop every clock, and alert the routed supervisor; rejects unassigned/non-In-Progress callers and grants no general status permission |
-| POST | `/work-orders/{id}/resume` | assigned worker | idempotently move On-Hold to In-Progress, starting no clock; rejects unassigned/other-state callers and grants no general status permission |
-| POST | `/work-orders/{id}/archive` | techfm_oa+ scoped | close a work order from any live status via soft archive (number reserved, lines kept, transactions untouched) |
-| POST | `/work-orders/{id}/restore` | supervisor+ scoped | explicit un-archive; the only way to return a closed work order to live views |
-| POST | `/work-orders/{id}/items` | Technician+ scoped | log/add a material (mode = work order's entry_mode); a dispense shortage may make expected stock negative and creates a linked recount request |
-| PATCH | `/work-orders/{id}/items/{wo_item_id}` | supervisor+ scoped | edit a material's quantity (dispense lines auto-correct stock) |
-| PATCH | `/work-orders/{id}/items/{wo_item_id}/billing` | techfm_oa+ scoped | set/clear the line's billing override (bill partial / zero / full). Its TechFM OA+ gate is a dependency, so it answers **before** Pydantic: a request that is both malformed and unauthorized returns 403, not 422 (see below) |
-| DELETE | `/work-orders/{id}/items/{wo_item_id}` | supervisor+ scoped | remove a material (dispense lines return stock; voids all contributing transactions and resolves their linked requests) |
-| POST | `/work-orders/{id}/labor` | supervisor+ scoped | hand-enter positive whole-minute labor for an assigned worker, or for the Supervisor themselves; the correction route for a missed clock-in |
-| PATCH | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | replace actual minutes |
-| DELETE | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | remove an entry; status does not rewind |
-
-The `POST /transactions/` body now also accepts `work_order_id` (from a scanned
-card); a free-text `work_order_number` from a Supervisor+ is *resolved* to an
-already-imported work order, and 404s if there is none (it used to be
-find-or-created).
-
-Work-order card/detail responses also expose nullable `priority`. The Work Orders detail
-block renders it read-only and displays `Not imported` while blank. Priority is absent
-from generic PATCH, CSV import/export, filters, sorting, and billing; the fake-backed
-NetFacilities service is its only intended first-release writer.
-
-### NetFacilities enrichment
-
-The capability remains disabled by default in application configuration. Production
-enables it in both `backend/Dockerfile` and `render.yaml`: the image defaults make the
-normal CI deploy-hook path reliable for an existing Render service, while the Blueprint
-declaration documents and restores the intended service configuration when synced.
-Runtime environment values may deliberately override the image defaults.
-
-**Authentication is per user, through Steel cloud sign-in, everywhere.**
-`NETFACILITIES_ENABLED=true` turns on enrichment; the cloud sign-in variables
-described under *Cloud auth (IMP-040)* below turn on the only way to
-authenticate it. Each user signs in through their own Steel cloud browser, and
-the captured session is Fernet-encrypted into their own
-`netfacilities_cloud_sessions` row. An enrichment job replays that one user's
-session into a fresh, short-lived Steel session and performs one allowlisted
-read per work order. `NETFACILITIES_RENDER_DOCUMENT` (default `false`) chooses
-between the bounded raw request read and a rendered document navigation, in
-which only same-origin `GET` script/XHR subresources are allowed and every
-other request, including anything cross-origin or non-`GET`, is aborted.
-
-Render's deploy hook rebuilds the configured branch but does not synchronize new
-`render.yaml` environment declarations into an existing service. This previously left
-production reporting `NetFacilities enrichment is disabled on this host.` even after a
-successful code deploy. The production image now carries the same enablement
-default, so a regular gated deploy enables the capability.
-
-A captured session is bearer-equivalent. It is never committed, logged, returned
-by any endpoint, or placed in an ordinary environment variable; only the
-encrypted column holds it. On expiration the affected user signs in again — there
-is no shared credential to rotate and no redeploy involved.
-
-*Historical note (2026-08-15, pre-Steel):* a hosted retry through the then-shared
-secret-file path fetched all 290 Priority candidates with no categorized request
-failure or timeout, but every row was unchanged and no Priority was updated. The
-owner clarified that Task/Symptom is always empty in the CSV and earlier
-enrichment had populated it, so zero description updates did not establish a CSV
-source. That investigation produced the `/myhome` priming fix described below.
-
-`get_work_order_with_diagnostics()` keeps the observation path the investigation
-below relied on: one navigation, classified in both views — `priority_markup`
-describes the document the parser saw and `raw_priority_markup` the wire response
-it was rendered from, alongside selector-attachment, subresource allow/block
-counts, console-error count, and byte counts. The CLI that wrapped it
-(`scripts/netfacilities_diagnostic.py`) was removed on 2026-08-29 with the shared
-saved-state file it authenticated against; the client method remains.
-
-The first production diagnostic returned the correct work order and a populated
-description but no Priority selector, label, named element, or body token; only two
-inline-script token references existed. Supplying browser headers through the standalone
-client did not restore the row, and neither did the bundled-Chromium document transport
-shipped in `090ae17`: on 2026-08-15 that transport returned a byte-identical reduced
-document. Three attempts had varied only *how the bytes were requested* while all three
-read `response.body()`, the raw payload, so none of them could ever have succeeded.
-
-A live DevTools session on 2026-08-15 overturned that reading, and the rendered-document
-work it justified addressed a cause that did not exist. `#priority-level` is present in
-the raw HTTP response body, carrying its value as server-rendered markup. The two
-inline-script tokens the diagnostic counted are one jQuery handle,
-`var _prioritylevel = $("#priority-level");`, not the value, and no first-party script
-inserts the row. NetFacilities instead serves a *trimmed* work-order document — eleven
-General Information labels rather than thirteen, dropping `Priority Level` and
-`Recurring` — to any session that has not loaded the home page. The hosted client
-navigates straight to `/tools/viewworkorders/<number>`, so it always received the trimmed
-view, and the absent row read as a work order with no priority rather than as a failure.
-One `GET /myhome` with the same saved cookies restores the full document: the request
-that returned 26,816 bytes without Priority returns 28,835 bytes with it. The stale
-`ASP.NET_SessionId` cookie is not involved; removing it changes neither result.
-
-The client therefore primes the session with one read-only `GET /myhome` before its first
-work-order read and reuses that priming for every later read in the same context, so a
-290-row batch pays it once. When a fetched document still lacks the `Priority Level`
-label — the signal that a session went stale mid-batch — the client primes again and
-re-reads that one work order before accepting the result, so a dropped session cannot
-silently blank Priority for the remaining rows. A work order whose priority is simply
-unset still renders the label, so it settles on the first read. Because the value is
-server-rendered, rendering is unnecessary and `NETFACILITIES_RENDER_DOCUMENT` now
-defaults to `false`: the batch executes no JavaScript and pays no settle wait per row.
-Setting it to `true` restores the rendered read for diagnosis. The exact host/path,
-protected saved cookies, response validation, parser, and compare-and-set writes are
-unchanged, and the integration stays read-only because no non-`GET` route is ever
-continued. Live acceptance still requires one Render diagnostic with
-`priority_populated: true` followed by a successful blank-Priority enrichment retry.
-
-`NetFacilitiesClient` no longer launches a browser of its own: it requires an
-existing context, which only the Steel cloud adapter supplies. The application
-never initiates a NetFacilities download or receives credential fields; a CSV the
-user exports inside their cloud window is retrieved through Steel's Files API and
-carried by **filename only**, never a path.
-
-The TechFM OA and above then uses the existing **Import from CSV…** chooser for a file already
-on the computer. The unchanged `/work-orders/import` transaction creates/updates rows;
-after success the frontend starts and polls the separate enrichment job. Missing or
-expired auth leaves the CSV import committed and expires that user's saved session
-row; they sign in again, then use **Import Tasks and Priority** without re-uploading.
-
-During the serialized candidate loop, an optional async observer receives each validated
-work-order number immediately before its source request. The job coordinator publishes
-that value as nullable `current_work_order_number` in the immutable running snapshot
-under its lock; terminal snapshots clear it. The Work Orders status uses the existing
-one-second poll to display the number and keeps the generic seeking message before the
-first request. No completed-number history or source description/Priority value is
-exposed.
-
-On 2026-08-15 the owner restarted Uvicorn without reload and reported successful live
-Task/Symptom and Priority imports. This is the accepted live happy path; the roadmap
-retains separate resilience checks for retries, preservation rules, expiration,
-cancellation, timeout, and page re-entry.
-
-The Linux/Render extension passed 182 broader work-order/import/application regressions,
-including 45 focused hosted client/config/job/route tests. The final current-tree suite
-passed 934 tests. The later isolated-browser transport passed 52 focused tests covering
-one-document routing, subresource blocking, disabled execution, and full lifetime
-cleanup. Automated verification made no live NetFacilities request. The earlier
-owner-run hosted pass confirmed enablement but exposed the zero Priority-update gap
-described above.
-
-The later in-flight progress extension passed 27 focused tests with 5 skipped,
-`node --check backend/static/views/workOrders.js`, and `git diff --check`. It did not
-change Priority selectors or make a live source request.
-
-The single-response diagnostic extension passed 31 focused parser/client/CLI tests. It
-did not make a live request or change persistence, selectors, or candidate rules.
-
-#### Cloud auth (IMP-040, 2026-08-28)
-
-The only auth path as of 2026-08-29 (spec
-`docs/superpowers/specs/2026-08-28-netfacilities-cloud-auth-design.md`): any
-TechFM OA+ user, on any device, signs into NetFacilities live through a Steel
-cloud browser from the deployed Render app. It was introduced as a third,
-additive path alongside the Windows live session and the shared secret file;
-both of those were removed the following day.
-
-Gated behind five environment variables, all required together and all
-defaulting to disabled: `NETFACILITIES_CLOUD_AUTH_ENABLED` (also requires the
-base `NETFACILITIES_ENABLED`), `STEEL_API_KEY`, and
-`NETFACILITIES_CLOUD_SESSION_ENCRYPTION_KEY` (a Fernet key generated by
-`python -m scripts.generate_netfacilities_cloud_encryption_key`, the same
-pattern as `VAPID_PRIVATE_KEY`). `NETFACILITIES_CLOUD_LOGIN_TIMEOUT_SECONDS`
-and `NETFACILITIES_CLOUD_BATCH_SESSION_SECONDS` (both optional, default 840)
-bound the login ceremony and each reconnected enrichment job under Steel's
-15-minute session cap. Three more optional timings govern the capture chain
-(2026-08-30): `NETFACILITIES_CLOUD_SIGNED_IN_TIMEOUT_SECONDS` (default 600)
-ends a signed-in ceremony that never captures — the deadline that fixed the
-released-but-still-advertised session leak (D-C);
-`NETFACILITIES_CLOUD_CAPTURE_POLL_SECONDS` (default 5) paces the safety-net
-capture poll behind the Playwright `download` listener; and
-`NETFACILITIES_CLOUD_ENRICHMENT_RETRY_SECONDS` (default 120) caps how long
-the chain retries `jobs.start()` while another enrichment batch is running.
-
-`POST /integrations/netfacilities/cloud/auth/start` opens a Steel session,
-returns its `live_view_url` for the frontend to open in a new tab, and
-polls it server-side the same way the live session auto-confirms — no
-explicit confirm step. `live_view_url` is Steel's `debug_url` (a bare
-WebRTC session player), deliberately not `session_viewer_url` — confirmed
-2026-08-28 against a real session that `session_viewer_url` opens Steel's
-own account-gated dashboard (team/project picker, event log, cost), which
-means nothing to an end user with no Steel login, while `debug_url` opens
-the interactive remote browser directly with no Steel UI at all. Once
-signed in, the same session captures the CSV the user exports via Steel's
-Files API (a Playwright `download` listener records the event; the poll is
-the safety net, and the `capture_path` log line reports which one won). As
-of 2026-08-30 the capture is dispatched unattended: import through the
-shared `run_csv_import` pipeline, session closed on success (kept open on a
-failed import so the user can re-export without signing in again),
-enrichment started through the caller's own saved session, and a web push
-sent to that user on both outcomes.
-`POST /integrations/netfacilities/cloud/downloads/import` is the manual
-fallback for an unconsumed capture and runs the same chain. `GET
-/integrations/netfacilities/cloud/session` reports only the calling user's
-own ceremony state, never anyone else's.
-
-Captured `storage_state()` is Fernet-encrypted and stored per-user (unique
-`user_id`) in the new `netfacilities_cloud_sessions` table — never returned
-in any API response, never logged. `POST /work-orders/enrich` tries the
-operator's live window first, then the calling user's own cloud session
-(`source: cloud_session`), then the shared saved state; a cloud session never
-takes the shared profile lease. Enrichment reconnects by decrypting the saved
-state into a fresh, short-lived Steel session per job via
-`create_netfacilities_cloud_enrichment_client`.
-
-Manually verified end-to-end in Chrome: with the feature enabled but a
-deliberately invalid `STEEL_API_KEY`, clicking the sign-in button made a real
-`POST https://api.steel.dev/v1/sessions` call that Steel correctly rejected
-with `401`; the failure propagated cleanly as a `503` and a friendly frontend
-message with no crash, and the capability endpoint recovered normally
-afterward. With the flag off, the cloud button is absent and the existing
-local flow is unaffected, in both cases with no browser console errors.
-
-That verification pass used a fake `STEEL_API_KEY` and never actually opened
-the live-view URL, so it did not catch that the URL opened was wrong: with a
-real key, in production, the owner found "Log in to NetFacilities (any
-device)" opened Steel's own account dashboard instead of an interactive
-NetFacilities page. Fixed the same day (`session.debug_url`, not
-`session.session_viewer_url` — see above); confirmed against the real
-session that was open at the time.
-
-**Not yet done:** the manual D5/D6 replay spike (a real Steel account, a real
-NetFacilities login, verifying a raw `storage_state()` snapshot actually
-replays into a fresh Steel session with no further vendor involvement) — the
-one assumption in this design that cannot be exercised by an automated test
-or a fake API key, per plan Task 1. The reconnect path above is built
-assuming that spike passes; a documented D6 fallback (Steel's Profiles API)
-exists if it does not.
-
-| Method | Path | Gate | Behavior |
-| --- | --- | --- | --- |
-| POST | `/integrations/netfacilities/work-orders/enrich` | techfm_oa+ | start one process-local job through the caller's own cloud session (`source: cloud_session`, always) or return the active duplicate; 409 when that caller has no saved session and 503 when the capability is disabled/unavailable |
-| GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | techfm_oa+ | poll the latest process-local job; state/timestamps/nullable current requested work-order number/safe failure class/counts only |
-| GET | `/integrations/netfacilities/cloud/session` | techfm_oa+ | the calling user's own cloud capability: availability, safe message, whether they have a saved session, and their own ceremony status |
-| POST | `/integrations/netfacilities/cloud/auth/start` | techfm_oa+ | open a Steel cloud session and return its live-view URL |
-| POST | `/integrations/netfacilities/cloud/auth/cancel` | techfm_oa+ | release that user's Steel session |
-| POST | `/integrations/netfacilities/cloud/downloads/import` | techfm_oa+ | run the capture chain (import → close session → enrich → push) on the unconsumed capture, returning the ceremony status; 409 when none was captured or it was already consumed |
-
-The five local-auth routes (`/session`, `/auth/start`, `/auth/confirm`,
-`/auth/cancel`, `/downloads/import`) were removed 2026-08-29 with the system
-behind them. `services.netfacilities_cloud_auth` owns each user's ceremony;
-`services.netfacilities_jobs` admits one enrichment batch at a time and owns its
-reconnected Steel session through shutdown, calling the serial compare-and-set
-service with fresh short database sessions. Disabled startup still avoids
-importing the concrete client. Responses may expose only the current work-order
-number as Admin-visible in-flight progress; they retain no completed-number
-history. Responses and logs never contain source descriptions, Priority values,
-storage state, cookies, HTML, or headers.
-
-**403-before-422 on the billing route** is the one observable behavior change
-C1 made (2026-08-10). Its gate used to be `_can_see_price(user)` in the handler
-body, which runs after Pydantic; as a dependency it runs first. So a caller who
-is *both* below Admin *and* sending a malformed body now gets 403 where they
-got 422. Unreachable from the SPA, which cannot send a malformed body, and no
-test asserted 422 — recorded because it is a real change at a permission
-boundary, not because anything is expected to notice.
-
-### Real-time (`routers/realtime.py`)
-
-| Method | Path | Gate | Behavior |
-| --- | --- | --- | --- |
-| WS | `/ws` | session cookie + same-origin | one invalidation socket per authenticated browser; server→client only |
-
-This is the app's only non-HTTP operation, and it does not behave like the rows
-above it:
-
-- **No application middleware runs for it.** The rate limiter, security headers,
-  and request logger are all registered with `@app.middleware("http")`, and the
-  handshake arrives in a `websocket` scope. The route does its own origin check
-  and its own logging instead. Anything that must apply to `/ws` has to be added
-  inside the route — adding it to the middleware stack will silently miss.
-- **Auth is the session cookie, revalidated every `REVALIDATE_INTERVAL_SECONDS`
-  (60s)**, not a one-shot check at connect. A logout or role change closes the
-  socket rather than leaving a long-lived connection on stale identity.
-- **Same-origin is enforced by hand** (`_same_origin`) because CORS does not
-  apply to WebSocket handshakes.
-- **Refusals happen before `accept()`, as ordinary HTTP 401/429** — not as
-  WebSocket close codes. A browser cannot read a close code from a handshake
-  that never completed, so capacity and auth failures are deliberately visible
-  as status codes instead.
-- **Every policy constant lives in `domain/realtime.py`**: 6 connections per user
-  (`MAX_CONNECTIONS_PER_USER`, enforced by the registry in `services/realtime.py`),
-  10 handshakes/60s and 20 inbound frames/second (enforced in
-  `services/realtime_limits.py`), 64 KiB max frame, and the queue bounds.
-- The wire envelope is exactly `type`, `id`, `req` — no row data, no actor. See
-  the real-time invalidation notes under `Runtime And Stack` for the emitter set
-  and the backoff schedule.
-
-### Web Push (`routers/push.py`)
-
-| Method | Path | Gate | Behavior |
-| --- | --- | --- | --- |
-| GET | `/push/config` | any authenticated | VAPID public key for `subscribe()`; 503 if unconfigured |
-| POST | `/push/subscribe` | any authenticated | create or **reassign** this device's subscription |
-| POST | `/push/unsubscribe` | any authenticated | drop this device's row; scoped to the caller |
-| POST | `/push/test` | **owner** | fan a fixed message out to Admin-and-above |
-
-The transport landed 2026-08-18 as a narrow probe; work-order triggers were
-wired the same day. **Two role floors, deliberately separate** — collapsing
-them back into one constant is how the Owner's diagnostic starts buzzing the
-whole crew:
-
-- `SUBSCRIBE_MIN_ROLE` (Technician) decides who is *offered* the opt-in button,
-  mirrored in `static/views/push.js`. `/push/subscribe` itself is not
-  role-gated: holding a subscription grants no authority.
-- `TEST_AUDIENCE_MIN_ROLE` (Admin) is the audience of `/push/test`, and nothing
-  else uses it.
-
-#### Notification triggers
-
-**Which events exist, who can raise them, and who is told is registered in
-`docs/notification-events.md`** — the living register, updated in the same
-commit as any trigger change. It deliberately used to be duplicated here and no
-longer is: three copies of one table is three chances to disagree with the code.
-What stays below is the mechanism, which is a contract rather than a routing
-decision.
-
-Rules that apply to every trigger:
-
-- **The acting user is always suppressed**, by id rather than by role — a
-  supervisor completing work on someone's behalf is as much the actor as a
-  technician is.
-- **Delivery is a `BackgroundTasks` handoff**, so no Apple round trip sits
-  inside the user's tap. Recipients are resolved *during* the request and
-  `_deliver` opens its own session, because since FastAPI 0.106 a dependency
-  with `yield` is torn down before background tasks run.
-- **A transition notifies only when it happened.** The narrow endpoints are
-  idempotent, so both trigger sites compare the prior status the service
-  stamped on the returned row; without that a slow double tap sends twice.
-- **One PATCH can be several events** — it may add assignees, route a
-  supervisor, *and* move the status — so the rules are evaluated independently.
-  Both assignment rules sit outside the transition chain for that reason.
-- **A change is not a field being present.** The editor sends the whole form, so
-  the transition facts stamped on the returned row (`previous_status`,
-  `newly_assigned_ids`, `newly_routed_supervisor_id`) are what tell a real
-  change from a re-save. Without them, saving a note would re-notify the routed
-  supervisor.
-- **One event, one notification — except the CSV import**, which sends once per
-  matched supervisor rather than once per work order. The single batching
-  exception in the system, argued from volume and scoped to that route.
-- **Overlapping transitions resolve by branch order, and each resolution is
-  pinned by a test.** One write can satisfy two rules (`completed → on_hold` is
-  both "leaves Completed" and "entered On-Hold"); the arm that wins is a
-  decision, not an accident. Which one wins in each case is registered in
-  `notification-events.md`.
-- **A rule that raises never fails the write.** The work order is already
-  committed; `_notify` logs and moves on.
-
-Adding a trigger is a documented three-step procedure —
-`docs/adding-a-notification-trigger.md` — whose last step is registering the
-event in `docs/notification-events.md`. Read those rather than this section when
-the task is "notify someone when X happens".
-
-Six things that are not obvious:
-
-- **iOS is the binding constraint.** Safari exposes the push API only to a site
-  launched from a Home-Screen install, never to a browser tab, and iOS has no
-  `beforeinstallprompt` — so the install cannot be offered programmatically and
-  `views/push.js` detects the tab case and gives written instructions instead.
-  The installed app also has its **own cookie jar**, so a user logged in through
-  Safari is logged out inside it. None of this involves the App Store: it stays
-  a website, with no native app, developer account, or review.
-- **`endpoint` is the primary key of `push_subscriptions`**, not a surrogate id.
-  A subscription belongs to a browser profile rather than an account, so a
-  re-subscribe after a different login reassigns the row instead of adding one.
-  Keying on `user_id` would leave both alive and deliver a shared crew phone the
-  previous user's notifications.
-- **Logout unsubscribes this device only** (`views/auth.js`, before `apiLogout`
-  because the call needs the session). Deleting all of a user's rows would
-  silence their other devices.
-- **Only 404/410 deletes a subscription**, decided by
-  `domain/push.py::classify_push_response`. A bad key returns 401 for *every*
-  device; deleting on that would empty the table and force everyone to opt in
-  again.
-- **The endpoint allowlist is re-checked on every send**, not just at
-  registration. A stored endpoint is otherwise an SSRF primitive aimed at the
-  hosting provider's network.
-- **`/service-worker.js` is served from root** by `main.py::service_worker`, not
-  from the `/static` mount. A worker's scope is the directory it was served
-  from, so a copy under `/static/` could never receive a push for the app.
-
-Configuration is one secret, `VAPID_PRIVATE_KEY`, set in the Render dashboard
-(`render.yaml` declares it `sync: false`) and in `backend/.env` locally. It is
-deliberately **not** duplicated into `backend/Dockerfile` the way the
-NetFacilities settings are — that file is committed. The public half is a
-constant in `services/push.py` because it must stay pinned to the private half;
-a drift between them is invisible until the first send returns 401. Absent the
-key, push disables itself and the rest of the app is unaffected.
+`docs/endpoint-map.md` owns the complete route table (method / path / gate /
+service / tables / wrapper / views), the request/response contracts, and the
+error catalog — go there for "what does this endpoint send/return/do". What
+stays here is behavior that table cannot carry:
+
+- All routes except `POST /auth/login`, `GET /`, `GET /workorder_card/*`, and
+  `GET /healthz` require authentication.
+- **NetFacilities.** Disabled by default; production enables it in both the
+  Dockerfile and `render.yaml` (a Render deploy hook does not sync new
+  `render.yaml` env declarations into an existing service). Auth is per-user
+  Steel cloud sign-in only. Gated by `NETFACILITIES_CLOUD_AUTH_ENABLED` (plus
+  base `NETFACILITIES_ENABLED`), `STEEL_API_KEY`, and
+  `NETFACILITIES_CLOUD_SESSION_ENCRYPTION_KEY` (Fernet, from
+  `scripts.generate_netfacilities_cloud_encryption_key`), with optional
+  timings: `..._LOGIN_TIMEOUT_SECONDS` / `..._BATCH_SESSION_SECONDS` (default
+  840, under Steel's 15-minute cap), `..._SIGNED_IN_TIMEOUT_SECONDS` (600),
+  `..._CAPTURE_POLL_SECONDS` (5), `..._ENRICHMENT_RETRY_SECONDS` (120). A
+  captured session is **bearer-equivalent**: Fernet-encrypted one row per
+  user, never committed, logged, returned, or placed in an env var; expiry is
+  recovered by that user signing in again. The client **primes each context
+  with one `GET /myhome`** before its first work-order read — NetFacilities
+  serves a trimmed document (no Priority row) to an unprimed session — and
+  re-primes + re-reads any document that lacks the `Priority Level` label, so
+  a session going stale mid-batch cannot silently blank Priority. The value
+  is server-rendered, so `NETFACILITIES_RENDER_DOCUMENT` defaults to `false`;
+  `true` restores the rendered read for diagnosis (same-origin `GET`
+  subresources only). Enrichment fills only the exact generated Task/Symptom
+  fallback and a blank Priority, via compare-and-set; responses and logs
+  never contain source values, storage state, cookies, or headers. **Not yet
+  done:** the manual D5/D6 replay spike (IMP-040 in `open-work.md`).
+- **`/ws` runs no application middleware** — the rate limiter, security
+  headers, and request logger are `@app.middleware("http")` and the handshake
+  is a `websocket` scope; the route does its own origin check and logging.
+  Auth is the session cookie **revalidated every 60s**, so a logout or role
+  change closes the socket. Refusals happen before `accept()` as plain HTTP
+  401/429. Every policy constant lives in `domain/realtime.py`.
+- **Web Push has two deliberately separate role floors**:
+  `SUBSCRIBE_MIN_ROLE` (Technician) decides who is *offered* the opt-in
+  button — `/push/subscribe` itself is not role-gated; holding a subscription
+  grants no authority — and `TEST_AUDIENCE_MIN_ROLE` (Admin) is `/push/test`'s
+  audience. Collapsing them into one constant is how the Owner's diagnostic
+  starts buzzing the whole crew.
+- **Notification triggers** are registered in `docs/notification-events.md`
+  (updated in the same commit as any trigger change); adding one is the
+  three-step procedure in `docs/adding-a-notification-trigger.md`. Mechanism
+  rules for every trigger: the acting user is always suppressed by id;
+  delivery is a `BackgroundTasks` handoff and `_deliver` opens its own
+  session (a yield dependency is torn down before background tasks run); a
+  transition notifies only when it actually happened (compared against the
+  `previous_status` stamped on the returned row — idempotent repeats and
+  re-saves send nothing); one PATCH can be several independently evaluated
+  events; overlapping transitions resolve by pinned branch order; a rule that
+  raises never fails the committed write; the CSV import's per-supervisor
+  bulk send is the single batching exception.
+- Web Push facts that are not obvious: iOS exposes push only to a
+  Home-Screen-installed app (own cookie jar; no programmatic install offer
+  exists); logout unsubscribes **this device only**; only a 404/410 deletes a
+  subscription (`classify_push_response` — a bad VAPID key 401s for every
+  device); the endpoint allowlist is re-checked on **every** send (a stored
+  endpoint is otherwise an SSRF primitive); `/service-worker.js` is served
+  from root, not `/static`, because a worker's scope is its serving
+  directory.
+- **403-before-422 on the line-billing route**: its TechFM OA+ gate is a
+  dependency, so it answers before Pydantic — a malformed *and* unauthorized
+  request returns 403.
 
 ## Frontend Feature Context
 
-Top-level navbar buttons switch SPA sections through `views/nav.js::showPage`
-without reloading the document.
+Navigation (`views/nav.js::showPage`): the bar is four task-domain groups —
+Inventory (Add Item, Find Item, Tools), Field (Scan / Stock, Work Orders,
+Mass Stage), People (Add User, Users), Review (User Requests, Admin Review,
+History). Every page in `PAGE_ACCESS` belongs to exactly one group in
+`shell-head.html` or it does not appear in the nav at all;
+`applyRoleVisibility` hides buttons, then any group left empty. A role with
+more than 5 visible pages gets each group collapsed into a popover toggle;
+Technician (4 pages) renders flat. Icons are inline SVG
+`stroke="currentColor"` (CSP forbids icon fonts). Activating Work Orders,
+Find Item, or Mass Stage refetches current server data
+(`cache: "no-store"`).
 
-Since IMP-033 the bar is **grouped into four task-domain clusters** — Inventory
-(Add Item, Find Item, Tools), Field (Scan / Stock, Work Orders, Mass Stage),
-People (Add User, Users), Review (User Requests, Admin Review, History) —
-separated by a hairline drawn with `.nav-group + .nav-group`. Every page in
-`PAGE_ACCESS` belongs to exactly one group; adding a page means adding it to a
-group in `shell-head.html`, or it will not appear in the nav at all.
-`applyRoleVisibility` hides individual buttons by role and then hides any group
-left with nothing visible, so a role-emptied group leaves no stray divider — a
-Technician sees four buttons in two groups. Each button carries an **inline SVG
-icon** using `stroke="currentColor"`, so icons inherit idle / hover / active-red
-without icon-specific rules; they are inline because A4's CSP
-(`default-src 'self'`) blocks any icon font or CDN sprite. Tap targets remain
-`--btn-h-sm` (44px).
+Login/landing: boot calls `/auth/me`; 401 shows login; any later 401 returns
+to login globally. Landing is role-based (`landingPageForRole`): technician →
+Transaction, supervisor → Work Orders, admin/owner → History; a resumed batch
+overrides the default and opens Transaction.
 
-Any role with more than 5 visible pages (Supervisor, TechFM OA, Admin, Owner)
-gets each `.nav-group` collapsed into a single toggle button with its pages in
-a popover, instead of the bar spelling out every button; Technician (4 pages)
-renders flat, exactly as before. Flat mode is pure CSS
-(`.nav-group-menu { display: contents; }`), so it costs nothing when compact
-mode doesn't apply. Every group toggle carries the same red-underline brand
-accent as a flat-mode button (`box-shadow: inset 0 -2px 0 var(--color-brand)`
-in `styles.css`), so a collapsed bar still reads as branded rather than plain
-gray text — there is no separate "this group contains the active page" cue.
-Popovers follow standard behavior: click to open, one open at a time,
-Escape/outside-click to close, and switching pages closes any open popover.
+Find/Add Item: Add Item (TechFM OA+) is Item/Tool sub-nav tabs, each with its
+own scoped live-scan widget (a match warns the barcode is in use; a miss
+prefills the field; `allowCreate: false`; page-leave stops both cameras).
+Find Item renders nothing until explicit Search (`/items/?q=`) or Load All
+Items; no-row states render the `#items-empty` panel carrying the
+item-request prompt. Technicians get a simplified table; TechFM OA+ see
+price/link columns and get Create Item / Add Barcode shortcuts on an unknown
+scan.
 
-Every activation of Work Orders, Find Item, or
-Mass Stage requests current server data. Work Orders and Mass Stage refresh both
-their main lists and their item/user reference lists; Find Item clears prior
-results and refreshes only its lightweight search index until the user chooses
-Search or Load All. Dynamic authenticated list requests use `cache: "no-store"`.
+Scan / Stock: the gate lists scoped Created/Assigned/In-Progress cards —
+In-Progress arms the batch, Assigned confirms the in-place start, Created
+offers navigation to Work Orders. Supervisor+ get a debounced number filter
+and an advanced mode (Add Stock/Take Out toggle, browse-all on empty search);
+Technicians see only assigned cards. Manual entry hides until a card is
+selected and commits through the same `commitScannedItem` path a scan uses.
+A short dispense still commits and renders red `Please re-count stock`; an
+unpriced work-order item raises the deduplicated missing-price request. Live
+scan uses dwell + same-barcode cooldown; the camera auto-starts only with
+permission already granted.
 
-### Login
+User Requests: TechFM OA+ queue with open/resolved tabs and a client-side
+type filter. Recount cards freeze the shortage snapshot — never editable (the
+whitelist is `EDITABLE_DETAILS`; a rejected key is 409) — and take an inline
+correction that resolves the request wherever the adjust is made. Item
+requests (NULL `item_id` = "not in the app at all", distinct from a recount's
+wrong count) are filed from the two empty states by any role; fulfilment
+links an existing item or creates one, logs it on the originating work order
+**always retroactively** (never moves stock — it calls `attach_dispense_line`
+directly), warns-and-skips a closed work order recording the reason, and
+cascades to admin-confirmed siblings matched on token-set equality. An open
+missing-price card requires a price > 0 and a nonblank link together.
 
-Files: `views/auth.js`, `api.js`, `state.js`, `views/nav.js`,
-`views/transactions.js`.
+Mass Stage: create stage → add work orders (resolve-only; building must
+match) → plan items → `planning→loading` → load (splits across slots by
+`sort_order`, real per-slot dispenses) → return unused (silent stock add) →
+complete → optionally Stage Again (fresh empty stage, nothing copied). The
+UI is a Community → Building → Unit collapsing tree; each unit links to its
+work order's card; completed stages are read-only and terminal.
 
-Behavior:
+Work Orders: **cards are pages** — clicking navigates to
+`/workorder_card/<number>` (served the same SPA shell as `/`; deep links
+resolve number→id via the scoped list search, **not** the Supervisor+
+lookup, so an archived and an out-of-scope number are indistinguishable and
+both report "not available"). The card must remain a `details.wo-card`
+inside `#work-orders-list` — moving it into another container silently
+breaks the delegated action layer (~20 click branches) and the realtime
+card lookup. Collapsed card background encodes status: Created gray,
+Assigned red, In-Progress yellow, On-Hold orange, Ready to Complete violet,
+Completed blue, Review green. The technician ladder is built on the clock —
+Start Tracking / Stop Tracking / Notify Supervisor / Place On-Hold / Resume
+(rules in Hard Invariants); Ready to Complete shows Supervisor+
+**Approve — Mark Completed** and **Send Back**, and a technician a hint with
+no actions; the Edit-details status dropdown never offers
+`ready_to_complete` or Review. Buttons that need assignment server-side are
+gated on it client-side too. Nested collapsed cards: Edit details
+(Supervisor sees routing/assignment/status; TechFM OA+ also imported
+metadata; `number` never), Notes (append-only log; save clears and closes),
+Materials (Technicians add-only, read-only quantities), Labor (Technician
+fully read-only; the supervisor picker includes themselves "(not
+assigned)"; entries show their session window, capped ones tagged
+"auto-stopped"). TechFM OA+ get import (with summary counts), filtered/
+client CSV export, Archive on any live card, and the exact-archived-number
+restore prompt; the Owner additionally the hidden legacy re-archive button
+(preview count → confirm → actual count). The list shows the newest 10 by
+default ("Show all" lifts it); any active filter queries the complete
+matching set.
 
-- Boot calls `/auth/me`.
-- 401 shows login screen.
-- Login success stores current user, applies nav visibility, resets any batch,
-  and opens that role's landing page (`landingPageForRole` in `views/nav.js`):
-  technician -> Transaction, supervisor -> Work Orders, admin/owner -> History.
-  A resumed batch overrides the role default and opens Transaction so the
-  operator can finish scanning. Unknown roles, or a landing page the role
-  cannot reach, fall back to Transaction.
-- Any later 401 triggers global return to login.
-- Logout tries `/auth/logout`, then locally returns to login even if request
-  fails.
+Admin Review: TechFM OA+ page over live Review rows; selecting a card opens
+one persistent receipt textarea (shared `pricingText.js` 41-char lines,
+`billable ?? quantity` × current price +15%, `[x] Labor Hours` +
+`labor_total` with no second markup, no number header, `wrap="off"`).
+`NO PRICE` marks the total incomplete and disables Close; Return to
+In-Progress stays available. Close archives via the shared endpoint; either
+action keeps the receipt visible for copying.
 
-### Find/Add Item
+Tools: Add Tool is the Tool tab on Add Item (TechFM OA+; barcode + name +
+quantity only). The Tools page defaults to **Custody**: TechFM OA+ search
+active users into a profile card; Supervisor/Technician are pinned to their
+own `/auth/me` card — a frontend workflow boundary, since the return route
+accepts any `assigned_to_id`. Check-in starts from a holding row, defaulted
+and capped to the outstanding balance; checkout is TechFM OA+ from the
+selected user's card; a scan never commits automatically. Correct Count
+mirrors items' (absolute value + required reason) and is the only restock
+path. The page composes existing endpoints — no custody endpoint or
+migration exists; custody stays ledger-derived. Auth reset clears page-local
+selection/scan context.
 
-Files: `views/items.js`, `views/itemEditor.js`, `views/addBarcode.js`,
-`views/notes.js`, `views/correction.js`, `views/tools.js`, `views/scan.js`,
-`views/subnav.js`, `pages/saved-items.html`, `pages/create-item.html`.
+History: Supervisor+; tabs all / by item / by user plus an overlay
+work-order filter matching each row's own `work_order_number` — searchable
+forever, including archived work orders. An exact archived number prompts
+restore (a declined number is not re-prompted this session). Voided rows
+hidden; any visible row can be voided by the same role set. Charge column
+(TechFM OA+): ad-hoc rows show base and +15%; work-order rows show `—` and
+have no billing editor (they bill via the line). Copy table exports all
+matching rows (cap 100 pages × 100): the TechFM OA+ export fills work-order
+rows' pricing from the line `unit_price` and appends the per-work-order
+**Work Order Summary** block (`materials_total` + 15%) — per-row figures can
+diverge from it; the summary is authoritative.
 
-Behavior:
+Users: Supervisor+ list, archived included (dimmed, restorable — keeps the
+History by-user filter working). Add User requires username + both names +
+password + a subordinate role. Edit Name (self or manageable subordinate)
+also corrects login usernames and remediates legacy no-name accounts; Edit
+Role offers only strictly outranked roles and revokes the target's sessions;
+archive offers the force-return-tools second confirm.
 
-- Add Item is TechFM OA+. Item and Tool are sub-nav tabs on one page
-  (`views/subnav.js`, same convention as Saved Items' Find/Scan), not stacked
-  cards. Each tab has its own live-scan widget (`item-scan-*` /
-  `tool-scan-*` ids) scoped to that tab's own barcode field: a match warns
-  the barcode is already in use (`onItemFound`), a miss prefills the field
-  via `mountScanner`'s `onNotFound` callback instead of making the user
-  retype it. `allowCreate: false` on both — there's no create-shortcut loop
-  from a create form. Leaving a tab (or the page) stops that tab's camera via
-  `nav.js`'s `create-item` scanner entry, which drives both `itemScanWidget`
-  and `toolScanWidget` so page-leave never leaves either running.
-- Find Item list is available to all roles.
-- Opening Find Item makes no item request, shows a plain search field (with an
-  inline magnifier glyph, no native suggestion popup) and renders no item
-  cards. Typing alone does not query or render. Search/Enter calls
-  `/items/?q=...` across the full live dataset; Load All Items calls the
-  backward-compatible unfiltered `/items/` feed. `/items/search-index` was
-  **deleted in X3** (2026-08-10) — it had no caller anywhere and returned
-  every live name and barcode to any signed-in user.
-- No-rows results (opening state, a search with no matches, an empty Load
-  All) render a dedicated `#items-empty` panel instead of a single-line table
-  row — `showEmptyState`/`hideEmptyState` in `items.js` toggle it against the
-  table. The icon differs: a magnifier for "haven't searched yet" / "search
-  found nothing," a box for an empty Load All. A search that found nothing
-  still carries the item-request prompt into `#items-empty-extra`. Rows found
-  show a count (`#items-count`, "N items found") next to the table.
-  Every section heading on the page (Find Item, Scan Barcode, Notes, Edit
-  Item, Correct Count, Add Barcode to an Item) carries a matching inline
-  `.section-icon` SVG — stroke-only, `currentColor`, no icon font (CSP is
-  `default-src 'self'`).
-- Technician item table is simplified: no actions/created column, quantity and
-  location near name.
-- Supervisor+ can edit notes.
-- TechFM OA+ can edit item details/barcodes, correct count, and archive item.
-- TechFM OA and above see price/link columns.
-- Unknown scan on Find Item offers TechFM OA+ Create Item and Add Barcode shortcuts.
-
-### Scan / Stock
-
-Files: `views/transactions.js`, `views/scan.js`, `pages/transaction.html`,
-`views/nav.js`, `api.js`.
-
-Behavior:
-
-- Every role lands here after login.
-- Gate requests the scoped live work-order list and renders only Created,
-  Assigned, and In-Progress cards. Tapping In-Progress starts the batch on that
-  work order (id + number). Tapping Assigned confirms `POST .../start`; Yes
-  moves it to In-Progress and opens the scanner without leaving the page, while
-  No leaves the gate unchanged. Created still confirms navigation to Work Orders
-  so a Supervisor can assign it.
-- Supervisor+ sees a compact work-order-number search card above the work-order
-  cards. Typing is a debounced live filter through
-  `/work-orders/?q=`; it only narrows the scoped ready cards and never creates a
-  work order. Selecting a filtered In-Progress card starts the batch; Assigned
-  uses the same in-place start confirmation. Stale request
-  responses cannot overwrite a newer filter result.
-- Technician sees only assigned cards and does not see the number filter.
-  Work orders remain import-only; the old quick-add/free-text-start paths are
-  gone.
-- Each committed scan carries `work_order_id` (+ number) on the transaction.
-- Batch starts with quantity `1`.
-- Default flow is dispense-only for every role.
-- A manual entry panel (search by name/barcode) is hidden until a work order is
-  selected, then sits alongside the scanner for every role. Picking a result
-  commits it into the active batch through the same `commitScannedItem` path a
-  scan uses (same confirmation, same `work_order_id` attach). Supervisor+ can
-  reveal an advanced mode that also toggles Add Stock/Take Out and lets an empty
-  search browse the full item list.
-- Live camera auto-starts only if permission is already granted.
-- Scan resolves barcode, asks confirmation, then commits transaction.
-- Every successful line has Remove. A Technician can remove only their own
-  work-order dispense; Supervisor+ can remove any saved batch line. Removal
-  voids the transaction, reverses stock and the aggregate work-order material,
-  and resolves a recount request if one was raised.
-- When a dispense exceeds recorded on-hand, it still commits, the count may go
-  negative, and the normally green line is red with `Please re-count stock`.
-  TechFM OA and above see the linked request on the User Requests page and can resolve
-  or reopen it.
-- When the work-order item has no price, the same commit creates or updates one
-  deduplicated missing-price request. TechFM OA and above can enter Price and Product
-  Link together on User Requests; the card leaves the open queue automatically
-  only after a price greater than `$0.00` and a product link both exist.
-  Work-order totals already use the item's live
-  price, so they update immediately.
-- Unknown barcode does not offer create-item shortcut in this flow.
-- Continuous live scan uses dwell and same-barcode cooldown to prevent double
-  commits.
-
-### User Requests
-
-Files: `views/userRequests.js`, `pages/user-requests.html`, `api.js`, backend
-user-request router/service/schema/model, and item/work-order services.
-
-Behavior:
-
-- TechFM OA and above can switch between the newest-first open and resolved queues, and
-  narrow to one of the three request types with a client-side Type filter.
-- Inventory-recount cards show the frozen shortage context and expose manual
-  Resolve/Reopen actions, plus an inline **Correct count to / Reason** form that
-  calls `POST /transactions/adjust`. A correction resolves the open recount
-  request for that item in the same commit — and does so **globally**, including
-  from Correct Count on Find Item, because the request asks "please re-count
-  this" and an adjust answers it wherever it was made.
-- **Item requests** report material with no catalogue row at all. This is
-  narrower than it sounds: `list_items` filters on `archived_at` and never on
-  quantity, so an in-app item at zero is still findable and belongs to
-  `inventory_recount`. An item request carries a NULL `item_id` until fulfilled,
-  and that NULL is what distinguishes "not in the app" from "in the app, count
-  is wrong".
-  - Filed from two empty states — the Work Orders card's add-material picker
-    (carrying that work order) and Find Item (carrying none) — by any signed-in
-    role, via the one non-admin route on this router.
-  - Fulfilment either **links an existing item** or **creates a new one**.
-    Linking matters as much as creating: "can't find it" is often a misspelling
-    of something already in the catalogue, and forcing a create would mean a
-    duplicate row each time.
-  - Fulfilment logs the material on the originating work order **always in
-    `retroactive` mode**, whatever that work order's own `entry_mode` is, by
-    calling `attach_dispense_line` directly rather than `add_work_order_item`.
-    Fulfilment records material consumed before the app knew the item existed,
-    so it must never move stock — otherwise a newly created item at zero on hand
-    would be driven negative and raise a recount request on top of the request
-    just closed.
-  - A **closed work order never blocks the catalogue fix**: the card warns up
-    front, the item is still created, the retroactive add is skipped, and the
-    reason is recorded in `resolution_note`.
-  - One card per filing, even when several name the same material, so each keeps
-    its own work order, quantity, and requester. Fulfilling one **cascades** to
-    sibling requests the admin confirms: each sibling resolves and gets the
-    material added to its own work order at its own quantity, in one
-    transaction. Siblings are matched on **token-set equality** using the item
-    search's tokenizer — stricter than the search's own subset matching, because
-    a wrong match here retroactively bills material to another customer's work
-    order rather than merely showing a bad row. They arrive pre-checked but
-    confirmable.
-- Every card has an **Edit** mode for the request's own wording. Item requests
-  expose searched text, quantity, and note; the other two expose the message
-  only. A recount's `recorded_quantity_before` / `dispensed_quantity` /
-  `shortage_quantity` are **never editable** — they are a snapshot of what the
-  system observed at dispense time, and a snapshot someone can rewrite to match
-  a later recount is not an audit trail. The whitelist lives in
-  `EDITABLE_DETAILS`; a rejected key returns 409.
-- An open missing-price card shows the item's current Price and Product Link in
-  one form. Its price input has `min="0.01"`; Save rejects zero or negative
-  values and requires a valid, nonblank link, sends one item PATCH, and
-  disappears from the open queue after the item update atomically resolves it.
-- Resolved missing-price cards are retained as read-only audit entries in the
-  page. The generic request PATCH still supports reopening them for API clients.
-
-### Mass Stage
-
-Files: `views/massStage.js`, `pages/mass-stage.html`, `api.js`, backend
-mass-stage router/service/domain/schema/model.
-
-Behavior:
-
-1. Create stage for community/building.
-2. Add work orders (each a unit slot referencing a standalone work order;
-   community/building come from the stage, optional unit + technician). The
-   number must already have been imported — adding *resolves* the work order
-   (404 if unknown; a stage cannot create one), fills its blank
-   community/building/unit from the stage, and enforces a building match.
-3. Add planned items and quantities per slot.
-4. Save stage: `planning -> loading`.
-5. Load merged item quantities. Loads split across slots by `sort_order` and
-   create real dispense transactions carrying each slot's work order.
-6. Return unused material. Returns add stock and update slot tables only.
-7. Mark completed.
-8. Stage again from completed: a fresh empty planning stage for the same
-   community + building (no slots copied).
-
-UI display (community tree):
-
-- the list is a three-tier collapsing tree: Community -> Building -> Unit
-- the create row is a Community dropdown (3 seeds + in-use names + "+ New
-  community…") plus a Building # input
-- each unit shows an "Open work order →" link that navigates to the Work Orders
-  page for its work order (`focusWorkOrder` + `showPage`); planned items are
-  still edited inline in planning
-- completed stages are read-only and terminal
-
-### Work Orders
-
-Files: `views/workOrders.js`, `pages/work-orders.html`, `api.js`, backend
-work-order router/service/domain/schema/model.
-
-Behavior:
-
-- Any authenticated role, server-scoped: a Technician sees any work order in
-  their plural assignment set; a Supervisor sees the shared unassigned queue
-  plus work routed to them; TechFM OA and above sees all live rows. Reached via the nav
-  button or a Unit click in the Mass Stage tree.
-- TechFM OA+ get an "Import work orders" section (file picker → `apiImportWorkOrders`
-  → summary of processed/new/updated/closed/routed/skipped counts, then the list
-  reloads). The closed count is always shown, including zero, and those rows are
-  ignored without mutation. The
-  file input accepts `.csv`; the button re-enables and clears after each run.
-- The same section contains a hidden-by-default **Re-archive legacy work
-  orders...** button revealed only when `getRole() === "owner"`. Clicking it
-  fetches the live legacy count and opens the shared modal: zero uses a
-  message-only dialog; a positive count asks for confirmation and explains that
-  History can restore the rows. Confirmation posts the bulk action, reports the
-  actual archived count (which can differ from the preview), refreshes filter
-  options, and reloads the Work Orders list.
-- **Import-only: there is no "New work order" form.** The CSV import is the only
-  way a work order appears here or anywhere else.
-- A card body opens on a read-only block of the work order's filled-in fields
-  (location, service type, schedule, output-to, vendor contact, symptom/task,
-  supervisor, technicians — blank ones are omitted), plus a "Legacy" tag on
-  pre-import cards. A symptom/task whose complete value is an HTTP(S) URL renders
-  as an escaped external link in a new tab; long URLs wrap within the card.
-- Supervisor+ get a nested **Edit details** card beneath the read-only overview.
-  It is collapsed by default and expands through its own summary instead of a
-  separate button; the read-only block remains visible. For a Supervisor it
-  contains only supervisor routing, multi-technician assignment, and status.
-  The Supervisor selector lists active Admin and Supervisor accounts.
-  The assignment control puts a name search at the top and shows no
-  worker catalog until text is entered. Its local, case-insensitive results
-  include active Technicians and Supervisors, exclude already selected workers,
-  and choosing a result adds it to the
-  assigned list beneath the search, and Remove drops it from that draft list.
-  Save sends the complete remaining set as replacement `assigned_to_ids`; Cancel
-  reloads the persisted detail. TechFM OA and above additionally see Location, Service
-  Type, Schedule Date, Output To, Vendor Contact, and Symptom/Task. Legacy community/building/
-  unit and the work-order number stay read-only. The existing status selector
-  offers In-Progress for Created/Assigned rows, making it the explicit
-  Supervisor start control as well as the place to roll back or select On-Hold;
-  a held row can resume to the appropriate non-Review step. Created/Assigned
-  remains worker-assignment-derived. Review is read-only here and retains its existing
-  Reopen action. Save details / Cancel persist or discard the draft, re-fetch the
-  card, and return Edit details to its default collapsed state.
-- Advanced filters cover status, dynamic service type, caller-visible assigned
-  supervisor, derived community, exact scheduled date, and the existing
-  debounced work-order number search. Every active value is sent in one request
-  and combines with AND; Clear filters resets the complete search. TechFM OA+ also
-  sees Export filtered CSV in this card; it exports the same uncapped result set.
-- For TechFM OA and above, a work-order-number search that exactly identifies an
-  archived row performs the archive-aware lookup after the live-list search and
-  opens the shared modal with `Work Order has been closed.` plus **Restore** and
-  **Close**. Close leaves the archive untouched. Restore clears `archived_at`
-  through the existing restore endpoint and reloads the same search so the card
-  appears. Substring-only matches, live rows, and lower roles do not prompt;
-  stale lookup responses are ignored after the search text changes.
-- The list is ordered by parsed scheduled date descending and shows only the
-  first 10 by default; a "Show all" control drops the cap and "Show recent only"
-  restores it. Blank/malformed schedule text sorts last, with creation time as a
-  tiebreaker. Any active filter queries the complete matching set.
-- Cards are collapsible and their full collapsed background communicates status:
-  Created gray, Assigned red, In-Progress yellow, On-Hold orange, Ready to
-  Complete violet, Completed blue,
-  Review green, with contrasting text. Expanded bodies return to a white form surface. The
-  body has a Supervisor+ mode selector and status-appropriate actions.
-  **The technician's ladder is built on the clock, not on the lifecycle.**
-  Created/Assigned shows **Start Tracking** — "Set In-Progress" is gone,
-  because that transition is now a side effect of starting work, which is what
-  the button always meant. In-Progress shows Start Tracking (plus Place
-  On-Hold) when the viewer has no clock running, and **Stop Tracking · Notify
-  Supervisor ·** Place On-Hold when they do: Stop is "I'm pausing", Notify
-  Supervisor is "I'm done". Stop Tracking says so when it auto-holds the row —
-  *"Work stopped. Nobody is tracking, so this is now On-Hold."* — because a
-  badge changing on its own otherwise reads as a failed save. On-Hold shows
-  Start Tracking **beside** Resume In-Progress: Start is the one a returning
-  technician taps, since it resumes and starts the clock in one action, while
-  Resume stays for work resuming without the tapper doing it.
-  Ready to Complete shows Supervisor+ **Approve — Mark Completed** and **Send
-  Back**, and shows a technician a status hint with no actions.
-  Because tracking is Supervisor+ on any *visible* row, the buttons that require
-  assignment server-side (Notify Supervisor, Place On-Hold, Resume) are gated on
-  assignment client-side too; an unassigned supervisor tracking a row sees Stop
-  Tracking and Mark Completed.
-  A routed Supervisor who is not assigned, or any unassigned TechFM OA+, sees Send to
-  Review on Completed work; it still requires confirmation. An assigned
-  Supervisor is deliberately excluded even when also routed, enforcing a second
-  set of eyes. Supervisor+ retains Mark Completed for visible In-Progress work
-  and Reopen as applicable, while the unchanged Edit details status dropdown
-  remains the general rollback/On-Hold control — it does **not** offer
-  `ready_to_complete`, which like Review is reached by an action rather than
-  chosen from a menu, though unlike Review the field stays enabled so a
-  supervisor keeps the full rollback path. The Review transition
-  places the row in final Admin Review. Material/labor activity still advances
-  Created/Assigned automatically, and Scan/Stock retains its scoped Assigned
-  start action (its list still filters to Created/Assigned/In-Progress, so a
-  Ready to Complete row correctly never appears there). The
-  body also has collapsed-by-default nested cards for Supervisor+ Edit details,
-  Notes, Materials, and Labor. Opening
-  Notes shows the accumulated plain-text log above an empty new-note textarea.
-  Save note rejects blank input, appends a server-generated Central-time/date and
-  authenticated full-name prefix, clears the textarea, and closes the card.
-  Materials contains the logged rows, empty state, Admin totals, and add-item
-  controls; it reopens after add/update/remove or billing refreshes so newly
-  rendered data stays visible. Technicians can add items but see existing
-  quantities read-only; Supervisor+ may update/remove lines. Labor likewise
-  reopens after add/update/remove. **A Technician's Labor card is entirely
-  read-only** — the hours input and Add labor button render for Supervisor+
-  only, because their rows come from stopping a session. Each entry shows the
-  session window it came from (`2:10–3:25 PM`, pre-formatted server-side in
-  Central so it cannot disagree with the note log beside it), falling back to
-  the duration alone for hand-entered rows and every row predating tracked
-  time; a capped entry carries an "auto-stopped" tag marking it an estimate.
-  A supervisor's technician picker also lists themselves, flagged "(not
-  assigned)", since they may credit their own labor without joining the crew.
-  TechFM OA and above additionally receives a confirmed Archive action on
-  every live-status card.
-- Closing keeps the row, material lines, and transactions, but hides the work
-  order from live views. `POST .../archive` requires TechFM OA+ from any live status;
-  Admin Review keeps its receipt-aware Review close flow. History can still find transactions by
-  number and offers restore for a closed work order.
-- Dispense entries move stock and show in History like a Scan/Stock dispense;
-  retroactive entries show in History identically but move no stock.
-- Each material line shows an TechFM OA and above-only charge (`effective billable *
-  current price`, plus the `+15%` mark-up): the line is the billing unit, so the
-  customer cost lives here, not on the individual History rows (the backend
-  redacts the line's `unit_price`/`billable_quantity` below Admin). An inline
-  "Edit charge" editor (mirroring History's) bills a partial count or zero per
-  line; a `materials_total` (base + mark-up) sums the card.
-- Completed/Review work orders remain editable. Supervisor+ can roll Completed
-  back through Edit details or use Reopen; rollback clears `completed_at`.
-
-### Admin Review
-
-Files: `views/adminReview.js`, `adminReviewReceipt.js`, `pricingText.js`,
-`pages/admin-review.html`, `views/nav.js`, `views/history.js`, and `api.js`.
-
-Behavior:
-
-- TechFM OA and above-only SPA page. On activation it requests every live Review work
-  order with `apiListWorkOrders({status: "review"})` and renders green cards with
-  the work-order number as the title.
-- Selecting a card fetches `WorkOrderDetail` and opens one persistent read-only
-  receipt textarea. Selecting another card overwrites the receipt; queue reloads,
-  Close, and Return to In-Progress leave the current receipt visible.
-- The copied receipt contains no work-order-number header. It begins with one
-  authoritative material line per work-order item, using
-  `billable_quantity ?? quantity`, current line price, and the fixed `+15%`
-  material mark-up. A zero billing override remains visible as `$0.00`.
-- Every receipt includes `[x] Labor Hours` where `x` is combined billed hours
-  (`labor_billed_minutes / 60`, after IMP-006's one-time 30-minute rounding) and
-  the right-aligned `labor_total`. Labor receives no additional mark-up. The
-  final Total is marked-up materials plus labor.
-- `pricingText.js` is shared with History, so each material, labor, and Total
-  line uses the same 41-character maximum, sanitization, name truncation, and
-  right-aligned amount behavior. The destination still hard-wraps at character
-  42 and the textarea uses `wrap="off"`.
-- A material with no price renders `NO PRICE`, labels the total incomplete, and
-  disables Close while naming the affected items. Return to In-Progress remains
-  available so the work order can be corrected.
-- Return to In-Progress confirms, then PATCHes status to `in_progress`; Close
-  confirms, then calls the shared any-live-status TechFM OA+ archive endpoint. Either
-  action removes the work order from this Review queue while preserving the
-  receipt text for reference/copying.
-
-### Tools
-
-Files: `views/tools.js`, `views/toolCheckout.js`, `views/toolReturn.js`,
-`pages/tools.html`, `pages/create-item.html`, `api.js`, backend tools
-router/service/domain/schema/model.
-
-Behavior:
-
-- Add Tool is the "Tool" sub-nav tab on the Add Item page, alongside the
-  "Item" tab (see Find/Add Item above); TechFM OA+ (inherits the page's
-  gate). Barcode + name + quantity only -- no location/price/product-link.
-  Has its own live-scan widget scoped to the tool barcode field.
-- Tools page is reached via its own nav button (any authenticated role).
-  Its default sub-view is **Custody**; Inventory and Scan remain secondary
-  sub-views.
-- TechFM OA and above Custody starts with an active-user searchable combobox (up to
-  eight matching full names, keyboard Arrow/Enter/Escape support). Selecting a
-  user opens a profile card with full name, role, account-created date, active
-  status, distinct holding count, and the user's derived tool balances.
-  Archived users are excluded. Supervisor/Technician do not receive the user
-  list for this page and instead see only a card for the `/auth/me` identity.
-- Check-in starts on a holding row. Its fixed-user panel defaults to the full
-  outstanding balance and caps the quantity to that balance. Checkout is
-  TechFM OA+ only and starts from the selected user's card: search available tools
-  by name/barcode or choose "Scan Tool to Check Out," then confirm a fixed
-  user/tool and quantity. A scan never commits automatically.
-- Inventory columns remain Barcode, Name, On Hand, Checked Out (each custody
-  entry as `full name: quantity`, one per line). TechFM OA+ row actions are limited
-  to Edit, Correct Count, and Archive; transactional Check Out/Check In actions
-  live only on the Custody card.
-- Correct Count (`views/toolCorrection.js`) sets the absolute on-hand
-  quantity with a required reason -- mirrors Find Item's Correct Count
-  exactly, just posting to `POST /tools/{id}/adjust`. This is also how a
-  bulk tool's on-hand count is increased ("restocked") -- there is no
-  separate stock-in action.
-- Direct Scan-sub-nav use remains inventory lookup: it resolves through
-  `apiGetToolByBarcode`, switches to Inventory, and filters to the barcode.
-  Card-launched scanning carries checkout context, switches back to Custody,
-  and opens checkout confirmation. There is no create-from-scan shortcut.
-- Both transaction panels retain an optional free-text work-order-number field
-  (no find-or-create; stored as-is). Saving reloads only tool data and rerenders
-  the selected card; auth reset/logout clears page-local selected-user and scan
-  context so custody state cannot leak between sessions.
-- No new tool-custody endpoint or database migration was added: the page
-  composes the existing `/tools/`, `/tools/{barcode}`, `/users/`, `/auth/me`,
-  checkout, and return contracts, and custody remains ledger-derived.
-
-### History
-
-Files: `views/history.js`, `pages/history.html`, `services/history.py`,
-`routers/transactions.py`, `schemas/transactions.py`.
-
-Behavior:
-
-- Supervisor+ only.
-- Tabs: all, by item, by user.
-- Work-order filter overlays all tabs and combines with tab filters. It matches
-  on each transaction's own `work_order_number`, independent of the `work_orders`
-  table, so a work order's transactions stay searchable here forever — including
-  after the work order is archived, and regardless of the fact that work orders
-  can no longer be re-created.
-- When the typed number *exactly* names an **archived** work order
-  (`apiLookupWorkOrder`), a confirm prompt offers to restore it
-  (`apiRestoreWorkOrder`) and reports the result under the filter row. Declining
-  changes nothing, and a declined number is not re-prompted for the rest of the
-  session. This is the undo path for an accidental archive.
-- Voided rows are hidden.
-- Any row visible in History can be voided by the same role set.
-- TechFM OA and above Charge column shows base line value and `+15%` marked-up value
-  for ad-hoc rows; a work-order-linked row shows no charge (`—`) because that
-  material bills through its work-order line on the Work Orders page.
-- Billing editor (partial / zero / clear override) appears only on ad-hoc
-  stock/dispense rows; work-order rows have no per-row charge to edit.
-- Copy table exports all matching rows, not just visible page.
-- Export cap: 100 pages * 100 rows.
-- TechFM OA and above export includes billable qty, unit price, base value, marked-up
-  value. Work-order rows suppress `item_price` on screen (charge lives on the
-  line), so the export fills each work-order stock/dispense row's per-row pricing
-  from the work order's line `unit_price` (fetched via `apiGetWorkOrder`); `adjust`
-  corrections stay blank. This is export-only -- the on-screen History charge
-  column is unchanged.
-- TechFM OA and above export also appends a "Work Order Summary" block: one line per
-  distinct work order in the export with its authoritative total (`materials_total`,
-  override-aware) and that total `+15%`. Sourced from the work order's line totals,
-  not by summing rows. Work orders are resolved by `work_order_number` (always
-  present on a row) via `apiListWorkOrders`, with the row's `work_order_id` as a
-  fast path -- so legacy rows that carry only a number are covered too; the per-row
-  fill uses `work_order_id`. Per-row figures can diverge from the summary when a
-  line was edited or has a billing override -- the summary is authoritative.
-
-### Users
-
-Files: `views/users.js`, `pages/create-user.html`, `pages/saved-users.html`,
-`roles.js`, backend users/auth/roles files.
-
-Behavior:
-
-- Supervisor+ can list users.
-- Add User requires first name, last name, username, password, and a subordinate
-  role. The Users table is the account-management surface that displays all
-  three identity fields.
-- Edit Name is available for the signed-in user's own row and manageable
-  subordinate rows. The same modal can replace the login username. It writes
-  through `PATCH /users/{id}/name`; this is how pre-migration accounts become
-  eligible for full-name CSV routing and how mistyped login names are corrected.
-- TechFM OA and above rows expose Edit Role only for manageable subordinates. The role
-  modal offers only roles the actor strictly outranks; a successful change
-  revokes the target's sessions so their next login receives the correct UI.
-- Create-user dropdown offers only subordinate roles.
-- Row reset/archive/restore actions appear only for users the actor outranks.
-- Password reset uses the app's modal and requires min length 4.
-- The 🗑️ action archives (soft delete): the user can no longer log in but
-  their history is kept and they can be restored. Archived rows render
-  dimmed with an "(archived)" tag and a Restore action. If the server refuses
-  archive because tools remain in custody, a second confirmation can check in
-  every held tool and retry the archive atomically.
-- The list loads with archived users included so the History "by user"
-  filter can still select a departed user.
-
-### Barcode Scanner
-
-Files: `views/scan.js`, `scan/barcode-decoder.js`, `scan/frame-debouncer.js`,
-`scan-test.html`, `scan-test.js`, `vendor/zxing-browser-*`, backend barcode
-service/router/schema.
-
-Behavior:
-
-- Upload mode posts image bytes to `/barcodes/decode`.
-- Live mode uses browser camera and ZXing directly, never `/barcodes/decode`.
-- Live scanner requests environment camera, 1280x720 ideal, continuous focus
-  best-effort.
-- Torch button appears only if track reports torch capability.
-- `scan-test.html` is an unauthenticated diagnostic harness, not part of SPA.
+Scanner: upload mode posts to `/barcodes/decode`; live mode is vendored
+ZXing in the browser (environment camera, 1280×720 ideal, torch only if the
+track reports it) and never calls the backend. `scan-test.html` is an
+unauthenticated diagnostic harness outside the SPA.
 
 ## Backend Feature Context
 
-### Auth/Session
-
-Files: `services/auth.py`, `routers/auth.py`, `auth_deps.py`,
-`schemas/auth.py`, `models.py`.
-
-Behavior:
-
-- Login validates username/password against scrypt hash.
-- Login/account creation/the Users table are the only UI surfaces that display a
-  username. The authenticated header, History, work-order surfaces, Mass Stage,
-  and Tools use the first + last display name from the response contract.
-- `authenticate` rejects archived users (indistinguishable from bad
-  credentials); `get_active_session_user` also filters archived users.
-- The session token is a random URL-safe string; only its SHA-256 hash is
-  stored in `sessions`.
-- Cookie is HttpOnly, SameSite=Lax, path `/`, Secure controlled by
-  `COOKIE_SECURE`.
-- Every login sets server `expires_at` to a 12-hour absolute cap. Remembered
-  login also sets cookie max-age; non-remembered login uses a browser-session
-  cookie, but both have the same server-side lifetime.
-- An expired session is deleted on the first request after expiry.
-
-### Items
-
-Files: `services/items.py`, `services/notes.py`, `routers/items.py`,
-`schemas/items.py`, `models.py`.
-
-Behavior:
-
-- `list_items` returns live items only, newest-first, no pagination. Its optional
-  search is a trimmed, case-insensitive literal substring across name and primary
-  barcode; SQL wildcard/escape characters are escaped and a blank search returns
-  no rows. Omitting search preserves the full-list contract for other views.
-- `get_item_by_barcode` resolves primary or additional barcode for live items.
-- `create_item` checks barcode across primary and additional code tables.
-- `replace_barcodes` diffs child rows to avoid transient unique conflicts.
-- `delete_item` archives by timestamp; hard delete is not normal path.
-- `update_item` is a partial update via a `_UNSET` sentinel: only the
-  fields the router forwards (`model_dump(exclude_unset=True)`) are
-  written, and an explicit `None` clears nullable `price`/`product_link`. It
-  locks the item row; once a positive price and a nonblank product link exist, it
-  atomically resolves every open `missing_item_price` request for that item.
-- `_item_response` flattens additional barcode objects to `list[str]` and
-  redacts price/link below admin.
-
-### Transactions/Billing/History
-
-Files: `domain/quantity.py`, `domain/billing.py`, `services/transactions.py`,
-`services/history.py`, `routers/transactions.py`, `schemas/transactions.py`.
-
-Behavior:
-
-- `apply_transaction` locks the item row and inserts the stock/dispense with
-  `unit_price` snapshotted from the locked item. A short dispense is allowed to
-  make the expected count negative and atomically stages an `inventory_recount`
-  User Request; its response carries `recount_required` and the authoritative
-  post-write `item_quantity` for the red scanner line.
-- Its shared work-order line attachment also creates or extends the item's
-  missing-price request when the locked item has a NULL or non-positive price.
-  Work Orders direct
-  adds and Mass Stage loads use the same attachment path.
-- `apply_correction` locks item row, computes signed delta, inserts `adjust`
-  (no `unit_price` snapshot).
-- `void_transaction` locks transaction row then item row, enforces the
-  Technician-own-work-order-dispense exception below Supervisor, reverses the
-  effect, and resolves a linked recount request.
-- `set_billable_quantity` validates override and updates row only.
-- `list_history` joins transactions/items/users, filters voided rows, paginates.
-- History cost/billing fields are populated only when router passes
-  `include_price=True` for TechFM OA and above; `item_price` is the row's frozen
-  `unit_price` snapshot, falling back to the live `Item.price` only when the
-  snapshot is NULL or 0 (so a price edit leaves real recorded prices intact
-  but flows onto previously-free rows). A work-order-linked row
-  (`work_order_id` set) is the exception: `item_price`/`billable_quantity` are
-  forced NULL because that material bills through its work-order line, not the
-  ledger row (avoids double-billing and the signed-`adjust` negative charge).
-
-### Work Orders
-
-Files: `domain/work_orders.py`, `services/work_orders.py`,
-`routers/work_orders.py`, `schemas/work_orders.py`, `models.py`.
-
-Behavior:
-
-- `get_or_create_work_order` resolves a number (case-insensitive + trimmed) to
-  the one row, creating it if new: fills blank attributes on a live match,
-  returns an archived match untouched for the importer to count/ignore, and
-  validates the assignee is an active Technician or Supervisor. **Reached only from the CSV
-  import** — it is the single creation path in the system. Every new row starts
-  Created; supervisor-name routing affects `supervisor_id`/visibility, not status.
-- `resolve_work_order` is what every other surface (the free-text transaction
-  gate, Mass Stage) uses: same fill-blanks merge, but a number that names nothing
-  — or names an archived work order — raises `WorkOrderNotFoundError` (404) with a
-  message saying which. Work orders are import-only, so a reference cannot create.
-- `lookup_work_order` returns the scoped row *including an archived one* (the one
-  read that sees through the archive); `restore_work_order` clears `archived_at`.
-  Together they back History's archive prompt and TechFM OA+'s exact-number Work
-  Orders search prompt, which are the undo paths for archive now that nothing can
-  re-create a work order.
-- `list_work_orders` is scoped (technician/supervisor/admin), excludes archived,
-  composes every advanced predicate with AND, filters scheduled date by parsed
-  calendar day, and sorts scheduled date descending before applying `limit`.
-- `update_work_order` checks field permissions before writing: notes require an
-  in-scope Technician+; status/entry mode/supervisor/technicians require
-  Supervisor+; imported and legacy metadata require TechFM OA+. A nonblank note is
-  appended under the existing row lock through the pure domain formatter, which
-  adds Central `MM/DD/YY hh:MM AM/PM` and `user.full_name`; a null leaves the
-  log unchanged. Driving the row into `on_hold`, `ready_to_complete`, or
-  `completed` also stops every running labor session on it. Other supplied fields retain overwrite semantics. `assigned_to_ids`
-  replaces the normalized assignment set while
-  maintaining the singular compatibility mirror. Setting/clearing the plural
-  set reconciles Created/Assigned;
-  an explicit rollback to either pre-work value is normalized again after the
-  assignment edit, so the pair cannot contradict technician presence.
-  Supervisor routing is independent. A Review request is accepted only from
-  Completed and only when the caller is an TechFM OA+ or the routed Supervisor and
-  is not one of the assigned workers. Completed and Review retain `completed_at`,
-  while On-Hold/rollback/reopen clears it. A number collision raises 400.
-- `start_work_order` is a separate idempotent Assigned -> In-Progress action for
-  a visible Technician+ caller. It is intentionally narrower than the
-  Supervisor+ general status patch.
-- `complete_work_order` is the matching idempotent In-Progress -> Completed
-  action, but requires the caller's ID in the current plural worker assignment.
-  It cannot pause, roll back, or send the row to Review.
-- `hold_work_order` is the separate idempotent In-Progress -> On-Hold action for
-  a currently assigned worker. It grants no general status authority.
-- `resume_work_order` is its assignment-checked idempotent inverse, On-Hold ->
-  In-Progress, and likewise grants no other status authority.
-- `archive_work_order` requires TechFM OA+ in the service and sets `archived_at` from
-  any live status. This is the stored Closed state.
-- `count_live_legacy_work_orders` and `archive_live_legacy_work_orders` both
-  require Owner exactly in the service. They select only `legacy=true` live
-  rows; the archive function performs one bulk `UPDATE`, commits atomically, and
-  returns the affected-row count.
-- `add_work_order_item` permits an in-scope Technician or Supervisor to add a
-  dispense-mode material even when recorded stock is insufficient. It locks the
-  item row, permits the expected count to become negative, writes the
-  `dispense` transaction and matching line, and creates a linked
-  `inventory_recount` request in the same commit. The response carries the live
-  `item_quantity`, allowing the Work Orders card to show the red
-  `Please re-count stock` message. Retroactive mode remains stock-neutral. The
-  shared line-attachment path advances a pre-work row to In-Progress and leaves
-  On-Hold unchanged.
-  `update_work_order_item` (Supervisor+) corrects stock by the delta
-  and appends one reconciling `adjust` (the original scan rows stay intact -- it
-  does NOT rewrite them); it clears a now-too-large `billable_quantity` override.
-  `delete_work_order_item` (Supervisor+) returns the line's net units, voids its
-  whole contributing transaction set, and resolves requests linked to those
-  source transactions.
-- `set_work_order_item_billable` sets/clears a line's `billable_quantity`
-  override (validated by `domain.billing.validate_billable_value`); it never
-  touches stock. The router builds `materials_total` (sum of
-  `effective_billable * unit_price`) and per-line `unit_price`/`billable_quantity`
-  for TechFM OA and above, redacted below.
-- `add_work_order_labor` requires Supervisor+ and a credited worker who is
-  either assigned or the Supervisor themselves, stores actual whole minutes, and
-  applies the shared activity-derived status transition. Update/delete are
-  Supervisor+ as well. Response totals use `billed_labor_minutes` and
-  `labor_charge`: sum first, round upward once to 30 minutes, then multiply by
-  `$62.50/hour`. **Rounding stays once over the combined total, not per
-  session** — a tracker makes short sessions easy, and rounding a 5-minute
-  return trip up to half an hour three times a day would silently inflate every
-  invoice.
-- `start_labor_session` / `stop_labor_session` are the tracked-time pair. Both
-  sit at the Technician floor with an assignment check that Supervisor+ skips,
-  both take the row lock, and both are idempotent. `_detail` shapes
-  `active_labor_session` (the caller's own clock) and `tracking_technician_ids`
-  (everyone's) per caller, the same way `include_price` already varied by rank.
-
-### Tools
-
-Files: `domain/tools.py`, `domain/quantity.py` (reused), `services/tools.py`,
-`routers/tools.py`, `schemas/tools.py`, `models.py`.
-
-Behavior:
-
-- `create_tool` / `update_tool` check barcode uniqueness against **live**
-  tools only (`services.tools._ensure_barcode_free`) -- no archived-
-  conflict/override flow like items; an archived tool's barcode is simply
-  free.
-- `delete_tool` 🔒 locks the live `Tool` row and refuses to archive it while
-  `tool_custody` reports any outstanding balance
-  (`ToolHasOutstandingCustodyError`).
-- `checkout_tool` first 🔒 locks and validates an active `User` target. An
-  unknown or archived target raises `UserNotFoundError` before the tool is
-  mutated or a ledger row is appended. `checkout_tool` / `return_tool` also
-  🔒 lock the `Tool` row (mirrors
-  `services.transactions.apply_transaction`) and reuse
-  `domain.quantity.apply_delta` directly: checkout calls it with
-  `"dispense"`, return with `"stock"`. No new arithmetic exists for tools.
-- `return_tool` computes the target user's current outstanding balance
-  (`_outstanding_for_user`, the same aggregate query as `tool_custody`
-  scoped to one user) and calls `domain.tools.validate_return` before
-  applying the quantity change, raising `ToolReturnExceedsCheckedOutError`
-  if the return would exceed it.
-- `adjust_tool_quantity` ("Correct Count") mirrors
-  `services.transactions.apply_correction`: 🔒 lock the `Tool` row, compute
-  `delta = new_quantity - current`, `NoChangeError` if 0, apply via
-  `domain.quantity.apply_delta(qty, "adjust", delta)`, insert an `adjust`
-  row with `assigned_to_id=None` and the required `reason`. This is also
-  the only way to increase a bulk tool's on-hand count (no separate
-  stock-in endpoint).
-- `tool_custody` is the shared aggregate (`SUM` grouped by
-  `assigned_to_id`, `HAVING net > 0`, **filtered to
-  `transaction_type IN ('checkout', 'return')`**) both the router (for
-  display) and `return_tool` (for the cap) use -- custody is always
-  derived from `tool_transactions`, never stored, and an `adjust` row is
-  explicitly excluded so a correction never corrupts a custody balance.
-- `user_custody(assigned_to_id)` is the inverse aggregate across tools. It
-  returns tool id/name/barcode/positive quantity rows without filtering
-  archived tools, so legacy inconsistent rows cannot bypass the guard. It is
-  used only by `services.users.archive_user` to reject archiving a user who
-  still holds a tool (`UserHasCheckedOutToolsError`); the frontend card instead
-  inverts each live `ToolResponse.custody` list.
-- `_tool_response` (router) sets `custody` explicitly from `tool_custody`,
-  the same pattern `routers/items.py::_item_response` uses for
-  `barcodes`.
-
-### Mass Staging
-
-Files: `domain/mass_staging.py`, `services/mass_staging.py`,
-`routers/mass_stages.py`, `schemas/mass_stages.py`, `models.py`.
-
-Behavior:
-
-- `create_stage` enforces one active stage per (community, building).
-- `add_work_order_to_stage` enforce-matches the work order's community/building
-  to the stage, *resolves* it via `services.work_orders.resolve_work_order`
-  (404 if that number was never imported — a stage cannot create a work order),
-  and links a slot.
-- `list_stages` is scoped for supervisor vs admin/owner; `get_stage` is not
-  additionally scoped beyond Supervisor+.
-- `reuse_stage` requires a completed source and makes a fresh empty stage for
-  the same community + building.
-- `add_item` upserts planned quantity by slot/item.
-- `load_item` locks the item, allocates across slot plans, writes dispense rows
-  carrying each slot's `work_order_id` + number, increments loaded quantities.
-- `return_item` locks the item, reverse-allocates returns, increments returned
-  quantities, adds stock without transaction rows.
+Per-function service internals are code-owned — use codebase-memory-mcp
+(`get_code_snippet`, `trace_path`) and `docs/endpoint-map.md` → Service
+Invariants. Two facts worth pinning here: `authenticate` rejects archived
+users indistinguishably from bad credentials (and
+`get_active_session_user` filters them again), and only login, account
+creation, and the Users table ever display a login username — every
+operational surface renders the derived full name.
 
 ## Migration History
 
@@ -2937,8 +1636,8 @@ Coverage map:
 | `test_mass_staging.py` | pure mass-stage allocation/lifecycle rules |
 | `test_mass_stages_api.py` | schemas, route gates, response builders |
 | `test_mass_staging_load.py` | DB-backed slot load/return, add-work-order enforce-match + refusal of an unimported number, Technician/Supervisor worker assignment, reuse |
-| `test_work_orders_domain.py` | pure number normalization, seven live statuses in lifecycle order including stable On-Hold and the new `ready_to_complete`, community-filter vocabulary/validation, plural worker-derived Created/Assigned state, activity-derived In-Progress, `MM/DD/YY hh:MM AM/PM` note-log formatting (zero-padded hour, midnight/noon, naive-as-UTC, old lines preserved verbatim), the 12-hour session cap and its 1-minute floor, combined labor rounding/charge, fill-blanks, Technician/Supervisor worker visibility scope |
-| `test_work_orders_service.py` | DB-backed find-or-create, resolve-only attach, plural Technician/Supervisor assignment/scope, Admin/Supervisor routing targets, assigned-worker start/finish/On-Hold/resume actions, tracked labor sessions (open/idempotent/refused past Ready to Complete, the auto-hold on the last clock out, a co-worker keeping it In-Progress, hold and finish stopping every clock with each note authored by its own technician, resume starting none, the cross-work-order auto-stop and its `side_transitions` hand-back, the partial unique index, archive, the lazy cap writing at the capped time without auto-holding, and an open session billing nothing), Completed-only two-person Review handoff, Supervisor+-only labor writes including a supervisor crediting themselves unassigned, lifecycle/status/append-only authored notes/archive/materials, Technician/Supervisor zero-stock add with recount creation and Supervisor removal resolution, Owner-only live-legacy preview/re-archive selection, AND-composed advanced filters, community aliases/multi-membership/Academics fallback, scoped filter options, and list cap |
+| `test_work_orders_domain.py` | pure rules: number normalization, the seven-status lifecycle order, community vocabulary, worker-derived Created/Assigned, activity-derived In-Progress, note-log formatting, the 12-hour cap and 1-minute floor, combined labor rounding/charge, fill-blanks, visibility scope |
+| `test_work_orders_service.py` | DB-backed service coverage: find-or-create/resolve-only, assignment/scope/routing, the walkthrough actions, tracked sessions (auto-hold on last clock-out, cross-work-order auto-stop with `side_transitions`, the partial unique index, the lazy cap, an open session billing nothing), the two-person Review handoff, labor rules incl. a supervisor crediting themselves, notes/archive/materials, zero-stock adds + recount lifecycle, Owner legacy re-archive, AND-composed filters, community aliases, list cap |
 | `test_work_order_import.py` | CSV parsing/import, required-number-header and UTF-8 preflight, blank/missing-task NetFacilities fallback, generated-to-real replacement, duplicate-row precedence, manual-task preservation, full-name Admin/Supervisor routing independent of Created status, unmatched/ambiguous/archived/ineligible-role fallback, idempotence, closed-row count/no-mutation, and Admin gate |
 | `test_work_order_name_responses.py` | work-order response exposes plural operational names, rounded labor detail/totals, and the note-log text while omitting login usernames |
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
@@ -2983,7 +1682,7 @@ Coverage map:
 | `test_push_subscriptions.py` | Owner-only send gate, the two separate role floors, and the Admin-and-above test audience derived from rank; DB-backed endpoint reassignment on a shared device, caller-scoped delete, archived-user exclusion, delete-only-on-404/410, and the SSRF guard refusing a disallowed endpoint before any request — on both fan-out entry points. Its fan-out tests hide any subscription the developer's own database holds, inside the rolled-back transaction; without that a genuinely enrolled device joins every send under test |
 | `test_notifications_domain.py` | pure recipient rules: actor suppression, dedup, dropping an unrouted supervisor, and that message text interpolates a work-order number or a count and nothing else. Every event is partitioned into a number event or a count event, so a new one cannot skip that decision |
 | `test_notifications.py` | recipient resolution against the DB, that nothing is scheduled without recipients or without a VAPID key, and that delivery opens its own session and swallows failures |
-| `test_work_orders_notifications.py` | every trigger at its route: right recipients, one notification per event across an idempotent repeat, one PATCH producing two events, the ordering that makes `completed → on_hold` a hold rather than a reopen, the unrouted-hold fallback to Admin+, `/tracking/start` firing nothing while `/tracking/stop` fires `held` only on the auto-hold (and nothing when a co-worker is still tracking, on a repeat, or when the actor is the routed supervisor), the abandoned work order's alert surviving a cross-work-order start, the Ready to Complete approve/send-back pair (send-back now reaching the technician, and reading differently from a return from Review), supervisor routing notifying only the new supervisor and staying silent on a re-save or a clear, and a broken rule never failing the write |
+| `test_work_orders_notifications.py` | every trigger at its route: right recipients, once per event across idempotent repeats, multi-event PATCHes, pinned overlap ordering, tracking-stop firing `held` only on the true auto-hold, the approve/send-back pair, routing notifying only the new supervisor, and a broken rule never failing the write |
 
 No frontend test harness exists. For UI behavior, run backend tests plus manual
 browser checks for changed pages.
@@ -3000,24 +1699,14 @@ Do not "fix" these accidentally unless the task asks for it.
 - Completed mass stages cannot be reopened.
 - Stage deletion does not reverse load transactions already written.
 - Frontend has no bundler/type checker; ID and module contract drift is manual.
-- NetFacilities authentication is per-user Steel cloud sign-in only, as of
-  2026-08-29. The pre-Steel system was removed that day: the local headed Windows
-  sign-in, the shared Render `netfacilities-storage-state.json` secret file, the
-  borrowed live-session window, the `/session` + `/auth/*` + `/downloads/import`
-  routes, `services/netfacilities_auth.py`, `services/netfacilities_live_session.py`,
-  `services/netfacilities_operations.py`, the local factory functions, the local-profile
-  CLIs, and the `NETFACILITIES_STORAGE_STATE_PATH` / `NETFACILITIES_BROWSER_CHANNEL`
-  settings. `NetFacilitiesClient` keeps its whole fetch/parse behavior but now requires
-  an injected browser context, so the Steel adapter is the only thing that can construct
-  a working one, and `NETFACILITIES_RENDER_DOCUMENT` now actually reaches it (it never
-  did on the cloud path before). Session expiration is recovered by that one user signing
-  in again — there is no shared credential to rotate and no redeploy involved. The
-  Integrations card shows one capability, one status line, and one Enrich button gated on
-  it. Browser-managed downloading, app-side credential/MFA handling, and secondary-data
-  retrieval remain absent. Default tests never make a live NetFacilities request. **Not
-  yet done:** the manual D5/D6 replay spike against a real Steel account and a real
-  NetFacilities login, and deleting the now-unused `netfacilities-storage-state.json`
-  secret file in Render's dashboard.
+- NetFacilities authentication is per-user Steel cloud sign-in only; the
+  pre-Steel system was fully removed 2026-08-29 (see the Removed register).
+  `NetFacilitiesClient` requires an injected browser context — only the Steel
+  adapter can construct a working one. Browser-managed downloading, app-side
+  credential/MFA handling, and secondary-data retrieval remain absent;
+  default tests never make a live request. **Not yet done:** the manual
+  D5/D6 replay spike, and deleting the unused
+  `netfacilities-storage-state.json` secret file in Render's dashboard.
 - Editing a dispense-mode work-order line auto-corrects stock by the delta and
   appends one reconciling `adjust` transaction (signed stock delta; the original
   scan rows stay intact). That `adjust` is an inventory record only -- it is not
@@ -3073,51 +1762,28 @@ Do not "fix" these accidentally unless the task asks for it.
 
 ## Removed, Replaced, And Dormant
 
-A post-mortem register. Everything here is either **gone from the repo** (so a
-document still describing it as live is wrong) or **present but not wired to
-anything** (so reading the file will mislead you about what the app does). Each
-entry names the replacement or the reason, so a removal is not re-proposed and a
-dormant file is not mistaken for a working feature.
-
-### Dormant — code is on `main`, the feature is not built
-
-**Currently empty.** Web Push held the only entry here from 2026-08-15 to
-2026-08-18: `domain/push.py` and `scripts/generate_vapid_keys.py` sat on `main`
-imported by nothing but their own tests. That entry also claimed the remaining
-work was stranded on `feat/push-notifications` and merely behind `main`. It was
-not — that branch was fully merged (PRs #8 and #9) and held nothing unique; the
-rest of the feature had never been written. The wiring landed on 2026-08-18 and
-push is now a live capability, documented under *API Surface → Web Push*.
-
-### Removed
+Kept so a removal is not re-proposed and a dormant file is not mistaken for a
+working feature. Dormant is **currently empty**.
 
 | What | When | Replaced by / why |
 |---|---|---|
-| `GET /items/search-index` | 2026-08-10 (X3) | The lightweight projection had no remaining caller once Find Item moved to explicit Search / Load All. `GET /items/` with `q` covers it. |
-| `backend/static/index.html` | 2026-06-12 (`7dbac2d`) | Runtime shell assembly: `main.py::_assemble_index` concatenates `shell-head.html` + `pages/*.html` + `shell-tail.html` on **every** request to `/`, deliberately uncached so an edited fragment is never served stale. |
-| Sliding-window session idle timeout | migration `c7e9a1b3d5f8` | Replaced by an absolute `expires_at` plus remember-me. Consequence worth knowing: because no idle timeout exists, a password reset must explicitly revoke sessions — see `test_password_reset_revokes_sessions.py`. |
-| Ten separate docs → four | 2026-08-10 | The three parallel backlogs had drifted out of agreement. `open-work.md` is now the only backlog; git holds shipped history. |
-| NetFacilities/realtime/push plan + design docs, `handoff.md` | 2026-08-16 (`4a211fb`) | Superseded once the work landed; durable behavior belongs in this file. They survive in the Obsidian vault under `archive/superpowers/`. N3 depends on one of them and cites it directly. |
+| `GET /items/search-index` | 2026-08-10 (X3) | no caller; `GET /items/?q=` covers it |
+| `backend/static/index.html` | 2026-06-12 | runtime shell assembly in `main.py`, deliberately uncached |
+| Sliding-window session idle timeout | `c7e9a1b3d5f8` | absolute `expires_at` + remember-me; consequence: a password reset must revoke sessions |
+| Ten docs → four; NetFacilities/realtime/push plan docs, `handoff.md` | 2026-08-10 / 2026-08-16 | `open-work.md` is the only backlog; the archived docs survive in the vault under `archive/superpowers/` (N3 cites one) |
+| Pre-Steel NetFacilities auth — local headed sign-in, shared secret file, five local routes, `services/netfacilities_auth.py` and siblings | 2026-08-29 | per-user Steel cloud auth (IMP-040) |
 
-### Still live — occasionally assumed dead
-
-- **HTTP middleware.** `main.py` registers **three** `@app.middleware("http")`
-  layers, and all three are load-bearing: `rate_limit` (B3), `add_security_headers`,
-  and `log_request`. Registration order is the reverse of execution order —
-  `add_middleware` inserts at the front — so `log_request` is outermost and
-  `rate_limit` innermost. The one real exception is `/ws`, which is a `websocket`
-  scope and therefore runs **none** of them; see the Real-time API Surface entry.
-- **`static/scan-test.html` / `scan-test.js`.** Deleted in `635fbd2` and
-  restored afterwards. Still present, still an unauthenticated diagnostic
-  harness, still not part of the SPA.
+Still live — occasionally assumed dead: the **three** HTTP middleware layers
+in `main.py` (`rate_limit`, `add_security_headers`, `log_request`;
+registration order is the reverse of execution order, and `/ws` runs none of
+them), and `static/scan-test.html` (deleted in `635fbd2`, restored — still an
+unauthenticated diagnostic harness outside the SPA).
 
 ## Documentation Policy
 
-Keep this file optimized for technical execution:
+House rules live in `CLAUDE.md` → Documentation conventions (current-truth
+only, form rules, soft budgets). Specific to this file: prefer tables and
+routing maps over narrative; tie source-of-truth statements to actual files;
+document current behavior, never intended future behavior; put limitations in
+`Known Gaps`.
 
-- Prefer tables and routing maps over narrative.
-- Keep source-of-truth statements tied to actual files.
-- Document current behavior, not intended future behavior.
-- Put implementation limitations in `Known Gaps`.
-- Avoid reintroducing separate durable plan/spec/reference docs unless there is
-  a temporary need and a cleanup date.
