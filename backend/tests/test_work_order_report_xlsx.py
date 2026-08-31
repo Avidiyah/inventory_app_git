@@ -1,10 +1,11 @@
 """The daily report's Excel render.
 
-`report_xlsx` is a pure function of a `DailyReport` (spec X3), so these tests
-hand-build frozen payloads instead of touching the database -- no `db` fixture,
-no dev-Postgres fencing.
+`report_xlsx` is a pure function of a `DailyReport` (spec X3 / E13), so these
+tests hand-build frozen payloads instead of touching the database -- no `db`
+fixture, no dev-Postgres fencing. Charts cannot be read back through openpyxl,
+so they are asserted over the saved bytes with `zipfile`.
 
-Spec: docs/superpowers/specs/2026-08-30-hub-report-xlsx-export-design.md
+Spec: docs/superpowers/specs/2026-08-30-hub-report-xlsx-redesign-design.md
 """
 
 import csv
@@ -20,28 +21,38 @@ from decimal import Decimal
 from uuid import uuid4
 
 import openpyxl
+import pytest
 
 from app.domain import work_orders as wo
 from app.services import work_order_report as report
+from app.services import work_order_report_buckets as buckets
 from app.services import work_order_report_xlsx as xlsx
+
+CLOSED_AT = datetime(2026, 8, 25, 15, 30, tzinfo=timezone.utc)
 
 
 def _row(
     *,
     number="WO-1",
-    status=wo.STATUS_COMPLETED,
+    status=wo.STATUS_CREATED,
     community=None,
+    location="Bldg A",
     service_type=None,
     labor_total="0.00",
     materials_total="0.00",
+    archived=False,
+    notes=None,
+    priority=None,
 ):
     """A `ReportRow` whose `export_cells` are shaped like `export_row`'s: 26
-    values, three of them genuine ints, money as fixed-point strings."""
+    values, three of them genuine ints, money as fixed-point strings. Live by
+    default; `archived=True` makes it a row closed this week."""
     labor = Decimal(labor_total)
     materials = Decimal(materials_total)
+    archived_at = CLOSED_AT if archived else None
     cells = [
         number,
-        "Bldg A",
+        location or "",
         "",
         "",
         service_type or "",
@@ -60,11 +71,11 @@ def _row(
         60,
         f"{labor:.2f}",
         f"{materials + labor:.2f}",
-        "",
+        notes or "",
         "2026-08-25 14:00",
         "2026-08-25 15:00",
         "2026-08-25 15:00",
-        "2026-08-25 15:30",
+        "2026-08-25 15:30" if archived else "",
     ]
     assert len(cells) == len(wo.EXPORT_HEADERS)
     return report.ReportRow(
@@ -72,11 +83,11 @@ def _row(
         number=number,
         status=status,
         community=community,
-        location="Bldg A",
+        location=location,
         building_number="3",
         unit_number="12",
         service_type=service_type,
-        priority=None,
+        priority=priority,
         supervisor_name="Sue",
         technician_names=["Tech One", "Tech Two"],
         materials_total=materials,
@@ -85,15 +96,18 @@ def _row(
         total=materials + labor,
         created_at=datetime(2026, 8, 25, 14, 0, tzinfo=timezone.utc),
         completed_at=datetime(2026, 8, 25, 15, 0, tzinfo=timezone.utc),
-        archived_at=datetime(2026, 8, 25, 15, 30, tzinfo=timezone.utc),
+        archived_at=archived_at,
         auto_closed=False,
         legacy=False,
+        notes=notes,
+        material_lines=2,
         export_cells=cells,
     )
 
 
 def _payload(
     *,
+    live=(),
     closed_today=(),
     closed_week=(),
     closing=(),
@@ -104,7 +118,10 @@ def _payload(
     closing_count=None,
     truncated=False,
 ):
+    """The E1 population is `live` + `closed_week`; the sections are passed
+    separately, exactly as `daily_report` composes them."""
     closing_rows = list(closing)
+    all_rows = sorted([*live, *closed_week], key=report.reading_order)
     return report.DailyReport(
         generated_at=datetime(2026, 8, 25, 22, 30, tzinfo=timezone.utc),
         day=date(2026, 8, 25),
@@ -127,6 +144,62 @@ def _payload(
             new_today=report.NewSection(count=len(new_today), rows=list(new_today)),
             new_week=report.NewSection(count=len(new_week), rows=list(new_week)),
         ),
+        distribution=buckets.distribution(all_rows),
+        all_rows=all_rows,
+    )
+
+
+def _scholars_payload():
+    """Scholars only: 3 accepted Plumbing, 1 on-hold HVAC, 1 review Plumbing
+    (live) plus 2 Plumbing closed this week. Every other community empty."""
+    live = [
+        _row(number="WO-1", community="Scholars", service_type="Plumbing"),
+        _row(number="WO-2", community="Scholars", service_type="Plumbing"),
+        _row(
+            number="WO-3",
+            community="Scholars",
+            service_type="Plumbing",
+            notes="Tenant home after 5.\nCall first.",
+        ),
+        _row(
+            number="WO-4",
+            community="Scholars",
+            service_type="HVAC",
+            status=wo.STATUS_ON_HOLD,
+        ),
+        _row(
+            number="WO-5",
+            community="Scholars",
+            service_type="Plumbing",
+            status=wo.STATUS_REVIEW,
+        ),
+    ]
+    closed = [
+        _row(
+            number="WO-6",
+            community="Scholars",
+            service_type="Plumbing",
+            status=wo.STATUS_COMPLETED,
+            archived=True,
+            labor_total="100.00",
+            materials_total="25.00",
+        ),
+        _row(
+            number="WO-7",
+            community="Scholars",
+            service_type="Plumbing",
+            status=wo.STATUS_REVIEW,
+            archived=True,
+        ),
+    ]
+    return _payload(
+        live=live,
+        closed_today=closed[:1],
+        closed_week=closed,
+        closing=[live[4]],
+        by_status={wo.STATUS_REVIEW: 1},
+        new_today=[live[0]],
+        new_week=live[:2],
     )
 
 
@@ -139,16 +212,86 @@ def _cells(sheet):
     return [[cell.value for cell in row] for row in sheet.iter_rows()]
 
 
+def _column(sheet, column, first, last):
+    return [sheet.cell(row=row, column=column).value for row in range(first, last + 1)]
+
+
+def _chart_parts(payload):
+    with zipfile.ZipFile(io.BytesIO(xlsx.report_xlsx(payload))) as archive:
+        return {
+            name: archive.read(name).decode()
+            for name in archive.namelist()
+            if name.startswith("xl/charts/chart") and name.endswith(".xml")
+        }
+
+
+# --- workbook shape (E6, E7, E10) ------------------------------------------
+
+
+def test_sheets_are_the_eight_visible_plus_hidden_chart_data_with_data_last():
+    workbook = _workbook(_payload())
+
+    assert workbook.sheetnames == [
+        "Report",
+        "Scholars",
+        "Centennial",
+        "Commons",
+        "Young Hall",
+        "Academics",
+        "Work Orders",
+        "Chart Data",
+        "Data",
+    ]
+    assert workbook.sheetnames == list(xlsx.SHEET_NAMES)
+    assert workbook["Chart Data"].sheet_state == "hidden"
+    assert all(
+        workbook[name].sheet_state == "visible"
+        for name in workbook.sheetnames
+        if name != "Chart Data"
+    )
+    assert workbook.active.title == "Report"
+
+
+def test_tab_colors_and_gridlines_follow_the_house_style():
+    workbook = _workbook(_payload())
+
+    assert workbook["Report"].sheet_properties.tabColor.rgb.endswith("C8102E")
+    assert workbook["Commons"].sheet_properties.tabColor.rgb.endswith("5A5C60")
+    assert workbook["Work Orders"].sheet_properties.tabColor.rgb.endswith("1C1D20")
+    assert workbook["Data"].sheet_properties.tabColor.rgb.endswith("B7B9BC")
+    assert workbook["Report"].sheet_view.showGridLines is False
+    assert workbook["Data"].sheet_view.showGridLines is not False
+
+
+def test_filename_is_the_covered_day():
+    assert xlsx.report_xlsx_filename(_payload()) == "wo-report_2026-08-25.xlsx"
+
+
+# --- Data (X5, E10) ---------------------------------------------------------
+
+
 def test_data_sheet_matches_report_csv():
     """The load-bearing pin (X5): the Data sheet is `report_csv`, cell for
     cell, so save-as-CSV from Excel still round-trips through the importer."""
-    closed = _row(number="WO-1", community="North", service_type="Plumbing")
+    closed = _row(
+        number="WO-1",
+        community="North",
+        service_type="Plumbing",
+        status=wo.STATUS_COMPLETED,
+        archived=True,
+    )
+    closing = _row(number="WO-3", status=wo.STATUS_REVIEW)
+    new = _row(number="WO-4")
     payload = _payload(
+        live=[closing, new],
         closed_today=[closed],
-        closed_week=[closed, _row(number="WO-2", service_type="HVAC")],
-        closing=[_row(number="WO-3", status=wo.STATUS_REVIEW)],
-        new_today=[_row(number="WO-4")],
-        new_week=[_row(number="WO-4")],
+        closed_week=[
+            closed,
+            _row(number="WO-2", service_type="HVAC", status=wo.STATUS_COMPLETED, archived=True),
+        ],
+        closing=[closing],
+        new_today=[new],
+        new_week=[new],
         by_status={wo.STATUS_REVIEW: 1},
     )
 
@@ -170,110 +313,102 @@ def test_data_sheet_header_is_the_section_prefixed_export_headers():
     assert sheet.freeze_panes == "A2"
 
 
-def test_headline_block_matches_the_payload_counts():
+# --- Work Orders (E4, E5, §4.3) ---------------------------------------------
+
+
+def test_work_orders_header_has_notes_in_column_c_and_freezes_at_d6():
+    sheet = _workbook(_scholars_payload())["Work Orders"]
+
+    assert [cell.value for cell in sheet[5]][:21] == [
+        "WORK ORDER",
+        "LOCATION",
+        "NOTES",
+        "BUCKET",
+        "STATUS",
+        "COMMUNITIES",
+        "SERVICE TYPE",
+        "PRIORITY",
+        "BUILDING",
+        "UNIT",
+        "SUPERVISOR",
+        "TECHNICIANS",
+        "MATERIAL LINES",
+        "MATERIALS TOTAL",
+        "LABOR MINUTES",
+        "LABOR TOTAL",
+        "TOTAL",
+        "CREATED AT",
+        "COMPLETED AT",
+        "CLOSED AT",
+        "SECTIONS",
+    ]
+    assert sheet["C5"].value == "NOTES"
+    assert sheet.column_dimensions["C"].width == 60
+    assert sheet.freeze_panes == "D6"
+    assert sheet.print_title_rows == "$5:$5"
+
+
+def test_work_orders_is_the_deduped_population_in_reading_order():
+    sheet = _workbook(_scholars_payload())["Work Orders"]
+
+    numbers = _column(sheet, 1, 6, 12)
+    assert numbers == ["WO-6", "WO-7", "WO-5", "WO-4", "WO-1", "WO-2", "WO-3"]
+    assert len(numbers) == len(set(numbers)) == 7
+    assert sheet.cell(row=13, column=1).value is None
+    assert [t.ref for t in sheet.tables.values()] == ["A5:U12"]
+
+
+def test_work_orders_columns_carry_bucket_status_sections_and_real_numbers():
+    sheet = _workbook(_scholars_payload())["Work Orders"]
+    closed = [cell.value for cell in sheet[6]]
+    accepted = [cell.value for cell in sheet[10]]
+    ready = [cell.value for cell in sheet[8]]
+
+    assert closed[0] == "WO-6"
+    assert closed[3] == "Closed" and closed[4] == "Completed"
+    assert closed[12] == 2
+    assert closed[13] == Decimal("25.00") and sheet["N6"].number_format == "$#,##0.00"
+    assert closed[15] == Decimal("100.00") and closed[16] == Decimal("125.00")
+    assert closed[17] == datetime(2026, 8, 25, 14, 0) and sheet["R6"].number_format == "yyyy-mm-dd hh:mm"
+    assert closed[19] == datetime(2026, 8, 25, 15, 30)
+    assert closed[20] == "closed_today; closed_week"
+    assert accepted[3] == "Accepted" and accepted[4] == "Created"
+    assert accepted[19] is None
+    assert accepted[20] == "new_today; new_week"
+    assert ready[3] == "Ready to close" and ready[4] == "Review" and ready[20] == "closing"
+
+
+def test_work_orders_communities_column_lists_every_membership():
     payload = _payload(
-        closed_today=[_row(number="WO-1")],
-        closed_week=[_row(number="WO-1"), _row(number="WO-2")],
-        new_today=[_row(number="WO-3")],
-        new_week=[_row(number="WO-3"), _row(number="WO-4"), _row(number="WO-5")],
-    )
-    sheet = _workbook(payload)["Summary"]
-
-    assert [cell.value for cell in sheet[xlsx.ACTIVITY_ROW]] [:3] == [
-        None,
-        "Today",
-        "Week to date",
-    ]
-    assert [
-        [sheet.cell(row=row, column=col).value for col in (1, 2, 3)]
-        for row in (xlsx.ACTIVITY_ROW + 1, xlsx.ACTIVITY_ROW + 2)
-    ] == [["Closed", 1, 2], ["New", 1, 3]]
-
-
-def test_headline_block_notes_auto_closed_work_orders():
-    payload = _payload(closed_today=[_row()], auto_closed_today=1)
-    values = [row[0] for row in _cells(_workbook(payload)["Summary"])]
-
-    assert any(
-        isinstance(value, str) and "(1 in NetFacilities)" in value for value in values
-    )
-
-
-def test_pipeline_block_zero_fills_by_status():
-    """Counts come from `by_status`, never from the rows (X8): the block stays
-    true when the cap bites, and every lifecycle status is always charted."""
-    payload = _payload(
-        closing=[_row(number="WO-1", status=wo.STATUS_REVIEW)],
-        by_status={wo.STATUS_REVIEW: 4, wo.STATUS_READY_TO_COMPLETE: 2},
-        closing_count=6,
-        truncated=True,
-    )
-    sheet = _workbook(payload)["Summary"]
-    grid = _cells(sheet)
-
-    start = next(
-        index for index, row in enumerate(grid) if row and row[0] == "In the pipeline"
-    )
-    assert grid[start][1] == 6
-    assert [row[:2] for row in grid[start + 1 : start + 4]] == [
-        ["Ready to complete", 2],
-        ["Completed", 0],
-        ["Review", 4],
-    ]
-    assert any(
-        isinstance(row[0], str) and "counts above are complete" in row[0]
-        for row in grid
-    )
-
-
-def test_service_type_and_community_blocks_aggregate_closed_week():
-    week = [
-        _row(number="WO-1", service_type="Plumbing", community="North",
-             labor_total="100.00", materials_total="10.00"),
-        _row(number="WO-2", service_type="Plumbing", community=None,
-             labor_total="5.00", materials_total="0.00"),
-        _row(number="WO-3", service_type=None, community="North",
-             labor_total="50.00", materials_total="20.00"),
-    ]
-
-    assert xlsx._service_type_counts(week) == [
-        ("Plumbing", 2),
-        ("(no service type)", 1),
-    ]
-    assert xlsx._community_money(week) == [
-        ("North", Decimal("150.00"), Decimal("30.00")),
-        ("(no community)", Decimal("5.00"), Decimal("0.00")),
-    ]
-
-    grid = _cells(_workbook(_payload(closed_week=week))["Summary"])
-    assert ["Plumbing", 2] in [row[:2] for row in grid]
-    assert ["North", Decimal("150.00"), Decimal("30.00")] in [row[:3] for row in grid]
-
-
-def test_empty_report_renders_placeholders():
-    grid = _cells(_workbook(_payload())["Summary"])
-    rows = [row[:3] for row in grid]
-
-    assert ["(none)", 0, None] in rows
-    assert ["(none)", Decimal("0.00"), Decimal("0.00")] in rows
-
-
-def test_workbook_contains_four_charts():
-    """Asserted at the zip level: openpyxl cannot read back charts it wrote
-    (spec §3), so the file itself is the only honest witness."""
-    with zipfile.ZipFile(io.BytesIO(xlsx.report_xlsx(_payload()))) as archive:
-        charts = [
-            name
-            for name in archive.namelist()
-            if name.startswith("xl/charts/chart") and name.endswith(".xml")
+        live=[
+            _row(number="WO-1", location="Scholars 3 / Commons annex"),
+            _row(number="WO-2", community="Young Hall"),
+            _row(number="WO-3"),
         ]
+    )
+    sheet = _workbook(payload)["Work Orders"]
 
-    assert len(charts) == 4
+    assert sheet["F5"].value == "COMMUNITIES"
+    assert sheet.column_dimensions["F"].width == 22
+    # Memberships, not the raw column (E14): two names for a two-community
+    # location, Academics for a location naming none -- never blank.
+    assert _column(sheet, 6, 6, 8) == ["Scholars; Commons", "Young Hall", "Academics"]
 
 
-def test_sheet_order_opens_on_summary():
-    assert _workbook(_payload()).sheetnames == ["Summary", "Data"]
+def test_work_orders_notes_wrap_top_aligned_with_a_capped_row_height():
+    sheet = _workbook(_scholars_payload())["Work Orders"]
+
+    note_cell = sheet["C12"]
+    assert note_cell.value == "Tenant home after 5.\nCall first."
+    assert note_cell.alignment.wrap_text is True
+    assert note_cell.alignment.vertical == "top"
+    assert sheet.row_dimensions[12].height == 27.0
+    assert sheet.row_dimensions[6].height is None
 
 
-def test_filename_is_the_covered_day():
-    assert xlsx.report_xlsx_filename(_payload()) == "wo-report_2026-08-25.xlsx"
+def test_empty_population_renders_a_header_and_an_empty_state_without_a_table():
+    sheet = _workbook(_payload())["Work Orders"]
+
+    assert sheet["C5"].value == "NOTES"
+    assert sheet["A6"].value == "No live or recently closed work orders."
+    assert sheet.tables == {}

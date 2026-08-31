@@ -1,95 +1,107 @@
-"""The Admin daily report as an Excel workbook: charts up front, rows behind.
+"""The Admin daily report as an Excel workbook.
 
 Layer: services. The third renderer of `work_order_report.daily_report`'s
 payload, beside the JSON route and `report_csv` -- a pure function of that
 payload, no queries and no clock, so the file and the screen cannot disagree
-(parent spec R9). It lives in its own module because `work_order_report.py` is
-already 324 lines and a four-chart builder would push it past the 500-line rule.
+(parent spec R9 / X3, redesign E13). Styling lives in `_xlsx_theme.py` (E12);
+this module is sheet composition only.
 
-Spec: docs/superpowers/specs/2026-08-30-hub-report-xlsx-export-design.md
+Spec: docs/superpowers/specs/2026-08-30-hub-report-xlsx-redesign-design.md
 
-Two things about this module are load-bearing:
+Sheet order is the reading order: `Report`, one sheet per community, `Work
+Orders`, then the machine sheets -- hidden `Chart Data`, and `Data` last.
 
-**openpyxl discards charts across a load/save cycle.** So there is no committed
-`.xlsx` template to fill in -- a template's charts would vanish, silently, from
-every download. The workbook is built programmatically instead, which openpyxl
-does fully support. The same limitation means the charts here cannot be read
-back through openpyxl: `tests/test_work_order_report_xlsx.py` asserts their
-presence over the saved bytes with `zipfile`.
+Three things about this module are load-bearing:
 
-**The `Data` sheet is `report_csv`, cell for cell**, money-as-text included, so
-save-as-CSV from Excel still round-trips through `parse_import_row`. Charts
-never read it; they read the `Summary` blocks, which hold real numerics.
+**openpyxl discards charts across a load/save cycle.** So there is no
+committed `.xlsx` template -- the workbook is built in code, and the charts
+cannot be read back in tests: `tests/test_work_order_report_xlsx.py` asserts
+them over the saved bytes with `zipfile`.
+
+**Every chart reads the hidden `Chart Data` sheet (E7)**, one labelled block
+per chart written by cursor, with `visible_cells_only = False` so Excel plots
+it. The designed sheets carry the same numbers as styled tables, from the
+same payload -- never as chart sources.
+
+**`Data` is `report_csv`, cell for cell (E10 / X5)**, money-as-text included,
+so save-as-CSV from Excel still round-trips through `parse_import_row`.
 """
 
 from __future__ import annotations
 
 import io
+from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Optional
+from uuid import UUID
 
 from openpyxl import Workbook
-from openpyxl.chart import BarChart, Reference, Series
-from openpyxl.chart.shapes import GraphicalProperties
-from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter, range_boundaries
 from openpyxl.worksheet.worksheet import Worksheet
 
 from app.domain import labor_day
 from app.domain import work_orders as wo
+from app.services import _xlsx_theme as theme
 from app.services.work_order_report import (
     CLOSING_STATUSES,
     CSV_SECTION_HEADER,
     SECTION_ORDER,
+    STATUS_LABELS,
     DailyReport,
     ReportRow,
+)
+from app.services.work_order_report_buckets import (
+    BUCKET_CLOSED,
+    BUCKET_KEYS,
+    BUCKET_LABELS,
+    CommunityDistribution,
+    communities_of,
+    grid_of,
+    primary_community,
+    row_bucket,
 )
 
 XLSX_MEDIA_TYPE = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
 
-# The page's own labels, so the workbook and the screen name the same things.
-STATUS_LABELS: dict[str, str] = {
-    wo.STATUS_READY_TO_COMPLETE: "Ready to complete",
-    wo.STATUS_COMPLETED: "Completed",
-    wo.STATUS_REVIEW: "Review",
-}
+CHART_DATA_SHEET = "Chart Data"
 
-NO_SERVICE_TYPE = "(no service type)"
-NO_COMMUNITY = "(no community)"
+# Physical order. Excel opens on the first; `Chart Data` is hidden, so the
+# tab strip shows eight and ends on `Data` (E6, plan P5).
+SHEET_NAMES: tuple[str, ...] = (
+    "Report",
+    *(wo.COMMUNITY_LABELS[key] for key in wo.ALL_COMMUNITY_FILTERS),
+    "Work Orders",
+    CHART_DATA_SHEET,
+    "Data",
+)
+
 PLACEHOLDER = "(none)"
+EMPTY_STATE = "No live or recently closed work orders."
+EMPTY_COMMUNITY_STATE = "No live or recently closed work orders in this community."
 
-# Brand red primary, neutral grey secondary (docs/design-system.md). Series
-# colors are the only styling here beyond bold headers and money formats.
-BRAND_RED = "C8102E"
-NEUTRAL = "5A5C60"
-
-MONEY_FORMAT = "#,##0.00"
-
-# The first block's addresses are fixed because the header above it is: rows
-# 1-4 are the title block, row 6 the block's own heading, row 7 its column
-# labels. Every later block is laid out by cursor -- blocks 3 and 4 are
-# variable-length -- so nothing below here has a fixed address.
-ACTIVITY_ROW = 7
-
-# A default openpyxl chart is about this many rows tall. The cursor advances by
-# at least this much between blocks so a chart anchored beside one block cannot
-# land on top of the next one's.
-CHART_ROWS = 15
-
-BOLD = Font(bold=True)
+BUCKET_COLOR_ORDER = [theme.BUCKET_COLORS[key] for key in BUCKET_KEYS]
 
 
 def report_xlsx(payload: DailyReport) -> bytes:
-    """The whole report as a two-sheet workbook: `Summary` then `Data`.
-
-    Sheet order is the reading order -- Excel opens on the first sheet, so the
-    Admin lands on the charts and reaches the rows deliberately."""
     workbook = Workbook()
-    # Workbook() ships one sheet; reuse it rather than creating and deleting.
-    summary = workbook.active
-    summary.title = "Summary"
-    _summary_sheet(summary, payload)
-    _data_sheet(workbook.create_sheet("Data"), payload)
+    report_sheet = workbook.active
+    report_sheet.title = "Report"
+    community_sheets = {
+        key: workbook.create_sheet(wo.COMMUNITY_LABELS[key])
+        for key in wo.ALL_COMMUNITY_FILTERS
+    }
+    work_orders_sheet = workbook.create_sheet("Work Orders")
+    chart_data = _ChartData(workbook.create_sheet(CHART_DATA_SHEET))
+    chart_data.sheet.sheet_state = "hidden"
+    data_sheet = workbook.create_sheet("Data")
+
+    _report_sheet(report_sheet, payload, chart_data)
+    for community in payload.distribution.communities:
+        _community_sheet(community_sheets[community.key], payload, community, chart_data)
+    _work_orders_sheet(work_orders_sheet, payload)
+    _data_sheet(data_sheet, payload)
 
     buffer = io.BytesIO()
     workbook.save(buffer)
@@ -103,7 +115,279 @@ def report_xlsx_filename(payload: DailyReport) -> str:
 
 
 # --------------------------------------------------------------------------
-# Data sheet
+# Shared pieces
+# --------------------------------------------------------------------------
+
+
+class _ChartData:
+    """Cursor over the hidden source sheet: one named block per chart (E7).
+
+    Each block is a one-cell name, a header row, then its rows, then a blank
+    row -- so a person who unhides the sheet can find what a chart reads."""
+
+    def __init__(self, sheet: Worksheet) -> None:
+        self.sheet = sheet
+        self.row = 1
+
+    def block(self, name: str, header: list, rows: list[list]) -> tuple[int, int]:
+        """Write the block; return `(header_row, last_row)` for a `Reference`."""
+        self.sheet.cell(row=self.row, column=1, value=name)
+        header_row = self.row + 1
+        for offset, value in enumerate(header, start=1):
+            self.sheet.cell(row=header_row, column=offset, value=value)
+        for index, values in enumerate(rows, start=1):
+            for offset, value in enumerate(values, start=1):
+                self.sheet.cell(row=header_row + index, column=offset, value=value)
+        last_row = header_row + len(rows)
+        self.row = last_row + 2
+        return header_row, last_row
+
+
+def _population_caveat(payload: DailyReport) -> str:
+    """§2.1, on every designed sheet: what the population is, and why the
+    community totals do not sum to the company total."""
+    generated = payload.generated_at.astimezone(labor_day.CENTRAL)
+    week = payload.week
+    return (
+        f"Live work orders as of {generated:%Y-%m-%d %H:%M} Central, plus work "
+        f"orders closed {week.start.isoformat()} – {week.end.isoformat()}. A work "
+        "order named in two communities is counted in both; community totals do "
+        "not sum to the company total."
+    )
+
+
+def _bucket_rows(group: CommunityDistribution) -> list[list]:
+    """Label / count / share, in bucket order. Shares are real fractions."""
+    return [
+        [
+            BUCKET_LABELS[key],
+            group.counts[key],
+            (group.counts[key] / group.total) if group.total else 0,
+        ]
+        for key in BUCKET_KEYS
+    ]
+
+
+def _pie(
+    sheet: Worksheet,
+    chart_data: _ChartData,
+    *,
+    name: str,
+    title: str,
+    group,
+    cells: str,
+    legend: Optional[str],
+    percent_labels: bool,
+    empty_text: str = EMPTY_STATE,
+) -> None:
+    """A bucket pie for `group` (anything with `.total` and `.counts`) filling
+    `cells`, or the empty-state line at the range's top-left when there is
+    nothing to plot -- a pie with no area is a rendering bug, not a data point
+    (§4.2)."""
+    min_col, min_row, _, _ = range_boundaries(cells)
+    if group.total == 0:
+        theme.empty_state(sheet, min_row, empty_text, column=min_col)
+        return
+    header_row, last_row = chart_data.block(
+        name,
+        ["Bucket", "Count"],
+        [[BUCKET_LABELS[key], group.counts[key]] for key in BUCKET_KEYS],
+    )
+    chart = theme.pie_of(
+        chart_data.sheet,
+        title=title,
+        header_row=header_row,
+        last_row=last_row,
+        colors=BUCKET_COLOR_ORDER,
+        legend=legend,
+        percent_labels=percent_labels,
+    )
+    theme.place(sheet, chart, cells)
+
+
+# --------------------------------------------------------------------------
+# Report  (body added in Task 5)
+# --------------------------------------------------------------------------
+
+
+def _report_sheet(sheet: Worksheet, payload: DailyReport, chart_data: _ChartData) -> None:
+    theme.setup_sheet(sheet, tab_color=theme.BRAND_RED)
+    week = payload.week
+    generated = payload.generated_at.astimezone(labor_day.CENTRAL)
+    theme.title_block(
+        sheet,
+        "Weekly Work Order Report",
+        [
+            f"{payload.day.strftime('%a, %b %d, %Y')} · week of "
+            f"{week.start.isoformat()} – {week.end.isoformat()} (week to date)",
+            f"Generated {generated.strftime('%Y-%m-%d %H:%M')} Central",
+            _population_caveat(payload),
+        ],
+    )
+
+
+# --------------------------------------------------------------------------
+# Community sheets  (body added in Task 6)
+# --------------------------------------------------------------------------
+
+
+def _community_sheet(
+    sheet: Worksheet,
+    payload: DailyReport,
+    community: CommunityDistribution,
+    chart_data: _ChartData,
+) -> None:
+    theme.setup_sheet(sheet, tab_color=theme.MUTED)
+    theme.title_block(
+        sheet,
+        community.label,
+        [
+            f"Weekly status · {community.total:,} work orders",
+            _population_caveat(payload),
+        ],
+    )
+
+
+# --------------------------------------------------------------------------
+# Work Orders
+# --------------------------------------------------------------------------
+
+WORK_ORDERS_HEADER_ROW = 5
+
+WORK_ORDER_HEADERS: tuple[str, ...] = (
+    "WORK ORDER",
+    "LOCATION",
+    "NOTES",
+    "BUCKET",
+    "STATUS",
+    "COMMUNITIES",
+    "SERVICE TYPE",
+    "PRIORITY",
+    "BUILDING",
+    "UNIT",
+    "SUPERVISOR",
+    "TECHNICIANS",
+    "MATERIAL LINES",
+    "MATERIALS TOTAL",
+    "LABOR MINUTES",
+    "LABOR TOTAL",
+    "TOTAL",
+    "CREATED AT",
+    "COMPLETED AT",
+    "CLOSED AT",
+    "SECTIONS",
+)
+
+WORK_ORDER_WIDTHS: tuple[int, ...] = (
+    14, 34, theme.NOTES_WIDTH, 14, 16, 22, 18, 12, 10, 10, 18, 24, 12, 14, 12, 14, 14, 18, 18, 18, 20,
+)
+
+# 0-based column offset -> number format.
+WORK_ORDER_FORMATS: dict[int, str] = {
+    12: theme.COUNT,
+    13: theme.MONEY,
+    14: theme.COUNT,
+    15: theme.MONEY,
+    16: theme.MONEY,
+    17: theme.DATE,
+    18: theme.DATE,
+    19: theme.DATE,
+}
+
+
+def _excel_utc(value: Optional[datetime]) -> Optional[datetime]:
+    """UTC, naive: openpyxl refuses tz-aware datetimes. UTC on purpose -- the
+    same seam `export_row` writes (§5); the covered period is in the title."""
+    if value is None:
+        return None
+    return labor_day.as_utc(value).astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _sections_of(payload: DailyReport) -> dict[UUID, list[str]]:
+    """Which report sections each work order appeared in, in SECTION_ORDER --
+    the `Data` sheet's SECTION filter folded into one deduped row."""
+    seen: dict[UUID, list[str]] = {}
+    for key in SECTION_ORDER:
+        for row in getattr(payload.sections, key).rows:
+            seen.setdefault(row.work_order_id, []).append(key)
+    return seen
+
+
+def _work_order_cells(row: ReportRow, sections: dict[UUID, list[str]]) -> list:
+    return [
+        row.number,
+        row.location,
+        row.notes,
+        BUCKET_LABELS[row_bucket(row)],
+        STATUS_LABELS.get(row.status, row.status),
+        "; ".join(communities_of(row)),
+        row.service_type,
+        row.priority,
+        row.building_number,
+        row.unit_number,
+        row.supervisor_name,
+        "; ".join(row.technician_names),
+        row.material_lines,
+        row.materials_total,
+        row.labor_minutes,
+        row.labor_total,
+        row.total,
+        _excel_utc(row.created_at),
+        _excel_utc(row.completed_at),
+        _excel_utc(row.archived_at),
+        "; ".join(sections.get(row.work_order_id, [])),
+    ]
+
+
+def _work_orders_sheet(sheet: Worksheet, payload: DailyReport) -> None:
+    """One row per work order over the E1 population, deduped, in reading
+    order (§4.3). Money is numeric here -- this sheet is for reading and
+    pivoting, and it is not the re-import path."""
+    theme.setup_sheet(
+        sheet,
+        tab_color=theme.INK,
+        freeze=f"D{WORK_ORDERS_HEADER_ROW + 1}",
+        print_title_rows=f"{WORK_ORDERS_HEADER_ROW}:{WORK_ORDERS_HEADER_ROW}",
+    )
+    theme.set_widths(
+        sheet,
+        {get_column_letter(index): width for index, width in enumerate(WORK_ORDER_WIDTHS, start=1)},
+    )
+    week = payload.week
+    theme.title_block(
+        sheet,
+        "Work Orders",
+        [
+            f"{len(payload.all_rows):,} work orders · live now plus closed "
+            f"{week.start.isoformat()} – {week.end.isoformat()}",
+            "One row per work order. Timestamps are UTC; the covered period is "
+            "in the line above and in the filename.",
+        ],
+    )
+
+    sections = _sections_of(payload)
+    rows = [_work_order_cells(row, sections) for row in payload.all_rows]
+    theme.table_of(
+        sheet,
+        name="WorkOrders",
+        row=WORK_ORDERS_HEADER_ROW,
+        headers=WORK_ORDER_HEADERS,
+        rows=rows,
+        formats=WORK_ORDER_FORMATS,
+        alignment=theme.TOP,
+    )
+    first = WORK_ORDERS_HEADER_ROW + 1
+    for index, row in enumerate(payload.all_rows, start=first):
+        sheet.cell(row=index, column=3).alignment = theme.TOP_WRAPPED
+        height = theme.notes_row_height(row.notes)
+        if height is not None:
+            sheet.row_dimensions[index].height = height
+    if not rows:
+        theme.empty_state(sheet, first, EMPTY_STATE)
+
+
+# --------------------------------------------------------------------------
+# Data
 # --------------------------------------------------------------------------
 
 
@@ -113,253 +397,13 @@ def _data_sheet(sheet: Worksheet, payload: DailyReport) -> None:
     Deliberately not coerced to numbers. The money columns stay the strings
     `export_row` produced, so Excel shows its "number stored as text" hint on
     them -- that is the price of the CSV being byte-identical, and the charts
-    are immune because they read the Summary blocks instead."""
+    are immune because they read `Chart Data` instead."""
+    theme.setup_sheet(sheet, tab_color=theme.TAB_GRAY, freeze="A2", gridlines=True)
     sheet.append([CSV_SECTION_HEADER, *wo.EXPORT_HEADERS])
     for cell in sheet[1]:
-        cell.font = BOLD
-    sheet.freeze_panes = "A2"
-
+        cell.font = theme.font(bold=True)
     for key in SECTION_ORDER:
         # All five sections, so a row appears under both `closed_today` and
         # `closed_week` -- the CSV's filter-on-SECTION property, preserved.
         for row in getattr(payload.sections, key).rows:
             sheet.append([key, *row.export_cells])
-
-
-# --------------------------------------------------------------------------
-# Summary sheet
-# --------------------------------------------------------------------------
-
-
-def _summary_sheet(sheet: Worksheet, payload: DailyReport) -> None:
-    sheet.column_dimensions["A"].width = 26
-    sheet.column_dimensions["B"].width = 14
-    sheet.column_dimensions["C"].width = 14
-
-    _header(sheet, payload)
-
-    cursor = 6
-    for block in (
-        _activity_block,
-        _pipeline_block,
-        _service_type_block,
-        _community_money_block,
-    ):
-        height = block(sheet, payload, cursor)
-        cursor += max(height, CHART_ROWS) + 2
-
-
-def _header(sheet: Worksheet, payload: DailyReport) -> None:
-    week = payload.week
-    generated = payload.generated_at.astimezone(labor_day.CENTRAL)
-    sheet["A1"] = "Daily Report"
-    sheet["A1"].font = Font(bold=True, size=16)
-    sheet["A2"] = payload.day.strftime("%a, %b %d, %Y")
-    sheet["A3"] = (
-        f"Week of {week.start.isoformat()} - {week.end.isoformat()} - week to date"
-    )
-    # Central, the zone the report's windows are cut in and the page renders.
-    sheet["A4"] = f"Generated {generated.strftime('%Y-%m-%d %H:%M')} Central"
-
-
-def _write(sheet: Worksheet, row: int, values: list, *, bold: bool = False) -> None:
-    for offset, value in enumerate(values, start=1):
-        cell = sheet.cell(row=row, column=offset, value=value)
-        if bold:
-            cell.font = BOLD
-
-
-def _heading(sheet: Worksheet, row: int, text: str) -> None:
-    sheet.cell(row=row, column=1, value=text).font = BOLD
-
-
-def _anchor(row: int) -> str:
-    """Charts live in column E, clear of the A-C blocks they read."""
-    return f"E{row}"
-
-
-def _styled(series: Series, color: str) -> Series:
-    series.graphicalProperties = GraphicalProperties(solidFill=color)
-    return series
-
-
-def _activity_block(sheet: Worksheet, payload: DailyReport, top: int) -> int:
-    """Block 1 -- the four section counts as a Closed/New by Today/Week matrix.
-
-    Counts come from the sections' own `count` fields, never from tallying
-    rows: `closing` can be capped, and the page follows the same rule."""
-    sections = payload.sections
-    # `top + 1` is `ACTIVITY_ROW`: this is the one block whose address is fixed,
-    # because everything above it is.
-    _heading(sheet, top, "Activity")
-    _write(sheet, ACTIVITY_ROW, [None, "Today", "Week to date"], bold=True)
-    _write(
-        sheet,
-        ACTIVITY_ROW + 1,
-        ["Closed", sections.closed_today.count, sections.closed_week.count],
-    )
-    _write(
-        sheet,
-        ACTIVITY_ROW + 2,
-        ["New", sections.new_today.count, sections.new_week.count],
-    )
-
-    height = (ACTIVITY_ROW + 2) - top + 1
-    auto_today = sections.closed_today.auto_closed_count
-    auto_week = sections.closed_week.auto_closed_count
-    if auto_today or auto_week:
-        # The page's own phrasing, so the file reads like the screen.
-        note = (
-            f"Closed today includes ({auto_today} in NetFacilities); "
-            f"this week ({auto_week} in NetFacilities)"
-        )
-        sheet.cell(row=ACTIVITY_ROW + 3, column=1, value=note)
-        height += 1
-
-    chart = BarChart()
-    chart.type = "col"
-    chart.title = "Activity"
-    chart.y_axis.title = "Work orders"
-    data = Reference(
-        sheet, min_col=2, max_col=3, min_row=ACTIVITY_ROW, max_row=ACTIVITY_ROW + 2
-    )
-    chart.add_data(data, titles_from_data=True)
-    chart.set_categories(
-        Reference(sheet, min_col=1, min_row=ACTIVITY_ROW + 1, max_row=ACTIVITY_ROW + 2)
-    )
-    for series, color in zip(chart.series, (BRAND_RED, NEUTRAL)):
-        _styled(series, color)
-    sheet.add_chart(chart, _anchor(top))
-    return height
-
-
-def _pipeline_block(sheet: Worksheet, payload: DailyReport, top: int) -> int:
-    """Block 2 -- what is sitting in a closing status, by status.
-
-    Zero-filled from `CLOSING_STATUSES` so the chart always shows all three
-    lifecycle categories, and read from `by_status` rather than from `rows` so
-    it stays true when the cap bites."""
-    closing = payload.sections.closing
-    _heading(sheet, top, "Closing pipeline")
-    total_row = top + 1
-    _write(sheet, total_row, ["In the pipeline", closing.count])
-
-    first = total_row + 1
-    for offset, status in enumerate(CLOSING_STATUSES):
-        _write(
-            sheet,
-            first + offset,
-            [STATUS_LABELS.get(status, status), closing.by_status.get(status, 0)],
-        )
-    last = first + len(CLOSING_STATUSES) - 1
-
-    height = last - top + 1
-    if closing.truncated:
-        sheet.cell(
-            row=last + 1,
-            column=1,
-            value=(
-                "Showing the first rows only on the Data sheet -- more are in the "
-                "pipeline than it lists. The counts above are complete."
-            ),
-        )
-        height += 1
-
-    chart = BarChart()
-    chart.type = "bar"
-    chart.title = "Closing pipeline"
-    chart.add_data(Reference(sheet, min_col=2, min_row=first, max_row=last))
-    chart.set_categories(Reference(sheet, min_col=1, min_row=first, max_row=last))
-    chart.legend = None
-    _styled(chart.series[0], BRAND_RED)
-    sheet.add_chart(chart, _anchor(top))
-    return height
-
-
-def _service_type_counts(rows: list[ReportRow]) -> list[tuple[str, int]]:
-    """Closed rows per service type, busiest first then alphabetical."""
-    counts: dict[str, int] = {}
-    for row in rows:
-        key = row.service_type or NO_SERVICE_TYPE
-        counts[key] = counts.get(key, 0) + 1
-    return sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
-
-
-def _service_type_block(sheet: Worksheet, payload: DailyReport, top: int) -> int:
-    """Block 3 -- the week's closures by service type. Variable-length, so the
-    chart's `Reference` is built from the block's actual extent."""
-    counts = _service_type_counts(payload.sections.closed_week.rows) or [
-        (PLACEHOLDER, 0)
-    ]
-    _heading(sheet, top, "Closed this week by service type")
-    header = top + 1
-    _write(sheet, header, ["Service type", "Closed"], bold=True)
-    for offset, (name, count) in enumerate(counts, start=1):
-        _write(sheet, header + offset, [name, count])
-    last = header + len(counts)
-
-    chart = BarChart()
-    chart.type = "bar"
-    chart.title = "Closed this week by service type"
-    chart.add_data(
-        Reference(sheet, min_col=2, min_row=header, max_row=last), titles_from_data=True
-    )
-    chart.set_categories(Reference(sheet, min_col=1, min_row=header + 1, max_row=last))
-    chart.legend = None
-    _styled(chart.series[0], BRAND_RED)
-    sheet.add_chart(chart, _anchor(top))
-    return last - top + 1
-
-
-def _community_money(
-    rows: list[ReportRow],
-) -> list[tuple[str, Decimal, Decimal]]:
-    """Labor and materials dollars per community, biggest combined first.
-
-    Decimals throughout -- openpyxl writes them natively, and the report's
-    money is never a float anywhere else either."""
-    totals: dict[str, list[Decimal]] = {}
-    for row in rows:
-        key = row.community or NO_COMMUNITY
-        bucket = totals.setdefault(key, [Decimal("0.00"), Decimal("0.00")])
-        bucket[0] += row.labor_total
-        bucket[1] += row.materials_total
-    return sorted(
-        ((name, labor, materials) for name, (labor, materials) in totals.items()),
-        key=lambda entry: (-(entry[1] + entry[2]), entry[0]),
-    )
-
-
-def _community_money_block(sheet: Worksheet, payload: DailyReport, top: int) -> int:
-    """Block 4 -- where the week's money went, split labor vs materials.
-
-    Stacked rather than side-by-side: one chart answers both "which community"
-    and "how much of it was labor" (X11)."""
-    money = _community_money(payload.sections.closed_week.rows) or [
-        (PLACEHOLDER, Decimal("0.00"), Decimal("0.00"))
-    ]
-    _heading(sheet, top, "Closed this week: dollars by community")
-    header = top + 1
-    _write(sheet, header, ["Community", "Labor $", "Materials $"], bold=True)
-    for offset, (name, labor, materials) in enumerate(money, start=1):
-        _write(sheet, header + offset, [name, labor, materials])
-        for column in (2, 3):
-            sheet.cell(row=header + offset, column=column).number_format = MONEY_FORMAT
-    last = header + len(money)
-
-    chart = BarChart()
-    chart.type = "col"
-    chart.grouping = "stacked"
-    chart.overlap = 100
-    chart.title = "Closed this week: dollars by community"
-    chart.y_axis.title = "Dollars"
-    chart.add_data(
-        Reference(sheet, min_col=2, max_col=3, min_row=header, max_row=last),
-        titles_from_data=True,
-    )
-    chart.set_categories(Reference(sheet, min_col=1, min_row=header + 1, max_row=last))
-    for series, color in zip(chart.series, (BRAND_RED, NEUTRAL)):
-        _styled(series, color)
-    sheet.add_chart(chart, _anchor(top))
-    return last - top + 1
-
