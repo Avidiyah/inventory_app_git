@@ -287,10 +287,11 @@ Committed as `6fd036b`.
 
 ## Session hand-off
 
-**Done through Task 1 (commit `6fd036b`).** Next session: start at **Task 2:
-The predicates** below. Nothing in Task 1 deviated from the plan's design —
-only the two-file testing note above. `low_stock_threshold` is live in the DB
-(migration `a1c3e5b7d9f0` applied) and on `ItemResponse`.
+**Done through Task 2 (commit `f9923dd`).** Next session: start at **Task 3:
+The request-scoped crossing buffer** below. Nothing in Task 2 deviated from
+the plan. `low_stock_threshold` is live in the DB (migration `a1c3e5b7d9f0`
+applied) and on `ItemResponse`; `app.domain.low_stock` now also exposes
+`is_low`, `crossed_into_low`, and `membership_changed`.
 
 ---
 
@@ -307,7 +308,7 @@ only the two-file testing note above. `low_stock_threshold` is live in the DB
   - `crossed_into_low(*, quantity_before, threshold_before, quantity_after, threshold_after) -> bool`
   - `membership_changed(*, quantity_before, threshold_before, quantity_after, threshold_after) -> bool`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_low_stock_domain.py`:
 
@@ -413,12 +414,12 @@ def test_membership_is_unchanged_when_a_low_item_stays_low():
     ) is False
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_low_stock_domain.py -q`
 Expected: FAIL — `AttributeError: module 'app.domain.low_stock' has no attribute 'is_low'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Append to `backend/app/domain/low_stock.py`:
 
@@ -478,17 +479,19 @@ def membership_changed(
     )
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_low_stock_domain.py -q`
 Expected: PASS (11 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/domain/low_stock.py backend/tests/test_low_stock_domain.py
 git commit -m "feat(low-stock): pure edge-crossing predicates"
 ```
+
+Committed as `f9923dd`.
 
 ---
 
