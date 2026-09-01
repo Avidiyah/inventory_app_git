@@ -795,12 +795,15 @@ Committed as `56063ca`.
 
 ## Session hand-off
 
-**Done through Task 3 (commit `56063ca`).** Next session: start at **Task 4:
-The notification rule and its text** below. Nothing in Task 3 deviated from
-the plan. `app.services.low_stock` now exposes `Crossing`, `record`, `drain`,
-and `MAX_BUFFERED_CROSSINGS`; it imports only `app.domain.low_stock` and
-`app.domain.receipt.format_quantity`, no ORM model and nothing from
-`app.services`.
+**Done through Task 4 (commit `a2e2935`).** Next session: start at **Task 5:
+The realtime event** below. Task 4 deviated once from the plan: a
+pre-existing event partition in `test_notifications_domain.py` needed a
+fourth bucket (`_LOW_STOCK_EVENTS`) for the new event — see the deviation
+note under Task 4 Step 7. `app.domain.notifications` now exposes
+`EVENT_ITEM_LOW_STOCK`, `LOW_STOCK_AUDIENCE_MIN_ROLE`,
+`recipients_for_low_stock`, and a `build_message` widened with `name` /
+`quantity` params; `EVENT_ITEM_LOW_STOCK` is registered in `ALL_EVENTS`.
+Full suite: 1611 passed.
 
 ---
 
@@ -818,7 +821,7 @@ and `MAX_BUFFERED_CROSSINGS`; it imports only `app.domain.low_stock` and
   - `recipients_for_low_stock(*, recipient_ids: Sequence[uuid.UUID]) -> list[uuid.UUID]`
   - `build_message(event_type, *, number=None, count=None, name=None, quantity=None) -> tuple[str, str]`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `backend/tests/test_notifications_domain.py`:
 
@@ -879,12 +882,12 @@ def test_low_stock_is_registered():
 
 Check the file's existing imports; add any of `pytest`, `uuid`, `roles` that are missing.
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_notifications_domain.py -q`
 Expected: FAIL — `AttributeError: module 'app.domain.notifications' has no attribute 'EVENT_ITEM_LOW_STOCK'`.
 
-- [ ] **Step 3: Widen the module's stated rule**
+- [x] **Step 3: Widen the module's stated rule**
 
 In `backend/app/domain/notifications.py`, replace the third and fourth paragraphs of the module docstring (the two beginning "**Notification text renders on a locked phone.**" and "The line is **identifiers and counts yes...**") with:
 
@@ -914,7 +917,7 @@ a barcode off a lock screen -- so the choice was a useful notification or
 none at all. A *price* remains forbidden on the same item.
 ```
 
-- [ ] **Step 4: Add the event, audience, and text**
+- [x] **Step 4: Add the event, audience, and text**
 
 After `EVENT_NETFACILITIES_IMPORT_FAILED`:
 
@@ -945,7 +948,7 @@ Add to `_MESSAGES`:
     ),
 ```
 
-- [ ] **Step 5: Add the recipient rule**
+- [x] **Step 5: Add the recipient rule**
 
 After `recipients_for_hold`:
 
@@ -972,7 +975,7 @@ def recipients_for_low_stock(
     return select_recipients(recipient_ids, actor_id=None)
 ```
 
-- [ ] **Step 6: Widen `build_message`**
+- [x] **Step 6: Widen `build_message`**
 
 Replace the signature and the `supplied` dict in `build_message`:
 
@@ -1004,17 +1007,32 @@ and
 
 Leave the two `raise ValueError` branches exactly as they are — the second is what makes `test_low_stock_text_still_refuses_a_missing_field` pass.
 
-- [ ] **Step 7: Run the tests**
+- [x] **Step 7: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_notifications_domain.py -q`
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+> **Deviation (2026-09-01):** `test_notifications_domain.py` has a pre-existing
+> `_NUMBER_EVENTS` / `_COUNT_EVENTS` / `_CHAIN_EVENTS` partition (built from
+> `notif.ALL_EVENTS`) that the plan's Step 1 diff did not touch. Adding
+> `EVENT_ITEM_LOW_STOCK` to `ALL_EVENTS` put it in `_NUMBER_EVENTS` by default,
+> which parametrizes `build_message` with only `number=` and fails since the
+> low-stock template needs `name`/`quantity`. Added a fourth partition,
+> `_LOW_STOCK_EVENTS = (notif.EVENT_ITEM_LOW_STOCK,)`, excluded it from
+> `_NUMBER_EVENTS`, and widened the completeness test to
+> `test_every_event_is_either_a_number_a_count_a_chain_or_a_low_stock_event`.
+> Same class of gap as Task 1's `_fake_item` deviation — a fixed enumeration
+> in an existing test file didn't anticipate a new event. Anyone adding
+> another event later should check this partition too.
+
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/app/domain/notifications.py backend/tests/test_notifications_domain.py
 git commit -m "feat(notifications): low-stock event, audience, and item-naming text"
 ```
+
+Committed as `a2e2935`. Full suite: 1611 passed.
 
 ---
 
