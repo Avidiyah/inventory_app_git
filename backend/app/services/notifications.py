@@ -392,3 +392,44 @@ def notify_work_order_reopened(
             actor_id=actor_id,
         ),
     )
+
+
+def notify_item_low_stock(
+    db: Session,
+    background: BackgroundTasks,
+    *,
+    crossings: Sequence,
+) -> None:
+    """Requirement: an item fell to or below its threshold.
+
+    One push per crossed item, never a digest -- a Mass Stage load that
+    crosses eight items sends eight notifications, each naming its own
+    item, because a generic "8 items are low" tells the recipient nothing
+    they can act on without opening the app.
+
+    `crossings` carries only plain values (see
+    `services.low_stock.Crossing`), so this reads nothing lazy and the
+    scheduled task carries nothing that could detach. The audience is
+    resolved here, inside the request, for the same reason every other
+    rule resolves here: the session is closed by the time the task runs.
+
+    Entries whose `pushes` is False are membership changes that are not
+    crossings -- an item restocked back above its threshold. They exist
+    for the realtime invalidation and are silent on the phone.
+    """
+    pushed = [crossing for crossing in crossings if crossing.pushes]
+    if not pushed:
+        return
+
+    recipients = policy.recipients_for_low_stock(
+        recipient_ids=push_service.user_ids_for_min_role(
+            db, policy.LOW_STOCK_AUDIENCE_MIN_ROLE
+        ),
+    )
+    for crossing in pushed:
+        title, body = policy.build_message(
+            policy.EVENT_ITEM_LOW_STOCK,
+            name=crossing.name,
+            quantity=crossing.quantity,
+        )
+        _schedule(background, recipients, title, body)
