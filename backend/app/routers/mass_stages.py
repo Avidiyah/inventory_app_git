@@ -14,7 +14,7 @@ import uuid
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.auth_deps import require_min_role
@@ -23,6 +23,7 @@ from app.domain import roles
 from app.domain.errors import DomainError, StageItemNotFoundError
 from app.models import MassStage, MassStageItem, MassStageWorkOrder, User
 from app.routers._errors import to_http
+from app.routers._low_stock import flush_low_stock
 from app.schemas.mass_stages import (
     LoadRequest,
     MassStageCreate,
@@ -375,6 +376,7 @@ def _merged_for(stage: MassStage, item_id: uuid.UUID) -> MergedItem:
 def load_item(
     stage_id: uuid.UUID,
     payload: LoadRequest,
+    background: BackgroundTasks,
     user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
@@ -384,6 +386,7 @@ def load_item(
         ms_service.load_item(
             db, stage_id, item_id=payload.item_id, quantity=payload.quantity, user_id=user.id
         )
+        flush_low_stock(db, background)
         stage = ms_service.get_stage(db, stage_id)
         return _merged_for(stage, payload.item_id)
     except DomainError as exc:
@@ -398,6 +401,7 @@ def load_item(
 def return_item(
     stage_id: uuid.UUID,
     payload: ReturnRequest,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     """Return unused materials to stock (silent stock-add, no ledger row).
@@ -406,6 +410,7 @@ def return_item(
         ms_service.return_item(
             db, stage_id, item_id=payload.item_id, quantity=payload.quantity
         )
+        flush_low_stock(db, background)
         stage = ms_service.get_stage(db, stage_id)
         return _merged_for(stage, payload.item_id)
     except DomainError as exc:

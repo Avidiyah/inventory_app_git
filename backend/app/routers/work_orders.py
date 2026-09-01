@@ -49,6 +49,7 @@ from app.domain.list_limits import MAX_LIST_ROWS
 from app.logging_config import current_request_id
 from app.models import User, WorkOrder, WorkOrderItem, WorkOrderLabor
 from app.routers._errors import to_http
+from app.routers._low_stock import flush_low_stock
 from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_capped
 from app.schemas.work_orders import (
     LegacyWorkOrderArchivePreview,
@@ -1220,6 +1221,7 @@ def restore_work_order(
 def add_work_order_item(
     work_order_id: uuid.UUID,
     payload: WorkOrderItemCreate,
+    background: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1231,6 +1233,7 @@ def add_work_order_item(
         line = wo_service.add_work_order_item(
             db, work_order_id, user=user, item_id=payload.item_id, quantity=payload.quantity
         )
+        flush_low_stock(db, background)
         return _line_detail(line, include_price=_can_see_price(user))
     except DomainError as exc:
         raise to_http(exc)
@@ -1241,6 +1244,7 @@ def update_work_order_item(
     work_order_id: uuid.UUID,
     wo_item_id: uuid.UUID,
     payload: WorkOrderItemUpdate,
+    background: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1249,6 +1253,7 @@ def update_work_order_item(
         line = wo_service.update_work_order_item(
             db, work_order_id, wo_item_id, user=user, quantity=payload.quantity
         )
+        flush_low_stock(db, background)
         return _line_detail(line, include_price=_can_see_price(user))
     except DomainError as exc:
         raise to_http(exc)
@@ -1293,12 +1298,14 @@ def set_work_order_item_billing(
 def delete_work_order_item(
     work_order_id: uuid.UUID,
     wo_item_id: uuid.UUID,
+    background: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Remove a logged material (Supervisor+; stock returns and History voids)."""
     try:
         wo_service.delete_work_order_item(db, work_order_id, wo_item_id, user=user)
+        flush_low_stock(db, background)
     except DomainError as exc:
         raise to_http(exc)
 

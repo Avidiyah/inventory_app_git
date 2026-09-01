@@ -15,7 +15,7 @@ from datetime import date
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.auth_deps import get_current_user, require_min_role
@@ -24,6 +24,7 @@ from app.domain import roles
 from app.domain.errors import DomainError
 from app.models import User, WorkOrder
 from app.routers._errors import to_http
+from app.routers._low_stock import flush_low_stock
 from app.schemas.transactions import (
     BillingUpdate,
     CorrectionCreate,
@@ -41,6 +42,7 @@ router = APIRouter(prefix="/transactions", tags=["transactions"])
 @router.post("/", response_model=TransactionResponse, status_code=201)
 def create_transaction(
     payload: TransactionCreate,
+    background: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -82,7 +84,7 @@ def create_transaction(
                 work_order_id = wo_row.id
                 work_order_number = wo_row.number
 
-        return transactions_service.apply_transaction(
+        transaction = transactions_service.apply_transaction(
             db,
             item_id=payload.item_id,
             transaction_type=payload.transaction_type,
@@ -91,6 +93,8 @@ def create_transaction(
             work_order_number=work_order_number,
             work_order_id=work_order_id,
         )
+        flush_low_stock(db, background)
+        return transaction
     except DomainError as exc:
         raise to_http(exc)
 
@@ -98,6 +102,7 @@ def create_transaction(
 @router.post("/adjust", response_model=TransactionResponse, status_code=201)
 def create_correction(
     payload: CorrectionCreate,
+    background: BackgroundTasks,
     user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
@@ -111,13 +116,15 @@ def create_correction(
     impossible-from-the-Pydantic-side case — would otherwise drive
     stock below zero (`NegativeQuantityError`)."""
     try:
-        return transactions_service.apply_correction(
+        transaction = transactions_service.apply_correction(
             db,
             item_id=payload.item_id,
             new_quantity=payload.new_quantity,
             reason=payload.reason,
             user_id=user.id,
         )
+        flush_low_stock(db, background)
+        return transaction
     except DomainError as exc:
         raise to_http(exc)
 
@@ -153,6 +160,7 @@ def update_billing(
 @router.delete("/{transaction_id}", status_code=204)
 def void_transaction(
     transaction_id: UUID,
+    background: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -171,6 +179,7 @@ def void_transaction(
             user_id=user.id,
             user_role=user.role,
         )
+        flush_low_stock(db, background)
     except DomainError as exc:
         raise to_http(exc)
 
