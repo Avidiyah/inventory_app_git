@@ -24,3 +24,58 @@ DEFAULT_LOW_STOCK_THRESHOLD = 6
 # "0 = never alert" mute: stock cannot go below zero, so a zero threshold
 # would be an invisible off-switch rather than a threshold.
 MIN_LOW_STOCK_THRESHOLD = 1
+
+
+def is_low(quantity: Decimal, threshold: int) -> bool:
+    """Whether `quantity` is at or below `threshold`.
+
+    `<=`, not `<`: "six or fewer" is the alert that was asked for, so an
+    item sitting exactly on its threshold is already low. A negative
+    count (Scan / Stock records real usage past the recorded balance) is
+    low for the same reason.
+    """
+    return Decimal(quantity) <= Decimal(threshold)
+
+
+def crossed_into_low(
+    *,
+    quantity_before: Decimal,
+    threshold_before: int,
+    quantity_after: Decimal,
+    threshold_after: int,
+) -> bool:
+    """Whether this write is the moment the item BECAME low.
+
+    The push predicate, and the reason there is no armed-state column: an
+    item that was already low stays silent because the before-state is
+    already `True`, and it re-arms by being restocked, with nothing
+    persisted in between.
+
+    Taking a before *and* after threshold is what folds the retune case
+    in. Raising a threshold from 6 to 20 over a count of 10 is the same
+    false-to-true edge as dispensing from 10 to 5 against a fixed 6, so
+    both callers -- the stock services and the threshold route -- ask the
+    same question.
+    """
+    return not is_low(quantity_before, threshold_before) and is_low(
+        quantity_after, threshold_after
+    )
+
+
+def membership_changed(
+    *,
+    quantity_before: Decimal,
+    threshold_before: int,
+    quantity_after: Decimal,
+    threshold_after: int,
+) -> bool:
+    """Whether the item entered OR left the low-stock set.
+
+    Deliberately wider than `crossed_into_low`: the Low Stock page has to
+    drop a row when an item is restocked back above its threshold, and a
+    push-shaped predicate would leave that row on screen until the next
+    page activation.
+    """
+    return is_low(quantity_before, threshold_before) != is_low(
+        quantity_after, threshold_after
+    )
