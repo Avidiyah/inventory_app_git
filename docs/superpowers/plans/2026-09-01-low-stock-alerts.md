@@ -73,7 +73,7 @@ One pre-existing failure is environmental, not yours: `test_cascade_deletes_with
 - Consumes: nothing.
 - Produces: `Item.low_stock_threshold` (int, NOT NULL, default 6); `ItemResponse.low_stock_threshold: int`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `backend/tests/test_items_low_stock.py`:
 
@@ -119,12 +119,12 @@ def test_new_items_default_to_the_shared_threshold(db):
     assert item.low_stock_threshold == low_stock_policy.DEFAULT_LOW_STOCK_THRESHOLD
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_items_low_stock.py -q`
 Expected: FAIL — `ModuleNotFoundError: No module named 'app.domain.low_stock'`.
 
-- [ ] **Step 3: Add the constants module (minimum needed now)**
+- [x] **Step 3: Add the constants module (minimum needed now)**
 
 Create `backend/app/domain/low_stock.py` with only the constants for the moment; Task 2 fills in the predicates:
 
@@ -157,7 +157,7 @@ DEFAULT_LOW_STOCK_THRESHOLD = 6
 MIN_LOW_STOCK_THRESHOLD = 1
 ```
 
-- [ ] **Step 4: Add the model column**
+- [x] **Step 4: Add the model column**
 
 In `backend/app/models.py`, immediately after the `quantity` column in `class Item` (line 111):
 
@@ -178,7 +178,7 @@ Add `Integer` to the existing `from sqlalchemy import (...)` import list at the 
 from app.domain.low_stock import DEFAULT_LOW_STOCK_THRESHOLD
 ```
 
-- [ ] **Step 5: Write the migration**
+- [x] **Step 5: Write the migration**
 
 Create `backend/alembic/versions/a1c3e5b7d9f0_add_item_low_stock_threshold.py`:
 
@@ -233,7 +233,7 @@ def downgrade() -> None:
     op.drop_column("items", "low_stock_threshold")
 ```
 
-- [ ] **Step 6: Add the response field**
+- [x] **Step 6: Add the response field**
 
 In `backend/app/schemas/items.py`, in `ItemResponse`, immediately after `quantity: Decimal` (line 82):
 
@@ -245,27 +245,52 @@ In `backend/app/schemas/items.py`, in `ItemResponse`, immediately after `quantit
     low_stock_threshold: int
 ```
 
-- [ ] **Step 7: Run the migration**
+- [x] **Step 7: Run the migration**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m alembic upgrade head`
 Expected: `Running upgrade b3d5f7a9c1e2 -> a1c3e5b7d9f0, add low_stock_threshold to items`.
 
-- [ ] **Step 8: Run the tests**
+- [x] **Step 8: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_items_low_stock.py tests/test_item_price_gating.py -q`
 Expected: PASS. `test_item_price_gating.py` builds a `SimpleNamespace` item, so add `low_stock_threshold=6` to its `_fake_item()` if it fails on the missing attribute.
 
-- [ ] **Step 9: Full suite**
+> **Deviation (2026-09-01):** `tests/test_item_barcodes.py` has its own separate
+> `_fake_item()` (not the one in `test_item_price_gating.py`) that also builds
+> a `SimpleNamespace` fed to `ItemResponse.model_validate`. It needed the same
+> one-line `low_stock_threshold=6` fix, found via the full-suite run in Step 9
+> rather than the plan's two-file Step 8 command. Anyone adding another field
+> to `ItemResponse` later should grep for `_fake_item` repo-wide, not just in
+> `test_item_price_gating.py`.
+
+- [x] **Step 9: Full suite**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/ -q`
 Expected: PASS except the known environmental `test_cascade_deletes_with_user`.
 
-- [ ] **Step 10: Commit**
+> Ran 2026-09-01: 1584 passed (excluding `test_cascade_deletes_with_user`).
+> One other failure appeared on the first full-suite run,
+> `test_netfacilities_cloud_auth.py::test_enrichment_giving_up_leaves_the_import_standing`;
+> it passed in isolation both before and after this task's changes, so it is a
+> pre-existing timing-flaky test, not a regression from this work.
+
+- [x] **Step 10: Commit**
 
 ```bash
-git add backend/alembic/versions/a1c3e5b7d9f0_add_item_low_stock_threshold.py backend/app/models.py backend/app/domain/low_stock.py backend/app/schemas/items.py backend/tests/test_items_low_stock.py backend/tests/test_item_price_gating.py
+git add backend/alembic/versions/a1c3e5b7d9f0_add_item_low_stock_threshold.py backend/app/models.py backend/app/domain/low_stock.py backend/app/schemas/items.py backend/tests/test_items_low_stock.py backend/tests/test_item_price_gating.py backend/tests/test_item_barcodes.py
 git commit -m "feat(items): add per-item low_stock_threshold column"
 ```
+
+Committed as `6fd036b`.
+
+---
+
+## Session hand-off
+
+**Done through Task 1 (commit `6fd036b`).** Next session: start at **Task 2:
+The predicates** below. Nothing in Task 1 deviated from the plan's design —
+only the two-file testing note above. `low_stock_threshold` is live in the DB
+(migration `a1c3e5b7d9f0` applied) and on `ItemResponse`.
 
 ---
 
