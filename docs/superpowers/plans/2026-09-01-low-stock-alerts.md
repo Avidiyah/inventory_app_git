@@ -795,15 +795,18 @@ Committed as `56063ca`.
 
 ## Session hand-off
 
-**Done through Task 4 (commit `a2e2935`).** Next session: start at **Task 5:
-The realtime event** below. Task 4 deviated once from the plan: a
-pre-existing event partition in `test_notifications_domain.py` needed a
-fourth bucket (`_LOW_STOCK_EVENTS`) for the new event — see the deviation
-note under Task 4 Step 7. `app.domain.notifications` now exposes
+**Done through Task 5 (commit `dd23553`).** Next session: start at **Task 6:
+Push dispatch and the router flush helper** below. Task 4 deviated once
+from the plan: a pre-existing event partition in
+`test_notifications_domain.py` needed a fourth bucket
+(`_LOW_STOCK_EVENTS`) for the new event — see the deviation note under
+Task 4 Step 7. `app.domain.notifications` now exposes
 `EVENT_ITEM_LOW_STOCK`, `LOW_STOCK_AUDIENCE_MIN_ROLE`,
 `recipients_for_low_stock`, and a `build_message` widened with `name` /
 `quantity` params; `EVENT_ITEM_LOW_STOCK` is registered in `ALL_EVENTS`.
-Full suite: 1611 passed.
+Task 5 added `app.domain.realtime.EVENT_ITEM_LOW_STOCK_CHANGED` with an
+audience floor of `roles.ROLE_TECHFM_OA`; no deviations.
+`backend/tests/test_realtime_domain.py`: 16 passed.
 
 ---
 
@@ -1045,7 +1048,7 @@ Committed as `a2e2935`. Full suite: 1611 passed.
 **Interfaces:**
 - Produces: `EVENT_ITEM_LOW_STOCK_CHANGED = "item.low_stock.changed"`, audience floor `ROLE_TECHFM_OA`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `backend/tests/test_realtime_domain.py`:
 
@@ -1069,12 +1072,12 @@ def test_low_stock_events_do_not_reach_lower_roles():
         ), role
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_realtime_domain.py -q`
 Expected: FAIL — `AttributeError: ... has no attribute 'EVENT_ITEM_LOW_STOCK_CHANGED'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `backend/app/domain/realtime.py`, add `"EVENT_ITEM_LOW_STOCK_CHANGED",` to `__all__` (keep the list alphabetical), then after `EVENT_LABOR_SESSION_CHANGED`:
 
@@ -1099,17 +1102,19 @@ and in `_AUDIENCE_MIN_ROLE`:
     EVENT_ITEM_LOW_STOCK_CHANGED: roles.ROLE_TECHFM_OA,
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_realtime_domain.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/domain/realtime.py backend/tests/test_realtime_domain.py
 git commit -m "feat(realtime): item.low_stock.changed invalidation event"
 ```
+
+Committed as `dd23553`.
 
 ---
 
