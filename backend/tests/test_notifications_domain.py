@@ -224,20 +224,31 @@ _CHAIN_EVENTS = (
     notif.EVENT_NETFACILITIES_IMPORT_FINISHED,
     notif.EVENT_NETFACILITIES_IMPORT_FAILED,
 )
+# The low-stock event names an item and a quantity, not a work order, so it
+# has its own coverage above (`test_low_stock_names_the_item_and_its_count`
+# et al.) rather than falling into the number-event parametrization below.
+_LOW_STOCK_EVENTS = (notif.EVENT_ITEM_LOW_STOCK,)
 _NUMBER_EVENTS = tuple(
     event
     for event in notif.ALL_EVENTS
-    if event not in _COUNT_EVENTS + _CHAIN_EVENTS
+    if event not in _COUNT_EVENTS + _CHAIN_EVENTS + _LOW_STOCK_EVENTS
 )
 
 
-def test_every_event_is_either_a_number_a_count_or_a_chain_event():
-    assert set(_NUMBER_EVENTS) | set(_COUNT_EVENTS) | set(_CHAIN_EVENTS) == set(
-        notif.ALL_EVENTS
+def test_every_event_is_either_a_number_a_count_a_chain_or_a_low_stock_event():
+    assert (
+        set(_NUMBER_EVENTS)
+        | set(_COUNT_EVENTS)
+        | set(_CHAIN_EVENTS)
+        | set(_LOW_STOCK_EVENTS)
+        == set(notif.ALL_EVENTS)
     )
     assert not set(_NUMBER_EVENTS) & set(_COUNT_EVENTS)
     assert not set(_NUMBER_EVENTS) & set(_CHAIN_EVENTS)
+    assert not set(_NUMBER_EVENTS) & set(_LOW_STOCK_EVENTS)
     assert not set(_COUNT_EVENTS) & set(_CHAIN_EVENTS)
+    assert not set(_COUNT_EVENTS) & set(_LOW_STOCK_EVENTS)
+    assert not set(_CHAIN_EVENTS) & set(_LOW_STOCK_EVENTS)
 
 
 @pytest.mark.parametrize("event", _NUMBER_EVENTS)
@@ -411,3 +422,57 @@ def test_the_chain_enrichment_failure_push_says_the_import_stood():
 
     assert "5 work orders" in body
     assert "Enrich" in body
+
+
+# --- low stock ----------------------------------------------------------
+
+
+def test_low_stock_names_the_item_and_its_count():
+    title, body = notif.build_message(
+        notif.EVENT_ITEM_LOW_STOCK, name="3M Blue Tape", quantity="5"
+    )
+    assert title == "Low stock"
+    assert body == "3M Blue Tape is down to 5."
+
+
+def test_low_stock_text_still_refuses_a_missing_field():
+    """The guard that keeps a buzz with no words from ever shipping."""
+    with pytest.raises(ValueError):
+        notif.build_message(notif.EVENT_ITEM_LOW_STOCK, name="3M Blue Tape")
+
+
+def test_widening_the_builder_did_not_break_the_work_order_events():
+    title, body = notif.build_message(
+        notif.EVENT_WORK_ORDER_ASSIGNED, number="WO-1234"
+    )
+    assert body == "You were assigned to WO-1234."
+
+
+def test_low_stock_keeps_the_actor():
+    """Deliberately inverts the rule every other event follows. A low
+    stockroom is a state alarm, not a report of somebody's action, and
+    the person who just took the last of it is the most useful person to
+    tell."""
+    actor = uuid.uuid4()
+    other = uuid.uuid4()
+    assert notif.recipients_for_low_stock(recipient_ids=[actor, other]) == [
+        actor,
+        other,
+    ]
+
+
+def test_low_stock_still_dedupes_and_drops_none():
+    first = uuid.uuid4()
+    assert notif.recipients_for_low_stock(
+        recipient_ids=[first, None, first]
+    ) == [first]
+
+
+def test_low_stock_audience_floor_is_techfm_oa():
+    """A route written at the Admin floor out of habit would silently lock
+    TechFM OA out of a capability they are meant to have."""
+    assert notif.LOW_STOCK_AUDIENCE_MIN_ROLE == roles.ROLE_TECHFM_OA
+
+
+def test_low_stock_is_registered():
+    assert notif.EVENT_ITEM_LOW_STOCK in notif.ALL_EVENTS

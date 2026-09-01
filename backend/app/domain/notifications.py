@@ -13,13 +13,23 @@ price. A work-order *number* is deliberately allowed: it is an opaque
 identifier rather than a detail, it is what makes the notification
 actionable, and it is already visible to anyone holding the phone.
 
-The line is **identifiers and counts yes, human-readable detail no.**
-`build_message` accepts a `number` and a `count`, and widening it past
-those two is the change to argue about, not the strings. `count` was
-added for the bulk import event: "40 work orders have been assigned to
-you" names no work order, no customer, and no job -- a tally of your own
-queue discloses nothing to somebody holding the phone that the badge on
-the app icon would not.
+The line is **catalogue identifiers, counts, and quantities yes; customer,
+job, and price detail no.** `build_message` accepts a `number`, a `count`,
+an item `name`, and a `quantity`, and widening it past those is the change
+to argue about, not the strings.
+
+`count` was added for the bulk import event: "40 work orders have been
+assigned to you" names no work order, no customer, and no job -- a tally
+of your own queue discloses nothing to somebody holding the phone that the
+badge on the app icon would not.
+
+`name` was added for the low-stock event, and it is the one entry that
+looks like a widening rather than an addition. It is not: the rule
+protects *customer and job* detail, and an item name is a
+catalogue/manufacturer string ("3M Blue Tape") that identifies no person,
+site, or job. Without it the notification is unactionable -- nobody reads
+a barcode off a lock screen -- so the choice was a useful notification or
+none at all. A *price* remains forbidden on the same item.
 """
 
 from typing import Iterable, Optional, Sequence
@@ -40,6 +50,7 @@ EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED_BULK = (
 )
 EVENT_NETFACILITIES_IMPORT_FINISHED = "netfacilities.import_finished"
 EVENT_NETFACILITIES_IMPORT_FAILED = "netfacilities.import_failed"
+EVENT_ITEM_LOW_STOCK = "item.low_stock"
 
 ALL_EVENTS = (
     EVENT_WORK_ORDER_ASSIGNED,
@@ -53,6 +64,7 @@ ALL_EVENTS = (
     EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED_BULK,
     EVENT_NETFACILITIES_IMPORT_FINISHED,
     EVENT_NETFACILITIES_IMPORT_FAILED,
+    EVENT_ITEM_LOW_STOCK,
 )
 
 # Completion is the one rule addressed to a rank rather than to named
@@ -66,6 +78,14 @@ COMPLETED_AUDIENCE_MIN_ROLE = roles.ROLE_ADMIN
 # unowned job") and must be able to diverge without one silently dragging
 # the other.
 UNROUTED_HOLD_AUDIENCE_MIN_ROLE = roles.ROLE_ADMIN
+
+# Who hears that the stockroom is running out. TechFM OA and above -- the
+# same rank that works the Low Stock page and can retune a threshold, so
+# every recipient of the alert can also act on it. A third constant rather
+# than a reuse of either above: "who watches the review queue" and "who
+# covers an unowned job" are different questions from "who reorders", and
+# must be able to diverge without one silently dragging another.
+LOW_STOCK_AUDIENCE_MIN_ROLE = roles.ROLE_TECHFM_OA
 
 _MESSAGES = {
     EVENT_WORK_ORDER_ASSIGNED: (
@@ -103,6 +123,10 @@ _MESSAGES = {
     EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED_BULK: (
         "Work orders assigned to you",
         "{count} work orders have been assigned to you.",
+    ),
+    EVENT_ITEM_LOW_STOCK: (
+        "Low stock",
+        "{name} is down to {quantity}.",
     ),
 }
 
@@ -280,11 +304,35 @@ def recipients_for_hold(
     return select_recipients(admin_ids, actor_id=actor_id)
 
 
+def recipients_for_low_stock(
+    *,
+    recipient_ids: Sequence[uuid.UUID],
+) -> list[uuid.UUID]:
+    """An item fell to or below its threshold -- tell everyone who can act.
+
+    **This rule deliberately does NOT suppress the actor**, and it is the
+    only stock-side rule that does not. Every other event reports
+    somebody's action to somebody else, where telling the actor what they
+    just did is noise. This one is a state alarm about the stockroom: the
+    person who just dispensed the last of an item is standing in front of
+    the empty shelf and is the single most useful person to tell.
+
+    Expressed by passing `actor_id=None` rather than by skipping
+    `select_recipients`, so the dedup and the `None`-dropping still apply
+    -- the audience is resolved from a role and can contain neither, but
+    a future caller composing this list from several sources gets both
+    for free.
+    """
+    return select_recipients(recipient_ids, actor_id=None)
+
+
 def build_message(
     event_type: str,
     *,
     number: Optional[str] = None,
     count: Optional[int] = None,
+    name: Optional[str] = None,
+    quantity: Optional[str] = None,
 ) -> tuple[str, str]:
     """The `(title, body)` a device will display for one event.
 
@@ -306,8 +354,13 @@ def build_message(
         raise ValueError(f"no notification text for event {event_type!r}")
     title, body = _MESSAGES[event_type]
     supplied = {
-        name: value
-        for name, value in (("number", number), ("count", count))
+        key: value
+        for key, value in (
+            ("number", number),
+            ("count", count),
+            ("name", name),
+            ("quantity", quantity),
+        )
         if value is not None
     }
     try:
