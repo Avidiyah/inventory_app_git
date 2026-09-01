@@ -1502,15 +1502,15 @@ default ("Show all" lifts it); any active filter queries the complete
 matching set.
 
 Low Stock: TechFM OA+ reorder queue. Every live item at or below its own
-`low_stock_threshold`, ordered by headroom (deepest below first), each card
-showing on-hand, 7-day dispensed usage, and an inline threshold input that
-commits on blur/Enter and reloads (a lowered threshold can clear the row).
-Three mutually exclusive recency tabs (last 24h / 2-7 days / older or
-never), bucketed client-side from `last_dispensed_at`; one fetch serves
-all three. Each card expands to edit core fields, additional barcodes,
-and to correct the count (`POST /transactions/adjust`); the threshold
-control stays in the card header. Any save reloads the queue rather
-than patching the card.
+`low_stock_threshold`, ordered by headroom (deepest below first), one
+full-width click-to-open `details` card per row (the work-order card
+shape). Collapsed summary: name, on-hand, 7-day dispensed usage. Three
+mutually exclusive recency tabs (last 24h / 2-7 days / older or never),
+bucketed client-side from `last_dispensed_at`; one fetch serves all three.
+The open body holds barcode/location, the threshold input (commits on
+blur/Enter), the core-field and additional-barcode editor, and a count
+correction (`POST /transactions/adjust`). Any save reloads the queue
+rather than patching the card; open cards reopen after the reload.
 `item.low_stock.changed` refreshes it in place while it is the active page.
 
 Admin Review: TechFM OA+ page over live Review rows; selecting a card opens

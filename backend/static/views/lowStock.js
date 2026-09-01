@@ -1,11 +1,12 @@
 // View: the TechFM OA+ reorder queue.
 //
 // Layer: views. Lists every item at or below its own threshold, deepest
-// below first, and lets that threshold be retuned in place. The 7-day
-// dispensed figure sits in the same action column as the threshold
-// control on purpose: the number that answers "how fast is this moving"
-// and the control that answers "when should it warn me" are read
-// together or not at all.
+// below first, and lets that threshold be retuned in place. Cards are
+// full-width `details` stacked one per row, opened by a click, the same
+// shape a work order uses. The 7-day dispensed figure rides the collapsed
+// summary beside the on-hand count: the queue is scanned for what is both
+// low and moving, and that question has to be answerable without opening
+// anything.
 //
 // Rows are rebuilt from the server on every load. Nothing is patched in
 // place, because a threshold edit can remove the row it was made on
@@ -57,8 +58,13 @@ function quantityText(value) {
   return String(Number(value));
 }
 
+// One full-width, click-to-open card, the same `details` + `summary` shape a
+// work order uses. The summary carries only what the queue is read for --
+// what it is, how much is left, how fast it moves -- and holds no control:
+// a click anywhere in a `<summary>` toggles it, so an input there would
+// fight the user. Every editable thing lives in the body below.
 function buildCard(row) {
-  const card = document.createElement("div");
+  const card = document.createElement("details");
   card.className = "low-stock-card";
   card.dataset.id = row.id;
   // The pre-edit values, so a save can tell a changed barcode from an
@@ -66,27 +72,27 @@ function buildCard(row) {
   card.dataset.barcode = row.barcode;
   card.dataset.barcodes = JSON.stringify(row.barcodes || []);
   card.innerHTML =
-    `<div class="low-stock-card-header">` +
-      `<h3>${escapeHtml(row.name)}</h3>` +
+    `<summary class="low-stock-summary">` +
+      `<span class="low-stock-title">${escapeHtml(row.name)}</span>` +
       `<span class="low-stock-count">${escapeHtml(quantityText(row.quantity))} on hand</span>` +
-    `</div>` +
-    `<div class="low-stock-details">` +
-      `<span>${escapeHtml(row.barcode)}</span>` +
-      `<span>${escapeHtml(row.location)}</span>` +
-    `</div>` +
-    `<div class="low-stock-actions">` +
       `<span class="low-stock-usage">7-day used: ` +
         `${escapeHtml(quantityText(row.dispensed_last_7_days))}</span>` +
-      `<label class="low-stock-threshold">` +
-        `<span>Warn at</span>` +
-        `<input type="number" min="1" step="1" inputmode="numeric" ` +
-          `class="low-stock-threshold-input" ` +
-          `value="${escapeHtml(String(row.low_stock_threshold))}" ` +
-          `aria-label="Low stock threshold for ${escapeHtml(row.name)}">` +
-      `</label>` +
-    `</div>` +
-    `<p class="low-stock-row-message" aria-live="polite"></p>` +
-    cardBodyHtml(row);
+    `</summary>` +
+    `<div class="low-stock-body">` +
+      `<div class="low-stock-details">` +
+        `<span>${escapeHtml(row.barcode)}</span>` +
+        `<span>${escapeHtml(row.location)}</span>` +
+        `<label class="low-stock-threshold">` +
+          `<span>Warn at</span>` +
+          `<input type="number" min="1" step="1" inputmode="numeric" ` +
+            `class="low-stock-threshold-input" ` +
+            `value="${escapeHtml(String(row.low_stock_threshold))}" ` +
+            `aria-label="Low stock threshold for ${escapeHtml(row.name)}">` +
+        `</label>` +
+      `</div>` +
+      `<p class="low-stock-row-message" aria-live="polite"></p>` +
+      cardBodyHtml(row) +
+    `</div>`;
   return card;
 }
 
@@ -119,14 +125,14 @@ function bucketRows(rows) {
 // reopen them after the rebuild.
 function openCardIds() {
   return new Set(
-    Array.from(listEl.querySelectorAll("details.low-stock-more[open]"))
+    Array.from(listEl.querySelectorAll("details.low-stock-card[open]"))
       .map(el => el.dataset.id)
   );
 }
 
 function restoreOpenCards(ids) {
   if (!ids.size) return;
-  for (const el of listEl.querySelectorAll("details.low-stock-more")) {
+  for (const el of listEl.querySelectorAll("details.low-stock-card")) {
     if (ids.has(el.dataset.id)) el.open = true;
   }
 }

@@ -5,9 +5,9 @@
 // "Edit item" disclosure -- the core fields, the additional barcodes, and
 // the count correction.
 //
-// It is a `<details>` INSIDE the card rather than the card itself being one:
-// a click anywhere in a `<summary>` toggles the element, which would fight
-// the threshold input that has to stay one click away in the card header.
+// The card itself is the `<details>` (`lowStock.js` builds it); this module
+// contributes only the markup that sits inside its body, so nothing here is
+// a disclosure of its own.
 //
 // Every handler is delegated off `#low-stock-list`, so cards rebuilt by a
 // reload need no rewiring. After any successful save the page reloads in
@@ -34,15 +34,12 @@ function barcodeRowHtml(code) {
   );
 }
 
-// The card's disclosure body. Built as a string (like the card itself) and
-// injected once; the inputs are read back out of the DOM on save, so no
-// draft state is held in JS.
+// The editable half of an open card. Built as a string (like the card
+// itself) and injected once; the inputs are read back out of the DOM on
+// save, so no draft state is held in JS.
 export function cardBodyHtml(row) {
   const codes = Array.isArray(row.barcodes) ? row.barcodes : [];
   return (
-    `<details class="low-stock-more" data-id="${escapeHtml(row.id)}">` +
-      `<summary class="low-stock-more-summary">Edit item</summary>` +
-
       `<div class="low-stock-edit">` +
         `<label class="ls-field"><span>Name</span>` +
           `<input type="text" class="ls-name" value="${escapeHtml(row.name)}"></label>` +
@@ -82,15 +79,14 @@ export function cardBodyHtml(row) {
         `</div>` +
       `</div>` +
 
-      `<p class="low-stock-edit-message" aria-live="polite"></p>` +
-    `</details>`
+      `<p class="low-stock-edit-message" aria-live="polite"></p>`
   );
 }
 
-function collectAltBarcodes(body, messageEl) {
+function collectAltBarcodes(card, messageEl) {
   const codes = [];
   const seen = new Set();
-  for (const input of body.querySelectorAll(".ls-alt-barcode")) {
+  for (const input of card.querySelectorAll(".ls-alt-barcode")) {
     const code = input.value.trim();
     if (!code) continue;
     if (seen.has(code)) {
@@ -103,22 +99,22 @@ function collectAltBarcodes(body, messageEl) {
   return codes;
 }
 
-async function saveItem(body, card) {
-  const messageEl = body.querySelector(".low-stock-edit-message");
+async function saveItem(card) {
+  const messageEl = card.querySelector(".low-stock-edit-message");
   setMessage(messageEl, "", "");
 
-  const barcode = body.querySelector(".ls-barcode").value.trim();
-  const name = body.querySelector(".ls-name").value.trim();
-  const location = body.querySelector(".ls-location").value.trim();
-  const price = body.querySelector(".ls-price").value.trim();
-  const productLink = body.querySelector(".ls-product-link").value.trim();
+  const barcode = card.querySelector(".ls-barcode").value.trim();
+  const name = card.querySelector(".ls-name").value.trim();
+  const location = card.querySelector(".ls-location").value.trim();
+  const price = card.querySelector(".ls-price").value.trim();
+  const productLink = card.querySelector(".ls-product-link").value.trim();
 
   if (!barcode || !name || !location) {
     setMessage(messageEl, "Barcode, name, and location are required.", "error");
     return;
   }
 
-  const codes = collectAltBarcodes(body, messageEl);
+  const codes = collectAltBarcodes(card, messageEl);
   if (codes === null) return;
 
   try {
@@ -148,11 +144,11 @@ async function saveItem(body, card) {
   }
 }
 
-async function saveCorrection(body, card) {
-  const messageEl = body.querySelector(".low-stock-edit-message");
+async function saveCorrection(card) {
+  const messageEl = card.querySelector(".low-stock-edit-message");
   setMessage(messageEl, "", "");
 
-  const raw = body.querySelector(".ls-correct-qty").value;
+  const raw = card.querySelector(".ls-correct-qty").value;
   const newQuantity = Number(raw);
   if (raw === "" || !Number.isFinite(newQuantity)) {
     setMessage(messageEl, "Enter a valid new count.", "error");
@@ -162,7 +158,7 @@ async function saveCorrection(body, card) {
     setMessage(messageEl, "Enter a count of zero or more.", "error");
     return;
   }
-  const reason = body.querySelector(".ls-correct-reason").value.trim();
+  const reason = card.querySelector(".ls-correct-reason").value.trim();
   if (!reason) {
     setMessage(messageEl, "Enter a reason for the correction.", "error");
     return;
@@ -183,19 +179,18 @@ if (listEl) {
   listEl.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-action]");
     if (!btn || !listEl.contains(btn)) return;
-    const body = btn.closest(".low-stock-more");
     const card = btn.closest(".low-stock-card");
-    if (!body || !card) return;
+    if (!card) return;
 
     const action = btn.dataset.action;
     if (action === "add-barcode") {
-      body.querySelector(".ls-barcode-rows").insertAdjacentHTML("beforeend", barcodeRowHtml(""));
+      card.querySelector(".ls-barcode-rows").insertAdjacentHTML("beforeend", barcodeRowHtml(""));
     } else if (action === "remove-barcode") {
       btn.closest(".ls-barcode-row").remove();
     } else if (action === "save-item") {
-      saveItem(body, card);
+      saveItem(card);
     } else if (action === "save-correction") {
-      saveCorrection(body, card);
+      saveCorrection(card);
     }
   });
 }
