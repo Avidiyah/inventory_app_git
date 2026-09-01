@@ -439,7 +439,10 @@ def test_unassigned_routed_supervisor_can_send_completed_work_to_review(db):
     assert reviewed.status == "review"
 
 
-def test_labor_tracks_technician_and_advances_first_activity(db):
+def test_labor_tracks_technician_without_advancing_status(db):
+    """Hand-keyed labor is the correction route, so it leaves the lifecycle
+    alone: a supervisor backfilling a paper sheet must not push an Assigned row
+    to In-Progress. Material activity and Start Tracking still advance it."""
     sup = _seed_user(db, "supervisor")
     tech1 = _seed_user(db, "technician")
     tech2 = _seed_user(db, "technician")
@@ -464,7 +467,7 @@ def test_labor_tracks_technician_and_advances_first_activity(db):
     )
     detail = wos.get_work_order(db, w.id, user=tech2)
 
-    assert detail.status == "in_progress"
+    assert detail.status == "assigned"
     assert {entry.id for entry in detail.labor_entries} == {first.id, second.id}
     assert sum(entry.minutes for entry in detail.labor_entries) == 75
 
@@ -484,7 +487,8 @@ def test_labor_tracks_technician_and_advances_first_activity(db):
     wos.delete_work_order_labor(db, w.id, first.id, user=sup)
     detail = wos.get_work_order(db, w.id, user=tech2)
     assert [entry.id for entry in detail.labor_entries] == [second.id]
-    assert detail.status == "in_progress"
+    # Deleting labor moves no status either, in both directions.
+    assert detail.status == "assigned"
 
 
 def test_a_technician_cannot_key_labor_by_hand(db):

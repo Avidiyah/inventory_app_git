@@ -2494,8 +2494,12 @@ def add_work_order_labor(
 
     The duration is stored without rounding. Billing is derived from the sum of
     every entry on the work order, rounded upward once to the next 30 minutes.
-    The first labor entry advances Created/Assigned to In-Progress through the
-    same domain rule used by committed material activity.
+
+    **Changes no status.** Because this is the correction route, keying hours
+    after the fact says nothing about whether the job is running now -- a
+    supervisor backfilling a paper sheet must not push a Created/Assigned row
+    to In-Progress. Material activity and Start Tracking still advance the
+    lifecycle; typing a duration does not.
     """
     work_order = _get_visible(db, work_order_id, user)
     wo.validate_labor_minutes(minutes)
@@ -2516,7 +2520,6 @@ def add_work_order_labor(
         recorded_by_id=user.id if user else None,
     )
     db.add(entry)
-    work_order.status = wo.status_after_activity(work_order.status)
     db.commit()
     return _get_labor_entry(db, work_order, entry.id)
 

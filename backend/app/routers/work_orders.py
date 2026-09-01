@@ -1326,8 +1326,9 @@ def add_work_order_labor(
     The correction route now that tracked sessions are authoritative: a dead
     battery, a forgotten Start Tracking, a paper sheet. The technician credited
     must be assigned to the work order, or be the Supervisor recording
-    themselves. The first entry starts pre-work, and billing rounds the
-    combined work-order duration upward to the next 30 minutes.
+    themselves. Changes no status -- a backfilled duration says nothing about
+    whether the job is running. Billing rounds the combined work-order duration
+    upward to the next 30 minutes.
     """
     try:
         return _labor_detail(

@@ -147,9 +147,10 @@ def test_initial_status_and_technician_assignment_reconciliation():
 
 def test_first_activity_advances_only_prework_states():
     """Unchanged by tracked time. Its "On-Hold is intentionally stable" rule
-    still governs material and labor activity -- a supervisor logging a part
-    against a held job must not restart it. Start Tracking performs its own
-    explicit On-Hold -> In-Progress transition rather than widening this."""
+    still governs material activity -- a supervisor logging a part against a
+    held job must not restart it. Start Tracking performs its own explicit
+    On-Hold -> In-Progress transition rather than widening this, and hand-keyed
+    labor no longer calls this helper at all."""
     assert wo.status_after_activity(wo.STATUS_CREATED) == wo.STATUS_IN_PROGRESS
     assert wo.status_after_activity(wo.STATUS_ASSIGNED) == wo.STATUS_IN_PROGRESS
     assert wo.status_after_activity(wo.STATUS_IN_PROGRESS) == wo.STATUS_IN_PROGRESS

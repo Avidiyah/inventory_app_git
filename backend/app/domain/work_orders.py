@@ -6,8 +6,8 @@ unit tests, like `domain.mass_staging` and `domain.roles`.
 A work order is a standalone entity whose identity is its `number` (unique
 case-insensitively + trimmed). Its live lifecycle is `created -> assigned ->
 in_progress -> ready_to_complete -> completed -> review`, with `on_hold` as a
-pause: technician assignment derives `assigned`, and the first material/labor
-activity derives `in_progress`. `ready_to_complete` is the crew's handoff to a
+pause: technician assignment derives `assigned`, and the first material
+activity (or a started clock) derives `in_progress`. `ready_to_complete` is the crew's handoff to a
 supervisor, and `on_hold` now means purely "nobody is working on this" -- the
 tracking service sets it when the last clock stops. `closed` is the row's
 `archived_at`, not duplicated in `status`. `entry_mode` is the default mode
@@ -448,7 +448,12 @@ def reconcile_assignment_status(current_status: str, assigned_to_id: object) -> 
 
 
 def status_after_activity(current_status: str) -> str:
-    """Advance a pre-work row when its first material or labor activity lands.
+    """Advance a pre-work row when its first material activity lands.
+
+    Called by committed material activity and by Start Tracking. Hand-keyed
+    labor (`services.work_orders.add_work_order_labor`) deliberately does not
+    call it: that route is a correction, and backfilling hours says nothing
+    about whether the job is running now.
 
     On-Hold is intentionally stable: activity may still be recorded, but only a
     supervisor's explicit status edit resumes the lifecycle.

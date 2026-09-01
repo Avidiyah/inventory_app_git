@@ -352,8 +352,9 @@ class WorkOrder(Base):
 
     Live `status` follows `created -> assigned -> in_progress ->
     ready_to_complete -> completed -> review`, with `on_hold` as the pause
-    state: technician assignment derives Assigned and first material/labor
-    activity derives In-Progress. Ready to Complete is the crew's handoff to a
+    state: technician assignment derives Assigned, and first material activity
+    or a started clock derives In-Progress (hand-keyed labor does not).
+    Ready to Complete is the crew's handoff to a
     supervisor; On-Hold means nobody is on the clock, and the tracking service
     sets it when the last session stops. Closed is represented by
     `archived_at`.
