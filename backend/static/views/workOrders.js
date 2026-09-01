@@ -158,6 +158,54 @@ const SOLO_PATH_PREFIX = "/workorder_card/";
 // rendering the list, which is what keeps the two renders from racing.
 let pendingSoloNumber = null;
 
+// --- list scroll restoration ----------------------------------------------
+//
+// Opening a card wipes the list, so returning from one used to land at the top
+// no matter where the user opened it from. The offset is stamped onto the
+// *list's* history entry (`openWorkOrderPage`) and read back off it when
+// `popstate` unwinds to that entry, which is why it survives Forward and a
+// reload as well as the card's own Back control.
+//
+// The browser's own restoration cannot do this: it fires at `popstate`, when
+// `loadWorkOrders` has not yet fetched the list and the document is one
+// skeleton tall, so it clamps to 0 and then we would be fighting it. We own the
+// restore instead, and say so.
+if ("scrollRestoration" in window.history) {
+  window.history.scrollRestoration = "manual";
+}
+
+// One-shot consumed by the next completed list render. Deliberately not read
+// from `history.state` at the render site: nav entry, filter changes, and the
+// realtime `background: true` refresh all reach the same render with the list
+// entry still current, and must not jump the page.
+let pendingListScrollY = null;
+
+// Record where the list was standing, on the history entry that *is* the list.
+// Called from `openWorkOrderPage` while that entry is still current -- the push
+// to the card URL happens later, in `showSoloCard`.
+function stampListScrollY() {
+  // Already on a card page: the current entry is the card's, not the list's,
+  // and there is no list offset to preserve. This is the cold-deep-link path
+  // (`openWorkOrderPageByNumber`), which lands at the top by design.
+  if (soloActive) return;
+  window.history.replaceState(
+    { ...(window.history.state || {}), woListScrollY: window.scrollY },
+    ""
+  );
+}
+
+// Consume the one-shot after a completed list render. Deferred a frame so the
+// restored cards -- and the filter controls `exitSolo` just unhid -- have been
+// laid out; scrolling before that clamps against a document that is still the
+// wrong height. An offset past the end of a now-shorter list clamps to the
+// bottom, which is the honest answer when the row that was there is gone.
+function restoreListScrollY() {
+  const y = pendingListScrollY;
+  pendingListScrollY = null;
+  if (y === null) return;
+  window.requestAnimationFrame(() => window.scrollTo(0, y));
+}
+
 // A second one-shot, deliberately independent of `pendingSoloNumber`: the solo
 // lookup above returns before the archived-number prompt, so a caller that
 // wants the "Work Order has been closed. Restore?" path needs its own flag.
@@ -990,6 +1038,9 @@ export async function loadWorkOrders({
   if (pendingSoloNumber !== null) {
     const number = pendingSoloNumber;
     pendingSoloNumber = null;
+    // No list will be rendered on this path, so a remembered offset would sit
+    // armed and fire on some later, unrelated render.
+    pendingListScrollY = null;
     await ensureReferenceData({ refresh: refreshReferenceData });
     await openWorkOrderPageByNumber(number);
     return;
@@ -1029,6 +1080,10 @@ export async function loadWorkOrders({
     renderCards(cards);
     renderMoreControl(capped, cards.length);
     setMessage(listMessage, "", "");
+    // The list is on screen and final: the only point at which a remembered
+    // offset means anything. Below the focus branch's `openWorkOrderPage`
+    // return would be too late; above `renderCards` would be too early.
+    restoreListScrollY();
     if (pendingFocusId) {
       const focused = cards.find((c) => c.id === pendingFocusId);
       pendingFocusId = null;
@@ -1053,6 +1108,7 @@ export async function loadWorkOrders({
     // leave the existing list exactly as it was rather than wipe it out from
     // under a user who never asked for this reload. The user-initiated path
     // (background=false) keeps today's error behavior unchanged.
+    pendingListScrollY = null;
     if (background) return;
     listEl.innerHTML = "";
     if (moreEl) {
@@ -1296,6 +1352,10 @@ async function openDetail(workOrderId, bodyEl, cardEl) {
 // than being re-fetched by `openDetail`, so opening a card page costs exactly
 // what expanding a card used to.
 async function openWorkOrderPage({ id, number = null }) {
+  // Before anything async and before `setSoloChrome`/the skeleton collapse the
+  // document's height -- once the list is gone, `window.scrollY` has already
+  // been clamped to 0 and the offset is unrecoverable.
+  stampListScrollY();
   await ensureReferenceData();
   soloActive = true;
   soloNumber = number;
@@ -2717,6 +2777,11 @@ window.addEventListener("popstate", () => {
   const number = soloNumberFromPath();
   if (number === null) {
     if (!soloActive) return;
+    // Read off the entry being restored -- the list entry `openWorkOrderPage`
+    // stamped on the way out. Arming it here rather than inside the render is
+    // what keeps every other caller of `loadWorkOrders` from jumping the page.
+    const y = window.history.state?.woListScrollY;
+    pendingListScrollY = typeof y === "number" ? y : null;
     void loadWorkOrders();  // exits solo mode itself
     return;
   }
