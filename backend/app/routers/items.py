@@ -14,7 +14,7 @@ import uuid
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.auth_deps import get_current_user, require_min_role
@@ -23,6 +23,7 @@ from app.domain import roles
 from app.domain.errors import DomainError
 from app.models import Item, User
 from app.routers._errors import to_http
+from app.routers._low_stock import flush_low_stock
 from app.schemas.items import (
     ItemBarcodesUpdate,
     ItemCreate,
@@ -30,6 +31,7 @@ from app.schemas.items import (
     ItemResponse,
     ItemUpdate,
     LowStockItemResponse,
+    LowStockThresholdUpdate,
 )
 from app.services import items as items_service
 from app.services import notes as notes_service
@@ -211,6 +213,35 @@ def update_item_barcodes(
             payload.barcodes,
             override_archived=payload.override_archived,
         )
+        return _item_response(item, user.role)
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.patch(
+    "/{item_id}/low-stock-threshold",
+    response_model=ItemResponse,
+    dependencies=[Depends(require_min_role(roles.ROLE_TECHFM_OA))],
+)
+def update_low_stock_threshold(
+    item_id: uuid.UUID,
+    payload: LowStockThresholdUpdate,
+    background: BackgroundTasks,
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
+    db: Session = Depends(get_db),
+):
+    """Retune when this item starts warning. TechFM OA+ only.
+
+    Raising the threshold past the current count is a crossing and pushes
+    exactly like a dispense would: the item is newly low, and which write
+    made it low is not something the crew needs to distinguish. 404 if the
+    item is unknown or archived; 422 below the minimum of 1.
+    """
+    try:
+        item = items_service.set_low_stock_threshold(
+            db, item_id, threshold=payload.low_stock_threshold
+        )
+        flush_low_stock(db, background)
         return _item_response(item, user.role)
     except DomainError as exc:
         raise to_http(exc)

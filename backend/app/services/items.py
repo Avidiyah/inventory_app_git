@@ -23,6 +23,7 @@ from app.domain.errors import (
 )
 from app.domain.list_limits import fetch_limit
 from app.models import Item, ItemBarcode, MassStageItem, Transaction
+from app.services import low_stock
 from app.services import user_requests as request_service
 from app.services._list_cap import capped
 
@@ -602,3 +603,37 @@ def list_low_stock(db: Session) -> list[tuple[Item, Decimal]]:
         .all()
     )
     return [(item, totals.get(item.id) or Decimal(0)) for item in items]
+
+
+def set_low_stock_threshold(db: Session, item_id: uuid.UUID, *, threshold: int) -> Item:
+    """Set one item's low-stock threshold.
+
+    Locked with `FOR UPDATE` for the same reason every stock write is: the
+    crossing decision reads the quantity, and a dispense landing between
+    the read and the write would make this route decide against a count
+    that no longer exists.
+
+    Records the before/after pair through the same buffer the stock
+    services use, so a raise past the current count reaches the crew as
+    the identical notification a dispense would have produced. The route
+    drains it; nothing about the dispatch differs.
+    """
+    item = (
+        db.query(Item)
+        .filter(Item.id == item_id)
+        .filter(Item.archived_at.is_(None))
+        .with_for_update()
+        .first()
+    )
+    if item is None:
+        raise ItemNotFoundError("Item not found.")
+
+    threshold_before = item.low_stock_threshold
+    quantity_before = item.quantity
+    item.low_stock_threshold = threshold
+    low_stock.record(
+        item, quantity_before=quantity_before, threshold_before=threshold_before
+    )
+    db.commit()
+    db.refresh(item)
+    return item

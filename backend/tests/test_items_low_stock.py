@@ -237,3 +237,117 @@ def test_low_stock_is_ordered_by_headroom(db):
 
     ids = [row["id"] for row in _low_stock_rows(db).json()]
     assert ids.index(str(deep.id)) < ids.index(str(barely.id))
+
+
+def _set_threshold(db, item, value, *, role="admin"):
+    user = _seed_user(db, role)
+    db.commit()
+    token = auth_service.create_session(db, user)
+    try:
+        with _client(db) as client:
+            client.cookies.set("session", token)
+            response = client.patch(
+                f"/items/{item.id}/low-stock-threshold",
+                json={"low_stock_threshold": value},
+            )
+    finally:
+        del app.dependency_overrides[get_db]
+    return response
+
+
+def test_setting_a_threshold_persists_it(db):
+    item = _seed_item(db, quantity="30", threshold=6)
+    response = _set_threshold(db, item, 20)
+    assert response.status_code == 200, response.text
+    assert response.json()["low_stock_threshold"] == 20
+
+
+def test_a_threshold_below_one_is_rejected(db):
+    """No mute value: stock cannot go below zero, so a zero threshold
+    would be an invisible off-switch rather than a threshold."""
+    item = _seed_item(db, quantity="30", threshold=6)
+    assert _set_threshold(db, item, 0).status_code == 422
+
+
+def test_a_missing_threshold_is_rejected(db):
+    item = _seed_item(db, quantity="30", threshold=6)
+    user = _seed_user(db, "admin")
+    db.commit()
+    token = auth_service.create_session(db, user)
+    try:
+        with _client(db) as client:
+            client.cookies.set("session", token)
+            response = client.patch(
+                f"/items/{item.id}/low-stock-threshold", json={}
+            )
+    finally:
+        del app.dependency_overrides[get_db]
+    assert response.status_code == 422
+
+
+def test_the_threshold_route_is_gated_at_techfm_oa(db):
+    item = _seed_item(db, quantity="30", threshold=6)
+    assert _set_threshold(db, item, 10, role="supervisor").status_code == 403
+
+
+def test_an_unknown_item_is_404(db):
+    user = _seed_user(db, "admin")
+    db.commit()
+    token = auth_service.create_session(db, user)
+    try:
+        with _client(db) as client:
+            client.cookies.set("session", token)
+            response = client.patch(
+                f"/items/{_uuid.uuid4()}/low-stock-threshold",
+                json={"low_stock_threshold": 5},
+            )
+    finally:
+        del app.dependency_overrides[get_db]
+    assert response.status_code == 404
+
+
+def test_raising_a_threshold_past_the_current_count_pushes(db, monkeypatch):
+    """The retune case. Nothing moved, but the item is newly low, and the
+    crew is told the same way a dispense would tell them."""
+    monkeypatch.setattr(push_service, "VAPID_PRIVATE_KEY", "test-private-key")
+    sent = []
+    monkeypatch.setattr(
+        push_service,
+        "send_to_users",
+        lambda session, ids, title, body: sent.append(body)
+        or {"sent": 1, "dropped": 0, "failed": 0},
+    )
+    item = _seed_item(db, quantity="10", threshold=6)
+
+    assert _set_threshold(db, item, 20).status_code == 200
+    assert sent == [f"{item.name} is down to 10."]
+
+
+def test_lowering_a_threshold_clear_of_the_count_pushes_nothing(db, monkeypatch):
+    monkeypatch.setattr(push_service, "VAPID_PRIVATE_KEY", "test-private-key")
+    sent = []
+    monkeypatch.setattr(
+        push_service,
+        "send_to_users",
+        lambda session, ids, title, body: sent.append(body)
+        or {"sent": 1, "dropped": 0, "failed": 0},
+    )
+    item = _seed_item(db, quantity="10", threshold=20)
+
+    assert _set_threshold(db, item, 6).status_code == 200
+    assert sent == []
+
+
+def test_raising_a_threshold_that_keeps_a_low_item_low_pushes_nothing(db, monkeypatch):
+    monkeypatch.setattr(push_service, "VAPID_PRIVATE_KEY", "test-private-key")
+    sent = []
+    monkeypatch.setattr(
+        push_service,
+        "send_to_users",
+        lambda session, ids, title, body: sent.append(body)
+        or {"sent": 1, "dropped": 0, "failed": 0},
+    )
+    item = _seed_item(db, quantity="3", threshold=6)
+
+    assert _set_threshold(db, item, 20).status_code == 200
+    assert sent == []
