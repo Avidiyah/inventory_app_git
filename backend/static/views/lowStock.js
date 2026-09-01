@@ -16,6 +16,7 @@ import { apiListLowStock, apiSetLowStockThreshold } from "../api.js";
 import { setMessage } from "../dom.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
+import { cardBodyHtml } from "./lowStockCard.js";
 
 const LOW_STOCK_CHANGED_EVENT = "item.low_stock.changed";
 const LOW_STOCK_PAGE = "low-stock";
@@ -23,6 +24,28 @@ const LOW_STOCK_PAGE = "low-stock";
 const listEl = document.getElementById("low-stock-list");
 const messageEl = document.getElementById("low-stock-message");
 const refreshBtn = document.getElementById("low-stock-refresh");
+const tabsEl = document.getElementById("low-stock-tabs");
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
+
+// Labels live here rather than in the markup so the count can be appended
+// without the view having to parse the text already on the button.
+const BUCKETS = [
+  { key: "day", label: "Last 24h" },
+  { key: "week", label: "2-7 days" },
+  { key: "stale", label: "Older or never" },
+];
+
+const EMPTY_TEXT = {
+  day: "Nothing low was dispensed in the last 24 hours.",
+  week: "Nothing low was dispensed in the last week.",
+  stale: "Everything low has moved within the last week.",
+};
+
+// The whole queue, held so a tab switch is a filter rather than a fetch.
+let allRows = [];
+let activeBucket = "day";
 
 // Guards against an out-of-order response overwriting a newer one: a
 // realtime invalidation can land while a slower manual refresh is still
@@ -38,6 +61,10 @@ function buildCard(row) {
   const card = document.createElement("div");
   card.className = "low-stock-card";
   card.dataset.id = row.id;
+  // The pre-edit values, so a save can tell a changed barcode from an
+  // untouched one without holding draft state in a module variable.
+  card.dataset.barcode = row.barcode;
+  card.dataset.barcodes = JSON.stringify(row.barcodes || []);
   card.innerHTML =
     `<div class="low-stock-card-header">` +
       `<h3>${escapeHtml(row.name)}</h3>` +
@@ -58,19 +85,93 @@ function buildCard(row) {
           `aria-label="Low stock threshold for ${escapeHtml(row.name)}">` +
       `</label>` +
     `</div>` +
-    `<p class="low-stock-row-message" aria-live="polite"></p>`;
+    `<p class="low-stock-row-message" aria-live="polite"></p>` +
+    cardBodyHtml(row);
   return card;
 }
 
-function render(rows) {
+// Which tab a row belongs to. Boundaries are exclusive on purpose: an item
+// dispensed an hour ago is in `day` and NOT also in `week`, so the three
+// counts sum to the queue and no card is read twice. A missing or
+// unparseable timestamp means "never dispensed", which is the oldest
+// bucket -- not a hidden row.
+function bucketOf(row, now) {
+  if (!row.last_dispensed_at) return "stale";
+  const at = Date.parse(row.last_dispensed_at);
+  if (Number.isNaN(at)) return "stale";
+  const age = now - at;
+  if (age < DAY_MS) return "day";
+  if (age < WEEK_MS) return "week";
+  return "stale";
+}
+
+function bucketRows(rows) {
+  const now = Date.now();
+  const grouped = { day: [], week: [], stale: [] };
+  // Server order (headroom ascending) is preserved: rows are appended in
+  // the order they arrived and never re-sorted.
+  for (const row of rows) grouped[bucketOf(row, now)].push(row);
+  return grouped;
+}
+
+// A background reload rebuilds every card, which would slam shut an editor
+// the user is typing in. Remember which ones were open by item id and
+// reopen them after the rebuild.
+function openCardIds() {
+  return new Set(
+    Array.from(listEl.querySelectorAll("details.low-stock-more[open]"))
+      .map(el => el.dataset.id)
+  );
+}
+
+function restoreOpenCards(ids) {
+  if (!ids.size) return;
+  for (const el of listEl.querySelectorAll("details.low-stock-more")) {
+    if (ids.has(el.dataset.id)) el.open = true;
+  }
+}
+
+function paintTabs(grouped) {
+  if (!tabsEl) return;
+  for (const { key, label } of BUCKETS) {
+    const btn = tabsEl.querySelector(`.sub-nav-btn[data-bucket="${key}"]`);
+    if (!btn) continue;
+    btn.textContent = `${label} (${grouped[key].length})`;
+    btn.classList.toggle("active", key === activeBucket);
+  }
+}
+
+function render() {
+  const grouped = bucketRows(allRows);
+
+  // Never strand the user on an empty tab: keep the one they chose while it
+  // still holds rows, otherwise fall to the first that does. This covers
+  // both the initial load and a background reload that emptied the tab
+  // under them.
+  if (!grouped[activeBucket].length) {
+    const firstFilled = BUCKETS.find(b => grouped[b.key].length);
+    if (firstFilled) activeBucket = firstFilled.key;
+  }
+  paintTabs(grouped);
+
+  const open = openCardIds();
   listEl.replaceChildren();
-  if (!rows.length) {
+
+  if (!allRows.length) {
     setMessage(messageEl, "Nothing is below its threshold.", "success");
     return;
   }
+
+  const rows = grouped[activeBucket];
+  if (!rows.length) {
+    setMessage(messageEl, EMPTY_TEXT[activeBucket], "success");
+    return;
+  }
+
   const fragment = document.createDocumentFragment();
   for (const row of rows) fragment.append(buildCard(row));
   listEl.append(fragment);
+  restoreOpenCards(open);
   setMessage(messageEl, "", "");
 }
 
@@ -81,9 +182,11 @@ export async function loadLowStock({ background = false } = {}) {
   try {
     const rows = await apiListLowStock();
     if (sequence !== loadSequence) return;
-    render(rows);
+    allRows = rows;
+    render();
   } catch (err) {
     if (sequence !== loadSequence) return;
+    allRows = [];
     listEl.replaceChildren();
     setMessage(messageEl, friendlyError(err, "Could not load low stock."), "error");
   }
@@ -134,6 +237,16 @@ if (listEl) {
       event.preventDefault();
       event.target.blur();
     }
+  });
+}
+
+if (tabsEl) {
+  tabsEl.addEventListener("click", (event) => {
+    const btn = event.target.closest(".sub-nav-btn");
+    if (!btn || !btn.dataset.bucket || btn.dataset.bucket === activeBucket) return;
+    activeBucket = btn.dataset.bucket;
+    // Filter, do not refetch: the queue in hand is the same queue.
+    render();
   });
 }
 

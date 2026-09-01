@@ -12,11 +12,24 @@
                7-day figure counts what was dispensed in the last week,
                including materials logged retroactively on a work order.
                Raise an item's threshold to be warned earlier; the change
-               takes effect on the next count that crosses it.</p>
+               takes effect on the next count that crosses it.
+               Tabs group the queue by how recently each item was
+               dispensed, so what is both low and moving reaches you first.</p>
 
             <div class="filter-row low-stock-controls">
                 <button id="low-stock-refresh" type="button" class="secondary-btn">Refresh</button>
             </div>
+
+            <!-- Recency buckets, mutually exclusive: an item appears under
+                 exactly one, and the three counts sum to the queue. These
+                 carry `data-bucket`, not `data-feature`, because they filter
+                 one list rather than swapping `.feature-panel`s -- the
+                 `initSubNav` convention does not apply here. -->
+            <nav class="sub-nav low-stock-tabs" id="low-stock-tabs" aria-label="Sort low stock by how recently it moved">
+                <button type="button" class="sub-nav-btn active" data-bucket="day">Last 24h</button>
+                <button type="button" class="sub-nav-btn" data-bucket="week">2-7 days</button>
+                <button type="button" class="sub-nav-btn" data-bucket="stale">Older or never</button>
+            </nav>
 
             <div id="low-stock-list" class="low-stock-grid"></div>
             <p id="low-stock-message" aria-live="polite"></p>

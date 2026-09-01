@@ -30,6 +30,16 @@ def test_the_low_stock_fragment_is_assembled_into_the_shell():
     assert b'id="low-stock-page"' in assembled
 
 
+def test_the_recency_tabs_are_assembled_into_the_shell():
+    """Three mutually exclusive buckets. A missing button is invisible in
+    the browser -- the page just renders one bucket and hides the rest of
+    the queue with no error."""
+    assembled = b"".join((STATIC_DIR / part).read_bytes() for part in SHELL_PARTS)
+    assert b'id="low-stock-tabs"' in assembled
+    for bucket in (b"day", b"week", b"stale"):
+        assert b'data-bucket="%s"' % bucket in assembled
+
+
 def test_low_stock_is_reachable_by_techfm_oa_and_above():
     source = NAV_JS.read_text(encoding="utf-8")
     match = re.search(r'"low-stock":\s*\[(.*?)\]', source)
