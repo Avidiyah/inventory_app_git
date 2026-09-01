@@ -8,7 +8,7 @@ to know about the database driver's exception classes.
 
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional, Sequence
 
@@ -550,3 +550,55 @@ def replace_barcodes(
     db.commit()
     db.refresh(item)
     return item
+
+
+# The usage window on the Low Stock page. Rolling hours rather than
+# calendar days on purpose: a fixed offset needs no timezone or
+# day-boundary logic, and the figure is read as "how fast is this
+# moving", which does not become more true for being aligned to midnight.
+LOW_STOCK_USAGE_WINDOW = timedelta(days=7)
+
+
+def list_low_stock(db: Session) -> list[tuple[Item, Decimal]]:
+    """Live items at or below their own threshold, with 7-day usage.
+
+    Ordered by *headroom* (`quantity - low_stock_threshold`) ascending, so
+    the item furthest below its own threshold leads the page rather than
+    the item with the smallest absolute count. An item at 1 with a
+    threshold of 20 is in more trouble than one at 6 with a threshold of
+    6, and sorting on the raw count would say the opposite.
+
+    Usage is a single grouped aggregate over exactly the items being
+    returned, not a query per row. It counts every non-voided `dispense`
+    inside the window and does **not** filter on `affects_stock`: a
+    retroactive work-order backfill is stored as a `dispense` with
+    `affects_stock=False`, so including real off-app consumption means
+    not filtering there. Corrections and adjusts are excluded, because a
+    recount write-off is not consumption and would make a mis-stocked
+    item look fast-moving.
+
+    Items with no rows in the window are simply absent from the aggregate
+    and resolve to `Decimal(0)` here, so "never dispensed" is not a
+    special case for any caller.
+    """
+    items = (
+        db.query(Item)
+        .filter(Item.archived_at.is_(None))
+        .filter(Item.quantity <= Item.low_stock_threshold)
+        .order_by((Item.quantity - Item.low_stock_threshold).asc(), Item.name.asc())
+        .all()
+    )
+    if not items:
+        return []
+
+    since = datetime.now(timezone.utc) - LOW_STOCK_USAGE_WINDOW
+    totals = dict(
+        db.query(Transaction.item_id, func.sum(Transaction.quantity))
+        .filter(Transaction.item_id.in_([item.id for item in items]))
+        .filter(Transaction.transaction_type == "dispense")
+        .filter(Transaction.voided_at.is_(None))
+        .filter(Transaction.created_at >= since)
+        .group_by(Transaction.item_id)
+        .all()
+    )
+    return [(item, totals.get(item.id) or Decimal(0)) for item in items]

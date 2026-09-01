@@ -11,6 +11,7 @@ Mounted by `app/main.py` under the root prefix.
 """
 
 import uuid
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -28,6 +29,7 @@ from app.schemas.items import (
     ItemNotesUpdate,
     ItemResponse,
     ItemUpdate,
+    LowStockItemResponse,
 )
 from app.services import items as items_service
 from app.services import notes as notes_service
@@ -51,6 +53,20 @@ def _item_response(item: Item, role: str) -> ItemResponse:
         resp.price = None
         resp.product_link = None
     return resp
+
+
+def _low_stock_response(item: Item, role: str, dispensed: Decimal) -> LowStockItemResponse:
+    """`_item_response` plus the 7-day figure.
+
+    Reuses the base serializer rather than re-deriving it so the
+    price/product-link redaction cannot drift between the two -- a second
+    hand-written copy is exactly how a Supervisor ends up seeing a price
+    on one page and not another.
+    """
+    base = _item_response(item, role)
+    return LowStockItemResponse(
+        **base.model_dump(), dispensed_last_7_days=dispensed
+    )
 
 
 @router.post(
@@ -97,6 +113,33 @@ def list_items(
     return [
         _item_response(item, user.role)
         for item in items_service.list_items(db, search=q)
+    ]
+
+
+@router.get(
+    "/low-stock",
+    response_model=list[LowStockItemResponse],
+    dependencies=[Depends(require_min_role(roles.ROLE_TECHFM_OA))],
+)
+def list_low_stock(
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
+    db: Session = Depends(get_db),
+):
+    """Every live item at or below its own low-stock threshold, deepest
+    below first, with the quantity dispensed in the last 7 days.
+
+    TechFM OA+ -- the same rank that receives the low-stock push and can
+    retune a threshold, so everyone who can see this can act on it.
+
+    **This route MUST stay registered above `GET /items/{barcode}`.**
+    That route's path parameter matches any single segment, so a
+    later-registered literal is unreachable and answers 404 for a route
+    that exists. Pinned by
+    `test_low_stock_is_not_shadowed_by_the_barcode_lookup`.
+    """
+    return [
+        _low_stock_response(item, user.role, dispensed)
+        for item, dispensed in items_service.list_low_stock(db)
     ]
 
 

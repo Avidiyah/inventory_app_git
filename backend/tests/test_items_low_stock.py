@@ -100,3 +100,140 @@ def test_a_dispense_over_real_http_schedules_a_low_stock_push(db, monkeypatch):
     assert response.status_code == 201, response.text
     assert sent, "no low-stock push was delivered"
     assert sent[0][1] == f"{item.name} is down to 5."
+
+
+from datetime import datetime, timedelta, timezone
+
+from app.models import Transaction
+
+
+def _dispense(db, item, *, quantity="3", hours_ago=1, voided=False, affects_stock=True,
+              transaction_type="dispense"):
+    txn = Transaction(
+        item_id=item.id,
+        user_id=None,
+        transaction_type=transaction_type,
+        quantity=Decimal(quantity),
+        work_order_number=None,
+        affects_stock=affects_stock,
+        created_at=datetime.now(timezone.utc) - timedelta(hours=hours_ago),
+        voided_at=datetime.now(timezone.utc) if voided else None,
+    )
+    db.add(txn)
+    db.flush()
+    return txn
+
+
+def _low_stock_rows(db, role="admin"):
+    user = _seed_user(db, role)
+    db.commit()
+    token = auth_service.create_session(db, user)
+    try:
+        with _client(db) as client:
+            client.cookies.set("session", token)
+            response = client.get("/items/low-stock")
+    finally:
+        del app.dependency_overrides[get_db]
+    return response
+
+
+def test_low_stock_lists_only_items_at_or_below_their_threshold(db):
+    low = _seed_item(db, quantity="6", threshold=6)
+    fast = _seed_item(db, quantity="15", threshold=20)
+    healthy = _seed_item(db, quantity="7", threshold=6)
+
+    response = _low_stock_rows(db)
+
+    assert response.status_code == 200, response.text
+    ids = {row["id"] for row in response.json()}
+    assert str(low.id) in ids
+    assert str(fast.id) in ids
+    assert str(healthy.id) not in ids
+
+
+def test_low_stock_excludes_archived_items(db):
+    archived = _seed_item(db, quantity="1", threshold=6)
+    archived.archived_at = datetime.now(timezone.utc)
+
+    response = _low_stock_rows(db)
+
+    assert str(archived.id) not in {row["id"] for row in response.json()}
+
+
+def test_low_stock_is_not_shadowed_by_the_barcode_lookup(db):
+    """`GET /items/{barcode}` would swallow the literal path if it were
+    registered first, answering 404 for a route that exists."""
+    _seed_item(db, quantity="1", threshold=6)
+    response = _low_stock_rows(db)
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+def test_low_stock_is_gated_at_techfm_oa(db):
+    _seed_item(db, quantity="1", threshold=6)
+    assert _low_stock_rows(db, role="supervisor").status_code == 403
+    assert _low_stock_rows(db, role="techfm_oa").status_code == 200
+
+
+def test_seven_day_usage_counts_a_recent_dispense(db):
+    item = _seed_item(db, quantity="2", threshold=6)
+    _dispense(db, item, quantity="3", hours_ago=1)
+    _dispense(db, item, quantity="4", hours_ago=167)
+
+    row = next(r for r in _low_stock_rows(db).json() if r["id"] == str(item.id))
+    assert Decimal(row["dispensed_last_7_days"]) == Decimal("7")
+
+
+def test_seven_day_usage_excludes_anything_older_than_the_window(db):
+    item = _seed_item(db, quantity="2", threshold=6)
+    _dispense(db, item, quantity="9", hours_ago=169)
+
+    row = next(r for r in _low_stock_rows(db).json() if r["id"] == str(item.id))
+    assert Decimal(row["dispensed_last_7_days"]) == Decimal("0")
+
+
+def test_seven_day_usage_excludes_voided_rows(db):
+    """A voided transaction is a mistake that was undone; counting it
+    would overstate how fast the item moves."""
+    item = _seed_item(db, quantity="2", threshold=6)
+    _dispense(db, item, quantity="5", voided=True)
+
+    row = next(r for r in _low_stock_rows(db).json() if r["id"] == str(item.id))
+    assert Decimal(row["dispensed_last_7_days"]) == Decimal("0")
+
+
+def test_seven_day_usage_includes_retroactive_dispenses(db):
+    """Stock consumed off-app and backfilled on paper is still usage. It
+    is stored as a `dispense` with `affects_stock=false`, so including it
+    means simply not filtering on that column."""
+    item = _seed_item(db, quantity="2", threshold=6)
+    _dispense(db, item, quantity="6", affects_stock=False)
+
+    row = next(r for r in _low_stock_rows(db).json() if r["id"] == str(item.id))
+    assert Decimal(row["dispensed_last_7_days"]) == Decimal("6")
+
+
+def test_seven_day_usage_excludes_corrections(db):
+    """A recount write-off is not consumption. Counting it would make a
+    mis-stocked item look fast-moving and invite the wrong threshold."""
+    item = _seed_item(db, quantity="2", threshold=6)
+    _dispense(db, item, quantity="-8", transaction_type="adjust")
+
+    row = next(r for r in _low_stock_rows(db).json() if r["id"] == str(item.id))
+    assert Decimal(row["dispensed_last_7_days"]) == Decimal("0")
+
+
+def test_an_item_with_no_usage_reports_zero(db):
+    item = _seed_item(db, quantity="1", threshold=6)
+    row = next(r for r in _low_stock_rows(db).json() if r["id"] == str(item.id))
+    assert Decimal(row["dispensed_last_7_days"]) == Decimal("0")
+
+
+def test_low_stock_is_ordered_by_headroom(db):
+    """Deepest below its own threshold first, so the item most likely to
+    run out is the one nearest the top of the page."""
+    barely = _seed_item(db, quantity="6", threshold=6)     # headroom 0
+    deep = _seed_item(db, quantity="1", threshold=20)      # headroom -19
+
+    ids = [row["id"] for row in _low_stock_rows(db).json()]
+    assert ids.index(str(deep.id)) < ids.index(str(barely.id))

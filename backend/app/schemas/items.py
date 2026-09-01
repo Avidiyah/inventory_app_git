@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, field_validator, model_validator
 
+from app.domain.low_stock import MIN_LOW_STOCK_THRESHOLD
 from app.domain.notes_validation import validate_notes
 
 
@@ -92,6 +93,40 @@ class ItemResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class LowStockItemResponse(ItemResponse):
+    """An item on the Low Stock page.
+
+    Its own schema rather than two more fields on `ItemResponse`: the
+    7-day aggregate costs a grouped query, and every other item route
+    would pay for a number none of them display. `low_stock_threshold`
+    stays on the parent because it is a plain column that any item view
+    may want.
+    """
+
+    dispensed_last_7_days: Decimal
+
+
+class LowStockThresholdUpdate(BaseModel):
+    """Payload for `PATCH /items/{id}/low-stock-threshold`.
+
+    A plain `int`, deliberately not a constrained `Literal` or an enum:
+    int `Literal` query/body params 422 on every real request under this
+    repo's pinned FastAPI/Pydantic pair, and the floor is one comparison
+    that reads better as a validator anyway.
+    """
+
+    low_stock_threshold: int
+
+    @field_validator("low_stock_threshold")
+    @classmethod
+    def _at_least_the_minimum(cls, v):
+        if v < MIN_LOW_STOCK_THRESHOLD:
+            raise ValueError(
+                f"Threshold must be at least {MIN_LOW_STOCK_THRESHOLD}."
+            )
+        return v
 
 
 class ItemNotesUpdate(BaseModel):
