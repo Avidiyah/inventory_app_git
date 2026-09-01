@@ -68,6 +68,7 @@ def _fake_item(alt_codes):
         barcode="012345678905",
         name="Widget",
         quantity=Decimal("7"),
+        low_stock_threshold=6,
         location="Bay 1",
         notes={},
         alt_barcodes=[SimpleNamespace(code=c) for c in alt_codes],

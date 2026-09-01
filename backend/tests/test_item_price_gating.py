@@ -28,6 +28,7 @@ def _fake_item():
         barcode="012345678905",
         name="Widget",
         quantity=Decimal("7"),
+        low_stock_threshold=6,
         location="Bay 1",
         notes={},
         alt_barcodes=[],

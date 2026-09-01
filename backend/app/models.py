@@ -29,6 +29,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.domain.low_stock import DEFAULT_LOW_STOCK_THRESHOLD
 
 
 class User(Base):
@@ -109,6 +110,13 @@ class Item(Base):
     barcode = Column(Text, nullable=False, unique=True)
     name = Column(Text, nullable=False)
     quantity = Column(Numeric, nullable=False, default=0)
+    # The count at or below which this item raises a low-stock push and
+    # appears on the Low Stock page. Whole numbers >= 1 (see
+    # `domain.low_stock`); every item has one, so there is no "unmonitored"
+    # state to handle at the eight stock-mutation sites.
+    low_stock_threshold = Column(
+        Integer, nullable=False, default=DEFAULT_LOW_STOCK_THRESHOLD, server_default="6"
+    )
     location = Column(Text, nullable=False)
     notes = Column(JSONB, nullable=False, default=dict, server_default="{}")
     price = Column(Numeric, nullable=True)

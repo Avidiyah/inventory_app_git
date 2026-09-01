@@ -80,6 +80,10 @@ class ItemResponse(BaseModel):
     barcode: str
     name: str
     quantity: Decimal
+    # Operational, not cost-sensitive: unlike `price` / `product_link` this
+    # is NOT redacted in `routers/items._item_response`, so every role sees
+    # it wherever an item is returned.
+    low_stock_threshold: int
     location: str
     notes: dict[str, Any] = {}
     barcodes: list[str] = []
