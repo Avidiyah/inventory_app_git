@@ -1558,6 +1558,79 @@ tr:last-child td {
     gap: var(--space-2);
 }
 
+/* --- Low Stock page ------------------------------------------------- */
+
+.low-stock-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: var(--space-3);
+}
+
+.low-stock-card {
+    border: 1px solid var(--panel-border);
+    border-left: 5px solid var(--color-error);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    background: var(--panel-nested);
+}
+
+.low-stock-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.low-stock-card-header h3 {
+    margin: var(--space-1) 0 0;
+}
+
+/* Status accent as a badge, never a filled panel -- the palette rule. */
+.low-stock-count {
+    color: var(--color-error);
+    font-weight: var(--fw-bold);
+    white-space: nowrap;
+}
+
+.low-stock-details {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    font-size: var(--fs-sm);
+    margin-top: var(--space-2);
+}
+
+.low-stock-actions {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--panel-rule);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.low-stock-usage {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+}
+
+.low-stock-threshold {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-sm);
+}
+
+.low-stock-threshold-input {
+    width: 5rem;
+}
+
+.low-stock-row-message:empty {
+    display: none;
+}
+
 /* --- the "request this item" prompt on empty search results --- */
 .item-request {
     margin-top: var(--space-2);

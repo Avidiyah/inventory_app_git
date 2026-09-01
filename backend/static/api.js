@@ -117,6 +117,16 @@ export async function apiUpdateBarcodes(itemId, codes, overrideArchived = false)
   return jsonRequest(`/items/${itemId}/barcodes`, "PATCH", { barcodes: codes, override_archived: overrideArchived });
 }
 
+export async function apiListLowStock() {
+  return liveGet("/items/low-stock");
+}
+
+export async function apiSetLowStockThreshold(itemId, threshold) {
+  return jsonRequest(`/items/${itemId}/low-stock-threshold`, "PATCH", {
+    low_stock_threshold: threshold,
+  });
+}
+
 export async function apiGetItemByBarcode(barcode) {
   // Barcodes may contain characters that need URL-escaping (e.g.
   // `/` or `#`); raw values would silently mis-route.

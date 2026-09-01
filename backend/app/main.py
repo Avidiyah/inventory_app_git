@@ -349,6 +349,7 @@ SHELL_PARTS = (
     "pages/mass-stage.html",
     "pages/work-orders.html",
     "pages/user-requests.html",
+    "pages/low-stock.html",
     "pages/admin-review.html",
     "pages/tools.html",
     "pages/history.html",

@@ -1,0 +1,25 @@
+    <!-- =================== LOW STOCK PAGE =================== -->
+    <!-- TechFM OA+ reorder queue. Lists every live item at or below its own
+         threshold, deepest below first, with the quantity dispensed in the
+         last 7 days beside the threshold control so "how fast is this
+         moving" and "when should it warn me" are read together. Rows are
+         invalidated live by `item.low_stock.changed`. -->
+    <div class="page" id="low-stock-page">
+
+        <section id="low-stock-section">
+            <h2>Low Stock</h2>
+            <p class="hint">Every item at or below its alert threshold. The
+               7-day figure counts what was dispensed in the last week,
+               including materials logged retroactively on a work order.
+               Raise an item's threshold to be warned earlier; the change
+               takes effect on the next count that crosses it.</p>
+
+            <div class="filter-row low-stock-controls">
+                <button id="low-stock-refresh" type="button" class="secondary-btn">Refresh</button>
+            </div>
+
+            <div id="low-stock-list" class="low-stock-grid"></div>
+            <p id="low-stock-message" aria-live="polite"></p>
+        </section>
+
+    </div>

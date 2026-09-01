@@ -15,6 +15,7 @@ import { loadWorkOrders, loadIntegrationsPage } from "./workOrders.js";
 import { loadUserHub } from "./userHub.js";
 import { loadAdminReview } from "./adminReview.js";
 import { loadUserRequests } from "./userRequests.js";
+import { loadLowStock } from "./lowStock.js";
 import { loadTools, toolsScanner, toolScanWidget } from "./tools.js";
 import { txnScanner } from "./scan.js";
 import { itemsScanner, itemScanWidget } from "./items.js";
@@ -93,6 +94,10 @@ export const PAGE_ACCESS = {
   "work-orders": ["owner", "admin", "techfm_oa", "supervisor", "technician"],
   // Operational exceptions such as inventory recounts are managed by TechFM OA+.
   "user-requests": ["owner", "admin", "techfm_oa"],
+  // The reorder queue. Same rank as the low-stock push audience, so
+  // everyone who receives the alert can also retune the threshold that
+  // produced it.
+  "low-stock": ["owner", "admin", "techfm_oa"],
   // Final billing/close queue. Cost detail and archive are TechFM OA+. A
   // TechFM OA works this queue; they just cannot put a work order into it.
   "admin-review": ["owner", "admin", "techfm_oa"],
@@ -229,6 +234,8 @@ export function showPage(pageName) {
     loadWorkOrders({ refreshReferenceData: true });
   } else if (pageName === "user-requests") {
     loadUserRequests();
+  } else if (pageName === "low-stock") {
+    loadLowStock();
   } else if (pageName === "admin-review") {
     loadAdminReview();
   } else if (pageName === "tools") {
