@@ -45,8 +45,15 @@ screen whether or not the app is open.
 | `work_order.supervisor_assigned_bulk` | TechFM OA+ (whoever ran the import) | `POST /work-orders/import` | each supervisor the import name-matched, **once for the whole import** |
 | `netfacilities.import_finished` | the capture chain, acting for the TechFM OA+ user who exported the CSV | `netfacilities_cloud_auth.dispatch_capture` -- the automatic capture trigger and `POST /integrations/netfacilities/cloud/downloads/import` both run it | **the ceremony's own user** -- deliberately the actor; see below |
 | `netfacilities.import_failed` | same chain | same -- fired instead of `import_finished` when the import or the enrichment start fails | the ceremony's own user |
+| `item.low_stock` | any stock write, or a threshold raise | `POST /transactions/`, `POST /transactions/adjust`, `DELETE /transactions/{id}`, `POST /mass-stages/{id}/load`, `POST /mass-stages/{id}/return`, the three `/work-orders/{id}/items` routes, `PATCH /items/{id}/low-stock-threshold` | everyone at `LOW_STOCK_AUDIENCE_MIN_ROLE` (**TechFM OA** and above), **including the actor** |
 
-**Every rule suppresses the acting user, by id.** A supervisor completing work
+`item.low_stock` does not suppress the actor. It is a state alarm about
+the stockroom rather than a report of somebody's action, and whoever just
+took the last of an item is standing in front of the empty shelf. The
+inversion is expressed as `actor_id=None` in
+`recipients_for_low_stock`, not by skipping `select_recipients`.
+
+**Every other rule suppresses the acting user, by id.** A supervisor completing work
 on someone else's behalf is as much the actor as a technician is, so
 suppression never reads a role. It happens centrally in
 `select_recipients`, which also drops `None` and de-duplicates — a supervisor
@@ -54,15 +61,20 @@ who is also an assignee is one person and gets one notification.
 
 ## What each one says
 
-Notification text renders on a locked phone, so a work-order **number** and a
-**count** are the only variables any of these interpolate. No customer, no
-address, no description, no note text, no price.
+Notification text renders on a locked phone, so a work-order **number**, a
+**count**, and an item **name** / **quantity** are the only variables any of
+these interpolate. No customer, no address, no description, no note text, no
+price.
 
 `count` exists for one event. "40 work orders have been assigned to you" names
 no work order, no customer, and no job — a tally of your own queue tells a
 stranger holding the phone nothing the app's icon badge would not. That is the
-whole argument for widening `build_message` past a number, and it does not
-extend to a third field.
+whole argument for widening `build_message` past a number.
+
+`name` / `quantity` exist for the low-stock event. An item name is a
+catalogue/manufacturer string ("3M Blue Tape") that identifies no person, site,
+or job, and without it the notification is unactionable -- nobody reads a
+barcode off a lock screen. A *price* on the same item stays forbidden.
 
 | Event | Title | Body |
 | --- | --- | --- |
@@ -76,6 +88,7 @@ extend to a third field.
 | `work_order.supervisor_assigned` | Work order assigned to you | `{number}` has been assigned to you. |
 | `work_order.supervisor_assigned_bulk` | Work orders assigned to you | `{count}` work orders have been assigned to you. |
 | `netfacilities.import_finished` | NetFacilities import finished | Imported `{created}` work orders[ · `{auto_closed}` closed (not in NetFacilities)][ · `{reopened}` reopened (back in NetFacilities)]; enrichment started. Zero-count clauses are omitted. |
+| `item.low_stock` | Low stock | `{name}` is down to `{quantity}`. |
 | `netfacilities.import_failed` | NetFacilities import needs you | Names the failing stage and the next move: *import* → still signed in, export again; *enrichment* → imported `{created}` work orders, click Enrich when it frees up. |
 
 An import that matched a supervisor to exactly **one** work order sends the
@@ -249,6 +262,7 @@ one when you meant a push.
 | `work_order.review_queue.changed` | any caller authorized for the write | work-order import, legacy archive, `PATCH`, archive, restore | connected clients at **TechFM OA** and above |
 | `work_order.status.changed` | any caller authorized for the write | work-order import, bulk legacy archive, `PATCH`, `start`, `complete`, `hold`, `resume`, archive, restore, tracking `start`/`stop` | connected clients at **Technician** and above |
 | `labor.session.changed` | any caller authorized for the write | tracking `start`, tracking `stop` | connected clients at **Supervisor** and above |
+| `item.low_stock.changed` | any caller authorized for the write | an item entered or left the low-stock set; a threshold edit; item create or archive | connected clients at **TechFM OA** and above |
 
 Four differences from Part 1 that matter:
 

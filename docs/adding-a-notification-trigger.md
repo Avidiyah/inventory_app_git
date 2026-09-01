@@ -29,9 +29,12 @@ addresses, no job descriptions, no note text, no prices. A work-order **number**
 is allowed and wanted — it is an opaque identifier that makes the notification
 actionable, and it is already visible to anyone holding the phone. A **count**
 is allowed for the same reason: "40 work orders have been assigned to you"
-identifies nothing. The line is *identifiers and counts yes, human-readable
-detail no*, and `build_message` takes exactly `number` and `count` to keep it
-there. Widening that signature is the change to argue about, not the strings.
+identifies nothing. The line is *catalogue identifiers, counts, and quantities
+yes; customer, job, and price detail no*, and `build_message` takes exactly
+`number`, `count`, `name`, and `quantity` to keep it there. An item `name` is a
+manufacturer/catalogue string and identifies no person, site, or job; a price on
+the same item remains forbidden. Widening that signature further is the change
+to argue about, not the strings.
 `routers/push.py::send_test` is the reference for tone.
 
 **2. Only 404 and 410 may delete a subscription.**

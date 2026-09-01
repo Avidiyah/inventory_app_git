@@ -37,9 +37,11 @@ writes (w).
 | 4 | POST | `/auth/logout` | session | `auth.py` → `auth.delete_session` | sessions (w) | `apiLogout` | `auth.js` |
 | 5 | GET | `/auth/me` | session | `auth_deps.get_current_user` | sessions (r), users (r) | `apiMe` | `auth.js`, `tools.js` (self profile) |
 | 6 | GET | `/items/` | session | `items.py` → `items.list_items` (optional `q`) | items (r) | `apiListItems` | `items.js`, `addBarcode.js`, `transactions.js`, `massStage.js`, `workOrders.js` |
+| 6a | GET | `/items/low-stock` | techfm_oa+ | `items.py` → `items.list_low_stock` | items (r), transactions (r, 7-day dispensed) | `apiListLowStock` | `lowStock.js` |
 | 7 | GET | `/items/{barcode}` | session | `items.py` → `items.get_item_by_barcode` | items (r), item_barcodes (r) | `apiGetItemByBarcode` | `scan.js`, `addBarcode.js`, `history.js` |
 | 8 | POST | `/items/` | techfm_oa+ | `items.py` → `items.create_item` | items (w), item_barcodes (r) | `apiCreateItem` | `items.js` |
 | 9 | PATCH | `/items/{id}` | techfm_oa+ | `items.py` → `items.update_item` (+ `user_requests.resolve_missing_price_requests`) | items (w/lock), item_barcodes (r), user_requests (w when price+link complete) | `apiUpdateItem` | `itemEditor.js`, `userRequests.js` |
+| 9a | PATCH | `/items/{id}/low-stock-threshold` | techfm_oa+ | `items.py` → `items.set_low_stock_threshold` | items (w/lock) | `apiSetLowStockThreshold` | `lowStock.js` |
 | 10 | PATCH | `/items/{id}/notes` | supervisor+ | `items.py` → `notes.replace_notes` | items (w) | `apiUpdateNotes` | `notes.js` |
 | 11 | PATCH | `/items/{id}/barcodes` | techfm_oa+ | `items.py` → `items.replace_barcodes` | item_barcodes (w), items (r) | `apiUpdateBarcodes` | `itemEditor.js`, `addBarcode.js` |
 | 12 | DELETE | `/items/{id}` | techfm_oa+ | `items.py` → `items.delete_item` | items (w, archive) | `apiDeleteItem` | `items.js` |
@@ -380,9 +382,9 @@ Quick reverse lookup: "which endpoints touch table X?"
 |-------|-------------------------|----------------------|
 | `users` | 15, 16, 17, 18, 19, 58, 62 | 3, 5, 14, 20, 25–28 (assignee validation), 40, 55 (supervisor name-match), 59–61, 63–64, 68–69 |
 | `sessions` | 3 (insert), 4 (delete), 17 (revoke), 19 (cascade), 62 (revoke) | every authenticated request (5 + all gated) |
-| `items` | 8, 9, 10, 12, 21, 22, 24, 30, 31, 33, 45, 46 | 6, 7, 20, 26, 36, 63, 68 |
+| `items` | 8, 9, 9a, 10, 12, 21, 22, 24, 30, 31, 33, 45, 46 | 6, 6a, 7, 20, 26, 36, 63, 68 |
 | `item_barcodes` | 8 (check), 11 | 7, 8 (uniqueness) |
-| `transactions` | 21, 22, 23, 24, 30, 31, 33, 45 | 20, 24, 26 (self-heal) |
+| `transactions` | 21, 22, 23, 24, 30, 31, 33, 45 | 6a (7-day usage), 20, 24, 26 (self-heal) |
 | `work_orders` | 21 (activity status), 28, 29, 40 (fill-blanks), 55 (import f-o-c), 59 (activity status), 67 (start) | 20–21, 25–29, 36, 40, 55, 59–61, 63–64, 67–68 |
 | `work_order_items` | 21, 24, 30, 31, 32, 33, 45, 46 | 25, 26, 63 |
 | `work_order_technicians` | 28, 40, 55 | 25, 26, 28, 59, 64 |

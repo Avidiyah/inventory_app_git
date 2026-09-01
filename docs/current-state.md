@@ -94,6 +94,7 @@ Path shorthand:
 | List-size ceiling (all list endpoints) | `domain/list_limits.py`, `services/_list_cap.py`, the six `list_*` service functions | `test_list_limits.py`, `test_list_cap_service.py`, `test_list_caps_applied.py` |
 | Roles/permissions/user management | `domain/roles.py`, `routers/users.py`, `services/users.py`, `schemas/users.py`, `static/roles.js`, `static/views/users.js`, `static/views/nav.js` | `test_roles.py`, `test_route_role_gates.py`, `test_user_names.py`, `test_user_role_edit.py`, `test_user_archive.py` |
 | Item CRUD/lookup/archive | `routers/items.py`, `services/items.py`, `schemas/items.py`, `models.py`, `static/views/items.js`, `static/views/itemEditor.js`, `static/api.js` | `test_item_barcodes.py`, `test_item_price_gating.py`, route-gate tests |
+| Low stock alerts / page | `domain/low_stock.py`, `services/low_stock.py`, `routers/_low_stock.py`, `services/items.py`, `routers/items.py`, `domain/notifications.py`, `domain/realtime.py`, `static/views/lowStock.js`, `static/pages/low-stock.html` | `test_low_stock_domain.py`, `test_low_stock_buffer.py`, `test_low_stock_triggers.py`, `test_items_low_stock.py`, `test_low_stock_shell.py` |
 | Item notes | `domain/notes_validation.py`, `services/notes.py`, `schemas/items.py`, `routers/items.py`, `static/views/notes.js` | add/extend focused tests if behavior changes |
 | Alternate barcodes | `models.py`, `services/items.py`, `schemas/items.py`, `routers/items.py`, `static/views/itemEditor.js`, `static/views/addBarcode.js` | `test_item_barcodes.py` |
 | Stock/dispense/correction/void | `domain/quantity.py`, `services/transactions.py`, `routers/transactions.py`, `schemas/transactions.py`, `static/views/transactions.js`, `static/views/correction.js` | `test_quantity_reverse.py`, `test_user_requests.py`, route-gate tests |
@@ -717,6 +718,7 @@ owner > admin > techfm_oa > supervisor > technician
 | Preview/re-archive all live legacy work orders | owner exactly; server gate and service check |
 | Undo the import's auto-close (last 24 hours, company-wide) | techfm_oa+ — the role that imports and the role that archives, deliberately not the Supervisor gate on single-work-order restore |
 | Admin Review page / receipt | techfm_oa+; lists every live Review work order |
+| Low Stock page / retune a threshold | techfm_oa+; lists items at or below their own threshold with 7-day usage |
 | User Requests page / request status | techfm_oa+; list, edit, resolve/reopen, and fulfil operational exceptions |
 | File an item request | any authenticated user, from an empty search on Work Orders or Find Item |
 | Close/archive a work order | techfm_oa+ (scoped), any live status; UI action lives on expanded Work Orders cards and remains in Admin Review for Review rows |
@@ -875,8 +877,8 @@ Rules:
 
 ### `items`
 
-Fields: `id`, `barcode`, `name`, `quantity`, `location`, `notes`, `price`,
-`product_link`, `created_at`, `archived_at`.
+Fields: `id`, `barcode`, `name`, `quantity`, `low_stock_threshold`,
+`location`, `notes`, `price`, `product_link`, `created_at`, `archived_at`.
 
 Rules:
 
@@ -886,6 +888,9 @@ Rules:
 - `archived_at` hides item from lists/lookups but keeps joins for history.
 - `price` and `product_link` are cost-sensitive and server-redacted below
   Admin.
+- `low_stock_threshold` is a whole number >= 1 (DB CHECK), default 6. An item
+  at or below it is "low": it appears on the Low Stock page and a write that
+  crosses it pushes to TechFM OA+ (`domain/low_stock.py`). Not redacted.
 
 Update behavior:
 
@@ -1414,8 +1419,8 @@ stays here is behavior that table cannot carry:
 
 Navigation (`views/nav.js::showPage`): the bar is four task-domain groups —
 Inventory (Add Item, Find Item, Tools), Field (Scan / Stock, Work Orders,
-Mass Stage), People (Add User, Users), Review (User Requests, Admin Review,
-History). Every page in `PAGE_ACCESS` belongs to exactly one group in
+Mass Stage), People (Add User, Users), Review (Low Stock, User Requests,
+Admin Review, History). Every page in `PAGE_ACCESS` belongs to exactly one group in
 `shell-head.html` or it does not appear in the nav at all;
 `applyRoleVisibility` hides buttons, then any group left empty. A role with
 more than 5 visible pages gets each group collapsed into a popover toggle;
@@ -1495,6 +1500,12 @@ restore prompt; the Owner additionally the hidden legacy re-archive button
 (preview count → confirm → actual count). The list shows the newest 10 by
 default ("Show all" lifts it); any active filter queries the complete
 matching set.
+
+Low Stock: TechFM OA+ reorder queue. Every live item at or below its own
+`low_stock_threshold`, ordered by headroom (deepest below first), each card
+showing on-hand, 7-day dispensed usage, and an inline threshold input that
+commits on blur/Enter and reloads (a lowered threshold can clear the row).
+`item.low_stock.changed` refreshes it in place while it is the active page.
 
 Admin Review: TechFM OA+ page over live Review rows; selecting a card opens
 one persistent receipt textarea (shared `pricingText.js` 41-char lines,
