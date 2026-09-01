@@ -41,6 +41,7 @@ from app.models import (
     Transaction,
     WorkOrder,
 )
+from app.services import low_stock
 from app.services import work_orders as wo_service
 from app.services._list_cap import capped
 
@@ -465,6 +466,10 @@ def load_item(
     )
     by_id = {si.id: (si, slot, w) for si, slot, w in rows}
 
+    # One item, many per-slot slices: capture once outside the loop and
+    # record once after it, so a load that fills six rooms is one crossing
+    # rather than six.
+    quantity_before = item.quantity
     try:
         for alloc in allocations:
             si, _slot, work_order = by_id[alloc.key]
@@ -492,6 +497,7 @@ def load_item(
                 user_id=user_id,
             )
             si.loaded_quantity = si.loaded_quantity + alloc.quantity
+        low_stock.record(item, quantity_before=quantity_before)
         db.commit()
     except NegativeQuantityError:
         db.rollback()
@@ -545,5 +551,9 @@ def return_item(
             quantity=alloc.quantity,
         )
 
-    item.quantity = item.quantity + quantity
+    quantity_before = item.quantity
+    item.quantity = quantity_before + quantity
+    # Upward only, so this can re-arm and drop the row from an open Low
+    # Stock page but can never push.
+    low_stock.record(item, quantity_before=quantity_before)
     db.commit()

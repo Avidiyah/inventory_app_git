@@ -32,6 +32,7 @@ from app.domain.billing import validate_billable_quantity
 from app.domain import roles
 from app.domain.quantity import apply_delta, reverse_delta
 from app.models import Item, Transaction, WorkOrderItem
+from app.services import low_stock
 from app.services import user_requests as request_service
 from app.services import work_orders as wo_service
 
@@ -126,6 +127,10 @@ def apply_transaction(
             shortage_quantity=shortage_quantity,
         )
 
+    # Recorded before the commit, while the row is loaded, and drained by
+    # the router only after this returns -- so a rollback below never
+    # leaves a phantom crossing behind.
+    low_stock.record(item, quantity_before=quantity_before)
     db.commit()
     db.refresh(new_txn)
     # These response-only attributes are not columns: the durable source is the
@@ -207,6 +212,7 @@ def void_transaction(
             # live item; this is a defensive guard, not an expected path.
             raise ItemNotFoundError("Item not found.")
 
+        quantity_before = item.quantity
         try:
             item.quantity = reverse_delta(
                 item.quantity, txn.transaction_type, txn.quantity
@@ -218,6 +224,9 @@ def void_transaction(
                 "Cannot void this entry — it would make the on-hand count "
                 "negative. Make a correction instead."
             ) from exc
+        # Inside the branch on purpose: a stock-neutral retroactive row
+        # never moved on-hand, so undoing it cannot change membership.
+        low_stock.record(item, quantity_before=quantity_before)
 
     # Keep the work order's materials list in step with History: a line is the
     # aggregate of its work-order transactions, so voiding one reverses that row's
@@ -333,11 +342,12 @@ def apply_correction(
     if not item:
         raise ItemNotFoundError("Item not found.")
 
-    delta = new_quantity - item.quantity
+    quantity_before = item.quantity
+    delta = new_quantity - quantity_before
     if delta == 0:
         raise NoChangeError("No change to apply.")
 
-    item.quantity = apply_delta(item.quantity, "adjust", delta)
+    item.quantity = apply_delta(quantity_before, "adjust", delta)
 
     new_txn = Transaction(
         item_id=item_id,
@@ -354,6 +364,7 @@ def apply_correction(
     request_service.resolve_recount_requests(
         db, item_id=item_id, resolved_by_id=user_id
     )
+    low_stock.record(item, quantity_before=quantity_before)
     db.commit()
     db.refresh(new_txn)
     return new_txn

@@ -71,6 +71,7 @@ from app.models import (
     WorkOrderTechnician,
 )
 from app.services import _list_cap
+from app.services import low_stock
 from app.services import user_requests as request_service
 
 
@@ -3228,6 +3229,7 @@ def add_work_order_item(
             dispensed_quantity=quantity,
             shortage_quantity=shortage_quantity,
         )
+    low_stock.record(item, quantity_before=quantity_before)
     db.commit()
     db.refresh(line)
     return line
@@ -3260,6 +3262,7 @@ def update_work_order_item(
     # Signed delta applied to stock: dispensing more (new > old) lowers on-hand,
     # so the stock delta is `old - new`. Matches the `adjust` convention where the
     # stored quantity is the signed amount added to stock.
+    quantity_before = item.quantity
     stock_delta = line.quantity - quantity
     if stock_delta != 0 and wo.affects_stock(line.mode):
         item.quantity = apply_delta(item.quantity, "adjust", stock_delta)
@@ -3281,6 +3284,10 @@ def update_work_order_item(
     # it the override no longer makes sense, so clear it (revert to full).
     if line.billable_quantity is not None and line.billable_quantity > quantity:
         line.billable_quantity = None
+    # Unconditional: a retroactive line moves no stock, so the recorder
+    # sees an unchanged quantity and buffers nothing. Guarding the call
+    # would only duplicate that decision.
+    low_stock.record(item, quantity_before=quantity_before)
     db.commit()
     db.refresh(line)
     return line
@@ -3331,6 +3338,7 @@ def delete_work_order_item(
     line = _get_line(db, work_order, wo_item_id)
     item = _locked_live_item(db, line.item_id)
 
+    quantity_before = item.quantity
     if wo.affects_stock(line.mode):
         item.quantity = apply_delta(item.quantity, "stock", line.quantity)
 
@@ -3357,4 +3365,5 @@ def delete_work_order_item(
         )
 
     db.delete(line)
+    low_stock.record(item, quantity_before=quantity_before)
     db.commit()
