@@ -718,7 +718,7 @@ owner > admin > techfm_oa > supervisor > technician
 | Preview/re-archive all live legacy work orders | owner exactly; server gate and service check |
 | Undo the import's auto-close (last 24 hours, company-wide) | techfm_oa+ — the role that imports and the role that archives, deliberately not the Supervisor gate on single-work-order restore |
 | Admin Review page / receipt | techfm_oa+; lists every live Review work order |
-| Low Stock page / retune a threshold | techfm_oa+; lists items at or below their own threshold with 7-day usage |
+| Low Stock page / retune a threshold, edit an item, correct a count | techfm_oa+; lists items at or below their own threshold with 7-day usage, grouped by dispense recency |
 | User Requests page / request status | techfm_oa+; list, edit, resolve/reopen, and fulfil operational exceptions |
 | File an item request | any authenticated user, from an empty search on Work Orders or Find Item |
 | Close/archive a work order | techfm_oa+ (scoped), any live status; UI action lives on expanded Work Orders cards and remains in Admin Review for Review rows |
@@ -1505,6 +1505,12 @@ Low Stock: TechFM OA+ reorder queue. Every live item at or below its own
 `low_stock_threshold`, ordered by headroom (deepest below first), each card
 showing on-hand, 7-day dispensed usage, and an inline threshold input that
 commits on blur/Enter and reloads (a lowered threshold can clear the row).
+Three mutually exclusive recency tabs (last 24h / 2-7 days / older or
+never), bucketed client-side from `last_dispensed_at`; one fetch serves
+all three. Each card expands to edit core fields, additional barcodes,
+and to correct the count (`POST /transactions/adjust`); the threshold
+control stays in the card header. Any save reloads the queue rather
+than patching the card.
 `item.low_stock.changed` refreshes it in place while it is the active page.
 
 Admin Review: TechFM OA+ page over live Review rows; selecting a card opens

@@ -37,7 +37,7 @@ writes (w).
 | 4 | POST | `/auth/logout` | session | `auth.py` → `auth.delete_session` | sessions (w) | `apiLogout` | `auth.js` |
 | 5 | GET | `/auth/me` | session | `auth_deps.get_current_user` | sessions (r), users (r) | `apiMe` | `auth.js`, `tools.js` (self profile) |
 | 6 | GET | `/items/` | session | `items.py` → `items.list_items` (optional `q`) | items (r) | `apiListItems` | `items.js`, `addBarcode.js`, `transactions.js`, `massStage.js`, `workOrders.js` |
-| 6a | GET | `/items/low-stock` | techfm_oa+ | `items.py` → `items.list_low_stock` | items (r), transactions (r, 7-day dispensed) | `apiListLowStock` | `lowStock.js` |
+| 6a | GET | `/items/low-stock` | techfm_oa+ | `items.py` → `items.list_low_stock` | items (r), transactions (r: `dispensed_last_7_days` windowed sum + `last_dispensed_at` unwindowed max, `null` if never) | `apiListLowStock` | `lowStock.js` |
 | 7 | GET | `/items/{barcode}` | session | `items.py` → `items.get_item_by_barcode` | items (r), item_barcodes (r) | `apiGetItemByBarcode` | `scan.js`, `addBarcode.js`, `history.js` |
 | 8 | POST | `/items/` | techfm_oa+ | `items.py` → `items.create_item` | items (w), item_barcodes (r) | `apiCreateItem` | `items.js` |
 | 9 | PATCH | `/items/{id}` | techfm_oa+ | `items.py` → `items.update_item` (+ `user_requests.resolve_missing_price_requests`) | items (w/lock), item_barcodes (r), user_requests (w when price+link complete) | `apiUpdateItem` | `itemEditor.js`, `userRequests.js` |
