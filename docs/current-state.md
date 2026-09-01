@@ -493,6 +493,15 @@ Work orders:
   work order. An archived and an out-of-scope number are therefore
   indistinguishable and both report "not available". The Mass Stage hand-off
   routes to the same card page via the existing `pendingFocusId` mechanism.
+  **Back returns to the list at the offset it was left at.** `history.
+  scrollRestoration` is `manual`: the browser's own restore fires at `popstate`,
+  before `loadWorkOrders` has fetched anything, and clamps to 0. Instead
+  `openWorkOrderPage` stamps `woListScrollY` onto the list's history entry via
+  `replaceState` — before the skeleton collapses the page height — and the
+  `popstate` handler arms a one-shot the completed list render consumes. Arming
+  at `popstate` rather than reading `history.state` at the render site is what
+  keeps nav entry, filter changes, and the realtime background refresh from
+  jumping the page. Cold deep links have no stamp and land at the top.
 - Work Orders list filters are server-side and joinable: status, exact normalized
   service type, routed supervisor, derived community, exact scheduled date, and
   number substring all combine with AND before the caller's normal visibility
@@ -545,8 +554,8 @@ Work orders:
   import starts Created. Assigning one or more technicians advances a
   pre-work row to Assigned, and clearing every technician returns an Assigned
   row to Created; later states never rewind automatically. The first committed
-  material or labor activity advances Created/Assigned to In-Progress through
-  the same domain transition.
+  material activity advances Created/Assigned to In-Progress through the same
+  domain transition; hand-keyed labor does not (it is the correction route).
   The Work Orders card walkthrough is built on **tracked time**, not on status
   buttons. `POST /work-orders/{id}/tracking/start` opens a labor session for the
   caller and, as a side effect, advances a pre-work row to In-Progress or
@@ -589,8 +598,8 @@ Work orders:
   and the caller must be an Admin+ or its routed Supervisor who is not also an
   assigned worker. This two-person handoff prevents an assigned Supervisor from
   completing and reviewing the same work. Manual pre-work rollback still derives
-  Created/Assigned from the technician field. Material/labor activity does not
-  resume On-Hold. `completed_at` is retained through Review and cleared by
+  Created/Assigned from the technician field. Material activity does not
+  resume On-Hold, and hand-keyed labor changes no status at all. `completed_at` is retained through Review and cleared by
   rollback/reopen. Closed is not a stored status: it is `archived_at`.
 - Closing requires TechFM OA+ and is valid from every live status. Each expanded Work
   Orders card exposes the confirmed Archive action to TechFM OA and above; Admin Review
@@ -999,12 +1008,13 @@ Rules:
   `ready_to_complete`, `completed`, and `review`, in that lifecycle order —
   which is also the order every dropdown and filter renders in. Closed is
   `archived_at`, not a stored status value.
-  On-Hold is stable during material/labor activity until Supervisor+ explicitly
+  On-Hold is stable during material activity until Supervisor+ explicitly
   resumes or rolls it back, or a technician taps Start Tracking (the tracking
   service performs that transition itself rather than widening
   `status_after_activity`). New imports
   default to Created; worker assignment derives Assigned, and the first
-  material/labor activity derives In-Progress. Migration `f4c6e8a0b2d3` added
+  material activity (or a started clock) derives In-Progress — hand-keyed labor
+  does not. Migration `f4c6e8a0b2d3` added
   the five-state lifecycle, while `f5d7f9b1c3e4` aligned existing pre-work rows
   with technician assignment. **`ready_to_complete` needed no migration**:
   `work_orders.status` is a plain `Text` column with no CHECK constraint, so
@@ -1171,9 +1181,9 @@ Rules:
   upward once to the next 30 minutes, then charges `$62.50/hour`. Rate and total
   are returned only to TechFM OA and above; actual and billed durations are visible to
   every in-scope user.
-- The first labor insert uses `status_after_activity`, advancing Created/Assigned
-  to In-Progress while leaving On-Hold and later states unchanged. Editing or
-  deleting labor never rolls lifecycle status backward.
+- Hand-keyed labor changes no lifecycle status: it is the correction route, and
+  a backfilled duration says nothing about whether the job is running. Editing
+  or deleting labor likewise never moves status.
 
 ### `work_order_labor_sessions`
 

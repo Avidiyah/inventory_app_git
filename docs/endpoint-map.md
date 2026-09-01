@@ -276,8 +276,9 @@ endpoint or form exists; every other surface resolves an existing number and
   server-authored note, and Supervisor+ then Approve (PATCH completed) or
   Send Back (PATCH in_progress). Complete/hold stop every clock; resume
   starts none. These narrow routes require current assignment and grant no
-  general status authority. Material/labor activity still auto-advances
-  pre-work rows; tracking start rejects Ready to Complete and Completed.
+  general status authority. Material activity still auto-advances pre-work
+  rows; hand-keyed labor changes no status. Tracking start rejects Ready to
+  Complete and Completed.
 - Notes: any in-scope user; the server prefixes Central `MM/DD/YY hh:MM AM/PM`
   and the author's full name; append-only (null cannot clear); the response
   returns the whole log. A Symptom/Task that is a safe HTTP(S) URL renders as
@@ -1063,7 +1064,8 @@ Pure functions (no DB) in `domain/*.py` — the business rules, testable in isol
   ready_to_complete. `initial_status(assigned_to_id)` and
   `reconcile_assignment_status` align only Created/Assigned with technician
   assignment without rewinding work underway. `status_after_activity` advances
-  either pre-work state to In-Progress for material/labor activity but preserves
+  either pre-work state to In-Progress for material activity and tracking
+  start (not hand-keyed labor) but preserves
   On-Hold until an explicit supervisor edit. Modes: `dispense`,
   `retroactive`; `affects_stock(mode)` = `mode == "dispense"`.
 - `validate_status` / `validate_mode` → `WorkOrderStateError` on anything else.
