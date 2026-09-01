@@ -793,20 +793,15 @@ Committed as `56063ca`.
 
 ---
 
-## Session hand-off
+## Status
 
-**Done through Task 5 (commit `dd23553`).** Next session: start at **Task 6:
-Push dispatch and the router flush helper** below. Task 4 deviated once
-from the plan: a pre-existing event partition in
-`test_notifications_domain.py` needed a fourth bucket
-(`_LOW_STOCK_EVENTS`) for the new event — see the deviation note under
-Task 4 Step 7. `app.domain.notifications` now exposes
-`EVENT_ITEM_LOW_STOCK`, `LOW_STOCK_AUDIENCE_MIN_ROLE`,
-`recipients_for_low_stock`, and a `build_message` widened with `name` /
-`quantity` params; `EVENT_ITEM_LOW_STOCK` is registered in `ALL_EVENTS`.
-Task 5 added `app.domain.realtime.EVENT_ITEM_LOW_STOCK_CHANGED` with an
-audience floor of `roles.ROLE_TECHFM_OA`; no deviations.
-`backend/tests/test_realtime_domain.py`: 16 passed.
+**Complete through Task 13 (all code, tests, and docs).** Only Task 14 Step 2
+remains -- the on-device push checks, which are the user's to run.
+
+Deviations are recorded inline under the step they affected: Task 1 Step 8
+(`_fake_item` in `test_item_barcodes.py`), Task 4 Step 7 (the event partition
+in `test_notifications_domain.py`), Task 9 Step 7 (`LowStockThresholdUpdate`
+committed a task early), and Task 14 Step 3 (pushed, per the user).
 
 ---
 
@@ -1132,7 +1127,7 @@ Committed as `dd23553`.
   - `routers._low_stock.flush_low_stock(db, background) -> None`
   - `routers._low_stock.emit_low_stock_changed(item_id) -> None`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_low_stock_triggers.py`:
 
@@ -1343,12 +1338,12 @@ def test_flush_never_raises_into_a_committed_request(db, monkeypatch):
     _low_stock.flush_low_stock(db, BackgroundTasks())  # must not raise
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_low_stock_triggers.py -q`
 Expected: FAIL — `AttributeError: module 'app.services.notifications' has no attribute 'notify_item_low_stock'`.
 
-- [ ] **Step 3: Add the dispatch function**
+- [x] **Step 3: Add the dispatch function**
 
 Append to `backend/app/services/notifications.py` (and add `from typing import Sequence` if it is not already imported — it is):
 
@@ -1394,7 +1389,7 @@ def notify_item_low_stock(
         _schedule(background, recipients, title, body)
 ```
 
-- [ ] **Step 4: Add the router helper**
+- [x] **Step 4: Add the router helper**
 
 Create `backend/app/routers/_low_stock.py`:
 
@@ -1470,12 +1465,12 @@ def flush_low_stock(db: Session, background: BackgroundTasks) -> None:
         logger.exception("low-stock notification failed")
 ```
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_low_stock_triggers.py -q`
 Expected: PASS (7 tests).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/app/services/notifications.py backend/app/routers/_low_stock.py backend/tests/test_low_stock_triggers.py
@@ -1498,7 +1493,7 @@ git commit -m "feat(low-stock): push dispatch and the shared router flush helper
 
 Line numbers below are from the pre-change files; find the quoted code rather than trusting the number.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `backend/tests/test_low_stock_triggers.py`:
 
@@ -1719,12 +1714,12 @@ def test_every_item_quantity_mutation_has_a_recorder():
     assert records == 8
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_low_stock_triggers.py -q`
 Expected: FAIL — the recorder assertions fail (`assert 0 == 8`) and the trigger tests return `[]`.
 
-- [ ] **Step 3: Wire `services/transactions.py`**
+- [x] **Step 3: Wire `services/transactions.py`**
 
 Add the import beside the other app imports:
 
@@ -1788,7 +1783,7 @@ and immediately before this function's `db.commit()`:
         low_stock.record(item, quantity_before=quantity_before)
 ```
 
-- [ ] **Step 4: Wire `services/mass_staging.py`**
+- [x] **Step 4: Wire `services/mass_staging.py`**
 
 Add the import:
 
@@ -1847,7 +1842,7 @@ to:
     db.commit()
 ```
 
-- [ ] **Step 5: Wire `services/work_orders.py`**
+- [x] **Step 5: Wire `services/work_orders.py`**
 
 Add the import:
 
@@ -1909,17 +1904,17 @@ and before this function's final `db.commit()`:
     db.commit()
 ```
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_low_stock_triggers.py -q`
 Expected: PASS.
 
-- [ ] **Step 7: Run the stock suites for regressions**
+- [x] **Step 7: Run the stock suites for regressions**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_mass_staging_load.py tests/test_mass_staging.py tests/test_quantity_reverse.py tests/test_billing_validation.py tests/test_work_orders_router.py -q`
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/app/services/transactions.py backend/app/services/mass_staging.py backend/app/services/work_orders.py backend/tests/test_low_stock_triggers.py
@@ -1942,7 +1937,7 @@ git commit -m "feat(low-stock): record crossings at all eight stock-mutation poi
 
 `BackgroundTasks` must be a **plain parameter with no default**. A defaulted one keeps direct callers compiling and gives you a deployment where notifications silently never fire.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `backend/tests/test_items_low_stock.py`:
 
@@ -2010,12 +2005,12 @@ def test_a_dispense_over_real_http_schedules_a_low_stock_push(db, monkeypatch):
     assert sent[0][1] == f"{item.name} is down to 5."
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_items_low_stock.py -q`
 Expected: FAIL — `assert sent, "no low-stock push was delivered"`.
 
-- [ ] **Step 3: Wire `routers/transactions.py`**
+- [x] **Step 3: Wire `routers/transactions.py`**
 
 Add to the imports:
 
@@ -2086,7 +2081,7 @@ In `void_transaction`, add `background: BackgroundTasks,` after `transaction_id`
         raise to_http(exc)
 ```
 
-- [ ] **Step 4: Wire `routers/mass_stages.py`**
+- [x] **Step 4: Wire `routers/mass_stages.py`**
 
 Add `BackgroundTasks` to the `fastapi` import and `from app.routers._low_stock import flush_low_stock`.
 
@@ -2094,7 +2089,7 @@ Add `BackgroundTasks` to the `fastapi` import and `from app.routers._low_stock i
 
 `return_item`: this handler has no `user` parameter and does not need one — the low-stock audience includes the actor, so nothing here resolves an actor id. Add `background: BackgroundTasks,` after `payload` and insert `flush_low_stock(db, background)` immediately after the `ms_service.return_item(...)` call.
 
-- [ ] **Step 5: Wire `routers/work_orders.py`**
+- [x] **Step 5: Wire `routers/work_orders.py`**
 
 `BackgroundTasks` is already imported. Add `from app.routers._low_stock import flush_low_stock`.
 
@@ -2110,17 +2105,17 @@ For `add_work_order_item` and `update_work_order_item` the flush goes between th
         return _line_detail(line, include_price=_can_see_price(user))
 ```
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_items_low_stock.py tests/test_low_stock_triggers.py -q`
 Expected: PASS.
 
-- [ ] **Step 7: Full suite**
+- [x] **Step 7: Full suite**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/ -q`
 Expected: PASS except the known environmental `test_cascade_deletes_with_user`. `test_route_role_gates.py` calls some handlers directly and will need a `BackgroundTasks()` argument passed where it now constructs a call — fix those call sites if they fail.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/app/routers/transactions.py backend/app/routers/mass_stages.py backend/app/routers/work_orders.py backend/tests/test_items_low_stock.py backend/tests/test_route_role_gates.py
@@ -2144,7 +2139,7 @@ git commit -m "feat(low-stock): drain and dispatch crossings at the stock-writin
   - `LowStockItemResponse(ItemResponse)` with `dispensed_last_7_days: Decimal`
   - `GET /items/low-stock` → `list[LowStockItemResponse]`, gate `ROLE_TECHFM_OA`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `backend/tests/test_items_low_stock.py`:
 
@@ -2286,12 +2281,12 @@ def test_low_stock_is_ordered_by_headroom(db):
     assert ids.index(str(deep.id)) < ids.index(str(barely.id))
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_items_low_stock.py -q`
 Expected: FAIL — 404 on `/items/low-stock`.
 
-- [ ] **Step 3: Add the service query**
+- [x] **Step 3: Add the service query**
 
 Append to `backend/app/services/items.py` (`func`, `and_`, `Transaction`, `Decimal` and `timedelta` are already imported except `timedelta` — add it to the `datetime` import line):
 
@@ -2348,7 +2343,7 @@ def list_low_stock(db: Session) -> list[tuple[Item, Decimal]]:
     return [(item, totals.get(item.id) or Decimal(0)) for item in items]
 ```
 
-- [ ] **Step 4: Add the response schema**
+- [x] **Step 4: Add the response schema**
 
 Append to `backend/app/schemas/items.py`, after `ItemResponse`:
 
@@ -2366,7 +2361,7 @@ class LowStockItemResponse(ItemResponse):
     dispensed_last_7_days: Decimal
 ```
 
-- [ ] **Step 5: Add the route**
+- [x] **Step 5: Add the route**
 
 In `backend/app/routers/items.py`, add `LowStockItemResponse` to the `app.schemas.items` import, then insert this route **between `list_items` and `get_item_by_barcode`**:
 
@@ -2417,12 +2412,17 @@ def _low_stock_response(item: Item, role: str, dispensed: Decimal) -> LowStockIt
 
 Add `from decimal import Decimal` to the router's imports.
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_items_low_stock.py -q`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+> **Deviation (2026-09-01):** `LowStockThresholdUpdate` (Task 10 Step 3) was
+> added to `schemas/items.py` in the same edit as `LowStockItemResponse`, so it
+> lands in this task's commit while unused until Task 10. Behaviour is
+> unchanged; only the commit boundary moved.
+
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/app/services/items.py backend/app/schemas/items.py backend/app/routers/items.py backend/tests/test_items_low_stock.py
@@ -2443,7 +2443,7 @@ git commit -m "feat(items): GET /items/low-stock with 7-day dispensed totals"
 - Consumes: `low_stock.record` (Task 3), `flush_low_stock` (Task 6), `MIN_LOW_STOCK_THRESHOLD` (Task 1).
 - Produces: `items_service.set_low_stock_threshold(db, item_id, *, threshold) -> Item`; `PATCH /items/{item_id}/low-stock-threshold` → `ItemResponse`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `backend/tests/test_items_low_stock.py`:
 
@@ -2562,12 +2562,12 @@ def test_raising_a_threshold_that_keeps_a_low_item_low_pushes_nothing(db, monkey
     assert sent == []
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_items_low_stock.py -q`
 Expected: FAIL — 405/404 on the PATCH.
 
-- [ ] **Step 3: Add the payload schema**
+- [x] **Step 3: Add the payload schema**
 
 Append to `backend/app/schemas/items.py`:
 
@@ -2599,7 +2599,7 @@ Add to the imports at the top of the file:
 from app.domain.low_stock import MIN_LOW_STOCK_THRESHOLD
 ```
 
-- [ ] **Step 4: Add the service function**
+- [x] **Step 4: Add the service function**
 
 Append to `backend/app/services/items.py`:
 
@@ -2640,7 +2640,7 @@ def set_low_stock_threshold(db: Session, item_id: uuid.UUID, *, threshold: int) 
 
 Add `from app.services import low_stock` to the imports of `services/items.py`.
 
-- [ ] **Step 5: Add the route**
+- [x] **Step 5: Add the route**
 
 In `backend/app/routers/items.py`, add `LowStockThresholdUpdate` to the schema import and `from app.routers._low_stock import flush_low_stock`, then add the route immediately after `update_item_barcodes` (before the bare `PATCH /{item_id}`):
 
@@ -2676,12 +2676,12 @@ def update_low_stock_threshold(
 
 Add `BackgroundTasks` to the `fastapi` import line in this router.
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_items_low_stock.py -q`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/app/services/items.py backend/app/schemas/items.py backend/app/routers/items.py backend/tests/test_items_low_stock.py
@@ -2704,7 +2704,7 @@ Creation and archival are not stock movements and do not go through the buffer, 
 
 An item created below its threshold appears in the list and sends **no** push: creation is a config act performed by someone looking at the screen, and there is no before-state to cross from.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `backend/tests/test_items_low_stock.py`:
 
@@ -2772,12 +2772,12 @@ def test_archiving_a_low_item_invalidates_the_page(db, monkeypatch):
     assert len(envelopes) == 1
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_items_low_stock.py -q`
 Expected: FAIL — `assert len(envelopes) == 1` fails with `0`; no invalidation is emitted yet.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `backend/app/routers/items.py`, add:
 
@@ -2809,12 +2809,12 @@ In `delete_item`, after the service call:
 
 Note the argument: `delete_item` takes `item_id` as a path parameter and the service returns nothing, so the id comes from the parameter rather than from a row.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_items_low_stock.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/routers/items.py backend/tests/test_items_low_stock.py
@@ -2840,7 +2840,7 @@ git commit -m "feat(items): invalidate the Low Stock page on item create and arc
 - Consumes: `GET /items/low-stock` (Task 9), `PATCH /items/{id}/low-stock-threshold` (Task 10), `item.low_stock.changed` (Task 5).
 - Produces: page id `low-stock-page`, nav key `low-stock`, `loadLowStock()`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `backend/tests/test_low_stock_shell.py`:
 
@@ -2895,12 +2895,12 @@ def test_showpage_loads_the_low_stock_page():
     assert "loadLowStock()" in source
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_low_stock_shell.py -q`
 Expected: FAIL — the fragment assertion and the nav assertions.
 
-- [ ] **Step 3: Create the page fragment**
+- [x] **Step 3: Create the page fragment**
 
 Create `backend/static/pages/low-stock.html`:
 
@@ -2932,7 +2932,7 @@ Create `backend/static/pages/low-stock.html`:
     </div>
 ```
 
-- [ ] **Step 4: Register the fragment**
+- [x] **Step 4: Register the fragment**
 
 In `backend/app/main.py`, add to `SHELL_PARTS` immediately after `"pages/user-requests.html",`:
 
@@ -2940,7 +2940,7 @@ In `backend/app/main.py`, add to `SHELL_PARTS` immediately after `"pages/user-re
     "pages/low-stock.html",
 ```
 
-- [ ] **Step 5: Add the nav button**
+- [x] **Step 5: Add the nav button**
 
 In `backend/static/shell-head.html`, inside `<div class="nav-group" data-nav-group="review">`, add as the first button in the group's menu (before User Requests):
 
@@ -2948,7 +2948,7 @@ In `backend/static/shell-head.html`, inside `<div class="nav-group" data-nav-gro
                     <button class="nav-btn" data-page="low-stock"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M12 10v5"/><path d="M9.5 12.5L12 15l2.5-2.5"/></svg>Low Stock</button>
 ```
 
-- [ ] **Step 6: Wire `nav.js`**
+- [x] **Step 6: Wire `nav.js`**
 
 Add the import beside the others:
 
@@ -2972,7 +2972,7 @@ Add to `showPage`, in the `else if` chain beside `admin-review`:
     loadLowStock();
 ```
 
-- [ ] **Step 7: Add the API wrappers**
+- [x] **Step 7: Add the API wrappers**
 
 Append to the `// --- Items ---` section of `backend/static/api.js`:
 
@@ -2988,7 +2988,7 @@ export async function apiSetLowStockThreshold(itemId, threshold) {
 }
 ```
 
-- [ ] **Step 8: Write the view**
+- [x] **Step 8: Write the view**
 
 Create `backend/static/views/lowStock.js`:
 
@@ -3143,7 +3143,7 @@ subscribe(LOW_STOCK_CHANGED_EVENT, ({ activePage }) => {
 });
 ```
 
-- [ ] **Step 9: Register the module**
+- [x] **Step 9: Register the module**
 
 In `backend/static/main.js`, add beside the other side-effect imports (after `import "./views/userRequests.js";`):
 
@@ -3151,7 +3151,7 @@ In `backend/static/main.js`, add beside the other side-effect imports (after `im
 import "./views/lowStock.js";
 ```
 
-- [ ] **Step 10: Add the styles**
+- [x] **Step 10: Add the styles**
 
 Append to `backend/static/styles.css`, after the `.user-request-*` block:
 
@@ -3230,17 +3230,17 @@ Append to `backend/static/styles.css`, after the `.user-request-*` block:
 }
 ```
 
-- [ ] **Step 11: Run the tests**
+- [x] **Step 11: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_low_stock_shell.py -q`
 Expected: PASS.
 
-- [ ] **Step 12: Full suite**
+- [x] **Step 12: Full suite**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/ -q`
 Expected: PASS except the known environmental `test_cascade_deletes_with_user`.
 
-- [ ] **Step 13: Commit**
+- [x] **Step 13: Commit**
 
 ```bash
 git add backend/static/pages/low-stock.html backend/static/views/lowStock.js backend/static/shell-head.html backend/static/views/nav.js backend/static/api.js backend/static/main.js backend/static/styles.css backend/app/main.py backend/tests/test_low_stock_shell.py
@@ -3259,7 +3259,7 @@ git commit -m "feat(ui): Low Stock page with inline threshold editing and 7-day 
 
 These are living, current-truth documents. State what is true now; do not narrate how the feature came to be. An update that breaches a doc's soft word budget should delete something stale in the same edit.
 
-- [ ] **Step 1: Register the push event**
+- [x] **Step 1: Register the push event**
 
 In `docs/notification-events.md`, add to the Part 1 "Who is told" table:
 
@@ -3283,7 +3283,7 @@ Add to the realtime part:
 | `item.low_stock.changed` | an item entered or left the low-stock set; a threshold edit; item create or archive | TechFM OA and above |
 ```
 
-- [ ] **Step 2: Record the widened text rule**
+- [x] **Step 2: Record the widened text rule**
 
 In `docs/adding-a-notification-trigger.md`, under "The five rules", amend rule 1's closing sentence to:
 
@@ -3296,7 +3296,7 @@ price on the same item remains forbidden. Widening that signature further
 is the change to argue about, not the strings.
 ```
 
-- [ ] **Step 3: Add the routes**
+- [x] **Step 3: Add the routes**
 
 In `docs/endpoint-map.md`, add to the items section:
 
@@ -3305,11 +3305,11 @@ In `docs/endpoint-map.md`, add to the items section:
 | `PATCH /items/{item_id}/low-stock-threshold` | TechFM OA+ | Sets the threshold (whole number >= 1). A raise past the current count pushes like a dispense. |
 ```
 
-- [ ] **Step 4: Record the page and the column**
+- [x] **Step 4: Record the page and the column**
 
 In `docs/current-state.md`, add the Low Stock page to the pages list (Review group, TechFM OA+) and `items.low_stock_threshold` to the schema notes, in the same clipped form the surrounding entries use.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/notification-events.md docs/adding-a-notification-trigger.md docs/endpoint-map.md docs/current-state.md
@@ -3322,10 +3322,13 @@ git commit -m "docs: register the low-stock event, routes, page, and column"
 
 CI cannot prove push delivery. This is the user's step, not an agent's — report it and stop.
 
-- [ ] **Step 1: Confirm the suite is green**
+- [x] **Step 1: Confirm the suite is green**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/ -q`
-Expected: PASS except the known environmental `test_cascade_deletes_with_user`. Report the actual output.
+Ran 2026-09-01 after Task 12: **1656 passed, 0 failed** in 172.95s. Both
+tests this plan had flagged as environmental/flaky
+(`test_cascade_deletes_with_user`, `test_enrichment_giving_up_leaves_the_import_standing`)
+passed on this run.
 
 - [ ] **Step 2: Hand off the manual checks**
 
@@ -3337,6 +3340,9 @@ Report to the user, and do not perform these unprompted — the user validates m
 4. Raise a threshold above an item's current count and confirm both the push and the row appearing.
 5. Restock the item above its threshold and confirm the row disappears and no push is sent.
 
-- [ ] **Step 3: Do not push**
+- [x] **Step 3: Deploy**
 
-Pushing `main` deploys to production. Leave the commits local and tell the user the branch is ready.
+Superseded by an explicit instruction from the user on 2026-09-01 ("End of
+session should be commit, merge, deploy"): the work is committed on `main`
+and pushed to `origin`, which deploys. The plan's original "do not push"
+rule stands for any future session that has no such instruction.
