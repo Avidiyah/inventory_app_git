@@ -11,9 +11,8 @@
 // The additional-barcodes list is the add-a-row / remove-a-row
 // pattern borrowed from the notes editor: each physical item can
 // carry several package codes, and a scan of any of them resolves
-// to the item. Save issues the barcodes PATCH first (so a
-// duplicate-code 400 surfaces before the core fields are written),
-// then the core PATCH.
+// to the item. The write sequence itself lives in `itemSave.js`,
+// shared with the Low Stock card editor.
 //
 // Public surface:
 // - `openItemEditor(item)` populates and reveals the panel.
@@ -29,9 +28,9 @@
 // other field edits.
 
 import { getEditingItemId, setEditingItemId } from "../state.js";
-import { apiUpdateItem, apiUpdateBarcodes } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
-import { setMessage, confirmArchivedReuse, confirmDialog } from "../dom.js";
+import { setMessage } from "../dom.js";
+import { saveItemCore } from "../itemSave.js";
 
 const itemEditorSection = document.getElementById("item-editor-section");
 const itemEditorSelected = document.getElementById("item-editor-selected");
@@ -144,40 +143,21 @@ itemEditorSaveBtn.addEventListener("click", async () => {
   const codes = collectBarcodes();
   if (codes === null) return; // duplicate in the list; message already shown
 
-  if (barcode !== originalBarcode) {
-    const ok = await confirmDialog(
-      "Changing this barcode breaks any scanner labels still pointing at this row. Continue?"
-    );
-    if (!ok) return;
-  }
-
-  const barcodesChanged = JSON.stringify(codes) !== JSON.stringify(originalBarcodes);
-
-  // Two awaited calls behind one Save: the additional barcodes go through
-  // their own endpoint (PATCH /items/{id}/barcodes), the core fields
-  // through PATCH /items/{id}. Barcodes go first so a duplicate-code 400
-  // surfaces before the core fields are touched. On any failure we leave
-  // the panel open (no auto-close) so the user can fix and retry; both
-  // writes are idempotent wholesale replacements, so re-saving reconciles
-  // any partial application.
+  // On any failure the panel stays open (no auto-close) so the user can fix
+  // and retry; both writes are idempotent wholesale replacements, so
+  // re-saving reconciles any partial application.
   try {
-    // Both writes ride one confirmArchivedReuse: if either the additional
-    // barcodes or the new primary collide with an *archived* item, the backend
-    // answers 409, we prompt once, and re-run the whole (idempotent) sequence
-    // with override_archived to free the archived holder.
-    await confirmArchivedReuse(async (override) => {
-      if (barcodesChanged) {
-        await apiUpdateBarcodes(editingId, codes, override);
-      }
-      await apiUpdateItem(editingId, {
+    await saveItemCore(
+      editingId,
+      {
         barcode,
         name,
         location,
         price: price ? parseFloat(price) : null,
         product_link: productLink ? productLink : null,
-        override_archived: override,
-      });
-    });
+      },
+      { originalBarcode, originalBarcodes, barcodes: codes }
+    );
     originalBarcodes = [...codes];
     setMessage(itemEditorMessage, "Item saved.", "success");
     if (onSavedCallback) await onSavedCallback();
