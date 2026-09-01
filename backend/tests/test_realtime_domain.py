@@ -164,3 +164,22 @@ def test_status_and_review_queue_are_distinct_event_types():
         != realtime.EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED
     )
     assert realtime.EVENT_WORK_ORDER_STATUS_CHANGED == "work_order.status.changed"
+
+
+def test_low_stock_events_reach_techfm_oa_and_above():
+    for role in ("techfm_oa", "admin", "owner"):
+        assert (
+            realtime.audience_allows(realtime.EVENT_ITEM_LOW_STOCK_CHANGED, role)
+            is True
+        ), role
+
+
+def test_low_stock_events_do_not_reach_lower_roles():
+    """Noise, not security -- P2 keeps row data out of the envelope. The
+    Low Stock page is TechFM OA+ only, so nobody below it can act on the
+    invalidation."""
+    for role in ("supervisor", "technician"):
+        assert (
+            realtime.audience_allows(realtime.EVENT_ITEM_LOW_STOCK_CHANGED, role)
+            is False
+        ), role

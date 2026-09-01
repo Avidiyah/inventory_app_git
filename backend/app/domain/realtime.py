@@ -26,6 +26,7 @@ from app.domain import roles
 from app.domain.rate_limit import is_over_limit, retry_after_seconds, window_start
 
 __all__ = [
+    "EVENT_ITEM_LOW_STOCK_CHANGED",
     "EVENT_LABOR_SESSION_CHANGED",
     "EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED",
     "EVENT_WORK_ORDER_STATUS_CHANGED",
@@ -71,6 +72,16 @@ EVENT_WORK_ORDER_STATUS_CHANGED = "work_order.status.changed"
 # card. Emitted from `routers/work_orders.py`'s tracking start/stop routes.
 EVENT_LABOR_SESSION_CHANGED = "labor.session.changed"
 
+# The Low Stock page's membership. Narrow in the same way the others are:
+# it invalidates *which items are low*, not an item's contents, so a name
+# or price edit is not in this vocabulary. Emitted whenever an item enters
+# or leaves the set -- a crossing in either direction, a threshold edit,
+# an item created below its threshold, or an item archived out of the list.
+#
+# `id` names one item; `None` is unused today and reserved for a command
+# that could change several rows at once.
+EVENT_ITEM_LOW_STOCK_CHANGED = "item.low_stock.changed"
+
 _AUDIENCE_MIN_ROLE = {
     EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED: roles.ROLE_TECHFM_OA,
     # Every role that can open the Work Orders page. Not a security boundary:
@@ -79,6 +90,10 @@ _AUDIENCE_MIN_ROLE = {
     EVENT_WORK_ORDER_STATUS_CHANGED: roles.ROLE_TECHNICIAN,
     # Only supervisors and above can see a crew board at all (spec §4.1).
     EVENT_LABOR_SESSION_CHANGED: roles.ROLE_SUPERVISOR,
+    # The page is TechFM OA+ for both viewing and editing, and so is the
+    # push, so the socket audience matches both rather than inventing a
+    # third rank.
+    EVENT_ITEM_LOW_STOCK_CHANGED: roles.ROLE_TECHFM_OA,
 }
 
 # --- thresholds --------------------------------------------------------
