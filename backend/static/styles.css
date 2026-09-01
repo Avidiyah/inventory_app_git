@@ -1631,6 +1631,86 @@ tr:last-child td {
     display: none;
 }
 
+/* The recency tabs reuse `.sub-nav` chrome; only the spacing differs,
+   because they sit inside a section rather than at the top of a page. */
+.low-stock-tabs {
+    margin-bottom: var(--space-3);
+}
+
+/* The disclosure that holds the editor. Ruled off from the card's
+   threshold row so the two read as separate decisions. */
+.low-stock-more {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--panel-rule);
+}
+
+.low-stock-more-summary {
+    cursor: pointer;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+}
+
+.low-stock-edit,
+.low-stock-correction {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+}
+
+.low-stock-correction {
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--panel-rule);
+}
+
+.low-stock-correction h4 {
+    grid-column: 1 / -1;
+    margin: 0;
+}
+
+.low-stock-correction .hint {
+    grid-column: 1 / -1;
+    margin: 0;
+}
+
+.ls-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    font-size: var(--fs-sm);
+}
+
+.ls-field-wide {
+    grid-column: 1 / -1;
+}
+
+.ls-barcode-rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.ls-barcode-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.ls-barcode-row input {
+    flex: 1;
+}
+
+.ls-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.low-stock-edit-message:empty {
+    display: none;
+}
+
 /* --- the "request this item" prompt on empty search results --- */
 .item-request {
     margin-top: var(--space-2);
