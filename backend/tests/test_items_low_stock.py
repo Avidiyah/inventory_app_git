@@ -351,3 +351,66 @@ def test_raising_a_threshold_that_keeps_a_low_item_low_pushes_nothing(db, monkey
 
     assert _set_threshold(db, item, 20).status_code == 200
     assert sent == []
+
+
+def test_creating_an_item_below_its_threshold_lists_it_without_pushing(db, monkeypatch):
+    monkeypatch.setattr(push_service, "VAPID_PRIVATE_KEY", "test-private-key")
+    sent = []
+    monkeypatch.setattr(
+        push_service,
+        "send_to_users",
+        lambda session, ids, title, body: sent.append(body)
+        or {"sent": 1, "dropped": 0, "failed": 0},
+    )
+    envelopes = []
+    from app.routers import _low_stock
+    monkeypatch.setattr(
+        _low_stock.realtime_service, "emit", lambda e: envelopes.append(e)
+    )
+    user = _seed_user(db, "admin")
+    db.commit()
+    token = auth_service.create_session(db, user)
+    barcode = f"BC-{_uuid.uuid4().hex[:10]}"
+
+    try:
+        with _client(db) as client:
+            client.cookies.set("session", token)
+            created = client.post(
+                "/items/",
+                json={
+                    "barcode": barcode,
+                    "name": "Nearly Empty",
+                    "location": "Bay 1",
+                    "quantity": "2",
+                },
+            )
+            listed = client.get("/items/low-stock")
+    finally:
+        del app.dependency_overrides[get_db]
+
+    assert created.status_code == 201, created.text
+    assert sent == []
+    assert len(envelopes) == 1
+    assert barcode in {row["barcode"] for row in listed.json()}
+
+
+def test_archiving_a_low_item_invalidates_the_page(db, monkeypatch):
+    envelopes = []
+    from app.routers import _low_stock
+    monkeypatch.setattr(
+        _low_stock.realtime_service, "emit", lambda e: envelopes.append(e)
+    )
+    item = _seed_item(db, quantity="1", threshold=6)
+    user = _seed_user(db, "admin")
+    db.commit()
+    token = auth_service.create_session(db, user)
+
+    try:
+        with _client(db) as client:
+            client.cookies.set("session", token)
+            response = client.delete(f"/items/{item.id}")
+    finally:
+        del app.dependency_overrides[get_db]
+
+    assert response.status_code == 204
+    assert len(envelopes) == 1
