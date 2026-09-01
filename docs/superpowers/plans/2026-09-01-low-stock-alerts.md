@@ -285,16 +285,6 @@ Committed as `6fd036b`.
 
 ---
 
-## Session hand-off
-
-**Done through Task 2 (commit `f9923dd`).** Next session: start at **Task 3:
-The request-scoped crossing buffer** below. Nothing in Task 2 deviated from
-the plan. `low_stock_threshold` is live in the DB (migration `a1c3e5b7d9f0`
-applied) and on `ItemResponse`; `app.domain.low_stock` now also exposes
-`is_low`, `crossed_into_low`, and `membership_changed`.
-
----
-
 ### Task 2: The predicates
 
 **Files:**
@@ -511,7 +501,7 @@ Committed as `f9923dd`.
 
 `item` is any object exposing `.id`, `.name`, `.quantity`, `.low_stock_threshold` — the ORM `Item` in production, a `SimpleNamespace` in tests. The module imports no ORM model and nothing from `app.services`; that is what keeps `services.work_orders → services.low_stock` free of an import cycle.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_low_stock_buffer.py`:
 
@@ -633,12 +623,12 @@ def test_the_buffer_is_bounded():
     assert len(low_stock.drain()) == low_stock.MAX_BUFFERED_CROSSINGS
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_low_stock_buffer.py -q`
 Expected: FAIL — `ModuleNotFoundError: No module named 'app.services.low_stock'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `backend/app/services/low_stock.py`:
 
@@ -787,17 +777,30 @@ def drain() -> list:
     return taken
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_low_stock_buffer.py -q`
 Expected: PASS (9 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/services/low_stock.py backend/tests/test_low_stock_buffer.py
 git commit -m "feat(low-stock): request-scoped crossing buffer"
 ```
+
+Committed as `56063ca`.
+
+---
+
+## Session hand-off
+
+**Done through Task 3 (commit `56063ca`).** Next session: start at **Task 4:
+The notification rule and its text** below. Nothing in Task 3 deviated from
+the plan. `app.services.low_stock` now exposes `Crossing`, `record`, `drain`,
+and `MAX_BUFFERED_CROSSINGS`; it imports only `app.domain.low_stock` and
+`app.domain.receipt.format_quantity`, no ORM model and nothing from
+`app.services`.
 
 ---
 
