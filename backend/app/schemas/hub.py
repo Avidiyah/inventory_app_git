@@ -480,6 +480,8 @@ class HubReportClosedSection(BaseModel):
     section carries and what a Closing section carries genuinely differ."""
 
     count: int
+    # Sweep closes in the window, left out of `count` and `rows` -- how many
+    # the section does not show, not a subset of what it does.
     auto_closed_count: int
     rows: list[HubReportRow] = []
 

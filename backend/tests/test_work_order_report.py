@@ -354,9 +354,62 @@ def test_a_legacy_archived_row_is_flagged_and_a_hand_closed_one_is_not(db):
         (row.legacy, row.auto_closed) for row in payload.sections.closed_today.rows
     )
 
-    # `auto_closed` is a constant False until the reconcile migration lands.
+    # A sweep-closed row never reaches `closed_*`, so `auto_closed` is False on
+    # every closed row; the flag is read on `new_*` rows only.
     assert flags == [(False, False), (True, False)]
     assert payload.sections.closed_today.auto_closed_count == 0
+
+
+def test_a_sweep_closed_row_is_left_out_of_the_closed_sections_and_counted(db):
+    """The NetFacilities sweep's closes are not the team's output: they stay
+    out of every closed row, count, bucket, and dollar figure, and each closed
+    section says how many it left out. A 2025 window, so no real row on the
+    developer database can land in it and the counts are exact."""
+    now = _central_noon(2025, 3, 11)
+    day_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    swept_at = day_start + timedelta(hours=1)
+    swept = _work_order(
+        db,
+        status=wo.STATUS_COMPLETED,
+        archived_at=swept_at,
+        auto_closed_batch_id=uuid.uuid4(),
+        auto_closed_at=swept_at,
+    )
+    by_hand = _work_order(
+        db, status=wo.STATUS_COMPLETED, archived_at=day_start + timedelta(hours=2)
+    )
+
+    payload = work_order_report.daily_report(db, now=now)
+
+    for section in (payload.sections.closed_today, payload.sections.closed_week):
+        assert [row.number for row in section.rows] == [by_hand.number]
+        assert section.count == 1
+        assert section.auto_closed_count == 1
+    assert swept.number not in {row.number for row in payload.all_rows}
+    assert payload.distribution.company.counts["closed"] == 1
+
+
+def test_a_sweep_closed_row_still_counts_as_an_arrival(db):
+    """Leaving the sweep's closes out of `closed_*` does not rewrite history:
+    a row that arrived this week arrived, and its `new_*` row keeps the
+    `auto_closed` flag so the page can say what became of it."""
+    now = _central_noon(2025, 3, 11)
+    day_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    swept_at = day_start + timedelta(hours=2)
+    swept = _work_order(
+        db,
+        status=wo.STATUS_COMPLETED,
+        created_at=day_start + timedelta(hours=1),
+        archived_at=swept_at,
+        auto_closed_batch_id=uuid.uuid4(),
+        auto_closed_at=swept_at,
+    )
+
+    payload = work_order_report.daily_report(db, now=now)
+
+    for section in (payload.sections.new_today, payload.sections.new_week):
+        flags = [row.auto_closed for row in section.rows if row.number == swept.number]
+        assert flags == [True]
 
 
 def test_report_row_money_matches_export_row(db):

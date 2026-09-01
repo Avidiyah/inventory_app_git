@@ -887,8 +887,8 @@ deliberate exemption). Parameterless: both windows are derived from server time
 via `domain/labor_day.py`. `day` is the Central calendar day; `week` is the
 Monday–Sunday week containing it, labelled in full but evaluated **week-to-date**,
 so This Week always *includes* Today. `sections` carries five keys —
-`closed_today`, `closed_week` (`archived_at` windows, each with
-`auto_closed_count`), `closing` (live rows in `ready_to_complete` / `completed` /
+`closed_today`, `closed_week` (`archived_at` windows minus sweep closes;
+`auto_closed_count` = closes left out), `closing` (live rows in `ready_to_complete` / `completed` /
 `review`, with `by_status` and `truncated`), and `new_today`, `new_week`
 (`created_at` windows). Rows nest: a work order closed today appears in both
 `closed_*` sections. `closing` is the only capped section

@@ -482,7 +482,7 @@ def test_report_activity_block_notes_auto_closed_work_orders():
     sheet = _workbook(payload)["Report"]
 
     assert sheet.cell(row=xlsx.ACTIVITY_ROW + 4, column=1).value == (
-        "Closed today includes (1 in NetFacilities); this week (0 in NetFacilities)"
+        "Closed today excludes 1 closed in NetFacilities; this week excludes 0."
     )
 
 

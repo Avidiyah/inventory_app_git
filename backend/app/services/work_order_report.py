@@ -122,6 +122,8 @@ class ReportRow:
 @dataclass(frozen=True)
 class ClosedSection:
     count: int
+    # Sweep closes in the window, left out of `count` and `rows`: how many the
+    # section does not show, not a subset of what it does.
     auto_closed_count: int
     rows: list[ReportRow] = field(default_factory=list)
 
@@ -169,13 +171,12 @@ class DailyReport:
 
 
 def _auto_closed(work_order: WorkOrder) -> bool:
-    """Whether the NetFacilities reconcile sweep closed this row (R10).
+    """Whether the NetFacilities reconcile sweep closed this row.
 
-    `auto_closed_batch_id` arrives with the reconcile migration
-    (2026-08-30-netfacilities-reconcile-design.md). Until it does this is a
-    constant `False`; the contract is identical either way, so shipping the
-    report first costs the reconcile work one line here and nothing else."""
-    return getattr(work_order, "auto_closed_batch_id", None) is not None
+    Never true on a `closed_*` row -- `_closed_section` leaves those out. It
+    survives on `new_*` rows, where the page's badge says what became of an
+    arrival."""
+    return work_order.auto_closed_batch_id is not None
 
 
 def _base_query(db: Session):
@@ -221,22 +222,34 @@ def _row(work_order: WorkOrder) -> ReportRow:
 
 
 def _closed_section(db: Session, *, start: datetime, end: datetime) -> ClosedSection:
-    """Rows archived within [start, end), newest close first.
+    """Rows a person archived within [start, end), newest close first.
+
+    The NetFacilities reconcile sweep's closes are left out -- of `rows`, of
+    `count`, and so of every figure computed from them -- and reported as
+    `auto_closed_count`, so the Admin still sees how many tickets NetFacilities
+    closed. This revises the spec's R10 ("a close is a close"): a sweep close
+    is not the team's output, and mixing the two made Closed unreadable.
 
     Uncapped on purpose (§7): the window is the bound, and a report that
     silently omits closures while looking complete is a record-keeping problem,
     not a performance one -- the same reasoning that exempts the work-order
     export."""
+    window = (WorkOrder.archived_at >= start, WorkOrder.archived_at < end)
     records = (
         _base_query(db)
-        .filter(WorkOrder.archived_at >= start, WorkOrder.archived_at < end)
+        .filter(*window, WorkOrder.auto_closed_batch_id.is_(None))
         .order_by(WorkOrder.archived_at.desc())
         .all()
+    )
+    auto_closed_count = (
+        db.query(func.count(WorkOrder.id))
+        .filter(*window, WorkOrder.auto_closed_batch_id.is_not(None))
+        .scalar()
     )
     rows = [_row(record) for record in records]
     return ClosedSection(
         count=len(rows),
-        auto_closed_count=sum(1 for row in rows if row.auto_closed),
+        auto_closed_count=auto_closed_count or 0,
         rows=rows,
     )
 

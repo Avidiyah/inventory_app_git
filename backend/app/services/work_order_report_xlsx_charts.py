@@ -255,12 +255,13 @@ def _report_sheet(sheet: Worksheet, payload: DailyReport, chart_data: _ChartData
     auto_today = sections.closed_today.auto_closed_count
     auto_week = sections.closed_week.auto_closed_count
     if auto_today or auto_week:
-        # The page's own phrasing (R10), so the file reads like the screen.
+        # The sweep's closes are outside every figure on this sheet; say how
+        # many, in the page's own phrasing, so the file reads like the screen.
         theme.note(
             sheet,
             ACTIVITY_ROW + 4,
-            f"Closed today includes ({auto_today} in NetFacilities); "
-            f"this week ({auto_week} in NetFacilities)",
+            f"Closed today excludes {auto_today} closed in NetFacilities; "
+            f"this week excludes {auto_week}.",
         )
     header_row, last_row = chart_data.block("activity", [None, "Today", "Week to date"], activity)
     theme.place(

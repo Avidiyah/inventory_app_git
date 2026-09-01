@@ -90,12 +90,14 @@ function badgeHtml(text, extraClass) {
   return `<span class="hub-report-badge ${extraClass}">${escapeHtml(text)}</span>`;
 }
 
-// The parenthetical appears only when the sweep actually closed something --
-// with the reconcile migration not yet landed this is always absent, which is
-// correct rather than a bug.
+// The parenthetical appears only when the sweep closed something in the
+// window. Those rows are outside the count, the list, and the workbook -- the
+// number says how many were left out, not how many are included.
 function autoClosedSuffix(section) {
   const n = section.auto_closed_count;
-  return n ? ` <span class="hub-report-subcount">(${n} in NetFacilities)</span>` : "";
+  return n
+    ? ` <span class="hub-report-subcount">(excludes ${n} closed in NetFacilities)</span>`
+    : "";
 }
 
 function countHtml(label, value, suffix = "") {

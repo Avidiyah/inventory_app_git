@@ -1077,7 +1077,8 @@ Rules:
   live non-`legacy` work order the CSV did not list, stamping
   `auto_closed_batch_id` (one uuid per import that closed anything) and
   `auto_closed_at`. Absence is the whole signal: nothing else ever takes a work
-  order closed in NetFacilities out of this app's queues. A CSV with no usable
+  order closed in NetFacilities out of this app's queues. The Admin report's
+  Closed sections leave sweep closes out (endpoint-map → `HubReportResponse`). A CSV with no usable
   numbers sweeps nothing, which is what stops a header-only export from closing
   the company. `legacy` rows are excluded because they can never appear in any
   export — sweeping them would close all of them on every run.
