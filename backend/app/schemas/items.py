@@ -98,14 +98,19 @@ class ItemResponse(BaseModel):
 class LowStockItemResponse(ItemResponse):
     """An item on the Low Stock page.
 
-    Its own schema rather than two more fields on `ItemResponse`: the
-    7-day aggregate costs a grouped query, and every other item route
-    would pay for a number none of them display. `low_stock_threshold`
+    Its own schema rather than more fields on `ItemResponse`: the two
+    aggregates cost a grouped query each, and every other item route
+    would pay for numbers none of them display. `low_stock_threshold`
     stays on the parent because it is a plain column that any item view
     may want.
+
+    `last_dispensed_at` is `None` for an item that has never been
+    dispensed, which the page reads as its oldest recency bucket rather
+    than as missing data.
     """
 
     dispensed_last_7_days: Decimal
+    last_dispensed_at: Optional[datetime] = None
 
 
 class LowStockThresholdUpdate(BaseModel):

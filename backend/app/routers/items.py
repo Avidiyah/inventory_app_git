@@ -11,6 +11,7 @@ Mounted by `app/main.py` under the root prefix.
 """
 
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -57,8 +58,13 @@ def _item_response(item: Item, role: str) -> ItemResponse:
     return resp
 
 
-def _low_stock_response(item: Item, role: str, dispensed: Decimal) -> LowStockItemResponse:
-    """`_item_response` plus the 7-day figure.
+def _low_stock_response(
+    item: Item,
+    role: str,
+    dispensed: Decimal,
+    last_dispensed_at: Optional[datetime],
+) -> LowStockItemResponse:
+    """`_item_response` plus the 7-day figure and the recency stamp.
 
     Reuses the base serializer rather than re-deriving it so the
     price/product-link redaction cannot drift between the two -- a second
@@ -67,7 +73,9 @@ def _low_stock_response(item: Item, role: str, dispensed: Decimal) -> LowStockIt
     """
     base = _item_response(item, role)
     return LowStockItemResponse(
-        **base.model_dump(), dispensed_last_7_days=dispensed
+        **base.model_dump(),
+        dispensed_last_7_days=dispensed,
+        last_dispensed_at=last_dispensed_at,
     )
 
 
@@ -144,8 +152,8 @@ def list_low_stock(
     `test_low_stock_is_not_shadowed_by_the_barcode_lookup`.
     """
     return [
-        _low_stock_response(item, user.role, dispensed)
-        for item, dispensed in items_service.list_low_stock(db)
+        _low_stock_response(item, user.role, dispensed, last_dispensed_at)
+        for item, dispensed, last_dispensed_at in items_service.list_low_stock(db)
     ]
 
 

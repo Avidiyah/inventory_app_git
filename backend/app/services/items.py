@@ -560,7 +560,7 @@ def replace_barcodes(
 LOW_STOCK_USAGE_WINDOW = timedelta(days=7)
 
 
-def list_low_stock(db: Session) -> list[tuple[Item, Decimal]]:
+def list_low_stock(db: Session) -> list[tuple[Item, Decimal, Optional[datetime]]]:
     """Live items at or below their own threshold, with 7-day usage.
 
     Ordered by *headroom* (`quantity - low_stock_threshold`) ascending, so
@@ -581,6 +581,12 @@ def list_low_stock(db: Session) -> list[tuple[Item, Decimal]]:
     Items with no rows in the window are simply absent from the aggregate
     and resolve to `Decimal(0)` here, so "never dispensed" is not a
     special case for any caller.
+
+    The third element is *when* the item last moved, over all time rather
+    than inside the usage window, because the page groups rows by recency
+    (last 24 hours / 2-7 days / older or never) and a windowed maximum
+    would make every older item indistinguishable from one that has never
+    been dispensed at all. `None` means exactly that: never.
     """
     items = (
         db.query(Item)
@@ -592,17 +598,35 @@ def list_low_stock(db: Session) -> list[tuple[Item, Decimal]]:
     if not items:
         return []
 
-    since = datetime.now(timezone.utc) - LOW_STOCK_USAGE_WINDOW
-    totals = dict(
-        db.query(Transaction.item_id, func.sum(Transaction.quantity))
-        .filter(Transaction.item_id.in_([item.id for item in items]))
+    item_ids = [item.id for item in items]
+    dispenses = (
+        db.query(Transaction.item_id)
+        .filter(Transaction.item_id.in_(item_ids))
         .filter(Transaction.transaction_type == "dispense")
         .filter(Transaction.voided_at.is_(None))
-        .filter(Transaction.created_at >= since)
         .group_by(Transaction.item_id)
+    )
+
+    since = datetime.now(timezone.utc) - LOW_STOCK_USAGE_WINDOW
+    totals = dict(
+        dispenses.with_entities(
+            Transaction.item_id, func.sum(Transaction.quantity)
+        )
+        .filter(Transaction.created_at >= since)
         .all()
     )
-    return [(item, totals.get(item.id) or Decimal(0)) for item in items]
+    # Unwindowed on purpose: the tab an item belongs to is a question about
+    # how long ago it last moved, which a 7-day window cannot answer -- every
+    # item older than the window would collapse into "never dispensed".
+    last_seen = dict(
+        dispenses.with_entities(
+            Transaction.item_id, func.max(Transaction.created_at)
+        ).all()
+    )
+    return [
+        (item, totals.get(item.id) or Decimal(0), last_seen.get(item.id))
+        for item in items
+    ]
 
 
 def set_low_stock_threshold(db: Session, item_id: uuid.UUID, *, threshold: int) -> Item:

@@ -229,6 +229,61 @@ def test_an_item_with_no_usage_reports_zero(db):
     assert Decimal(row["dispensed_last_7_days"]) == Decimal("0")
 
 
+def test_last_dispensed_reports_the_newest_dispense(db):
+    item = _seed_item(db, quantity="2", threshold=6)
+    _dispense(db, item, hours_ago=50)
+    _dispense(db, item, hours_ago=3)
+
+    row = next(r for r in _low_stock_rows(db).json() if r["id"] == str(item.id))
+    stamp = datetime.fromisoformat(row["last_dispensed_at"])
+    age_hours = (datetime.now(timezone.utc) - stamp).total_seconds() / 3600
+    assert 2.5 < age_hours < 3.5
+
+
+def test_last_dispensed_is_not_windowed(db):
+    """The 7-day *usage* figure is windowed; the recency stamp is not.
+    An item last touched two months ago still has to land in the
+    older-or-never tab rather than looking like it never moved."""
+    item = _seed_item(db, quantity="2", threshold=6)
+    _dispense(db, item, hours_ago=1500)
+
+    row = next(r for r in _low_stock_rows(db).json() if r["id"] == str(item.id))
+    assert row["last_dispensed_at"] is not None
+    assert Decimal(row["dispensed_last_7_days"]) == Decimal("0")
+
+
+def test_last_dispensed_ignores_voided_rows(db):
+    item = _seed_item(db, quantity="2", threshold=6)
+    _dispense(db, item, hours_ago=1, voided=True)
+
+    row = next(r for r in _low_stock_rows(db).json() if r["id"] == str(item.id))
+    assert row["last_dispensed_at"] is None
+
+
+def test_last_dispensed_ignores_corrections(db):
+    item = _seed_item(db, quantity="2", threshold=6)
+    _dispense(db, item, quantity="-8", hours_ago=1, transaction_type="adjust")
+
+    row = next(r for r in _low_stock_rows(db).json() if r["id"] == str(item.id))
+    assert row["last_dispensed_at"] is None
+
+
+def test_last_dispensed_counts_retroactive_backfills(db):
+    """Same rule as the 7-day figure: stock consumed off-app and logged
+    on paper is real usage, so it sets the recency stamp too."""
+    item = _seed_item(db, quantity="2", threshold=6)
+    _dispense(db, item, hours_ago=2, affects_stock=False)
+
+    row = next(r for r in _low_stock_rows(db).json() if r["id"] == str(item.id))
+    assert row["last_dispensed_at"] is not None
+
+
+def test_a_never_dispensed_item_reports_no_timestamp(db):
+    item = _seed_item(db, quantity="1", threshold=6)
+    row = next(r for r in _low_stock_rows(db).json() if r["id"] == str(item.id))
+    assert row["last_dispensed_at"] is None
+
+
 def test_low_stock_is_ordered_by_headroom(db):
     """Deepest below its own threshold first, so the item most likely to
     run out is the one nearest the top of the page."""
