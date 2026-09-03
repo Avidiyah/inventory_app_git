@@ -222,7 +222,6 @@ def test_decode_refuses_an_image_over_ten_megabytes(monkeypatch):
 _EMPTY_SUMMARY = {
     "total": 0, "created": 0, "opened": 0, "closed": 0,
     "supervisors_matched": 0, "supervisors_unmatched": 0, "skipped": 0,
-    "auto_closed": 0, "reopened": 0,
 }
 
 

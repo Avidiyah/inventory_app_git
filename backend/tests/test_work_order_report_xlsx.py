@@ -97,7 +97,6 @@ def _row(
         created_at=datetime(2026, 8, 25, 14, 0, tzinfo=timezone.utc),
         completed_at=datetime(2026, 8, 25, 15, 0, tzinfo=timezone.utc),
         archived_at=archived_at,
-        auto_closed=False,
         legacy=False,
         notes=notes,
         material_lines=2,
@@ -113,7 +112,6 @@ def _payload(
     closing=(),
     new_today=(),
     new_week=(),
-    auto_closed_today=0,
     by_status=None,
     closing_count=None,
     truncated=False,
@@ -129,11 +127,10 @@ def _payload(
         sections=report.ReportSections(
             closed_today=report.ClosedSection(
                 count=len(closed_today),
-                auto_closed_count=auto_closed_today,
                 rows=list(closed_today),
             ),
             closed_week=report.ClosedSection(
-                count=len(closed_week), auto_closed_count=0, rows=list(closed_week)
+                count=len(closed_week), rows=list(closed_week)
             ),
             closing=report.ClosingSection(
                 count=(closing_count if closing_count is not None else len(closing_rows)),
@@ -472,18 +469,6 @@ def test_report_activity_block_matches_the_payload_counts():
         for row in (xlsx.ACTIVITY_ROW + 2, xlsx.ACTIVITY_ROW + 3)
     ] == [["Closed", 1, 2], ["New", 1, 2]]
     assert sheet.cell(row=xlsx.ACTIVITY_ROW + 4, column=1).value is None
-
-
-def test_report_activity_block_notes_auto_closed_work_orders():
-    payload = _payload(
-        closed_today=[_row(status=wo.STATUS_COMPLETED, archived=True)],
-        auto_closed_today=1,
-    )
-    sheet = _workbook(payload)["Report"]
-
-    assert sheet.cell(row=xlsx.ACTIVITY_ROW + 4, column=1).value == (
-        "Closed today excludes 1 closed in NetFacilities; this week excludes 0."
-    )
 
 
 def test_report_dollars_block_is_by_primary_community_and_counts_each_row_once():

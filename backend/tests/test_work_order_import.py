@@ -379,11 +379,7 @@ def test_import_counts_and_ignores_closed_work_orders(db):
         user=admin,
     )
 
-    # `auto_closed` is deliberately excluded from the comparison: the sweep
-    # closes every live work order this CSV did not list, which is whatever
-    # else the database happens to hold, and this test is about the one
-    # archived match.
-    assert {k: v for k, v in result.items() if k != "auto_closed"} == {
+    assert result == {
         "total": 1,
         "created": 0,
         "opened": 0,
@@ -391,7 +387,6 @@ def test_import_counts_and_ignores_closed_work_orders(db):
         "supervisors_matched": 0,
         "supervisors_unmatched": 0,
         "skipped": 0,
-        "reopened": 0,
         # An archived match routes nobody, so there is nobody to notify.
         "supervisor_routing": {},
     }

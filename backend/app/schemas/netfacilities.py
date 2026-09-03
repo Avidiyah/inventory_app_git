@@ -88,8 +88,7 @@ class NetFacilitiesCloudSessionStatus(BaseModel):
     live_view_url: str | None = None
     # The unattended chain (auto-capture spec 4.2, 2a). `import_result` is
     # the whole import summary so the frontend renders the same line a
-    # clicked import shows -- reconcile's auto_closed/reopened counts
-    # included, once that work lands.
+    # clicked import shows.
     capture_consumed: bool = False
     import_result: WorkOrderImportResult | None = None
     import_error: str | None = None

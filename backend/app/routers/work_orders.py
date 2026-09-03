@@ -54,8 +54,6 @@ from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_capped
 from app.schemas.work_orders import (
     LegacyWorkOrderArchivePreview,
     LegacyWorkOrderArchiveResult,
-    WorkOrderAutoClosePending,
-    WorkOrderAutoCloseUndoResult,
     WorkOrderCard,
     WorkOrderDetail,
     WorkOrderFilterOptions,
@@ -825,61 +823,6 @@ def archive_legacy_work_orders(
     except DomainError as exc:
         raise to_http(exc)
     return LegacyWorkOrderArchiveResult(archived=archived)
-
-
-@router.get(
-    "/auto-close/pending",
-    response_model=Optional[WorkOrderAutoClosePending],
-    responses=_forbidden(roles.ROLE_TECHFM_OA),
-)
-def pending_work_order_auto_close(
-    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
-    db: Session = Depends(get_db),
-):
-    """What "Undo auto-close" would restore right now, or `null` (TechFM OA+).
-
-    Declared before `/{work_order_id}` so "auto-close" is not parsed as an id,
-    the same ordering constraint `/filter-options`, `/export`, `/lookup`, and
-    `/legacy/archive` live under.
-
-    `null` rather than a zero row: the button is hidden when there is nothing
-    pending, and the page should not have to read a count to learn that. The
-    set is company-wide and covers every sweep in the window, so an OA sees a
-    colleague's import waiting to be undone too."""
-    try:
-        pending = wo_service.pending_auto_close(db, user=user)
-    except DomainError as exc:
-        raise to_http(exc)
-    if pending is None:
-        return None
-    return WorkOrderAutoClosePending(**pending)
-
-
-@router.post(
-    "/auto-close/undo",
-    response_model=WorkOrderAutoCloseUndoResult,
-    responses=_forbidden(roles.ROLE_TECHFM_OA),
-)
-def undo_work_order_auto_close(
-    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
-    db: Session = Depends(get_db),
-):
-    """Restore every work order an import sweep closed in the last 24 hours.
-
-    The safety valve under the sweep, so it deliberately has no confirmation
-    step: putting friction in front of the undo button defeats the point of
-    having one, and restoring work orders is not itself destructive.
-
-    Nothing pending answers `200 {"restored": 0}` rather than an error -- a
-    window that has lapsed simply has nothing pending, and there is no failure
-    to report."""
-    try:
-        restored = wo_service.undo_auto_close(db, user=user)
-        _emit_review_queue_changed(None)
-        _emit_status_changed(None)
-    except DomainError as exc:
-        raise to_http(exc)
-    return WorkOrderAutoCloseUndoResult(restored=restored)
 
 
 @router.get("/{work_order_id}", response_model=WorkOrderDetail)

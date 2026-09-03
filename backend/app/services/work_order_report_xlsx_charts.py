@@ -252,17 +252,6 @@ def _report_sheet(sheet: Worksheet, payload: DailyReport, chart_data: _ChartData
     theme.write_rows(
         sheet, ACTIVITY_ROW + 2, activity, formats={1: theme.COUNT, 2: theme.COUNT}
     )
-    auto_today = sections.closed_today.auto_closed_count
-    auto_week = sections.closed_week.auto_closed_count
-    if auto_today or auto_week:
-        # The sweep's closes are outside every figure on this sheet; say how
-        # many, in the page's own phrasing, so the file reads like the screen.
-        theme.note(
-            sheet,
-            ACTIVITY_ROW + 4,
-            f"Closed today excludes {auto_today} closed in NetFacilities; "
-            f"this week excludes {auto_week}.",
-        )
     header_row, last_row = chart_data.block("activity", [None, "Today", "Week to date"], activity)
     theme.place(
         sheet,

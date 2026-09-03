@@ -402,8 +402,6 @@ def test_the_manual_import_button_runs_the_whole_chain(db, monkeypatch):
             "supervisors_matched": 1,
             "supervisors_unmatched": 2,
             "skipped": 0,
-            "auto_closed": 0,
-            "reopened": 0,
         },
         enrichment_job_id=job_id,
         last_download_filename="work-orders.csv",

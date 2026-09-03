@@ -382,27 +382,24 @@ def test_clearing_the_routing_notifies_nobody():
 # Locked-screen rule holds: counts and a stage word, never customer detail.
 
 
-def test_the_chain_success_push_names_the_reconcile_counts():
+def test_the_chain_success_push_names_the_created_count():
     title, body = notif.build_netfacilities_chain_message(
         ok=True,
         stage=None,
-        import_result={"created": 3, "auto_closed": 14, "reopened": 1},
+        import_result={"created": 3},
     )
 
     assert title == "NetFacilities import finished"
     assert "3 work orders" in body
-    assert "14 closed (not in NetFacilities)" in body
-    assert "1 reopened" in body
     assert "enrichment started" in body
 
 
-def test_the_chain_success_push_omits_zero_counts():
+def test_the_chain_success_push_singularizes_one_work_order():
     _, body = notif.build_netfacilities_chain_message(
-        ok=True, stage=None, import_result={"created": 2}
+        ok=True, stage=None, import_result={"created": 1}
     )
 
-    assert "closed" not in body
-    assert "reopened" not in body
+    assert "1 work order;" in body
 
 
 def test_the_chain_import_failure_push_says_to_re_export():

@@ -90,16 +90,6 @@ function badgeHtml(text, extraClass) {
   return `<span class="hub-report-badge ${extraClass}">${escapeHtml(text)}</span>`;
 }
 
-// The parenthetical appears only when the sweep closed something in the
-// window. Those rows are outside the count, the list, and the workbook -- the
-// number says how many were left out, not how many are included.
-function autoClosedSuffix(section) {
-  const n = section.auto_closed_count;
-  return n
-    ? ` <span class="hub-report-subcount">(excludes ${n} closed in NetFacilities)</span>`
-    : "";
-}
-
 function countHtml(label, value, suffix = "") {
   return `<span class="hub-report-count"><span class="hub-report-count-label">${escapeHtml(
     label
@@ -109,7 +99,6 @@ function countHtml(label, value, suffix = "") {
 function rowHtml(row, { timestampField, todayNumbers }) {
   const badges = [];
   if (todayNumbers?.has(row.number)) badges.push(badgeHtml("Today", "is-today"));
-  if (row.auto_closed) badges.push(badgeHtml("Closed in NetFacilities", "is-auto"));
   if (row.legacy) badges.push(badgeHtml("Legacy", "is-legacy"));
 
   // A real <button>, so the row is keyboard-reachable -- and the cell's only
@@ -161,8 +150,8 @@ function closedSectionHtml(payload) {
   return `<section class="hub-report-section">
       <h3>Closed</h3>
       <div class="hub-report-counts">
-        ${countHtml("Today", today.count, autoClosedSuffix(today))}
-        ${countHtml("This week", week.count, autoClosedSuffix(week))}
+        ${countHtml("Today", today.count)}
+        ${countHtml("This week", week.count)}
       </div>
       ${tableHtml(week.rows, {
         timestampField: "archived_at",
@@ -171,7 +160,7 @@ function closedSectionHtml(payload) {
         emptyText: "Nothing closed yet today.",
       })}
       <p class="hub-report-footnote">A live view, not an archival record:
-        restoring a closed work order -- by hand, by the auto-close undo, or by
+        restoring a closed work order -- by hand or by
         a NetFacilities reappearance -- removes it from these numbers.</p>
     </section>`;
 }

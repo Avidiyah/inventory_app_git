@@ -469,7 +469,6 @@ class HubReportRow(BaseModel):
     created_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     archived_at: Optional[datetime] = None
-    auto_closed: bool
     legacy: bool
 
     model_config = {"from_attributes": True}
@@ -480,9 +479,6 @@ class HubReportClosedSection(BaseModel):
     section carries and what a Closing section carries genuinely differ."""
 
     count: int
-    # Sweep closes in the window, left out of `count` and `rows` -- how many
-    # the section does not show, not a subset of what it does.
-    auto_closed_count: int
     rows: list[HubReportRow] = []
 
     model_config = {"from_attributes": True}

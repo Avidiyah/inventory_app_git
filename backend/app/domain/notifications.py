@@ -379,13 +379,10 @@ def build_netfacilities_chain_message(
 ) -> tuple[str, str]:
     """The `(title, body)` for the unattended capture chain's push (E10).
 
-    Its own builder rather than a `build_message` template: the body is
-    several *conditional* count clauses (auto-capture spec 2a) plus a stage
-    word, which a single format string cannot express. The lock-screen line
-    still holds -- counts and a stage, never customer detail. `auto_closed`
-    and `reopened` are read tolerantly so the reconcile sweep's counts
-    appear here the moment `WorkOrderImportResult` grows them, with no
-    change in this module.
+    Its own builder rather than a `build_message` template: the body pairs a
+    created-count clause with a stage word, which a single format string
+    cannot express. The lock-screen line still holds -- counts and a stage,
+    never customer detail.
 
     Deliberately addressed to the acting user (the ceremony's owner): an
     unattended chain's owner is the one person who must hear how it ended,
@@ -394,19 +391,12 @@ def build_netfacilities_chain_message(
     """
     counts = import_result or {}
     created = counts.get("created") or 0
-    auto_closed = counts.get("auto_closed") or 0
-    reopened = counts.get("reopened") or 0
     created_clause = f"Imported {created} work order" + ("" if created == 1 else "s")
 
     if ok:
-        clauses = [created_clause]
-        if auto_closed:
-            clauses.append(f"{auto_closed} closed (not in NetFacilities)")
-        if reopened:
-            clauses.append(f"{reopened} reopened (back in NetFacilities)")
         return (
             "NetFacilities import finished",
-            " \u00b7 ".join(clauses) + "; enrichment started.",
+            f"{created_clause}; enrichment started.",
         )
     if stage == "import":
         return (

@@ -276,8 +276,6 @@ IMPORT_SUMMARY = {
     "supervisors_matched": 1,
     "supervisors_unmatched": 2,
     "skipped": 0,
-    "auto_closed": 0,
-    "reopened": 0,
 }
 
 
@@ -369,8 +367,7 @@ def test_the_chain_imports_closes_and_enriches(db, monkeypatch):
     assert jobs.starts == 1
     assert snapshot.state == "closed"
     assert snapshot.chain_stage == "done"
-    # §2a: the whole import result rides on the snapshot, so reconcile's
-    # auto_closed/reopened counts appear here with no further plumbing.
+    # §2a: the whole import result rides on the snapshot.
     assert snapshot.import_result == IMPORT_SUMMARY
     assert snapshot.enrichment_job_id == jobs.job_id
     assert snapshot.capture_consumed is True

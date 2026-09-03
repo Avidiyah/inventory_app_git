@@ -725,7 +725,6 @@ owner > admin > techfm_oa > supervisor > technician
 | Import work orders (CSV) | techfm_oa+ |
 | Export work orders (CSV, full or For Client) | techfm_oa+, server-scoped |
 | Preview/re-archive all live legacy work orders | owner exactly; server gate and service check |
-| Undo the import's auto-close (last 24 hours, company-wide) | techfm_oa+ — the role that imports and the role that archives, deliberately not the Supervisor gate on single-work-order restore |
 | Admin Review page / receipt | techfm_oa+; lists every live Review work order |
 | Low Stock page / retune a threshold, edit an item, correct a count | techfm_oa+; lists items at or below their own threshold with 7-day usage, grouped by dispense recency |
 | User Requests page / request status | techfm_oa+; list, edit, resolve/reopen, and fulfil operational exceptions |
@@ -992,7 +991,7 @@ Fields: `id`, `number`, `community`, `building_number`, `unit_number`,
 `description`, `notes`, `status`, `entry_mode`, `assigned_to_id`, `created_by_id`,
 `created_at`, `updated_at`, `completed_at`, `archived_at`, `location`,
 `output_to`, `vendor_assignee`, `service_type`, `schedule_date`,
-`supervisor_id`, `legacy`, `auto_closed_batch_id`, `auto_closed_at`.
+`supervisor_id`, `legacy`.
 
 Rules:
 
@@ -1087,30 +1086,6 @@ Rules:
 - The Owner-only legacy re-archive action counts and soft-archives only rows
   where `legacy=true` and `archived_at IS NULL`. Its bulk update is atomic;
   already archived legacy rows and live current-schema rows are untouched.
-- **Import reconciliation.** The NetFacilities export is the full list of what
-  is open upstream, so after each import's row loop one transaction closes every
-  live non-`legacy` work order the CSV did not list, stamping
-  `auto_closed_batch_id` (one uuid per import that closed anything) and
-  `auto_closed_at`. Absence is the whole signal: nothing else ever takes a work
-  order closed in NetFacilities out of this app's queues. The Admin report's
-  Closed sections leave sweep closes out (endpoint-map → `HubReportResponse`). A CSV with no usable
-  numbers sweeps nothing, which is what stops a header-only export from closing
-  the company. `legacy` rows are excluded because they can never appear in any
-  export — sweeping them would close all of them on every run.
-- `archived_at` stays the only source of truth for closed/live; the two
-  auto-close columns are provenance. They are set together by the sweep and
-  cleared together by everything that un-archives a row — the undo, the reopen,
-  and `restore_work_order` — so a live row never carries either, and a restored
-  row stops counting as pending.
-- A sweep-closed work order the *next* CSV lists again is un-archived and
-  merged like any live row ("reopened"), which makes a partial or wrong export
-  self-healing after the undo window lapses. A work order a **person** archived
-  is still left alone by any import.
-- `undo_auto_close` restores every sweep-closed row whose `auto_closed_at` is
-  within 24 hours — every sweep in the window, not just the last import's — and
-  each restore appends its own note. A restored row is eligible to be swept
-  again by the next import: it is still absent upstream, and the remedy lives in
-  NetFacilities. Labor sessions the sweep stopped do not restart.
 
 ### `work_order_items`
 

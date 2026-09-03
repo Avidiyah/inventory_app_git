@@ -87,7 +87,7 @@ barcode off a lock screen. A *price* on the same item stays forbidden.
 | `work_order.sent_back` | Work order sent back | `{number}` was sent back and needs more work. |
 | `work_order.supervisor_assigned` | Work order assigned to you | `{number}` has been assigned to you. |
 | `work_order.supervisor_assigned_bulk` | Work orders assigned to you | `{count}` work orders have been assigned to you. |
-| `netfacilities.import_finished` | NetFacilities import finished | Imported `{created}` work orders[ · `{auto_closed}` closed (not in NetFacilities)][ · `{reopened}` reopened (back in NetFacilities)]; enrichment started. Zero-count clauses are omitted. |
+| `netfacilities.import_finished` | NetFacilities import finished | Imported `{created}` work orders; enrichment started. |
 | `item.low_stock` | Low stock | `{name}` is down to `{quantity}`. |
 | `netfacilities.import_failed` | NetFacilities import needs you | Names the failing stage and the next move: *import* → still signed in, export again; *enrichment* → imported `{created}` work orders, click Enrich when it frees up. |
 

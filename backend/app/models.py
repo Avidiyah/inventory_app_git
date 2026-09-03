@@ -419,16 +419,6 @@ class WorkOrder(Base):
     # A pre-import (old-schema) work order: kept for search so already-priced-out
     # work orders stay findable, but its old descriptive attributes were dropped.
     legacy = Column(Boolean, nullable=False, default=False, server_default="false")
-    # Provenance for the import sweep that closes work orders the latest
-    # NetFacilities CSV did not list (absence upstream means closed upstream).
-    # `auto_closed_batch_id` groups one import's victims; `auto_closed_at` equals
-    # this row's `archived_at` at the moment of the sweep and is what the undo
-    # window is measured from. Set together by the sweep, cleared together by
-    # every path that un-archives the row -- so a live row never carries either,
-    # and a restored one stops looking auto-closed. Nothing reads them to decide
-    # visibility: `archived_at` is still the only source of truth for closed/live.
-    auto_closed_batch_id = Column(UUID(as_uuid=True), nullable=True)
-    auto_closed_at = Column(DateTime(timezone=True), nullable=True)
 
     items = relationship(
         "WorkOrderItem",

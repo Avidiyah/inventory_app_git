@@ -240,14 +240,12 @@ def test_admin_daily_report_returns_the_five_sections(db):
     assert set(body["week"]) == {"start", "end"}
     assert body["day"]
     # Three section models, not one with optional fields.
-    assert "auto_closed_count" in body["sections"]["closed_today"]
     assert set(body["sections"]["closing"]) >= {
         "count",
         "by_status",
         "truncated",
         "rows",
     }
-    assert "auto_closed_count" not in body["sections"]["new_today"]
 
 
 def test_admin_daily_report_row_never_leaks_export_cells(db):

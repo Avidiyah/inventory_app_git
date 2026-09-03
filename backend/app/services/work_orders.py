@@ -41,7 +41,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional, Sequence
 
-from sqlalchemy import distinct, func, or_
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -78,37 +78,6 @@ from app.services import user_requests as request_service
 # Backslash is the LIKE escape char (mirrors services.history).
 _LIKE_ESCAPE = "\\"
 _UNSET = object()
-
-# --- import reconciliation notes -----------------------------------------
-# The four lines the auto-close sweep and its reversals write. They live here
-# rather than in `domain.work_orders` beside the labor notes because only the
-# import owns them, and they are constants for the same reason those are: the
-# note log is the public record, and an operator scanning a card has to be able
-# to tell "NetFacilities closed this" from "a person closed this" at a glance.
-#
-# All four are authored by `TechFM`, not by the importing user: the sweep is the
-# system reading the vendor's export, and attributing it to whoever happened to
-# click Import would misdescribe who decided. The two restore lines still *name*
-# the acting person inside the text, because there a person did decide.
-AUTO_CLOSE_NOTE = (
-    "closed automatically: this work order was not in the latest "
-    "NetFacilities import. Review it in NetFacilities for details."
-)
-AUTO_REOPEN_NOTE = (
-    "reopened automatically: this work order is in the latest "
-    "NetFacilities import again."
-)
-AUTO_CLOSE_UNDO_NOTE = "restored: auto-close undone by {name}."
-AUTO_CLOSE_RESTORE_NOTE = "restored by {name}."
-
-# The author of all four lines above.
-AUTO_CLOSE_NOTE_AUTHOR = "TechFM"
-
-# How long a sweep stays undoable from the Integrations page. Measured from
-# each row's `auto_closed_at`, so the window is per row rather than per batch --
-# which is what lets one button undo every sweep of the last day (design
-# decision 2) instead of only the most recent import's.
-AUTO_CLOSE_UNDO_WINDOW = timedelta(hours=24)
 
 # Editable attribute fields (used by fill-blanks references + explicit edits).
 # The CSV-import columns join the original location/description set; every one is
@@ -850,124 +819,6 @@ def _supervisor_lookup(db: Session) -> dict[str, Optional[uuid.UUID]]:
     return lookup
 
 
-def _reopen_auto_closed(db: Session, work_order: WorkOrder) -> bool:
-    """Un-archive one work order the sweep closed, because the CSV lists it again.
-
-    An archived work order named by a CSV is normally left archived -- an
-    import must not undo somebody's deliberate close. A work order the *sweep*
-    closed is different: it was closed on the evidence of its absence from an
-    export, and its presence in this one is that same evidence read the other
-    way. Reopening it is what makes a partial or wrong export self-healing
-    after the 24-hour undo window has lapsed.
-
-    Re-locks the row before touching it, which serializes this against a
-    concurrent sweep or undo. Returns whether it actually reopened anything:
-    `False` means somebody else got there first -- either the row is already
-    live (a concurrent restore; the caller treats it as an ordinary live row)
-    or it is archived without a batch id (a person archived it; it stands).
-    """
-    locked = _get_locked(db, work_order.id)
-    if locked is None or locked.archived_at is None:
-        return False
-    if locked.auto_closed_batch_id is None:
-        return False
-    locked.archived_at = None
-    locked.auto_closed_batch_id = None
-    locked.auto_closed_at = None
-    locked.notes = wo.append_note_log(
-        locked.notes,
-        AUTO_REOPEN_NOTE,
-        author_name=AUTO_CLOSE_NOTE_AUTHOR,
-        occurred_at=datetime.now(timezone.utc),
-    )
-    db.commit()
-    return True
-
-
-def _sweep_absent_work_orders(
-    db: Session, *, seen: set[str], user: User
-) -> int:
-    """Close every live work order the CSV did not list, in one transaction.
-
-    The NetFacilities export is the full list of what is open upstream, so a
-    work order that is live here and absent from it was closed over there and
-    nothing else would ever bring it out of this app's queues. That signal is
-    already in the import; this reads it.
-
-    Two carve-outs, neither of them a preference:
-
-    * **An empty `seen` sweeps nothing.** A CSV with a valid `WORK ORDER`
-      header and zero data rows parses cleanly, and without this guard it
-      would close every live work order in the system. A correctness floor,
-      not a policy knob.
-    * **`legacy` rows are out of scope, not absent.** They predate
-      NetFacilities and can never appear in any export, so every import would
-      close all of them -- and because the undo is time-limited they would
-      churn closed on every run with no way to make it stop. They already have
-      their own Owner-only bulk archive.
-
-    Rows are locked `FOR UPDATE` for the same reason `archive_work_order`
-    locks: a concurrent stop would otherwise close the same session and bill
-    it twice. Two imports running at once each sweep the live set they see,
-    and `archived_at IS NULL` plus the lock mean a row the first closed is
-    skipped by the second -- so a work order can only ever wear one batch id.
-
-    One commit for the whole sweep: a failure midway leaves every row the row
-    loop imported imported, and *no* victim closed. A half-swept import cannot
-    exist.
-    """
-    if not seen:
-        return 0
-    victims = (
-        db.query(WorkOrder)
-        .filter(
-            WorkOrder.archived_at.is_(None),
-            WorkOrder.legacy.is_not(True),
-            func.lower(func.btrim(WorkOrder.number)).not_in(sorted(seen)),
-        )
-        .order_by(WorkOrder.id)
-        .with_for_update()
-        .all()
-    )
-    if not victims:
-        return 0
-
-    # Which victims have a clock running, in one query rather than one per
-    # row: a sweep touches every absent work order in the company, and asking
-    # the database about each one separately is hundreds of round trips to
-    # discover that almost none of them are on the clock.
-    running = {
-        work_order_id
-        for (work_order_id,) in db.query(WorkOrderLaborSession.work_order_id)
-        .filter(
-            WorkOrderLaborSession.work_order_id.in_([v.id for v in victims]),
-            WorkOrderLaborSession.ended_at.is_(None),
-        )
-        .distinct()
-    }
-
-    batch_id = uuid.uuid4()
-    now = datetime.now(timezone.utc)
-    for victim in victims:
-        if victim.id in running:
-            # The same call `archive_work_order` makes, with the importing
-            # user as the actor. A session stopped here stays stopped if the
-            # work order is later restored -- the undo returns the work order,
-            # not the running clock.
-            _stop_all_sessions(db, victim, actor=user)
-        victim.notes = wo.append_note_log(
-            victim.notes,
-            AUTO_CLOSE_NOTE,
-            author_name=AUTO_CLOSE_NOTE_AUTHOR,
-            occurred_at=now,
-        )
-        victim.archived_at = now
-        victim.auto_closed_batch_id = batch_id
-        victim.auto_closed_at = now
-    db.commit()
-    return len(victims)
-
-
 def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
     """Import the mass work-order CSV export (the new default schema).
 
@@ -975,8 +826,7 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
     re-upload is idempotent (fill-blanks -- only supplied metadata can fill an
     empty field; operational data and manual edits survive). A work order a
     *person* archived is counted as closed and ignored without restoring or
-    mutating it; one an earlier sweep archived is reopened (`_reopen_auto_closed`)
-    and then merged like any live row. The
+    mutating it. The
     `ASSIGNED TO` vendor name is stored raw AND matched to an active system
     TechFM OA, Admin, or Supervisor (by normalized first + last name) to set
     `supervisor_id`; an unmatched name imports cleanly (admin routes it later).
@@ -985,18 +835,10 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
     Rows with a blank work-order number are skipped. UTF-8 decoding, CSV parsing,
     and the required `WORK ORDER` header are preflighted before row commits.
 
-    After the row loop, `_sweep_absent_work_orders` closes every live work
-    order the CSV did not list -- the export is exhaustive, so absence from it
-    means the work order was closed in NetFacilities and nothing else would
-    ever take it out of this app's queues. The sweep is undoable for 24 hours
-    (`undo_auto_close`) and self-healing if the row comes back.
-
     Returns a summary dict (`total`, `created`, `opened`, `closed`,
-    `supervisors_matched`, `supervisors_unmatched`, `skipped`, `auto_closed`,
-    `reopened`). The two supervisor counters describe only the work orders this
-    import created. `total` counts every CSV row the import accounted for, so
-    it includes `reopened` but not `auto_closed`, which describes rows the CSV
-    by definition did not contain.
+    `supervisors_matched`, `supervisors_unmatched`, `skipped`). The two
+    supervisor counters describe only the work orders this import created.
+    `total` counts every CSV row the import accounted for.
 
     `supervisor_routing` rides along beside them: `{supervisor_id: [number,
     ...]}` for the same created-and-matched rows the `supervisors_matched`
@@ -1026,30 +868,19 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
         raise WorkOrderStateError("Work-order CSV could not be parsed.") from exc
     supervisors = _supervisor_lookup(db)
 
-    created = opened = closed = matched = unmatched = skipped = reopened = 0
+    created = opened = closed = matched = unmatched = skipped = 0
     routing: dict[uuid.UUID, list[str]] = {}
-    # What the CSV *listed*, not what the import did with it. A row that
-    # matched a hand-archived work order was still present upstream and must
-    # not be swept, so presence is recorded before any outcome is decided.
-    seen: set[str] = set()
     for row in rows:
         attrs = wo.parse_import_row(row)
         number = attrs.pop("number")
         if number is None:
             skipped += 1
             continue
-        seen.add(wo.normalize_number(number))
 
         existing = find_by_number(db, number)
-        reopened_row = False
         if existing is not None and existing.archived_at is not None:
-            # A closed work order the CSV names: whether that means anything
-            # depends on who closed it. A person's archive stands; a sweep's
-            # does not.
-            reopened_row = _reopen_auto_closed(db, existing)
-            if not reopened_row and existing.archived_at is not None:
-                closed += 1
-                continue
+            closed += 1
+            continue
 
         task_was_explicit = attrs.get("description") is not None
         if not task_was_explicit:
@@ -1084,29 +915,19 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
                 routing.setdefault(supervisor_id, []).append(work_order.number)
             elif attrs.get("vendor_assignee") is not None:
                 unmatched += 1
-        # The three outcome counters stay disjoint: a reopened row is reported
-        # as reopened rather than folded into `opened`, because "we brought
-        # this back" is a different thing to tell the operator than "we saw
-        # this again".
-        if reopened_row:
-            reopened += 1
-        elif existed:
+        if existed:
             opened += 1
         else:
             created += 1
 
-    auto_closed = _sweep_absent_work_orders(db, seen=seen, user=user)
-
     return {
-        "total": created + opened + closed + skipped + reopened,
+        "total": created + opened + closed + skipped,
         "created": created,
         "opened": opened,
         "closed": closed,
         "supervisors_matched": matched,
         "supervisors_unmatched": unmatched,
         "skipped": skipped,
-        "auto_closed": auto_closed,
-        "reopened": reopened,
         "supervisor_routing": routing,
     }
 
@@ -2246,122 +2067,6 @@ def archive_live_legacy_work_orders(
     return archived
 
 
-def _pending_auto_close_filters(now: datetime) -> list:
-    """The one predicate both undo functions read: still closed by a sweep, and
-    still inside the window.
-
-    Shared rather than written twice because the button's label and what the
-    button actually restores have to describe the same set. A row that was
-    restored by hand, or reopened by a later import, drops out of it for free:
-    both of those clear `auto_closed_at` along with `archived_at`.
-    """
-    return [
-        WorkOrder.archived_at.is_not(None),
-        WorkOrder.auto_closed_at.is_not(None),
-        WorkOrder.auto_closed_at >= now - AUTO_CLOSE_UNDO_WINDOW,
-    ]
-
-
-def pending_auto_close(
-    db: Session, *, user: Optional[User], now: Optional[datetime] = None
-) -> Optional[dict]:
-    """What the Integrations page's undo button would restore, or `None`.
-
-    Covers **every** sweep in the last 24 hours, not just the most recent
-    import's: two OAs importing in one day, or a manual import after an
-    unattended one, must not leave the earlier sweep un-undoable from the UI.
-    `batch_count` is how many imports are in the window, so an operator about
-    to press the button can see that it reaches further back than the import
-    they just ran.
-
-    `None` rather than a zero row, because the button is hidden when there is
-    nothing to undo -- the caller should not have to read a count to find that
-    out. TechFM OA+, matching `undo_auto_close`.
-    """
-    _require_role(
-        user,
-        roles.ROLE_TECHFM_OA,
-        "Only a TechFM OA, Admin, or Owner can undo an import auto-close.",
-    )
-    now = now or datetime.now(timezone.utc)
-    closed_count, batch_count, newest, oldest = (
-        db.query(
-            func.count(WorkOrder.id),
-            func.count(distinct(WorkOrder.auto_closed_batch_id)),
-            func.max(WorkOrder.auto_closed_at),
-            func.min(WorkOrder.auto_closed_at),
-        )
-        .filter(*_pending_auto_close_filters(now))
-        .one()
-    )
-    if not closed_count:
-        return None
-    return {
-        "closed_count": closed_count,
-        "batch_count": batch_count,
-        "newest_ran_at": newest,
-        "oldest_ran_at": oldest,
-    }
-
-
-def undo_auto_close(
-    db: Session, *, user: Optional[User], now: Optional[datetime] = None
-) -> int:
-    """Restore every work order a sweep closed in the last 24 hours (TechFM OA+).
-
-    The safety net under an exhaustive-export assumption: if an import was
-    wrong, this is the one button that takes it back. Deliberately company-wide
-    rather than per operator -- any OA can undo any OA's sweep, which is the
-    whole point of a window-sized undo.
-
-    Gated at TechFM OA, the role that can import and the role that can archive,
-    rather than at Supervisor, which gates single-work-order restore: a bulk
-    undo of an import is an import-operator action.
-
-    Row by row inside one transaction rather than a bulk `UPDATE`, because each
-    row gets its own note line naming the operator; the single commit keeps it
-    atomic anyway. Returns the number **actually** restored, which can be lower
-    than a label read a moment ago if somebody restored rows by hand or a later
-    import reopened some in between -- the same honesty
-    `archive_live_legacy_work_orders` practises about its own preview.
-
-    Nothing pending is not an error: the answer is `0`. That also covers a
-    lapsed window, which simply has nothing pending.
-
-    **Labor sessions do not come back.** A session the sweep stopped stays
-    stopped, exactly as it does for a manual archive-then-restore. The undo
-    returns the work order, not the running clock.
-    """
-    _require_role(
-        user,
-        roles.ROLE_TECHFM_OA,
-        "Only a TechFM OA, Admin, or Owner can undo an import auto-close.",
-    )
-    now = now or datetime.now(timezone.utc)
-    rows = (
-        db.query(WorkOrder)
-        .filter(*_pending_auto_close_filters(now))
-        .order_by(WorkOrder.id)
-        .with_for_update()
-        .all()
-    )
-    note = AUTO_CLOSE_UNDO_NOTE.format(
-        name=user.full_name if user is not None else "Name unavailable"
-    )
-    for row in rows:
-        row.notes = wo.append_note_log(
-            row.notes,
-            note,
-            author_name=AUTO_CLOSE_NOTE_AUTHOR,
-            occurred_at=now,
-        )
-        row.archived_at = None
-        row.auto_closed_batch_id = None
-        row.auto_closed_at = None
-    db.commit()
-    return len(rows)
-
-
 def lookup_work_order(
     db: Session, *, number: str, user: Optional[User]
 ) -> Optional[WorkOrder]:
@@ -2386,28 +2091,11 @@ def restore_work_order(
     work orders are import-only and there is no "create it again" path -- the way
     an archived work order comes back without re-importing. Already-live work
     orders pass through unchanged. Raises `WorkOrderNotFoundError` if unknown or
-    not visible to `user`.
-
-    A row an import sweep closed leaves a note naming the restorer and drops its
-    batch stamp, so it stops looking auto-closed and falls out of the undo
-    button's count for free. A row somebody archived by hand restores silently,
-    as it always has: the note exists to close a story the sweep started, and
-    there is no such story here."""
+    not visible to `user`."""
     work_order = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
     if work_order is None or not _visible(work_order, user):
         raise WorkOrderNotFoundError("Work order not found.")
     if work_order.archived_at is not None:
-        if work_order.auto_closed_batch_id is not None:
-            work_order.notes = wo.append_note_log(
-                work_order.notes,
-                AUTO_CLOSE_RESTORE_NOTE.format(
-                    name=user.full_name if user is not None else "Name unavailable"
-                ),
-                author_name=AUTO_CLOSE_NOTE_AUTHOR,
-                occurred_at=datetime.now(timezone.utc),
-            )
-            work_order.auto_closed_batch_id = None
-            work_order.auto_closed_at = None
         work_order.archived_at = None
         db.commit()
         db.refresh(work_order)

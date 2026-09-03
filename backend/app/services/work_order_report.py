@@ -110,7 +110,6 @@ class ReportRow:
     created_at: Optional[datetime]
     completed_at: Optional[datetime]
     archived_at: Optional[datetime]
-    auto_closed: bool
     legacy: bool
     # Read by the workbook's Work Orders sheet (redesign E5); absent from
     # `schemas.hub.HubReportRow`, so neither reaches the JSON.
@@ -122,9 +121,6 @@ class ReportRow:
 @dataclass(frozen=True)
 class ClosedSection:
     count: int
-    # Sweep closes in the window, left out of `count` and `rows`: how many the
-    # section does not show, not a subset of what it does.
-    auto_closed_count: int
     rows: list[ReportRow] = field(default_factory=list)
 
 
@@ -170,15 +166,6 @@ class DailyReport:
     all_rows: list[ReportRow]
 
 
-def _auto_closed(work_order: WorkOrder) -> bool:
-    """Whether the NetFacilities reconcile sweep closed this row.
-
-    Never true on a `closed_*` row -- `_closed_section` leaves those out. It
-    survives on `new_*` rows, where the page's badge says what became of an
-    arrival."""
-    return work_order.auto_closed_batch_id is not None
-
-
 def _base_query(db: Session):
     """Eager-load everything a row and its export cells read, so a section of N
     rows is a constant number of queries rather than 5N."""
@@ -213,7 +200,6 @@ def _row(work_order: WorkOrder) -> ReportRow:
         created_at=work_order.created_at,
         completed_at=work_order.completed_at,
         archived_at=work_order.archived_at,
-        auto_closed=_auto_closed(work_order),
         legacy=bool(work_order.legacy),
         notes=work_order.notes,
         material_lines=len(work_order.items),
@@ -222,34 +208,21 @@ def _row(work_order: WorkOrder) -> ReportRow:
 
 
 def _closed_section(db: Session, *, start: datetime, end: datetime) -> ClosedSection:
-    """Rows a person archived within [start, end), newest close first.
-
-    The NetFacilities reconcile sweep's closes are left out -- of `rows`, of
-    `count`, and so of every figure computed from them -- and reported as
-    `auto_closed_count`, so the Admin still sees how many tickets NetFacilities
-    closed. This revises the spec's R10 ("a close is a close"): a sweep close
-    is not the team's output, and mixing the two made Closed unreadable.
+    """Rows archived within [start, end), newest close first.
 
     Uncapped on purpose (§7): the window is the bound, and a report that
     silently omits closures while looking complete is a record-keeping problem,
     not a performance one -- the same reasoning that exempts the work-order
     export."""
-    window = (WorkOrder.archived_at >= start, WorkOrder.archived_at < end)
     records = (
         _base_query(db)
-        .filter(*window, WorkOrder.auto_closed_batch_id.is_(None))
+        .filter(WorkOrder.archived_at >= start, WorkOrder.archived_at < end)
         .order_by(WorkOrder.archived_at.desc())
         .all()
-    )
-    auto_closed_count = (
-        db.query(func.count(WorkOrder.id))
-        .filter(*window, WorkOrder.auto_closed_batch_id.is_not(None))
-        .scalar()
     )
     rows = [_row(record) for record in records]
     return ClosedSection(
         count=len(rows),
-        auto_closed_count=auto_closed_count or 0,
         rows=rows,
     )
 

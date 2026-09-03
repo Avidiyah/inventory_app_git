@@ -59,9 +59,8 @@ class NetFacilitiesCloudAuthenticationSnapshot:
     # Whether the chain (or the manual button) already imported the capture
     # named above. The fallback Import button keys off this (E8).
     capture_consumed: bool = False
-    # The whole `WorkOrderImportResult` as a dict (spec 2a), so reconcile's
-    # auto_closed/reopened counts ride along once that work lands, with no
-    # plumbing here.
+    # The whole `WorkOrderImportResult` as a dict (spec 2a), so the frontend
+    # renders the same summary line a clicked import shows.
     import_result: dict | None = None
     import_error: str | None = None
     enrichment_job_id: UUID | None = None
