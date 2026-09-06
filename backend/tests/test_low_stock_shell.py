@@ -54,5 +54,4 @@ def test_the_nav_button_exists_and_targets_the_page():
 
 def test_showpage_loads_the_low_stock_page():
     source = NAV_JS.read_text(encoding="utf-8")
-    assert 'pageName === "low-stock"' in source
-    assert "loadLowStock()" in source
+    assert '"low-stock": () => loadLowStock()' in source

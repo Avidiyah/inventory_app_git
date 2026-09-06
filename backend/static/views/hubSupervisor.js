@@ -13,16 +13,8 @@
 // (userHub.js), which is a materially different freshness bar than "the
 // number I am personally staring at while it climbs."
 
-import { escapeHtml } from "../format.js";
+import { escapeHtml, formatHm } from "../format.js";
 import { tipHtml } from "../tooltip.js";
-
-function formatHm(totalMinutes) {
-  const minutes = Math.max(0, Math.round(totalMinutes));
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (!h) return `${m} m`;
-  return `${h} h ${m} m`;
-}
 
 function tileHtml(label, value, sub) {
   return `

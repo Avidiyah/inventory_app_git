@@ -74,14 +74,28 @@ export function searchTokens(query) {
 // nothing. Views where a blank box should show no rows (Find Item, Add
 // Barcode) already return early before filtering and must keep doing so.
 export function matchesSearch(fields, query) {
-  const tokens = searchTokens(query);
-  if (tokens.length === 0) return true;
-  const haystacks = [];
+  return matchesNormalized(normalizeFields(fields), searchTokens(query));
+}
+
+// Both search forms of every non-null field, computed once. `filterRanked`
+// reuses one of these per entry for the match and the rank so a list is
+// normalized once per keystroke, not once per predicate per entry.
+function normalizeFields(fields) {
+  const normalized = [];
   for (const field of fields) {
     if (field === null || field === undefined) continue;
-    haystacks.push(separatedForSearch(field), squashedForSearch(field));
+    normalized.push([separatedForSearch(field), squashedForSearch(field)]);
   }
-  return tokens.every(token => haystacks.some(hay => hay.includes(token)));
+  return normalized;
+}
+
+function matchesNormalized(normalized, tokens) {
+  if (tokens.length === 0) return true;
+  return tokens.every(token =>
+    normalized.some(([separated, squashed]) =>
+      separated.includes(token) || squashed.includes(token)
+    )
+  );
 }
 
 // Relevance tiers, best first -- the browser twin of `_search_rank` in
@@ -98,14 +112,17 @@ export const RANK_CONTAINS = 2; // the whole query appears contiguously
 export const RANK_TOKENS = 3;   // all tokens present, but scattered
 
 export function searchRank(fields, query) {
-  const querySeparated = separatedForSearch(query);
-  const querySquashed = squashedForSearch(query);
+  return rankNormalized(
+    normalizeFields(fields),
+    separatedForSearch(query),
+    squashedForSearch(query)
+  );
+}
+
+function rankNormalized(normalized, querySeparated, querySquashed) {
   if (!querySeparated) return RANK_EXACT;
   let best = RANK_TOKENS;
-  for (const field of fields) {
-    if (field === null || field === undefined) continue;
-    const separated = separatedForSearch(field);
-    const squashed = squashedForSearch(field);
+  for (const [separated, squashed] of normalized) {
     if (separated === querySeparated || squashed === querySquashed) {
       return RANK_EXACT;
     }
@@ -127,11 +144,18 @@ export function searchRank(fields, query) {
 // Callers slice AFTER this, so the slice keeps the best matches rather than
 // whichever ones happened to be newest.
 export function filterRanked(list, fieldsOf, query, tiebreak) {
+  const tokens = searchTokens(query);
+  const querySeparated = separatedForSearch(query);
+  const querySquashed = squashedForSearch(query);
   const kept = [];
   list.forEach((item, index) => {
-    const fields = fieldsOf(item);
-    if (!matchesSearch(fields, query)) return;
-    kept.push({ item, index, rank: searchRank(fields, query) });
+    const normalized = normalizeFields(fieldsOf(item));
+    if (!matchesNormalized(normalized, tokens)) return;
+    kept.push({
+      item,
+      index,
+      rank: rankNormalized(normalized, querySeparated, querySquashed),
+    });
   });
   kept.sort(
     (a, b) =>
@@ -162,6 +186,16 @@ export function detectNoteType(v) {
 // Returns "" for null/undefined/blank/non-numeric so callers can fall
 // back to an em dash. Prices arrive from the API as JSON numbers or
 // strings (serialised Decimal); Number() handles both.
+// Minutes -> "3 h 12 m" (or "12 m" under an hour). Shared by the User Hub
+// tiles; the timesheet grid keeps its own `H:MM` form on purpose.
+export function formatHm(totalMinutes) {
+  const minutes = Math.max(0, Math.round(totalMinutes));
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (!h) return `${m} m`;
+  return `${h} h ${m} m`;
+}
+
 export function formatMoney(value) {
   if (value === null || value === undefined || value === "") return "";
   const n = Number(value);

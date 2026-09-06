@@ -5,18 +5,10 @@
 // `GET /hub/admin` payload `userHub.js` fetches for techfm_oa+ viewers;
 // makes no requests of its own.
 
-import { escapeHtml, formatMoney } from "../format.js";
+import { escapeHtml, formatHm, formatMoney } from "../format.js";
 import { tipHtml } from "../tooltip.js";
 import { showPage } from "./nav.js";
 import { openWorkOrdersFilteredByStatus } from "./workOrders.js";
-
-function formatHm(totalMinutes) {
-  const minutes = Math.max(0, Math.round(totalMinutes));
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (!h) return `${m} m`;
-  return `${h} h ${m} m`;
-}
 
 function tileHtml(label, value) {
   return `

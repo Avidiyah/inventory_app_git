@@ -71,12 +71,11 @@ from app.models import (
     WorkOrderTechnician,
 )
 from app.services import _list_cap
+from app.services._like import like_pattern
 from app.services import low_stock
 from app.services import user_requests as request_service
 
 
-# Backslash is the LIKE escape char (mirrors services.history).
-_LIKE_ESCAPE = "\\"
 _UNSET = object()
 
 # Editable attribute fields (used by fill-blanks references + explicit edits).
@@ -134,17 +133,7 @@ def _require_update_permissions(user: Optional[User], fields: dict) -> None:
 # --- helpers -------------------------------------------------------------
 
 def _search_pattern(value: Optional[str]):
-    if value is None:
-        return None
-    trimmed = value.strip()
-    if not trimmed:
-        return None
-    escaped = (
-        trimmed.replace(_LIKE_ESCAPE, _LIKE_ESCAPE * 2)
-        .replace("%", _LIKE_ESCAPE + "%")
-        .replace("_", _LIKE_ESCAPE + "_")
-    )
-    return f"%{escaped}%", _LIKE_ESCAPE
+    return like_pattern(value)
 
 
 def _community_match(terms: Sequence[str]):

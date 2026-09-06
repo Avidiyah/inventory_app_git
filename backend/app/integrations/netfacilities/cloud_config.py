@@ -21,6 +21,8 @@ import os
 
 from cryptography.fernet import Fernet
 
+from ._env import positive_seconds as _positive_seconds
+from ._env import strict_bool
 from .config import NetFacilitiesConfig
 from .errors import NetFacilitiesUnavailable
 
@@ -113,26 +115,4 @@ def load_netfacilities_cloud_config(
 
 
 def _enabled(raw: str | None) -> bool:
-    if raw is None or not raw.strip():
-        return False
-    normalized = raw.strip().lower()
-    if normalized == "true":
-        return True
-    if normalized == "false":
-        return False
-    raise NetFacilitiesUnavailable(
-        "NETFACILITIES_CLOUD_AUTH_ENABLED must be either true or false."
-    )
-
-
-def _positive_seconds(values: Mapping[str, str], name: str, default: int) -> int:
-    raw = values.get(name)
-    if raw is None or not raw.strip():
-        return default
-    try:
-        seconds = int(raw)
-    except ValueError as exc:
-        raise NetFacilitiesUnavailable(f"{name} must be a positive whole number.") from exc
-    if seconds <= 0:
-        raise NetFacilitiesUnavailable(f"{name} must be a positive whole number.")
-    return seconds
+    return strict_bool(raw, name="NETFACILITIES_CLOUD_AUTH_ENABLED")

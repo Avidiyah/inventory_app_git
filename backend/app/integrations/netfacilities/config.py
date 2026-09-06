@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 import os
 
+from ._env import positive_seconds as _positive_seconds
+from ._env import strict_bool
 from .errors import NetFacilitiesUnavailable
 
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 30
@@ -82,43 +84,10 @@ def load_netfacilities_config(
 
 
 def _enabled(raw: str | None) -> bool:
-    if raw is None or not raw.strip():
-        return False
-    normalized = raw.strip().lower()
-    if normalized == "true":
-        return True
-    if normalized == "false":
-        return False
-    raise NetFacilitiesUnavailable(
-        "NETFACILITIES_ENABLED must be either true or false."
-    )
+    return strict_bool(raw, name="NETFACILITIES_ENABLED")
 
 
 def _flag(raw: str | None, *, name: str, default: bool) -> bool:
     """Parse an optional strict boolean, keeping unset values at the safe default."""
 
-    if raw is None or not raw.strip():
-        return default
-    normalized = raw.strip().lower()
-    if normalized == "true":
-        return True
-    if normalized == "false":
-        return False
-    raise NetFacilitiesUnavailable(f"{name} must be either true or false.")
-
-
-def _positive_seconds(
-    values: Mapping[str, str],
-    name: str,
-    default: int,
-) -> int:
-    raw = values.get(name)
-    if raw is None or not raw.strip():
-        return default
-    try:
-        seconds = int(raw)
-    except ValueError as exc:
-        raise NetFacilitiesUnavailable(f"{name} must be a positive whole number.") from exc
-    if seconds <= 0:
-        raise NetFacilitiesUnavailable(f"{name} must be a positive whole number.")
-    return seconds
+    return strict_bool(raw, name=name, default=default)

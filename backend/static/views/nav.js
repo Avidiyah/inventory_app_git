@@ -53,6 +53,26 @@ const SCANNERS_BY_PAGE = {
   },
 };
 
+// What each data-driven page runs on activation, so the view never shows
+// stale rows after a write elsewhere in the SPA. Pages absent here render
+// from state they already hold.
+const PAGE_LOADERS = {
+  "transaction": () => enterTransactionPage(),
+  "user-hub": () => loadUserHub(),
+  "history": () => loadHistory(),
+  // Find Item resets its visible results on every activation. It makes no
+  // initial item request; full rows require Search / Load All / Scan.
+  "saved-items": () => loadItems(),
+  "saved-users": () => loadUsers(),
+  "mass-stage": () => loadStages({ refreshReferenceData: true }),
+  "work-orders": () => loadWorkOrders({ refreshReferenceData: true }),
+  "user-requests": () => loadUserRequests(),
+  "low-stock": () => loadLowStock(),
+  "admin-review": () => loadAdminReview(),
+  "tools": () => loadTools(),
+  "integrations": () => loadIntegrationsPage(),
+};
+
 let activePage = null;
 
 // Read-only navigation state for composition-root integrations such as the
@@ -216,33 +236,8 @@ export function showPage(pageName) {
   const entering = SCANNERS_BY_PAGE[pageName];
   if (entering) entering.refreshPermissionState();
 
-  if (pageName === "transaction") {
-    enterTransactionPage();
-  } else if (pageName === "user-hub") {
-    loadUserHub();
-  } else if (pageName === "history") {
-    loadHistory();
-  } else if (pageName === "saved-items") {
-    // Find Item resets its visible results on every activation. It makes no
-    // initial item request; full rows require Search / Load All / Scan.
-    loadItems();
-  } else if (pageName === "saved-users") {
-    loadUsers();
-  } else if (pageName === "mass-stage") {
-    loadStages({ refreshReferenceData: true });
-  } else if (pageName === "work-orders") {
-    loadWorkOrders({ refreshReferenceData: true });
-  } else if (pageName === "user-requests") {
-    loadUserRequests();
-  } else if (pageName === "low-stock") {
-    loadLowStock();
-  } else if (pageName === "admin-review") {
-    loadAdminReview();
-  } else if (pageName === "tools") {
-    loadTools();
-  } else if (pageName === "integrations") {
-    loadIntegrationsPage();
-  }
+  const load = PAGE_LOADERS[pageName];
+  if (load) load();
 }
 
 navButtons.forEach(btn => {

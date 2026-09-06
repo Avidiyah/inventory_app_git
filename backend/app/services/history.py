@@ -20,33 +20,15 @@ from sqlalchemy.orm import Session
 
 from app.models import Item, Transaction, User
 from app.schemas.transactions import TransactionHistoryItem, TransactionHistoryPage
-
-
-# Backslash is the LIKE escape character we pass to SQLAlchemy below.
-# Escape the escape char first, then the two LIKE wildcards.
-_LIKE_ESCAPE = "\\"
+from app.services._like import like_pattern
 
 
 def _build_wo_like_pattern(value):
     """Return a `(pattern, escape_char)` tuple suitable for
     `Column.like(pattern, escape=escape_char)`, or `None` if the value
     should not produce a filter at all (None / empty / whitespace-only).
-
-    The pattern is `%<escaped value>%` so the match is a case-sensitive
-    substring; literal `%` and `_` in the input are escaped so a user
-    who types `_` matches a literal underscore, not "any single char".
-    """
-    if value is None:
-        return None
-    trimmed = value.strip()
-    if not trimmed:
-        return None
-    escaped = (
-        trimmed.replace(_LIKE_ESCAPE, _LIKE_ESCAPE * 2)
-        .replace("%", _LIKE_ESCAPE + "%")
-        .replace("_", _LIKE_ESCAPE + "_")
-    )
-    return f"%{escaped}%", _LIKE_ESCAPE
+    See `app.services._like.like_pattern`."""
+    return like_pattern(value)
 
 
 def _date_range_bounds(

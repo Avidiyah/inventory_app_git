@@ -4,7 +4,7 @@
 // Layer: views. Consumes exactly the GET /hub payload userHub.js already
 // fetched; makes no requests of its own except the embedded work-order list.
 
-import { escapeHtml } from "../format.js";
+import { escapeHtml, formatHm } from "../format.js";
 import { mountWorkOrderList, focusWorkOrderNumber } from "./workOrders.js";
 import { showPage } from "./nav.js";
 import { roleAtLeast } from "../roles.js";
@@ -13,14 +13,6 @@ import { roleAtLeast } from "../roles.js";
 // axis starts here unless work began earlier. A *display* anchor only,
 // never a day boundary (see P1's labor_day.py).
 const DISPLAY_ANCHOR_HOUR = 8;
-
-function formatHm(totalMinutes) {
-  const minutes = Math.max(0, Math.round(totalMinutes));
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (!h) return `${m} m`;
-  return `${h} h ${m} m`;
-}
 
 function tileHtml(label, value, sub) {
   return `

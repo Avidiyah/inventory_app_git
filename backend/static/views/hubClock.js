@@ -13,7 +13,7 @@
 // Global Constraints for why they must stay separate.
 
 import { apiStartWorkOrderTracking, apiStopWorkOrderTracking } from "../api.js";
-import { escapeHtml, friendlyError } from "../format.js";
+import { escapeHtml, formatHm, friendlyError } from "../format.js";
 import { setMessage } from "../dom.js";
 import { tipHtml } from "../tooltip.js";
 
@@ -29,14 +29,6 @@ let payload = null;
 let skewMs = 0; // server_now - Date.now() at fetch time
 let tickHandle = null;
 let refreshCallback = null; // set by mountHubClock's `onChanged` option
-
-function formatHm(totalMinutes) {
-  const minutes = Math.max(0, Math.round(totalMinutes));
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (!h) return `${m} m`;
-  return `${h} h ${m} m`;
-}
 
 function nowWithSkew() {
   return Date.now() + skewMs;
