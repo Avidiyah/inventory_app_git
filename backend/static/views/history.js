@@ -78,6 +78,10 @@ const MAX_PAGE_SIZE = 100;
 // Hard ceiling on the copy-all loop so a runaway dataset can't hang
 // the browser. 100 pages * 100 rows = 10 000 rows.
 const COPY_MAX_PAGES = 100;
+// How many work orders the pricing list resolves at once. Small enough to
+// stay polite to the rate limit, large enough that a range touching dozens
+// of work orders is not dozens of back-to-back waits.
+const PRICING_FETCH_CONCURRENCY = 4;
 
 // History's three sub-tabs (All / By Item / By User) are sibling features
 // switched via the shared in-page sub-nav helper. `fireInitialOnShow: false`
@@ -636,8 +640,11 @@ async function fetchWorkOrderPrices(txns) {
     groups.set(key, g);
   }
 
+  // One or two round trips per work order; run them a few at a time rather
+  // than strictly one after another so a range touching many work orders
+  // does not take N sequential network waits. Failures stay per-work-order.
   const prices = new Map(); // work_order_id -> (item_id -> unit price)
-  for (const { number, id } of groups.values()) {
+  async function loadOne({ number, id }) {
     try {
       let woId = id;
       if (!woId) {
@@ -646,7 +653,7 @@ async function fetchWorkOrderPrices(txns) {
         const exact = (matches || []).find(
           (w) => (w.number || "").trim().toLowerCase() === number.toLowerCase()
         );
-        if (!exact) continue;
+        if (!exact) return;
         woId = exact.id;
       }
       const wo = await apiGetWorkOrder(woId);
@@ -661,6 +668,14 @@ async function fetchWorkOrderPrices(txns) {
       console.warn(`Work order pricing: could not load "${number}"`, err);
     }
   }
+  const queue = [...groups.values()];
+  const workers = Array.from(
+    { length: Math.min(PRICING_FETCH_CONCURRENCY, queue.length) },
+    async () => {
+      while (queue.length) await loadOne(queue.shift());
+    }
+  );
+  await Promise.all(workers);
   return prices;
 }
 

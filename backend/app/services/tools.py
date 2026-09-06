@@ -346,8 +346,19 @@ def return_all_for_user(
     all, and the caller's row lock stays held throughout.
     """
     returned: list[tuple[str, Decimal]] = []
-    for tool_id, name, _barcode, quantity in user_custody(db, assigned_to_id):
-        tool = db.query(Tool).filter(Tool.id == tool_id).with_for_update().first()
+    custody = user_custody(db, assigned_to_id)
+    # One locking read for every held tool rather than one per row.
+    tool_ids = [tool_id for tool_id, _name, _barcode, _quantity in custody]
+    locked = {
+        tool.id: tool
+        for tool in (
+            db.query(Tool).filter(Tool.id.in_(tool_ids)).with_for_update().all()
+            if tool_ids
+            else []
+        )
+    }
+    for tool_id, name, _barcode, quantity in custody:
+        tool = locked.get(tool_id)
         if not tool:  # pragma: no cover - custody rows come from a Tool join
             continue
         tool.quantity = apply_delta(tool.quantity, "stock", quantity)
