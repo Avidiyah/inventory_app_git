@@ -3853,17 +3853,27 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-priority-none { background-color: #4B5563; }
 
 /* Urgent is the one priority a person assigns by hand (the vendor never sends
-   it), so it is the one priority allowed to move: the pill and its card
-   breathe red until someone changes the level. Slow and low-amplitude on
-   purpose -- a list of urgent cards should read as insistent, not as an
-   alarm. */
+   it), so it is the one priority allowed to move. Two layers, and they are
+   separate on purpose:
+
+   1. The heat -- `wo-urgent-pulse` / `wo-urgent-card-pulse` below. Plain
+      box-shadow, no filter, and the only layer that survives reduced motion,
+      because it is what still reads as urgency when nothing is allowed to
+      move.
+   2. The flames -- a `::before` under each element, distorted by the
+      turbulence filters in `shell-tail.html`. Decoration on top of the heat.
+
+   Amplitudes here are the first pass scaled up by a quarter: the pill's ring
+   4px -> 5px, the card's 2px -> 2.5px and its outer glow 20px -> 25px, with
+   the alpha swing widened to match. Timing is unchanged at 2s -- a bigger
+   pulse, not a faster one. */
 @keyframes wo-urgent-pulse {
     0%, 100% { background-color: #C2410C; box-shadow: 0 0 0 0 rgba(200, 16, 46, 0); }
-    50%      { background-color: #E2551B; box-shadow: 0 0 0 4px rgba(200, 16, 46, .35); }
+    50%      { background-color: #E2551B; box-shadow: 0 0 0 5px rgba(200, 16, 46, .44); }
 }
 @keyframes wo-urgent-card-pulse {
-    0%, 100% { box-shadow: 0 0 0 1px rgba(200, 16, 46, .55), 0 0 10px -2px rgba(200, 16, 46, .35), var(--shadow-card); }
-    50%      { box-shadow: 0 0 0 2px rgba(200, 16, 46, .95), 0 0 20px 1px rgba(200, 16, 46, .60), var(--shadow-card); }
+    0%, 100% { box-shadow: 0 0 0 1.25px rgba(200, 16, 46, .55), 0 0 12.5px -2px rgba(200, 16, 46, .44), var(--shadow-card); }
+    50%      { box-shadow: 0 0 0 2.5px rgba(200, 16, 46, .95), 0 0 25px 1px rgba(200, 16, 46, .75), var(--shadow-card); }
 }
 .wo-priority-urgent { animation: wo-urgent-pulse 2s ease-in-out infinite; }
 /* Wins over the status card's own box-shadow (keycap wall + accent glow):
@@ -3873,9 +3883,78 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     animation: wo-urgent-card-pulse 2s ease-in-out infinite;
 }
 
-/* The pulse is emphasis on information the badge already carries in text, so
-   under reduced motion it becomes a static outline rather than a slower one --
-   the same rule the loading skeletons follow. */
+/* ---- the flames ----
+   Both flame layers are a `::before` at `z-index: -1` inside a stacking
+   context opened on the element itself. That position is exact and load
+   bearing: a negative-z child paints after its parent's own background but
+   before the parent's content, so the fire covers the card's surface at the
+   edges and never the number, the badges, or the meta line on top of it.
+
+   The card's layer is four edge strips -- transparent at the outer end,
+   pale yellow where it meets the card -- with a fully transparent middle, so
+   what burns is the outline and not the panel. The turbulence displacement
+   then tears those clean strips into flames and throws them past the box. */
+.wo-card-urgent {
+    position: relative;
+    /* Positive, not 0. Two jobs: it opens the stacking context the `::before`
+       below depends on, and it lifts the card over its neighbours in the
+       list. Cards sit ~8px apart, so at 0 the next card's background paints
+       over the flames coming off this one's bottom edge and the fire looks
+       cut off. Only the flame band overlaps -- the card boxes stay the same
+       size, so nothing is occluded. */
+    z-index: 1;
+}
+.wo-card-urgent::before {
+    content: "";
+    position: absolute;
+    inset: -10px;
+    z-index: -1;
+    border-radius: 16px;
+    pointer-events: none;
+    background:
+        linear-gradient(to top,    rgba(185, 28, 28, 0) 0%, #DC2626 32%, #FBBF24 76%, #FDE68A 100%) bottom / 100% 26px no-repeat,
+        linear-gradient(to bottom, rgba(185, 28, 28, 0) 0%, #DC2626 32%, #FBBF24 76%, #FDE68A 100%) top / 100% 26px no-repeat,
+        linear-gradient(to right,  rgba(185, 28, 28, 0) 0%, #DC2626 32%, #FBBF24 76%, #FDE68A 100%) left / 26px 100% no-repeat,
+        linear-gradient(to left,   rgba(185, 28, 28, 0) 0%, #DC2626 32%, #FBBF24 76%, #FDE68A 100%) right / 26px 100% no-repeat;
+    filter: url(#wo-fire-card);
+    animation: wo-fire-breathe 2s ease-in-out infinite;
+}
+@keyframes wo-fire-breathe {
+    0%, 100% { opacity: .74; transform: scale(1); }
+    50%      { opacity: 1;   transform: scale(1.03); }
+}
+
+/* A pill is too small to carry a ring of fire, so its flames rise off the top
+   edge the way a real flame leaves a wick: pale at the base, red at the tips,
+   gone above them. `transform-origin: bottom` keeps the base pinned to the
+   pill while the tips stretch. */
+.wo-priority-fire {
+    position: relative;
+    z-index: 0;
+}
+.wo-priority-fire::before {
+    content: "";
+    position: absolute;
+    left: -5px;
+    right: -5px;
+    bottom: calc(100% - 5px);
+    height: 17px;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(to top, #FDE68A 0%, #FBBF24 26%, #EA580C 58%, rgba(185, 28, 28, 0) 100%);
+    filter: url(#wo-fire-badge);
+    transform-origin: bottom;
+    animation: wo-fire-flicker .85s ease-in-out infinite alternate;
+}
+@keyframes wo-fire-flicker {
+    from { opacity: .7; transform: scaleY(.88) scaleX(.96); }
+    to   { opacity: 1;  transform: scaleY(1.14) scaleX(1.04); }
+}
+
+/* The fire is emphasis on information the badge already carries in text, so
+   under reduced motion it goes out entirely rather than slowing down -- the
+   same rule the loading skeletons follow. What is left is a static red
+   outline and the plain orange pill, which still say Urgent. */
 @media (prefers-reduced-motion: reduce) {
     .wo-priority-urgent {
         animation: none;
@@ -3883,7 +3962,11 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     }
     .wo-card-urgent {
         animation: none;
-        box-shadow: 0 0 0 2px rgba(200, 16, 46, .95), var(--shadow-card);
+        box-shadow: 0 0 0 2.5px rgba(200, 16, 46, .95), var(--shadow-card);
+    }
+    .wo-card-urgent::before,
+    .wo-priority-fire::before {
+        display: none;
     }
 }
 

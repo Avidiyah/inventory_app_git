@@ -93,6 +93,52 @@
 
     </div><!-- /#app-root -->
 
+    <!-- Urgent work-order fire (see .wo-card-urgent / .wo-priority-fire in
+         styles.css). `filter: url(#id)` resolves against the current
+         document, so the primitives have to live in the markup rather than
+         the stylesheet -- and they live here, at app level, because the
+         assembled shell is one document and a work-order card renders on
+         four of its pages (Work Orders, Transaction gate, Admin Review,
+         Technician Hub).
+
+         The `<animate>` elements are the flicker itself: CSS can animate a
+         `filter` property but not a filter primitive's attributes, so
+         moving the turbulence field is only possible from here. SMIL is
+         markup, not script -- it neither breaks the no-inline-script rule
+         for this file nor trips the CSP.
+
+         Cost is deliberate and was accepted: a displacement map repaints
+         its region every frame. It is bounded by there being a handful of
+         urgent work orders in the database at a time, and by the fire going
+         out at Completed. -->
+    <svg class="wo-fire-defs" width="0" height="0" aria-hidden="true" focusable="false">
+        <defs>
+            <!-- Card outline. Wide filter region so the flames may lick well
+                 past the element's own box before they are clipped. -->
+            <filter id="wo-fire-card" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+                <feTurbulence type="fractalNoise" baseFrequency="0.013 0.03" numOctaves="3" seed="4" result="fire">
+                    <animate attributeName="baseFrequency" dur="4.7s" values="0.013 0.03;0.02 0.048;0.011 0.026;0.013 0.03" repeatCount="indefinite"/>
+                </feTurbulence>
+                <feDisplacementMap in="SourceGraphic" in2="fire" xChannelSelector="R" yChannelSelector="G" scale="18">
+                    <animate attributeName="scale" dur="2.9s" values="18;25;15;18" repeatCount="indefinite"/>
+                </feDisplacementMap>
+                <feGaussianBlur stdDeviation="1.1"/>
+            </filter>
+            <!-- The Urgent pill. A pill is a fraction of a card's size, so it
+                 needs its own finer noise and a smaller displacement -- the
+                 card's values on this scale smear it into a blur. -->
+            <filter id="wo-fire-badge" x="-40%" y="-40%" width="180%" height="180%" color-interpolation-filters="sRGB">
+                <feTurbulence type="fractalNoise" baseFrequency="0.04 0.09" numOctaves="2" seed="11" result="fire">
+                    <animate attributeName="baseFrequency" dur="3.1s" values="0.04 0.09;0.06 0.13;0.035 0.08;0.04 0.09" repeatCount="indefinite"/>
+                </feTurbulence>
+                <feDisplacementMap in="SourceGraphic" in2="fire" xChannelSelector="R" yChannelSelector="G" scale="7">
+                    <animate attributeName="scale" dur="1.9s" values="7;10;5;7" repeatCount="indefinite"/>
+                </feDisplacementMap>
+                <feGaussianBlur stdDeviation=".6"/>
+            </filter>
+        </defs>
+    </svg>
+
     <!--
       Vendored @zxing/browser UMD. Loaded as a plain (non-module)
       script so it attaches `ZXingBrowser` to `window` synchronously

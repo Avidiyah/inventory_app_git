@@ -4,6 +4,7 @@ by hand survives re-enrichment: the enricher writes only into a blank priority
 (`test_netfacilities_service.test_independent_updates_and_stale_candidate_retry_are_idempotent`),
 which is what makes the manually assigned Urgent level below trustworthy."""
 
+import re
 from pathlib import Path
 
 from app.domain import work_orders as wo
@@ -83,16 +84,56 @@ def test_every_work_order_card_class_comes_from_one_builder():
 def test_the_urgent_pulse_is_removed_under_reduced_motion():
     """Emphasis, not information -- the badge text says Urgent either way, so
     the animation goes away entirely rather than slowing down, matching the
-    loading skeletons."""
+    loading skeletons. The flame layers go with it."""
     css = _static("styles.css")
 
     assert "@keyframes wo-urgent-pulse" in css
     assert "@keyframes wo-urgent-card-pulse" in css
     reduced = css.split("@media (prefers-reduced-motion: reduce)")
-    assert any(
-        ".wo-priority-urgent" in block and ".wo-card-urgent" in block
+    blocks = [
+        block
         for block in reduced[1:]
-    )
+        if ".wo-priority-urgent" in block and ".wo-card-urgent" in block
+    ]
+    assert blocks
+    # The flames are a `::before` of their own; killing the animation on the
+    # element does nothing to them.
+    assert ".wo-card-urgent::before" in blocks[0]
+    assert ".wo-priority-fire::before" in blocks[0]
+
+
+def test_the_fire_goes_out_once_the_work_is_done():
+    """Urgent stays on the record forever; the fire is a call to act and has
+    to stop when there is nothing left to act on. Both the pill and the card
+    ask the same predicate, so one cannot burn while the other has cooled."""
+    view = _static("views", "workOrders.js")
+
+    assert 'const SETTLED_STATUSES = new Set(["completed", "review"]);' in view
+    assert "function urgentFireActive(card)" in view
+    assert "!SETTLED_STATUSES.has(card.status)" in view
+    # The pill's class and the card's class both route through it.
+    assert view.count("urgentFireActive(card)") >= 2
+    # The badge needs the whole card now, not just the priority string -- the
+    # status is half of the decision.
+    assert "function priorityBadge(card)" in view
+    assert "priorityBadge(card.priority)" not in view
+
+
+def test_every_fire_filter_referenced_by_the_css_exists_in_the_shell():
+    """`filter: url(#id)` fails silently: a renamed or missing filter leaves
+    the flame layer un-distorted -- four flat gradient strips around the card
+    -- with nothing in the console to say so."""
+    css = _static("styles.css")
+    shell = _static("shell-tail.html")
+
+    referenced = set(re.findall(r"filter:\s*url\(#([\w-]+)\)", css))
+    assert referenced == {"wo-fire-card", "wo-fire-badge"}
+    for filter_id in referenced:
+        assert f'<filter id="{filter_id}"' in shell
+    # The flicker is SMIL on the primitives: CSS cannot animate a filter
+    # primitive's attributes, so without these the fire is frozen.
+    assert shell.count("<animate ") >= 4
+    assert "feTurbulence" in shell and "feDisplacementMap" in shell
 
 
 # --- the list filter -----------------------------------------------------

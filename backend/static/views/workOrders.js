@@ -549,19 +549,40 @@ function priorityBucket(priority) {
   return "unknown";
 }
 
-function priorityBadge(priority) {
-  const bucket = priorityBucket(priority);
-  const label = priority || "No priority";
-  return `<span class="wo-priority wo-priority-${bucket}">${escapeHtml(label)}</span>`;
+// Fire is a call to act, so it stops where there is nothing left to act on.
+// A Completed work order -- and the Review queue behind it -- keeps the Urgent
+// pill, because the record stays true, but it no longer burns. Everything
+// earlier in the lifecycle burns, `ready_to_complete` included: that status is
+// the crew's handoff, not the supervisor's sign-off, and a job waiting on a
+// signature is exactly the one urgency is meant to chase.
+const SETTLED_STATUSES = new Set(["completed", "review"]);
+
+// Whether this work order is currently on fire. The single predicate behind
+// both the burning pill and the burning card outline, so the two can never
+// disagree about one work order.
+function urgentFireActive(card) {
+  return priorityBucket(card.priority) === "urgent" && !SETTLED_STATUSES.has(card.status);
+}
+
+// `wo-priority-*` is the severity color; `wo-priority-fire` is the flame layer
+// on top of it. Split because they answer different questions -- the color says
+// how bad it is, the fire says whether anyone still has to do something about
+// it -- and a Completed urgent work order wants the first without the second.
+function priorityBadgeClass(card) {
+  const fire = urgentFireActive(card) ? " wo-priority-fire" : "";
+  return `wo-priority wo-priority-${priorityBucket(card.priority)}${fire}`;
+}
+
+function priorityBadge(card) {
+  const label = card.priority || "No priority";
+  return `<span class="${priorityBadgeClass(card)}">${escapeHtml(label)}</span>`;
 }
 
 // The class list for one work-order card. Every place that writes a card's
 // className goes through here -- the initial build, a socket-driven repaint,
-// and the detail paint -- so a rewritten card cannot silently lose its urgent
-// outline. `wo-card-urgent` keys off the same bucket `priorityBadge` colors
-// by, so the pulsing pill and the pulsing card can only ever agree.
+// and the detail paint -- so a rewritten card cannot silently lose its fire.
 export function workOrderCardClass(card) {
-  const urgent = priorityBucket(card.priority) === "urgent" ? " wo-card-urgent" : "";
+  const urgent = urgentFireActive(card) ? " wo-card-urgent" : "";
   return `wo-card wo-card-status-${card.status}${urgent}`;
 }
 
@@ -1218,7 +1239,7 @@ function summaryHtml(card) {
   return (
     `<span class="wo-title">WO ${escapeHtml(card.number)}</span>` +
     statusBadge(card.status) +
-    priorityBadge(card.priority) +
+    priorityBadge(card) +
     legacyTag +
     `<span class="wo-meta">${place ? escapeHtml(place) + " · " : ""}${card.item_count} items${assignee}</span>`
   );
@@ -1606,7 +1627,7 @@ function paintDetail(detail, bodyEl, cardEl) {
   // the old level.
   const priorityPill = cardEl.querySelector(".wo-priority");
   if (priorityPill) {
-    priorityPill.className = `wo-priority wo-priority-${priorityBucket(detail.priority)}`;
+    priorityPill.className = priorityBadgeClass(detail);
     priorityPill.textContent = detail.priority || "No priority";
   }
   const meta = cardEl.querySelector(".wo-meta");
