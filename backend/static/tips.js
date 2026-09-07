@@ -117,10 +117,6 @@ export const TIPS = {
     label: "Status",
     text: "The lifecycle runs Created, Assigned, In-Progress, Ready to Complete, Completed, Review, with On-Hold as the pause state meaning nobody is on the clock. Ready to Complete is a technician saying the job is done and waiting on a supervisor; Completed is the supervisor agreeing and is what the billing queue reads; Review is the final admin billing check.",
   },
-  "wo.priority-vs-level": {
-    label: "Priority and Priority level",
-    text: "Priority is the category imported from NetFacilities. Priority level is TechFM's own High/Medium triage layered on top of it. They are separate fields and they filter independently.",
-  },
   "wo.community": {
     label: "Community",
     text: "Derived from the imported location rather than typed, so it stays consistent across imports. A row whose location matches no named community falls under Academics, including rows with a blank location.",

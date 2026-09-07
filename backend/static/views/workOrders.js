@@ -75,7 +75,6 @@ const listMessage = document.getElementById("work-orders-list-message");
 const statusFilter = document.getElementById("work-orders-status-filter");
 const serviceTypeFilter = document.getElementById("work-orders-service-filter");
 const priorityFilter = document.getElementById("work-orders-priority-filter");
-const priorityLevelFilter = document.getElementById("work-orders-priority-level-filter");
 const supervisorFilter = document.getElementById("work-orders-supervisor-filter");
 const communityFilter = document.getElementById("work-orders-community-filter");
 const scheduledDateFilter = document.getElementById("work-orders-date-filter");
@@ -337,7 +336,6 @@ function currentFilters() {
     supervisorId: supervisorFilter ? supervisorFilter.value : "",
     community: communityFilter ? communityFilter.value : "",
     priority: priorityFilter ? priorityFilter.value : "",
-    priorityBucket: priorityLevelFilter ? priorityLevelFilter.value : "",
     scheduledDate: scheduledDateFilter ? scheduledDateFilter.value : "",
     q: searchInput ? searchInput.value.trim() : "",
     locationQ: locationSearchInput ? locationSearchInput.value.trim() : "",
@@ -350,7 +348,7 @@ function hasActiveFilters() {
 }
 
 function resetFilterControls() {
-  [statusFilter, serviceTypeFilter, priorityFilter, priorityLevelFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
+  [statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
     if (control) control.value = "";
   });
   if (searchInput) searchInput.value = "";
@@ -2617,7 +2615,7 @@ function wireKeywordSearch(input) {
 }
 const cancelLocationSearchDebounce = wireKeywordSearch(locationSearchInput);
 const cancelTaskSearchDebounce = wireKeywordSearch(taskSearchInput);
-[statusFilter, serviceTypeFilter, priorityFilter, priorityLevelFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
+[statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
   if (!control) return;
   control.addEventListener("change", () => {
     showAll = false;

@@ -300,7 +300,6 @@ def _export_filename(
     supervisor_id: Optional[uuid.UUID],
     community: Optional[str],
     priority: Optional[str],
-    priority_bucket: Optional[str],
     scheduled_date: Optional[date],
     search: Optional[str],
     location_search: Optional[str],
@@ -328,8 +327,6 @@ def _export_filename(
             parts.extend(("community", community))
         if priority and priority.strip():
             parts.extend(("priority", priority))
-        if priority_bucket and priority_bucket.strip():
-            parts.extend(("level", priority_bucket))
         if scheduled_date is not None:
             parts.extend(("date", scheduled_date.isoformat()))
         if search and search.strip():
@@ -530,7 +527,6 @@ def list_work_orders(
     assigned_to_id: Optional[uuid.UUID] = Query(None),
     community: Optional[str] = Query(None),
     priority: Optional[str] = Query(None),
-    priority_bucket: Optional[str] = Query(None),
     scheduled_date: Optional[date] = Query(None),
     q: Optional[str] = Query(None),
     location_q: Optional[str] = Query(None),
@@ -542,7 +538,7 @@ def list_work_orders(
 ):
     """List the caller's work orders, newest scheduled date first. Optional `status`, exact
     `service_type`, routed `supervisor_id`, explicitly-assigned `assigned_to_id`,
-    derived `community`, exact `priority`, `priority_bucket`, exact
+    derived `community`, exact `priority`, exact
     `scheduled_date`, number `q`, `location_q` (substring over raw location
     plus structured community/building/unit), and `task_q` (substring over
     the Task/Symptom description; never `notes`) filters combine with AND.
@@ -550,8 +546,7 @@ def list_work_orders(
     membership-based over structured community plus raw CSV location; Academics
     is the no-known-term fallback. Priority is an exact vendor value, or
     `__none__` for work orders NetFacilities enrichment never reached.
-    `priority_bucket` (`high`/`medium`) is the separate, coarser severity
-    grouping the Graphs tab uses, and may combine with `priority`. `mine`
+    `mine`
     narrows to work routed to the caller or assigned to the caller -- the
     User Hub's "My Work Orders" tab. It is the only filter that covers
     *routing*: `assigned_to_id` tests worker assignment alone, so it can
@@ -577,7 +572,6 @@ def list_work_orders(
                 assigned_to_id=assigned_to_id,
                 community=community,
                 priority=priority,
-                priority_bucket=priority_bucket,
                 scheduled_date=scheduled_date,
                 search=q,
                 location_search=location_q,
@@ -696,7 +690,6 @@ def export_work_orders(
     supervisor_id: Optional[uuid.UUID] = None,
     community: Optional[str] = None,
     priority: Optional[str] = None,
-    priority_bucket: Optional[str] = None,
     scheduled_date: Optional[date] = None,
     q: Optional[str] = None,
     location_q: Optional[str] = None,
@@ -712,7 +705,7 @@ def export_work_orders(
 
     `variant=full` leads with the import's own headers and also accepts the Work
     Orders page's exact `service_type`, routed `supervisor_id`, derived
-    `community`, exact `priority`, `priority_bucket`, exact `scheduled_date`,
+    `community`, exact `priority`, exact `scheduled_date`,
     number `q`, location keyword `location_q`, and task keyword `task_q`
     filters. They combine
     with `scope` using AND and have no result cap. `variant=client` remains the
@@ -730,7 +723,6 @@ def export_work_orders(
             supervisor_id=supervisor_id,
             community=community,
             priority=priority,
-            priority_bucket=priority_bucket,
             scheduled_date=scheduled_date,
             search=q,
             location_search=location_q,
@@ -746,7 +738,6 @@ def export_work_orders(
         supervisor_id=supervisor_id,
         community=community,
         priority=priority,
-        priority_bucket=priority_bucket,
         scheduled_date=scheduled_date,
         search=q,
         location_search=location_q,

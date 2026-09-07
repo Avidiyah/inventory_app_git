@@ -166,20 +166,6 @@ def _apply_community_filter(query, value: Optional[str]):
     return query.filter(_community_match(wo.COMMUNITY_SEARCH_TERMS[community]))
 
 
-def _apply_priority_bucket_filter(query, value: Optional[str]):
-    """Apply the Work Orders "Priority level" filter (high/medium bucket).
-
-    Independent of `_apply_priority_filter`'s exact-text match -- both may be
-    active at once and combine with AND like any two distinct filters.
-    """
-    bucket = wo.normalize_priority_bucket_filter(value)
-    if bucket is None:
-        return query
-    priority = func.lower(func.coalesce(WorkOrder.priority, ""))
-    keywords = wo.PRIORITY_BUCKET_KEYWORDS[bucket]
-    return query.filter(or_(*(priority.like(f"%{keyword}%") for keyword in keywords)))
-
-
 def _apply_priority_filter(query, value: Optional[str]):
     """Apply one exact priority filter or the unimported-priority fallback.
 
@@ -962,7 +948,6 @@ def _apply_work_order_filters(
     assigned_to_id: Optional[uuid.UUID] = None,
     community: Optional[str] = None,
     priority: Optional[str] = None,
-    priority_bucket: Optional[str] = None,
     search: Optional[str] = None,
     location_search: Optional[str] = None,
     task_search: Optional[str] = None,
@@ -1002,7 +987,6 @@ def _apply_work_order_filters(
 
     query = _apply_community_filter(query, community)
     query = _apply_priority_filter(query, priority)
-    query = _apply_priority_bucket_filter(query, priority_bucket)
 
     pattern = _search_pattern(search)
     if pattern is not None:
@@ -1089,7 +1073,6 @@ def list_work_orders(
     assigned_to_id: Optional[uuid.UUID] = None,
     community: Optional[str] = None,
     priority: Optional[str] = None,
-    priority_bucket: Optional[str] = None,
     scheduled_date: Optional[date] = None,
     search: Optional[str] = None,
     location_search: Optional[str] = None,
@@ -1100,15 +1083,14 @@ def list_work_orders(
     """Live work orders by scheduled date descending, scoped to `user`
     (technician -> assigned, supervisor -> created/routed, admin/owner -> all).
     Optional status, service type, routed supervisor, derived community,
-    priority, priority level (high/medium bucket), exact scheduled date, and
+    priority, exact scheduled date, and
     number-substring filters combine with AND. `location_search` matches raw
     location plus structured community/building/unit; `task_search` matches
     the Task/Symptom `description` only. Community membership searches
     both structured `community` and raw CSV `location`; Academics means no
     known term appears in either. Priority is an exact vendor value, or
-    `PRIORITY_FILTER_NONE` for the rows enrichment never reached -- `priority_bucket`
-    is the separate, coarser high/medium severity grouping the Graphs tab uses
-    and may be combined with `priority` freely. `mine` narrows to what is
+    `PRIORITY_FILTER_NONE` for the rows enrichment never reached.
+    `mine` narrows to what is
     routed to `user` or assigned to `user` -- the User Hub's "My Work Orders"
     tab, and the only filter that covers routing. It excludes the unrouted
     pickup queue that a Supervisor's own scope would otherwise admit (see
@@ -1142,7 +1124,6 @@ def list_work_orders(
             assigned_to_id=assigned_to_id,
             community=community,
             priority=priority,
-            priority_bucket=priority_bucket,
             search=search,
             location_search=location_search,
             task_search=task_search,
@@ -1298,7 +1279,6 @@ def list_work_orders_for_export(
     supervisor_id: Optional[uuid.UUID] = None,
     community: Optional[str] = None,
     priority: Optional[str] = None,
-    priority_bucket: Optional[str] = None,
     scheduled_date: Optional[date] = None,
     search: Optional[str] = None,
     location_search: Optional[str] = None,
@@ -1339,7 +1319,6 @@ def list_work_orders_for_export(
         supervisor_id=supervisor_id,
         community=community,
         priority=priority,
-        priority_bucket=priority_bucket,
         search=search,
         location_search=location_search,
         task_search=task_search,
@@ -1485,7 +1464,6 @@ def export_work_orders_csv(
     supervisor_id: Optional[uuid.UUID] = None,
     community: Optional[str] = None,
     priority: Optional[str] = None,
-    priority_bucket: Optional[str] = None,
     scheduled_date: Optional[date] = None,
     search: Optional[str] = None,
     location_search: Optional[str] = None,
@@ -1515,7 +1493,6 @@ def export_work_orders_csv(
         "supervisor_id": supervisor_id,
         "community": community,
         "priority": priority,
-        "priority_bucket": priority_bucket,
         "scheduled_date": scheduled_date,
         "search": search,
         "location_search": location_search,
