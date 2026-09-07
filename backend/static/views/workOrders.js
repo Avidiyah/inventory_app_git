@@ -555,6 +555,16 @@ function priorityBadge(priority) {
   return `<span class="wo-priority wo-priority-${bucket}">${escapeHtml(label)}</span>`;
 }
 
+// The class list for one work-order card. Every place that writes a card's
+// className goes through here -- the initial build, a socket-driven repaint,
+// and the detail paint -- so a rewritten card cannot silently lose its urgent
+// outline. `wo-card-urgent` keys off the same bucket `priorityBadge` colors
+// by, so the pulsing pill and the pulsing card can only ever agree.
+export function workOrderCardClass(card) {
+  const urgent = priorityBucket(card.priority) === "urgent" ? " wo-card-urgent" : "";
+  return `wo-card wo-card-status-${card.status}${urgent}`;
+}
+
 function modeLabel(mode) {
   return mode === "retroactive" ? "Retroactive" : "Dispense";
 }
@@ -819,6 +829,33 @@ function editField(field, label, value) {
           </label>`;
 }
 
+// Priority is vendor text everywhere except here: Urgent is the one level a
+// person assigns by hand, and it is what makes a card pulse. Suggesting it
+// beside the levels already in use makes it a choice rather than a spelling
+// somebody has to remember -- a `datalist` rather than a `select`, because
+// closing the field would make a level the vendor adds later unsettable.
+const MANUAL_PRIORITY = "Urgent";
+
+function priorityEditField(detail) {
+  const live = priorityFilter
+    ? Array.from(priorityFilter.options)
+        .map((option) => option.value)
+        .filter((value) => value && value !== PRIORITY_NOT_IMPORTED)
+    : [];
+  const suggestions = live.some((value) => value.toLowerCase() === MANUAL_PRIORITY.toLowerCase())
+    ? live
+    : [MANUAL_PRIORITY, ...live];
+  const listId = `wo-priority-options-${detail.id}`;
+  return `<label class="wo-edit-field">
+            <span>Priority</span>
+            <input type="text" class="wo-edit-priority" list="${escapeHtml(listId)}" value="${escapeHtml(detail.priority || "")}">
+            <datalist id="${escapeHtml(listId)}">${suggestions
+              .map((value) => `<option value="${escapeHtml(value)}"></option>`)
+              .join("")}</datalist>
+            <small class="hint">Urgent is assigned here by hand -- it makes the card pulse until the level changes.</small>
+          </label>`;
+}
+
 // Manual status changes live inside the Supervisor+ editor. Created/Assigned
 // can advance explicitly to In-Progress here (the same transition formerly
 // exposed as a standalone button), and On-Hold is always available as a pause.
@@ -888,7 +925,7 @@ function detailsEditorHtml(detail) {
       editField("schedule-date", "Schedule date", detail.schedule_date) +
       editField("output-to", "Output to", detail.output_to) +
       editField("vendor", "Vendor contact", detail.vendor_assignee) +
-      editField("priority", "Priority", detail.priority) +
+      priorityEditField(detail) +
       `<label class="wo-edit-field wo-edit-wide">
          <span>Symptom / task</span>
          <textarea class="wo-edit-description" rows="2">${escapeHtml(detail.description || "")}</textarea>
@@ -1216,7 +1253,7 @@ async function refreshCardSummary(cardEl) {
   }
   const summary = cardEl.querySelector("summary.wo-summary");
   if (summary) summary.innerHTML = summaryHtml(detail);
-  cardEl.className = `wo-card wo-card-status-${detail.status}`;
+  cardEl.className = workOrderCardClass(detail);
 
   // A badge alone is not enough: an expanded, non-held card still shows its
   // body, and the body's status actions (renderBody picks them off
@@ -1286,7 +1323,7 @@ function runOrDeferListRefresh() {
 
 function buildCard(card, { onOpen, solo = false } = {}) {
   const el = document.createElement("details");
-  el.className = `wo-card wo-card-status-${card.status}`;
+  el.className = workOrderCardClass(card);
   el.dataset.id = card.id;
 
   const summary = document.createElement("summary");
@@ -1557,11 +1594,20 @@ function paintDetail(detail, bodyEl, cardEl) {
   if (!cardEl) return;
 
   cardEl.dataset.loaded = "1";
-  cardEl.className = `wo-card wo-card-status-${detail.status}`;
+  cardEl.className = workOrderCardClass(detail);
   const badge = cardEl.querySelector(".wo-status");
   if (badge) {
     badge.className = `wo-status wo-status-${detail.status}`;
     badge.textContent = statusLabel(detail.status);
+  }
+  // Priority is edited in this card's own editor, so the pill has to follow a
+  // save the way the status badge does. Without this a work order just marked
+  // Urgent would pulse its card outline while the pill beside it still read
+  // the old level.
+  const priorityPill = cardEl.querySelector(".wo-priority");
+  if (priorityPill) {
+    priorityPill.className = `wo-priority wo-priority-${priorityBucket(detail.priority)}`;
+    priorityPill.textContent = detail.priority || "No priority";
   }
   const meta = cardEl.querySelector(".wo-meta");
   if (meta) {

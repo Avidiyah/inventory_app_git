@@ -14,7 +14,7 @@ import { escapeHtml, friendlyError, filterRanked } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
 import { showPage } from "./nav.js";
-import { focusWorkOrder } from "./workOrders.js";
+import { focusWorkOrder, workOrderCardClass } from "./workOrders.js";
 
 // --- Scan-and-go (work-order batch) elements --------------------
 const woGate = document.getElementById("wo-gate");
@@ -453,7 +453,7 @@ function renderWoCards(workOrders, query = "") {
   workOrders.forEach((w) => {
     const card = document.createElement("button");
     card.type = "button";
-    card.className = `wo-card wo-card-status-${w.status}`;
+    card.className = workOrderCardClass(w);
     card.dataset.wo = w.number;
     card.dataset.woId = w.id;
     card.dataset.woStatus = w.status;

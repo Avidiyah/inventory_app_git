@@ -16,6 +16,7 @@ import { buildAdminReviewReceipt } from "../adminReviewReceipt.js";
 import { confirmDialog, setMessage } from "../dom.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
+import { workOrderCardClass } from "./workOrders.js";
 
 const REVIEW_QUEUE_CHANGED_EVENT = "work_order.review_queue.changed";
 const ADMIN_REVIEW_PAGE = "admin-review";
@@ -51,7 +52,9 @@ function locationText(card) {
 function buildCard(card) {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "wo-card wo-card-status-review admin-review-card";
+  // Every queue row is a Review row, but the class still comes from the shared
+  // builder so an urgent work order pulses here the way it does everywhere else.
+  button.className = `${workOrderCardClass(card)} admin-review-card`;
   button.dataset.id = card.id;
   button.setAttribute("aria-label", `Review work order ${card.number}`);
   if (selectedDetail?.id === card.id) button.classList.add("selected");

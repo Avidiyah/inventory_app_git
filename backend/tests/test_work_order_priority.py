@@ -1,6 +1,8 @@
 """Priority is response-visible and editable like the other imported metadata
-fields (TechFM OA+, subject to being overwritten by a later NetFacilities
-re-enrichment) -- not part of the CSV import contract itself."""
+fields (TechFM OA+) -- not part of the CSV import contract itself. A value set
+by hand survives re-enrichment: the enricher writes only into a blank priority
+(`test_netfacilities_service.test_independent_updates_and_stale_candidate_retry_are_idempotent`),
+which is what makes the manually assigned Urgent level below trustworthy."""
 
 from pathlib import Path
 
@@ -42,6 +44,55 @@ def test_work_orders_ui_renders_an_editable_priority():
 
     assert '["Priority", detail.priority || "Not imported"]' in source
     assert "wo-edit-priority" in source
+
+
+# --- the manually assigned Urgent level ----------------------------------
+
+def _static(*parts: str) -> str:
+    return (
+        Path(__file__).resolve().parents[1].joinpath("static", *parts)
+    ).read_text(encoding="utf-8")
+
+
+def test_urgent_is_suggested_in_the_priority_editor():
+    """Urgent is the one level a person assigns rather than imports, so the
+    editor offers it. A `datalist` and not a `select`: the field has to stay
+    open to whatever text NetFacilities sends next."""
+    source = _static("views", "workOrders.js")
+
+    assert 'const MANUAL_PRIORITY = "Urgent";' in source
+    assert "<datalist" in source
+    assert 'list="${escapeHtml(listId)}"' in source
+
+
+def test_every_work_order_card_class_comes_from_one_builder():
+    """The urgent outline is a class on the card, so any place that rewrites a
+    card's className without the shared builder would silently drop it -- and
+    the repaint paths rewrite className on every socket update."""
+    view = _static("views", "workOrders.js")
+
+    assert "export function workOrderCardClass(card)" in view
+    assert 'priorityBucket(card.priority) === "urgent"' in view
+    # The builder itself holds the only hand-written copy of the class string.
+    assert view.count("wo-card wo-card-status-") == 1
+    for source in (_static("views", "transactions.js"), _static("views", "adminReview.js")):
+        assert "wo-card wo-card-status-" not in source
+        assert "workOrderCardClass(" in source
+
+
+def test_the_urgent_pulse_is_removed_under_reduced_motion():
+    """Emphasis, not information -- the badge text says Urgent either way, so
+    the animation goes away entirely rather than slowing down, matching the
+    loading skeletons."""
+    css = _static("styles.css")
+
+    assert "@keyframes wo-urgent-pulse" in css
+    assert "@keyframes wo-urgent-card-pulse" in css
+    reduced = css.split("@media (prefers-reduced-motion: reduce)")
+    assert any(
+        ".wo-priority-urgent" in block and ".wo-card-urgent" in block
+        for block in reduced[1:]
+    )
 
 
 # --- the list filter -----------------------------------------------------

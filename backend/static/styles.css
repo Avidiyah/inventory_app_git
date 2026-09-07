@@ -3852,6 +3852,41 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-priority-unknown,
 .wo-priority-none { background-color: #4B5563; }
 
+/* Urgent is the one priority a person assigns by hand (the vendor never sends
+   it), so it is the one priority allowed to move: the pill and its card
+   breathe red until someone changes the level. Slow and low-amplitude on
+   purpose -- a list of urgent cards should read as insistent, not as an
+   alarm. */
+@keyframes wo-urgent-pulse {
+    0%, 100% { background-color: #C2410C; box-shadow: 0 0 0 0 rgba(200, 16, 46, 0); }
+    50%      { background-color: #E2551B; box-shadow: 0 0 0 4px rgba(200, 16, 46, .35); }
+}
+@keyframes wo-urgent-card-pulse {
+    0%, 100% { box-shadow: 0 0 0 1px rgba(200, 16, 46, .55), 0 0 10px -2px rgba(200, 16, 46, .35), var(--shadow-card); }
+    50%      { box-shadow: 0 0 0 2px rgba(200, 16, 46, .95), 0 0 20px 1px rgba(200, 16, 46, .60), var(--shadow-card); }
+}
+.wo-priority-urgent { animation: wo-urgent-pulse 2s ease-in-out infinite; }
+/* Wins over the status card's own box-shadow (keycap wall + accent glow):
+   the urgent outline replaces it rather than stacking, so the card has one
+   read. The status border-color underneath is untouched. */
+.wo-card-urgent {
+    animation: wo-urgent-card-pulse 2s ease-in-out infinite;
+}
+
+/* The pulse is emphasis on information the badge already carries in text, so
+   under reduced motion it becomes a static outline rather than a slower one --
+   the same rule the loading skeletons follow. */
+@media (prefers-reduced-motion: reduce) {
+    .wo-priority-urgent {
+        animation: none;
+        background-color: #C2410C;
+    }
+    .wo-card-urgent {
+        animation: none;
+        box-shadow: 0 0 0 2px rgba(200, 16, 46, .95), var(--shadow-card);
+    }
+}
+
 /* Pre-import (legacy) work order: kept for search, old attributes dropped. A
    muted outline pill so it reads as a state marker, not an action. */
 .wo-legacy-tag {
