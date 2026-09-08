@@ -1099,6 +1099,25 @@ tr:last-child td {
     flex: 1 1 260px;
 }
 
+/* Scheduled-date sort toggle at the end of the number-search row. Sized like
+   the row's other buttons; selected cell takes the primary accent. */
+.wo-sort-seg {
+    margin-left: auto;
+}
+
+.wo-sort-seg .seg-btn {
+    flex: 0 0 auto;
+    min-height: var(--btn-h-sm);
+    padding: 0 var(--space-3);
+    font-size: var(--fs-sm, 0.875rem);
+}
+
+.wo-sort-seg .seg-btn[aria-pressed="true"] {
+    background-color: var(--color-brand);
+    border-color: var(--color-brand);
+    color: var(--color-white);
+}
+
 /* The keyword search row beneath it: both inputs stretch to share the
    full width, wrapping onto their own lines on narrow screens. */
 .wo-keyword-search-row input {

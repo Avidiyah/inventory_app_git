@@ -66,6 +66,10 @@
                 <button id="work-orders-search-btn" type="button">Search</button>
                 <button id="work-orders-clear-filters" type="button" class="secondary-btn">Clear filters</button>
                 <button id="wo-export-btn" type="button" class="secondary-btn" hidden>Export filtered CSV…</button>
+                <div id="work-orders-sort" class="segmented wo-sort-seg" role="group" aria-label="Sort by scheduled date">
+                    <button type="button" class="seg-btn" data-sort="scheduled_desc" aria-pressed="true">Newest first</button>
+                    <button type="button" class="seg-btn" data-sort="scheduled_asc" aria-pressed="false">Oldest first</button>
+                </div>
             </div>
             <div class="filter-row wo-keyword-search-row">
                 <label for="work-orders-location-search">Location</label>

@@ -57,7 +57,7 @@ writes (w).
 | 22 | POST | `/transactions/adjust` | techfm_oa+ | `transactions.py` → `transactions.apply_correction` | items (w), transactions (w) | `apiCreateCorrection` | `correction.js` |
 | 23 | PATCH | `/transactions/{id}/billing` | techfm_oa+ | `transactions.py` → `transactions.set_billable_quantity` | transactions (w) | `apiSetBillableQuantity` | `history.js` |
 | 24 | DELETE | `/transactions/{id}` | supervisor+, or Technician's own linked dispense | `transactions.py` → `transactions.void_transaction` (+ `user_requests.resolve_for_transaction`) | transactions (w, soft), items (w), work_order_items (w⁴), user_requests (w if linked) | `apiVoidTransaction` | `history.js`, `transactions.js` |
-| 25 | GET | `/work-orders/` | session scoped | `work_orders.py` → `work_orders.list_work_orders` (scheduled-date descending; joinable status/service/supervisor/community/date/number/location/task filters) | work_orders (r), work_order_items (r), work_order_technicians (r), users (r) | `apiListWorkOrders` | `workOrders.js`, `transactions.js`, `history.js`, `adminReview.js` |
+| 25 | GET | `/work-orders/` | session scoped | `work_orders.py` → `work_orders.list_work_orders` (scheduled-date descending, `sort=scheduled_asc` flips; joinable status/service/supervisor/community/date/number/location/task filters) | work_orders (r), work_order_items (r), work_order_technicians (r), users (r) | `apiListWorkOrders` | `workOrders.js`, `transactions.js`, `history.js`, `adminReview.js` |
 | 26 | GET | `/work-orders/{id}` | session scoped | `work_orders.py` → `work_orders.get_work_order` | work_orders (r), work_order_items (r/w⁵), work_order_technicians (r), work_order_labor (r), items (r), users (r) | `apiGetWorkOrder` | `workOrders.js`, `history.js`, `adminReview.js` |
 | 27 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | `work_orders.py` → `work_orders.lookup_work_order` | work_orders (r, **incl. archived**) | `apiLookupWorkOrder` | `history.js`, `workOrders.js` (TechFM OA+ exact search) |
 | 28 | PATCH | `/work-orders/{id}` | scoped; notes→tech+, operations→sup+, metadata→techfm_oa+; stale supervisor precondition→409 | `work_orders.py` → `work_orders.update_work_order` | work_orders (r/w, row lock; incl. notes/primary mirror), work_order_technicians (w), users (r) | `apiUpdateWorkOrder` | `workOrders.js`, `adminReview.js` (Return to In-Progress) |
@@ -545,8 +545,9 @@ the only request that can bring one into existence.
 
 **List query** — `GET /work-orders/`: optional `status`, `service_type`,
 `supervisor_id`, `community`, `priority`, `scheduled_date` (ISO calendar date),
-`q`, and
-`limit`. All filters combine with AND;
+`q`,
+`limit`, and `sort` (`scheduled_desc` default | `scheduled_asc`; blank dates
+last either way — the page's Newest/Oldest toggle). All filters combine with AND;
 `service_type` is an exact trimmed case-insensitive match, `q` is a literal
 case-insensitive number substring, and community values are `scholars`,
 `centennial`, `commons`, `young_hall`, or `academics`. `priority` is an exact

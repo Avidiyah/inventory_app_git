@@ -472,6 +472,7 @@ export async function apiListWorkOrders({
   taskQ = null,
   mine = false,
   limit = null,
+  sort = null,
 } = {}) {
   const params = new URLSearchParams();
   if (status) params.set("status", status);
@@ -486,6 +487,7 @@ export async function apiListWorkOrders({
   if (taskQ) params.set("task_q", taskQ);
   if (mine) params.set("mine", "true");
   if (limit != null) params.set("limit", limit);
+  if (sort) params.set("sort", sort);
   const qs = params.toString();
   return liveGet(`/work-orders/${qs ? `?${qs}` : ""}`);
 }

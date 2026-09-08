@@ -251,3 +251,39 @@ def test_work_orders_ui_wires_location_and_task_searches():
     assert 'params.set("task_q", taskQ)' in view
     assert 'params.set("location_q", filters.locationQ)' in view
     assert 'params.set("task_q", filters.taskQ)' in view
+
+
+def _ordered_numbers(db, token, query):
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        with TestClient(app) as client:
+            client.cookies.set("session", token)
+            response = client.get(f"/work-orders/{query}")
+    finally:
+        del app.dependency_overrides[get_db]
+    assert response.status_code == 200, response.text
+    return [card["number"] for card in response.json()]
+
+
+def test_sort_flips_scheduled_date_order_and_keeps_blank_dates_last(db):
+    """The Work Orders page sort toggle. `scheduled_asc` must reorder on the
+    server, not in the browser: the default browse fetches only the newest
+    ten, so a client-side reverse would show the wrong rows."""
+    admin = _seed_user(db, "admin")
+    prefix = f"WO-SORT-{uuid.uuid4().hex[:8]}"
+    for suffix, schedule in (("-B", "7/28/2026"), ("-A", "7/27/2026"), ("-X", "")):
+        wos.get_or_create_work_order(
+            db,
+            number=f"{prefix}{suffix}",
+            created_by_id=admin.id,
+            schedule_date=schedule,
+        )
+    db.commit()
+    token = auth_service.create_session(db, admin)
+
+    assert _ordered_numbers(db, token, f"?q={prefix}") == [
+        f"{prefix}-B", f"{prefix}-A", f"{prefix}-X",
+    ]
+    assert _ordered_numbers(db, token, f"?q={prefix}&sort=scheduled_asc") == [
+        f"{prefix}-A", f"{prefix}-B", f"{prefix}-X",
+    ]

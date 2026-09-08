@@ -1023,12 +1023,15 @@ def _apply_work_order_filters(
     return query
 
 
-def _filter_and_sort_by_schedule(work_orders, scheduled_date: Optional[date] = None):
-    """Apply the exact calendar-date filter and sort newest scheduled first.
+def _filter_and_sort_by_schedule(
+    work_orders, scheduled_date: Optional[date] = None, *, descending: bool = True
+):
+    """Apply the exact calendar-date filter and sort by scheduled date --
+    newest first by default, oldest first when `descending` is False.
 
     The source field is intentionally raw text, so parsing happens after the SQL
-    predicates. Blank or malformed legacy values sort below valid dates; ties
-    keep newest-created work orders first.
+    predicates. Blank or malformed legacy values sort below valid dates in
+    either direction; ties follow creation time the same way as the dates.
 
     Reads only `.schedule_date` and `.created_at`, so it accepts either full
     `WorkOrder` entities or the lightweight `(id, schedule_date, created_at)`
@@ -1047,9 +1050,13 @@ def _filter_and_sort_by_schedule(work_orders, scheduled_date: Optional[date] = N
         created_timestamp = (
             work_order.created_at.timestamp() if work_order.created_at else 0
         )
-        return (parsed is not None, parsed or date.min, created_timestamp)
+        # The first element pins unparseable values to the tail whichever way
+        # the sort runs: valid dates rank "higher" when descending, "lower"
+        # when ascending.
+        has_date = (parsed is not None) if descending else (parsed is None)
+        return (has_date, parsed or date.min, created_timestamp)
 
-    return sorted(work_orders, key=sort_key, reverse=True)
+    return sorted(work_orders, key=sort_key, reverse=descending)
 
 
 # Relationship loads the Work Orders card list needs. Named once so the
@@ -1079,8 +1086,10 @@ def list_work_orders(
     task_search: Optional[str] = None,
     mine: bool = False,
     limit: Optional[int] = None,
+    descending: bool = True,
 ) -> Sequence[WorkOrder]:
-    """Live work orders by scheduled date descending, scoped to `user`
+    """Live work orders by scheduled date (descending by default; `descending=False`
+    flips to oldest first), scoped to `user`
     (technician -> assigned, supervisor -> created/routed, admin/owner -> all).
     Optional status, service type, routed supervisor, derived community,
     priority, exact scheduled date, and
@@ -1144,6 +1153,7 @@ def list_work_orders(
     all_ranked = _filter_and_sort_by_schedule(
         scoped(WorkOrder.id, WorkOrder.schedule_date, WorkOrder.created_at).all(),
         scheduled_date,
+        descending=descending,
     )
     ranked = all_ranked[:effective_limit]
 

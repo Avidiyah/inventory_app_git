@@ -33,7 +33,7 @@ import re
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile
 from fastapi.responses import Response
@@ -533,10 +533,12 @@ def list_work_orders(
     task_q: Optional[str] = Query(None),
     mine: bool = Query(False),
     limit: Optional[int] = Query(None, ge=1, le=MAX_LIST_ROWS),
+    sort: Literal["scheduled_desc", "scheduled_asc"] = Query("scheduled_desc"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List the caller's work orders, newest scheduled date first. Optional `status`, exact
+    """List the caller's work orders, newest scheduled date first (`sort=scheduled_asc`
+    for oldest first; blank dates stay last either way). Optional `status`, exact
     `service_type`, routed `supervisor_id`, explicitly-assigned `assigned_to_id`,
     derived `community`, exact `priority`, exact
     `scheduled_date`, number `q`, `location_q` (substring over raw location
@@ -578,6 +580,7 @@ def list_work_orders(
                 task_search=task_q,
                 mine=mine,
                 limit=limit,
+                descending=sort != "scheduled_asc",
             )
         ]
     except DomainError as exc:

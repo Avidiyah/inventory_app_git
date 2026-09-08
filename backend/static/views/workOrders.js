@@ -83,6 +83,7 @@ const searchBtn = document.getElementById("work-orders-search-btn");
 const locationSearchInput = document.getElementById("work-orders-location-search");
 const taskSearchInput = document.getElementById("work-orders-task-search");
 const clearFiltersBtn = document.getElementById("work-orders-clear-filters");
+const sortSeg = document.getElementById("work-orders-sort");
 const exportMessage = document.getElementById("work-orders-export-message");
 const moreEl = document.getElementById("work-orders-more");
 // The filters/search block. Hidden in solo mode ("card page"), where the list
@@ -329,6 +330,27 @@ async function loadFilterOptions() {
   filterOptionsLoaded = true;
 }
 
+// Scheduled-date sort direction. Server-side (`sort` query param) because the
+// default browse fetches only the newest RECENT_LIMIT rows -- reversing those
+// in the browser would show the wrong ten. Remembered per browser; Clear
+// filters leaves it alone since it is a view preference, not a filter.
+const SORT_STORAGE_KEY = "workOrders.sort";
+const SORT_VALUES = new Set(["scheduled_desc", "scheduled_asc"]);
+let sortDir = "scheduled_desc";
+try {
+  const saved = localStorage.getItem(SORT_STORAGE_KEY);
+  if (SORT_VALUES.has(saved)) sortDir = saved;
+} catch {
+  // Storage unavailable (private mode, blocked): keep the default.
+}
+
+function renderSortControl() {
+  if (!sortSeg) return;
+  sortSeg.querySelectorAll("[data-sort]").forEach((btn) => {
+    btn.setAttribute("aria-pressed", String(btn.dataset.sort === sortDir));
+  });
+}
+
 function currentFilters() {
   return {
     status: statusFilter ? statusFilter.value : "",
@@ -345,6 +367,12 @@ function currentFilters() {
 
 function hasActiveFilters() {
   return Object.values(currentFilters()).some(Boolean);
+}
+
+// The list request: every filter plus the sort direction, which is not a
+// filter (it never affects the RECENT_LIMIT cap or Clear filters).
+function listParams() {
+  return { ...currentFilters(), sort: sortDir };
 }
 
 function resetFilterControls() {
@@ -1124,11 +1152,11 @@ export async function loadWorkOrders({
   const capped = !hasActiveFilters() && !showAll && !pendingFocusId;
   const limit = capped ? RECENT_LIMIT : null;
   try {
-    let cards = await apiListWorkOrders({ ...filters, limit });
+    let cards = await apiListWorkOrders({ ...listParams(), limit });
     if (pendingFocusId && !cards.some((c) => c.id === pendingFocusId)) {
       resetFilterControls();
       showAll = false;
-      cards = await apiListWorkOrders({ limit: null });
+      cards = await apiListWorkOrders({ limit: null, sort: sortDir });
     }
     renderCards(cards);
     renderMoreControl(capped, cards.length);
@@ -2689,6 +2717,22 @@ const cancelTaskSearchDebounce = wireKeywordSearch(taskSearchInput);
     loadWorkOrders();
   });
 });
+
+if (sortSeg) {
+  renderSortControl();
+  sortSeg.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-sort]");
+    if (!btn || !SORT_VALUES.has(btn.dataset.sort) || btn.dataset.sort === sortDir) return;
+    sortDir = btn.dataset.sort;
+    try {
+      localStorage.setItem(SORT_STORAGE_KEY, sortDir);
+    } catch {
+      // Best effort only.
+    }
+    renderSortControl();
+    loadWorkOrders();
+  });
+}
 
 if (clearFiltersBtn) {
   clearFiltersBtn.addEventListener("click", () => {
