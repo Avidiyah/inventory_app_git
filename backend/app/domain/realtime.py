@@ -30,6 +30,7 @@ __all__ = [
     "EVENT_LABOR_SESSION_CHANGED",
     "EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED",
     "EVENT_WORK_ORDER_STATUS_CHANGED",
+    "EVENT_USER_REQUEST_CHANGED",
     "HANDSHAKE_MAX_ATTEMPTS",
     "HANDSHAKE_WINDOW_SECONDS",
     "MAX_CONNECTIONS_PER_USER",
@@ -82,6 +83,13 @@ EVENT_LABOR_SESSION_CHANGED = "labor.session.changed"
 # that could change several rows at once.
 EVENT_ITEM_LOW_STOCK_CHANGED = "item.low_stock.changed"
 
+# A User Request moved: filed, stocked, back to open, resolved, reopened.
+# `id` names the request. Subscribers -- the User Hub dashboard, the User
+# Requests page, an open work-order card -- refetch through REST, which
+# re-applies visibility; a technician receiving an envelope for a request
+# they cannot see costs one request and discloses nothing.
+EVENT_USER_REQUEST_CHANGED = "user_request.changed"
+
 _AUDIENCE_MIN_ROLE = {
     EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED: roles.ROLE_TECHFM_OA,
     # Every role that can open the Work Orders page. Not a security boundary:
@@ -94,6 +102,9 @@ _AUDIENCE_MIN_ROLE = {
     # push, so the socket audience matches both rather than inventing a
     # third rank.
     EVENT_ITEM_LOW_STOCK_CHANGED: roles.ROLE_TECHFM_OA,
+    # Technicians file, cancel, and add from the stocked line, so the whole
+    # hierarchy subscribes. Not a security boundary (P2).
+    EVENT_USER_REQUEST_CHANGED: roles.ROLE_TECHNICIAN,
 }
 
 # --- thresholds --------------------------------------------------------

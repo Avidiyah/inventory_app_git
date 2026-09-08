@@ -183,3 +183,19 @@ def test_low_stock_events_do_not_reach_lower_roles():
             realtime.audience_allows(realtime.EVENT_ITEM_LOW_STOCK_CHANGED, role)
             is False
         ), role
+
+
+def test_user_request_events_reach_every_role():
+    """Technicians file and cancel material requests and see the stocked
+    line on their own cards, so the envelope is the whole hierarchy. Noise,
+    not security -- P2 keeps row data out of the envelope."""
+    for role in ("technician", "supervisor", "techfm_oa", "admin", "owner"):
+        assert (
+            realtime.audience_allows(realtime.EVENT_USER_REQUEST_CHANGED, role)
+            is True
+        ), role
+
+
+def test_user_request_changed_is_its_own_event_type():
+    assert realtime.EVENT_USER_REQUEST_CHANGED == "user_request.changed"
+    assert realtime.EVENT_USER_REQUEST_CHANGED != realtime.EVENT_ITEM_LOW_STOCK_CHANGED

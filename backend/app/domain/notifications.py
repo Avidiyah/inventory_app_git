@@ -16,7 +16,9 @@ actionable, and it is already visible to anyone holding the phone.
 The line is **catalogue identifiers, counts, and quantities yes; customer,
 job, and price detail no.** `build_message` accepts a `number`, a `count`,
 an item `name`, and a `quantity`, and widening it past those is the change
-to argue about, not the strings.
+to argue about, not the strings. The two material-request events use `name`
+and `number` together -- still catalogue identifier plus opaque work-order
+number, no widening.
 
 `count` was added for the bulk import event: "40 work orders have been
 assigned to you" names no work order, no customer, and no job -- a tally
@@ -51,6 +53,8 @@ EVENT_WORK_ORDER_SUPERVISOR_ASSIGNED_BULK = (
 EVENT_NETFACILITIES_IMPORT_FINISHED = "netfacilities.import_finished"
 EVENT_NETFACILITIES_IMPORT_FAILED = "netfacilities.import_failed"
 EVENT_ITEM_LOW_STOCK = "item.low_stock"
+EVENT_MATERIAL_REQUEST_FILED = "material_request.filed"
+EVENT_MATERIAL_REQUEST_STOCKED = "material_request.stocked"
 
 ALL_EVENTS = (
     EVENT_WORK_ORDER_ASSIGNED,
@@ -65,6 +69,8 @@ ALL_EVENTS = (
     EVENT_NETFACILITIES_IMPORT_FINISHED,
     EVENT_NETFACILITIES_IMPORT_FAILED,
     EVENT_ITEM_LOW_STOCK,
+    EVENT_MATERIAL_REQUEST_FILED,
+    EVENT_MATERIAL_REQUEST_STOCKED,
 )
 
 # Completion is the one rule addressed to a rank rather than to named
@@ -86,6 +92,13 @@ UNROUTED_HOLD_AUDIENCE_MIN_ROLE = roles.ROLE_ADMIN
 # covers an unowned job" are different questions from "who reorders", and
 # must be able to diverge without one silently dragging another.
 LOW_STOCK_AUDIENCE_MIN_ROLE = roles.ROLE_TECHFM_OA
+
+# Who hears that a crew needs a material the shelf does not have. TechFM OA
+# and above -- the rank that works the User Requests page and can press
+# "Mark stocked & notify". A fourth constant rather than a reuse of
+# LOW_STOCK_AUDIENCE_MIN_ROLE: "who reorders" and "who fields a crew's
+# request" are different questions and must be able to diverge.
+MATERIAL_REQUEST_AUDIENCE_MIN_ROLE = roles.ROLE_TECHFM_OA
 
 _MESSAGES = {
     EVENT_WORK_ORDER_ASSIGNED: (
@@ -127,6 +140,14 @@ _MESSAGES = {
     EVENT_ITEM_LOW_STOCK: (
         "Low stock",
         "{name} is down to {quantity}.",
+    ),
+    EVENT_MATERIAL_REQUEST_FILED: (
+        "Material requested",
+        "{name} is needed for {number}.",
+    ),
+    EVENT_MATERIAL_REQUEST_STOCKED: (
+        "Material in stock",
+        "{name} for {number} is now in stock.",
     ),
 }
 
@@ -324,6 +345,38 @@ def recipients_for_low_stock(
     for free.
     """
     return select_recipients(recipient_ids, actor_id=None)
+
+
+def recipients_for_material_request_filed(
+    *,
+    recipient_ids: Sequence[Optional[uuid.UUID]],
+) -> list[uuid.UUID]:
+    """A crew member asked for a material the shelf lacks -- tell the staff.
+
+    Does not suppress the actor, for the low-stock reason: this is a state
+    alarm, not a report of somebody's action, and the filer wants to see
+    their request went up the chain. `actor_id=None` keeps the dedup and
+    the `None`-dropping.
+    """
+    return select_recipients(recipient_ids, actor_id=None)
+
+
+def recipients_for_material_request_stocked(
+    *,
+    assignee_ids: Sequence[uuid.UUID],
+    supervisor_id: Optional[uuid.UUID],
+    requester_id: Optional[uuid.UUID],
+) -> list[uuid.UUID]:
+    """The requested material is back on the shelf -- tell the crew.
+
+    Assignees first, then the routed supervisor, then the original filer,
+    so a person holding two of those hats lands in the most specific
+    position once. Actor not suppressed: a supervisor who restocks and is
+    also on the crew is exactly the person who should see the line is ready.
+    """
+    return select_recipients(
+        [*assignee_ids, supervisor_id, requester_id], actor_id=None
+    )
 
 
 def build_message(

@@ -228,10 +228,18 @@ _CHAIN_EVENTS = (
 # has its own coverage above (`test_low_stock_names_the_item_and_its_count`
 # et al.) rather than falling into the number-event parametrization below.
 _LOW_STOCK_EVENTS = (notif.EVENT_ITEM_LOW_STOCK,)
+# The two material-request events name an item AND a work order, so they
+# fit neither the number-only nor the item-only parametrizations; they have
+# their own coverage below.
+_MATERIAL_REQUEST_EVENTS = (
+    notif.EVENT_MATERIAL_REQUEST_FILED,
+    notif.EVENT_MATERIAL_REQUEST_STOCKED,
+)
 _NUMBER_EVENTS = tuple(
     event
     for event in notif.ALL_EVENTS
-    if event not in _COUNT_EVENTS + _CHAIN_EVENTS + _LOW_STOCK_EVENTS
+    if event
+    not in _COUNT_EVENTS + _CHAIN_EVENTS + _LOW_STOCK_EVENTS + _MATERIAL_REQUEST_EVENTS
 )
 
 
@@ -241,14 +249,19 @@ def test_every_event_is_either_a_number_a_count_a_chain_or_a_low_stock_event():
         | set(_COUNT_EVENTS)
         | set(_CHAIN_EVENTS)
         | set(_LOW_STOCK_EVENTS)
+        | set(_MATERIAL_REQUEST_EVENTS)
         == set(notif.ALL_EVENTS)
     )
     assert not set(_NUMBER_EVENTS) & set(_COUNT_EVENTS)
     assert not set(_NUMBER_EVENTS) & set(_CHAIN_EVENTS)
     assert not set(_NUMBER_EVENTS) & set(_LOW_STOCK_EVENTS)
+    assert not set(_NUMBER_EVENTS) & set(_MATERIAL_REQUEST_EVENTS)
     assert not set(_COUNT_EVENTS) & set(_CHAIN_EVENTS)
     assert not set(_COUNT_EVENTS) & set(_LOW_STOCK_EVENTS)
+    assert not set(_COUNT_EVENTS) & set(_MATERIAL_REQUEST_EVENTS)
     assert not set(_CHAIN_EVENTS) & set(_LOW_STOCK_EVENTS)
+    assert not set(_CHAIN_EVENTS) & set(_MATERIAL_REQUEST_EVENTS)
+    assert not set(_LOW_STOCK_EVENTS) & set(_MATERIAL_REQUEST_EVENTS)
 
 
 @pytest.mark.parametrize("event", _NUMBER_EVENTS)
@@ -473,3 +486,72 @@ def test_low_stock_audience_floor_is_techfm_oa():
 
 def test_low_stock_is_registered():
     assert notif.EVENT_ITEM_LOW_STOCK in notif.ALL_EVENTS
+
+
+# --- material requests ---------------------------------------------------
+
+
+def test_material_request_filed_names_the_item_and_the_work_order():
+    title, body = notif.build_message(
+        notif.EVENT_MATERIAL_REQUEST_FILED, name="3M Blue Tape", number="WO-1234"
+    )
+    assert title == "Material requested"
+    assert body == "3M Blue Tape is needed for WO-1234."
+
+
+def test_material_request_stocked_names_the_item_and_the_work_order():
+    title, body = notif.build_message(
+        notif.EVENT_MATERIAL_REQUEST_STOCKED, name="3M Blue Tape", number="WO-1234"
+    )
+    assert title == "Material in stock"
+    assert body == "3M Blue Tape for WO-1234 is now in stock."
+
+
+@pytest.mark.parametrize("event", _MATERIAL_REQUEST_EVENTS)
+def test_material_request_text_refuses_a_missing_field(event):
+    with pytest.raises(ValueError):
+        notif.build_message(event, name="3M Blue Tape")
+    with pytest.raises(ValueError):
+        notif.build_message(event, number="WO-1234")
+
+
+def test_material_request_filed_keeps_the_actor():
+    """A state alarm, like low stock: the filer wants confirmation the
+    request went up the chain."""
+    actor = uuid.uuid4()
+    other = uuid.uuid4()
+    assert notif.recipients_for_material_request_filed(
+        recipient_ids=[actor, other, None, actor]
+    ) == [actor, other]
+
+
+def test_material_request_stocked_addresses_crew_supervisor_and_requester():
+    tech, supervisor, requester = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    assert notif.recipients_for_material_request_stocked(
+        assignee_ids=[tech], supervisor_id=supervisor, requester_id=requester
+    ) == [tech, supervisor, requester]
+
+
+def test_material_request_stocked_dedupes_a_supervising_assignee_who_also_filed():
+    person = uuid.uuid4()
+    assert notif.recipients_for_material_request_stocked(
+        assignee_ids=[person], supervisor_id=person, requester_id=person
+    ) == [person]
+
+
+def test_material_request_stocked_tolerates_an_unrouted_work_order_and_no_filer():
+    tech = uuid.uuid4()
+    assert notif.recipients_for_material_request_stocked(
+        assignee_ids=[tech], supervisor_id=None, requester_id=None
+    ) == [tech]
+
+
+def test_material_request_audience_floor_is_techfm_oa():
+    """Two constants, one value today. Pinned separately from the low-stock
+    floor so that changing one is a deliberate act, not a side effect."""
+    assert notif.MATERIAL_REQUEST_AUDIENCE_MIN_ROLE == roles.ROLE_TECHFM_OA
+
+
+def test_material_request_events_are_registered():
+    assert notif.EVENT_MATERIAL_REQUEST_FILED in notif.ALL_EVENTS
+    assert notif.EVENT_MATERIAL_REQUEST_STOCKED in notif.ALL_EVENTS
