@@ -1485,3 +1485,40 @@ def test_mine_total_matches_assigned_for_a_technician(db):
     payload = hub_service.personal_hub(db, tech)
 
     assert payload.mine_total == payload.counts.assigned == 1
+
+
+# --- stocked material requests (Dashboard section) --------------------------
+
+
+def test_personal_hub_lists_stocked_requests_i_am_associated_with(db):
+    from app.services import material_requests as material_service
+
+    tech = _seed_user(db)
+    other = _seed_user(db)
+    item = _seed_item(db)
+    item.quantity = Decimal("0")
+    mine = _seed_work_order(db, created_by=other, assigned_to=tech)
+    theirs = _seed_work_order(db, created_by=other, assigned_to=other)
+    for wo, filer in ((mine, other), (theirs, other)):
+        material_service.create_or_update(
+            db, item_id=item.id, work_order=wo, quantity=Decimal("2"), product_link=None,
+            note=None, created_by_id=filer.id, origin="request_card",
+        )
+    db.flush()
+    before = item.quantity
+    item.quantity = Decimal("5")
+    material_service.record_stock_change(db, item, quantity_before=before)
+    material_service.drain()
+    db.flush()
+
+    payload = hub_service.personal_hub(db, tech)
+
+    assert [r.work_order_number for r in payload.stocked_requests] == [mine.number]
+    row = payload.stocked_requests[0]
+    assert row.item_name == item.name
+    assert row.quantity == "2"
+    assert row.stocked_at is not None
+
+    staff = _seed_user(db, roles.ROLE_TECHFM_OA)
+    numbers = {r.work_order_number for r in hub_service.personal_hub(db, staff).stocked_requests}
+    assert {mine.number, theirs.number} <= numbers

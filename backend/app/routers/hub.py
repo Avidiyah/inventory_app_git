@@ -84,6 +84,7 @@ def get_hub(
         priority=payload.priority,
         startable=payload.startable,
         tools_out=payload.tools_out,
+        stocked_requests=payload.stocked_requests,
     )
 
 

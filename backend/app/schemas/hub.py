@@ -151,6 +151,21 @@ class HubToolOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class HubStockedRequest(BaseModel):
+    """A stocked Material Request the viewer is associated with (or every
+    one, for TechFM OA+). Nothing is dismissed by hand: the row leaves when
+    the request leaves `stocked`."""
+
+    request_id: uuid.UUID
+    item_name: str
+    work_order_id: Optional[uuid.UUID] = None
+    work_order_number: str
+    quantity: str
+    stocked_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 class HubResponse(BaseModel):
     """`GET /hub`.
 
@@ -173,6 +188,7 @@ class HubResponse(BaseModel):
     priority: HubPriorityCounts
     startable: list[HubStartable] = []
     tools_out: list[HubToolOut] = []
+    stocked_requests: list[HubStockedRequest] = []
 
     model_config = {"from_attributes": True}
 

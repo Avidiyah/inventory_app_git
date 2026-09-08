@@ -30,6 +30,7 @@ from app.domain import work_orders as wo
 from app.domain.errors import TimesheetRangeInvalidError, TimesheetRangeTooLargeError
 from app.models import User, UserRequest, WorkOrder, WorkOrderLaborSession, WorkOrderTechnician
 from app.services import labor_summary
+from app.services import material_requests as material_requests_service
 from app.services import tools as tools_service
 from app.services import user_requests as user_requests_service
 from app.services import work_orders as work_orders_service
@@ -115,6 +116,28 @@ class ToolOut:
 
 
 @dataclass(frozen=True)
+class StockedRequest:
+    """One row of the Dashboard's "Requested material in stock" section: a
+    Material Request that is `stocked` and waiting for the crew to add it."""
+
+    request_id: uuid.UUID
+    item_name: str
+    work_order_id: Optional[uuid.UUID]
+    work_order_number: str
+    quantity: str
+    stocked_at: Optional[datetime]
+
+
+def _parse_iso(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+@dataclass(frozen=True)
 class HubPayload:
     user: User
     server_now: datetime
@@ -131,6 +154,7 @@ class HubPayload:
     clock: labor_summary.DaySummary
     startable: list[StartableWorkOrder]
     tools_out: list[ToolOut]
+    stocked_requests: list[StockedRequest]
 
 
 def _assigned_work_orders(db: Session, user_id: uuid.UUID) -> list[WorkOrder]:
@@ -251,6 +275,19 @@ def personal_hub(db: Session, user: User) -> HubPayload:
         )
     ]
 
+    stocked_requests = [
+        StockedRequest(
+            request_id=r.id,
+            item_name=r.item.name if r.item else "Unknown item",
+            work_order_id=r.work_order_id,
+            work_order_number=(
+                r.work_order.number if r.work_order else (r.details or {}).get("work_order_number") or ""
+            ),
+            quantity=str((r.details or {}).get("quantity") or "1"),
+            stocked_at=_parse_iso((r.details or {}).get("stocked_at")),
+        )
+        for r in material_requests_service.stocked_requests_for_user(db, user)
+    ]
     return HubPayload(
         user=user,
         server_now=now,
@@ -272,6 +309,7 @@ def personal_hub(db: Session, user: User) -> HubPayload:
                 tools_service.user_custody_detail(db, user.id)
             )
         ],
+        stocked_requests=stocked_requests,
     )
 
 
