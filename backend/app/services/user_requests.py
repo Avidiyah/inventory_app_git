@@ -6,14 +6,14 @@ material path raises one deduplicated ``missing_item_price`` request when the
 item has no price. Each request is staged in the same database transaction as
 the operation that raised it.
 
-``item_request`` is the third type and the only one raised by a *person* rather
-than by a stock operation: a user searched for a material and the catalogue had
-no row for it at all. That is deliberately narrower than it sounds -- an in-app
-item sitting at zero is still findable, because ``list_items`` filters on
-``archived_at`` and never on quantity, so a short count is ``inventory_recount``
-territory. An item request carries a NULL ``item_id`` until a reviewer fulfils it,
-and that NULL is exactly what distinguishes "not in the app" from "in the app,
-count is wrong".
+``catalogue_request`` is the third type and the only one raised by a *person*
+rather than by a stock operation: a user searched for a material and the
+catalogue had no row for it at all. An in-app item sitting at zero is still
+findable, so a short count is ``inventory_recount`` territory and an empty
+shelf for a real catalogue item is a ``material_request``
+(``services/material_requests.py``). A catalogue request carries a NULL
+``item_id`` until a reviewer fulfils it, and that NULL is exactly what
+distinguishes "not in the app" from "in the app, count is wrong".
 """
 
 import uuid
@@ -31,7 +31,7 @@ from app.services._list_cap import capped
 
 REQUEST_INVENTORY_RECOUNT = "inventory_recount"
 REQUEST_MISSING_ITEM_PRICE = "missing_item_price"
-REQUEST_ITEM = "item_request"
+REQUEST_CATALOGUE = "catalogue_request"
 STATUS_OPEN = "open"
 STATUS_RESOLVED = "resolved"
 
@@ -41,7 +41,7 @@ STATUS_RESOLVED = "resolved"
 # the system observed at dispense time, and a snapshot someone can rewrite to
 # match a later recount is not an audit trail.
 EDITABLE_DETAILS: dict[str, frozenset[str]] = {
-    REQUEST_ITEM: frozenset({"searched_text", "quantity", "note"}),
+    REQUEST_CATALOGUE: frozenset({"searched_text", "quantity", "note"}),
     REQUEST_INVENTORY_RECOUNT: frozenset(),
     REQUEST_MISSING_ITEM_PRICE: frozenset(),
 }
@@ -142,7 +142,7 @@ def create_or_update_missing_price_request(
     return request
 
 
-def create_item_request(
+def create_catalogue_request(
     db: Session,
     *,
     searched_text: str,
@@ -162,10 +162,10 @@ def create_item_request(
     carries its own work order, quantity, and requester, all of which the
     retroactive auto-add needs. Fulfilment then cascades across the confirmed
     siblings rather than merging them up front -- see
-    `find_sibling_item_requests`.
+    `find_sibling_catalogue_requests`.
     """
     request = UserRequest(
-        request_type=REQUEST_ITEM,
+        request_type=REQUEST_CATALOGUE,
         status=STATUS_OPEN,
         message="Please add this item to the catalogue",
         work_order_id=work_order_id,
@@ -183,7 +183,7 @@ def create_item_request(
 
 
 def _token_set(text: Optional[str]) -> frozenset[str]:
-    """The normalized token set of an item request's searched text.
+    """The normalized token set of a catalogue request's searched text.
 
     Reuses the item search's own tokenizer so `3/4` and `3 4` normalize
     identically -- the same rule that decided the search came up empty in the
@@ -195,10 +195,10 @@ def _token_set(text: Optional[str]) -> frozenset[str]:
     return frozenset(_search_tokens(text or "") or ())
 
 
-def find_sibling_item_requests(
+def find_sibling_catalogue_requests(
     db: Session, request: UserRequest
 ) -> list[UserRequest]:
-    """Other OPEN item requests naming the same material, newest-first.
+    """Other OPEN catalogue requests naming the same material, newest-first.
 
     Token-set EQUALITY, deliberately stricter than the search's
     subset-containment matching. Search is broad on purpose because a wrong hit
@@ -221,7 +221,7 @@ def find_sibling_item_requests(
             joinedload(UserRequest.creator),
         )
         .filter(
-            UserRequest.request_type == REQUEST_ITEM,
+            UserRequest.request_type == REQUEST_CATALOGUE,
             UserRequest.status == STATUS_OPEN,
             UserRequest.id != request.id,
         )
@@ -235,7 +235,7 @@ def find_sibling_item_requests(
     ]
 
 
-def _resolve_one_item_request(
+def _resolve_one_catalogue_request(
     db: Session,
     request: UserRequest,
     *,
@@ -299,7 +299,7 @@ def _resolve_one_item_request(
     return skipped
 
 
-def fulfill_item_request(
+def fulfill_catalogue_request(
     db: Session,
     request_id: uuid.UUID,
     *,
@@ -307,7 +307,7 @@ def fulfill_item_request(
     sibling_ids: Optional[list[uuid.UUID]] = None,
     resolved_by_id: Optional[uuid.UUID],
 ) -> tuple[UserRequest, list[str]]:
-    """Point an item request -- and every confirmed sibling -- at a real item.
+    """Point a catalogue request -- and every confirmed sibling -- at a real item.
 
     One transaction: either every request resolves and every live work order
     gets its material logged, or none does.
@@ -324,10 +324,10 @@ def fulfill_item_request(
     )
     if request is None:
         raise UserRequestNotFoundError("User request not found.")
-    if request.request_type != REQUEST_ITEM:
-        raise ItemRequestStateError("This is not an item request.")
+    if request.request_type != REQUEST_CATALOGUE:
+        raise ItemRequestStateError("This is not a catalogue request.")
     if request.status != STATUS_OPEN:
-        raise ItemRequestStateError("This item request is already resolved.")
+        raise ItemRequestStateError("This catalogue request is already resolved.")
 
     targets = [request]
     remaining = [sid for sid in (sibling_ids or []) if sid != request_id]
@@ -336,7 +336,7 @@ def fulfill_item_request(
             db.query(UserRequest)
             .filter(
                 UserRequest.id.in_(remaining),
-                UserRequest.request_type == REQUEST_ITEM,
+                UserRequest.request_type == REQUEST_CATALOGUE,
                 UserRequest.status == STATUS_OPEN,
             )
             .with_for_update()
@@ -345,7 +345,7 @@ def fulfill_item_request(
 
     skipped: list[str] = []
     for target in targets:
-        note = _resolve_one_item_request(
+        note = _resolve_one_catalogue_request(
             db, target, item_id=item_id, resolved_by_id=resolved_by_id
         )
         if note:

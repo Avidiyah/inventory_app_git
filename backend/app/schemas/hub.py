@@ -271,7 +271,7 @@ class HubAdminExceptions(BaseModel):
 
     inventory_recounts: int
     missing_item_price: int
-    item_requests: int
+    catalogue_requests: int
     admin_review_queue: int
     stale_work_orders: int
 

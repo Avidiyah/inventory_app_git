@@ -7,14 +7,14 @@
 // resolved, never deleted:
 //   inventory_recount  -- an in-app item's recorded count is short
 //   missing_item_price -- a work-order material has no price / product link
-//   item_request       -- the material has no catalogue row at all
+//   catalogue_request  -- the material has no catalogue row at all
 //
 // Each type resolves through the fix that actually answers it, so the page is
 // where the real-world discrepancy gets closed rather than merely acknowledged.
 
 import {
   apiCreateCorrection,
-  apiFulfillItemRequest,
+  apiFulfillCatalogueRequest,
   apiListItems,
   apiListRequestSiblings,
   apiListUserRequests,
@@ -234,7 +234,7 @@ if (listEl) {
         return;
       }
       let details = null;
-      if (card.dataset.requestType === "item_request") {
+      if (card.dataset.requestType === "catalogue_request") {
         const text = panel.querySelector(".user-request-edit-text").value.trim();
         if (!text) {
           setMessage(messageEl, "Describe the item that was searched for.", "error");
@@ -258,7 +258,7 @@ if (listEl) {
       return;
     }
 
-    // --- fulfil an item request -----------------------------------------
+    // --- fulfil a catalogue request -----------------------------------------
     const fulfillSave = event.target.closest(".user-request-fulfill-save");
     if (fulfillSave) {
       const panel = panelOf(card);
@@ -272,11 +272,11 @@ if (listEl) {
             payload.siblingIds.length === 1 ? "" : "s"
           } and add the material to their work orders.`
         : "";
-      if (!(await confirmDialog(`Fulfil this item request?${extra}`))) return;
+      if (!(await confirmDialog(`Fulfil this catalogue request?${extra}`))) return;
 
       fulfillSave.disabled = true;
       try {
-        const result = await apiFulfillItemRequest(card.dataset.id, payload);
+        const result = await apiFulfillCatalogueRequest(card.dataset.id, payload);
         await loadUserRequests();
         if (result && result.skipped && result.skipped.length) {
           setMessage(messageEl, result.skipped.join(" "), "error");

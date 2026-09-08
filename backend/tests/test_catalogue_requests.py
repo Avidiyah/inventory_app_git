@@ -1,8 +1,8 @@
-"""Item Requests: material the app has no catalogue row for at all.
+"""Catalogue Requests: material the app has no catalogue row for at all.
 
 Distinct from `inventory_recount`, which covers an in-app item whose recorded
 count is wrong. `list_items` filters on `archived_at` only and never on
-quantity, so an item at zero is still findable -- an item request is raised
+quantity, so an item at zero is still findable -- a catalogue request is raised
 precisely when a search returns nothing because nothing exists to return.
 """
 
@@ -43,7 +43,7 @@ def _work_order(db, creator):
 
 
 def _file(db, tech, text, work_order=None, quantity="1", note=None):
-    request = request_service.create_item_request(
+    request = request_service.create_catalogue_request(
         db,
         searched_text=text,
         quantity=Decimal(quantity),
@@ -75,11 +75,11 @@ def _catalogue_item(db, name="3/4 Copper Elbow, Sweat"):
 # Filing
 # --------------------------------------------------------------------------
 
-def test_filing_an_item_request_stores_the_search_text_and_work_order(db):
+def test_filing_a_catalogue_request_stores_the_search_text_and_work_order(db):
     tech = _user(db)
     work_order = _work_order(db, tech)
 
-    request = request_service.create_item_request(
+    request = request_service.create_catalogue_request(
         db,
         searched_text="  3/4 copper elbow  ",
         quantity=Decimal("2"),
@@ -91,7 +91,7 @@ def test_filing_an_item_request_stores_the_search_text_and_work_order(db):
     )
     db.flush()
 
-    assert request.request_type == "item_request"
+    assert request.request_type == "catalogue_request"
     assert request.status == "open"
     assert request.item_id is None
     assert request.transaction_id is None
@@ -103,7 +103,7 @@ def test_filing_an_item_request_stores_the_search_text_and_work_order(db):
     assert request.details["work_order_number"] == work_order.number
 
 
-def test_item_request_from_find_item_has_no_work_order(db):
+def test_catalogue_request_from_find_item_has_no_work_order(db):
     tech = _user(db)
 
     request = _file(db, tech, "grommet 1in")
@@ -122,7 +122,7 @@ def test_siblings_match_on_token_set_regardless_of_word_order(db):
     first = _file(db, tech, "3/4 copper elbow", _work_order(db, tech))
     second = _file(db, tech, "copper elbow 3/4", _work_order(db, tech))
 
-    siblings = request_service.find_sibling_item_requests(db, first)
+    siblings = request_service.find_sibling_catalogue_requests(db, first)
 
     assert [s.id for s in siblings] == [second.id]
 
@@ -132,7 +132,7 @@ def test_siblings_do_not_match_a_superset_of_tokens(db):
     first = _file(db, tech, "copper elbow", _work_order(db, tech))
     _file(db, tech, "copper elbow press", _work_order(db, tech))
 
-    assert request_service.find_sibling_item_requests(db, first) == []
+    assert request_service.find_sibling_catalogue_requests(db, first) == []
 
 
 def test_siblings_exclude_resolved_rows(db):
@@ -142,7 +142,7 @@ def test_siblings_exclude_resolved_rows(db):
     other.status = "resolved"
     db.flush()
 
-    assert request_service.find_sibling_item_requests(db, first) == []
+    assert request_service.find_sibling_catalogue_requests(db, first) == []
 
 
 # --------------------------------------------------------------------------
@@ -156,7 +156,7 @@ def test_fulfilment_links_the_item_and_adds_it_retroactively(db):
     request = _file(db, tech, "3/4 copper elbow", work_order, quantity="2")
     item = _catalogue_item(db)
 
-    fulfilled, skipped = request_service.fulfill_item_request(
+    fulfilled, skipped = request_service.fulfill_catalogue_request(
         db, request.id, item_id=item.id, sibling_ids=[], resolved_by_id=admin.id
     )
 
@@ -189,7 +189,7 @@ def test_fulfilment_cascades_to_confirmed_siblings(db):
     second = _file(db, tech, "copper elbow 3/4", second_wo, quantity="5")
     item = _catalogue_item(db)
 
-    fulfilled, skipped = request_service.fulfill_item_request(
+    fulfilled, skipped = request_service.fulfill_catalogue_request(
         db,
         first.id,
         item_id=item.id,
@@ -221,7 +221,7 @@ def test_a_closed_work_order_is_skipped_but_the_request_still_resolves(db):
     work_order.archived_at = datetime.now(timezone.utc)
     db.flush()
 
-    fulfilled, skipped = request_service.fulfill_item_request(
+    fulfilled, skipped = request_service.fulfill_catalogue_request(
         db, request.id, item_id=item.id, sibling_ids=[], resolved_by_id=admin.id
     )
 
@@ -237,13 +237,13 @@ def test_a_closed_work_order_is_skipped_but_the_request_still_resolves(db):
     )
 
 
-def test_a_find_item_request_resolves_with_no_work_order_to_add_to(db):
+def test_a_find_item_catalogue_request_resolves_with_no_work_order_to_add_to(db):
     admin = _user(db, "admin")
     tech = _user(db)
     request = _file(db, tech, "grommet 1in")
     item = _catalogue_item(db, name="1 in Grommet")
 
-    fulfilled, skipped = request_service.fulfill_item_request(
+    fulfilled, skipped = request_service.fulfill_catalogue_request(
         db, request.id, item_id=item.id, sibling_ids=[], resolved_by_id=admin.id
     )
 
@@ -258,11 +258,65 @@ def test_an_already_resolved_request_cannot_be_fulfilled_twice(db):
     request = _file(db, tech, "grommet 1in")
     item = _catalogue_item(db, name="1 in Grommet")
 
-    request_service.fulfill_item_request(
+    request_service.fulfill_catalogue_request(
         db, request.id, item_id=item.id, sibling_ids=[], resolved_by_id=admin.id
     )
 
     with pytest.raises(ItemRequestStateError):
-        request_service.fulfill_item_request(
+        request_service.fulfill_catalogue_request(
             db, request.id, item_id=item.id, sibling_ids=[], resolved_by_id=admin.id
         )
+
+
+# --------------------------------------------------------------------------
+# The rename
+# --------------------------------------------------------------------------
+
+def test_the_type_key_is_catalogue_request():
+    assert request_service.REQUEST_CATALOGUE == "catalogue_request"
+    assert not hasattr(request_service, "REQUEST_ITEM")
+
+
+def test_the_migration_rewrites_old_rows_both_ways(db):
+    """The revision's upgrade/downgrade are plain UPDATEs, so they can be run
+    against the fixture's savepoint connection through the module's own
+    `op` proxy. Round-trip proves downgrade really reverses upgrade."""
+    import importlib.util
+    from pathlib import Path
+
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import text
+
+    tech = _user(db)
+    row = UserRequest(
+        request_type="item_request",
+        status="open",
+        message="legacy",
+        created_by_id=tech.id,
+        details={},
+    )
+    db.add(row)
+    db.flush()
+
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "alembic" / "versions"
+        / "d1e3f5a7b9c2_rename_item_request_to_catalogue_request.py"
+    )
+    spec = importlib.util.spec_from_file_location("rename_rev", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    ctx = MigrationContext.configure(db.connection())
+    with Operations.context(ctx):
+        module.upgrade()
+    assert db.execute(
+        text("SELECT request_type FROM user_requests WHERE id = :id"), {"id": row.id}
+    ).scalar() == "catalogue_request"
+
+    with Operations.context(ctx):
+        module.downgrade()
+    assert db.execute(
+        text("SELECT request_type FROM user_requests WHERE id = :id"), {"id": row.id}
+    ).scalar() == "item_request"

@@ -59,7 +59,7 @@ import {
 } from "../format.js";
 import { setMessage, confirmDialog, messageDialog } from "../dom.js";
 import { tipHtml } from "../tooltip.js";
-import { itemRequestPromptHtml } from "./itemRequest.js";
+import { catalogueRequestPromptHtml } from "./catalogueRequest.js";
 import { getCurrentUser, getRole } from "../state.js";
 import {
   canBeWorkOrderSupervisor,
@@ -1874,7 +1874,7 @@ listEl.addEventListener("input", (event) => {
         )
         .join("")
     : `<p class="hint">No matching items.</p>` +
-      itemRequestPromptHtml({
+      catalogueRequestPromptHtml({
         searchedText: input.value.trim(),
         workOrderId: cardEl ? cardEl.dataset.id : null,
         source: "work_orders",

@@ -1,7 +1,7 @@
     <!-- =================== USER REQUESTS PAGE =================== -->
     <!-- Admin/Owner operational exception queue. Inventory recounts track
          short counts; missing-price requests collect pricing/discoverability
-         work for materials used on work orders; item requests report material
+         work for materials used on work orders; catalogue requests report material
          with no catalogue row at all. Requests resolve, never delete. -->
     <div class="page" id="user-requests-page">
 
@@ -10,8 +10,8 @@
             <p class="hint">Track differences between real-world usage and the
                app's expected results. Recount requests flag short stock;
                pricing requests collect a price and product link for unpriced
-               materials used on work orders; item requests report material a
-               user searched for but could not find. Fulfilling an item request
+               materials used on work orders; catalogue requests report material a
+               user searched for but could not find. Fulfilling a catalogue request
                adds it to the catalogue and logs it retroactively on the work
                order it came from.</p>
 
@@ -24,7 +24,7 @@
                 <label for="user-requests-type">Type<button type="button" class="tip-btn" data-tip="requests.types">?</button></label>
                 <select id="user-requests-type">
                     <option value="all">All types</option>
-                    <option value="item_request">Item requests</option>
+                    <option value="catalogue_request">Catalogue requests</option>
                     <option value="inventory_recount">Stock recounts</option>
                     <option value="missing_item_price">Missing price / link</option>
                 </select>

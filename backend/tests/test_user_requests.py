@@ -479,9 +479,9 @@ def test_a_correction_leaves_an_unrelated_items_recount_open(db):
 # Editing a request's own fields
 # --------------------------------------------------------------------------
 
-def test_item_request_fields_are_editable(db):
+def test_catalogue_request_fields_are_editable(db):
     tech = _user(db, "technician")
-    request = request_service.create_item_request(
+    request = request_service.create_catalogue_request(
         db,
         searched_text="cooper elbo",
         quantity=Decimal("2"),

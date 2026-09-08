@@ -1442,25 +1442,25 @@ tr:last-child td {
     min-width: min(22rem, 70vw);
 }
 
-/* An item request has no item yet, so it reads as a request for work rather
+/* A catalogue request has no item yet, so it reads as a request for work rather
    than a stock exception -- neutral rule, not the red error rule. */
-.user-request-type-item_request {
+.user-request-type-catalogue_request {
     border-left-color: var(--gray-500);
 }
 
-.user-request-type-item_request .user-request-alert {
+.user-request-type-catalogue_request .user-request-alert {
     color: var(--text-panel-mute);
     font-weight: var(--fw-regular);
 }
 
-/* An item request card spans two columns when the grid has room: its fulfil
+/* A catalogue request card spans two columns when the grid has room: its fulfil
    panel carries a full Add Item form and cramps at 280px. */
-.user-request-type-item_request {
+.user-request-type-catalogue_request {
     grid-column: span 2;
 }
 
 @media (max-width: 720px) {
-    .user-request-type-item_request {
+    .user-request-type-catalogue_request {
         grid-column: span 1;
     }
 }
@@ -1737,15 +1737,15 @@ details[open] > .low-stock-summary::before { content: "\25BE"; }
     display: none;
 }
 
-/* --- the "request this item" prompt on empty search results --- */
-.item-request {
+/* --- the "request it for the catalogue" prompt on empty search results --- */
+.catalogue-request {
     margin-top: var(--space-2);
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
 }
 
-.item-request-form {
+.catalogue-request-form {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
@@ -1755,7 +1755,7 @@ details[open] > .low-stock-summary::before { content: "\25BE"; }
     background: var(--panel-nested);
 }
 
-.item-request-label {
+.catalogue-request-label {
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
@@ -1763,21 +1763,21 @@ details[open] > .low-stock-summary::before { content: "\25BE"; }
     font-size: var(--fs-sm);
 }
 
-.item-request-actions {
+.catalogue-request-actions {
     display: flex;
     gap: var(--space-2);
     flex-wrap: wrap;
 }
 
-.item-request-actions button {
+.catalogue-request-actions button {
     margin-top: 0;
 }
 
-.item-request-message:empty {
+.catalogue-request-message:empty {
     display: none;
 }
 
-.item-request-sent {
+.catalogue-request-sent {
     margin: 0;
     font-weight: var(--fw-bold);
 }

@@ -620,7 +620,7 @@ class AdminExceptionCounts:
 
     inventory_recounts: int
     missing_item_price: int
-    item_requests: int
+    catalogue_requests: int
     admin_review_queue: int
     stale_work_orders: int
 
@@ -659,7 +659,7 @@ def _exception_counts(
         missing_item_price=open_counts.get(
             user_requests_service.REQUEST_MISSING_ITEM_PRICE, 0
         ),
-        item_requests=open_counts.get(user_requests_service.REQUEST_ITEM, 0),
+        catalogue_requests=open_counts.get(user_requests_service.REQUEST_CATALOGUE, 0),
         admin_review_queue=pipeline.review,
         stale_work_orders=stale_work_orders,
     )

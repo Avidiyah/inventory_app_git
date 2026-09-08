@@ -36,7 +36,7 @@ class UserRequestUpdate(BaseModel):
         return self
 
 
-class ItemRequestCreate(BaseModel):
+class CatalogueRequestCreate(BaseModel):
     """File a request for a material that has no catalogue row at all.
 
     Deliberately not for an in-app item at zero quantity -- that is findable
@@ -69,7 +69,7 @@ class NewItemPayload(BaseModel):
     override_archived: bool = False
 
 
-class ItemRequestFulfill(BaseModel):
+class CatalogueRequestFulfill(BaseModel):
     """Point a request at a real item, and cascade to confirmed siblings.
 
     Exactly one of `item_id` / `new_item`. Linking an existing row matters as

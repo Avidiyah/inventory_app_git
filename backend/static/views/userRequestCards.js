@@ -7,7 +7,7 @@
 // The three types and what each card offers:
 //   inventory_recount  -- frozen shortage snapshot, inline count correction
 //   missing_item_price -- inline price + product link
-//   item_request       -- inline fulfilment (link or create the item)
+//   catalogue_request  -- inline fulfilment (link or create the item)
 //
 // Every type also gets an Edit mode for the request's own wording. A recount's
 // audit numbers are deliberately NOT editable there -- see EDITABLE_DETAILS in
@@ -25,7 +25,7 @@ export function formatDate(value) {
 export function requestTypeLabel(type) {
   if (type === "inventory_recount") return "Stock recount";
   if (type === "missing_item_price") return "Missing price / link";
-  if (type === "item_request") return "Item request";
+  if (type === "catalogue_request") return "Catalogue request";
   return type.replaceAll("_", " ");
 }
 
@@ -36,7 +36,7 @@ function detailLine(label, value) {
 
 // --- per-type body -------------------------------------------------------
 
-function itemRequestBody(request, details) {
+function catalogueRequestBody(request, details) {
   const workOrders = request.work_order_number
     ? detailLine("Work order", request.work_order_number)
     : `<span class="hint">Reported from Find Item — no work order attached.</span>`;
@@ -76,7 +76,7 @@ function missingPriceBody(request, details) {
 
 // --- per-type actions ----------------------------------------------------
 
-function itemRequestActions(request) {
+function catalogueRequestActions(request) {
   if (request.status !== "open") {
     return `<span class="hint">Fulfilled${
       request.item_name ? ` as ${escapeHtml(request.item_name)}` : ""
@@ -147,7 +147,7 @@ function missingPriceActions(request) {
 export function editFormHtml(request) {
   const details = request.details || {};
   const itemFields =
-    request.request_type === "item_request"
+    request.request_type === "catalogue_request"
       ? `<label class="user-request-label">Item searched for
            <input type="text" class="user-request-edit-text" maxlength="200" value="${escapeHtml(
              details.searched_text || ""
@@ -286,10 +286,10 @@ export function buildRequestCard(request) {
   let heading;
   let body;
   let actions;
-  if (request.request_type === "item_request") {
+  if (request.request_type === "catalogue_request") {
     heading = details.searched_text || "Unnamed item";
-    body = itemRequestBody(request, details);
-    actions = itemRequestActions(request);
+    body = catalogueRequestBody(request, details);
+    actions = catalogueRequestActions(request);
   } else if (request.request_type === "missing_item_price") {
     heading = request.item_name || "Unknown item";
     body = missingPriceBody(request, details);

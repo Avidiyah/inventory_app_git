@@ -995,12 +995,12 @@ def test_admin_hub_exceptions_count_each_open_request_type(db):
         db, request_type=user_requests_service.REQUEST_MISSING_ITEM_PRICE, created_by=creator
     )
     _seed_user_request(
-        db, request_type=user_requests_service.REQUEST_ITEM, created_by=creator
+        db, request_type=user_requests_service.REQUEST_CATALOGUE, created_by=creator
     )
     # A resolved request must not count -- exceptions are open work only.
     _seed_user_request(
         db,
-        request_type=user_requests_service.REQUEST_ITEM,
+        request_type=user_requests_service.REQUEST_CATALOGUE,
         status=user_requests_service.STATUS_RESOLVED,
         created_by=creator,
     )
@@ -1009,7 +1009,7 @@ def test_admin_hub_exceptions_count_each_open_request_type(db):
 
     assert exceptions.inventory_recounts - baseline.inventory_recounts == 1
     assert exceptions.missing_item_price - baseline.missing_item_price == 1
-    assert exceptions.item_requests - baseline.item_requests == 1
+    assert exceptions.catalogue_requests - baseline.catalogue_requests == 1
 
 
 def test_admin_hub_exceptions_admin_review_queue_matches_pipeline_review(db):

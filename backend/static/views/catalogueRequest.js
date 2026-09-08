@@ -1,4 +1,4 @@
-// View: file an Item Request from a search that found nothing.
+// View: file a Catalogue Request from a search that found nothing.
 //
 // Layer: views. Mounted at two empty states -- the Work Orders card's
 // add-material picker and Find Item's results table -- so a user who cannot
@@ -13,82 +13,82 @@
 // build their empty states with `innerHTML`; a document-level delegated
 // listener then owns every interaction, so hosts need no per-instance wiring.
 
-import { apiCreateItemRequest } from "../api.js";
+import { apiCreateCatalogueRequest } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 
 // Where the prompt is allowed to submit from. Kept explicit so a typo in a
 // host view fails loudly here instead of writing a junk `source` server-side.
 const SOURCES = new Set(["work_orders", "find_item"]);
 
-export function itemRequestPromptHtml({
+export function catalogueRequestPromptHtml({
   searchedText,
   workOrderId = null,
   source,
 }) {
   if (!SOURCES.has(source)) {
-    throw new Error(`itemRequestPromptHtml: unknown source ${source}`);
+    throw new Error(`catalogueRequestPromptHtml: unknown source ${source}`);
   }
   const text = (searchedText || "").trim();
   if (!text) return "";
 
-  return `<div class="item-request" data-source="${escapeHtml(source)}"${
+  return `<div class="catalogue-request" data-source="${escapeHtml(source)}"${
     workOrderId ? ` data-work-order-id="${escapeHtml(workOrderId)}"` : ""
   } data-searched-text="${escapeHtml(text)}">
-      <button type="button" class="secondary-btn item-request-open">
-        Can't find it? Request this item
+      <button type="button" class="secondary-btn catalogue-request-open">
+        Can't find it? Request it for the catalogue
       </button>
     </div>`;
 }
 
 function formHtml(searchedText) {
-  return `<div class="item-request-form">
-      <p class="hint">Send this to Admins to add to the catalogue.</p>
-      <label class="item-request-label">Item you searched for
-        <input type="text" class="item-request-text" value="${escapeHtml(searchedText)}" maxlength="200">
+  return `<div class="catalogue-request-form">
+      <p class="hint">Send this to staff to add to the catalogue.</p>
+      <label class="catalogue-request-label">Item you searched for
+        <input type="text" class="catalogue-request-text" value="${escapeHtml(searchedText)}" maxlength="200">
       </label>
-      <label class="item-request-label">Quantity needed
-        <input type="number" class="item-request-qty" value="1" min="0.01" step="any" inputmode="decimal">
+      <label class="catalogue-request-label">Quantity needed
+        <input type="number" class="catalogue-request-qty" value="1" min="0.01" step="any" inputmode="decimal">
       </label>
-      <label class="item-request-label">Note (optional)
-        <input type="text" class="item-request-note" maxlength="500" placeholder="e.g. sweat type, not press">
+      <label class="catalogue-request-label">Note (optional)
+        <input type="text" class="catalogue-request-note" maxlength="500" placeholder="e.g. sweat type, not press">
       </label>
-      <div class="item-request-actions">
-        <button type="button" class="item-request-submit">Send request</button>
-        <button type="button" class="secondary-btn item-request-cancel">Cancel</button>
+      <div class="catalogue-request-actions">
+        <button type="button" class="catalogue-request-submit">Send request</button>
+        <button type="button" class="secondary-btn catalogue-request-cancel">Cancel</button>
       </div>
-      <p class="item-request-message" aria-live="polite"></p>
+      <p class="catalogue-request-message" aria-live="polite"></p>
     </div>`;
 }
 
 function setLocalMessage(container, text, kind) {
-  const el = container.querySelector(".item-request-message");
+  const el = container.querySelector(".catalogue-request-message");
   if (!el) return;
   el.textContent = text;
-  el.className = `item-request-message${kind ? ` ${kind}` : ""}`;
+  el.className = `catalogue-request-message${kind ? ` ${kind}` : ""}`;
 }
 
 document.addEventListener("click", async (event) => {
-  const container = event.target.closest(".item-request");
+  const container = event.target.closest(".catalogue-request");
   if (!container) return;
 
-  if (event.target.closest(".item-request-open")) {
+  if (event.target.closest(".catalogue-request-open")) {
     container.innerHTML = formHtml(container.dataset.searchedText || "");
-    container.querySelector(".item-request-text")?.focus();
+    container.querySelector(".catalogue-request-text")?.focus();
     return;
   }
 
-  if (event.target.closest(".item-request-cancel")) {
-    container.innerHTML = `<button type="button" class="secondary-btn item-request-open">
-        Can't find it? Request this item
+  if (event.target.closest(".catalogue-request-cancel")) {
+    container.innerHTML = `<button type="button" class="secondary-btn catalogue-request-open">
+        Can't find it? Request it for the catalogue
       </button>`;
     return;
   }
 
-  const submit = event.target.closest(".item-request-submit");
+  const submit = event.target.closest(".catalogue-request-submit");
   if (!submit) return;
 
-  const textInput = container.querySelector(".item-request-text");
-  const qtyInput = container.querySelector(".item-request-qty");
+  const textInput = container.querySelector(".catalogue-request-text");
+  const qtyInput = container.querySelector(".catalogue-request-qty");
   const searchedText = textInput.value.trim();
   if (!searchedText) {
     setLocalMessage(container, "Describe the item you need.", "error");
@@ -105,17 +105,17 @@ document.addEventListener("click", async (event) => {
   submit.disabled = true;
   setLocalMessage(container, "Sending…", "");
   try {
-    await apiCreateItemRequest({
+    await apiCreateCatalogueRequest({
       searchedText,
       quantity,
-      note: container.querySelector(".item-request-note").value.trim() || null,
+      note: container.querySelector(".catalogue-request-note").value.trim() || null,
       workOrderId: container.dataset.workOrderId || null,
       source: container.dataset.source,
     });
     // Replace the whole prompt: re-submitting the same search would file a
     // second request for the same material on the same work order.
     container.innerHTML =
-      `<p class="item-request-sent success">Request sent to Admins for review.</p>`;
+      `<p class="catalogue-request-sent success">Catalogue request sent to staff.</p>`;
   } catch (err) {
     submit.disabled = false;
     setLocalMessage(

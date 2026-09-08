@@ -54,9 +54,9 @@
                  views/items.js: the opening state (nothing searched yet) and a
                  search / load-all that returned no rows. Error and success
                  messages keep using #items-message below. #items-empty-extra
-                 carries the "request this item" prompt when a search found
+                 carries the "request it for the catalogue" prompt when a search found
                  nothing; its click handling is delegated on `document`
-                 (views/itemRequest.js), so it works outside the table. -->
+                 (views/catalogueRequest.js), so it works outside the table. -->
             <div id="items-empty" class="empty-state" hidden>
                 <svg id="items-empty-icon-search" class="empty-state-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>
                 <svg id="items-empty-icon-box" class="empty-state-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg>

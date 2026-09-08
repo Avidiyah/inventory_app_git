@@ -42,7 +42,7 @@ import {
 } from "./correction.js";
 import { mountScanner } from "./scan.js";
 import { openAddBarcode, closeAddBarcode, setOnSaved as setOnAddBarcodeSaved } from "./addBarcode.js";
-import { itemRequestPromptHtml } from "./itemRequest.js";
+import { catalogueRequestPromptHtml } from "./catalogueRequest.js";
 import { initSubNav } from "./subnav.js";
 import { toolScanWidget } from "./tools.js";
 import { skeletonTableRows } from "../skeleton.js";
@@ -276,7 +276,7 @@ export function renderItems(emptyMessage = "No items match that search.") {
     // item" -- an empty Load All just means an empty catalogue, and a scan
     // has its own create-item shortcut, so neither offers to file a request.
     const prompt = resultMode === "search" && resultQuery
-      ? itemRequestPromptHtml({ searchedText: resultQuery, source: "find_item" })
+      ? catalogueRequestPromptHtml({ searchedText: resultQuery, source: "find_item" })
       : "";
     showEmptyState(emptyMessage, {
       icon: resultMode === "all" ? "box" : "search",

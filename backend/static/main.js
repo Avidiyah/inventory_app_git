@@ -28,7 +28,7 @@ import "./views/history.js";
 import "./views/transactions.js";
 import "./views/scan.js";
 import "./views/massStage.js";
-import "./views/itemRequest.js";
+import "./views/catalogueRequest.js";
 import "./views/userRequests.js";
 import "./views/lowStock.js";
 import "./views/lowStockCard.js";

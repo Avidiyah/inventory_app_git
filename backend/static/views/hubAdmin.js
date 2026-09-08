@@ -89,7 +89,7 @@ function pipelineHtml(pipeline) {
 const EXCEPTION_ROWS = [
   ["inventory_recounts", "Inventory recounts", true],
   ["missing_item_price", "Missing price / link", true],
-  ["item_requests", "Item requests", true],
+  ["catalogue_requests", "Catalogue requests", true],
   ["admin_review_queue", "Admin review queue", false],
   ["stale_work_orders", "Stale > 3 days", false],
 ];

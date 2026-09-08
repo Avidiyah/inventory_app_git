@@ -322,7 +322,7 @@ export async function apiUpdateUserRequest(
   });
 }
 
-export async function apiCreateItemRequest({
+export async function apiCreateCatalogueRequest({
   searchedText,
   quantity = 1,
   note = null,
@@ -331,7 +331,7 @@ export async function apiCreateItemRequest({
 }) {
   // Open to any signed-in role: the technician who cannot find a material is
   // the one who reports it. `source` is "work_orders" or "find_item".
-  return jsonRequest("/user-requests/item-request", "POST", {
+  return jsonRequest("/user-requests/catalogue-request", "POST", {
     searched_text: searchedText,
     quantity,
     note,
@@ -341,12 +341,12 @@ export async function apiCreateItemRequest({
 }
 
 export async function apiListRequestSiblings(requestId) {
-  // Other open item requests naming the same material. A proposal the Admin
+  // Other open catalogue requests naming the same material. A proposal the Admin
   // confirms before fulfilment cascades to them -- never applied on its own.
   return liveGet(`/user-requests/${requestId}/siblings`);
 }
 
-export async function apiFulfillItemRequest(
+export async function apiFulfillCatalogueRequest(
   requestId,
   { itemId = null, newItem = null, siblingIds = [] }
 ) {

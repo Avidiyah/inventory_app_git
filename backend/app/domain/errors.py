@@ -105,7 +105,7 @@ class UserRequestNotFoundError(DomainError):
 class ItemRequestStateError(DomainError):
     """Raised when a User Request cannot accept the requested change.
 
-    Covers fulfilling something that is not an open item request (already
+    Covers fulfilling something that is not an open catalogue request (already
     resolved, or the wrong `request_type`) and editing a `details` key the
     request's type does not expose -- notably a recount's frozen shortage
     numbers, which are an audit snapshot rather than editable fields."""

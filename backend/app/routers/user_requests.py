@@ -1,6 +1,6 @@
 """HTTP routes for operational User Requests.
 
-TechFM OA and above own the queue, with one deliberate exception: filing an item
+TechFM OA and above own the queue, with one deliberate exception: filing a catalogue
 request is open to any authenticated session, because the Technician who
 cannot find a material on the floor is exactly the person who has to report
 it. Every other operation here stays TechFM OA+.
@@ -19,8 +19,8 @@ from app.domain.errors import DomainError, WorkOrderNotFoundError
 from app.models import User, UserRequest, WorkOrder
 from app.routers._errors import to_http
 from app.schemas.user_requests import (
-    ItemRequestCreate,
-    ItemRequestFulfill,
+    CatalogueRequestCreate,
+    CatalogueRequestFulfill,
     UserRequestResponse,
     UserRequestUpdate,
 )
@@ -77,9 +77,9 @@ def list_user_requests(
     return [_response(row) for row in request_service.list_user_requests(db, status=status)]
 
 
-@router.post("/item-request", response_model=UserRequestResponse, status_code=201)
-def create_item_request(
-    payload: ItemRequestCreate,
+@router.post("/catalogue-request", response_model=UserRequestResponse, status_code=201)
+def create_catalogue_request(
+    payload: CatalogueRequestCreate,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -104,7 +104,7 @@ def create_item_request(
             raise to_http(WorkOrderNotFoundError("Work order not found."))
         number = work_order.number
 
-    request = request_service.create_item_request(
+    request = request_service.create_catalogue_request(
         db,
         searched_text=payload.searched_text,
         quantity=payload.quantity,
@@ -128,7 +128,7 @@ def list_request_siblings(
     user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
-    """Other open item requests naming the same material.
+    """Other open catalogue requests naming the same material.
 
     A proposal for a TechFM OA or Admin to confirm before a fulfilment cascades to them,
     never an action in itself.
@@ -137,7 +137,7 @@ def list_request_siblings(
         request = request_service.get_user_request(db, request_id)
         return [
             _response(row)
-            for row in request_service.find_sibling_item_requests(db, request)
+            for row in request_service.find_sibling_catalogue_requests(db, request)
         ]
     except DomainError as exc:
         raise to_http(exc)
@@ -148,9 +148,9 @@ def list_request_siblings(
     response_model=UserRequestResponse,
     responses={403: {"description": "Requires the admin role or above."}},
 )
-def fulfill_item_request(
+def fulfill_catalogue_request(
     request_id: uuid.UUID,
-    payload: ItemRequestFulfill,
+    payload: CatalogueRequestFulfill,
     user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
@@ -167,7 +167,7 @@ def fulfill_item_request(
             item = items_service.create_item(db, **payload.new_item.model_dump())
             item_id = item.id
 
-        request, skipped = request_service.fulfill_item_request(
+        request, skipped = request_service.fulfill_catalogue_request(
             db,
             request_id,
             item_id=item_id,

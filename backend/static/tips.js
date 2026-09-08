@@ -179,15 +179,15 @@ export const TIPS = {
   // --- User Requests (pages/user-requests.html) --------------------------
   "requests.types": {
     label: "Request types",
-    text: "Recount requests flag stock that came up short. Missing price requests collect a price and product link for unpriced material used on a work order. Item requests report material a user searched for and could not find; fulfilling one adds it to the catalogue and logs it back onto the work order it came from.",
+    text: "Recount requests flag stock that came up short. Missing price requests collect a price and product link for unpriced material used on a work order. Catalogue requests report material a user searched for and could not find; fulfilling one adds it to the catalogue and logs it back onto the work order it came from.",
   },
   "requests.recount": {
     label: "Correcting a recount request",
     text: "Saving a corrected count writes an inventory adjustment with this reason. Mark resolved only closes the request; it does not change stock.",
   },
   "requests.siblings": {
-    label: "Closing matching item requests",
-    text: "Matching item requests start checked because one catalogue fix can close them together. Each selected request with a live work order adds its own quantity there; closed or absent work orders receive no line, and unchecked requests stay open.",
+    label: "Closing matching catalogue requests",
+    text: "Matching catalogue requests start checked because one catalogue fix can close them together. Each selected request with a live work order adds its own quantity there; closed or absent work orders receive no line, and unchecked requests stay open.",
   },
 
   // --- Mass Stage (pages/mass-stage.html) --------------------------------
@@ -241,7 +241,7 @@ export const TIPS = {
   },
   "hub.exceptions": {
     label: "Hub exceptions",
-    text: "Counts open recount, missing-price, and item requests, plus the Admin Review queue. A live In-Progress or On-Hold order is stale when no session activity is recorded, or its last activity was at least three days ago.",
+    text: "Counts open recount, missing-price, and catalogue requests, plus the Admin Review queue. A live In-Progress or On-Hold order is stale when no session activity is recorded, or its last activity was at least three days ago.",
   },
   "hub.billing-week": {
     label: "Hub billing periods",

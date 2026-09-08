@@ -322,26 +322,26 @@ def test_every_gated_work_order_route_documents_its_403(endpoint_name):
         "list_user_requests",
         "update_user_request",
         "list_request_siblings",
-        "fulfill_item_request",
+        "fulfill_catalogue_request",
     ],
 )
 def test_user_request_routes_require_techfm_oa(endpoint_name):
     assert _min_role_for(user_requests_router, endpoint_name) == roles.ROLE_TECHFM_OA
 
 
-def test_filing_an_item_request_has_no_static_min_role():
+def test_filing_a_catalogue_request_has_no_static_min_role():
     # The one non-admin route on this router. A Technician who cannot find a
     # material is exactly the person who has to report it, so filing is gated
     # by what the caller is doing rather than by rank -- the same shape as
     # `POST /transactions/` above. Reading and resolving the queue stay Admin+,
     # which the parametrized test above pins.
-    assert _min_role_for(user_requests_router, "create_item_request") is None
+    assert _min_role_for(user_requests_router, "create_catalogue_request") is None
 
 
 @pytest.mark.parametrize(
-    "endpoint_name", ["list_request_siblings", "fulfill_item_request"]
+    "endpoint_name", ["list_request_siblings", "fulfill_catalogue_request"]
 )
-def test_gated_item_request_routes_document_their_403(endpoint_name):
+def test_gated_catalogue_request_routes_document_their_403(endpoint_name):
     # Same reasoning as the work-order routes: a dependency capable of raising
     # 403 does not document itself in the schema.
     route = _route(user_requests_router, endpoint_name)
