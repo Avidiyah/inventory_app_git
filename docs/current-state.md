@@ -15,7 +15,7 @@ known gaps change. For review/debugging: `Data Model` + `Known Gaps` identify
 the contract and the intentional limitations.
 
 If this file conflicts with code, trust the code and update this file as part
-of the change. Alembic head is **`a2c4e6b8d0f1`** (34 revisions). Operation
+of the change. Alembic head is **`d1e3f5a7b9c2`** (39 revisions). Operation
 and test counts are volatile — verify via `app.openapi()` and
 `pytest --collect-only` rather than trusting any quoted number.
 
@@ -94,11 +94,11 @@ Path shorthand:
 | List-size ceiling (all list endpoints) | `domain/list_limits.py`, `services/_list_cap.py`, the six `list_*` service functions | `test_list_limits.py`, `test_list_cap_service.py`, `test_list_caps_applied.py` |
 | Roles/permissions/user management | `domain/roles.py`, `routers/users.py`, `services/users.py`, `schemas/users.py`, `static/roles.js`, `static/views/users.js`, `static/views/nav.js` | `test_roles.py`, `test_route_role_gates.py`, `test_user_names.py`, `test_user_role_edit.py`, `test_user_archive.py` |
 | Item CRUD/lookup/archive | `routers/items.py`, `services/items.py`, `schemas/items.py`, `models.py`, `static/views/items.js`, `static/views/itemEditor.js`, `static/api.js` | `test_item_barcodes.py`, `test_item_price_gating.py`, route-gate tests |
-| Low stock alerts / page | `domain/low_stock.py`, `services/low_stock.py`, `routers/_low_stock.py`, `services/items.py`, `routers/items.py`, `domain/notifications.py`, `domain/realtime.py`, `static/views/lowStock.js`, `static/pages/low-stock.html` | `test_low_stock_domain.py`, `test_low_stock_buffer.py`, `test_low_stock_triggers.py`, `test_items_low_stock.py`, `test_low_stock_shell.py` |
+| Low stock alerts / page | `domain/low_stock.py`, `services/low_stock.py`, `routers/_stock_events.py`, `services/items.py`, `routers/items.py`, `domain/notifications.py`, `domain/realtime.py`, `static/views/lowStock.js`, `static/pages/low-stock.html` | `test_low_stock_domain.py`, `test_low_stock_buffer.py`, `test_low_stock_triggers.py`, `test_items_low_stock.py`, `test_low_stock_shell.py` |
 | Item notes | `domain/notes_validation.py`, `services/notes.py`, `schemas/items.py`, `routers/items.py`, `static/views/notes.js` | add/extend focused tests if behavior changes |
 | Alternate barcodes | `models.py`, `services/items.py`, `schemas/items.py`, `routers/items.py`, `static/views/itemEditor.js`, `static/views/addBarcode.js` | `test_item_barcodes.py` |
 | Stock/dispense/correction/void | `domain/quantity.py`, `services/transactions.py`, `routers/transactions.py`, `schemas/transactions.py`, `static/views/transactions.js`, `static/views/correction.js` | `test_quantity_reverse.py`, `test_user_requests.py`, route-gate tests |
-| User Requests / operational exceptions | `models.py`, `services/user_requests.py`, `routers/user_requests.py`, `schemas/user_requests.py`, `services/items.py`, `services/transactions.py`, `services/work_orders.py`, `static/views/userRequests.js`, `static/views/userRequestCards.js`, `static/views/itemRequest.js`, `static/pages/user-requests.html` | `test_user_requests.py`, `test_item_requests.py`, `test_route_role_gates.py` |
+| User Requests / operational exceptions | `models.py`, `domain/material_requests.py`, `services/user_requests.py`, `services/material_requests.py`, `routers/user_requests.py`, `routers/_stock_events.py`, `schemas/user_requests.py`, `services/items.py`, `services/transactions.py`, `services/work_orders.py`, `static/views/userRequests.js`, `static/views/userRequestCards.js`, `static/views/workOrderRequests.js`, `static/views/catalogueRequest.js`, `static/pages/user-requests.html` | `test_user_requests.py`, `test_catalogue_requests.py`, `test_material_requests.py`, `test_material_requests_domain.py`, `test_stock_events_flush.py`, `test_route_role_gates.py` |
 | Billing/charge override | `domain/billing.py`, `services/transactions.py`, `services/work_orders.py`, `services/history.py`, `routers/transactions.py`, `routers/work_orders.py`, `static/pricingText.js`, `static/adminReviewReceipt.js`, `static/views/history.js`, `static/views/workOrders.js`, `static/views/adminReview.js` | `test_billing_validation.py`, `test_work_order_billing.py`, `test_history_price_snapshot.py`, `test_item_price_gating.py` |
 | History filters/export | `services/history.py`, `routers/transactions.py`, `schemas/transactions.py`, `static/views/history.js`, `static/api.js` | `test_history_wo_filter.py` |
 | Barcode upload decode | `services/barcodes.py`, `routers/barcodes.py`, `schemas/barcodes.py`, `static/views/scan.js`, `static/api.js` | `test_barcodes.py` |
@@ -728,7 +728,11 @@ owner > admin > techfm_oa > supervisor > technician
 | Admin Review page / receipt | techfm_oa+; lists every live Review work order |
 | Low Stock page / retune a threshold, edit an item, correct a count | techfm_oa+; lists items at or below their own threshold with 7-day usage, grouped by dispense recency |
 | User Requests page / request status | techfm_oa+; list, edit, resolve/reopen, and fulfil operational exceptions |
-| File an item request | any authenticated user, from an empty search on Work Orders or Find Item |
+| File a material or catalogue request | any authenticated user who can see the work order (material) / any authenticated user (catalogue) |
+| Cancel own open material request | the filer |
+| Mark a material request stocked & notify | techfm_oa+ |
+| Read a work order's requests | whoever can see the work order |
+| Add from a stocked Materials line | whoever can add materials |
 | Close/archive a work order | techfm_oa+ (scoped), any live status; UI action lives on expanded Work Orders cards and remains in Admin Review for Review rows |
 | Set work-order line billing override | techfm_oa+ (scoped) |
 | Send a Completed work order to Review | **admin+**, or the routed Supervisor when not also an assigned worker. The one capability an Admin holds that a TechFM OA does not — see the note below |
@@ -965,8 +969,23 @@ JSONB `details`, `created_at`, nullable `resolved_at`, nullable
 
 Rules:
 
-- The generic queue currently has `inventory_recount` and
-  `missing_item_price` types; statuses are `open` and `resolved`.
+- Types: `inventory_recount`, `missing_item_price`, `catalogue_request` (no
+  catalogue row; NULL `item_id` until fulfilled), `material_request` (a
+  catalogue item at `<= 0` on the shelf; `item_id` and `work_order_id`
+  required). Statuses `open`/`resolved`; `material_request` alone also uses
+  `stocked`. Vocabulary is owned by `domain/material_requests.py`; no CHECK.
+- Material request lifecycle: one live row per (work order, item); a second
+  filing overwrites quantity/link/note. Any stock write taking on-hand from
+  `<= 0` to `> 0` moves every open request for that item to `stocked` in the
+  same transaction and pushes `material_request.stocked` to the crew at that
+  moment + the filer; `> 0` to `<= 0` sends `stocked` back to `open`
+  silently. `POST /user-requests/{id}/mark-stocked` (TechFM OA+) fires the
+  same transition at any on-hand. Adding the material from the stocked
+  Materials line resolves it (`Added to {number}.`, `details.added_quantity`).
+  Stocking against an archived work order resolves with a note and notifies
+  nobody. Fulfilling a catalogue request whose item ends `<= 0` auto-files a
+  material request on that work order (`origin = catalogue_fulfilment`, no
+  filing push).
 - A short Scan / Stock dispense or Work Orders Add Item dispense creates the
   request atomically with the transaction. `details` freezes recorded-before,
   dispensed, shortage, and work order number values for Admin review.
@@ -1439,17 +1458,26 @@ unpriced work-order item raises the deduplicated missing-price request. Live
 scan uses dwell + same-barcode cooldown; the camera auto-starts only with
 permission already granted.
 
-User Requests: TechFM OA+ queue with open/resolved tabs and a client-side
-type filter. Recount cards freeze the shortage snapshot — never editable (the
-whitelist is `EDITABLE_DETAILS`; a rejected key is 409) — and take an inline
-correction that resolves the request wherever the adjust is made. Item
-requests (NULL `item_id` = "not in the app at all", distinct from a recount's
-wrong count) are filed from the two empty states by any role; fulfilment
-links an existing item or creates one, logs it on the originating work order
-**always retroactively** (never moves stock — it calls `attach_dispense_line`
-directly), warns-and-skips a closed work order recording the reason, and
-cascades to admin-confirmed siblings matched on token-set equality. An open
-missing-price card requires a price > 0 and a nonblank link together.
+User Requests: TechFM OA+ queue with four type tabs (Material default, open
+counts) and a per-tab Status control (Material adds Stocked); server-filtered
+by `status` + `type`, reloaded on `user_request.changed`. Material cards
+offer **Mark stocked & notify** (manual fire: pushes the crew and places the
+one-tap line without a stock transaction), Mark resolved, and an edit of
+quantity/link/note. Recount cards freeze the shortage snapshot —
+never editable (the whitelist is `EDITABLE_DETAILS`; a rejected key is 409)
+— and take an inline correction that resolves the request wherever the
+adjust is made. Catalogue requests (NULL `item_id` = "not in the app at
+all", distinct from a recount's wrong count) are filed from the three empty
+states by any role; fulfilment links an existing item or creates one, logs
+it on the originating work order **always retroactively** (never moves
+stock — it calls `attach_dispense_line` directly), warns-and-skips a closed
+work order recording the reason, and cascades to admin-confirmed siblings
+matched on token-set equality. An open missing-price card requires a price
+> 0 and a nonblank link together.
+
+User Hub: the Dashboard opens with **Requested material in stock** rows
+(associated users; all for TechFM OA+) linking to the work order card;
+omitted when empty, refreshed by `user_request.changed`.
 
 Mass Stage: create stage → add work orders (resolve-only; building must
 match) → plan items → `planning→loading` → load (splits across slots by
@@ -1476,10 +1504,15 @@ no actions; the Edit-details status dropdown never offers
 gated on it client-side too. Nested collapsed cards: Edit details
 (Supervisor sees routing/assignment/status; TechFM OA+ also imported
 metadata; `number` never), Notes (append-only log; save clears and closes),
-Materials (Technicians add-only, read-only quantities), Labor (Technician
-fully read-only; the supervisor picker includes themselves "(not
-assigned)"; entries show their session window, capped ones tagged
-"auto-stopped"). TechFM OA+ get import (with summary counts), filtered/
+Materials (Technicians add-only, read-only quantities; a green one-tap
+**Add requested material** line per stocked material request prefills the
+add row and resolves the request on Add), Request (after Materials:
+`workOrderRequests.js` files a material request for a catalogue item the
+shelf lacks — an empty search offers the catalogue-request prompt — and
+lists this work order's material/catalogue requests, with Cancel on the
+filer's own open ones), Labor (Technician fully read-only; the supervisor
+picker includes themselves "(not assigned)"; entries show their session
+window, capped ones tagged "auto-stopped"). TechFM OA+ get import (with summary counts), filtered/
 client CSV export, Archive on any live card, and the exact-archived-number
 restore prompt; the Owner additionally the hidden legacy re-archive button
 (preview count → confirm → actual count). The list shows the newest 10 by
@@ -1497,6 +1530,9 @@ blur/Enter), the core-field and additional-barcode editor, and a count
 correction (`POST /transactions/adjust`). Any save reloads the queue
 rather than patching the card; open cards reopen after the reload.
 `item.low_stock.changed` refreshes it in place while it is the active page.
+`user_request.changed` (Technician+; every request write and any stock write
+crossing zero for a requested item) reloads User Requests, the Hub rows, and
+open cards' Request/Materials surfaces.
 
 Admin Review: TechFM OA+ page over live Review rows; selecting a card opens
 one persistent receipt textarea (shared `pricingText.js` 41-char lines,
@@ -1554,7 +1590,7 @@ operational surface renders the derived full name.
 
 ## Migration History
 
-Alembic head: `a2c4e6b8d0f1`.
+Alembic head: `d1e3f5a7b9c2`.
 
 | Revision | Meaning |
 | --- | --- |
@@ -1592,6 +1628,9 @@ Alembic head: `a2c4e6b8d0f1`.
 | `0c1d2e3f4a5b` | nullable `work_orders.priority`; no default and no backfill, written only by NetFacilities enrichment |
 | `1d2e3f4a5b6c` | `push_subscriptions` for Web Push opt-in, keyed on `endpoint` so a re-subscribe reassigns a shared device rather than duplicating it; nothing to backfill |
 | `a2c4e6b8d0f1` | `work_order_labor_sessions` for tracked start/stop labor, with a partial unique index on `(technician_id) WHERE ended_at IS NULL` enforcing one running clock per person; nothing backfilled, so existing labor rows keep rendering as a bare duration. The new `ready_to_complete` status needed no migration — `work_orders.status` has no CHECK constraint |
+| `a1c3e5b7d9f0` | `items.low_stock_threshold` for the per-item reorder line |
+| `b3d5f7a9c1e2` → `c6e8a0b2d4f7` | work-order auto-close batch columns added, then dropped once the batch was retired |
+| `d1e3f5a7b9c2` | rename `user_requests.request_type` `item_request` → `catalogue_request` (data only) |
 
 ## Test Map
 
@@ -1655,7 +1694,10 @@ Coverage map:
 | `test_receipt.py` | backend fixed-width receipt output matches the frontend contract for markup, truncation, quantities, missing prices, and labor rounding |
 | `test_tools_domain.py` | pure `domain.tools.validate_return` outstanding-balance cap |
 | `test_tools_service.py` | DB-backed: create/duplicate-live-barcode, archived-barcode reuse, checkout/return round-trip incl. `apply_delta` reuse, active-target validation without stock/ledger mutation, checkout overdraft (`NegativeQuantityError`), return-beyond-outstanding (`ToolReturnExceedsCheckedOutError`), per-tool and per-user custody aggregates, multi-user custody split, archive guard until full return, Correct Count increase/decrease/no-op (`NoChangeError`), and the regression that an `adjust` row never enters a custody balance |
-| `test_item_requests.py` | item requests for material with no catalogue row at all, as distinct from a recount of an in-app item whose count is wrong |
+| `test_catalogue_requests.py` | catalogue requests for material with no catalogue row at all, as distinct from a recount of an in-app item whose count is wrong; the `item_request` → `catalogue_request` migration round-trip; UI source pins for the User Requests tabs, work-order Request card, and hub rows |
+| `test_material_requests_domain.py` | pure `domain/material_requests.py` zero-crossing edges and the status vocabulary |
+| `test_material_requests.py` | DB-backed material request lifecycle: file/dedupe, stocked/open edges on every stock write, manual mark-stocked, cancel ownership (403), add-from-line resolve, archived-work-order resolve, catalogue-fulfilment chain, counts, and every route over HTTP |
+| `test_stock_events_flush.py` | `routers/_stock_events.flush_stock_events` drains both the low-stock and material-request buffers exactly once per request |
 | `test_history_date_filter.py` | pure `date_from`/`date_to` → half-open tz-aware UTC bounds builder used by `history.list_history` |
 | `test_search_parity.py` | pins the two punctuation-insensitive search normalizers together — `services/items.py` (Find Item) and `static/format.js` (the client-filtered views) |
 | `test_session_token_hashing.py` | X1: a read of `sessions` yields nothing replayable as a credential |

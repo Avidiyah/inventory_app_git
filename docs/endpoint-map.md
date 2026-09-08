@@ -53,19 +53,19 @@ writes (w).
 | 18 | POST | `/users/{id}/restore` | outranks target | `users.py` → `users.restore_user` | users (w) | `apiRestoreUser` | `users.js` |
 | 19 | DELETE | `/users/{id}` | outranks target | `users.py` → `users.delete_user` | users (w, hard) | `apiDeleteUser` | **API-only** (no UI; UI uses archive) |
 | 20 | GET | `/transactions/` | supervisor+ | `transactions.py` → `history.list_history` | transactions (r), items (r), users (r) | `apiListTransactions` | `history.js` |
-| 21 | POST | `/transactions/` | session + direction¹ | `transactions.py` → `transactions.apply_transaction` (+ `work_orders.resolve_work_order`, `attach_dispense_line`; User Request producers for shortage/missing price) | items (w), transactions (w), work_orders (r/w²), work_order_items (w³), user_requests (w on shortage or NULL/non-positive work-order price) | `apiCreateTransaction` | `transactions.js` |
-| 22 | POST | `/transactions/adjust` | techfm_oa+ | `transactions.py` → `transactions.apply_correction` | items (w), transactions (w) | `apiCreateCorrection` | `correction.js` |
+| 21 | POST | `/transactions/` | session + direction¹ | `transactions.py` → `transactions.apply_transaction` (+ `work_orders.resolve_work_order`, `attach_dispense_line`; User Request producers for shortage/missing price) | items (w), transactions (w), work_orders (r/w²), work_order_items (w³), user_requests (w on shortage or NULL/non-positive work-order price; w: material_request stocked/open edges) | `apiCreateTransaction` | `transactions.js` |
+| 22 | POST | `/transactions/adjust` | techfm_oa+ | `transactions.py` → `transactions.apply_correction` | items (w), transactions (w), user_requests (w: material_request stocked/open edges) | `apiCreateCorrection` | `correction.js` |
 | 23 | PATCH | `/transactions/{id}/billing` | techfm_oa+ | `transactions.py` → `transactions.set_billable_quantity` | transactions (w) | `apiSetBillableQuantity` | `history.js` |
-| 24 | DELETE | `/transactions/{id}` | supervisor+, or Technician's own linked dispense | `transactions.py` → `transactions.void_transaction` (+ `user_requests.resolve_for_transaction`) | transactions (w, soft), items (w), work_order_items (w⁴), user_requests (w if linked) | `apiVoidTransaction` | `history.js`, `transactions.js` |
+| 24 | DELETE | `/transactions/{id}` | supervisor+, or Technician's own linked dispense | `transactions.py` → `transactions.void_transaction` (+ `user_requests.resolve_for_transaction`) | transactions (w, soft), items (w), work_order_items (w⁴), user_requests (w if linked; w: material_request stocked/open edges) | `apiVoidTransaction` | `history.js`, `transactions.js` |
 | 25 | GET | `/work-orders/` | session scoped | `work_orders.py` → `work_orders.list_work_orders` (scheduled-date descending, `sort=scheduled_asc` flips; joinable status/service/supervisor/community/date/number/location/task filters) | work_orders (r), work_order_items (r), work_order_technicians (r), users (r) | `apiListWorkOrders` | `workOrders.js`, `transactions.js`, `history.js`, `adminReview.js` |
 | 26 | GET | `/work-orders/{id}` | session scoped | `work_orders.py` → `work_orders.get_work_order` | work_orders (r), work_order_items (r/w⁵), work_order_technicians (r), work_order_labor (r), items (r), users (r) | `apiGetWorkOrder` | `workOrders.js`, `history.js`, `adminReview.js` |
 | 27 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | `work_orders.py` → `work_orders.lookup_work_order` | work_orders (r, **incl. archived**) | `apiLookupWorkOrder` | `history.js`, `workOrders.js` (TechFM OA+ exact search) |
 | 28 | PATCH | `/work-orders/{id}` | scoped; notes→tech+, operations→sup+, metadata→techfm_oa+; stale supervisor precondition→409 | `work_orders.py` → `work_orders.update_work_order` | work_orders (r/w, row lock; incl. notes/primary mirror), work_order_technicians (w), users (r) | `apiUpdateWorkOrder` | `workOrders.js`, `adminReview.js` (Return to In-Progress) |
 | 29 | POST | `/work-orders/{id}/archive` | techfm_oa+ scoped; any live status | `work_orders.py` → `work_orders.archive_work_order` | work_orders (w, Closed/archive) | `apiArchiveWorkOrder` | `workOrders.js`, `adminReview.js` |
-| 30 | POST | `/work-orders/{id}/items` | Technician+ scoped | `work_orders.py` → `work_orders.add_work_order_item` | items (w; negative expected count allowed in dispense mode), transactions (w), work_order_items (w), user_requests (w if stock is short or item is unpriced) | `apiAddWorkOrderItem` | `workOrders.js` |
-| 31 | PATCH | `/work-orders/{id}/items/{wid}` | supervisor+ scoped | `work_orders.py` → `work_orders.update_work_order_item` | items (w), transactions (w, adjust), work_order_items (w) | `apiUpdateWorkOrderItem` | `workOrders.js` |
+| 30 | POST | `/work-orders/{id}/items` | Technician+ scoped | `work_orders.py` → `work_orders.add_work_order_item` (+ `material_requests.resolve_from_line` when `material_request_id?` is sent) | items (w; negative expected count allowed in dispense mode), transactions (w), work_order_items (w), user_requests (w if stock is short or item is unpriced; w when `material_request_id`; w: material_request stocked/open edges) | `apiAddWorkOrderItem` | `workOrders.js` |
+| 31 | PATCH | `/work-orders/{id}/items/{wid}` | supervisor+ scoped | `work_orders.py` → `work_orders.update_work_order_item` | items (w), transactions (w, adjust), work_order_items (w), user_requests (w: material_request stocked/open edges) | `apiUpdateWorkOrderItem` | `workOrders.js` |
 | 32 | PATCH | `/work-orders/{id}/items/{wid}/billing` | techfm_oa+ scoped | `work_orders.py` → `work_orders.set_work_order_item_billable` | work_order_items (w) | `apiSetWorkOrderItemBilling` | `workOrders.js` |
-| 33 | DELETE | `/work-orders/{id}/items/{wid}` | supervisor+ scoped | `work_orders.py` → `work_orders.delete_work_order_item` | items (w), transactions (w, void), work_order_items (w), user_requests (w, resolve source-linked) | `apiDeleteWorkOrderItem` | `workOrders.js` |
+| 33 | DELETE | `/work-orders/{id}/items/{wid}` | supervisor+ scoped | `work_orders.py` → `work_orders.delete_work_order_item` | items (w), transactions (w, void), work_order_items (w), user_requests (w, resolve source-linked; w: material_request stocked/open edges) | `apiDeleteWorkOrderItem` | `workOrders.js` |
 | 34 | POST | `/mass-stages/` | supervisor+ | `mass_stages.py` → `mass_staging.create_stage` | mass_stages (w) | `apiCreateStage` | `massStage.js` |
 | 35 | GET | `/mass-stages/` | supervisor+ scoped | `mass_stages.py` → `mass_staging.list_stages` | mass_stages (r) | `apiListStages` | `massStage.js` |
 | 36 | GET | `/mass-stages/{id}` | supervisor+ | `mass_stages.py` → `mass_staging.get_stage` | mass_stages (r), mass_stage_work_orders (r), mass_stage_items (r), work_orders (r), items (r) | `apiGetStage` | `massStage.js` |
@@ -77,8 +77,8 @@ writes (w).
 | 42 | POST | `/mass-stages/{id}/work-orders/{slot}/items` | supervisor+ | `mass_stages.py` → `mass_staging.add_item` | mass_stage_items (w) | `apiAddStageItem` | `massStage.js` |
 | 43 | PATCH | `/mass-stages/{id}/work-orders/{slot}/items/{sid}` | supervisor+ | `mass_stages.py` → `mass_staging.update_item` | mass_stage_items (w) | `apiUpdateStageItem` | `massStage.js` |
 | 44 | DELETE | `/mass-stages/{id}/work-orders/{slot}/items/{sid}` | supervisor+ | `mass_stages.py` → `mass_staging.delete_item` | mass_stage_items (w) | `apiDeleteStageItem` | `massStage.js` |
-| 45 | POST | `/mass-stages/{id}/load` | supervisor+ | `mass_stages.py` → `mass_staging.load_item` | items (w), transactions (w), work_order_items (w), mass_stage_items (w), user_requests (w if unpriced) | `apiLoadStageItem` | `massStage.js` |
-| 46 | POST | `/mass-stages/{id}/return` | supervisor+ | `mass_stages.py` → `mass_staging.return_item` | items (w, silent), work_order_items (w), mass_stage_items (w) | `apiReturnStageItem` | `massStage.js` |
+| 45 | POST | `/mass-stages/{id}/load` | supervisor+ | `mass_stages.py` → `mass_staging.load_item` | items (w), transactions (w), work_order_items (w), mass_stage_items (w), user_requests (w if unpriced; w: material_request stocked/open edges) | `apiLoadStageItem` | `massStage.js` |
+| 46 | POST | `/mass-stages/{id}/return` | supervisor+ | `mass_stages.py` → `mass_staging.return_item` | items (w, silent), work_order_items (w), mass_stage_items (w), user_requests (w: material_request stocked/open edges) | `apiReturnStageItem` | `massStage.js` |
 | 47 | POST | `/tools/` | techfm_oa+ | `tools.py` → `tools_service.create_tool` | tools (w) | `apiCreateTool` | `tools.js` |
 | 48 | GET | `/tools/` | session | `tools.py` → `tools_service.list_tools` + `tool_custody` | tools (r), tool_transactions (r), users (r) | `apiListTools` | `tools.js` |
 | 49 | GET | `/tools/{barcode}` | session | `tools.py` → `tools_service.get_tool_by_barcode` + `tool_custody` | tools (r), tool_transactions (r), users (r) | `apiGetToolByBarcode` | `tools.js` |
@@ -99,16 +99,21 @@ writes (w).
 | 64 | GET | `/work-orders/legacy/archive` | owner exactly | `work_orders.py` → `work_orders.count_live_legacy_work_orders` | work_orders (r; live legacy count) | `apiGetLegacyWorkOrderArchivePreview` | `workOrders.js` |
 | 65 | POST | `/work-orders/legacy/archive` | owner exactly | `work_orders.py` → `work_orders.archive_live_legacy_work_orders` | work_orders (w; atomic bulk soft-archive) | `apiArchiveLegacyWorkOrders` | `workOrders.js` |
 | 66 | POST | `/work-orders/{id}/start` | technician+ scoped | `work_orders.py` → `work_orders.start_work_order` | work_orders (r/w, row lock) | `apiStartWorkOrder` | `transactions.js`, `workOrders.js` |
-| 67 | GET | `/user-requests/` | techfm_oa+ | `user_requests.py` → `user_requests.list_user_requests` | user_requests (r), items (r), work_orders (r), users (r) | `apiListUserRequests` | `userRequests.js` |
+| 67 | GET | `/user-requests/` | techfm_oa+ (`status=open|stocked|resolved`, `type=`) | `user_requests.py` → `user_requests.list_user_requests` | user_requests (r), items (r), work_orders (r), users (r) | `apiListUserRequests` | `userRequests.js` |
 | 68 | PATCH | `/user-requests/{id}` | techfm_oa+ | `user_requests.py` → `user_requests.update_user_request` / `update_user_request_fields` | user_requests (r/w), users (r) | `apiUpdateUserRequest` | `userRequests.js` |
-| 68a | POST | `/user-requests/item-request` | session (any role) | `user_requests.py` → `user_requests.create_item_request` | user_requests (w), work_orders (r) | `apiCreateItemRequest` | `itemRequest.js` |
-| 68b | GET | `/user-requests/{id}/siblings` | techfm_oa+ | `user_requests.py` → `user_requests.find_sibling_item_requests` | user_requests (r), work_orders (r), users (r) | `apiListRequestSiblings` | `userRequests.js` |
-| 68c | POST | `/user-requests/{id}/fulfill` | techfm_oa+ | `user_requests.py` → `items.create_item` (optional) + `user_requests.fulfill_item_request` → `work_orders.attach_dispense_line` | user_requests (r/w, row lock), items (r/w on create), work_orders (r/w status), work_order_items (w, retroactive) | `apiFulfillItemRequest` | `userRequests.js` |
+| 68a | POST | `/user-requests/catalogue-request` | session (any role) | `user_requests.py` → `user_requests.create_catalogue_request` | user_requests (w), work_orders (r) | `apiCreateCatalogueRequest` | `catalogueRequest.js` |
+| 68b | GET | `/user-requests/{id}/siblings` | techfm_oa+ | `user_requests.py` → `user_requests.find_sibling_catalogue_requests` | user_requests (r), work_orders (r), users (r) | `apiListRequestSiblings` | `userRequests.js` |
+| 68c | POST | `/user-requests/{id}/fulfill` | techfm_oa+ | `user_requests.py` → `items.create_item` (optional) + `user_requests.fulfill_catalogue_request` → `work_orders.attach_dispense_line` (+ `material_requests.create_or_update` when the item ends `<= 0`) | user_requests (r/w, row lock), items (r/w on create), work_orders (r/w status), work_order_items (w, retroactive) | `apiFulfillCatalogueRequest` | `userRequests.js` |
+| 68d | POST | `/user-requests/material-request` | session, WO-visible | `user_requests.py` → `work_orders.get_visible_work_order` + `material_requests.create_or_update` (+ `notifications.notify_material_request_filed` on create) | user_requests (w), items (r, row lock), work_orders (r), push_subscriptions (r) | `apiCreateMaterialRequest` | `workOrderRequests.js` |
+| 68e | POST | `/user-requests/{id}/mark-stocked` | techfm_oa+ | `user_requests.py` → `material_requests.mark_stocked` → `_stock_events.flush_stock_events` | user_requests (r/w, row lock), work_orders (r), work_order_technicians (r), push_subscriptions (r) | `apiMarkRequestStocked` | `userRequests.js` |
+| 68f | POST | `/user-requests/{id}/cancel` | session, filer only | `user_requests.py` → `material_requests.cancel` | user_requests (r/w, row lock) | `apiCancelMaterialRequest` | `workOrderRequests.js` |
+| 68g | GET | `/user-requests/counts` | techfm_oa+ | `user_requests.py` → `material_requests.open_counts` | user_requests (r) | `apiListUserRequestCounts` | `userRequests.js` |
 | 69 | POST | `/work-orders/{id}/complete` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.complete_work_order` | work_orders (r/w status + notes, row lock), work_order_technicians (r), push_subscriptions (r, via notify) | `apiCompleteWorkOrder` | `workOrders.js` |
 | 70 | POST | `/work-orders/{id}/hold` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.hold_work_order` | work_orders (r/w, row lock), work_order_technicians (r), push_subscriptions (r, via notify) | `apiHoldWorkOrder` | `workOrders.js` |
 | 71 | POST | `/work-orders/{id}/resume` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.resume_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiResumeWorkOrder` | `workOrders.js` |
 | 71a | POST | `/work-orders/{id}/tracking/start` | assigned Technician, or Supervisor+ on any visible row | `work_orders.py` → `work_orders.start_labor_session` | work_orders (r/w status + notes, row lock), work_order_technicians (r), work_order_labor_sessions (r/w), work_order_labor (w, when it closes a clock elsewhere), push_subscriptions (r, via notify on that row's auto-hold) | `apiStartWorkOrderTracking` | `workOrders.js` |
 | 71b | POST | `/work-orders/{id}/tracking/stop` | assigned Technician, or Supervisor+ on any visible row | `work_orders.py` → `work_orders.stop_labor_session` | work_orders (r/w status + notes, row lock), work_order_technicians (r), work_order_labor_sessions (r/w), work_order_labor (w), push_subscriptions (r, via notify on auto-hold) | `apiStopWorkOrderTracking` | `workOrders.js` |
+| 72a | GET | `/work-orders/{id}/requests` | session scoped | `work_orders.py` → `work_orders.get_visible_work_order` + `material_requests.list_for_work_order` | user_requests (r), items (r), work_orders (r), users (r) | `apiListWorkOrderRequests` | `workOrderRequests.js` |
 | NF2 | POST | `/integrations/netfacilities/work-orders/enrich` | techfm_oa+ | `netfacilities.py` → `_resolve_cloud_enrichment_context` (the caller's own cloud session) → `netfacilities_jobs.start` → `netfacilities.enrich_work_orders` | work_orders (r/w, existing live candidates only; short compare-and-set locks); netfacilities_cloud_sessions (r, caller's own row only) | `apiStartNetFacilitiesEnrichment` | `workOrders.js` |
 | NF3 | GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | techfm_oa+ | `netfacilities.py` → `netfacilities_jobs.get` | no DB; process-local aggregate-only job snapshot | `apiGetNetFacilitiesEnrichment` | `workOrders.js` |
 | NF5 | GET | `/integrations/netfacilities/cloud/session` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.latest` + `NetFacilitiesCloudSession` existence check | netfacilities_cloud_sessions (r, existence only) | `apiGetNetFacilitiesCloudSession` | `workOrders.js` (Integrations card, cloud sign-in) |
@@ -201,6 +206,15 @@ action → wrapper → endpoint → service → table effect.
   `adjust` row. Billing edit (`PATCH .../billing`): no stock change.
 
 ### User requests
+- Material request: filing needs a visible work order (404) and a live item;
+  a repeat for the same (work order, item) overwrites quantity/link/note and
+  answers `updated: true`. Cancel is the filer's, while open (403/409).
+- Stocked edge: a stock write from `<= 0` to `> 0` moves the item's open
+  requests to `stocked` and buffers a push; `> 0` to `<= 0` reopens silently.
+  `mark-stocked` (TechFM OA+) fires the transition at any on-hand.
+  `routers/_stock_events.py` drains after commit. `PATCH status=stocked` is 422.
+- `POST /work-orders/{id}/items` with `material_request_id` resolves that
+  request in the same commit; not stocked / other work order / other item is 409.
 - Price+link saves go through `PATCH /items/{id}` (inline input `min="0.01"`);
   open missing-price requests auto-resolve only when a positive price AND
   nonblank link both exist. Recount cards resolve/reopen via
@@ -388,7 +402,7 @@ Quick reverse lookup: "which endpoints touch table X?"
 | `mass_stage_items` | 42, 43, 44, 45, 46 | 36 |
 | `tools` | 47, 50, 51, 52, 53, 54 | 48, 49, 52, 53, 54 |
 | `tool_transactions` | 52, 53, 54 | 48, 49, 53 (outstanding-balance check) |
-| `user_requests` | 9 (price/link auto-resolve), 21 (shortage/unpriced), 24 (recount auto-resolve), 30/45 (unpriced), 69 | 68–69 |
+| `user_requests` | 9 (price/link auto-resolve), 21 (shortage/unpriced), 24 (recount auto-resolve), 30/45 (unpriced), 30 (`material_request_id` resolve), every stock write in 21/22/24/30/31/33/45/46 (material_request stocked/open edges), 68a/68c/68d/68e/68f, 69 | 67, 68, 68b, 68g, 72a, H1 (hub `stocked_requests`) |
 | `push_subscriptions` | P2 (upsert/reassign), P3 (delete own), sends prune dead rows on 404/410 | P4 and the notify fan-outs (rows 69/70/71a/71b, NF6) |
 
 f-o-c = find-or-create.
@@ -508,16 +522,21 @@ at least one of `status`/`message`/`details` is required. `details` keys are
 whitelisted per request type by `EDITABLE_DETAILS`; a recount's frozen audit
 numbers are not on any list and a rejected key returns 409.
 
-**`ItemRequestCreate`** — `POST /user-requests/item-request`: `searched_text:
-str` (1–200, trimmed), `quantity: Decimal=1` (>0), `note: str?=null` (≤500,
-trimmed), `work_order_id: UUID?=null`, `source: "work_orders"|"find_item"`.
+**`CatalogueRequestCreate`** — `POST /user-requests/catalogue-request`:
+`searched_text: str` (1–200, trimmed), `quantity: Decimal=1` (>0), `note:
+str?=null` (≤500, trimmed), `work_order_id: UUID?=null`, `source:
+"work_orders"|"find_item"|"request_card"`.
+
+**`MaterialRequestCreate`** — `POST /user-requests/material-request`: `item_id:
+UUID`, `work_order_id: UUID`, `quantity: Decimal=1` (>0), `product_link:
+str?=null` (≤2000, http(s) only), `note: str?=null` (≤500).
 
 **`NewItemPayload`** — the Add Item fields for creating the catalogue row inline:
 `barcode`, `name`, `location` (all non-blank), `quantity: Decimal=0` (≥0),
 `price: Decimal?=null`, `product_link: str?=null`, `override_archived:
 bool=false`.
 
-**`ItemRequestFulfill`** — `POST /user-requests/{id}/fulfill`: `item_id: UUID?`
+**`CatalogueRequestFulfill`** — `POST /user-requests/{id}/fulfill`: `item_id: UUID?`
 XOR `new_item: NewItemPayload?` (exactly one, enforced by a model validator),
 `sibling_ids: list[UUID]=[]` — the other open requests the admin **confirmed**
 name the same material.
@@ -526,9 +545,11 @@ name the same material.
 `item_id`/`item_name`/`item_barcode`/`item_price`/`item_product_link`,
 `transaction_id`, `work_order_id`/
 `work_order_number`, `created_by_id`/`created_by_name`, generic `details: dict`,
-`created_at`, nullable `resolved_at`, `resolved_by_id`/`resolved_by_name`, and
-`resolution_note`. The list endpoint returns `list[UserRequestResponse]` and
-requires `status=open|resolved` (default `open`).
+`created_at`, nullable `resolved_at`, `resolved_by_id`/`resolved_by_name`,
+`resolution_note`, `item_quantity: Decimal?` (on-hand now), `updated:
+bool=false` (a filing overwrote an earlier one). The list takes
+`status=open|stocked|resolved` (default `open`) and optional `type=`;
+`/counts` answers `{request_type: {open, stocked}}`.
 
 ### Barcodes (`schemas/barcodes.py`)
 
@@ -613,7 +634,8 @@ matching `legacy=true AND archived_at IS NULL`.
 affected-row count (not a replay of the earlier preview).
 
 **`WorkOrderItemCreate`** — `POST .../items`: `item_id: UUID`, `quantity: Decimal`
-(> 0). **`WorkOrderItemUpdate`** — `PATCH .../items/{wid}`: `quantity: Decimal`
+(> 0), `material_request_id: UUID?=null` (the stocked request this line
+answers). **`WorkOrderItemUpdate`** — `PATCH .../items/{wid}`: `quantity: Decimal`
 (> 0). **`WorkOrderItemBilling`** — `PATCH .../items/{wid}/billing`:
 `billable_quantity: Decimal?=null` (≥ 0; upper bound vs line quantity enforced in
 service).
@@ -691,7 +713,7 @@ additive change. The socket never mutates anything (P3, permanent).
 
 | Key | Type | Meaning |
 |---|---|---|
-| `type` | `str` | event name — one of the three in the vocabulary table below |
+| `type` | `str` | event name — one of the five in the vocabulary table below |
 | `id` | `str \| null` | the affected work-order UUID, or `null` for collection/membership commands (CSV import, bulk legacy archive, restore — and always for `labor.session.changed`) |
 | `req` | `str` | the 12-hex request id of the HTTP write that caused it, copied from `logging_config.current_request_id()` so the socket event stays on the causal trace |
 
@@ -703,7 +725,7 @@ server-side at send time (`domain/realtime.audience_allows`); it is delivery
 policy, not a security boundary — the envelope has nothing to leak, and an
 out-of-scope refetch returns nothing.
 
-**Event vocabulary and emitters** — three types, all emitted after the
+**Event vocabulary and emitters** — five types, all emitted after the
 mutating service returns. `test_realtime_emit.py` pins each emitter set; a new
 route that can change what a subscriber shows must join the right set
 deliberately:
@@ -713,9 +735,11 @@ deliberately:
 | `work_order.review_queue.changed` | TechFM OA+ | import, bulk legacy archive, update, archive, restore | `adminReview.js` |
 | `work_order.status.changed` | any role | those six plus start, complete, hold, resume, tracking start/stop — card **summary** invalidation (status/assignee/item count); tracking start also emits for a side-transitioned row | `workOrders.js`, `userHub.js` |
 | `labor.session.changed` | Supervisor+ | exactly the two tracking routes; always `id: null` | `userHub.js` (crew board) |
+| `item.low_stock.changed` | TechFM OA+ | any stock write that crosses an item's threshold, and a threshold edit; `id` is the item | `lowStock.js` |
+| `user_request.changed` | Technician+ | filing, mark-stocked, cancel, PATCH, fulfil, every stock write that crosses zero for a requested item, add-from-line; `id` is the request | `userRequests.js`, `userHub.js`, `workOrderRequests.js` |
 
-Materials, billing, and manual-labor CRUD deliberately emit **nothing** — no
-consumer refreshes an open card body.
+Materials, billing, and manual-labor CRUD emit nothing for the card body;
+stock writes emit only the two item/request events above when an edge is crossed.
 
 **Failure behavior** — emission is non-blocking and best-effort. A saturated
 handoff drops and counts the newest invalidation and never fails the durable
@@ -788,8 +812,11 @@ No custody holder involved.
 **`HubResponse`** — `GET /hub` (any authenticated role): `user: HubUser`,
 `server_now: datetime`, `day: date` (Central), `clock: HubClock`,
 `timeline: list[HubTimelineEntry] = []`, `counts: HubCounts`,
-`startable: list[HubStartable] = []`, `tools_out: list[HubToolOut] = []`.
-`server_now` is the client's clock-skew anchor — it records
+`startable: list[HubStartable] = []`, `tools_out: list[HubToolOut] = []`,
+`stocked_requests: list[HubStockedRequest] = []` (each `request_id`,
+`item_name`, `work_order_id?`, `work_order_number`, `quantity`,
+`stocked_at?`; the viewer's own associated requests, or every stocked one
+for TechFM OA+). `server_now` is the client's clock-skew anchor — it records
 `skew = server_now − Date.now()` at fetch time and renders elapsed against
 it, so a field phone with a wrong system clock still shows the right number.
 
@@ -920,7 +947,8 @@ non-domain exceptions become FastAPI's default 500.
 | `UserNotFoundError` | 404 | user id unknown; tool checkout also uses it when the target is archived (not an active checkout target) |
 | `TransactionNotFoundError` | 404 | txn id unknown or already voided |
 | `UserRequestNotFoundError` | 404 | user-request id unknown |
-| `ItemRequestStateError` | 409 | fulfilling something that is not an open item request, or editing a `details` key the request's type does not expose (notably a recount's frozen audit numbers) |
+| `ItemRequestStateError` | 409 | fulfilling something that is not an open catalogue request; editing a `details` key the request's type does not expose (notably a recount's frozen audit numbers); mark-stocked on a non-open material request; cancel of a non-open one; an add with a `material_request_id` that is not stocked / wrong work order / wrong item |
+| `MaterialRequestOwnershipError` | 403 | cancelling a material request you did not file |
 | `StageNotFoundError` | 404 | mass-stage id unknown |
 | `RoomNotFoundError` | 404 | stage **slot** not found / not in the stage (name retains old "room") |
 | `StageItemNotFoundError` | 404 | planned stage item not found (incl. loading an unplanned item) |

@@ -147,17 +147,19 @@ CSV truncate identically; `count` and `by_status` stay true regardless.
 **Trigger:** `event=list.truncated` with `list=hub_report_closing` in the
 logs — then this section (not all capped lists) needs real pagination.
 
-### N-ITEM-RESTORE — no item unarchive, and item requests expose it
+### N-ITEM-RESTORE — no item unarchive, and catalogue requests expose it
 
 An archived item is search-invisible (`archived_at IS NULL` filter), so a
-user searching a real-but-archived material files an item request. The Admin
-fulfilling it has no restore path: `override_archived` frees the *barcode*
-(purging or retiring the archived row); creating a fresh row silently forks
-the item's identity. Same shape as the archived-work-order gotcha, same
-likely fix: an explicit gated `restore_item`. **Trigger:** an item request
-naming an archived item with any regularity. **Done when triggered:** an
-Admin can restore from the fulfil form, and the request links to the original
-row.
+user searching a real-but-archived material files a catalogue request. The
+Admin fulfilling it has no restore path: `override_archived` frees the
+*barcode* (purging or retiring the archived row); creating a fresh row
+silently forks the item's identity. Same shape as the archived-work-order
+gotcha, same likely fix: an explicit gated `restore_item`. Also applies to
+the catalogue → material chain: a fulfilment that links an archived item is
+impossible today, so the chain never runs for one. **Trigger:** a catalogue
+request naming an archived item with any regularity. **Done when
+triggered:** an Admin can restore from the fulfil form, and the request
+links to the original row.
 
 ### N3 — decide the multi-instance story before scaling horizontally
 
@@ -251,14 +253,15 @@ frontend-only:
 ### N11 — notification triggers considered and deliberately deferred
 
 **Trigger: a user asking to be told about one of these, or the first drive
-to a job archived under them.** Five candidates, ordered by value-to-effort,
+to a job archived under them.** Four candidates, ordered by value-to-effort,
 each costing the three steps in `docs/adding-a-notification-trigger.md`:
 (1) Completed → Review notifies Admin — the forward handoff deliberately
 notifies nobody on the crew; (2) On-Hold notifies supervisor and assignees;
 (3) Archive notifies assignees — the one with real operational cost attached;
-(4) new user request/recount notifies TechFM OA+ (different router and
-audience); (5) NetFacilities enrichment finished notifies the starting Admin
-(currently poll-only). Excluded outright, not deferred: customer/job detail
+(4) NetFacilities enrichment finished notifies the starting Admin
+(currently poll-only). Retired 2026-09-08: `material_request.filed` /
+`.stocked` shipped for material requests; a recount/missing-price push
+remains unbuilt and unrequested. Excluded outright, not deferred: customer/job detail
 in notification bodies (the lock-screen rule), and any digest/batching scheme
 until real volume is observed (see N14).
 
@@ -506,7 +509,7 @@ binds:
 | SEC-018 | High: gives ordinary operational data an owned lifecycle and export policy. | DEC-009. |
 | SEC-019 | Compliance-dependent: satisfies only applicable legal/contractual duties. | DEC-001, DEC-009, and legal/contract owner. |
 | SEC-020 | Very high: prevents an unvalidated quantity from being billed to a customer work order. | None. |
-| SEC-021 | High: closes item-request filing against work orders the filer cannot see. | DEC-005. |
+| SEC-021 | Done 2026-09-08 for material requests; the catalogue-request route still resolves by existence only. | DEC-005. |
 
 #### SEC-001 - Trustworthy, bounded request throttling
 
@@ -791,29 +794,29 @@ DEC-002 growth changes the target).
   sends the raw trimmed string.
 - **Done when:** the patch is validated per request type at the schema boundary
   — reusing the `quantity: Decimal = Field(gt=0)` rule
-  `ItemRequestCreate` already declares (`schemas/user_requests.py:47`) — a
+  `CatalogueRequestCreate` already declares (`schemas/user_requests.py`) — a
   malformed or non-positive quantity returns `422`/`409` with no mutation, and a
-  regression test fails without the fix. None of the 10 tests in
-  `test_item_requests.py` covers this.
+  regression test fails without the fix. Nothing in
+  `test_catalogue_requests.py` covers this.
 - **Dependency/decision:** none. Shape is the only open question: typed per-type
   patch models end the whole class of defect; per-key coercion beside
   `EDITABLE_DETAILS` is smaller and leaves `Any` in the schema.
 
-#### SEC-021 - Work-order visibility check when filing an item request
+#### SEC-021 - Work-order visibility check when filing a request
 
-`Must-fix`; `S`; Security + Integrity; `Confirmed`; status `Candidate`.
+`Must-fix`; `S`; Security + Integrity; `Confirmed`; status **Done 2026-09-08
+(material requests)** — residual on the catalogue route.
 
-- **Evidence/outcome:** `routers/user_requests.py:96-105` resolves
-  `work_order_id` by existence and `archived_at IS NULL` only. The pure
-  predicate `domain/work_orders.can_view_work_order` is never called, though it
-  takes no I/O and is used for exactly this elsewhere. A proof filed a request
-  against a work order assigned to another Technician: accepted, and the
-  response returned that work order's `number`. On fulfilment, material is
-  retroactively billed to it. This is the same shape as SEC-002, on the route
-  deliberately opened to any authenticated session.
-- **Done when:** filing against a work order the caller cannot see returns `404`
-  with no row created and no number disclosed; Technician, Supervisor, and Admin
-  cases are covered.
+- **Evidence/outcome:** `POST /user-requests/material-request` resolves
+  `work_order_id` through `work_orders.get_visible_work_order`, so an
+  out-of-scope work order is 404 with no row and no number disclosed
+  (Technician/Supervisor/Admin cases in `test_material_requests.py`).
+  **Residual:** `POST /user-requests/catalogue-request` still resolves by
+  existence and `archived_at IS NULL` only; a proof filed a request against a
+  work order assigned to another Technician and got its `number` back, and
+  fulfilment retroactively bills material to it. Same shape as SEC-002.
+- **Done when:** the catalogue route uses the same reader, with the three role
+  cases covered.
 - **Dependency/decision:** DEC-005, same as SEC-002 — the visibility rule for
   reassigned/archived work orders is the same policy question.
 
@@ -1121,10 +1124,10 @@ status `Candidate`.
   `note`) and returns `value.strip() or None`. Pydantic v2 does not re-validate
   an after-validator's return against the annotation, and `min_length=1`
   (`:46`) already passed on the *untrimmed* value — so `searched_text="   "`
-  yields `None` on a field typed `str`, and `create_item_request` then calls
-  `.strip()` on it (`services/user_requests.py:174`). Reproduced: unhandled
+  yields `None` on a field typed `str`, and `create_catalogue_request` then
+  calls `.strip()` on it (`services/user_requests.py`). Reproduced: unhandled
   `AttributeError`.
-- **Reachability:** API-only today. `views/itemRequest.js:92` trims and rejects
+- **Reachability:** API-only today. `views/catalogueRequest.js` trims and rejects
   empty text before sending, so no user hits this through the UI — a client-side
   guard standing in for a server-side one, which is the same pattern SEC-020
   shows failing once a second client path exists.

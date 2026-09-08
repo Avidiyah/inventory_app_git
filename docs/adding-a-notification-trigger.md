@@ -13,6 +13,11 @@ trigger touches three places and nothing else:
 2. a function in `services/notifications.py` — resolve the rule, hand it off,
 3. one call at the event site in a router — beside the existing realtime emit.
 
+Events raised several frames below a router (stock writes) use the buffered
+variant of step 3: the service records a plain fact in a ContextVar and
+`routers/_stock_events.py` drains it after the commit — see
+`services/low_stock.py` and `services/material_requests.py`.
+
 If a change you are making needs a fourth place, stop: either the transport is
 being modified (a much bigger change, see *API Surface → Web Push* in
 `current-state.md`), or the trigger is in the wrong layer.
@@ -223,6 +228,7 @@ worse than none, because it will be believed.
 | `wo_service.assigned_technician_ids(wo)` | `services/work_orders.py` | plural assignments, with the legacy singular folded in |
 | `work_order.supervisor_id` | model | the routed supervisor, may be `None` |
 | `wo_service.newly_routed_supervisor_id(wo)` | `services/work_orders.py` | the supervisor *this write* routed the row to, else `None` |
+| `material_requests.StockedFact` | `services/material_requests.py` | frozen assignee/supervisor/requester ids for a request that just became stocked |
 
 Prefer `user_ids_for_min_role` + `send_to_users` over `send_to_min_role` for
 anything with an actor. A role-addressed send cannot express "everyone at this

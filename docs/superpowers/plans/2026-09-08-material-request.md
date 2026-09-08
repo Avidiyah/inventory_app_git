@@ -4399,7 +4399,7 @@ Claude-Session: https://claude.ai/code/session_01Rj5dKhZSJLx5wvJMfBTimY"
 - Modify: `docs/open-work.md` (N11 item 4 → retired; N-ITEM-RESTORE note; SEC-021 → done)
 - Modify: `docs/adding-a-notification-trigger.md` (`## Currently wired` list)
 
-- [ ] **Step 1: `current-state.md`**
+- [x] **Step 1: `current-state.md`**
 
 - Lines 18 and 1557: Alembic head is **`d1e3f5a7b9c2`** (36 revisions). Migration History table: add `| d1e3f5a7b9c2 | rename user_requests.request_type item_request → catalogue_request (data only) |` and, if `c6e8a0b2d4f7` is missing from that table, add it too.
 - Task Routing Map row 97 (Low stock): `routers/_low_stock.py` → `routers/_stock_events.py`. Row 101 (User Requests): add `domain/material_requests.py`, `services/material_requests.py`, `routers/_stock_events.py`, `static/views/workOrderRequests.js`, `static/views/catalogueRequest.js` (replacing `itemRequest.js`); tests `test_catalogue_requests.py` (replacing `test_item_requests.py`), `test_material_requests.py`, `test_material_requests_domain.py`, `test_stock_events_flush.py`.
@@ -4439,7 +4439,7 @@ Claude-Session: https://claude.ai/code/session_01Rj5dKhZSJLx5wvJMfBTimY"
 - Realtime sentence ~1499: add `user_request.changed` to the list of envelopes the app emits and where it is consumed.
 - Test Map: add rows for `test_material_requests_domain.py`, `test_material_requests.py`, `test_stock_events_flush.py`; rename `test_item_requests.py` row to `test_catalogue_requests.py` ("+ migration round-trip + UI source pins").
 
-- [ ] **Step 2: `endpoint-map.md`**
+- [x] **Step 2: `endpoint-map.md`**
 
 Master Endpoint Index: row 67 gate cell → `techfm_oa+ (status=open|stocked|resolved, type=)`; row 68a → `POST /user-requests/catalogue-request` … `apiCreateCatalogueRequest` | `catalogueRequest.js`; row 68c → `user_requests.fulfill_catalogue_request` (+ `material_requests.create_or_update` chain); add rows:
 
@@ -4461,17 +4461,17 @@ Real-time table: add `| user_request.changed | Technician+ | filing, mark-stocke
 
 Error Catalog: `ItemRequestStateError` cell → add "mark-stocked on a non-open material request; cancel of a non-open one; add with a `material_request_id` that is not stocked / wrong work order / wrong item"; add `| MaterialRequestOwnershipError | 403 | cancelling a material request you did not file |`.
 
-- [ ] **Step 3: `open-work.md`**
+- [x] **Step 3: `open-work.md`**
 
 - N11: item (4) is now built for material requests — rewrite the list as four candidates and add one line: "(4) retired 2026-09-08: `material_request.filed` / `.stocked` shipped; a recount/missing-price push remains unbuilt and unrequested."
 - N-ITEM-RESTORE: append "Also applies to the catalogue → material chain: a fulfilment that links an archived item is impossible today, so the chain never runs for one."
 - SEC-021: mark `Done 2026-09-08` — `POST /user-requests/material-request` uses `get_visible_work_order`; the catalogue-request route still resolves by existence only (unchanged scope; note it explicitly so the item does not read as fully closed unless the executor also applies the reader there — **do not** widen scope; record the residual).
 
-- [ ] **Step 4: `adding-a-notification-trigger.md`**
+- [x] **Step 4: `adding-a-notification-trigger.md`**
 
 `## Currently wired`: add the two events with their trigger sites; under *What you can address a notification to* add a row `| material_requests.StockedFact | services/material_requests.py | frozen assignee/supervisor/requester ids for a request that just became stocked |`. In the "three places" preamble, mention the buffered variant: "Events raised several frames below a router (stock writes) buffer plain facts in a ContextVar and are drained by `routers/_stock_events.py`; see `services/low_stock.py` and `services/material_requests.py`."
 
-- [ ] **Step 5: Word budgets and staleness**
+- [x] **Step 5: Word budgets and staleness**
 
 Run: `wc -w docs/current-state.md docs/endpoint-map.md docs/open-work.md` — budgets 16,500 / 11,000 / 12,000. If a file breaches, delete something stale in the same edit (candidates: any remaining "item request" narrative, the superseded Alembic-head sentence) before trimming anything load-bearing.
 
@@ -4486,7 +4486,7 @@ Hand the user this checklist — do not start the preview server yourself:
 5. On A, tap Add requested material → Add. Row and line vanish on both devices without reload; B's card is under Resolved with `Added to WO-X.`
 6. Repeat 2, then on B press Mark stocked & notify with the item still at 0 → step 4's push arrives.
 
-- [ ] **Step 7: Full suite and commit**
+- [x] **Step 7: Full suite and commit**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest -q` — Expected: PASS except the two known failures.
 
