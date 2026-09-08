@@ -575,3 +575,21 @@ def test_hub_graphs_require_techfm_oa():
 def test_timesheets_and_export_require_supervisor():
     assert _min_role_for(hub_router, "get_hub_timesheets") == roles.ROLE_SUPERVISOR
     assert _min_role_for(hub_router, "export_hub_timesheets") == roles.ROLE_SUPERVISOR
+
+
+@pytest.mark.parametrize(
+    "endpoint_name", ["mark_request_stocked", "list_request_counts"]
+)
+def test_new_staff_request_routes_require_techfm_oa(endpoint_name):
+    assert _min_role_for(user_requests_router, endpoint_name) == roles.ROLE_TECHFM_OA
+    assert 403 in _route(user_requests_router, endpoint_name).responses
+
+
+@pytest.mark.parametrize(
+    "endpoint_name", ["create_material_request", "cancel_material_request"]
+)
+def test_filing_and_cancelling_a_material_request_have_no_static_min_role(endpoint_name):
+    # Gated by what the caller can see (the visible-work-order reader) and by
+    # ownership (the filer), both decided inside the service -- same shape as
+    # the catalogue-request filing route.
+    assert _min_role_for(user_requests_router, endpoint_name) is None

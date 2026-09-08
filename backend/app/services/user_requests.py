@@ -424,9 +424,12 @@ def resolve_recount_requests(
 
 
 def list_user_requests(
-    db: Session, *, status: Optional[str] = STATUS_OPEN
+    db: Session,
+    *,
+    status: Optional[str] = STATUS_OPEN,
+    request_type: Optional[str] = None,
 ) -> list[UserRequest]:
-    """Requests newest-first, optionally filtered by status.
+    """Requests newest-first, optionally filtered by status and type.
 
     Capped at `list_limits.MAX_LIST_ROWS` (X3). This is the list most likely
     to grow without anyone watching -- requests accumulate from short counts
@@ -441,6 +444,8 @@ def list_user_requests(
     )
     if status is not None:
         query = query.filter(UserRequest.status == status)
+    if request_type is not None:
+        query = query.filter(UserRequest.request_type == request_type)
     return capped(
         query.order_by(UserRequest.created_at.desc()).limit(fetch_limit()).all(),
         what="user_requests",

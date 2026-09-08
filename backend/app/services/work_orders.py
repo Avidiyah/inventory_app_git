@@ -544,6 +544,16 @@ def _get_visible(
     return work_order
 
 
+def get_visible_work_order(
+    db: Session, work_order_id: uuid.UUID, user: Optional[User]
+) -> WorkOrder:
+    """Public reader for `_get_visible`. Filing a material request from
+    another router needs the same "not found rather than 403" scoping the
+    Work Orders page applies, and reaching for the private helper from
+    another module would make that rule someone else's problem to remember."""
+    return _get_visible(db, work_order_id, user)
+
+
 # --- resolve / import-create ---------------------------------------------
 
 def _merge_reference(

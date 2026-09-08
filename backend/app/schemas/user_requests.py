@@ -57,6 +57,38 @@ class CatalogueRequestCreate(BaseModel):
         return value.strip() or None
 
 
+class MaterialRequestCreate(BaseModel):
+    """File a request for a catalogue item the shelf does not have.
+
+    The item exists (`item_id` is required); a search that found nothing is a
+    `CatalogueRequestCreate`. On-hand is never checked here -- counts are
+    sometimes wrong, so a request on an item with alleged stock still files
+    and the staff verify.
+    """
+
+    item_id: UUID
+    work_order_id: UUID
+    quantity: Decimal = Field(default=Decimal("1"), gt=0)
+    product_link: Optional[str] = Field(default=None, max_length=2000)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("product_link", "note")
+    @classmethod
+    def _trim(cls, value):
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @field_validator("product_link")
+    @classmethod
+    def _http_only(cls, value):
+        if value is None:
+            return None
+        if not (value.startswith("http://") or value.startswith("https://")):
+            raise ValueError("Product link must start with http:// or https://.")
+        return value
+
+
 class NewItemPayload(BaseModel):
     """The Add Item fields, for creating the catalogue row inline on close."""
 
@@ -104,6 +136,10 @@ class UserRequestResponse(BaseModel):
     item_barcode: Optional[str] = None
     item_price: Optional[Decimal] = None
     item_product_link: Optional[str] = None
+    # The item's on-hand right now. Lets the card say "3 on hand -- staff will
+    # verify" and the Materials line say "on hand 4". None for a catalogue
+    # request that has not been linked to an item yet.
+    item_quantity: Optional[Decimal] = None
     transaction_id: Optional[UUID] = None
     work_order_id: Optional[UUID] = None
     work_order_number: Optional[str] = None
@@ -120,3 +156,6 @@ class UserRequestResponse(BaseModel):
     work_order_archived: bool = False
     # Skip notes produced by a fulfilment, surfaced once on its response.
     skipped: list[str] = Field(default_factory=list)
+    # True when a material-request filing matched an existing open/stocked
+    # request for the same (work order, item) and updated it instead.
+    updated: bool = False

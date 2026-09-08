@@ -629,3 +629,239 @@ def test_a_dispense_that_empties_the_shelf_sends_a_stocked_request_back_to_open(
     )
     assert status == "open"
     assert facts == []
+
+
+# --------------------------------------------------------------------------
+# Over real HTTP
+# --------------------------------------------------------------------------
+
+from fastapi.testclient import TestClient
+
+from app.database import get_db
+from app.main import app
+from app.services import push as push_service
+
+
+def _client(db):
+    app.dependency_overrides[get_db] = lambda: db
+    return TestClient(app)
+
+
+def _as(db, user):
+    return auth.create_session(db, user)
+
+
+def _post(db, user, path, json=None):
+    token = _as(db, user)
+    try:
+        with _client(db) as client:
+            client.cookies.set("session", token)
+            return client.post(path, json=json or {})
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def _get(db, user, path):
+    token = _as(db, user)
+    try:
+        with _client(db) as client:
+            client.cookies.set("session", token)
+            return client.get(path)
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_filing_over_http_returns_the_on_hand_and_pushes_once(db, monkeypatch):
+    monkeypatch.setattr(push_service, "VAPID_PRIVATE_KEY", "test-private-key")
+    sent = []
+    monkeypatch.setattr(
+        push_service, "send_to_users",
+        lambda session, ids, title, body: sent.append((title, body)) or {"sent": 1, "dropped": 0, "failed": 0},
+    )
+    _user(db, "techfm_oa")
+    tech = _user(db)
+    work_order = _work_order(db, tech, assigned_to=tech)
+    item = _item(db, quantity="3")
+    db.commit()
+
+    response = _post(db, tech, "/user-requests/material-request", {
+        "item_id": str(item.id), "work_order_id": str(work_order.id),
+        "quantity": "2", "product_link": "https://shop.example/x", "note": "blue",
+    })
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["request_type"] == "material_request"
+    assert body["status"] == "open"
+    assert body["item_quantity"] == "3"
+    assert body["updated"] is False
+    assert body["work_order_number"] == work_order.number
+    assert sent == [("Material requested", f"{item.name} is needed for {work_order.number}.")]
+
+
+def test_a_duplicate_filing_over_http_says_updated_and_pushes_nobody(db, monkeypatch):
+    monkeypatch.setattr(push_service, "VAPID_PRIVATE_KEY", "test-private-key")
+    sent = []
+    monkeypatch.setattr(
+        push_service, "send_to_users",
+        lambda session, ids, title, body: sent.append(title) or {"sent": 1, "dropped": 0, "failed": 0},
+    )
+    _user(db, "techfm_oa")
+    tech = _user(db)
+    work_order = _work_order(db, tech, assigned_to=tech)
+    item = _item(db)
+    db.commit()
+    payload = {"item_id": str(item.id), "work_order_id": str(work_order.id), "quantity": "1"}
+    first = _post(db, tech, "/user-requests/material-request", payload)
+    sent.clear()
+
+    second = _post(db, tech, "/user-requests/material-request", {**payload, "quantity": "5"})
+
+    assert second.status_code == 201
+    assert second.json()["id"] == first.json()["id"]
+    assert second.json()["updated"] is True
+    assert second.json()["details"]["quantity"] == "5"
+    assert sent == []
+
+
+def test_a_technician_cannot_file_against_a_work_order_they_are_not_on(db):
+    tech = _user(db)
+    other = _user(db)
+    work_order = _work_order(db, other, assigned_to=other)
+    item = _item(db)
+    db.commit()
+
+    response = _post(db, tech, "/user-requests/material-request", {
+        "item_id": str(item.id), "work_order_id": str(work_order.id), "quantity": "1",
+    })
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Work order not found."
+    assert work_order.number not in response.text
+    assert db.query(UserRequest).filter(UserRequest.item_id == item.id).count() == 0
+
+
+def test_filing_against_an_archived_work_order_is_404(db):
+    tech = _user(db)
+    work_order = _work_order(db, tech, assigned_to=tech)
+    work_order.archived_at = datetime.now(timezone.utc)
+    item = _item(db)
+    db.commit()
+    response = _post(db, tech, "/user-requests/material-request", {
+        "item_id": str(item.id), "work_order_id": str(work_order.id), "quantity": "1",
+    })
+    assert response.status_code == 404
+
+
+def test_filing_an_unknown_item_is_404(db):
+    tech = _user(db)
+    work_order = _work_order(db, tech, assigned_to=tech)
+    db.commit()
+    response = _post(db, tech, "/user-requests/material-request", {
+        "item_id": str(uuid.uuid4()), "work_order_id": str(work_order.id), "quantity": "1",
+    })
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Item not found."
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"quantity": "0"},
+        {"quantity": "-1"},
+        {"product_link": "ftp://nope"},
+        {"product_link": "shop.example"},
+        {"note": "x" * 501},
+    ],
+)
+def test_bad_filing_bodies_are_422(db, bad):
+    tech = _user(db)
+    work_order = _work_order(db, tech, assigned_to=tech)
+    item = _item(db)
+    db.commit()
+    payload = {"item_id": str(item.id), "work_order_id": str(work_order.id), "quantity": "1", **bad}
+    assert _post(db, tech, "/user-requests/material-request", payload).status_code == 422
+
+
+def test_mark_stocked_over_http_pushes_the_crew(db, monkeypatch):
+    monkeypatch.setattr(push_service, "VAPID_PRIVATE_KEY", "test-private-key")
+    sent = []
+    monkeypatch.setattr(
+        push_service, "send_to_users",
+        lambda session, ids, title, body: sent.append((list(ids), title)) or {"sent": 1, "dropped": 0, "failed": 0},
+    )
+    staff = _user(db, "techfm_oa")
+    tech = _user(db)
+    item = _item(db, quantity="0")
+    request, _ = _file(db, tech, _work_order(db, tech, assigned_to=tech), item)
+    db.commit()
+
+    response = _post(db, staff, f"/user-requests/{request.id}/mark-stocked")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "stocked"
+    assert sent == [([tech.id], "Material in stock")]
+    again = _post(db, staff, f"/user-requests/{request.id}/mark-stocked")
+    assert again.status_code == 409
+
+
+def test_cancel_over_http_is_filer_only(db):
+    tech = _user(db)
+    other = _user(db)
+    request, _ = _file(db, tech, _work_order(db, tech, assigned_to=tech), _item(db))
+    db.commit()
+
+    assert _post(db, other, f"/user-requests/{request.id}/cancel").status_code == 403
+    mine = _post(db, tech, f"/user-requests/{request.id}/cancel")
+    assert mine.status_code == 200
+    assert mine.json()["resolution_note"] == "Cancelled by requester"
+    assert _post(db, tech, f"/user-requests/{request.id}/cancel").status_code == 409
+
+
+def test_list_filters_by_type_and_accepts_stocked(db):
+    staff = _user(db, "techfm_oa")
+    tech = _user(db)
+    item = _item(db)
+    request, _ = _file(db, tech, _work_order(db, tech), item)
+    _restock(db, item)
+    material_service.drain()
+    db.commit()
+
+    stocked = _get(db, staff, "/user-requests/?status=stocked&type=material_request")
+    assert stocked.status_code == 200
+    assert request.id.__str__() in {row["id"] for row in stocked.json()}
+    assert all(row["request_type"] == "material_request" for row in stocked.json())
+
+    other_type = _get(db, staff, "/user-requests/?status=stocked&type=inventory_recount")
+    assert other_type.status_code == 200
+    assert other_type.json() == []
+
+    assert _get(db, staff, "/user-requests/?status=stocked&type=bogus").status_code == 422
+
+
+def test_counts_over_http_group_open_and_stocked(db):
+    staff = _user(db, "techfm_oa")
+    tech = _user(db)
+    item = _item(db)
+    _file(db, tech, _work_order(db, tech), item)
+    db.commit()
+
+    response = _get(db, staff, "/user-requests/counts")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["material_request"]["open"] >= 1
+
+
+def test_patch_to_stocked_is_422(db):
+    staff = _user(db, "techfm_oa")
+    tech = _user(db)
+    request, _ = _file(db, tech, _work_order(db, tech), _item(db))
+    db.commit()
+    token = _as(db, staff)
+    try:
+        with _client(db) as client:
+            client.cookies.set("session", token)
+            response = client.patch(f"/user-requests/{request.id}", json={"status": "stocked"})
+    finally:
+        del app.dependency_overrides[get_db]
+    assert response.status_code == 422
