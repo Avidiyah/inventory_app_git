@@ -934,3 +934,59 @@ def test_adding_without_a_request_id_is_unchanged(db):
         "item_id": str(item.id), "quantity": "1",
     })
     assert response.status_code == 201
+
+
+# --------------------------------------------------------------------------
+# Catalogue -> Material chain
+# --------------------------------------------------------------------------
+
+def test_fulfilling_a_catalogue_request_for_an_empty_item_files_a_material_request(db):
+    staff = _user(db, "techfm_oa")
+    tech = _user(db)
+    work_order = _work_order(db, tech, assigned_to=tech)
+    catalogue = request_service.create_catalogue_request(
+        db, searched_text="copper elbow", quantity=Decimal("6"), note=None,
+        work_order_id=work_order.id, work_order_number=work_order.number,
+        source="work_orders", created_by_id=tech.id,
+    )
+    item = _item(db, quantity="0", name="3/4 Copper Elbow")
+    db.flush()
+
+    request_service.fulfill_catalogue_request(
+        db, catalogue.id, item_id=item.id, sibling_ids=[], resolved_by_id=staff.id
+    )
+
+    chained = (
+        db.query(UserRequest)
+        .filter(UserRequest.request_type == "material_request", UserRequest.work_order_id == work_order.id)
+        .one()
+    )
+    assert chained.status == "open"
+    assert chained.item_id == item.id
+    assert chained.created_by_id == tech.id
+    assert chained.details["quantity"] == "6"
+    assert chained.details["origin"] == "catalogue_fulfilment"
+
+
+def test_the_chain_skips_a_stocked_item_and_a_closed_work_order(db):
+    staff = _user(db, "techfm_oa")
+    tech = _user(db)
+    live = _work_order(db, tech, assigned_to=tech)
+    closed = _work_order(db, tech, assigned_to=tech)
+    closed.archived_at = datetime.now(timezone.utc)
+    first = request_service.create_catalogue_request(
+        db, searched_text="grommet", quantity=Decimal("1"), note=None,
+        work_order_id=live.id, work_order_number=live.number, source="work_orders", created_by_id=tech.id,
+    )
+    second = request_service.create_catalogue_request(
+        db, searched_text="grommet", quantity=Decimal("1"), note=None,
+        work_order_id=closed.id, work_order_number=closed.number, source="work_orders", created_by_id=tech.id,
+    )
+    stocked_item = _item(db, quantity="9")
+    db.flush()
+
+    request_service.fulfill_catalogue_request(
+        db, first.id, item_id=stocked_item.id, sibling_ids=[second.id], resolved_by_id=staff.id
+    )
+
+    assert db.query(UserRequest).filter(UserRequest.request_type == "material_request", UserRequest.item_id == stocked_item.id).count() == 0

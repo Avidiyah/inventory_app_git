@@ -253,7 +253,7 @@ def _resolve_one_catalogue_request(
     `services.work_orders` imports this module, so its import is local.
     """
     from app.domain import work_orders as wo
-    from app.models import WorkOrder
+    from app.models import Item, WorkOrder
     from app.services.work_orders import attach_dispense_line
 
     details = dict(request.details or {})
@@ -285,6 +285,24 @@ def _resolve_one_catalogue_request(
                 user_id=resolved_by_id,
             )
             details["auto_add"] = "added"
+            # The material was already used, but if the shelf is empty the
+            # crew will need more: open a Material Request on their behalf so
+            # the stocked push reaches them like any other. No filing push --
+            # the fulfilling TechFM OA is standing in the queue.
+            from app.services import material_requests
+
+            item = db.get(Item, item_id)
+            if item is not None and Decimal(item.quantity) <= 0:
+                material_requests.create_or_update(
+                    db,
+                    item_id=item_id,
+                    work_order=work_order,
+                    quantity=quantity,
+                    product_link=None,
+                    note=None,
+                    created_by_id=request.created_by_id,
+                    origin=material_requests.ORIGIN_CATALOGUE_FULFILMENT,
+                )
     else:
         details["auto_add"] = "none"
 
