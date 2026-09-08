@@ -32,6 +32,7 @@ from app.domain.errors import (
     ItemNotFoundError,
     ItemRequestStateError,
     LoginThrottledError,
+    MaterialRequestOwnershipError,
     NegativeQuantityError,
     NoChangeError,
     ReturnExceedsLoadedError,
@@ -103,6 +104,7 @@ _STATUS_MAP: dict[type[DomainError], int] = {
     UnreadableImageError: 400,
     InvalidCredentialsError: 401,
     RoleManagementError: 403,
+    MaterialRequestOwnershipError: 403,
     # Safety net only. `routers/auth.py` handles this one directly so it
     # can attach a `Retry-After` header, which `to_http` cannot carry.
     LoginThrottledError: 429,

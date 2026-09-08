@@ -766,7 +766,7 @@ Claude-Session: https://claude.ai/code/session_01Rj5dKhZSJLx5wvJMfBTimY"
   - `stocked_requests_for_user(db, user) -> list[UserRequest]`
   - `errors.MaterialRequestOwnershipError` → HTTP 403.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_material_requests.py`:
 
@@ -1275,12 +1275,12 @@ def test_stocked_requests_for_user_scope(db):
     assert still_open.id not in ids(material_service.stocked_requests_for_user(db, staff))
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_material_requests.py -q`
 Expected: FAIL at import — `ImportError: cannot import name 'MaterialRequestOwnershipError'`.
 
-- [ ] **Step 3: Add the error and its status**
+- [x] **Step 3: Add the error and its status**
 
 `backend/app/domain/errors.py`, after `ItemRequestStateError`:
 
@@ -1294,7 +1294,7 @@ class MaterialRequestOwnershipError(DomainError):
 
 `backend/app/routers/_errors.py`: add `MaterialRequestOwnershipError,` to the import list and `MaterialRequestOwnershipError: 403,` to `_STATUS_MAP` beside `RoleManagementError`.
 
-- [ ] **Step 4: Write the service**
+- [x] **Step 4: Write the service**
 
 Create `backend/app/services/material_requests.py`:
 
@@ -1742,7 +1742,7 @@ def stocked_requests_for_user(db: Session, user: User) -> list[UserRequest]:
     return query.order_by(UserRequest.created_at.desc()).all()
 ```
 
-- [ ] **Step 5: Make reopen clear the stamps**
+- [x] **Step 5: Make reopen clear the stamps**
 
 In `backend/app/services/user_requests.py::update_user_request`, in the `else:` branch (status back to `open`), add before `db.commit()`:
 
@@ -1755,12 +1755,12 @@ In `backend/app/services/user_requests.py::update_user_request`, in the `else:` 
 
 (Lazy import: `material_requests` imports domain + models only, so a module-level import would also be safe; the lazy form keeps this module's import block honest about what it needs at load.)
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_material_requests.py tests/test_material_requests_domain.py -q`
 Expected: PASS. If `test_the_fact_reads_plural_assignments…` fails on a stale `technician_assignments` collection, add `db.expire(work_order, ["technician_assignments"])` before `_restock` in the test — the fixture session has autoflush off.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/app/services/material_requests.py backend/app/services/user_requests.py backend/app/domain/errors.py backend/app/routers/_errors.py backend/tests/test_material_requests.py

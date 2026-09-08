@@ -473,6 +473,10 @@ def update_user_request(
         request.resolved_at = None
         request.resolved_by_id = None
         request.resolution_note = None
+        if request.request_type == REQUEST_MATERIAL:
+            from app.services.material_requests import clear_stocked_stamps
+
+            clear_stocked_stamps(request)
     db.commit()
     return _get_user_request(db, request.id)
 

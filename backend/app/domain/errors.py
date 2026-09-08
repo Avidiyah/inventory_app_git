@@ -111,6 +111,13 @@ class ItemRequestStateError(DomainError):
     numbers, which are an audit snapshot rather than editable fields."""
 
 
+class MaterialRequestOwnershipError(DomainError):
+    """Raised when someone other than the filer tries to cancel a Material
+    Request. An authorization failure, not a state one, so it maps to 403
+    like `RoleManagementError` rather than to the 409 of
+    `ItemRequestStateError`."""
+
+
 class NegativeQuantityError(DomainError):
     """Raised by strict `domain.quantity` arithmetic when an operation would
     drop an item's stock below zero.
