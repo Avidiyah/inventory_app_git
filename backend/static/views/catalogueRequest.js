@@ -1,8 +1,9 @@
 // View: file a Catalogue Request from a search that found nothing.
 //
-// Layer: views. Mounted at two empty states -- the Work Orders card's
-// add-material picker and Find Item's results table -- so a user who cannot
-// find a material can report it without leaving what they were doing.
+// Layer: views. Mounted at three empty states -- the Work Orders card's
+// add-material picker, Find Item's results table, and the Request card's
+// item search -- so a user who cannot find a material can report it without
+// leaving what they were doing.
 //
 // Scope note: this is for material with NO catalogue row. An in-app item
 // sitting at zero is still findable (`list_items` filters on `archived_at`,
@@ -18,7 +19,7 @@ import { escapeHtml, friendlyError } from "../format.js";
 
 // Where the prompt is allowed to submit from. Kept explicit so a typo in a
 // host view fails loudly here instead of writing a junk `source` server-side.
-const SOURCES = new Set(["work_orders", "find_item"]);
+const SOURCES = new Set(["work_orders", "find_item", "request_card"]);
 
 export function catalogueRequestPromptHtml({
   searchedText,

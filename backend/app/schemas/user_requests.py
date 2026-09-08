@@ -47,7 +47,7 @@ class CatalogueRequestCreate(BaseModel):
     quantity: Decimal = Field(default=Decimal("1"), gt=0)
     note: Optional[str] = Field(default=None, max_length=500)
     work_order_id: Optional[UUID] = None
-    source: Literal["work_orders", "find_item"]
+    source: Literal["work_orders", "find_item", "request_card"]
 
     @field_validator("searched_text", "note")
     @classmethod

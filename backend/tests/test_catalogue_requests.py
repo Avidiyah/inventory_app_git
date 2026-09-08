@@ -369,3 +369,24 @@ def test_the_material_card_offers_the_manual_fire_and_the_stocked_status():
     assert 'subscribe("user_request.changed"' in controller or "USER_REQUEST_CHANGED_EVENT" in controller
     tips = _src("tips.js")
     assert '"requests.stocked"' in tips
+
+
+def test_the_work_order_card_mounts_the_request_section_and_stocked_lines():
+    wo = _src("views/workOrders.js")
+    assert "wo-request-section" in wo
+    assert '".wo-edit-card, .wo-notes-section, .wo-materials-section, .wo-labor-section, .wo-request-section"' in wo
+    assert 'class="wo-requested-lines"' in wo
+    assert "mountWorkOrderRequests(" in wo
+    assert "materialRequestId: container.dataset.materialRequestId || null" in wo
+    module = _src("views/workOrderRequests.js")
+    assert "apiListWorkOrderRequests" in module
+    assert "apiCreateMaterialRequest" in module
+    assert "apiCancelMaterialRequest" in module
+    assert "Add requested material" in module
+    assert "Request sent. Staff have been notified." in module
+    assert "Updated your earlier request." in module
+    assert "Staff will verify the count" in module
+    assert 'source: "request_card"' in module
+    assert '"user_request.changed"' in module
+    assert 'import "./views/workOrderRequests.js";' in _src("main.js")
+    assert '"request_card"' in _src("views/catalogueRequest.js")

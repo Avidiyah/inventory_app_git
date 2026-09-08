@@ -3844,7 +3844,7 @@ Claude-Session: https://claude.ai/code/session_01Rj5dKhZSJLx5wvJMfBTimY"
 - DOM contract in `renderBody`: Materials section gains `<div class="wo-requested-lines"></div>` above `.wo-add-item`; after Materials: `<details class="wo-section-card wo-request-section"><summary class="wo-section-summary">Request</summary><div class="wo-section-content"></div></details>`.
 - The one-tap Add: sets `.wo-add-item` `dataset.itemId`, `dataset.materialRequestId`, the search text and qty; `workOrders.js` add-item passes `materialRequestId` and clears it; picking a different item or editing the search clears `materialRequestId`.
 
-- [ ] **Step 1: Write the failing pins**
+- [x] **Step 1: Write the failing pins**
 
 Append to `backend/tests/test_catalogue_requests.py`:
 
@@ -3882,12 +3882,12 @@ def test_a_catalogue_request_can_come_from_the_request_card():
 
 Run both files `-k "request_section or request_card"` — Expected: FAIL.
 
-- [ ] **Step 2: Backend one-liner**
+- [x] **Step 2: Backend one-liner**
 
 `backend/app/schemas/user_requests.py::CatalogueRequestCreate`: `source: Literal["work_orders", "find_item", "request_card"]`.
 `backend/static/views/catalogueRequest.js`: `const SOURCES = new Set(["work_orders", "find_item", "request_card"]);` and the header comment: "Mounted at three empty states — the Materials add-material picker, Find Item's results, and the Request card's item search".
 
-- [ ] **Step 3: The new module**
+- [x] **Step 3: The new module**
 
 Create `backend/static/views/workOrderRequests.js`:
 
@@ -4182,7 +4182,7 @@ subscribe(USER_REQUEST_CHANGED_EVENT, () => {
 
 Add `import "./views/workOrderRequests.js";` to `backend/static/main.js` after the `catalogueRequest.js` import.
 
-- [ ] **Step 4: Integrate in `workOrders.js`**
+- [x] **Step 4: Integrate in `workOrders.js`**
 
 - Import: `import { mountWorkOrderRequests } from "./workOrderRequests.js";`
 - `EDITOR_SECTIONS` → `".wo-edit-card, .wo-notes-section, .wo-materials-section, .wo-labor-section, .wo-request-section"`.
@@ -4208,7 +4208,7 @@ Add `import "./views/workOrderRequests.js";` to `backend/static/main.js` after t
       delete container.dataset.materialRequestId;
 ```
 
-- [ ] **Step 5: CSS**
+- [x] **Step 5: CSS**
 
 Append to `backend/static/styles.css` near `.wo-add-item-row`:
 
@@ -4234,14 +4234,14 @@ Append to `backend/static/styles.css` near `.wo-add-item-row`:
 .wo-request-message:empty { display: none; }
 ```
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_catalogue_requests.py tests/test_material_requests.py tests/test_work_orders_router.py -q` — Expected: PASS (the solo-card test may already fail on main; see Global Constraints).
 Run: `for f in backend/static/views/workOrderRequests.js backend/static/views/workOrders.js backend/static/views/catalogueRequest.js backend/static/main.js; do node --check "$f" || echo "FAIL $f"; done`.
 `wc -l backend/static/views/workOrderRequests.js` — Expected: under 500.
 Manual (user): open a work order card as a Technician → Request card after Materials, before Labor; pick an item at 0 → send → `Request sent. Staff have been notified.`; send again → `Updated your earlier request.`; empty search shows `Can't find it? Request it for the catalogue`; after a TechFM OA restocks or presses Mark stocked & notify, the Materials card shows the green line; tapping Add requested material prefills the add row; Add resolves the request and the line vanishes.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/static/views/workOrderRequests.js backend/static/views/workOrders.js backend/static/views/catalogueRequest.js backend/static/main.js backend/static/styles.css backend/app/schemas/user_requests.py backend/tests/test_catalogue_requests.py backend/tests/test_material_requests.py

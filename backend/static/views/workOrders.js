@@ -60,6 +60,7 @@ import {
 import { setMessage, confirmDialog, messageDialog } from "../dom.js";
 import { tipHtml } from "../tooltip.js";
 import { catalogueRequestPromptHtml } from "./catalogueRequest.js";
+import { mountWorkOrderRequests } from "./workOrderRequests.js";
 import { getCurrentUser, getRole } from "../state.js";
 import {
   canBeWorkOrderSupervisor,
@@ -1331,7 +1332,7 @@ async function refreshCardSummary(cardEl) {
 // note, a material quantity, labor hours, or a technician selection in progress.
 // The technician combobox needs no entry -- it renders inside `.wo-edit-card`.
 const EDITOR_SECTIONS =
-  ".wo-edit-card, .wo-notes-section, .wo-materials-section, .wo-labor-section";
+  ".wo-edit-card, .wo-notes-section, .wo-materials-section, .wo-labor-section, .wo-request-section";
 
 function isHeld(cardEl) {
   return Array.from(cardEl.querySelectorAll(EDITOR_SECTIONS)).some((s) => s.open);
@@ -1640,6 +1641,7 @@ function renderSoloError(message) {
 // collapsing and re-expanding would not retry.
 function paintDetail(detail, bodyEl, cardEl) {
   renderBody(detail, bodyEl);
+  if (cardEl) void mountWorkOrderRequests(cardEl, detail, { items: allItems });
   if (!cardEl) return;
 
   cardEl.dataset.loaded = "1";
@@ -1795,6 +1797,7 @@ function renderBody(detail, bodyEl) {
        <div class="wo-section-content">
          <div class="wo-items">${items}</div>
          ${materialsTotalHtml(detail)}
+         <div class="wo-requested-lines"></div>
          <div class="wo-add-item">
            <div class="wo-add-item-row">
              <input type="text" class="ms-item-search" placeholder="Search item by name or barcode">
@@ -1804,6 +1807,10 @@ function renderBody(detail, bodyEl) {
            <div class="ms-item-results scan-chooser" hidden></div>
          </div>
        </div>
+     </details>` +
+    `<details class="wo-section-card wo-request-section">
+       <summary class="wo-section-summary">Request</summary>
+       <div class="wo-section-content"></div>
      </details>` +
     (sup || assignedToCurrentUser ? laborSectionHtml(detail) : "") +
     `<p class="wo-message"></p>`;
@@ -1851,6 +1858,7 @@ listEl.addEventListener("input", (event) => {
   const container = input.closest(".wo-add-item");
   const results = container.querySelector(".ms-item-results");
   delete container.dataset.itemId;
+  delete container.dataset.materialRequestId;
   const q = input.value.trim().toLowerCase();
   if (!q) {
     results.hidden = true;
@@ -1892,6 +1900,7 @@ listEl.addEventListener("click", async (event) => {
   if (action === "pick-item") {
     const container = btn.closest(".wo-add-item");
     container.dataset.itemId = btn.dataset.itemId;
+    delete container.dataset.materialRequestId;
     container.querySelector(".ms-item-search").value = btn.dataset.itemName;
     const results = container.querySelector(".ms-item-results");
     results.hidden = true;
@@ -2151,7 +2160,12 @@ listEl.addEventListener("click", async (event) => {
         setMessage(msg, "Enter a quantity greater than zero.", "error");
         return;
       }
-      const addedLine = await apiAddWorkOrderItem(workOrderId, { itemId, quantity: qty });
+      const addedLine = await apiAddWorkOrderItem(workOrderId, {
+        itemId,
+        quantity: qty,
+        materialRequestId: container.dataset.materialRequestId || null,
+      });
+      delete container.dataset.materialRequestId;
       await refreshCard(cardEl, ".wo-materials-section");
       const refreshedMessage = cardEl.querySelector(".wo-message");
       if (Number(addedLine.item_quantity) < 0) {

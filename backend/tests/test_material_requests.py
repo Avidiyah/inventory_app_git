@@ -990,3 +990,10 @@ def test_the_chain_skips_a_stocked_item_and_a_closed_work_order(db):
     )
 
     assert db.query(UserRequest).filter(UserRequest.request_type == "material_request", UserRequest.item_id == stocked_item.id).count() == 0
+
+
+def test_a_catalogue_request_can_come_from_the_request_card():
+    from app.schemas.user_requests import CatalogueRequestCreate
+
+    payload = CatalogueRequestCreate(searched_text="grommet", source="request_card")
+    assert payload.source == "request_card"

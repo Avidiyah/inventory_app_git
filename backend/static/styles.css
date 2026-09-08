@@ -4550,6 +4550,27 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-add-item-row .ms-item-search { flex: 1 1 160px; margin-top: 0; }
 .wo-add-item-row .wo-item-qty { flex: 0 0 90px; width: 90px; margin-top: 0; }
 .wo-add-item-row button { margin-top: 0; min-height: var(--control-h); }
+
+/* Request section + the one-tap stocked lines (views/workOrderRequests.js). */
+.wo-requested-line {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap;
+    margin-bottom: var(--space-2); padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-success); border-radius: var(--radius-sm);
+}
+.wo-requested-line button { margin-top: 0; min-height: var(--btn-h-sm); }
+.wo-request-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.wo-request-row .wo-request-search { flex: 1 1 160px; margin-top: 0; }
+.wo-request-row .wo-request-qty { flex: 0 0 90px; width: 90px; margin-top: 0; }
+.wo-request-actions { display: flex; margin-top: var(--space-2); }
+.wo-request-actions button { margin-top: 0; min-height: var(--btn-h-sm); }
+.wo-request-heading { margin: var(--space-4) 0 var(--space-2); font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-panel-mute); }
+.wo-request-line { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; padding: var(--space-2) 0; border-top: 1px solid var(--panel-rule); }
+.wo-request-line button { margin-top: 0; min-height: var(--btn-h-sm); }
+.wo-request-type, .wo-request-status { font-size: var(--fs-sm); font-weight: var(--fw-bold); text-transform: uppercase; letter-spacing: 0.04em; }
+.wo-request-stocked .wo-request-status { color: var(--color-success); }
+.wo-request-open .wo-request-status { color: var(--color-error); }
+.wo-request-resolved { opacity: 0.75; }
+.wo-request-message:empty { display: none; }
 .wo-labor-list { display: flex; flex-direction: column; gap: var(--space-2); }
 .wo-labor-entry {
     display: flex;
