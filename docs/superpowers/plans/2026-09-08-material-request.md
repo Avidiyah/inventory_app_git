@@ -1784,7 +1784,7 @@ Claude-Session: https://claude.ai/code/session_01Rj5dKhZSJLx5wvJMfBTimY"
 - Consumes: `policy.EVENT_MATERIAL_REQUEST_*`, `policy.MATERIAL_REQUEST_AUDIENCE_MIN_ROLE`, the two recipient rules (Task 3); `material_requests.StockedFact` (Task 4) — passed in, never imported (keeps `services.notifications` free of the new module).
 - Produces: `notify_material_request_filed(db, background, *, item_name, work_order_number)`, `notify_material_request_stocked(db, background, *, facts: Sequence)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `backend/tests/test_notifications.py`:
 
@@ -1870,12 +1870,12 @@ def test_no_facts_schedules_nothing(db, configured):
     assert _scheduled(background) == []
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_notifications.py -q -k material`
 Expected: FAIL — `AttributeError: … has no attribute 'notify_material_request_filed'`.
 
-- [ ] **Step 3: Write the two functions**
+- [x] **Step 3: Write the two functions**
 
 Append to `backend/app/services/notifications.py`:
 
@@ -1935,12 +1935,12 @@ def notify_material_request_stocked(
         _schedule(background, recipients, title, body)
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_notifications.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/services/notifications.py backend/tests/test_notifications.py

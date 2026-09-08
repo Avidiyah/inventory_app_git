@@ -417,3 +417,84 @@ def test_an_import_that_matched_nobody_schedules_nothing(db, configured):
 class _NullSession:
     def close(self):
         pass
+
+
+# --- material requests ---------------------------------------------------
+
+
+def _fact(**overrides):
+    from app.services.material_requests import StockedFact
+
+    base = dict(
+        request_id=uuid.uuid4(),
+        item_name="3M Blue Tape",
+        work_order_id=uuid.uuid4(),
+        work_order_number="WO-77",
+        assignee_ids=(),
+        supervisor_id=None,
+        requester_id=None,
+    )
+    base.update(overrides)
+    return StockedFact(**base)
+
+
+def test_a_filed_material_request_is_pushed_once_to_techfm_oa_and_above(db, configured):
+    techfm = _seed_user(db, "techfm_oa")
+    admin = _seed_user(db, "admin")
+    supervisor = _seed_user(db, "supervisor")
+    background = BackgroundTasks()
+
+    notifications_service.notify_material_request_filed(
+        db, background, item_name="3M Blue Tape", work_order_number="WO-77"
+    )
+
+    assert len(_scheduled(background)) == 1
+    user_ids, title, body = _scheduled(background)[0]
+    assert techfm.id in user_ids
+    assert admin.id in user_ids
+    assert supervisor.id not in user_ids
+    assert title == "Material requested"
+    assert body == "3M Blue Tape is needed for WO-77."
+
+
+def test_a_stocked_fact_is_pushed_to_its_frozen_ids(db, configured):
+    tech, supervisor, requester = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    background = BackgroundTasks()
+
+    notifications_service.notify_material_request_stocked(
+        db,
+        background,
+        facts=[_fact(assignee_ids=(tech,), supervisor_id=supervisor, requester_id=requester)],
+    )
+
+    assert len(_scheduled(background)) == 1
+    user_ids, title, body = _scheduled(background)[0]
+    assert user_ids == [tech, supervisor, requester]
+    assert title == "Material in stock"
+    assert body == "3M Blue Tape for WO-77 is now in stock."
+
+
+def test_each_stocked_fact_schedules_its_own_push(db, configured):
+    background = BackgroundTasks()
+    notifications_service.notify_material_request_stocked(
+        db,
+        background,
+        facts=[
+            _fact(item_name="Tape", requester_id=uuid.uuid4()),
+            _fact(item_name="Caulk", work_order_number="WO-78", requester_id=uuid.uuid4()),
+        ],
+    )
+    bodies = [body for _ids, _title, body in _scheduled(background)]
+    assert bodies == ["Tape for WO-77 is now in stock.", "Caulk for WO-78 is now in stock."]
+
+
+def test_a_stocked_fact_with_nobody_to_tell_schedules_nothing(db, configured):
+    background = BackgroundTasks()
+    notifications_service.notify_material_request_stocked(db, background, facts=[_fact()])
+    assert _scheduled(background) == []
+
+
+def test_no_facts_schedules_nothing(db, configured):
+    background = BackgroundTasks()
+    notifications_service.notify_material_request_stocked(db, background, facts=[])
+    assert _scheduled(background) == []

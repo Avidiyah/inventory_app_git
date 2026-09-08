@@ -433,3 +433,58 @@ def notify_item_low_stock(
             quantity=crossing.quantity,
         )
         _schedule(background, recipients, title, body)
+
+
+def notify_material_request_filed(
+    db: Session,
+    background: BackgroundTasks,
+    *,
+    item_name: str,
+    work_order_number: str,
+) -> None:
+    """A crew member filed a Material Request -- tell TechFM OA and above.
+
+    Called by the filing route for a *new* row only; a duplicate filing
+    updates fields and re-pushes nobody. The actor is kept (state alarm,
+    see the policy rule). Takes strings rather than the request row so the
+    caller decides what is read while the session is alive.
+    """
+    recipients = policy.recipients_for_material_request_filed(
+        recipient_ids=push_service.user_ids_for_min_role(
+            db, policy.MATERIAL_REQUEST_AUDIENCE_MIN_ROLE
+        ),
+    )
+    title, body = policy.build_message(
+        policy.EVENT_MATERIAL_REQUEST_FILED, name=item_name, number=work_order_number
+    )
+    _schedule(background, recipients, title, body)
+
+
+def notify_material_request_stocked(
+    db: Session,
+    background: BackgroundTasks,
+    *,
+    facts: Sequence,
+) -> None:
+    """Requested material is back on the shelf -- tell each request's crew.
+
+    One push per fact, never a digest. `facts` are
+    `services.material_requests.StockedFact`s: every id was frozen inside the
+    stock write's transaction, so nothing here touches a session-bound row
+    and nothing can detach in the background task. `db` is accepted for
+    signature symmetry with the other notifiers and is not read.
+    """
+    for fact in facts:
+        recipients = policy.recipients_for_material_request_stocked(
+            assignee_ids=fact.assignee_ids,
+            supervisor_id=fact.supervisor_id,
+            requester_id=fact.requester_id,
+        )
+        if not recipients:
+            continue
+        title, body = policy.build_message(
+            policy.EVENT_MATERIAL_REQUEST_STOCKED,
+            name=fact.item_name,
+            number=fact.work_order_number,
+        )
+        _schedule(background, recipients, title, body)
