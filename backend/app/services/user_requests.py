@@ -25,6 +25,12 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.domain.errors import ItemRequestStateError, UserRequestNotFoundError
 from app.domain.list_limits import fetch_limit
+from app.domain.material_requests import (  # noqa: F401 - re-exported for callers
+    REQUEST_MATERIAL,
+    STATUS_OPEN,
+    STATUS_RESOLVED,
+    STATUS_STOCKED,
+)
 from app.models import UserRequest
 from app.services._list_cap import capped
 
@@ -32,8 +38,6 @@ from app.services._list_cap import capped
 REQUEST_INVENTORY_RECOUNT = "inventory_recount"
 REQUEST_MISSING_ITEM_PRICE = "missing_item_price"
 REQUEST_CATALOGUE = "catalogue_request"
-STATUS_OPEN = "open"
-STATUS_RESOLVED = "resolved"
 
 # Which `details` keys each request type lets a reviewer edit. The recount
 # numbers are absent by design: `recorded_quantity_before`,
@@ -42,6 +46,7 @@ STATUS_RESOLVED = "resolved"
 # match a later recount is not an audit trail.
 EDITABLE_DETAILS: dict[str, frozenset[str]] = {
     REQUEST_CATALOGUE: frozenset({"searched_text", "quantity", "note"}),
+    REQUEST_MATERIAL: frozenset({"quantity", "product_link", "note"}),
     REQUEST_INVENTORY_RECOUNT: frozenset(),
     REQUEST_MISSING_ITEM_PRICE: frozenset(),
 }
