@@ -23,7 +23,7 @@ from app.domain import roles
 from app.domain.errors import DomainError, StageItemNotFoundError
 from app.models import MassStage, MassStageItem, MassStageWorkOrder, User
 from app.routers._errors import to_http
-from app.routers._low_stock import flush_low_stock
+from app.routers._stock_events import flush_stock_events
 from app.schemas.mass_stages import (
     LoadRequest,
     MassStageCreate,
@@ -386,7 +386,7 @@ def load_item(
         ms_service.load_item(
             db, stage_id, item_id=payload.item_id, quantity=payload.quantity, user_id=user.id
         )
-        flush_low_stock(db, background)
+        flush_stock_events(db, background)
         stage = ms_service.get_stage(db, stage_id)
         return _merged_for(stage, payload.item_id)
     except DomainError as exc:
@@ -410,7 +410,7 @@ def return_item(
         ms_service.return_item(
             db, stage_id, item_id=payload.item_id, quantity=payload.quantity
         )
-        flush_low_stock(db, background)
+        flush_stock_events(db, background)
         stage = ms_service.get_stage(db, stage_id)
         return _merged_for(stage, payload.item_id)
     except DomainError as exc:

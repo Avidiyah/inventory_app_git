@@ -418,9 +418,9 @@ def test_creating_an_item_below_its_threshold_lists_it_without_pushing(db, monke
         or {"sent": 1, "dropped": 0, "failed": 0},
     )
     envelopes = []
-    from app.routers import _low_stock
+    from app.routers import _stock_events
     monkeypatch.setattr(
-        _low_stock.realtime_service, "emit", lambda e: envelopes.append(e)
+        _stock_events.realtime_service, "emit", lambda e: envelopes.append(e)
     )
     user = _seed_user(db, "admin")
     db.commit()
@@ -451,9 +451,9 @@ def test_creating_an_item_below_its_threshold_lists_it_without_pushing(db, monke
 
 def test_archiving_a_low_item_invalidates_the_page(db, monkeypatch):
     envelopes = []
-    from app.routers import _low_stock
+    from app.routers import _stock_events
     monkeypatch.setattr(
-        _low_stock.realtime_service, "emit", lambda e: envelopes.append(e)
+        _stock_events.realtime_service, "emit", lambda e: envelopes.append(e)
     )
     item = _seed_item(db, quantity="1", threshold=6)
     user = _seed_user(db, "admin")

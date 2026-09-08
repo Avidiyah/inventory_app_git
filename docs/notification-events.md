@@ -18,7 +18,7 @@ audience from a screen.
 | --- | --- |
 | Event names, audiences, message text | `backend/app/domain/notifications.py` |
 | Recipient resolution against the database | `backend/app/services/notifications.py` |
-| Trigger sites | `backend/app/routers/work_orders.py`, `backend/app/services/netfacilities_cloud_auth.py` |
+| Trigger sites | `backend/app/routers/work_orders.py`, `backend/app/services/netfacilities_cloud_auth.py`, `backend/app/routers/_stock_events.py`, `backend/app/routers/user_requests.py` |
 | Subscription floors, the Owner probe | `backend/app/routers/push.py` |
 | Realtime vocabulary and audiences | `backend/app/domain/realtime.py` |
 
@@ -46,12 +46,19 @@ screen whether or not the app is open.
 | `netfacilities.import_finished` | the capture chain, acting for the TechFM OA+ user who exported the CSV | `netfacilities_cloud_auth.dispatch_capture` -- the automatic capture trigger and `POST /integrations/netfacilities/cloud/downloads/import` both run it | **the ceremony's own user** -- deliberately the actor; see below |
 | `netfacilities.import_failed` | same chain | same -- fired instead of `import_finished` when the import or the enrichment start fails | the ceremony's own user |
 | `item.low_stock` | any stock write, or a threshold raise | `POST /transactions/`, `POST /transactions/adjust`, `DELETE /transactions/{id}`, `POST /mass-stages/{id}/load`, `POST /mass-stages/{id}/return`, the three `/work-orders/{id}/items` routes, `PATCH /items/{id}/low-stock-threshold` | everyone at `LOW_STOCK_AUDIENCE_MIN_ROLE` (**TechFM OA** and above), **including the actor** |
+| `material_request.filed` | any user who can see the work order (Technician+) | `POST /user-requests/material-request`, **new rows only** — a duplicate filing updates fields and pushes nobody | everyone at `MATERIAL_REQUEST_AUDIENCE_MIN_ROLE` (**TechFM OA** and above), **including the actor** |
+| `material_request.stocked` | any stock write, or a TechFM OA+ pressing **Mark stocked & notify** | the eight stock-writing sites drained by `flush_stock_events` (same routes as `item.low_stock`, minus the threshold route); `POST /user-requests/{id}/mark-stocked` | the work order's assigned technicians + routed supervisor **at stocking time** + the original filer, **actor not suppressed** |
 
 `item.low_stock` does not suppress the actor. It is a state alarm about
 the stockroom rather than a report of somebody's action, and whoever just
 took the last of an item is standing in front of the empty shelf. The
 inversion is expressed as `actor_id=None` in
 `recipients_for_low_stock`, not by skipping `select_recipients`.
+
+`material_request.filed` and `material_request.stocked` keep the actor for
+the same reason: both are state alarms. The filer wants confirmation the
+request went up the chain; a supervisor who restocks and is also on the crew
+is exactly who should see the line is ready.
 
 **Every other rule suppresses the acting user, by id.** A supervisor completing work
 on someone else's behalf is as much the actor as a technician is, so
@@ -74,7 +81,9 @@ whole argument for widening `build_message` past a number.
 `name` / `quantity` exist for the low-stock event. An item name is a
 catalogue/manufacturer string ("3M Blue Tape") that identifies no person, site,
 or job, and without it the notification is unactionable -- nobody reads a
-barcode off a lock screen. A *price* on the same item stays forbidden.
+barcode off a lock screen. A *price* on the same item stays forbidden. The two
+material-request events use `name` and `number` together — still a catalogue
+string plus an opaque identifier.
 
 | Event | Title | Body |
 | --- | --- | --- |
@@ -89,6 +98,8 @@ barcode off a lock screen. A *price* on the same item stays forbidden.
 | `work_order.supervisor_assigned_bulk` | Work orders assigned to you | `{count}` work orders have been assigned to you. |
 | `netfacilities.import_finished` | NetFacilities import finished | Imported `{created}` work orders; enrichment started. |
 | `item.low_stock` | Low stock | `{name}` is down to `{quantity}`. |
+| `material_request.filed` | Material requested | `{name}` is needed for `{number}`. |
+| `material_request.stocked` | Material in stock | `{name}` for `{number}` is now in stock. |
 | `netfacilities.import_failed` | NetFacilities import needs you | Names the failing stage and the next move: *import* → still signed in, export again; *enrichment* → imported `{created}` work orders, click Enrich when it frees up. |
 
 An import that matched a supervisor to exactly **one** work order sends the
@@ -263,6 +274,7 @@ one when you meant a push.
 | `work_order.status.changed` | any caller authorized for the write | work-order import, bulk legacy archive, `PATCH`, `start`, `complete`, `hold`, `resume`, archive, restore, tracking `start`/`stop` | connected clients at **Technician** and above |
 | `labor.session.changed` | any caller authorized for the write | tracking `start`, tracking `stop` | connected clients at **Supervisor** and above |
 | `item.low_stock.changed` | any caller authorized for the write | an item entered or left the low-stock set; a threshold edit; item create or archive | connected clients at **TechFM OA** and above |
+| `user_request.changed` | any caller authorized for the write | filing, `mark-stocked`, `cancel`, `PATCH /user-requests/{id}`, every stock write that stocks or un-stocks a request, adding from a stocked Materials line, catalogue fulfilment | connected clients at **Technician** and above |
 
 Four differences from Part 1 that matter:
 

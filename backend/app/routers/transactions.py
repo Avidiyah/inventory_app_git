@@ -24,7 +24,7 @@ from app.domain import roles
 from app.domain.errors import DomainError
 from app.models import User, WorkOrder
 from app.routers._errors import to_http
-from app.routers._low_stock import flush_low_stock
+from app.routers._stock_events import flush_stock_events
 from app.schemas.transactions import (
     BillingUpdate,
     CorrectionCreate,
@@ -93,7 +93,7 @@ def create_transaction(
             work_order_number=work_order_number,
             work_order_id=work_order_id,
         )
-        flush_low_stock(db, background)
+        flush_stock_events(db, background)
         return transaction
     except DomainError as exc:
         raise to_http(exc)
@@ -123,7 +123,7 @@ def create_correction(
             reason=payload.reason,
             user_id=user.id,
         )
-        flush_low_stock(db, background)
+        flush_stock_events(db, background)
         return transaction
     except DomainError as exc:
         raise to_http(exc)
@@ -179,7 +179,7 @@ def void_transaction(
             user_id=user.id,
             user_role=user.role,
         )
-        flush_low_stock(db, background)
+        flush_stock_events(db, background)
     except DomainError as exc:
         raise to_http(exc)
 

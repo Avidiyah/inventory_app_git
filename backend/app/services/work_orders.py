@@ -73,6 +73,7 @@ from app.models import (
 from app.services import _list_cap
 from app.services._like import like_pattern
 from app.services import low_stock
+from app.services import material_requests
 from app.services import user_requests as request_service
 
 
@@ -2897,6 +2898,7 @@ def add_work_order_item(
             shortage_quantity=shortage_quantity,
         )
     low_stock.record(item, quantity_before=quantity_before)
+    material_requests.record_stock_change(db, item, quantity_before=quantity_before)
     db.commit()
     db.refresh(line)
     return line
@@ -2955,6 +2957,7 @@ def update_work_order_item(
     # sees an unchanged quantity and buffers nothing. Guarding the call
     # would only duplicate that decision.
     low_stock.record(item, quantity_before=quantity_before)
+    material_requests.record_stock_change(db, item, quantity_before=quantity_before)
     db.commit()
     db.refresh(line)
     return line
@@ -3033,4 +3036,5 @@ def delete_work_order_item(
 
     db.delete(line)
     low_stock.record(item, quantity_before=quantity_before)
+    material_requests.record_stock_change(db, item, quantity_before=quantity_before)
     db.commit()

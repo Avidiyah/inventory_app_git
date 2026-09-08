@@ -1967,7 +1967,7 @@ Claude-Session: https://claude.ai/code/session_01Rj5dKhZSJLx5wvJMfBTimY"
 **Interfaces:**
 - Produces: `routers._stock_events.flush_stock_events(db, background)`, `routers._stock_events.emit_low_stock_changed(item_id)` (unchanged), `routers._stock_events.emit_user_request_changed(request_id)`. Each of the eight sites calls `material_requests.record_stock_change(item, quantity_before=quantity_before)` on the line after `low_stock.record(...)`.
 
-- [ ] **Step 1: Write the failing flush tests**
+- [x] **Step 1: Write the failing flush tests**
 
 Create `backend/tests/test_stock_events_flush.py`:
 
@@ -2126,12 +2126,12 @@ Also extend `backend/tests/test_low_stock_triggers.py::test_every_item_quantity_
 
 and replace the four `from app.routers import _low_stock` / `_low_stock.flush_low_stock` / `_low_stock.realtime_service` / `_low_stock.notifications_service` references in that file and the two in `test_items_low_stock.py` with `_stock_events` / `flush_stock_events`.
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_stock_events_flush.py tests/test_low_stock_triggers.py -q`
 Expected: FAIL — `ImportError: cannot import name '_stock_events'` and the recorder-count assertion `0 == 8`.
 
-- [ ] **Step 3: Rename and extend the flush helper**
+- [x] **Step 3: Rename and extend the flush helper**
 
 `git mv backend/app/routers/_low_stock.py backend/app/routers/_stock_events.py`. Rewrite the module as:
 
@@ -2225,14 +2225,14 @@ def flush_stock_events(db: Session, background: BackgroundTasks) -> None:
         logger.exception("material-request stocked notification failed")
 ```
 
-- [ ] **Step 4: Repoint the four routers**
+- [x] **Step 4: Repoint the four routers**
 
 - `backend/app/routers/items.py:27` → `from app.routers._stock_events import emit_low_stock_changed, flush_stock_events`; line 256 → `flush_stock_events(db, background)`.
 - `backend/app/routers/mass_stages.py:26` → `from app.routers._stock_events import flush_stock_events`; lines 389, 413.
 - `backend/app/routers/transactions.py:27`; lines 96, 126, 182.
 - `backend/app/routers/work_orders.py:52`; lines 1173, 1193, 1245.
 
-- [ ] **Step 5: Wire the eight sites**
+- [x] **Step 5: Wire the eight sites**
 
 In each service add `from app.services import material_requests` beside `from app.services import low_stock`, then on the line after every `low_stock.record(item, quantity_before=quantity_before)`:
 
@@ -2244,13 +2244,13 @@ Sites: `services/transactions.py` — `apply_transaction` (~133), `void_transact
 
 Why the same line and not a wrapper: `test_every_item_quantity_mutation_has_a_recorder` counts textual calls per service, so a ninth stock site that forgets either recorder fails loudly.
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_stock_events_flush.py tests/test_low_stock_triggers.py tests/test_items_low_stock.py tests/test_material_requests.py -q`
 Expected: PASS.
 Run: `grep -rn "_low_stock\b\|flush_low_stock" backend/app backend/tests` — Expected: no output.
 
-- [ ] **Step 7: Prove the edge end to end on each write kind**
+- [x] **Step 7: Prove the edge end to end on each write kind**
 
 Append to `backend/tests/test_material_requests.py` (uses that file's helpers):
 
@@ -2388,7 +2388,7 @@ def test_a_dispense_that_empties_the_shelf_sends_a_stocked_request_back_to_open(
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_material_requests.py -q` — Expected: PASS.
 
-- [ ] **Step 8: Register both events**
+- [x] **Step 8: Register both events**
 
 In `docs/notification-events.md`:
 
@@ -2418,7 +2418,7 @@ Part 2 table:
 | `user_request.changed` | any caller authorized for the write | filing, `mark-stocked`, `cancel`, `PATCH /user-requests/{id}`, every stock write that stocks or un-stocks a request, adding from a stocked Materials line, catalogue fulfilment | connected clients at **Technician** and above |
 ```
 
-- [ ] **Step 9: Full suite, then commit**
+- [x] **Step 9: Full suite, then commit**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest -q`
 Expected: PASS except the two known failures.

@@ -146,18 +146,18 @@ def test_nothing_is_scheduled_when_nobody_holds_the_rank(db, configured):
 
 
 def test_flush_drains_pushes_and_invalidates(db, configured, monkeypatch):
-    from app.routers import _low_stock
+    from app.routers import _stock_events
 
     envelopes = []
     monkeypatch.setattr(
-        _low_stock.realtime_service, "emit", lambda envelope: envelopes.append(envelope)
+        _stock_events.realtime_service, "emit", lambda envelope: envelopes.append(envelope)
     )
     _seed_user(db, "admin")
     item = _seed_item(db, quantity="5")
     low_stock_service.record(item, quantity_before=Decimal("7"))
     background = BackgroundTasks()
 
-    _low_stock.flush_low_stock(db, background)
+    _stock_events.flush_stock_events(db, background)
 
     assert len(_scheduled(background)) == 1
     assert len(envelopes) == 1
@@ -165,25 +165,25 @@ def test_flush_drains_pushes_and_invalidates(db, configured, monkeypatch):
     assert envelopes[0]["id"] == str(item.id)
     # Drained: a second flush on the same request repeats nothing.
     second = BackgroundTasks()
-    _low_stock.flush_low_stock(db, second)
+    _stock_events.flush_stock_events(db, second)
     assert _scheduled(second) == []
 
 
 def test_flush_invalidates_even_when_the_item_left_the_low_set(db, configured, monkeypatch):
     """A restock has no push but must still drop the row from an open
     Low Stock page."""
-    from app.routers import _low_stock
+    from app.routers import _stock_events
 
     envelopes = []
     monkeypatch.setattr(
-        _low_stock.realtime_service, "emit", lambda envelope: envelopes.append(envelope)
+        _stock_events.realtime_service, "emit", lambda envelope: envelopes.append(envelope)
     )
     _seed_user(db, "admin")
     item = _seed_item(db, quantity="9")
     low_stock_service.record(item, quantity_before=Decimal("2"))
     background = BackgroundTasks()
 
-    _low_stock.flush_low_stock(db, background)
+    _stock_events.flush_stock_events(db, background)
 
     assert _scheduled(background) == []
     assert len(envelopes) == 1
@@ -192,16 +192,16 @@ def test_flush_invalidates_even_when_the_item_left_the_low_set(db, configured, m
 def test_flush_never_raises_into_a_committed_request(db, monkeypatch):
     """The durable write already happened. A bug in recipient resolution
     must cost a notification, not turn a successful save into a 500."""
-    from app.routers import _low_stock
+    from app.routers import _stock_events
 
     def boom(*args, **kwargs):
         raise RuntimeError("resolution exploded")
 
-    monkeypatch.setattr(_low_stock.notifications_service, "notify_item_low_stock", boom)
+    monkeypatch.setattr(_stock_events.notifications_service, "notify_item_low_stock", boom)
     item = _seed_item(db, quantity="5")
     low_stock_service.record(item, quantity_before=Decimal("7"))
 
-    _low_stock.flush_low_stock(db, BackgroundTasks())  # must not raise
+    _stock_events.flush_stock_events(db, BackgroundTasks())  # must not raise
 
 
 # --- the eight mutation points ------------------------------------------
@@ -409,12 +409,16 @@ def test_every_item_quantity_mutation_has_a_recorder():
     root = Path(__file__).resolve().parents[1] / "app" / "services"
     mutations = 0
     records = 0
+    stock_changes = 0
     for name in ("transactions.py", "mass_staging.py", "work_orders.py"):
         source = (root / name).read_text(encoding="utf-8")
         mutations += source.count("item.quantity = ")
         records += source.count("low_stock.record(")
+        stock_changes += source.count("material_requests.record_stock_change(")
     # Nine mutation lines across eight functions: `apply_transaction` has
     # two branches (the Scan / Stock shortage path and the strict path)
     # that share one recorder call.
     assert mutations == 9
     assert records == 8
+    # The material-request recorder rides beside every low-stock recorder.
+    assert stock_changes == 8

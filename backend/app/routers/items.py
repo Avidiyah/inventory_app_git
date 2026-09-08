@@ -24,7 +24,7 @@ from app.domain import roles
 from app.domain.errors import DomainError
 from app.models import Item, User
 from app.routers._errors import to_http
-from app.routers._low_stock import emit_low_stock_changed, flush_low_stock
+from app.routers._stock_events import emit_low_stock_changed, flush_stock_events
 from app.schemas.items import (
     ItemBarcodesUpdate,
     ItemCreate,
@@ -253,7 +253,7 @@ def update_low_stock_threshold(
         item = items_service.set_low_stock_threshold(
             db, item_id, threshold=payload.low_stock_threshold
         )
-        flush_low_stock(db, background)
+        flush_stock_events(db, background)
         return _item_response(item, user.role)
     except DomainError as exc:
         raise to_http(exc)

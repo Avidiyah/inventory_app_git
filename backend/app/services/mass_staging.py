@@ -42,6 +42,7 @@ from app.models import (
     WorkOrder,
 )
 from app.services import low_stock
+from app.services import material_requests
 from app.services import work_orders as wo_service
 from app.services._list_cap import capped
 
@@ -498,6 +499,7 @@ def load_item(
             )
             si.loaded_quantity = si.loaded_quantity + alloc.quantity
         low_stock.record(item, quantity_before=quantity_before)
+        material_requests.record_stock_change(db, item, quantity_before=quantity_before)
         db.commit()
     except NegativeQuantityError:
         db.rollback()
@@ -556,4 +558,5 @@ def return_item(
     # Upward only, so this can re-arm and drop the row from an open Low
     # Stock page but can never push.
     low_stock.record(item, quantity_before=quantity_before)
+    material_requests.record_stock_change(db, item, quantity_before=quantity_before)
     db.commit()

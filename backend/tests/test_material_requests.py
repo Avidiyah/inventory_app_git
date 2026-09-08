@@ -498,3 +498,134 @@ def test_stocked_requests_for_user_scope(db):
         material_service.stocked_requests_for_user(db, staff)
     )
     assert still_open.id not in ids(material_service.stocked_requests_for_user(db, staff))
+
+
+# --------------------------------------------------------------------------
+# The eight sites, through the real services
+# --------------------------------------------------------------------------
+
+def _stocked_after(db, request, fn):
+    material_service.drain()
+    fn()
+    db.refresh(request)
+    return request.status, material_service.drain()
+
+
+def test_add_stock_stocks_the_request(db):
+    from app.services import transactions as txn_service
+
+    supervisor = _user(db, "supervisor")
+    item = _item(db, quantity="0")
+    request, _ = _file(db, supervisor, _work_order(db, supervisor), item)
+    db.commit()
+
+    status, facts = _stocked_after(
+        db, request,
+        lambda: txn_service.apply_transaction(
+            db, item_id=item.id, transaction_type="stock", quantity=Decimal("6"),
+            user_id=supervisor.id, work_order_number=None,
+        ),
+    )
+    assert status == "stocked"
+    assert len(facts) == 1
+
+
+def test_an_upward_correction_stocks_the_request(db):
+    from app.services import transactions as txn_service
+
+    staff = _user(db, "techfm_oa")
+    item = _item(db, quantity="-2")
+    request, _ = _file(db, staff, _work_order(db, staff), item)
+    db.commit()
+
+    status, facts = _stocked_after(
+        db, request,
+        lambda: txn_service.apply_correction(
+            db, item_id=item.id, new_quantity=Decimal("4"), reason="Recount", user_id=staff.id
+        ),
+    )
+    assert status == "stocked"
+    assert len(facts) == 1
+
+
+def test_voiding_the_dispense_that_emptied_the_shelf_stocks_the_request(db):
+    from app.services import transactions as txn_service
+
+    supervisor = _user(db, "supervisor")
+    item = _item(db, quantity="2")
+    txn = txn_service.apply_transaction(
+        db, item_id=item.id, transaction_type="dispense", quantity=Decimal("2"),
+        user_id=supervisor.id, work_order_number=None,
+    )
+    request, _ = _file(db, supervisor, _work_order(db, supervisor), item)
+    db.commit()
+
+    status, facts = _stocked_after(
+        db, request,
+        lambda: txn_service.void_transaction(
+            db, transaction_id=txn.id, user_id=supervisor.id, user_role="supervisor"
+        ),
+    )
+    assert status == "stocked"
+    assert len(facts) == 1
+
+
+def test_a_mass_stage_return_stocks_the_request(db):
+    from app.services.mass_staging import (
+        add_item, add_work_order_to_stage, create_stage, load_item, return_item, update_stage,
+    )
+
+    supervisor = _user(db, "supervisor")
+    item = _item(db, quantity="5")
+    stage = create_stage(db, community="Scholars", building_name=f"B-{uuid.uuid4().hex[:6]}", created_by_id=None)
+    number = f"WO-MS-{uuid.uuid4().hex[:8]}"
+    wos.get_or_create_work_order(db, number=number, created_by_id=supervisor.id)
+    slot = add_work_order_to_stage(db, stage.id, work_order_number=number)
+    add_item(db, stage.id, slot.id, item_id=item.id, planned_quantity=Decimal("5"))
+    update_stage(db, stage.id, status="loading")
+    load_item(db, stage.id, item_id=item.id, quantity=Decimal("5"), user_id=supervisor.id)
+    request, _ = _file(db, supervisor, _work_order(db, supervisor), item)
+    db.commit()
+
+    status, facts = _stocked_after(
+        db, request,
+        lambda: return_item(db, stage.id, item_id=item.id, quantity=Decimal("2")),
+    )
+    assert status == "stocked"
+    assert len(facts) == 1
+
+
+def test_removing_a_work_order_line_stocks_the_request(db):
+    supervisor = _user(db, "supervisor")
+    item = _item(db, quantity="3")
+    consuming = _work_order(db, supervisor)
+    line = wos.add_work_order_item(db, consuming.id, user=supervisor, item_id=item.id, quantity=Decimal("3"))
+    request, _ = _file(db, supervisor, _work_order(db, supervisor), item)
+    db.commit()
+
+    status, facts = _stocked_after(
+        db, request,
+        lambda: wos.delete_work_order_item(db, consuming.id, line.id, user=supervisor),
+    )
+    assert status == "stocked"
+    assert len(facts) == 1
+
+
+def test_a_dispense_that_empties_the_shelf_sends_a_stocked_request_back_to_open(db):
+    supervisor = _user(db, "supervisor")
+    item = _item(db, quantity="0")
+    request, _ = _file(db, supervisor, _work_order(db, supervisor), item)
+    from app.services import transactions as txn_service
+    txn_service.apply_transaction(
+        db, item_id=item.id, transaction_type="stock", quantity=Decimal("2"),
+        user_id=supervisor.id, work_order_number=None,
+    )
+    material_service.drain()
+    consuming = _work_order(db, supervisor)
+
+    status, facts = _stocked_after(
+        db, request,
+        lambda: wos.add_work_order_item(db, consuming.id, user=supervisor, item_id=item.id, quantity=Decimal("2")),
+    )
+    assert status == "open"
+    assert facts == []

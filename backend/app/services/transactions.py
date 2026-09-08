@@ -33,6 +33,7 @@ from app.domain import roles
 from app.domain.quantity import apply_delta, reverse_delta
 from app.models import Item, Transaction, WorkOrderItem
 from app.services import low_stock
+from app.services import material_requests
 from app.services import user_requests as request_service
 from app.services import work_orders as wo_service
 
@@ -131,6 +132,7 @@ def apply_transaction(
     # the router only after this returns -- so a rollback below never
     # leaves a phantom crossing behind.
     low_stock.record(item, quantity_before=quantity_before)
+    material_requests.record_stock_change(db, item, quantity_before=quantity_before)
     db.commit()
     db.refresh(new_txn)
     # These response-only attributes are not columns: the durable source is the
@@ -227,6 +229,7 @@ def void_transaction(
         # Inside the branch on purpose: a stock-neutral retroactive row
         # never moved on-hand, so undoing it cannot change membership.
         low_stock.record(item, quantity_before=quantity_before)
+        material_requests.record_stock_change(db, item, quantity_before=quantity_before)
 
     # Keep the work order's materials list in step with History: a line is the
     # aggregate of its work-order transactions, so voiding one reverses that row's
@@ -365,6 +368,7 @@ def apply_correction(
         db, item_id=item_id, resolved_by_id=user_id
     )
     low_stock.record(item, quantity_before=quantity_before)
+    material_requests.record_stock_change(db, item, quantity_before=quantity_before)
     db.commit()
     db.refresh(new_txn)
     return new_txn
