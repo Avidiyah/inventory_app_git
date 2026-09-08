@@ -2447,7 +2447,7 @@ Claude-Session: https://claude.ai/code/session_01Rj5dKhZSJLx5wvJMfBTimY"
 **Interfaces:**
 - Produces: `POST /user-requests/material-request` (201, `MaterialRequestCreate` → `UserRequestResponse` with `item_quantity`, `updated`); `POST /user-requests/{id}/mark-stocked` (TechFM OA+); `POST /user-requests/{id}/cancel` (any session, filer only); `GET /user-requests/counts` (TechFM OA+, `dict[str, dict[str, int]]`); `GET /user-requests/?status=open|stocked|resolved&type=…`; `wo_service.get_visible_work_order(db, work_order_id, user)`; `routers.user_requests.build_response(request, *, skipped=None, item_quantity=None, updated=False)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `backend/tests/test_route_role_gates.py`:
 
@@ -2709,12 +2709,12 @@ def test_patch_to_stocked_is_422(db):
     assert response.status_code == 422
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_material_requests.py tests/test_route_role_gates.py -q -k "http or counts or stocked or cancel or material"`
 Expected: FAIL — 404s on unknown routes, `route 'mark_request_stocked' not found`.
 
-- [ ] **Step 3: Schemas**
+- [x] **Step 3: Schemas**
 
 In `backend/app/schemas/user_requests.py` add after `CatalogueRequestCreate`:
 
@@ -2768,7 +2768,7 @@ and at the end (after `skipped`):
     updated: bool = False
 ```
 
-- [ ] **Step 4: Public visible reader in the work-orders service**
+- [x] **Step 4: Public visible reader in the work-orders service**
 
 In `backend/app/services/work_orders.py`, directly after `_get_visible`:
 
@@ -2783,7 +2783,7 @@ def get_visible_work_order(
     return _get_visible(db, work_order_id, user)
 ```
 
-- [ ] **Step 5: List filter in the queue service**
+- [x] **Step 5: List filter in the queue service**
 
 `backend/app/services/user_requests.py::list_user_requests` gains a `request_type: Optional[str] = None` keyword and, after the status filter:
 
@@ -2792,7 +2792,7 @@ def get_visible_work_order(
         query = query.filter(UserRequest.request_type == request_type)
 ```
 
-- [ ] **Step 6: Router**
+- [x] **Step 6: Router**
 
 In `backend/app/routers/user_requests.py`:
 
@@ -2960,12 +2960,12 @@ def cancel_material_request(
 
 In the existing `update_user_request` handler add `emit_user_request_changed(request_id)` after the service calls succeed (before `return`). In `fulfill_catalogue_request` add `emit_user_request_changed(request_id)` after the service returns (Task 9's chain makes this envelope matter).
 
-- [ ] **Step 7: Run the tests**
+- [x] **Step 7: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_material_requests.py tests/test_route_role_gates.py tests/test_user_requests.py tests/test_catalogue_requests.py -q`
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/app/schemas/user_requests.py backend/app/routers/user_requests.py backend/app/services/user_requests.py backend/app/services/work_orders.py backend/tests/test_material_requests.py backend/tests/test_route_role_gates.py
@@ -2991,7 +2991,7 @@ Claude-Session: https://claude.ai/code/session_01Rj5dKhZSJLx5wvJMfBTimY"
 - Consumes: `material_service.resolve_from_line`, `list_for_work_order`; `routers.user_requests.build_response`; `emit_user_request_changed`.
 - Produces: `GET /work-orders/{id}/requests → list[UserRequestResponse]` (handler `list_work_order_requests`, any session, visibility-scoped); `POST /work-orders/{id}/items` body accepts `material_request_id: UUID | null`; `wo_service.add_work_order_item(..., material_request_id=None)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `backend/tests/test_route_role_gates.py` add `"list_work_order_requests",` to the `test_work_order_routes_have_no_static_min_role` parametrize list.
 
@@ -3069,12 +3069,12 @@ def test_adding_without_a_request_id_is_unchanged(db):
 
 Add `WorkOrderItem` to the models import at the top of the file.
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_material_requests.py -q -k "work_order_requests or stocked_line or stale_request or without_a_request"`
 Expected: FAIL — 404 on `/requests`; the stocked-line test's request stays `stocked` (the unknown body field is ignored).
 
-- [ ] **Step 3: Schema**
+- [x] **Step 3: Schema**
 
 `backend/app/schemas/work_orders.py::WorkOrderItemCreate`:
 
@@ -3088,7 +3088,7 @@ Expected: FAIL — 404 on `/requests`; the stocked-line test's request stays `st
     material_request_id: Optional[UUID] = None
 ```
 
-- [ ] **Step 4: Service**
+- [x] **Step 4: Service**
 
 `backend/app/services/work_orders.py::add_work_order_item` signature gains `material_request_id: Optional[uuid.UUID] = None`. Immediately after `item = _locked_live_item(db, item_id)` (so a stale request fails before any stock moves):
 
@@ -3107,7 +3107,7 @@ Expected: FAIL — 404 on `/requests`; the stocked-line test's request stays `st
 
 Docstring addition: "With `material_request_id`, the stocked Material Request that offered this line is resolved in the same transaction (`Added to {number}.`); it must be `stocked`, on this work order, for this item."
 
-- [ ] **Step 5: Router**
+- [x] **Step 5: Router**
 
 `backend/app/routers/work_orders.py`: import `from app.routers._stock_events import emit_user_request_changed, flush_stock_events` (replacing the Task 6 import line), `from app.routers.user_requests import build_response as build_request_response`, `from app.schemas.user_requests import UserRequestResponse`, `from app.services import material_requests as material_service`.
 
@@ -3151,12 +3151,12 @@ def list_work_order_requests(
         raise to_http(exc)
 ```
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_material_requests.py tests/test_route_role_gates.py tests/test_realtime_emit.py tests/test_work_orders_service.py -q`
 Expected: PASS (`test_realtime_emit.py` pins emitter sets by source inspection; `emit_user_request_changed` is a different event and must not join the status/review sets).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/app/schemas/work_orders.py backend/app/services/work_orders.py backend/app/routers/work_orders.py backend/tests/test_material_requests.py backend/tests/test_route_role_gates.py
@@ -3180,7 +3180,7 @@ Claude-Session: https://claude.ai/code/session_01Rj5dKhZSJLx5wvJMfBTimY"
 - Consumes: `material_requests.create_or_update(origin=ORIGIN_CATALOGUE_FULFILMENT)`.
 - Produces: after fulfilment, a `material_request` row per live work order whose item ends at `<= 0`, `created_by_id` = the catalogue filer, `quantity` = the catalogue request's quantity, `origin = "catalogue_fulfilment"`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # --------------------------------------------------------------------------
@@ -3239,12 +3239,12 @@ def test_the_chain_skips_a_stocked_item_and_a_closed_work_order(db):
     assert db.query(UserRequest).filter(UserRequest.request_type == "material_request", UserRequest.item_id == stocked_item.id).count() == 0
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_material_requests.py -q -k chain`
 Expected: FAIL — `NoResultFound` on `.one()`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `backend/app/services/user_requests.py::_resolve_one_catalogue_request`, inside the `else:` branch after `attach_dispense_line(...)` and `details["auto_add"] = "added"`:
 
@@ -3271,12 +3271,12 @@ In `backend/app/services/user_requests.py::_resolve_one_catalogue_request`, insi
 
 Add `Item` to the local `from app.models import WorkOrder` import in that function. (`Decimal` is already imported at module top.)
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_material_requests.py tests/test_catalogue_requests.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/services/user_requests.py backend/tests/test_material_requests.py
@@ -3302,7 +3302,7 @@ Claude-Session: https://claude.ai/code/session_01Rj5dKhZSJLx5wvJMfBTimY"
 - Consumes: `material_requests.stocked_requests_for_user`.
 - Produces: `HubResponse.stocked_requests: list[HubStockedRequest]` where `HubStockedRequest = {request_id, item_name, work_order_id, work_order_number, quantity: str, stocked_at: datetime | None}`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `backend/tests/test_hub_service.py`:
 
@@ -3346,12 +3346,12 @@ def test_personal_hub_lists_stocked_requests_i_am_associated_with(db):
 
 (`_seed_item` exists at line 74 of that file.)
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_hub_service.py -q -k stocked`
 Expected: FAIL — `AttributeError: 'HubPayload' object has no attribute 'stocked_requests'`.
 
-- [ ] **Step 3: Service**
+- [x] **Step 3: Service**
 
 `backend/app/services/hub.py`: import `from app.services import material_requests as material_requests_service`. After `ToolOut`:
 
@@ -3399,7 +3399,7 @@ def _parse_iso(value: Optional[str]) -> Optional[datetime]:
         return None
 ```
 
-- [ ] **Step 4: Schema and router**
+- [x] **Step 4: Schema and router**
 
 `backend/app/schemas/hub.py`, before `HubResponse`:
 
@@ -3421,12 +3421,12 @@ class HubStockedRequest(BaseModel):
 
 `HubResponse` gains `stocked_requests: list[HubStockedRequest] = []` after `tools_out`. `backend/app/routers/hub.py::get_hub` passes `stocked_requests=payload.stocked_requests,`.
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_hub_service.py tests/test_hub_router.py -q`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/app/services/hub.py backend/app/schemas/hub.py backend/app/routers/hub.py backend/tests/test_hub_service.py
