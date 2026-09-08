@@ -390,3 +390,13 @@ def test_the_work_order_card_mounts_the_request_section_and_stocked_lines():
     assert '"user_request.changed"' in module
     assert 'import "./views/workOrderRequests.js";' in _src("main.js")
     assert '"request_card"' in _src("views/catalogueRequest.js")
+
+
+def test_the_hub_dashboard_lists_stocked_requests_first_and_refreshes_live():
+    tech = _src("views/hubTechnician.js")
+    assert "Requested material in stock" in tech
+    assert "stockedRequestsHtml(payload.stocked_requests)" in tech
+    assert "hub-stocked-requests" in tech
+    hub = _src("views/userHub.js")
+    assert 'const USER_REQUEST_CHANGED_EVENT = "user_request.changed";' in hub
+    assert "subscribe(USER_REQUEST_CHANGED_EVENT" in hub

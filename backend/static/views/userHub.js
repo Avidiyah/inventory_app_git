@@ -31,6 +31,7 @@ import { skeletonCard } from "../skeleton.js";
 const HUB_PAGE = "user-hub";
 const LABOR_SESSION_CHANGED_EVENT = "labor.session.changed";
 const WORK_ORDER_STATUS_CHANGED_EVENT = "work_order.status.changed";
+const USER_REQUEST_CHANGED_EVENT = "user_request.changed";
 
 // Spec §6.2: while the hub is the active page and the tab is visible, a full
 // crew refetch every 60 seconds -- a safety net for a dropped envelope, on
@@ -546,6 +547,14 @@ subscribe(WORK_ORDER_STATUS_CHANGED_EVENT, ({ activePage, reason }) => {
       void loadGraphs({ background: true });
     }
   }
+});
+
+// A request was stocked, added, cancelled, or reopened: the Dashboard's
+// "Requested material in stock" rows come from the personal payload, so
+// refetch it. Background: a socket signal, not a user action.
+subscribe(USER_REQUEST_CHANGED_EVENT, ({ activePage }) => {
+  if (activePage !== HUB_PAGE) return;
+  void refreshPersonal({ background: true });
 });
 
 document.addEventListener("visibilitychange", () => {

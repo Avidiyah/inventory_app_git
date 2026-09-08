@@ -4267,7 +4267,7 @@ Claude-Session: https://claude.ai/code/session_01Rj5dKhZSJLx5wvJMfBTimY"
 - Consumes: `payload.stocked_requests` (Task 10 schema).
 - Produces: `stockedRequestsHtml(stockedRequests)` at the top of the Dashboard tab for every role; omitted (empty string) when the list is empty; each row links to `/workorder_card/{number}` through the existing `focusWorkOrderNumber` path.
 
-- [ ] **Step 1: Write the failing pins**
+- [x] **Step 1: Write the failing pins**
 
 Append to `backend/tests/test_catalogue_requests.py`:
 
@@ -4284,7 +4284,7 @@ def test_the_hub_dashboard_lists_stocked_requests_first_and_refreshes_live():
 
 Run `-k hub_dashboard_lists` — Expected: FAIL.
 
-- [ ] **Step 2: Render the section**
+- [x] **Step 2: Render the section**
 
 In `backend/static/views/hubTechnician.js`, before `mountHubDashboard`:
 
@@ -4333,7 +4333,7 @@ and after the timeline-block loop add the click wiring (the same hand-off `mount
 
 (Same order as `mountHubWorkOrders` at line ~205: focus first, then `showPage`, so the pending number is armed before the page loader runs.)
 
-- [ ] **Step 3: Live refresh**
+- [x] **Step 3: Live refresh**
 
 In `backend/static/views/userHub.js`, beside the other event constants:
 
@@ -4353,7 +4353,7 @@ subscribe(USER_REQUEST_CHANGED_EVENT, ({ activePage }) => {
 });
 ```
 
-- [ ] **Step 4: CSS**
+- [x] **Step 4: CSS**
 
 Append to `backend/static/styles.css` near `.hub-attention`:
 
@@ -4371,13 +4371,13 @@ Append to `backend/static/styles.css` near `.hub-attention`:
 
 `.hub-link-btn` does not exist yet (verified); add it beside the block above: `.hub-link-btn { background: none; border: none; padding: 0; margin: 0; min-height: 0; color: var(--color-brand); text-decoration: underline; cursor: pointer; font: inherit; }`.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_catalogue_requests.py -q` — Expected: PASS.
 Run: `node --check backend/static/views/hubTechnician.js && node --check backend/static/views/userHub.js`.
 Manual (user): as the assigned Technician, after a restock the Hub Dashboard opens with the green section at the top; after Add requested material it is gone without a reload; a TechFM OA sees every stocked request there.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/static/views/hubTechnician.js backend/static/views/userHub.js backend/static/styles.css backend/tests/test_catalogue_requests.py

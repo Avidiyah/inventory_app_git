@@ -143,9 +143,31 @@ function toolsOutHtml(toolsOut) {
     </section>`;
 }
 
+// The persistent half of the stocked notification: a push is gone once
+// swiped; this stays until somebody adds the material. Omitted, not rendered
+// empty -- a Dashboard that opens with "nothing here" says nothing useful.
+function stockedRequestsHtml(stockedRequests) {
+  if (!stockedRequests || !stockedRequests.length) return "";
+  const rows = stockedRequests
+    .map(
+      (row) => `<li class="hub-stocked-request">
+        <span class="hub-stocked-item">${escapeHtml(row.item_name)}</span>
+        <button type="button" class="hub-link-btn hub-stocked-wo" data-number="${escapeHtml(row.work_order_number)}">${escapeHtml(row.work_order_number)}</button>
+        <span class="hint">requested ${escapeHtml(row.quantity)}${row.stocked_at ? ` · stocked ${escapeHtml(new Date(row.stocked_at).toLocaleString())}` : ""}</span>
+      </li>`
+    )
+    .join("");
+  return `
+    <section class="hub-stocked-requests">
+      <p class="hub-tile-label">Requested material in stock</p>
+      <ul class="hub-stocked-list">${rows}</ul>
+    </section>`;
+}
+
 export function mountHubDashboard(container, payload) {
   const isAdminPlus = roleAtLeast(payload.user.role, "techfm_oa");
   container.innerHTML =
+    stockedRequestsHtml(payload.stocked_requests) +
     `<div id="hub-priorities-mount"></div>` +
     countsHtml(payload.counts) +
     (isAdminPlus ? "" : timeTodayHtml(payload)) +
@@ -160,6 +182,14 @@ export function mountHubDashboard(container, payload) {
   container.querySelectorAll(".hub-timeline-block").forEach((block) => {
     block.style.left = `${block.dataset.left}%`;
     block.style.width = `${block.dataset.width}%`;
+  });
+  // Same hand-off as mountHubWorkOrders: focus first so the pending number
+  // is armed before the page loader runs.
+  container.querySelectorAll(".hub-stocked-wo").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      focusWorkOrderNumber(btn.dataset.number);
+      showPage("work-orders");
+    });
   });
 }
 
