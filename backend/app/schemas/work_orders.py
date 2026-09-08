@@ -108,6 +108,11 @@ class WorkOrderItemCreate(BaseModel):
 
     item_id: UUID
     quantity: Decimal
+    # Set when the Add came from a stocked Material Request's one-tap line.
+    # The service resolves that request in the same transaction as the line;
+    # a stale id (not stocked, wrong work order, wrong item) is 409 and adds
+    # nothing.
+    material_request_id: Optional[UUID] = None
 
     @field_validator("quantity")
     @classmethod

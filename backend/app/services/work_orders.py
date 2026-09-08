@@ -2852,6 +2852,7 @@ def add_work_order_item(
     user: Optional[User],
     item_id: uuid.UUID,
     quantity: Decimal,
+    material_request_id: Optional[uuid.UUID] = None,
 ) -> WorkOrderItem:
     """Log a material against a work order using its current `entry_mode`.
     Re-adding an item ADDS to its line (each add is its own ledger row). Writes
@@ -2859,9 +2860,22 @@ def add_work_order_item(
     and reflects it on the materials list via `attach_dispense_line`. Raises
     `WorkOrderNotFoundError` / `ItemNotFoundError`. A dispense-mode shortage is
     recorded with a negative expected balance plus an inventory-recount User
-    Request, matching Scan / Stock; retroactive mode stays stock-neutral."""
+    Request, matching Scan / Stock; retroactive mode stays stock-neutral.
+    With `material_request_id`, the stocked Material Request that offered this
+    line is resolved in the same transaction (`Added to {number}.`); it must be
+    `stocked`, on this work order, for this item."""
     work_order = _get_visible(db, work_order_id, user)
     item = _locked_live_item(db, item_id)
+    if material_request_id is not None:
+        material_requests.resolve_from_line(
+            db,
+            request_id=material_request_id,
+            work_order_id=work_order.id,
+            work_order_number=work_order.number,
+            item_id=item.id,
+            quantity=quantity,
+            resolved_by_id=user.id if user else None,
+        )
 
     mode = work_order.entry_mode
     moves_stock = wo.affects_stock(mode)

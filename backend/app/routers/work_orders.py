@@ -49,7 +49,7 @@ from app.domain.list_limits import MAX_LIST_ROWS
 from app.logging_config import current_request_id
 from app.models import User, WorkOrder, WorkOrderItem, WorkOrderLabor
 from app.routers._errors import to_http
-from app.routers._stock_events import flush_stock_events
+from app.routers._stock_events import emit_user_request_changed, flush_stock_events
 from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_capped
 from app.schemas.work_orders import (
     LegacyWorkOrderArchivePreview,
@@ -69,6 +69,9 @@ from app.schemas.work_orders import (
     WorkOrderLookup,
     WorkOrderUpdate,
 )
+from app.routers.user_requests import build_response as build_request_response
+from app.schemas.user_requests import UserRequestResponse
+from app.services import material_requests as material_service
 from app.services import notifications as notifications_service
 from app.services import realtime as realtime_service
 from app.services import work_orders as wo_service
@@ -1154,6 +1157,26 @@ def restore_work_order(
         raise to_http(exc)
 
 
+@router.get("/{work_order_id}/requests", response_model=list[UserRequestResponse])
+def list_work_order_requests(
+    work_order_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Every Material and Catalogue Request on one work order, newest first.
+    Scoped exactly like the card itself: the visible-work-order reader
+    answers 404 for an archived or out-of-scope row before anything is
+    listed. Feeds the card's Request section and its stocked Materials lines."""
+    try:
+        work_order = wo_service.get_visible_work_order(db, work_order_id, user)
+        return [
+            build_request_response(row)
+            for row in material_service.list_for_work_order(db, work_order.id)
+        ]
+    except DomainError as exc:
+        raise to_http(exc)
+
+
 @router.post("/{work_order_id}/items", response_model=WorkOrderItemDetail, status_code=201)
 def add_work_order_item(
     work_order_id: uuid.UUID,
@@ -1168,9 +1191,16 @@ def add_work_order_item(
     of failing. Server-scoped for Technician and above."""
     try:
         line = wo_service.add_work_order_item(
-            db, work_order_id, user=user, item_id=payload.item_id, quantity=payload.quantity
+            db,
+            work_order_id,
+            user=user,
+            item_id=payload.item_id,
+            quantity=payload.quantity,
+            material_request_id=payload.material_request_id,
         )
         flush_stock_events(db, background)
+        if payload.material_request_id is not None:
+            emit_user_request_changed(payload.material_request_id)
         return _line_detail(line, include_price=_can_see_price(user))
     except DomainError as exc:
         raise to_http(exc)

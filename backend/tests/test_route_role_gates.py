@@ -141,6 +141,7 @@ def test_create_transaction_has_no_static_min_role():
         "add_work_order_item",
         "update_work_order_item",
         "delete_work_order_item",
+        "list_work_order_requests",
     ],
 )
 def test_work_order_routes_have_no_static_min_role(endpoint_name):

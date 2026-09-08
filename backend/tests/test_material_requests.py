@@ -18,7 +18,7 @@ from decimal import Decimal
 import pytest
 
 from app.domain.errors import ItemRequestStateError, MaterialRequestOwnershipError
-from app.models import Item, User, UserRequest, WorkOrderTechnician
+from app.models import Item, User, UserRequest, WorkOrderItem, WorkOrderTechnician
 from app.services import auth
 from app.services import material_requests as material_service
 from app.services import user_requests as request_service
@@ -865,3 +865,72 @@ def test_patch_to_stocked_is_422(db):
     finally:
         del app.dependency_overrides[get_db]
     assert response.status_code == 422
+
+
+# --------------------------------------------------------------------------
+# The work-order side
+# --------------------------------------------------------------------------
+
+def test_the_work_order_requests_list_is_visibility_scoped(db):
+    tech = _user(db)
+    other = _user(db)
+    work_order = _work_order(db, tech, assigned_to=tech)
+    request, _ = _file(db, tech, work_order, _item(db))
+    db.commit()
+
+    mine = _get(db, tech, f"/work-orders/{work_order.id}/requests")
+    assert mine.status_code == 200
+    assert [row["id"] for row in mine.json()] == [str(request.id)]
+    assert mine.json()[0]["item_quantity"] == "0"
+
+    assert _get(db, other, f"/work-orders/{work_order.id}/requests").status_code == 404
+
+
+def test_adding_from_the_stocked_line_resolves_the_request(db, monkeypatch):
+    tech = _user(db)
+    work_order = _work_order(db, tech, assigned_to=tech)
+    item = _item(db, quantity="0")
+    request, _ = _file(db, tech, work_order, item, quantity="4")
+    _restock(db, item, to="10")
+    material_service.drain()
+    db.commit()
+
+    response = _post(db, tech, f"/work-orders/{work_order.id}/items", {
+        "item_id": str(item.id), "quantity": "3", "material_request_id": str(request.id),
+    })
+
+    assert response.status_code == 201, response.text
+    db.refresh(request)
+    assert request.status == "resolved"
+    assert request.resolution_note == f"Added to {work_order.number}."
+    assert request.details["added_quantity"] == "3"
+    db.refresh(item)
+    assert item.quantity == Decimal("7")
+
+
+def test_adding_with_a_stale_request_id_is_409_and_adds_nothing(db):
+    tech = _user(db)
+    work_order = _work_order(db, tech, assigned_to=tech)
+    item = _item(db, quantity="5")
+    request, _ = _file(db, tech, work_order, item)  # still open, not stocked
+    db.commit()
+
+    response = _post(db, tech, f"/work-orders/{work_order.id}/items", {
+        "item_id": str(item.id), "quantity": "1", "material_request_id": str(request.id),
+    })
+
+    assert response.status_code == 409
+    db.refresh(item)
+    assert item.quantity == Decimal("5")
+    assert db.query(WorkOrderItem).filter(WorkOrderItem.work_order_id == work_order.id).count() == 0
+
+
+def test_adding_without_a_request_id_is_unchanged(db):
+    tech = _user(db)
+    work_order = _work_order(db, tech, assigned_to=tech)
+    item = _item(db, quantity="5")
+    db.commit()
+    response = _post(db, tech, f"/work-orders/{work_order.id}/items", {
+        "item_id": str(item.id), "quantity": "1",
+    })
+    assert response.status_code == 201
