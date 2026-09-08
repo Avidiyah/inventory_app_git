@@ -4,7 +4,8 @@
 // third request type arrived: that module now owns loading, filtering, and
 // event delegation, and this one owns markup. No fetches happen here.
 //
-// The three types and what each card offers:
+// The four types and what each card offers:
+//   material_request   -- manual "Mark stocked & notify" fire, inline edit
 //   inventory_recount  -- frozen shortage snapshot, inline count correction
 //   missing_item_price -- inline price + product link
 //   catalogue_request  -- inline fulfilment (link or create the item)
@@ -23,10 +24,17 @@ export function formatDate(value) {
 }
 
 export function requestTypeLabel(type) {
+  if (type === "material_request") return "Material request";
+  if (type === "catalogue_request") return "Catalogue request";
   if (type === "inventory_recount") return "Stock recount";
   if (type === "missing_item_price") return "Missing price / link";
-  if (type === "catalogue_request") return "Catalogue request";
   return type.replaceAll("_", " ");
+}
+
+export function statusLabel(status) {
+  if (status === "stocked") return "Stocked";
+  if (status === "resolved") return "Resolved";
+  return "Open";
 }
 
 function detailLine(label, value) {
@@ -34,7 +42,29 @@ function detailLine(label, value) {
   return `<span><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</span>`;
 }
 
+function linkLine(label, url) {
+  if (!url) return "";
+  const safe = escapeHtml(url);
+  return `<span><strong>${escapeHtml(label)}:</strong> <a href="${safe}" target="_blank" rel="noopener">${safe}</a></span>`;
+}
+
 // --- per-type body -------------------------------------------------------
+
+function materialRequestBody(request, details) {
+  const cycles = Number(details.stock_cycles || 0);
+  return (
+    detailLine("Barcode", request.item_barcode) +
+    detailLine("Work order", request.work_order_number) +
+    detailLine("Quantity requested", details.quantity) +
+    linkLine("Product link", details.product_link) +
+    detailLine("Note", details.note) +
+    detailLine("On hand now", request.item_quantity) +
+    detailLine("Requested by", request.created_by_name || "Unknown") +
+    detailLine("Filed", formatDate(request.created_at)) +
+    (details.stocked_at ? detailLine("Stocked", formatDate(details.stocked_at)) : "") +
+    (cycles > 1 ? detailLine("Stock cycles", `${cycles} — stocked ${cycles} times, still not added`) : "")
+  );
+}
 
 function catalogueRequestBody(request, details) {
   const workOrders = request.work_order_number
@@ -75,6 +105,27 @@ function missingPriceBody(request, details) {
 }
 
 // --- per-type actions ----------------------------------------------------
+
+function materialRequestActions(request) {
+  const edit = `<button type="button" class="secondary-btn user-request-edit-open">Edit</button>`;
+  if (request.status === "open") {
+    return (
+      `<button type="button" class="user-request-stock">Mark stocked &amp; notify</button>${tipHtml("requests.stocked")}` +
+      `<button type="button" class="user-request-action secondary-btn" data-status="resolved">Mark resolved</button>` +
+      edit
+    );
+  }
+  if (request.status === "stocked") {
+    return (
+      `<span class="hint">Waiting for the crew to add it to ${escapeHtml(request.work_order_number || "the work order")}.</span>` +
+      `<button type="button" class="user-request-action secondary-btn" data-status="resolved">Mark resolved</button>` +
+      edit
+    );
+  }
+  return (
+    `<button type="button" class="user-request-action secondary-btn" data-status="open">Reopen</button>` + edit
+  );
+}
 
 function catalogueRequestActions(request) {
   if (request.status !== "open") {
@@ -146,9 +197,9 @@ function missingPriceActions(request) {
 // visible rather than merely enforced.
 export function editFormHtml(request) {
   const details = request.details || {};
-  const itemFields =
-    request.request_type === "catalogue_request"
-      ? `<label class="user-request-label">Item searched for
+  let itemFields;
+  if (request.request_type === "catalogue_request") {
+    itemFields = `<label class="user-request-label">Item searched for
            <input type="text" class="user-request-edit-text" maxlength="200" value="${escapeHtml(
              details.searched_text || ""
            )}">
@@ -162,10 +213,28 @@ export function editFormHtml(request) {
            <input type="text" class="user-request-edit-note" maxlength="500" value="${escapeHtml(
              details.note || ""
            )}">
-         </label>`
-      : `<p class="hint">This request's recorded figures are a snapshot of what
+         </label>`;
+  } else if (request.request_type === "material_request") {
+    itemFields = `<label class="user-request-label">Quantity requested
+           <input type="number" class="user-request-edit-qty" min="0.01" step="any" value="${escapeHtml(
+             details.quantity || "1"
+           )}">
+         </label>
+         <label class="user-request-label">Product link
+           <input type="url" class="user-request-edit-link" maxlength="2000" value="${escapeHtml(
+             details.product_link || ""
+           )}" placeholder="https://...">
+         </label>
+         <label class="user-request-label">Note
+           <input type="text" class="user-request-edit-note" maxlength="500" value="${escapeHtml(
+             details.note || ""
+           )}">
+         </label>`;
+  } else {
+    itemFields = `<p class="hint">This request's recorded figures are a snapshot of what
            the system saw at the time and cannot be edited. You can reword the
            message below.</p>`;
+  }
 
   return `<div class="user-request-edit">
       ${itemFields}
@@ -290,6 +359,10 @@ export function buildRequestCard(request) {
     heading = details.searched_text || "Unnamed item";
     body = catalogueRequestBody(request, details);
     actions = catalogueRequestActions(request);
+  } else if (request.request_type === "material_request") {
+    heading = request.item_name || "Unknown item";
+    body = materialRequestBody(request, details);
+    actions = materialRequestActions(request);
   } else if (request.request_type === "missing_item_price") {
     heading = request.item_name || "Unknown item";
     body = missingPriceBody(request, details);
@@ -317,7 +390,7 @@ export function buildRequestCard(request) {
       requestTypeLabel(request.request_type)
     )}</span>` +
     `<h3>${escapeHtml(heading)}</h3></div>` +
-    `<span class="user-request-status">${escapeHtml(request.status)}</span>` +
+    `<span class="user-request-status">${escapeHtml(statusLabel(request.status))}</span>` +
     `</div>` +
     `<p class="user-request-alert">${escapeHtml(request.message)}</p>` +
     `<div class="user-request-details">${body}</div>` +

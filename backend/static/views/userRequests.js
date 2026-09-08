@@ -3,8 +3,9 @@
 // Layer: views. Owns loading, filtering, and every interaction on the page;
 // markup lives in `userRequestCards.js`.
 //
-// Three request types share one queue and one resolution model — requests are
+// Four request types share one queue and one resolution model — requests are
 // resolved, never deleted:
+//   material_request   -- a catalogue item the shelf does not have
 //   inventory_recount  -- an in-app item's recorded count is short
 //   missing_item_price -- a work-order material has no price / product link
 //   catalogue_request  -- the material has no catalogue row at all
@@ -17,35 +18,75 @@ import {
   apiFulfillCatalogueRequest,
   apiListItems,
   apiListRequestSiblings,
+  apiListUserRequestCounts,
   apiListUserRequests,
+  apiMarkRequestStocked,
   apiUpdateItem,
   apiUpdateUserRequest,
 } from "../api.js";
 import { confirmDialog, setMessage } from "../dom.js";
 import { escapeHtml, friendlyError } from "../format.js";
+import { subscribe } from "../realtime.js";
 import {
   buildRequestCard,
   editFormHtml,
   fulfillFormHtml,
   itemChoiceHtml,
+  requestTypeLabel,
   siblingsHtml,
 } from "./userRequestCards.js";
 
 const statusEl = document.getElementById("user-requests-status");
-const typeEl = document.getElementById("user-requests-type");
+const tabsEl = document.getElementById("user-requests-tabs");
 const refreshBtn = document.getElementById("user-requests-refresh");
 const listEl = document.getElementById("user-requests-list");
 const messageEl = document.getElementById("user-requests-message");
 
-// The last loaded set, kept so the Type filter can narrow without refetching
-// and so a card can be re-rendered from its source data on Cancel.
+const USER_REQUESTS_PAGE = "user-requests";
+const USER_REQUEST_CHANGED_EVENT = "user_request.changed";
+const STATUS_OPTIONS = {
+  material_request: [["open", "Open"], ["stocked", "Stocked"], ["resolved", "Resolved"]],
+  default: [["open", "Open"], ["resolved", "Resolved"]],
+};
+let activeType = "material_request";
+
+// The last loaded set (already narrowed to `activeType` by the server), kept
+// so a card can be re-rendered from its source data on Cancel.
 let loaded = [];
 
+function rebuildStatusOptions() {
+  const options = STATUS_OPTIONS[activeType] || STATUS_OPTIONS.default;
+  const current = statusEl.value;
+  statusEl.innerHTML = options
+    .map(([value, label]) => `<option value="${value}">${label}</option>`)
+    .join("");
+  statusEl.value = options.some(([v]) => v === current) ? current : "open";
+}
+
+function selectTab(type) {
+  activeType = type;
+  tabsEl.querySelectorAll(".hub-tab").forEach((btn) => {
+    const on = btn.dataset.requestType === type;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-selected", String(on));
+  });
+  rebuildStatusOptions();
+}
+
+async function refreshCounts() {
+  try {
+    const counts = await apiListUserRequestCounts();
+    tabsEl.querySelectorAll(".hub-tab").forEach((btn) => {
+      const open = counts[btn.dataset.requestType]?.open || 0;
+      btn.querySelector(".user-requests-tab-count").textContent = open ? `(${open})` : "";
+    });
+  } catch {
+    // Counts are decoration; the list is the truth.
+  }
+}
+
 function visibleRequests() {
-  const type = typeEl ? typeEl.value : "all";
-  return type === "all"
-    ? loaded
-    : loaded.filter((request) => request.request_type === type);
+  return loaded;
 }
 
 function requestById(id) {
@@ -58,8 +99,9 @@ function render() {
   for (const request of requests) listEl.appendChild(buildRequestCard(request));
 
   const status = statusEl.value;
+  const label = requestTypeLabel(activeType).toLowerCase();
   if (!requests.length) {
-    setMessage(messageEl, `No ${status} user requests.`, "success");
+    setMessage(messageEl, `No ${status} ${label}s.`, "success");
   } else {
     setMessage(
       messageEl,
@@ -74,8 +116,9 @@ export async function loadUserRequests() {
   const status = statusEl.value || "open";
   setMessage(messageEl, `Loading ${status} requests...`, "");
   try {
-    loaded = await apiListUserRequests(status);
+    loaded = await apiListUserRequests(status, activeType);
     render();
+    void refreshCounts();
   } catch (err) {
     loaded = [];
     listEl.replaceChildren();
@@ -84,8 +127,17 @@ export async function loadUserRequests() {
 }
 
 if (statusEl) statusEl.addEventListener("change", loadUserRequests);
-if (typeEl) typeEl.addEventListener("change", render);
 if (refreshBtn) refreshBtn.addEventListener("click", loadUserRequests);
+if (tabsEl && statusEl) {
+  tabsEl.addEventListener("click", (e) => {
+    const btn = e.target.closest(".hub-tab[data-request-type]");
+    if (!btn) return;
+    selectTab(btn.dataset.requestType);
+    void loadUserRequests();
+  });
+  // Status options must match the default tab before the first load.
+  selectTab(activeType);
+}
 
 // --- panel helpers -------------------------------------------------------
 
@@ -234,7 +286,18 @@ if (listEl) {
         return;
       }
       let details = null;
-      if (card.dataset.requestType === "catalogue_request") {
+      if (card.dataset.requestType === "material_request") {
+        const link = panel.querySelector(".user-request-edit-link");
+        if (link.value.trim() && !link.checkValidity()) {
+          setMessage(messageEl, "Enter a valid product link.", "error");
+          return;
+        }
+        details = {
+          quantity: panel.querySelector(".user-request-edit-qty").value.trim() || "1",
+          product_link: link.value.trim() || null,
+          note: panel.querySelector(".user-request-edit-note").value.trim() || null,
+        };
+      } else if (card.dataset.requestType === "catalogue_request") {
         const text = panel.querySelector(".user-request-edit-text").value.trim();
         if (!text) {
           setMessage(messageEl, "Describe the item that was searched for.", "error");
@@ -354,6 +417,21 @@ if (listEl) {
       return;
     }
 
+    // --- mark a material request stocked (manual fire) --------------------
+    const stockBtn = event.target.closest(".user-request-stock");
+    if (stockBtn) {
+      if (!(await confirmDialog("Mark this item as stocked and notify the crew?"))) return;
+      stockBtn.disabled = true;
+      try {
+        await apiMarkRequestStocked(card.dataset.id);
+        await loadUserRequests();
+      } catch (err) {
+        stockBtn.disabled = false;
+        setMessage(messageEl, friendlyError(err, "Could not mark that request stocked."), "error");
+      }
+      return;
+    }
+
     // --- resolve / reopen --------------------------------------------------
     const button = event.target.closest(".user-request-action");
     if (!button) return;
@@ -371,3 +449,10 @@ if (listEl) {
     }
   });
 }
+
+// Any request moved: reload when this page is showing. Background reload --
+// a socket signal, not a user action.
+subscribe(USER_REQUEST_CHANGED_EVENT, ({ activePage }) => {
+  if (activePage !== USER_REQUESTS_PAGE) return;
+  void loadUserRequests();
+});

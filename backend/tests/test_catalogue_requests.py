@@ -320,3 +320,52 @@ def test_the_migration_rewrites_old_rows_both_ways(db):
     assert db.execute(
         text("SELECT request_type FROM user_requests WHERE id = :id"), {"id": row.id}
     ).scalar() == "item_request"
+
+
+# --------------------------------------------------------------------------
+# UI contract pins (no JS harness; same approach as test_work_orders_router)
+# --------------------------------------------------------------------------
+
+from pathlib import Path
+
+_STATIC = Path(__file__).resolve().parents[1] / "static"
+
+
+def _src(rel):
+    return (_STATIC / rel).read_text(encoding="utf-8")
+
+
+def test_api_client_has_the_material_request_wrappers():
+    api = _src("api.js")
+    assert 'jsonRequest("/user-requests/material-request", "POST"' in api
+    assert "/user-requests/counts" in api
+    assert "/mark-stocked`" in api
+    assert "/cancel`" in api
+    assert "/requests`" in api
+    assert "material_request_id: materialRequestId" in api
+    assert 'params.set("type", type)' in api
+
+
+def test_the_user_requests_page_has_four_type_tabs_with_counts():
+    html = _src("pages/user-requests.html")
+    assert 'id="user-requests-tabs"' in html
+    assert 'role="tablist"' in html
+    for key in ("material_request", "catalogue_request", "inventory_recount", "missing_item_price"):
+        assert f'data-request-type="{key}"' in html
+    assert 'id="user-requests-type"' not in html  # the dropdown is gone
+    assert "user-requests-tab-count" in html
+
+
+def test_the_material_card_offers_the_manual_fire_and_the_stocked_status():
+    cards = _src("views/userRequestCards.js")
+    assert "Mark stocked &amp; notify" in cards
+    assert 'class="user-request-stock"' in cards
+    assert 'if (status === "stocked") return "Stocked"' in cards
+    assert 'if (type === "material_request") return "Material request"' in cards
+    assert "user-request-edit-link" in cards
+    controller = _src("views/userRequests.js")
+    assert "apiMarkRequestStocked" in controller
+    assert "apiListUserRequestCounts" in controller
+    assert 'subscribe("user_request.changed"' in controller or "USER_REQUEST_CHANGED_EVENT" in controller
+    tips = _src("tips.js")
+    assert '"requests.stocked"' in tips

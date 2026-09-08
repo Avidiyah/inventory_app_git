@@ -302,9 +302,44 @@ export async function apiVoidTransaction(transactionId) {
 
 // --- User Requests -----------------------------------------------------
 
-export async function apiListUserRequests(status = "open") {
+export async function apiListUserRequests(status = "open", type = null) {
   const params = new URLSearchParams({ status });
+  if (type) params.set("type", type);
   return liveGet(`/user-requests/?${params}`);
+}
+
+export async function apiListUserRequestCounts() {
+  // `{ request_type: { open: n, stocked: n } }` for the tab labels.
+  return liveGet("/user-requests/counts");
+}
+
+export async function apiCreateMaterialRequest({
+  itemId,
+  workOrderId,
+  quantity = 1,
+  productLink = null,
+  note = null,
+}) {
+  // A catalogue item the shelf does not have. Open to any signed-in role;
+  // the server scopes by work-order visibility. A second filing for the same
+  // (work order, item) updates the earlier request and answers `updated: true`.
+  return jsonRequest("/user-requests/material-request", "POST", {
+    item_id: itemId,
+    work_order_id: workOrderId,
+    quantity,
+    product_link: productLink,
+    note,
+  });
+}
+
+export async function apiMarkRequestStocked(requestId) {
+  // TechFM OA+: the shelf really has it; push the crew without faking stock.
+  return jsonRequest(`/user-requests/${requestId}/mark-stocked`, "POST", {});
+}
+
+export async function apiCancelMaterialRequest(requestId) {
+  // Filer only, while open.
+  return jsonRequest(`/user-requests/${requestId}/cancel`, "POST", {});
 }
 
 export async function apiUpdateUserRequest(
@@ -498,6 +533,12 @@ export async function apiGetWorkOrderFilterOptions() {
 
 export async function apiGetWorkOrder(workOrderId) {
   return parseResponse(await fetch(`/work-orders/${workOrderId}`, { credentials: "include" }));
+}
+
+export async function apiListWorkOrderRequests(workOrderId) {
+  // Material + catalogue requests on one work order, newest first, scoped
+  // like the card. Feeds the Request card and the stocked Materials lines.
+  return liveGet(`/work-orders/${workOrderId}/requests`);
 }
 
 // --- User Hub ------------------------------------------------------
@@ -728,10 +769,11 @@ export async function apiRestoreWorkOrder(workOrderId) {
   return parseResponse(await fetch(`/work-orders/${workOrderId}/restore`, { method: "POST", credentials: "include" }));
 }
 
-export async function apiAddWorkOrderItem(workOrderId, { itemId, quantity }) {
+export async function apiAddWorkOrderItem(workOrderId, { itemId, quantity, materialRequestId = null }) {
   return jsonRequest(`/work-orders/${workOrderId}/items`, "POST", {
     item_id: itemId,
     quantity,
+    material_request_id: materialRequestId,
   });
 }
 

@@ -3454,7 +3454,7 @@ Claude-Session: https://claude.ai/code/session_01Rj5dKhZSJLx5wvJMfBTimY"
 - Produces (userRequestCards.js): `requestTypeLabel` knows `material_request`; `statusLabel(status)` → `Open` / `Stocked` / `Resolved`; `buildRequestCard` renders the material card per spec §6.2; `editFormHtml` material branch with `.user-request-edit-qty`, `.user-request-edit-link`, `.user-request-edit-note`.
 - DOM contract: tab strip `#user-requests-tabs` with `button.hub-tab[data-request-type]` and a `.user-requests-tab-count` span each; status `<select id="user-requests-status">` whose options are rebuilt per tab; card buttons `.user-request-stock` (Mark stocked & notify), existing `.user-request-action[data-status]`.
 
-- [ ] **Step 1: Write the failing source pins**
+- [x] **Step 1: Write the failing source pins**
 
 Append to `backend/tests/test_catalogue_requests.py`:
 
@@ -3510,7 +3510,7 @@ def test_the_material_card_offers_the_manual_fire_and_the_stocked_status():
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_catalogue_requests.py -q -k "api_client or four_type_tabs or material_card"` — Expected: FAIL on every assertion.
 
-- [ ] **Step 2: api.js**
+- [x] **Step 2: api.js**
 
 Replace `apiListUserRequests` and add the new wrappers in the `// --- User Requests ---` block:
 
@@ -3578,7 +3578,7 @@ export async function apiAddWorkOrderItem(workOrderId, { itemId, quantity, mater
 }
 ```
 
-- [ ] **Step 3: Page shell**
+- [x] **Step 3: Page shell**
 
 Replace the `<div class="filter-row user-requests-controls">…</div>` block in `backend/static/pages/user-requests.html` with:
 
@@ -3609,7 +3609,7 @@ Rewrite the page hint to one sentence per kind:
 
 Update the HTML comment above the page similarly (four kinds).
 
-- [ ] **Step 4: Cards**
+- [x] **Step 4: Cards**
 
 In `backend/static/views/userRequestCards.js`:
 
@@ -3693,7 +3693,7 @@ and render `${materialFields}${itemFields}` where `itemFields` (the catalogue br
 
 In `buildRequestCard`: add the branch `else if (request.request_type === "material_request") { heading = request.item_name || "Unknown item"; body = materialRequestBody(request, details); actions = materialRequestActions(request); }`; render the status badge as `escapeHtml(statusLabel(request.status))`; the card class already carries `user-request-${status}` so `user-request-stocked` exists for CSS.
 
-- [ ] **Step 5: Controller**
+- [x] **Step 5: Controller**
 
 In `backend/static/views/userRequests.js`:
 
@@ -3791,7 +3791,7 @@ subscribe(USER_REQUEST_CHANGED_EVENT, ({ activePage }) => {
 });
 ```
 
-- [ ] **Step 6: Tips and CSS**
+- [x] **Step 6: Tips and CSS**
 
 `backend/static/tips.js`, in the User Requests block: rewrite `requests.types` text to the four-kind sentence from Step 3 and add
 
@@ -3811,13 +3811,13 @@ subscribe(USER_REQUEST_CHANGED_EVENT, ({ activePage }) => {
 .user-requests-tab-count { color: var(--text-panel-mute); font-weight: var(--fw-semibold); }
 ```
 
-- [ ] **Step 7: Verify**
+- [x] **Step 7: Verify**
 
 Run: `cd backend && ./venv/Scripts/python.exe -m pytest tests/test_catalogue_requests.py -q` — Expected: PASS.
 Run: `for f in backend/static/api.js backend/static/views/userRequests.js backend/static/views/userRequestCards.js backend/static/tips.js; do node --check "$f" || echo "FAIL $f"; done` — Expected: no `FAIL`.
 Manual (hand to the user; do not start the server yourself): as TechFM OA open User Requests → four tabs with counts; Material tab default; Status offers Open/Stocked/Resolved; a filed request's card shows Mark stocked & notify; pressing it moves the card to the Stocked filter and the crew phone buzzes `Material in stock`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/static/api.js backend/static/pages/user-requests.html backend/static/views/userRequests.js backend/static/views/userRequestCards.js backend/static/tips.js backend/static/styles.css backend/tests/test_catalogue_requests.py

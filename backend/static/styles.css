@@ -1395,6 +1395,11 @@ tr:last-child td {
     color: var(--gray-600);
 }
 
+.user-request-stocked { border-left-color: var(--color-success); }
+.user-request-stocked .user-request-status { color: var(--color-success); }
+.user-requests-tabs { flex-wrap: wrap; }
+.user-requests-tab-count { color: var(--text-panel-mute); font-weight: var(--fw-semibold); }
+
 .user-request-alert {
     color: var(--color-error);
     font-weight: var(--fw-bold);

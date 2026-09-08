@@ -179,7 +179,11 @@ export const TIPS = {
   // --- User Requests (pages/user-requests.html) --------------------------
   "requests.types": {
     label: "Request types",
-    text: "Recount requests flag stock that came up short. Missing price requests collect a price and product link for unpriced material used on a work order. Catalogue requests report material a user searched for and could not find; fulfilling one adds it to the catalogue and logs it back onto the work order it came from.",
+    text: "Material requests ask staff to stock a catalogue item a crew needs; when it is stocked the crew is notified and can add it in one tap. Catalogue requests report material with no catalogue row at all; fulfilling one adds it and logs it retroactively on its work order. Stock recounts flag a dispense that came up short. Missing price / link collects a price and product link for unpriced material used on a work order.",
+  },
+  "requests.stocked": {
+    label: "Mark stocked & notify",
+    text: "Use this when the shelf really has the item but the app's count says otherwise. It notifies the crew and puts the one-tap Add line on their work order without recording a stock transaction. Correct the count separately if it is wrong.",
   },
   "requests.recount": {
     label: "Correcting a recount request",

@@ -1,32 +1,28 @@
     <!-- =================== USER REQUESTS PAGE =================== -->
-    <!-- Admin/Owner operational exception queue. Inventory recounts track
-         short counts; missing-price requests collect pricing/discoverability
-         work for materials used on work orders; catalogue requests report material
-         with no catalogue row at all. Requests resolve, never delete. -->
+    <!-- Admin/Owner operational exception queue. Material requests ask staff
+         to stock a catalogue item a crew needs; catalogue requests report
+         material with no catalogue row at all; inventory recounts track short
+         counts; missing-price requests collect pricing/discoverability work
+         for materials used on work orders. Requests resolve, never delete. -->
     <div class="page" id="user-requests-page">
 
         <section id="user-requests-section">
             <h2>User Requests</h2>
-            <p class="hint">Track differences between real-world usage and the
-               app's expected results. Recount requests flag short stock;
-               pricing requests collect a price and product link for unpriced
-               materials used on work orders; catalogue requests report material a
-               user searched for but could not find. Fulfilling a catalogue request
-               adds it to the catalogue and logs it retroactively on the work
-               order it came from.</p>
+            <p class="hint">Material requests ask staff to stock a catalogue item a crew needs; when it is stocked the crew is notified and can add it in one tap. Catalogue requests report material with no catalogue row at all; fulfilling one adds it and logs it retroactively on its work order. Stock recounts flag a dispense that came up short. Missing price / link collects a price and product link for unpriced material used on a work order.</p>
+
+            <nav id="user-requests-tabs" class="hub-tabs user-requests-tabs" role="tablist" aria-label="Request types">
+                <button type="button" class="hub-tab active" role="tab" aria-selected="true" data-request-type="material_request">Material requests <span class="user-requests-tab-count" aria-label="open"></span></button>
+                <button type="button" class="hub-tab" role="tab" aria-selected="false" data-request-type="catalogue_request">Catalogue requests <span class="user-requests-tab-count"></span></button>
+                <button type="button" class="hub-tab" role="tab" aria-selected="false" data-request-type="inventory_recount">Stock recounts <span class="user-requests-tab-count"></span></button>
+                <button type="button" class="hub-tab" role="tab" aria-selected="false" data-request-type="missing_item_price">Missing price / link <span class="user-requests-tab-count"></span></button>
+            </nav>
 
             <div class="filter-row user-requests-controls">
-                <label for="user-requests-status">Status</label>
+                <label for="user-requests-status">Status<button type="button" class="tip-btn" data-tip="requests.types">?</button></label>
                 <select id="user-requests-status">
                     <option value="open">Open</option>
+                    <option value="stocked">Stocked</option>
                     <option value="resolved">Resolved</option>
-                </select>
-                <label for="user-requests-type">Type<button type="button" class="tip-btn" data-tip="requests.types">?</button></label>
-                <select id="user-requests-type">
-                    <option value="all">All types</option>
-                    <option value="catalogue_request">Catalogue requests</option>
-                    <option value="inventory_recount">Stock recounts</option>
-                    <option value="missing_item_price">Missing price / link</option>
                 </select>
                 <button id="user-requests-refresh" type="button" class="secondary-btn">Refresh</button>
             </div>
