@@ -21,3 +21,8 @@ python-barcode==0.16.1
 # NetFacilities parsing and Playwright's browserless request transport are runtime
 # dependencies. Local interactive sign-in additionally needs an installed Chrome,
 # Edge, or Playwright Chromium browser selected by configuration.
+
+# Playwright's pytest plugin. `playwright` itself is a RUNTIME pin in
+# requirements.txt (1.62.0, NetFacilities cloud auth); this must not move it.
+# Step 4 asserts that it did not.
+pytest-playwright==0.7.2
