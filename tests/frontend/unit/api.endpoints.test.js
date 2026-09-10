@@ -83,6 +83,11 @@ describe("factories match the schemas they stand in for", () => {
   // model does not declare is a green test over an app the field never reaches.
   it.each([
     ["workOrder", "backend/app/schemas/work_orders.py"],
+    ["workOrderCard", "backend/app/schemas/work_orders.py"],
+    ["workOrderDetail", "backend/app/schemas/work_orders.py"],
+    ["workOrderItem", "backend/app/schemas/work_orders.py"],
+    ["workOrderLabor", "backend/app/schemas/work_orders.py"],
+    ["filterOptions", "backend/app/schemas/work_orders.py"],
     ["item", "backend/app/schemas/items.py"],
     ["transaction", "backend/app/schemas/transactions.py"],
   ])("%s declares no field its response model does not have", async (name, schemaPath) => {

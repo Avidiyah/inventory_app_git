@@ -240,10 +240,9 @@ a manual Home-Screen install per device, with its own cookie jar; and
 
 ### N10 — Work Orders live status: frontend gaps with no automated coverage
 
-There is no JS test runner; CI runs `node --check` only, so the subscriber,
-hold rule, in-place card update, and deferred list refetch are
-manual-validation only (PRO-008 owns the class). Three specific gaps, all
-frontend-only:
+The subscriber, hold rule, in-place card update and deferred list refetch are
+now covered by `tests/frontend/views/workOrders/realtime.test.js`; the three
+gaps below are behaviours that suite pins rather than fixes. All frontend-only:
 
 - **Reassignment is asymmetric.** The losing technician's on-screen card
   refetches, 404s, and disappears live; the gaining technician sees nothing
@@ -258,6 +257,21 @@ frontend-only:
   `isHeld` checks editor `<details>` regardless of card expansion, blocking
   that card's refresh and the deferred full-list refetch. **Trigger:** a
   badge stuck on an old status with no open card visible anywhere.
+
+### N-WO-CHARACTERIZED — five defects the P2 suite pins rather than fixes
+
+Found while writing `tests/frontend/views/workOrders/`. Characterization
+tests record today's behaviour, so each is green *as a bug* — a fix must
+update the named test in the same change. **Trigger:** the next substantive
+edit to the area, or a user report matching one.
+
+| Defect | Pinned by |
+| --- | --- |
+| `dom.js:setMessage` assigns `element.className = type`, stripping `wo-message`. Click delegation re-queries `.wo-message`, gets null, and silently swallows the **second** error on a card — no clear, no text. | `actions.test.js` → "swallows the SECOND error on a card" |
+| `workOrders.js:840 detailsViewHtml` — the Priority row is `detail.priority \|\| "Not imported"`, always truthy, so the `.wo-details-empty` empty state is dead markup. | `render.test.js` |
+| `showSoloCard` adds `.wo-solo`, then `paintDetail` overwrites `className` with `workOrderCardClass(detail)` — the card-page modifier never survives the first paint. | `solo.test.js` |
+| `save-details` on an `assigned` row with no technicians: the editor's status options are `[created, in_progress, on_hold]`, so the select falls back to `created` and an untouched save silently rolls the status back. | `editorActions.test.js` |
+| `hoursInputValue` writes the literal string `"NaN"` for a non-numeric duration; a number input then renders blank. | `editorActions.test.js` |
 
 ### N11 — notification triggers considered and deliberately deferred
 
@@ -951,14 +965,15 @@ status `Candidate`.
 
 #### PRO-008 - Automated frontend unit, DOM, and browser workflow coverage
 
-`Production baseline`; `L`; Professionalism; `Confirmed`; status `Candidate`.
+`Production baseline`; `L`; Professionalism; `Confirmed`; status `In progress`.
 
-- **Evidence/outcome:** CI uses `node --check` only; large API/view modules and
-  role-dependent DOM workflows have no automated behavioral harness. Add tests
-  for helpers and UI state plus a small browser suite for the highest-value work.
+- **Evidence/outcome:** Vitest + jsdom + MSW harness in CI covers the
+  foundation layer and `views/workOrders.js` (818 tests). The remaining views
+  and the browser workflow suite are unbuilt; roadmap
+  `docs/superpowers/plans/2026-09-10-frontend-test-harness-roadmap.md` P3, P5-P7.
 - **Done when:** PRs deterministically cover login, item lookup, stock/dispense,
   work-order update, Mass Stage authorization-visible behavior, and request
-  resolution against disposable data.
+  resolution against disposable data, with a blocking coverage floor.
 - **Dependency/decision:** PRO-003 or an ephemeral browser-test environment.
 
 #### PRO-009 - True multi-session database concurrency tests
