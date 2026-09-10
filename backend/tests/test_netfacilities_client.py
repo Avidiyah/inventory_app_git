@@ -554,8 +554,17 @@ def test_stage1_dependencies_are_runtime_pinned_without_dev_duplicates():
 
     assert "playwright==1.62.0" in runtime
     assert "beautifulsoup4==4.15.0" in runtime
-    assert "playwright==" not in development
-    assert "beautifulsoup4==" not in development
+
+    # Line-anchored: the point is that requirements-dev.txt must not RE-PIN
+    # either runtime package. A plain substring test also matched
+    # `pytest-playwright==`, a different distribution the e2e suite needs.
+    dev_pins = {
+        line.split("==")[0].strip()
+        for line in development.splitlines()
+        if "==" in line and not line.lstrip().startswith("#")
+    }
+    assert "playwright" not in dev_pins
+    assert "beautifulsoup4" not in dev_pins
 
 
 def test_production_image_installs_only_the_configured_bundled_browser():

@@ -114,9 +114,9 @@ Path shorthand:
 | Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, manual UI check |
 | Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
 | Tools API/domain/service (custody) | `domain/tools.py`, `domain/quantity.py` (reused), `services/tools.py`, `routers/tools.py`, `schemas/tools.py`, `models.py` | `test_tools_domain.py`, `test_tools_service.py`, `test_route_role_gates.py` |
-| Tools UI (Add Tool tab + Tools page) | `static/views/tools.js`, `static/views/toolCheckout.js`, `static/views/toolReturn.js`, `static/pages/tools.html`, `static/pages/create-item.html`, `static/api.js` | manual UI check (no frontend test harness) |
+| Tools UI (Add Tool tab + Tools page) | `static/views/tools.js`, `static/views/toolCheckout.js`, `static/views/toolReturn.js`, `static/pages/tools.html`, `static/pages/create-item.html`, `static/api.js` | manual UI check (no Vitest suite for these views yet) |
 | Deployment/runtime | `backend/Dockerfile`, `backend/entrypoint.sh`, `backend/alembic.ini`, `backend/app/database.py`, `render.yaml`, `requirements*.txt` | `git diff --check`; run tests if runtime deps change |
-| Frontend navigation/layout | `static/shell-head.html`, `static/shell-tail.html`, `static/pages/*.html`, `static/views/nav.js`, `static/styles.css` | manual browser check; no frontend test harness |
+| Frontend navigation/layout | `static/shell-head.html`, `static/shell-tail.html`, `static/pages/*.html`, `static/views/nav.js`, `static/styles.css` | `backend/tests/e2e/test_smoke.py` (every page renders, clean console) plus a manual browser check |
 | Database schema/migration | `models.py`, matching schemas/services, `backend/alembic/versions`, `database.py` | targeted DB-backed tests, then full pytest |
 
 ## File Map
@@ -1729,8 +1729,18 @@ Coverage map:
 | `test_notifications.py` | recipient resolution against the DB, that nothing is scheduled without recipients or without a VAPID key, and that delivery opens its own session and swallows failures |
 | `test_work_orders_notifications.py` | every trigger at its route: right recipients, once per event across idempotent repeats, multi-event PATCHes, pinned overlap ordering, tracking-stop firing `held` only on the true auto-hold, the approve/send-back pair, routing notifying only the new supervisor, and a broken rule never failing the write |
 
-No frontend test harness exists. For UI behavior, run backend tests plus manual
-browser checks for changed pages.
+Frontend layers:
+
+- Vitest (`npm test`, repo root): `static/` modules under jsdom.
+- E2E (`pytest -m e2e` from `backend/`): real Chromium over the real app --
+  every `SHELL_PARTS` page renders its landmark with an empty console, plus two
+  work-order journeys. The only layer that sees CSP violations and the service
+  worker. Needs Postgres and `python -m playwright install chromium`; missing
+  either skips locally and fails under `CI=true`. Deselected by default
+  (`backend/pytest.ini`) because it COMMITS `E2E-`-prefixed rows to
+  `DATABASE_URL`, deleted at teardown and swept before the next run.
+
+Anything neither covers: backend tests plus a manual browser check.
 
 ## Known Gaps
 

@@ -968,9 +968,11 @@ status `Candidate`.
 `Production baseline`; `L`; Professionalism; `Confirmed`; status `In progress`.
 
 - **Evidence/outcome:** Vitest + jsdom + MSW harness in CI covers the
-  foundation layer and `views/workOrders.js` (818 tests). The remaining views
-  and the browser workflow suite are unbuilt; roadmap
-  `docs/superpowers/plans/2026-09-10-frontend-test-harness-roadmap.md` P3, P5-P7.
+  foundation layer and `views/workOrders.js` (818 tests). A Playwright E2E
+  smoke layer (`pytest -m e2e`, own CI job, gates deploy) visits every shell
+  page and two work-order journeys in a real browser. The remaining views and
+  the deeper browser workflows are unbuilt; roadmap
+  `docs/superpowers/plans/2026-09-10-frontend-test-harness-roadmap.md` P5-P7.
 - **Done when:** PRs deterministically cover login, item lookup, stock/dispense,
   work-order update, Mass Stage authorization-visible behavior, and request
   resolution against disposable data, with a blocking coverage floor.
