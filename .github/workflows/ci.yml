@@ -152,13 +152,36 @@ jobs:
           pip install pip-audit
           pip-audit --requirement requirements.txt --desc
 
+  frontend:
+    name: Frontend tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Not "20" like the `static` job: vitest 5 declares
+          # engines.node ^22.12.0 || ^24.0.0 || >=26.0.0, so 22 is the
+          # lowest LTS the toolchain admits.
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Coverage is ADVISORY here. It goes blocking in P7 at the level then
+      # achieved, minus a margin -- the same ratchet pip-audit used in B4.
+      - name: Vitest
+        run: npm run test:ci
+
   deploy:
     name: Deploy to Render
     runs-on: ubuntu-latest
-    # `needs` is the gate: a red backend or static job means this never starts,
-    # and render.yaml sets autoDeploy: false so this hook is the only path to
-    # production.
-    needs: [backend, static]
+    # `needs` is the gate: a red backend, static, or frontend job means this
+    # never starts, and render.yaml sets autoDeploy: false so this hook is the
+    # only path to production.
+    needs: [backend, static, frontend]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
