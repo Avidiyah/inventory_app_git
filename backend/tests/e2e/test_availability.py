@@ -25,3 +25,19 @@ def test_missing_browser_is_an_error_in_ci(monkeypatch):
     monkeypatch.setenv("CI", "true")
     with pytest.raises(RuntimeError, match="chromium is not installed"):
         _availability.unavailable("chromium is not installed")
+
+
+def test_seed_names_all_carry_the_run_prefix():
+    """Teardown finds rows by prefix. A record without one is a row that
+    survives the run inside a real dev database."""
+    from tests.e2e import _seed
+
+    seed = _seed.Seed(
+        prefix="E2E-abcd1234",
+        owner_username="E2E-abcd1234-owner",
+        work_order_number="E2E-abcd1234-WO",
+        item_barcode="E2E-abcd1234-ITEM",
+    )
+    for value in (seed.owner_username, seed.work_order_number, seed.item_barcode):
+        assert value.startswith(seed.prefix)
+    assert _seed.RUN_PREFIX.startswith("E2E-")
