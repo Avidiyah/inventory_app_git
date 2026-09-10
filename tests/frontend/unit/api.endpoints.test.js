@@ -77,3 +77,20 @@ describe("docs/endpoint-map.md", () => {
       .toEqual(KNOWN_UNDOCUMENTED);
   });
 });
+
+describe("factories match the schemas they stand in for", () => {
+  // P2 builds its assertions on these shapes, so a factory field the response
+  // model does not declare is a green test over an app the field never reaches.
+  it.each([
+    ["workOrder", "backend/app/schemas/work_orders.py"],
+    ["item", "backend/app/schemas/items.py"],
+    ["transaction", "backend/app/schemas/transactions.py"],
+  ])("%s declares no field its response model does not have", async (name, schemaPath) => {
+    const { readFileSync } = await import("node:fs");
+    const factories = await import("../helpers/factories.js");
+    const schema = readFileSync(schemaPath, "utf8");
+    const unknown = Object.keys(factories[name]()).filter(
+      (field) => !new RegExp(String.raw`^\s*${field}\s*:`, "m").test(schema));
+    expect(unknown, `not in the response model: ${unknown.join(", ")}`).toEqual([]);
+  });
+});

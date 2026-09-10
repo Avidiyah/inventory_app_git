@@ -118,6 +118,15 @@ substantive edit to the lazy-loading machinery. The extraction is mechanical:
 `hubTabs.js` that owns the caches and request counters. Do it as its own
 change, verified by hand.
 
+### N-ENDPOINT-MAP-HUB-ADMIN — `GET /hub/admin` has no row in the endpoint map
+
+`apiGetHubAdmin` (`api.js:553`) calls a live route (`routers/hub.py:107`) for
+`views/userHub.js:374`, but `docs/endpoint-map.md`'s Master Endpoint Index
+never names it — the only one of the 98 wrappers missing. **Trigger:** the next
+edit to that index. Fix: add the row. Until then
+`tests/frontend/unit/api.endpoints.test.js` allows exactly this one name
+(`KNOWN_UNDOCUMENTED`) and fails on any other undocumented wrapper.
+
 ### N-WO-STATUS-EVENTS — no status history, so a close can vanish
 
 Work orders carry only `created_at`/`updated_at`/`completed_at`/
