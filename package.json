@@ -1,0 +1,35 @@
+{
+  "name": "inventory_app_git",
+  "version": "1.0.0",
+  "description": "Self-hosted inventory and work-order staging app for barcode-tracked stock.",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ci": "vitest run --coverage"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Avidiyah/inventory_app_git.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/Avidiyah/inventory_app_git/issues"
+  },
+  "homepage": "https://github.com/Avidiyah/inventory_app_git#readme",
+  "private": true,
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/user-event": "^14.6.7",
+    "@vitest/coverage-v8": "^5.0.0",
+    "jsdom": "^30.0.1",
+    "msw": "^2.15.0",
+    "vitest": "^5.0.0"
+  }
+}
