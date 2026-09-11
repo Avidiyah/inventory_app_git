@@ -109,7 +109,7 @@ Two follow-on details worth knowing when touching this code:
   The **only** dependable fix is to not use a native `<select>` where the
   popup must match the theme: build a custom listbox instead, the way the
   work-order technician picker already does (`.wo-tech-search` /
-  `.wo-tech-results` in `views/workOrders.js` / `styles.css`). The Status and
+  `.wo-tech-results` in `views/workOrderCardHtml.js` / `styles.css`). The Status and
   Supervisor fields on the work-order card editor (`comboHtml()` /
   `.wo-combo-*` in the same two files) follow this pattern: a real `<select>`
   stays in the DOM, hidden, purely to hold the value for existing save/read

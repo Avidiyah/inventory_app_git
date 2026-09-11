@@ -192,8 +192,9 @@ on every navigation — the number to watch.
 ### N6 — `services/work_orders.py` is 2,034 lines / 59 functions
 
 **Trigger: none — this is a boundary rule, not a refactor request.** Its
-frontend counterpart, the `workOrder*.js` group (~2,600 lines across eight
-modules since the P4 split), grows faster than the service; change risk concentrates in these two files. The extraction target
+frontend counterpart, the `workOrder*.js` group (~3,100 lines across a barrel
+and eight modules since the P4 split, largest 752), grows faster than the
+service; change risk concentrates in these two areas. The extraction target
 already exists and works: `domain/work_orders.py` holds the pure rules.
 **Further rule-shaped logic belongs behind that boundary**; splitting the
 module for its own sake is churn with no behavior change.
@@ -250,11 +251,12 @@ gaps below are behaviours that suite pins rather than fixes. All frontend-only:
   DOM, and only restore emits the null-id membership signal. **Trigger:** a
   technician reports a new assignment not appearing until reload.
 - **Two rapid status events on one card can resolve out of order.**
-  `refreshCardSummary` has no request-ordering guard; `adminReview.js`
+  `workOrderList.js:refreshCardSummary` has no request-ordering guard; `adminReview.js`
   already solves this class with a monotonic request id. **Trigger:** a card
   showing an older status immediately after a fast double change.
 - **A card collapsed while its editor is open stays held indefinitely** —
-  `isHeld` checks editor `<details>` regardless of card expansion, blocking
+  `workOrderList.js:isHeld` checks editor `<details>` regardless of card
+  expansion, blocking
   that card's refresh and the deferred full-list refetch. **Trigger:** a
   badge stuck on an old status with no open card visible anywhere.
 
@@ -968,11 +970,15 @@ status `Candidate`.
 `Production baseline`; `L`; Professionalism; `Confirmed`; status `In progress`.
 
 - **Evidence/outcome:** Vitest + jsdom + MSW harness in CI covers the
-  foundation layer and `views/workOrders.js` (818 tests). A Playwright E2E
-  smoke layer (`pytest -m e2e`, own CI job, gates deploy) visits every shell
-  page and two work-order journeys in a real browser. The remaining views and
-  the deeper browser workflows are unbuilt; roadmap
-  `docs/superpowers/plans/2026-09-10-frontend-test-harness-roadmap.md` P5-P7.
+  foundation layer and the whole `workOrder*` group (819 tests / 27 files,
+  ~50 s). A Playwright E2E smoke layer (`pytest -m e2e`, own CI job, gates
+  deploy) visits every shell page and two work-order journeys in a real
+  browser. That net then carried its first job: the 2,842-line
+  `views/workOrders.js` split into a barrel plus eight modules (P4, 2026-09-11)
+  with no test edited to accommodate a move. The remaining views and the deeper
+  browser workflows are unbuilt; roadmap
+  `docs/superpowers/plans/2026-09-10-frontend-test-harness-roadmap.md` P5-P7,
+  P5 planned in `...-p5.md` as eight chunks.
 - **Done when:** PRs deterministically cover login, item lookup, stock/dispense,
   work-order update, Mass Stage authorization-visible behavior, and request
   resolution against disposable data, with a blocking coverage floor.

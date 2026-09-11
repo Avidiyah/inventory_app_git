@@ -107,7 +107,7 @@ Path shorthand:
 | Mass staging API/domain | `domain/mass_staging.py`, `services/mass_staging.py`, `routers/mass_stages.py`, `schemas/mass_stages.py`, `models.py` | `test_mass_staging.py`, `test_mass_staging_load.py`, `test_mass_stages_api.py` |
 | Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | mass-stage tests plus manual UI check |
 | Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
-| Work Orders UI | `static/views/workOrder*.js` (barrel: `workOrders.js`), `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | work-order tests plus manual UI check |
+| Work Orders UI | `static/views/workOrder*.js` (barrel: `workOrders.js`), `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | `tests/frontend/views/workOrders/` (characterization: render, roles, actions, editor, filters, solo, realtime, integrations, plus the action/export audit), `backend/tests/e2e/test_work_orders.py`, backend work-order tests |
 | User Hub Graphs | `domain/hub.py`, `domain/work_orders.py`, `services/hub.py`, `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubGraphs.js`, `static/views/workOrderList.js`, `static/pages/user-hub.html`, `static/styles.css`, `static/tips.js`, `static/api.js` | `test_hub_graphs_domain.py`, hub service/router/gate/realtime tests; manual role/realtime checks. Aggregation semantics: endpoint-map → User Hub reads |
 | User Hub Report (Admin daily report) | `services/work_order_report.py`, `services/work_orders.py` (`export_row`, `work_order_totals`), `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubReport.js`, `static/views/workOrderList.js` (`openWorkOrdersByNumberSearch`), `static/pages/user-hub.html`, `static/styles.css`, `static/api.js` | `test_work_order_report.py`, hub router + role-gate tests; manual role/click checks. **Admin-only** (the app's only Admin-floored routes, recorded in `test_route_role_gates.py`); a live view, not an archival record (`N-WO-STATUS-EVENTS`); contract in endpoint-map → `HubReportResponse` |
 | NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_cloud_auth.py`, `services/netfacilities_cloud_crypto.py`, `services/netfacilities_jobs.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | `test_netfacilities_*.py`; behavior under API Surface → NetFacilities |
@@ -200,6 +200,16 @@ backend/static/styles.css        global styles
 backend/static/scan/*.js         live scanner wrapper/debouncer
 backend/static/vendor/*          vendored ZXing browser library
 ```
+
+Work-order module rule: the nine other views import `workOrders.js` and only
+that; inside the group a sibling imports `workOrderList.js` directly, because
+importing the barrel from within the group makes a cycle. Dependency order,
+leaf first: `workOrderPresenters` → `workOrderReferenceData` /
+`workOrderFilters` → `workOrderCardHtml` → `workOrderRouting` →
+`workOrderList` → `workOrderActions` / `workOrderIntegrations` → barrel.
+`workOrderRouting` takes its list dependencies by injection
+(`installWorkOrderRouting`), which keeps the one genuine mutual recursion
+(list → card page → back to list) out of the import graph.
 
 Tests:
 
@@ -1739,7 +1749,12 @@ Coverage map:
 
 Frontend layers:
 
-- Vitest (`npm test`, repo root): `static/` modules under jsdom.
+- Vitest (`npm test`, repo root): `static/` modules under jsdom, mounted on the
+  real assembled shell with MSW answering `fetch`, so the real `api.js` runs.
+  819 tests / 27 files, ~50 s. Covers the foundation layer and the whole
+  `workOrder*` group, including a meta-test that goes red when a `data-action`
+  branch loses its test or the barrel drops an export. Other views: uncovered,
+  roadmap P5-P7. Coverage reported, not gated, until P7.
 - E2E (`pytest -m e2e` from `backend/`): real Chromium over the real app --
   every `SHELL_PARTS` page renders its landmark with an empty console, plus two
   work-order journeys. The only layer that sees CSP violations and the service

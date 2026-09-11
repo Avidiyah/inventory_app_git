@@ -2,15 +2,30 @@
 
 Phased delivery of `docs/superpowers/specs/2026-09-10-frontend-test-harness-design.md`.
 
-Each phase is one bounded session. A phase lands green and committed before the
-next begins. Phases 0–4 are ordered by dependency and must run in sequence;
-5–7 are churn-ordered and may be re-prioritised as the app changes.
+P0–P4 are one bounded session each, ordered by dependency, and must run in
+sequence. P5–P7 are churn-ordered, may be re-prioritised as the app changes,
+and are **chunked**: one module (or one tightly coupled group) per
+session-sized chunk, each independently committable and independently green.
+A phase — or a chunk — lands green and committed before the next begins.
 
 **Standing rules for every phase**
 
 - Tests only. No production JS changes except where a phase says otherwise (only P4 does).
 - A phase is done when `npm test` is green, CI is green, and the phase's own success check passes.
 - If a test cannot be written without changing production code, stop and raise it — do not quietly refactor to suit the test.
+
+**Status — 2026-09-11**
+
+| Phase | State |
+| --- | --- |
+| P0–P3 | Landed. `npm test`: 819 tests / 27 files, ~50 s, green. `pytest -m e2e` green. |
+| P4 | Landed 2026-09-11 in nine commits. `workOrders.js` is a 24-line barrel over eight modules, largest 752 lines; no behaviour test was edited to accommodate a move. |
+| P5 | Planned — `2026-09-10-frontend-test-harness-p5.md`, eight chunks. Not started. |
+| P6–P7 | Not started. |
+
+None of this has been through CI: the branch is 45 commits ahead of
+`origin/main` and unpushed, so every phase's "CI is green" rule is asserted
+from local runs only. Pushing `main` deploys production — an owner decision.
 
 ## Ordering rationale
 
@@ -106,7 +121,7 @@ fixed — fixing and refactoring in the same window is how silent breakage hides
 3. **Role gating** — every action re-run across technician / supervisor / admin / owner. `canEditLabor`, `canCurrentUserSendToReview`, `isAssignedToCurrentUser`, `isSupervisorPlus`, `isAdminPlus`.
 4. **Filters, sort, search** — each filter control triggers a reload with the right params; `resetFilterControls`; debounced location/task search with fake timers; sort persistence through `localStorage`; the archived-number restore prompt; the `RECENT_LIMIT` / show-all cap.
 5. **Solo card** — `soloNumberFromPath`, enter/exit solo, `history.pushState` payload, popstate both directions, scroll stamp/restore, `renderSoloError`.
-6. **Realtime** — via the mocked `__emit`: matching card refreshes, unknown id ignored, held card defers and catches up on toggle, reconnect triggers a list refetch.
+6. **Realtime** — matching card refreshes, unknown id ignored, held card defers and catches up on toggle, reconnect triggers a list refetch. Driven through the real dispatch path (`installFakeWebSocket()` → `connectRealtime()` → push a frame), not a mocked emitter: `realtime.js` exports no `__emit` hook and adding one would be a production change. This also exercises `parseEnvelope` and the generation guards.
 7. **Integrations block** — import summary, export scopes, NetFacilities poll states, cloud sign-in control states. Owns the Integrations page too; the full-shell mount already provides it.
 
 **Test.** Every `data-action` string in the file appears in at least one test. Assert this mechanically: a meta-test greps the actions out of the source and fails on any without coverage.
@@ -121,7 +136,7 @@ fixed — fixing and refactoring in the same window is how silent breakage hides
 Catches what jsdom structurally cannot: CSP (which silently drops inline
 styles here), service worker, real fetch, real rendering.
 
-**Files.** `backend/tests/e2e/{conftest.py,test_smoke.py,test_work_orders.py}`, `backend/requirements-dev.txt`, `.github/workflows/ci.yml`.
+**Files.** `backend/tests/e2e/{conftest.py,_availability.py,_seed.py,test_availability.py,test_smoke.py,test_work_orders.py}`, `backend/pytest.ini`, `backend/requirements-dev.txt`, `.github/workflows/ci.yml`. The availability guard and the seed carry real logic; folding them into `conftest.py` would leave both untested.
 
 **Steps.**
 1. Add `pytest-playwright` to `requirements-dev.txt`. Chromium already installs via the Dockerfile path; CI installs it explicitly.
@@ -169,16 +184,26 @@ side-effect import order changes.
 
 ## P5 — High-churn views
 
-**Goal.** Component coverage for the ten most-edited view modules.
+**Goal.** Component coverage for the nine most-edited view modules.
 
 **Files.** `views/nav.js`, `views/items.js`, `main.js`, `views/transactions.js`,
 `views/history.js`, `views/userHub.js`, `views/scan.js`, `views/auth.js`,
-`views/massStage.js`, plus the P4 offspring.
+`views/massStage.js`.
 
-**Steps.** One module per session-sized chunk, highest churn first. For each:
-render, primary interactions, role gating, error paths, and any cross-module
-callback wiring `main.js` injects. `scan.js` needs the camera and the ZXing
-vendor module stubbed at the module boundary. `auth.js` covers the 401 →
+The P4 offspring get **no new coverage here**. P2's suite already exercises all
+of them through the barrel and `actionCoverage.test.js` guards the module
+boundary; re-covering them at the new file granularity would freeze the
+internal seams the split exists to keep free.
+
+**Steps.** One module per session-sized chunk, highest churn first, per
+`docs/superpowers/plans/2026-09-10-frontend-test-harness-p5.md` — eight chunks,
+with `nav.js` / `main.js` / `auth.js` covered together as one boot path ahead of
+churn order, because a `bootApp()` fixture is the phase's first dependency.
+For each: render, primary interactions, role gating, error paths, and any
+cross-module callback wiring `main.js` injects. `scan.js` is stubbed at the
+*browser* boundary (`navigator.mediaDevices`, `AudioContext`, `vibrate`), not
+the module boundary — `scan/barcode-decoder.js` and `scan/frame-debouncer.js`
+come forward from P7 and get real unit tests instead. `auth.js` covers the 401 →
 login-gate path end to end against real `api.js`.
 
 **Test.** Each module's exported surface exercised; delegated actions covered by the same meta-test pattern P2 established.
@@ -205,13 +230,13 @@ a shared mount helper rather than repeated setup. `push.js` needs the
 
 **Files.** `views/userRequests.js`, `views/userRequestCards.js`,
 `views/workOrderRequests.js`, `views/lowStock.js`, `views/lowStockCard.js`,
-`views/adminReview.js`, `views/catalogueRequest.js`, `scan/barcode-decoder.js`,
-`scan/frame-debouncer.js`, `scan-test.js`, `service-worker.js`.
+`views/adminReview.js`, `views/catalogueRequest.js`, `scan-test.js`,
+`service-worker.js`.
 
 **Steps.**
 1. Cover the remainder. `scan/barcode-decoder.js` and `scan/frame-debouncer.js`
-   are pure and belong in the unit layer — cheap wins with real value given the
-   field-tested scan tuning they encode.
+   moved to P5: they are pure, they belong in the unit layer, and the `scan.js`
+   camera stub is only honest if the decode logic they hold is real.
 2. `service-worker.js` needs a service-worker global stub; if that proves
    disproportionate, cover it in E2E instead and record the decision.
 3. **Turn the coverage threshold blocking** at the level then achieved, minus a
