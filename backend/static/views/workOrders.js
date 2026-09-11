@@ -13,7 +13,6 @@ import "./workOrderActions.js";
 export {
   loadWorkOrders,
   focusWorkOrder,
-  loadIntegrationsPage,
   mountWorkOrderList,
   openWorkOrdersByNumberSearch,
   openWorkOrdersFilteredByStatus,
@@ -22,3 +21,4 @@ export {
 export { workOrderCardClass } from "./workOrderPresenters.js";
 export { comboHtml } from "./workOrderCardHtml.js";
 export { focusWorkOrderNumber, soloNumberFromPath } from "./workOrderRouting.js";
+export { loadIntegrationsPage } from "./workOrderIntegrations.js";
