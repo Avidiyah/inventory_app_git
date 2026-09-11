@@ -11,6 +11,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { mountView } from "../../helpers/shell.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..", "..", "..", "..");
@@ -108,16 +109,16 @@ describe("every action is exercised by a behaviour test", () => {
 
 describe("the export surface", () => {
   it("is exactly the frozen eleven", async () => {
-    const mod = await import(
-      /* @vite-ignore */ new URL("../../../../backend/static/views/workOrders.js", import.meta.url).href
-    ).catch(() => null);
-    // The module captures DOM ids at import time; a bare import outside the
-    // shell fixture is fine for reading its export names, and null means the
-    // environment refused it -- fall back to the static export list then.
-    const names = mod
-      ? Object.keys(mod).sort()
-      : [...new Set(declaredNames(source))].sort().filter((n) => EXPORTS.includes(n));
-    expect(names).toEqual(EXPORTS);
+    // A real import, against the real shell: a barrel re-export whose owner
+    // renamed the function is a load-time error here, not a text match. (The
+    // former `new URL(...).href` form resolved to http:// under jsdom and
+    // never loaded, so this test was silently the static scan below.)
+    const mod = await mountView("views/workOrders.js");
+    expect(Object.keys(mod).sort()).toEqual(EXPORTS);
+    // Vite's module transform keeps the key of a dangling re-export and
+    // hands back undefined, so the names alone are not proof of a binding.
+    const unbound = EXPORTS.filter((name) => typeof mod[name] !== "function");
+    expect(unbound, `re-exported but not bound: ${unbound.join(", ")}`).toEqual([]);
   });
 
   it("declares each of them somewhere in the module set", () => {
