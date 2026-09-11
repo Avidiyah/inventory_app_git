@@ -374,3 +374,145 @@ describe("planning body", () => {
     expect(stageMessage(c).textContent).not.toBe("");
   });
 });
+
+async function loadingCard({ status = "loading", merged = [mergedItem()], slots = [stageWorkOrder()] } = {}) {
+  const detail = massStageDetail({ status, merged_items: merged, work_orders: slots });
+  const ctx = await openStages({ stages: [massStageSummary({ id: detail.id, status })], details: [detail] });
+  const c = await openCard(detail.id);
+  clearRequests();
+  return { ...ctx, detail, c };
+}
+
+describe("loading body", () => {
+  it("renders the load list with stats, short/overflow flags, tipHtml on the heading, read-only slots", async () => {
+    const { c } = await loadingCard({ merged: [
+      mergedItem({ item_name: "Bulb", planned_total: "4", loaded_total: "1", remaining_to_load: "3", on_hand: "2", overflow: "0" }),
+      mergedItem({ item_name: "Fuse", overflow: "2", remaining_to_load: "0" }),
+    ], slots: [stageWorkOrder({ items: [stageItem()] })] });
+    const rows = c.querySelectorAll(".ms-merged-item");
+    expect(rows[0].querySelector(".ms-merged-stats").textContent).toBe("Planned 4 · Loaded 1 · Remaining 3 · On hand 2");
+    expect(rows[0].querySelector(".ms-short").textContent).toBe("short by 1");
+    expect(rows[0].querySelector(".ms-load-qty").value).toBe("3");
+    expect(rows[1].querySelector(".ms-overflow").textContent).toBe("+2 over");
+    expect(c.querySelector(".ms-subhead .tip-btn")).not.toBeNull();   // tipHtml("stage.load-list")
+    expect(c.querySelector('[data-action="complete-stage"]')).not.toBeNull();
+    expect(c.querySelector('[data-action="reuse-stage"]')).toBeNull();
+    expect(c.querySelector('[data-action="delete-stage"]').dataset.stageLoaded).toBe("1");
+    expect(c.querySelector('[data-action="add-item"]')).toBeNull();
+    expect(c.querySelector(".ms-item-planned-ro").textContent).toBe("Planned: 2");
+    expect(c.querySelector('[data-action="remove-slot"]')).toBeNull();
+  });
+
+  it("load-item rejects 0", async () => {
+    const { c } = await loadingCard();
+    const qty = c.querySelector(".ms-load-qty");
+    await user().clear(qty); await user().type(qty, "0");
+    await user().click(c.querySelector('[data-action="load-item"]'));
+    expect(stageMessage(c).textContent).toBe("Enter a quantity greater than zero.");
+    expect(confirmOverlay().hidden).toBe(true);
+    expect(requests()).toHaveLength(0);
+  });
+
+  it("load-item: confirm names qty × item; Yes posts item_id + quantity and refreshes", async () => {
+    const m = mergedItem({ item_name: "Bulb", remaining_to_load: "3" });
+    const { c, detail } = await loadingCard({ merged: [m] });
+    const qty = c.querySelector(".ms-load-qty");
+    await user().clear(qty); await user().type(qty, "2");
+    respond("POST", `${S(detail)}/load`, {});
+    const clicking = user().click(c.querySelector('[data-action="load-item"]'));
+    await vi.waitFor(() => expect(confirmTitle()).toBe("Load 2 × Bulb onto the truck?"));
+    await answerConfirm(true); await clicking;
+    await vi.waitFor(() => expect(requestFor("/load", "POST").body).toEqual({ item_id: m.item_id, quantity: 2 }));
+    await vi.waitFor(() => expect(requestFor(S(detail), "GET")).not.toBeNull());
+  });
+
+  it("load-item: No sends nothing", async () => {
+    const { c } = await loadingCard();
+    const clicking = user().click(c.querySelector('[data-action="load-item"]'));
+    await answerConfirm(false); await clicking;
+    expect(requests()).toHaveLength(0);
+  });
+
+  it("return-item rejects blank", async () => {
+    const { c } = await loadingCard();
+    await user().click(c.querySelector('[data-action="return-item"]'));
+    expect(stageMessage(c).textContent).toBe("Enter a quantity to return.");
+    expect(requests()).toHaveLength(0);
+  });
+
+  it("return-item: no confirm; posts item_id + quantity and refreshes", async () => {
+    const m = mergedItem();
+    const { c, detail } = await loadingCard({ merged: [m] });
+    await user().type(c.querySelector(".ms-return-qty"), "1");
+    respond("POST", `${S(detail)}/return`, {});
+    await user().click(c.querySelector('[data-action="return-item"]'));
+    await vi.waitFor(() => expect(requestFor("/return", "POST").body).toEqual({ item_id: m.item_id, quantity: 1 }));
+    expect(confirmOverlay().hidden).toBe(true);
+    await vi.waitFor(() => expect(requestFor(S(detail), "GET")).not.toBeNull());
+  });
+
+  it("complete-stage: confirm copy; No does nothing", async () => {
+    const { c } = await loadingCard();
+    const no = user().click(c.querySelector('[data-action="complete-stage"]'));
+    await vi.waitFor(() => expect(confirmTitle()).toBe("Mark this building complete? The stage becomes read-only."));
+    await answerConfirm(false); await no;
+    expect(requests()).toHaveLength(0);
+  });
+
+  it("complete-stage: Yes PATCHes completed and reloads", async () => {
+    const { c, detail } = await loadingCard();
+    respond("PATCH", S(detail), massStageDetail({ ...detail, status: "completed" }));
+    const yes = user().click(c.querySelector('[data-action="complete-stage"]'));
+    await answerConfirm(true); await yes;
+    await vi.waitFor(() => expect(requestFor(S(detail), "PATCH").body).toEqual({ status: "completed" }));
+    await vi.waitFor(() => expect(requestFor("/mass-stages/", "GET")).not.toBeNull());
+  });
+
+  it("delete-stage on a loaded stage uses the dispensed-stock copy; Yes DELETEs and reloads", async () => {
+    const { c, detail } = await loadingCard();
+    respond("DELETE", S(detail), null, { status: 204 });
+    const clicking = user().click(c.querySelector('[data-action="delete-stage"]'));
+    await vi.waitFor(() => expect(confirmTitle()).toBe(
+      "Delete this mass stage? Items already loaded stay dispensed — this does not return them to stock. This cannot be undone."));
+    await answerConfirm(true); await clicking;
+    await vi.waitFor(() => expect(requestFor(S(detail), "DELETE")).not.toBeNull());
+    await vi.waitFor(() => expect(requestFor("/mass-stages/", "GET")).not.toBeNull());
+  });
+
+  it("delete-stage on a planning stage uses the short copy; No sends nothing", async () => {
+    const { c } = await planningCard();
+    const clicking = user().click(c.querySelector('[data-action="delete-stage"]'));
+    await vi.waitFor(() => expect(confirmTitle()).toBe("Delete this mass stage? This cannot be undone."));
+    await answerConfirm(false); await clicking;
+    expect(requests()).toHaveLength(0);
+  });
+});
+
+describe("completed body", () => {
+  it("read-only stats, Stage again, no Mark Completed, no load controls", async () => {
+    const { c } = await loadingCard({ status: "completed", merged: [mergedItem({ returned_total: "1", net_consumed: "3" })] });
+    expect(c.querySelector(".ms-merged-stats-ro").textContent).toBe("Returned 1 · Consumed 3");
+    expect(c.querySelector('[data-action="load-item"]')).toBeNull();
+    expect(c.querySelector('[data-action="complete-stage"]')).toBeNull();
+    expect(c.querySelector('[data-action="reuse-stage"]')).not.toBeNull();
+  });
+
+  it("reuse-stage: confirm; Yes POSTs /reuse, reloads, and auto-opens the fresh stage", async () => {
+    const { c, detail } = await loadingCard({ status: "completed" });
+    const fresh = massStageDetail({ community: detail.community, building_name: detail.building_name });
+    respond("POST", `${S(detail)}/reuse`, fresh, { status: 201 });
+    state.details.set(fresh.id, fresh);
+    server.use(http.get("/mass-stages/", () => HttpResponse.json([
+      massStageSummary({ id: detail.id, status: "completed" }), massStageSummary({ id: fresh.id, status: "planning" }),
+    ])));
+    const clicking = user().click(c.querySelector('[data-action="reuse-stage"]'));
+    await vi.waitFor(() => expect(confirmTitle()).toBe("Start a new staging for this community + building? Item lists start empty."));
+    await answerConfirm(true); await clicking;
+    await vi.waitFor(() => expect(card(fresh.id)).not.toBeNull());
+    expect(card(fresh.id).open).toBe(true);
+    // The community group is NOT auto-opened on reuse (only autoOpenId is set,
+    // not autoOpenCommunity) -- so the open card sits inside a closed group.
+    // Characterization -- see open-work.md N-P5-CHARACTERIZED.
+    expect(card(fresh.id).closest("details.community-group").open).toBe(false);
+  });
+});
