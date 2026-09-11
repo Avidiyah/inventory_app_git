@@ -77,6 +77,23 @@ export function stubScroll() {
   return spy;
 }
 
+// jsdom implements no layout, so `Element.prototype.scrollIntoView` does not
+// exist. Most views guard on `typeof === "function"`, but the sub-flow panels
+// (notes.js, itemEditor.js, correctionPanel.js, addBarcode.js) call it
+// unguarded the moment they open -- in a real browser it always exists. Without
+// this the call throws inside an event listener and surfaces as an unhandled
+// rejection, failing the run on a jsdom gap rather than on the app.
+export function stubScrollIntoView() {
+  const original = Element.prototype.scrollIntoView;
+  const spy = vi.fn();
+  Element.prototype.scrollIntoView = spy;
+  restorers.push(() => {
+    if (original === undefined) delete Element.prototype.scrollIntoView;
+    else Element.prototype.scrollIntoView = original;
+  });
+  return spy;
+}
+
 export function restoreBrowserStubs() {
   while (restorers.length) restorers.pop()();
 }

@@ -206,3 +206,36 @@ export function filterOptions(overrides = {}) {
     ...overrides,
   };
 }
+
+// --- User Hub ------------------------------------------------------------
+//
+// `GET /hub`. Shape read off backend/app/schemas/hub.py (HubResponse), which
+// is the payload `loadUserHub` destructures before it renders anything --
+// `payload.user.id` and `payload.user.role` decide which tabs even exist, so
+// an empty object here would fail every boot rather than render an empty hub.
+//
+// `total_minutes_today` is a Pydantic computed field, not a stored one; it is
+// present on the wire, so it is present here.
+export function hubPayload(overrides = {}) {
+  return {
+    user: { id: uuid(), first_name: "Test", last_name: "User", role: "technician" },
+    server_now: "2026-09-10T12:00:00Z",
+    day: "2026-09-10",
+    clock: {
+      running_session: null,
+      closed_minutes_today: 0,
+      running_minutes_today: 0,
+      adjustment_minutes_today: 0,
+      adjustments: [],
+      total_minutes_today: 0,
+    },
+    timeline: [],
+    mine_total: 0,
+    counts: { assigned: 0, in_progress: 0, ready_to_complete: 0 },
+    priority: { assigned: 0, unassigned: null },
+    startable: [],
+    tools_out: [],
+    stocked_requests: [],
+    ...overrides,
+  };
+}
