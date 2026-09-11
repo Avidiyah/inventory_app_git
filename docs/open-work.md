@@ -275,6 +275,34 @@ edit to the area, or a user report matching one.
 | `save-details` on an `assigned` row with no technicians: the editor's status options are `[created, in_progress, on_hold]`, so the select falls back to `created` and an untouched save silently rolls the status back. | `editorActions.test.js` |
 | `hoursInputValue` writes the literal string `"NaN"` for a non-numeric duration; a number input then renders blank. | `editorActions.test.js` |
 
+### N-P5-CHARACTERIZED — what the P5 spine suite pins rather than fixes
+
+Found while writing `tests/frontend/views/nav.test.js`, `main.test.js`,
+`auth.test.js`, `items.test.js` and `transactions.test.js`. Same rule as
+N-WO-CHARACTERIZED: the test is green *as today's behaviour*, so a fix must
+update the named test in the same change.
+**Trigger:** the next substantive edit to the nav bar, the composition root,
+the auth/boot path, the items table, or the scan-and-go batch.
+
+| Defect | Pinned by |
+| --- | --- |
+| `nav.js` PAGE_ACCESS comment on `user-hub` says "No nav button reads this key -- the header identity button is wired directly". It is not: `#auth-user-indicator` carries `.nav-btn` + `data-page="user-hub"`, so `applyRoleVisibility` hides it and `navButtons.forEach` wires its click like any other. Dropping a role from `user-hub` would hide that role's identity button, not just a nav entry. | `nav.test.js` → "has a nav button for every page except the hub…" |
+| `nav.js` COMPACT_NAV_THRESHOLD comment counts "TechFM OA/Admin/Owner (11)" visible pages; PAGE_ACCESS minus `user-hub` gives **13** for all three. The threshold behaviour is unaffected (13 > 5 either way) — the stale number is the whole finding. | `nav.test.js` → the `nav-compact` table |
+| A cold-boot 401 runs `showLoginScreen` twice — the api.js hook with `expired:true`, then `initAuth`'s catch without — so `keepSaved` is true then false and a saved batch is discarded on the one path that exists to preserve it (a reload with an expired cookie). | `auth.test.js` → "boot 401 discards a saved batch snapshot" |
+| A second in-app 401 while already on the login screen clears the timeout copy (`wasInApp` is false on the second pass), so the reassurance vanishes whenever two requests expire together. The handler's "idempotent if already showing" comment does not hold for the message. | `auth.test.js` → "a second 401 while already on the login screen clears the reassurance" |
+| `tryResumeBatch` keeps the snapshot on a network error "so the next boot can retry", but returns false — and `enterApp` then calls `resetBatch()` with the default `keepSaved:false`, discarding it anyway. | `auth.test.js` → "a 404 on the work order clears the snapshot; a network error also loses it" |
+| `tryResumeBatch` writes "Your previous work order is no longer active…" into `#wo-gate-message` on a stale or 404 work order, then `enterApp`'s `resetBatch()` → `resetWoCards()` (`transactions.js:436`) blanks that same element. The operator is never told why their batch vanished. | `auth.test.js` → "a stale work order clears the snapshot, but the explanation never reaches the gate" |
+| `enterApp`'s "History keeps its All sub-tab primed" comment: `setHistoryTab("all")` is a no-op on first boot, because `history.html` pre-marks that tab and `subnav.showFeature` short-circuits when the feature is unchanged. No transactions load happens. | `auth.test.js` → "setHistoryTab('all') on a fresh mount is a no-op" |
+| `enterApp`'s deep-link fallback (`replaceState("/")` for a role that cannot reach Work Orders) is unreachable: `PAGE_ACCESS["work-orders"]` grants all five roles. Dead branch, not a defect — pinned so it goes red the day that map narrows. | `auth.test.js` → "every role can reach work-orders, so the drop-the-URL branch is unreachable today" |
+| `loadItemResults`'s error row hardcodes `colspan="8"`, but the column count is role-derived: 5 (technician), 7 (supervisor), 9 (techfm_oa+). The load-failure cell under- or over-spans for every role. | `items.test.js` → "a failed list renders friendlyError in a single error cell" |
+| `renderItems` renders Created as `new Date(i.created_at).toLocaleString()` with no guard, so a null timestamp shows a fabricated epoch date and an absent one shows the literal "Invalid Date". | `items.test.js` → "a null created_at renders the epoch" / "an absent created_at renders the literal 'Invalid Date'" |
+| The sub-flow panels (`notes.js`, `itemEditor.js`, `correctionPanel.js`, `addBarcode.js`) call `scrollIntoView` unguarded on open, while `items.js` and `tools.js` guard the same call with `typeof === "function"`. Harmless in a browser; the inconsistency is the finding. | `helpers/browserStubs.js` → `stubScrollIntoView()`, needed only because of the unguarded callers |
+| `startBatchFor` assigns `batchWorkOrder` before `setScangoType("dispense")`, so the batch snapshot is written at batch **start**, not at the first commit — `setScangoType`'s "no-op while at the gate" comment does not hold on this path. | `transactions.test.js` → "in_progress starts the batch" |
+| `resumeBatchFor` restores `scangoType: "stock"`, but `supervisorAdvanced` is not persisted, so `showScanGoState` immediately re-pins `dispense`. A resumed stock batch silently becomes a dispense batch. | `transactions.test.js` → "owning user + active WO" |
+| The snapshot carries `workOrder.status`, but `tryResumeBatch` re-fetches the work order and decides on the response — the persisted field is dead weight. | `transactions.test.js` → "is written after the first commit in the documented shape" |
+| The batch summary has no singular for units: one unit reads "1 scan, 1 units". | `transactions.test.js` → "a failing void re-enables the button" |
+| `tryResumeBatch`'s network-error branch is silent only in the sense that it writes nothing: it leaves whatever copy is already in `#wo-gate-message`, so a preceding 404's "no longer active" line still stands over an inconclusive retry. | `transactions.test.js` → "404 clears; a network error keeps the snapshot and stays silent" (the test blanks the element by hand first) |
+
 ### N11 — notification triggers considered and deliberately deferred
 
 **Trigger: a user asking to be told about one of these, or the first drive

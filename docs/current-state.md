@@ -88,12 +88,12 @@ Path shorthand:
 
 | Task area | Read these first | Usual tests |
 | --- | --- | --- |
-| Auth/session/login/logout | `app/auth_deps.py`, `routers/auth.py`, `services/auth.py`, `schemas/auth.py`, `static/views/auth.js`, `static/api.js` | `test_auth_password.py`, `test_auth_session_lifetime.py`, `test_session_token_hashing.py`, `test_password_reset_revokes_sessions.py` |
+| Auth/session/login/logout | `app/auth_deps.py`, `routers/auth.py`, `services/auth.py`, `schemas/auth.py`, `static/views/auth.js`, `static/api.js` | `test_auth_password.py`, `test_auth_session_lifetime.py`, `test_session_token_hashing.py`, `test_password_reset_revokes_sessions.py`, `tests/frontend/views/auth.test.js` |
 | Login throttling / lockout | `domain/login_throttle.py`, `services/login_throttle.py`, `routers/auth.py`, `models.py` (`LoginAttempt`), `backend/entrypoint.sh` (proxy headers) | `test_login_throttle.py`, `test_login_throttle_service.py` |
 | Request rate limiting (all routes) | `domain/rate_limit.py`, `services/rate_limit.py`, `main.py` (`rate_limit` middleware), `backend/entrypoint.sh` (proxy headers, single process) | `test_rate_limit.py`, `test_rate_limit_service.py`, `test_rate_limit_middleware.py` |
 | List-size ceiling (all list endpoints) | `domain/list_limits.py`, `services/_list_cap.py`, the six `list_*` service functions | `test_list_limits.py`, `test_list_cap_service.py`, `test_list_caps_applied.py` |
 | Roles/permissions/user management | `domain/roles.py`, `routers/users.py`, `services/users.py`, `schemas/users.py`, `static/roles.js`, `static/views/users.js`, `static/views/nav.js` | `test_roles.py`, `test_route_role_gates.py`, `test_user_names.py`, `test_user_role_edit.py`, `test_user_archive.py` |
-| Item CRUD/lookup/archive | `routers/items.py`, `services/items.py`, `schemas/items.py`, `models.py`, `static/views/items.js`, `static/views/itemEditor.js`, `static/api.js` | `test_item_barcodes.py`, `test_item_price_gating.py`, route-gate tests |
+| Item CRUD/lookup/archive | `routers/items.py`, `services/items.py`, `schemas/items.py`, `models.py`, `static/views/items.js`, `static/views/itemEditor.js`, `static/api.js` | `test_item_barcodes.py`, `test_item_price_gating.py`, route-gate tests, `tests/frontend/views/items.test.js` |
 | Low stock alerts / page | `domain/low_stock.py`, `services/low_stock.py`, `routers/_stock_events.py`, `services/items.py`, `routers/items.py`, `domain/notifications.py`, `domain/realtime.py`, `static/views/lowStock.js`, `static/pages/low-stock.html` | `test_low_stock_domain.py`, `test_low_stock_buffer.py`, `test_low_stock_triggers.py`, `test_items_low_stock.py`, `test_low_stock_shell.py` |
 | Item notes | `domain/notes_validation.py`, `services/notes.py`, `schemas/items.py`, `routers/items.py`, `static/views/notes.js` | add/extend focused tests if behavior changes |
 | Alternate barcodes | `models.py`, `services/items.py`, `schemas/items.py`, `routers/items.py`, `static/views/itemEditor.js`, `static/views/addBarcode.js` | `test_item_barcodes.py` |
@@ -103,7 +103,7 @@ Path shorthand:
 | History filters/export | `services/history.py`, `routers/transactions.py`, `schemas/transactions.py`, `static/views/history.js`, `static/api.js` | `test_history_wo_filter.py` |
 | Barcode upload decode | `services/barcodes.py`, `routers/barcodes.py`, `schemas/barcodes.py`, `static/views/scan.js`, `static/api.js` | `test_barcodes.py` |
 | Live camera scan | `static/scan/barcode-decoder.js`, `static/scan/frame-debouncer.js`, `static/views/scan.js`, `static/scan-test.html`, `static/scan-test.js` | manual browser/device check; unit tests cover backend decode only |
-| Scan-and-go work-order batch | `static/views/transactions.js`, `static/views/scan.js`, `routers/transactions.py`, `services/transactions.py`, `static/pages/transaction.html` | transaction/domain tests plus manual UI check |
+| Scan-and-go work-order batch | `static/views/transactions.js`, `static/views/scan.js`, `routers/transactions.py`, `services/transactions.py`, `static/pages/transaction.html` | `tests/frontend/views/transactions.test.js`, transaction/domain tests, manual UI check for the camera |
 | Mass staging API/domain | `domain/mass_staging.py`, `services/mass_staging.py`, `routers/mass_stages.py`, `schemas/mass_stages.py`, `models.py` | `test_mass_staging.py`, `test_mass_staging_load.py`, `test_mass_stages_api.py` |
 | Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | mass-stage tests plus manual UI check |
 | Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
@@ -1751,10 +1751,19 @@ Frontend layers:
 
 - Vitest (`npm test`, repo root): `static/` modules under jsdom, mounted on the
   real assembled shell with MSW answering `fetch`, so the real `api.js` runs.
-  819 tests / 27 files, ~50 s. Covers the foundation layer and the whole
-  `workOrder*` group, including a meta-test that goes red when a `data-action`
-  branch loses its test or the barrel drops an export. Other views: uncovered,
-  roadmap P5-P7. Coverage reported, not gated, until P7.
+  1036 tests / 32 files, ~80 s. Covers the foundation layer, the whole
+  `workOrder*` group (including a meta-test that goes red when a `data-action`
+  branch loses its test or the barrel drops an export), the boot spine --
+  `main.js` + `views/nav.js`, booted through `helpers/app.js`, which runs the
+  real composition root against the assembled shell -- `views/auth.js`,
+  mounted directly through `helpers/auth.js` so a test can choose the
+  `/auth/me` answer before `initAuth()` runs, and `views/items.js` through
+  `helpers/items.js` (Find Item, the per-role column model, the four row
+  actions, create-item, and both scanners' upload-lookup path), and
+  `views/transactions.js` through `helpers/transactions.js` (the work-order
+  gate, the batch lifecycle, commit/undo/retry, the `sessionStorage` snapshot
+  and resume, and the manual-entry panel; the camera itself is P5g). Remaining
+  views: uncovered, roadmap P5-P7. Coverage reported, not gated, until P7.
 - E2E (`pytest -m e2e` from `backend/`): real Chromium over the real app --
   every `SHELL_PARTS` page renders its landmark with an empty console, plus two
   work-order journeys. The only layer that sees CSP violations and the service

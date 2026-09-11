@@ -18,9 +18,9 @@ P4 landed 2026-09-11 (`bdc66c6`..`bdd40eb`): `views/workOrders.js` is a 24-line
 barrel over eight modules, largest 752 lines. Suite at that point: **819 tests
 / 27 files, ~50 s, green** — that is the budget this phase spends against.
 
-- [ ] `npm test` green, run to completion, count and wall-clock recorded.
-- [ ] `pytest -m e2e` green.
-- [ ] No other session is mid-commit in this checkout. P5 is long and its chunks are independent; two writers in `tests/frontend/helpers/` will collide.
+- [x] `npm test` green, run to completion, count and wall-clock recorded.
+- [x] `pytest -m e2e` green.
+- [x] No other session is mid-commit in this checkout. P5 is long and its chunks are independent; two writers in `tests/frontend/helpers/` will collide.
 
 ## Global constraints
 
@@ -32,11 +32,15 @@ barrel over eight modules, largest 752 lines. Suite at that point: **819 tests
 - **One chunk, one session, one green suite.** A chunk is done when `npm test` is green, its own success check passes, and its findings are filed.
 - Commit messages end with `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`.
 
-## Three deviations from the roadmap text, decided here
+## Seven deviations from the roadmap text, decided here
 
 1. **P5 is eight sessions, not one.** The roadmap's standing rule says "each phase is one bounded session" while P5 itself says "one module per session-sized chunk". The second wins: 4,519 lines across nine modules cannot land in one window. The chunks below are the phase's real unit of work; each is independently committable and independently green.
 2. **`auth.js` and `main.js` move out of churn order, up next to `nav.js`.** They are not three modules, they are one boot path: `main.js` wires the callbacks, `initAuth()` decides signed-in or not, `nav.js` routes and gates by role. Covering them apart means building the same fixture three times and testing each one's half of a handshake in isolation.
 3. **No new coverage for the P4 offspring.** The roadmap lists "plus the P4 offspring" under P5. P2's suite already exercises every one of them through the barrel, and `actionCoverage.test.js` already guards the module boundary. Duplicating that at the new file granularity would freeze the internal seams P4 just chose, which is exactly the coupling the split existed to avoid. Recorded, not silently skipped.
+4. **P5b mounts `views/auth.js` directly rather than through `bootApp()`.** `main.js` calls `initAuth()` at import, before a test can choose the `/auth/me` branch, so every boot-check assertion would be unreachable through the P5a fixture. The P5b fixture is `helpers/auth.js`; it still consumes P5a's `pageHandlers()` and media stubs.
+5. **P5c's "ranked search through `filterRanked`" bullet was wrong.** `items.js` does not import `filterRanked`; Find Item search is server-side (`GET /items/?q=`) and the page renders whatever comes back. The tests cover the request and the render, not a ranking.
+6. **P5c cannot mount `views/items.js` as its own entry point.** `items.js` reaches `nav.js` via `scan.js` -> `transactions.js`, and `nav.js` re-enters `scan.js` through `tools.js` while `scan.js`'s imports are still initializing (TDZ on `BarcodeDecoder`). Production's `main.js` enters at `nav.js` first, so `helpers/items.js` primes the graph the same way (`mountView("views/nav.js")` then `importView("views/items.js")` against the one shell). Consequence for the tests: `nav.js` is live, so the Create-Item scan shortcut really routes pages rather than only firing a click.
+7. **P5d lifted the request recorder and the confirm helper into shared fixtures.** `helpers/auth.js` and `helpers/items.js` each carried a private copy; they are now `helpers/requests.js` and `helpers/dialogs.js`, and both earlier fixtures re-export them (same import surface, identical pass counts). P5e+ import the shared ones directly. `helpers/workOrders.js` (P2) keeps its own copy — re-pointing it is P5h's business alongside the action audit.
 
 ## Chunk sequencing
 
@@ -63,27 +67,27 @@ Churn order, adjusted where a fixture dependency forces it. The adjustments are 
 
 **Interfaces:** produces `bootApp({ role, page, handlers })` → `{ nav, requests() }`; produces `pageHandlers()`, a named MSW bundle answering every endpoint a `PAGE_LOADERS` entry fires with an empty-but-valid payload.
 
-- [ ] Enumerate the loaders: read `PAGE_LOADERS` out of `views/nav.js` and, for each, the endpoint its `load*` function hits. `showPage()` *calls the loader*, so a nav test that does not answer them fails on an unhandled request rather than on its assertion.
-- [ ] Write `pageHandlers()` in `helpers/handlers.js` as an exported bundle, **not** a default. `defaultHandlers` stays empty per the spec — a test opts in by passing the bundle. Each response is the empty-collection form (`[]`, `{items: []}`) built from `factories.js`, never a hand-typed literal.
-- [ ] `helpers/app.js`: `vi.resetModules()` → `mountShell()` → `setTestUser({role})` → `import("../../backend/static/main.js")`, with `apiMe` answered so `initAuth()` resolves to the signed-in branch. Export `bootApp` plus `bootLoggedOut()` for the 401 path P5b needs.
-- [ ] `helpers/media.js`: `stubUserMedia()` (a fake `MediaStream` with a spied `getTracks().stop()`), `stubAudioContext()`, `stubVibrate()`, `stubPermissions(state)`, and `restoreMediaStubs()`. Nothing here is needed at import time — verified: `mountScanner` only touches `navigator.mediaDevices` inside `start()` — but `nav.js` drives `stopLive()` / `refreshPermissionState()` on every page swap, so the stubs install for any test that navigates.
+- [x] Enumerate the loaders: read `PAGE_LOADERS` out of `views/nav.js` and, for each, the endpoint its `load*` function hits. `showPage()` *calls the loader*, so a nav test that does not answer them fails on an unhandled request rather than on its assertion.
+- [x] Write `pageHandlers()` in `helpers/handlers.js` as an exported bundle, **not** a default. `defaultHandlers` stays empty per the spec — a test opts in by passing the bundle. Each response is the empty-collection form (`[]`, `{items: []}`) built from `factories.js`, never a hand-typed literal.
+- [x] `helpers/app.js`: `vi.resetModules()` → `mountShell()` → `setTestUser({role})` → `import("../../backend/static/main.js")`, with `apiMe` answered so `initAuth()` resolves to the signed-in branch. Export `bootApp` plus `bootLoggedOut()` for the 401 path P5b needs.
+- [x] `helpers/media.js`: `stubUserMedia()` (a fake `MediaStream` with a spied `getTracks().stop()`), `stubAudioContext()`, `stubVibrate()`, `stubPermissions(state)`, and `restoreMediaStubs()`. Nothing here is needed at import time — verified: `mountScanner` only touches `navigator.mediaDevices` inside `start()` — but `nav.js` drives `stopLive()` / `refreshPermissionState()` on every page swap, so the stubs install for any test that navigates.
 
 **Test.** `bootApp({role: "owner"})` boots with no unhandled request and no console error; a smoke assertion that `document.getElementById("app-root").hidden === false`.
 
 #### Task 2: `nav.js`
 
-- [ ] `PAGE_ACCESS` / `canAccessPage` / `landingPageForRole` as a table test across all five roles and all sixteen pages. Assert the roadmap-relevant invariant explicitly: **every landing page is reachable by its own role** — the fallback to `transaction` exists precisely because that can drift.
-- [ ] `applyRoleVisibility(role)`: per role, the exact set of visible buttons, and that a group emptied by the role is itself hidden (the trailing-hairline rule the comment records).
-- [ ] `showPage(page)`: `.active` moves on both the section and the button, `getActivePage()` follows, group menus close, `closeTip()` fires, the page's loader runs exactly once.
-- [ ] Scanner lifecycle: leaving a scanner page calls `reset()` on the leaving scanner and `refreshPermissionState()` on the entering one; same page twice does not reset. `visibilitychange` with `document.hidden` true calls `stopLive()` on every registered scanner and does **not** reset.
-- [ ] Nav button clicks go through `user-event`, not `el.click()`.
+- [x] `PAGE_ACCESS` / `canAccessPage` / `landingPageForRole` as a table test across all five roles and all sixteen pages. Assert the roadmap-relevant invariant explicitly: **every landing page is reachable by its own role** — the fallback to `transaction` exists precisely because that can drift.
+- [x] `applyRoleVisibility(role)`: per role, the exact set of visible buttons, and that a group emptied by the role is itself hidden (the trailing-hairline rule the comment records).
+- [x] `showPage(page)`: `.active` moves on both the section and the button, `getActivePage()` follows, group menus close, `closeTip()` fires, the page's loader runs exactly once.
+- [x] Scanner lifecycle: leaving a scanner page calls `reset()` on the leaving scanner and `refreshPermissionState()` on the entering one; same page twice does not reset. `visibilitychange` with `document.hidden` true calls `stopLive()` on every registered scanner and does **not** reset.
+- [x] Nav button clicks go through `user-event`, not `el.click()`.
 
 **Test.** Rename one `data-page` value in `shell-head.html` locally; the visibility table goes red. Revert.
 
 #### Task 3: `main.js`
 
-- [ ] The four wirings are observable, so assert each at its effect, not by spying on the import: `setScanResetter` — trigger a batch reset through `transactions.js` and see the scan UI clear; `setScanAutostarter` — begin a batch with permission granted and see the camera start, and with permission denied see it not; `setActivePageGetter` — `showPage("history")` then assert `realtime.js` reports that page (drive it through the fake socket, as P2 does); `installTooltips` — a `data-tip` element added *after* boot still opens a bubble, which is the delegation claim the comment makes.
-- [ ] `initAuth()` runs at import: with `apiMe` 200 the app reveals and the role's landing page is active; with 401 the login screen shows and no page loader fires.
+- [x] The four wirings are observable, so assert each at its effect, not by spying on the import: `setScanResetter` — trigger a batch reset through `transactions.js` and see the scan UI clear; `setScanAutostarter` — begin a batch with permission granted and see the camera start, and with permission denied see it not; `setActivePageGetter` — `showPage("history")` then assert `realtime.js` reports that page (drive it through the fake socket, as P2 does); `installTooltips` — a `data-tip` element added *after* boot still opens a bubble, which is the delegation claim the comment makes.
+- [x] `initAuth()` runs at import: with `apiMe` 200 the app reveals and the role's landing page is active; with 401 the login screen shows and no page loader fires.
 
 **Test.** `npm test` green. Commit per task.
 
@@ -93,13 +97,13 @@ Churn order, adjusted where a fixture dependency forces it. The adjustments are 
 
 **Files.** Create `tests/frontend/views/auth.test.js`.
 
-- [ ] **Login:** submit through `user-event`; `apiLogin` receives username, password and the remember flag; success reveals `app-root`, hides `login-screen`, sets `state.js`'s current user, calls `applyRoleVisibility` and opens `landingPageForRole`.
-- [ ] **Failure:** a 401 from `apiLogin` surfaces `friendlyError` copy in `login-message` and leaves the app hidden. The password field clears; the visibility toggle resets to masked.
-- [ ] **The expiry path, both directions.** `setUnauthorizedHandler` is the real hook: fire a 401 from any wrapper while signed in and assert the timeout copy, `disconnectRealtime()`, and `resetBatch({keepSaved: true})` — the batch snapshot survives. Then the boot-time 401 (`apiMe` before the app ever showed) and assert it is *silent*: no timeout copy. That asymmetry is the comment's whole point and is one edit away from being lost.
-- [ ] **Logout:** `apiLogout` called, batch cleared (`keepSaved: false`), push unsubscribed for this device, tools view reset, realtime disconnected.
-- [ ] **Deep link:** boot at `/workorder_card/<n>` with a signed-in session and assert `focusWorkOrderNumber` is reached via `soloNumberFromPath` — through the P4 barrel, unchanged.
-- [ ] **Batch resume:** signing in as the user who owns a saved `sessionStorage` batch resumes it; a different user does not.
-- [ ] **Push at login:** `requestPermissionAtLogin` fires only when the notifications checkbox is on. Stub `Notification` and `ServiceWorkerRegistration` in `helpers/media.js`.
+- [x] **Login:** submit through `user-event`; `apiLogin` receives username, password and the remember flag; success reveals `app-root`, hides `login-screen`, sets `state.js`'s current user, calls `applyRoleVisibility` and opens `landingPageForRole`.
+- [x] **Failure:** a 401 from `apiLogin` surfaces `friendlyError` copy in `login-message` and leaves the app hidden. The password field clears; the visibility toggle resets to masked.
+- [x] **The expiry path, both directions.** `setUnauthorizedHandler` is the real hook: fire a 401 from any wrapper while signed in and assert the timeout copy, `disconnectRealtime()`, and `resetBatch({keepSaved: true})` — the batch snapshot survives. Then the boot-time 401 (`apiMe` before the app ever showed) and assert it is *silent*: no timeout copy. That asymmetry is the comment's whole point and is one edit away from being lost.
+- [x] **Logout:** `apiLogout` called, batch cleared (`keepSaved: false`), push unsubscribed for this device, tools view reset, realtime disconnected.
+- [x] **Deep link:** boot at `/workorder_card/<n>` with a signed-in session and assert `focusWorkOrderNumber` is reached via `soloNumberFromPath` — through the P4 barrel, unchanged.
+- [x] **Batch resume:** signing in as the user who owns a saved `sessionStorage` batch resumes it; a different user does not.
+- [x] **Push at login:** `requestPermissionAtLogin` fires only when the notifications checkbox is on. Stub `Notification` and `ServiceWorkerRegistration` in `helpers/media.js`.
 
 **Test.** Every branch of `showLoginScreen` and `enterApp` covered; the expiry asymmetry has a test in both directions.
 
@@ -109,12 +113,14 @@ Churn order, adjusted where a fixture dependency forces it. The adjustments are 
 
 **Files.** Create `tests/frontend/views/items.test.js`.
 
-- [ ] `loadItems()` / `renderItems()`: populated table, the empty-message path with its custom argument, the skeleton→loaded transition, money and `safeHttpUrl` rendering, ranked search through `filterRanked`.
-- [ ] The four delegated actions — `edit`, `correct`, `notes`, `delete` — each: request issued, DOM result, error surfaced. `delete` goes through `confirmDialog`; assert both answers.
-- [ ] Role gating: which controls render for technician / supervisor / techfm_oa / admin / owner.
-- [ ] `confirmArchivedReuse` on a barcode collision — the archived-reuse retry, already covered at the `dom.js` level in P1, asserted here at its call site.
-- [ ] The two mounted scanners (`itemScanWidget`, `itemsScanner`): a decoded barcode reaches `onItemFound`; a 404 renders the `notFoundLabel` copy; the create shortcut and `openAddBarcode` fire. Camera driving is P5g's job — here, drive the lookup path only.
-- [ ] Cross-module callbacks: `setOnSaved` from `notes.js` and `addBarcode.js` refresh the row.
+**Done 2026-09-11** — `2026-09-11-frontend-test-harness-p5c-items.md`, 47 tests.
+
+- [x] `loadItems()` / `renderItems()`: populated table, the empty-message path with its custom argument, the skeleton→loaded transition, money and `safeHttpUrl` rendering. Search is server-side, not `filterRanked` — see deviation 5.
+- [x] The four delegated actions — `edit`, `correct`, `notes`, `delete` — each: request issued, DOM result, error surfaced. `delete` goes through `confirmDialog`; both answers asserted.
+- [x] Role gating: which controls render for technician / supervisor / techfm_oa / admin / owner.
+- [x] `confirmArchivedReuse` on a barcode collision — the archived-reuse retry, already covered at the `dom.js` level in P1, asserted here at its call site.
+- [x] The two mounted scanners (`itemScanWidget`, `itemsScanner`): a decoded barcode reaches `onItemFound`; a 404 renders the `notFoundLabel` copy; the create shortcut and `openAddBarcode` fire. Camera driving is P5g's job — here, the lookup path only.
+- [x] Cross-module callbacks: `setOnSaved` from `notes.js` and `addBarcode.js` refresh the row.
 
 **Test.** `npm test` green; the four actions covered by name.
 
@@ -124,12 +130,12 @@ Churn order, adjusted where a fixture dependency forces it. The adjustments are 
 
 **Files.** Create `tests/frontend/views/transactions.test.js`.
 
-- [ ] `enterTransactionPage()`: form state, role gating (a technician sees dispense only — the Stock toggle is hidden), work-order picker population.
-- [ ] The batch lifecycle: arm (`scanGoArmed` false until a quantity is set), `commitScannedItem` posts the transaction and appends the line, `resetBatch({keepSaved})` in both forms, `tryResumeBatch(userId)` for the matching and non-matching user.
-- [ ] `sessionStorage` is the batch's store: assert the written snapshot shape, and that a throwing `setItem` (private-browsing case) degrades silently rather than breaking the commit — the comment claims that and nothing checks it.
-- [ ] The debounced work-order search on fake timers; `filterRanked` ordering.
-- [ ] `apiVoidTransaction` with `confirmDialog` both ways; `apiStartWorkOrder` from the picker; the error copy for each failure.
-- [ ] The injected seams: with `setScanResetter` / `setScanAutostarter` never called (the module's own default), changing the work order must not throw. That is the state every test file other than `main.test.js` runs in.
+- [x] `enterTransactionPage()`: form state, role gating (a technician sees dispense only — the Stock toggle is hidden), work-order picker population.
+- [x] The batch lifecycle: arm (`scanGoArmed` false until a quantity is set), `commitScannedItem` posts the transaction and appends the line, `resetBatch({keepSaved})` in both forms, `tryResumeBatch(userId)` for the matching and non-matching user.
+- [x] `sessionStorage` is the batch's store: assert the written snapshot shape, and that a throwing `setItem` (private-browsing case) degrades silently rather than breaking the commit — the comment claims that and nothing checks it.
+- [x] The debounced work-order search on fake timers; `filterRanked` ordering.
+- [x] `apiVoidTransaction` with `confirmDialog` both ways; `apiStartWorkOrder` from the picker; the error copy for each failure.
+- [x] The injected seams: with `setScanResetter` / `setScanAutostarter` never called (the module's own default), changing the work order must not throw. That is the state every test file other than `main.test.js` runs in.
 
 **Test.** `npm test` green; every export exercised.
 
