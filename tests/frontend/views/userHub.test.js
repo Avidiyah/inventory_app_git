@@ -30,3 +30,200 @@ describe("mountHub", () => {
     expect(requests()).toHaveLength(0);
   });
 });
+
+describe("loadUserHub by role", () => {
+  it.each([
+    ["technician", { timesheets: false, graphs: false, report: false }, ["/hub"], "My Work Orders (0)", "before"],
+    ["supervisor", { timesheets: true, graphs: false, report: false }, ["/hub", "/hub/crew"], "My Work Orders (0)", "before"],
+    ["techfm_oa", { timesheets: true, graphs: true, report: false }, ["/hub", "/hub/crew", "/hub/admin"], "Work Orders", "after"],
+    ["admin", { timesheets: true, graphs: true, report: true }, ["/hub", "/hub/crew", "/hub/admin"], "Work Orders", "after"],
+    ["owner", { timesheets: true, graphs: true, report: true }, ["/hub", "/hub/crew", "/hub/admin"], "Work Orders", "after"],
+  ])("%s: tabs %j, requests %j, label %s, clock %s tabs", async (role, tabs, expected, label, clockPos) => {
+    await openHub({ role, hub: hubPayload({ mine_total: 0 }) });
+    expect(requests().map((r) => r.url)).toEqual(expected);
+    expect(el.tab("timesheets").hidden).toBe(!tabs.timesheets);
+    expect(el.tab("graphs").hidden).toBe(!tabs.graphs);
+    expect(el.tab("report").hidden).toBe(!tabs.report);
+    expect(el.tab("work-orders").textContent).toBe(label);
+    const order = Array.from(el.page().children).map((c) => c.id);
+    expect(order.indexOf("hub-clock-mount") < order.indexOf("hub-tabs")).toBe(clockPos === "before");
+    expect(el.clockMount().querySelector(".hub-clock-status")).not.toBeNull();
+    // techfm_oa+: the Priorities card needs the admin payload, but
+    // refreshAdmin mounts the summary WITHOUT renderPriorities, and the crew
+    // pass that does call it ran before the admin payload landed -- so the
+    // card is blank after the first load until the next repaint.
+    // Characterization -- see open-work.md N-P5-CHARACTERIZED.
+    const adminPlus = ["techfm_oa", "admin", "owner"].includes(role);
+    expect(el.panel("dashboard").querySelector(".hub-priorities") === null).toBe(adminPlus);
+    if (adminPlus) {
+      await user().click(el.tab("dashboard"));   // showTab -> renderActiveTab -> renderPriorities
+      expect(el.panel("dashboard").querySelector(".hub-priorities")).not.toBeNull();
+    }
+  });
+
+  it("a technician must never fire /hub/admin or /hub/crew, even after a tab tour", async () => {
+    await openHub({ role: "technician" });
+    await user().click(el.tab("work-orders"));
+    await user().click(el.tab("dashboard"));
+    expect(requestFor("/hub/admin")).toBeNull();
+    expect(requestFor("/hub/crew")).toBeNull();
+  });
+
+  it("mine_total drives the technician label; a second load updates it", async () => {
+    const { mod, payload } = await openHub({ role: "technician", hub: hubPayload({ mine_total: 3 }) });
+    expect(el.tab("work-orders").textContent).toBe("My Work Orders (3)");
+    server.use(http.get("/hub", () => HttpResponse.json(hubPayload({ mine_total: 5, user: payload.user }))));
+    await mod.loadUserHub();
+    expect(el.tab("work-orders").textContent).toBe("My Work Orders (5)");
+  });
+
+  it("first load paints a skeleton grid in the dashboard; a return visit does not", async () => {
+    let release;
+    const { mod } = await mountHub({ role: "technician", handlers: [http.get("/hub", () =>
+      new Promise((r) => { release = () => r(HttpResponse.json(hubPayload())); }))] });
+    const first = mod.loadUserHub();
+    expect(el.panel("dashboard").querySelector(".skel-grid")).not.toBeNull();
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    release(); release = null; await first;
+    const second = mod.loadUserHub();
+    expect(el.panel("dashboard").querySelector(".skel-grid")).toBeNull();
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    release(); await second;
+  });
+
+  it("a failing /hub writes the error into the clock mount and stops", async () => {
+    const { mod } = await mountHub({ role: "supervisor", handlers: [http.get("/hub", () => HttpResponse.json({ detail: "x" }, { status: 500 }))] });
+    await mod.loadUserHub();
+    expect(el.clockMount().querySelector("p.error")).not.toBeNull();
+    expect(requestFor("/hub/crew")).toBeNull();
+    expect(vi.getTimerCount()).toBe(0); // nothing started
+  });
+
+  it("a user change resets to the dashboard tab and clears the lazy payloads", async () => {
+    const { mod } = await openHub({ role: "supervisor" });
+    await user().click(el.tab("timesheets"));
+    await vi.waitFor(() => expect(requestFor("/hub/timesheets")).not.toBeNull());
+    await vi.waitFor(() => expect(el.panel("timesheets").querySelector(".hub-timesheet-table")).not.toBeNull());
+    server.use(http.get("/hub", () => HttpResponse.json(hubPayload({ user: { id: "someone-else", role: "supervisor" } }))));
+    clearRequests();
+    await mod.loadUserHub();
+    expect(el.tab("dashboard").classList.contains("active")).toBe(true);
+    expect(el.panel("timesheets").children).toHaveLength(0);
+  });
+
+  it("a role downgrade off a hidden tab lands on the dashboard", async () => {
+    const { mod } = await openHub({ role: "techfm_oa" });
+    await user().click(el.tab("graphs"));
+    await vi.waitFor(() => expect(requestFor("/hub/graphs")).not.toBeNull());
+    server.use(http.get("/hub", () => HttpResponse.json(hubPayload({ user: { id: "u", role: "supervisor" } }))));
+    await mod.loadUserHub();
+    expect(el.tab("graphs").hidden).toBe(true);
+    expect(el.tab("dashboard").classList.contains("active")).toBe(true);
+    expect(el.panel("graphs").children).toHaveLength(0);
+  });
+});
+
+describe("tabs", () => {
+  it("clicking a tab moves active/aria-selected and shows exactly one panel", async () => {
+    await openHub({ role: "technician" });
+    await user().click(el.tab("work-orders"));
+    expect(el.tab("work-orders").getAttribute("aria-selected")).toBe("true");
+    expect(el.tab("dashboard").getAttribute("aria-selected")).toBe("false");
+    for (const name of ["dashboard", "timesheets", "work-orders", "graphs", "report"]) {
+      expect(el.panel(name).hidden).toBe(name !== "work-orders");
+    }
+  });
+
+  // `mine=true` is a supervisor-only flag: a technician is already scoped by
+  // role on the server, and techfm_oa+ is deliberately unscoped (P4 Tab 3).
+  it.each([
+    ["technician", { limit: "10" }],
+    ["supervisor", { mine: "true", limit: "10" }],
+    ["admin", { limit: "10" }],
+  ])("My Work Orders mounts the capped list: %s sends %j", async (role, expected) => {
+    await openHub({ role, workOrders: [workOrderCard()] });
+    await user().click(el.tab("work-orders"));
+    await vi.waitFor(() => expect(queries("/work-orders/")).toHaveLength(1));
+    expect(queries("/work-orders/")[0]).toEqual(expected);
+    expect(el.panel("work-orders").querySelector(".hub-wo-list")).not.toBeNull();
+  });
+
+  it("Timesheets fetches once, then re-renders from memory; a week change refetches with start/end", async () => {
+    await openHub({ role: "supervisor" });
+    await user().click(el.tab("timesheets"));
+    await vi.waitFor(() => expect(queries("/hub/timesheets")).toHaveLength(1));
+    expect(queries("/hub/timesheets")[0]).toEqual({});
+    await vi.waitFor(() => expect(el.panel("timesheets").querySelector(".hub-timesheet-table")).not.toBeNull());
+    await user().click(el.tab("dashboard"));
+    await user().click(el.tab("timesheets"));
+    expect(queries("/hub/timesheets")).toHaveLength(1);
+    await user().click(el.panel("timesheets").querySelector(".hub-timesheet-prev"));
+    await vi.waitFor(() => expect(queries("/hub/timesheets")).toHaveLength(2));
+    expect(Object.keys(queries("/hub/timesheets")[1]).sort()).toEqual(["end", "start"]);
+  });
+
+  it("Graphs fetches with weeks=12, re-renders from memory on return, and a range change refetches", async () => {
+    await openHub({ role: "techfm_oa" });
+    await user().click(el.tab("graphs"));
+    // The first open fetches TWICE: showTab -> renderActiveTab -> loadGraphs()
+    // (no payload yet), then the click handler's own loadGraphs(). The
+    // request-id guard makes the first response a no-op. Characterization --
+    // see open-work.md N-P5-CHARACTERIZED.
+    await vi.waitFor(() => expect(queries("/hub/graphs")).toHaveLength(2));
+    expect(queries("/hub/graphs")).toEqual([{ weeks: "12" }, { weeks: "12" }]);
+    await vi.waitFor(() => expect(el.panel("graphs").querySelector(".hub-graphs")).not.toBeNull());
+    await user().click(el.tab("dashboard"));
+    await user().click(el.tab("graphs"));           // background refetch, from memory first
+    await vi.waitFor(() => expect(queries("/hub/graphs")).toHaveLength(3));
+    await user().selectOptions(el.panel("graphs").querySelector(".hub-graphs-weeks"), "26");
+    await vi.waitFor(() => expect(queries("/hub/graphs")).toHaveLength(4));
+    expect(queries("/hub/graphs")[3]).toEqual({ weeks: "26" });
+  });
+
+  it("Graphs: a community tab click re-renders from memory; the choice survives a range change", async () => {
+    const graphs = hubGraphs({ communities: [
+      { key: "maple", label: "Maple", total: 5, counts: { assigned: 5 }, service_types: [], priorities: [] },
+      { key: "oak", label: "Oak", total: 1, counts: { assigned: 1 }, service_types: [], priorities: [] },
+    ] });
+    await openHub({ role: "admin", graphs });
+    await user().click(el.tab("graphs"));
+    await vi.waitFor(() => expect(el.panel("graphs").querySelector(".hub-graphs")).not.toBeNull());
+    expect(el.panel("graphs").querySelector('[data-graph-tab="maple"]').classList.contains("active")).toBe(true); // largest first
+    const before = queries("/hub/graphs").length;
+    await user().click(el.panel("graphs").querySelector('[data-graph-tab="oak"]'));
+    expect(queries("/hub/graphs")).toHaveLength(before);
+    expect(el.panel("graphs").querySelector('[data-graph-tab="oak"]').classList.contains("active")).toBe(true);
+    await user().selectOptions(el.panel("graphs").querySelector(".hub-graphs-weeks"), "52");
+    await vi.waitFor(() => expect(queries("/hub/graphs")).toHaveLength(before + 1));
+    await vi.waitFor(() => expect(el.panel("graphs").querySelector('[data-graph-tab="oak"]').classList.contains("active")).toBe(true));
+  });
+
+  it("Graphs distribution click hands off to Work Orders with the filter", async () => {
+    const { mod } = await openHub({ role: "admin", handlers: [
+      http.get("/work-orders/filter-options", () => HttpResponse.json(filterOptions())),
+      http.get("/items/", () => HttpResponse.json([])),
+      http.get("/users/", () => HttpResponse.json([])),
+    ] });
+    await user().click(el.tab("graphs"));
+    await vi.waitFor(() => expect(el.panel("graphs").querySelector(".hub-graph-card-all")).not.toBeNull());
+    await user().click(el.panel("graphs").querySelector(".hub-graph-card-all"));
+    expect(document.getElementById("work-orders-page").classList.contains("active")).toBe(true);
+    expect(mod).toBeTruthy();
+  });
+
+  it("Report (admin+): skeleton, then re-fetched on every re-entry", async () => {
+    await openHub({ role: "admin" });
+    await user().click(el.tab("report"));
+    expect(el.panel("report").querySelector(".hub-report-loading")).not.toBeNull();
+    await vi.waitFor(() => expect(queries("/hub/report")).toHaveLength(1));
+    await user().click(el.tab("dashboard"));
+    await user().click(el.tab("report"));
+    await vi.waitFor(() => expect(queries("/hub/report")).toHaveLength(2));
+  });
+
+  it("a techfm_oa never fetches the report", async () => {
+    await openHub({ role: "techfm_oa" });
+    expect(el.tab("report").hidden).toBe(true);
+    expect(requestFor("/hub/report")).toBeNull();
+  });
+});
