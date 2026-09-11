@@ -10,7 +10,6 @@ export {
   focusWorkOrder,
   focusWorkOrderNumber,
   soloNumberFromPath,
-  comboHtml,
   loadIntegrationsPage,
   mountWorkOrderList,
   openWorkOrdersByNumberSearch,
@@ -18,3 +17,4 @@ export {
   openWorkOrdersFilteredByDistribution,
 } from "./workOrderList.js";
 export { workOrderCardClass } from "./workOrderPresenters.js";
+export { comboHtml } from "./workOrderCardHtml.js";
