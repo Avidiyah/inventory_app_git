@@ -577,3 +577,109 @@ describe("offerRestoreIfArchived", () => {
     expect(requestFor("/work-orders/lookup")).toBeNull();
   });
 });
+
+describe("pricing list", () => {
+  it("walks every page at page_size 100, prices rows, right-aligns, totals, selects, and snaps scroll", async () => {
+    const rows1 = Array.from({ length: 100 }, (_, i) => historyRow({ item_name: `Item ${i}`, item_price: "1.00", quantity: "1" }));
+    const rows2 = [historyRow({ item_name: "Last", item_price: "2.00", quantity: "3" }), historyRow({ transaction_type: "adjust", item_price: null })];
+    const { mod } = await mountHistory({ role: "admin" });
+    answerHistoryPages([rows1, rows2]);
+    await mod.loadHistory();
+    clearRequests();
+    el.pricingOutput().scrollTop = 40; el.pricingOutput().scrollLeft = 40;
+    await userEvent.setup().click(el.pricingBtn());
+    await vi.waitFor(() => expect(el.pricingMessage().textContent).toBe("Pricing ready — select all and copy."));
+    const pages = requests().filter((r) => r.url.startsWith("/transactions/?")).map((r) => new URL(r.url, "http://t").searchParams.get("page"));
+    expect(pages).toEqual(["1", "2"]);
+    expect(requests().find((r) => r.url.startsWith("/transactions/?")).url).toContain("page_size=100");
+    const lines = el.pricingOutput().value.split("\n");
+    expect(lines).toHaveLength(101 + 2); // 101 priced lines, blank, Total
+    expect(lines[100]).toMatch(/^3\s+Last\s+\$6\.90$/);
+    expect(lines[100]).toHaveLength(41);
+    expect(lines.at(-2)).toBe("");
+    expect(lines.at(-1)).toMatch(/^Total\s+\$121\.90$/); // 100 × 1.15 + 6.90
+    expect(el.pricingOutput().hidden).toBe(false);
+    expect(document.activeElement).toBe(el.pricingOutput());
+    expect(el.pricingOutput().scrollTop).toBe(0);
+    expect(el.pricingOutput().scrollLeft).toBe(0);
+    expect(el.pricingBtn().disabled).toBe(false);
+  });
+
+  it("a row with no work_order_id resolves the number and fetches the work order, then drops the line anyway", async () => {
+    const wo = workOrderDetail({ number: "7001", items: [workOrderItem({ item_id: "i1", unit_price: "4.00" })] });
+    const { mod } = await mountHistory({ role: "admin", rows: [
+      historyRow({ item_id: "i1", item_name: "Bulb", item_price: null, quantity: "2", work_order_number: "7001", work_order_id: null }),
+    ], handlers: [
+      http.get("/work-orders/", ({ request }) =>
+        HttpResponse.json(new URL(request.url).searchParams.get("q") === "7001" ? [workOrderCard({ id: wo.id, number: "7001" })] : [])),
+      http.get("/work-orders/:id", () => HttpResponse.json(wo)),
+    ] });
+    await mod.loadHistory();
+    await userEvent.setup().click(el.pricingBtn());
+    await vi.waitFor(() => expect(el.pricingMessage().textContent).toBe("No priced rows for these filters."));
+    // fetchWorkOrderPrices resolves the NUMBER to an id and stores the prices
+    // under that id, but markedCharge only consults the map when the ROW
+    // carries work_order_id -- so the round trips happen and the line is
+    // still unpriced. Characterization -- see open-work.md N-P5-CHARACTERIZED.
+    expect(requestFor("/work-orders/?q=7001")).not.toBeNull();
+    expect(requestFor(`/work-orders/${wo.id}`, "GET")).not.toBeNull();
+    expect(el.pricingOutput().hidden).toBe(true);
+  });
+
+  it("a row carrying work_order_id skips the number lookup and is priced from the work order's line", async () => {
+    const wo = workOrderDetail({ number: "7001", items: [workOrderItem({ item_id: "i1", unit_price: "4.00" })] });
+    const { mod } = await mountHistory({ role: "admin", rows: [
+      historyRow({ item_id: "i1", item_price: null, work_order_number: "7001", work_order_id: wo.id }),
+    ], handlers: [http.get("/work-orders/:id", () => HttpResponse.json(wo))] });
+    await mod.loadHistory();
+    await userEvent.setup().click(el.pricingBtn());
+    await vi.waitFor(() => expect(el.pricingOutput().hidden).toBe(false));
+    expect(requestFor("/work-orders/?q=")).toBeNull();
+    expect(el.pricingOutput().value.split("\n")[0]).toMatch(/^2\s+Bulb\s+\$9\.20$/);
+  });
+
+  it("an unloadable work order is skipped, not fatal", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { mod } = await mountHistory({ role: "admin", rows: [
+      historyRow({ item_price: "1.00", quantity: "1" }),
+      historyRow({ item_price: null, work_order_number: "gone", work_order_id: "w9" }),
+    ], handlers: [http.get("/work-orders/:id", () => HttpResponse.json({ detail: "x" }, { status: 404 }))] });
+    await mod.loadHistory();
+    await userEvent.setup().click(el.pricingBtn());
+    await vi.waitFor(() => expect(el.pricingMessage().className).toBe("success"));
+    expect(el.pricingOutput().value.split("\n")).toHaveLength(3);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("nothing priceable: message, output stays hidden", async () => {
+    const { mod } = await mountHistory({ role: "admin", rows: [historyRow({ item_price: null })] });
+    await mod.loadHistory();
+    await userEvent.setup().click(el.pricingBtn());
+    await vi.waitFor(() => expect(el.pricingMessage().textContent).toBe("No priced rows for these filters."));
+    expect(el.pricingOutput().hidden).toBe(true);
+    expect(el.pricingBtn().disabled).toBe(false);
+  });
+
+  it("a failing page fetch reports the generic copy and re-enables the button", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { mod } = await mountHistory({ role: "admin", rows: [historyRow()] });
+    await mod.loadHistory();
+    server.use(http.get("/transactions/", () => HttpResponse.json({ detail: "x" }, { status: 500 })));
+    await userEvent.setup().click(el.pricingBtn());
+    await vi.waitFor(() => expect(el.pricingMessage().textContent).toBe("Could not build the pricing list — try again."));
+    expect(el.pricingBtn().disabled).toBe(false);
+    err.mockRestore();
+  });
+
+  it("re-rendering hides and clears a built list", async () => {
+    const { mod } = await mountHistory({ role: "admin", rows: [historyRow({ item_price: "1.00" })] });
+    await mod.loadHistory();
+    await userEvent.setup().click(el.pricingBtn());
+    await vi.waitFor(() => expect(el.pricingOutput().hidden).toBe(false));
+    await mod.loadHistory();
+    expect(el.pricingOutput().hidden).toBe(true);
+    expect(el.pricingOutput().value).toBe("");
+    expect(el.pricingMessage().textContent).toBe("");
+  });
+});
