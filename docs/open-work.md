@@ -192,8 +192,8 @@ on every navigation — the number to watch.
 ### N6 — `services/work_orders.py` is 2,034 lines / 59 functions
 
 **Trigger: none — this is a boundary rule, not a refactor request.** Its
-frontend counterpart `workOrders.js` (1,705 lines) grows faster than the
-service; change risk concentrates in these two files. The extraction target
+frontend counterpart, the `workOrder*.js` group (~2,600 lines across eight
+modules since the P4 split), grows faster than the service; change risk concentrates in these two files. The extraction target
 already exists and works: `domain/work_orders.py` holds the pure rules.
 **Further rule-shaped logic belongs behind that boundary**; splitting the
 module for its own sake is churn with no behavior change.
@@ -268,8 +268,8 @@ edit to the area, or a user report matching one.
 | Defect | Pinned by |
 | --- | --- |
 | `dom.js:setMessage` assigns `element.className = type`, stripping `wo-message`. Click delegation re-queries `.wo-message`, gets null, and silently swallows the **second** error on a card — no clear, no text. | `actions.test.js` → "swallows the SECOND error on a card" |
-| `workOrders.js:840 detailsViewHtml` — the Priority row is `detail.priority \|\| "Not imported"`, always truthy, so the `.wo-details-empty` empty state is dead markup. | `render.test.js` |
-| `showSoloCard` adds `.wo-solo`, then `paintDetail` overwrites `className` with `workOrderCardClass(detail)` — the card-page modifier never survives the first paint. | `solo.test.js` |
+| `workOrderCardHtml.js detailsViewHtml` — the Priority row is `detail.priority \|\| "Not imported"`, always truthy, so the `.wo-details-empty` empty state is dead markup. | `render.test.js` |
+| `workOrderRouting.js showSoloCard` adds `.wo-solo`, then `paintDetail` overwrites `className` with `workOrderCardClass(detail)` — the card-page modifier never survives the first paint. | `solo.test.js` |
 | `save-details` on an `assigned` row with no technicians: the editor's status options are `[created, in_progress, on_hold]`, so the select falls back to `created` and an untouched save silently rolls the status back. | `editorActions.test.js` |
 | `hoursInputValue` writes the literal string `"NaN"` for a non-numeric duration; a number input then renders blank. | `editorActions.test.js` |
 
