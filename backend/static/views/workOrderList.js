@@ -70,6 +70,24 @@ import { openBillingEditor } from "./billingEditor.js";
 import { subscribe } from "../realtime.js";
 import { skeletonCard } from "../skeleton.js";
 import {
+  RECENT_LIMIT,
+  SORT_STORAGE_KEY,
+  SORT_VALUES,
+  currentFilters,
+  getShowAll,
+  getSortDir,
+  hasActiveFilters,
+  invalidateFilterOptions,
+  isFilterOptionsLoaded,
+  listParams,
+  livePriorityValues,
+  loadFilterOptions,
+  renderSortControl,
+  resetFilterControls,
+  setShowAll,
+  setSortDir,
+} from "./workOrderFilters.js";
+import {
   ensureReferenceData,
   getAllItems,
   getAllSupervisors,
@@ -133,19 +151,11 @@ const exportScope = document.getElementById("wo-export-scope");
 const exportBtn = document.getElementById("wo-export-btn");
 const exportClientBtn = document.getElementById("wo-export-client-btn");
 
-let filterOptionsLoaded = false;
 let netFacilitiesPollingJobId = null;
-document.addEventListener("user-names-updated", () => {
-  filterOptionsLoaded = false;
-});
 // Work order id to expand once the list renders (set by a Mass Stage tree click).
 let pendingFocusId = null;
 
-// The default browse shows only the RECENT_LIMIT highest scheduled dates to keep
-// the page fast as the archive grows; `showAll` drops the cap. Any active filter
-// queries the full set. See loadWorkOrders / renderMoreControl.
-const RECENT_LIMIT = 10;
-let showAll = false;
+
 
 // --- card page ("solo") mode ----------------------------------------------
 //
@@ -289,109 +299,15 @@ export function focusWorkOrder(workOrderId) {
 }
 
 
-// Matches `domain.work_orders.PRIORITY_FILTER_NONE`: the work orders whose
-// priority never came back from NetFacilities, which the detail card shows as
-// "Not imported". A sentinel rather than "" because "" already means no filter.
-const PRIORITY_NOT_IMPORTED = "__none__";
 
-function populateFilterSelect(select, emptyLabel, options) {
-  if (!select) return;
-  const selected = select.value;
-  select.innerHTML =
-    `<option value="">${escapeHtml(emptyLabel)}</option>` +
-    options
-      .map(({ value, label }) =>
-        `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`)
-      .join("");
-  if (options.some((option) => option.value === selected)) select.value = selected;
-}
 
-async function loadFilterOptions() {
-  if (filterOptionsLoaded) return;
-  const options = await apiGetWorkOrderFilterOptions();
-  populateFilterSelect(
-    serviceTypeFilter,
-    "All service types",
-    (options.service_types || []).map((value) => ({ value, label: value }))
-  );
-  // Priority is raw vendor text, so the choices are whatever the live work
-  // orders actually carry, plus the rows NetFacilities never reached.
-  populateFilterSelect(
-    priorityFilter,
-    "All priorities",
-    (options.priorities || [])
-      .map((value) => ({ value, label: value }))
-      .concat([{ value: PRIORITY_NOT_IMPORTED, label: "Not imported" }])
-  );
-  populateFilterSelect(
-    supervisorFilter,
-    "All supervisors",
-    (options.supervisors || []).map((option) => ({
-      value: option.id,
-      label: option.name,
-    }))
-  );
-  populateFilterSelect(
-    communityFilter,
-    "All communities",
-    options.communities || []
-  );
-  filterOptionsLoaded = true;
-}
 
-// Scheduled-date sort direction. Server-side (`sort` query param) because the
-// default browse fetches only the newest RECENT_LIMIT rows -- reversing those
-// in the browser would show the wrong ten. Remembered per browser; Clear
-// filters leaves it alone since it is a view preference, not a filter.
-const SORT_STORAGE_KEY = "workOrders.sort";
-const SORT_VALUES = new Set(["scheduled_desc", "scheduled_asc"]);
-let sortDir = "scheduled_desc";
-try {
-  const saved = localStorage.getItem(SORT_STORAGE_KEY);
-  if (SORT_VALUES.has(saved)) sortDir = saved;
-} catch {
-  // Storage unavailable (private mode, blocked): keep the default.
-}
 
-function renderSortControl() {
-  if (!sortSeg) return;
-  sortSeg.querySelectorAll("[data-sort]").forEach((btn) => {
-    btn.setAttribute("aria-pressed", String(btn.dataset.sort === sortDir));
-  });
-}
 
-function currentFilters() {
-  return {
-    status: statusFilter ? statusFilter.value : "",
-    serviceType: serviceTypeFilter ? serviceTypeFilter.value : "",
-    supervisorId: supervisorFilter ? supervisorFilter.value : "",
-    community: communityFilter ? communityFilter.value : "",
-    priority: priorityFilter ? priorityFilter.value : "",
-    scheduledDate: scheduledDateFilter ? scheduledDateFilter.value : "",
-    q: searchInput ? searchInput.value.trim() : "",
-    locationQ: locationSearchInput ? locationSearchInput.value.trim() : "",
-    taskQ: taskSearchInput ? taskSearchInput.value.trim() : "",
-  };
-}
 
-function hasActiveFilters() {
-  return Object.values(currentFilters()).some(Boolean);
-}
 
-// The list request: every filter plus the sort direction, which is not a
-// filter (it never affects the RECENT_LIMIT cap or Clear filters).
-function listParams() {
-  return { ...currentFilters(), sort: sortDir };
-}
 
-function resetFilterControls() {
-  [statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
-    if (control) control.value = "";
-  });
-  if (searchInput) searchInput.value = "";
-  if (locationSearchInput) locationSearchInput.value = "";
-  if (taskSearchInput) taskSearchInput.value = "";
-}
+
 
 
 function renderLaborEntryHtml(entry) {
@@ -700,11 +616,7 @@ function editField(field, label, value) {
 const MANUAL_PRIORITY = "Urgent";
 
 function priorityEditField(detail) {
-  const live = priorityFilter
-    ? Array.from(priorityFilter.options)
-        .map((option) => option.value)
-        .filter((value) => value && value !== PRIORITY_NOT_IMPORTED)
-    : [];
+  const live = livePriorityValues();
   const suggestions = live.some((value) => value.toLowerCase() === MANUAL_PRIORITY.toLowerCase())
     ? live
     : [MANUAL_PRIORITY, ...live];
@@ -919,14 +831,14 @@ export async function loadWorkOrders({
 
   const archivedLookupToken = ++archivedSearchToken;
   await ensureReferenceData({ refresh: refreshReferenceData });
-  if (refreshReferenceData) filterOptionsLoaded = false;
-  if (!filterOptionsLoaded) {
+  if (refreshReferenceData) invalidateFilterOptions();
+  if (!isFilterOptionsLoaded()) {
     try {
       await loadFilterOptions();
     } catch {
       // The card list is still useful if the small options request fails. Keep
       // the existing selections/placeholders and retry on the next page entry.
-      filterOptionsLoaded = false;
+      invalidateFilterOptions();
     }
   }
   if (exportBtn) exportBtn.hidden = !isAdminPlus();
@@ -934,14 +846,14 @@ export async function loadWorkOrders({
   const filters = currentFilters();
   // The cap applies only to a completely unfiltered browse. Any advanced filter
   // is a search and must return the complete matching set.
-  const capped = !hasActiveFilters() && !showAll && !pendingFocusId;
+  const capped = !hasActiveFilters() && !getShowAll() && !pendingFocusId;
   const limit = capped ? RECENT_LIMIT : null;
   try {
     let cards = await apiListWorkOrders({ ...listParams(), limit });
     if (pendingFocusId && !cards.some((c) => c.id === pendingFocusId)) {
       resetFilterControls();
-      showAll = false;
-      cards = await apiListWorkOrders({ limit: null, sort: sortDir });
+      setShowAll(false);
+      cards = await apiListWorkOrders({ limit: null, sort: getSortDir() });
     }
     renderCards(cards);
     renderMoreControl(capped, cards.length);
@@ -1013,7 +925,7 @@ function renderCards(cards) {
 //  - during a search, or a short capped page, show nothing.
 function renderMoreControl(capped, shownCount) {
   if (!moreEl) return;
-  if (showAll && !hasActiveFilters()) {
+  if (getShowAll() && !hasActiveFilters()) {
     moreEl.innerHTML =
       `<button type="button" class="secondary-btn" id="wo-show-recent">Show recent only</button>`;
     moreEl.hidden = false;
@@ -1029,10 +941,10 @@ function renderMoreControl(capped, shownCount) {
 if (moreEl) {
   moreEl.addEventListener("click", (event) => {
     if (event.target.id === "wo-show-all") {
-      showAll = true;
+      setShowAll(true);
       loadWorkOrders();
     } else if (event.target.id === "wo-show-recent") {
-      showAll = false;
+      setShowAll(false);
       loadWorkOrders();
     }
   });
@@ -1291,7 +1203,7 @@ export function focusWorkOrderNumber(number) {
 export function openWorkOrdersByNumberSearch(number) {
   resetFilterControls();
   if (searchInput) searchInput.value = number;
-  showAll = false;
+  setShowAll(false);
   pendingArchivedCheck = true;
 }
 
@@ -1304,7 +1216,7 @@ export function openWorkOrdersByNumberSearch(number) {
 export function openWorkOrdersFilteredByStatus(status) {
   resetFilterControls();
   if (statusFilter) statusFilter.value = status;
-  showAll = false;
+  setShowAll(false);
 }
 
 // Called from the User Hub's Graphs tab (hubGraphs.js via userHub.js), one
@@ -1328,7 +1240,7 @@ export function openWorkOrdersFilteredByDistribution({
   if (serviceType && serviceTypeFilter) serviceTypeFilter.value = serviceType;
   if (priority && priorityFilter) priorityFilter.value = priority;
   if (status && statusFilter) statusFilter.value = status;
-  showAll = false;
+  setShowAll(false);
 }
 
 // A second, independent card-list renderer for a container other than
@@ -2122,7 +2034,7 @@ async function pollNetFacilitiesJob(jobId) {
       if (job.state !== "queued" && job.state !== "running") {
         if (job.state === "completed" || job.state === "timed_out") {
           invalidateUsers();
-          filterOptionsLoaded = false;
+          invalidateFilterOptions();
           await loadWorkOrders();
         }
         return;
@@ -2264,7 +2176,7 @@ async function maybeHandleChainCompletion(cloudStatus) {
   handledChainCompletion = key;
   if (cloudStatus.chain_stage !== "done") return;
   invalidateUsers();
-  filterOptionsLoaded = false;
+  invalidateFilterOptions();
   await loadWorkOrders();
   if (cloudStatus.enrichment_job_id) {
     await pollNetFacilitiesJob(cloudStatus.enrichment_job_id);
@@ -2362,7 +2274,7 @@ async function afterWorkOrderImport(r, { chainOwnsEnrichment = false } = {}) {
   setMessage(importMessage, importSummary(r), "success");
   // Reset caches so a re-import reflects fresh data, then reload the list.
   invalidateUsers();
-  filterOptionsLoaded = false;
+  invalidateFilterOptions();
   await loadWorkOrders();
   const capability = await refreshNetFacilitiesCloudSession();
   const cloudStatus = capability && capability.status;
@@ -2511,7 +2423,7 @@ const cancelTaskSearchDebounce = wireKeywordSearch(taskSearchInput);
 [statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
   if (!control) return;
   control.addEventListener("change", () => {
-    showAll = false;
+    setShowAll(false);
     loadWorkOrders();
   });
 });
@@ -2520,10 +2432,10 @@ if (sortSeg) {
   renderSortControl();
   sortSeg.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-sort]");
-    if (!btn || !SORT_VALUES.has(btn.dataset.sort) || btn.dataset.sort === sortDir) return;
-    sortDir = btn.dataset.sort;
+    if (!btn || !SORT_VALUES.has(btn.dataset.sort) || btn.dataset.sort === getSortDir()) return;
+    setSortDir(btn.dataset.sort);
     try {
-      localStorage.setItem(SORT_STORAGE_KEY, sortDir);
+      localStorage.setItem(SORT_STORAGE_KEY, getSortDir());
     } catch {
       // Best effort only.
     }
@@ -2538,7 +2450,7 @@ if (clearFiltersBtn) {
     cancelLocationSearchDebounce();
     cancelTaskSearchDebounce();
     resetFilterControls();
-    showAll = false;
+    setShowAll(false);
     loadWorkOrders();
   });
 }
