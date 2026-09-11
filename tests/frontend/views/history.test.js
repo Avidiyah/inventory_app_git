@@ -418,3 +418,162 @@ describe("void", () => {
     expect(rowEls()).toHaveLength(1);
   });
 });
+
+describe("Edit charge", () => {
+  async function editor(overrides = {}) {
+    await openHistory({ role: "admin", rows: [historyRow({ id: "t1", item_price: "2.50", quantity: "4", billable_quantity: null, ...overrides })],
+      handlers: [http.patch("/transactions/:id/billing", () => HttpResponse.json({}))] });
+    clearRequests();
+    await userEvent.setup().click(chargeCell(0).querySelector(".edit-charge-btn"));
+    return chargeCell(0);
+  }
+
+  it("opens the editor prefilled with billable of quantity, focused", async () => {
+    const cell = await editor();
+    const input = cell.querySelector(".charge-input");
+    expect(input.value).toBe("4");
+    expect(input.max).toBe("4");
+    expect(document.activeElement).toBe(input);
+    expect(cell.textContent).toContain("of 4");
+  });
+
+  it("Save with a valid partial count PATCHes billable_quantity and reloads", async () => {
+    const cell = await editor();
+    const user = userEvent.setup();
+    await user.clear(cell.querySelector(".charge-input")); await user.type(cell.querySelector(".charge-input"), "3");
+    await user.click(cell.querySelector(".charge-save"));
+    await vi.waitFor(() => expect(requestFor("/transactions/t1/billing", "PATCH").body).toEqual({ billable_quantity: 3 }));
+    await vi.waitFor(() => expect(requestFor("/transactions/?", "GET")).not.toBeNull());
+  });
+
+  it.each([["", null], ["4", null]])("value %j sends null (charge everything)", async (typed, expected) => {
+    const cell = await editor();
+    const user = userEvent.setup();
+    await user.clear(cell.querySelector(".charge-input"));
+    if (typed) await user.type(cell.querySelector(".charge-input"), typed);
+    await user.click(cell.querySelector(".charge-save"));
+    await vi.waitFor(() => expect(requestFor("/billing", "PATCH").body).toEqual({ billable_quantity: expected }));
+  });
+
+  it("Don't charge sends 0", async () => {
+    const cell = await editor();
+    await userEvent.setup().click(cell.querySelector(".charge-zero"));
+    await vi.waitFor(() => expect(requestFor("/billing", "PATCH").body).toEqual({ billable_quantity: 0 }));
+  });
+
+  it("out-of-range shows the range message and sends nothing", async () => {
+    const cell = await editor();
+    const user = userEvent.setup();
+    await user.clear(cell.querySelector(".charge-input")); await user.type(cell.querySelector(".charge-input"), "9");
+    await user.click(cell.querySelector(".charge-save"));
+    // setMessage replaces className wholesale, so `.charge-editor-msg` no longer
+    // matches once a message is shown -- see open-work.md N-P5-CHARACTERIZED.
+    const msg = cell.querySelector("p[aria-live]");
+    expect(msg.textContent).toBe("Enter a number between 0 and 4.");
+    expect(msg.className).toBe("error");
+    expect(cell.querySelector(".charge-editor-msg")).toBeNull();
+    expect(requestFor("/billing")).toBeNull();
+  });
+
+  it("Cancel restores the display cell without a request", async () => {
+    const cell = await editor();
+    await userEvent.setup().click(cell.querySelector(".charge-cancel"));
+    expect(cell.querySelector(".charge-editor")).toBeNull();
+    expect(cell.querySelector(".edit-charge-btn")).not.toBeNull();
+    expect(requests()).toHaveLength(0);
+  });
+
+  it("a failing save re-enables the buttons and shows friendlyError in the editor", async () => {
+    await openHistory({ role: "admin", rows: [historyRow({ id: "t1", item_price: "2.50", quantity: "4" })],
+      handlers: [http.patch("/transactions/:id/billing", () => HttpResponse.json({ detail: "no" }, { status: 403 }))] });
+    await userEvent.setup().click(chargeCell(0).querySelector(".edit-charge-btn"));
+    const cell = chargeCell(0);
+    await userEvent.setup().click(cell.querySelector(".charge-zero"));
+    await vi.waitFor(() => expect(cell.querySelector("p[aria-live]").className).toBe("error"));
+    expect(cell.querySelector(".charge-save").disabled).toBe(false);
+    expect(cell.querySelector(".charge-editor")).not.toBeNull();
+  });
+});
+
+describe("offerRestoreIfArchived", () => {
+  beforeEach(() => vi.useFakeTimers());
+  const lookup = (info) => http.get("/work-orders/lookup", () => HttpResponse.json(info));
+  async function typeFilter(text) {
+    await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).type(el.woFilter(), text);
+    await vi.advanceTimersByTimeAsync(250);
+  }
+
+  it("supervisor: archived -> confirm copy -> Yes posts restore and reports", async () => {
+    await openHistory({ role: "supervisor", rows: [], handlers: [
+      lookup({ found: true, archived: true, id: "w1", number: "7001" }),
+      http.post("/work-orders/:id/restore", () => HttpResponse.json({})),
+    ] });
+    await typeFilter("7001");
+    await vi.waitFor(() => expect(confirmTitle()).toBe(
+      "Work order 7001 is archived, so it no longer shows on the Work Orders page. Its transactions below are unaffected. Restore the work order?"));
+    // History was requested BEFORE the prompt.
+    expect(lastQuery().work_order_number).toBe("7001");
+    await answerConfirm(true);
+    await vi.waitFor(() => expect(requestFor("/work-orders/w1/restore", "POST")).not.toBeNull());
+    await vi.waitFor(() => expect(el.woMessage().textContent).toBe("Work order 7001 restored."));
+    expect(el.woMessage().className).toBe("success");
+  });
+
+  it("declining is remembered: the same number does not re-prompt this session", async () => {
+    await openHistory({ role: "supervisor", rows: [], handlers: [lookup({ found: true, archived: true, id: "w1", number: "7001" })] });
+    await typeFilter("7001");
+    await answerConfirm(false);
+    clearRequests();
+    await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(el.woClear());
+    await typeFilter("7001");
+    await vi.waitFor(() => expect(lastQuery().work_order_number).toBe("7001"));
+    expect(requestFor("/work-orders/lookup")).toBeNull();
+    expect(confirmOverlay().hidden).toBe(true);
+  });
+
+  it("a restore failure reports friendlyError and the number is NOT asked again", async () => {
+    await openHistory({ role: "supervisor", rows: [], handlers: [
+      lookup({ found: true, archived: true, id: "w1", number: "7001" }),
+      http.post("/work-orders/:id/restore", () => HttpResponse.json({ detail: "no" }, { status: 403 })),
+    ] });
+    await typeFilter("7001");
+    await answerConfirm(true);
+    await vi.waitFor(() => expect(el.woMessage().className).toBe("error"));
+    // woRestoreAsked keeps the key on failure (only deleted on success) --
+    // so a retry of the same number is NOT re-offered. Characterization; the
+    // comment above the Set says "declined", the code treats failure the same.
+    await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(el.woClear());
+    clearRequests();
+    await typeFilter("7001");
+    await vi.waitFor(() => expect(lastQuery().work_order_number).toBe("7001"));
+    expect(requestFor("/work-orders/lookup")).toBeNull();
+  });
+
+  it.each([
+    ["not found", { found: false }],
+    ["live", { found: true, archived: false, id: "w1", number: "7001" }],
+  ])("%s: no prompt", async (_label, info) => {
+    await openHistory({ role: "supervisor", rows: [], handlers: [lookup(info)] });
+    await typeFilter("7001");
+    await vi.waitFor(() => expect(requestFor("/work-orders/lookup")).not.toBeNull());
+    await vi.advanceTimersByTimeAsync(10);
+    expect(confirmOverlay().hidden).toBe(true);
+  });
+
+  it("a failing lookup is silent", async () => {
+    await openHistory({ role: "supervisor", rows: [], handlers: [http.get("/work-orders/lookup", () => HttpResponse.json({ detail: "x" }, { status: 500 }))] });
+    await typeFilter("7001");
+    await vi.waitFor(() => expect(requestFor("/work-orders/lookup")).not.toBeNull());
+    await vi.advanceTimersByTimeAsync(10);
+    expect(el.woMessage().textContent).toBe("");
+    expect(confirmOverlay().hidden).toBe(true);
+  });
+
+  it("an empty filter never looks up", async () => {
+    await openHistory({ role: "supervisor", rows: [] });
+    clearRequests();
+    await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(el.woClear());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(requestFor("/work-orders/lookup")).toBeNull();
+  });
+});
