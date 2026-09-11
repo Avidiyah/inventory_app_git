@@ -177,3 +177,187 @@ describe("404 handling", () => {
     expect(s.onAddBarcode).toHaveBeenCalledWith("N0");
   });
 });
+
+describe("live path", () => {
+  it("Scan → 720p environment request, aimbox on, upload disabled, then a streak of 3 stops the camera and looks up", async () => {
+    const { mod, env } = await mountScanModule();
+    const s = buildScanner(mod);
+    await liveStart(s);
+    expect(env.getUserMedia).toHaveBeenCalledWith({
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 }, focusMode: { ideal: "continuous" } },
+      audio: false,
+    });
+    expect(s.els.aimbox.hidden).toBe(false);
+    expect(s.els.upload.disabled).toBe(true);
+    expect(s.els.video.srcObject).toBe(env.stream);
+    frameDecode("L1", 2);
+    expect(s.lookupFn).not.toHaveBeenCalled();
+    frameDecode("L1", 1);
+    await vi.waitFor(() => expect(s.lookupFn).toHaveBeenCalledWith("L1"));
+    expect(env.track.stop).toHaveBeenCalledTimes(1);       // camera released on accept
+    expect(s.els.aimbox.hidden).toBe(true);
+    expect(s.els.upload.disabled).toBe(false);
+    expect(s.els.video.srcObject).toBeNull();
+    await vi.waitFor(() => expect(s.onItemFound).toHaveBeenCalled());
+    await vi.advanceTimersByTimeAsync(500);               // the focus retry timer, if still armed, must not fire
+    expect(env.track.applyConstraints).not.toHaveBeenCalled();
+  });
+
+  it("a differing frame inside the streak resets it", async () => {
+    const { mod } = await mountScanModule();
+    const s = buildScanner(mod);
+    await liveStart(s);
+    frameDecode("L1", 2); frameDecode("L2", 1); frameDecode("L1", 2);
+    expect(s.lookupFn).not.toHaveBeenCalled();
+    frameDecode("L1", 1);
+    await vi.waitFor(() => expect(s.lookupFn).toHaveBeenCalledWith("L1"));
+  });
+
+  it("Scan again while running stops the camera and clears the message", async () => {
+    const { mod, env } = await mountScanModule();
+    const s = buildScanner(mod);
+    await liveStart(s);
+    await user().click(s.els.scan);
+    expect(env.track.stop).toHaveBeenCalledTimes(1);
+    expect(s.els.message.textContent).toBe("");
+    expect(env.raf.pending()).toBe(0);
+  });
+
+  it("Upload is disabled while live, so its stop-the-camera-first branch is unreachable by click", async () => {
+    // The module comment promises "clicking Upload tears the camera down
+    // first", but startLive disables the Upload button, so a user can never
+    // click it while live; the `if (liveRunning) stopLive()` guard is dead
+    // from the UI. Characterization -- see open-work.md N-P5-CHARACTERIZED.
+    const { mod, env } = await mountScanModule();
+    const s = buildScanner(mod);
+    await liveStart(s);
+    const click = vi.spyOn(s.els.input, "click").mockImplementation(() => {});
+    expect(s.els.upload.disabled).toBe(true);
+    await user().click(s.els.upload);
+    expect(env.track.stop).not.toHaveBeenCalled();
+    expect(click).not.toHaveBeenCalled();
+    s.widget.stopLive();
+    expect(s.els.upload.disabled).toBe(false);
+    await user().click(s.els.upload);
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
+  it("the 500 ms focus retry applies continuous focusMode only while still live", async () => {
+    const { mod, env } = await mountScanModule();
+    const s = buildScanner(mod);
+    await liveStart(s);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(env.track.applyConstraints).toHaveBeenCalledWith({ advanced: [{ focusMode: "continuous" }] });
+    s.widget.stopLive();
+    const t = buildScanner(mod);
+    await liveStart(t);
+    t.widget.stopLive();
+    env.track.applyConstraints.mockClear();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(env.track.applyConstraints).not.toHaveBeenCalled();
+  });
+
+  it("unsupported browser: the not-available copy and no getUserMedia", async () => {
+    const { mod, env } = await mountScanModule({ env: { zxing: false } });
+    const s = buildScanner(mod);
+    await user().click(s.els.scan);
+    await vi.waitFor(() => expect(s.els.message.textContent).toBe("Live camera is not available in this browser."));
+    expect(env.getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["NotAllowedError", "Camera permission denied. Use Upload instead, or allow camera access in your browser settings."],
+    ["SecurityError", "Camera permission denied. Use Upload instead, or allow camera access in your browser settings."],
+    ["NotReadableError", "Could not open the camera. Try Upload instead."],
+  ])("getUserMedia %s → %s", async (name, copy) => {
+    const { mod } = await mountScanModule();
+    const err = Object.assign(new Error(name), { name });
+    stubUserMedia({ reject: err });   // replaces the environment's default camera
+    const s = buildScanner(mod);
+    await user().click(s.els.scan);
+    await vi.waitFor(() => expect(s.els.message.textContent).toBe(copy));
+    expect(s.els.aimbox.hidden).toBe(true);
+  });
+
+  it("a decoder start failure stops the camera and reports the message", async () => {
+    const { mod, env } = await mountScanModule();
+    env.zxing.ZXingBrowser.BrowserMultiFormatReader.mockImplementation(function () { throw new Error("boom"); });
+    const s = buildScanner(mod);
+    await user().click(s.els.scan);
+    await vi.waitFor(() => expect(s.els.message.textContent).toBe("Could not start the decoder: boom."));
+    expect(env.track.stop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("torch", () => {
+  it("hidden without the capability; shown with it; toggles via applyConstraints; a failing toggle disables the button", async () => {
+    const { mod } = await mountScanModule();
+    const a = buildScanner(mod);
+    await liveStart(a);
+    expect(a.els.torch.hidden).toBe(true);
+    a.widget.stopLive();
+    const cam = stubUserMedia({ torch: true });
+    const b = buildScanner(mod);
+    await liveStart(b);
+    expect(b.els.torch.hidden).toBe(false);
+    await user().click(b.els.torch);
+    expect(cam.track.applyConstraints).toHaveBeenCalledWith({ advanced: [{ torch: true }] });
+    await user().click(b.els.torch);
+    expect(cam.track.applyConstraints).toHaveBeenLastCalledWith({ advanced: [{ torch: false }] });
+    cam.track.applyConstraints.mockRejectedValueOnce(new Error("no torch"));
+    await user().click(b.els.torch);
+    await vi.waitFor(() => expect(b.els.torch.disabled).toBe(true));
+    // Disabled but never re-hidden while live: stopLive is what resets it.
+    expect(b.els.torch.hidden).toBe(false);
+    b.widget.stopLive();
+    expect(b.els.torch.hidden).toBe(true);
+    expect(b.els.torch.disabled).toBe(false);
+  });
+});
+
+describe("refreshPermissionState / autoStartIfPermitted", () => {
+  it("denied: Scan button hidden and the blocked copy; supported: button shown, message untouched", async () => {
+    const { mod } = await mountScanModule({ env: { permission: "denied" } });
+    const s = buildScanner(mod);
+    await s.widget.refreshPermissionState();
+    expect(s.els.scan.hidden).toBe(true);
+    expect(s.els.message.textContent).toBe("Camera blocked. Re-enable it via the lock icon in your browser, or use Upload.");
+    stubPermissions("prompt");
+    s.els.message.textContent = "untouched";
+    await s.widget.refreshPermissionState();
+    expect(s.els.scan.hidden).toBe(false);
+    expect(s.els.message.textContent).toBe("untouched");
+  });
+
+  it.each([["granted", 1], ["prompt", 0], ["denied", 0], [null, 0], ["throws", 0]])(
+    "autoStartIfPermitted with permission %s calls getUserMedia %i times and never prompts", async (state, calls) => {
+      const { mod, env } = await mountScanModule({ env: { permission: state } });
+      const s = buildScanner(mod);
+      await s.widget.autoStartIfPermitted();
+      expect(env.getUserMedia).toHaveBeenCalledTimes(calls);
+      if (calls) { await vi.waitFor(() => expect(s.els.aimbox.hidden).toBe(false)); s.widget.stopLive(); }
+    });
+
+  it("autoStart is a no-op while already running", async () => {
+    const { mod, env } = await mountScanModule({ env: { permission: "granted" } });
+    const s = buildScanner(mod);
+    await liveStart(s);
+    await s.widget.autoStartIfPermitted();
+    expect(env.getUserMedia).toHaveBeenCalledTimes(1);
+    s.widget.stopLive();
+  });
+});
+
+describe("reset()", () => {
+  it("clears input, chooser, message and stops live", async () => {
+    const { mod, env } = await mountScanModule();
+    const s = buildScanner(mod);
+    await liveStart(s);
+    s.els.chooser.innerHTML = "<button class='scan-choice-btn'>x</button>"; s.els.chooser.hidden = false;
+    s.widget.reset();
+    expect(s.els.chooser.innerHTML).toBe("");
+    expect(s.els.chooser.hidden).toBe(true);
+    expect(s.els.message.textContent).toBe("");
+    expect(env.track.stop).toHaveBeenCalledTimes(1);
+  });
+});
