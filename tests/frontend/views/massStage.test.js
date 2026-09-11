@@ -161,3 +161,216 @@ describe("create stage", () => {
     await vi.waitFor(() => expect(el.createMessage().className).toBe("error"));
   });
 });
+
+async function planningCard({ slots = [stageWorkOrder()], items = [], role = "supervisor", users = [] } = {}) {
+  const detail = massStageDetail({ status: "planning", work_orders: slots });
+  const ctx = await openStages({ role, stages: [massStageSummary({ id: detail.id })], details: [detail], items, users });
+  const c = await openCard(detail.id);
+  clearRequests();
+  return { ...ctx, detail, c, slot: slots[0] };
+}
+const S = (detail) => `/mass-stages/${detail.id}`;
+
+describe("planning body", () => {
+  it("renders slots, the add-work-order row with tech options, Save and Delete; tipHtml absent here", async () => {
+    const { c, slot } = await planningCard({ slots: [stageWorkOrder({ unit_number: "12", work_order_number: "7001", assigned_to_name: "Pat", items: [stageItem()] })] });
+    expect(slotEls(c)).toHaveLength(1);
+    expect(c.querySelector(".room-title").textContent).toBe("Unit 12");
+    // "1 items": the slot meta never pluralises -- see open-work.md.
+    expect(c.querySelector(".room-meta").textContent).toBe("WO 7001 · 1 items · Pat");
+    expect(c.querySelector('[data-action="add-work-order"]')).not.toBeNull();
+    expect(c.querySelector('[data-action="save-stage"]')).not.toBeNull();
+    expect(c.querySelector('[data-action="delete-stage"]').dataset.stageLoaded).toBeUndefined();
+    expect(c.querySelector(".ms-item .ms-onhand").textContent).toBe("On hand: 10");
+    expect(c.querySelector(".ms-item .ms-short")).toBeNull();
+    expect(c.querySelector(".ms-subhead .tip-btn")).toBeNull();
+    expect(c.querySelector(".ms-stage-message")).not.toBeNull();
+    expect(slot).toBeTruthy();
+  });
+
+  it("a slot with no unit number renders a dash; a short item flags short-by", async () => {
+    const { c } = await planningCard({ slots: [stageWorkOrder({ unit_number: null, items: [stageItem({ planned_quantity: "15", item_quantity: "10" })] })] });
+    expect(c.querySelector(".room-title").textContent).toBe("Unit —");
+    expect(c.querySelector(".ms-short").textContent).toBe("short by 5");
+  });
+
+  it("any stage action strips the message element's class, so the module's next lookup on that card is null", async () => {
+    // setMessage(msg, "", "") runs before the branch and replaces className,
+    // so `.ms-stage-message` matches nothing afterwards. The click handler
+    // re-queries it on every action, so a SECOND action on the same card --
+    // with no re-render in between (a validation failure, a declined
+    // confirm, a failed request) -- throws a TypeError before doing anything.
+    // Characterization -- see open-work.md N-P5-CHARACTERIZED. Every test
+    // below therefore drives one action per card.
+    const { c } = await planningCard();
+    await user().click(c.querySelector('[data-action="add-work-order"]'));
+    expect(stageMessage(c).textContent).toBe("Enter a work order number.");
+    expect(c.querySelector(".ms-stage-message")).toBeNull();
+  });
+
+  it("pick-item: search filters the item cache, picking fills the row and focuses qty, no request", async () => {
+    const bulb = itemFactory({ name: "Bulb A19", barcode: "111" });
+    const { c } = await planningCard({ items: [bulb, itemFactory({ name: "Fuse", barcode: "222" })] });
+    c.querySelector("details.room-card").open = true;
+    await user().type(c.querySelector(".ms-item-search"), "bulb");
+    const results = c.querySelector(".ms-item-results");
+    expect(results.hidden).toBe(false);
+    expect(results.querySelectorAll('[data-action="pick-item"]')).toHaveLength(1);
+    await user().click(results.querySelector('[data-action="pick-item"]'));
+    expect(c.querySelector(".ms-add-item").dataset.itemId).toBe(bulb.id);
+    expect(c.querySelector(".ms-item-search").value).toBe("Bulb A19");
+    expect(results.hidden).toBe(true);
+    expect(document.activeElement).toBe(c.querySelector(".ms-item-qty"));
+    expect(requests()).toHaveLength(0);
+    await user().clear(c.querySelector(".ms-item-search"));
+    await user().type(c.querySelector(".ms-item-search"), "zzz");
+    expect(results.querySelector("p.hint").textContent).toBe("No matching items.");
+    // Typing again drops the pick silently -- see open-work.md.
+    expect(c.querySelector(".ms-add-item").dataset.itemId).toBeUndefined();
+  });
+
+  it("add-item without a pick: the pick-first message, no request", async () => {
+    const { c } = await planningCard({ items: [itemFactory({ name: "Bulb" })] });
+    c.querySelector("details.room-card").open = true;
+    await user().click(c.querySelector('[data-action="add-item"]'));
+    expect(stageMessage(c).textContent).toBe("Search and pick an item first.");
+    expect(requests()).toHaveLength(0);
+  });
+
+  it("add-item with a pick but no quantity: the positive-quantity message", async () => {
+    const { c } = await planningCard({ items: [itemFactory({ name: "Bulb" })] });
+    c.querySelector("details.room-card").open = true;
+    await user().type(c.querySelector(".ms-item-search"), "bulb");
+    await user().click(c.querySelector('[data-action="pick-item"]'));
+    await user().click(c.querySelector('[data-action="add-item"]'));
+    expect(stageMessage(c).textContent).toBe("Enter a quantity greater than zero.");
+    expect(requests()).toHaveLength(0);
+  });
+
+  it("add-item: posts item_id + planned_quantity and refreshes with the slot kept open", async () => {
+    const bulb = itemFactory({ name: "Bulb" });
+    const { c, detail, slot } = await planningCard({ items: [bulb] });
+    c.querySelector("details.room-card").open = true;
+    await user().type(c.querySelector(".ms-item-search"), "bulb");
+    await user().click(c.querySelector('[data-action="pick-item"]'));
+    await user().type(c.querySelector(".ms-item-qty"), "3");
+    respond("POST", `${S(detail)}/work-orders/${slot.id}/items`, stageItem(), { status: 201 });
+    state.details.set(detail.id, massStageDetail({ ...detail, work_orders: [stageWorkOrder({ ...slot, items: [stageItem({ item_name: "Bulb" })] })] }));
+    await user().click(c.querySelector('[data-action="add-item"]'));
+    await vi.waitFor(() => expect(c.querySelector(".ms-item")).not.toBeNull());
+    expect(requestFor("/items", "POST").body).toEqual({ item_id: bulb.id, planned_quantity: 3 });
+    expect(c.querySelector("details.room-card").open).toBe(true);   // refreshStage preserved it
+    expect(c.querySelector(".ms-stage-message")).not.toBeNull();     // the re-render restored the class
+  });
+
+  it("edit-item rejects 0", async () => {
+    const { c } = await planningCard({ slots: [stageWorkOrder({ items: [stageItem()] })] });
+    c.querySelector("details.room-card").open = true;
+    const qty = c.querySelector(".ms-item-planned");
+    await user().clear(qty); await user().type(qty, "0");
+    await user().click(c.querySelector('[data-action="edit-item"]'));
+    expect(stageMessage(c).textContent).toBe("Enter a quantity greater than zero.");
+    expect(requests()).toHaveLength(0);
+  });
+
+  it("edit-item PATCHes planned_quantity and refreshes", async () => {
+    const it0 = stageItem();
+    const { c, detail, slot } = await planningCard({ slots: [stageWorkOrder({ items: [it0] })] });
+    c.querySelector("details.room-card").open = true;
+    const qty = c.querySelector(".ms-item-planned");
+    await user().clear(qty); await user().type(qty, "7");
+    respond("PATCH", `${S(detail)}/work-orders/${slot.id}/items/${it0.id}`, it0);
+    await user().click(c.querySelector('[data-action="edit-item"]'));
+    await vi.waitFor(() => expect(requestFor(`/items/${it0.id}`, "PATCH")).not.toBeNull());
+    expect(requestFor(`/items/${it0.id}`, "PATCH").body).toEqual({ planned_quantity: 7 });
+    await vi.waitFor(() => expect(requests().filter((r) => r.url === S(detail)).length).toBe(1));
+  });
+
+  it("remove-item: DELETE without confirm, then refresh", async () => {
+    const it0 = stageItem();
+    const { c, detail, slot } = await planningCard({ slots: [stageWorkOrder({ items: [it0] })] });
+    c.querySelector("details.room-card").open = true;
+    respond("DELETE", `${S(detail)}/work-orders/${slot.id}/items/${it0.id}`, null, { status: 204 });
+    await user().click(c.querySelector('[data-action="remove-item"]'));
+    await vi.waitFor(() => expect(requestFor(`/items/${it0.id}`, "DELETE")).not.toBeNull());
+    expect(confirmOverlay().hidden).toBe(true);
+    await vi.waitFor(() => expect(requests().filter((r) => r.url === S(detail)).length).toBe(1));
+  });
+
+  it("add-work-order needs a number", async () => {
+    const { c } = await planningCard();
+    await user().click(c.querySelector('[data-action="add-work-order"]'));
+    expect(stageMessage(c).textContent).toBe("Enter a work order number.");
+    expect(requests()).toHaveLength(0);
+  });
+
+  it("add-work-order posts number, unit, assignee; a 404 surfaces in the stage message", async () => {
+    const tech = userFactory({ role: "technician", full_name: "Tech" });
+    const { c, detail } = await planningCard({ users: [tech] });
+    await user().type(c.querySelector(".ms-unit-number"), "12");
+    await user().type(c.querySelector(".ms-room-wo"), "7002");
+    await user().selectOptions(c.querySelector(".ms-add-assignee"), String(tech.id));
+    respond("POST", `${S(detail)}/work-orders`, { detail: "Work order not found" }, { status: 404 });
+    await user().click(c.querySelector('[data-action="add-work-order"]'));
+    await vi.waitFor(() => expect(stageMessage(c).className).toBe("error"));
+    expect(requestFor("/work-orders", "POST").body).toEqual({ work_order_number: "7002", unit_number: "12", assigned_to_id: String(tech.id) });
+    expect(requestFor(S(detail), "GET")).toBeNull();   // no refresh on failure
+  });
+
+  it("add-work-order success refreshes the stage", async () => {
+    const { c, detail } = await planningCard();
+    await user().type(c.querySelector(".ms-room-wo"), "7002");
+    respond("POST", `${S(detail)}/work-orders`, stageWorkOrder(), { status: 201 });
+    await user().click(c.querySelector('[data-action="add-work-order"]'));
+    await vi.waitFor(() => expect(requests().filter((r) => r.url === S(detail)).length).toBe(1));
+    expect(requestFor("/work-orders", "POST").body).toEqual({ work_order_number: "7002", unit_number: null, assigned_to_id: null });
+  });
+
+  it("remove-slot: confirm copy; No sends nothing", async () => {
+    const { c } = await planningCard();
+    c.querySelector("details.room-card").open = true;
+    const clicking = user().click(c.querySelector('[data-action="remove-slot"]'));
+    await vi.waitFor(() => expect(confirmTitle()).toBe("Remove this unit from the plan? (The work order itself is kept.)"));
+    await answerConfirm(false); await clicking;
+    expect(requests()).toHaveLength(0);
+  });
+
+  it("remove-slot: Yes DELETEs and refreshes", async () => {
+    const { c, detail, slot } = await planningCard();
+    c.querySelector("details.room-card").open = true;
+    respond("DELETE", `${S(detail)}/work-orders/${slot.id}`, null, { status: 204 });
+    const clicking = user().click(c.querySelector('[data-action="remove-slot"]'));
+    await answerConfirm(true); await clicking;
+    await vi.waitFor(() => expect(requestFor(`/work-orders/${slot.id}`, "DELETE")).not.toBeNull());
+    await vi.waitFor(() => expect(requests().filter((r) => r.url === S(detail)).length).toBe(1));
+  });
+
+  it("open-wo hands off to Work Orders with the card focused", async () => {
+    const { c, slot } = await planningCard();
+    server.use(...pageHandlers());
+    c.querySelector("details.room-card").open = true;
+    await user().click(c.querySelector('[data-action="open-wo"]'));
+    expect(document.getElementById("work-orders-page").classList.contains("active")).toBe(true);
+    await vi.waitFor(() => expect(requestFor("/work-orders/", "GET")).not.toBeNull());
+    expect(slot.work_order_id).toBeTruthy();
+  });
+
+  it("save-stage: confirm copy; Yes PATCHes status loading and reloads the list", async () => {
+    const { c, detail } = await planningCard();
+    respond("PATCH", S(detail), massStageDetail({ ...detail, status: "loading" }));
+    const clicking = user().click(c.querySelector('[data-action="save-stage"]'));
+    await vi.waitFor(() => expect(confirmTitle()).toBe("Save this mass stage? It moves to loading and the plan is locked."));
+    await answerConfirm(true); await clicking;
+    await vi.waitFor(() => expect(requestFor(S(detail), "PATCH").body).toEqual({ status: "loading" }));
+    await vi.waitFor(() => expect(requestFor("/mass-stages/", "GET")).not.toBeNull());
+  });
+
+  it("a failing action surfaces friendlyError in the stage message", async () => {
+    const { c, detail } = await planningCard();
+    respond("PATCH", S(detail), { detail: "" }, { status: 500 });
+    const clicking = user().click(c.querySelector('[data-action="save-stage"]'));
+    await answerConfirm(true); await clicking;
+    await vi.waitFor(() => expect(stageMessage(c).className).toBe("error"));
+    expect(stageMessage(c).textContent).not.toBe("");
+  });
+});

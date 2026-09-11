@@ -24,7 +24,11 @@ export const el = {
 export const groupEls = () => Array.from(el.list().querySelectorAll("details.community-group"));
 export const cardEls = () => Array.from(el.list().querySelectorAll("details.stage-card"));
 export const card = (stageId) => el.list().querySelector(`details.stage-card[data-stage-id="${stageId}"]`);
-export const stageMessage = (cardEl) => cardEl.querySelector(".ms-stage-message");
+// By position, not `.ms-stage-message`: the module writes the message through
+// `setMessage`, which replaces `className` wholesale, so the class is gone
+// after the first action on a card (and the module's own lookup then returns
+// null -- see open-work.md N-P5-CHARACTERIZED).
+export const stageMessage = (cardEl) => cardEl.querySelector(".stage-body > p:last-of-type");
 export const slotEls = (cardEl) => Array.from(cardEl.querySelectorAll("details.room-card"));
 
 // Mutable so a test can change what a refresh returns (an add-item test
