@@ -170,3 +170,150 @@ describe("pagination", () => {
     expect(el.pageInfo().textContent).toBe("Page 1 of 1");
   });
 });
+
+describe("sub-tabs", () => {
+  it("setHistoryTab('all') on a fresh mount is a no-op (already active)", async () => {
+    const { mod } = await mountHistory();
+    mod.setHistoryTab("all");
+    expect(requests()).toHaveLength(0);
+  });
+
+  it("switching to By Item warms the item cache, resets page to 1, and hides results until a pick", async () => {
+    const { mod } = await openHistory({ rows: [historyRow()], total: 25, items: [itemFactory()] });
+    await userEvent.setup().click(el.next());
+    await vi.waitFor(() => expect(lastQuery().page).toBe("2"));
+    clearRequests();
+    await userEvent.setup().click(el.tab("item"));
+    expect(el.page().dataset.activeFeature).toBe("item");
+    await vi.waitFor(() => expect(requestFor("/items/", "GET")).not.toBeNull());
+    expect(requestFor("/transactions/")).toBeNull();
+    expect(el.results().hidden).toBe(true);
+    const state = await historyState();
+    expect(state.getHistoryState()).toMatchObject({ tab: "item", page: 1 });
+    expect(mod).toBeTruthy();
+  });
+
+  it("the overlay filters survive a tab switch", async () => {
+    await openHistory({ rows: [] });
+    const state = await historyState();
+    state.updateHistoryState({ workOrder: "7001", dateFrom: "2026-01-01" });
+    await userEvent.setup().click(el.tab("user"));
+    await userEvent.setup().click(el.tab("all"));
+    await vi.waitFor(() => expect(lastQuery()).toMatchObject({ work_order_number: "7001", date_from: "2026-01-01" }));
+  });
+});
+
+describe("By Item search-and-pick", () => {
+  const items = () => [
+    itemFactory({ name: "Bulb A19", barcode: "111", location: "A1" }),
+    itemFactory({ name: "Fuse", barcode: "bulb-2", location: "" }),
+  ];
+
+  it("first keystroke loads /items/ once; results render name + meta; no match shows the hint", async () => {
+    await openHistory({ rows: [], items: items() });
+    await userEvent.setup().click(el.tab("item"));
+    await vi.waitFor(() => expect(requestFor("/items/")).not.toBeNull());
+    clearRequests();
+    const user = userEvent.setup();
+    await user.type(el.itemSearch(), "bulb");
+    await vi.waitFor(() => expect(el.itemResults().querySelectorAll(".manual-item-card")).toHaveLength(2));
+    expect(requestFor("/items/")).toBeNull(); // cached
+    expect(el.itemResults().querySelector(".manual-item-meta").textContent).toBe("Barcode: 111Location: A1");
+    await user.clear(el.itemSearch()); await user.type(el.itemSearch(), "zzz");
+    await vi.waitFor(() => expect(el.itemResults().querySelector("p.hint").textContent).toBe("No matching items."));
+    await user.clear(el.itemSearch());
+    await vi.waitFor(() => expect(el.itemResults().hidden).toBe(true));
+  });
+
+  it("picking sets the filter, the box text, the message, and loads page 1 with item_id", async () => {
+    const [bulb] = items();
+    await openHistory({ rows: [historyRow()], items: [bulb] });
+    await userEvent.setup().click(el.tab("item"));
+    await userEvent.setup().type(el.itemSearch(), "bulb");
+    await vi.waitFor(() => expect(el.itemResults().querySelector(".manual-item-card")).not.toBeNull());
+    await userEvent.setup().click(el.itemResults().querySelector(".manual-item-card"));
+    await vi.waitFor(() => expect(lastQuery()).toMatchObject({ item_id: bulb.id, page: "1" }));
+    expect(el.itemSearch().value).toBe("Bulb A19");
+    expect(el.itemResults().hidden).toBe(true);
+    expect(el.itemMessage().textContent).toBe('Showing transactions for "Bulb A19".');
+    expect(el.itemMessage().className).toBe("success");
+    const state = await historyState();
+    expect(state.getHistoryState().itemLabel).toBe("Bulb A19 (111)");
+  });
+
+  it("editing the text after a pick searches again but keeps the active filter", async () => {
+    const [bulb, fuse] = items();
+    await openHistory({ rows: [historyRow()], items: [bulb, fuse] });
+    await userEvent.setup().click(el.tab("item"));
+    await userEvent.setup().type(el.itemSearch(), "bulb");
+    await vi.waitFor(() => expect(el.itemResults().querySelector(".manual-item-card")).not.toBeNull());
+    await userEvent.setup().click(el.itemResults().querySelector(".manual-item-card"));
+    await vi.waitFor(() => expect(lastQuery().item_id).toBe(bulb.id));
+    clearRequests();
+    await userEvent.setup().type(el.itemSearch(), "x");
+    await vi.waitFor(() => expect(el.itemResults().hidden).toBe(false));
+    expect(requestFor("/transactions/")).toBeNull();
+    const state = await historyState();
+    expect(state.getHistoryState().itemId).toBe(bulb.id);
+  });
+});
+
+describe("By User", () => {
+  it("changing the select loads page 1 with user_id; blank clears it and hides results", async () => {
+    await openHistory({ rows: [historyRow()] });
+    seedUsers([{ id: "u1", label: "Pat" }]);
+    await userEvent.setup().click(el.tab("user"));
+    expect(el.results().hidden).toBe(true);
+    await userEvent.setup().selectOptions(el.userSelect(), "u1");
+    await vi.waitFor(() => expect(lastQuery()).toMatchObject({ user_id: "u1", page: "1" }));
+    await vi.waitFor(() => expect(el.results().hidden).toBe(false));
+    el.userSelect().querySelector('option[value=""]').disabled = false;   // the placeholder is disabled in markup
+    await userEvent.setup().selectOptions(el.userSelect(), "");
+    await vi.waitFor(() => expect(el.results().hidden).toBe(true));
+  });
+});
+
+describe("work-order overlay filter", () => {
+  beforeEach(() => vi.useFakeTimers());
+
+  it("debounces 250 ms, trims, sends work_order_number, resets page", async () => {
+    await openHistory({ rows: [historyRow()], total: 25, role: "technician" }); // no restore lookup for technician
+    clearRequests();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await user.type(el.woFilter(), " 7001 ");
+    await vi.advanceTimersByTimeAsync(249);
+    expect(requestFor("/transactions/")).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(lastQuery()).toMatchObject({ work_order_number: "7001", page: "1" }));
+    expect(requestFor("/work-orders/lookup")).toBeNull();
+  });
+
+  it("Clear cancels a pending timer, empties the box, and reloads with no filter immediately", async () => {
+    await openHistory({ rows: [], role: "technician" });
+    clearRequests();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await user.type(el.woFilter(), "70");
+    await user.click(el.woClear());
+    expect(el.woFilter().value).toBe("");
+    await vi.waitFor(() => expect(lastQuery()).toEqual({ page: "1", page_size: "10" }));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(requests().filter((r) => r.url.includes("work_order_number"))).toHaveLength(0);
+  });
+});
+
+describe("date-range overlay filter", () => {
+  it("change on either input reloads with date_from / date_to; Clear drops both", async () => {
+    await openHistory({ rows: [] });
+    clearRequests();
+    const user = userEvent.setup();
+    // A date input commits on `change`; fireEvent stands in for the picker.
+    fireEvent.change(el.dateFrom(), { target: { value: "2026-01-01" } });
+    await vi.waitFor(() => expect(lastQuery()).toMatchObject({ date_from: "2026-01-01" }));
+    expect(lastQuery().date_to).toBeUndefined();
+    fireEvent.change(el.dateTo(), { target: { value: "2026-01-31" } });
+    await vi.waitFor(() => expect(lastQuery()).toMatchObject({ date_from: "2026-01-01", date_to: "2026-01-31" }));
+    await user.click(el.dateClear());
+    await vi.waitFor(() => expect(lastQuery()).toEqual({ page: "1", page_size: "10" }));
+    expect(el.dateFrom().value).toBe("");
+  });
+});
