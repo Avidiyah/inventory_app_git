@@ -17,6 +17,11 @@ import {
   decodeResult, stubAudioContext, stubCanvas, stubPermissions, stubRaf, stubUserMedia, stubVibrate, stubVideo, stubZXing,
 } from "../helpers/media.js";
 import { item as itemFactory, transaction as txnFactory } from "../helpers/factories.js";
+// Static, not `await import()` inside the test: the per-test module reset
+// would hand a dynamic import a fresh helpers/handlers.js -- a second MSW
+// server that is never listening -- so the batch fixture's handlers would
+// register on the wrong instance.
+import { answerTransaction, el as txEl, inBatch, restoreTransactions } from "../helpers/transactions.js";
 
 afterEach(async () => {
   // The dwell (1200 ms) and focus-retry (500 ms) timers are legitimate and
@@ -359,5 +364,201 @@ describe("reset()", () => {
     expect(s.els.chooser.hidden).toBe(true);
     expect(s.els.message.textContent).toBe("");
     expect(env.track.stop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("continuous mode (spied)", () => {
+  async function running(overrides = {}) {
+    const { mod, env } = await mountScanModule();
+    const s = buildScanner(mod, { continuous: true, ...overrides });
+    await liveStart(s);
+    return { s, env };
+  }
+
+  it("a streak commits via onCommit and keeps the camera live", async () => {
+    const { s, env } = await running();
+    frameDecode("C1", 3);
+    await vi.waitFor(() => expect(s.onCommit).toHaveBeenCalledTimes(1));
+    expect(s.lookupFn).toHaveBeenCalledWith("C1");
+    expect(env.track.stop).not.toHaveBeenCalled();
+    expect(env.raf.pending()).toBe(1);
+    await vi.waitFor(() => expect(env.vibrate).toHaveBeenCalledWith(60));
+  });
+
+  it("DWELL: every decode inside 1200 ms after a commit is ignored, even a different code", async () => {
+    const { s } = await running();
+    frameDecode("C1", 3);
+    await vi.waitFor(() => expect(s.onCommit).toHaveBeenCalledTimes(1));
+    frameDecode("C2", 3);
+    await vi.advanceTimersByTimeAsync(1199);
+    expect(s.onCommit).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    frameDecode("C2", 3);
+    await vi.waitFor(() => expect(s.onCommit).toHaveBeenCalledTimes(2));
+  });
+
+  it("COOLDOWN: the same code is suppressed until 3000 ms after its commit, then commits again", async () => {
+    const { s } = await running();
+    frameDecode("C1", 3);
+    await vi.waitFor(() => expect(s.onCommit).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(1200);          // dwell over; cooldown has 1800 ms left
+    frameDecode("C1", 3);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(s.onCommit).toHaveBeenCalledTimes(1);      // suppressed, and no dwell was started
+    await vi.advanceTimersByTimeAsync(1790);          // t = 3000 since the commit
+    frameDecode("C1", 3);
+    await vi.waitFor(() => expect(s.onCommit).toHaveBeenCalledTimes(2));
+  });
+
+  it("COOLDOWN applies only to the just-committed code: a different code commits at once", async () => {
+    const { s } = await running();
+    frameDecode("C1", 3);
+    await vi.waitFor(() => expect(s.onCommit).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(1200);
+    frameDecode("C2", 3);
+    await vi.waitFor(() => expect(s.onCommit).toHaveBeenCalledTimes(2));
+    expect(s.onCommit.mock.calls[1][0].name).toBe("Found"); // lookupFn's default item
+    expect(s.lookupFn).toHaveBeenLastCalledWith("C2");
+  });
+
+  it("a declined commit also starts the cooldown, and buzzes nothing", async () => {
+    const { s, env } = await running({ onCommit: vi.fn(async () => ({ committed: false, declined: true })) });
+    frameDecode("C1", 3);
+    await vi.waitFor(() => expect(s.onCommit).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(env.vibrate).not.toHaveBeenCalled();
+    frameDecode("C1", 3);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(s.onCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed commit ({committed:false}) buzzes the error pattern and does NOT start a cooldown", async () => {
+    const { s, env } = await running({ onCommit: vi.fn(async () => ({ committed: false })) });
+    frameDecode("C1", 3);
+    await vi.waitFor(() => expect(s.onCommit).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(env.vibrate).toHaveBeenCalledWith([40, 40, 40]));
+    await vi.advanceTimersByTimeAsync(1200);
+    frameDecode("C1", 3);
+    await vi.waitFor(() => expect(s.onCommit).toHaveBeenCalledTimes(2));
+  });
+
+  it("canScan false: the quantity prompt, error buzz, no lookup", async () => {
+    const { s, env } = await running({ canScan: vi.fn(() => false) });
+    frameDecode("C1", 3);
+    await vi.waitFor(() => expect(s.els.message.textContent).toBe("Enter a quantity first, then scan."));
+    expect(s.lookupFn).not.toHaveBeenCalled();
+    expect(env.vibrate).toHaveBeenCalledWith([40, 40, 40]);
+  });
+
+  it("404 in continuous mode: no shortcut chooser, the not-found copy, error buzz", async () => {
+    const { mod, env } = await mountScanModule({ role: "admin" });
+    const s = buildScanner(mod, { continuous: true, lookupFn: vi.fn(async () => { throw { status: 404 }; }) });
+    await liveStart(s);
+    frameDecode("N0", 3);
+    await vi.waitFor(() => expect(s.els.message.textContent).toBe("No item matches that barcode."));
+    expect(s.els.chooser.hidden).toBe(true);
+    expect(s.onCommit).not.toHaveBeenCalled();
+    expect(env.vibrate).toHaveBeenCalledWith([40, 40, 40]);
+  });
+
+  it("the upload path also commits in continuous mode", async () => {
+    const { mod } = await mountScanModule();
+    const s = buildScanner(mod, { continuous: true });
+    server.use(http.post("/barcodes/decode", () => HttpResponse.json({ barcodes: [{ text: "U1", format: "CODE_128" }] })));
+    await uploadTo(s.els.input);
+    await vi.waitFor(() => expect(s.onCommit).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("haptics and audio degrade silently", () => {
+  it("no vibrate, no AudioContext: a commit still resolves", async () => {
+    const { mod } = await mountScanModule();
+    stubVibrate({ supported: false }); stubAudioContext({ supported: false });
+    const s = buildScanner(mod, { continuous: true });
+    await liveStart(s);
+    frameDecode("C1", 3);
+    await vi.waitFor(() => expect(s.onCommit).toHaveBeenCalledTimes(1));
+    expect(s.els.message.className).not.toBe("error");
+  });
+
+  it("Scan tap primes the audio context and resumes it; a commit then plays one square blip", async () => {
+    const { mod, env } = await mountScanModule();
+    const s = buildScanner(mod, { continuous: true });
+    await liveStart(s);
+    expect(env.audio.created).toHaveLength(1);
+    expect(env.audio.created[0].resume).toHaveBeenCalled();
+    frameDecode("C1", 3);
+    await vi.waitFor(() => expect(s.onCommit).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(env.audio.created[0].createOscillator).toHaveBeenCalledTimes(1));
+    const osc = env.audio.created[0].createOscillator.mock.results[0].value;
+    expect(osc.frequency.value).toBe(880);
+    expect(osc.type).toBe("square");
+  });
+
+  it("a failure plays two low blips", async () => {
+    const { mod, env } = await mountScanModule();
+    const s = buildScanner(mod, { continuous: true, canScan: vi.fn(() => false) });
+    await liveStart(s);
+    frameDecode("C1", 3);
+    await vi.waitFor(() => expect(env.audio.created[0].createOscillator).toHaveBeenCalledTimes(2));
+    expect(env.audio.created[0].createOscillator.mock.results.map((r) => r.value.frequency.value)).toEqual([300, 300]);
+  });
+
+  it("a throwing vibrate is swallowed", async () => {
+    const { mod, env } = await mountScanModule();
+    env.vibrate.mockImplementation(() => { throw new Error("not focused"); });
+    const s = buildScanner(mod, { continuous: true });
+    await liveStart(s);
+    frameDecode("C1", 3);
+    await vi.waitFor(() => expect(s.onCommit).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("txnScanner through the real batch (P5d fixture)", () => {
+  it("a live streak on the Transaction page commits through commitScannedItem with the confirm stepper", async () => {
+    // The module instance under test is the one nav.js -> scan.js mounted
+    // when transactions.js was imported; import() inside the test returns it.
+    // Real timers until the batch is open: the P5d fixture drives user-event
+    // without `advanceTimers`, which never resolves under fake timers.
+    const zx = stubZXing(); stubCanvas(); const raf = stubRaf();
+    const bulb = itemFactory({ name: "Bulb", barcode: "B1", quantity: "10" });
+    const { mod } = await inBatch({ role: "technician", items: [bulb],
+      handlers: [http.get("/items/B1", () => HttpResponse.json(bulb))] });
+    vi.useFakeTimers();
+    const scan = await import("../../../backend/static/views/scan.js");
+    stubVideo(document.getElementById("txn-scan-video"));
+    answerTransaction(txnFactory({ item_quantity: "9" }));
+    await user().click(document.getElementById("txn-scan-scan-btn"));
+    await vi.waitFor(() => expect(document.getElementById("txn-scan-message").textContent).toBe("Aim at a barcode…"));
+    zx.reader.decodeFromCanvas.mockImplementation(() => decodeResult("B1"));
+    raf.flush(3);
+    await answerConfirmQuantity();
+    await vi.waitFor(() => expect(requestFor("/transactions/", "POST")).not.toBeNull());
+    expect(requestFor("/transactions/", "POST").body).toMatchObject({ item_id: bulb.id, quantity: 1 });
+    await vi.waitFor(() => expect(txEl.log().querySelector(".scango-log-ok")).not.toBeNull());
+    expect(document.getElementById("txn-scan-aimbox").hidden).toBe(false); // still live
+    scan.resetScan();
+    expect(document.getElementById("txn-scan-aimbox").hidden).toBe(true);
+    expect(mod.scanGoArmed()).toBe(true);
+    await vi.runOnlyPendingTimersAsync();
+    restoreTransactions();
+  });
+
+  it("autoStartTxnScan starts the camera only with permission granted", async () => {
+    stubZXing(); stubCanvas(); stubRaf();
+    await inBatch({ role: "technician" });
+    vi.useFakeTimers();
+    stubVideo(document.getElementById("txn-scan-video"));
+    const scan = await import("../../../backend/static/views/scan.js");
+    stubPermissions("prompt");
+    scan.autoStartTxnScan();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+    stubPermissions("granted");
+    scan.autoStartTxnScan();
+    await vi.waitFor(() => expect(document.getElementById("txn-scan-aimbox").hidden).toBe(false));
+    scan.resetScan();
+    await vi.runOnlyPendingTimersAsync();
+    restoreTransactions();
   });
 });

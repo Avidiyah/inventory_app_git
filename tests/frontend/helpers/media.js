@@ -122,16 +122,18 @@ export function stubAudioContext({ supported = true } = {}) {
       destination: {},
       resume: vi.fn(async () => { ctx.state = "running"; }),
       close: vi.fn(async () => { ctx.state = "closed"; }),
+      // `connect` returns its argument so `osc.connect(gain).connect(dest)`
+      // chains, as the real AudioNode.connect does.
       createOscillator: vi.fn(() => ({
         type: "sine",
         frequency: { value: 0, setValueAtTime: vi.fn() },
-        connect: vi.fn(),
+        connect: vi.fn((node) => node),
         start: vi.fn(),
         stop: vi.fn(),
       })),
       createGain: vi.fn(() => ({
         gain: { value: 1, setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() },
-        connect: vi.fn(),
+        connect: vi.fn((node) => node),
       })),
     };
     created.push(ctx);
