@@ -265,3 +265,58 @@ export function historyRow(overrides = {}) {
     ...overrides,
   };
 }
+
+// --- Hub sub-payloads (backend/app/schemas/hub.py) --------------------------
+// Minimal-but-valid: one technician on the crew board, one community in the
+// graphs, one row in the timesheet. Tests override the field under test.
+export function hubCrew(overrides = {}) {
+  return {
+    server_now: "2026-09-10T12:00:00Z",
+    led: { total: 1, in_progress: 1, ready_to_complete: 0 },
+    priority: { assigned: 0, unassigned: 0 },
+    crew_on_clock: 0,
+    crew_total: 1,
+    crew_minutes_today: 0,
+    technicians: [{
+      user: { id: uuid(), first_name: "Crew", last_name: "One", role: "technician" },
+      running_session: null, minutes_today: 0, assigned: 1, in_progress: 0, ready_to_complete: 0,
+      last_worked: null, flags: [],
+    }],
+    attention: [],
+    ...overrides,
+  };
+}
+
+export function hubAdmin(overrides = {}) {
+  return {
+    server_now: "2026-09-10T12:00:00Z",
+    supervisor_minutes_today: 0,
+    technician_minutes_today: 0,
+    pipeline: { created: 0, assigned: 0, in_progress: 0, ready_to_complete: 0, completed: 0, review: 0 },
+    priority: { assigned: 0, unassigned: 0 },
+    on_the_clock: [],
+    exceptions: { inventory_recounts: 0, missing_item_price: 0, catalogue_requests: 0, admin_review_queue: 0, stale_work_orders: 0 },
+    billing: { materials_total: "0", labor_total: "0", total: "0", avg_days_to_complete: null, completed_per_day: [0, 0, 0, 0, 0, 0, 0], legacy_live_count: null },
+    ...overrides,
+  };
+}
+
+export function hubTimesheets(overrides = {}) {
+  return {
+    range: { start: "2026-09-07", end: "2026-09-13" },
+    rows: [{ user: { id: uuid(), first_name: "Crew", last_name: "One", role: "technician" }, days: [], total_minutes: 0 }],
+    crew_totals_by_day: [],
+    ...overrides,
+  };
+}
+
+export function hubGraphs(overrides = {}) {
+  return {
+    generated_at: "2026-09-10T12:00:00Z",
+    weeks: 12,
+    statuses: [{ key: "assigned", label: "Assigned" }],
+    communities: [{ key: "maple", label: "Maple Ridge", total: 1, counts: { assigned: 1 }, service_types: [], priorities: [] }],
+    duration: { range: { start: "2026-06-18", end: "2026-09-10" }, buckets: [] },
+    ...overrides,
+  };
+}
