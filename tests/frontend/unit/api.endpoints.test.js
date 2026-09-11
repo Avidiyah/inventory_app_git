@@ -90,6 +90,7 @@ describe("factories match the schemas they stand in for", () => {
     ["filterOptions", "backend/app/schemas/work_orders.py"],
     ["item", "backend/app/schemas/items.py"],
     ["transaction", "backend/app/schemas/transactions.py"],
+    ["historyRow", "backend/app/schemas/transactions.py"],
   ])("%s declares no field its response model does not have", async (name, schemaPath) => {
     const { readFileSync } = await import("node:fs");
     const factories = await import("../helpers/factories.js");

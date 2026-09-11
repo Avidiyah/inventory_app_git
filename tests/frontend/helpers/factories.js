@@ -239,3 +239,29 @@ export function hubPayload(overrides = {}) {
     ...overrides,
   };
 }
+
+// --- History rows --------------------------------------------------------
+//
+// GET /transactions/ answers TransactionHistoryItem rows (a JOIN across
+// transactions / items / users), not TransactionResponse. `item_price` and
+// `billable_quantity` are present only for TechFM OA and above; the factory
+// defaults them to the privileged shape and a role test nulls them.
+export function historyRow(overrides = {}) {
+  return {
+    id: uuid(),
+    item_id: uuid(),
+    item_barcode: "B1",
+    item_name: "Bulb",
+    user_id: uuid(),
+    user_name: "Test User",
+    transaction_type: "dispense",
+    quantity: "2",
+    work_order_number: "7001",
+    work_order_id: null,
+    reason: null,
+    item_price: "2.50",
+    billable_quantity: null,
+    created_at: "2026-09-10T12:00:00Z",
+    ...overrides,
+  };
+}
