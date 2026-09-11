@@ -317,3 +317,104 @@ describe("date-range overlay filter", () => {
     expect(el.dateFrom().value).toBe("");
   });
 });
+
+describe("Charge column gating", () => {
+  it.each([["supervisor", false], ["techfm_oa", true], ["admin", true], ["owner", true]])(
+    "%s sees Charge: %s", async (role, sees) => {
+      await openHistory({ role, rows: [historyRow({ item_price: sees ? "2.50" : null })] });
+      expect(el.chargeHeader().hidden).toBe(!sees);
+      expect(chargeCell(0) === null).toBe(!sees);
+      expect(el.pricingBtn().hidden).toBe(!sees);
+      expect(rowEls()[0].querySelectorAll("td")).toHaveLength(sees ? 8 : 7);
+    });
+
+  it("skeleton column count matches the role", async () => {
+    const { mod } = await mountHistory({ role: "admin", handlers: [http.get("/transactions/", () => new Promise(() => {}))] });
+    mod.loadHistory();
+    expect(el.tbody().querySelector("tr.skel-row").querySelectorAll("td")).toHaveLength(8);
+  });
+});
+
+describe("Charge cell", () => {
+  it("base and +15%; no flag when billable equals quantity; Edit button on dispense/stock", async () => {
+    await openHistory({ role: "admin", rows: [historyRow({ item_price: "2.50", quantity: "2", billable_quantity: null })] });
+    const c = chargeCell(0);
+    expect(c.querySelector(".charge-base").textContent).toBe("$5.00");
+    expect(c.querySelector(".charge-marked").textContent).toBe("+15%: $5.75");
+    expect(c.querySelector(".charge-flag")).toBeNull();
+    expect(c.querySelector(".edit-charge-btn")).not.toBeNull();
+    expect(c.dataset.quantity).toBe("2");
+    expect(c.dataset.billable).toBe("2");
+  });
+
+  it("an override shows 'Billing N of M'; zero shows 'Not charged'", async () => {
+    await openHistory({ role: "admin", rows: [
+      historyRow({ item_price: "2.50", quantity: "4", billable_quantity: "1" }),
+      historyRow({ item_price: "2.50", quantity: "4", billable_quantity: "0" }),
+    ] });
+    expect(chargeCell(0).querySelector(".charge-flag").textContent).toBe("Billing 1 of 4");
+    expect(chargeCell(0).querySelector(".charge-base").textContent).toBe("$2.50");
+    expect(chargeCell(1).querySelector(".charge-flag").className).toBe("charge-flag not-charged");
+    expect(chargeCell(1).querySelector(".charge-base").textContent).toBe("$0.00");
+  });
+
+  it("no price renders a dash; an adjust row is not editable", async () => {
+    await openHistory({ role: "admin", rows: [
+      historyRow({ item_price: null }),
+      historyRow({ item_price: "1.00", transaction_type: "adjust" }),
+    ] });
+    expect(chargeCell(0).textContent.trim()).toBe("—");
+    expect(chargeCell(1).querySelector(".edit-charge-btn")).toBeNull();
+    expect(chargeCell(1).querySelector(".charge-base").textContent).toBe("$2.00");
+  });
+
+  it("pricing button is disabled with no rows", async () => {
+    await openHistory({ role: "admin", rows: [] });
+    expect(el.pricingBtn().disabled).toBe(true);
+  });
+});
+
+describe("void", () => {
+  it("No: nothing sent", async () => {
+    await openHistory({ rows: [historyRow()] });
+    clearRequests();
+    const clicking = userEvent.setup().click(voidBtn(0));
+    await vi.waitFor(() => expect(confirmTitle()).toBe("Void this transaction? This undoes its effect on the on-hand count and removes it from history."));
+    await answerConfirm(false);
+    await clicking;
+    expect(requests()).toHaveLength(0);
+    expect(voidBtn(0).disabled).toBe(false);
+  });
+
+  it("Yes: DELETE then reload on the same page", async () => {
+    const row = historyRow();
+    await openHistory({ rows: [row, historyRow()], handlers: [http.delete("/transactions/:id", () => new HttpResponse(null, { status: 204 }))] });
+    clearRequests();
+    const clicking = userEvent.setup().click(voidBtn(0));
+    await answerConfirm(true);
+    await clicking;
+    await vi.waitFor(() => expect(requestFor(`/transactions/${row.id}`, "DELETE")).not.toBeNull());
+    await vi.waitFor(() => expect(lastQuery()).toMatchObject({ page: "1" }));
+  });
+
+  it("voiding the last row on page 2 steps back to page 1", async () => {
+    await openHistory({ rows: [historyRow()], total: 11, handlers: [http.delete("/transactions/:id", () => new HttpResponse(null, { status: 204 }))] });
+    await userEvent.setup().click(el.next());
+    await vi.waitFor(() => expect(lastQuery().page).toBe("2"));
+    clearRequests();
+    const clicking = userEvent.setup().click(voidBtn(0));
+    await answerConfirm(true);
+    await clicking;
+    await vi.waitFor(() => expect(lastQuery().page).toBe("1"));
+  });
+
+  it("a failing void re-enables the button and reports friendlyError", async () => {
+    await openHistory({ rows: [historyRow()], handlers: [http.delete("/transactions/:id", () => HttpResponse.json({ detail: "no" }, { status: 403 }))] });
+    const clicking = userEvent.setup().click(voidBtn(0));
+    await answerConfirm(true);
+    await clicking;
+    await vi.waitFor(() => expect(el.resultsMessage().className).toBe("error"));
+    expect(voidBtn(0).disabled).toBe(false);
+    expect(rowEls()).toHaveLength(1);
+  });
+});
