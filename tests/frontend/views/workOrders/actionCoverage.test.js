@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { mountView } from "../../helpers/shell.js";
+import { auditActions, PAGES_DIR } from "../../helpers/actionAudit.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..", "..", "..", "..");
@@ -24,10 +25,8 @@ const SOURCE_FILES = readdirSync(VIEWS)
   .filter((n) => (n === "workOrders.js" || /^workOrder[A-Z]/.test(n))
     && n !== "workOrderRequests.js")
   .map((n) => join(VIEWS, n));
-const FRAGMENT = join(REPO_ROOT, "backend", "static", "pages", "work-orders.html");
 
 const source = SOURCE_FILES.map((p) => readFileSync(p, "utf8")).join("\n");
-const fragment = readFileSync(FRAGMENT, "utf8");
 
 const matchAll = (text, pattern) => [...text.matchAll(pattern)].map((m) => m[1]);
 
@@ -38,15 +37,6 @@ const declaredNames = (text) => [
   ...[...text.matchAll(/^export \{([^}]+)\} from/gm)]
       .flatMap((m) => m[1].split(",").map((s) => s.trim()).filter(Boolean)),
 ];
-
-// Rendered: every `data-action="…"` this module writes, plus any the static
-// fragment carries. Handled: every `action === "…"` comparison in the click
-// delegation.
-const rendered = new Set([
-  ...matchAll(source, /data-action="([a-z-]+)"/g),
-  ...matchAll(fragment, /data-action="([a-z-]+)"/g),
-]);
-const handled = new Set(matchAll(source, /action === "([a-z-]+)"/g));
 
 // Frozen. Adding an action to the source lands here deliberately rather than
 // silently widening what the audit calls "covered".
@@ -75,36 +65,13 @@ const EXPORTS = [
   "workOrderCardClass",
 ];
 
-const behaviourFiles = readdirSync(HERE)
-  .filter((name) => name.endsWith(".test.js") && name !== "actionCoverage.test.js");
-const behaviourText = behaviourFiles
-  .map((name) => readFileSync(join(HERE, name), "utf8"))
-  .join("\n");
-
-describe("the action inventory", () => {
-  it("is exactly the frozen 26", () => {
-    expect([...rendered].sort()).toEqual(ACTIONS);
-  });
-
-  it("renders no action the delegation does not handle", () => {
-    const orphanRenderers = [...rendered].filter((a) => !handled.has(a)).sort();
-    expect(orphanRenderers, `rendered but never handled: ${orphanRenderers.join(", ")}`)
-      .toEqual([]);
-  });
-
-  it("handles no action nothing renders", () => {
-    const orphanHandlers = [...handled].filter((a) => !rendered.has(a)).sort();
-    expect(orphanHandlers, `handled but never rendered: ${orphanHandlers.join(", ")}`)
-      .toEqual([]);
-  });
-});
-
-describe("every action is exercised by a behaviour test", () => {
-  it("names the ones that are not", () => {
-    expect(behaviourFiles.length).toBeGreaterThan(0);
-    const missing = ACTIONS.filter((action) => !behaviourText.includes(action));
-    expect(missing, `no test mentions: ${missing.join(", ")}`).toEqual([]);
-  });
+auditActions({
+  name: "Work Orders actions",
+  sources: SOURCE_FILES,
+  fragments: [join(PAGES_DIR, "work-orders.html")],
+  frozen: ACTIONS,
+  behaviourDir: HERE,
+  behaviourExclude: ["actionCoverage.test.js"],
 });
 
 describe("the export surface", () => {
