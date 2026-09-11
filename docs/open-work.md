@@ -278,11 +278,11 @@ edit to the area, or a user report matching one.
 ### N-P5-CHARACTERIZED — what the P5 spine suite pins rather than fixes
 
 Found while writing `tests/frontend/views/nav.test.js`, `main.test.js`,
-`auth.test.js`, `items.test.js`, `transactions.test.js` and `history.test.js`. Same rule as
+`auth.test.js`, `items.test.js`, `transactions.test.js`, `history.test.js` and `userHub.test.js`. Same rule as
 N-WO-CHARACTERIZED: the test is green *as today's behaviour*, so a fix must
 update the named test in the same change.
 **Trigger:** the next substantive edit to the nav bar, the composition root,
-the auth/boot path, the items table, the scan-and-go batch, or the History page.
+the auth/boot path, the items table, the scan-and-go batch, the History page, or the hub tab shell.
 
 | Defect | Pinned by |
 | --- | --- |
@@ -308,6 +308,11 @@ the auth/boot path, the items table, the scan-and-go batch, or the History page.
 | `renderHistory` / `loadHistory` comments say the Charge column is "Admin/Owner"; the gate is `roleAtLeast(role, "techfm_oa")`. Comment drift, not behaviour. | `history.test.js` → "Charge column gating" |
 | `billingEditor.js` writes its message through `setMessage`, which replaces `className` wholesale, so `.charge-editor-msg` stops matching after the first message and any CSS keyed on it drops off. | `history.test.js` → "out-of-range shows the range message and sends nothing" |
 | The pricing list resolves a work-order **number** to an id and fetches the work order's line prices, but `markedCharge` only consults that map when the row itself carries `work_order_id` — so a row with `work_order_id: null` costs two round trips and is still dropped as unpriced. | `history.test.js` → "a row with no work_order_id resolves the number and fetches the work order, then drops the line anyway" |
+| For techfm_oa+ the Priorities card is blank after the first `loadUserHub()`: `refreshAdmin` mounts the summary without `renderPriorities`, and the crew pass that does call it ran before the admin payload landed. The card appears on the next repaint (tab switch, safety refresh, socket event). | `userHub.test.js` → "loadUserHub by role" |
+| The first open of the Graphs tab fetches `/hub/graphs` twice: `showTab → renderActiveTab → loadGraphs()` (no payload yet) and the click handler's own `loadGraphs()`. The request-id guard discards the first response. | `userHub.test.js` → "Graphs fetches with weeks=12" |
+| `mountHubGraphs` throws on a payload with no communities (`activeCommunity.key`); `loadGraphs` has already stored the payload so the catch returns early and the tab shows a skeleton forever, no error, no Retry. | `userHub.test.js` → "an empty graphs payload is swallowed" |
+| `destroyHubGraphs()` is a no-op; the "on tab change" lifecycle the P5 plan names has nothing to assert. | `userHub.test.js` → "Graphs: a community tab click re-renders from memory" |
+| The safety interval refetches `/hub` for every role every 60 s while the page is visible, regardless of whether the socket is connected — by design per spec §6.2; recorded so the request count in P6 tests is not mistaken for a leak. | `userHub.test.js` → "every 60 s refetches" |
 
 ### N11 — notification triggers considered and deliberately deferred
 

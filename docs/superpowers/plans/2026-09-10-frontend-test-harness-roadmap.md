@@ -20,7 +20,7 @@ A phase — or a chunk — lands green and committed before the next begins.
 | --- | --- |
 | P0–P3 | Landed. `npm test`: 819 tests / 27 files, ~50 s, green. `pytest -m e2e` green. |
 | P4 | Landed 2026-09-11 in nine commits. `workOrders.js` is a 24-line barrel over eight modules, largest 752 lines; no behaviour test was edited to accommodate a move. |
-| P5 | In progress — `2026-09-10-frontend-test-harness-p5.md`, eight chunks. P5a (`main.js` + `views/nav.js`), P5b (`views/auth.js`), P5c (`views/items.js`), P5d (`views/transactions.js`) and P5e (`views/history.js`) landed; `npm test`: 1102 tests / 33 files, ~80 s, green. P5f-P5h not started. |
+| P5 | In progress — `2026-09-10-frontend-test-harness-p5.md`, eight chunks. P5a (`main.js` + `views/nav.js`), P5b (`views/auth.js`), P5c (`views/items.js`), P5d (`views/transactions.js`), P5e (`views/history.js`) and P5f (`views/userHub.js` + `helpers/hub.js`) landed; `npm test`: 1143 tests / 34 files, ~80 s, green. P5g-P5h not started. |
 | P6–P7 | Not started. |
 
 None of this has been through CI: the branch is 45 commits ahead of
@@ -220,8 +220,9 @@ login-gate path end to end against real `api.js`.
 `views/notes.js`, `views/push.js`, `views/correction.js`,
 `views/correctionPanel.js`, `views/billingEditor.js`, `views/subnav.js`.
 
-**Steps.** Same pattern. The hub modules share a dashboard shell and should get
-a shared mount helper rather than repeated setup. `push.js` needs the
+**Steps.** Same pattern. The hub modules share a dashboard shell: mount through
+`tests/frontend/helpers/hub.js` (`openHub({role, crew, admin, timesheets, graphs})`),
+built in P5f, rather than repeating the setup. `push.js` needs the
 `Notification` and `ServiceWorkerRegistration` APIs stubbed.
 
 ---

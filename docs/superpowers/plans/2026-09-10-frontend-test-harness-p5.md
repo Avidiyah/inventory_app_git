@@ -32,7 +32,7 @@ barrel over eight modules, largest 752 lines. Suite at that point: **819 tests
 - **One chunk, one session, one green suite.** A chunk is done when `npm test` is green, its own success check passes, and its findings are filed.
 - Commit messages end with `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`.
 
-## Eight deviations from the roadmap text, decided here
+## Nine deviations from the roadmap text, decided here
 
 1. **P5 is eight sessions, not one.** The roadmap's standing rule says "each phase is one bounded session" while P5 itself says "one module per session-sized chunk". The second wins: 4,519 lines across nine modules cannot land in one window. The chunks below are the phase's real unit of work; each is independently committable and independently green.
 2. **`auth.js` and `main.js` move out of churn order, up next to `nav.js`.** They are not three modules, they are one boot path: `main.js` wires the callbacks, `initAuth()` decides signed-in or not, `nav.js` routes and gates by role. Covering them apart means building the same fixture three times and testing each one's half of a handshake in isolation.
@@ -42,6 +42,7 @@ barrel over eight modules, largest 752 lines. Suite at that point: **819 tests
 6. **P5c cannot mount `views/items.js` as its own entry point.** `items.js` reaches `nav.js` via `scan.js` -> `transactions.js`, and `nav.js` re-enters `scan.js` through `tools.js` while `scan.js`'s imports are still initializing (TDZ on `BarcodeDecoder`). Production's `main.js` enters at `nav.js` first, so `helpers/items.js` primes the graph the same way (`mountView("views/nav.js")` then `importView("views/items.js")` against the one shell). Consequence for the tests: `nav.js` is live, so the Create-Item scan shortcut really routes pages rather than only firing a click.
 7. **P5d lifted the request recorder and the confirm helper into shared fixtures.** `helpers/auth.js` and `helpers/items.js` each carried a private copy; they are now `helpers/requests.js` and `helpers/dialogs.js`, and both earlier fixtures re-export them (same import surface, identical pass counts). P5e+ import the shared ones directly. `helpers/workOrders.js` (P2) keeps its own copy — re-pointing it is P5h's business alongside the action audit.
 8. **P5e — pricing is a button, not a tab; `billingEditor.js` is driven for real.** The parent bullets said "pricing tab"; it is a button below the results, and the `scrollTop` reset is on the pricing textarea. `billingEditor.js` has no other covered consumer, so its Save / Don't charge / Cancel are exercised here and P6 must not re-cover them. `historyRow()` factory added with a drift-guard row.
+9. **P5f — `destroyHubGraphs` is a no-op and the hub's `document` listeners outlive a test.** Nothing to assert on tab change beyond a re-render; and because only `documentElement` is replaced per mount, every earlier test's `visibilitychange` listener still fires, so the show-path timer assertion is a shape (a positive multiple of two), not an absolute count.
 
 ## Chunk sequencing
 
@@ -162,13 +163,15 @@ Churn order, adjusted where a fixture dependency forces it. The adjustments are 
 
 **Files.** Create `tests/frontend/helpers/hub.js`, `tests/frontend/views/userHub.test.js`.
 
-- [ ] `helpers/hub.js`: mount the hub with a seeded payload per tab, and a `stopClock()` teardown. The roadmap promises P6 a shared hub helper; building it here, against the module that owns the shell, is what makes P6 nine small files instead of nine setups.
-- [ ] `loadUserHub()` / `refreshUserHub()`: each tab's mount function called with its payload; a failing tab renders its error without taking the others down.
-- [ ] Role gating over the six hub endpoints — a technician must not fire `apiGetHubAdmin`.
-- [ ] The `crewSafetyTimer` interval on fake timers, **including that it is cleared** on leave. An un-cleared interval is a leak that will show up as cross-test bleed later.
-- [ ] `subscribe()` from `realtime.js`: a hub-relevant event refreshes; an unrelated one does not. Fake socket, as P2.
-- [ ] `openWorkOrdersFilteredByDistribution` and `showPage` hand-offs asserted at the boundary.
-- [ ] `destroyHubGraphs` on tab change.
+**Done 2026-09-11** — `2026-09-11-frontend-test-harness-p5f-user-hub.md`, 41 tests.
+
+- [x] `helpers/hub.js`: mount the hub with a seeded payload per tab, and a `stopClock()` teardown. The roadmap promises P6 a shared hub helper; building it here, against the module that owns the shell, is what makes P6 nine small files instead of nine setups.
+- [x] `loadUserHub()` / `refreshUserHub()`: each tab's mount function called with its payload; a failing tab renders its error without taking the others down.
+- [x] Role gating over the six hub endpoints — a technician must not fire `apiGetHubAdmin`.
+- [x] The `crewSafetyTimer` interval on fake timers, **including that it is cleared** on leave. An un-cleared interval is a leak that will show up as cross-test bleed later.
+- [x] `subscribe()` from `realtime.js`: a hub-relevant event refreshes; an unrelated one does not. Fake socket, as P2.
+- [x] `openWorkOrdersFilteredByDistribution` and `showPage` hand-offs asserted at the boundary.
+- [x] `destroyHubGraphs` on tab change — a no-op by design (SVG); asserted as a graphs → dashboard → graphs re-render (deviation 9).
 
 **Test.** `npm test` green; no test leaves a timer running (assert `vi.getTimerCount()` is 0 in the file's `afterEach`).
 

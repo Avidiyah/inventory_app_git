@@ -108,8 +108,8 @@ Path shorthand:
 | Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | mass-stage tests plus manual UI check |
 | Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
 | Work Orders UI | `static/views/workOrder*.js` (barrel: `workOrders.js`), `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | `tests/frontend/views/workOrders/` (characterization: render, roles, actions, editor, filters, solo, realtime, integrations, plus the action/export audit), `backend/tests/e2e/test_work_orders.py`, backend work-order tests |
-| User Hub Graphs | `domain/hub.py`, `domain/work_orders.py`, `services/hub.py`, `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubGraphs.js`, `static/views/workOrderList.js`, `static/pages/user-hub.html`, `static/styles.css`, `static/tips.js`, `static/api.js` | `test_hub_graphs_domain.py`, hub service/router/gate/realtime tests; manual role/realtime checks. Aggregation semantics: endpoint-map → User Hub reads |
-| User Hub Report (Admin daily report) | `services/work_order_report.py`, `services/work_orders.py` (`export_row`, `work_order_totals`), `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubReport.js`, `static/views/workOrderList.js` (`openWorkOrdersByNumberSearch`), `static/pages/user-hub.html`, `static/styles.css`, `static/api.js` | `test_work_order_report.py`, hub router + role-gate tests; manual role/click checks. **Admin-only** (the app's only Admin-floored routes, recorded in `test_route_role_gates.py`); a live view, not an archival record (`N-WO-STATUS-EVENTS`); contract in endpoint-map → `HubReportResponse` |
+| User Hub Graphs | `domain/hub.py`, `domain/work_orders.py`, `services/hub.py`, `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubGraphs.js`, `static/views/workOrderList.js`, `static/pages/user-hub.html`, `static/styles.css`, `static/tips.js`, `static/api.js` | `test_hub_graphs_domain.py`, hub service/router/gate/realtime tests, `tests/frontend/views/userHub.test.js` (tab shell, lazy fetch, failure isolation); manual role/realtime checks. Aggregation semantics: endpoint-map → User Hub reads |
+| User Hub Report (Admin daily report) | `services/work_order_report.py`, `services/work_orders.py` (`export_row`, `work_order_totals`), `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubReport.js`, `static/views/workOrderList.js` (`openWorkOrdersByNumberSearch`), `static/pages/user-hub.html`, `static/styles.css`, `static/api.js` | `test_work_order_report.py`, hub router + role-gate tests, `tests/frontend/views/userHub.test.js` (tab shell); manual role/click checks. **Admin-only** (the app's only Admin-floored routes, recorded in `test_route_role_gates.py`); a live view, not an archival record (`N-WO-STATUS-EVENTS`); contract in endpoint-map → `HubReportResponse` |
 | NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_cloud_auth.py`, `services/netfacilities_cloud_crypto.py`, `services/netfacilities_jobs.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | `test_netfacilities_*.py`; behavior under API Surface → NetFacilities |
 | Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, manual UI check |
 | Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
@@ -1751,7 +1751,7 @@ Frontend layers:
 
 - Vitest (`npm test`, repo root): `static/` modules under jsdom, mounted on the
   real assembled shell with MSW answering `fetch`, so the real `api.js` runs.
-  1102 tests / 33 files, ~80 s. Covers the foundation layer, the whole
+  1143 tests / 34 files, ~80 s. Covers the foundation layer, the whole
   `workOrder*` group (including a meta-test that goes red when a `data-action`
   branch loses its test or the barrel drops an export), the boot spine --
   `main.js` + `views/nav.js`, booted through `helpers/app.js`, which runs the
@@ -1765,8 +1765,12 @@ Frontend layers:
   and resume, and the manual-entry panel; the camera itself is P5g), and
   `views/history.js` through `helpers/history.js` (tabs, overlay filters and
   the debounce, pagination, the Charge column, void, the real
-  `billingEditor.js`, the archived-restore offer, the pricing list). Remaining
-  views: uncovered, roadmap P5-P7. Coverage reported, not gated, until P7.
+  `billingEditor.js`, the archived-restore offer, the pricing list), and
+  `views/userHub.js` through `helpers/hub.js` -- the shared hub mount P6's
+  `hub*.js` files reuse (`openHub({role, crew, admin, timesheets, graphs})`;
+  per-role requests, tab switching, per-tab failure isolation, the 60 s
+  safety interval and visibility lifecycle, the three realtime
+  subscriptions). Remaining views: uncovered, roadmap P5-P7. Coverage reported, not gated, until P7.
 - E2E (`pytest -m e2e` from `backend/`): real Chromium over the real app --
   every `SHELL_PARTS` page renders its landmark with an empty console, plus two
   work-order journeys. The only layer that sees CSP violations and the service
