@@ -227,3 +227,227 @@ describe("tabs", () => {
     expect(requestFor("/hub/report")).toBeNull();
   });
 });
+
+describe("failure isolation", () => {
+  it("crew fails on first load: inline error in the crew mount; dashboard and admin still render", async () => {
+    await openHub({ role: "admin", crew: 500 });
+    expect(el.crewMount().querySelector("p.error").textContent).toBe("Could not load your crew.");
+    expect(el.adminMount().children.length).toBeGreaterThan(0);
+    await user().click(el.tab("dashboard"));
+    expect(el.prioritiesMount().querySelector(".hub-priorities")).not.toBeNull();
+  });
+
+  it("admin fails on first load: inline error in the admin mount only", async () => {
+    await openHub({ role: "admin", admin: 500 });
+    expect(el.adminMount().querySelector("p.error").textContent).toBe("Could not load the company summary.");
+    expect(el.crewMount().querySelector("p.error")).toBeNull();
+  });
+
+  it("a background crew failure keeps the last good board", async () => {
+    await openHub({ role: "supervisor" });
+    expect(el.crewMount().querySelector(".hub-crew-card")).not.toBeNull();
+    server.use(http.get("/hub/crew", () => HttpResponse.json({ detail: "x" }, { status: 500 })));
+    await vi.advanceTimersByTimeAsync(60000);           // safety refresh
+    await vi.waitFor(() => expect(queries("/hub/crew")).toHaveLength(2));
+    expect(el.crewMount().querySelector(".hub-crew-card")).not.toBeNull();
+    expect(el.crewMount().querySelector("p.error")).toBeNull();
+  });
+
+  it("timesheets fail: error with a Retry that refetches the same range", async () => {
+    await openHub({ role: "supervisor", timesheets: 500 });
+    await user().click(el.tab("timesheets"));
+    await vi.waitFor(() => expect(el.panel("timesheets").querySelector(".hub-timesheet-message.error")).not.toBeNull());
+    server.use(http.get("/hub/timesheets", () => HttpResponse.json(hubTimesheets())));
+    await user().click(el.panel("timesheets").querySelector(".hub-timesheet-retry"));
+    await vi.waitFor(() => expect(el.panel("timesheets").querySelector(".hub-timesheet-table")).not.toBeNull());
+    expect(queries("/hub/timesheets")).toHaveLength(2);
+  });
+
+  it("graphs fail: error with Retry; a later background failure keeps the last good render", async () => {
+    await openHub({ role: "admin", graphs: 500 });
+    await user().click(el.tab("graphs"));
+    await vi.waitFor(() => expect(el.panel("graphs").querySelector(".hub-graphs-load-error")).not.toBeNull());
+    server.use(http.get("/hub/graphs", () => HttpResponse.json(hubGraphs())));
+    await user().click(el.panel("graphs").querySelector(".hub-graphs-retry"));
+    await vi.waitFor(() => expect(el.panel("graphs").querySelector(".hub-graphs")).not.toBeNull());
+    const before = queries("/hub/graphs").length;
+    server.use(http.get("/hub/graphs", () => HttpResponse.json({ detail: "x" }, { status: 500 })));
+    await vi.advanceTimersByTimeAsync(60000);
+    await vi.waitFor(() => expect(queries("/hub/graphs")).toHaveLength(before + 1));
+    expect(el.panel("graphs").querySelector(".hub-graphs")).not.toBeNull();
+  });
+
+  it("an empty graphs payload is swallowed: the skeleton stays and no error shows", async () => {
+    // mountHubGraphs reads `activeCommunity.key` with no communities and throws;
+    // loadGraphs has already stored the payload, so its catch returns early.
+    // Characterization -- see open-work.md N-P5-CHARACTERIZED.
+    await openHub({ role: "admin", graphs: hubGraphs({ communities: [] }) });
+    await user().click(el.tab("graphs"));
+    await vi.waitFor(() => expect(queries("/hub/graphs").length).toBeGreaterThan(0));
+    await vi.advanceTimersByTimeAsync(50);
+    expect(el.panel("graphs").querySelector(".skel-grid")).not.toBeNull();
+    expect(el.panel("graphs").querySelector(".hub-graphs-load-error")).toBeNull();
+  });
+
+  it("report fails: error with Retry", async () => {
+    await openHub({ role: "owner" });                    // fixture answers /hub/report with 500
+    await user().click(el.tab("report"));
+    await vi.waitFor(() => expect(el.panel("report").querySelector(".hub-report-load-error")).not.toBeNull());
+    expect(el.panel("report").querySelector("p.error").textContent).toBe("Could not load the daily report.");
+    await user().click(el.panel("report").querySelector(".hub-report-retry"));
+    await vi.waitFor(() => expect(queries("/hub/report")).toHaveLength(2));
+  });
+});
+
+describe("crew safety refresh", () => {
+  it("every 60 s refetches personal (+ crew for supervisor+, + admin for techfm_oa+), in the background", async () => {
+    await openHub({ role: "admin" });
+    clearRequests();
+    await vi.advanceTimersByTimeAsync(59999);
+    expect(requests()).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(requests().map((r) => r.url).sort()).toEqual(["/hub", "/hub/admin", "/hub/crew"]));
+    await vi.advanceTimersByTimeAsync(60000);
+    await vi.waitFor(() => expect(requests()).toHaveLength(6));
+  });
+
+  it("a technician's interval refetches only /hub", async () => {
+    await openHub({ role: "technician" });
+    clearRequests();
+    await vi.advanceTimersByTimeAsync(60000);
+    await vi.waitFor(() => expect(requests().map((r) => r.url)).toEqual(["/hub"]));
+  });
+
+  it("adds graphs only while the Graphs tab is open", async () => {
+    await openHub({ role: "admin" });
+    await user().click(el.tab("graphs"));
+    await vi.waitFor(() => expect(el.panel("graphs").querySelector(".hub-graphs")).not.toBeNull());
+    const before = queries("/hub/graphs").length;
+    await vi.advanceTimersByTimeAsync(60000);
+    await vi.waitFor(() => expect(queries("/hub/graphs")).toHaveLength(before + 1));
+    await user().click(el.tab("dashboard"));
+    const hubs = queries("/hub").length;
+    await vi.advanceTimersByTimeAsync(60000);
+    await vi.waitFor(() => expect(queries("/hub").length).toBeGreaterThan(hubs));
+    expect(queries("/hub/graphs")).toHaveLength(before + 1);
+  });
+
+  it("is cleared on hide and restarted on show only while the hub page is active", async () => {
+    await openHub({ role: "supervisor" });
+    stopClock();                                          // visibilitychange, hidden
+    expect(vi.getTimerCount()).toBe(0);
+    clearRequests();
+    await vi.advanceTimersByTimeAsync(120000);
+    expect(requests()).toHaveLength(0);
+    // show again with the hub NOT the active page: nothing restarts
+    restoreHubVisibility();
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(vi.getTimerCount()).toBe(0);
+    // show again WITH the hub active: both timers come back
+    el.page().classList.add("active");
+    document.dispatchEvent(new Event("visibilitychange"));
+    // Exactly 2 (clock tick + safety interval) when this test runs alone.
+    // In the full file every earlier test's userHub.js instance still has
+    // its own `visibilitychange` listener on the shared `document` (module
+    // registry resets do not remove listeners), and each of those restarts
+    // its own pair too -- a harness artifact, so the assertion is the shape:
+    // a positive multiple of two. The afterEach hide stops all of them.
+    expect(vi.getTimerCount()).toBeGreaterThanOrEqual(2);
+    expect(vi.getTimerCount() % 2).toBe(0);
+    await vi.advanceTimersByTimeAsync(60000);
+    await vi.waitFor(() => expect(requestFor("/hub/crew")).not.toBeNull());
+  });
+
+  it("a second loadUserHub does not stack a second interval", async () => {
+    const { mod } = await openHub({ role: "technician" });
+    await mod.loadUserHub();
+    await mod.loadUserHub();
+    clearRequests();
+    await vi.advanceTimersByTimeAsync(60000);
+    await vi.waitFor(() => expect(queries("/hub")).toHaveLength(1));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queries("/hub")).toHaveLength(1);
+  });
+});
+
+describe("clock hand-off", () => {
+  it("the clock's onChanged refreshes the whole hub (one /hub fetch serves clock and tabs)", async () => {
+    const { payload } = await openHub({ role: "technician", hub: hubPayload({ startable: [{
+      work_order_id: "w1", number: "7001", status: "assigned", community: null, building_number: null, unit_number: null, location: null,
+    }] }), handlers: [http.post("/work-orders/:id/tracking/start", () => HttpResponse.json({}))] });
+    clearRequests();
+    const start = el.clockMount().querySelector(".hub-clock-start-btn");
+    expect(start.dataset.action).toBe("hub-clock-start");
+    await user().click(start);
+    await vi.waitFor(() => expect(requestFor("/tracking/start", "POST")).not.toBeNull());
+    await vi.waitFor(() => expect(requestFor("/hub", "GET")).not.toBeNull());
+    expect(payload).toBeTruthy();
+  });
+});
+
+describe("realtime", () => {
+  it("labor.session.changed on the hub page refreshes crew (+ admin for techfm_oa+) in the background", async () => {
+    await openHub({ role: "admin" });
+    const { emit } = await connectHub();
+    clearRequests();
+    emit("labor.session.changed");
+    await vi.waitFor(() => expect(requests().map((r) => r.url).sort()).toEqual(["/hub/admin", "/hub/crew"]));
+    expect(requests().some((r) => r.url === "/hub")).toBe(false);
+  });
+
+  it("work_order.status.changed refreshes personal, crew, admin; graphs only while that tab is open", async () => {
+    await openHub({ role: "admin" });
+    const { emit } = await connectHub();
+    clearRequests();
+    emit("work_order.status.changed", { id: "w1" });
+    await vi.waitFor(() => expect(requests().map((r) => r.url).sort()).toEqual(["/hub", "/hub/admin", "/hub/crew"]));
+    await user().click(el.tab("graphs"));
+    await vi.waitFor(() => expect(el.panel("graphs").querySelector(".hub-graphs")).not.toBeNull());
+    const before = queries("/hub/graphs").length;
+    emit("work_order.status.changed", { id: "w1" });
+    await vi.waitFor(() => expect(queries("/hub/graphs")).toHaveLength(before + 1));
+  });
+
+  it("user_request.changed refreshes only the personal payload", async () => {
+    await openHub({ role: "supervisor" });
+    const { emit } = await connectHub();
+    clearRequests();
+    emit("user_request.changed");
+    await vi.waitFor(() => expect(requests().map((r) => r.url)).toEqual(["/hub"]));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(requests()).toHaveLength(1);
+  });
+
+  it("a technician on work_order.status.changed refetches /hub only", async () => {
+    await openHub({ role: "technician" });
+    const { emit } = await connectHub();
+    clearRequests();
+    emit("work_order.status.changed", { id: "w1" });
+    await vi.waitFor(() => expect(requests().map((r) => r.url)).toEqual(["/hub"]));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(requests()).toHaveLength(1);
+  });
+
+  it("an unrelated event, or the hub not being the active page, does nothing", async () => {
+    await openHub({ role: "admin" });
+    const { emit, ws } = await connectHub();
+    clearRequests();
+    emit("item.changed", { id: "i1" });
+    await vi.advanceTimersByTimeAsync(50);
+    expect(requests()).toHaveLength(0);
+    const realtime = await import("../../../backend/static/realtime.js");
+    realtime.setActivePageGetter(() => "history");
+    emit("labor.session.changed");
+    await vi.advanceTimersByTimeAsync(50);
+    expect(requests()).toHaveLength(0);
+    expect(ws.sockets).toHaveLength(1);
+  });
+
+  it("the personal refresh repaints the work-orders tab label and the open tab", async () => {
+    const { payload } = await openHub({ role: "technician", hub: hubPayload({ mine_total: 1 }) });
+    const { emit } = await connectHub();
+    server.use(http.get("/hub", () => HttpResponse.json(hubPayload({ mine_total: 4, user: payload.user }))));
+    emit("user_request.changed");
+    await vi.waitFor(() => expect(el.tab("work-orders").textContent).toBe("My Work Orders (4)"));
+  });
+});

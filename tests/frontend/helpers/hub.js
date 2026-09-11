@@ -37,7 +37,7 @@ export const queries = (fragment) => requests()
 // A number is an HTTP status to fail with; anything else is the JSON body.
 const answer = (value, status = 200) =>
   typeof value === "number"
-    ? HttpResponse.json({ detail: "hub error" }, { status: value })
+    ? HttpResponse.json({ detail: "" }, { status: value })
     : HttpResponse.json(value, { status });
 
 let ws = null;
@@ -81,6 +81,12 @@ export async function openHub(opts = {}) {
 // Simulate the tab being hidden: `document.hidden` lives on
 // `Document.prototype` in jsdom, so an instance override shadows it and the
 // `visibilitychange` listener reads true. Idempotent until restored.
+//
+// `document` itself survives every mount (only `documentElement` is
+// replaced), so each test's userHub.js instance leaves its listener behind.
+// The hide reaches all of them, which is what makes the afterEach
+// zero-timer check hold; a test that dispatches the SHOW path sees every
+// stale instance restart its timers too.
 export function stopClock() {
   if (hiddenRestore) return;
   Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
