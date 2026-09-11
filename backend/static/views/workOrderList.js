@@ -70,6 +70,13 @@ import { openBillingEditor } from "./billingEditor.js";
 import { subscribe } from "../realtime.js";
 import { skeletonCard } from "../skeleton.js";
 import {
+  ensureReferenceData,
+  getAllItems,
+  getAllSupervisors,
+  getAllTechnicians,
+  invalidateUsers,
+} from "./workOrderReferenceData.js";
+import {
   isSupervisorPlus,
   isAdminPlus,
   lineChargeHtml,
@@ -126,20 +133,9 @@ const exportScope = document.getElementById("wo-export-scope");
 const exportBtn = document.getElementById("wo-export-btn");
 const exportClientBtn = document.getElementById("wo-export-client-btn");
 
-// Reference lists are reused during interactions within one visit (for example,
-// debounced Work Order searches), then refreshed when nav.js activates the page
-// again so item and user changes made elsewhere cannot remain stale.
-let allItems = [];
-let itemsLoaded = false;
-let allTechs = [];
-let allSupers = [];
-let usersLoaded = false;
 let filterOptionsLoaded = false;
 let netFacilitiesPollingJobId = null;
 document.addEventListener("user-names-updated", () => {
-  allTechs = [];
-  allSupers = [];
-  usersLoaded = false;
   filterOptionsLoaded = false;
 });
 // Work order id to expand once the list renders (set by a Mass Stage tree click).
@@ -493,7 +489,7 @@ function technicianPickerHtml(detail) {
   const resultsId = `wo-tech-results-${detail.id}`;
   const selections = ids
     .map((id, index) => {
-      const activeTechnician = allTechs.find((technician) => technician.id === id);
+      const activeTechnician = getAllTechnicians().find((technician) => technician.id === id);
       const name = names[index] || (activeTechnician ? formatUserName(activeTechnician) : "Assigned technician");
       return technicianSelectionHtml(id, name);
     })
@@ -541,7 +537,7 @@ function renderTechnicianSearch(input) {
   // Same normalized rule the item pickers use, so a name punctuated
   // `O'Brien` or `Smith-Jones` is found by typing `obrien` / `smithjones`.
   // Alphabetical remains the tiebreak *within* a relevance tier.
-  const selectable = allTechs
+  const selectable = getAllTechnicians()
     .map((technician) => ({ technician, name: formatUserName(technician) }))
     .filter(({ technician }) => !selectedIds.has(technician.id));
   const matches = filterRanked(
@@ -551,7 +547,7 @@ function renderTechnicianSearch(input) {
     (left, right) => left.name.localeCompare(right.name)
   ).slice(0, 8);
 
-  if (!allTechs.length) {
+  if (!getAllTechnicians().length) {
     results.innerHTML = `<p class="hint">No active Technicians or Supervisors are available.</p>`;
   } else if (!matches.length) {
     results.innerHTML = `<p class="hint">No matching technicians.</p>`;
@@ -570,7 +566,7 @@ function renderTechnicianSearch(input) {
 function supervisorOptions(selectedId) {
   return (
     `<option value="">Unassigned</option>` +
-    allSupers
+    getAllSupervisors()
       .map(
         (s) =>
           `<option value="${escapeHtml(s.id)}"${s.id === selectedId ? " selected" : ""}>${escapeHtml(formatUserName(s))}</option>`
@@ -581,7 +577,7 @@ function supervisorOptions(selectedId) {
 
 function supervisorChoices() {
   return [{ value: "", label: "Unassigned" }].concat(
-    allSupers.map((s) => ({ value: s.id, label: formatUserName(s) }))
+    getAllSupervisors().map((s) => ({ value: s.id, label: formatUserName(s) }))
   );
 }
 
@@ -880,35 +876,6 @@ async function offerRestoreForExactArchivedSearch(number, token) {
     );
   } finally {
     archivedSearchPromptOpen = false;
-  }
-}
-
-// Item and user reference lists that the card *body* needs: the add-material
-// search reads `allItems`, the technician picker reads `allTechs`/`allSupers`.
-//
-// Shared by the list load and the card-page load. A cold deep link paints a
-// card body without ever rendering the list, and empty lists there are a
-// picker that silently matches nothing rather than an error the user can act
-// on. Failures stay swallowed, as before: the card is still worth showing.
-async function ensureReferenceData({ refresh = false } = {}) {
-  if (refresh || !itemsLoaded) {
-    try {
-      allItems = await apiListItems();
-      itemsLoaded = true;
-    } catch {
-      allItems = [];
-    }
-  }
-  if ((refresh || !usersLoaded) && isSupervisorPlus()) {
-    try {
-      const users = await apiListUsers();
-      allTechs = users.filter((u) => canBeWorkOrderTechnician(u.role));
-      allSupers = users.filter((u) => canBeWorkOrderSupervisor(u.role));
-      usersLoaded = true;
-    } catch {
-      allTechs = [];
-      allSupers = [];
-    }
   }
 }
 
@@ -1458,7 +1425,7 @@ function renderSoloError(message) {
 // collapsing and re-expanding would not retry.
 function paintDetail(detail, bodyEl, cardEl) {
   renderBody(detail, bodyEl);
-  if (cardEl) void mountWorkOrderRequests(cardEl, detail, { items: allItems });
+  if (cardEl) void mountWorkOrderRequests(cardEl, detail, { items: getAllItems() });
   if (!cardEl) return;
 
   cardEl.dataset.loaded = "1";
@@ -1683,7 +1650,7 @@ listEl.addEventListener("input", (event) => {
     return;
   }
   const matches = filterRanked(
-    allItems,
+    getAllItems(),
     (it) => [it.name, it.barcode],
     q
   ).slice(0, 8);
@@ -2154,7 +2121,7 @@ async function pollNetFacilitiesJob(jobId) {
       renderNetFacilitiesJob(job);
       if (job.state !== "queued" && job.state !== "running") {
         if (job.state === "completed" || job.state === "timed_out") {
-          usersLoaded = false;
+          invalidateUsers();
           filterOptionsLoaded = false;
           await loadWorkOrders();
         }
@@ -2296,7 +2263,7 @@ async function maybeHandleChainCompletion(cloudStatus) {
   if (handledChainCompletion === key) return;
   handledChainCompletion = key;
   if (cloudStatus.chain_stage !== "done") return;
-  usersLoaded = false;
+  invalidateUsers();
   filterOptionsLoaded = false;
   await loadWorkOrders();
   if (cloudStatus.enrichment_job_id) {
@@ -2394,7 +2361,7 @@ async function afterWorkOrderImport(r, { chainOwnsEnrichment = false } = {}) {
   // their own routing, and rows the import passed over changed nothing.
   setMessage(importMessage, importSummary(r), "success");
   // Reset caches so a re-import reflects fresh data, then reload the list.
-  usersLoaded = false;
+  invalidateUsers();
   filterOptionsLoaded = false;
   await loadWorkOrders();
   const capability = await refreshNetFacilitiesCloudSession();
