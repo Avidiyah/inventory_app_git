@@ -320,3 +320,45 @@ export function hubGraphs(overrides = {}) {
     ...overrides,
   };
 }
+
+// --- Mass stage (backend/app/schemas/mass_stages.py) ------------------------
+export function stageItem(overrides = {}) {
+  return {
+    id: uuid(), item_id: uuid(), item_name: "Bulb", item_barcode: "B1",
+    item_quantity: "10", planned_quantity: "2", loaded_quantity: "0", returned_quantity: "0",
+    ...overrides,
+  };
+}
+
+export function stageWorkOrder(overrides = {}) {
+  return {
+    id: uuid(), work_order_id: uuid(), work_order_number: "7001", unit_number: "12",
+    status: "assigned", sort_order: 0, assigned_to_id: null, assigned_to_name: null, items: [],
+    ...overrides,
+  };
+}
+
+export function mergedItem(overrides = {}) {
+  return {
+    item_id: uuid(), item_name: "Bulb", item_barcode: "B1", on_hand: "10",
+    planned_total: "4", loaded_total: "0", returned_total: "0", overflow: "0",
+    net_consumed: "0", remaining_to_load: "4",
+    ...overrides,
+  };
+}
+
+export function massStageSummary(overrides = {}) {
+  return {
+    id: uuid(), community: "Scholars", building_name: "19", status: "planning",
+    unit_count: 0, item_count: 0, created_at: "2026-09-10T12:00:00Z",
+    ...overrides,
+  };
+}
+
+export function massStageDetail(overrides = {}) {
+  return {
+    id: uuid(), community: "Scholars", building_name: "19", status: "planning",
+    created_at: "2026-09-10T12:00:00Z", work_orders: [], merged_items: [],
+    ...overrides,
+  };
+}

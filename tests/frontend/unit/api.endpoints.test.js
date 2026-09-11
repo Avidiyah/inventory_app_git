@@ -95,6 +95,11 @@ describe("factories match the schemas they stand in for", () => {
     ["hubAdmin", "backend/app/schemas/hub.py"],
     ["hubTimesheets", "backend/app/schemas/hub.py"],
     ["hubGraphs", "backend/app/schemas/hub.py"],
+    ["stageItem", "backend/app/schemas/mass_stages.py"],
+    ["stageWorkOrder", "backend/app/schemas/mass_stages.py"],
+    ["mergedItem", "backend/app/schemas/mass_stages.py"],
+    ["massStageSummary", "backend/app/schemas/mass_stages.py"],
+    ["massStageDetail", "backend/app/schemas/mass_stages.py"],
   ])("%s declares no field its response model does not have", async (name, schemaPath) => {
     const { readFileSync } = await import("node:fs");
     const factories = await import("../helpers/factories.js");
