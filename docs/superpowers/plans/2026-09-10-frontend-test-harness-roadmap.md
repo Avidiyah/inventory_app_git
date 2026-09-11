@@ -20,7 +20,7 @@ A phase — or a chunk — lands green and committed before the next begins.
 | --- | --- |
 | P0–P3 | Landed. `npm test`: 819 tests / 27 files, ~50 s, green. `pytest -m e2e` green. |
 | P4 | Landed 2026-09-11 in nine commits. `workOrders.js` is a 24-line barrel over eight modules, largest 752 lines; no behaviour test was edited to accommodate a move. |
-| P5 | In progress — `2026-09-10-frontend-test-harness-p5.md`, eight chunks. P5a (`main.js` + `views/nav.js`), P5b (`views/auth.js`), P5c (`views/items.js`) and P5d (`views/transactions.js`) landed; `npm test`: 1036 tests / 32 files, ~80 s, green. P5e-P5h not started. |
+| P5 | In progress — `2026-09-10-frontend-test-harness-p5.md`, eight chunks. P5a (`main.js` + `views/nav.js`), P5b (`views/auth.js`), P5c (`views/items.js`), P5d (`views/transactions.js`) and P5e (`views/history.js`) landed; `npm test`: 1102 tests / 33 files, ~80 s, green. P5f-P5h not started. |
 | P6–P7 | Not started. |
 
 None of this has been through CI: the branch is 45 commits ahead of

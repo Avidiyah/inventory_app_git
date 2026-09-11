@@ -32,7 +32,7 @@ barrel over eight modules, largest 752 lines. Suite at that point: **819 tests
 - **One chunk, one session, one green suite.** A chunk is done when `npm test` is green, its own success check passes, and its findings are filed.
 - Commit messages end with `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`.
 
-## Seven deviations from the roadmap text, decided here
+## Eight deviations from the roadmap text, decided here
 
 1. **P5 is eight sessions, not one.** The roadmap's standing rule says "each phase is one bounded session" while P5 itself says "one module per session-sized chunk". The second wins: 4,519 lines across nine modules cannot land in one window. The chunks below are the phase's real unit of work; each is independently committable and independently green.
 2. **`auth.js` and `main.js` move out of churn order, up next to `nav.js`.** They are not three modules, they are one boot path: `main.js` wires the callbacks, `initAuth()` decides signed-in or not, `nav.js` routes and gates by role. Covering them apart means building the same fixture three times and testing each one's half of a handshake in isolation.
@@ -41,6 +41,7 @@ barrel over eight modules, largest 752 lines. Suite at that point: **819 tests
 5. **P5c's "ranked search through `filterRanked`" bullet was wrong.** `items.js` does not import `filterRanked`; Find Item search is server-side (`GET /items/?q=`) and the page renders whatever comes back. The tests cover the request and the render, not a ranking.
 6. **P5c cannot mount `views/items.js` as its own entry point.** `items.js` reaches `nav.js` via `scan.js` -> `transactions.js`, and `nav.js` re-enters `scan.js` through `tools.js` while `scan.js`'s imports are still initializing (TDZ on `BarcodeDecoder`). Production's `main.js` enters at `nav.js` first, so `helpers/items.js` primes the graph the same way (`mountView("views/nav.js")` then `importView("views/items.js")` against the one shell). Consequence for the tests: `nav.js` is live, so the Create-Item scan shortcut really routes pages rather than only firing a click.
 7. **P5d lifted the request recorder and the confirm helper into shared fixtures.** `helpers/auth.js` and `helpers/items.js` each carried a private copy; they are now `helpers/requests.js` and `helpers/dialogs.js`, and both earlier fixtures re-export them (same import surface, identical pass counts). P5e+ import the shared ones directly. `helpers/workOrders.js` (P2) keeps its own copy — re-pointing it is P5h's business alongside the action audit.
+8. **P5e — pricing is a button, not a tab; `billingEditor.js` is driven for real.** The parent bullets said "pricing tab"; it is a button below the results, and the `scrollTop` reset is on the pricing textarea. `billingEditor.js` has no other covered consumer, so its Save / Don't charge / Cancel are exercised here and P6 must not re-cover them. `historyRow()` factory added with a drift-guard row.
 
 ## Chunk sequencing
 
@@ -145,11 +146,13 @@ Churn order, adjusted where a fixture dependency forces it. The adjustments are 
 
 **Files.** Create `tests/frontend/views/history.test.js`.
 
-- [ ] `setHistoryTab` / `loadHistory` / `renderHistory` across each tab, including the pricing tab and its `scrollTop` reset.
-- [ ] The 250 ms work-order filter debounce on fake timers.
-- [ ] `initSubNav` wiring and `openBillingEditor` hand-off, asserted at the boundary only.
-- [ ] Role gating: cost and billing columns appear at TechFM OA and above.
-- [ ] Skeleton rows, empty state, error copy, `confirmDialog` on any destructive row action.
+**Done 2026-09-11** — `2026-09-11-frontend-test-harness-p5e-history.md`, 66 tests.
+
+- [x] `setHistoryTab` / `loadHistory` / `renderHistory` across each tab, including the pricing button and the textarea `scrollTop` reset (deviation 8).
+- [x] The 250 ms work-order filter debounce on fake timers.
+- [x] `initSubNav` wiring; `openBillingEditor` driven for real (deviation 8).
+- [x] Role gating: the Charge column and pricing button appear at TechFM OA and above.
+- [x] Skeleton rows, empty state, error copy, `confirmDialog` on void and on the archived-restore offer.
 
 **Test.** `npm test` green.
 

@@ -278,11 +278,11 @@ edit to the area, or a user report matching one.
 ### N-P5-CHARACTERIZED — what the P5 spine suite pins rather than fixes
 
 Found while writing `tests/frontend/views/nav.test.js`, `main.test.js`,
-`auth.test.js`, `items.test.js` and `transactions.test.js`. Same rule as
+`auth.test.js`, `items.test.js`, `transactions.test.js` and `history.test.js`. Same rule as
 N-WO-CHARACTERIZED: the test is green *as today's behaviour*, so a fix must
 update the named test in the same change.
 **Trigger:** the next substantive edit to the nav bar, the composition root,
-the auth/boot path, the items table, or the scan-and-go batch.
+the auth/boot path, the items table, the scan-and-go batch, or the History page.
 
 | Defect | Pinned by |
 | --- | --- |
@@ -302,6 +302,12 @@ the auth/boot path, the items table, or the scan-and-go batch.
 | The snapshot carries `workOrder.status`, but `tryResumeBatch` re-fetches the work order and decides on the response — the persisted field is dead weight. | `transactions.test.js` → "is written after the first commit in the documented shape" |
 | The batch summary has no singular for units: one unit reads "1 scan, 1 units". | `transactions.test.js` → "a failing void re-enables the button" |
 | `tryResumeBatch`'s network-error branch is silent only in the sense that it writes nothing: it leaves whatever copy is already in `#wo-gate-message`, so a preceding 404's "no longer active" line still stands over an inconclusive retry. | `transactions.test.js` → "404 clears; a network error keeps the snapshot and stays silent" (the test blanks the element by hand first) |
+| `loadHistory`'s error row hardcodes `colspan="8"`; a supervisor's table has 7 columns. | `history.test.js` → "a failed load renders friendlyError in an 8-span error cell" |
+| `woRestoreAsked` is documented as remembering a *decline*, but a failed restore also keeps the key (it is deleted only on success), so the offer is never repeated after a transient error. | `history.test.js` → "a restore failure reports friendlyError and the number is NOT asked again" |
+| `formatRow` renders the timestamp with `toLocaleString()` — locale-dependent on screen and in the pricing/TSV paths; the test can only pin non-empty. | `history.test.js` → "formats the six columns" |
+| `renderHistory` / `loadHistory` comments say the Charge column is "Admin/Owner"; the gate is `roleAtLeast(role, "techfm_oa")`. Comment drift, not behaviour. | `history.test.js` → "Charge column gating" |
+| `billingEditor.js` writes its message through `setMessage`, which replaces `className` wholesale, so `.charge-editor-msg` stops matching after the first message and any CSS keyed on it drops off. | `history.test.js` → "out-of-range shows the range message and sends nothing" |
+| The pricing list resolves a work-order **number** to an id and fetches the work order's line prices, but `markedCharge` only consults that map when the row itself carries `work_order_id` — so a row with `work_order_id: null` costs two round trips and is still dropped as unpriced. | `history.test.js` → "a row with no work_order_id resolves the number and fetches the work order, then drops the line anyway" |
 
 ### N11 — notification triggers considered and deliberately deferred
 

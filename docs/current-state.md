@@ -99,8 +99,8 @@ Path shorthand:
 | Alternate barcodes | `models.py`, `services/items.py`, `schemas/items.py`, `routers/items.py`, `static/views/itemEditor.js`, `static/views/addBarcode.js` | `test_item_barcodes.py` |
 | Stock/dispense/correction/void | `domain/quantity.py`, `services/transactions.py`, `routers/transactions.py`, `schemas/transactions.py`, `static/views/transactions.js`, `static/views/correction.js` | `test_quantity_reverse.py`, `test_user_requests.py`, route-gate tests |
 | User Requests / operational exceptions | `models.py`, `domain/material_requests.py`, `services/user_requests.py`, `services/material_requests.py`, `routers/user_requests.py`, `routers/_stock_events.py`, `schemas/user_requests.py`, `services/items.py`, `services/transactions.py`, `services/work_orders.py`, `static/views/userRequests.js`, `static/views/userRequestCards.js`, `static/views/workOrderRequests.js`, `static/views/catalogueRequest.js`, `static/pages/user-requests.html` | `test_user_requests.py`, `test_catalogue_requests.py`, `test_material_requests.py`, `test_material_requests_domain.py`, `test_stock_events_flush.py`, `test_route_role_gates.py` |
-| Billing/charge override | `domain/billing.py`, `services/transactions.py`, `services/work_orders.py`, `services/history.py`, `routers/transactions.py`, `routers/work_orders.py`, `static/pricingText.js`, `static/adminReviewReceipt.js`, `static/views/history.js`, `static/views/workOrderActions.js`, `static/views/adminReview.js` | `test_billing_validation.py`, `test_work_order_billing.py`, `test_history_price_snapshot.py`, `test_item_price_gating.py` |
-| History filters/export | `services/history.py`, `routers/transactions.py`, `schemas/transactions.py`, `static/views/history.js`, `static/api.js` | `test_history_wo_filter.py` |
+| Billing/charge override | `domain/billing.py`, `services/transactions.py`, `services/work_orders.py`, `services/history.py`, `routers/transactions.py`, `routers/work_orders.py`, `static/pricingText.js`, `static/adminReviewReceipt.js`, `static/views/history.js`, `static/views/billingEditor.js`, `static/views/workOrderActions.js`, `static/views/adminReview.js` | `test_billing_validation.py`, `test_work_order_billing.py`, `test_history_price_snapshot.py`, `test_item_price_gating.py`, `tests/frontend/views/history.test.js` (Charge column, inline editor driven for real, pricing list) |
+| History filters/export | `services/history.py`, `routers/transactions.py`, `schemas/transactions.py`, `static/views/history.js`, `static/api.js` | `test_history_wo_filter.py`, `tests/frontend/views/history.test.js` |
 | Barcode upload decode | `services/barcodes.py`, `routers/barcodes.py`, `schemas/barcodes.py`, `static/views/scan.js`, `static/api.js` | `test_barcodes.py` |
 | Live camera scan | `static/scan/barcode-decoder.js`, `static/scan/frame-debouncer.js`, `static/views/scan.js`, `static/scan-test.html`, `static/scan-test.js` | manual browser/device check; unit tests cover backend decode only |
 | Scan-and-go work-order batch | `static/views/transactions.js`, `static/views/scan.js`, `routers/transactions.py`, `services/transactions.py`, `static/pages/transaction.html` | `tests/frontend/views/transactions.test.js`, transaction/domain tests, manual UI check for the camera |
@@ -1751,7 +1751,7 @@ Frontend layers:
 
 - Vitest (`npm test`, repo root): `static/` modules under jsdom, mounted on the
   real assembled shell with MSW answering `fetch`, so the real `api.js` runs.
-  1036 tests / 32 files, ~80 s. Covers the foundation layer, the whole
+  1102 tests / 33 files, ~80 s. Covers the foundation layer, the whole
   `workOrder*` group (including a meta-test that goes red when a `data-action`
   branch loses its test or the barrel drops an export), the boot spine --
   `main.js` + `views/nav.js`, booted through `helpers/app.js`, which runs the
@@ -1762,7 +1762,10 @@ Frontend layers:
   actions, create-item, and both scanners' upload-lookup path), and
   `views/transactions.js` through `helpers/transactions.js` (the work-order
   gate, the batch lifecycle, commit/undo/retry, the `sessionStorage` snapshot
-  and resume, and the manual-entry panel; the camera itself is P5g). Remaining
+  and resume, and the manual-entry panel; the camera itself is P5g), and
+  `views/history.js` through `helpers/history.js` (tabs, overlay filters and
+  the debounce, pagination, the Charge column, void, the real
+  `billingEditor.js`, the archived-restore offer, the pricing list). Remaining
   views: uncovered, roadmap P5-P7. Coverage reported, not gated, until P7.
 - E2E (`pytest -m e2e` from `backend/`): real Chromium over the real app --
   every `SHELL_PARTS` page renders its landmark with an empty console, plus two
