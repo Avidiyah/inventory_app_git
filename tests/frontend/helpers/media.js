@@ -152,7 +152,8 @@ export function stubZXing(overrides = {}) {
     ...overrides,
   };
   const ZXingBrowser = {
-    BrowserMultiFormatReader: vi.fn(() => reader),
+    // A `function`, not an arrow: the decoder does `new BrowserMultiFormatReader(hints)`.
+    BrowserMultiFormatReader: vi.fn(function BrowserMultiFormatReader() { return reader; }),
     ...overrides.ZXingBrowser,
   };
   define(window, "ZXingBrowser", ZXingBrowser);
@@ -240,4 +241,60 @@ export function stubPush({ permission = "default", subscription = null } = {}) {
 
 export function restorePush() {
   while (pushRestorers.length) pushRestorers.pop()();
+}
+
+// --- Decoder frame loop ------------------------------------------------------
+//
+// `BarcodeDecoder._tick` draws the aim-box crop into an offscreen canvas and
+// hands it to ZXing once per animation frame. jsdom has no canvas backend
+// (getContext returns null), never sets a video's intrinsic size, and its
+// requestAnimationFrame cannot be stepped -- so the loop never reaches a
+// decode. These three stubs make a frame a thing a test can advance.
+
+export function stubCanvas() {
+  const ctx = { drawImage: vi.fn() };
+  // An arrow, so `getContext` inside resolves to the mock (a named function
+  // expression would shadow it with the implementation).
+  const getContext = vi.fn((kind, options) => {
+    getContext.lastOptions = options;
+    return kind === "2d" ? ctx : null;
+  });
+  define(HTMLCanvasElement.prototype, "getContext", getContext);
+  return { ctx, getContext };
+}
+
+export function stubRaf() {
+  let queue = [];
+  let nextId = 1;
+  const raf = vi.fn((cb) => { const id = nextId++; queue.push({ id, cb }); return id; });
+  const caf = vi.fn((id) => { queue = queue.filter((entry) => entry.id !== id); });
+  define(window, "requestAnimationFrame", raf);
+  define(window, "cancelAnimationFrame", caf);
+  return {
+    raf, caf,
+    pending: () => queue.length,
+    // Run everything queued at call time as one frame; callbacks that
+    // re-queue land in the NEXT frame, not this one.
+    flush(frames = 1) {
+      for (let i = 0; i < frames; i += 1) {
+        const batch = queue; queue = [];
+        batch.forEach(({ cb }) => cb(performance.now()));
+      }
+    },
+  };
+}
+
+// Intrinsic size and a resolved `play()` on an element the test owns; the
+// element is discarded with the DOM, so nothing to restore.
+export function stubVideo(videoEl, { width = 1280, height = 720 } = {}) {
+  Object.defineProperty(videoEl, "videoWidth", { configurable: true, get: () => width });
+  Object.defineProperty(videoEl, "videoHeight", { configurable: true, get: () => height });
+  const play = vi.fn(async () => {});
+  Object.defineProperty(videoEl, "play", { configurable: true, value: play });
+  return { play };
+}
+
+// The shape ZXing's result exposes.
+export function decodeResult(text, format = "CODE_128") {
+  return { getText: () => text, getBarcodeFormat: () => format };
 }
