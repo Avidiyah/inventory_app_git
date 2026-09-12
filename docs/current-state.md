@@ -102,10 +102,10 @@ Path shorthand:
 | Billing/charge override | `domain/billing.py`, `services/transactions.py`, `services/work_orders.py`, `services/history.py`, `routers/transactions.py`, `routers/work_orders.py`, `static/pricingText.js`, `static/adminReviewReceipt.js`, `static/views/history.js`, `static/views/billingEditor.js`, `static/views/workOrderActions.js`, `static/views/adminReview.js` | `test_billing_validation.py`, `test_work_order_billing.py`, `test_history_price_snapshot.py`, `test_item_price_gating.py`, `tests/frontend/views/history.test.js` (Charge column, inline editor driven for real, pricing list) |
 | History filters/export | `services/history.py`, `routers/transactions.py`, `schemas/transactions.py`, `static/views/history.js`, `static/api.js` | `test_history_wo_filter.py`, `tests/frontend/views/history.test.js` |
 | Barcode upload decode | `services/barcodes.py`, `routers/barcodes.py`, `schemas/barcodes.py`, `static/views/scan.js`, `static/api.js` | `test_barcodes.py` |
-| Live camera scan | `static/scan/barcode-decoder.js`, `static/scan/frame-debouncer.js`, `static/views/scan.js`, `static/scan-test.html`, `static/scan-test.js` | manual browser/device check; unit tests cover backend decode only |
+| Live camera scan | `static/scan/barcode-decoder.js`, `static/scan/frame-debouncer.js`, `static/views/scan.js`, `static/scan-test.html`, `static/scan-test.js` | `tests/frontend/unit/barcodeDecoder.test.js`, `tests/frontend/unit/frameDebouncer.test.js` (the field-tested tuning by number), `tests/frontend/views/scan.test.js` (camera stubbed at `navigator.mediaDevices`); manual browser/device check for real optics |
 | Scan-and-go work-order batch | `static/views/transactions.js`, `static/views/scan.js`, `routers/transactions.py`, `services/transactions.py`, `static/pages/transaction.html` | `tests/frontend/views/transactions.test.js`, transaction/domain tests, manual UI check for the camera |
 | Mass staging API/domain | `domain/mass_staging.py`, `services/mass_staging.py`, `routers/mass_stages.py`, `schemas/mass_stages.py`, `models.py` | `test_mass_staging.py`, `test_mass_staging_load.py`, `test_mass_stages_api.py` |
-| Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | mass-stage tests plus manual UI check |
+| Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | `tests/frontend/views/massStage.test.js` (all thirteen `data-action` branches, named by `massStageActionCoverage.test.js`), backend mass-stage tests, manual UI check |
 | Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
 | Work Orders UI | `static/views/workOrder*.js` (barrel: `workOrders.js`), `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | `tests/frontend/views/workOrders/` (characterization: render, roles, actions, editor, filters, solo, realtime, integrations, plus the action/export audit), `backend/tests/e2e/test_work_orders.py`, backend work-order tests |
 | User Hub Graphs | `domain/hub.py`, `domain/work_orders.py`, `services/hub.py`, `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubGraphs.js`, `static/views/workOrderList.js`, `static/pages/user-hub.html`, `static/styles.css`, `static/tips.js`, `static/api.js` | `test_hub_graphs_domain.py`, hub service/router/gate/realtime tests, `tests/frontend/views/userHub.test.js` (tab shell, lazy fetch, failure isolation); manual role/realtime checks. Aggregation semantics: endpoint-map → User Hub reads |
@@ -1751,7 +1751,7 @@ Frontend layers:
 
 - Vitest (`npm test`, repo root): `static/` modules under jsdom, mounted on the
   real assembled shell with MSW answering `fetch`, so the real `api.js` runs.
-  1143 tests / 34 files, ~80 s. Covers the foundation layer, the whole
+  1286 tests / 40 files, ~135 s. Covers the foundation layer, the whole
   `workOrder*` group (including a meta-test that goes red when a `data-action`
   branch loses its test or the barrel drops an export), the boot spine --
   `main.js` + `views/nav.js`, booted through `helpers/app.js`, which runs the
@@ -1770,7 +1770,19 @@ Frontend layers:
   `hub*.js` files reuse (`openHub({role, crew, admin, timesheets, graphs})`;
   per-role requests, tab switching, per-tab failure isolation, the 60 s
   safety interval and visibility lifecycle, the three realtime
-  subscriptions). Remaining views: uncovered, roadmap P5-P7. Coverage reported, not gated, until P7.
+  subscriptions), `views/scan.js` through `helpers/scanner.js` (`mountScanner`
+  as a factory, upload and live paths, torch, permission state, continuous
+  dwell/cooldown on fake timers; `helpers/media.js` stubs the camera at the
+  browser boundary) with `scan/barcode-decoder.js` and
+  `scan/frame-debouncer.js` as pure unit tests, and `views/massStage.js`
+  through `helpers/massStage.js` (list tree, lazy detail, create, all
+  thirteen actions, both `confirmDialog` answers). `helpers/actionAudit.js`
+  is the generalised meta-test: `auditActions()` names any rendered
+  `data-action` with no handler, any handler outside its frozen list, and any
+  action no behaviour test mentions -- applied to Work Orders, Items and Mass
+  Stage. Shared fixtures: `helpers/{app,auth,items,transactions,history,hub,
+  scanner,massStage,requests,dialogs,media,actionAudit}.js`. Remaining views:
+  uncovered, roadmap P6-P7. Coverage reported, not gated, until P7.
 - E2E (`pytest -m e2e` from `backend/`): real Chromium over the real app --
   every `SHELL_PARTS` page renders its landmark with an empty console, plus two
   work-order journeys. The only layer that sees CSP violations and the service

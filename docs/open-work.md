@@ -278,11 +278,14 @@ edit to the area, or a user report matching one.
 ### N-P5-CHARACTERIZED — what the P5 spine suite pins rather than fixes
 
 Found while writing `tests/frontend/views/nav.test.js`, `main.test.js`,
-`auth.test.js`, `items.test.js`, `transactions.test.js`, `history.test.js` and `userHub.test.js`. Same rule as
+`auth.test.js`, `items.test.js`, `transactions.test.js`, `history.test.js`,
+`userHub.test.js`, `scan.test.js`, `massStage.test.js` and
+`tests/frontend/unit/frameDebouncer.test.js`. Same rule as
 N-WO-CHARACTERIZED: the test is green *as today's behaviour*, so a fix must
 update the named test in the same change.
 **Trigger:** the next substantive edit to the nav bar, the composition root,
-the auth/boot path, the items table, the scan-and-go batch, the History page, or the hub tab shell.
+the auth/boot path, the items table, the scan-and-go batch, the History page,
+the hub tab shell, the scanner widget, or the Mass Stage page.
 
 | Defect | Pinned by |
 | --- | --- |
@@ -313,6 +316,16 @@ the auth/boot path, the items table, the scan-and-go batch, the History page, or
 | `mountHubGraphs` throws on a payload with no communities (`activeCommunity.key`); `loadGraphs` has already stored the payload so the catch returns early and the tab shows a skeleton forever, no error, no Retry. | `userHub.test.js` → "an empty graphs payload is swallowed" |
 | `destroyHubGraphs()` is a no-op; the "on tab change" lifecycle the P5 plan names has nothing to assert. | `userHub.test.js` → "Graphs: a community tab click re-renders from memory" |
 | The safety interval refetches `/hub` for every role every 60 s while the page is visible, regardless of whether the socket is connected — by design per spec §6.2; recorded so the request count in P6 tests is not mistaken for a leak. | `userHub.test.js` → "every 60 s refetches" |
+| `scan.js` promises "clicking Upload tears the camera down first", but `startLive` disables the Upload button, so the `if (liveRunning) stopLive()` guard is unreachable from the UI. | `scan.test.js` → "Upload is disabled while live, so its stop-the-camera-first branch is unreachable by click" |
+| A failed continuous commit (`{committed:false}` without `declined`) starts no cooldown, so a label still in frame re-attempts every dwell until it succeeds or the operator moves — reasonable for a transient error, identical for a permanent 404. | `scan.test.js` → "a failed commit ({committed:false}) buzzes the error pattern and does NOT start a cooldown" |
+| `startLive` arms a 500 ms focus-retry `setTimeout` that `stopLive` never clears; it re-checks `liveRunning` when it fires, so it is safe, but it is the one scanner timer a test must let expire. | `scan.test.js` → "the 500 ms focus retry applies continuous focusMode only while still live" |
+| `toggleTorch` disables the button on a failed `applyConstraints` but never re-hides it; `stopLive` re-enables it, so a lying torch capability is re-offered on the next start. | `scan.test.js` → "torch" → "a failing toggle disables the button" |
+| `FrameDebouncer` treats `""` as a real barcode (`null` means no read, `""` counts toward the consecutive rule). ZXing never returns it, so unreachable today; pinned so the null-vs-empty distinction cannot flip silently. | `frameDebouncer.test.js` → "distinguishes empty string from null and treats it as a real text" |
+| `massStage.js` writes card messages through `setMessage`, which replaces `className` wholesale, so `.ms-stage-message` matches nothing after the first action on a card. The click handler re-queries it per action, so a **second** action on the same card with no re-render between (validation failure, declined confirm, failed request) throws a TypeError before doing anything. | `massStage.test.js` → "any stage action strips the message element's class, so the module's next lookup on that card is null" (every other test drives one action per card because of it) |
+| `reuse-stage` sets `autoOpenId` but not `autoOpenCommunity`, so the fresh stage opens inside a collapsed community group and is invisible until the group is expanded. | `massStage.test.js` → "reuse-stage: confirm; Yes POSTs /reuse, reloads, and auto-opens the fresh stage" |
+| The community `<select>` seeds three fixed names (`Scholars`, `Centennial`, `Cimarron`) in source — a deployment-specific list living in a view module. | `massStage.test.js` → "community select: seeds + used names sorted, New community reveals the input" |
+| `stageMetaText` pluralises units but never items (`1 unit · 1 items`), and the slot's `room-meta` does the same (`· 1 items`). | `massStage.test.js` → "community groups sorted, buildings inside, status badge and meta" / "renders slots, the add-work-order row with tech options, Save and Delete; tipHtml absent here" |
+| Typing in the item search after a pick clears `dataset.itemId` silently, so Add with the picked name still showing fails with "Search and pick an item first." | `massStage.test.js` → "pick-item: search filters the item cache, picking fills the row and focuses qty, no request" |
 
 ### N11 — notification triggers considered and deliberately deferred
 

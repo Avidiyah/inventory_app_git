@@ -181,13 +181,13 @@ Churn order, adjusted where a fixture dependency forces it. The adjustments are 
 
 **Files.** Create `tests/frontend/unit/barcodeDecoder.test.js`, `tests/frontend/unit/frameDebouncer.test.js`, `tests/frontend/views/scan.test.js`.
 
-- [ ] **Pure first.** `scan/frame-debouncer.js` (49 lines) and `scan/barcode-decoder.js` (179) get table-driven unit tests, including the field-tested tuning they encode (crop, TRY_HARDER, the three-consecutive rule). These are cheap, they are real, and they are what lets the `scan.js` tests stub the camera without stubbing the decode logic.
-- [ ] `mountScanner` as a factory: mount twice with different options and assert the two instances do not share state — the bug class a module-level singleton would hide.
-- [ ] Upload path: a file through the chooser reaches `apiDecodeBarcode`, then `lookupFn`; 404 renders `notFoundLabel` copy; `onNotFound` / `onCreateShortcut` / `onAddBarcode` fire per option.
-- [ ] Live path on stubbed `getUserMedia`: `start` → `stopLive` releases every track; torch button hidden when the capability is absent; the aimbox toggles in lockstep.
-- [ ] Continuous mode: `DWELL_MS` and `COOLDOWN_MS` on fake timers — the same label re-decoded inside the dwell does not commit twice, a different label does commit immediately, `canScan` false suppresses the commit.
-- [ ] `buzz` and `primeAudio` degrade silently with the APIs absent (iOS Safari case) — assert no throw, not a call count.
-- [ ] `resetScan` / `autoStartTxnScan`: autostart starts only when permission is already granted and **never** prompts.
+- [x] **Pure first.** `scan/frame-debouncer.js` (49 lines) and `scan/barcode-decoder.js` (179) get table-driven unit tests, including the field-tested tuning they encode (crop, TRY_HARDER, the three-consecutive rule). These are cheap, they are real, and they are what lets the `scan.js` tests stub the camera without stubbing the decode logic.
+- [x] `mountScanner` as a factory: mount twice with different options and assert the two instances do not share state — the bug class a module-level singleton would hide.
+- [x] Upload path: a file through the chooser reaches `apiDecodeBarcode`, then `lookupFn`; 404 renders `notFoundLabel` copy; `onNotFound` / `onCreateShortcut` / `onAddBarcode` fire per option.
+- [x] Live path on stubbed `getUserMedia`: `start` → `stopLive` releases every track; torch button hidden when the capability is absent; the aimbox toggles in lockstep.
+- [x] Continuous mode: `DWELL_MS` and `COOLDOWN_MS` on fake timers — the same label re-decoded inside the dwell does not commit twice, a different label does commit immediately, `canScan` false suppresses the commit.
+- [x] `buzz` and `primeAudio` degrade silently with the APIs absent (iOS Safari case) — assert no throw, not a call count.
+- [x] `resetScan` / `autoStartTxnScan`: autostart starts only when permission is already granted and **never** prompts.
 
 **Test.** `npm test` green; no real camera, no real timers, no unhandled rejection.
 
@@ -197,11 +197,11 @@ Churn order, adjusted where a fixture dependency forces it. The adjustments are 
 
 **Files.** Create `tests/frontend/helpers/actionAudit.js`, `tests/frontend/views/massStage.test.js`. Modify `tests/frontend/views/workOrders/actionCoverage.test.js`, `tests/frontend/views/items.test.js`.
 
-- [ ] `helpers/actionAudit.js`: lift P2's meta-test into `auditActions({sources, fragment, frozen, behaviourFiles})` — rendered-vs-handled orphans, the frozen list, and the per-action coverage check. Re-point `actionCoverage.test.js` at it with no behaviour change; its result must be identical before and after.
-- [ ] Apply the audit to `massStage.js` (thirteen actions: `add-work-order`, `pick-item`, `open-wo`, `remove-slot`, `reuse-stage`, `add-item`, `edit-item`, `remove-item`, `load-item`, `return-item`, `complete-stage`, `save-stage`, `delete-stage`) and to `items.js` (four).
-- [ ] Cover the thirteen branches: each issues the right request, produces the right DOM, and surfaces the right error. `complete-stage` and `delete-stage` go through `confirmDialog` — both answers.
-- [ ] `loadStages()` with its arguments, the skeleton, the empty state, `canBeWorkOrderTechnician` gating on the technician picker, `tipHtml` presence.
-- [ ] `focusWorkOrder` and `showPage` hand-offs at the boundary.
+- [x] `helpers/actionAudit.js`: lift P2's meta-test into `auditActions({sources, fragment, frozen, behaviourFiles})` — rendered-vs-handled orphans, the frozen list, and the per-action coverage check. Re-point `actionCoverage.test.js` at it with no behaviour change; its result must be identical before and after.
+- [x] Apply the audit to `massStage.js` (thirteen actions: `add-work-order`, `pick-item`, `open-wo`, `remove-slot`, `reuse-stage`, `add-item`, `edit-item`, `remove-item`, `load-item`, `return-item`, `complete-stage`, `save-stage`, `delete-stage`) and to `items.js` (four).
+- [x] Cover the thirteen branches: each issues the right request, produces the right DOM, and surfaces the right error. `complete-stage` and `delete-stage` go through `confirmDialog` — both answers.
+- [x] `loadStages()` with its arguments, the skeleton, the empty state, `canBeWorkOrderTechnician` gating on the technician picker, `tipHtml` presence.
+- [x] `focusWorkOrder` and `showPage` hand-offs at the boundary.
 
 **Test.** Delete one action's tests locally; the audit names it. Restore.
 
@@ -211,17 +211,29 @@ Churn order, adjusted where a fixture dependency forces it. The adjustments are 
 
 Adding eight modules to a suite that already costs ~180 s locally is the phase's real risk; a suite people skip is worse than no suite.
 
-- [ ] Record wall-clock at each chunk's close, in the commit body.
-- [ ] **Memoise the shell.** `helpers/shell.js` re-reads `main.py` and every fragment on every mount. Cache the assembled string at module scope (the parse stays per-test; only the file I/O and concatenation are shared). Test-helper change, allowed, and it pays back on every file.
-- [ ] If a chunk pushes the total past ~6 minutes locally, stop and raise it before starting the next. The lever is `maxWorkers` and the shell cache, not deleting assertions.
+- [x] Record wall-clock at each chunk's close, in the commit body.
+- [x] **Memoise the shell.** `helpers/shell.js` re-reads `main.py` and every fragment on every mount. Cache the assembled string at module scope (the parse stays per-test; only the file I/O and concatenation are shared). Test-helper change, allowed, and it pays back on every file.
+- [x] If a chunk pushes the total past ~6 minutes locally, stop and raise it before starting the next. The lever is `maxWorkers` and the shell cache, not deleting assertions.
+
+Measured (from commit bodies; P5g/P5h bodies carried no figure, so the phase close is the next measurement):
+
+| Close of | Tests / files | Wall-clock |
+| --- | --- | --- |
+| P4 (entry) | 819 / 27 | ~50 s |
+| P5d | 1036 / 32 | ~76 s |
+| P5e | 1102 / 33 | ~90 s (concurrent run) |
+| P5f | 1143 / 34 | ~90 s |
+| P5h (phase close) | 1286 / 40 | ~135 s |
+
+Never near the 6-minute line; no lever pulled beyond the `maxWorkers: 4` P2 already set.
 
 ## Done when
 
-- [ ] All eight chunks are committed, each green at commit time.
-- [ ] Every module's exported surface is exercised; every delegated action in `items.js` and `massStage.js` is named by the audit.
-- [ ] Findings are filed in `docs/open-work.md` under a new `N-P5-CHARACTERIZED` heading, in the P2 table form (defect, pinned by).
-- [ ] `docs/current-state.md`'s verification column no longer says "no Vitest suite for these views yet" for anything P5 covered.
-- [ ] Coverage recorded, still advisory. P7 gates.
+- [x] All eight chunks are committed, each green at commit time.
+- [x] Every module's exported surface is exercised; every delegated action in `items.js` and `massStage.js` is named by the audit.
+- [x] Findings are filed in `docs/open-work.md` under a new `N-P5-CHARACTERIZED` heading, in the P2 table form (defect, pinned by).
+- [x] `docs/current-state.md`'s verification column no longer says "no Vitest suite for these views yet" for anything P5 covered.
+- [x] Coverage recorded, still advisory. P7 gates.
 
 ## Deliberately not in P5
 
