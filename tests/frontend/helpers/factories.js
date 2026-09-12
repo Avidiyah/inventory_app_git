@@ -369,10 +369,33 @@ export function hubOnClockEntry(overrides = {}) {
 export function hubTimesheets(overrides = {}) {
   return {
     range: { start: "2026-09-07", end: "2026-09-13" },
-    rows: [{ user: { id: uuid(), first_name: "Crew", last_name: "One", role: "technician" }, days: [], total_minutes: 0 }],
+    rows: [hubTimesheetRow()],
     crew_totals_by_day: [],
     ...overrides,
   };
+}
+
+// The timesheet grid's own rows. `total_minutes` is a Pydantic computed field
+// on HubTimesheetDay -- present on the wire, so present here; a test that
+// moves the tracked/adjustment split sets it too.
+export function hubTimesheetDay(overrides = {}) {
+  return {
+    date: "2026-09-07", tracked_minutes: 0, adjustment_minutes: 0, total_minutes: 0,
+    flags: [], sessions: [], adjustments: [],
+    ...overrides,
+  };
+}
+
+export function hubTimesheetRow(overrides = {}) {
+  return {
+    user: { id: uuid(), first_name: "Crew", last_name: "One", role: "technician" },
+    days: [], total_minutes: 0,
+    ...overrides,
+  };
+}
+
+export function hubTimesheetDayTotal(overrides = {}) {
+  return { date: "2026-09-07", minutes: 0, ...overrides };
 }
 
 export function hubGraphs(overrides = {}) {
@@ -380,8 +403,65 @@ export function hubGraphs(overrides = {}) {
     generated_at: "2026-09-10T12:00:00Z",
     weeks: 12,
     statuses: [{ key: "assigned", label: "Assigned" }],
-    communities: [{ key: "maple", label: "Maple Ridge", total: 1, counts: { assigned: 1 }, service_types: [], priorities: [] }],
+    communities: [hubGraphCommunity()],
     duration: { range: { start: "2026-06-18", end: "2026-09-10" }, buckets: [] },
+    ...overrides,
+  };
+}
+
+// One status distribution: a community's own, or a service-type / priority
+// card inside it. `label` is the raw, case-preserved text the Work Orders
+// <select> options are built from, which is what the drill-down hands over.
+export function hubGraphDistribution(overrides = {}) {
+  return { key: "electrical", label: "Electrical", total: 1, counts: { assigned: 1 }, ...overrides };
+}
+
+export function hubGraphCommunity(overrides = {}) {
+  return {
+    key: "maple", label: "Maple Ridge", total: 1, counts: { assigned: 1 },
+    service_types: [], priorities: [],
+    ...overrides,
+  };
+}
+
+export function hubGraphBucket(overrides = {}) {
+  return {
+    start: "2026-09-07", end: "2026-09-13", partial: false,
+    circulating_avg_age_days: 4.5, circulating_count: 2,
+    closed_avg_days: 2.25, closed_count: 1,
+    ...overrides,
+  };
+}
+
+// `GET /hub/report` (HubReportResponse), Admin-only. Every section starts
+// empty and counted zero; a test fills the one it asserts on.
+export function hubReport(overrides = {}) {
+  return {
+    generated_at: "2026-09-10T18:30:00Z",
+    day: "2026-09-10",
+    week: { start: "2026-09-07", end: "2026-09-13" },
+    sections: {
+      closed_today: { count: 0, rows: [] },
+      closed_week: { count: 0, rows: [] },
+      closing: { count: 0, by_status: {}, truncated: false, rows: [] },
+      new_today: { count: 0, rows: [] },
+      new_week: { count: 0, rows: [] },
+    },
+    ...overrides,
+  };
+}
+
+// The report's display projection (HubReportRow) -- not the 26-column CSV
+// row; `export_cells` deliberately never travels in the JSON.
+export function hubReportRow(overrides = {}) {
+  return {
+    work_order_id: uuid(), number: "7001", status: "completed",
+    community: "Scholars", location: null, building_number: "3", unit_number: "12",
+    service_type: "Electrical", priority: "Normal", supervisor_name: "Sue Super",
+    technician_names: ["Crew One"],
+    materials_total: "10.00", labor_minutes: 60, labor_total: "25.00", total: "35.00",
+    created_at: "2026-09-10T13:00:00Z", completed_at: "2026-09-10T15:00:00Z",
+    archived_at: null, legacy: false,
     ...overrides,
   };
 }
