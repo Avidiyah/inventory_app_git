@@ -1751,7 +1751,7 @@ Frontend layers:
 
 - Vitest (`npm test`, repo root): `static/` modules under jsdom, mounted on the
   real assembled shell with MSW answering `fetch`, so the real `api.js` runs.
-  1343 tests / 43 files, ~190 s. Covers the foundation layer, the whole
+  1382 tests / 45 files, ~125 s. Covers the foundation layer, the whole
   `workOrder*` group (including a meta-test that goes red when a `data-action`
   branch loses its test or the barrel drops an export), the boot spine --
   `main.js` + `views/nav.js`, booted through `helpers/app.js`, which runs the
@@ -1771,10 +1771,14 @@ Frontend layers:
   per-role requests, tab switching, per-tab failure isolation, the 60 s
   safety interval and visibility lifecycle, the three realtime
   subscriptions) and, on the same fixture, its Dashboard leaves
-  `views/hubClock.js`, `views/hubTechnician.js` and `views/hubPriorities.js`
+  `views/hubClock.js`, `views/hubTechnician.js`, `views/hubPriorities.js`,
+  `views/hubSupervisor.js` and `views/hubAdmin.js`
   (the clock's tick and long-session warnings, the timeline's local-time
   math, the stocked-request and card hand-offs to Work Orders, the three
-  role shapes of the Priorities card), `views/scan.js` through `helpers/scanner.js` (`mountScanner`
+  role shapes of the Priorities card, the crew board's roll-ups, card matrix
+  and D16 absent board, the admin summary's on-the-clock list, its pipeline
+  tiles with the Work Orders hand-off and once-guard, and its billing
+  block), `views/scan.js` through `helpers/scanner.js` (`mountScanner`
   as a factory, upload and live paths, torch, permission state, continuous
   dwell/cooldown on fake timers; `helpers/media.js` stubs the camera at the
   browser boundary) with `scan/barcode-decoder.js` and

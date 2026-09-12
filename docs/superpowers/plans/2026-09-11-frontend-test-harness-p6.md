@@ -78,14 +78,14 @@ Churn order, with the hub trio kept contiguous (one fixture, one factory file) a
 
 **Files.** Create `tests/frontend/views/hubSupervisor.test.js`, `tests/frontend/views/hubAdmin.test.js`. Modify `helpers/factories.js` only if a technician-card or on-clock-row sub-factory earns it (`hubCrew()` / `hubAdmin()` are already guarded).
 
-- [ ] **Roll-ups:** "Work orders I lead" with the in-progress sub; "Crew on the clock" present for a supervisor, dropped under `isAdminPlus`; "Crew time today" with "ticking" only when `crew_on_clock > 0`.
-- [ ] **Attention:** omitted when empty; rows `⚠ subject — detail` with the count badge.
-- [ ] **Cards:** on clock → `WO n` and "running h:mm" from `server_now`; off clock → "Last worked <weekday h:mm>" or "Never"; Today minutes; the counts line; flags through the label map with the snake-case fallback for an unknown flag; "Unknown" when both names are blank; the routed-to-you hint when `technicians` is empty.
-- [ ] **Through `openHub`:** a supervisor always gets the board; techfm_oa+ gets it only when `led.total > 0` (D16, both sides), and with the on-clock tile dropped.
-- [ ] **Admin summary:** on-the-clock list (empty copy; rows: name, `WO n · community`, elapsed, flag label incl. the unknown fallback); Supervisor / Technician time tiles; six pipeline tiles whose labels the test reads off `pages/work-orders.html`'s status `<option>`s (the module's own drift claim), `⚠` only on `ready_to_complete > 0`; a tile click → `openWorkOrdersFilteredByStatus` + `showPage` — assert `#work-orders-status-filter` and the active page; `pipelineBound` once-guard: three refreshes on one container, one click, one list request.
-- [ ] **Exceptions and billing:** five rows with "N open" on the first three; `formatMoney` on the three money rows; avg "—" vs "N.N d"; the sparkline glyphs (max → `█`, zero → `▁`); the legacy row only when non-null.
+- [x] **Roll-ups:** "Work orders I lead" with the in-progress sub; "Crew on the clock" present for a supervisor, dropped under `isAdminPlus`; "Crew time today" with "ticking" only when `crew_on_clock > 0`.
+- [x] **Attention:** omitted when empty; rows `⚠ subject — detail` with the count badge.
+- [x] **Cards:** on clock → `WO n` and "running h:mm" from `server_now`; off clock → "Last worked <weekday h:mm>" or "Never"; Today minutes; the counts line; flags through the label map with the snake-case fallback for an unknown flag; "Unknown" when both names are blank; the routed-to-you hint when `technicians` is empty.
+- [x] **Through `openHub`:** a supervisor always gets the board; techfm_oa+ gets it only when `led.total > 0` (D16, both sides), and with the on-clock tile dropped.
+- [x] **Admin summary:** on-the-clock list (empty copy; rows: name, `WO n · community`, elapsed, flag label incl. the unknown fallback); Supervisor / Technician time tiles; six pipeline tiles whose labels the test reads off `pages/work-orders.html`'s status `<option>`s (the module's own drift claim), `⚠` only on `ready_to_complete > 0`; a tile click → `openWorkOrdersFilteredByStatus` + `showPage` — assert `#work-orders-status-filter` and the active page; `pipelineBound` once-guard: three refreshes on one container, one click, one list request.
+- [x] **Exceptions and billing:** five rows with "N open" on the first three; `formatMoney` on the three money rows; avg "—" vs "N.N d"; the sparkline glyphs (max → `█`, zero → `▁`); the legacy row only when non-null.
 
-**Test.** `npm test` green; timers 0.
+**Test.** `npm test` green; timers 0. Chunk plan: `2026-09-11-frontend-test-harness-p6b-crew-admin.md`. Three sub-shape factories earned their place (`hubCrewTechnician`, `hubAttentionItem`, `hubOnClockEntry`); no direct renderer call was needed — the shell reaches every branch.
 
 ---
 
@@ -179,7 +179,8 @@ Seven chunks over a suite that costs 112–135 s. P5 added ~470 tests for ~85 s;
 | Close of | Tests / files | Wall-clock |
 | --- | --- | --- |
 | P5 (entry) | 1286 / 40 | 112 s |
-| P6a | 1343 / 43 | 191 s (the entry run the same evening was 112 s; re-measure at P6b before reading anything into it) |
+| P6a | 1343 / 43 | 191 s — an outlier; the same suite re-measured 123 s at P6b |
+| P6b | 1382 / 45 | 123 s |
 
 ## Done when
 
