@@ -327,6 +327,21 @@ the hub tab shell, the scanner widget, or the Mass Stage page.
 | `stageMetaText` pluralises units but never items (`1 unit · 1 items`), and the slot's `room-meta` does the same (`· 1 items`). | `massStage.test.js` → "community groups sorted, buildings inside, status badge and meta" / "renders slots, the add-work-order row with tech options, Save and Delete; tipHtml absent here" |
 | Typing in the item search after a pick clears `dataset.itemId` silently, so Add with the picked name still showing fails with "Search and pick an item first." | `massStage.test.js` → "pick-item: search filters the item cache, picking fills the row and focuses qty, no request" |
 
+### N-P6-CHARACTERIZED — what the P6 leaf-view suite pins rather than fixes
+
+Found while writing `tests/frontend/views/hubClock.test.js`,
+`hubTechnician.test.js` and `hubPriorities.test.js` (P6a); later P6 chunks
+append here. Same rule as N-WO-CHARACTERIZED: the test is green *as today's
+behaviour*, so a fix must update the named test in the same change.
+**Trigger:** the next substantive edit to the hub clock widget or the
+Dashboard tab.
+
+| Defect | Pinned by |
+| --- | --- |
+| `hubClock.js` `tick()` re-renders only when a warning appears or disappears, so a session that crosses 11 h while the 8 h warning is on screen keeps the 8 h text. The cap copy ("At 12 h this session is capped…") is reachable only by a fresh `mountHubClock` — page re-entry or a Start/Stop refresh; the 60 s safety refresh does not remount the clock. | `hubClock.test.js` → "crossing 11 h by tick does NOT swap the 8 h text for the cap text" |
+| `hubClock.js` writes `#hub-clock-message` through `setMessage`, which replaces `className` wholesale, so the element loses `hub-clock-message` after the first error — the `.wo-message` / `.ms-stage-message` / `.charge-editor-msg` class of defect. Harmless here: the module finds the element by id and every mount rebuilds it. | `hubClock.test.js` → "a failing start writes the detail into the message and does not refetch" |
+| `hubTechnician.js` `toolsOutHtml` renders the literal "since " with nothing after it for a tool whose `since` is null. | `hubTechnician.test.js` → "rows: a count, the name and a weekday since; a null since renders an empty date" |
+
 ### N11 — notification triggers considered and deliberately deferred
 
 **Trigger: a user asking to be told about one of these, or the first drive
