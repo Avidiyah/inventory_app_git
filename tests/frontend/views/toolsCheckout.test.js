@@ -15,6 +15,7 @@ import {
   checkinBtn, checkoutOptions, chooseUser, custodyUser, el, holdingRows,
   openTools, requestFor, requests, restoreTools,
 } from "../helpers/tools.js";
+import { importView } from "../helpers/shell.js";
 import { tool, toolCustodyEntry } from "../helpers/factories.js";
 
 afterEach(() => restoreTools());
@@ -310,6 +311,57 @@ describe("the return ladder", () => {
     expect(el.returnQuantity().value).toBe("1");
     expect(el.returnQuantity().hasAttribute("max")).toBe(false);
     expect(el.returnWorkOrder().value).toBe("");
+  });
+});
+
+describe("the module surface", () => {
+  // Every export driven by name, not through the host. `setOnSaved` replaces
+  // the `refreshTools` tools.js registered at import, so a save that reaches
+  // the spy and fires no second list request proves the setter is the seam.
+  const listGets = () => requests().filter((r) => r.url === "/tools/" && r.method === "GET");
+
+  it("openToolCheckout / closeToolCheckout / setOnSaved", async () => {
+    const drill = DRILL();
+    await openTools({ role: "admin", tools: [drill], users: [] });
+    const checkout = await importView("views/toolCheckout.js");
+    const holder = custodyUser({ full_name: "Ann Holder" });
+    const saved = vi.fn();
+    checkout.setOnSaved(saved);
+    answer("post", `/tools/${drill.id}/checkout`);
+
+    checkout.openToolCheckout(drill, holder);
+    expect(el.checkoutSection().hidden).toBe(false);
+    expect(el.checkoutSelected().textContent).toBe("Drill (T1) — 3 on hand");
+
+    el.checkoutSaveBtn().click();
+    await vi.waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
+    expect(listGets()).toHaveLength(0);
+
+    checkout.closeToolCheckout();
+    expect(el.checkoutSection().hidden).toBe(true);
+    expect(el.checkoutQuantity().hasAttribute("max")).toBe(false);
+  });
+
+  it("openToolReturn / closeToolReturn / setOnSaved", async () => {
+    const holder = custodyUser({ full_name: "Ann Holder" });
+    const drill = heldBy(holder, "2");
+    await openTools({ role: "admin", tools: [drill], users: [holder] });
+    const ret = await importView("views/toolReturn.js");
+    const saved = vi.fn();
+    ret.setOnSaved(saved);
+    answer("post", `/tools/${drill.id}/return`);
+
+    ret.openToolReturn(drill, holder, drill.custody[0]);
+    expect(el.returnSection().hidden).toBe(false);
+    expect(el.returnUserSummary().textContent).toBe("Ann Holder has 2 checked out");
+
+    el.returnSaveBtn().click();
+    await vi.waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
+    expect(listGets()).toHaveLength(0);
+
+    ret.closeToolReturn();
+    expect(el.returnSection().hidden).toBe(true);
+    expect(el.returnQuantity().hasAttribute("max")).toBe(false);
   });
 });
 

@@ -197,6 +197,15 @@ describe("the tool table", () => {
       expect(rows()[0].textContent).toBe("No tools yet.");
     });
 
+  it("renderTools repaints from the cache when called by name", async () => {
+    const { mod } = await openTools({ role: "admin", tools: [DRILL()], users: [] });
+    const state = await import("../../../backend/static/state.js");
+    state.setTools([SAW()]);
+    mod.renderTools();
+    expect(rows()).toHaveLength(1);
+    expect(cells()[1]).toBe("Saw");
+  });
+
   it("tells a searcher that nothing matches", async () => {
     const { user } = await openInventory({ tools: [DRILL()] });
     await user.type(el.search(), "zzz");
@@ -303,6 +312,27 @@ describe("the correct action", () => {
       .toEqual({ new_quantity: 7, reason: "recount" });
     // setOnSaved is wired to refreshTools, so the table repaints.
     await vi.waitFor(() => expect(cells()[2]).toBe("7"));
+  });
+
+  it("openToolCorrection / closeToolCorrection / setOnSaved drive the panel by name", async () => {
+    const drill = DRILL();
+    await openTools({ role: "admin", tools: [drill], users: [] });
+    const correction = await importView("views/toolCorrection.js");
+    const saved = vi.fn();
+    correction.setOnSaved(saved);              // replaces tools.js's refreshTools
+    answer("post", `/tools/${drill.id}/adjust`);
+
+    correction.openToolCorrection(drill);
+    expect(el.correctionSection().hidden).toBe(false);
+    expect(correction.getCorrectingToolId()).toBe(drill.id);
+    el.correctionReason().value = "recount";
+    el.correctionSaveBtn().click();
+    await vi.waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
+    expect(requests().filter((r) => r.url === "/tools/" && r.method === "GET")).toHaveLength(0);
+
+    correction.closeToolCorrection();
+    expect(el.correctionSection().hidden).toBe(true);
+    expect(correction.getCorrectingToolId()).toBeNull();
   });
 
   it("Cancel closes it and drops the editing id", async () => {

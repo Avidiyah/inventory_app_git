@@ -143,8 +143,8 @@
 
 - [x] `docs/open-work.md` → `N-P6-CHARACTERIZED`: the `colspan="5"` error row on a four-column table; the unreachable `!Number.isFinite` half of both quantity guards; the unreachable `!canManageCustody()` half of the checkout-scan guard; the unguarded `scrollIntoView` row extended with `toolCheckout.js` / `toolReturn.js` / `tools.js`; whatever else the run surfaces.
 - [x] `docs/current-state.md`: the Tools UI row no longer reads "manual UI check (no Vitest suite for these views yet)" (parent D7); the Vitest bullet names the new files with an updated count / time.
-- [x] Parent plan: tick the P6e bullets; suite-budget row `P6e | 1647 / 58 | 165 s`.
-- [x] `npm test` to completion — **1647 / 58, 164.5 s**; commit `docs: record P6e — the tools page and its custody editors`.
+- [x] Parent plan: tick the P6e bullets; suite-budget row `P6e | 1651 / 58 | 137–165 s`.
+- [x] `npm test` to completion — **1651 / 58, 137 s**; commit `docs: record P6e — the tools page and its custody editors`.
 
 ## Done when
 

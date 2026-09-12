@@ -185,7 +185,7 @@ Seven chunks over a suite that costs 112–135 s. P5 added ~470 tests for ~85 s;
 | P6b | 1382 / 45 | 123 s |
 | P6c | 1454 / 48 | 145 s |
 | P6d | 1525 / 52 | 195 s — the panels each boot the nav + items graph, so this chunk is the phase's most expensive per test |
-| P6e | 1647 / 58 | 165 s — the same suite re-measured 166 s at P6e's entry gate, so the phase's biggest chunk cost nothing net; the Tools fixture mounts the nav graph once and fetches two lists |
+| P6e | 1651 / 58 | 137–165 s — the same suite re-measured 166 s at P6e's entry gate, so the phase's biggest chunk cost nothing net; the Tools fixture mounts the nav graph once and fetches two lists |
 
 ## Done when
 
