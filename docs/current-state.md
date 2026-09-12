@@ -93,7 +93,7 @@ Path shorthand:
 | Request rate limiting (all routes) | `domain/rate_limit.py`, `services/rate_limit.py`, `main.py` (`rate_limit` middleware), `backend/entrypoint.sh` (proxy headers, single process) | `test_rate_limit.py`, `test_rate_limit_service.py`, `test_rate_limit_middleware.py` |
 | List-size ceiling (all list endpoints) | `domain/list_limits.py`, `services/_list_cap.py`, the six `list_*` service functions | `test_list_limits.py`, `test_list_cap_service.py`, `test_list_caps_applied.py` |
 | Roles/permissions/user management | `domain/roles.py`, `routers/users.py`, `services/users.py`, `schemas/users.py`, `static/roles.js`, `static/views/users.js`, `static/views/nav.js` | `test_roles.py`, `test_route_role_gates.py`, `test_user_names.py`, `test_user_role_edit.py`, `test_user_archive.py` |
-| Item CRUD/lookup/archive | `routers/items.py`, `services/items.py`, `schemas/items.py`, `models.py`, `static/views/items.js`, `static/views/itemEditor.js`, `static/api.js` | `test_item_barcodes.py`, `test_item_price_gating.py`, route-gate tests, `tests/frontend/views/items.test.js` |
+| Item CRUD/lookup/archive | `routers/items.py`, `services/items.py`, `schemas/items.py`, `models.py`, `static/views/items.js`, `static/views/itemEditor.js`, `static/api.js` | `test_item_barcodes.py`, `test_item_price_gating.py`, route-gate tests, `tests/frontend/views/items.test.js`, `tests/frontend/views/itemEditor.test.js` (prefill, validation, the `itemSave.js` order, both prompts), `tests/frontend/views/notes.test.js`, `tests/frontend/views/addBarcode.test.js`, `tests/frontend/views/correction.test.js` |
 | Low stock alerts / page | `domain/low_stock.py`, `services/low_stock.py`, `routers/_stock_events.py`, `services/items.py`, `routers/items.py`, `domain/notifications.py`, `domain/realtime.py`, `static/views/lowStock.js`, `static/pages/low-stock.html` | `test_low_stock_domain.py`, `test_low_stock_buffer.py`, `test_low_stock_triggers.py`, `test_items_low_stock.py`, `test_low_stock_shell.py` |
 | Item notes | `domain/notes_validation.py`, `services/notes.py`, `schemas/items.py`, `routers/items.py`, `static/views/notes.js` | add/extend focused tests if behavior changes |
 | Alternate barcodes | `models.py`, `services/items.py`, `schemas/items.py`, `routers/items.py`, `static/views/itemEditor.js`, `static/views/addBarcode.js` | `test_item_barcodes.py` |
@@ -1751,7 +1751,7 @@ Frontend layers:
 
 - Vitest (`npm test`, repo root): `static/` modules under jsdom, mounted on the
   real assembled shell with MSW answering `fetch`, so the real `api.js` runs.
-  1454 tests / 48 files, ~145 s. Covers the foundation layer, the whole
+  1525 tests / 52 files, ~195 s. Covers the foundation layer, the whole
   `workOrder*` group (including a meta-test that goes red when a `data-action`
   branch loses its test or the barrel drops an export), the boot spine --
   `main.js` + `views/nav.js`, booted through `helpers/app.js`, which runs the
@@ -1759,7 +1759,12 @@ Frontend layers:
   mounted directly through `helpers/auth.js` so a test can choose the
   `/auth/me` answer before `initAuth()` runs, and `views/items.js` through
   `helpers/items.js` (Find Item, the per-role column model, the four row
-  actions, create-item, and both scanners' upload-lookup path), and
+  actions, create-item, and both scanners' upload-lookup path) with its four
+  sub-flow panels `views/notes.js`, `views/itemEditor.js`,
+  `views/addBarcode.js` and `views/correction.js` + `views/correctionPanel.js`
+  (the notes type ladder, the `itemSave.js` write order under the
+  barcode-change and archived-reuse prompts, the debounced add-barcode search
+  and its append, the correction ladder), and
   `views/transactions.js` through `helpers/transactions.js` (the work-order
   gate, the batch lifecycle, commit/undo/retry, the `sessionStorage` snapshot
   and resume, and the manual-entry panel; the camera itself is P5g), and
