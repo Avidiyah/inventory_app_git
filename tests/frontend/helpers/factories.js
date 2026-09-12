@@ -320,14 +320,25 @@ export function hubCrew(overrides = {}) {
     crew_on_clock: 0,
     crew_total: 1,
     crew_minutes_today: 0,
-    technicians: [{
-      user: { id: uuid(), first_name: "Crew", last_name: "One", role: "technician" },
-      running_session: null, minutes_today: 0, assigned: 1, in_progress: 0, ready_to_complete: 0,
-      last_worked: null, flags: [],
-    }],
+    technicians: [hubCrewTechnician()],
     attention: [],
     ...overrides,
   };
+}
+
+// The crew board's own rows (HubCrewTechnician / HubAttentionItem). A card
+// test overrides one field: hubCrew({ technicians: [hubCrewTechnician({ flags: [...] })] }).
+export function hubCrewTechnician(overrides = {}) {
+  return {
+    user: { id: uuid(), first_name: "Crew", last_name: "One", role: "technician" },
+    running_session: null, minutes_today: 0, assigned: 1, in_progress: 0, ready_to_complete: 0,
+    last_worked: null, flags: [],
+    ...overrides,
+  };
+}
+
+export function hubAttentionItem(overrides = {}) {
+  return { kind: "stale", subject: "WO 7001", detail: "untouched 4 days", ...overrides };
 }
 
 export function hubAdmin(overrides = {}) {
@@ -340,6 +351,17 @@ export function hubAdmin(overrides = {}) {
     on_the_clock: [],
     exceptions: { inventory_recounts: 0, missing_item_price: 0, catalogue_requests: 0, admin_review_queue: 0, stale_work_orders: 0 },
     billing: { materials_total: "0", labor_total: "0", total: "0", avg_days_to_complete: null, completed_per_day: [0, 0, 0, 0, 0, 0, 0], legacy_live_count: null },
+    ...overrides,
+  };
+}
+
+// One row of the admin summary's "On the clock now" list
+// (HubAdminOnClockEntry). `flag` is the same domain vocabulary the crew
+// board's `flags` list carries -- rendered through a different map there.
+export function hubOnClockEntry(overrides = {}) {
+  return {
+    technician_name: "Crew One", work_order_number: "7001", community: "Scholars",
+    started_at: "2026-09-10T10:25:00Z", elapsed_minutes: 95, flag: null,
     ...overrides,
   };
 }
