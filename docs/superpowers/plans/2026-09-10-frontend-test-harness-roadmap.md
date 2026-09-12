@@ -21,10 +21,11 @@ A phase — or a chunk — lands green and committed before the next begins.
 | P0–P3 | Landed. `npm test`: 819 tests / 27 files, ~50 s, green. `pytest -m e2e` green. |
 | P4 | Landed 2026-09-11 in nine commits. `workOrders.js` is a 24-line barrel over eight modules, largest 752 lines; no behaviour test was edited to accommodate a move. |
 | P5 | Landed 2026-09-11 in eight chunks (P5a–P5h), `2026-09-10-frontend-test-harness-p5.md`. Suite: 1286 tests / 40 files, ~135 s locally (`maxWorkers: 4`, shell memoised), green. Findings under N-P5-CHARACTERIZED in `docs/open-work.md`. Coverage gate still advisory (`thresholds: undefined`); `npm run test:ci` statements at close: 70.91% statements / 72.45% lines (5431/7659, 4922/6793). |
-| P6–P7 | Not started. |
+| P6 | Planned 2026-09-11, seven chunks (P6a–P6g), `2026-09-11-frontend-test-harness-p6.md`. Entry: 1286 tests / 40 files, 112 s. |
+| P7 | Not started. |
 
-None of this has been through CI: the branch is 45 commits ahead of
-`origin/main` and unpushed, so every phase's "CI is green" rule is asserted
+None of this has been through CI: the branch is 74 commits ahead of
+`origin/main` (2026-09-11, at the P6 plan) and unpushed, so every phase's "CI is green" rule is asserted
 from local runs only. Pushing `main` deploys production — an owner decision.
 
 ## Ordering rationale
@@ -218,15 +219,21 @@ login-gate path end to end against real `api.js`.
 `views/tools.js`, `views/toolCheckout.js`, `views/toolReturn.js`,
 `views/toolCorrection.js`, `views/itemEditor.js`, `views/addBarcode.js`,
 `views/notes.js`, `views/push.js`, `views/correction.js`,
-`views/correctionPanel.js`, `views/billingEditor.js`, `views/subnav.js`.
+`views/correctionPanel.js`, `views/subnav.js`. (`views/billingEditor.js` was
+listed here; P5e drove it for real through History and it must not be
+re-covered.)
 
-**Steps.** Same pattern. The hub modules share a dashboard shell: mount through
+**Steps.** Seven chunks per
+`docs/superpowers/plans/2026-09-11-frontend-test-harness-p6.md`. Same pattern.
+The hub modules share a dashboard shell: mount through
 `tests/frontend/helpers/hub.js` (`openHub({role, crew, admin, timesheets, graphs})`),
 built in P5f, rather than repeating the setup. Delegated-action views
 (`tools.js`, `users.js`, and P7's `userRequests.js`) get their own
 `auditActions()` file over `tests/frontend/helpers/actionAudit.js` (P5h) —
-`massStageActionCoverage.test.js` is the template. `push.js` needs the
-`Notification` and `ServiceWorkerRegistration` APIs stubbed.
+`massStageActionCoverage.test.js` is the template; `users.js` delegates on
+class names, not `data-action`, so its audit passes custom patterns. `push.js`
+mounts directly with `helpers/media.js::stubPush()` (P5b), which already stubs
+`Notification`, `PushManager` and the service-worker registration.
 
 ---
 
