@@ -114,7 +114,7 @@ Path shorthand:
 | Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, manual UI check |
 | Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
 | Tools API/domain/service (custody) | `domain/tools.py`, `domain/quantity.py` (reused), `services/tools.py`, `routers/tools.py`, `schemas/tools.py`, `models.py` | `test_tools_domain.py`, `test_tools_service.py`, `test_route_role_gates.py` |
-| Tools UI (Add Tool tab + Tools page) | `static/views/tools.js`, `static/views/toolCheckout.js`, `static/views/toolReturn.js`, `static/pages/tools.html`, `static/pages/create-item.html`, `static/api.js` | manual UI check (no Vitest suite for these views yet) |
+| Tools UI (Add Tool tab + Tools page) | `static/views/tools.js`, `static/views/toolCheckout.js`, `static/views/toolReturn.js`, `static/views/toolCorrection.js`, `static/pages/tools.html`, `static/pages/create-item.html`, `static/api.js` | `tests/frontend/views/tools{Custody,Checkout,Inventory,Scan,ActionCoverage}.test.js` on `helpers/tools.js` |
 | Deployment/runtime | `backend/Dockerfile`, `backend/entrypoint.sh`, `backend/alembic.ini`, `backend/app/database.py`, `render.yaml`, `requirements*.txt` | `git diff --check`; run tests if runtime deps change |
 | Frontend navigation/layout | `static/shell-head.html`, `static/shell-tail.html`, `static/pages/*.html`, `static/views/nav.js`, `static/styles.css` | `backend/tests/e2e/test_smoke.py` (every page renders, clean console) plus a manual browser check |
 | Database schema/migration | `models.py`, matching schemas/services, `backend/alembic/versions`, `database.py` | targeted DB-backed tests, then full pytest |
@@ -1751,7 +1751,7 @@ Frontend layers:
 
 - Vitest (`npm test`, repo root): `static/` modules under jsdom, mounted on the
   real assembled shell with MSW answering `fetch`, so the real `api.js` runs.
-  1525 tests / 52 files, ~195 s. Covers the foundation layer, the whole
+  1647 tests / 58 files, ~165 s. Covers the foundation layer, the whole
   `workOrder*` group (including a meta-test that goes red when a `data-action`
   branch loses its test or the barrel drops an export), the boot spine --
   `main.js` + `views/nav.js`, booted through `helpers/app.js`, which runs the
@@ -1787,7 +1787,13 @@ Frontend layers:
   `views/hubGraphs.js` and `views/hubReport.js` (the grid's flags and
   drill-down, week nav and the CSV export; the donuts, the community →
   service-type/priority drill and the duration chart; the report's three
-  sections, row hand-offs, skeleton and retry), `views/scan.js` through `helpers/scanner.js` (`mountScanner`
+  sections, row hand-offs, skeleton and retry), and `views/tools.js` with its
+  three custody editors `views/toolCheckout.js`, `views/toolReturn.js` and
+  `views/toolCorrection.js` through `helpers/tools.js` (`loadTools` per role,
+  the user picker and custody card, checkout and check-in with the refresh and
+  1 s close, the Add Tool form and both tool scanners' upload path, the
+  inventory table and its three row actions, the contextual scanner's two
+  purposes and `resetToolsView`), `views/scan.js` through `helpers/scanner.js` (`mountScanner`
   as a factory, upload and live paths, torch, permission state, continuous
   dwell/cooldown on fake timers; `helpers/media.js` stubs the camera at the
   browser boundary) with `scan/barcode-decoder.js` and
@@ -1796,8 +1802,10 @@ Frontend layers:
   thirteen actions, both `confirmDialog` answers). `helpers/actionAudit.js`
   is the generalised meta-test: `auditActions()` names any rendered
   `data-action` with no handler, any handler outside its frozen list, and any
-  action no behaviour test mentions -- applied to Work Orders, Items and Mass
-  Stage. Shared fixtures: `helpers/{app,auth,items,transactions,history,hub,
+  action no behaviour test mentions -- applied to Work Orders, Items, Mass
+  Stage and Tools. `views/subnav.js` has its own unit file (initial selection,
+  the `onShow` contract, idempotence). Shared fixtures:
+  `helpers/{app,auth,items,tools,transactions,history,hub,
   scanner,massStage,requests,dialogs,media,actionAudit}.js`. Remaining views:
   uncovered, roadmap P6-P7. Coverage reported, not gated, until P7.
 - E2E (`pytest -m e2e` from `backend/`): real Chromium over the real app --
