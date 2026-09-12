@@ -13,6 +13,20 @@ import { importView, mountView } from "./shell.js";
 import { setTestUser } from "./session.js";
 import { restoreMediaStubs, stubPermissions, stubUserMedia } from "./media.js";
 import { restoreBrowserStubs, stubScrollIntoView } from "./browserStubs.js";
+import { user as userFactory } from "./factories.js";
+
+// `UserResponse.id` is a UUID, and the picker resolves a click by comparing
+// `candidate.id === option.dataset.userId` -- a strict comparison against a
+// string the DOM handed back. The shared `user()` factory still mints integer
+// ids, which would never match, so every user in a Tools test is built here.
+let custodySeq = 0;
+export function custodyUser(overrides = {}) {
+  custodySeq += 1;
+  return userFactory({
+    id: `10000000-0000-4000-8000-${String(custodySeq).padStart(12, "0")}`,
+    ...overrides,
+  });
+}
 
 // Getters, not nodes: every mount replaces `document.documentElement`, so a
 // captured node would be a corpse from the previous test.
@@ -134,7 +148,9 @@ export async function mountTools({
   // layout, so without this the call throws inside a listener and surfaces as
   // an unhandled rejection.
   const scrollIntoView = stubScrollIntoView();
-  const me = await setTestUser({ role, ...currentUser });
+  // The signed-in user IS the roster for a supervisor/technician, so give them
+  // the same UUID-shaped id every other user in a Tools test carries.
+  const me = await setTestUser({ ...custodyUser(), role, ...currentUser });
   startRecording();
   // tools.js cannot be the entry point of its own module graph: it reaches
   // nav.js through scan.js -> transactions.js, and nav.js reads tools.js's
