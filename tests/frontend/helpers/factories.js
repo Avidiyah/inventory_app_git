@@ -507,3 +507,22 @@ export function massStageDetail(overrides = {}) {
     ...overrides,
   };
 }
+
+// --- Tools (backend/app/schemas/tools.py) -----------------------------------
+// `custody` is not an ORM relationship -- the router computes it and sets it
+// explicitly -- so it defaults to empty here and a test that cares about
+// holdings passes `toolCustodyEntry()` rows carrying the holder's own id.
+export function tool(overrides = {}) {
+  return {
+    id: uuid(), barcode: "T1", name: "Drill", quantity: "3",
+    created_at: "2026-09-10T12:00:00Z", custody: [],
+    ...overrides,
+  };
+}
+
+export function toolCustodyEntry(overrides = {}) {
+  return {
+    user_id: uuid(), user_name: "Test User", quantity: "1",
+    ...overrides,
+  };
+}
