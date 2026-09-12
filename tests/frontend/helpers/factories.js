@@ -240,6 +240,49 @@ export function hubPayload(overrides = {}) {
   };
 }
 
+// --- Hub sub-shapes (backend/app/schemas/hub.py) ----------------------------
+// The rows hubPayload() defaults to empty lists or null. One wire row each;
+// a test passes them through hubPayload({ timeline: [hubTimelineEntry()] }).
+export function hubRunningSession(overrides = {}) {
+  return {
+    work_order_id: uuid(), number: "7001",
+    started_at: "2026-09-10T11:00:00Z", day_counting_from: "2026-09-10T11:00:00Z",
+    ...overrides,
+  };
+}
+
+export function hubAdjustment(overrides = {}) {
+  return { minutes: 30, recorded_by_name: "Sue Super", work_order_number: "7001", ...overrides };
+}
+
+export function hubTimelineEntry(overrides = {}) {
+  return {
+    work_order_id: uuid(), number: "7001", started_at: "2026-09-10T13:00:00Z",
+    ended_at: "2026-09-10T14:00:00Z", auto_closed: false, minutes: 60,
+    ...overrides,
+  };
+}
+
+export function hubStartable(overrides = {}) {
+  return {
+    work_order_id: uuid(), number: "7001", status: "assigned",
+    community: null, building_number: null, unit_number: null, location: null,
+    ...overrides,
+  };
+}
+
+export function hubToolOut(overrides = {}) {
+  return { tool_id: uuid(), name: "Drill", barcode: "T1", quantity: "1", since: "2026-09-08T12:00:00Z", ...overrides };
+}
+
+export function hubStockedRequest(overrides = {}) {
+  return {
+    request_id: uuid(), item_name: "Bulb", work_order_id: uuid(), work_order_number: "7001",
+    quantity: "2", stocked_at: "2026-09-10T11:30:00Z",
+    ...overrides,
+  };
+}
+
 // --- History rows --------------------------------------------------------
 //
 // GET /transactions/ answers TransactionHistoryItem rows (a JOIN across
