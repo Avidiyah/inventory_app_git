@@ -43,7 +43,7 @@
 
 ## Entry gate
 
-- [ ] `npm test` green (P6e close plus the factory fix: 1652 / 58, ~140 s).
+- [x] `npm test` green (P6e close plus the factory fix: 1652 / 58, ~140 s).
 
 ---
 
@@ -53,11 +53,11 @@
 
 Each drives the real overlay the way `answerConfirm` drives `#scan-confirm-overlay`: wait for it to be shown, fill it, click Save or Cancel, wait for it to be hidden. Passing `null` cancels.
 
-- [ ] **`answerPasswordReset(password | null)`** — types into `#pw-reset-new` and `#pw-reset-confirm`, clicks `#pw-reset-save`; `null` clicks `#pw-reset-cancel`.
-- [ ] **`answerUserName({first, last, username} | null)`** — sets `#user-name-first`, `#user-name-last` and, when the field is shown, `#user-name-username`; clicks `#user-name-save` / `#user-name-cancel`. Fields omitted from the object keep the value the prompt prefilled, so a test can change only the username.
-- [ ] **`answerUserRole(role | null)`** — sets `#user-role-select` and clicks `#user-role-save` / `#user-role-cancel`.
-- [ ] Each returns after the overlay is hidden, so the caller's `await` on the view's own promise resolves next.
-- [ ] Commit with Task 2 (a helper with no caller is not a commit).
+- [x] **`answerPasswordReset(password | null)`** — types into `#pw-reset-new` and `#pw-reset-confirm`, clicks `#pw-reset-save`; `null` clicks `#pw-reset-cancel`.
+- [x] **`answerUserName({first, last, username} | null)`** — sets `#user-name-first`, `#user-name-last` and, when the field is shown, `#user-name-username`; clicks `#user-name-save` / `#user-name-cancel`. Fields omitted from the object keep the value the prompt prefilled, so a test can change only the username.
+- [x] **`answerUserRole(role | null)`** — sets `#user-role-select` and clicks `#user-role-save` / `#user-role-cancel`.
+- [x] Each returns after the overlay is hidden, so the caller's `await` on the view's own promise resolves next.
+- [x] Commit with Task 2 (a helper with no caller is not a commit).
 
 ---
 
@@ -65,15 +65,15 @@ Each drives the real overlay the way `answerConfirm` drives `#scan-confirm-overl
 
 **Files:** Create `tests/frontend/helpers/users.js`, `tests/frontend/views/users.test.js`.
 
-- [ ] **`mountUsers({role, users, handlers, currentUser})`:** `server.use(...handlers, http.get("/users/", …))`; `setTestUser({role, ...currentUser})`; `startRecording()`; `mountView("views/users.js")`; `clearRequests()`. Returns `{mod, currentUser}`. `el` getters over `users-tbody`, `users-message`, the create form (`user-first-name`, `user-last-name`, `username`, `user-role`, `user-role-help`, `user-password`, `create-user-btn`, `create-user-message`), `history-user-select` and `auth-user-indicator`. Plus `rows()`, `rowFor(username)`, `cells(row)`, `actionsIn(row)`, `buttonIn(row, className)`, `openUsers()` = mount + `loadUsers()` + `clearRequests()`.
-- [ ] **`loadUsers`:** the 6-column, 5-row skeleton before the fetch resolves; `GET /users/?include_archived=true` (the archived rows are what the History filter needs); a failure replacing the body with one `colspan="6"` `.error` cell carrying `friendlyError`'s copy.
-- [ ] **Rows:** the six cells in order; `first_name` / `last_name` falling back to "Name unavailable" independently; `roleLabel` in the Role column; `created_at` through `toLocaleString()`; the `(archived)` tag appended to the **First Name** cell only and `.archived-user` on the `<tr>`; a name carrying markup escaped.
-- [ ] **`created_at` edge cases:** a `null` renders the epoch (`new Date(null)` is 1970, not Invalid Date) and an unparseable string renders "Invalid Date" — the Items finding's twin. File both.
-- [ ] **The row-action matrix (D1):** `it.each` over five actor roles × the five target roles × {active, archived}, plus the self row. Expected buttons per cell, read off the running code: Edit Details when `actorId === user.id || canManage`; Edit Role when `canManage ∧ active ∧ actor ≥ techfm_oa`; Reset Password + Archive when `canManage ∧ active`; Restore when `canManage ∧ archived`; `<span class="empty">—</span>` when none apply. Assert the button ORDER too — Edit Details, Edit Role, then the lifecycle pair.
-- [ ] **`populateRoleSelect`** (through `loadUsers`): offers `assignableRoles(actor)` — owner sees four, technician sees none; the help text follows the selected role and updates on `change`; a previous selection survives a reload when still offered and is dropped when not.
-- [ ] **`populateUserSelects`** by name: the placeholder plus one option per user in payload order, archived included, labelled by `formatUserName`; a previous selection preserved iff that id is still present, and reset to the placeholder when it is not.
-- [ ] **Create:** the validation ladder in order — names, then username, then role, then a password under four characters — each writing nothing; `POST /users/` with the snake_case body; `"First Last created as role."` using the **response's** name and role, not the form's; the four fields cleared but the role select left alone; a reload fired; the failure copy leaving the fields intact.
-- [ ] Run both files; commit `test(p6f): the users fixture, three prompt answerers, and the users table`.
+- [x] **`mountUsers({role, users, handlers, currentUser})`:** `server.use(...handlers, http.get("/users/", …))`; `setTestUser({role, ...currentUser})`; `startRecording()`; `mountView("views/users.js")`; `clearRequests()`. Returns `{mod, currentUser}`. `el` getters over `users-tbody`, `users-message`, the create form (`user-first-name`, `user-last-name`, `username`, `user-role`, `user-role-help`, `user-password`, `create-user-btn`, `create-user-message`), `history-user-select` and `auth-user-indicator`. Plus `rows()`, `rowFor(username)`, `cells(row)`, `actionsIn(row)`, `buttonIn(row, className)`, `openUsers()` = mount + `loadUsers()` + `clearRequests()`.
+- [x] **`loadUsers`:** the 6-column, 5-row skeleton before the fetch resolves; `GET /users/?include_archived=true` (the archived rows are what the History filter needs); a failure replacing the body with one `colspan="6"` `.error` cell carrying `friendlyError`'s copy.
+- [x] **Rows:** the six cells in order; `first_name` / `last_name` falling back to "Name unavailable" independently; `roleLabel` in the Role column; `created_at` through `toLocaleString()`; the `(archived)` tag appended to the **First Name** cell only and `.archived-user` on the `<tr>`; a name carrying markup escaped.
+- [x] **`created_at` edge cases:** a `null` renders the epoch (`new Date(null)` is 1970, not Invalid Date) and an unparseable string renders "Invalid Date" — the Items finding's twin. File both.
+- [x] **The row-action matrix (D1):** `it.each` over five actor roles × the five target roles × {active, archived}, plus the self row. Expected buttons per cell, read off the running code: Edit Details when `actorId === user.id || canManage`; Edit Role when `canManage ∧ active ∧ actor ≥ techfm_oa`; Reset Password + Archive when `canManage ∧ active`; Restore when `canManage ∧ archived`; `<span class="empty">—</span>` when none apply. Assert the button ORDER too — Edit Details, Edit Role, then the lifecycle pair.
+- [x] **`populateRoleSelect`** (through `loadUsers`): offers `assignableRoles(actor)` — owner sees four, technician sees none; the help text follows the selected role and updates on `change`; a previous selection survives a reload when still offered and is dropped when not.
+- [x] **`populateUserSelects`** by name: the placeholder plus one option per user in payload order, archived included, labelled by `formatUserName`; a previous selection preserved iff that id is still present, and reset to the placeholder when it is not.
+- [x] **Create:** the validation ladder in order — names, then username, then role, then a password under four characters — each writing nothing; `POST /users/` with the snake_case body; `"First Last created as role."` using the **response's** name and role, not the form's; the four fields cleared but the role select left alone; a reload fired; the failure copy leaving the fields intact.
+- [x] Run both files; commit `test(p6f): the users fixture, three prompt answerers, and the users table`.
 
 ---
 
@@ -81,16 +81,16 @@ Each drives the real overlay the way `answerConfirm` drives `#scan-confirm-overl
 
 **Files:** Create `tests/frontend/views/usersActions.test.js`.
 
-- [ ] **Edit Details:** the prompt opens titled `Edit "<username>"` with the username field shown (`allowUsername: true`); Save → `PATCH /users/{id}/name` with `{first_name, last_name, username}`; `Updated "<new username>".` naming the **new** username; a reload fired; Cancel → no request and the message slot untouched.
-- [ ] **Edit Details on yourself:** additionally replaces `state.js`'s current user and rewrites the header indicator's `.user-hub-name`, `.user-hub-role` and `aria-label`; a `user-names-updated` event fires on `document` (a listener registered in the test) — and fires for a **non**-self edit too.
-- [ ] **Edit Role:** the prompt is offered `assignableRoles(actor)` with the module's own descriptions; Save a different role → `PATCH /users/{id}/role` `{role}` → `"<u>" is now <role>. They will need to sign in again.` + reload; Cancel → no request; choosing the role the user already holds resolves null, so it is also no request (the rule P1 pins in the prompt, asserted here as the view's consequence).
-- [ ] **Reset Password:** the prompt is titled with the row's `data-name`; Save → `POST /users/{id}/reset-password` `{password}` → `Password reset for "<u>".` and **no reload** (the only action that does not reload); Cancel → no request; a failure writes `friendlyError`'s copy.
-- [ ] **Restore:** `POST /users/{id}/restore` → `Restored "<u>".` + reload; a failure writes the module's copy.
-- [ ] **Archive:** `confirmDialog` with the full "they will no longer be able to log in" copy — No → nothing written, no request; Yes → `POST /users/{id}/archive` → `Archived "<u>".` + reload.
-- [ ] **Archive over a 409:** the second prompt carries `"<u>" still has tools checked out. Check them all in now and archive?`; Yes retries `POST /users/{id}/archive?force_return_tools=true` and succeeds; No throws `{cancelled: true}`, which the view swallows — the message slot is left **blank**, not an error.
-- [ ] **A non-409 failure** goes straight to `Could not archive the user. Try again.` with no second prompt.
-- [ ] **The delegation's guards:** a click on the `.row-actions` container itself does nothing; Edit Details / Edit Role on a row whose id has left the cache returns early with no prompt.
-- [ ] Run the file; commit `test(p6f): the five user row actions over the real overlays`.
+- [x] **Edit Details:** the prompt opens titled `Edit "<username>"` with the username field shown (`allowUsername: true`); Save → `PATCH /users/{id}/name` with `{first_name, last_name, username}`; `Updated "<new username>".` naming the **new** username; a reload fired; Cancel → no request and the message slot untouched.
+- [x] **Edit Details on yourself:** additionally replaces `state.js`'s current user and rewrites the header indicator's `.user-hub-name`, `.user-hub-role` and `aria-label`; a `user-names-updated` event fires on `document` (a listener registered in the test) — and fires for a **non**-self edit too.
+- [x] **Edit Role:** the prompt is offered `assignableRoles(actor)` with the module's own descriptions; Save a different role → `PATCH /users/{id}/role` `{role}` → `"<u>" is now <role>. They will need to sign in again.` + reload; Cancel → no request; choosing the role the user already holds resolves null, so it is also no request (the rule P1 pins in the prompt, asserted here as the view's consequence).
+- [x] **Reset Password:** the prompt is titled with the row's `data-name`; Save → `POST /users/{id}/reset-password` `{password}` → `Password reset for "<u>".` and **no reload** (the only action that does not reload); Cancel → no request; a failure writes `friendlyError`'s copy.
+- [x] **Restore:** `POST /users/{id}/restore` → `Restored "<u>".` + reload; a failure writes the module's copy.
+- [x] **Archive:** `confirmDialog` with the full "they will no longer be able to log in" copy — No → nothing written, no request; Yes → `POST /users/{id}/archive` → `Archived "<u>".` + reload.
+- [x] **Archive over a 409:** the second prompt carries `"<u>" still has tools checked out. Check them all in now and archive?`; Yes retries `POST /users/{id}/archive?force_return_tools=true` and succeeds; No throws `{cancelled: true}`, which the view swallows — the message slot is left **blank**, not an error.
+- [x] **A non-409 failure** goes straight to `Could not archive the user. Try again.` with no second prompt.
+- [x] **The delegation's guards:** a click on the `.row-actions` container itself does nothing; Edit Details / Edit Role on a row whose id has left the cache returns early with no prompt.
+- [x] Run the file; commit `test(p6f): the five user row actions over the real overlays`.
 
 ---
 
@@ -98,25 +98,25 @@ Each drives the real overlay the way `answerConfirm` drives `#scan-confirm-overl
 
 **Files:** Create `tests/frontend/views/usersActionCoverage.test.js`.
 
-- [ ] `auditActions` over `views/users.js` with `renderedPattern: /class="([a-z-]+-btn)[ "]/g`, `handledPattern: /classList\.contains\("([a-z-]+-btn)"\)/g`, frozen `["archive-user-btn", "edit-user-name-btn", "edit-user-role-btn", "reset-pw-btn", "restore-user-btn"]`, `behaviourDir` = the views directory with everything but this chunk's two files excluded. (Verified by hand: both regexes return exactly the frozen five against today's source.)
-- [ ] **Verify it bites:** remove one action's mentions locally, confirm the audit names it, restore.
-- [ ] Commit `test(p6f): the users action audit`.
+- [x] `auditActions` over `views/users.js` with `renderedPattern: /class="([a-z-]+-btn)[ "]/g`, `handledPattern: /classList\.contains\("([a-z-]+-btn)"\)/g`, frozen `["archive-user-btn", "edit-user-name-btn", "edit-user-role-btn", "reset-pw-btn", "restore-user-btn"]`, `behaviourDir` = the views directory with everything but this chunk's two files excluded. (Verified by hand: both regexes return exactly the frozen five against today's source.)
+- [x] **Verify it bites:** remove one action's mentions locally, confirm the audit names it, restore.
+- [x] Commit `test(p6f): the users action audit`.
 
 ---
 
 ### Task 5: Findings, docs, parent plan
 
-- [ ] `docs/open-work.md` → `N-P6-CHARACTERIZED`: the `created_at` rendering (epoch for null, "Invalid Date" for junk); whatever else the run surfaces.
-- [ ] `docs/current-state.md`: the Users row names its tests; the Vitest bullet names `users.js` and adds Users to the audit list and `helpers/users.js` to the fixture list; count / time updated.
-- [ ] Parent plan: tick the P6f bullets; suite-budget row.
-- [ ] `npm test` to completion; record wall-clock in the commit body; commit `docs: record P6f — the users page`.
+- [x] `docs/open-work.md` → `N-P6-CHARACTERIZED`: the `created_at` rendering (epoch for null, "Invalid Date" for junk); whatever else the run surfaces.
+- [x] `docs/current-state.md`: the Users row names its tests; the Vitest bullet names `users.js` and adds Users to the audit list and `helpers/users.js` to the fixture list; count / time updated.
+- [x] Parent plan: tick the P6f bullets; suite-budget row `P6f | 1716 / 61 | 266 s then 312 s`, with the wall-clock trend raised.
+- [x] `npm test` to completion; record wall-clock in the commit body; commit `docs: record P6f — the users page`.
 
 ## Done when
 
-- [ ] Four commits plus the docs commit, each green at commit time.
-- [ ] Both exports called by name: `loadUsers`, `populateUserSelects`.
-- [ ] The five row actions are named by the audit, and removing one action's tests turns it red.
-- [ ] Findings filed; docs updated; the suite under the ~6-minute line.
+- [x] Four commits plus the docs commit, each green at commit time.
+- [x] Both exports called by name: `loadUsers`, `populateUserSelects`.
+- [x] The five row actions are named by the audit, and removing one action's tests turns it red.
+- [x] Findings filed; docs updated; the suite under the ~6-minute line.
 
 ## Deliberately not in P6f
 

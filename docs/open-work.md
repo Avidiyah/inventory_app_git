@@ -333,7 +333,7 @@ Found while writing the P6 leaf-view files (P6a–P6e); later P6 chunks append
 here. Same rule as N-WO-CHARACTERIZED: the test is green *as today's
 behaviour*, so a fix must update the named test in the same change.
 **Trigger:** the next substantive edit to the hub clock widget, the Dashboard
-tab, or the Tools page.
+tab, the Tools page, or the Users page.
 
 | Defect | Pinned by |
 | --- | --- |
@@ -351,6 +351,9 @@ tab, or the Tools page.
 | `resetToolsView` empties the tool cache (`setTools([])`) without calling `renderTools`, so the table keeps its last rows over an empty cache until the next load repaints it. Reached on logout, where the page is hidden anyway. | `toolsScan.test.js` → "empties every field, closes every panel and returns to Custody" |
 | Entering the Tools Scan feature calls `toolsScanner.refreshPermissionState()` twice — once from the entering button's own listener (the Scan sub-nav button, or Scan Tool to Check Out) and once from `initSubNav`'s `onShow`. Two permission queries per entry. | `toolsScan.test.js` → "the Scan sub-nav button resets the widget and refreshes permission twice" |
 | `toolReturn.js`'s `closeToolReturn` resets the quantity field to `"1"`, not to the outstanding balance the open prefilled — so a Cancel-then-reopen is fine (open re-prefills) but a post-save close briefly shows 1 against a cleared `max`. | `toolsCheckout.test.js` → "posts the return, refreshes the card and closes a second later" |
+| `users.js` renders `new Date(user.created_at).toLocaleString()` with no guard, so a null `created_at` reads as a 1970 account (`new Date(null)` is the epoch) and an unparseable one reads "Invalid Date". The Items finding's twin. | `users.test.js` -> "a null created_at renders as ..." / "an unparseable created_at renders as Invalid Date" |
+| The Edit Role modal labels its options by capitalising the raw role slug (`role.charAt(0).toUpperCase() + role.slice(1)`) instead of calling `roleLabel`, so TechFM OA reads "Techfm_oa"; the success copy prints the raw slug for the same reason ("is now techfm_oa"). Everywhere else in the app uses `roleLabel`. | `usersActions.test.js` -> "offers the actor's assignable roles and PATCHes the chosen one" |
+| Two of the five user row actions guard against a stale cache and three do not: Edit Details and Edit Role resolve `getUsers().find(...)` and return when the id is gone, while Reset Password, Restore and Archive read `data-id` / `data-name` straight off the button and will send a request for whatever the markup carries. Unreachable today -- the table is rebuilt on every load -- so the inconsistency is the finding. | `usersActions.test.js` -> "but Reset Password, Restore and Archive never look the user up at all" |
 
 ### N11 — notification triggers considered and deliberately deferred
 

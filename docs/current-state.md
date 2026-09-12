@@ -92,7 +92,7 @@ Path shorthand:
 | Login throttling / lockout | `domain/login_throttle.py`, `services/login_throttle.py`, `routers/auth.py`, `models.py` (`LoginAttempt`), `backend/entrypoint.sh` (proxy headers) | `test_login_throttle.py`, `test_login_throttle_service.py` |
 | Request rate limiting (all routes) | `domain/rate_limit.py`, `services/rate_limit.py`, `main.py` (`rate_limit` middleware), `backend/entrypoint.sh` (proxy headers, single process) | `test_rate_limit.py`, `test_rate_limit_service.py`, `test_rate_limit_middleware.py` |
 | List-size ceiling (all list endpoints) | `domain/list_limits.py`, `services/_list_cap.py`, the six `list_*` service functions | `test_list_limits.py`, `test_list_cap_service.py`, `test_list_caps_applied.py` |
-| Roles/permissions/user management | `domain/roles.py`, `routers/users.py`, `services/users.py`, `schemas/users.py`, `static/roles.js`, `static/views/users.js`, `static/views/nav.js` | `test_roles.py`, `test_route_role_gates.py`, `test_user_names.py`, `test_user_role_edit.py`, `test_user_archive.py` |
+| Roles/permissions/user management | `domain/roles.py`, `routers/users.py`, `services/users.py`, `schemas/users.py`, `static/roles.js`, `static/views/users.js`, `static/views/nav.js` | `test_roles.py`, `test_route_role_gates.py`, `test_user_names.py`, `test_user_role_edit.py`, `test_user_archive.py`; frontend `tests/frontend/views/users{,Actions,ActionCoverage}.test.js` |
 | Item CRUD/lookup/archive | `routers/items.py`, `services/items.py`, `schemas/items.py`, `models.py`, `static/views/items.js`, `static/views/itemEditor.js`, `static/api.js` | `test_item_barcodes.py`, `test_item_price_gating.py`, route-gate tests, `tests/frontend/views/items.test.js`, `tests/frontend/views/itemEditor.test.js` (prefill, validation, the `itemSave.js` order, both prompts), `tests/frontend/views/notes.test.js`, `tests/frontend/views/addBarcode.test.js`, `tests/frontend/views/correction.test.js` |
 | Low stock alerts / page | `domain/low_stock.py`, `services/low_stock.py`, `routers/_stock_events.py`, `services/items.py`, `routers/items.py`, `domain/notifications.py`, `domain/realtime.py`, `static/views/lowStock.js`, `static/pages/low-stock.html` | `test_low_stock_domain.py`, `test_low_stock_buffer.py`, `test_low_stock_triggers.py`, `test_items_low_stock.py`, `test_low_stock_shell.py` |
 | Item notes | `domain/notes_validation.py`, `services/notes.py`, `schemas/items.py`, `routers/items.py`, `static/views/notes.js` | add/extend focused tests if behavior changes |
@@ -1751,7 +1751,7 @@ Frontend layers:
 
 - Vitest (`npm test`, repo root): `static/` modules under jsdom, mounted on the
   real assembled shell with MSW answering `fetch`, so the real `api.js` runs.
-  1651 tests / 58 files, ~150 s. Covers the foundation layer, the whole
+  1716 tests / 61 files, ~265-310 s. Covers the foundation layer, the whole
   `workOrder*` group (including a meta-test that goes red when a `data-action`
   branch loses its test or the barrel drops an export), the boot spine --
   `main.js` + `views/nav.js`, booted through `helpers/app.js`, which runs the
@@ -1793,7 +1793,12 @@ Frontend layers:
   the user picker and custody card, checkout and check-in with the refresh and
   1 s close, the Add Tool form and both tool scanners' upload path, the
   inventory table and its three row actions, the contextual scanner's two
-  purposes and `resetToolsView`), `views/scan.js` through `helpers/scanner.js` (`mountScanner`
+  purposes and `resetToolsView`), and `views/users.js` through `helpers/users.js`
+  (`loadUsers` and the table, the row-action matrix frozen over five actor roles
+  x five target roles x {active, archived, self}, both `<select>` populators,
+  the create ladder, and the five row actions driven through the real
+  `#user-name-*` / `#user-role-*` / `#pw-reset-*` overlays including the
+  archive 409 retry), `views/scan.js` through `helpers/scanner.js` (`mountScanner`
   as a factory, upload and live paths, torch, permission state, continuous
   dwell/cooldown on fake timers; `helpers/media.js` stubs the camera at the
   browser boundary) with `scan/barcode-decoder.js` and
@@ -1803,9 +1808,9 @@ Frontend layers:
   is the generalised meta-test: `auditActions()` names any rendered
   `data-action` with no handler, any handler outside its frozen list, and any
   action no behaviour test mentions -- applied to Work Orders, Items, Mass
-  Stage and Tools. `views/subnav.js` has its own unit file (initial selection,
+  Stage, Tools and Users (the last on class names, not `data-action`). `views/subnav.js` has its own unit file (initial selection,
   the `onShow` contract, idempotence). Shared fixtures:
-  `helpers/{app,auth,items,tools,transactions,history,hub,
+  `helpers/{app,auth,items,tools,users,transactions,history,hub,
   scanner,massStage,requests,dialogs,media,actionAudit}.js`. Remaining views:
   uncovered, roadmap P6-P7. Coverage reported, not gated, until P7.
 - E2E (`pytest -m e2e` from `backend/`): real Chromium over the real app --

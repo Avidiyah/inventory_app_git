@@ -139,18 +139,20 @@ Churn order, with the hub trio kept contiguous (one fixture, one factory file) a
 
 ### P6f — Users
 
+**Landed as two view files** (chunk plan D3): `users.test.js` (364) and `usersActions.test.js` (377); one would have run ~700 lines against a 500-line cap.
+
 **Files.** Create `tests/frontend/helpers/users.js` (`mountUsers({role, users, handlers})` → `mountView("views/users.js")` with `GET /users/` answered; `el` getters; `rowFor(username)`), `tests/frontend/views/users.test.js`, `tests/frontend/views/usersActionCoverage.test.js`. Modify `tests/frontend/helpers/dialogs.js`: `answerPasswordReset(password | null)`, `answerUserName({first, last, username} | null)`, `answerUserRole(role | null)` — each drives the real overlay (`#pw-reset-*`, `#user-name-*`, `#user-role-*`, ids in `dom.js` 203–429) the way `answerConfirm` drives `#scan-confirm-overlay`.
 
-- [ ] **`loadUsers`:** the 6-column skeleton; `GET /users/?include_archived=true`; rows — "Name unavailable" fallbacks, the "(archived)" tag and `.archived-user`, `roleLabel`, `created_at` through `toLocaleString()` (a null renders the epoch — the Items finding's twin, file it); the failure row `colspan="6"` with `friendlyError`.
-- [ ] **The row-action matrix, frozen and read off the running code as P2's roles table was:** actor × target over the five roles × {active, archived, self} — Edit Details (self or `canManage`), Edit Role (`canManage` ∧ active ∧ actor ≥ techfm_oa), Reset Password + Archive (`canManage` ∧ active), Restore (`canManage` ∧ archived), `—` otherwise.
-- [ ] **Selects:** `populateRoleSelect` offers `assignableRoles(actor)` (owner → four, technician → none), keeps the previous value when still offered, writes the help text per role and on change; `populateUserSelects` rebuilds `#history-user-select` (placeholder + an option per user, archived included, `formatUserName`) preserving the selection iff still present — the seeding P5e's fixture faked.
-- [ ] **Create:** the validation order (names → username → role → password ≥ 4); `POST /users/` snake_case body; "First Last created as role."; the four fields cleared; a reload fired; failure copy.
-- [ ] **Edit Details:** `promptUserName` (username allowed) → `PATCH /users/{id}/name`; a self-edit updates `state.js`'s current user and the header indicator's name / role / `aria-label`; `user-names-updated` dispatched (a listener in the test); "Updated "newusername"."; cancel → no request.
-- [ ] **Edit Role:** `promptUserRole` offered the assignable roles with descriptions → `PATCH /users/{id}/role` → "… is now role. They will need to sign in again." + reload; cancel or unchanged → no request.
-- [ ] **Reset Password:** `promptPasswordReset` → `POST /users/{id}/reset-password` `{password}` → "Password reset for "u"."; cancel; failure.
-- [ ] **Restore:** `POST /users/{id}/restore` + reload; failure.
-- [ ] **Archive:** `confirmDialog` No → nothing; Yes → `POST /users/{id}/archive`; a 409 → the archived-reuse prompt with the "still has tools checked out" copy → Yes retries with `?force_return_tools=true`, No → `cancelled`, message cleared; "Archived "u"." + reload; another failure's copy.
-- [ ] **Audit:** `usersActionCoverage.test.js` with `renderedPattern: /class="([a-z-]+-btn)[ "]/g` and `handledPattern: /classList\.contains\("([a-z-]+-btn)"\)/g`, frozen `["archive-user-btn", "edit-user-name-btn", "edit-user-role-btn", "reset-pw-btn", "restore-user-btn"]`.
+- [x] **`loadUsers`:** the 6-column skeleton; `GET /users/?include_archived=true`; rows — "Name unavailable" fallbacks, the "(archived)" tag and `.archived-user`, `roleLabel`, `created_at` through `toLocaleString()` (a null renders the epoch — the Items finding's twin, file it); the failure row `colspan="6"` with `friendlyError`.
+- [x] **The row-action matrix, frozen and read off the running code as P2's roles table was:** actor × target over the five roles × {active, archived, self} — Edit Details (self or `canManage`), Edit Role (`canManage` ∧ active ∧ actor ≥ techfm_oa), Reset Password + Archive (`canManage` ∧ active), Restore (`canManage` ∧ archived), `—` otherwise.
+- [x] **Selects:** `populateRoleSelect` offers `assignableRoles(actor)` (owner → four, technician → none), keeps the previous value when still offered, writes the help text per role and on change; `populateUserSelects` rebuilds `#history-user-select` (placeholder + an option per user, archived included, `formatUserName`) preserving the selection iff still present — the seeding P5e's fixture faked.
+- [x] **Create:** the validation order (names → username → role → password ≥ 4); `POST /users/` snake_case body; "First Last created as role."; the four fields cleared; a reload fired; failure copy.
+- [x] **Edit Details:** `promptUserName` (username allowed) → `PATCH /users/{id}/name`; a self-edit updates `state.js`'s current user and the header indicator's name / role / `aria-label`; `user-names-updated` dispatched (a listener in the test); "Updated "newusername"."; cancel → no request.
+- [x] **Edit Role:** `promptUserRole` offered the assignable roles with descriptions → `PATCH /users/{id}/role` → "… is now role. They will need to sign in again." + reload; cancel or unchanged → no request.
+- [x] **Reset Password:** `promptPasswordReset` → `POST /users/{id}/reset-password` `{password}` → "Password reset for "u"."; cancel; failure.
+- [x] **Restore:** `POST /users/{id}/restore` + reload; failure.
+- [x] **Archive:** `confirmDialog` No → nothing; Yes → `POST /users/{id}/archive`; a 409 → the archived-reuse prompt with the "still has tools checked out" copy → Yes retries with `?force_return_tools=true`, No → `cancelled`, message cleared; "Archived "u"." + reload; another failure's copy.
+- [x] **Audit:** `usersActionCoverage.test.js` with `renderedPattern: /class="([a-z-]+-btn)[ "]/g` and `handledPattern: /classList\.contains\("([a-z-]+-btn)"\)/g`, frozen `["archive-user-btn", "edit-user-name-btn", "edit-user-role-btn", "reset-pw-btn", "restore-user-btn"]`.
 
 **Test.** Delete one action's tests; the audit names it. Restore. `npm test` green.
 
@@ -176,7 +178,15 @@ Mount `views/push.js` directly after `setTestUser({role})` and `stubPush({…})`
 Seven chunks over a suite that costs 112–135 s. P5 added ~470 tests for ~85 s; P6 covers fewer lines with cheaper mounts (the hub fixture is one `GET /hub`, not a boot), so expect the close near 3 min — under the 6-minute line with no lever pulled.
 
 - [ ] Record wall-clock at each chunk's close, in the commit body.
-- [ ] If a chunk pushes the total past ~6 minutes locally, stop and raise it before starting the next. The lever is `maxWorkers` and the shell cache, not deleting assertions.
+- [x] If a chunk pushes the total past ~6 minutes locally, stop and raise it before starting the next. The lever is `maxWorkers` and the shell cache, not deleting assertions.
+
+**Raised at P6f's close (2026-09-12).** The suite measured 266 s and then 312 s
+back to back, against a 112–195 s band across P5 and P6a–P6e and a 137 s
+reading at P6e's close. 312 s is still inside the 6-minute line and P6g is the
+phase's smallest chunk (`push.js`, 177 lines), so the phase can finish without
+pulling a lever. But the cause is not established — the new tests are too few
+to explain it — so before P7 gates on coverage, re-measure on an idle machine
+and, if it holds, profile per-file timings rather than assuming contention.
 
 | Close of | Tests / files | Wall-clock |
 | --- | --- | --- |
@@ -186,6 +196,7 @@ Seven chunks over a suite that costs 112–135 s. P5 added ~470 tests for ~85 s;
 | P6c | 1454 / 48 | 145 s |
 | P6d | 1525 / 52 | 195 s — the panels each boot the nav + items graph, so this chunk is the phase's most expensive per test |
 | P6e | 1651 / 58 | 137–165 s — the same suite re-measured 166 s at P6e's entry gate, so the phase's biggest chunk cost nothing net; the Tools fixture mounts the nav graph once and fetches two lists |
+| P6f | 1716 / 61 | **266 s, then 312 s on an immediate re-run** — two consecutive readings outside every previous band (112–195 s), so this is a trend, not the usual swing. 65 new tests cannot account for ~150 s; the likeliest cause is machine load rather than the suite itself, but it is unverified. See the note below. |
 
 ## Done when
 
