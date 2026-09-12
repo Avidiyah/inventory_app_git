@@ -11,10 +11,10 @@ import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
 import { server } from "../helpers/handlers.js";
 import {
-  checkinBtn, chooseUser, custodyUser, el, headers, holdingRows, mountTools, openTools,
+  checkinBtn, chooseUser, el, headers, holdingRows, mountTools, openTools,
   requestFor, restoreTools, rows, userOptions,
 } from "../helpers/tools.js";
-import { tool, toolCustodyEntry } from "../helpers/factories.js";
+import { tool, toolCustodyEntry, user as userFactory } from "../helpers/factories.js";
 
 afterEach(() => restoreTools());
 
@@ -42,7 +42,7 @@ function heldBy(user, { quantity = "1", ...overrides } = {}) {
 
 describe("loadTools by role", () => {
   it.each(MANAGERS)("%s fetches tools and users, shows the picker and waits for a search", async (role) => {
-    const holder = custodyUser({ full_name: "Ann Holder" });
+    const holder = userFactory({ full_name: "Ann Holder" });
     const { mod } = await mountTools({ role, tools: [tool()], users: [holder] });
     await mod.loadTools();
 
@@ -104,7 +104,7 @@ describe("loadTools by role", () => {
     });
 
   it("a failed /users/ clears the roster and the selection but keeps the table", async () => {
-    const holder = custodyUser({ full_name: "Ann Holder" });
+    const holder = userFactory({ full_name: "Ann Holder" });
     const { mod } = await openTools({ role: "admin", tools: [tool()], users: [holder] });
     await chooseUser(holder);
     expect(el.userCard().hidden).toBe(false);
@@ -122,9 +122,9 @@ describe("loadTools by role", () => {
 
   it("drops archived users and name-sorts the rest", async () => {
     const users = [
-      custodyUser({ full_name: "Zoe Zed" }),
-      custodyUser({ full_name: "Gone Away", archived_at: "2026-01-01T00:00:00Z" }),
-      custodyUser({ full_name: "Abe Able" }),
+      userFactory({ full_name: "Zoe Zed" }),
+      userFactory({ full_name: "Gone Away", archived_at: "2026-01-01T00:00:00Z" }),
+      userFactory({ full_name: "Abe Able" }),
     ];
     await openTools({ role: "admin", users });
     await userEvent.setup().click(el.userSearch());
@@ -132,8 +132,8 @@ describe("loadTools by role", () => {
   });
 
   it("clears a selected user who is gone from the next load", async () => {
-    const abe = custodyUser({ full_name: "Abe Able" });
-    const zoe = custodyUser({ full_name: "Zoe Zed" });
+    const abe = userFactory({ full_name: "Abe Able" });
+    const zoe = userFactory({ full_name: "Zoe Zed" });
     const { mod } = await openTools({ role: "admin", users: [abe, zoe] });
     await chooseUser(abe);
     expect(el.userCard().hidden).toBe(false);
@@ -146,7 +146,7 @@ describe("loadTools by role", () => {
   });
 
   it("keeps a still-present selection across a reload, with no message", async () => {
-    const abe = custodyUser({ full_name: "Abe Able" });
+    const abe = userFactory({ full_name: "Abe Able" });
     const { mod } = await openTools({ role: "admin", users: [abe] });
     await chooseUser(abe);
     await mod.loadTools();
@@ -157,7 +157,7 @@ describe("loadTools by role", () => {
 
 describe("the user picker", () => {
   const roster = (count) =>
-    Array.from({ length: count }, (_, i) => custodyUser({ full_name: `User ${String(i).padStart(2, "0")}` }));
+    Array.from({ length: count }, (_, i) => userFactory({ full_name: `User ${String(i).padStart(2, "0")}` }));
 
   it("focus lists everyone, capped at eight", async () => {
     await openTools({ role: "admin", users: roster(10) });
@@ -169,7 +169,7 @@ describe("the user picker", () => {
   });
 
   it("typing filters through filterRanked, and a miss says so", async () => {
-    const users = [custodyUser({ full_name: "Abe Able" }), custodyUser({ full_name: "Zoe Zed" })];
+    const users = [userFactory({ full_name: "Abe Able" }), userFactory({ full_name: "Zoe Zed" })];
     await openTools({ role: "admin", users });
     const user = userEvent.setup();
     await user.click(el.userSearch());
@@ -182,7 +182,7 @@ describe("the user picker", () => {
   });
 
   it("renders the role label on each option", async () => {
-    const users = [custodyUser({ full_name: "Ann Holder", role: "techfm_oa" })];
+    const users = [userFactory({ full_name: "Ann Holder", role: "techfm_oa" })];
     await openTools({ role: "admin", users });
     await userEvent.setup().click(el.userSearch());
     expect(userOptions()[0].querySelector(".manual-item-meta").textContent).toBe("TechFM OA");
@@ -190,7 +190,7 @@ describe("the user picker", () => {
   });
 
   it("ArrowDown and ArrowUp wrap, tracking aria-activedescendant and .is-active", async () => {
-    const users = [custodyUser({ full_name: "Abe Able" }), custodyUser({ full_name: "Zoe Zed" })];
+    const users = [userFactory({ full_name: "Abe Able" }), userFactory({ full_name: "Zoe Zed" })];
     await openTools({ role: "admin", users });
     const user = userEvent.setup();
     await user.click(el.userSearch());
@@ -209,7 +209,7 @@ describe("the user picker", () => {
   });
 
   it("ArrowDown opens the results when they are hidden", async () => {
-    const users = [custodyUser({ full_name: "Abe Able" })];
+    const users = [userFactory({ full_name: "Abe Able" })];
     await openTools({ role: "admin", users });
     const user = userEvent.setup();
     el.userSearch().focus();
@@ -220,7 +220,7 @@ describe("the user picker", () => {
   });
 
   it("Enter picks the active option; with none active it does nothing", async () => {
-    const users = [custodyUser({ full_name: "Abe Able" }), custodyUser({ full_name: "Zoe Zed" })];
+    const users = [userFactory({ full_name: "Abe Able" }), userFactory({ full_name: "Zoe Zed" })];
     await openTools({ role: "admin", users });
     const user = userEvent.setup();
     await user.click(el.userSearch());
@@ -235,7 +235,7 @@ describe("the user picker", () => {
   });
 
   it("Escape hides the results and drops the active descendant", async () => {
-    await openTools({ role: "admin", users: [custodyUser({ full_name: "Abe Able" })] });
+    await openTools({ role: "admin", users: [userFactory({ full_name: "Abe Able" })] });
     const user = userEvent.setup();
     await user.click(el.userSearch());
     await user.keyboard("{ArrowDown}");
@@ -247,7 +247,7 @@ describe("the user picker", () => {
   });
 
   it("editing the chosen name clears the selection and closes the editors", async () => {
-    const holder = custodyUser({ full_name: "Ann Holder" });
+    const holder = userFactory({ full_name: "Ann Holder" });
     await openTools({ role: "admin", tools: [heldBy(holder)], users: [holder] });
     const user = await chooseUser(holder);
     await user.click(checkinBtn());
@@ -261,7 +261,7 @@ describe("the user picker", () => {
   });
 
   it("a click outside the picker hides its results; one outside the checkout controls hides theirs", async () => {
-    const holder = custodyUser({ full_name: "Ann Holder" });
+    const holder = userFactory({ full_name: "Ann Holder" });
     await openTools({ role: "admin", tools: [tool()], users: [holder] });
     const user = userEvent.setup();
 
@@ -281,7 +281,7 @@ describe("the user picker", () => {
 describe("the selected user's card", () => {
   it("names the user, their role and their creation date, and takes focus", async () => {
     const created = "2026-03-04T15:30:00Z";
-    const holder = custodyUser({ full_name: "Ann Holder", role: "supervisor", created_at: created });
+    const holder = userFactory({ full_name: "Ann Holder", role: "supervisor", created_at: created });
     await openTools({ role: "admin", users: [holder] });
     await chooseUser(holder);
 
@@ -294,14 +294,14 @@ describe("the selected user's card", () => {
 
   it.each([["a null date", null], ["an unparseable date", "not-a-date"]])(
     "%s reads 'Created date unavailable'", async (_label, created) => {
-      const holder = custodyUser({ full_name: "Ann Holder", role: "admin", created_at: created });
+      const holder = userFactory({ full_name: "Ann Holder", role: "admin", created_at: created });
       await openTools({ role: "owner", users: [holder] });
       await chooseUser(holder);
       expect(el.userMeta().textContent).toBe("Admin · Created date unavailable");
     });
 
   it("counts one holding in the singular and reports the checked-out balance", async () => {
-    const holder = custodyUser({ full_name: "Ann Holder" });
+    const holder = userFactory({ full_name: "Ann Holder" });
     const drill = heldBy(holder, { quantity: "2" });
     await openTools({ role: "admin", tools: [drill], users: [holder] });
     await chooseUser(holder);
@@ -314,8 +314,8 @@ describe("the selected user's card", () => {
   });
 
   it("counts two holdings in the plural, and only the tools this user holds", async () => {
-    const holder = custodyUser({ full_name: "Ann Holder" });
-    const other = custodyUser({ full_name: "Bob Other" });
+    const holder = userFactory({ full_name: "Ann Holder" });
+    const other = userFactory({ full_name: "Bob Other" });
     const drill = heldBy(holder, { quantity: "2" });
     const saw = tool({
       name: "Saw", barcode: "T2", quantity: "1",
@@ -334,7 +334,7 @@ describe("the selected user's card", () => {
   });
 
   it("says so when the user holds nothing", async () => {
-    const holder = custodyUser({ full_name: "Ann Holder" });
+    const holder = userFactory({ full_name: "Ann Holder" });
     await openTools({ role: "admin", tools: [tool()], users: [holder] });
     await chooseUser(holder);
     expect(el.custodyCount().textContent).toBe("0 tool records currently checked out");
@@ -343,7 +343,7 @@ describe("the selected user's card", () => {
   });
 
   it("shows the checkout controls to a custody manager", async () => {
-    const holder = custodyUser({ full_name: "Ann Holder" });
+    const holder = userFactory({ full_name: "Ann Holder" });
     await openTools({ role: "techfm_oa", users: [holder] });
     await chooseUser(holder);
     expect(el.checkoutControls().hidden).toBe(false);
@@ -356,7 +356,7 @@ describe("the selected user's card", () => {
   });
 
   it("escapes a holding's tool name and barcode", async () => {
-    const holder = custodyUser({ full_name: "Ann Holder" });
+    const holder = userFactory({ full_name: "Ann Holder" });
     const nasty = heldBy(holder, { name: '<img src=x onerror="boom">', barcode: "<b>T1</b>" });
     await openTools({ role: "admin", tools: [nasty], users: [holder] });
     await chooseUser(holder);
@@ -368,7 +368,7 @@ describe("the selected user's card", () => {
 
 describe("Check In hands off to toolReturn.js", () => {
   it("opens the return editor against the holding, prefilled to the outstanding balance", async () => {
-    const holder = custodyUser({ full_name: "Ann Holder" });
+    const holder = userFactory({ full_name: "Ann Holder" });
     const drill = heldBy(holder, { quantity: "2" });
     await openTools({ role: "admin", tools: [drill], users: [holder] });
     const user = await chooseUser(holder);
@@ -384,7 +384,7 @@ describe("Check In hands off to toolReturn.js", () => {
   });
 
   it("closes an open checkout editor first", async () => {
-    const holder = custodyUser({ full_name: "Ann Holder" });
+    const holder = userFactory({ full_name: "Ann Holder" });
     const drill = heldBy(holder);
     await openTools({ role: "admin", tools: [drill], users: [holder] });
     const user = await chooseUser(holder);
@@ -402,7 +402,7 @@ describe("Check In hands off to toolReturn.js", () => {
     // The guard `tool && custody` can only be missed by a button the render
     // did not produce, so the test fabricates one -- what is pinned is that
     // the delegation refuses it rather than opening an empty editor.
-    const holder = custodyUser({ full_name: "Ann Holder" });
+    const holder = userFactory({ full_name: "Ann Holder" });
     await openTools({ role: "admin", tools: [heldBy(holder)], users: [holder] });
     const user = await chooseUser(holder);
 

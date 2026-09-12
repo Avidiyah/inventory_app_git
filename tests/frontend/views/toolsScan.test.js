@@ -13,10 +13,10 @@ import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
 import { server } from "../helpers/handlers.js";
 import {
-  activeFeature, answerDecode, answerToolLookup, checkoutOptions, chooseUser, custodyUser,
+  activeFeature, answerDecode, answerToolLookup, checkoutOptions, chooseUser,
   el, openTools, restoreTools, rows, upload,
 } from "../helpers/tools.js";
-import { tool } from "../helpers/factories.js";
+import { tool, user as userFactory } from "../helpers/factories.js";
 
 afterEach(() => restoreTools());
 
@@ -27,7 +27,7 @@ const LOOKUP_HINT = "Scan a tool's barcode to find it in Inventory.";
 
 async function mounted({ role = "admin", tools = [], withUser = true } = {}) {
   const user = userEvent.setup();
-  const holder = custodyUser({ full_name: "Ann Holder" });
+  const holder = userFactory({ full_name: "Ann Holder" });
   const ctx = await openTools({ role, tools, users: [holder] });
   if (withUser && role === "admin") await chooseUser(holder, user);
   return { ...ctx, holder, user };
@@ -161,7 +161,7 @@ describe("scanning for checkout", () => {
     await ctx.user.click(el.checkoutScanBtn());
 
     server.use(http.get("/users/", () =>
-      HttpResponse.json([custodyUser({ full_name: "Someone Else" })])));
+      HttpResponse.json([userFactory({ full_name: "Someone Else" })])));
     await ctx.mod.loadTools();
 
     await scan("T1", drill);

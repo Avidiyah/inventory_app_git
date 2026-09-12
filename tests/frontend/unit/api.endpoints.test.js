@@ -89,6 +89,7 @@ describe("factories match the schemas they stand in for", () => {
     ["workOrderLabor", "backend/app/schemas/work_orders.py"],
     ["filterOptions", "backend/app/schemas/work_orders.py"],
     ["item", "backend/app/schemas/items.py"],
+    ["user", "backend/app/schemas/users.py"],
     ["transaction", "backend/app/schemas/transactions.py"],
     ["historyRow", "backend/app/schemas/transactions.py"],
     ["hubCrew", "backend/app/schemas/hub.py"],

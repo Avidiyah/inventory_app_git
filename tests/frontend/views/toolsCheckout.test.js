@@ -12,11 +12,11 @@ import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
 import { server } from "../helpers/handlers.js";
 import {
-  checkinBtn, checkoutOptions, chooseUser, custodyUser, el, holdingRows,
+  checkinBtn, checkoutOptions, chooseUser, el, holdingRows,
   openTools, requestFor, requests, restoreTools,
 } from "../helpers/tools.js";
 import { importView } from "../helpers/shell.js";
-import { tool, toolCustodyEntry } from "../helpers/factories.js";
+import { tool, toolCustodyEntry, user as userFactory } from "../helpers/factories.js";
 
 afterEach(() => restoreTools());
 
@@ -28,7 +28,7 @@ const DRILL = () => tool({ name: "Drill", barcode: "T1", quantity: "3" });
 async function withUser({ role = "admin", tools = [], fake = false } = {}) {
   if (fake) vi.useFakeTimers();
   const user = userEvent.setup(fake ? { advanceTimers: vi.advanceTimersByTime } : {});
-  const holder = custodyUser({ full_name: "Ann Holder" });
+  const holder = userFactory({ full_name: "Ann Holder" });
   const mounted = await openTools({
     role, users: [holder], tools: typeof tools === "function" ? tools(holder) : tools,
   });
@@ -324,7 +324,7 @@ describe("the module surface", () => {
     const drill = DRILL();
     await openTools({ role: "admin", tools: [drill], users: [] });
     const checkout = await importView("views/toolCheckout.js");
-    const holder = custodyUser({ full_name: "Ann Holder" });
+    const holder = userFactory({ full_name: "Ann Holder" });
     const saved = vi.fn();
     checkout.setOnSaved(saved);
     answer("post", `/tools/${drill.id}/checkout`);
@@ -343,7 +343,7 @@ describe("the module surface", () => {
   });
 
   it("openToolReturn / closeToolReturn / setOnSaved", async () => {
-    const holder = custodyUser({ full_name: "Ann Holder" });
+    const holder = userFactory({ full_name: "Ann Holder" });
     const drill = heldBy(holder, "2");
     await openTools({ role: "admin", tools: [drill], users: [holder] });
     const ret = await importView("views/toolReturn.js");

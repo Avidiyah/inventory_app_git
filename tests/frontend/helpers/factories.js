@@ -7,12 +7,16 @@ let seq = 0;
 export function user(overrides = {}) {
   seq += 1;
   return {
-    id: seq,
+    // `UserResponse.id` is a UUID, and two views resolve a click by comparing
+    // it against a `data-id` the DOM handed back as a string (`users.js`'s row
+    // actions, `tools.js`'s custody picker). An integer id would never match.
+    id: `10000000-0000-4000-8000-${String(seq).padStart(12, "0")}`,
     username: `user${seq}`,
     full_name: `Test User ${seq}`,
     first_name: "Test",
     last_name: `User ${seq}`,
     role: "technician",
+    created_at: "2026-09-10T12:00:00Z",
     ...overrides,
   };
 }
