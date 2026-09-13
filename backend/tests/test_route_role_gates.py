@@ -179,6 +179,9 @@ def test_work_order_list_forwards_joinable_filters(monkeypatch):
         task_q="sink",
         mine=True,
         limit=None,
+        # Passed explicitly: a direct call would otherwise receive FastAPI's
+        # `Query` default object, not the string the route declares.
+        sort="scheduled_asc",
         user=user,
         db=None,
     )
@@ -198,6 +201,8 @@ def test_work_order_list_forwards_joinable_filters(monkeypatch):
         "task_search": "sink",
         "mine": True,
         "limit": None,
+        # The Newest/Oldest toggle: `sort` reaches the service as a boolean.
+        "descending": False,
     }
 
 
