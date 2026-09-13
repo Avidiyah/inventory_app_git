@@ -32,8 +32,8 @@ observation becomes active work.
 User-requested behavior, not framework work. IMP-001–003 and IMP-005–034 are
 implemented (IMP-034, the User Hub, shipped in phases P1–P5 ending
 2026-08-30; spec `docs/superpowers/specs/2026-08-20-user-hub-design.md`; its
-three follow-ons live in section 2 as `N-WO-STATUS-EVENTS`,
-`N-REPORT-EXPORT-AUDIT`, and `N-REPORT-CLOSING-PAGINATION`). IMP-004 and
+two follow-ons live in section 2 as `N-WO-STATUS-EVENTS` and
+`N-REPORT-EXPORT-AUDIT`). IMP-004 and
 IMP-035 are open requests; IMP-038 and IMP-040 are in progress.
 
 ### IMP-004 — Mass Stage redesign
@@ -127,18 +127,17 @@ edit to that index. Fix: add the row. Until then
 `tests/frontend/unit/api.endpoints.test.js` allows exactly this one name
 (`KNOWN_UNDOCUMENTED`) and fails on any other undocumented wrapper.
 
-### N-WO-STATUS-EVENTS — no status history, so a close can vanish
+### N-WO-STATUS-EVENTS — no status history, so a live close can vanish
 
 Work orders carry only `created_at`/`updated_at`/`completed_at`/
-`archived_at`; nothing records when a status was entered. The daily report
-accepts two consequences: Closing is an honest snapshot, not a delta; and a
-restore (or the sweep's reopen-on-reappearance) retroactively erases a close
-from past numbers — both surfaces are live views and say so on the page.
-**Trigger:** needing to reconcile a past day's report against what it said at
-the time, or date navigation on the report. Fix: a `work_order_status_events`
-table. Do not infer history from `updated_at`.
+`archived_at`; nothing records when a status was entered, and a restore
+clears `archived_at`. The weekly report's *completed* weeks are frozen
+records (`work_order_report_weeks`) and no longer drift; the week in
+progress is still a live view. **Trigger:** any other surface needing to
+reconcile past state, or a per-status timeline. Fix: a
+`work_order_status_events` table. Do not infer history from `updated_at`.
 
-### N-REPORT-EXPORT-AUDIT — the report CSV joins the unlogged-export set
+### N-REPORT-EXPORT-AUDIT — the report Excel export joins the unlogged-export set
 
 DEC-009 commits every CSV/report export to an audit record (actor, type, row
 count, timestamp) in the log sink DEC-008 funds; `GET /hub/report/export` is
@@ -146,15 +145,6 @@ a member from the day it shipped and is not separately logged today.
 **Trigger:** the sink landing — wire this export in then; a second,
 differently-shaped export log is worse than the gap. It is Admin-only and
 company-wide, so it is the higher-value audit record.
-
-### N-REPORT-CLOSING-PAGINATION — the one report section that can outgrow its cap
-
-`closing` is every live `ready_to_complete`/`completed`/`review` row and
-grows with any backlog; it passes through `MAX_LIST_ROWS` and carries
-`truncated` in its payload. The cap lives in the payload builder, so page and
-CSV truncate identically; `count` and `by_status` stay true regardless.
-**Trigger:** `event=list.truncated` with `list=hub_report_closing` in the
-logs — then this section (not all capped lists) needs real pagination.
 
 ### N-ITEM-RESTORE — no item unarchive, and catalogue requests expose it
 
