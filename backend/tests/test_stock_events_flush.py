@@ -19,6 +19,8 @@ import pytest
 from fastapi import BackgroundTasks
 
 from app.domain import realtime as realtime_policy
+from app.domain import roles
+from app.models import User
 from app.routers import _stock_events
 from app.services import low_stock as low_stock_service
 from app.services import material_requests as material_service
@@ -35,8 +37,23 @@ def _clean():
 
 
 @pytest.fixture
-def configured(monkeypatch):
+def configured(db, monkeypatch):
+    """Push configured, and one person to tell. The low-stock audience is
+    resolved from the users table (TechFM OA and above); the stocked branch
+    addresses the fact's own assignees. A fresh CI database has no users at
+    all, so without this row the low-stock push is silently dropped and the
+    test cannot tell a working branch from a broken one."""
     monkeypatch.setattr(push_service, "VAPID_PRIVATE_KEY", "test-private-key")
+    db.add(
+        User(
+            username=f"oa-{uuid.uuid4().hex[:8]}",
+            first_name="Stock",
+            last_name="Watcher",
+            password_hash="x",
+            role=roles.ROLE_TECHFM_OA,
+        )
+    )
+    db.flush()
 
 
 def _capture_emits(monkeypatch):
