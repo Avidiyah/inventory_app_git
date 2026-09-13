@@ -293,7 +293,7 @@ describe("failure isolation", () => {
     await openHub({ role: "owner" });                    // fixture answers /hub/report with 500
     await user().click(el.tab("report"));
     await vi.waitFor(() => expect(el.panel("report").querySelector(".hub-report-load-error")).not.toBeNull());
-    expect(el.panel("report").querySelector("p.error").textContent).toBe("Could not load the daily report.");
+    expect(el.panel("report").querySelector("p.error").textContent).toBe("Could not load the report.");
     await user().click(el.panel("report").querySelector(".hub-report-retry"));
     await vi.waitFor(() => expect(queries("/hub/report")).toHaveLength(2));
   });

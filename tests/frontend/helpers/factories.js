@@ -437,35 +437,29 @@ export function hubGraphBucket(overrides = {}) {
   };
 }
 
-// `GET /hub/report` (HubReportResponse), Admin-only. Every section starts
-// empty and counted zero; a test fills the one it asserts on.
+// `GET /hub/report` (HubReportResponse), Admin-only: the week in progress,
+// empty; a test supplies the rows it asserts on.
 export function hubReport(overrides = {}) {
   return {
+    week_start: "2026-09-07",
+    week_end: "2026-09-13",
+    status: "in_progress",
     generated_at: "2026-09-10T18:30:00Z",
-    day: "2026-09-10",
-    week: { start: "2026-09-07", end: "2026-09-13" },
-    sections: {
-      closed_today: { count: 0, rows: [] },
-      closed_week: { count: 0, rows: [] },
-      closing: { count: 0, by_status: {}, truncated: false, rows: [] },
-      new_today: { count: 0, rows: [] },
-      new_week: { count: 0, rows: [] },
-    },
+    frozen_at: null,
+    count: 0,
+    rows: [],
     ...overrides,
   };
 }
 
-// The report's display projection (HubReportRow) -- not the 26-column CSV
-// row; `export_cells` deliberately never travels in the JSON.
+// One closed work order (HubReportRow): the six workbook columns plus the
+// primary community key and the close instant the screen shows.
 export function hubReportRow(overrides = {}) {
   return {
-    work_order_id: uuid(), number: "7001", status: "completed",
-    community: "Scholars", location: null, building_number: "3", unit_number: "12",
-    service_type: "Electrical", priority: "Normal", supervisor_name: "Sue Super",
-    technician_names: ["Crew One"],
-    materials_total: "10.00", labor_minutes: 60, labor_total: "25.00", total: "35.00",
-    created_at: "2026-09-10T13:00:00Z", completed_at: "2026-09-10T15:00:00Z",
-    archived_at: null, legacy: false,
+    work_order_id: uuid(), number: "7001", assigned_to: "Belfor Dispatch",
+    location: "Scholars 12-304", service_type: "Maintenance", service_type_label: "Maintenance",
+    community: "scholars", schedule_date: "7/21/2026", priority: "Normal",
+    archived_at: "2026-09-10T15:00:00Z",
     ...overrides,
   };
 }

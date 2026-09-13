@@ -88,6 +88,10 @@ let graphCommunity = null;
 let graphInner = "service_type";
 let latestReportPayload = null;
 let reportRequestId = 0;
+// The Monday the Report tab is showing; null is the week in progress. Kept
+// across tab re-entry (the re-fetch is for freshness, not a reset) and
+// cleared with the rest of the report state on a user change.
+let reportWeek = null;
 let loadedUserId = null;
 
 // Hub tabs are card grids, so their in-flight state is a grid of skeleton
@@ -199,8 +203,8 @@ function renderActiveTab() {
     if (latestGraphsPayload) renderGraphs();
     else void loadGraphs();
   } else if (activeTab === "report") {
-    // Re-fetched on every tab re-entry, matching Graphs: a daily report does
-    // not need a socket, but it should not be yesterday's either.
+    // Re-fetched on every tab re-entry, matching Graphs: the week in progress
+    // does not need a socket, but it should not be stale either.
     if (latestReportPayload) renderReport();
     void loadReport({ background: Boolean(latestReportPayload) });
   } else {
@@ -254,7 +258,12 @@ function setReportTabVisible(visible) {
 function renderReport() {
   const mount = tabPanels.report;
   if (!mount || !latestReportPayload) return;
-  mountHubReport(mount, latestReportPayload);
+  mountHubReport(mount, latestReportPayload, {
+    onSelectWeek: (week) => {
+      reportWeek = week;
+      void loadReport();
+    },
+  });
 }
 
 async function loadReport({ background = false } = {}) {
@@ -263,7 +272,7 @@ async function loadReport({ background = false } = {}) {
   const requestId = ++reportRequestId;
   if (!latestReportPayload && !background) renderReportSkeleton(mount);
   try {
-    const payload = await apiGetHubReport();
+    const payload = await apiGetHubReport({ week: reportWeek });
     if (requestId !== reportRequestId) return;
     latestReportPayload = payload;
     if (activeTab === "report") renderReport();
@@ -493,6 +502,7 @@ export async function loadUserHub() {
   if (userChanged || !canViewReport) {
     latestReportPayload = null;
     reportRequestId += 1;
+    reportWeek = null;
     tabPanels.report.replaceChildren();
   }
   if (userChanged) activeTab = "dashboard";
