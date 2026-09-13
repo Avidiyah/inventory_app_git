@@ -1,282 +1,146 @@
-"""The Admin daily report as an Excel workbook.
+"""The weekly closed report as an Excel workbook.
 
-Layer: services. The third renderer of `work_order_report.daily_report`'s
-payload, beside the JSON route and `report_csv` -- a pure function of that
-payload, no queries and no clock, so the file and the screen cannot disagree
-(parent spec R9 / X3, redesign E13). Styling lives in `_xlsx_theme.py` (E12)
-and the chart sheets in `work_order_report_xlsx_charts.py`; this module is
-sheet composition only.
+Layer: services. A pure function of `HubReportResponse` -- no queries, no
+clock -- so the file and the screen render the same record (W4). Styling
+lives in `_xlsx_theme.py`; this module is sheet composition only.
 
-Spec: docs/superpowers/specs/2026-08-30-hub-report-xlsx-redesign-design.md
+Spec: docs/superpowers/specs/2026-09-13-weekly-closed-report-design.md §6
 
-Sheet order is the reading order: `Report`, one sheet per community, `Work
-Orders`, then the machine sheets -- hidden `Chart Data`, and `Data` last.
-
-Three things about this module are load-bearing:
-
-**openpyxl discards charts across a load/save cycle.** So there is no
-committed `.xlsx` template -- the workbook is built in code, and the charts
-cannot be read back in tests: `tests/test_work_order_report_xlsx.py` asserts
-them over the saved bytes with `zipfile`.
-
-**Every chart reads the hidden `Chart Data` sheet (E7)**, one labelled block
-per chart written by cursor, with `visible_cells_only = False` so Excel plots
-it. The designed sheets carry the same numbers as styled tables, from the
-same payload -- never as chart sources.
-
-**`Data` is `report_csv`, cell for cell (E10 / X5)**, money-as-text included,
-so save-as-CSV from Excel still round-trips through `parse_import_row`.
+One tab per service type label, alphabetical (W8); inside each, one block
+per community in `ALL_COMMUNITY_FILTERS` order, primary community only
+(W9); six raw vendor-text columns (W10). No Excel Table objects: a tab holds
+several blocks, and a Table cannot span a heading row.
 """
 
 from __future__ import annotations
 
 import io
-from datetime import datetime, timezone
-from typing import Optional
-from uuid import UUID
+import re
+from itertools import groupby
 
 from openpyxl import Workbook
-from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from app.domain import labor_day
 from app.domain import work_orders as wo
+from app.schemas.hub import HubReportResponse, HubReportRow
 from app.services import _xlsx_theme as theme
-from app.services.work_order_report import (
-    CSV_SECTION_HEADER,
-    SECTION_ORDER,
-    STATUS_LABELS,
-    DailyReport,
-    ReportRow,
-)
-from app.services.work_order_report_buckets import (
-    BUCKET_LABELS,
-    communities_of,
-    row_bucket,
-)
-
-# The chart sheets and the pieces they share. Re-exported here (the row
-# constants, the footnote, `_community_money`) so the renderer stays the one
-# module the route and the tests address.
-from app.services.work_order_report_xlsx_charts import (  # noqa: F401
-    ACTIVITY_ROW,
-    BY_COMMUNITY_ROW,
-    DOLLARS_FOOTNOTE,
-    DOLLARS_ROW,
-    EMPTY_COMMUNITY_STATE,
-    EMPTY_STATE,
-    KPI_ROW,
-    PLACEHOLDER,
-    STATUS_ROW,
-    _ChartData,
-    _community_money,
-    _community_sheet,
-    _report_sheet,
-)
+from app.services.work_order_report import row_sort_key
 
 XLSX_MEDIA_TYPE = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
 
-CHART_DATA_SHEET = "Chart Data"
-
-# Physical order. Excel opens on the first; `Chart Data` is hidden, so the
-# tab strip shows eight and ends on `Data` (E6, plan P5).
-SHEET_NAMES: tuple[str, ...] = (
-    "Report",
-    *(wo.COMMUNITY_LABELS[key] for key in wo.ALL_COMMUNITY_FILTERS),
-    "Work Orders",
-    CHART_DATA_SHEET,
-    "Data",
+HEADERS: tuple[str, ...] = (
+    "WORK ORDER",
+    "ASSIGNED TO",
+    "LOCATION",
+    "SERVICE TYPE",
+    "SCHEDULE DATE",
+    "PRIORITY",
 )
+WIDTHS: dict[str, int] = {"A": 14, "B": 22, "C": 34, "D": 18, "E": 14, "F": 10}
+
+EMPTY_SHEET = "Report"
+EMPTY_TEXT = "No work orders closed this week."
+
+# Excel forbids these in a sheet name and caps it at 31 characters.
+_FORBIDDEN = re.compile(r"[:\\/?*\[\]]")
+_MAX_NAME = 31
+
+FIRST_BLOCK_ROW = 5
 
 
-def report_xlsx(payload: DailyReport) -> bytes:
+def report_xlsx(payload: HubReportResponse) -> bytes:
     workbook = Workbook()
-    report_sheet = workbook.active
-    report_sheet.title = "Report"
-    community_sheets = {
-        key: workbook.create_sheet(wo.COMMUNITY_LABELS[key])
-        for key in wo.ALL_COMMUNITY_FILTERS
-    }
-    work_orders_sheet = workbook.create_sheet("Work Orders")
-    chart_data = _ChartData(workbook.create_sheet(CHART_DATA_SHEET))
-    chart_data.sheet.sheet_state = "hidden"
-    data_sheet = workbook.create_sheet("Data")
-
-    _report_sheet(report_sheet, payload, chart_data)
-    for community in payload.distribution.communities:
-        _community_sheet(community_sheets[community.key], payload, community, chart_data)
-    _work_orders_sheet(work_orders_sheet, payload)
-    _data_sheet(data_sheet, payload)
+    first = workbook.active
+    taken: set[str] = set()
+    # Sorted here as well as in the service: a stored payload is trusted for
+    # its rows, never for their order (W8, W9).
+    ordered = sorted(payload.rows, key=row_sort_key)
+    groups = [
+        (label, list(rows))
+        for label, rows in groupby(ordered, key=lambda row: row.service_type_label)
+    ]
+    if not groups:
+        first.title = EMPTY_SHEET
+        _title_block(first, EMPTY_SHEET, payload)
+        theme.empty_state(first, FIRST_BLOCK_ROW, EMPTY_TEXT)
+    for index, (label, rows) in enumerate(groups):
+        name = sheet_name(label, taken)
+        taken.add(name)
+        sheet = first if index == 0 else workbook.create_sheet()
+        sheet.title = name
+        _service_type_sheet(sheet, payload, label, rows)
 
     buffer = io.BytesIO()
     workbook.save(buffer)
     return buffer.getvalue()
 
 
-def report_xlsx_filename(payload: DailyReport) -> str:
-    """Named for the period it covers, not the moment of export -- the same
-    timesheet convention `report_filename` follows (user-hub-design.md D14)."""
-    return f"wo-report_{payload.day.isoformat()}.xlsx"
+def report_xlsx_filename(payload: HubReportResponse) -> str:
+    """Named for the Monday of the week it covers, not the moment of export
+    (the timesheet convention, user-hub-design.md D14)."""
+    return f"wo-report_{payload.week_start.isoformat()}.xlsx"
 
 
-# --------------------------------------------------------------------------
-# Work Orders
-# --------------------------------------------------------------------------
-
-WORK_ORDERS_HEADER_ROW = 5
-
-WORK_ORDER_HEADERS: tuple[str, ...] = (
-    "WORK ORDER",
-    "LOCATION",
-    "NOTES",
-    "BUCKET",
-    "STATUS",
-    "COMMUNITIES",
-    "SERVICE TYPE",
-    "PRIORITY",
-    "BUILDING",
-    "UNIT",
-    "SUPERVISOR",
-    "TECHNICIANS",
-    "MATERIAL LINES",
-    "MATERIALS TOTAL",
-    "LABOR MINUTES",
-    "LABOR TOTAL",
-    "TOTAL",
-    "CREATED AT",
-    "COMPLETED AT",
-    "CLOSED AT",
-    "SECTIONS",
-)
-
-WORK_ORDER_WIDTHS: tuple[int, ...] = (
-    14, 34, theme.NOTES_WIDTH, 14, 16, 22, 18, 12, 10, 10, 18, 24, 12, 14, 12, 14, 14, 18, 18, 18, 20,
-)
-
-# 0-based column offset -> number format.
-WORK_ORDER_FORMATS: dict[int, str] = {
-    12: theme.COUNT,
-    13: theme.MONEY,
-    14: theme.COUNT,
-    15: theme.MONEY,
-    16: theme.MONEY,
-    17: theme.DATE,
-    18: theme.DATE,
-    19: theme.DATE,
-}
+def sheet_name(label: str, taken: set[str]) -> str:
+    """`label` made legal for Excel: forbidden characters become spaces, the
+    result is cut to 31, and a collision with `taken` gets a ` (2)`, ` (3)`
+    suffix so no service type silently overwrites another's tab."""
+    base = _FORBIDDEN.sub(" ", label).strip()[:_MAX_NAME].strip() or EMPTY_SHEET
+    name, attempt = base, 1
+    while name in taken:
+        attempt += 1
+        suffix = f" ({attempt})"
+        name = f"{base[: _MAX_NAME - len(suffix)].rstrip()}{suffix}"
+    return name
 
 
-def _excel_utc(value: Optional[datetime]) -> Optional[datetime]:
-    """UTC, naive: openpyxl refuses tz-aware datetimes. UTC on purpose -- the
-    same seam `export_row` writes (§5); the covered period is in the title."""
-    if value is None:
-        return None
-    return labor_day.as_utc(value).astimezone(timezone.utc).replace(tzinfo=None)
+def _status_line(payload: HubReportResponse) -> str:
+    if payload.status == "completed" and payload.frozen_at is not None:
+        stamp = payload.frozen_at.astimezone(labor_day.CENTRAL)
+        return f"Completed · frozen {stamp:%Y-%m-%d %H:%M} Central"
+    stamp = payload.generated_at.astimezone(labor_day.CENTRAL)
+    label = "Completed" if payload.status == "completed" else "In progress"
+    return f"{label} · generated {stamp:%Y-%m-%d %H:%M} Central"
 
 
-def _sections_of(payload: DailyReport) -> dict[UUID, list[str]]:
-    """Which report sections each work order appeared in, in SECTION_ORDER --
-    the `Data` sheet's SECTION filter folded into one deduped row."""
-    seen: dict[UUID, list[str]] = {}
-    for key in SECTION_ORDER:
-        for row in getattr(payload.sections, key).rows:
-            seen.setdefault(row.work_order_id, []).append(key)
-    return seen
-
-
-def _work_order_cells(row: ReportRow, sections: dict[UUID, list[str]]) -> list:
-    return [
-        row.number,
-        row.location,
-        row.notes,
-        BUCKET_LABELS[row_bucket(row)],
-        STATUS_LABELS.get(row.status, row.status),
-        "; ".join(communities_of(row)),
-        row.service_type,
-        row.priority,
-        row.building_number,
-        row.unit_number,
-        row.supervisor_name,
-        "; ".join(row.technician_names),
-        row.material_lines,
-        row.materials_total,
-        row.labor_minutes,
-        row.labor_total,
-        row.total,
-        _excel_utc(row.created_at),
-        _excel_utc(row.completed_at),
-        _excel_utc(row.archived_at),
-        "; ".join(sections.get(row.work_order_id, [])),
-    ]
-
-
-def _work_orders_sheet(sheet: Worksheet, payload: DailyReport) -> None:
-    """One row per work order over the E1 population, deduped, in reading
-    order (§4.3). Money is numeric here -- this sheet is for reading and
-    pivoting, and it is not the re-import path."""
-    theme.setup_sheet(
-        sheet,
-        tab_color=theme.INK,
-        freeze=f"D{WORK_ORDERS_HEADER_ROW + 1}",
-        print_title_rows=f"{WORK_ORDERS_HEADER_ROW}:{WORK_ORDERS_HEADER_ROW}",
-    )
-    theme.set_widths(
-        sheet,
-        {get_column_letter(index): width for index, width in enumerate(WORK_ORDER_WIDTHS, start=1)},
-    )
-    week = payload.week
+def _title_block(sheet: Worksheet, title: str, payload: HubReportResponse) -> None:
+    theme.setup_sheet(sheet, tab_color=theme.MUTED, freeze=None)
+    theme.set_widths(sheet, WIDTHS)
     theme.title_block(
         sheet,
-        "Work Orders",
+        title,
         [
-            f"{len(payload.all_rows):,} work orders · live now plus closed "
-            f"{week.start.isoformat()} – {week.end.isoformat()}",
-            "One row per work order. Timestamps are UTC; the covered period is "
-            "in the line above and in the filename.",
+            f"Closed {payload.week_start.isoformat()} – {payload.week_end.isoformat()}"
+            f" · {payload.count:,} work orders",
+            _status_line(payload),
         ],
     )
 
-    sections = _sections_of(payload)
-    rows = [_work_order_cells(row, sections) for row in payload.all_rows]
-    theme.table_of(
-        sheet,
-        name="WorkOrders",
-        row=WORK_ORDERS_HEADER_ROW,
-        headers=WORK_ORDER_HEADERS,
-        rows=rows,
-        formats=WORK_ORDER_FORMATS,
-        alignment=theme.TOP,
-    )
-    first = WORK_ORDERS_HEADER_ROW + 1
-    for index, row in enumerate(payload.all_rows, start=first):
-        sheet.cell(row=index, column=3).alignment = theme.TOP_WRAPPED
-        height = theme.notes_row_height(row.notes)
-        if height is not None:
-            sheet.row_dimensions[index].height = height
-    if not rows:
-        theme.empty_state(sheet, first, EMPTY_STATE)
+
+def _cells(row: HubReportRow) -> list:
+    return [
+        row.number,
+        row.assigned_to,
+        row.location,
+        row.service_type,
+        row.schedule_date,
+        row.priority,
+    ]
 
 
-# --------------------------------------------------------------------------
-# Data
-# --------------------------------------------------------------------------
-
-
-def _data_sheet(sheet: Worksheet, payload: DailyReport) -> None:
-    """`report_csv` as cells: same header, same section order, same values.
-
-    Deliberately not coerced to numbers. The money columns stay the strings
-    `export_row` produced, so Excel shows its "number stored as text" hint on
-    them -- that is the price of the CSV being byte-identical, and the charts
-    are immune because they read `Chart Data` instead."""
-    theme.setup_sheet(sheet, tab_color=theme.TAB_GRAY, freeze="A2", gridlines=True)
-    sheet.append([CSV_SECTION_HEADER, *wo.EXPORT_HEADERS])
-    for cell in sheet[1]:
-        cell.font = theme.font(bold=True)
-    for key in SECTION_ORDER:
-        # All five sections, so a row appears under both `closed_today` and
-        # `closed_week` -- the CSV's filter-on-SECTION property, preserved.
-        for row in getattr(payload.sections, key).rows:
-            sheet.append([key, *row.export_cells])
+def _service_type_sheet(
+    sheet: Worksheet, payload: HubReportResponse, label: str, rows: list[HubReportRow]
+) -> None:
+    _title_block(sheet, label, payload)
+    cursor = FIRST_BLOCK_ROW
+    for key in wo.ALL_COMMUNITY_FILTERS:
+        block = [row for row in rows if row.community == key]
+        if not block:
+            continue
+        theme.section(sheet, cursor, wo.COMMUNITY_LABELS[key], span=len(HEADERS))
+        theme.header_row(sheet, cursor + 1, HEADERS)
+        last = theme.write_rows(sheet, cursor + 2, [_cells(row) for row in block])
+        cursor = last + 2  # one blank row between blocks

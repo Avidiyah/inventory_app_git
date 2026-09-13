@@ -14,7 +14,7 @@ reads better for saying so.
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, computed_field
 
@@ -452,100 +452,42 @@ class HubTimesheetResponse(BaseModel):
 
 
 # --- the Admin daily report -------------------------------------------------
-# Spec: docs/superpowers/specs/2026-08-30-work-order-daily-report-design.md
+# Spec: docs/superpowers/specs/2026-09-13-weekly-closed-report-design.md
 
 
 class HubReportRow(BaseModel):
-    """The report's own display projection -- not the 26-column CSV row.
+    """One work order closed inside the report week, as the six-column
+    workbook and the screen both show it (W10).
 
-    `status` is the row's `status` column as it stands: archiving does not
-    rewrite it, so a closed row still reads `completed` or `review` and the
-    badge must not be misread as "still open".
-
-    The payload's `export_cells` is deliberately absent here, so the CSV's cells
-    never travel in the JSON. Money is rendered server-side from the same domain
-    helpers the export uses, so the report can never become a fourth place that
-    computes a work order's total."""
+    `community` is the primary community *key* (W9) -- the first
+    `community_memberships` match, Academics fallback -- and
+    `service_type_label` is the normalised tab name, kept beside the raw
+    `service_type` cell text. `work_order_id` and `archived_at` serve the
+    screen's row hand-off and Closed column; neither is a workbook column."""
 
     work_order_id: uuid.UUID
     number: str
-    status: str
-    community: Optional[str] = None
+    assigned_to: Optional[str] = None
     location: Optional[str] = None
-    building_number: Optional[str] = None
-    unit_number: Optional[str] = None
     service_type: Optional[str] = None
+    service_type_label: str
+    community: str
+    schedule_date: Optional[str] = None
     priority: Optional[str] = None
-    supervisor_name: Optional[str] = None
-    technician_names: list[str] = []
-    materials_total: Decimal
-    labor_minutes: int
-    labor_total: Decimal
-    total: Decimal
-    created_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    archived_at: Optional[datetime] = None
-    legacy: bool
-
-    model_config = {"from_attributes": True}
-
-
-class HubReportClosedSection(BaseModel):
-    """Three section models rather than one with optional fields: what a Closed
-    section carries and what a Closing section carries genuinely differ."""
-
-    count: int
-    rows: list[HubReportRow] = []
-
-    model_config = {"from_attributes": True}
-
-
-class HubReportClosingSection(BaseModel):
-    # `by_status` and `count` are separate aggregates, not tallies over `rows`,
-    # so the sub-counts stay true when `rows` is capped.
-    count: int
-    by_status: dict[str, int] = {}
-    truncated: bool
-    rows: list[HubReportRow] = []
-
-    model_config = {"from_attributes": True}
-
-
-class HubReportNewSection(BaseModel):
-    count: int
-    rows: list[HubReportRow] = []
-
-    model_config = {"from_attributes": True}
-
-
-class HubReportWeek(BaseModel):
-    """The calendar week's Monday and Sunday, for labelling. The *data* stops at
-    `generated_at` -- the week is evaluated week-to-date."""
-
-    start: date
-    end: date
-
-    model_config = {"from_attributes": True}
-
-
-class HubReportSections(BaseModel):
-    closed_today: HubReportClosedSection
-    closed_week: HubReportClosedSection
-    closing: HubReportClosingSection
-    new_today: HubReportNewSection
-    new_week: HubReportNewSection
-
-    model_config = {"from_attributes": True}
+    archived_at: datetime
 
 
 class HubReportResponse(BaseModel):
-    """Admin-only daily digest. Two nested Central windows -- Today, and the
-    Monday-Sunday week containing it evaluated week-to-date -- so This Week
-    always includes Today rather than excluding it."""
+    """Admin-only weekly record of closed work orders, Monday 00:00 through
+    the next Monday 00:00 Central (W1). This object *is* the frozen record
+    (W4): a completed week is stored as its JSON and served back verbatim,
+    with `frozen_at` filled from the row; the in-progress week is computed
+    live and carries `frozen_at = None`."""
 
+    week_start: date
+    week_end: date
+    status: Literal["in_progress", "completed"]
     generated_at: datetime
-    day: date
-    week: HubReportWeek
-    sections: HubReportSections
-
-    model_config = {"from_attributes": True}
+    frozen_at: Optional[datetime] = None
+    count: int
+    rows: list[HubReportRow] = []

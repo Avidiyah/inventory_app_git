@@ -10,7 +10,7 @@ stays the only place a role 403 is raised:
 - `GET /hub/admin`       techfm_oa+         -- the company-wide time summary
 - `GET /hub/graphs`      techfm_oa+         -- the lazy company-wide report
 - `GET /hub/timesheets`  supervisor+        -- routed-crew timesheets
-- `GET /hub/report`      admin only         -- the company-wide daily digest
+- `GET /hub/report`      admin only         -- the weekly closed record
 
 The personal, crew, and timesheet reads are not side-effect-free. They sweep
 over-cap sessions before reading and therefore commit when they find one --
@@ -235,36 +235,40 @@ def export_hub_timesheets(
 
 @router.get("/report", response_model=HubReportResponse)
 def get_hub_report(
+    week: Optional[date] = Query(None),
     user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ):
-    """The company-wide daily digest: what closed, what is closing, what arrived.
+    """The weekly record of closed work orders: `week` is a Monday, absent
+    means the week in progress (W7). A completed week is frozen on first
+    request and served from the stored copy thereafter (W5).
 
     **Admin, not TechFM OA.** The only route in the app floored at Admin --
     `tests/test_route_role_gates.py` carries the matching exemption, so changing
-    this floor means changing that test deliberately.
-
-    No query parameters: the windows come from server time, which is what makes
-    this a daily report rather than a filter."""
-    payload = work_order_report.daily_report(db, now=datetime.now(timezone.utc))
-    return HubReportResponse.model_validate(payload)
+    this floor means changing that test deliberately."""
+    now = datetime.now(timezone.utc)
+    try:
+        week_start = work_order_report.resolve_week(week, now)
+    except DomainError as exc:
+        raise to_http(exc) from exc
+    return work_order_report.report_for_week(db, week_start=week_start, now=now)
 
 
 @router.get("/report/export")
 def export_hub_report(
+    week: Optional[date] = Query(None),
     user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ):
-    """The same payload as an Excel workbook: a designed `Report` overview, one
-    four-bucket chart sheet per community, a readable deduped `Work Orders`
-    sheet, and -- last -- a `Data` sheet that is the `SECTION`-prefixed CSV,
-    cell for cell.
-
-    Composed from `daily_report` rather than from its own query, so the file and
-    the screen cannot disagree. `report_csv` is still the executable contract
-    the `Data` sheet is tested against; restoring a CSV download is a one-line
-    flip back to it."""
-    payload = work_order_report.daily_report(db, now=datetime.now(timezone.utc))
+    """The same record as an Excel workbook: one six-column tab per service
+    type, community blocks inside. Rendered from the payload `get_hub_report`
+    serves, so the file and the screen cannot disagree."""
+    now = datetime.now(timezone.utc)
+    try:
+        week_start = work_order_report.resolve_week(week, now)
+    except DomainError as exc:
+        raise to_http(exc) from exc
+    payload = work_order_report.report_for_week(db, week_start=week_start, now=now)
     filename = work_order_report_xlsx.report_xlsx_filename(payload)
     return Response(
         content=work_order_report_xlsx.report_xlsx(payload),

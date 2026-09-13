@@ -225,37 +225,51 @@ def _get(db, token, path):
         del app.dependency_overrides[get_db]
 
 
-def test_admin_daily_report_returns_the_five_sections(db):
+def test_admin_weekly_report_body_shape(db):
     response = _get(db, _signed_in(db, "admin"), "/hub/report")
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body["sections"]) == {
-        "closed_today",
-        "closed_week",
-        "closing",
-        "new_today",
-        "new_week",
-    }
-    assert set(body["week"]) == {"start", "end"}
-    assert body["day"]
-    # Three section models, not one with optional fields.
-    assert set(body["sections"]["closing"]) >= {
+    assert set(body) == {
+        "week_start",
+        "week_end",
+        "status",
+        "generated_at",
+        "frozen_at",
         "count",
-        "by_status",
-        "truncated",
         "rows",
     }
+    assert body["status"] == "in_progress"
+    assert body["frozen_at"] is None
+    assert date.fromisoformat(body["week_start"]).weekday() == 0
+    assert body["count"] == len(body["rows"])
 
 
-def test_admin_daily_report_row_never_leaks_export_cells(db):
-    # `export_cells` lives on the payload so the CSV is a pure render of it; it
-    # must not travel in the JSON.
-    body = _get(db, _signed_in(db, "admin"), "/hub/report").json()
+@pytest.mark.parametrize("path", ["/hub/report", "/hub/report/export"])
+def test_a_non_monday_week_is_422_on_both_routes(db, path):
+    response = _get(db, _signed_in(db, "admin"), f"{path}?week=2026-09-08")
 
-    for section in body["sections"].values():
-        for row in section["rows"]:
-            assert "export_cells" not in row
+    assert response.status_code == 422
+    assert "Monday" in response.json()["detail"]
+
+
+def test_a_past_monday_serves_a_completed_week(db):
+    # 1999: no real row can fall into it, and the freeze row is cleaned up.
+    from app.models import WorkOrderReportWeek
+
+    week = date(1999, 2, 1)
+    db.query(WorkOrderReportWeek).filter_by(week_start=week).delete()
+    db.commit()
+    try:
+        body = _get(db, _signed_in(db, "admin"), f"/hub/report?week={week}").json()
+
+        assert body["status"] == "completed"
+        assert body["frozen_at"] is not None
+        assert body["week_start"] == "1999-02-01"
+        assert body["week_end"] == "1999-02-07"
+    finally:
+        db.query(WorkOrderReportWeek).filter_by(week_start=week).delete()
+        db.commit()
 
 
 @pytest.mark.parametrize("path", ["/hub/report", "/hub/report/export"])
@@ -265,30 +279,16 @@ def test_techfm_oa_is_forbidden_from_the_report(db, path):
     assert response.status_code == 403
 
 
-def test_report_export_is_an_attachment_xlsx(db):
+def test_report_export_is_an_attachment_xlsx_named_for_the_monday(db):
     response = _get(db, _signed_in(db, "admin"), "/hub/report/export")
 
     assert response.status_code == 200
     assert response.headers["content-type"] == report_xlsx.XLSX_MEDIA_TYPE
     disposition = response.headers["content-disposition"]
     assert "attachment" in disposition
-    assert "wo-report_" in disposition
+    monday = date.fromisoformat(response.headers["content-disposition"].split("wo-report_")[1][:10])
+    assert monday.weekday() == 0
     assert disposition.endswith('.xlsx"')
 
     workbook = openpyxl.load_workbook(io.BytesIO(response.content))
-    assert workbook.sheetnames == [
-        "Report",
-        "Scholars",
-        "Centennial",
-        "Commons",
-        "Young Hall",
-        "Academics",
-        "Work Orders",
-        "Chart Data",
-        "Data",
-    ]
-    assert workbook["Chart Data"].sheet_state == "hidden"
-    assert workbook["Work Orders"]["C5"].value == "NOTES"
-    assert tuple(cell.value for cell in workbook["Data"][1]) == (
-        "SECTION",
-    ) + wo.EXPORT_HEADERS
+    assert workbook.sheetnames  # at least the empty-week sheet
