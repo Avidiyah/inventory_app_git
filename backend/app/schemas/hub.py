@@ -451,7 +451,7 @@ class HubTimesheetResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# --- the Admin daily report -------------------------------------------------
+# --- the Admin weekly closed report ------------------------------------------
 # Spec: docs/superpowers/specs/2026-09-13-weekly-closed-report-design.md
 
 

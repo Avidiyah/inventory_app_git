@@ -468,7 +468,7 @@ async function openDetail(workOrderId, bodyEl, cardEl) {
 
 // --- card page render ------------------------------------------------------
 
-// Called from the Admin daily report (hubReport.js) for a *closed* row. A
+// Called from the Admin weekly report (hubReport.js) for a *closed* row. A
 // closed work order has no card page to open -- this list hides archived rows
 // -- so route to its exact number instead and let the shipped "Work Order has
 // been closed. Restore?" prompt fire. Resets every other control first, for the

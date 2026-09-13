@@ -1365,8 +1365,8 @@ class WorkOrderTotals:
     """A work order's money and minutes, computed once.
 
     The single source for every surface that shows a work order's totals: the
-    CSV export, Admin Review, and the Admin daily report. Adding a fourth
-    independent computation is what this exists to prevent."""
+    CSV export and Admin Review. Adding a third independent computation is
+    what this exists to prevent."""
 
     materials_total: Decimal
     labor_minutes: int
@@ -1394,10 +1394,8 @@ def work_order_totals(work_order: WorkOrder) -> WorkOrderTotals:
 def export_row(work_order: WorkOrder) -> list:
     """One work order as a row of `domain.work_orders.EXPORT_HEADERS` values.
 
-    Public because the Admin daily report (`services/work_order_report.py`)
-    renders the same cells into its `SECTION`-prefixed CSV. Changing this row's
-    shape changes the operational export for every consumer *and* breaks the
-    report's import round-trip -- treat it as a contract."""
+    Changing this row's shape changes the operational export for every
+    consumer and its import round-trip -- treat it as a contract."""
     totals = work_order_totals(work_order)
 
     return [
