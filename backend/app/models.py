@@ -16,6 +16,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
     Column,
+    Date,
     Text,
     Numeric,
     Integer,
@@ -24,6 +25,7 @@ from sqlalchemy import (
     DateTime,
     UniqueConstraint,
     Index,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -1048,3 +1050,26 @@ class NetFacilitiesCloudSession(Base):
 
     user = relationship("User", back_populates="netfacilities_cloud_session")
     __table_args__ = (Index("ix_push_subscriptions_user_id", "user_id"),)
+
+
+class WorkOrderReportWeek(Base):
+    """One completed week of the Admin closed-work-order report, frozen.
+
+    Spec: docs/superpowers/specs/2026-09-13-weekly-closed-report-design.md §4.
+
+    `payload` is the serialized `HubReportResponse` -- the stored bytes *are*
+    the API response (W4), so the screen and the workbook render past weeks
+    from the same object they render the current one from. Rows are written
+    once, lazily, on the first request after the week ends (W5) and never
+    rewritten (W13); `frozen_at` is stamped by the database so a late freeze
+    is visible on the sheet rather than hidden.
+    """
+
+    __tablename__ = "work_order_report_weeks"
+
+    week_start = Column(Date, primary_key=True)
+    frozen_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    schema_version = Column(Integer, nullable=False)
+    payload = Column(JSONB, nullable=False)

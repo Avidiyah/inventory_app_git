@@ -312,6 +312,12 @@ class WorkOrderStateError(DomainError):
     or a mode outside `dispense` / `retroactive`. Maps to 400."""
 
 
+class ReportWeekError(DomainError):
+    """Raised by `services.work_order_report.resolve_week` for a `week` that is
+    not a Monday or lies after the current week. Maps to 422: the request is
+    well-formed, the value is not a week the report can name."""
+
+
 class ToolNotFoundError(DomainError):
     """Raised when a service is asked to operate on a tool (by id or
     barcode) that does not exist, or is archived. Maps to 404."""
