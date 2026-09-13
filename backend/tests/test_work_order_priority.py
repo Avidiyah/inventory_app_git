@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 from app.domain import work_orders as wo
+from tests._work_orders_source import work_orders_source
 from app.models import WorkOrder
 from app.schemas.work_orders import WorkOrderCard, WorkOrderUpdate
 
@@ -39,9 +40,7 @@ def test_priority_is_accepted_as_a_generic_update():
 
 
 def test_work_orders_ui_renders_an_editable_priority():
-    source = (
-        Path(__file__).resolve().parents[1] / "static" / "views" / "workOrders.js"
-    ).read_text(encoding="utf-8")
+    source = work_orders_source()
 
     assert '["Priority", detail.priority || "Not imported"]' in source
     assert "wo-edit-priority" in source
@@ -59,7 +58,7 @@ def test_urgent_is_suggested_in_the_priority_editor():
     """Urgent is the one level a person assigns rather than imports, so the
     editor offers it. A `datalist` and not a `select`: the field has to stay
     open to whatever text NetFacilities sends next."""
-    source = _static("views", "workOrders.js")
+    source = work_orders_source()
 
     assert 'const MANUAL_PRIORITY = "Urgent";' in source
     assert "<datalist" in source
@@ -70,7 +69,7 @@ def test_every_work_order_card_class_comes_from_one_builder():
     """The urgent outline is a class on the card, so any place that rewrites a
     card's className without the shared builder would silently drop it -- and
     the repaint paths rewrite className on every socket update."""
-    view = _static("views", "workOrders.js")
+    view = work_orders_source()
 
     assert "export function workOrderCardClass(card)" in view
     assert 'priorityBucket(card.priority) === "urgent"' in view
@@ -106,7 +105,7 @@ def test_the_fire_goes_out_once_the_work_is_done():
     """Urgent stays on the record forever; the fire is a call to act and has
     to stop when there is nothing left to act on. Both the pill and the card
     ask the same predicate, so one cannot burn while the other has cooled."""
-    view = _static("views", "workOrders.js")
+    view = work_orders_source()
 
     assert 'const SETTLED_STATUSES = new Set(["completed", "review"]);' in view
     assert "function urgentFireActive(card)" in view
@@ -164,7 +163,7 @@ def test_normalize_priority_filter_recognizes_the_unimported_sentinel():
 def test_work_orders_ui_wires_a_priority_filter():
     static_dir = Path(__file__).resolve().parents[1] / "static"
     page = (static_dir / "pages" / "work-orders.html").read_text(encoding="utf-8")
-    view = (static_dir / "views" / "workOrders.js").read_text(encoding="utf-8")
+    view = work_orders_source()
 
     assert 'id="work-orders-priority-filter"' in page
     assert "work-orders-priority-filter" in view

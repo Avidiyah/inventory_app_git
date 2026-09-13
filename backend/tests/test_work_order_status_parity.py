@@ -20,22 +20,22 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.domain import work_orders as wo
+from tests._work_orders_source import work_orders_source
 
 STATIC = Path(__file__).resolve().parents[1] / "static"
-WORK_ORDERS_JS = STATIC / "views" / "workOrders.js"
 WORK_ORDERS_HTML = STATIC / "pages" / "work-orders.html"
 STYLES_CSS = STATIC / "styles.css"
 
 
 def _status_label_keys() -> set:
     """The keys of `statusLabel`'s lookup object."""
-    source = WORK_ORDERS_JS.read_text(encoding="utf-8")
+    source = work_orders_source()
     match = re.search(
         r"function statusLabel\(status\) \{\s*return \{(.*?)\}\[status\]",
         source,
         re.DOTALL,
     )
-    assert match, "statusLabel's lookup object was not found in workOrders.js"
+    assert match, "statusLabel's lookup object was not found in the Work Orders modules"
     return set(re.findall(r"(\w+):", match.group(1)))
 
 
@@ -90,7 +90,7 @@ def test_the_walkthrough_action_names_match_their_handlers():
     """`renderBody` writes `data-action` attributes that the delegated click
     handler reads back by string. A rename in one place and not the other is
     a dead button with no error anywhere."""
-    source = WORK_ORDERS_JS.read_text(encoding="utf-8")
+    source = work_orders_source()
     rendered = set(re.findall(r'data-action="([a-z-]+)"', source))
     handled = set(re.findall(r'action === "([a-z-]+)"', source))
     assert rendered == handled
@@ -101,7 +101,7 @@ def test_the_tracking_actions_replaced_the_old_status_buttons():
     In-Progress" / the technician's "Mark Completed" are gone as separate
     buttons -- their transitions are side effects of starting and finishing
     work."""
-    source = WORK_ORDERS_JS.read_text(encoding="utf-8")
+    source = work_orders_source()
     rendered = set(re.findall(r'data-action="([a-z-]+)"', source))
     assert {
         "start-tracking-wo",

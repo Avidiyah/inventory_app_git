@@ -21,6 +21,7 @@ from app.models import Item, User, UserRequest, WorkOrderItem
 from app.services import auth
 from app.services import user_requests as request_service
 from app.services import work_orders as wos
+from tests._work_orders_source import work_orders_source
 
 
 def _user(db, role="technician"):
@@ -372,7 +373,7 @@ def test_the_material_card_offers_the_manual_fire_and_the_stocked_status():
 
 
 def test_the_work_order_card_mounts_the_request_section_and_stocked_lines():
-    wo = _src("views/workOrders.js")
+    wo = work_orders_source()
     assert "wo-request-section" in wo
     assert '".wo-edit-card, .wo-notes-section, .wo-materials-section, .wo-labor-section, .wo-request-section"' in wo
     assert 'class="wo-requested-lines"' in wo

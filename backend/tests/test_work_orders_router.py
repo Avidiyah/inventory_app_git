@@ -23,6 +23,7 @@ from app.main import app
 from app.models import User
 from app.services import auth as auth_service
 from app.services import work_orders as wos
+from tests._work_orders_source import work_orders_source
 
 
 def _seed_user(db, role):
@@ -213,11 +214,14 @@ def test_only_the_solo_card_suppresses_its_own_click():
     module-global `soloActive`. That global is cleared only inside
     `loadWorkOrders`, so leaving the card page for the User Hub left it set
     and the hub's own cards stopped responding to clicks entirely."""
-    code = _code("workOrders.js")
+    code = work_orders_source()
 
     assert "function buildCard(card, { onOpen, solo = false } = {})" in code
     assert "if (solo) return;" in code
-    assert "if (soloActive) return;" not in code
+    # The module that owns `buildCard` never consults the global; the routing
+    # module keeps its own `soloActive` guard for scroll stamping, which is
+    # a different question.
+    assert "if (soloActive) return;" not in _code("workOrderList.js")
     # The card page's own card is the one that opts in.
     assert "buildCard(detail, { solo: true })" in code
 
@@ -236,7 +240,7 @@ def test_work_orders_ui_wires_location_and_task_searches():
     # deliberately out of the filter grid.
     assert '<div class="filter-row wo-keyword-search-row">' in html
 
-    code = _code("workOrders.js")
+    code = work_orders_source()
     assert 'getElementById("work-orders-location-search")' in code
     assert 'getElementById("work-orders-task-search")' in code
     assert "locationQ: locationSearchInput" in code
