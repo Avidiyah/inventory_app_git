@@ -558,3 +558,19 @@ export function userRequest(overrides = {}) {
     ...overrides,
   };
 }
+
+// --- Low Stock (backend/app/schemas/items.py, LowStockItemResponse) ----------
+// `item()` plus the two aggregates the reorder queue adds. Below its own
+// threshold by default; `last_dispensed_at` is one hour before the clock
+// `helpers/lowStock.js` pins (2026-09-10T12:00Z), so the default row lands in
+// the `day` bucket and a bucket test overrides only this field.
+export function lowStockItem(overrides = {}) {
+  return {
+    ...item(),
+    low_stock_threshold: 5,
+    quantity: "2",
+    dispensed_last_7_days: "4",
+    last_dispensed_at: "2026-09-10T11:00:00Z",
+    ...overrides,
+  };
+}
