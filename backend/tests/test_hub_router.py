@@ -294,4 +294,4 @@ def test_report_export_is_an_attachment_xlsx_named_for_the_monday(db):
     assert disposition.endswith('.xlsx"')
 
     workbook = openpyxl.load_workbook(io.BytesIO(response.content))
-    assert workbook.sheetnames  # at least the empty-week sheet
+    assert workbook.sheetnames[-1] == report_xlsx.NEW_WORK_ORDERS_SHEET
