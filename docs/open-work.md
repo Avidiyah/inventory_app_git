@@ -329,11 +329,13 @@ tab, the Tools page, the Users page, or the push opt-in.
 Found while writing the P7 files (P7a–P7e). Same rule as N-WO-CHARACTERIZED:
 the test is green *as today's behaviour*, so a fix must update the named test
 in the same change.
-**Trigger:** the next substantive edit to the User Requests page.
+**Trigger:** the next substantive edit to the User Requests or Admin Review page.
 
 | Defect | Pinned by |
 | --- | --- |
 | `userRequests.js`'s recount-count and price validators each carry a dead `!Number.isFinite` half behind an `input[type=number]`, which hands non-numeric text back as `""` — the blank branch answers first. Same class as the `notes.js` / `correctionPanel.js` / `toolCheckout.js` rows under N-P6-CHARACTERIZED. | `userRequestsActions.test.js` → "refuses a blank, non-numeric or negative count…" / "refuses a blank or non-positive price…" |
+| `adminReview.js`: a successful Return to In-Progress leaves BOTH Reopen and Close disabled (the success branch never re-enables them; only the failure branch does), so the receipt's actions are dead until another card is selected. Harmless today — the reopened work order leaves the queue — but the receipt section reads as stuck. | `adminReview.test.js` → "Yes: disables both, PATCHes the status, reloads the queue, and reports" |
+| `adminReview.js::buildCard` comments that the shared class builder lets "an urgent work order pulse here the way it does everywhere else", but `SETTLED_STATUSES` in `workOrderPresenters.js` holds `review`, so `urgentFireActive` is false for every card the queue can show and no Admin Review card can carry `wo-card-urgent`. The comment describes a branch that cannot run. | `adminReview.test.js` → "never carries the urgent class: Review is a settled status" |
 
 ### N11 — notification triggers considered and deliberately deferred
 
