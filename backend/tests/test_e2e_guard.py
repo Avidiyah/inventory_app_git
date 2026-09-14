@@ -1,11 +1,17 @@
 """Unit tests for the E2E guard. Deliberately NOT marked `e2e`: they run in
 the ordinary backend job, which is what keeps the guard covered even though
-the suite it protects is deselected there."""
+the suite it protects is deselected there.
+
+Deliberately NOT under `tests/e2e/` either. That directory's conftest
+overrides `base_url` with a fixture that launches Chromium, and
+pytest-base-url's session-scoped *autouse* `_verify_url` fixture depends on
+`base_url` -- so any test collected there, marked or not, launches the
+browser at setup and errors in the browserless backend job."""
 
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
