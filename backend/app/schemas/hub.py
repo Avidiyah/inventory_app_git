@@ -16,7 +16,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, Field, computed_field
 
 
 class HubUser(BaseModel):
@@ -456,14 +456,15 @@ class HubTimesheetResponse(BaseModel):
 
 
 class HubReportRow(BaseModel):
-    """One work order closed inside the report week, as the six-column
-    workbook and the screen both show it (W10).
+    """One work order shown by the weekly report's closed or new-work-order
+    list, using the same six-column projection (W10, W14).
 
     `community` is the primary community *key* (W9) -- the first
     `community_memberships` match, Academics fallback -- and
     `service_type_label` is the normalised tab name, kept beside the raw
     `service_type` cell text. `work_order_id` and `archived_at` serve the
-    screen's row hand-off and Closed column; neither is a workbook column."""
+    screen's closed-row hand-off and Closed column; neither is a workbook
+    column. `archived_at` is absent when a new work order is still open."""
 
     work_order_id: uuid.UUID
     number: str
@@ -474,15 +475,16 @@ class HubReportRow(BaseModel):
     community: str
     schedule_date: Optional[str] = None
     priority: Optional[str] = None
-    archived_at: datetime
+    archived_at: Optional[datetime] = None
 
 
 class HubReportResponse(BaseModel):
     """Admin-only weekly record of closed work orders, Monday 00:00 through
-    the next Monday 00:00 Central (W1). This object *is* the frozen record
-    (W4): a completed week is stored as its JSON and served back verbatim,
-    with `frozen_at` filled from the row; the in-progress week is computed
-    live and carries `frozen_at = None`."""
+    the next Monday 00:00 Central (W1). The closed portion is the frozen
+    record (W4): a completed week is stored as JSON and served back with
+    `frozen_at` filled from the row; the in-progress week is computed live.
+    The new-work-order fields are recomputed from `created_at` on every
+    request and are never frozen (W14)."""
 
     week_start: date
     week_end: date
@@ -490,4 +492,6 @@ class HubReportResponse(BaseModel):
     generated_at: datetime
     frozen_at: Optional[datetime] = None
     count: int
-    rows: list[HubReportRow] = []
+    rows: list[HubReportRow] = Field(default_factory=list)
+    new_work_order_count: int = 0
+    new_work_order_rows: list[HubReportRow] = Field(default_factory=list)

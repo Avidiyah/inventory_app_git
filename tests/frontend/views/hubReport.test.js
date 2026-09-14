@@ -71,17 +71,17 @@ const completed = (overrides = {}) => hubReport({
 
 describe("the header", () => {
   it("names the week, the in-progress status, the count, and the export link for that week", async () => {
-    await openReport(hubReport({ count: 41 }));
+    await openReport(hubReport({ count: 41, new_work_order_count: 3 }));
     expect(text(".hub-report-week")).toBe(`Week of ${dayShort("2026-09-07")} – ${dayShortYear("2026-09-13")}`);
     expect(text(".hub-report-status")).toBe(`In progress · generated ${central("2026-09-10T18:30:00Z")}`);
-    expect(text(".hub-report-count")).toBe("41 closed work orders");
+    expect(text(".hub-report-count")).toBe("41 closed work orders · 3 new work orders");
     expect(panel().querySelector(".hub-report-download").getAttribute("href")).toBe("/hub/report/export?week=2026-09-07");
   });
 
   it("a completed week says when it was frozen, and one row is singular", async () => {
     await openReport(completed({ count: 1, rows: [hubReportRow()] }));
     expect(text(".hub-report-status")).toBe(`Completed · frozen ${central("2026-09-07T05:12:00Z")}`);
-    expect(text(".hub-report-count")).toBe("1 closed work order");
+    expect(text(".hub-report-count")).toBe("1 closed work order · 0 new work orders");
     expect(panel().querySelector(".hub-report-download").getAttribute("href")).toBe("/hub/report/export?week=2026-08-31");
   });
 });

@@ -80,13 +80,21 @@ function dropDocumentListeners() {
     document.removeEventListener(type, listener, options));
 }
 
-export function mountShell() {
+// Replace the document with `html`, parsed as a page the server serves. The
+// listener drop runs first, so a view's import-time `document` registrations
+// from the previous test never see this document. `mountShell` is the SPA
+// case; `helpers/scanTest.js` mounts the scan harness's own page through it.
+export function mountDocument(html) {
   dropDocumentListeners();
-  const parsed = new DOMParser().parseFromString(assembleShell(), "text/html");
+  const parsed = new DOMParser().parseFromString(html, "text/html");
   document.replaceChild(
     document.importNode(parsed.documentElement, true),
     document.documentElement,
   );
+}
+
+export function mountShell() {
+  mountDocument(assembleShell());
 }
 
 // Import a view module against the shell that is already in the document.

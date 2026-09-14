@@ -261,9 +261,8 @@ class TestFreeze:
         db.commit()
         second = work_order_report.report_for_week(db, week_start=WEEK, now=AFTER)
 
-        assert second.model_dump(exclude={"frozen_at"}) == first.model_dump(
-            exclude={"frozen_at"}
-        )
+        live = {"frozen_at", "new_work_order_rows", "new_work_order_count"}
+        assert second.model_dump(exclude=live) == first.model_dump(exclude=live)
         assert frozen_row.number in _numbers(second)
         assert len(self._stored(db)) == 1
 
@@ -297,3 +296,120 @@ class TestFreeze:
         assert calls["n"] == 2
         assert loser.model_dump() == winner.model_dump()
         assert len(self._stored(db)) == 1
+
+
+# --- new rows (the New Work Orders sheet, W14) ----------------------------------
+
+
+def _new_work_orders(payload: HubReportResponse) -> list[str]:
+    return [row.number for row in payload.new_work_order_rows]
+
+
+def _open(db, **kwargs):
+    """A work order created inside WEEK and still open unless told otherwise."""
+    return _work_order(db, archived_at=None, status=wo.STATUS_CREATED, **kwargs)
+
+
+def test_new_work_order_rows_follow_created_at_window_edges(db):
+    last_second = _open(db, created_at=_central(1999, 1, 10, 23, 59, 59))
+    first_second = _open(db, created_at=_central(1999, 1, 11, 0, 0, 0))
+    before = _open(db, created_at=_central(1999, 1, 3, 12, 0))
+
+    this_week = _new_work_orders(_report(db))
+    next_week = _new_work_orders(_report(db, week_start=NEXT_WEEK, now=AFTER))
+
+    assert last_second.number in this_week
+    assert first_second.number not in this_week
+    assert first_second.number in next_week
+    assert last_second.number not in next_week
+    assert before.number not in this_week
+
+
+def test_new_work_order_rows_include_open_rows_with_no_close_and_are_counted(db):
+    open_row = _open(db)
+
+    payload = _report(db)
+    row = next(r for r in payload.new_work_order_rows if r.number == open_row.number)
+
+    assert row.archived_at is None
+    assert row.community == "scholars"
+    assert payload.new_work_order_count == len(payload.new_work_order_rows) >= 1
+    assert open_row.number not in _numbers(payload)
+
+
+def test_a_new_and_closed_row_in_the_same_week_is_in_both_lists(db):
+    both = _work_order(db)
+
+    payload = _report(db)
+
+    assert both.number in _numbers(payload)
+    assert both.number in _new_work_orders(payload)
+
+
+def test_new_work_order_rows_sort_by_community_order_then_number(db):
+    academics = _open(db, number="WO-1999-I-A", location="Nowhere")
+    scholars_2 = _open(db, number="WO-1999-I-S2", location="Scholars 2", service_type="b")
+    scholars_1 = _open(db, number="WO-1999-I-S1", location="Scholars 3", service_type="a")
+
+    numbers = [n for n in _new_work_orders(_report(db)) if n.startswith("WO-1999-I-")]
+
+    assert numbers == [scholars_1.number, scholars_2.number, academics.number]
+
+
+def test_new_work_order_rows_project_the_six_vendor_fields(db):
+    record = _open(
+        db,
+        number="WO-1999-NEW-PROJECTION",
+        vendor_assignee="Vendor Dispatch",
+        location="Centennial 4-210",
+        service_type="  plumbing ",
+        schedule_date="1/8/1999",
+        priority="Urgent",
+    )
+
+    row = next(r for r in _report(db).new_work_order_rows if r.number == record.number)
+
+    assert (
+        row.assigned_to,
+        row.location,
+        row.service_type,
+        row.service_type_label,
+        row.schedule_date,
+        row.priority,
+    ) == (
+        "Vendor Dispatch",
+        "Centennial 4-210",
+        "  plumbing ",
+        "plumbing",
+        "1/8/1999",
+        "Urgent",
+    )
+
+
+class TestNewWorkOrdersStayLive:
+    def _stored(self, db, week=WEEK):
+        return db.query(WorkOrderReportWeek).filter_by(week_start=week).all()
+
+    def test_a_frozen_week_serves_new_work_orders_live_and_never_stores_them(
+        self, db, clean_frozen
+    ):
+        first = work_order_report.report_for_week(db, week_start=WEEK, now=AFTER)
+
+        late = _open(db)  # created after the freeze, with created_at inside WEEK
+        second = work_order_report.report_for_week(db, week_start=WEEK, now=AFTER)
+
+        assert late.number not in _new_work_orders(first)
+        assert late.number in _new_work_orders(second)
+        assert second.rows == first.rows
+        stored = self._stored(db)[0].payload
+        assert "new_work_order_rows" not in stored
+        assert "new_work_order_count" not in stored
+
+    def test_a_version_1_record_validates_with_no_new_work_orders(self):
+        payload = HubReportResponse.model_validate({
+            "week_start": "1999-01-04", "week_end": "1999-01-10", "status": "completed",
+            "generated_at": "1999-01-11T06:00:00Z", "count": 0, "rows": [],
+        })
+
+        assert payload.new_work_order_count == 0
+        assert payload.new_work_order_rows == []

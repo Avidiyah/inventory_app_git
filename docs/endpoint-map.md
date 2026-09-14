@@ -126,7 +126,7 @@ writes (w).
 | H3 | GET | `/hub/timesheets` | supervisor+ | `hub.py` → `hub.timesheets_hub` → `work_orders.sweep_stale_sessions` (per crew member) + `labor_summary.crew_range_summaries` | work_order_labor_sessions (r/w on per-member sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), users (r) | `apiGetHubTimesheets` | `userHub.js`, `hubTimesheets.js` |
 | H4 | GET | `/hub/timesheets/export` | supervisor+ | `hub.py` → `hub.timesheets_hub` + `hub.timesheet_csv` | same as H3 | `apiExportHubTimesheets` | `hubTimesheets.js` |
 | H5 | GET | `/hub/graphs?weeks=12\|26\|52` | techfm_oa+ | `hub.py` → `hub.graphs_hub` → shared graph/community rules | work_orders (narrow status/location/service/timestamp projections; read-only) | `apiGetHubGraphs` | `userHub.js`, `hubGraphs.js` |
-| H6 | GET | `/hub/report?week=` | **admin only** | `hub.py` → `work_order_report.resolve_week` + `report_for_week` (live for the week in progress; `work_order_report_weeks` read-or-freeze for a completed week) | work_orders (r), work_order_report_weeks (r/w) | `apiGetHubReport` | `userHub.js`, `hubReport.js` |
+| H6 | GET | `/hub/report?week=` | **admin only** | `hub.py` → `work_order_report.resolve_week` + `report_for_week` (frozen closed rows + live new rows) | work_orders (r), work_order_report_weeks (r/w) | `apiGetHubReport` | `userHub.js`, `hubReport.js` |
 | H7 | GET | `/hub/report/export?week=` | **admin only** | `hub.py` → same as H6 + `work_order_report_xlsx.report_xlsx` | same as H6 | — (plain link, as H4 is) | `hubReport.js` |
 | P1 | GET | `/push/config` | any authenticated | `push.py` → `services/push.is_configured` | — (503 when `VAPID_PRIVATE_KEY` unset) | `apiPushConfig` | `push.js` |
 | P2 | POST | `/push/subscribe` | any authenticated | `push.py` → subscription store | push_subscriptions (w — upsert; **reassigns** the endpoint row to the caller) | `apiPushSubscribe` | `push.js` |
@@ -887,29 +887,21 @@ two subsets of the work orders this supervisor leads, same convention as
 `detail` — a server-composed sentence, matching spec §7's abbreviated
 `{kind, subject, detail}` contract for this list.
 
-**`HubReportResponse`** — `GET /hub/report` (**admin only** — the one route in
-this app floored at Admin, which `tests/test_route_role_gates.py` records as a
-deliberate exemption). `week` is a Monday (`YYYY-MM-DD`), absent = the week in
-progress; a non-Monday or a future Monday is 422 (`ReportWeekError`). A week
-is Monday 00:00 through the next Monday 00:00 Central (`labor_day`).
-Fields: `week_start`, `week_end`, `status` (`in_progress` | `completed`),
-`generated_at`, `frozen_at` (null while in progress), `count`, `rows:
-list[HubReportRow]` — every work order with `archived_at` inside the window,
-each carrying `number`, `assigned_to` (raw `vendor_assignee`), `location`,
-`service_type` + `service_type_label` (normalised tab name), `community`
-(primary membership key), `schedule_date`, `priority`, `archived_at`,
-`work_order_id`; sorted service type → community order → number.
-**Completed weeks are frozen:** the first request after the week ends stores
-this JSON in `work_order_report_weeks` (`ON CONFLICT DO NOTHING`, then
-re-read) and every later request serves the stored copy with `frozen_at` from
-the row — a later restore cannot erase a close. Weeks before the feature
-shipped freeze the same way, late, and say so via `frozen_at`. `GET
-/hub/report/export` renders the same payload as an `.xlsx`
-(`work_order_report_xlsx.report_xlsx`): one tab per `service_type_label`
-(alphabetical), community blocks inside in `ALL_COMMUNITY_FILTERS` order,
-six columns `WORK ORDER | ASSIGNED TO | LOCATION | SERVICE TYPE | SCHEDULE
-DATE | PRIORITY`, raw text; an empty week is one `Report` sheet. Filename
-`wo-report_{week_start}.xlsx`. No CSV, no re-import path.
+**`HubReportResponse`** — `GET /hub/report` (**admin only**). `week` is a Monday,
+absent = current; non-Monday/future values are 422. The Central half-open week
+runs Monday to Monday. Fields: `week_start`, `week_end`, `status`,
+`generated_at`, `frozen_at`, `count`, closed `rows`, live
+`new_work_order_count`, and live `new_work_order_rows`. `HubReportRow` carries
+`work_order_id`, `number`, raw vendor fields, normalised service label, primary
+community, and optional `archived_at`. Closed rows select `archived_at` and sort
+service → community → number; new rows select `created_at` and sort community →
+number. Completed closed rows freeze lazily in `work_order_report_weeks`; new
+rows are excluded from stored JSON, preserving schema version 1.
+`GET /hub/report/export` renders that payload as `wo-report_{week_start}.xlsx`:
+alphabetical service tabs followed by `New Work Orders`, fixed-order community
+blocks, and the six raw columns `WORK ORDER | ASSIGNED TO | LOCATION | SERVICE
+TYPE | SCHEDULE DATE | PRIORITY`. The final sheet is always present and says
+`No new work orders this week.` when empty. No CSV or re-import path.
 
 **`HubTimesheetResponse`** — `GET /hub/timesheets` (supervisor+; P3b scopes
 every caller to their own routed crew): `range: HubTimesheetRange`, `rows:

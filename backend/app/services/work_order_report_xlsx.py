@@ -6,10 +6,11 @@ lives in `_xlsx_theme.py`; this module is sheet composition only.
 
 Spec: docs/superpowers/specs/2026-09-13-weekly-closed-report-design.md §6
 
-One tab per service type label, alphabetical (W8); inside each, one block
-per community in `ALL_COMMUNITY_FILTERS` order, primary community only
-(W9); six raw vendor-text columns (W10). No Excel Table objects: a tab holds
-several blocks, and a Table cannot span a heading row.
+One tab per service type label, alphabetical (W8), followed by a New Work
+Orders tab (W14). Each tab uses community blocks in
+`ALL_COMMUNITY_FILTERS` order, primary community only (W9), and six raw
+vendor-text columns (W10). No Excel Table objects: a tab holds several
+blocks, and a Table cannot span a heading row.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from app.domain import labor_day
 from app.domain import work_orders as wo
 from app.schemas.hub import HubReportResponse, HubReportRow
 from app.services import _xlsx_theme as theme
-from app.services.work_order_report import row_sort_key
+from app.services.work_order_report import new_work_order_sort_key, row_sort_key
 
 XLSX_MEDIA_TYPE = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -43,6 +44,8 @@ WIDTHS: dict[str, int] = {"A": 14, "B": 22, "C": 34, "D": 18, "E": 14, "F": 10}
 
 EMPTY_SHEET = "Report"
 EMPTY_TEXT = "No work orders closed this week."
+NEW_WORK_ORDERS_SHEET = "New Work Orders"
+EMPTY_NEW_WORK_ORDERS_TEXT = "No new work orders this week."
 
 # Excel forbids these in a sheet name and caps it at 31 characters.
 _FORBIDDEN = re.compile(r"[:\\/?*\[\]]")
@@ -54,7 +57,8 @@ FIRST_BLOCK_ROW = 5
 def report_xlsx(payload: HubReportResponse) -> bytes:
     workbook = Workbook()
     first = workbook.active
-    taken: set[str] = set()
+    # Reserve the final sheet's name before sanitising service-type labels.
+    taken: set[str] = {NEW_WORK_ORDERS_SHEET}
     # Sorted here as well as in the service: a stored payload is trusted for
     # its rows, never for their order (W8, W9).
     ordered = sorted(payload.rows, key=row_sort_key)
@@ -72,6 +76,9 @@ def report_xlsx(payload: HubReportResponse) -> bytes:
         sheet = first if index == 0 else workbook.create_sheet()
         sheet.title = name
         _service_type_sheet(sheet, payload, label, rows)
+
+    new_work_orders_sheet = workbook.create_sheet(NEW_WORK_ORDERS_SHEET)
+    _new_work_orders_sheet(new_work_orders_sheet, payload)
 
     buffer = io.BytesIO()
     workbook.save(buffer)
@@ -135,6 +142,29 @@ def _service_type_sheet(
     sheet: Worksheet, payload: HubReportResponse, label: str, rows: list[HubReportRow]
 ) -> None:
     _title_block(sheet, label, payload)
+    _community_blocks(sheet, rows)
+
+
+def _new_work_orders_sheet(sheet: Worksheet, payload: HubReportResponse) -> None:
+    theme.setup_sheet(sheet, tab_color=theme.MUTED, freeze=None)
+    theme.set_widths(sheet, WIDTHS)
+    theme.title_block(
+        sheet,
+        NEW_WORK_ORDERS_SHEET,
+        [
+            f"New work orders {payload.week_start.isoformat()} – "
+            f"{payload.week_end.isoformat()} · {payload.new_work_order_count:,} total",
+            _status_line(payload),
+        ],
+    )
+    rows = sorted(payload.new_work_order_rows, key=new_work_order_sort_key)
+    if not rows:
+        theme.empty_state(sheet, FIRST_BLOCK_ROW, EMPTY_NEW_WORK_ORDERS_TEXT)
+        return
+    _community_blocks(sheet, rows)
+
+
+def _community_blocks(sheet: Worksheet, rows: list[HubReportRow]) -> None:
     cursor = FIRST_BLOCK_ROW
     for key in wo.ALL_COMMUNITY_FILTERS:
         block = [row for row in rows if row.community == key]

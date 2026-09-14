@@ -41,7 +41,7 @@ def _row(**overrides) -> HubReportRow:
     return HubReportRow(**fields)
 
 
-def _payload(rows, *, status="completed", frozen=True) -> HubReportResponse:
+def _payload(rows, *, status="completed", frozen=True, new_work_orders=()) -> HubReportResponse:
     return HubReportResponse(
         week_start=WEEK_START,
         week_end=WEEK_END,
@@ -50,6 +50,8 @@ def _payload(rows, *, status="completed", frozen=True) -> HubReportResponse:
         frozen_at=GENERATED if frozen else None,
         count=len(rows),
         rows=rows,
+        new_work_order_count=len(new_work_orders),
+        new_work_order_rows=list(new_work_orders),
     )
 
 
@@ -68,7 +70,9 @@ def test_one_tab_per_service_type_alphabetical():
         _row(service_type_label="SMR27 - Belfor"),
     ])
 
-    assert _workbook(payload).sheetnames == ["Maintenance", "SMR27 - Belfor", "Window Repair"]
+    assert _workbook(payload).sheetnames == [
+        "Maintenance", "SMR27 - Belfor", "Window Repair", xlsx.NEW_WORK_ORDERS_SHEET,
+    ]
 
 
 def test_sheet_name_strips_forbidden_characters_caps_length_and_dedupes():
@@ -121,10 +125,10 @@ def test_cells_are_raw_strings_and_none_is_empty():
     assert sheet["F7"].value is None
 
 
-def test_empty_week_is_one_report_sheet_with_the_empty_line():
+def test_empty_closed_week_keeps_report_and_new_work_orders_sheets():
     workbook = _workbook(_payload([]))
 
-    assert workbook.sheetnames == [xlsx.EMPTY_SHEET]
+    assert workbook.sheetnames == [xlsx.EMPTY_SHEET, xlsx.NEW_WORK_ORDERS_SHEET]
     assert workbook[xlsx.EMPTY_SHEET]["A5"].value == xlsx.EMPTY_TEXT
 
 
@@ -137,3 +141,48 @@ def test_house_style_widths_gridlines_and_filename():
     assert sheet.freeze_panes is None
     assert sheet.sheet_properties.tabColor.rgb.endswith(theme.MUTED)
     assert xlsx.report_xlsx_filename(payload) == "wo-report_2026-09-07.xlsx"
+
+
+# --- the New Work Orders tab (W14) --------------------------------------------
+
+
+def test_new_work_orders_tab_is_last_with_community_blocks_by_number():
+    payload = _payload(
+        [_row()],
+        new_work_orders=[
+            _row(number="7005", community="academics", location="Library", archived_at=None),
+            _row(number="7004", archived_at=None),
+        ],
+    )
+
+    workbook = _workbook(payload)
+    sheet = workbook[xlsx.NEW_WORK_ORDERS_SHEET]
+    generated = GENERATED.astimezone(labor_day.CENTRAL).strftime("%Y-%m-%d %H:%M")
+
+    assert workbook.sheetnames == ["Maintenance", "New Work Orders"]
+    assert sheet["A1"].value == "New Work Orders"
+    assert sheet["A2"].value == "New work orders 2026-09-07 – 2026-09-13 · 2 total"
+    assert sheet["A3"].value == f"Completed · frozen {generated} Central"
+    assert sheet["A5"].value == "Scholars"
+    assert _values(sheet, 6) == xlsx.HEADERS
+    assert _values(sheet, 7) == (
+        "7004", "Belfor Dispatch", "Scholars 12-304", "Maintenance", "7/21/2026", "Normal",
+    )
+    assert sheet["A8"].value is None
+    assert sheet["A9"].value == "Academics"
+    assert sheet["A11"].value == "7005"
+    assert sheet.sheet_view.showGridLines is False
+    assert {c: sheet.column_dimensions[c].width for c in xlsx.WIDTHS} == xlsx.WIDTHS
+
+
+def test_new_work_orders_tab_with_no_new_rows_says_so():
+    sheet = _workbook(_payload([_row()]))[xlsx.NEW_WORK_ORDERS_SHEET]
+
+    assert sheet["A2"].value == "New work orders 2026-09-07 – 2026-09-13 · 0 total"
+    assert sheet["A5"].value == xlsx.EMPTY_NEW_WORK_ORDERS_TEXT
+
+
+def test_a_service_type_named_like_the_new_work_orders_tab_gets_the_suffix():
+    payload = _payload([_row(service_type_label="New Work Orders")])
+
+    assert _workbook(payload).sheetnames == ["New Work Orders (2)", "New Work Orders"]

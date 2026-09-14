@@ -162,6 +162,15 @@ export function stubZXing(overrides = {}) {
   return { ZXingBrowser, reader };
 }
 
+// `navigator.clipboard.writeText`. jsdom has no clipboard. `scan-test.js`'s
+// copy-logs dumps its snapshot into its own log when the write rejects, which
+// `reject` reproduces; the written text is what a test parses back.
+export function stubClipboard({ reject = null } = {}) {
+  const writeText = vi.fn(async () => { if (reject) throw reject; });
+  define(navigator, "clipboard", { writeText });
+  return { writeText };
+}
+
 // The set a test that merely NAVIGATES wants: a camera that exists, a
 // permission state that does not auto-start anything, and haptics/audio that
 // record rather than throw. Returns every spy so a caller can still assert.

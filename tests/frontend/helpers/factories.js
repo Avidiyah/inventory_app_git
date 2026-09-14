@@ -448,6 +448,8 @@ export function hubReport(overrides = {}) {
     frozen_at: null,
     count: 0,
     rows: [],
+    new_work_order_count: 0,
+    new_work_order_rows: [],
     ...overrides,
   };
 }

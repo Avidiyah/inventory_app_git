@@ -238,11 +238,14 @@ def test_admin_weekly_report_body_shape(db):
         "frozen_at",
         "count",
         "rows",
+        "new_work_order_count",
+        "new_work_order_rows",
     }
     assert body["status"] == "in_progress"
     assert body["frozen_at"] is None
     assert date.fromisoformat(body["week_start"]).weekday() == 0
     assert body["count"] == len(body["rows"])
+    assert body["new_work_order_count"] == len(body["new_work_order_rows"])
 
 
 @pytest.mark.parametrize("path", ["/hub/report", "/hub/report/export"])

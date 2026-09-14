@@ -10,7 +10,8 @@ The Admin Report tab and `GET /hub/report/export` stop being a daily
 digest and become a **weekly record of closed work orders**: any Monday
 to Sunday week, selectable at any time; completed weeks frozen on first
 request and served from the stored copy thereafter; one workbook of
-six-column lists, one tab per service type, community blocks inside.
+six-column lists, one tab per service type plus a final community-blocked
+`New Work Orders` sheet.
 
 ---
 
@@ -37,16 +38,17 @@ Three requirements, one feature.
 | W1 | **A week is Monday 00:00 Central through the next Monday 00:00 Central, half-open** — 11:59:59 PM Sunday inclusive. `labor_day.week_bounds_containing` already names the Monday; `day_bounds` converts both ends to UTC. |
 | W2 | **A week is `in_progress` until its end instant and `completed` after.** No 6 AM grace: a request at 00:00:01 Monday sees last week completed. The current week is computed live on every request and never stored. |
 | W3 | **Population: work orders with `archived_at` inside the window.** Nothing else — no open backlog, no intake. Closed is `archived_at`, the app's only close marker. |
-| W4 | **Frozen record = the JSON response.** A completed week is stored as the serialized `HubReportResponse`, so the stored bytes *are* the API payload, and the workbook renders from the same object the screen does. Storing the workbook bytes instead would pin past weeks to today's styling. |
+| W4 | **Frozen record = the closed portion of the JSON response.** A completed week's closed rows are stored as the serialized `HubReportResponse`; W14's live new-work-order fields are excluded. The workbook still renders from the same response object as the screen. Storing workbook bytes instead would pin past weeks to today's styling. |
 | W5 | **Lazy freeze.** A completed week that is not stored is computed, inserted with `ON CONFLICT DO NOTHING`, re-read, and served. No scheduler: the Render web service sleeps when idle, so an in-process timer cannot be trusted. A cron ping is a later addition if drift is ever observed; it needs no design change. |
 | W6 | **Weeks before launch follow W5.** They freeze on first request from current state. `frozen_at` is printed on screen and in the workbook, so a late freeze is visible rather than hidden. No back-fill. |
 | W7 | **`week` query parameter on both routes**, `YYYY-MM-DD`, must be a Monday and not after the current week's Monday; otherwise 422. Absent means the current week. The UI only ever sends Mondays; the rule is an API contract, not a convenience. |
 | W8 | **One tab per service type, alphabetical by label.** Tabs are `normalize_service_type` labels (blank → `Unspecified`). Alphabetical rather than largest-first so a weekly reader finds the same tab in the same place every week. |
 | W9 | **Community blocks inside a tab, fixed `ALL_COMMUNITY_FILTERS` order, primary community only.** A row lands under `community_memberships(...)[0]`, so a work order appears exactly once per workbook. This is the E14 rule for figures that must sum, applied to a list. |
 | W10 | **Six columns, raw vendor text.** `WORK ORDER`, `ASSIGNED TO` (`vendor_assignee`), `LOCATION`, `SERVICE TYPE` (raw), `SCHEDULE DATE` (raw string), `PRIORITY` (raw). No normalisation, no timestamps, no money. Rows sort by work-order number within a block. |
-| W11 | **The screen mirrors the file.** Same payload, same grouping. The Closing and New sections are deleted from the page along with the pies from the file. One payload, two renderers. |
+| W11 | **The screen mirrors the file's closed sections.** Same payload and closed-row grouping. The new-work-order list is workbook-only, while its count appears in the screen header. One payload, two renderers. |
 | W12 | **Admin floor unchanged.** Both routes stay the app's only Admin-floored routes; `test_route_role_gates.py` keeps its exemption verbatim. |
 | W13 | **Schema-versioned records, no re-freeze.** The row carries `schema_version = 1`. A future shape change must keep reading version 1; it never rewrites stored weeks. There is no admin "re-freeze" action — a frozen week is the record. |
+| W14 | **Every workbook ends with `New Work Orders`.** Rows are work orders whose immutable `created_at` falls inside the selected Monday-to-Monday window. They are recomputed live for every request, including frozen weeks, and never stored; version-1 records therefore remain valid. The sheet is blocked by primary community in fixed order, then sorted by work-order number. The screen shows only the count. |
 
 ### Decisions deliberately not taken
 
@@ -74,10 +76,13 @@ Three requirements, one feature.
 | `frozen_at` | datetime? | set on stored records; null while in progress |
 | `count` | int | `len(rows)` — no cap, the window is the bound |
 | `rows` | list[`HubReportRow`] | closed rows, in workbook order: service type label, primary community, number |
+| `new_work_order_count` | int | `len(new_work_order_rows)`; live on every request |
+| `new_work_order_rows` | list[`HubReportRow`] | rows selected by `created_at`, ordered by primary community then number |
 
 `HubReportRow`: `work_order_id`, `number`, `assigned_to`, `location`,
 `service_type` (raw), `service_type_label` (normalised, the tab name),
 `community` (primary, key), `schedule_date`, `priority`, `archived_at`.
+`archived_at` is optional because a new work order may still be open.
 
 `work_order_id` and `archived_at` serve the screen's row click-through
 and its Closed timestamp; they are not workbook columns.
@@ -93,7 +98,7 @@ Table `work_order_report_weeks`, one Alembic migration:
 | `week_start` | date, PK | the Monday |
 | `frozen_at` | timestamptz, not null | server `now()` at insert |
 | `schema_version` | int, not null | 1 |
-| `payload` | jsonb, not null | `HubReportResponse.model_dump_json` |
+| `payload` | jsonb, not null | `HubReportResponse.model_dump_json`, excluding the two live W14 fields |
 
 A dev copy of ~700 rows serializes to well under 200 KB; a week's
 closes are a fraction of that.
@@ -108,6 +113,7 @@ app/services/work_order_report.py            # rewritten, < 250 lines
   report_for_week(db, *, week_start, now) -> HubReportResponse # W2/W5 dispatch
   resolve_week(week: date | None, now) -> date                 # W7 validation
   _closed_rows(db, start, end) -> list[HubReportRow]
+  _new_work_order_rows(db, start, end) -> list[HubReportRow]   # live W14 list
 
 app/services/work_order_report_xlsx.py       # rewritten, < 200 lines
   report_xlsx(payload) -> bytes
@@ -127,8 +133,9 @@ deleted: work_order_report_buckets.py, work_order_report_xlsx_charts.py
 `weekly_report(...)` with `status="in_progress"`. Otherwise `SELECT` the
 row; on miss, compute with `status="completed"`, insert
 `ON CONFLICT DO NOTHING`, re-`SELECT`, and return the stored payload
-with `frozen_at` filled from the row. The route never sees the
-difference.
+with `frozen_at` filled from the row. It then attaches the live W14 rows
+selected by `created_at`; those rows are excluded from frozen JSON. The
+route never sees the difference.
 
 `_closed_rows` reuses the existing eager-load shape (`supervisor`,
 `technicians` are no longer needed; only the columns W10 names).
@@ -142,10 +149,10 @@ title block in rows 1–3, brand-red title, landscape print. No frozen
 panes and no `print_title_rows`: a tab holds several blocks, each with
 its own header.
 
-Sheet order: one tab per service type label, alphabetical (W8). Tab
+Sheet order: one tab per service type label, alphabetical (W8), then
+`New Work Orders` (W14). That final name is reserved before service-type
 names are sanitised for Excel (31 chars, no `: \ / ? * [ ]`) and
-de-duplicated with a numeric suffix if sanitising collides. Tab colour
-`MUTED`.
+de-duplicated with a numeric suffix. Tab colour `MUTED`.
 
 Each sheet:
 
@@ -168,8 +175,11 @@ that tab get a block. Each block's header row is styled `HEADER`; no
 Excel Table objects (one tab holds several blocks, and a Table cannot
 span a heading row).
 
-An empty week produces a single sheet named `Report` carrying the title
-block and the line `No work orders closed this week.`
+The final `New Work Orders` sheet uses the same six columns and community
+blocks. Its subtitle reads `New work orders <start> – <end> · N total`;
+when empty it says `No new work orders this week.` A week with no closed
+rows retains the `Report` sheet and its `No work orders closed this week.`
+line before the final sheet.
 
 Filename: `wo-report_{week_start}.xlsx` — the Monday, so the file is
 named for the period it covers (D14 convention).
@@ -184,7 +194,7 @@ the tab and the fetch.
 ```
 [◀]  Week of Sep 7 – Sep 13, 2026  [▶]   [This week]
      Completed · frozen Sep 14, 12:12 AM      (or: In progress · generated …)
-     41 closed work orders                     Download Excel
+     41 closed work orders · 12 new work orders     Download Excel
 
 Maintenance (18)
   Community | Number | Assigned to | Location | Schedule date | Priority | Closed
@@ -227,15 +237,22 @@ Backend (`tests/test_work_order_report.py`,
   service type lands on `Unspecified`.
 - Workbook: sheet names are the alphabetical labels; a sheet's blocks are
   the communities present in fixed order; header cells are the six W10
-  headers; cells are the raw vendor strings; empty week gives the single
-  `Report` sheet; filename is the Monday.
+  headers; cells are the raw vendor strings; an empty closed portion keeps
+  the `Report` sheet before the final sheet; filename is the Monday. The
+  final `New Work Orders` sheet is selected by `created_at`, blocked by
+  community, sorted by number, always present, and reserves its name against
+  service-type collisions.
+- New work orders: window edges, open and closed rows, raw-field projection,
+  live attachment to frozen weeks, exclusion from stored JSON, and version-1
+  payload defaults.
 - Route: `?week=` on both routes, 422 cases, attachment headers, and the
   role-gate exemption unchanged.
 
 Frontend (`tests/frontend/views/hubReport.test.js`, `userHub.test.js`):
 week label, badge text for both statuses, arrows and their disabled
 state, download href carrying the week, service-type sections and
-counts, row click-through, empty state, retry.
+counts, the new-work-order header count, row click-through, empty state,
+retry.
 
 ---
 

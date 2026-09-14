@@ -69,8 +69,10 @@ function statusLine(payload) {
   return `${label} · generated ${centralStamp(payload.generated_at)}`;
 }
 
-function countLine(count) {
-  return `${count} closed work order${count === 1 ? "" : "s"}`;
+function countLine(closedCount, newWorkOrderCount) {
+  const closed = `${closedCount} closed work order${closedCount === 1 ? "" : "s"}`;
+  const added = `${newWorkOrderCount} new work order${newWorkOrderCount === 1 ? "" : "s"}`;
+  return `${closed} · ${added}`;
 }
 
 function rowHtml(row) {
@@ -151,7 +153,9 @@ function headerHtml(payload) {
         <p class="hub-report-status">${escapeHtml(statusLine(payload))}</p>
       </div>
       <div class="hub-report-actions">
-        <p class="hub-report-count">${escapeHtml(countLine(payload.count))}</p>
+        <p class="hub-report-count">${escapeHtml(
+          countLine(payload.count, payload.new_work_order_count)
+        )}</p>
         <a class="secondary-btn hub-report-download" href="/hub/report/export?week=${escapeHtml(
           payload.week_start
         )}">Download Excel</a>
