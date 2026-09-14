@@ -324,6 +324,17 @@ tab, the Tools page, the Users page, or the push opt-in.
 | `push.js`'s `SUBSCRIBE_MIN_ROLE` is `"technician"`, which is rank 0 -- the lowest role there is -- so `roleAtLeast(role, SUBSCRIBE_MIN_ROLE)` is true for every real role and the eligibility gate it guards can only be failed by having no role at all. It reads like a floor and is one only in the sense that it excludes a signed-out page; narrowing the real floor means editing the constant AND knowing that today nothing tests the difference. | `push.test.js` -> "with no user at all: nothing is shown, nothing is registered, nothing is requested" |
 | `unsubscribeThisDevice` posts `/push/unsubscribe` before calling the browser's own `unsubscribe()`, and swallows every failure -- so a 500 (or a network drop) leaves the device holding a live subscription against a row the server may already have dropped. The only thing that reconciles it is the next login's re-POST, and logout is exactly when that may not come. | `push.test.js` -> "a 500 is swallowed AND the browser subscription is kept" |
 
+### N-P7-CHARACTERIZED — what the P7 remainder suite pins rather than fixes
+
+Found while writing the P7 files (P7a–P7e). Same rule as N-WO-CHARACTERIZED:
+the test is green *as today's behaviour*, so a fix must update the named test
+in the same change.
+**Trigger:** the next substantive edit to the User Requests page.
+
+| Defect | Pinned by |
+| --- | --- |
+| `userRequests.js`'s recount-count and price validators each carry a dead `!Number.isFinite` half behind an `input[type=number]`, which hands non-numeric text back as `""` — the blank branch answers first. Same class as the `notes.js` / `correctionPanel.js` / `toolCheckout.js` rows under N-P6-CHARACTERIZED. | `userRequestsActions.test.js` → "refuses a blank, non-numeric or negative count…" / "refuses a blank or non-positive price…" |
+
 ### N11 — notification triggers considered and deliberately deferred
 
 **Trigger: a user asking to be told about one of these, or the first drive

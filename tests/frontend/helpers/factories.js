@@ -524,3 +524,37 @@ export function toolCustodyEntry(overrides = {}) {
     ...overrides,
   };
 }
+
+// --- User Requests (backend/app/schemas/user_requests.py) --------------------
+// One shape serves all four request types and the siblings list; `details`
+// is the per-type dict the server whitelists. Defaults to an open material
+// request on a live work order, the tab the page lands on.
+export function userRequest(overrides = {}) {
+  return {
+    id: uuid(),
+    request_type: "material_request",
+    status: "open",
+    message: "Need more bulbs",
+    item_id: uuid(),
+    item_name: "Bulb",
+    item_barcode: "B1",
+    item_price: null,
+    item_product_link: null,
+    item_quantity: "3",
+    transaction_id: null,
+    work_order_id: uuid(),
+    work_order_number: "12345",
+    created_by_id: uuid(),
+    created_by_name: "Test User",
+    details: { quantity: "2", product_link: null, note: null },
+    created_at: "2026-09-10T12:00:00Z",
+    resolved_at: null,
+    resolved_by_id: null,
+    resolved_by_name: null,
+    resolution_note: null,
+    work_order_archived: false,
+    skipped: [],
+    updated: false,
+    ...overrides,
+  };
+}
