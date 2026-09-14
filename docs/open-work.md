@@ -29,12 +29,13 @@ observation becomes active work.
 
 ## 1. Requested feature
 
-User-requested behavior, not framework work. IMP-001–003 and IMP-005–034 are
-implemented (IMP-034, the User Hub, shipped in phases P1–P5 ending
+User-requested behavior, not framework work. IMP-001–003 and IMP-005–040 are
+implemented or retired (IMP-034, the User Hub, shipped in phases P1–P5 ending
 2026-08-30; spec `docs/superpowers/specs/2026-08-20-user-hub-design.md`; its
 two follow-ons live in section 2 as `N-WO-STATUS-EVENTS` and
-`N-REPORT-EXPORT-AUDIT`). IMP-004 and
-IMP-035 are open requests; IMP-038 and IMP-040 are in progress.
+`N-REPORT-EXPORT-AUDIT`; IMP-039 was replaced by IMP-040, whose two standing
+notes live in section 2 as `N-NF-STEEL-SESSION`; IMP-038 and IMP-040 were
+owner-confirmed closed 2026-09-14). IMP-004 and IMP-035 are open requests.
 
 ### IMP-004 — Mass Stage redesign
 
@@ -61,44 +62,6 @@ of magnitude versus text-only rows; this is also `SCL-017`'s concrete future
 trigger. Needs its own scoping pass (upload limits, storage backend,
 retention/deletion policy, whether it reuses `SEC-003`'s image bounding)
 before promotion.
-
-### IMP-038 — Field-help tooltip coverage phase 2 — IN PROGRESS
-
-- **Logged** 2026-08-23 · *App-wide* · extends the shipped IMP-037 system
-- Plan: `docs/superpowers/plans/2026-08-23-tooltips-phase-2-app-coverage.md`
-
-Curated field help in the remaining dynamic workflows, inheriting IMP-037's
-central registry, delegated runtime, plain-text copy, no-nested-button rule,
-and `.hint` preservation. Code-complete: 54-key registry (51 referenced; the
-three parked keys have no valid label/heading anchor), all 25 Phase 2
-placements wired, machine verification done. **Open: browser interaction,
-responsive screenshots, and closeout** — manual validation; no connected
-browser was available.
-
-### IMP-040 — NetFacilities cloud auth (per-user, Steel) — IN PROGRESS
-
-- **Logged** 2026-08-28 · *Integrations / Work Orders*
-- Specs/plans: `2026-08-28-netfacilities-cloud-auth` and
-  `2026-08-29-netfacilities-auto-capture` (design under
-  `docs/superpowers/specs/`, plan under `docs/superpowers/plans/`)
-
-The only NetFacilities auth path (the pre-Steel system, IMP-039, was removed
-2026-08-29): per-user Steel cloud sign-in from any device, Fernet-encrypted
-one-row-per-user session state, enrichment by replaying it into a fresh
-short-lived Steel session. The unattended capture → import → session release
-→ enrichment → web-push chain was owner-verified end to end in production
-2026-08-30 20:45Z. Open work:
-
-- **Manual D5/D6 replay spike** (plan Task 1) against a real Steel account
-  and a real NetFacilities login — required before this can be called done.
-- **Owner action: rotate/invalidate the NetFacilities session** flagged in
-  the IMP-039 hand-off.
-- Vendor-side session health checking (spec §4.4): the E7 deadline bounds a
-  reaped session; nothing detects Steel reaping one early.
-- The Playwright `download` listener is unverified over `connect_over_cdp`;
-  every capture logs `capture_path=listener|poll`, and the first production
-  capture read `poll`. **One more `poll` reading and the listener should be
-  deleted.**
 
 ---
 
@@ -159,6 +122,20 @@ impossible today, so the chain never runs for one. **Trigger:** a catalogue
 request naming an archived item with any regularity. **Done when
 triggered:** an Admin can restore from the fulfil form, and the request
 links to the original row.
+
+### N-NF-STEEL-SESSION — NetFacilities Steel session: two unverified edges
+
+IMP-040 (per-user Steel cloud auth, owner-confirmed 2026-09-14) left two
+properties with no automated check:
+
+- **Vendor-side session health** (spec §4.4, `2026-08-28-netfacilities-cloud-auth`):
+  the E7 deadline bounds a reaped session; nothing detects Steel reaping one
+  early. **Trigger:** an enrichment run failing with a sign-in page while the
+  stored session is inside its deadline.
+- **The Playwright `download` listener is unverified over `connect_over_cdp`.**
+  Every capture logs `capture_path=listener|poll`; the first production
+  capture read `poll`. **Trigger:** one more `poll` reading — then delete the
+  listener and its branch rather than keep two paths.
 
 ### N3 — decide the multi-instance story before scaling horizontally
 
@@ -319,11 +296,11 @@ the hub tab shell, the scanner widget, or the Mass Stage page.
 
 ### N-P6-CHARACTERIZED — what the P6 leaf-view suite pins rather than fixes
 
-Found while writing the P6 leaf-view files (P6a–P6e); later P6 chunks append
-here. Same rule as N-WO-CHARACTERIZED: the test is green *as today's
-behaviour*, so a fix must update the named test in the same change.
+Found while writing the P6 leaf-view files (P6a–P6g). Same rule as
+N-WO-CHARACTERIZED: the test is green *as today's behaviour*, so a fix must
+update the named test in the same change.
 **Trigger:** the next substantive edit to the hub clock widget, the Dashboard
-tab, the Tools page, or the Users page.
+tab, the Tools page, the Users page, or the push opt-in.
 
 | Defect | Pinned by |
 | --- | --- |
@@ -344,6 +321,8 @@ tab, the Tools page, or the Users page.
 | `users.js` renders `new Date(user.created_at).toLocaleString()` with no guard, so a null `created_at` reads as a 1970 account (`new Date(null)` is the epoch) and an unparseable one reads "Invalid Date". The Items finding's twin. | `users.test.js` -> "a null created_at renders as ..." / "an unparseable created_at renders as Invalid Date" |
 | The Edit Role modal labels its options by capitalising the raw role slug (`role.charAt(0).toUpperCase() + role.slice(1)`) instead of calling `roleLabel`, so TechFM OA reads "Techfm_oa"; the success copy prints the raw slug for the same reason ("is now techfm_oa"). Everywhere else in the app uses `roleLabel`. | `usersActions.test.js` -> "offers the actor's assignable roles and PATCHes the chosen one" |
 | Two of the five user row actions guard against a stale cache and three do not: Edit Details and Edit Role resolve `getUsers().find(...)` and return when the id is gone, while Reset Password, Restore and Archive read `data-id` / `data-name` straight off the button and will send a request for whatever the markup carries. Unreachable today -- the table is rebuilt on every load -- so the inconsistency is the finding. | `usersActions.test.js` -> "but Reset Password, Restore and Archive never look the user up at all" |
+| `push.js`'s `SUBSCRIBE_MIN_ROLE` is `"technician"`, which is rank 0 -- the lowest role there is -- so `roleAtLeast(role, SUBSCRIBE_MIN_ROLE)` is true for every real role and the eligibility gate it guards can only be failed by having no role at all. It reads like a floor and is one only in the sense that it excludes a signed-out page; narrowing the real floor means editing the constant AND knowing that today nothing tests the difference. | `push.test.js` -> "with no user at all: nothing is shown, nothing is registered, nothing is requested" |
+| `unsubscribeThisDevice` posts `/push/unsubscribe` before calling the browser's own `unsubscribe()`, and swallows every failure -- so a 500 (or a network drop) leaves the device holding a live subscription against a row the server may already have dropped. The only thing that reconciles it is the next login's re-POST, and logout is exactly when that may not come. | `push.test.js` -> "a 500 is swallowed AND the browser subscription is kept" |
 
 ### N11 — notification triggers considered and deliberately deferred
 

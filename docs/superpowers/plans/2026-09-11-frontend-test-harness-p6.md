@@ -164,10 +164,10 @@ Churn order, with the hub trio kept contiguous (one fixture, one factory file) a
 
 Mount `views/push.js` directly after `setTestUser({role})` and `stubPush({…})` (or no stub for the unsupported branch); `initPushForUser()` and `unsubscribeThisDevice()` are the test's calls.
 
-- [ ] **`initPushForUser`:** the test button visible for owner only, across the five roles; unsupported (no stub) → no request; permission `default` / `denied` → no request; `granted` → `GET /push/config`, `register("/service-worker.js")`, `getSubscription()`; no existing subscription → `subscribe({userVisibleOnly: true, applicationServerKey})` whose bytes decode a key that needs padding and the `-` / `_` swaps (`vapidKeyToBytes` at its only seam); an existing subscription on the same key → no `unsubscribe`, no `subscribe`, still `POST /push/subscribe` (the shared-device re-POST); a different key → `unsubscribe()` then `subscribe()`; `/push/config` 500, or `subscribe` rejecting → swallowed, no `POST /push/subscribe`.
-- [ ] **`unsubscribeThisDevice`:** unsupported → nothing; no registration → nothing; no subscription → nothing; `POST /push/unsubscribe {endpoint}` then the browser `unsubscribe()`; a server 500 is swallowed **and the browser subscription is kept** — the "server-side first" order leaves a dead endpoint on the device; file it.
-- [ ] **`resetPushView`** hides the button. **`requestPermissionAtLogin`:** `default` → prompts once; `granted` / `denied` → no prompt; unsupported → no prompt; a rejecting prompt is swallowed (P5b owns the login wiring; these are the module's own branches).
-- [ ] **The test button:** click → disabled meanwhile → `POST /push/test` → `messageDialog` with "Sent to N device(s). D stale subscription(s) removed, F failed." through the real overlay (see `unit/dom.dialogs.test.js` for the ids); a failure → `friendlyError` in the dialog; re-enabled either way.
+- [x] **`initPushForUser`:** the test button visible for owner only, across the five roles; unsupported (no stub) → no request; permission `default` / `denied` → no request; `granted` → `GET /push/config`, `register("/service-worker.js")`, `getSubscription()`; no existing subscription → `subscribe({userVisibleOnly: true, applicationServerKey})` whose bytes decode a key that needs padding and the `-` / `_` swaps (`vapidKeyToBytes` at its only seam); an existing subscription on the same key → no `unsubscribe`, no `subscribe`, still `POST /push/subscribe` (the shared-device re-POST); a different key → `unsubscribe()` then `subscribe()`; `/push/config` 500, or `subscribe` rejecting → swallowed, no `POST /push/subscribe`.
+- [x] **`unsubscribeThisDevice`:** unsupported → nothing; no registration → nothing; no subscription → nothing; `POST /push/unsubscribe {endpoint}` then the browser `unsubscribe()`; a server 500 is swallowed **and the browser subscription is kept** — the "server-side first" order leaves a dead endpoint on the device; file it.
+- [x] **`resetPushView`** hides the button. **`requestPermissionAtLogin`:** `default` → prompts once; `granted` / `denied` → no prompt; unsupported → no prompt; a rejecting prompt is swallowed (P5b owns the login wiring; these are the module's own branches).
+- [x] **The test button:** click → disabled meanwhile → `POST /push/test` → `messageDialog` with "Sent to N device(s). D stale subscription(s) removed, F failed." through the real overlay (see `unit/dom.dialogs.test.js` for the ids); a failure → `friendlyError` in the dialog; re-enabled either way.
 
 **Test.** `npm test` green; every export of `push.js` called by name.
 
@@ -177,7 +177,7 @@ Mount `views/push.js` directly after `setTestUser({role})` and `stubPush({…})`
 
 Seven chunks over a suite that costs 112–135 s. P5 added ~470 tests for ~85 s; P6 covers fewer lines with cheaper mounts (the hub fixture is one `GET /hub`, not a boot), so expect the close near 3 min — under the 6-minute line with no lever pulled.
 
-- [ ] Record wall-clock at each chunk's close, in the commit body.
+- [x] Record wall-clock at each chunk's close, in the commit body.
 - [x] If a chunk pushes the total past ~6 minutes locally, stop and raise it before starting the next. The lever is `maxWorkers` and the shell cache, not deleting assertions.
 
 **Raised at P6f's close (2026-09-12).** The suite measured 266 s and then 312 s
@@ -188,6 +188,10 @@ pulling a lever. But the cause is not established — the new tests are too few
 to explain it — so before P7 gates on coverage, re-measure on an idle machine
 and, if it holds, profile per-file timings rather than assuming contention.
 
+**Closed at P6g (2026-09-12 / 2026-09-14).** Re-measured 167 s at P6g's entry
+gate and 217 s under `npm run test:ci` (coverage on) at the close — both
+back inside the band. The 266 / 312 s pair was machine load, not the suite.
+
 | Close of | Tests / files | Wall-clock |
 | --- | --- | --- |
 | P5 (entry) | 1286 / 40 | 112 s |
@@ -197,15 +201,16 @@ and, if it holds, profile per-file timings rather than assuming contention.
 | P6d | 1525 / 52 | 195 s — the panels each boot the nav + items graph, so this chunk is the phase's most expensive per test |
 | P6e | 1651 / 58 | 137–165 s — the same suite re-measured 166 s at P6e's entry gate, so the phase's biggest chunk cost nothing net; the Tools fixture mounts the nav graph once and fetches two lists |
 | P6f | 1716 / 61 | **266 s, then 312 s on an immediate re-run** — two consecutive readings outside every previous band (112–195 s), so this is a trend, not the usual swing. 65 new tests cannot account for ~150 s; the likeliest cause is machine load rather than the suite itself, but it is unverified. See the note below. |
+| P6g | 1738 / 62 | 167 s at entry (`npm test`); 217 s at close under `npm run test:ci` with coverage on — the P6f readings did not reproduce |
 
 ## Done when
 
-- [ ] All seven chunks are committed, each green at commit time.
-- [ ] Every export of the twenty modules is exercised; `tools.js` and `users.js` actions are named by their audits.
-- [ ] Findings are filed in `docs/open-work.md` under `N-P6-CHARACTERIZED`, in the P2 table form (defect, pinned by).
-- [ ] `docs/current-state.md`: the Tools UI row no longer says "no Vitest suite for these views yet"; the User Hub Graphs / Report rows, the Item CRUD row, the Users row and the Web Push row name their tests; the Vitest bullet's count / time updated and "Remaining views: uncovered, roadmap P6-P7" reads P7 only.
-- [ ] Roadmap status row for P6 in the P5 form (date, chunk count, suite size, wall-clock, `npm run test:ci` statements / lines).
-- [ ] Coverage recorded, still advisory. P7 gates.
+- [x] All seven chunks are committed, each green at commit time.
+- [x] Every export of the twenty modules is exercised; `tools.js` and `users.js` actions are named by their audits.
+- [x] Findings are filed in `docs/open-work.md` under `N-P6-CHARACTERIZED`, in the P2 table form (defect, pinned by).
+- [x] `docs/current-state.md`: the Tools UI row no longer says "no Vitest suite for these views yet"; the User Hub Graphs / Report rows, the Item CRUD row, the Users row and the Web Push row name their tests; the Vitest bullet's count / time updated and "Remaining views: uncovered, roadmap P6-P7" reads P7 only.
+- [x] Roadmap status row for P6 in the P5 form (date, chunk count, suite size, wall-clock, `npm run test:ci` statements / lines).
+- [x] Coverage recorded, still advisory. P7 gates.
 
 ## Deliberately not in P6
 

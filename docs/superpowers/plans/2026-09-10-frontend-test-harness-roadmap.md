@@ -14,19 +14,19 @@ A phase — or a chunk — lands green and committed before the next begins.
 - A phase is done when `npm test` is green, CI is green, and the phase's own success check passes.
 - If a test cannot be written without changing production code, stop and raise it — do not quietly refactor to suit the test.
 
-**Status — 2026-09-11**
+**Status — 2026-09-14**
 
 | Phase | State |
 | --- | --- |
 | P0–P3 | Landed. `npm test`: 819 tests / 27 files, ~50 s, green. `pytest -m e2e` green. |
 | P4 | Landed 2026-09-11 in nine commits. `workOrders.js` is a 24-line barrel over eight modules, largest 752 lines; no behaviour test was edited to accommodate a move. |
 | P5 | Landed 2026-09-11 in eight chunks (P5a–P5h), `2026-09-10-frontend-test-harness-p5.md`. Suite: 1286 tests / 40 files, ~135 s locally (`maxWorkers: 4`, shell memoised), green. Findings under N-P5-CHARACTERIZED in `docs/open-work.md`. Coverage gate still advisory (`thresholds: undefined`); `npm run test:ci` statements at close: 70.91% statements / 72.45% lines (5431/7659, 4922/6793). |
-| P6 | Planned 2026-09-11, seven chunks (P6a–P6g), `2026-09-11-frontend-test-harness-p6.md`. Entry: 1286 tests / 40 files, 112 s. |
-| P7 | Not started. |
+| P6 | Landed 2026-09-14 in seven chunks (P6a–P6g), `2026-09-11-frontend-test-harness-p6.md`. Suite: 1738 tests / 62 files, ~165–220 s locally, green. Findings under N-P6-CHARACTERIZED in `docs/open-work.md`. Coverage gate still advisory (`thresholds: undefined`); `npm run test:ci` at close: 82.56% statements / 84.16% lines (6324/7659, 5721/6797). |
+| P7 | Not started — the only uncovered phase. |
 
-None of this has been through CI: the branch is 74 commits ahead of
-`origin/main` (2026-09-11, at the P6 plan) and unpushed, so every phase's "CI is green" rule is asserted
-from local runs only. Pushing `main` deploys production — an owner decision.
+P0–P6f went through CI when `main` was pushed 2026-09-13 (green at
+`daf451e` after four test-only fixes); P6g's commits are local until the next
+push. Pushing `main` deploys production — an owner decision.
 
 ## Ordering rationale
 

@@ -1399,8 +1399,10 @@ stays here is behavior that table cannot carry:
   `true` restores the rendered read for diagnosis (same-origin `GET`
   subresources only). Enrichment fills only the exact generated Task/Symptom
   fallback and a blank Priority, via compare-and-set; responses and logs
-  never contain source values, storage state, cookies, or headers. **Not yet
-  done:** the manual D5/D6 replay spike (IMP-040 in `open-work.md`).
+  never contain source values, storage state, cookies, or headers. Owner-
+  confirmed end to end 2026-09-14; the two unverified edges (early Steel
+  reaping, the CDP `download` listener) are `N-NF-STEEL-SESSION` in
+  `open-work.md`.
 - **`/ws` runs no application middleware** — the rate limiter, security
   headers, and request logger are `@app.middleware("http")` and the handshake
   is a `websocket` scope; the route does its own origin check and logging.
@@ -1751,7 +1753,7 @@ Frontend layers:
 
 - Vitest (`npm test`, repo root): `static/` modules under jsdom, mounted on the
   real assembled shell with MSW answering `fetch`, so the real `api.js` runs.
-  1716 tests / 61 files, ~265-310 s. Covers the foundation layer, the whole
+  1738 tests / 62 files, ~165-220 s. Covers the foundation layer, the whole
   `workOrder*` group (including a meta-test that goes red when a `data-action`
   branch loses its test or the barrel drops an export), the boot spine --
   `main.js` + `views/nav.js`, booted through `helpers/app.js`, which runs the
@@ -1809,10 +1811,14 @@ Frontend layers:
   `data-action` with no handler, any handler outside its frozen list, and any
   action no behaviour test mentions -- applied to Work Orders, Items, Mass
   Stage, Tools and Users (the last on class names, not `data-action`). `views/subnav.js` has its own unit file (initial selection,
-  the `onShow` contract, idempotence). Shared fixtures:
+  the `onShow` contract, idempotence), and `views/push.js` mounts directly over
+  `helpers/media.js::stubPush()` (`tests/frontend/views/push.test.js`) -- the Owner-only test button across the five
+  roles, the permission gate, the register/read-key/subscribe ladder including a
+  rotated VAPID key and the shared-device re-POST, the logout unsubscribe, and
+  the test send through the real message overlay. Shared fixtures:
   `helpers/{app,auth,items,tools,users,transactions,history,hub,
   scanner,massStage,requests,dialogs,media,actionAudit}.js`. Remaining views:
-  uncovered, roadmap P6-P7. Coverage reported, not gated, until P7.
+  uncovered, roadmap P7. Coverage reported, not gated, until P7.
 - E2E (`pytest -m e2e` from `backend/`): real Chromium over the real app --
   every `SHELL_PARTS` page renders its landmark with an empty console, plus two
   work-order journeys. The only layer that sees CSP violations and the service
@@ -1907,7 +1913,7 @@ working feature. Dormant is **currently empty**.
 | `backend/static/index.html` | 2026-06-12 | runtime shell assembly in `main.py`, deliberately uncached |
 | Sliding-window session idle timeout | `c7e9a1b3d5f8` | absolute `expires_at` + remember-me; consequence: a password reset must revoke sessions |
 | Ten docs → four; NetFacilities/realtime/push plan docs, `handoff.md` | 2026-08-10 / 2026-08-16 | `open-work.md` is the only backlog; the archived docs survive in the vault under `archive/superpowers/` (N3 cites one) |
-| Pre-Steel NetFacilities auth — local headed sign-in, shared secret file, five local routes, `services/netfacilities_auth.py` and siblings | 2026-08-29 | per-user Steel cloud auth (IMP-040) |
+| Pre-Steel NetFacilities auth — local headed sign-in, shared secret file, five local routes, `services/netfacilities_auth.py` and siblings | 2026-08-29 | per-user Steel cloud auth (`services/netfacilities_cloud_auth.py`) |
 
 Still live — occasionally assumed dead: the **three** HTTP middleware layers
 in `main.py` (`rate_limit`, `add_security_headers`, `log_request`;
