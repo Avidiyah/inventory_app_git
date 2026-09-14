@@ -53,7 +53,35 @@ export function assembleShell() {
   return assembled;
 }
 
+// Listeners a view hangs on `document` at import outlive the shell they were
+// written for: `mountShell` swaps `documentElement`, but `document` is one
+// object per file, and each test re-imports the view (setup.js resets the
+// registry), so without this the previous tests' delegated handlers fire
+// beside the current one against a DOM they never saw. `catalogueRequest.js`
+// and `workOrderRequests.js` delegate off `document`; the latter's send
+// handler re-finds a message element the first stacked handler has already
+// renamed (dom.js `setMessage` overwrites className), and rejects on null.
+//
+// Only registrations made WHILE `importView` evaluates a module are tracked
+// and dropped at the next mount. Runtime registrations stay: dom.js removes
+// its own dialog keydown listener, and user-event installs its value-tracking
+// listeners on `document` once per document and would not reinstall them
+// (dropping those turned a cleared filter into "70017001") (P7d).
+const documentListeners = [];
+let capturing = false;
+const nativeAddEventListener = document.addEventListener.bind(document);
+document.addEventListener = (type, listener, options) => {
+  if (capturing) documentListeners.push([type, listener, options]);
+  nativeAddEventListener(type, listener, options);
+};
+
+function dropDocumentListeners() {
+  documentListeners.splice(0).forEach(([type, listener, options]) =>
+    document.removeEventListener(type, listener, options));
+}
+
 export function mountShell() {
+  dropDocumentListeners();
   const parsed = new DOMParser().parseFromString(assembleShell(), "text/html");
   document.replaceChild(
     document.importNode(parsed.documentElement, true),
@@ -71,7 +99,12 @@ export function mountShell() {
 export async function importView(modulePath) {
   // A bare Windows path ("C:\...") is not a resolvable module specifier, so
   // the absolute path is handed to import() as a file:// URL.
-  return import(/* @vite-ignore */ pathToFileURL(join(STATIC_DIR, modulePath)).href);
+  capturing = true;
+  try {
+    return await import(/* @vite-ignore */ pathToFileURL(join(STATIC_DIR, modulePath)).href);
+  } finally {
+    capturing = false;
+  }
 }
 
 // The only supported way to load a view module.
