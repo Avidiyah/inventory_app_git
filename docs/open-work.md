@@ -1039,19 +1039,21 @@ status `Candidate`.
 
 `Production baseline`; `L`; Professionalism; `Confirmed`; status `In progress`.
 
-- **Evidence/outcome:** Vitest + jsdom + MSW harness in CI covers the
-  foundation layer and the whole `workOrder*` group (819 tests / 27 files,
-  ~50 s). A Playwright E2E smoke layer (`pytest -m e2e`, own CI job, gates
-  deploy) visits every shell page and two work-order journeys in a real
-  browser. That net then carried its first job: the 2,842-line
-  `views/workOrders.js` split into a barrel plus eight modules (P4, 2026-09-11)
-  with no test edited to accommodate a move. The remaining views and the deeper
-  browser workflows are unbuilt; roadmap
-  `docs/superpowers/plans/2026-09-10-frontend-test-harness-roadmap.md` P5-P7,
-  P5 planned in `...-p5.md` as eight chunks.
-- **Done when:** PRs deterministically cover login, item lookup, stock/dispense,
-  work-order update, Mass Stage authorization-visible behavior, and request
-  resolution against disposable data, with a blocking coverage floor.
+- **Evidence/outcome:** the harness is complete (P0-P7f, 2026-09-15). Vitest +
+  jsdom + MSW covers every `static/` module against the real assembled shell:
+  2076 tests / 77 files, ~175 s, and the coverage gate is **blocking** in CI at
+  94 % statements / 84 % branches / 96 % functions / 96 % lines. A Playwright
+  E2E smoke layer (`pytest -m e2e`, own CI job, gates deploy) visits every
+  shell page and two work-order journeys in a real browser. The net carried its
+  first job already: the 2,842-line `views/workOrders.js` split into a barrel
+  plus eight modules (P4) with no test edited to accommodate a move. What the
+  harness pins per fixture is in `docs/current-state.md`; what it pins rather
+  than fixes is `N-P7-CHARACTERIZED` above. Still unbuilt: the deeper browser
+  journeys below.
+- **Done when:** the E2E layer drives login, item lookup, stock/dispense,
+  work-order update, Mass Stage authorization-visible behavior and request
+  resolution end to end in a real browser against disposable data. The jsdom
+  layer and the blocking coverage floor are done.
 - **Dependency/decision:** PRO-003 or an ephemeral browser-test environment.
 
 #### PRO-009 - True multi-session database concurrency tests

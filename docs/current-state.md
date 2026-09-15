@@ -94,15 +94,15 @@ Path shorthand:
 | List-size ceiling (all list endpoints) | `domain/list_limits.py`, `services/_list_cap.py`, the six `list_*` service functions | `test_list_limits.py`, `test_list_cap_service.py`, `test_list_caps_applied.py` |
 | Roles/permissions/user management | `domain/roles.py`, `routers/users.py`, `services/users.py`, `schemas/users.py`, `static/roles.js`, `static/views/users.js`, `static/views/nav.js` | `test_roles.py`, `test_route_role_gates.py`, `test_user_names.py`, `test_user_role_edit.py`, `test_user_archive.py`; frontend `tests/frontend/views/users{,Actions,ActionCoverage}.test.js` |
 | Item CRUD/lookup/archive | `routers/items.py`, `services/items.py`, `schemas/items.py`, `models.py`, `static/views/items.js`, `static/views/itemEditor.js`, `static/api.js` | `test_item_barcodes.py`, `test_item_price_gating.py`, route-gate tests, `tests/frontend/views/items.test.js`, `tests/frontend/views/itemEditor.test.js` (prefill, validation, the `itemSave.js` order, both prompts), `tests/frontend/views/notes.test.js`, `tests/frontend/views/addBarcode.test.js`, `tests/frontend/views/correction.test.js` |
-| Low stock alerts / page | `domain/low_stock.py`, `services/low_stock.py`, `routers/_stock_events.py`, `services/items.py`, `routers/items.py`, `domain/notifications.py`, `domain/realtime.py`, `static/views/lowStock.js`, `static/pages/low-stock.html` | `test_low_stock_domain.py`, `test_low_stock_buffer.py`, `test_low_stock_triggers.py`, `test_items_low_stock.py`, `test_low_stock_shell.py` |
+| Low stock alerts / page | `domain/low_stock.py`, `services/low_stock.py`, `routers/_stock_events.py`, `services/items.py`, `routers/items.py`, `domain/notifications.py`, `domain/realtime.py`, `static/views/lowStock.js`, `static/pages/low-stock.html` | `test_low_stock_domain.py`, `test_low_stock_buffer.py`, `test_low_stock_triggers.py`, `test_items_low_stock.py`, `test_low_stock_shell.py`, `tests/frontend/views/lowStock*.test.js` |
 | Item notes | `domain/notes_validation.py`, `services/notes.py`, `schemas/items.py`, `routers/items.py`, `static/views/notes.js` | add/extend focused tests if behavior changes |
 | Alternate barcodes | `models.py`, `services/items.py`, `schemas/items.py`, `routers/items.py`, `static/views/itemEditor.js`, `static/views/addBarcode.js` | `test_item_barcodes.py` |
 | Stock/dispense/correction/void | `domain/quantity.py`, `services/transactions.py`, `routers/transactions.py`, `schemas/transactions.py`, `static/views/transactions.js`, `static/views/correction.js` | `test_quantity_reverse.py`, `test_user_requests.py`, route-gate tests |
-| User Requests / operational exceptions | `models.py`, `domain/material_requests.py`, `services/user_requests.py`, `services/material_requests.py`, `routers/user_requests.py`, `routers/_stock_events.py`, `schemas/user_requests.py`, `services/items.py`, `services/transactions.py`, `services/work_orders.py`, `static/views/userRequests.js`, `static/views/userRequestCards.js`, `static/views/workOrderRequests.js`, `static/views/catalogueRequest.js`, `static/pages/user-requests.html` | `test_user_requests.py`, `test_catalogue_requests.py`, `test_material_requests.py`, `test_material_requests_domain.py`, `test_stock_events_flush.py`, `test_route_role_gates.py` |
+| User Requests / operational exceptions | `models.py`, `domain/material_requests.py`, `services/user_requests.py`, `services/material_requests.py`, `routers/user_requests.py`, `routers/_stock_events.py`, `schemas/user_requests.py`, `services/items.py`, `services/transactions.py`, `services/work_orders.py`, `static/views/userRequests.js`, `static/views/userRequestCards.js`, `static/views/workOrderRequests.js`, `static/views/catalogueRequest.js`, `static/pages/user-requests.html` | `test_user_requests.py`, `test_catalogue_requests.py`, `test_material_requests.py`, `test_material_requests_domain.py`, `test_stock_events_flush.py`, `test_route_role_gates.py`, `tests/frontend/views/userRequests*.test.js`, `.../workOrders/requests*.test.js`, `.../catalogueRequest.test.js` |
 | Billing/charge override | `domain/billing.py`, `services/transactions.py`, `services/work_orders.py`, `services/history.py`, `routers/transactions.py`, `routers/work_orders.py`, `static/pricingText.js`, `static/adminReviewReceipt.js`, `static/views/history.js`, `static/views/billingEditor.js`, `static/views/workOrderActions.js`, `static/views/adminReview.js` | `test_billing_validation.py`, `test_work_order_billing.py`, `test_history_price_snapshot.py`, `test_item_price_gating.py`, `tests/frontend/views/history.test.js` (Charge column, inline editor driven for real, pricing list) |
 | History filters/export | `services/history.py`, `routers/transactions.py`, `schemas/transactions.py`, `static/views/history.js`, `static/api.js` | `test_history_wo_filter.py`, `tests/frontend/views/history.test.js` |
 | Barcode upload decode | `services/barcodes.py`, `routers/barcodes.py`, `schemas/barcodes.py`, `static/views/scan.js`, `static/api.js` | `test_barcodes.py` |
-| Live camera scan | `static/scan/barcode-decoder.js`, `static/scan/frame-debouncer.js`, `static/views/scan.js`, `static/scan-test.html`, `static/scan-test.js` | `tests/frontend/unit/barcodeDecoder.test.js`, `tests/frontend/unit/frameDebouncer.test.js` (the field-tested tuning by number), `tests/frontend/views/scan.test.js` (camera stubbed at `navigator.mediaDevices`); manual browser/device check for real optics |
+| Live camera scan | `static/scan/barcode-decoder.js`, `static/scan/frame-debouncer.js`, `static/views/scan.js`, `static/scan-test.html`, `static/scan-test.js` | `tests/frontend/unit/barcodeDecoder.test.js`, `tests/frontend/unit/frameDebouncer.test.js` (the field-tested tuning by number), `tests/frontend/views/scan.test.js` (camera stubbed at `navigator.mediaDevices`), `tests/frontend/views/scanTest.test.js` + `scanTestDecode.test.js` (the `/scan-test` harness page); manual browser/device check for real optics |
 | Scan-and-go work-order batch | `static/views/transactions.js`, `static/views/scan.js`, `routers/transactions.py`, `services/transactions.py`, `static/pages/transaction.html` | `tests/frontend/views/transactions.test.js`, transaction/domain tests, manual UI check for the camera |
 | Mass staging API/domain | `domain/mass_staging.py`, `services/mass_staging.py`, `routers/mass_stages.py`, `schemas/mass_stages.py`, `models.py` | `test_mass_staging.py`, `test_mass_staging_load.py`, `test_mass_stages_api.py` |
 | Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | `tests/frontend/views/massStage.test.js` (all thirteen `data-action` branches, named by `massStageActionCoverage.test.js`), backend mass-stage tests, manual UI check |
@@ -111,7 +111,7 @@ Path shorthand:
 | User Hub Graphs | `domain/hub.py`, `domain/work_orders.py`, `services/hub.py`, `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubGraphs.js`, `static/views/workOrderList.js`, `static/pages/user-hub.html`, `static/styles.css`, `static/tips.js`, `static/api.js` | `test_hub_graphs_domain.py`, hub service/router/gate/realtime tests, `tests/frontend/views/userHub.test.js` (tab shell, lazy fetch, failure isolation), `tests/frontend/views/hubGraphs.test.js` (donuts, the two-level drill, duration, the Work Orders hand-off); manual role/realtime checks. Aggregation semantics: endpoint-map → User Hub reads |
 | User Hub Report (Admin weekly closed report) | `services/work_order_report.py` (week resolution, window, lazy closed-row freeze, live new-work-order rows), `services/work_order_report_xlsx.py` + `services/_xlsx_theme.py`, `models.py` (`WorkOrderReportWeek`), `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubReport.js`, `static/views/workOrderList.js` (`openWorkOrdersByNumberSearch`), `static/pages/user-hub.html`, `static/styles.css`, `static/api.js` | `test_work_order_report.py` (resolve/window/projection/freeze/new work orders), `test_work_order_report_xlsx.py`, `test_work_order_report_weeks.py`, `test_xlsx_theme.py`, hub router + role-gate tests, `tests/frontend/views/userHub.test.js` (tab shell), `tests/frontend/views/hubReport.test.js` (week picker, counts, sections, hand-off, skeleton and retry); manual Excel check. **Admin-only**; completed closed rows are a **frozen record**, while `New Work Orders` is selected live by `created_at`, blocked by community, and always appears last in Excel; contract in endpoint-map → `HubReportResponse` |
 | NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_cloud_auth.py`, `services/netfacilities_cloud_crypto.py`, `services/netfacilities_jobs.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | `test_netfacilities_*.py`; behavior under API Surface → NetFacilities |
-| Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, manual UI check |
+| Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, `tests/frontend/views/adminReview.test.js` |
 | Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
 | Tools API/domain/service (custody) | `domain/tools.py`, `domain/quantity.py` (reused), `services/tools.py`, `routers/tools.py`, `schemas/tools.py`, `models.py` | `test_tools_domain.py`, `test_tools_service.py`, `test_route_role_gates.py` |
 | Tools UI (Add Tool tab + Tools page) | `static/views/tools.js`, `static/views/toolCheckout.js`, `static/views/toolReturn.js`, `static/views/toolCorrection.js`, `static/pages/tools.html`, `static/pages/create-item.html`, `static/api.js` | `tests/frontend/views/tools{Custody,Checkout,Inventory,Scan,ActionCoverage}.test.js` on `helpers/tools.js` |
@@ -1753,72 +1753,34 @@ Frontend layers:
 
 - Vitest (`npm test`, repo root): `static/` modules under jsdom, mounted on the
   real assembled shell with MSW answering `fetch`, so the real `api.js` runs.
-  1738 tests / 62 files, ~165-220 s. Covers the foundation layer, the whole
-  `workOrder*` group (including a meta-test that goes red when a `data-action`
-  branch loses its test or the barrel drops an export), the boot spine --
-  `main.js` + `views/nav.js`, booted through `helpers/app.js`, which runs the
-  real composition root against the assembled shell -- `views/auth.js`,
-  mounted directly through `helpers/auth.js` so a test can choose the
-  `/auth/me` answer before `initAuth()` runs, and `views/items.js` through
-  `helpers/items.js` (Find Item, the per-role column model, the four row
-  actions, create-item, and both scanners' upload-lookup path) with its four
-  sub-flow panels `views/notes.js`, `views/itemEditor.js`,
-  `views/addBarcode.js` and `views/correction.js` + `views/correctionPanel.js`
-  (the notes type ladder, the `itemSave.js` write order under the
-  barcode-change and archived-reuse prompts, the debounced add-barcode search
-  and its append, the correction ladder), and
-  `views/transactions.js` through `helpers/transactions.js` (the work-order
-  gate, the batch lifecycle, commit/undo/retry, the `sessionStorage` snapshot
-  and resume, and the manual-entry panel; the camera itself is P5g), and
-  `views/history.js` through `helpers/history.js` (tabs, overlay filters and
-  the debounce, pagination, the Charge column, void, the real
-  `billingEditor.js`, the archived-restore offer, the pricing list), and
-  `views/userHub.js` through `helpers/hub.js` -- the shared hub mount P6's
-  `hub*.js` files reuse (`openHub({role, crew, admin, timesheets, graphs})`;
-  per-role requests, tab switching, per-tab failure isolation, the 60 s
-  safety interval and visibility lifecycle, the three realtime
-  subscriptions) and, on the same fixture, its Dashboard leaves
-  `views/hubClock.js`, `views/hubTechnician.js`, `views/hubPriorities.js`,
-  `views/hubSupervisor.js` and `views/hubAdmin.js`
-  (the clock's tick and long-session warnings, the timeline's local-time
-  math, the stocked-request and card hand-offs to Work Orders, the three
-  role shapes of the Priorities card, the crew board's roll-ups, card matrix
-  and D16 absent board, the admin summary's on-the-clock list, its pipeline
-  tiles with the Work Orders hand-off and once-guard, and its billing
-  block), and its three lazily fetched tabs `views/hubTimesheets.js`,
-  `views/hubGraphs.js` and `views/hubReport.js` (the grid's flags and
-  drill-down, week nav and the CSV export; the donuts, the community →
-  service-type/priority drill and the duration chart; the report's three
-  sections, row hand-offs, skeleton and retry), and `views/tools.js` with its
-  three custody editors `views/toolCheckout.js`, `views/toolReturn.js` and
-  `views/toolCorrection.js` through `helpers/tools.js` (`loadTools` per role,
-  the user picker and custody card, checkout and check-in with the refresh and
-  1 s close, the Add Tool form and both tool scanners' upload path, the
-  inventory table and its three row actions, the contextual scanner's two
-  purposes and `resetToolsView`), and `views/users.js` through `helpers/users.js`
-  (`loadUsers` and the table, the row-action matrix frozen over five actor roles
-  x five target roles x {active, archived, self}, both `<select>` populators,
-  the create ladder, and the five row actions driven through the real
-  `#user-name-*` / `#user-role-*` / `#pw-reset-*` overlays including the
-  archive 409 retry), `views/scan.js` through `helpers/scanner.js` (`mountScanner`
-  as a factory, upload and live paths, torch, permission state, continuous
-  dwell/cooldown on fake timers; `helpers/media.js` stubs the camera at the
-  browser boundary) with `scan/barcode-decoder.js` and
-  `scan/frame-debouncer.js` as pure unit tests, and `views/massStage.js`
-  through `helpers/massStage.js` (list tree, lazy detail, create, all
-  thirteen actions, both `confirmDialog` answers). `helpers/actionAudit.js`
-  is the generalised meta-test: `auditActions()` names any rendered
-  `data-action` with no handler, any handler outside its frozen list, and any
-  action no behaviour test mentions -- applied to Work Orders, Items, Mass
-  Stage, Tools and Users (the last on class names, not `data-action`). `views/subnav.js` has its own unit file (initial selection,
-  the `onShow` contract, idempotence), and `views/push.js` mounts directly over
-  `helpers/media.js::stubPush()` (`tests/frontend/views/push.test.js`) -- the Owner-only test button across the five
-  roles, the permission gate, the register/read-key/subscribe ladder including a
-  rotated VAPID key and the shared-device re-POST, the logout unsubscribe, and
-  the test send through the real message overlay. Shared fixtures:
-  `helpers/{app,auth,items,tools,users,transactions,history,hub,
-  scanner,massStage,requests,dialogs,media,actionAudit}.js`. Remaining views:
-  uncovered, roadmap P7. Coverage reported, not gated, until P7.
+  2076 tests / 77 files, ~175 s. **Coverage is blocking** -- 94 % statements /
+  84 % branches / 96 % functions / 96 % lines (`vitest.config.js`), ratcheted by
+  hand at each phase close. A view with no test shows as 0 % in the report.
+
+  | Fixture | Modules | Pinned |
+  | --- | --- | --- |
+  | `helpers/app.js` | `main.js`, `views/nav.js` | the real composition root over the assembled shell; page swaps |
+  | `helpers/auth.js` | `views/auth.js` | mounted directly, so a test picks the `/auth/me` answer before `initAuth()` |
+  | `helpers/workOrders.js` | `views/workOrder*.js` (barrel + 8) | render, filters, roles, editor actions, realtime, the solo card, the Request section |
+  | `helpers/items.js` | `views/items.js` + `notes`, `itemEditor`, `addBarcode`, `correction(+Panel)` | Find Item, the per-role columns, four row actions, create-item, both scanners' upload lookup; the notes ladder, `itemSave.js`'s write order under both prompts, the debounced add-barcode search, the correction ladder |
+  | `helpers/transactions.js` | `views/transactions.js` | the work-order gate, batch lifecycle, commit/undo/retry, the `sessionStorage` snapshot and resume, manual entry |
+  | `helpers/history.js` | `views/history.js`, `billingEditor.js` | tabs, overlay filters and the debounce, pagination, the Charge column, void, archived-restore, the pricing list |
+  | `helpers/hub.js` | `views/userHub.js` + 5 dashboard leaves + 3 lazy tabs | per-role requests, tab switching, per-tab failure isolation, the 60 s safety interval and visibility lifecycle, three realtime subscriptions; then each leaf on the same fixture -- the clock, the timeline's local-time math, the three Priorities shapes, the crew board, the admin summary and its pipeline tiles, the timesheet grid and CSV, the graph drills, the report's three sections |
+  | `helpers/tools.js` | `views/tools.js` + 3 custody editors | `loadTools` per role, the user picker and custody card, checkout and check-in, Add Tool, the inventory table and its row actions, the contextual scanner |
+  | `helpers/users.js` | `views/users.js` | the row-action matrix frozen over five actor x five target roles x {active, archived, self}, both `<select>` populators, the create ladder, five row actions over the real overlays |
+  | `helpers/scanner.js` + `helpers/media.js` | `views/scan.js` | `mountScanner` as a factory, upload and live paths, torch, permission state, continuous dwell/cooldown on fake timers |
+  | `helpers/massStage.js` | `views/massStage.js` | the list tree, lazy detail, create, all thirteen actions, both `confirmDialog` answers |
+  | `helpers/userRequests.js` | `views/userRequests.js`, `userRequestCards.js` | the queue, tabs and status, the four card types, the row actions, fulfilment and its siblings |
+  | `helpers/lowStock.js` | `views/lowStock.js`, `lowStockCard.js` | the list and its buckets, the threshold control, the card body at the `saveItemCore` wire, the correction |
+  | inline mounts | `views/adminReview.js`, `catalogueRequest.js`, `push.js`, `subnav.js` | the Review queue, receipt-on-select, Reopen/Close, the ordering guards; the prompt builder and its form; the Owner-only test button, the permission gate, the subscribe ladder, logout unsubscribe; `onShow` and idempotence |
+  | `helpers/scanTest.js` | `scan-test.js` | the boot, five knobs, reader hints, the six-state camera machine, the rAF crop loop, both debounce modes, torch, copy-logs, lifecycle |
+  | a `self` stub | `service-worker.js` | install, activate, push and its fallbacks, the notificationclick client ladder |
+  | none (pure units) | `format`, `state`, `dom`, `tips`, `roles`, `api`, `itemSave`, `adminReviewReceipt`, `pricingText`, `skeleton`, `tooltip`, `realtime`, `scan/barcode-decoder`, `scan/frame-debouncer` | contracts, error shapes, and the field-tested scan tuning by number |
+
+  `helpers/actionAudit.js` is the generalised meta-test: `auditActions()` names
+  any rendered `data-action` with no handler, any handler outside its frozen
+  list, and any action no behaviour test mentions -- applied to eight surfaces
+  (Users on class names). `helpers/realtime.js` wires the fake socket.
 - E2E (`pytest -m e2e` from `backend/`): real Chromium over the real app --
   every `SHELL_PARTS` page renders its landmark with an empty console, plus two
   work-order journeys. The only layer that sees CSP violations and the service

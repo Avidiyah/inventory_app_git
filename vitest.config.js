@@ -23,8 +23,10 @@ export default defineConfig({
       include: ["backend/static/**/*.js"],
       exclude: ["backend/static/vendor/**"],
       reporter: ["text-summary", "lcov"],
-      // Advisory in P0. Turned blocking in P7 at the level then achieved.
-      thresholds: undefined,
+      // Blocking since P7f, at P7e's measured level minus 2, floored.
+      // Ratcheted BY HAND at each phase close -- `autoUpdate` is not used,
+      // because it rewrites this file on every local run.
+      thresholds: { statements: 94, branches: 84, functions: 96, lines: 96 },
     },
   },
 });

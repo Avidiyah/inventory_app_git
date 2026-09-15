@@ -22,11 +22,11 @@ A phase — or a chunk — lands green and committed before the next begins.
 | P4 | Landed 2026-09-11 in nine commits. `workOrders.js` is a 24-line barrel over eight modules, largest 752 lines; no behaviour test was edited to accommodate a move. |
 | P5 | Landed 2026-09-11 in eight chunks (P5a–P5h), `2026-09-10-frontend-test-harness-p5.md`. Suite: 1286 tests / 40 files, ~135 s locally (`maxWorkers: 4`, shell memoised), green. Findings under N-P5-CHARACTERIZED in `docs/open-work.md`. Coverage gate still advisory (`thresholds: undefined`); `npm run test:ci` statements at close: 70.91% statements / 72.45% lines (5431/7659, 4922/6793). |
 | P6 | Landed 2026-09-14 in seven chunks (P6a–P6g), `2026-09-11-frontend-test-harness-p6.md`. Suite: 1738 tests / 62 files, ~165–220 s locally, green. Findings under N-P6-CHARACTERIZED in `docs/open-work.md`. Coverage gate still advisory (`thresholds: undefined`); `npm run test:ci` at close: 82.56% statements / 84.16% lines (6324/7659, 5721/6797). |
-| P7 | Not started — the only uncovered phase. |
+| P7 | Landed 2026-09-15 in six chunks (P7a–P7f), `2026-09-14-frontend-test-harness-p7.md`. Suite: 2076 tests / 77 files, 173 s (`npm run test:ci`), green. Findings under N-P7-CHARACTERIZED in `docs/open-work.md`. **Coverage gate blocking** at 94 / 84 / 96 / 96 (statements / branches / functions / lines), ratcheted from the measured 96.30 / 86.68 / 98.54 / 98.29. |
 
-P0–P6f went through CI when `main` was pushed 2026-09-13 (green at
-`daf451e` after four test-only fixes); P6g's commits are local until the next
-push. Pushing `main` deploys production — an owner decision.
+P0–P7d are on `origin/main` (CI green at `daf451e` after four test-only fixes);
+P7e and P7f are committed locally and unpushed by plan. Pushing `main` deploys
+production — an owner decision.
 
 ## Ordering rationale
 
@@ -245,17 +245,12 @@ mounts directly with `helpers/media.js::stubPush()` (P5b), which already stubs
 `service-worker.js`.
 
 **Steps.**
-1. Cover the remainder. `scan/barcode-decoder.js` and `scan/frame-debouncer.js`
-   moved to P5: they are pure, they belong in the unit layer, and the `scan.js`
-   camera stub is only honest if the decode logic they hold is real.
-2. `service-worker.js` needs a service-worker global stub; if that proves
-   disproportionate, cover it in E2E instead and record the decision.
+1. Cover the remainder.
+2. `service-worker.js` against a `self` stub (`vi.stubGlobal`), not E2E.
 3. **Turn the coverage threshold blocking** at the level then achieved, minus a
-   small margin. Same ratchet as `pip-audit`. Still advisory at P5 close
-   (`thresholds: undefined` in `vitest.config.js`); the P5 status row above
-   carries the number to ratchet from.
-4. Fold the harness into `docs/current-state.md` and remove the "no frontend
-   tests" line from `docs/open-work.md`.
+   small margin. Same ratchet as `pip-audit`.
+4. Fold the harness into `docs/current-state.md` and drop the "no frontend test
+   harness" line from `docs/project-summary.md`.
 
 **Success check.** CI fails on a coverage regression. A new frontend file
 without a test is visible in the coverage report rather than invisible.

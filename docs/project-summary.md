@@ -233,7 +233,8 @@ Capabilities added after the improvement batch include:
 
 - IMP-004 remains open and intentionally low priority.
 - Hardware/iPhone scanner behavior still requires real-device validation when
-  those paths change; there is no frontend test harness.
+  those paths change: the Vitest harness stubs the camera at the browser
+  boundary, so it pins the code around the optics, not the optics.
 - Per the project owner's direction, Codex does not run interactive browser
   automation. Served-resource and automated contract checks remain in scope;
   the project owner performs in-browser click-through testing manually.

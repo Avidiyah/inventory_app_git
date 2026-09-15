@@ -170,8 +170,8 @@ jobs:
       - name: Install
         run: npm ci
 
-      # Coverage is ADVISORY here. It goes blocking in P7 at the level then
-      # achieved, minus a margin -- the same ratchet pip-audit used in B4.
+      # Coverage is BLOCKING here: a regression past the floor fails the job.
+      # The four thresholds live in `vitest.config.js`.
       - name: Vitest
         run: npm run test:ci
 

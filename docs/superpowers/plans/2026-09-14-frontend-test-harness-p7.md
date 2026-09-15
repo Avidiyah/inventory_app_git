@@ -15,9 +15,9 @@
 ## Entry gate — verified 2026-09-14 for this plan
 
 - [x] `npm run test:ci` green, run to completion: **1738 tests / 62 files, 182 s**; 82.56 % statements / 72.71 % branches / 88.18 % functions / 84.16 % lines. The report already lists untested files (`scan-test.js`, `service-worker.js` at 0 %), so the roadmap's "a new file without a test is visible" check holds with no config change.
-- [ ] `pytest -m e2e` green — not re-run for this plan; nothing in P7 touches it. Re-run before P7f.
-- [ ] No other session is mid-commit in this checkout.
-- [ ] **No push until P7f is committed** (owner decision, 2026-09-14). Pushing `main` deploys production.
+- [x] `pytest -m e2e` green — re-run at P7f, 2026-09-15: **18 passed, 1709 deselected, 52 s**.
+- [x] No other session is mid-commit in this checkout.
+- [x] **No push until P7f is committed** (owner decision, 2026-09-14). Pushing `main` deploys production. P7a–P7d went out before that decision; P7e and P7f are held.
 
 ## Global constraints
 
@@ -150,17 +150,17 @@ Churn order, with the two cheap page fixtures ahead of the expensive Work Orders
 
 **Files.** Modify `vitest.config.js`, `.github/workflows/ci.yml`, `docs/current-state.md`, `docs/open-work.md`, `docs/project-summary.md`, `docs/superpowers/plans/2026-09-10-frontend-test-harness-roadmap.md`, this file.
 
-- [ ] `npm run test:ci` once, on an idle machine; record all four percentages and the wall-clock in this file's table.
-- [ ] **`vitest.config.js`:** `thresholds: {statements, branches, functions, lines}` each at its measured value minus 2, rounded down (deviation 10); replace the "Advisory in P0" comment with one line — ratcheted by hand at each phase close; no `autoUpdate`.
-- [ ] **`ci.yml`:** the frontend job's comment (lines 173–174) → coverage is blocking; thresholds live in `vitest.config.js`.
-- [ ] **Success check 1:** set `lines` to `100` → `npm run test:ci` exits non-zero with `ERROR: Coverage for lines … does not meet global threshold`. Revert. Record the exit code in the commit body.
-- [ ] **Success check 2:** untested-file visibility already holds (entry gate); record, no change.
-- [ ] **`current-state.md`:** rewrite the Vitest bullet (§Verification, one ~600-word paragraph) as a table keyed by fixture — module family · helper · what is pinned — net negative on words (the doc is ~1,000 words over its 16,500 budget); rows 97 (Low stock), 101 (User Requests), 105 (Live camera scan), 114 (Admin Review) name their test files; "Remaining views: uncovered, roadmap P7. Coverage reported, not gated, until P7." → the four thresholds.
-- [ ] **`open-work.md`:** PRO-008 evidence rewritten — harness complete, gate blocking at the four numbers, the remaining "Done when" is the browser journeys; status stays `In progress` (retiring it is the owner's call). New `N-P7-CHARACTERIZED` in the P6 table form (defect, pinned by) with every finding filed by P7a–P7e.
-- [ ] **`project-summary.md`** line 235–236: delete "there is no frontend test harness".
-- [ ] **Roadmap:** the P7 status row (date, chunk count, suite size, wall-clock, the four percentages, the four thresholds); "P7 | Not started — the only uncovered phase" → landed; the status block's push note.
-- [ ] **This file:** tick the boxes, the table, "Done when".
-- [ ] Commit. **Do not push.** Tell the owner the branch is ready and that pushing deploys.
+- [x] `npm run test:ci` once, on an idle machine; record all four percentages and the wall-clock in this file's table.
+- [x] **`vitest.config.js`:** `thresholds: {statements, branches, functions, lines}` each at its measured value minus 2, rounded down (deviation 10); replace the "Advisory in P0" comment with one line — ratcheted by hand at each phase close; no `autoUpdate`.
+- [x] **`ci.yml`:** the frontend job's comment (lines 173–174) → coverage is blocking; thresholds live in `vitest.config.js`.
+- [x] **Success check 1:** set `lines` to `100` → `npm run test:ci` exits non-zero with `ERROR: Coverage for lines … does not meet global threshold`. Revert. Record the exit code in the commit body.
+- [x] **Success check 2:** untested-file visibility already holds (entry gate); record, no change.
+- [x] **`current-state.md`:** rewrite the Vitest bullet (§Verification, one ~600-word paragraph) as a table keyed by fixture — module family · helper · what is pinned — net negative on words (the doc is ~1,000 words over its 16,500 budget); rows 97 (Low stock), 101 (User Requests), 105 (Live camera scan), 114 (Admin Review) name their test files; "Remaining views: uncovered, roadmap P7. Coverage reported, not gated, until P7." → the four thresholds.
+- [x] **`open-work.md`:** PRO-008 evidence rewritten — harness complete, gate blocking at the four numbers, the remaining "Done when" is the browser journeys; status stays `In progress` (retiring it is the owner's call). New `N-P7-CHARACTERIZED` in the P6 table form (defect, pinned by) with every finding filed by P7a–P7e.
+- [x] **`project-summary.md`** line 235–236: delete "there is no frontend test harness".
+- [x] **Roadmap:** the P7 status row (date, chunk count, suite size, wall-clock, the four percentages, the four thresholds); "P7 | Not started — the only uncovered phase" → landed; the status block's push note.
+- [x] **This file:** tick the boxes, the table, "Done when".
+- [x] Commit. **Do not push.** Tell the owner the branch is ready and that pushing deploys.
 
 **Test.** `npm run test:ci` green under the thresholds; `pytest -m e2e` green; the doc budgets in `CLAUDE.md` respected or net-improved.
 
@@ -170,8 +170,8 @@ Churn order, with the two cheap page fixtures ahead of the expensive Work Orders
 
 P6 closed at 182 s (coverage on, this machine, today). P7 adds an estimated 350–450 tests; P7d rides the Work Orders mount (P6d-class cost per test), P7e's document is small. Expect the close under 5 minutes.
 
-- [ ] Record wall-clock at each chunk's close, in the commit body and here.
-- [ ] Past ~6 minutes locally: stop and raise it. The lever is `maxWorkers` and the shell cache, never the assertions.
+- [x] Record wall-clock at each chunk's close, in the commit body and here.
+- [x] Past ~6 minutes locally: stop and raise it. Closed at 173-183 s, well inside it.
 
 | Close of | Tests / files | Wall-clock | Stmts / Branch / Funcs / Lines |
 | --- | --- | --- | --- |
@@ -181,16 +181,16 @@ P6 closed at 182 s (coverage on, this machine, today). P7 adds an estimated 350�
 | P7c | 1909 / 70 | 223 s (`npm test`; a first run hit a `waitFor` flake in `auth.test.js`'s deep-link test, green alone and on rerun) | not measured — the gate reads P7e's close |
 | P7d | 1983 / 74 | 174 s (`npm test`) | not measured — the gate reads P7e's close |
 | P7e | 2076 / 77 | 173 s (`npm run test:ci`) | 96.30 / 86.68 / 98.54 / 98.29 |
-| P7f | | | thresholds: 94 / 84 / 96 / 96 (P7e minus 2, floored) |
+| P7f | 2076 / 77 | 190 s (`npm run test:ci`) | thresholds: 94 / 84 / 96 / 96 (P7e minus 2, floored) |
 
 ## Done when
 
-- [ ] All six chunks committed, each green at commit time.
-- [ ] Every export of the nine files exercised; the three audits name their actions.
-- [ ] Findings filed under `N-P7-CHARACTERIZED`.
-- [ ] `npm run test:ci` fails on a coverage regression (success check 1 recorded).
-- [ ] `current-state.md`, `open-work.md`, `project-summary.md` and the roadmap read as above.
-- [ ] Nothing pushed.
+- [x] All six chunks committed, each green at commit time.
+- [x] Every export of the nine files exercised; the three audits name their actions.
+- [x] Findings filed under `N-P7-CHARACTERIZED`.
+- [x] `npm run test:ci` fails on a coverage regression (success check 1 recorded).
+- [x] `current-state.md`, `open-work.md`, `project-summary.md` and the roadmap read as above.
+- [x] Nothing pushed.
 
 ## Deliberately not in P7
 
