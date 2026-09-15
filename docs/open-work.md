@@ -329,7 +329,7 @@ tab, the Tools page, the Users page, or the push opt-in.
 Found while writing the P7 files (P7a–P7e). Same rule as N-WO-CHARACTERIZED:
 the test is green *as today's behaviour*, so a fix must update the named test
 in the same change.
-**Trigger:** the next substantive edit to the User Requests, Admin Review or Low Stock page, the work-order card's Request section, or the catalogue prompt.
+**Trigger:** the next substantive edit to the User Requests, Admin Review or Low Stock page, the work-order card's Request section, the catalogue prompt, the scan harness or the push service worker.
 
 | Defect | Pinned by |
 | --- | --- |
@@ -341,6 +341,9 @@ in the same change.
 | `lowStockCard.js::saveCorrection`'s `!Number.isFinite(newQuantity)` half is dead behind an `input[type=number]`, which hands non-numeric text (and an out-of-range `1e400`) back as `""` — the blank half answers first. Same class as the `userRequests.js` row above. | `lowStockCard.test.js` → "refuses a non-numeric count" |
 | `workOrderRequests.js`'s send and `catalogueRequest.js`'s submit each carry the same dead `!Number.isFinite(qty)` half behind an `input[type=number]`: `Number("")` is `0`, so the `<= 0` half answers every non-numeric entry. Same class as the rows above. | `workOrders/requestsActions.test.js` → "send refuses a quantity of abc"; `catalogueRequest.test.js` → "refuses a quantity of abc and focuses it" |
 | `workOrderRequests.js`: the Request form's message is re-found by `.wo-request-message` on every Send, but `setMessage` (dom.js) writes `className = type`, so the first message of any kind — a validation refusal, "Sending…", a failed send — strips the class. The next Send on that form then rejects inside its un-awaited handler (`Cannot set properties of null`) before it validates or requests, and nothing happens on screen; only a successful send or a realtime refetch rebuilds the section. Same defect as the Low Stock row above; the null rejection was observed directly (2026-09-14) when stacked test listeners drove the handler twice. `catalogueRequest.js` is not affected — its `setLocalMessage` re-writes the class it searches by. | `workOrders/requestsActions.test.js` → "send refuses an invalid product link and focuses it" |
+| `scan-test.js`'s time-to-accept carries an unreachable `"n/a"`: it reads `startTimestamp`, which `start()` stamps on the way into `streaming` and `resetWindow` only nulls when NOT streaming — and a hit, the only caller, requires `streaming`. Every accept the harness can reach is timed. Same class as the `lowStock.js` `EMPTY_TEXT` row above. | `scanTestDecode.test.js` → "clears the standing accept and lets the next one land" |
+| `scan-test.js`: Stop is enabled during `requesting` (only `idle` and `blocked` disable it), and `start()` never re-checks the camera state after `getUserMedia` resolves — so a Stop pressed mid-request takes the page to `idle` and the stream then comes up behind it, streaming a camera the user just refused. Harness-only, and the fix is a state re-check after the await, not a disabled button. | `scanTest.test.js` → "a Stop pressed mid-request is overridden by the stream that arrives after it" |
+| `scan-test.js`: `renderDiag` runs at boot and inside `tick()` and nowhere else, so between Start and the first decoded frame the granted resolution, facing mode and focus rows still read `—` — and a Copy logs in that gap records dashes for a camera that is already streaming. The torch row is the exception: `start()` writes it directly. | `scanTest.test.js` → "carries the typed phone and conditions and the live camera state" |
 
 ### N11 — notification triggers considered and deliberately deferred
 

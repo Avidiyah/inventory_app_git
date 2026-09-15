@@ -297,10 +297,13 @@ export function stubRaf() {
 
 // Intrinsic size and a resolved `play()` on an element the test owns; the
 // element is discarded with the DOM, so nothing to restore.
-export function stubVideo(videoEl, { width = 1280, height = 720 } = {}) {
+export function stubVideo(videoEl, { width = 1280, height = 720, playRejects = null } = {}) {
   Object.defineProperty(videoEl, "videoWidth", { configurable: true, get: () => width });
   Object.defineProperty(videoEl, "videoHeight", { configurable: true, get: () => height });
-  const play = vi.fn(async () => {});
+  // `playRejects` is the autoplay refusal Safari throws when the element is
+  // attached without a user gesture; `scan-test.js` only warns on it, so the
+  // stream still has to come up behind the rejection.
+  const play = vi.fn(async () => { if (playRejects) throw playRejects; });
   Object.defineProperty(videoEl, "play", { configurable: true, value: play });
   return { play };
 }

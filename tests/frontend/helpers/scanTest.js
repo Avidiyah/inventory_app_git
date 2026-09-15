@@ -105,9 +105,9 @@ export async function mountScanTest({
   const zx = zxing ? stubZXing({ ZXingBrowser: { BarcodeFormat: BARCODE_FORMAT } }) : null;
   const els = elements();
   await importView("scan-test.js");
-  stubVideo(els.video, video);
+  const { play } = stubVideo(els.video, video);
   await settle();
-  return { els, raf, canvas, media: mediaStub, track, zxing: zx, clipboard: clip };
+  return { els, raf, canvas, media: mediaStub, track, zxing: zx, clipboard: clip, play };
 }
 
 // Drain the microtask chain a click starts (`start()` awaits `getUserMedia`
