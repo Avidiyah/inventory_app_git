@@ -10,7 +10,7 @@ import {
   respond, seedList, state,
 } from "../../helpers/workOrders.js";
 import { restoreBrowserStubs, stubScroll } from "../../helpers/browserStubs.js";
-import { filterOptions, workOrderCard } from "../../helpers/factories.js";
+import { filterOptions, user, workOrderCard } from "../../helpers/factories.js";
 
 afterEach(() => restoreBrowserStubs());
 
@@ -40,7 +40,7 @@ const typeIn = (control, value) => {
 const pressEnter = (control) =>
   control.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
 
-describe("the six filter selects", () => {
+describe("the seven filter selects", () => {
   it.each([
     ["work-orders-status-filter", "in_progress", "status=in_progress"],
     ["work-orders-service-filter", "Electrical", "service_type=Electrical"],
@@ -76,11 +76,27 @@ describe("the six filter selects", () => {
     expect(listUrls()[0]).toContain("supervisor_id=s1");
   });
 
+  it("populates and sends the technician filter as assigned_to_id, Supervisor+ only", async () => {
+    const tech = user({ id: "t1", full_name: "Tim Tech", role: "technician" });
+    await mountWorkOrders({ role: "admin", users: [tech] });
+    const values = [...el("work-orders-technician-filter").options].map((o) => `${o.value}|${o.textContent}`);
+    expect(values).toEqual(["|All technicians", "t1|Tim Tech"]);
+    expect(el("work-orders-technician-field").hidden).toBe(false);
+    change(el("work-orders-technician-filter"), "t1");
+    await flush();
+    expect(listUrls()[0]).toContain("assigned_to_id=t1");
+  });
+
+  it("hides the technician filter below Supervisor", async () => {
+    await mountWorkOrders({ role: "technician" });
+    expect(el("work-orders-technician-field").hidden).toBe(true);
+  });
+
   it("always carries the sort direction", async () => {
     await mountWorkOrders({ role: "admin" });
     change(el("work-orders-status-filter"), "completed");
     await flush();
-    expect(listUrls()[0]).toContain("sort=scheduled_desc");
+    expect(listUrls()[0]).toContain("sort=scheduled_asc");
   });
 
   it("resets Show all", async () => {
@@ -109,10 +125,11 @@ describe("Clear filters", () => {
     el("work-orders-clear-filters").click();
     await flush();
     expect(listUrls()).toHaveLength(1);
-    expect(listUrls()[0]).toBe("/work-orders/?limit=10&sort=scheduled_desc");
+    expect(listUrls()[0]).toBe("/work-orders/?limit=10&sort=scheduled_asc");
     for (const id of [
       "work-orders-status-filter", "work-orders-service-filter", "work-orders-priority-filter",
-      "work-orders-supervisor-filter", "work-orders-community-filter", "work-orders-date-filter",
+      "work-orders-supervisor-filter", "work-orders-technician-filter", "work-orders-community-filter",
+      "work-orders-date-filter",
       "work-orders-search", "work-orders-location-search", "work-orders-task-search",
     ]) {
       expect(el(id).value, id).toBe("");
@@ -183,25 +200,25 @@ describe("the keyword searches", () => {
 });
 
 describe("the sort control", () => {
-  it("marks the active direction", async () => {
+  it("marks the active direction, oldest first by default", async () => {
     await mountWorkOrders({ role: "admin" });
-    const buttons = [...el("work-orders-sort").querySelectorAll("[data-sort]")];
-    expect(buttons.map((b) => b.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
-  });
-
-  it("switches direction, persists it, and reloads", async () => {
-    await mountWorkOrders({ role: "admin" });
-    el("work-orders-sort").querySelector('[data-sort="scheduled_asc"]').click();
-    await flush();
-    expect(listUrls()[0]).toContain("sort=scheduled_asc");
-    expect(localStorage.getItem("workOrders.sort")).toBe("scheduled_asc");
     const buttons = [...el("work-orders-sort").querySelectorAll("[data-sort]")];
     expect(buttons.map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "true"]);
   });
 
-  it("ignores a click on the direction already active", async () => {
+  it("switches direction, persists it, and reloads", async () => {
     await mountWorkOrders({ role: "admin" });
     el("work-orders-sort").querySelector('[data-sort="scheduled_desc"]').click();
+    await flush();
+    expect(listUrls()[0]).toContain("sort=scheduled_desc");
+    expect(localStorage.getItem("workOrders.sort")).toBe("scheduled_desc");
+    const buttons = [...el("work-orders-sort").querySelectorAll("[data-sort]")];
+    expect(buttons.map((b) => b.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
+  });
+
+  it("ignores a click on the direction already active", async () => {
+    await mountWorkOrders({ role: "admin" });
+    el("work-orders-sort").querySelector('[data-sort="scheduled_asc"]').click();
     await flush();
     expect(listUrls()).toHaveLength(0);
   });
@@ -217,19 +234,19 @@ describe("the sort control", () => {
   });
 
   it("honours a stored direction on import", async () => {
-    localStorage.setItem("workOrders.sort", "scheduled_asc");
-    await mountWorkOrders({ role: "admin" });
-    change(el("work-orders-status-filter"), "completed");
-    await flush();
-    expect(listUrls()[0]).toContain("sort=scheduled_asc");
-  });
-
-  it("falls back to scheduled_desc on a stored value it does not recognise", async () => {
-    localStorage.setItem("workOrders.sort", "by_vibes");
+    localStorage.setItem("workOrders.sort", "scheduled_desc");
     await mountWorkOrders({ role: "admin" });
     change(el("work-orders-status-filter"), "completed");
     await flush();
     expect(listUrls()[0]).toContain("sort=scheduled_desc");
+  });
+
+  it("falls back to the oldest-first default on a stored value it does not recognise", async () => {
+    localStorage.setItem("workOrders.sort", "by_vibes");
+    await mountWorkOrders({ role: "admin" });
+    change(el("work-orders-status-filter"), "completed");
+    await flush();
+    expect(listUrls()[0]).toContain("sort=scheduled_asc");
   });
 });
 

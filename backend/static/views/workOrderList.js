@@ -72,6 +72,7 @@ import {
 } from "./workOrderReferenceData.js";
 import {
   isAdminPlus,
+  isSupervisorPlus,
   statusLabel,
   priorityBadgeClass,
   workOrderCardClass,
@@ -85,6 +86,8 @@ const statusFilter = document.getElementById("work-orders-status-filter");
 const serviceTypeFilter = document.getElementById("work-orders-service-filter");
 const priorityFilter = document.getElementById("work-orders-priority-filter");
 const supervisorFilter = document.getElementById("work-orders-supervisor-filter");
+const technicianFilterField = document.getElementById("work-orders-technician-field");
+const technicianFilter = document.getElementById("work-orders-technician-filter");
 const communityFilter = document.getElementById("work-orders-community-filter");
 const scheduledDateFilter = document.getElementById("work-orders-date-filter");
 const searchInput = document.getElementById("work-orders-search");
@@ -221,6 +224,7 @@ export async function loadWorkOrders({
     }
   }
   if (exportBtn) exportBtn.hidden = !isAdminPlus();
+  if (technicianFilterField) technicianFilterField.hidden = !isSupervisorPlus();
 
   const filters = currentFilters();
   // The cap applies only to a completely unfiltered browse. Any advanced filter
@@ -657,7 +661,7 @@ function wireKeywordSearch(input) {
 }
 const cancelLocationSearchDebounce = wireKeywordSearch(locationSearchInput);
 const cancelTaskSearchDebounce = wireKeywordSearch(taskSearchInput);
-[statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
+[statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, technicianFilter, communityFilter, scheduledDateFilter].forEach((control) => {
   if (!control) return;
   control.addEventListener("change", () => {
     setShowAll(false);

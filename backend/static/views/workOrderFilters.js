@@ -6,13 +6,15 @@
 // The controls are wired in workOrderList.js; the state they read and write
 // lives here.
 
-import { escapeHtml } from "../format.js";
+import { escapeHtml, formatUserName } from "../format.js";
 import { apiGetWorkOrderFilterOptions } from "../api.js";
+import { getAllTechnicians } from "./workOrderReferenceData.js";
 
 const statusFilter = document.getElementById("work-orders-status-filter");
 const serviceTypeFilter = document.getElementById("work-orders-service-filter");
 const priorityFilter = document.getElementById("work-orders-priority-filter");
 const supervisorFilter = document.getElementById("work-orders-supervisor-filter");
+const technicianFilter = document.getElementById("work-orders-technician-filter");
 const communityFilter = document.getElementById("work-orders-community-filter");
 const scheduledDateFilter = document.getElementById("work-orders-date-filter");
 const searchInput = document.getElementById("work-orders-search");
@@ -70,6 +72,16 @@ export async function loadFilterOptions() {
       label: option.name,
     }))
   );
+  // Sourced from workOrderReferenceData.js's own roster fetch (Supervisor+
+  // only), not from filter-options -- it's the same list the technician
+  // assignment picker uses, already loaded by the time this runs.
+  populateFilterSelect(
+    technicianFilter,
+    "All technicians",
+    getAllTechnicians()
+      .map((technician) => ({ value: technician.id, label: formatUserName(technician) }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  );
   populateFilterSelect(
     communityFilter,
     "All communities",
@@ -84,7 +96,7 @@ export async function loadFilterOptions() {
 // filters leaves it alone since it is a view preference, not a filter.
 export const SORT_STORAGE_KEY = "workOrders.sort";
 export const SORT_VALUES = new Set(["scheduled_desc", "scheduled_asc"]);
-let sortDir = "scheduled_desc";
+let sortDir = "scheduled_asc";
 try {
   const saved = localStorage.getItem(SORT_STORAGE_KEY);
   if (SORT_VALUES.has(saved)) sortDir = saved;
@@ -104,6 +116,7 @@ export function currentFilters() {
     status: statusFilter ? statusFilter.value : "",
     serviceType: serviceTypeFilter ? serviceTypeFilter.value : "",
     supervisorId: supervisorFilter ? supervisorFilter.value : "",
+    assignedToId: technicianFilter ? technicianFilter.value : "",
     community: communityFilter ? communityFilter.value : "",
     priority: priorityFilter ? priorityFilter.value : "",
     scheduledDate: scheduledDateFilter ? scheduledDateFilter.value : "",
@@ -124,7 +137,7 @@ export function listParams() {
 }
 
 export function resetFilterControls() {
-  [statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, communityFilter, scheduledDateFilter].forEach((control) => {
+  [statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, technicianFilter, communityFilter, scheduledDateFilter].forEach((control) => {
     if (control) control.value = "";
   });
   if (searchInput) searchInput.value = "";

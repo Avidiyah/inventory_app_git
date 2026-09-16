@@ -49,6 +49,15 @@
                         <option value="">All supervisors</option>
                     </select>
                 </div>
+                <!-- Supervisor+ only: hidden for a Technician, whose own scope is
+                     already just their own work. See workOrderList.js's
+                     isSupervisorPlus() toggle. -->
+                <div class="wo-filter-field" id="work-orders-technician-field" hidden>
+                    <label for="work-orders-technician-filter">Assigned Technician</label>
+                    <select id="work-orders-technician-filter">
+                        <option value="">All technicians</option>
+                    </select>
+                </div>
                 <div class="wo-filter-field">
                     <label for="work-orders-community-filter">Community<button type="button" class="tip-btn" data-tip="wo.community">?</button></label>
                     <select id="work-orders-community-filter">
@@ -67,8 +76,8 @@
                 <button id="work-orders-clear-filters" type="button" class="secondary-btn">Clear filters</button>
                 <button id="wo-export-btn" type="button" class="secondary-btn" hidden>Export filtered CSV…</button>
                 <div id="work-orders-sort" class="segmented wo-sort-seg" role="group" aria-label="Sort by scheduled date">
-                    <button type="button" class="seg-btn" data-sort="scheduled_desc" aria-pressed="true">Newest first</button>
-                    <button type="button" class="seg-btn" data-sort="scheduled_asc" aria-pressed="false">Oldest first</button>
+                    <button type="button" class="seg-btn" data-sort="scheduled_desc" aria-pressed="false">Newest first</button>
+                    <button type="button" class="seg-btn" data-sort="scheduled_asc" aria-pressed="true">Oldest first</button>
                 </div>
             </div>
             <div class="filter-row wo-keyword-search-row">
