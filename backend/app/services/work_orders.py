@@ -2106,41 +2106,52 @@ def _get_labor_entry(
     return entry
 
 
-def _require_labor_manager(user: Optional[User]) -> None:
-    """Hand-entered labor -- adding, revising, or removing -- is Supervisor+.
-
-    What keeps the billed figure trustworthy is that a technician cannot type
-    it: their hours are produced by a tracked session, and a supervisor is the
-    only one who can correct the result. Hours are therefore never quietly
-    written, rewritten, or erased by the person they are attributed to.
-    """
-    _require_role(
-        user,
-        roles.ROLE_SUPERVISOR,
-        "Only a Supervisor, Admin, or Owner can record, revise, or remove "
-        "work order labor.",
-    )
-
-
 def _require_labor_author(
     user: Optional[User], technician_id: uuid.UUID
 ) -> None:
-    """Recording labor is Supervisor+ for anyone, or a Technician for self.
+    """Hand-entering labor -- adding, revising, or removing -- is Supervisor+
+    for anyone, or a Technician acting on their own row.
 
-    **Not currently wired.** Tracked sessions are authoritative, so a
-    Technician's labor rows are produced by stopping a clock rather than by
-    typing hours, and `add_work_order_labor` gates on `_require_labor_manager`.
-    Kept because reopening self-add is a real possibility named in the design's
-    risks -- a forgotten Start Tracking is unrecoverable by the technician who
-    forgot -- and swapping this back in at the one call site is the whole
-    change.
+    A Technician's hours normally come from a tracked session, but this is
+    the self-service escape hatch for a forgotten Start Tracking or a logging
+    mistake: they may add a manual entry for themselves, or revise/remove one
+    already attributed to them. They still cannot touch a row credited to
+    anyone else. Every such change is written to the note log
+    (`_log_manual_labor_note`) since letting the hours' own author key them is
+    the trade for that visibility.
     """
     if user is None or roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
         return
     if user.id != technician_id:
         raise RoleManagementError(
-            "A Technician can only record their own labor."
+            "A Technician can only record, revise, or remove their own "
+            "labor."
         )
+
+
+def _format_labor_duration(minutes: int) -> str:
+    """Plain-language duration for a manual-labor note line, e.g. '1h 15m'."""
+    hours, mins = divmod(abs(minutes), 60)
+    if hours and mins:
+        return f"{hours}h {mins}m"
+    if hours:
+        return f"{hours}h"
+    return f"{mins}m"
+
+
+def _log_manual_labor_note(
+    db: Session, work_order: WorkOrder, user: Optional[User], body: str
+) -> None:
+    """Mark a Technician's self-service labor change in the note log. A
+    Supervisor's hand-entered correction stays as quiet as it always was."""
+    if user is None or user.role != roles.ROLE_TECHNICIAN:
+        return
+    work_order.notes = wo.append_note_log(
+        work_order.notes,
+        body,
+        author_name=user.full_name,
+        occurred_at=datetime.now(timezone.utc),
+    )
 
 
 def add_work_order_labor(
@@ -2151,12 +2162,14 @@ def add_work_order_labor(
     technician_id: uuid.UUID,
     minutes: int,
 ) -> WorkOrderLabor:
-    """Record actual labor by hand -- **Supervisor+ only**.
+    """Record actual labor by hand -- Supervisor+ for anyone, or a Technician
+    for themselves.
 
-    This is now the *correction* route: a dead battery, a forgotten Start
-    Tracking, a paper sheet. A Technician's hours come from stopping a session
-    (`stop_labor_session`) and they no longer key a duration at all, which is
-    what makes the tracked figure the trustworthy one.
+    This is the *correction* route: a dead battery, a forgotten Start
+    Tracking, a paper sheet. A Technician's hours normally come from stopping
+    a session (`stop_labor_session`), but they may also key a manual entry for
+    themselves -- self-service is bounded by `_require_labor_author` to their
+    own row, and marked in the note log (`_log_manual_labor_note`).
 
     The technician being credited must be assigned to the work order **or** be
     the supervisor recording themselves. That second case is the widening: a
@@ -2176,7 +2189,7 @@ def add_work_order_labor(
     """
     work_order = _get_visible(db, work_order_id, user)
     wo.validate_labor_minutes(minutes)
-    _require_labor_manager(user)
+    _require_labor_author(user, technician_id)
     if technician_id not in _assigned_technician_ids(work_order) and not (
         user is not None and technician_id == user.id
     ):
@@ -2193,6 +2206,12 @@ def add_work_order_labor(
         recorded_by_id=user.id if user else None,
     )
     db.add(entry)
+    _log_manual_labor_note(
+        db,
+        work_order,
+        user,
+        f"manually logged {_format_labor_duration(minutes)} of labor",
+    )
     db.commit()
     return _get_labor_entry(db, work_order, entry.id)
 
@@ -2205,13 +2224,29 @@ def update_work_order_labor(
     user: Optional[User],
     minutes: int,
 ) -> WorkOrderLabor:
-    """Replace one labor entry's actual duration without re-rounding it
-    (Supervisor+, including on a technician's own entry)."""
+    """Replace one labor entry's actual duration without re-rounding it --
+    Supervisor+ for any entry, or a Technician for their own."""
     work_order = _get_visible(db, work_order_id, user)
     entry = _get_labor_entry(db, work_order, labor_id)
     wo.validate_labor_minutes(minutes)
-    _require_labor_manager(user)
+    _require_labor_author(user, entry.technician_id)
+    delta = minutes - entry.minutes
     entry.minutes = minutes
+    if delta > 0:
+        _log_manual_labor_note(
+            db,
+            work_order,
+            user,
+            f"manually added {_format_labor_duration(delta)} to a labor entry",
+        )
+    elif delta < 0:
+        _log_manual_labor_note(
+            db,
+            work_order,
+            user,
+            f"manually subtracted {_format_labor_duration(delta)} from a "
+            "labor entry",
+        )
     db.commit()
     return _get_labor_entry(db, work_order, entry.id)
 
@@ -2223,11 +2258,17 @@ def delete_work_order_labor(
     *,
     user: Optional[User],
 ) -> None:
-    """Remove one labor entry (Supervisor+, including a technician's own).
-    Lifecycle status is not rolled backward."""
+    """Remove one labor entry -- Supervisor+ for any entry, or a Technician
+    for their own. Lifecycle status is not rolled backward."""
     work_order = _get_visible(db, work_order_id, user)
     entry = _get_labor_entry(db, work_order, labor_id)
-    _require_labor_manager(user)
+    _require_labor_author(user, entry.technician_id)
+    _log_manual_labor_note(
+        db,
+        work_order,
+        user,
+        f"manually removed {_format_labor_duration(entry.minutes)} of labor",
+    )
     db.delete(entry)
     db.commit()
 
@@ -3017,15 +3058,17 @@ def delete_work_order_item(
     *,
     user: Optional[User],
 ) -> None:
-    """Remove a logged material (Supervisor+). A dispense-mode line returns its net units to
+    """Remove a logged material -- Technician and above, scoped by visibility
+    to a work order they may act on. A dispense-mode line returns its net units to
     stock (the line's authoritative total, already net of any Mass Stage returns);
     every transaction it aggregated -- the dispenses and any edit `adjust` -- is
     voided so the line leaves History too."""
     work_order = _get_visible(db, work_order_id, user)
     _require_role(
         user,
-        roles.ROLE_SUPERVISOR,
-        "Only a Supervisor, Admin, or Owner can remove logged materials.",
+        roles.ROLE_TECHNICIAN,
+        "Only a Technician assigned to this work order (or above) can "
+        "remove logged materials.",
     )
     line = _get_line(db, work_order, wo_item_id)
     item = _locked_live_item(db, line.item_id)

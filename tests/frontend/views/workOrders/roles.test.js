@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from "vitest";
 import { card, mountWorkOrders, openCard } from "../../helpers/workOrders.js";
-import { workOrderCard, workOrderDetail } from "../../helpers/factories.js";
+import { workOrderCard, workOrderDetail, workOrderItem } from "../../helpers/factories.js";
 
 const ROLES = ["technician", "supervisor", "techfm_oa", "admin"];
 const STATUSES = [
@@ -337,13 +337,16 @@ describe("canCurrentUserSendToReview", () => {
   });
 });
 
-describe("canEditLabor", () => {
+describe("labor entry controls (edit-labor / remove-labor)", () => {
   it.each([
-    ["technician", false],
-    ["supervisor", true],
-    ["techfm_oa", true],
-    ["admin", true],
-  ])("%s may edit labor: %s", async (role, canEdit) => {
+    // A Technician may edit/remove only a row attributed to them; every
+    // Supervisor+ role may touch any row regardless of who it is credited to.
+    ["technician", false, false],
+    ["technician", true, true],
+    ["supervisor", false, true],
+    ["techfm_oa", false, true],
+    ["admin", false, true],
+  ])("%s, owns the entry: %s -> can edit/remove: %s", async (role, ownsEntry, canEdit) => {
     const detail = workOrderDetail({
       status: "in_progress",
       labor: [{
@@ -351,17 +354,54 @@ describe("canEditLabor", () => {
         minutes: 60, session_window: null, auto_closed: false,
       }],
     });
-    await mountWorkOrders({
+    const { currentUser } = await mountWorkOrders({
       role,
       cards: [workOrderCard({ id: detail.id, number: detail.number, status: "in_progress" })],
       details: [detail],
     });
-    const state = await import("../../../../backend/static/state.js");
-    detail.assigned_to_ids = [state.getCurrentUser().id];
+    detail.assigned_to_ids = [currentUser.id];
+    if (ownsEntry) detail.labor[0].technician_id = currentUser.id;
     await openCard(0);
     expect(Boolean(card().querySelector('[data-action="edit-labor"]'))).toBe(canEdit);
     expect(Boolean(card().querySelector('[data-action="remove-labor"]'))).toBe(canEdit);
-    expect(Boolean(card().querySelector('[data-action="add-labor"]'))).toBe(canEdit);
+  });
+});
+
+describe("add-labor visibility", () => {
+  it.each([
+    // A Technician needs to be assigned before they may add their own hours;
+    // a Supervisor+ always can (they credit themselves when unassigned).
+    ["technician", false, false],
+    ["technician", true, true],
+    ["supervisor", false, true],
+  ])("%s, assigned: %s -> can add labor: %s", async (role, assigned, canAdd) => {
+    const detail = workOrderDetail({ status: "in_progress", labor: [] });
+    const { currentUser } = await mountWorkOrders({
+      role,
+      cards: [workOrderCard({ id: detail.id, number: detail.number, status: "in_progress" })],
+      details: [detail],
+    });
+    detail.assigned_to_ids = assigned ? [currentUser.id] : [];
+    await openCard(0);
+    expect(Boolean(card().querySelector('[data-action="add-labor"]'))).toBe(canAdd);
+  });
+});
+
+describe("material line controls", () => {
+  it("lets a Technician remove a material line, with no quantity editor", async () => {
+    const detail = workOrderDetail({
+      status: "in_progress",
+      items: [workOrderItem({ id: "wi1", quantity: "2" })],
+    });
+    await mountWorkOrders({
+      role: "technician",
+      cards: [workOrderCard({ id: detail.id, number: detail.number, status: "in_progress" })],
+      details: [detail],
+    });
+    await openCard(0);
+    expect(card().querySelector('[data-action="remove-item"]')).not.toBeNull();
+    expect(card().querySelector('[data-action="edit-item"]')).toBeNull();
+    expect(card().querySelector(".wo-line-qty")).toBeNull();
   });
 });
 

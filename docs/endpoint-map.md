@@ -65,7 +65,7 @@ writes (w).
 | 30 | POST | `/work-orders/{id}/items` | Technician+ scoped | `work_orders.py` → `work_orders.add_work_order_item` (+ `material_requests.resolve_from_line` when `material_request_id?` is sent) | items (w; negative expected count allowed in dispense mode), transactions (w), work_order_items (w), user_requests (w if stock is short or item is unpriced; w when `material_request_id`; w: material_request stocked/open edges) | `apiAddWorkOrderItem` | `workOrderActions.js` |
 | 31 | PATCH | `/work-orders/{id}/items/{wid}` | supervisor+ scoped | `work_orders.py` → `work_orders.update_work_order_item` | items (w), transactions (w, adjust), work_order_items (w), user_requests (w: material_request stocked/open edges) | `apiUpdateWorkOrderItem` | `workOrderActions.js` |
 | 32 | PATCH | `/work-orders/{id}/items/{wid}/billing` | techfm_oa+ scoped | `work_orders.py` → `work_orders.set_work_order_item_billable` | work_order_items (w) | `apiSetWorkOrderItemBilling` | `workOrderActions.js` |
-| 33 | DELETE | `/work-orders/{id}/items/{wid}` | supervisor+ scoped | `work_orders.py` → `work_orders.delete_work_order_item` | items (w), transactions (w, void), work_order_items (w), user_requests (w, resolve source-linked; w: material_request stocked/open edges) | `apiDeleteWorkOrderItem` | `workOrderActions.js` |
+| 33 | DELETE | `/work-orders/{id}/items/{wid}` | technician+ scoped | `work_orders.py` → `work_orders.delete_work_order_item` | items (w), transactions (w, void), work_order_items (w), user_requests (w, resolve source-linked; w: material_request stocked/open edges) | `apiDeleteWorkOrderItem` | `workOrderActions.js` |
 | 34 | POST | `/mass-stages/` | supervisor+ | `mass_stages.py` → `mass_staging.create_stage` | mass_stages (w) | `apiCreateStage` | `massStage.js` |
 | 35 | GET | `/mass-stages/` | supervisor+ scoped | `mass_stages.py` → `mass_staging.list_stages` | mass_stages (r) | `apiListStages` | `massStage.js` |
 | 36 | GET | `/mass-stages/{id}` | supervisor+ | `mass_stages.py` → `mass_staging.get_stage` | mass_stages (r), mass_stage_work_orders (r), mass_stage_items (r), work_orders (r), items (r) | `apiGetStage` | `massStage.js` |
@@ -90,9 +90,9 @@ writes (w).
 | 55 | POST | `/work-orders/import` | techfm_oa+ | `work_orders.py` → `work_orders.import_work_orders` | work_orders (r/w, locked find-or-create — **the only create path**), users (r, active-supervisor name-match) | `apiImportWorkOrders` | `workOrderIntegrations.js` |
 | 56 | POST | `/work-orders/{id}/restore` | supervisor+ scoped | `work_orders.py` → `work_orders.restore_work_order` | work_orders (w, un-archive) | `apiRestoreWorkOrder` | `history.js`, `workOrderList.js` (TechFM OA+ exact search) |
 | 57 | PATCH | `/users/{id}/name` | self or outranks target | `users.py` → `users.update_name` | users (w; first/last name + optional `username`) | `apiUpdateUserName` | `users.js` |
-| 58 | POST | `/work-orders/{id}/labor` | supervisor+ scoped (assigned worker, or self) | `work_orders.py` → `work_orders.add_work_order_labor` | work_orders (r/w status), work_order_technicians (r), work_order_labor (w), users (r) | `apiAddWorkOrderLabor` | `workOrderActions.js` |
-| 59 | PATCH | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | `work_orders.py` → `work_orders.update_work_order_labor` | work_order_labor (r/w) | `apiUpdateWorkOrderLabor` | `workOrderActions.js` |
-| 60 | DELETE | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped | `work_orders.py` → `work_orders.delete_work_order_labor` | work_order_labor (r/w) | `apiDeleteWorkOrderLabor` | `workOrderActions.js` |
+| 58 | POST | `/work-orders/{id}/labor` | supervisor+ scoped (assigned worker, or self), or a Technician crediting themselves | `work_orders.py` → `work_orders.add_work_order_labor` | work_orders (r/w status + notes), work_order_technicians (r), work_order_labor (w), users (r) | `apiAddWorkOrderLabor` | `workOrderActions.js` |
+| 59 | PATCH | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped, or a Technician on their own entry | `work_orders.py` → `work_orders.update_work_order_labor` | work_order_labor (r/w), work_orders (w notes if Technician) | `apiUpdateWorkOrderLabor` | `workOrderActions.js` |
+| 60 | DELETE | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped, or a Technician on their own entry | `work_orders.py` → `work_orders.delete_work_order_labor` | work_order_labor (r/w), work_orders (w notes if Technician) | `apiDeleteWorkOrderLabor` | `workOrderActions.js` |
 | 61 | PATCH | `/users/{id}/role` | techfm_oa+ AND outranks both current and new role | `users.py` → `users.update_role` | users (w), sessions (w, revoke) | `apiUpdateUserRole` | `users.js` |
 | 62 | GET | `/work-orders/export` | techfm_oa+, server-scoped | `work_orders.py` → `work_orders.export_work_orders_csv` (full: current live filters incl. location/task keyword search; client: unchanged scope dropdown; + `domain.receipt`) | work_orders (r), work_order_items (r), items (r), work_order_labor (r), users (r) | `apiExportWorkOrders` | `workOrderIntegrations.js` |
 | 63 | GET | `/work-orders/filter-options` | session scoped | `work_orders.py` → `work_orders.get_work_order_filter_options` | work_orders (r), work_order_technicians (r, scope), users (r) | `apiGetWorkOrderFilterOptions` | `workOrderFilters.js` |
@@ -221,6 +221,10 @@ action → wrapper → endpoint → service → table effect.
   `PATCH /user-requests/{id}` (TechFM OA+; reopen clears resolution fields).
   Resolved missing-price cards are read-only in the UI, though the generic
   endpoint accepts an API reopen.
+- Catalogue request close without fulfilling: `PATCH status=resolved` needs a
+  nonblank `resolution_note` (409); links no item, siblings stay open. Resolved
+  with no `item_id` = closed (card offers Reopen); with one = fulfilled, and
+  `PATCH status=open` is 409.
 
 ### Users (writes)
 - Archive: 409 while the target holds tools; the retry
@@ -295,9 +299,11 @@ endpoint or form exists; every other surface resolves an existing number and
   stopping the last clock on an In-Progress row moves it to On-Hold and the
   card says so. Every close appends a `stopped work` note authored by the
   session's technician. Each response is the full refreshed detail.
-- Manual labor (Supervisor+ only): whole minutes; the picker also offers the
-  supervisor themselves. A Technician's labor card is read-only — hand entry
-  is the supervisor's correction route for a missed clock. Entries show their
+- Manual labor: whole minutes; Supervisor+ may add/revise/remove any entry
+  (the picker also offers the supervisor themselves), and a Technician may
+  add/revise/remove an entry attributed to themselves — self-service for a
+  missed clock or a logging mistake, marked in the note log
+  (`manually logged`/`added`/`subtracted`/`removed …`). Entries show their
   session window; auto-capped ones are tagged "auto-stopped". Billing: sum
   minutes, round up once to 30 min, × $62.50/hr (rate/charge TechFM OA+ only).
 - Admin Review: `apiListWorkOrders({status:"review"})` → receipt via
@@ -517,8 +523,9 @@ is always present (lets the copy-table resolve the work order). **`TransactionHi
 
 **`UserRequestUpdate`** — `PATCH /user-requests/{id}`: `status:
 "open"|"resolved"?=null`, `resolution_note: str?=null` (trimmed; blank becomes
-null), `message: str?=null` (trimmed), `details: dict?=null`. All optional, but
-at least one of `status`/`message`/`details` is required. `details` keys are
+null; required to resolve a catalogue request), `message: str?=null` (trimmed),
+`details: dict?=null`. All optional, but at least one of
+`status`/`message`/`details` is required. `details` keys are
 whitelisted per request type by `EDITABLE_DETAILS`; a recount's frozen audit
 numbers are not on any list and a rejected key returns 409.
 
@@ -938,7 +945,7 @@ non-domain exceptions become FastAPI's default 500.
 | `UserNotFoundError` | 404 | user id unknown; tool checkout also uses it when the target is archived (not an active checkout target) |
 | `TransactionNotFoundError` | 404 | txn id unknown or already voided |
 | `UserRequestNotFoundError` | 404 | user-request id unknown |
-| `ItemRequestStateError` | 409 | fulfilling something that is not an open catalogue request; editing a `details` key the request's type does not expose (notably a recount's frozen audit numbers); mark-stocked on a non-open material request; cancel of a non-open one; an add with a `material_request_id` that is not stocked / wrong work order / wrong item |
+| `ItemRequestStateError` | 409 | fulfilling something that is not an open catalogue request; resolving a catalogue request by PATCH with no note; reopening a fulfilled one; editing a `details` key the request's type does not expose (notably a recount's frozen audit numbers); mark-stocked on a non-open material request; cancel of a non-open one; an add with a `material_request_id` that is not stocked / wrong work order / wrong item |
 | `MaterialRequestOwnershipError` | 403 | cancelling a material request you did not file |
 | `StageNotFoundError` | 404 | mass-stage id unknown |
 | `RoomNotFoundError` | 404 | stage **slot** not found / not in the stage (name retains old "room") |

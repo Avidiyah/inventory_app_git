@@ -101,8 +101,18 @@ export function laborSummaryHtml(detail) {
   return `<div class="wo-labor-summary"><span>Actual: <strong>${escapeHtml(actual)}</strong></span><span>Billed: <strong>${escapeHtml(billed)}</strong></span>${charge}</div>`;
 }
 
-export function canEditLabor() {
-  return isSupervisorPlus();
+// Supervisor+ may edit or remove any labor entry; a Technician only one
+// attributed to them (their manual add/subtract self-service).
+export function canEditLabor(entry) {
+  if (isSupervisorPlus()) return true;
+  const userId = getCurrentUser()?.id;
+  return Boolean(userId && entry && entry.technician_id === userId);
+}
+
+// Supervisor+ can always add labor (crediting themselves when unassigned); a
+// Technician may add their own hours once they're assigned to the job.
+export function canAddLabor(detail) {
+  return isSupervisorPlus() || isAssignedToCurrentUser(detail);
 }
 
 export function statusLabel(status) {

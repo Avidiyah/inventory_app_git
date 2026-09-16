@@ -219,6 +219,28 @@ describe("add-labor", () => {
     await vi.waitFor(() => expect(requestFor("/labor", "POST")).not.toBeNull());
     expect(requestFor("/labor", "POST").body.minutes).toBe(1);
   });
+
+  // Role gating itself is frozen in roles.test.js, but this is genuinely new
+  // interaction logic (the self-id fallback) reachable only as a Technician,
+  // so it lives here with the rest of add-labor's behaviour.
+  it("a Technician with no picker defaults to their own id", async () => {
+    const detail = workOrderDetail({ assigned_to_ids: [] });
+    const { currentUser } = await mountWorkOrders({
+      role: "technician",
+      cards: [workOrderCard({ id: detail.id, number: detail.number, status: detail.status })],
+      details: [detail],
+    });
+    detail.assigned_to_ids = [currentUser.id];
+    await openCard(0);
+    expect(card().querySelector(".wo-labor-technician")).toBeNull();
+    respond("post", "/work-orders/:id/labor", { ok: true });
+    card().querySelector(".wo-new-labor-hours").value = "1.5";
+    click("add-labor");
+    await vi.waitFor(() => expect(requestFor("/labor", "POST")).not.toBeNull());
+    expect(requestFor("/labor", "POST").body).toEqual({
+      technician_id: currentUser.id, minutes: 90,
+    });
+  });
 });
 
 describe("edit-labor and remove-labor", () => {

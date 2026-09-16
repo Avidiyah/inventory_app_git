@@ -459,7 +459,7 @@ describe("the labor section", () => {
     expect(cardEl.querySelector(".wo-labor-auto-stopped").textContent).toBe("auto-stopped");
   });
 
-  it("gives a technician a read-only labor card", async () => {
+  it("lets an assigned technician add their own labor, but not touch a row credited to someone else", async () => {
     const me = user({ role: "technician" });
     const detail = workOrderDetail({
       assigned_to_ids: [me.id], labor: [workOrderLabor({ minutes: 60 })],
@@ -474,10 +474,13 @@ describe("the labor section", () => {
     detail.assigned_to_ids = [state_.getCurrentUser().id];
     await openCard(0);
     expect(card().querySelector(".wo-labor-section")).not.toBeNull();
+    // The seeded entry is credited to someone else (a random factory id).
     expect(card().querySelector(".wo-labor-actions")).toBeNull();
-    expect(card().querySelector(".wo-add-labor")).toBeNull();
+    // The technician may still add their own hours, with no picker (self only).
+    expect(card().querySelector(".wo-add-labor")).not.toBeNull();
+    expect(card().querySelector(".wo-labor-technician")).toBeNull();
     expect(card().querySelector(".wo-labor-section").textContent)
-      .toContain("Your hours come from Begin Charging.");
+      .toContain("Add or adjust your own hours by hand");
   });
 
   it("offers a supervisor themselves as a labor technician when they are not on the crew", async () => {

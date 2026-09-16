@@ -28,6 +28,7 @@ import {
 } from "../api.js";
 import { confirmDialog, messageDialog, setMessage } from "../dom.js";
 import { escapeHtml, filterRanked, friendlyError } from "../format.js";
+import { getCurrentUser } from "../state.js";
 import { openBillingEditor } from "./billingEditor.js";
 import { catalogueRequestPromptHtml } from "./catalogueRequest.js";
 import {
@@ -325,7 +326,13 @@ listEl.addEventListener("click", async (event) => {
       if (notesSection) notesSection.open = false;
     } else if (action === "add-labor") {
       const section = btn.closest(".wo-labor-section");
-      const technicianId = section.querySelector(".wo-labor-technician")?.value;
+      const technicianSelect = section.querySelector(".wo-labor-technician");
+      // A Technician has no picker -- they can only credit themselves -- so
+      // the control defaults to the current user's id. A Supervisor's picker
+      // emptied of its options still requires an explicit pick.
+      const technicianId = technicianSelect
+        ? technicianSelect.value
+        : getCurrentUser()?.id;
       const minutes = hoursToMinutes(section.querySelector(".wo-new-labor-hours")?.value);
       if (!technicianId) {
         setMessage(msg, "Assign and select a technician first.", "error");

@@ -18,6 +18,7 @@ import { getCurrentUser, getRole } from "../state.js";
 import {
   assignedIds,
   assignedNames,
+  canAddLabor,
   canCurrentUserSendToReview,
   canEditLabor,
   formatMinutes,
@@ -39,7 +40,7 @@ import { getAllSupervisors, getAllTechnicians } from "./workOrderReferenceData.j
 import { livePriorityValues } from "./workOrderFilters.js";
 
 function renderLaborEntryHtml(entry) {
-  const actions = canEditLabor()
+  const actions = canEditLabor(entry)
     ? `<div class="wo-labor-actions">
          <input type="number" class="wo-labor-hours" value="${escapeHtml(hoursInputValue(entry.minutes))}" min="0.01" step="0.01" aria-label="Actual labor hours">
          <button type="button" class="secondary-btn" data-action="edit-labor">Update</button>
@@ -63,10 +64,12 @@ function renderLaborEntryHtml(entry) {
           </div>`;
 }
 
-// Hand-entered labor is Supervisor+ only, so this picker is Supervisor+ only.
-// A supervisor may also credit themselves without being on the crew (the
-// server allows "assigned, or the Supervisor recording themselves"), so they
-// are appended to the list when they are not already in it.
+// Supervisor+ picks who a manual entry credits; a Technician can only credit
+// themselves, so they get the plain hours input in laborSectionHtml instead
+// of this picker. A supervisor may also credit themselves without being on
+// the crew (the server allows "assigned, or the Supervisor recording
+// themselves"), so they are appended to the list when they are not already
+// in it.
 function laborTechnicianControl(detail) {
   if (!isSupervisorPlus()) return "";
   const ids = assignedIds(detail).slice();
@@ -88,18 +91,19 @@ function laborTechnicianControl(detail) {
 function laborSectionHtml(detail) {
   const entries = (detail.labor || []).map(renderLaborEntryHtml).join("") ||
     `<p class="hint">No labor recorded yet.</p>`;
-  // Charged time is authoritative: a technician's labor card is a read-only
-  // list of the sessions they clocked, and only a Supervisor can key a figure
-  // by hand to correct a forgotten Begin Charging.
+  // Charged time is authoritative: entries mostly come from tracked sessions.
+  // A Supervisor may key a figure by hand for anyone; a Technician may do the
+  // same, but only for themselves, once they're assigned to the job.
   const technicianControl = laborTechnicianControl(detail);
-  const canAdd = isSupervisorPlus() && Boolean(technicianControl) &&
-    !technicianControl.startsWith("<p");
+  const canAdd = isSupervisorPlus()
+    ? Boolean(technicianControl) && !technicianControl.startsWith("<p")
+    : canAddLabor(detail);
   const rateText = detail.labor_rate === null || detail.labor_rate === undefined
     ? "The combined actual time is rounded up to the next 30 minutes for billing."
     : `Labor is billed at ${formatMoney(detail.labor_rate)}/hour. The combined actual time is rounded up to the next 30 minutes.`;
   const trackedHint = isSupervisorPlus()
     ? "Entries come from charged sessions. Add one by hand only to correct a missed clock-in."
-    : "Your hours come from Begin Charging. Ask a supervisor to correct anything that looks wrong.";
+    : "Your hours come from Begin Charging. Add or adjust your own hours by hand to correct a missed clock-in or a mistake -- it's recorded in Notes.";
   return `<details class="wo-section-card wo-labor-section">
             <summary class="wo-section-summary">Labor</summary>
             <div class="wo-section-content">
@@ -107,9 +111,9 @@ function laborSectionHtml(detail) {
               <p class="hint">${escapeHtml(trackedHint)}</p>
               <div class="wo-labor-list">${entries}</div>
               ${laborSummaryHtml(detail)}
-              ${isSupervisorPlus() ? `<div class="wo-add-labor">
-                ${technicianControl}
-                ${canAdd ? `<label><span>Actual hours</span><input type="number" class="wo-new-labor-hours" min="0.01" step="0.01" placeholder="e.g. 1.25"></label><button type="button" data-action="add-labor">Add labor</button>` : ""}
+              ${canAdd ? `<div class="wo-add-labor">
+                ${isSupervisorPlus() ? technicianControl : ""}
+                <label><span>Actual hours</span><input type="number" class="wo-new-labor-hours" min="0.01" step="0.01" placeholder="e.g. 1.25"></label><button type="button" data-action="add-labor">Add labor</button>
               </div>` : ""}
             </div>
           </details>`;
@@ -630,13 +634,20 @@ export function renderBody(detail, bodyEl) {
 
 function renderLineHtml(it) {
   const modeTag = `<span class="wo-line-mode wo-line-mode-${escapeHtml(it.mode)}">${escapeHtml(modeLabel(it.mode))}</span>`;
+  const removeBtn = `<button type="button" class="btn-danger" data-action="remove-item">Remove</button>`;
+  // Quantity edit stays Supervisor+; removal is Technician and above -- the
+  // server scopes it by work-order visibility, so anyone who can see this
+  // card is already allowed to act on it.
   const actions = isSupervisorPlus()
     ? `<div class="wo-item-actions">
          <input type="number" class="wo-line-qty" value="${escapeHtml(it.quantity)}" min="0" step="any" aria-label="Quantity">
          <button type="button" class="secondary-btn" data-action="edit-item">Update</button>
-         <button type="button" class="btn-danger" data-action="remove-item">Remove</button>
+         ${removeBtn}
        </div>`
-    : `<span class="hint">Quantity: ${escapeHtml(it.quantity)}</span>`;
+    : `<div class="wo-item-actions">
+         <span class="hint">Quantity: ${escapeHtml(it.quantity)}</span>
+         ${removeBtn}
+       </div>`;
   return `<div class="wo-item" data-wo-item-id="${escapeHtml(it.id)}">
             <div class="wo-item-head">
               <span class="ms-item-name">${escapeHtml(it.item_name)}</span>

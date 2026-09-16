@@ -476,14 +476,6 @@ def test_labor_tracks_technician_without_advancing_status(db):
     )
     assert updated.minutes == 50
 
-    with pytest.raises(RoleManagementError):
-        wos.update_work_order_labor(
-            db, w.id, first.id, user=tech1, minutes=60
-        )
-
-    with pytest.raises(RoleManagementError):
-        wos.delete_work_order_labor(db, w.id, first.id, user=tech1)
-
     wos.delete_work_order_labor(db, w.id, first.id, user=sup)
     detail = wos.get_work_order(db, w.id, user=tech2)
     assert [entry.id for entry in detail.labor_entries] == [second.id]
@@ -491,41 +483,107 @@ def test_labor_tracks_technician_without_advancing_status(db):
     assert detail.status == "assigned"
 
 
-def test_a_technician_cannot_key_labor_by_hand(db):
-    """Tracked time is authoritative, so a Technician does not type a
-    duration at all -- their rows come from stopping a session. This is the
-    direct cost of that: a forgotten Start Tracking is only recoverable by a
-    Supervisor."""
+def test_a_technician_can_key_their_own_labor_by_hand(db):
+    """A Technician may log their own manual hours -- e.g. a forgotten Start
+    Tracking -- but still cannot key labor for anyone else."""
     sup = _seed_user(db, "supervisor")
     tech = _seed_user(db, "technician")
+    other = _seed_user(db, "technician")
     w = _wo(db, created_by=sup)
     wos.update_work_order(
-        db, w.id, user=sup, fields={"assigned_to_ids": [tech.id]}
+        db, w.id, user=sup, fields={"assigned_to_ids": [tech.id, other.id]}
     )
+
+    entry = wos.add_work_order_labor(
+        db, w.id, user=tech, technician_id=tech.id, minutes=35
+    )
+    assert entry.technician_id == tech.id
+    assert entry.minutes == 35
 
     with pytest.raises(RoleManagementError):
         wos.add_work_order_labor(
-            db, w.id, user=tech, technician_id=tech.id, minutes=35
+            db, w.id, user=tech, technician_id=other.id, minutes=35
         )
 
 
-def test_a_technician_cannot_revise_or_erase_labor(db):
-    """Hours are never written, rewritten, or erased by the person they are
-    attributed to -- which is what keeps the billed figure trustworthy."""
+def test_a_technician_can_revise_and_erase_their_own_labor(db):
+    """A Technician may correct or remove their own hand-entered hours, but
+    still cannot touch a hand-entered row attributed to someone else."""
     sup = _seed_user(db, "supervisor")
     tech = _seed_user(db, "technician")
+    other = _seed_user(db, "technician")
     w = _wo(db, created_by=sup)
     wos.update_work_order(
-        db, w.id, user=sup, fields={"assigned_to_ids": [tech.id]}
+        db, w.id, user=sup, fields={"assigned_to_ids": [tech.id, other.id]}
     )
-    entry = wos.add_work_order_labor(
+    own_entry = wos.add_work_order_labor(
         db, w.id, user=sup, technician_id=tech.id, minutes=35
+    )
+    others_entry = wos.add_work_order_labor(
+        db, w.id, user=sup, technician_id=other.id, minutes=35
     )
 
     with pytest.raises(RoleManagementError):
-        wos.update_work_order_labor(db, w.id, entry.id, user=tech, minutes=5)
+        wos.update_work_order_labor(
+            db, w.id, others_entry.id, user=tech, minutes=5
+        )
     with pytest.raises(RoleManagementError):
-        wos.delete_work_order_labor(db, w.id, entry.id, user=tech)
+        wos.delete_work_order_labor(db, w.id, others_entry.id, user=tech)
+
+    updated = wos.update_work_order_labor(
+        db, w.id, own_entry.id, user=tech, minutes=20
+    )
+    assert updated.minutes == 20
+
+    wos.delete_work_order_labor(db, w.id, own_entry.id, user=tech)
+    detail = wos.get_work_order(db, w.id, user=sup)
+    assert own_entry.id not in {entry.id for entry in detail.labor_entries}
+
+
+def test_a_technicians_manual_labor_changes_are_marked_in_notes(db):
+    """Self-service hour changes leave a plain-language trace in the note
+    log -- the accountability trade for letting a Technician type a duration
+    at all."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician", first_name="Jamie", last_name="Rivera")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+
+    added = wos.add_work_order_labor(
+        db, w.id, user=tech, technician_id=tech.id, minutes=45
+    )
+    after_add = wos.get_work_order(db, w.id, user=sup)
+    assert "Jamie Rivera" in after_add.notes
+    assert "manually logged 45m of labor" in after_add.notes
+
+    wos.update_work_order_labor(db, w.id, added.id, user=tech, minutes=15)
+    after_subtract = wos.get_work_order(db, w.id, user=sup)
+    assert "manually subtracted 30m from a labor entry" in after_subtract.notes
+
+    wos.update_work_order_labor(db, w.id, added.id, user=tech, minutes=25)
+    after_add_more = wos.get_work_order(db, w.id, user=sup)
+    assert "manually added 10m to a labor entry" in after_add_more.notes
+
+    wos.delete_work_order_labor(db, w.id, added.id, user=tech)
+    after_delete = wos.get_work_order(db, w.id, user=sup)
+    assert "manually removed 25m of labor" in after_delete.notes
+
+
+def test_a_supervisors_manual_labor_entries_do_not_touch_notes(db):
+    """The note-log accountability trade is specific to Technician
+    self-service; a Supervisor's hand-entered correction stays as quiet as
+    it always was."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+
+    entry = wos.add_work_order_labor(
+        db, w.id, user=sup, technician_id=tech.id, minutes=45
+    )
+    wos.update_work_order_labor(db, w.id, entry.id, user=sup, minutes=30)
+    wos.delete_work_order_labor(db, w.id, entry.id, user=sup)
+
+    detail = wos.get_work_order(db, w.id, user=sup)
+    assert detail.notes is None
 
 
 def test_a_supervisor_records_their_own_labor_without_being_assigned(db):
@@ -882,13 +940,24 @@ def test_dispense_delete_returns_stock_and_voids_txn(db):
     line = wos.add_work_order_item(db, w.id, user=tech, item_id=item.id, quantity=Decimal(4))
     txn_id = line.transaction_id
 
-    with pytest.raises(RoleManagementError):
-        wos.delete_work_order_item(db, w.id, line.id, user=tech)
-
-    wos.delete_work_order_item(db, w.id, line.id, user=sup)
+    wos.delete_work_order_item(db, w.id, line.id, user=tech)
     db.refresh(item)
     assert item.quantity == Decimal(100)
     assert _txn(db, txn_id).voided_at is not None
+
+
+def test_an_unassigned_technician_cannot_delete_a_work_order_item(db):
+    """Removing a material is now Technician-and-above, but visibility still
+    scopes a Technician to work orders they are assigned to."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    outsider = _seed_user(db, "technician")
+    item = _seed_item(db, 100)
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    line = wos.add_work_order_item(db, w.id, user=tech, item_id=item.id, quantity=Decimal(4))
+
+    with pytest.raises(WorkOrderNotFoundError):
+        wos.delete_work_order_item(db, w.id, line.id, user=outsider)
 
 
 def test_readd_same_item_accumulates_quantity(db):
