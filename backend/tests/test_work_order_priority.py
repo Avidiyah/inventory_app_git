@@ -83,7 +83,8 @@ def test_every_work_order_card_class_comes_from_one_builder():
 def test_the_urgent_pulse_is_removed_under_reduced_motion():
     """Emphasis, not information -- the badge text says Urgent either way, so
     the animation goes away entirely rather than slowing down, matching the
-    loading skeletons. The flame layers go with it."""
+    loading skeletons. The badge's flame layer goes with it; the card has no
+    flame of its own to hide -- just the plain pulse the block already kills."""
     css = _static("styles.css")
 
     assert "@keyframes wo-urgent-pulse" in css
@@ -95,9 +96,8 @@ def test_the_urgent_pulse_is_removed_under_reduced_motion():
         if ".wo-priority-urgent" in block and ".wo-card-urgent" in block
     ]
     assert blocks
-    # The flames are a `::before` of their own; killing the animation on the
-    # element does nothing to them.
-    assert ".wo-card-urgent::before" in blocks[0]
+    # The badge's flame is a `::before` of its own; killing the animation on
+    # the element does nothing to it.
     assert ".wo-priority-fire::before" in blocks[0]
 
 
@@ -120,18 +120,20 @@ def test_the_fire_goes_out_once_the_work_is_done():
 
 def test_every_fire_filter_referenced_by_the_css_exists_in_the_shell():
     """`filter: url(#id)` fails silently: a renamed or missing filter leaves
-    the flame layer un-distorted -- four flat gradient strips around the card
-    -- with nothing in the console to say so."""
+    the pill's flame layer un-distorted -- a flat gradient strip -- with
+    nothing in the console to say so. The card no longer has a filter of its
+    own; it fell back to a plain box-shadow pulse to keep the flame's CPU
+    cost from scaling with how many urgent cards are on screen."""
     css = _static("styles.css")
     shell = _static("shell-tail.html")
 
     referenced = set(re.findall(r"filter:\s*url\(#([\w-]+)\)", css))
-    assert referenced == {"wo-fire-card", "wo-fire-badge"}
+    assert referenced == {"wo-fire-badge"}
     for filter_id in referenced:
         assert f'<filter id="{filter_id}"' in shell
     # The flicker is SMIL on the primitives: CSS cannot animate a filter
     # primitive's attributes, so without these the fire is frozen.
-    assert shell.count("<animate ") >= 4
+    assert shell.count("<animate ") >= 2
     assert "feTurbulence" in shell and "feDisplacementMap" in shell
 
 

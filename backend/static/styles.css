@@ -3880,50 +3880,16 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-priority-urgent { animation: wo-urgent-pulse 2s ease-in-out infinite; }
 /* Wins over the status card's own box-shadow (keycap wall + accent glow):
    the urgent outline replaces it rather than stacking, so the card has one
-   read. The status border-color underneath is untouched. */
+   read. The status border-color underneath is untouched.
+
+   The card used to also carry a turbulence-filter flame layer (see the
+   badge below), but a `::before` filter per urgent card is CPU-bound
+   raster work that doesn't composite, and it scales with how many urgent
+   cards are open at once -- it lagged low-power field devices on a busy
+   queue. The card is back to this pulse alone; the flame stays only on
+   the priority pill, where there's one instance per page. */
 .wo-card-urgent {
     animation: wo-urgent-card-pulse 2s ease-in-out infinite;
-}
-
-/* ---- the flames ----
-   Both flame layers are a `::before` at `z-index: -1` inside a stacking
-   context opened on the element itself. That position is exact and load
-   bearing: a negative-z child paints after its parent's own background but
-   before the parent's content, so the fire covers the card's surface at the
-   edges and never the number, the badges, or the meta line on top of it.
-
-   The card's layer is four edge strips -- transparent at the outer end,
-   pale yellow where it meets the card -- with a fully transparent middle, so
-   what burns is the outline and not the panel. The turbulence displacement
-   then tears those clean strips into flames and throws them past the box. */
-.wo-card-urgent {
-    position: relative;
-    /* Positive, not 0. Two jobs: it opens the stacking context the `::before`
-       below depends on, and it lifts the card over its neighbours in the
-       list. Cards sit ~8px apart, so at 0 the next card's background paints
-       over the flames coming off this one's bottom edge and the fire looks
-       cut off. Only the flame band overlaps -- the card boxes stay the same
-       size, so nothing is occluded. */
-    z-index: 1;
-}
-.wo-card-urgent::before {
-    content: "";
-    position: absolute;
-    inset: -10px;
-    z-index: -1;
-    border-radius: 16px;
-    pointer-events: none;
-    background:
-        linear-gradient(to top,    rgba(185, 28, 28, 0) 0%, #DC2626 32%, #FBBF24 76%, #FDE68A 100%) bottom / 100% 26px no-repeat,
-        linear-gradient(to bottom, rgba(185, 28, 28, 0) 0%, #DC2626 32%, #FBBF24 76%, #FDE68A 100%) top / 100% 26px no-repeat,
-        linear-gradient(to right,  rgba(185, 28, 28, 0) 0%, #DC2626 32%, #FBBF24 76%, #FDE68A 100%) left / 26px 100% no-repeat,
-        linear-gradient(to left,   rgba(185, 28, 28, 0) 0%, #DC2626 32%, #FBBF24 76%, #FDE68A 100%) right / 26px 100% no-repeat;
-    filter: url(#wo-fire-card);
-    animation: wo-fire-breathe 2s ease-in-out infinite;
-}
-@keyframes wo-fire-breathe {
-    0%, 100% { opacity: .74; transform: scale(1); }
-    50%      { opacity: 1;   transform: scale(1.03); }
 }
 
 /* A pill is too small to carry a ring of fire, so its flames rise off the top
@@ -3966,7 +3932,6 @@ details[open] > .wo-summary::before { content: "\25BE"; }
         animation: none;
         box-shadow: 0 0 0 2.5px rgba(200, 16, 46, .95), var(--shadow-card);
     }
-    .wo-card-urgent::before,
     .wo-priority-fire::before {
         display: none;
     }
