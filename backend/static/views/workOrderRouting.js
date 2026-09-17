@@ -13,7 +13,9 @@ import { apiGetWorkOrder, apiListWorkOrders } from "../api.js";
 import { setMessage } from "../dom.js";
 import { friendlyError } from "../format.js";
 import { skeletonCard } from "../skeleton.js";
-import { ensureReferenceData } from "./workOrderReferenceData.js";
+import { SECTION_SELECTOR, readDraft, takePendingResume } from "../workOrderDrafts.js";
+import { ensureReferenceData, getAllItems } from "./workOrderReferenceData.js";
+import { hoursInputValue } from "./workOrderPresenters.js";
 
 const listEl = document.getElementById("work-orders-list");
 const listMessage = document.getElementById("work-orders-list-message");
@@ -265,6 +267,60 @@ function showSoloCard(detail) {
   // -- this does not rely on when the async `toggle` event happens to fire.
   deps.paintDetail(detail, cardEl.querySelector(".wo-body"), cardEl);
   cardEl.open = true;
+  applyPendingSectionResume(cardEl, detail);
+}
+
+// Consumes the one-shot a 401 left behind (see workOrderRetry.js's
+// captureHeldEditorForResume) so a forced re-login lands the operator back on
+// the exact editor they were mid-entry on, with what they'd typed still
+// there, instead of a blank work order they have to find and reopen by hand.
+// Runs on every solo open, deep-linked or not; it is a no-op unless this
+// open is the one the resume was waiting for.
+function applyPendingSectionResume(cardEl, detail) {
+  const resume = takePendingResume();
+  if (!resume || resume.number !== detail.number) return;
+  const selector = SECTION_SELECTOR[resume.section];
+  const section = selector && cardEl.querySelector(selector);
+  if (!section) return;
+  section.open = true;
+  const draft = readDraft(detail.id, resume.section);
+  if (draft) fillDraftFields(section, draft);
+  setMessage(cardEl.querySelector(".wo-message"), "Reconnecting — saving what you entered before you lost connection.", "");
+}
+
+// Best-effort field repopulation, scoped to the values that are a single,
+// unambiguous input: labor hours, an existing row's hours/quantity, and
+// notes text. `save-details` (the multi-field edit card, including the
+// technician picker) is left for the operator to re-enter -- its own replay
+// in workOrderRetry.js still saves it automatically either way.
+function fillDraftFields(section, draft) {
+  const { action, payload, targetId } = draft;
+  if (action === "add-labor") {
+    const hours = section.querySelector(".wo-new-labor-hours");
+    if (hours) hours.value = hoursInputValue(payload.minutes);
+    const tech = section.querySelector(".wo-labor-technician");
+    if (tech && payload.technicianId) tech.value = payload.technicianId;
+  } else if (action === "edit-labor") {
+    const row = section.querySelector(`.wo-labor-entry[data-labor-id="${targetId}"]`);
+    const hours = row?.querySelector(".wo-labor-hours");
+    if (hours) hours.value = hoursInputValue(payload.minutes);
+  } else if (action === "add-item") {
+    const container = section.querySelector(".wo-add-item");
+    if (!container) return;
+    container.dataset.itemId = payload.itemId;
+    const name = getAllItems().find((it) => it.id === payload.itemId)?.name;
+    const search = container.querySelector(".ms-item-search");
+    if (search && name) search.value = name;
+    const qty = container.querySelector(".wo-item-qty");
+    if (qty) qty.value = payload.quantity;
+  } else if (action === "edit-item") {
+    const row = section.querySelector(`.wo-item[data-wo-item-id="${targetId}"]`);
+    const qty = row?.querySelector(".wo-line-qty");
+    if (qty) qty.value = payload.quantity;
+  } else if (action === "save-notes") {
+    const notes = section.querySelector(".wo-notes-input");
+    if (notes) notes.value = payload.notes;
+  }
 }
 
 // A card page that has no card: the work order could not be fetched, could not

@@ -50,8 +50,9 @@ const ACTIONS = [
   "stop-tracking-wo", "toggle-combo",
 ];
 
-// The eleven exports other views import. P4 must re-export every one.
+// The thirteen exports other views import. P4 must re-export every one.
 const EXPORTS = [
+  "captureHeldEditorForResume",
   "comboHtml",
   "focusWorkOrder",
   "focusWorkOrderNumber",
@@ -61,6 +62,7 @@ const EXPORTS = [
   "openWorkOrdersByNumberSearch",
   "openWorkOrdersFilteredByDistribution",
   "openWorkOrdersFilteredByStatus",
+  "replayPendingDrafts",
   "soloNumberFromPath",
   "workOrderCardClass",
 ];
@@ -75,7 +77,7 @@ auditActions({
 });
 
 describe("the export surface", () => {
-  it("is exactly the frozen eleven", async () => {
+  it("is exactly the frozen thirteen", async () => {
     // A real import, against the real shell: a barrel re-export whose owner
     // renamed the function is a load-time error here, not a text match. (The
     // former `new URL(...).href` form resolved to http:// under jsdom and
@@ -97,7 +99,7 @@ describe("the export surface", () => {
     expect(undeclared, `not declared anywhere: ${undeclared.join(", ")}`).toEqual([]);
   });
 
-  it("re-exports all eleven from the barrel itself", () => {
+  it("re-exports all thirteen from the barrel itself", () => {
     const barrel = readFileSync(join(VIEWS, "workOrders.js"), "utf8");
     expect([...new Set(declaredNames(barrel))].sort()).toEqual(EXPORTS);
   });

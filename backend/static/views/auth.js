@@ -24,7 +24,13 @@ import { setHistoryTab } from "./history.js";
 import { resetBatch, tryResumeBatch } from "./transactions.js";
 import { resetToolsView } from "./tools.js";
 import { initPushForUser, resetPushView, unsubscribeThisDevice, requestPermissionAtLogin } from "./push.js";
-import { focusWorkOrderNumber, soloNumberFromPath } from "./workOrders.js";
+import {
+  captureHeldEditorForResume,
+  focusWorkOrderNumber,
+  replayPendingDrafts,
+  soloNumberFromPath,
+} from "./workOrders.js";
+import { peekPendingResumeNumber } from "../workOrderDrafts.js";
 
 const loginScreen = document.getElementById("login-screen");
 const appRoot = document.getElementById("app-root");
@@ -55,6 +61,12 @@ function setPasswordVisible(visible) {
 function showLoginScreen({ expired = false } = {}) {
   disconnectRealtime();
   const wasInApp = !appRoot.hidden;
+  // Same "timeout, not a deliberate logout" gate as the batch below: an
+  // operator mid-entry on a work order when the session drops should land
+  // back on that exact card + editor after signing in again (see
+  // applyPendingSectionResume in workOrderRouting.js), not lose the field
+  // they were typing into to a page they have to go find again.
+  if (expired && wasInApp) captureHeldEditorForResume();
   setCurrentUser(null);
   resetToolsView();
   resetPushView();
@@ -120,8 +132,11 @@ async function enterApp(user, { resume = false } = {}) {
   // A card-page URL survives the login screen: someone following a shared link
   // signs in first and lands on the work order they were sent, not on their
   // usual landing page. A resumed scan batch still wins -- that operator was
-  // mid-job when the session dropped.
-  const deepLinkNumber = resumed ? null : soloNumberFromPath();
+  // mid-job when the session dropped. The pending-resume fallback covers the
+  // same "land on the right work order" need for a session that expired
+  // while editing a card inline in the list, which has no card-page URL to
+  // survive on its own -- see captureHeldEditorForResume in workOrderRetry.js.
+  const deepLinkNumber = resumed ? null : (soloNumberFromPath() ?? peekPendingResumeNumber());
   if (deepLinkNumber !== null && canAccessPage(user.role, "work-orders")) {
     // Queued before showPage, not after: showPage triggers loadWorkOrders,
     // which is what consumes the request. Opening the card afterwards would
@@ -144,6 +159,11 @@ async function enterApp(user, { resume = false } = {}) {
   // logged in, which is what keeps a shared phone from delivering the
   // previous account's notifications.
   initPushForUser();
+
+  // Also not awaited: sweeps any work-order edit that failed to save while
+  // offline or mid-timeout and resends it now that there's a session again.
+  // Safe to call with nothing pending -- it's a no-op.
+  void replayPendingDrafts();
 }
 
 // Any 401 anywhere -> back to login. The login form's own catch still

@@ -358,10 +358,11 @@ describe("the list-entry exports", () => {
   });
 });
 
-describe("the eleven exports", () => {
+describe("the thirteen exports", () => {
   it("are all functions", async () => {
     const { mod } = await mountWorkOrders({ role: "admin" });
     expect(Object.keys(mod).sort()).toEqual([
+      "captureHeldEditorForResume",
       "comboHtml",
       "focusWorkOrder",
       "focusWorkOrderNumber",
@@ -371,6 +372,7 @@ describe("the eleven exports", () => {
       "openWorkOrdersByNumberSearch",
       "openWorkOrdersFilteredByDistribution",
       "openWorkOrdersFilteredByStatus",
+      "replayPendingDrafts",
       "soloNumberFromPath",
       "workOrderCardClass",
     ]);

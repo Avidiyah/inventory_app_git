@@ -7,8 +7,9 @@
 // they were when they lived in the list.
 //
 // Exports nothing: the markup these branches act on is built in
-// workOrderCardHtml.js, and the audit that keeps the two in step is
-// tests/frontend/views/workOrders/actionCoverage.test.js.
+// workOrderCardHtml.js, audited by tests/frontend/views/workOrders/
+// actionCoverage.test.js. Six actions also draft to workOrderDrafts.js so a
+// failed save survives offline and replays via workOrderRetry.js.
 
 import {
   apiAddWorkOrderItem,
@@ -29,6 +30,7 @@ import {
 import { confirmDialog, messageDialog, setMessage } from "../dom.js";
 import { escapeHtml, filterRanked, friendlyError } from "../format.js";
 import { getCurrentUser } from "../state.js";
+import { clearDraft, saveDraft } from "../workOrderDrafts.js";
 import { openBillingEditor } from "./billingEditor.js";
 import { catalogueRequestPromptHtml } from "./catalogueRequest.js";
 import {
@@ -306,7 +308,9 @@ listEl.addEventListener("click", async (event) => {
         ),
       };
       Object.keys(patch).forEach((k) => patch[k] === undefined && delete patch[k]);
+      saveDraft(workOrderId, "details", { number: cardEl.dataset.number, action: "save-details", payload: patch });
       await apiUpdateWorkOrder(workOrderId, patch);
+      clearDraft(workOrderId, "details");
       await refreshCard(cardEl);
     } else if (action === "save-notes") {
       const notesInput = cardEl.querySelector(".wo-notes-input");
@@ -317,7 +321,9 @@ listEl.addEventListener("click", async (event) => {
         setMessage(notesMessage, "Enter a note before saving.", "error");
         return;
       }
+      saveDraft(workOrderId, "notes", { number: cardEl.dataset.number, action: "save-notes", payload: { notes } });
       const updated = await apiUpdateWorkOrder(workOrderId, { notes });
+      clearDraft(workOrderId, "notes");
       notesInput.value = "";
       const notesLog = cardEl.querySelector(".wo-notes-log");
       if (notesLog) notesLog.innerHTML = notesLogContentsHtml(updated.notes);
@@ -342,7 +348,9 @@ listEl.addEventListener("click", async (event) => {
         setMessage(msg, "Enter actual labor hours greater than zero.", "error");
         return;
       }
+      saveDraft(workOrderId, "labor", { number: cardEl.dataset.number, action: "add-labor", payload: { technicianId, minutes } });
       await apiAddWorkOrderLabor(workOrderId, { technicianId, minutes });
+      clearDraft(workOrderId, "labor");
       await refreshCard(cardEl, ".wo-labor-section");
     } else if (action === "edit-labor") {
       const row = btn.closest(".wo-labor-entry");
@@ -351,7 +359,11 @@ listEl.addEventListener("click", async (event) => {
         setMessage(msg, "Enter actual labor hours greater than zero.", "error");
         return;
       }
-      await apiUpdateWorkOrderLabor(workOrderId, row.dataset.laborId, { minutes });
+      const editLaborPayload = { minutes };
+      const laborDraft = { number: cardEl.dataset.number, action: "edit-labor", targetId: row.dataset.laborId, payload: editLaborPayload };
+      saveDraft(workOrderId, "labor", laborDraft);
+      await apiUpdateWorkOrderLabor(workOrderId, row.dataset.laborId, editLaborPayload);
+      clearDraft(workOrderId, "labor");
       await refreshCard(cardEl, ".wo-labor-section");
     } else if (action === "remove-labor") {
       const row = btn.closest(".wo-labor-entry");
@@ -370,11 +382,14 @@ listEl.addEventListener("click", async (event) => {
         setMessage(msg, "Enter a quantity greater than zero.", "error");
         return;
       }
-      const addedLine = await apiAddWorkOrderItem(workOrderId, {
+      const itemPayload = {
         itemId,
         quantity: qty,
         materialRequestId: container.dataset.materialRequestId || null,
-      });
+      };
+      saveDraft(workOrderId, "materials", { number: cardEl.dataset.number, action: "add-item", payload: itemPayload });
+      const addedLine = await apiAddWorkOrderItem(workOrderId, itemPayload);
+      clearDraft(workOrderId, "materials");
       delete container.dataset.materialRequestId;
       await refreshCard(cardEl, ".wo-materials-section");
       const refreshedMessage = cardEl.querySelector(".wo-message");
@@ -390,7 +405,11 @@ listEl.addEventListener("click", async (event) => {
         setMessage(msg, "Enter a quantity greater than zero.", "error");
         return;
       }
-      await apiUpdateWorkOrderItem(workOrderId, row.dataset.woItemId, { quantity: qty });
+      const editItemPayload = { quantity: qty };
+      const itemDraft = { number: cardEl.dataset.number, action: "edit-item", targetId: row.dataset.woItemId, payload: editItemPayload };
+      saveDraft(workOrderId, "materials", itemDraft);
+      await apiUpdateWorkOrderItem(workOrderId, row.dataset.woItemId, editItemPayload);
+      clearDraft(workOrderId, "materials");
       await refreshCard(cardEl, ".wo-materials-section");
     } else if (action === "remove-item") {
       const row = btn.closest(".wo-item");

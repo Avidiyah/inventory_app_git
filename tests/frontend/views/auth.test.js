@@ -389,6 +389,79 @@ describe("deep link /workorder_card/<n>", () => {
   });
 });
 
+describe("resuming a held work-order editor after a session expiry", () => {
+  afterEach(() => restoreBrowserStubs());
+
+  it("captures the held section on 401 and reopens it, refilled, after re-login", async () => {
+    stubScroll();
+    const detail = workOrderDetail({
+      number: "4242",
+      assigned_to_ids: ["t1"],
+      assigned_to_names: ["Ada L"],
+    });
+    window.history.replaceState({}, "", "/workorder_card/4242");
+    const current = userFactory({ role: "supervisor" });
+    const { mod } = await mountAuth({ me: current, handlers: answerWorkOrder(detail) });
+    await mod.initAuth();
+    await vi.waitFor(() =>
+      expect(document.querySelector(".wo-labor-section")).not.toBeNull());
+
+    // The operator had the labor editor open, typed an hours entry, and the
+    // save had already failed once (workOrderActions.js's saveDraft) by the
+    // time the session actually timed out -- this is that draft.
+    const drafts = await import("../../../backend/static/workOrderDrafts.js");
+    drafts.saveDraft(detail.id, "labor", {
+      number: detail.number,
+      action: "add-labor",
+      payload: { technicianId: "t1", minutes: 90 },
+    });
+    document.querySelector(".wo-labor-section").open = true;
+
+    server.use(http.get("/users/", () => HttpResponse.json({ detail: "expired" }, { status: 401 })));
+    const api = await import("../../../backend/static/api.js");
+    await expect(api.apiListUsers()).rejects.toMatchObject({ status: 401 });
+    expect(el.screen().hidden).toBe(false);
+    expect(JSON.parse(localStorage.getItem("wo-draft-resume"))).toEqual({
+      workOrderId: detail.id,
+      number: detail.number,
+      section: "labor",
+    });
+
+    server.use(...answerWorkOrder(detail));
+    answerLogin(current);
+    await fillAndSubmit();
+    await vi.waitFor(() => expect(el.root().hidden).toBe(false));
+
+    await vi.waitFor(() =>
+      expect(document.querySelector("#work-orders-list .wo-card")?.dataset.id).toBe(detail.id));
+    await vi.waitFor(() =>
+      expect(document.querySelector(".wo-labor-section")?.open).toBe(true));
+    expect(document.querySelector(".wo-new-labor-hours").value).toBe("1.5");
+    // One-shot: consumed on the open it was waiting for, not left to fire on
+    // some unrelated later card.
+    expect(localStorage.getItem("wo-draft-resume")).toBeNull();
+  });
+
+  it("a deliberate logout does not capture a resume", async () => {
+    stubScroll();
+    const detail = workOrderDetail({ number: "4242" });
+    window.history.replaceState({}, "", "/workorder_card/4242");
+    const { mod } = await mountAuth({
+      me: userFactory({ role: "technician" }),
+      handlers: answerWorkOrder(detail),
+    });
+    await mod.initAuth();
+    await vi.waitFor(() =>
+      expect(document.querySelector(".wo-notes-section")).not.toBeNull());
+    document.querySelector(".wo-notes-section").open = true;
+
+    answerLogout(204);
+    await userEvent.setup().click(el.logout());
+    await vi.waitFor(() => expect(el.screen().hidden).toBe(false));
+    expect(localStorage.getItem("wo-draft-resume")).toBeNull();
+  });
+});
+
 describe("batch resume at sign-in", () => {
   const wo = { id: "00000000-0000-4000-8000-000000000042", number: "4242", status: "in_progress" };
 

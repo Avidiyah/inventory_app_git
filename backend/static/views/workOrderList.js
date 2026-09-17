@@ -115,7 +115,9 @@ let pendingFocusId = null;
 // entry -- as `checkArchivedSearch`. Set by `openWorkOrdersByNumberSearch`.
 let pendingArchivedCheck = false;
 
-const STATUS_CHANGED_EVENT = "work_order.status.changed";
+// Exported so workOrderRetry.js can piggyback a reconnect check on the same
+// socket subscription rather than opening a second one just for that.
+export const STATUS_CHANGED_EVENT = "work_order.status.changed";
 const WORK_ORDERS_PAGE = "work-orders";
 
 export function focusWorkOrder(workOrderId) {
@@ -387,6 +389,13 @@ function isHeld(cardEl) {
   return Array.from(cardEl.querySelectorAll(EDITOR_SECTIONS)).some((s) => s.open);
 }
 
+// Read by workOrderRetry.js when a 401 is about to hide the app, to find
+// which card (if any) has unsent input worth resuming after re-login.
+export function heldWorkOrderCards() {
+  if (!listEl) return [];
+  return Array.from(listEl.querySelectorAll("details.wo-card")).filter(isHeld);
+}
+
 function anyCardHeld() {
   if (!listEl) return false;
   return Array.from(listEl.querySelectorAll("details.wo-card")).some(isHeld);
@@ -424,6 +433,10 @@ function buildCard(card, { onOpen, solo = false } = {}) {
   const el = document.createElement("details");
   el.className = workOrderCardClass(card);
   el.dataset.id = card.id;
+  // Read by workOrderRetry.js's held-editor capture, which only has the DOM
+  // to work from -- a 401 can land mid-edit with no other handle on "which
+  // work order was this".
+  el.dataset.number = card.number;
 
   const summary = document.createElement("summary");
   summary.className = "wo-summary";

@@ -22,3 +22,4 @@ export { workOrderCardClass } from "./workOrderPresenters.js";
 export { comboHtml } from "./workOrderCardHtml.js";
 export { focusWorkOrderNumber, soloNumberFromPath } from "./workOrderRouting.js";
 export { loadIntegrationsPage } from "./workOrderIntegrations.js";
+export { captureHeldEditorForResume, replayPendingDrafts } from "./workOrderRetry.js";
