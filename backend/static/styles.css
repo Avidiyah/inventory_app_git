@@ -3261,6 +3261,25 @@ tr.archived-user {
     font-weight: var(--fw-bold);
 }
 
+/* Spinner inside the "not connected" prompt's Reconnect button
+   (#connectivity-overlay, shell-tail.html / views/connectivityModal.js).
+   Pure CSS ring -- no image asset. */
+.connectivity-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    margin-right: var(--space-2);
+    border: 2px solid rgba(255, 255, 255, .35);
+    border-top-color: var(--color-white);
+    border-radius: 50%;
+    vertical-align: -3px;
+    animation: connectivity-spin .8s linear infinite;
+}
+
+@keyframes connectivity-spin {
+    to { transform: rotate(360deg); }
+}
+
 /* =================== MASS STAGE =================== */
 /* Planning UI: expandable stage cards, each holding expandable room cards,
    each holding planned-item rows. Built by views/massStage.js. */

@@ -20,6 +20,36 @@ export function setUnauthorizedHandler(fn) {
   unauthorizedHandler = fn;
 }
 
+// A single callback the app registers (via `setConnectivityHandler`) so a
+// lost connection anywhere -- any request that never reaches the server --
+// surfaces one app-wide "Not Connected" prompt instead of each call site
+// showing its own inline error. Every fetch in this file goes through
+// `rawFetch` for exactly that reason; a response that comes back at all
+// (even a 4xx/5xx) proves the server was reachable, which is enough to
+// clear the prompt without waiting for whatever the caller does with it.
+let connectivityHandler = null;
+export function setConnectivityHandler(fn) {
+  connectivityHandler = fn;
+}
+
+// Looks up `globalThis.fetch` at call time rather than capturing it once at
+// module load: a test's fetch-recording wrapper can install itself either
+// before or after this module first evaluates, and a frozen reference would
+// silently bypass it in the second case. `fetch` as a bare identifier
+// resolves to the exact same live binding, so this is not a behavior change
+// versus every call site below -- only a place to hang the connectivity
+// signal on.
+async function rawFetch(url, init) {
+  try {
+    const response = await globalThis.fetch(url, init);
+    connectivityHandler?.(true);
+    return response;
+  } catch (err) {
+    connectivityHandler?.(false);
+    throw err;
+  }
+}
+
 async function parseResponse(response) {
   // 204 No Content has an empty body by definition -- short-circuit
   // so callers can branch on `null` without parsing an empty string.
@@ -48,7 +78,7 @@ async function parseResponse(response) {
 // `credentials: "include"` ensures the session cookie rides along even
 // if the app is ever served from a different origin.
 async function jsonRequest(url, method, payload) {
-  const response = await fetch(url, {
+  const response = await rawFetch(url, {
     method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -61,7 +91,7 @@ async function jsonRequest(url, method, payload) {
 // feeds back pages that explicitly refresh on activation, so bypass the
 // browser HTTP cache while retaining the session cookie.
 async function liveGet(url) {
-  return parseResponse(await fetch(url, {
+  return parseResponse(await rawFetch(url, {
     credentials: "include",
     cache: "no-store",
   }));
@@ -73,11 +103,11 @@ export async function apiLogin({ username, password, remember = false }) {
 }
 
 export async function apiLogout() {
-  return parseResponse(await fetch("/auth/logout", { method: "POST", credentials: "include" }));
+  return parseResponse(await rawFetch("/auth/logout", { method: "POST", credentials: "include" }));
 }
 
 export async function apiMe() {
-  return parseResponse(await fetch("/auth/me", { credentials: "include" }));
+  return parseResponse(await rawFetch("/auth/me", { credentials: "include" }));
 }
 
 // --- Items -------------------------------------------------------
@@ -96,7 +126,7 @@ export async function apiCreateItem({ barcode, name, location, quantity, price, 
 }
 
 export async function apiDeleteItem(itemId) {
-  return parseResponse(await fetch(`/items/${itemId}`, { method: "DELETE", credentials: "include" }));
+  return parseResponse(await rawFetch(`/items/${itemId}`, { method: "DELETE", credentials: "include" }));
 }
 
 export async function apiUpdateItem(itemId, payload) {
@@ -130,14 +160,14 @@ export async function apiSetLowStockThreshold(itemId, threshold) {
 export async function apiGetItemByBarcode(barcode) {
   // Barcodes may contain characters that need URL-escaping (e.g.
   // `/` or `#`); raw values would silently mis-route.
-  return parseResponse(await fetch(`/items/${encodeURIComponent(barcode)}`, { credentials: "include" }));
+  return parseResponse(await rawFetch(`/items/${encodeURIComponent(barcode)}`, { credentials: "include" }));
 }
 
 // --- Tools ---------------------------------------------------------
 // A tool is parallel to an item but smaller (no location/price/link) and
 // tracks custody (checkout/return) instead of one-way consumption.
 export async function apiListTools() {
-  return parseResponse(await fetch("/tools/", { credentials: "include" }));
+  return parseResponse(await rawFetch("/tools/", { credentials: "include" }));
 }
 
 export async function apiCreateTool({ barcode, name, quantity }) {
@@ -145,7 +175,7 @@ export async function apiCreateTool({ barcode, name, quantity }) {
 }
 
 export async function apiGetToolByBarcode(barcode) {
-  return parseResponse(await fetch(`/tools/${encodeURIComponent(barcode)}`, { credentials: "include" }));
+  return parseResponse(await rawFetch(`/tools/${encodeURIComponent(barcode)}`, { credentials: "include" }));
 }
 
 export async function apiUpdateTool(toolId, payload) {
@@ -154,7 +184,7 @@ export async function apiUpdateTool(toolId, payload) {
 }
 
 export async function apiDeleteTool(toolId) {
-  return parseResponse(await fetch(`/tools/${toolId}`, { method: "DELETE", credentials: "include" }));
+  return parseResponse(await rawFetch(`/tools/${toolId}`, { method: "DELETE", credentials: "include" }));
 }
 
 export async function apiCheckoutTool(toolId, { quantity, assignedToId, workOrderNumber = null }) {
@@ -189,7 +219,7 @@ export async function apiDecodeBarcode(file) {
   // never persisted server-side (see app/services/barcodes.py).
   const form = new FormData();
   form.append("file", file);
-  const response = await fetch("/barcodes/decode", {
+  const response = await rawFetch("/barcodes/decode", {
     method: "POST",
     body: form,
     credentials: "include",
@@ -236,15 +266,15 @@ export async function apiResetPassword(userId, password) {
 // the user still holds tools, checking those tools in as part of the archive.
 export async function apiArchiveUser(userId, { forceReturnTools = false } = {}) {
   const query = forceReturnTools ? "?force_return_tools=true" : "";
-  return parseResponse(await fetch(`/users/${userId}/archive${query}`, { method: "POST", credentials: "include" }));
+  return parseResponse(await rawFetch(`/users/${userId}/archive${query}`, { method: "POST", credentials: "include" }));
 }
 
 export async function apiRestoreUser(userId) {
-  return parseResponse(await fetch(`/users/${userId}/restore`, { method: "POST", credentials: "include" }));
+  return parseResponse(await rawFetch(`/users/${userId}/restore`, { method: "POST", credentials: "include" }));
 }
 
 export async function apiDeleteUser(userId) {
-  return parseResponse(await fetch(`/users/${userId}`, { method: "DELETE", credentials: "include" }));
+  return parseResponse(await rawFetch(`/users/${userId}`, { method: "DELETE", credentials: "include" }));
 }
 
 // --- Transactions ------------------------------------------------
@@ -260,7 +290,7 @@ export async function apiListTransactions({ page, pageSize, itemId, userId, work
   // `YYYY-MM-DD` calendar dates; the backend bounds `created_at` inclusively.
   if (dateFrom) params.set("date_from", dateFrom);
   if (dateTo) params.set("date_to", dateTo);
-  return parseResponse(await fetch(`/transactions/?${params.toString()}`, { credentials: "include" }));
+  return parseResponse(await rawFetch(`/transactions/?${params.toString()}`, { credentials: "include" }));
 }
 
 export async function apiCreateTransaction(payload) {
@@ -297,7 +327,7 @@ export async function apiVoidTransaction(transactionId) {
   // actionable row; a Technician may remove only their own work-order dispense.
   // Reverses stock, reconciles the work-order line, and resolves a linked recount
   // request. 204 on success.
-  return parseResponse(await fetch(`/transactions/${transactionId}`, { method: "DELETE", credentials: "include" }));
+  return parseResponse(await rawFetch(`/transactions/${transactionId}`, { method: "DELETE", credentials: "include" }));
 }
 
 // --- User Requests -----------------------------------------------------
@@ -424,7 +454,7 @@ export async function apiCreateStage(community, buildingName) {
 }
 
 export async function apiGetStage(stageId) {
-  return parseResponse(await fetch(`/mass-stages/${stageId}`, { credentials: "include" }));
+  return parseResponse(await rawFetch(`/mass-stages/${stageId}`, { credentials: "include" }));
 }
 
 export async function apiUpdateStage(stageId, patch) {
@@ -433,7 +463,7 @@ export async function apiUpdateStage(stageId, patch) {
 }
 
 export async function apiDeleteStage(stageId) {
-  return parseResponse(await fetch(`/mass-stages/${stageId}`, { method: "DELETE", credentials: "include" }));
+  return parseResponse(await rawFetch(`/mass-stages/${stageId}`, { method: "DELETE", credentials: "include" }));
 }
 
 // Add a work order to a stage's truck plan. The backend find-or-creates the
@@ -448,7 +478,7 @@ export async function apiAddStageWorkOrder(stageId, { workOrderNumber, unitNumbe
 }
 
 export async function apiDeleteStageWorkOrder(stageId, slotId) {
-  return parseResponse(await fetch(`/mass-stages/${stageId}/work-orders/${slotId}`, { method: "DELETE", credentials: "include" }));
+  return parseResponse(await rawFetch(`/mass-stages/${stageId}/work-orders/${slotId}`, { method: "DELETE", credentials: "include" }));
 }
 
 export async function apiAddStageItem(stageId, slotId, { itemId, plannedQuantity }) {
@@ -465,7 +495,7 @@ export async function apiUpdateStageItem(stageId, slotId, stageItemId, { planned
 }
 
 export async function apiDeleteStageItem(stageId, slotId, stageItemId) {
-  return parseResponse(await fetch(`/mass-stages/${stageId}/work-orders/${slotId}/items/${stageItemId}`, { method: "DELETE", credentials: "include" }));
+  return parseResponse(await rawFetch(`/mass-stages/${stageId}/work-orders/${slotId}/items/${stageItemId}`, { method: "DELETE", credentials: "include" }));
 }
 
 // Loading + returns (the stock-touching actions). Both return the item's
@@ -532,7 +562,7 @@ export async function apiGetWorkOrderFilterOptions() {
 }
 
 export async function apiGetWorkOrder(workOrderId) {
-  return parseResponse(await fetch(`/work-orders/${workOrderId}`, { credentials: "include" }));
+  return parseResponse(await rawFetch(`/work-orders/${workOrderId}`, { credentials: "include" }));
 }
 
 export async function apiListWorkOrderRequests(workOrderId) {
@@ -583,7 +613,7 @@ export async function apiExportHubTimesheets({ start = null, end = null, userId 
   if (end) params.set("end", end);
   if (userId) params.set("user_id", userId);
   const query = params.toString();
-  const response = await fetch(`/hub/timesheets/export${query ? `?${query}` : ""}`, {
+  const response = await rawFetch(`/hub/timesheets/export${query ? `?${query}` : ""}`, {
     credentials: "include",
     cache: "no-store",
   });
@@ -602,7 +632,7 @@ export async function apiExportHubTimesheets({ start = null, end = null, userId 
 export async function apiImportWorkOrders(file) {
   const form = new FormData();
   form.append("file", file);
-  const response = await fetch("/work-orders/import", {
+  const response = await rawFetch("/work-orders/import", {
     method: "POST",
     body: form,
     credentials: "include",
@@ -614,7 +644,7 @@ export async function apiImportWorkOrders(file) {
 // session (see the cloud sign-in functions below). Never returns browser
 // state or source field values.
 export async function apiStartNetFacilitiesEnrichment() {
-  return parseResponse(await fetch(
+  return parseResponse(await rawFetch(
     "/integrations/netfacilities/work-orders/enrich",
     { method: "POST", credentials: "include" },
   ));
@@ -631,21 +661,21 @@ export async function apiGetNetFacilitiesCloudSession() {
 }
 
 export async function apiStartNetFacilitiesCloudAuthentication() {
-  return parseResponse(await fetch(
+  return parseResponse(await rawFetch(
     "/integrations/netfacilities/cloud/auth/start",
     { method: "POST", credentials: "include" },
   ));
 }
 
 export async function apiCancelNetFacilitiesCloudAuthentication() {
-  return parseResponse(await fetch(
+  return parseResponse(await rawFetch(
     "/integrations/netfacilities/cloud/auth/cancel",
     { method: "POST", credentials: "include" },
   ));
 }
 
 export async function apiImportNetFacilitiesCloudDownload() {
-  return parseResponse(await fetch(
+  return parseResponse(await rawFetch(
     "/integrations/netfacilities/cloud/downloads/import",
     { method: "POST", credentials: "include" },
   ));
@@ -668,7 +698,7 @@ export async function apiExportWorkOrders(
   if (filters.q) params.set("q", filters.q);
   if (filters.locationQ) params.set("location_q", filters.locationQ);
   if (filters.taskQ) params.set("task_q", filters.taskQ);
-  const response = await fetch(`/work-orders/export?${params}`, {
+  const response = await rawFetch(`/work-orders/export?${params}`, {
     credentials: "include",
     cache: "no-store",
   });
@@ -690,7 +720,7 @@ export async function apiGetLegacyWorkOrderArchivePreview() {
 }
 
 export async function apiArchiveLegacyWorkOrders() {
-  return parseResponse(await fetch("/work-orders/legacy/archive", {
+  return parseResponse(await rawFetch("/work-orders/legacy/archive", {
     method: "POST",
     credentials: "include",
   }));
@@ -753,7 +783,7 @@ export async function apiResumeWorkOrder(workOrderId) {
 export async function apiArchiveWorkOrder(workOrderId) {
   // Close any live work order (Admin+). Kept as the archive URL because Closed
   // is the existing soft-archive state rather than a stored status.
-  return parseResponse(await fetch(`/work-orders/${workOrderId}/archive`, { method: "POST", credentials: "include" }));
+  return parseResponse(await rawFetch(`/work-orders/${workOrderId}/archive`, { method: "POST", credentials: "include" }));
 }
 
 // Does this number name a work order, and is it archived? Supervisor+. Returns
@@ -762,14 +792,14 @@ export async function apiArchiveWorkOrder(workOrderId) {
 // exact searched number whose row has been archived and offer restoration.
 export async function apiLookupWorkOrder(number) {
   const qs = new URLSearchParams({ number }).toString();
-  return parseResponse(await fetch(`/work-orders/lookup?${qs}`, { credentials: "include" }));
+  return parseResponse(await rawFetch(`/work-orders/lookup?${qs}`, { credentials: "include" }));
 }
 
 // Un-archive a work order (Supervisor+ endpoint; currently offered by History
 // and Admin+'s Work Orders search). The undo for apiArchiveWorkOrder; returns the
 // restored WorkOrderDetail.
 export async function apiRestoreWorkOrder(workOrderId) {
-  return parseResponse(await fetch(`/work-orders/${workOrderId}/restore`, { method: "POST", credentials: "include" }));
+  return parseResponse(await rawFetch(`/work-orders/${workOrderId}/restore`, { method: "POST", credentials: "include" }));
 }
 
 export async function apiAddWorkOrderItem(workOrderId, { itemId, quantity, materialRequestId = null }) {
@@ -793,7 +823,7 @@ export async function apiSetWorkOrderItemBilling(workOrderId, woItemId, billable
 }
 
 export async function apiDeleteWorkOrderItem(workOrderId, woItemId) {
-  return parseResponse(await fetch(`/work-orders/${workOrderId}/items/${woItemId}`, { method: "DELETE", credentials: "include" }));
+  return parseResponse(await rawFetch(`/work-orders/${workOrderId}/items/${woItemId}`, { method: "DELETE", credentials: "include" }));
 }
 
 // Labor is stored in whole minutes and billed from the combined work-order
@@ -810,7 +840,7 @@ export async function apiUpdateWorkOrderLabor(workOrderId, laborId, { minutes })
 }
 
 export async function apiDeleteWorkOrderLabor(workOrderId, laborId) {
-  return parseResponse(await fetch(`/work-orders/${workOrderId}/labor/${laborId}`, {
+  return parseResponse(await rawFetch(`/work-orders/${workOrderId}/labor/${laborId}`, {
     method: "DELETE",
     credentials: "include",
   }));
@@ -818,7 +848,7 @@ export async function apiDeleteWorkOrderLabor(workOrderId, laborId) {
 
 // --- Web Push ----------------------------------------------------
 export async function apiPushConfig() {
-  return parseResponse(await fetch("/push/config", { credentials: "include" }));
+  return parseResponse(await rawFetch("/push/config", { credentials: "include" }));
 }
 
 // `subscription` is a browser PushSubscription; `toJSON()` already
@@ -837,7 +867,7 @@ export async function apiPushUnsubscribe(endpoint) {
 // No body -- the audience and the message are both fixed server-side, so
 // there is nothing for the caller to supply.
 export async function apiPushTest() {
-  return parseResponse(await fetch("/push/test", {
+  return parseResponse(await rawFetch("/push/test", {
     method: "POST",
     credentials: "include",
   }));

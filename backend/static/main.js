@@ -40,6 +40,7 @@ import "./views/toolCorrection.js";
 import "./views/push.js";
 import "./views/userHub.js";
 import "./views/auth.js";
+import "./views/connectivityModal.js";
 
 // --- Named imports for bootstrap calls ---------------------------
 import { setScanResetter, setScanAutostarter } from "./views/transactions.js";

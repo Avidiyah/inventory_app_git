@@ -91,6 +91,27 @@
         </div>
     </div>
 
+    <!-- App-wide "not connected to the server" prompt. Shown by
+         views/connectivityModal.js whenever api.js's rawFetch reports a
+         network-level failure, or the browser's own offline event fires --
+         whichever happens first. Unlike the other overlays above, this one
+         has no backdrop/Esc dismissal: the one thing the operator must not
+         do is assume an entry saved when it didn't, so only a confirmed
+         reconnect (the Reconnect button, or any other request quietly
+         succeeding in the background) closes it. -->
+    <div id="connectivity-overlay" class="modal-overlay" hidden>
+        <div class="modal-box" role="alertdialog" aria-modal="true" aria-labelledby="connectivity-title" aria-describedby="connectivity-message">
+            <p id="connectivity-title" class="modal-title">Not Connected to Server</p>
+            <p id="connectivity-message">Stay on this page and reconnect. Anything you've already entered is saved on this device and will send once you're back online.</p>
+            <div class="modal-buttons">
+                <button id="connectivity-reconnect" type="button">
+                    <span id="connectivity-spinner" class="connectivity-spinner" hidden aria-hidden="true"></span>
+                    <span id="connectivity-reconnect-label">Reconnect</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     </div><!-- /#app-root -->
 
     <!-- Urgent work-order fire (see .wo-priority-fire in styles.css).
