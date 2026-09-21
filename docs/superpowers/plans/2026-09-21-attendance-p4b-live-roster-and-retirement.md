@@ -66,7 +66,7 @@
 - Consumes: `domain.attendance.shift_state` / `IDLE_RED_MINUTES` / the four `STATE_*` constants; `domain.work_orders.capped_session_end`; `services.attendance.live_punches`.
 - Produces: `attendance_live.roster(db, *, now=None) -> LiveRoster`, and the frozen dataclasses `RosterEntry(user, state, punch_started_at, idle_since, idle_minutes, charging_since, work_order_number)` and `LiveRoster(server_now, idle_red_minutes, on_shift, absent, on_shift_count, charging_count, idle_count)`.
 
-- [ ] **Step 1: Write the failing domain test**
+- [x] **Step 1: Write the failing domain test**
 
 Append to `backend/tests/test_attendance_domain.py`:
 
@@ -102,12 +102,12 @@ def test_idle_minutes_is_measured_from_the_anchor():
     ) == int((now - anchor).total_seconds() // 60) == 42
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && python -m pytest tests/test_attendance_domain.py -q -k idle_anchor`
 Expected: FAIL — `module 'app.domain.attendance' has no attribute 'idle_anchor'`.
 
-- [ ] **Step 3: Add `idle_anchor` and refactor `idle_minutes`**
+- [x] **Step 3: Add `idle_anchor` and refactor `idle_minutes`**
 
 In `backend/app/domain/attendance.py`, insert above `idle_minutes` and rewrite its body:
 
@@ -155,12 +155,12 @@ def idle_minutes(
     return max(0, int(seconds // 60))
 ```
 
-- [ ] **Step 4: Run the domain suite**
+- [x] **Step 4: Run the domain suite**
 
 Run: `cd backend && python -m pytest tests/test_attendance_domain.py -q`
 Expected: PASS, every test — the refactor must not move an existing number.
 
-- [ ] **Step 5: Write the failing service test**
+- [x] **Step 5: Write the failing service test**
 
 Create `backend/tests/test_attendance_live_service.py`. Model the fixtures on `backend/tests/test_attendance_compare_service.py` — same `db` fixture, same user/work-order helpers; read that file first and reuse its helper names rather than inventing parallel ones.
 
@@ -264,12 +264,12 @@ def test_an_admin_who_punches_in_is_not_colour_judged(db, admin_user):
     assert payload.absent == []
 ```
 
-- [ ] **Step 6: Run it to verify it fails**
+- [x] **Step 6: Run it to verify it fails**
 
 Run: `cd backend && python -m pytest tests/test_attendance_live_service.py -q`
 Expected: FAIL — `No module named 'app.services.attendance_live'`.
 
-- [ ] **Step 7: Write the service**
+- [x] **Step 7: Write the service**
 
 Create `backend/app/services/attendance_live.py`:
 
@@ -489,12 +489,12 @@ def roster(db: Session, *, now: Optional[datetime] = None) -> LiveRoster:
     )
 ```
 
-- [ ] **Step 8: Run both suites**
+- [x] **Step 8: Run both suites**
 
 Run: `cd backend && python -m pytest tests/test_attendance_live_service.py tests/test_attendance_domain.py tests/test_attendance_compare_service.py tests/test_attendance_week_service.py -q`
 Expected: PASS. If a fixture name in Step 5 does not exist in `test_attendance_compare_service.py`, fix the *test* to use the real helper — do not add a parallel fixture.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add backend/app/domain/attendance.py backend/app/services/attendance_live.py backend/tests/test_attendance_live_service.py backend/tests/test_attendance_domain.py
@@ -514,7 +514,7 @@ git commit -m "feat(attendance): the live roster payload, and the idle anchor it
 - Consumes: `attendance_live.roster` from Task 1.
 - Produces: `GET /hub/attendance/live` → `AttendanceLiveResponse`, Admin floor, no query parameters. Endpoint name `get_hub_attendance_live` — the name `test_route_role_gates.py` already names in its P4b comment.
 
-- [ ] **Step 1: Write the failing router test**
+- [x] **Step 1: Write the failing router test**
 
 Create `backend/tests/test_attendance_live_router.py`, modelled on `backend/tests/test_attendance_week_router.py` (read it first; reuse its client and login helpers verbatim):
 
@@ -552,12 +552,12 @@ def test_an_on_shift_entry_carries_the_two_tick_anchors(client, as_admin, punche
     assert (entry["idle_since"] is None) != (entry["charging_since"] is None)
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && python -m pytest tests/test_attendance_live_router.py -q`
 Expected: FAIL — 404 on every request; the route does not exist.
 
-- [ ] **Step 3: Add the schemas**
+- [x] **Step 3: Add the schemas**
 
 Append to `backend/app/schemas/attendance.py`:
 
@@ -601,7 +601,7 @@ class AttendanceLiveResponse(BaseModel):
     model_config = {"from_attributes": True}
 ```
 
-- [ ] **Step 4: Add the route**
+- [x] **Step 4: Add the route**
 
 In `backend/app/routers/hub.py`, extend the imports:
 
@@ -648,7 +648,7 @@ Add the route to the module docstring's list, after the `/hub/attendance/week` l
   who has a reason to be charging, read-only and poll-safe
 ```
 
-- [ ] **Step 5: Amend the role-gate expectation**
+- [x] **Step 5: Amend the role-gate expectation**
 
 In `backend/tests/test_route_role_gates.py`, replace the trailing comment line `# P4a adds the CSV export ... P4b adds \`get_hub_attendance_live\`.` with a statement of fact and add the name to the set:
 
@@ -678,12 +678,12 @@ def test_the_live_roster_sits_above_techfm_oa():
     assert _min_role_for(hub_router, "get_hub_attendance_live") == roles.ROLE_ADMIN
 ```
 
-- [ ] **Step 6: Run the router, gate and schema tests**
+- [x] **Step 6: Run the router, gate and schema tests**
 
 Run: `cd backend && python -m pytest tests/test_attendance_live_router.py tests/test_route_role_gates.py -q`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/app/schemas/attendance.py backend/app/routers/hub.py backend/tests/test_attendance_live_router.py backend/tests/test_route_role_gates.py
@@ -701,7 +701,7 @@ git commit -m "feat(attendance): GET /hub/attendance/live at the Admin floor"
 **Interfaces:**
 - Produces: `realtime.EVENT_ATTENDANCE_CHANGED == "attendance.changed"`, audience `roles.ROLE_ADMIN`. Task 4 imports it.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `backend/tests/test_realtime_domain.py`:
 
@@ -731,12 +731,12 @@ def test_attendance_changed_is_its_own_event_type():
     assert realtime.EVENT_ATTENDANCE_CHANGED != realtime.EVENT_LABOR_SESSION_CHANGED
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && python -m pytest tests/test_realtime_domain.py -q -k attendance`
 Expected: FAIL — `module 'app.domain.realtime' has no attribute 'EVENT_ATTENDANCE_CHANGED'`.
 
-- [ ] **Step 3: Add the vocabulary entry**
+- [x] **Step 3: Add the vocabulary entry**
 
 In `backend/app/domain/realtime.py`, add `"EVENT_ATTENDANCE_CHANGED"` to `__all__` beside the other event names, then after `EVENT_USER_REQUEST_CHANGED`:
 
@@ -760,12 +760,12 @@ And in `_AUDIENCE_MIN_ROLE`:
     EVENT_ATTENDANCE_CHANGED: roles.ROLE_ADMIN,
 ```
 
-- [ ] **Step 4: Run it to verify it passes**
+- [x] **Step 4: Run it to verify it passes**
 
 Run: `cd backend && python -m pytest tests/test_realtime_domain.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/domain/realtime.py backend/tests/test_realtime_domain.py
@@ -785,7 +785,7 @@ git commit -m "feat(attendance): the attendance.changed vocabulary, audience Adm
 - Consumes: `realtime.EVENT_ATTENDANCE_CHANGED` from Task 3.
 - Produces: `_attendance_events.emit_attendance_changed()` — no arguments, always `entity_id=None`, best-effort. Called after the service returns, never before.
 
-- [ ] **Step 1: Write the failing tripwire test**
+- [x] **Step 1: Write the failing tripwire test**
 
 Append to `backend/tests/test_realtime_emit.py` (it already imports `inspect` and `_route_source`; add `from app.routers import attendance as attendance_router` and `from app.routers import hub as hub_router` to its imports if absent):
 
@@ -849,12 +849,12 @@ def test_a_failed_punch_in_emits_nothing(monkeypatch):
     assert envelopes == []
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && python -m pytest tests/test_realtime_emit.py -q -k attendance`
 Expected: FAIL — the emitter set is empty.
 
-- [ ] **Step 3: Write the shared emitter**
+- [x] **Step 3: Write the shared emitter**
 
 Create `backend/app/routers/_attendance_events.py`:
 
@@ -901,7 +901,7 @@ def emit_attendance_changed() -> None:
     )
 ```
 
-- [ ] **Step 4: Call it from the three self-scoped writes**
+- [x] **Step 4: Call it from the three self-scoped writes**
 
 In `backend/app/routers/attendance.py`, add `from app.routers._attendance_events import emit_attendance_changed` to the imports, extend the module docstring with one line, and in each of `punch_in`, `punch_out`, `self_close` capture the result and emit after it. `punch_in` becomes:
 
@@ -931,7 +931,7 @@ Every write here emits `attendance.changed` (audience Admin) so the Admin
 roster does not wait out its 60-second poll. Best-effort, after the write.
 ```
 
-- [ ] **Step 5: Call it from the three admin writes**
+- [x] **Step 5: Call it from the three admin writes**
 
 In `backend/app/routers/hub.py`, add `from app.routers._attendance_events import emit_attendance_changed`, and give `add_hub_attendance_punch`, `edit_hub_attendance_punch` and `delete_hub_attendance_punch` the same bind-emit-return shape. `add_hub_attendance_punch` becomes:
 
@@ -956,12 +956,12 @@ def add_hub_attendance_punch(
 
 Also extend the comment block above the three writes (`hub.py:191-193`) with one sentence: each emits `attendance.changed` after its commit, so an Admin correcting a punch in one window sees the roster and the grid move in another.
 
-- [ ] **Step 6: Run the emit and attendance router suites**
+- [x] **Step 6: Run the emit and attendance router suites**
 
 Run: `cd backend && python -m pytest tests/test_realtime_emit.py tests/test_attendance_router.py tests/test_attendance_admin_router.py -q`
 Expected: PASS. If Step 1's new tests need imports (`pytest`, `HTTPException`, `PunchAlreadyOpenError`) that the file lacks, add them.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/app/routers/_attendance_events.py backend/app/routers/attendance.py backend/app/routers/hub.py backend/tests/test_realtime_emit.py
@@ -980,7 +980,7 @@ git commit -m "feat(attendance): emit attendance.changed from the six punch writ
 **Interfaces:**
 - Produces: `apiGetHubAttendanceLive()` — no arguments, `liveGet("/hub/attendance/live")`. `attendanceLive(overrides)` factory. `openHub({ attendanceLive })` option.
 
-- [ ] **Step 1: Add the table row (the failing test)**
+- [x] **Step 1: Add the table row (the failing test)**
 
 In `tests/frontend/helpers/endpointTable.js`, beside the other attendance entries:
 
@@ -988,12 +988,12 @@ In `tests/frontend/helpers/endpointTable.js`, beside the other attendance entrie
   { fn: "apiGetHubAttendanceLive", args: [], url: "/hub/attendance/live", cache: "no-store" },
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `npx vitest run tests/frontend/unit/api.endpoints.test.js`
 Expected: FAIL — `apiGetHubAttendanceLive is not a function`.
 
-- [ ] **Step 3: Add the wrapper**
+- [x] **Step 3: Add the wrapper**
 
 In `backend/static/api.js`, immediately after `apiGetHubAttendanceWeek`:
 
@@ -1006,7 +1006,7 @@ export async function apiGetHubAttendanceLive() {
 }
 ```
 
-- [ ] **Step 4: Add the factory**
+- [x] **Step 4: Add the factory**
 
 In `tests/frontend/helpers/factories.js`, beside `attendanceWeek`:
 
@@ -1066,7 +1066,7 @@ export function attendanceLive(overrides = {}) {
 }
 ```
 
-- [ ] **Step 5: Serve it from the hub fixture**
+- [x] **Step 5: Serve it from the hub fixture**
 
 In `tests/frontend/helpers/hub.js`: add `attendanceLive` to the factory import, add `attendanceLive: live = null` to `mountHub`'s options, and add the handler beside the week's — **above** the bare `/hub` handler, as the comment there requires:
 
@@ -1074,12 +1074,12 @@ In `tests/frontend/helpers/hub.js`: add `attendanceLive` to the factory import, 
     http.get("/hub/attendance/live", () => answer(live ?? attendanceLive())),
 ```
 
-- [ ] **Step 6: Run the endpoint suite**
+- [x] **Step 6: Run the endpoint suite**
 
 Run: `npx vitest run tests/frontend/unit/api.endpoints.test.js tests/frontend/views/hubTimesheetsTab.test.js`
 Expected: PASS — the fixture addition must not change any existing count.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/static/api.js tests/frontend/helpers/
@@ -1099,7 +1099,7 @@ git commit -m "feat(attendance): api.js wrapper and fixtures for the live roster
 - Consumes: the `attendanceLive()` shape from Task 5.
 - Produces: `mountHubAttendanceRoster(container, payload)`, `startHubRosterTicking()`, `stopHubRosterTicking()`, `destroyHubAttendanceRoster()`. Tasks 7 and 9 import all four.
 
-- [ ] **Step 1: Write the failing view test**
+- [x] **Step 1: Write the failing view test**
 
 Create `tests/frontend/views/hubAttendanceRoster.test.js`. This view is mounted directly (no hub shell), so it uses `mountView` on a bare container rather than `openHub` — model the harness on `tests/frontend/views/hubAttendancePunchEditor.test.js`, which does the same for its payload-in view. Read that file first and match its setup exactly.
 
@@ -1204,12 +1204,12 @@ describe("the roster strip", () => {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `npx vitest run tests/frontend/views/hubAttendanceRoster.test.js`
 Expected: FAIL — cannot resolve `hubAttendanceRoster.js`.
 
-- [ ] **Step 3: Write the view**
+- [x] **Step 3: Write the view**
 
 Create `backend/static/views/hubAttendanceRoster.js`:
 
@@ -1391,7 +1391,7 @@ export function destroyHubAttendanceRoster() {
 }
 ```
 
-- [ ] **Step 4: Add the CSS**
+- [x] **Step 4: Add the CSS**
 
 Append to `backend/static/styles.css`, after the `.hub-compare-*` block. Use the existing status-hue custom properties — read the `.hub-compare-flag-outside` rule and `docs/design-system.md` first and reuse the tokens already defined there rather than introducing new hex values.
 
@@ -1421,12 +1421,12 @@ Append to `backend/static/styles.css`, after the `.hub-compare-*` block. Use the
 .hub-roster-absent-list { margin: 0.4rem 0 0; padding-left: 1.2rem; }
 ```
 
-- [ ] **Step 5: Run the view test**
+- [x] **Step 5: Run the view test**
 
 Run: `npx vitest run tests/frontend/views/hubAttendanceRoster.test.js`
 Expected: PASS, all ten.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/static/views/hubAttendanceRoster.js backend/static/styles.css tests/frontend/views/hubAttendanceRoster.test.js
@@ -1445,7 +1445,7 @@ git commit -m "feat(attendance): the live roster strip, ticking from the idle an
 - Consumes: `apiGetHubAttendanceLive` (Task 5); `mountHubAttendanceRoster` / `destroyHubAttendanceRoster` / `startHubRosterTicking` / `stopHubRosterTicking` (Task 6); `EVENT_ATTENDANCE_CHANGED`'s wire name `"attendance.changed"` (Task 3).
 - Produces: `hubTimesheetsTab.refreshTimesheetsLive(panelEl)` — a background refetch that is a no-op unless the comparison feature is showing. `userHub.js` calls it.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/frontend/views/hubTimesheetsTab.test.js`, inside the `describe("Admin", ...)` block:
 
@@ -1500,12 +1500,12 @@ Append to `tests/frontend/views/hubTimesheetsTab.test.js`, inside the `describe(
 
 `connectHub` and `http` / `HttpResponse` are already imported by this file if the crew arms use them; add whatever is missing to its import block.
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `npx vitest run tests/frontend/views/hubTimesheetsTab.test.js`
 Expected: FAIL — no `/hub/attendance/live` request is ever made.
 
-- [ ] **Step 3: Give the comparison view a roster mount**
+- [x] **Step 3: Give the comparison view a roster mount**
 
 In `backend/static/views/hubAttendanceCompare.js`: import `mountHubAttendanceRoster`, widen the signature, and put the mount node at the top of the section.
 
@@ -1537,7 +1537,7 @@ and after the `container.innerHTML = ...` assignment, before the three `addEvent
 
 Extend the module header with two sentences naming the strip and that cadence.
 
-- [ ] **Step 4: Hold the live payload in the tab**
+- [x] **Step 4: Hold the live payload in the tab**
 
 In `backend/static/views/hubTimesheetsTab.js`:
 
@@ -1629,7 +1629,7 @@ subscribe("attendance.changed", ({ activePage }) => {
 });
 ```
 
-- [ ] **Step 5: Hang the poll and the tick lifecycle off userHub.js**
+- [x] **Step 5: Hang the poll and the tick lifecycle off userHub.js**
 
 In `backend/static/views/userHub.js`:
 
@@ -1662,7 +1662,7 @@ In the `visibilitychange` listener, beside the clock's two calls:
   if (latestPayload) startCrewSafetyRefresh();
 ```
 
-- [ ] **Step 6: Add the comparison-view arm**
+- [x] **Step 6: Add the comparison-view arm**
 
 Append to `tests/frontend/views/hubAttendanceCompare.test.js`:
 
@@ -1686,12 +1686,12 @@ Append to `tests/frontend/views/hubAttendanceCompare.test.js`:
 
 Match the existing file's `mount(...)` helper name and its cleanup — read it first; if its `afterEach` asserts zero timers, add `destroyHubAttendanceRoster()` to that teardown.
 
-- [ ] **Step 7: Run the frontend hub suites**
+- [x] **Step 7: Run the frontend hub suites**
 
 Run: `npx vitest run tests/frontend/views/hubTimesheetsTab.test.js tests/frontend/views/hubAttendanceCompare.test.js tests/frontend/views/hubAttendanceRoster.test.js tests/frontend/views/userHub.test.js`
 Expected: PASS, and no suite leaves a timer behind.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/static/views/ tests/frontend/views/
@@ -1709,7 +1709,7 @@ git commit -m "feat(attendance): the roster above Charged vs clocked, polled and
 - Modify: `backend/app/domain/errors.py:356-370`, `backend/app/routers/_errors.py:51-52,110-111`
 - Modify: `backend/tests/test_hub_service.py`, `backend/tests/test_hub_router.py` — delete the timesheet arms
 
-- [ ] **Step 1: Confirm the blast radius before deleting anything**
+- [x] **Step 1: Confirm the blast radius before deleting anything**
 
 ```bash
 cd backend && python -m pytest -q 2>&1 | tail -3
@@ -1720,7 +1720,7 @@ Expected: a green baseline, and a reference list matching the four modules and t
 
 Record the baseline test count; Step 6 compares against it.
 
-- [ ] **Step 2: Delete the two routes and their four helpers**
+- [x] **Step 2: Delete the two routes and their four helpers**
 
 In `backend/app/routers/hub.py`, remove `_default_range`, `_resolve_range`, `_filename_slug`, `_timesheet_filename`, `get_hub_timesheets` and `export_hub_timesheets` (the contiguous block from `def _default_range` through the end of `export_hub_timesheets`), drop `HubTimesheetResponse` from the `app.schemas.hub` import, and drop `date` from the `datetime` import only if nothing else in the file still uses it — `get_hub_attendance_week` does, so it stays.
 
@@ -1740,7 +1740,7 @@ double-close a session. Every `/hub/attendance/*` read is the exception and
 writes nothing at all.
 ```
 
-- [ ] **Step 3: Delete the service and schema layers**
+- [x] **Step 3: Delete the service and schema layers**
 
 In `backend/app/services/hub.py`, remove the contiguous block from `MAX_TIMESHEET_RANGE_DAYS = 92` through the end of `timesheet_csv`, and remove `from app.domain.errors import TimesheetRangeInvalidError, TimesheetRangeTooLargeError` (line 30). Leave `labor_summary.crew_range_summaries` and every other import alone — `attendance_compare` is its caller now.
 
@@ -1748,13 +1748,13 @@ In `backend/app/schemas/hub.py`, delete `HubTimesheetRange`, `HubTimesheetDay`, 
 
 In `backend/app/domain/errors.py`, delete `TimesheetRangeInvalidError` and `TimesheetRangeTooLargeError`. In `backend/app/routers/_errors.py`, delete both names from the import block and both rows from the status map.
 
-- [ ] **Step 4: Delete the tests that covered them**
+- [x] **Step 4: Delete the tests that covered them**
 
 In `backend/tests/test_hub_service.py`: delete the twelve `test_timesheets_hub_*` / `test_timesheet_csv_*` functions (lines ~1201–1440) and the `TimesheetRangeInvalidError, TimesheetRangeTooLargeError` import.
 
 In `backend/tests/test_hub_router.py`: delete the `HubTimesheetPayload` fixture (line ~29) and every arm that monkeypatches `"timesheets_hub"` or requests `/hub/timesheets`.
 
-- [ ] **Step 5: Add the tripwire that keeps them gone**
+- [x] **Step 5: Add the tripwire that keeps them gone**
 
 Append to `backend/tests/test_hub_router.py`:
 
@@ -1773,14 +1773,14 @@ def test_the_timesheet_routes_are_gone():
 
 Add the `APIRoute` import if the file lacks it.
 
-- [ ] **Step 6: Run the whole backend suite**
+- [x] **Step 6: Run the whole backend suite**
 
 Run: `cd backend && python -m pytest -q`
 Expected: PASS, with the collected count down by exactly the arms removed in Step 4 plus one for the tripwire. A failure anywhere outside the files touched here means Step 1's reference list was incomplete — fix the reference, not the failing test.
 
 Note: `test_cascade_deletes_with_user` fails on a dev database carrying real cloud-session rows. That is environmental and pre-existing; if it is the only red, say so rather than chasing it.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/
@@ -1796,7 +1796,7 @@ git commit -m "refactor(attendance): retire GET /hub/timesheets and its range er
 - Modify: `backend/static/api.js` (both wrappers), `backend/static/tips.js` (`hub.timesheets`), `backend/static/views/hubTimesheetsTab.js` (the `crew` half), `backend/static/views/userHub.js` (the tab's floor)
 - Modify: `tests/frontend/helpers/endpointTable.js`, `helpers/factories.js`, `helpers/hub.js`, `unit/api.shapes.test.js`, `views/hubTimesheetsTab.test.js`, `views/userHub.test.js`
 
-- [ ] **Step 1: Write the failing floor test**
+- [x] **Step 1: Write the failing floor test**
 
 In `tests/frontend/views/userHub.test.js`, replace the arm that asserts a Supervisor sees the Timesheets tab with:
 
@@ -1817,12 +1817,12 @@ Match the file's own mount/teardown idiom — if it cannot mount twice in one te
 
 In `tests/frontend/views/hubTimesheetsTab.test.js`, delete the whole `describe("below Admin", ...)` block and every arm that queries `/hub/timesheets`, and change the sub-nav count assertion from three buttons to two.
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `npx vitest run tests/frontend/views/userHub.test.js tests/frontend/views/hubTimesheetsTab.test.js`
 Expected: FAIL — the tab is still visible to a supervisor and the sub-nav still has three buttons.
 
-- [ ] **Step 3: Delete the view, the wrappers and the tip**
+- [x] **Step 3: Delete the view, the wrappers and the tip**
 
 ```bash
 git rm backend/static/views/hubTimesheets.js tests/frontend/views/hubTimesheets.test.js
@@ -1830,7 +1830,7 @@ git rm backend/static/views/hubTimesheets.js tests/frontend/views/hubTimesheets.
 
 In `backend/static/api.js`, delete `apiGetHubTimesheets` and `apiExportHubTimesheets`. In `backend/static/tips.js`, delete the `"hub.timesheets"` entry — its only `tipHtml` caller went with the view, and `tips.test.js` audits used keys, not unused ones.
 
-- [ ] **Step 4: Cut the `crew` half out of the tab**
+- [x] **Step 4: Cut the `crew` half out of the tab**
 
 In `backend/static/views/hubTimesheetsTab.js`, delete: the `apiGetHubTimesheets` and `mountHubTimesheets` imports, `crewPayload` / `crewRange` / `crewRequestId`, `skeletonGrid`'s `cardCount` default if nothing else uses it, `canSeeHours`, `renderCrew`, `showCrewError`, `loadCrew`, and the crew arms of `buildShell`, `showFeature`, `renderTimesheetsTab` and `resetTimesheetsTab`.
 
@@ -1867,7 +1867,7 @@ function showFeature(panelEl, feature) {
 
 Rewrite the module header: two sub-features, both Admin+, both reading one `GET /hub/attendance/week`; the roster is the comparison's own payload on its own cadence; `GET /hub/timesheets` is gone.
 
-- [ ] **Step 5: Move the tab to Admin+ in userHub.js**
+- [x] **Step 5: Move the tab to Admin+ in userHub.js**
 
 In `backend/static/views/userHub.js`, add a floor of its own beside the other three in `loadUserHub`:
 
@@ -1883,7 +1883,7 @@ Then change three uses: the reset guard becomes `if (userChanged || !canViewTime
 
 Update the module header's second paragraph: the Timesheets tab is Admin+, not Supervisor+.
 
-- [ ] **Step 6: Clean the test harness**
+- [x] **Step 6: Clean the test harness**
 
 - `tests/frontend/helpers/endpointTable.js` — delete the two `apiGetHubTimesheets` / `apiExportHubTimesheets` rows.
 - `tests/frontend/helpers/factories.js` — delete `hubTimesheets`.
@@ -1891,12 +1891,12 @@ Update the module header's second paragraph: the Timesheets tab is Admin+, not S
 - `tests/frontend/unit/api.shapes.test.js` — delete the two timesheet arms (~lines 56, 145-147).
 - `tests/frontend/views/userHub.test.js` — delete every remaining `/hub/timesheets` assertion (lines ~101, 150-158, 256-259) and the `hubTimesheets` import.
 
-- [ ] **Step 7: Run the whole frontend suite**
+- [x] **Step 7: Run the whole frontend suite**
 
 Run: `npx vitest run`
 Expected: PASS. The file count drops by one (`hubTimesheets.test.js`) and rises by one (`hubAttendanceRoster.test.js`); the test count drops by the arms deleted here.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add -A backend/static tests/frontend
@@ -1913,7 +1913,7 @@ git commit -m "refactor(attendance): delete the crew timesheet view and move Tim
 
 Living docs are current-truth only: state what is true now and delete the rest. Budgets — `current-state.md` 16,500 words, `endpoint-map.md` 11,000, `open-work.md` 12,000. This task deletes more than it adds, so all three should come in under.
 
-- [ ] **Step 1: `docs/endpoint-map.md`**
+- [x] **Step 1: `docs/endpoint-map.md`**
 
 - Delete rows **H3** and **H4**.
 - Add a row for `GET /hub/attendance/live` after H12, numbered H13: **admin only**, `hub.py` → `attendance_live.roster` → `domain.attendance.shift_state` + `work_orders.capped_session_end`; reads attendance_punches, users, work_order_labor_sessions, work_orders — side-effect-free, no sweep, no row locks, no commit; `apiGetHubAttendanceLive`; `hubTimesheetsTab.js`, `hubAttendanceCompare.js`, `hubAttendanceRoster.js`.
@@ -1921,11 +1921,11 @@ Living docs are current-truth only: state what is true now and delete the rest. 
 - Delete the `HubTimesheetResponse` section (~923-939) and add an `AttendanceLiveResponse` section beside `AttendanceWeekResponse`: the two lists, the three counts, `idle_red_minutes`, and that exactly one of `idle_since` / `charging_since` is set per on-shift entry.
 - Realtime tables (~754): add `attendance.changed` | Admin+ | the six punch writes; always `id: null` | `hubTimesheetsTab.js`. Update the `id`-is-null note at ~734 to name both always-null events.
 
-- [ ] **Step 2: `docs/notification-events.md`**
+- [x] **Step 2: `docs/notification-events.md`**
 
 Add a row beside `labor.session.changed` (~275): `attendance.changed` | any caller authorized for the write | `punch-in`, `punch-out`, `self-close`, and the three `/hub/attendance/punches` writes | connected clients at **Admin** and above.
 
-- [ ] **Step 3: `docs/current-state.md`**
+- [x] **Step 3: `docs/current-state.md`**
 
 Find and rewrite every passage describing the Timesheets tab as Supervisor+ or naming the crew timesheet grid. The tab is Admin+ with two sub-tabs: **Hours** (clocked, with the audited punch editor) and **Charged vs clocked** (the roster strip over the comparison grid, with the CSV). Delete the `GET /hub/timesheets` description rather than marking it removed.
 
@@ -1933,7 +1933,7 @@ Find and rewrite every passage describing the Timesheets tab as Supervisor+ or n
 grep -n "timesheet\|Timesheet" docs/current-state.md
 ```
 
-- [ ] **Step 4: `docs/open-work.md`**
+- [x] **Step 4: `docs/open-work.md`**
 
 Close **IMP-041**. The three P4b bullets are done; what survives is the residue, which keeps its reasons:
 
@@ -1963,7 +1963,7 @@ reason, not a reminder:
   complete and keyboard-accessible, and the dial is optional polish.
 ```
 
-- [ ] **Step 5: Correct the inherited miscount**
+- [x] **Step 5: Correct the inherited miscount**
 
 P4a's plan and `open-work.md` both said "the four self-scoped punch routes". One of those four is `GET /attendance/me`, a read. The tripwire test in Task 4 records the correction; make sure no doc still says four.
 
@@ -1971,11 +1971,11 @@ P4a's plan and `open-work.md` both said "the four self-scoped punch routes". One
 grep -rn "four self-scoped" docs/
 ```
 
-- [ ] **Step 6: Tick this plan**
+- [x] **Step 6: Tick this plan**
 
 Mark every `- [ ]` in this file `- [x]`.
 
-- [ ] **Step 7: Run everything**
+- [x] **Step 7: Run everything**
 
 ```bash
 cd backend && python -m pytest -q
@@ -1984,7 +1984,7 @@ cd .. && npx vitest run
 
 Expected: both green. The frontend baseline before this plan is 88 files; it stays 88 (one deleted, one added). If `test_cascade_deletes_with_user` is red, confirm it is the known environmental failure on a dev database with real cloud-session rows and say so — do not fix it here.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add docs/

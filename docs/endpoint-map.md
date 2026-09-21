@@ -124,11 +124,9 @@ writes (w).
 | H1 | GET | `/hub` | any authenticated | `hub.py` → `hub.personal_hub` → `work_orders.sweep_stale_sessions` + `labor_summary.day_summary` + `tools.user_custody_detail` | work_order_labor_sessions (r/w on sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), tool_transactions (r), tools (r), users (r) | `apiGetHub` | `userHub.js`, `hubClock.js`, `hubTechnician.js` |
 | H2 | GET | `/hub/crew` | supervisor+ | `hub.py` → `hub.crew_hub` → `work_orders.sweep_stale_sessions` (per crew member) + `labor_summary.crew_day_summaries` + `labor_summary.last_worked` | work_order_labor_sessions (r/w on per-member sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), users (r) | `apiGetHubCrew` | `userHub.js`, `hubSupervisor.js` |
 | H2a | GET | `/hub/admin` | techfm_oa+ | `hub.py` → `hub.admin_hub` → `work_orders.sweep_stale_sessions` (global) + `labor_summary` day totals | work_order_labor_sessions (r/w on sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), users (r) | `apiGetHubAdmin` | `userHub.js`, `hubAdmin.js` |
-| H3 | GET | `/hub/timesheets` | supervisor+ | `hub.py` → `hub.timesheets_hub` → `work_orders.sweep_stale_sessions` (per crew member) + `labor_summary.crew_range_summaries` | work_order_labor_sessions (r/w on per-member sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), users (r) | `apiGetHubTimesheets` | `userHub.js`, `hubTimesheets.js` |
-| H4 | GET | `/hub/timesheets/export` | supervisor+ | `hub.py` → `hub.timesheets_hub` + `hub.timesheet_csv` | same as H3 | `apiExportHubTimesheets` | `hubTimesheets.js` |
 | H5 | GET | `/hub/graphs?weeks=12\|26\|52` | techfm_oa+ | `hub.py` → `hub.graphs_hub` → shared graph/community rules | work_orders (narrow status/location/service/timestamp projections; read-only) | `apiGetHubGraphs` | `userHub.js`, `hubGraphs.js` |
 | H6 | GET | `/hub/report?week=` | **admin only** | `hub.py` → `work_order_report.resolve_week` + `report_for_week` (frozen closed rows + live new rows) | work_orders (r), work_order_report_weeks (r/w) | `apiGetHubReport` | `userHub.js`, `hubReport.js` |
-| H7 | GET | `/hub/report/export?week=` | **admin only** | `hub.py` → same as H6 + `work_order_report_xlsx.report_xlsx` | same as H6 | — (plain link, as H4 is) | `hubReport.js` |
+| H7 | GET | `/hub/report/export?week=` | **admin only** | `hub.py` → same as H6 + `work_order_report_xlsx.report_xlsx` | same as H6 | — (plain link) | `hubReport.js` |
 | H8 | GET | `/hub/attendance/week?week=` | **admin only** | `hub.py` → `work_order_report.resolve_week` + `attendance_compare.week_payload` → `attendance_week.week_payload` + `labor_summary.crew_range_summaries` (`cap_running=True`) | attendance_punches (r), users (r), work_order_labor_sessions (r), work_order_labor (r), work_orders (r) — side-effect-free: no sweep, no row locks, no commit; a forgotten clock is clipped by `work_orders.capped_session_end` on read | `apiGetHubAttendanceWeek` | `hubTimesheetsTab.js`, `hubAttendanceHours.js`, `hubAttendanceCompare.js` |
 | H9 | POST | `/hub/attendance/punches` | **admin only** | `hub.py` → `attendance.admin_add_punch` → `domain.attendance.validate_punch_window`/`find_overlap` | attendance_punches (r/w), attendance_punch_edits (w), users (r) | `apiAddAttendancePunch` | `hubAttendanceHours.js`, `hubAttendancePunchEditor.js`, `hubTimesheetsTab.js` |
 | H10 | PATCH | `/hub/attendance/punches/{id}` | **admin only** | `hub.py` → `attendance.admin_edit_punch` — an omitted field means unchanged; any change clears `needs_review`, and `needs_review=false` alone is "Looks right" | attendance_punches (r/w), attendance_punch_edits (w), users (r) | `apiEditAttendancePunch` | `hubAttendanceHours.js`, `hubAttendancePunchEditor.js`, `hubTimesheetsTab.js` |
@@ -356,11 +354,13 @@ endpoint or form exists; every other surface resolves an existing number and
   `work_order_technicians` (the same pair `_scoped_to_user` uses), so hub
   counts and the Work Orders page cannot disagree. `HubCounts` are a total and
   two subsets, not three buckets.
-- `GET /hub`, `/hub/crew`, `/hub/timesheets` are **not side-effect-free**:
-  each sweeps stale sessions before reading (H1 for the caller; H2/H3 per
-  crew member individually), bounded to ≤1 row per person by the partial
-  unique index, idempotent, under the stop path's row lock. Sweeping never
-  auto-holds, and a swept session still closes at `started_at + 720min`.
+- `GET /hub` and `/hub/crew` are **not side-effect-free**: each sweeps stale
+  sessions before reading (H1 for the caller; H2 per crew member
+  individually), bounded to ≤1 row per person by the partial unique index,
+  idempotent, under the stop path's row lock. Sweeping never auto-holds, and
+  a swept session still closes at `started_at + 720min`. Every
+  `/hub/attendance/*` read is the exception and writes nothing: a forgotten
+  clock is clipped by `work_orders.capped_session_end` on the way out.
 - Crew board: membership derives from routing — distinct technicians on
   non-archived work orders the caller supervises; the caller's own row is
   excluded from cards and `crew_minutes_today`. `last_worked` = most recent
@@ -380,7 +380,9 @@ endpoint or form exists; every other surface resolves an existing number and
   `archived_at − created_at`.
 - `labor.session.changed` (audience Supervisor+) fires from both tracking
   routes after every clock start/stop with `id: null`; recipients refetch the
-  crew board. See `docs/notification-events.md`.
+  crew board. `attendance.changed` (audience Admin) fires from the six punch
+  writes, also with `id: null`; the Charged vs clocked sub-tab refetches the
+  roster and the week. See `docs/notification-events.md`.
 
 ### Mass staging / tools
 - Stage delete cascades slots/items but never reverses dispenses. Reuse
@@ -731,8 +733,8 @@ additive change. The socket never mutates anything (P3, permanent).
 
 | Key | Type | Meaning |
 |---|---|---|
-| `type` | `str` | event name — one of the five in the vocabulary table below |
-| `id` | `str \| null` | the affected work-order UUID, or `null` for collection/membership commands (CSV import, bulk legacy archive, restore — and always for `labor.session.changed`) |
+| `type` | `str` | event name — one of the six in the vocabulary table below |
+| `id` | `str \| null` | the affected work-order UUID, or `null` for collection/membership commands (CSV import, bulk legacy archive, restore — and always for `labor.session.changed` and `attendance.changed`) |
 | `req` | `str` | the 12-hex request id of the HTTP write that caused it, copied from `logging_config.current_request_id()` so the socket event stays on the causal trace |
 
 The envelope deliberately carries **no row data and no actor**. It is a cache
@@ -743,7 +745,7 @@ server-side at send time (`domain/realtime.audience_allows`); it is delivery
 policy, not a security boundary — the envelope has nothing to leak, and an
 out-of-scope refetch returns nothing.
 
-**Event vocabulary and emitters** — five types, all emitted after the
+**Event vocabulary and emitters** — six types, all emitted after the
 mutating service returns. `test_realtime_emit.py` pins each emitter set; a new
 route that can change what a subscriber shows must join the right set
 deliberately:
@@ -753,6 +755,7 @@ deliberately:
 | `work_order.review_queue.changed` | TechFM OA+ | import, bulk legacy archive, update, archive, restore | `adminReview.js` |
 | `work_order.status.changed` | any role | those six plus start, complete, hold, resume, tracking start/stop — card **summary** invalidation (status/assignee/item count); tracking start also emits for a side-transitioned row | `workOrderList.js`, `userHub.js` |
 | `labor.session.changed` | Supervisor+ | exactly the two tracking routes; always `id: null` | `userHub.js` (crew board) |
+| `attendance.changed` | Admin+ | the six punch writes — `punch-in`, `punch-out`, `self-close` and the three `/hub/attendance/punches` writes; always `id: null` | `hubTimesheetsTab.js` |
 | `item.low_stock.changed` | TechFM OA+ | any stock write that crosses an item's threshold, and a threshold edit; `id` is the item | `lowStock.js` |
 | `user_request.changed` | Technician+ | filing, mark-stocked, cancel, PATCH, fulfil, every stock write that crosses zero for a requested item, add-from-line; `id` is the request | `userRequests.js`, `userHub.js`, `workOrderRequests.js` |
 
@@ -921,25 +924,6 @@ blocks, and the six raw columns `WORK ORDER | ASSIGNED TO | LOCATION | SERVICE
 TYPE | SCHEDULE DATE | PRIORITY`. The final sheet is always present and says
 `No new work orders this week.` when empty. No CSV or re-import path.
 
-**`HubTimesheetResponse`** — `GET /hub/timesheets` (supervisor+; P3b scopes
-every caller to their own routed crew): `range: HubTimesheetRange`, `rows:
-list[HubTimesheetRow] = []`, and `crew_totals_by_day:
-list[HubTimesheetDayTotal] = []`. The range is inclusive Central calendar
-dates, defaults to the current Monday–Sunday week, and is capped at 92 days.
-The two range-spanning source queries use `MAX_LIST_ROWS` and emit the shared
-`list.truncated` warning if that ceiling bites.
-
-**`HubTimesheetRow`**: `user: HubUser`, `days: list[HubTimesheetDay]`, and
-`total_minutes`. **`HubTimesheetDay`** carries `date`, `tracked_minutes`,
-`adjustment_minutes`, computed `total_minutes`, `flags`, and the session plus
-adjustment rows used by the inline drill-down. D15 applies at every level:
-cell, row, crew, and CSV totals all include adjustments. `running` marks a
-cell with an open clock; `assigned_idle` is never applied to a future day.
-
-**`HubTimesheetDayTotal`**: `date`, `minutes` — the adjustment-aware crew
-sum for one day. `GET /hub/timesheets/export` serializes the same payload as
-`H:MM` CSV named `timesheet_<start>_to_<end>[_<user>].csv`.
-
 ### Attendance (`schemas/attendance.py`)
 
 **`AttendanceWeekResponse`** — `GET /hub/attendance/week` (**admin only**),
@@ -975,6 +959,22 @@ here would be an approximation of an invoice in a column that reads as a fact.
 `end_source?`, `needs_review`, `minutes` (clipped to that day), `carried`
 (true on every day after the one it started on — §9 gives the punch to the
 day it started, and it is editable only there), `open`.
+
+**`AttendanceLiveResponse`** — `GET /hub/attendance/live` (**admin only**, no
+parameters). `on_shift` and `absent` are two lists of `AttendanceLiveEntry`,
+both covering `WORK_ORDER_TECHNICIAN_ROLES` only; plus `on_shift_count`,
+`charging_count`, `idle_count`, `server_now`, and `idle_red_minutes` (the
+threshold, sent so the client can recolour a card between polls). `on_shift`
+arrives sorted red → yellow → green, longest idle first; the client never
+re-sorts it.
+
+**`AttendanceLiveEntry`**: `user: HubUser`, `state`, `punch_started_at?`,
+`idle_since?`, `idle_minutes`, `charging_since?`, `work_order_number?`.
+Exactly one of `idle_since` / `charging_since` is set on an on-shift entry
+and neither on an absent one — that is the instant the browser ticks from.
+An open labor session past `LABOR_SESSION_MAX_MINUTES` is **not** charging:
+`work_orders.capped_session_end` decides it, and its capped end becomes the
+idle anchor.
 
 ---
 
