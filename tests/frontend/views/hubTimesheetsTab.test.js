@@ -38,7 +38,7 @@ describe("Admin", () => {
   it("opens on Hours and fetches only the attendance week", async () => {
     await openTimesheets({ role: "admin" });
     await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
-    expect(panel().querySelectorAll(".sub-nav-btn")).toHaveLength(2);
+    expect(panel().querySelectorAll(".sub-nav-btn")).toHaveLength(3);
     expect(queries("/hub/attendance/week")).toHaveLength(1);
     expect(queries("/hub/timesheets")).toHaveLength(0);
   });
@@ -127,5 +127,68 @@ describe("the Admin punch writes", () => {
     await openTimesheets({ role: "supervisor" });
     await vi.waitFor(() => expect(panel().querySelector(".hub-timesheet-table")).not.toBeNull());
     expect(panel().querySelector(".hub-hours-edit")).toBeNull();
+  });
+});
+
+// P4a: a third Admin sub-tab reading the *same* week payload as Hours. The
+// point of every test here is the request count -- two features that each
+// fetched their own week could disagree about payroll.
+describe("Charged vs clocked", () => {
+  const edited = {
+    id: "punch-1", started_at: "2026-09-14T13:00:00.000Z",
+    ended_at: "2026-09-14T21:00:00.000Z", start_source: "manual",
+    end_source: "admin_edit", needs_review: false,
+  };
+
+  it("gives an Admin three sub-tabs, opening on Hours", async () => {
+    await openTimesheets({ role: "admin" });
+    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
+    expect([...panel().querySelectorAll(".sub-nav-btn")].map((b) => b.dataset.feature))
+      .toEqual(["hours", "compare", "crew"]);
+  });
+
+  it("reuses the week already fetched for Hours instead of fetching twice", async () => {
+    await openTimesheets({ role: "admin" });
+    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
+    await user().click(panel().querySelector('.sub-nav-btn[data-feature="compare"]'));
+    await vi.waitFor(() => expect(panel().querySelector(".hub-compare-table")).not.toBeNull());
+    expect(queries("/hub/attendance/week")).toHaveLength(1);
+  });
+
+  it("pages the week from the comparison and lands Hours on the same week", async () => {
+    await openTimesheets({ role: "admin" });
+    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
+    await user().click(panel().querySelector('.sub-nav-btn[data-feature="compare"]'));
+    await vi.waitFor(() => expect(panel().querySelector(".hub-compare-table")).not.toBeNull());
+    await user().click(panel().querySelector(".hub-compare-prev"));
+    await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
+    expect(queries("/hub/attendance/week")[1]).toEqual({ week: "2026-09-07" });
+
+    await user().click(panel().querySelector('.sub-nav-btn[data-feature="hours"]'));
+    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
+    expect(queries("/hub/attendance/week")).toHaveLength(2);
+  });
+
+  it("repaints both sub-tabs from one refetch after a punch edit", async () => {
+    await openTimesheets({
+      role: "admin",
+      handlers: [http.patch("/hub/attendance/punches/:id", () => HttpResponse.json(edited))],
+    });
+    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
+    await user().click(panel().querySelector(".hub-hours-cell"));
+    await user().click(panel().querySelector(".hub-hours-edit"));
+    await user().click(panel().querySelector(".punch-editor-save"));
+    await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
+
+    await user().click(panel().querySelector('.sub-nav-btn[data-feature="compare"]'));
+    await vi.waitFor(() => expect(panel().querySelector(".hub-compare-table")).not.toBeNull());
+    expect(queries("/hub/attendance/week")).toHaveLength(2);
+  });
+
+  it("gives a Supervisor no comparison sub-tab and no attendance fetch", async () => {
+    await openTimesheets({ role: "supervisor" });
+    await vi.waitFor(() => expect(panel().querySelector(".hub-timesheet-table")).not.toBeNull());
+    expect(panel().querySelector('[data-feature="compare"]')).toBeNull();
+    expect(queries("/hub/attendance/week")).toHaveLength(0);
   });
 });

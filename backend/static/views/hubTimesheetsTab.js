@@ -4,16 +4,21 @@
 // lazy loads, caches and request counters -- the machinery that used to live
 // in userHub.js beside four other tabs' copies of it.
 //
-// Two sub-features today:
-//   hours -- P2's read-only clocked-hours grid, `GET /hub/attendance/week`,
-//            Admin+ only, because it is the pay record (D1).
-//   crew  -- the existing Supervisor+ charged-time grid, `GET /hub/timesheets`.
+// Three sub-features today:
+//   hours   -- P2's read-only clocked-hours grid, Admin+ only, because it is
+//              the pay record (D1).
+//   compare -- P4a's **Charged vs clocked** grid, Admin+ for the same reason.
+//   crew    -- the existing Supervisor+ charged-time grid,
+//              `GET /hub/timesheets`.
+//
+// `hours` and `compare` read **one** payload from `GET /hub/attendance/week`,
+// held in a single cache below. That is not an optimisation: two features
+// fetching their own week could show payroll two different answers, and
+// nothing downstream would notice the disagreement.
 //
 // Below Admin there is no sub-nav: one button is not a navigation, and the
-// crew grid then renders exactly as it did before this module existed. P4
-// replaces `crew` with **Charged vs clocked** and retires
-// `GET /hub/timesheets` (D6); the swap is confined to this file plus the
-// module it mounts.
+// crew grid then renders exactly as it did before this module existed. P4b
+// removes `crew` and retires `GET /hub/timesheets` (D6).
 //
 // The shell is built once and `initSubNav` wired once -- rebuilding the
 // panel's innerHTML would drop that listener. Each feature renders into its
@@ -29,15 +34,17 @@ import {
 import { escapeHtml, friendlyError } from "../format.js";
 import { roleAtLeast } from "../roles.js";
 import { skeletonCard } from "../skeleton.js";
+import { mountHubAttendanceCompare } from "./hubAttendanceCompare.js";
 import { mountHubAttendanceHours } from "./hubAttendanceHours.js";
 import { mountHubTimesheets } from "./hubTimesheets.js";
 import { initSubNav } from "./subnav.js";
 
 let viewerRole = null;
 
-let hoursPayload = null;
-let hoursWeek = null;
-let hoursRequestId = 0;
+// One cache for both Admin features -- see the header.
+let weekPayload = null;
+let week = null;
+let weekRequestId = 0;
 
 let crewPayload = null;
 let crewRange = null;
@@ -61,13 +68,15 @@ function buildShell(panelEl, role) {
   const nav = canSeeHours(role)
     ? `<nav class="sub-nav hub-sub-nav" aria-label="Timesheet views">
          <button type="button" class="sub-nav-btn active" data-feature="hours">Hours</button>
+         <button type="button" class="sub-nav-btn" data-feature="compare">Charged vs clocked</button>
          <button type="button" class="sub-nav-btn" data-feature="crew">Crew time</button>
        </nav>`
     : "";
-  const hoursPanel = canSeeHours(role)
+  const adminPanels = canSeeHours(role)
     ? `<section class="feature-panel" data-feature="hours"></section>`
+      + `<section class="feature-panel" data-feature="compare" hidden></section>`
     : "";
-  panelEl.innerHTML = `${nav}${hoursPanel}<section class="feature-panel" data-feature="crew"${canSeeHours(role) ? " hidden" : ""}></section>`;
+  panelEl.innerHTML = `${nav}${adminPanels}<section class="feature-panel" data-feature="crew"${canSeeHours(role) ? " hidden" : ""}></section>`;
   panelEl.dataset.timesheetsRole = role;
   delete panelEl.dataset.activeFeature;
   initSubNav(panelEl, {
@@ -78,7 +87,7 @@ function buildShell(panelEl, role) {
   });
 }
 
-// --- Hours ---------------------------------------------------------------
+// --- The attendance week: Hours and Charged vs clocked -------------------
 
 // The write path is deliberately dumb: call, then refetch the week. The
 // grid holds no optimistic state, so a 409 leaves exactly what the server
@@ -86,7 +95,7 @@ function buildShell(panelEl, role) {
 async function write(panelEl, work) {
   try {
     await work();
-    await loadHours(panelEl);
+    await loadWeek(panelEl);
   } catch (err) {
     const message = panelEl.querySelector(".punch-editor-message");
     if (message) {
@@ -95,14 +104,14 @@ async function write(panelEl, work) {
     } else {
       // No editor open -- a "Looks right" click, whose refusal has nowhere
       // else to go, so it replaces the grid with the retryable load error.
-      showHoursError(panelEl, err);
+      showWeekError(panelEl, err);
     }
   }
 }
 
 function renderHours(panelEl) {
   const mount = featurePanel(panelEl, "hours");
-  if (!mount || !hoursPayload) return;
+  if (!mount || !weekPayload) return;
   // The four write callbacks are passed only to an Admin, and the grid
   // renders an affordance only for a callback it was given -- so the floor
   // is expressed once, here, rather than re-derived inside the view.
@@ -114,39 +123,60 @@ function renderHours(panelEl) {
       onClearReview: (id) => write(panelEl, () => apiEditAttendancePunch(id, { needsReview: false })),
     }
     : {};
-  mountHubAttendanceHours(mount, hoursPayload, {
-    onWeekChange: (week) => {
-      hoursWeek = week;
-      void loadHours(panelEl);
-    },
+  mountHubAttendanceHours(mount, weekPayload, {
+    onWeekChange: changeWeek(panelEl),
     ...writes,
   });
 }
 
-function showHoursError(panelEl, err) {
-  const mount = featurePanel(panelEl, "hours");
+// Both Admin features page the week through the same setter, so a step taken
+// in one is already taken when the other is opened.
+function changeWeek(panelEl) {
+  return (nextWeek) => {
+    week = nextWeek;
+    void loadWeek(panelEl);
+  };
+}
+
+function renderCompare(panelEl) {
+  const mount = featurePanel(panelEl, "compare");
+  if (!mount || !weekPayload) return;
+  mountHubAttendanceCompare(mount, weekPayload, { onWeekChange: changeWeek(panelEl) });
+}
+
+// Paint whichever Admin feature is showing, from the one cached week.
+function renderWeek(panelEl) {
+  if (panelEl.dataset.activeFeature === "compare") renderCompare(panelEl);
+  else renderHours(panelEl);
+}
+
+// Rendered into whichever Admin feature is showing: a failed load reported
+// into a hidden panel is a blank sub-tab with no explanation.
+function showWeekError(panelEl, err, feature = panelEl.dataset.activeFeature) {
+  const mount = featurePanel(panelEl, feature === "compare" ? "compare" : "hours");
   if (!mount) return;
   const message = escapeHtml(friendlyError(err, "Could not load clocked hours."));
   mount.innerHTML = `<div class="hub-hours-load-error"><p class="hub-hours-message error">${message} <button type="button" class="secondary-btn hub-hours-retry">Retry</button></p></div>`;
   mount.querySelector(".hub-hours-retry")?.addEventListener("click", () => {
-    void loadHours(panelEl);
+    void loadWeek(panelEl);
   });
 }
 
-async function loadHours(panelEl) {
-  const mount = featurePanel(panelEl, "hours");
+async function loadWeek(panelEl) {
+  const feature = panelEl.dataset.activeFeature === "compare" ? "compare" : "hours";
+  const mount = featurePanel(panelEl, feature);
   if (!mount) return;
-  const requestId = ++hoursRequestId;
-  if (!hoursPayload) mount.innerHTML = skeletonGrid();
+  const requestId = ++weekRequestId;
+  if (!weekPayload) mount.innerHTML = skeletonGrid();
   try {
-    const payload = await apiGetHubAttendanceWeek({ week: hoursWeek });
-    if (requestId !== hoursRequestId) return;
-    hoursPayload = payload;
-    hoursWeek = payload.week_start;
-    renderHours(panelEl);
+    const payload = await apiGetHubAttendanceWeek({ week });
+    if (requestId !== weekRequestId) return;
+    weekPayload = payload;
+    week = payload.week_start;
+    renderWeek(panelEl);
   } catch (err) {
-    if (requestId !== hoursRequestId) return;
-    showHoursError(panelEl, err);
+    if (requestId !== weekRequestId) return;
+    showWeekError(panelEl, err, feature);
   }
 }
 
@@ -207,9 +237,9 @@ async function loadCrew(panelEl, { start = null, end = null } = {}) {
 // Both the sub-nav's `onShow` and a tab re-entry come through here, so
 // switching back to a sub-tab already loaded never starts a second request.
 function showFeature(panelEl, feature) {
-  if (feature === "hours") {
-    if (hoursPayload) renderHours(panelEl);
-    else void loadHours(panelEl);
+  if (feature === "hours" || feature === "compare") {
+    if (weekPayload) renderWeek(panelEl);
+    else void loadWeek(panelEl);
   } else if (crewPayload) {
     renderCrew(panelEl);
   } else {
@@ -233,9 +263,9 @@ export function renderTimesheetsTab(panelEl, { role } = {}) {
 // caches go, both request counters move so an in-flight response for the
 // previous viewer is discarded on arrival, and the panel is emptied.
 export function resetTimesheetsTab(panelEl) {
-  hoursPayload = null;
-  hoursWeek = null;
-  hoursRequestId += 1;
+  weekPayload = null;
+  week = null;
+  weekRequestId += 1;
   crewPayload = null;
   crewRange = null;
   crewRequestId += 1;
