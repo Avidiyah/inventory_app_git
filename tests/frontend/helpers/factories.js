@@ -598,11 +598,15 @@ export function attendanceWeek(overrides = {}) {
   const days = ["2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17",
                 "2026-09-18", "2026-09-19", "2026-09-20"];
   const blank = (date) => ({
-    date, clocked_minutes: 0, needs_review: false, has_open: false, punches: [],
+    date, clocked_minutes: 0, tracked_minutes: 0, delta_minutes: 0,
+    outside_shift_minutes: 0, adjustment_minutes: 0,
+    needs_review: false, has_open: false, punches: [],
   });
   const monday = {
     ...blank("2026-09-14"),
     clocked_minutes: 480,
+    tracked_minutes: 420,
+    delta_minutes: 60,
     punches: [{
       id: "punch-1",
       started_at: "2026-09-14T13:00:00Z",
@@ -624,9 +628,13 @@ export function attendanceWeek(overrides = {}) {
       user: { id: "user-1", first_name: "Ann", last_name: "Lee", role: "technician" },
       days: [monday, ...days.slice(1).map(blank)],
       total_minutes: 480,
+      tracked_minutes: 420,
+      delta_minutes: 60,
     }],
     totals_by_day: days.map((date) => ({ date, minutes: date === "2026-09-14" ? 480 : 0 })),
     total_minutes: 480,
+    tracked_minutes: 420,
+    delta_minutes: 60,
     week_hours: 168,
     ...overrides,
   };
