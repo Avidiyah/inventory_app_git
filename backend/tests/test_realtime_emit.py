@@ -462,6 +462,14 @@ def test_starting_a_clock_emits_a_labor_session_changed_envelope(monkeypatch):
     saved = SimpleNamespace(id=work_order_id)
     user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_TECHNICIAN)
     envelopes = _capture_emits(monkeypatch)
+    # The route now opens an attendance punch before starting the clock
+    # (D3). This test drives the handler directly against `db=None`, so the
+    # coupling is stubbed out the same way the labor call is.
+    monkeypatch.setattr(
+        work_orders_router.attendance_service,
+        "ensure_punch_for_labor_start",
+        lambda db, *, user: None,
+    )
     monkeypatch.setattr(
         work_orders_router.wo_service,
         "start_labor_session",

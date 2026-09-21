@@ -46,6 +46,7 @@ from app.logging_config import (
 from app.lifespan import lifespan
 from app.services import rate_limit as rate_limit_service
 from app.routers import (
+    attendance,
     auth,
     barcodes,
     hub,
@@ -303,6 +304,7 @@ async def log_request(request, call_next):
 
 # Routers register their own prefixes (`/auth`, `/items`,
 # `/transactions`, `/users`); ordering here is irrelevant.
+app.include_router(attendance.router)
 app.include_router(auth.router)
 app.include_router(barcodes.router)
 app.include_router(hub.router)

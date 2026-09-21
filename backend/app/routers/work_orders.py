@@ -71,6 +71,7 @@ from app.schemas.work_orders import (
 )
 from app.routers.user_requests import build_response as build_request_response
 from app.schemas.user_requests import UserRequestResponse
+from app.services import attendance as attendance_service
 from app.services import material_requests as material_service
 from app.services import notifications as notifications_service
 from app.services import realtime as realtime_service
@@ -1068,6 +1069,12 @@ def start_work_order_tracking(
     on a *different* work order, that one is closed here and may auto-hold.
     """
     try:
+        # D3, one way only: starting a clock off-shift opens a punch, and a
+        # stale punch refuses here rather than charging a job against a
+        # shift that began two days ago. The coupling lives in
+        # `services/attendance.py`, not inside `services/work_orders.py` --
+        # attendance knows about labor, labor knows nothing about attendance.
+        attendance_service.ensure_punch_for_labor_start(db, user=user)
         work_order = wo_service.start_labor_session(db, work_order_id, user=user)
         _emit_status_changed(work_order.id)
         _emit_labor_session_changed()
