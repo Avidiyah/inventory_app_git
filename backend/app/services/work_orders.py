@@ -2361,6 +2361,19 @@ def _running_session_for_user(
     )
 
 
+def running_labor_session_for(
+    db: Session, user_id: uuid.UUID
+) -> Optional[WorkOrderLaborSession]:
+    """The public face of `_running_session_for_user`.
+
+    `services.attendance` needs to know whether a clock is running in order to
+    force-stop it on punch-out (D3) and to color the roster. Exporting this
+    one read is what lets the dependency point *one* way: attendance knows
+    about labor, labor knows nothing about attendance.
+    """
+    return _running_session_for_user(db, user_id)
+
+
 def _session_author_name(session: WorkOrderLaborSession) -> str:
     technician = getattr(session, "technician", None)
     return technician.full_name if technician is not None else "Name unavailable"
