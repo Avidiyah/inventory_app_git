@@ -512,3 +512,132 @@ export function promptUserRole(user, options = []) {
     document.addEventListener("keydown", onKey);
   });
 }
+
+// --- Time picker ------------------------------------------------------
+//
+// Two callers earn this a place beside confirmDialog and promptUserRole
+// rather than a home inside one view: the technician's D5 self-close prompt
+// (P1) and the Admin punch edit (P3).
+//
+// Resolves a Date on `initial`'s own calendar day. A shift is picked, not
+// dated -- the day comes from the punch being corrected, and letting a
+// nudge roll past midnight would silently move a punch to another day and
+// another timesheet row.
+const promptTimeOverlay = document.getElementById("prompt-time-overlay");
+const promptTimeTitle = document.getElementById("prompt-time-title");
+const promptTimeHelp = document.getElementById("prompt-time-help");
+const promptTimeHour = document.getElementById("prompt-time-hour");
+const promptTimeMinute = document.getElementById("prompt-time-minute");
+const promptTimeMeridiem = document.getElementById("prompt-time-meridiem");
+const promptTimeMessage = document.getElementById("prompt-time-message");
+const promptTimeSave = document.getElementById("prompt-time-save");
+const promptTimeCancel = document.getElementById("prompt-time-cancel");
+
+const MINUTES_IN_DAY = 24 * 60;
+
+function fillTimeOptions() {
+  if (promptTimeHour.options.length) return;   // idempotent across calls
+  for (let h = 1; h <= 12; h += 1) {
+    const option = document.createElement("option");
+    option.value = String(h);
+    option.textContent = String(h);
+    promptTimeHour.appendChild(option);
+  }
+  for (let m = 0; m < 60; m += 1) {
+    const option = document.createElement("option");
+    option.value = String(m).padStart(2, "0");
+    option.textContent = String(m).padStart(2, "0");
+    promptTimeMinute.appendChild(option);
+  }
+}
+
+function readPromptTimeMinutes() {
+  const hour12 = Number(promptTimeHour.value) % 12;
+  const hour24 = promptTimeMeridiem.value === "PM" ? hour12 + 12 : hour12;
+  return hour24 * 60 + Number(promptTimeMinute.value);
+}
+
+function writePromptTimeMinutes(totalMinutes) {
+  // Clamped, not wrapped: see the module comment above.
+  const clamped = Math.min(MINUTES_IN_DAY - 1, Math.max(0, totalMinutes));
+  const hour24 = Math.floor(clamped / 60);
+  promptTimeHour.value = String(hour24 % 12 || 12);
+  promptTimeMinute.value = String(clamped % 60).padStart(2, "0");
+  promptTimeMeridiem.value = hour24 >= 12 ? "PM" : "AM";
+}
+
+export function promptTime({ title = "Pick a time", help = "", initial = new Date() } = {}) {
+  return new Promise((resolve) => {
+    if (!promptTimeOverlay) {
+      resolve(null);
+      return;
+    }
+    const previouslyFocused = document.activeElement;
+    const focusables = [promptTimeHour, promptTimeMinute, promptTimeMeridiem,
+                        promptTimeSave, promptTimeCancel];
+    const day = new Date(initial.getFullYear(), initial.getMonth(), initial.getDate());
+
+    fillTimeOptions();
+    promptTimeTitle.textContent = title;
+    promptTimeHelp.textContent = help;
+    writePromptTimeMinutes(initial.getHours() * 60 + initial.getMinutes());
+    setMessage(promptTimeMessage, "", "");
+    promptTimeOverlay.hidden = false;
+    promptTimeHour.focus();
+
+    const nudgeRow = promptTimeOverlay.querySelector(".prompt-time-nudge");
+
+    function onNudge(event) {
+      const btn = event.target.closest("[data-nudge]");
+      if (!btn) return;
+      writePromptTimeMinutes(readPromptTimeMinutes() + Number(btn.dataset.nudge));
+    }
+    function cleanup() {
+      promptTimeSave.removeEventListener("click", onSave);
+      promptTimeCancel.removeEventListener("click", onCancel);
+      nudgeRow.removeEventListener("click", onNudge);
+      promptTimeOverlay.removeEventListener("click", onBackdrop);
+      document.removeEventListener("keydown", onKey);
+    }
+    function done(value) {
+      promptTimeOverlay.hidden = true;
+      cleanup();
+      if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+        try { previouslyFocused.focus(); } catch (_err) { /* element removed */ }
+      }
+      resolve(value);
+    }
+    function onSave() {
+      const chosen = new Date(day);
+      // setHours(0, minutes, ...) is deliberate: one call carries both
+      // components, with no second rounding step.
+      chosen.setHours(0, readPromptTimeMinutes(), 0, 0);
+      done(chosen);
+    }
+    function onCancel() { done(null); }
+    function onBackdrop(event) { if (event.target === promptTimeOverlay) done(null); }
+    function onKey(event) {
+      if (event.key === "Escape") { done(null); return; }
+      if (event.key === "Enter" && focusables.slice(0, 3).includes(event.target)) {
+        event.preventDefault();
+        onSave();
+        return;
+      }
+      if (event.key === "Tab") {
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault(); last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault(); first.focus();
+        }
+      }
+    }
+
+    promptTimeSave.addEventListener("click", onSave);
+    promptTimeCancel.addEventListener("click", onCancel);
+    nudgeRow.addEventListener("click", onNudge);
+    promptTimeOverlay.addEventListener("click", onBackdrop);
+    document.addEventListener("keydown", onKey);
+  });
+}

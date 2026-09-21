@@ -91,6 +91,39 @@
         </div>
     </div>
 
+    <!-- Time picker (dom.js promptTime). Dropdowns plus a nudge row; P3
+         layers an analog dial over the same state. Complete and
+         keyboard-accessible without the dial, which is why it ships first. -->
+    <div id="prompt-time-overlay" class="modal-overlay" hidden>
+        <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="prompt-time-title">
+            <p id="prompt-time-title" class="modal-title">Pick a time</p>
+            <p id="prompt-time-help" class="hint"></p>
+            <div class="prompt-time-fields">
+                <label for="prompt-time-hour" class="sr-only">Hour</label>
+                <select id="prompt-time-hour"></select>
+                <span aria-hidden="true">:</span>
+                <label for="prompt-time-minute" class="sr-only">Minute</label>
+                <select id="prompt-time-minute"></select>
+                <label for="prompt-time-meridiem" class="sr-only">AM or PM</label>
+                <select id="prompt-time-meridiem">
+                    <option value="AM">AM</option>
+                    <option value="PM">PM</option>
+                </select>
+            </div>
+            <div class="prompt-time-nudge">
+                <button type="button" class="secondary-btn" data-nudge="-15">&minus;15</button>
+                <button type="button" class="secondary-btn" data-nudge="-5">&minus;5</button>
+                <button type="button" class="secondary-btn" data-nudge="5">+5</button>
+                <button type="button" class="secondary-btn" data-nudge="15">+15</button>
+            </div>
+            <p id="prompt-time-message" aria-live="polite"></p>
+            <div class="modal-buttons">
+                <button id="prompt-time-save">Save time</button>
+                <button id="prompt-time-cancel" type="button" class="secondary-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <!-- App-wide "not connected to the server" prompt. Shown by
          views/connectivityModal.js whenever api.js's rawFetch reports a
          network-level failure, or the browser's own offline event fires --

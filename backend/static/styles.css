@@ -4790,3 +4790,25 @@ details[open] > .wo-summary::before { content: "\25BE"; }
         padding: 0 var(--space-4);
     }
 }
+
+.prompt-time-fields {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-3) 0;
+}
+
+.prompt-time-fields select {
+    min-width: 72px;
+}
+
+.prompt-time-nudge {
+    display: flex;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+}
+
+.prompt-time-nudge button {
+    flex: 1;
+    min-width: 0;
+}
