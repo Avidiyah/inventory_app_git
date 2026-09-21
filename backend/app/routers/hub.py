@@ -45,6 +45,7 @@ from app.database import get_db
 from app.domain import labor_day, roles
 from app.domain.errors import DomainError
 from app.models import User
+from app.routers._attendance_events import emit_attendance_changed
 from app.routers._errors import to_http
 from app.schemas.attendance import (
     AttendanceLiveResponse,
@@ -214,7 +215,9 @@ def get_hub_attendance_week(
 
 # The audited writes behind the Hours drill-down (D2, §1). Admin floor, same
 # grounds as the week read: this is the pay record. Every one of them writes
-# `attendance_punch_edits` in the same transaction as the change.
+# `attendance_punch_edits` in the same transaction as the change, and each
+# emits `attendance.changed` after its commit, so an Admin correcting a punch
+# in one window sees the roster and the grid move in another.
 
 
 @router.post("/attendance/punches", response_model=AttendancePunchResponse)
@@ -225,12 +228,14 @@ def add_hub_attendance_punch(
 ):
     """Add a punch nobody clocked. 400 on a bad window, 409 on an overlap."""
     try:
-        return attendance_service.admin_add_punch(
+        punch = attendance_service.admin_add_punch(
             db, actor=user, user_id=payload.user_id,
             started_at=payload.started_at, ended_at=payload.ended_at,
             reason=payload.reason)
     except DomainError as exc:
         raise to_http(exc) from exc
+    emit_attendance_changed()
+    return punch
 
 
 @router.patch("/attendance/punches/{punch_id}", response_model=AttendancePunchResponse)
@@ -243,12 +248,14 @@ def edit_hub_attendance_punch(
     """Correct a punch, or clear its `needs_review` flag alone. An edit that
     changes nothing is a 400, not a silent empty audit row."""
     try:
-        return attendance_service.admin_edit_punch(
+        punch = attendance_service.admin_edit_punch(
             db, actor=user, punch_id=punch_id,
             started_at=payload.started_at, ended_at=payload.ended_at,
             needs_review=payload.needs_review, reason=payload.reason)
     except DomainError as exc:
         raise to_http(exc) from exc
+    emit_attendance_changed()
+    return punch
 
 
 @router.delete("/attendance/punches/{punch_id}", response_model=AttendancePunchResponse)
@@ -261,10 +268,12 @@ def delete_hub_attendance_punch(
     """Soft delete: the row leaves every read and keeps its audit. `reason`
     rides the query string -- a DELETE body is not reliably carried."""
     try:
-        return attendance_service.admin_delete_punch(
+        punch = attendance_service.admin_delete_punch(
             db, actor=user, punch_id=punch_id, reason=reason)
     except DomainError as exc:
         raise to_http(exc) from exc
+    emit_attendance_changed()
+    return punch
 
 
 @router.get("/attendance/export")

@@ -9,6 +9,9 @@ separate endpoints in later phases (4).
 
 `GET /attendance/me` is side-effect-free: no sweep, no row locks, unlike
 `GET /hub`. That is what will let the live roster poll it safely in P4.
+
+Every write here emits `attendance.changed` (audience Admin) so the Admin
+roster does not wait out its 60-second poll. Best-effort, after the write.
 """
 
 from fastapi import APIRouter, Depends
@@ -18,6 +21,7 @@ from app.auth_deps import get_current_user
 from app.database import get_db
 from app.domain.errors import DomainError
 from app.models import User
+from app.routers._attendance_events import emit_attendance_changed
 from app.routers._errors import to_http
 from app.schemas.attendance import (
     AttendanceMeResponse,
@@ -50,9 +54,11 @@ def punch_in(
     the blocking punch back from `GET /attendance/me` and offers the
     self-close (D5) when it is stale."""
     try:
-        return attendance_service.punch_in(db, user=user)
+        punch = attendance_service.punch_in(db, user=user)
     except DomainError as exc:
         raise to_http(exc) from exc
+    emit_attendance_changed()
+    return punch
 
 
 @router.post("/punch-out", response_model=AttendancePunchResponse)
@@ -62,9 +68,11 @@ def punch_out(
 ):
     """End the shift, force-stopping any running work-order clock (D3)."""
     try:
-        return attendance_service.punch_out(db, user=user)
+        punch = attendance_service.punch_out(db, user=user)
     except DomainError as exc:
         raise to_http(exc) from exc
+    emit_attendance_changed()
+    return punch
 
 
 @router.post("/self-close", response_model=AttendancePunchResponse)
@@ -76,6 +84,9 @@ def self_close(
     """Close a forgotten punch at a stated time (D5). The result is flagged
     `needs_review` -- an estimate, labelled as one."""
     try:
-        return attendance_service.self_close(db, user=user, ended_at=payload.ended_at)
+        punch = attendance_service.self_close(
+            db, user=user, ended_at=payload.ended_at)
     except DomainError as exc:
         raise to_http(exc) from exc
+    emit_attendance_changed()
+    return punch

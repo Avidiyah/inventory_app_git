@@ -7,6 +7,7 @@ the collection-style invalidation consumed by that view.
 
 import inspect
 import uuid
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -15,8 +16,10 @@ from fastapi import HTTPException
 
 from app.domain import realtime as realtime_policy
 from app.domain import roles
-from app.domain.errors import WorkOrderStateError
+from app.domain.errors import PunchAlreadyOpenError, WorkOrderStateError
 from app.logging_config import new_request_context, request_context
+from app.routers import attendance as attendance_router
+from app.routers import hub as hub_router
 from app.routers import work_orders as work_orders_router
 from app.schemas.work_orders import WorkOrderUpdate
 
@@ -527,3 +530,68 @@ def test_stopping_a_clock_emits_a_labor_session_changed_envelope(monkeypatch):
         realtime_policy.EVENT_LABOR_SESSION_CHANGED,
     ]
     assert envelopes[1]["id"] is None
+
+
+# --- attendance ---------------------------------------------------------
+
+
+def test_the_attendance_emitter_set_is_exactly_the_six_punch_writes():
+    """Every write to the pay record invalidates the Admin roster; nothing
+    else may. The two reads (`GET /attendance/me`, the week) are absent by
+    design -- P4a's inherited note said "four self-scoped routes", but one of
+    those four is a read, so the set is three plus three.
+
+    The auto-punch on a work-order clock start needs no emit of its own: that
+    route already emits `labor.session.changed`, which the live layer also
+    subscribes to."""
+    emitters = {
+        route.endpoint.__name__
+        for module in (attendance_router, hub_router)
+        for route in module.router.routes
+        if route.endpoint.__module__ == module.__name__
+        and "emit_attendance_changed(" in inspect.getsource(route.endpoint)
+    }
+
+    assert emitters == {
+        "punch_in",
+        "punch_out",
+        "self_close",
+        "add_hub_attendance_punch",
+        "edit_hub_attendance_punch",
+        "delete_hub_attendance_punch",
+    }
+
+
+def test_a_punch_in_emits_an_attendance_changed_envelope(monkeypatch):
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_TECHNICIAN)
+    envelopes = _capture_emits(monkeypatch)
+    monkeypatch.setattr(
+        attendance_router.attendance_service, "punch_in",
+        lambda db, *, user: SimpleNamespace(id=uuid.uuid4()),
+    )
+
+    attendance_router.punch_in(user=user, db=None)
+
+    assert [e["type"] for e in envelopes] == [
+        realtime_policy.EVENT_ATTENDANCE_CHANGED
+    ]
+    assert envelopes[0]["id"] is None
+
+
+def test_a_failed_punch_in_emits_nothing(monkeypatch):
+    """The emit sits after the service returns, so a 409 on the already-open
+    rule never tells an Admin something changed."""
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_TECHNICIAN)
+    envelopes = _capture_emits(monkeypatch)
+
+    def _refuse(db, *, user):
+        raise PunchAlreadyOpenError(
+            "already on shift", punch_id=uuid.uuid4(),
+            started_at=datetime(2026, 9, 21, 13, 0, tzinfo=timezone.utc),
+            stale=False)
+
+    monkeypatch.setattr(attendance_router.attendance_service, "punch_in", _refuse)
+
+    with pytest.raises(HTTPException):
+        attendance_router.punch_in(user=user, db=None)
+    assert envelopes == []
