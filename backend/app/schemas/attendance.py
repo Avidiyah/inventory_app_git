@@ -139,6 +139,45 @@ class AttendanceWeekResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AttendanceLiveEntry(BaseModel):
+    """One roster card. Exactly one of `idle_since` / `charging_since` is set
+    on an on-shift entry and neither on an absent one -- that is what the
+    client ticks from, so it never has to guess which clock a card is
+    running."""
+
+    user: HubUser
+    state: str
+    punch_started_at: Optional[datetime] = None
+    idle_since: Optional[datetime] = None
+    idle_minutes: int
+    charging_since: Optional[datetime] = None
+    work_order_number: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class AttendanceLiveResponse(BaseModel):
+    """The roster strip above Charged vs clocked (spec §6).
+
+    `on_shift` is already sorted red -> yellow -> green, longest idle first;
+    the client recolours a card between polls but never reorders the list.
+    `absent` is everybody with no open punch, behind the `N not clocked in`
+    footer. Both cover `WORK_ORDER_TECHNICIAN_ROLES` only.
+
+    `idle_red_minutes` rides along so a card can cross the threshold
+    client-side without a second copy of the number living in JavaScript."""
+
+    server_now: datetime
+    idle_red_minutes: int
+    on_shift: list[AttendanceLiveEntry]
+    absent: list[AttendanceLiveEntry]
+    on_shift_count: int
+    charging_count: int
+    idle_count: int
+
+    model_config = {"from_attributes": True}
+
+
 class PunchAddRequest(BaseModel):
     """D2's `+ Add punch`. Closed only: `ended_at` is required, because an
     open punch is something a person is living through, not a record an

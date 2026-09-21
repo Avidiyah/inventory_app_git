@@ -539,11 +539,14 @@ def test_no_route_gate_is_left_at_the_admin_floor():
     # P3's three audited writes join on the same grounds as the week read:
     # they *are* the pay record.
     # P4a adds the CSV export on the same grounds -- it *is* the pay record,
-    # rendered for payroll. P4b adds `get_hub_attendance_live`.
+    # rendered for payroll. P4b adds the live roster: it says where each
+    # person is right now, which is that record's live face, and TechFM OA
+    # holding the operational toolkit is not a reason to hand them it.
     assert offenders == {
         "get_hub_report",
         "export_hub_report",
         "get_hub_attendance_week",
+        "get_hub_attendance_live",
         "add_hub_attendance_punch",
         "edit_hub_attendance_punch",
         "delete_hub_attendance_punch",
@@ -562,6 +565,12 @@ def test_the_attendance_week_sits_above_techfm_oa():
     # The pay record is Admin-only (D1). Pinned separately from the set above
     # so a floor lowered by accident names itself in the failure.
     assert _min_role_for(hub_router, "get_hub_attendance_week") == roles.ROLE_ADMIN
+
+
+def test_the_live_roster_sits_above_techfm_oa():
+    # Pinned separately from the set above so a floor lowered by accident
+    # names itself in the failure.
+    assert _min_role_for(hub_router, "get_hub_attendance_live") == roles.ROLE_ADMIN
 
 
 @pytest.mark.parametrize(

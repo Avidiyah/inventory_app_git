@@ -12,6 +12,8 @@ stays the only place a role 403 is raised:
 - `GET /hub/timesheets`  supervisor+        -- routed-crew timesheets
 - `GET /hub/attendance/week` admin only -- the weekly attendance grid,
   clocked beside charged
+- `GET /hub/attendance/live` admin only -- the roster: who is on shift and
+  who has a reason to be charging, read-only and poll-safe
 - `GET /hub/attendance/export` admin only -- that same week as CSV
 - `POST|PATCH|DELETE /hub/attendance/punches` admin only -- the audited
   punch writes behind that grid's drill-down
@@ -45,6 +47,7 @@ from app.domain.errors import DomainError
 from app.models import User
 from app.routers._errors import to_http
 from app.schemas.attendance import (
+    AttendanceLiveResponse,
     AttendancePunchResponse,
     AttendanceWeekResponse,
     PunchAddRequest,
@@ -53,6 +56,7 @@ from app.schemas.attendance import (
 from app.schemas.hub import HubAdminResponse, HubClock, HubCrewResponse, HubGraphsResponse, HubReportResponse, HubResponse, HubTimesheetResponse
 from app.services import attendance as attendance_service
 from app.services import attendance_compare
+from app.services import attendance_live
 from app.services import hub as hub_service
 from app.services import work_order_report, work_order_report_xlsx
 
@@ -152,6 +156,26 @@ def get_hub_graphs(
     return HubGraphsResponse.model_validate(
         hub_service.graphs_hub(db, user, weeks=weeks)
     )
+
+
+@router.get("/attendance/live", response_model=AttendanceLiveResponse)
+def get_hub_attendance_live(
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """The roster strip: who is on shift, who is charging, who is idle and
+    for how long, plus everybody with no open punch behind the footer.
+
+    **Admin, not TechFM OA.** Same grounds as the week read beside it: this
+    says where each person is right now, which is the pay record's live face
+    (D1). `tests/test_route_role_gates.py` carries the matching exemption.
+
+    No `week` and no parameters at all -- "now" is the only question it
+    answers. Side-effect-free (spec §4): a clock nobody stopped is decided by
+    `work_orders.capped_session_end` on the way out, never swept, which is
+    what lets this be polled.
+    """
+    return attendance_live.roster(db, now=datetime.now(timezone.utc))
 
 
 @router.get("/attendance/week", response_model=AttendanceWeekResponse)
