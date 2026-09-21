@@ -3,23 +3,31 @@
          widget and the role-scoped tab bodies are built by views/hubClock.js and
          views/hubTechnician.js, orchestrated by views/userHub.js. Reached
          via the header identity button (#auth-user-indicator, see
-         shell-head.html) -- there is no button in #main-nav (D10). -->
+         shell-head.html) -- there is no button in #main-nav (D10).
+         #hub-clock-mount sits outside the tabpanels and is reparented into
+         the Home panel by userHub.js, so its node survives a re-render. -->
     <div class="page" id="user-hub-page">
 
-        <section id="hub-clock-mount" aria-live="polite"></section>
-
         <nav id="hub-tabs" class="hub-tabs" aria-label="User hub sections" role="tablist">
-            <button type="button" class="hub-tab active" id="hub-tab-dashboard" data-hub-tab="dashboard" aria-controls="hub-tabpanel-dashboard" aria-selected="true" role="tab">Dashboard</button>
+            <button type="button" class="hub-tab active" id="hub-tab-home" data-hub-tab="home" aria-controls="hub-tabpanel-home" aria-selected="true" role="tab">Home</button>
+            <button type="button" class="hub-tab" id="hub-tab-dashboard" data-hub-tab="dashboard" aria-controls="hub-tabpanel-dashboard" aria-selected="false" role="tab">Dashboard</button>
             <button type="button" class="hub-tab hidden" id="hub-tab-timesheets" data-hub-tab="timesheets" aria-controls="hub-tabpanel-timesheets" aria-selected="false" role="tab" hidden>Timesheets</button>
             <button type="button" class="hub-tab" id="hub-tab-work-orders" data-hub-tab="work-orders" aria-controls="hub-tabpanel-work-orders" aria-selected="false" role="tab">My Work Orders</button>
             <button type="button" class="hub-tab hidden" id="hub-tab-graphs" data-hub-tab="graphs" aria-controls="hub-tabpanel-graphs" aria-selected="false" role="tab" hidden>Graphs</button>
             <button type="button" class="hub-tab hidden" id="hub-tab-report" data-hub-tab="report" aria-controls="hub-tabpanel-report" aria-selected="false" role="tab" hidden>Report</button>
         </nav>
 
-        <div class="hub-tabpanel active" id="hub-tabpanel-dashboard" role="tabpanel" aria-labelledby="hub-tab-dashboard"></div>
+        <div class="hub-tabpanel active" id="hub-tabpanel-home" role="tabpanel" aria-labelledby="hub-tab-home"></div>
+        <div class="hub-tabpanel" id="hub-tabpanel-dashboard" role="tabpanel" aria-labelledby="hub-tab-dashboard" hidden></div>
         <div class="hub-tabpanel" id="hub-tabpanel-timesheets" role="tabpanel" aria-labelledby="hub-tab-timesheets" hidden></div>
         <div class="hub-tabpanel" id="hub-tabpanel-work-orders" role="tabpanel" aria-labelledby="hub-tab-work-orders" hidden></div>
         <div class="hub-tabpanel" id="hub-tabpanel-graphs" role="tabpanel" aria-labelledby="hub-tab-graphs" hidden></div>
         <div class="hub-tabpanel" id="hub-tabpanel-report" role="tabpanel" aria-labelledby="hub-tab-report" hidden></div>
+
+        <!-- The persistent work-order clock. Lives outside the tabpanels so
+             its node survives a Home re-render; userHub.js reparents it into
+             #hub-home-clock-slot on every Home render, which is what keeps
+             hubClock.js's state and wiring intact. -->
+        <section id="hub-clock-mount" aria-live="polite" hidden></section>
 
     </div>

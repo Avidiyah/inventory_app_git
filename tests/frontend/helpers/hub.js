@@ -18,7 +18,7 @@ import { setTestUser } from "./session.js";
 import { restoreMediaStubs, stubPermissions, stubUserMedia } from "./media.js";
 import { startRecording, stopRecording, clearRequests, requests } from "./requests.js";
 import { installFakeWebSocket } from "./fakeSocket.js";
-import { hubAdmin, hubCrew, hubGraphs, hubPayload, hubTimesheets } from "./factories.js";
+import { attendanceMe, hubAdmin, hubCrew, hubGraphs, hubPayload, hubTimesheets } from "./factories.js";
 
 // Getters, not nodes: every mount replaces `document.documentElement`.
 const byId = (id) => () => document.getElementById(id);
@@ -45,7 +45,7 @@ let hiddenRestore = null;
 
 export async function mountHub({
   role = "technician", hub = null, crew = null, admin = null, timesheets = null, graphs = null,
-  report = 500, workOrders = [], handlers = [],
+  report = 500, workOrders = [], attendance = null, handlers = [],
 } = {}) {
   vi.useFakeTimers();
   const currentUser = await setTestUser({ role });
@@ -56,6 +56,10 @@ export async function mountHub({
   // The specific /hub/* paths precede the bare /hub for the same reason.
   server.use(
     ...handlers,
+    http.get("/attendance/me", () => answer(attendance ?? attendanceMe())),
+    http.post("/attendance/punch-in", () => HttpResponse.json({})),
+    http.post("/attendance/punch-out", () => HttpResponse.json({})),
+    http.post("/attendance/self-close", () => HttpResponse.json({})),
     http.get("/hub/crew", () => answer(crew ?? hubCrew())),
     http.get("/hub/admin", () => answer(admin ?? hubAdmin())),
     http.get("/hub/timesheets", () => answer(timesheets ?? hubTimesheets())),
@@ -72,9 +76,13 @@ export async function mountHub({
   return { mod, currentUser, payload };
 }
 
-export async function openHub(opts = {}) {
+// `tab` lands the hub on a tab other than its default (Home). The suites
+// that exercise a Dashboard sub-module pass "dashboard", because that tab's
+// body -- and therefore its mount points -- only exists while it is active.
+export async function openHub({ tab = null, ...opts } = {}) {
   const mounted = await mountHub(opts);
   await mounted.mod.loadUserHub();
+  if (tab) document.getElementById(`hub-tab-${tab}`)?.click();
   return mounted;
 }
 

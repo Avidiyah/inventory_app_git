@@ -6,7 +6,11 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "@testing-library/user-event";
-import { el, mountHub, openHub, restoreHub, stopClock } from "../helpers/hub.js";
+import { el, mountHub, openHub as baseOpenHub, restoreHub, stopClock } from "../helpers/hub.js";
+
+// This suite asserts on the Dashboard tab's body, which only mounts while
+// that tab is active -- the hub now opens on Home.
+const openHub = (opts = {}) => baseOpenHub({ tab: "dashboard", ...opts });
 import { importView } from "../helpers/shell.js";
 import { hubAdmin, hubCrew, hubPayload } from "../helpers/factories.js";
 
@@ -40,9 +44,12 @@ describe("through the hub shell", () => {
     ]);
   });
 
-  it("techfm_oa: two company-wide tiles from the admin payload, once the dashboard repaints", async () => {
-    await openHub({ role: "techfm_oa", admin: hubAdmin({ priority: { assigned: 7, unassigned: 0 } }) });
-    expect(card()).toBeNull();                 // blank after the first load -- N-P5-CHARACTERIZED
+  it("techfm_oa: two company-wide tiles from the admin payload, on the first Dashboard open", async () => {
+    // The hub opens on Home, so the admin summary is fetched before the
+    // Dashboard body exists. It is painted when the tab opens -- the blank
+    // first load this test used to characterize is gone.
+    await baseOpenHub({ role: "techfm_oa", admin: hubAdmin({ priority: { assigned: 7, unassigned: 0 } }) });
+    expect(el.prioritiesMount()).toBeNull();   // Home is active; no Dashboard body yet
     await user().click(el.tab("dashboard"));
     expect(tilesIn(card())).toEqual([
       { label: "High priority — company-wide", value: "7", sub: null },

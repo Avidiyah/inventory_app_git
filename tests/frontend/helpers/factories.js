@@ -220,6 +220,19 @@ export function filterOptions(overrides = {}) {
 //
 // `total_minutes_today` is a Pydantic computed field, not a stored one; it is
 // present on the wire, so it is present here.
+// --- Attendance (backend/app/schemas/attendance.py) -------------------------
+// `clocked_minutes_today` is the pay number -- real wall-clock, never the
+// 30-minute-rounded billed figure.
+export function attendanceMe(overrides = {}) {
+  return {
+    server_now: "2026-09-10T12:00:00Z",
+    day: "2026-09-10",
+    open_punch: null,
+    clocked_minutes_today: 0,
+    ...overrides,
+  };
+}
+
 export function hubPayload(overrides = {}) {
   return {
     user: { id: uuid(), first_name: "Test", last_name: "User", role: "technician" },

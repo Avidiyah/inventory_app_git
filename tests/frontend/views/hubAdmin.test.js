@@ -14,7 +14,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
 import { clearRequests, requests } from "../helpers/requests.js";
-import { connectHub, el, openHub, queries, restoreHub, stopClock } from "../helpers/hub.js";
+import { connectHub, el, openHub as baseOpenHub, queries, restoreHub, stopClock } from "../helpers/hub.js";
+
+// This suite asserts on the Dashboard tab's body, which only mounts while
+// that tab is active -- the hub now opens on Home.
+const openHub = (opts = {}) => baseOpenHub({ tab: "dashboard", ...opts });
 import { restoreBrowserStubs, stubScroll } from "../helpers/browserStubs.js";
 import { filterOptions, hubAdmin, hubOnClockEntry } from "../helpers/factories.js";
 

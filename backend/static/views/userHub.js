@@ -8,11 +8,12 @@
 // TechFM OA+ additionally receives the lazy Admin summary and Graphs tab;
 // lower roles keep the role-agnostic GET /hub shape.
 
-import { apiGetHub, apiGetHubAdmin, apiGetHubCrew, apiGetHubGraphs, apiGetHubReport, apiGetHubTimesheets } from "../api.js";
+import { apiGetAttendanceMe, apiGetHub, apiGetHubAdmin, apiGetHubCrew, apiGetHubGraphs, apiGetHubReport, apiGetHubTimesheets } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
 import { roleAtLeast } from "../roles.js";
 import { mountHubClock, startHubClockTicking, stopHubClockTicking } from "./hubClock.js";
+import { mountHubHome } from "./hubHome.js";
 import {
   mountHubDashboard,
   mountHubWorkOrders,
@@ -40,6 +41,7 @@ const CREW_SAFETY_REFRESH_MS = 60000;
 
 const tabButtons = document.querySelectorAll(".hub-tab");
 const tabPanels = {
+  home: document.getElementById("hub-tabpanel-home"),
   dashboard: document.getElementById("hub-tabpanel-dashboard"),
   timesheets: document.getElementById("hub-tabpanel-timesheets"),
   "work-orders": document.getElementById("hub-tabpanel-work-orders"),
@@ -47,28 +49,20 @@ const tabPanels = {
   report: document.getElementById("hub-tabpanel-report"),
 };
 const clockMount = document.getElementById("hub-clock-mount");
-const hubPage = document.getElementById("user-hub-page");
-const hubTabsNav = document.getElementById("hub-tabs");
 const timesheetsTabButton = document.getElementById("hub-tab-timesheets");
 const graphsTabButton = document.getElementById("hub-tab-graphs");
 const reportTabButton = document.getElementById("hub-tab-report");
 
-// Admin+ viewers spend most of their hub time on the tab content (crew,
-// timesheets, company summary) rather than their own clock, so the widget
-// drops to the bottom instead of pushing that content down. Repositioning in
-// the DOM (rather than a second mount point) keeps the widget's own state
-// and event wiring untouched regardless of where it lands.
-function placeClockMount(isAdminPlus) {
-  if (isAdminPlus) {
-    hubPage.appendChild(clockMount);
-  } else {
-    hubPage.insertBefore(clockMount, hubTabsNav);
-  }
-}
-
-let activeTab = "dashboard";
+let activeTab = "home";
 let latestPayload = null;
+let latestAttendance = null;
 let latestCrewPayload = null;
+// A foreground crew/admin failure, held until the Dashboard body exists to
+// show it in. The fetches run while the hub is on Home, so the mount they
+// would write into is usually not there yet -- without this the tab would
+// open silently empty instead of explaining itself.
+let crewError = null;
+let adminError = null;
 let crewRequestId = 0;
 let crewSafetyTimer = null;
 let latestAdminPayload = null;
@@ -165,9 +159,13 @@ function crewBoardShouldRender(payload) {
 // call -- used after `mountHubDashboard` rebuilds the tab body (which wipes
 // `#hub-crew-mount`) and on every tab switch back to Dashboard.
 function renderCrew() {
-  if (!latestCrewPayload) return;
   const mount = crewMount();
   if (!mount) return;
+  if (crewError) {
+    mount.innerHTML = `<p class="error">${friendlyError(crewError, "Could not load your crew.")}</p>`;
+    return;
+  }
+  if (!latestCrewPayload) return;
   if (!crewBoardShouldRender(latestCrewPayload)) {
     mount.innerHTML = "";
     renderPriorities();
@@ -178,14 +176,35 @@ function renderCrew() {
 }
 
 function renderAdmin() {
-  if (!latestAdminPayload) return;
   const mount = adminMount();
-  if (mount) mountHubAdminSummary(mount, latestAdminPayload);
+  if (!mount) return;
+  if (adminError) {
+    mount.innerHTML = `<p class="error">${friendlyError(adminError, "Could not load the company summary.")}</p>`;
+    return;
+  }
+  if (!latestAdminPayload) return;
+  mountHubAdminSummary(mount, latestAdminPayload);
   renderPriorities();
 }
 
+// The clock node is reparented, not re-rendered: moving it preserves
+// hubClock.js's state and its delegated listener (the property
+// placeClockMount relied on when it moved the widget for Admins).
+function renderHome() {
+  if (!latestPayload) return;
+  mountHubHome(tabPanels.home, latestPayload, latestAttendance, { onChanged: refreshUserHub });
+  const slot = tabPanels.home.querySelector("#hub-home-clock-slot");
+  if (slot) {
+    clockMount.hidden = false;
+    slot.appendChild(clockMount);
+  }
+  mountHubClock(clockMount, latestPayload, { onChanged: refreshUserHub });
+}
+
 function renderActiveTab() {
-  if (activeTab === "dashboard") {
+  if (activeTab === "home") {
+    renderHome();
+  } else if (activeTab === "dashboard") {
     mountHubDashboard(tabPanels.dashboard, latestPayload);
     renderPriorities();
     renderCrew();
@@ -356,38 +375,43 @@ async function loadGraphs({ background = false } = {}) {
 // failure rather than blanking it (spec §10); only the first, foreground
 // fetch shows an inline error.
 async function refreshCrew({ background = false } = {}) {
+  // The mount may not exist yet -- the hub opens on Home, and the Dashboard
+  // body is only built once that tab is active. The fetch still runs, and
+  // `renderCrew` paints it when the tab opens; bailing out here instead
+  // would leave an Admin's Dashboard empty until a manual reload.
   const mount = crewMount();
-  if (!mount) return;
   const requestId = ++crewRequestId;
   // Foreground first load only: a background refresh keeps the last good
   // board on screen (same rule the error path below follows).
-  if (!background && !latestCrewPayload) mount.innerHTML = skeletonCard({ lines: 4 });
+  if (mount && !background && !latestCrewPayload) mount.innerHTML = skeletonCard({ lines: 4 });
   try {
     const payload = await apiGetHubCrew();
     if (requestId !== crewRequestId) return;
     latestCrewPayload = payload;
+    crewError = null;
     renderCrew();
   } catch (err) {
-    if (requestId !== crewRequestId) return;
-    if (background) return;
-    mount.innerHTML = `<p class="error">${friendlyError(err, "Could not load your crew.")}</p>`;
+    if (requestId !== crewRequestId || background) return;
+    crewError = err;
+    renderCrew();
   }
 }
 
 // Mirrors `refreshCrew` -- same background/foreground error-handling split.
 async function refreshAdmin({ background = false } = {}) {
-  const mount = adminMount();
-  if (!mount) return;
+  // The Dashboard body may not be mounted yet; `renderAdmin` resolves the
+  // mount when it exists.
   const requestId = ++adminRequestId;
   try {
     const payload = await apiGetHubAdmin();
     if (requestId !== adminRequestId) return;
     latestAdminPayload = payload;
-    mountHubAdminSummary(mount, payload);
+    adminError = null;
+    renderAdmin();
   } catch (err) {
-    if (requestId !== adminRequestId) return;
-    if (background) return;
-    mount.innerHTML = `<p class="error">${friendlyError(err, "Could not load the company summary.")}</p>`;
+    if (requestId !== adminRequestId || background) return;
+    adminError = err;
+    renderAdmin();
   }
 }
 
@@ -464,10 +488,12 @@ tabButtons.forEach((btn) => {
 // where "stale since I last looked" is the failure mode to avoid.
 export async function loadUserHub() {
   let payload;
-  // First entry only: the dashboard tab is empty until the payload lands, so
-  // it gets structure to look at. On a return visit the previous render is
-  // still mounted and is better than a skeleton.
-  if (!latestPayload) tabPanels.dashboard.innerHTML = hubSkeletonGrid(3);
+  // First entry only: Home is empty until the payload lands, so it gets
+  // structure to look at. On a return visit the previous render is still
+  // mounted and is better than a skeleton. Safe to overwrite: the clock
+  // mount is only reparented into Home once `renderHome` has run, which
+  // needs the payload this is waiting for.
+  if (!latestPayload) tabPanels.home.innerHTML = hubSkeletonGrid(3);
   try {
     payload = await apiGetHub();
   } catch (err) {
@@ -481,6 +507,7 @@ export async function loadUserHub() {
   const canViewReport = roleAtLeast(payload.user.role, "admin");
   if (userChanged || !canViewSupervisorTabs) {
     latestCrewPayload = null;
+    crewError = null;
     latestTimesheetPayload = null;
     timesheetRange = null;
     crewRequestId += 1;
@@ -489,6 +516,7 @@ export async function loadUserHub() {
   }
   if (userChanged || !canViewAdminTiles) {
     latestAdminPayload = null;
+    adminError = null;
     adminRequestId += 1;
     latestGraphsPayload = null;
     graphRequestId += 1;
@@ -505,18 +533,27 @@ export async function loadUserHub() {
     reportWeek = null;
     tabPanels.report.replaceChildren();
   }
-  if (userChanged) activeTab = "dashboard";
-  if (!canViewSupervisorTabs && activeTab === "timesheets") activeTab = "dashboard";
-  if (!canViewAdminTiles && activeTab === "graphs") activeTab = "dashboard";
-  if (!canViewReport && activeTab === "report") activeTab = "dashboard";
+  if (userChanged) {
+    activeTab = "home";
+    latestAttendance = null;
+  }
+  if (!canViewSupervisorTabs && activeTab === "timesheets") activeTab = "home";
+  if (!canViewAdminTiles && activeTab === "graphs") activeTab = "home";
+  if (!canViewReport && activeTab === "report") activeTab = "home";
   loadedUserId = nextUserId;
   latestPayload = payload;
   setTimesheetsTabVisible(canViewSupervisorTabs);
   setGraphsTabVisible(canViewAdminTiles);
   setReportTabVisible(canViewReport);
   renderWorkOrdersTabLabel();
-  placeClockMount(canViewAdminTiles);
-  mountHubClock(clockMount, latestPayload, { onChanged: refreshUserHub });
+  // Every role has a shift, Admin included. A failure is not fatal to the
+  // page: hubHome renders a retry inside the punch card and the work-order
+  // clock beside it still mounts.
+  try {
+    latestAttendance = await apiGetAttendanceMe();
+  } catch (_err) {
+    latestAttendance = null;
+  }
   showTab(activeTab);
 
   if (canViewSupervisorTabs) {

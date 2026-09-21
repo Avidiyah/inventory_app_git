@@ -4,7 +4,7 @@
 
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { filterOptions, hubPayload } from "./factories.js";
+import { attendanceMe, filterOptions, hubPayload } from "./factories.js";
 
 // Handler paths are RELATIVE ("/work-orders/:id") and match as-is: jsdom's
 // default document URL supplies the origin, and api.js issues relative
@@ -54,6 +54,8 @@ export function pageHandlers() {
 
     // user-hub -> loadUserHub
     http.get("/hub", () => HttpResponse.json(hubPayload())),
+    // loadUserHub also fetches the caller's own punch for the Home tab.
+    http.get("/attendance/me", () => HttpResponse.json(attendanceMe())),
 
     // history -> loadHistory (the paged envelope, not a bare array)
     http.get("/transactions/", () =>

@@ -22,43 +22,39 @@ afterEach(() => {
 const user = () => userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 
 describe("mountHub", () => {
-  it("mounts with the dashboard tab active and nothing fetched", async () => {
+  it("mounts with the home tab active and nothing fetched", async () => {
     const { mod } = await mountHub();
     expect(typeof mod.loadUserHub).toBe("function");
     expect(typeof mod.refreshUserHub).toBe("function");
-    expect(el.tab("dashboard").classList.contains("active")).toBe(true);
+    expect(el.tab("home").classList.contains("active")).toBe(true);
     expect(requests()).toHaveLength(0);
   });
 });
 
 describe("loadUserHub by role", () => {
   it.each([
-    ["technician", { timesheets: false, graphs: false, report: false }, ["/hub"], "My Work Orders (0)", "before"],
-    ["supervisor", { timesheets: true, graphs: false, report: false }, ["/hub", "/hub/crew"], "My Work Orders (0)", "before"],
-    ["techfm_oa", { timesheets: true, graphs: true, report: false }, ["/hub", "/hub/crew", "/hub/admin"], "Work Orders", "after"],
-    ["admin", { timesheets: true, graphs: true, report: true }, ["/hub", "/hub/crew", "/hub/admin"], "Work Orders", "after"],
-    ["owner", { timesheets: true, graphs: true, report: true }, ["/hub", "/hub/crew", "/hub/admin"], "Work Orders", "after"],
-  ])("%s: tabs %j, requests %j, label %s, clock %s tabs", async (role, tabs, expected, label, clockPos) => {
+    ["technician", { timesheets: false, graphs: false, report: false }, ["/hub", "/attendance/me"], "My Work Orders (0)"],
+    ["supervisor", { timesheets: true, graphs: false, report: false }, ["/hub", "/attendance/me", "/hub/crew"], "My Work Orders (0)"],
+    ["techfm_oa", { timesheets: true, graphs: true, report: false }, ["/hub", "/attendance/me", "/hub/crew", "/hub/admin"], "Work Orders"],
+    ["admin", { timesheets: true, graphs: true, report: true }, ["/hub", "/attendance/me", "/hub/crew", "/hub/admin"], "Work Orders"],
+    ["owner", { timesheets: true, graphs: true, report: true }, ["/hub", "/attendance/me", "/hub/crew", "/hub/admin"], "Work Orders"],
+  ])("%s: tabs %j, requests %j, label %s", async (role, tabs, expected, label) => {
     await openHub({ role, hub: hubPayload({ mine_total: 0 }) });
     expect(requests().map((r) => r.url)).toEqual(expected);
     expect(el.tab("timesheets").hidden).toBe(!tabs.timesheets);
     expect(el.tab("graphs").hidden).toBe(!tabs.graphs);
     expect(el.tab("report").hidden).toBe(!tabs.report);
     expect(el.tab("work-orders").textContent).toBe(label);
-    const order = Array.from(el.page().children).map((c) => c.id);
-    expect(order.indexOf("hub-clock-mount") < order.indexOf("hub-tabs")).toBe(clockPos === "before");
+    // The clock is reparented into the Home panel for every role now --
+    // there is no longer an admin-only position at the bottom of the page.
+    expect(el.panel("home").contains(el.clockMount())).toBe(true);
     expect(el.clockMount().querySelector(".hub-clock-status")).not.toBeNull();
-    // techfm_oa+: the Priorities card needs the admin payload, but
-    // refreshAdmin mounts the summary WITHOUT renderPriorities, and the crew
-    // pass that does call it ran before the admin payload landed -- so the
-    // card is blank after the first load until the next repaint.
-    // Characterization -- see open-work.md N-P5-CHARACTERIZED.
-    const adminPlus = ["techfm_oa", "admin", "owner"].includes(role);
-    expect(el.panel("dashboard").querySelector(".hub-priorities") === null).toBe(adminPlus);
-    if (adminPlus) {
-      await user().click(el.tab("dashboard"));   // showTab -> renderActiveTab -> renderPriorities
-      expect(el.panel("dashboard").querySelector(".hub-priorities")).not.toBeNull();
-    }
+    // The hub opens on Home, so the Dashboard body -- Priorities included --
+    // is not built until that tab is opened. It then paints for every role,
+    // the crew and admin payloads having been fetched during the load.
+    expect(el.panel("dashboard").querySelector(".hub-priorities")).toBeNull();
+    await user().click(el.tab("dashboard"));
+    expect(el.panel("dashboard").querySelector(".hub-priorities")).not.toBeNull();
   });
 
   it("a technician must never fire /hub/admin or /hub/crew, even after a tab tour", async () => {
@@ -77,16 +73,16 @@ describe("loadUserHub by role", () => {
     expect(el.tab("work-orders").textContent).toBe("My Work Orders (5)");
   });
 
-  it("first load paints a skeleton grid in the dashboard; a return visit does not", async () => {
+  it("first load paints a skeleton grid in home; a return visit does not", async () => {
     let release;
     const { mod } = await mountHub({ role: "technician", handlers: [http.get("/hub", () =>
       new Promise((r) => { release = () => r(HttpResponse.json(hubPayload())); }))] });
     const first = mod.loadUserHub();
-    expect(el.panel("dashboard").querySelector(".skel-grid")).not.toBeNull();
+    expect(el.panel("home").querySelector(".skel-grid")).not.toBeNull();
     await vi.waitFor(() => expect(release).toBeTypeOf("function"));
     release(); release = null; await first;
     const second = mod.loadUserHub();
-    expect(el.panel("dashboard").querySelector(".skel-grid")).toBeNull();
+    expect(el.panel("home").querySelector(".skel-grid")).toBeNull();
     await vi.waitFor(() => expect(release).toBeTypeOf("function"));
     release(); await second;
   });
@@ -99,7 +95,7 @@ describe("loadUserHub by role", () => {
     expect(vi.getTimerCount()).toBe(0); // nothing started
   });
 
-  it("a user change resets to the dashboard tab and clears the lazy payloads", async () => {
+  it("a user change resets to the home tab and clears the lazy payloads", async () => {
     const { mod } = await openHub({ role: "supervisor" });
     await user().click(el.tab("timesheets"));
     await vi.waitFor(() => expect(requestFor("/hub/timesheets")).not.toBeNull());
@@ -107,18 +103,18 @@ describe("loadUserHub by role", () => {
     server.use(http.get("/hub", () => HttpResponse.json(hubPayload({ user: { id: "someone-else", role: "supervisor" } }))));
     clearRequests();
     await mod.loadUserHub();
-    expect(el.tab("dashboard").classList.contains("active")).toBe(true);
+    expect(el.tab("home").classList.contains("active")).toBe(true);
     expect(el.panel("timesheets").children).toHaveLength(0);
   });
 
-  it("a role downgrade off a hidden tab lands on the dashboard", async () => {
+  it("a role downgrade off a hidden tab lands on home", async () => {
     const { mod } = await openHub({ role: "techfm_oa" });
     await user().click(el.tab("graphs"));
     await vi.waitFor(() => expect(requestFor("/hub/graphs")).not.toBeNull());
     server.use(http.get("/hub", () => HttpResponse.json(hubPayload({ user: { id: "u", role: "supervisor" } }))));
     await mod.loadUserHub();
     expect(el.tab("graphs").hidden).toBe(true);
-    expect(el.tab("dashboard").classList.contains("active")).toBe(true);
+    expect(el.tab("home").classList.contains("active")).toBe(true);
     expect(el.panel("graphs").children).toHaveLength(0);
   });
 });
@@ -230,21 +226,21 @@ describe("tabs", () => {
 
 describe("failure isolation", () => {
   it("crew fails on first load: inline error in the crew mount; dashboard and admin still render", async () => {
-    await openHub({ role: "admin", crew: 500 });
+    // The Dashboard body holds all three mounts and is built on the click.
+    await openHub({ role: "admin", crew: 500, tab: "dashboard" });
     expect(el.crewMount().querySelector("p.error").textContent).toBe("Could not load your crew.");
     expect(el.adminMount().children.length).toBeGreaterThan(0);
-    await user().click(el.tab("dashboard"));
     expect(el.prioritiesMount().querySelector(".hub-priorities")).not.toBeNull();
   });
 
   it("admin fails on first load: inline error in the admin mount only", async () => {
-    await openHub({ role: "admin", admin: 500 });
+    await openHub({ role: "admin", admin: 500, tab: "dashboard" });
     expect(el.adminMount().querySelector("p.error").textContent).toBe("Could not load the company summary.");
     expect(el.crewMount().querySelector("p.error")).toBeNull();
   });
 
   it("a background crew failure keeps the last good board", async () => {
-    await openHub({ role: "supervisor" });
+    await openHub({ role: "supervisor", tab: "dashboard" });
     expect(el.crewMount().querySelector(".hub-crew-card")).not.toBeNull();
     server.use(http.get("/hub/crew", () => HttpResponse.json({ detail: "x" }, { status: 500 })));
     await vi.advanceTimersByTimeAsync(60000);           // safety refresh

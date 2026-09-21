@@ -9,7 +9,11 @@
 // production path can reach (P6 deviation 5 stays unused here).
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { el, openHub, restoreHub, stopClock } from "../helpers/hub.js";
+import { el, openHub as baseOpenHub, restoreHub, stopClock } from "../helpers/hub.js";
+
+// This suite asserts on the Dashboard tab's body, which only mounts while
+// that tab is active -- the hub now opens on Home.
+const openHub = (opts = {}) => baseOpenHub({ tab: "dashboard", ...opts });
 import { hubAttentionItem, hubCrew, hubCrewTechnician, hubRunningSession } from "../helpers/factories.js";
 
 afterEach(() => {

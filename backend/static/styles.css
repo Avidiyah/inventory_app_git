@@ -4812,3 +4812,66 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     flex: 1;
     min-width: 0;
 }
+
+/* The attendance punch on the Home tab. Deliberately shaped like the clock
+   widget beside it -- same hero, same row -- because they are the same kind
+   of statement about two different clocks. */
+.hub-punch {
+    margin-bottom: var(--space-4);
+}
+
+.hub-punch-status {
+    font-weight: var(--fw-semibold);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.hub-punch-on .hub-punch-status {
+    color: var(--color-success);
+}
+
+.hub-punch-stale .hub-punch-status {
+    color: var(--color-error);
+}
+
+.hub-punch-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--color-success);
+    display: inline-block;
+}
+
+.hub-punch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin-top: var(--space-3);
+}
+
+.hub-punch-hero {
+    font-size: 2.5rem;
+    line-height: 1.1;
+    margin: 0;
+}
+
+.hub-punch-started,
+.hub-punch-today,
+.hub-punch-note {
+    color: var(--text-panel-mute);
+    margin: 0;
+}
+
+.hub-punch-btn {
+    min-width: 96px;
+}
+
+.hub-punch-stale .hub-punch-btn {
+    margin-top: var(--space-3);
+}
+
+.hub-punch-message:empty {
+    display: none;
+}
