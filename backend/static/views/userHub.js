@@ -8,7 +8,7 @@
 // TechFM OA+ additionally receives the lazy Admin summary and Graphs tab;
 // lower roles keep the role-agnostic GET /hub shape.
 
-import { apiGetAttendanceMe, apiGetHub, apiGetHubAdmin, apiGetHubCrew, apiGetHubGraphs, apiGetHubReport, apiGetHubTimesheets } from "../api.js";
+import { apiGetAttendanceMe, apiGetHub, apiGetHubAdmin, apiGetHubCrew, apiGetHubGraphs, apiGetHubReport } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
 import { roleAtLeast } from "../roles.js";
@@ -22,7 +22,7 @@ import {
 import { mountHubPriorities } from "./hubPriorities.js";
 import { mountHubCrew } from "./hubSupervisor.js";
 import { mountHubAdminSummary } from "./hubAdmin.js";
-import { mountHubTimesheets } from "./hubTimesheets.js";
+import { renderTimesheetsTab, resetTimesheetsTab } from "./hubTimesheetsTab.js";
 import { destroyHubGraphs, largestCommunityKey, mountHubGraphs } from "./hubGraphs.js";
 import { mountHubReport, renderReportError, renderReportSkeleton } from "./hubReport.js";
 import { openWorkOrdersFilteredByDistribution } from "./workOrders.js";
@@ -67,9 +67,6 @@ let crewRequestId = 0;
 let crewSafetyTimer = null;
 let latestAdminPayload = null;
 let adminRequestId = 0;
-let latestTimesheetPayload = null;
-let timesheetRange = null;
-let timesheetRequestId = 0;
 let latestGraphsPayload = null;
 let graphWeeks = 12;
 let graphRequestId = 0;
@@ -210,14 +207,7 @@ function renderActiveTab() {
     renderCrew();
     renderAdmin();
   } else if (activeTab === "timesheets") {
-    if (latestTimesheetPayload) {
-      mountHubTimesheets(tabPanels.timesheets, latestTimesheetPayload, {
-        onWeekChange: (start, end) => void loadTimesheets({ start, end }),
-        isAdminPlus: viewerCanSeeAdminTiles(),
-      });
-    } else {
-      void loadTimesheets(timesheetRange || {});
-    }
+    renderTimesheetsTab(tabPanels.timesheets, { role: latestPayload.user.role });
   } else if (activeTab === "graphs") {
     if (latestGraphsPayload) renderGraphs();
     else void loadGraphs();
@@ -300,48 +290,6 @@ async function loadReport({ background = false } = {}) {
     // screen rather than blanking it -- the rule loadGraphs follows.
     if (requestId !== reportRequestId || background || latestReportPayload) return;
     renderReportError(mount, err, () => void loadReport());
-  }
-}
-
-function showTimesheetLoadError(mount, err, requestedRange) {
-  const message = escapeHtml(friendlyError(err, "Could not load timesheets."));
-  let status = mount.querySelector(".hub-timesheet-message");
-  if (!status) {
-    mount.innerHTML = `<div class="hub-timesheet-load-error"><p class="hub-timesheet-message error"></p></div>`;
-    status = mount.querySelector(".hub-timesheet-message");
-  }
-  status.className = "hub-timesheet-message error";
-  status.innerHTML = `${message} <button type="button" class="secondary-btn hub-timesheet-retry">Retry</button>`;
-  status.querySelector(".hub-timesheet-retry")?.addEventListener("click", () => {
-    void loadTimesheets(requestedRange);
-  });
-}
-
-async function loadTimesheets({ start = null, end = null } = {}) {
-  const mount = tabPanels.timesheets;
-  if (!mount) return;
-  const requestedRange = { start, end };
-  const requestId = ++timesheetRequestId;
-  const existingStatus = mount.querySelector(".hub-timesheet-message");
-  if (latestTimesheetPayload && existingStatus) {
-    existingStatus.className = "hub-timesheet-message";
-    existingStatus.textContent = "Loading…";
-  } else {
-    mount.innerHTML = hubSkeletonGrid(2, { lines: 6 });
-  }
-  try {
-    const payload = await apiGetHubTimesheets({ start, end });
-    if (requestId !== timesheetRequestId) return;
-    latestTimesheetPayload = payload;
-    timesheetRange = { start: payload.range.start, end: payload.range.end };
-    mountHubTimesheets(mount, payload, {
-      onWeekChange: (rangeStart, rangeEnd) =>
-        void loadTimesheets({ start: rangeStart, end: rangeEnd }),
-      isAdminPlus: viewerCanSeeAdminTiles(),
-    });
-  } catch (err) {
-    if (requestId !== timesheetRequestId) return;
-    showTimesheetLoadError(mount, err, requestedRange);
   }
 }
 
@@ -508,11 +456,8 @@ export async function loadUserHub() {
   if (userChanged || !canViewSupervisorTabs) {
     latestCrewPayload = null;
     crewError = null;
-    latestTimesheetPayload = null;
-    timesheetRange = null;
     crewRequestId += 1;
-    timesheetRequestId += 1;
-    tabPanels.timesheets.replaceChildren();
+    resetTimesheetsTab(tabPanels.timesheets);
   }
   if (userChanged || !canViewAdminTiles) {
     latestAdminPayload = null;

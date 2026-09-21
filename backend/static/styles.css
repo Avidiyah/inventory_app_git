@@ -2948,6 +2948,13 @@ tr.archived-user {
     padding-inline: var(--space-3);
 }
 
+/* A sub-nav nested inside a hub tabpanel sits directly under the tab strip,
+   so it needs the breathing room the page-level `.sub-nav` gets from its
+   page header. Chrome itself is inherited from `.sub-nav` unchanged. */
+.hub-tabpanel .hub-sub-nav {
+    margin-bottom: var(--space-3);
+}
+
 @media (max-width: 600px) {
     .hub-hours-toolbar,
     .hub-hours-drilldown-heading,
