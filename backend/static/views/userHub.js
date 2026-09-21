@@ -22,7 +22,8 @@ import {
 import { mountHubPriorities } from "./hubPriorities.js";
 import { mountHubCrew } from "./hubSupervisor.js";
 import { mountHubAdminSummary } from "./hubAdmin.js";
-import { renderTimesheetsTab, resetTimesheetsTab } from "./hubTimesheetsTab.js";
+import { startHubRosterTicking, stopHubRosterTicking } from "./hubAttendanceRoster.js";
+import { refreshTimesheetsLive, renderTimesheetsTab, resetTimesheetsTab } from "./hubTimesheetsTab.js";
 import { destroyHubGraphs, largestCommunityKey, mountHubGraphs } from "./hubGraphs.js";
 import { mountHubReport, renderReportError, renderReportSkeleton } from "./hubReport.js";
 import { openWorkOrdersFilteredByDistribution } from "./workOrders.js";
@@ -420,6 +421,10 @@ function startCrewSafetyRefresh() {
     if (roleAtLeast(latestPayload?.user.role, "supervisor")) void refreshCrew({ background: true });
     if (viewerCanSeeAdminTiles()) void refreshAdmin({ background: true });
     if (activeTab === "graphs" && viewerCanSeeAdminTiles()) void loadGraphs({ background: true });
+    // The Timesheets tab's roster rides the hub's existing safety timer
+    // rather than starting a second one; the call is inert unless Charged
+    // vs clocked is the open sub-tab.
+    if (activeTab === "timesheets") refreshTimesheetsLive(tabPanels.timesheets);
   }, CREW_SAFETY_REFRESH_MS);
 }
 
@@ -552,10 +557,12 @@ subscribe(USER_REQUEST_CHANGED_EVENT, ({ activePage }) => {
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     stopHubClockTicking();
+    stopHubRosterTicking();
     stopCrewSafetyRefresh();
     return;
   }
   if (!document.getElementById("user-hub-page").classList.contains("active")) return;
   startHubClockTicking();
+  startHubRosterTicking();
   if (latestPayload) startCrewSafetyRefresh();
 });

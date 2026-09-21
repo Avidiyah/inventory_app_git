@@ -8,9 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
 import { server } from "../helpers/handlers.js";
-import { attendanceWeek } from "../helpers/factories.js";
+import { attendanceLive, attendanceWeek } from "../helpers/factories.js";
 import { restoreBrowserStubs, stubObjectUrl } from "../helpers/browserStubs.js";
 import { mountHubAttendanceCompare } from "../../../backend/static/views/hubAttendanceCompare.js";
+import { destroyHubAttendanceRoster } from "../../../backend/static/views/hubAttendanceRoster.js";
 
 let host;
 
@@ -21,6 +22,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // The strip owns an interval; this view is mounted without the hub shell,
+  // so nothing else here would stop it.
+  destroyHubAttendanceRoster();
   restoreBrowserStubs();
 });
 
@@ -108,5 +112,21 @@ describe("the comparison grid", () => {
     mount(attendanceWeek({ rows: [], totals_by_day: [], total_minutes: 0 }));
     expect(host.querySelector(".hub-compare-table")).toBeNull();
     expect(host.querySelector(".hub-compare-empty")).not.toBeNull();
+  });
+
+  it("mounts the roster strip above the grid when given a live payload", () => {
+    mount(attendanceWeek(), { live: attendanceLive() });
+    const section = host.querySelector(".hub-compare");
+    expect(section.querySelector(".hub-roster-strip")).not.toBeNull();
+    // Above: the strip is the headline, the grid is the record.
+    expect(section.querySelector(".hub-roster").compareDocumentPosition(
+      section.querySelector(".hub-compare-table-wrap"),
+    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("renders the grid with no strip when there is no live payload", () => {
+    mount(attendanceWeek());
+    expect(host.querySelector(".hub-compare-table")).not.toBeNull();
+    expect(host.querySelector(".hub-roster-strip")).toBeNull();
   });
 });

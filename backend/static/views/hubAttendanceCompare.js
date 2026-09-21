@@ -17,10 +17,16 @@
 //
 // Every flag prints its glyph *and* its words: design-system.md keeps status
 // hues to badges, and nothing here may be readable by colour alone.
+//
+// Above the grid sits the **live roster strip** (P4b), mounted here but fed
+// its own payload from `GET /hub/attendance/live`. Two payloads, two
+// cadences: the week is paged by hand and the roster is polled and pushed,
+// so the strip is the headline and the grid is the record.
 
 import { apiExportHubAttendance } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { tipHtml } from "../tooltip.js";
+import { mountHubAttendanceRoster } from "./hubAttendanceRoster.js";
 
 // `8:00`, not format.js's `8 h 0 m`: a seven-column grid of hours reads as a
 // column of clock times. hubAttendanceHours.js makes the same local choice.
@@ -121,7 +127,7 @@ function setStatus(container, message, type = "") {
   status.className = `hub-compare-message${type ? ` ${type}` : ""}`;
 }
 
-export function mountHubAttendanceCompare(container, payload, { onWeekChange } = {}) {
+export function mountHubAttendanceCompare(container, payload, { onWeekChange, live = null } = {}) {
   async function downloadCsv(button) {
     button.disabled = true;
     setStatus(container, "Preparing export…");
@@ -200,6 +206,7 @@ export function mountHubAttendanceCompare(container, payload, { onWeekChange } =
 
     container.innerHTML = `<section class="hub-compare" aria-labelledby="hub-compare-heading">
       <h3 id="hub-compare-heading" class="sr-only">Charged against clocked</h3>
+      <div class="hub-roster-mount"></div>
       <div class="hub-compare-toolbar">
         <div class="hub-compare-week-nav">
           <button type="button" class="secondary-btn hub-compare-prev" aria-label="Previous week">◀</button>
@@ -216,6 +223,14 @@ export function mountHubAttendanceCompare(container, payload, { onWeekChange } =
       ${dst}
       <p class="hint hub-compare-legend">Clocked = time on shift, the pay number. Charged = time on a work-order clock. Δ = on shift, not on a job. ⚠ = charged with no punch covering it. Adjusted = hand-entered labor, which has no start or stop and is counted in neither column.</p>
     </section>`;
+
+    // The strip is a separate payload on a separate cadence. Absent -- a
+    // failed or in-flight roster fetch -- the grid below still renders: the
+    // comparison is the sub-tab's job and the roster is its headline, not
+    // its precondition.
+    if (live) {
+      mountHubAttendanceRoster(container.querySelector(".hub-roster-mount"), live);
+    }
 
     container.querySelector(".hub-compare-prev")?.addEventListener("click", () => {
       onWeekChange?.(shiftMonday(payload.week_start, -7));

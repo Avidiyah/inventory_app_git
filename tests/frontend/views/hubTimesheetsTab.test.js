@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
 import { attendanceWeek } from "../helpers/factories.js";
-import { el, openHub, queries, restoreHub, stopClock } from "../helpers/hub.js";
+import { connectHub, el, openHub, queries, restoreHub, stopClock } from "../helpers/hub.js";
 
 afterEach(() => {
   stopClock();
@@ -75,6 +75,56 @@ describe("Admin", () => {
     await vi.waitFor(() => expect(panel().querySelector(".hub-hours-message.error")).not.toBeNull());
     await user().click(panel().querySelector(".hub-hours-retry"));
     await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
+  });
+
+  it("fetches the roster only when Charged vs clocked is opened", async () => {
+    await openTimesheets({ role: "admin" });
+    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
+    expect(queries("/hub/attendance/live")).toHaveLength(0);
+    await user().click(panel().querySelector('.sub-nav-btn[data-feature="compare"]'));
+    await vi.waitFor(() => expect(panel().querySelector(".hub-roster-strip")).not.toBeNull());
+    expect(queries("/hub/attendance/live")).toHaveLength(1);
+  });
+
+  it("renders the comparison grid even when the roster fetch fails", async () => {
+    await openTimesheets({
+      role: "admin",
+      handlers: [http.get("/hub/attendance/live", () => HttpResponse.json({ detail: "" }, { status: 500 }))],
+    });
+    await user().click(panel().querySelector('.sub-nav-btn[data-feature="compare"]'));
+    await vi.waitFor(() => expect(panel().querySelector(".hub-compare-table")).not.toBeNull());
+    expect(panel().querySelector(".hub-roster-strip")).toBeNull();
+  });
+
+  it("refetches the roster on attendance.changed while the sub-tab is open", async () => {
+    const { emit } = await connectHub();
+    await openTimesheets({ role: "admin" });
+    await user().click(panel().querySelector('.sub-nav-btn[data-feature="compare"]'));
+    await vi.waitFor(() => expect(queries("/hub/attendance/live")).toHaveLength(1));
+    emit("attendance.changed");
+    await vi.waitFor(() => expect(queries("/hub/attendance/live")).toHaveLength(2));
+  });
+
+  it("ignores attendance.changed while Hours is the open sub-tab", async () => {
+    const { emit } = await connectHub();
+    await openTimesheets({ role: "admin" });
+    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
+    emit("attendance.changed");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(queries("/hub/attendance/live")).toHaveLength(0);
+  });
+
+  it("refreshes the roster on the hub's 60-second timer and starts no timer of its own", async () => {
+    await openTimesheets({ role: "admin" });
+    await user().click(panel().querySelector('.sub-nav-btn[data-feature="compare"]'));
+    // Wait for the strip itself, not just the request: the roster's own tick
+    // starts when the payload mounts, and counting before that would compare
+    // against a number the poll is about to raise for an innocent reason.
+    await vi.waitFor(() => expect(panel().querySelector(".hub-roster-strip")).not.toBeNull());
+    const before = vi.getTimerCount();
+    await vi.advanceTimersByTimeAsync(60000);
+    await vi.waitFor(() => expect(queries("/hub/attendance/live")).toHaveLength(2));
+    expect(vi.getTimerCount()).toBe(before);
   });
 });
 

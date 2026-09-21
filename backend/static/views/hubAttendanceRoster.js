@@ -26,6 +26,11 @@ let container = null;
 let payload = null;
 let skewMs = 0;
 let tickHandle = null;
+// Set by the tab-hide, cleared by the tab-show. It outlives a single
+// mount on purpose: a poll fired before the tab went away can land after
+// it, and a strip nobody is looking at must not resume the tick that
+// `visibilitychange` just stopped.
+let suspended = false;
 
 function serverNow() {
   return Date.now() + skewMs;
@@ -141,6 +146,7 @@ function stopTicking() {
 
 function startTicking() {
   stopTicking();
+  if (suspended || document.hidden) return;
   tickHandle = setInterval(tick, 1000);
 }
 
@@ -158,16 +164,19 @@ export function mountHubAttendanceRoster(mountEl, newPayload) {
 // `visibilitychange` listener beside `stopHubClockTicking` -- this view owns
 // no timer of its own beyond the one that listener governs.
 export function stopHubRosterTicking() {
+  suspended = true;
   stopTicking();
 }
 
 export function startHubRosterTicking() {
+  suspended = false;
   if (container) startTicking();
 }
 
 // A different person signed in, or the tab went away. Everything goes,
 // including the interval -- the frontend suite asserts no timer survives.
 export function destroyHubAttendanceRoster() {
+  suspended = false;
   stopTicking();
   container = null;
   payload = null;

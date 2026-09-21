@@ -28,14 +28,17 @@ import {
   apiAddAttendancePunch,
   apiDeleteAttendancePunch,
   apiEditAttendancePunch,
+  apiGetHubAttendanceLive,
   apiGetHubAttendanceWeek,
   apiGetHubTimesheets,
 } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
+import { subscribe } from "../realtime.js";
 import { roleAtLeast } from "../roles.js";
 import { skeletonCard } from "../skeleton.js";
 import { mountHubAttendanceCompare } from "./hubAttendanceCompare.js";
 import { mountHubAttendanceHours } from "./hubAttendanceHours.js";
+import { destroyHubAttendanceRoster } from "./hubAttendanceRoster.js";
 import { mountHubTimesheets } from "./hubTimesheets.js";
 import { initSubNav } from "./subnav.js";
 
@@ -45,6 +48,15 @@ let viewerRole = null;
 let weekPayload = null;
 let week = null;
 let weekRequestId = 0;
+
+// The roster's own cache, on its own cadence: the week is paged by hand and
+// the strip is polled. Sharing one counter would let a week change discard
+// a roster response that is still current.
+let livePayload = null;
+let liveRequestId = 0;
+// The panel this module is mounted into, held so the module-level
+// subscription below has something to refresh. Set on every render.
+let hostPanel = null;
 
 let crewPayload = null;
 let crewRange = null;
@@ -141,7 +153,35 @@ function changeWeek(panelEl) {
 function renderCompare(panelEl) {
   const mount = featurePanel(panelEl, "compare");
   if (!mount || !weekPayload) return;
-  mountHubAttendanceCompare(mount, weekPayload, { onWeekChange: changeWeek(panelEl) });
+  mountHubAttendanceCompare(mount, weekPayload, {
+    onWeekChange: changeWeek(panelEl),
+    live: livePayload,
+  });
+}
+
+// A roster failure is deliberately silent: it leaves `livePayload` null, the
+// comparison renders without its strip, and the next poll tries again. The
+// alternative -- replacing a working grid with a retry box because a
+// decorative strip 500'd -- is worse.
+async function loadLive(panelEl) {
+  const requestId = ++liveRequestId;
+  try {
+    const payload = await apiGetHubAttendanceLive();
+    if (requestId !== liveRequestId) return;
+    livePayload = payload;
+    if (panelEl.dataset.activeFeature === "compare") renderCompare(panelEl);
+  } catch (_err) {
+    if (requestId !== liveRequestId) return;
+  }
+}
+
+// Called by userHub.js on the hub's existing 60-second safety timer and on
+// an `attendance.changed` envelope. A no-op unless the comparison is the
+// open sub-tab: nothing else on screen reads either payload.
+export function refreshTimesheetsLive(panelEl = hostPanel) {
+  if (!panelEl || panelEl.dataset.activeFeature !== "compare") return;
+  void loadLive(panelEl);
+  void loadWeek(panelEl);
 }
 
 // Paint whichever Admin feature is showing, from the one cached week.
@@ -237,9 +277,14 @@ async function loadCrew(panelEl, { start = null, end = null } = {}) {
 // Both the sub-nav's `onShow` and a tab re-entry come through here, so
 // switching back to a sub-tab already loaded never starts a second request.
 function showFeature(panelEl, feature) {
+  // The strip only exists on the comparison. Leaving that sub-tab takes its
+  // tick with it: an interval running behind a hidden panel is a timer this
+  // module would then have to remember to stop somewhere else.
+  if (feature !== "compare") destroyHubAttendanceRoster();
   if (feature === "hours" || feature === "compare") {
     if (weekPayload) renderWeek(panelEl);
     else void loadWeek(panelEl);
+    if (feature === "compare" && !livePayload) void loadLive(panelEl);
   } else if (crewPayload) {
     renderCrew(panelEl);
   } else {
@@ -253,6 +298,7 @@ function showFeature(panelEl, feature) {
 export function renderTimesheetsTab(panelEl, { role } = {}) {
   if (!panelEl) return;
   viewerRole = role;
+  hostPanel = panelEl;
   if (panelEl.dataset.timesheetsRole !== role || !panelEl.querySelector(".feature-panel")) {
     buildShell(panelEl, role);
   }
@@ -269,9 +315,23 @@ export function resetTimesheetsTab(panelEl) {
   crewPayload = null;
   crewRange = null;
   crewRequestId += 1;
+  livePayload = null;
+  liveRequestId += 1;
+  hostPanel = null;
+  destroyHubAttendanceRoster();
   viewerRole = null;
   if (!panelEl) return;
   delete panelEl.dataset.timesheetsRole;
   delete panelEl.dataset.activeFeature;
   panelEl.replaceChildren();
 }
+
+// Spec §6: this sub-tab owns the `attendance.changed` subscription. Every
+// punch write emits it (audience Admin), so a technician punching out moves
+// the strip without waiting out the 60-second poll. Background by nature --
+// a socket signal, not a user action -- and inert unless the comparison is
+// the open sub-tab.
+subscribe("attendance.changed", ({ activePage }) => {
+  if (activePage !== "user-hub") return;
+  refreshTimesheetsLive();
+});
