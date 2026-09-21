@@ -20,8 +20,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain import attendance, labor_day
-from app.domain.errors import PunchAlreadyOpenError, PunchNotFoundError
-from app.models import AttendancePunch, User
+from app.domain.errors import (
+    NoChangeError,
+    PunchAlreadyOpenError,
+    PunchNotFoundError,
+    PunchOverlapError,
+    PunchTimeInvalidError,
+)
+from app.models import AttendancePunch, AttendancePunchEdit, User
 from app.services import work_orders as wo_service
 
 
@@ -215,3 +221,137 @@ def me_payload(
         ),
         clocked_minutes_today=minutes,
     )
+
+
+# --- The Admin's audited writes (D2, §1) ---------------------------------
+#
+# Every one of these writes `attendance_punch_edits` in the same transaction
+# as the change: an unaudited correction to a pay record is the thing the
+# table exists to make impossible. One row per field, values as text.
+
+
+def _stamp(instant: Optional[datetime]) -> Optional[str]:
+    return None if instant is None else labor_day.as_utc(instant).isoformat()
+
+
+def _audit(db: Session, *, punch: AttendancePunch, actor: User, field: str,
+           old: Optional[str], new: Optional[str], reason: Optional[str],
+           now: datetime) -> None:
+    db.add(AttendancePunchEdit(
+        id=uuid.uuid4(), punch_id=punch.id, edited_by_id=actor.id,
+        edited_at=now, field=field, old_value=old, new_value=new,
+        reason=(reason or None)))
+
+
+def _assert_no_overlap(db: Session, *, user_id: uuid.UUID, punch_id,
+                       started_at: datetime, ended_at: Optional[datetime],
+                       now: datetime) -> None:
+    others = [
+        (row.id, row.started_at, row.ended_at)
+        for row in live_punches(db).filter(AttendancePunch.user_id == user_id).all()
+        if row.id != punch_id
+    ]
+    clash = attendance.find_overlap(started_at, ended_at, others, now=now)
+    if clash is not None:
+        raise PunchOverlapError(
+            "That overlaps another punch for this person.", punch_id=clash)
+
+
+def _live_punch(db: Session, punch_id) -> AttendancePunch:
+    punch = live_punches(db).filter(AttendancePunch.id == punch_id).first()
+    if punch is None:
+        raise PunchNotFoundError("That punch no longer exists.")
+    return punch
+
+
+def admin_add_punch(db: Session, *, actor: User, user_id: uuid.UUID,
+                    started_at: datetime, ended_at: datetime,
+                    reason: Optional[str] = None,
+                    now: Optional[datetime] = None) -> AttendancePunch:
+    """D2: a day is a list of punches, so an Admin can add one that was never
+    clocked. Closed only -- an open punch is something a person is living
+    through, not a record an Admin writes on their behalf, and the partial
+    unique index would fight a second one anyway."""
+    now = now or datetime.now(timezone.utc)
+    if db.query(User).filter(User.id == user_id).first() is None:
+        raise PunchNotFoundError("That person no longer exists.")
+    attendance.validate_punch_window(started_at, ended_at, now=now)
+    _assert_no_overlap(db, user_id=user_id, punch_id=None,
+                       started_at=started_at, ended_at=ended_at, now=now)
+    punch = AttendancePunch(
+        id=uuid.uuid4(), user_id=user_id,
+        started_at=labor_day.as_utc(started_at), ended_at=labor_day.as_utc(ended_at),
+        start_source=attendance.START_SOURCE_MANUAL,
+        end_source=attendance.END_SOURCE_ADMIN_EDIT)
+    db.add(punch)
+    db.flush()
+    _audit(db, punch=punch, actor=actor, field="created", old=None,
+           new=f"{_stamp(started_at)}/{_stamp(ended_at)}", reason=reason, now=now)
+    db.commit()
+    db.refresh(punch)
+    return punch
+
+
+def admin_edit_punch(db: Session, *, actor: User, punch_id,
+                     started_at: Optional[datetime] = None,
+                     ended_at: Optional[datetime] = None,
+                     needs_review: Optional[bool] = None,
+                     reason: Optional[str] = None,
+                     now: Optional[datetime] = None) -> AttendancePunch:
+    """Correct a punch. `None` means *unchanged*, never *clear*: clearing
+    `ended_at` would re-open a shift somebody already left, and the open-punch
+    index would then fight whatever they are living through today.
+
+    Any change clears `needs_review` -- an Admin who has looked at a
+    self-reported time has reviewed it. Passing `needs_review=False` alone is
+    the "Looks right" action: reviewed, nothing to correct.
+    """
+    now = now or datetime.now(timezone.utc)
+    punch = _live_punch(db, punch_id)
+    new_start = labor_day.as_utc(started_at) if started_at is not None else punch.started_at
+    new_end = labor_day.as_utc(ended_at) if ended_at is not None else punch.ended_at
+    if punch.ended_at is not None and new_end is None:
+        raise PunchTimeInvalidError("A closed punch cannot be re-opened.")
+    attendance.validate_punch_window(new_start, new_end, now=now)
+    _assert_no_overlap(db, user_id=punch.user_id, punch_id=punch.id,
+                       started_at=new_start, ended_at=new_end, now=now)
+
+    changes: list[tuple[str, Optional[str], Optional[str]]] = []
+    if new_start != punch.started_at:
+        changes.append(("started_at", _stamp(punch.started_at), _stamp(new_start)))
+    if new_end != punch.ended_at:
+        changes.append(("ended_at", _stamp(punch.ended_at), _stamp(new_end)))
+    clearing = punch.needs_review and (needs_review is False or changes)
+    if clearing:
+        changes.append(("needs_review", "true", "false"))
+    if not changes:
+        raise NoChangeError("Nothing about that punch changed.")
+
+    punch.started_at, punch.ended_at = new_start, new_end
+    if any(field == "ended_at" for field, _old, _new in changes):
+        punch.end_source = attendance.END_SOURCE_ADMIN_EDIT
+    if clearing:
+        punch.needs_review = False
+    for field, old, new in changes:
+        _audit(db, punch=punch, actor=actor, field=field, old=old, new=new,
+               reason=reason, now=now)
+    db.commit()
+    db.refresh(punch)
+    return punch
+
+
+def admin_delete_punch(db: Session, *, actor: User, punch_id,
+                       reason: Optional[str] = None,
+                       now: Optional[datetime] = None) -> AttendancePunch:
+    """Soft: the row and its audit stay, every read stops seeing it. A pay
+    record that vanishes without a trace is exactly what §1's audit table is
+    for, and `punch_id` is ON DELETE CASCADE."""
+    now = now or datetime.now(timezone.utc)
+    punch = _live_punch(db, punch_id)
+    punch.deleted_at = now
+    _audit(db, punch=punch, actor=actor, field="deleted",
+           old=f"{_stamp(punch.started_at)}/{_stamp(punch.ended_at)}", new=None,
+           reason=reason, now=now)
+    db.commit()
+    db.refresh(punch)
+    return punch

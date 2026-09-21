@@ -165,7 +165,11 @@ class NoChangeError(DomainError):
     """Raised by `services.transactions.apply_correction` when the
     requested `new_quantity` matches the item's current quantity, so
     the correction would create an empty audit row. The user almost
-    always means a typo here; a clean 400 makes the no-op explicit."""
+    always means a typo here; a clean 400 makes the no-op explicit.
+
+    Also raised by `services.attendance.admin_edit_punch` when an edit
+    changes no field: the same empty-audit-row problem, in the table where
+    an empty row is worst."""
 
 
 class InvalidCredentialsError(DomainError):
