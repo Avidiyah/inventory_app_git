@@ -625,3 +625,34 @@ def test_crew_range_summaries_of_an_empty_crew_is_an_empty_dict(db):
         )
         == {}
     )
+
+
+def test_crew_range_summaries_leaves_a_forgotten_clock_uncapped_by_default(db):
+    # The existing timesheet caller sweeps first, so the default must not
+    # change under it.
+    tech = _seed_user(db)
+    work_order = _seed_work_order(db, created_by=tech, assigned_to=tech)
+    started = datetime(2026, 9, 14, 13, 0, tzinfo=timezone.utc)
+    _seed_session(db, work_order, tech, started_at=started)
+    now = datetime(2026, 9, 15, 13, 0, tzinfo=timezone.utc)
+
+    summaries = labor_summary.crew_range_summaries(
+        db, [tech.id], date(2026, 9, 14), date(2026, 9, 15), now=now
+    )
+    total = sum(day.running_minutes for day in summaries[tech.id])
+    assert total == 24 * 60
+
+
+def test_crew_range_summaries_caps_a_forgotten_clock_when_asked(db):
+    tech = _seed_user(db)
+    work_order = _seed_work_order(db, created_by=tech, assigned_to=tech)
+    started = datetime(2026, 9, 14, 13, 0, tzinfo=timezone.utc)
+    _seed_session(db, work_order, tech, started_at=started)
+    now = datetime(2026, 9, 15, 13, 0, tzinfo=timezone.utc)
+
+    summaries = labor_summary.crew_range_summaries(
+        db, [tech.id], date(2026, 9, 14), date(2026, 9, 15),
+        now=now, cap_running=True,
+    )
+    total = sum(day.running_minutes for day in summaries[tech.id])
+    assert total == wo.LABOR_SESSION_MAX_MINUTES

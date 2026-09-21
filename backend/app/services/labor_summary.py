@@ -28,6 +28,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.domain import labor_day, list_limits
+from app.domain import work_orders as wo
 from app.models import (
     User,
     WorkOrder,
@@ -277,6 +278,7 @@ def crew_range_summaries(
     end_day: date,
     *,
     now: datetime,
+    cap_running: bool = False,
 ) -> dict[uuid.UUID, list[DaySummary]]:
     """Build every technician/day cell in an inclusive timesheet range.
 
@@ -284,6 +286,11 @@ def crew_range_summaries(
     queries per cell. Sessions are split with the same pure day arithmetic as
     :func:`day_summary`, and both result sets use the shared list ceiling.
     Every requested day is present, including zero-valued days.
+
+    `cap_running=True` clips an open session at the 12-hour cap without
+    writing anything, for the attendance reads that must not sweep (spec §4).
+    The default is off: the timesheet caller sweeps before reading, and a
+    swept session is already closed.
     """
     if not technician_ids:
         return {}
@@ -322,8 +329,13 @@ def crew_range_summaries(
             continue
         is_running = session.ended_at is None
         number = session.work_order.number if session.work_order else ""
+        stop = (
+            wo.capped_session_end(session.started_at, session.ended_at, now=now)
+            if cap_running
+            else now
+        )
         for day, minutes in labor_day.split_by_day(
-            session.started_at, session.ended_at, now=now
+            session.started_at, session.ended_at, now=stop
         ):
             summary = technician_bucket.get(day)
             if summary is None:

@@ -16,7 +16,7 @@ stock-neutral paper backfill.
 """
 
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional, Sequence
 from urllib.parse import quote
@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 
 from app.domain import roles
 from app.domain.errors import WorkOrderStateError
+from app.domain.labor_day import as_utc
 
 
 # --- identity ------------------------------------------------------------
@@ -374,6 +375,33 @@ def capped_session_minutes(
     if minutes > LABOR_SESSION_MAX_MINUTES:
         return LABOR_SESSION_MAX_MINUTES, True
     return minutes, False
+
+
+def capped_session_end(
+    started_at: datetime,
+    ended_at: Optional[datetime],
+    *,
+    now: datetime,
+) -> datetime:
+    """The instant a session effectively ends, for a reader that must not write.
+
+    `capped_session_minutes`'s sibling: same cap, expressed as a moment rather
+    than a duration, because the day-splitting arithmetic in
+    `domain.labor_day` takes instants.
+
+    A closed session ends when it says it does -- including one longer than
+    the cap, which is recorded history a supervisor entered, not a clock
+    nobody stopped. A running session ends now, or at
+    `started_at + LABOR_SESSION_MAX_MINUTES` if that is sooner: exactly the
+    instant `services.work_orders.sweep_stale_sessions` would have written,
+    which is what lets the attendance reads stay side-effect-free (spec §4)
+    and still never show a forty-hour Tuesday.
+    """
+    if ended_at is not None:
+        return as_utc(ended_at)
+    moment = as_utc(now)
+    cap = as_utc(started_at) + timedelta(minutes=LABOR_SESSION_MAX_MINUTES)
+    return min(moment, cap)
 
 
 def effective_billable(quantity: Decimal, billable_quantity: Optional[Decimal]) -> Decimal:

@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -458,6 +458,38 @@ def test_a_running_session_is_measured_against_now():
     which is how the lazy cap decides a clock has outrun itself."""
     assert wo.capped_session_minutes(_at(8), None, now=_at(9, 30)) == (90, False)
     assert wo.capped_session_minutes(_at(8), None, now=_at(23))[1] is True
+
+
+def test_capped_session_end_returns_the_real_stop_for_a_closed_session():
+    started = datetime(2026, 9, 14, 13, 0, tzinfo=timezone.utc)
+    ended = datetime(2026, 9, 14, 21, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 15, 9, 0, tzinfo=timezone.utc)
+    assert wo.capped_session_end(started, ended, now=now) == ended
+
+
+def test_capped_session_end_stands_now_in_for_a_running_session():
+    started = datetime(2026, 9, 14, 13, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 14, 17, 0, tzinfo=timezone.utc)
+    assert wo.capped_session_end(started, None, now=now) == now
+
+
+def test_capped_session_end_truncates_a_forgotten_clock_at_the_cap():
+    # The sweep writes started_at + 720min; a read that must not write gets
+    # the same instant from here instead of a 40-hour running session.
+    started = datetime(2026, 9, 14, 13, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 16, 13, 0, tzinfo=timezone.utc)
+    assert wo.capped_session_end(started, None, now=now) == started + timedelta(
+        minutes=wo.LABOR_SESSION_MAX_MINUTES
+    )
+
+
+def test_capped_session_end_never_truncates_a_closed_over_cap_session():
+    # A supervisor may legitimately record a long closed session by hand.
+    # The cap exists for clocks nobody stopped, not for recorded history.
+    started = datetime(2026, 9, 14, 13, 0, tzinfo=timezone.utc)
+    ended = started + timedelta(minutes=wo.LABOR_SESSION_MAX_MINUTES + 120)
+    now = ended + timedelta(hours=1)
+    assert wo.capped_session_end(started, ended, now=now) == ended
 
 
 def test_billed_labor_minutes_is_unchanged_by_tracking():
