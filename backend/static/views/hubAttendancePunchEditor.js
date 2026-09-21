@@ -53,7 +53,7 @@ export function mountPunchEditor(hostEl, { punch, date, onSave, onDelete, onCanc
       </label>
       <div class="punch-editor-actions">
         <button type="button" class="punch-editor-save">Save</button>
-        ${punch ? `<button type="button" class="danger-btn punch-editor-delete">Delete</button>` : ""}
+        ${punch ? `<button type="button" class="btn-danger punch-editor-delete">Delete</button>` : ""}
         <button type="button" class="secondary-btn punch-editor-cancel">Cancel</button>
       </div>
       <p class="punch-editor-message" aria-live="polite"></p>
@@ -61,9 +61,11 @@ export function mountPunchEditor(hostEl, { punch, date, onSave, onDelete, onCanc
     wire();
   }
 
-  function say(text) {
+  function say(text, { error = false } = {}) {
     const target = hostEl.querySelector(".punch-editor-message");
-    if (target) target.textContent = text;
+    if (!target) return;
+    target.textContent = text;
+    target.className = error ? "punch-editor-message error" : "punch-editor-message";
   }
 
   function reason() {
@@ -78,6 +80,10 @@ export function mountPunchEditor(hostEl, { punch, date, onSave, onDelete, onCanc
       await work();
     } finally {
       busy = false;
+      // Re-enabled even on success: a successful write repaints the grid and
+      // takes this node with it, but a refused one leaves the editor open and
+      // an Admin has to be able to correct the time and try again.
+      hostEl.querySelectorAll("button").forEach((b) => { b.disabled = false; });
     }
   }
 
@@ -105,7 +111,7 @@ export function mountPunchEditor(hostEl, { punch, date, onSave, onDelete, onCanc
       ?.addEventListener("click", () => void pick("end"));
     hostEl.querySelector(".punch-editor-save")?.addEventListener("click", () => {
       if (!startedAt || !endedAt) {
-        say("Pick both a start and an end before saving.");
+        say("Pick both a start and an end before saving.", { error: true });
         return;
       }
       void run(() => onSave?.({ startedAt, endedAt, reason: reason() }));

@@ -5,6 +5,7 @@
 // lazy loads fire exactly as they do in the app.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
 import { attendanceWeek } from "../helpers/factories.js";
 import { el, openHub, queries, restoreHub, stopClock } from "../helpers/hub.js";
@@ -74,5 +75,57 @@ describe("Admin", () => {
     await vi.waitFor(() => expect(panel().querySelector(".hub-hours-message.error")).not.toBeNull());
     await user().click(panel().querySelector(".hub-hours-retry"));
     await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
+  });
+});
+
+// The write path: call, then refetch the week. The grid holds no optimistic
+// state, so the only thing that proves a write landed is a second GET.
+describe("the Admin punch writes", () => {
+  const edited = {
+    id: "punch-1", started_at: "2026-09-14T13:00:00.000Z",
+    ended_at: "2026-09-14T21:00:00.000Z", start_source: "manual",
+    end_source: "admin_edit", needs_review: false,
+  };
+
+  // Open the drill-down on Monday's cell and start editing its punch.
+  async function openEditor() {
+    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
+    await user().click(panel().querySelector(".hub-hours-cell"));
+    await user().click(panel().querySelector(".hub-hours-edit"));
+    await vi.waitFor(() => expect(panel().querySelector(".punch-editor")).not.toBeNull());
+  }
+
+  it("refetches the week after a punch edit", async () => {
+    await openTimesheets({
+      role: "admin",
+      handlers: [http.patch("/hub/attendance/punches/:id", () => HttpResponse.json(edited))],
+    });
+    await openEditor();
+    expect(queries("/hub/attendance/week")).toHaveLength(1);
+
+    await user().click(panel().querySelector(".punch-editor-save"));
+
+    await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
+  });
+
+  it("surfaces a 409 from an edit without losing the grid", async () => {
+    await openTimesheets({
+      role: "admin",
+      handlers: [http.patch("/hub/attendance/punches/:id", () => HttpResponse.json(
+        { detail: "That overlaps another punch for this person." }, { status: 409 }))],
+    });
+    await openEditor();
+
+    await user().click(panel().querySelector(".punch-editor-save"));
+
+    await vi.waitFor(() => expect(panel().querySelector(".punch-editor-message").textContent)
+      .toMatch(/overlaps/i));
+    expect(panel().querySelector(".hub-hours-table")).not.toBeNull();
+  });
+
+  it("gives a Supervisor no edit controls at all", async () => {
+    await openTimesheets({ role: "supervisor" });
+    await vi.waitFor(() => expect(panel().querySelector(".hub-timesheet-table")).not.toBeNull());
+    expect(panel().querySelector(".hub-hours-edit")).toBeNull();
   });
 });

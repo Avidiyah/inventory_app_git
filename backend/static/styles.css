@@ -2948,6 +2948,60 @@ tr.archived-user {
     padding-inline: var(--space-3);
 }
 
+/* P3's edit affordances. The row actions sit beside the minutes, never
+   inside the cell button -- HTML hoists a nested button out of its parent. */
+.hub-hours-row-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-left: var(--space-3);
+}
+
+.hub-hours-add {
+    margin-top: var(--space-2);
+    padding-inline: var(--space-3);
+}
+
+.punch-editor {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+    padding: var(--space-3);
+    background: var(--panel-well);
+    border: 1px solid var(--panel-rule);
+    border-radius: var(--radius-sm);
+}
+
+.punch-editor-times {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.punch-editor-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.punch-editor-actions button {
+    margin-top: 0;
+    padding-inline: var(--space-3);
+}
+
+.punch-editor-message {
+    margin: 0;
+    min-height: 1em;
+    font-size: var(--fs-sm);
+    color: var(--text-panel-mute);
+}
+
+.punch-editor-message.error {
+    color: var(--color-error);
+}
+
 /* A sub-nav nested inside a hub tabpanel sits directly under the tab strip,
    so it needs the breathing room the page-level `.sub-nav` gets from its
    page header. Chrome itself is inherited from `.sub-nav` unchanged. */

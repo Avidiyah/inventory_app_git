@@ -100,8 +100,8 @@ function punchRowHtml(punch, { canEdit } = {}) {
   // Spec §9: a carried punch is owned by the day it started, so it is
   // editable there and nowhere else.
   const controls = !canEdit || punch.carried ? "" : `<span class="hub-hours-row-actions">
-      <button type="button" class="link-btn hub-hours-edit" data-punch="${escapeHtml(punch.id)}">Edit</button>
-      ${punch.needs_review ? `<button type="button" class="link-btn hub-hours-clear-review" data-punch="${escapeHtml(punch.id)}">Looks right</button>` : ""}
+      <button type="button" class="hub-link-btn hub-hours-edit" data-punch="${escapeHtml(punch.id)}">Edit</button>
+      ${punch.needs_review ? `<button type="button" class="hub-link-btn hub-hours-clear-review" data-punch="${escapeHtml(punch.id)}">Looks right</button>` : ""}
     </span>`;
   return `<div class="hub-hours-drilldown-row">
     <span>${escapeHtml(timeLabel(punch.started_at))} – ${escapeHtml(ended)}${suffix}</span>

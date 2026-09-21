@@ -19,7 +19,13 @@
 // panel's innerHTML would drop that listener. Each feature renders into its
 // own `.feature-panel`, so a repaint of one never disturbs the other.
 
-import { apiGetHubAttendanceWeek, apiGetHubTimesheets } from "../api.js";
+import {
+  apiAddAttendancePunch,
+  apiDeleteAttendancePunch,
+  apiEditAttendancePunch,
+  apiGetHubAttendanceWeek,
+  apiGetHubTimesheets,
+} from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { roleAtLeast } from "../roles.js";
 import { skeletonCard } from "../skeleton.js";
@@ -74,14 +80,46 @@ function buildShell(panelEl, role) {
 
 // --- Hours ---------------------------------------------------------------
 
+// The write path is deliberately dumb: call, then refetch the week. The
+// grid holds no optimistic state, so a 409 leaves exactly what the server
+// last said on screen (spec §6: "refetch after an edit").
+async function write(panelEl, work) {
+  try {
+    await work();
+    await loadHours(panelEl);
+  } catch (err) {
+    const message = panelEl.querySelector(".punch-editor-message");
+    if (message) {
+      message.className = "punch-editor-message error";
+      message.textContent = friendlyError(err, "Could not save that punch.");
+    } else {
+      // No editor open -- a "Looks right" click, whose refusal has nowhere
+      // else to go, so it replaces the grid with the retryable load error.
+      showHoursError(panelEl, err);
+    }
+  }
+}
+
 function renderHours(panelEl) {
   const mount = featurePanel(panelEl, "hours");
   if (!mount || !hoursPayload) return;
+  // The four write callbacks are passed only to an Admin, and the grid
+  // renders an affordance only for a callback it was given -- so the floor
+  // is expressed once, here, rather than re-derived inside the view.
+  const writes = roleAtLeast(viewerRole, "admin")
+    ? {
+      onSavePunch: (id, values) => write(panelEl, () => apiEditAttendancePunch(id, values)),
+      onAddPunch: (userId, values) => write(panelEl, () => apiAddAttendancePunch({ userId, ...values })),
+      onDeletePunch: (id, reason) => write(panelEl, () => apiDeleteAttendancePunch(id, reason)),
+      onClearReview: (id) => write(panelEl, () => apiEditAttendancePunch(id, { needsReview: false })),
+    }
+    : {};
   mountHubAttendanceHours(mount, hoursPayload, {
     onWeekChange: (week) => {
       hoursWeek = week;
       void loadHours(panelEl);
     },
+    ...writes,
   });
 }
 
