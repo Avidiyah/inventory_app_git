@@ -29,6 +29,7 @@ import { escapeHtml, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
 import {
   buildRequestCard,
+  closeFormHtml,
   editFormHtml,
   fulfillFormHtml,
   itemChoiceHtml,
@@ -268,11 +269,37 @@ if (listEl) {
       if (request) panelOf(card).innerHTML = editFormHtml(request);
       return;
     }
+    if (event.target.closest(".user-request-close-open")) {
+      panelOf(card).innerHTML = closeFormHtml();
+      return;
+    }
     if (
       event.target.closest(".user-request-fulfill-cancel") ||
-      event.target.closest(".user-request-edit-cancel")
+      event.target.closest(".user-request-edit-cancel") ||
+      event.target.closest(".user-request-close-cancel")
     ) {
       closePanel(card);
+      return;
+    }
+
+    // --- close a catalogue request without fulfilling --------------------
+    const closeSave = event.target.closest(".user-request-close-save");
+    if (closeSave) {
+      const reasonInput = panelOf(card).querySelector(".user-request-close-reason");
+      const reason = reasonInput.value.trim();
+      if (!reason) {
+        setMessage(messageEl, "Enter a reason for closing this request.", "error");
+        reasonInput.focus();
+        return;
+      }
+      closeSave.disabled = true;
+      try {
+        await apiUpdateUserRequest(card.dataset.id, { status: "resolved", resolutionNote: reason });
+        await loadUserRequests();
+      } catch (err) {
+        closeSave.disabled = false;
+        setMessage(messageEl, friendlyError(err, "Could not close that request."), "error");
+      }
       return;
     }
 

@@ -270,6 +270,81 @@ def test_an_already_resolved_request_cannot_be_fulfilled_twice(db):
 
 
 # --------------------------------------------------------------------------
+# Closing without fulfilment
+# --------------------------------------------------------------------------
+
+def test_closing_without_fulfilment_records_the_reason_and_links_no_item(db):
+    admin = _user(db, "admin")
+    tech = _user(db)
+    work_order = _work_order(db, tech)
+    request = _file(db, tech, "3/4 copper elbow", work_order, quantity="2")
+    sibling = _file(db, tech, "copper elbow 3/4", _work_order(db, tech))
+
+    closed = request_service.update_user_request(
+        db,
+        request.id,
+        status="resolved",
+        resolution_note="  Duplicate of an earlier request  ",
+        resolved_by_id=admin.id,
+    )
+    db.refresh(sibling)
+
+    assert closed.status == "resolved"
+    assert closed.item_id is None
+    assert closed.resolved_by_id == admin.id
+    assert closed.resolution_note == "Duplicate of an earlier request"
+    assert sibling.status == "open"
+    assert (
+        db.query(WorkOrderItem)
+        .filter(WorkOrderItem.work_order_id == work_order.id)
+        .count()
+        == 0
+    )
+
+
+@pytest.mark.parametrize("note", [None, "", "   "])
+def test_closing_without_fulfilment_needs_a_reason(db, note):
+    admin = _user(db, "admin")
+    request = _file(db, _user(db), "grommet 1in")
+
+    with pytest.raises(ItemRequestStateError):
+        request_service.update_user_request(
+            db, request.id, status="resolved", resolution_note=note, resolved_by_id=admin.id
+        )
+
+
+def test_a_closed_catalogue_request_can_be_reopened(db):
+    admin = _user(db, "admin")
+    request = _file(db, _user(db), "grommet 1in")
+    request_service.update_user_request(
+        db, request.id, status="resolved", resolution_note="Not needed", resolved_by_id=admin.id
+    )
+
+    reopened = request_service.update_user_request(
+        db, request.id, status="open", resolution_note=None, resolved_by_id=admin.id
+    )
+
+    assert reopened.status == "open"
+    assert reopened.resolved_at is None
+    assert reopened.resolved_by_id is None
+    assert reopened.resolution_note is None
+
+
+def test_a_fulfilled_catalogue_request_cannot_be_reopened(db):
+    admin = _user(db, "admin")
+    request = _file(db, _user(db), "grommet 1in")
+    item = _catalogue_item(db, name="1 in Grommet")
+    request_service.fulfill_catalogue_request(
+        db, request.id, item_id=item.id, sibling_ids=[], resolved_by_id=admin.id
+    )
+
+    with pytest.raises(ItemRequestStateError):
+        request_service.update_user_request(
+            db, request.id, status="open", resolution_note=None, resolved_by_id=admin.id
+        )
+
+
+# --------------------------------------------------------------------------
 # The rename
 # --------------------------------------------------------------------------
 

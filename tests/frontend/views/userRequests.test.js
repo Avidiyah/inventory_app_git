@@ -324,24 +324,27 @@ describe("actions by type and status", () => {
     expect(cardFor("a").querySelector(sel("user-request-action")).textContent).toBe("Reopen");
   });
 
-  it("catalogue: open offers Fulfil + Edit, with the closed-work-order warning when archived", async () => {
+  it("catalogue: open offers Fulfil + Close without fulfilling + Edit, with the closed-work-order warning when archived", async () => {
     await openUserRequests({ requests: [
       catalogue({ id: "a" }), catalogue({ id: "b", work_order_archived: true }),
       catalogue({ id: "c", work_order_archived: true, work_order_number: null }),
     ] });
     tab("catalogue_request").click();
     await vi.waitFor(() => expect(cardFor("a")).not.toBeNull());
-    expect(actionsOf(cardFor("a"))).toEqual(["user-request-fulfill-open", "secondary-btn user-request-edit-open"]);
+    expect(actionsOf(cardFor("a"))).toEqual([
+      "user-request-fulfill-open", "secondary-btn user-request-close-open", "secondary-btn user-request-edit-open",
+    ]);
+    expect(cardFor("a").querySelector(sel("user-request-close-open")).textContent).toBe("Close without fulfilling");
     expect(cardFor("a").querySelector(".user-request-warning")).toBeNull();
     expect(cardFor("b").querySelector(".user-request-warning").textContent)
       .toBe("⚠ 12345 is closed. The item will still be created, but it will not be added to the work order.");
     expect(cardFor("c").querySelector(".user-request-warning").textContent).toContain("⚠ That work order is closed.");
   });
 
-  it("catalogue: not open reads Fulfilled, naming the item when linked", async () => {
+  it("catalogue: resolved with a linked item reads Fulfilled, naming the item when known, with no actions", async () => {
     await openUserRequests({ requests: [
-      catalogue({ id: "a", status: "resolved", item_name: "Flux capacitor" }),
-      catalogue({ id: "b", status: "resolved" }),
+      catalogue({ id: "a", status: "resolved", item_id: "i1", item_name: "Flux capacitor" }),
+      catalogue({ id: "b", status: "resolved", item_id: "i2" }),
     ] });
     el.status().value = "resolved";
     tab("catalogue_request").click();
@@ -349,6 +352,17 @@ describe("actions by type and status", () => {
     expect(hintsOf(cardFor("a"))).toEqual(["Fulfilled as Flux capacitor."]);
     expect(hintsOf(cardFor("b"))).toEqual(["Fulfilled."]);
     expect(actionsOf(cardFor("a"))).toEqual([]);
+  });
+
+  it("catalogue: resolved with no linked item reads Closed without fulfilling and offers Reopen", async () => {
+    await openUserRequests({ requests: [catalogue({ id: "a", status: "resolved" })] });
+    el.status().value = "resolved";
+    tab("catalogue_request").click();
+    await vi.waitFor(() => expect(cardFor("a")).not.toBeNull());
+    expect(hintsOf(cardFor("a"))).toEqual(["Closed without fulfilling."]);
+    expect(actionsOf(cardFor("a"))).toEqual(["user-request-action secondary-btn"]);
+    expect(cardFor("a").querySelector(sel("user-request-action")).dataset.status).toBe("open");
+    expect(cardFor("a").querySelector(sel("user-request-action")).textContent).toBe("Reopen");
   });
 
   it("recount: open offers the count fix (labelled input, recount tip) + resolve + edit", async () => {

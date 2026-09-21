@@ -85,6 +85,58 @@ describe("resolve / reopen", () => {
   });
 });
 
+describe("close a catalogue request without fulfilling", () => {
+  const catalogue = () => userRequest({
+    id: "c1", request_type: "catalogue_request", item_id: null, item_name: null,
+    details: { searched_text: "Flux", quantity: "1", note: null },
+  });
+
+  it("opens the reason panel; Cancel empties it", async () => {
+    const ctx = await withCard(catalogue());
+    click(ctx.card(), sel("user-request-close-open"));
+    const panel = panelOf(ctx.card());
+    expect(panel.querySelector(".user-request-close-reason").value).toBe("");
+    expect(panel.querySelector(".hint").textContent).toContain("without adding an item");
+    click(ctx.card(), sel("user-request-close-cancel"));
+    expect(panel.innerHTML).toBe("");
+  });
+
+  it("a blank reason is refused and focused, writing nothing", async () => {
+    const ctx = await withCard(catalogue());
+    click(ctx.card(), sel("user-request-close-open"));
+    set(ctx.card(), ".user-request-close-reason", "   ");
+    click(ctx.card(), sel("user-request-close-save"));
+    expect(el.message().textContent).toBe("Enter a reason for closing this request.");
+    expect(document.activeElement).toBe(ctx.card().querySelector(".user-request-close-reason"));
+    expect(requests()).toHaveLength(0);
+  });
+
+  it("PATCHes resolved with the trimmed reason, then reloads", async () => {
+    const ctx = await withCard(catalogue());
+    server.use(http.patch("/user-requests/c1", patched));
+    click(ctx.card(), sel("user-request-close-open"));
+    set(ctx.card(), ".user-request-close-reason", " Duplicate ");
+    const save = ctx.card().querySelector(sel("user-request-close-save"));
+    save.click();
+    expect(save.disabled).toBe(true);
+    await vi.waitFor(() => expect(reloaded()).toBe(true));
+    expect(requestFor("/user-requests/c1", "PATCH").body)
+      .toEqual({ status: "resolved", resolution_note: "Duplicate", message: null, details: null });
+  });
+
+  it("a failure re-enables the button with the close copy and keeps the panel", async () => {
+    const ctx = await withCard(catalogue());
+    server.use(http.patch("/user-requests/c1", fail));
+    click(ctx.card(), sel("user-request-close-open"));
+    set(ctx.card(), ".user-request-close-reason", "Duplicate");
+    const save = ctx.card().querySelector(sel("user-request-close-save"));
+    save.click();
+    await vi.waitFor(() => expect(el.message().textContent).toBe("Could not close that request."));
+    expect(save.disabled).toBe(false);
+    expect(panelOf(ctx.card()).querySelector(".user-request-close")).not.toBeNull();
+  });
+});
+
 describe("mark stocked", () => {
   it("confirms, POSTs mark-stocked with an empty body, reloads", async () => {
     const ctx = await withCard(userRequest({ id: "m1" }));

@@ -487,6 +487,20 @@ def update_user_request(
     if request is None:
         raise UserRequestNotFoundError("User request not found.")
 
+    resolution_note = (resolution_note or "").strip() or None
+    if request.request_type == REQUEST_CATALOGUE:
+        # Fulfilment is the only path that links an item, so a PATCH resolve is
+        # always a close without fulfilment and must say why. A fulfilled one
+        # already added lines to work orders; reopening would orphan them.
+        if status == STATUS_RESOLVED and resolution_note is None:
+            raise ItemRequestStateError(
+                "Give a reason for closing this request without fulfilling it."
+            )
+        if status == STATUS_OPEN and request.item_id is not None:
+            raise ItemRequestStateError(
+                "A fulfilled catalogue request cannot be reopened."
+            )
+
     request.status = status
     if status == STATUS_RESOLVED:
         request.resolved_at = datetime.now(timezone.utc)

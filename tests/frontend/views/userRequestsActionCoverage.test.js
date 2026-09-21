@@ -18,7 +18,8 @@ auditActions({
   name: "User Requests row actions",
   sources: [join(VIEWS_DIR, "userRequestCards.js"), join(VIEWS_DIR, "userRequests.js")],
   frozen: [
-    "user-request-action", "user-request-count-save", "user-request-edit-cancel",
+    "user-request-action", "user-request-close-cancel", "user-request-close-open",
+    "user-request-close-save", "user-request-count-save", "user-request-edit-cancel",
     "user-request-edit-open", "user-request-edit-save", "user-request-fulfill-cancel",
     "user-request-fulfill-open", "user-request-fulfill-save", "user-request-item-pick",
     "user-request-price-save", "user-request-stock",

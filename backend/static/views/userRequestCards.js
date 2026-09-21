@@ -127,7 +127,15 @@ function materialRequestActions(request) {
   );
 }
 
+// Fulfilment is the only path that links an item, so a resolved request with
+// no item was closed without fulfilling -- and only that kind can reopen.
 function catalogueRequestActions(request) {
+  if (request.status !== "open" && !request.item_id) {
+    return (
+      `<span class="hint">Closed without fulfilling.</span>` +
+      `<button type="button" class="user-request-action secondary-btn" data-status="open">Reopen</button>`
+    );
+  }
   if (request.status !== "open") {
     return `<span class="hint">Fulfilled${
       request.item_name ? ` as ${escapeHtml(request.item_name)}` : ""
@@ -141,8 +149,24 @@ function catalogueRequestActions(request) {
   return (
     warning +
     `<button type="button" class="user-request-fulfill-open">Fulfil…</button>` +
+    `<button type="button" class="secondary-btn user-request-close-open">Close without fulfilling</button>` +
     `<button type="button" class="secondary-btn user-request-edit-open">Edit</button>`
   );
+}
+
+export function closeFormHtml() {
+  return `<div class="user-request-close">
+      <p class="hint">Closes this request without adding an item to the catalogue or
+        the work order. Related requests stay open, and you can reopen this one
+        from Resolved.</p>
+      <label class="user-request-label">Reason
+        <input type="text" class="user-request-close-reason" maxlength="500" placeholder="Duplicate, not needed, bought locally">
+      </label>
+      <div class="user-request-actions">
+        <button type="button" class="user-request-close-save">Close request</button>
+        <button type="button" class="secondary-btn user-request-close-cancel">Cancel</button>
+      </div>
+    </div>`;
 }
 
 function recountActions(request) {
