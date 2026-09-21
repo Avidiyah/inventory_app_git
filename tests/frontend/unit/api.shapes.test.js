@@ -147,4 +147,11 @@ describe("blob downloads", () => {
     expect(lastUrl()).toBe("/hub/timesheets/export?start=2026-09-01");
     expect(result.filename).toBe("timesheet.csv");
   });
+
+  it("apiExportHubAttendance sends the Monday and falls back to a named file", async () => {
+    server.use(http.get("/hub/attendance/export", () => new HttpResponse("x")));
+    const result = await api.apiExportHubAttendance({ week: "2026-09-14" });
+    expect(lastUrl()).toBe("/hub/attendance/export?week=2026-09-14");
+    expect(result.filename).toBe("attendance.csv");
+  });
 });

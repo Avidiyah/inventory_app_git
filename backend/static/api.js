@@ -659,6 +659,23 @@ export async function apiGetHubAttendanceWeek({ week = null } = {}) {
   return liveGet(query ? `/hub/attendance/week?${query}` : "/hub/attendance/week");
 }
 
+// The comparison week as CSV. A blob, not a plain link like the report's
+// xlsx: a 403 or a 500 on a link is a broken download with no message, and
+// this button lives beside a grid that can say what went wrong.
+export async function apiExportHubAttendance({ week = null } = {}) {
+  const params = new URLSearchParams();
+  if (week) params.set("week", week);
+  const query = params.toString();
+  const response = await rawFetch(`/hub/attendance/export${query ? `?${query}` : ""}`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!response.ok) return parseResponse(response); // always throws
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  return { blob: await response.blob(), filename: match ? match[1] : "attendance.csv" };
+}
+
 // The Admin punch writes (Admin only). Each one is audited server-side, so
 // the UI never has to prove anything about who changed what.
 //
