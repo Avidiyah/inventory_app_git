@@ -4,9 +4,10 @@
 // fetch every tab reads from, the persistent clock widget above the tabs
 // (mounted once, refreshed on every reload), switching between the
 // role-scoped tab bodies, and -- for supervisor+ viewers -- the crew board's
-// freshness plus the lazily fetched Timesheets tab (spec §5.3, §6.2).
-// TechFM OA+ additionally receives the lazy Admin summary and Graphs tab;
-// lower roles keep the role-agnostic GET /hub shape.
+// freshness (spec §5.3, §6.2). TechFM OA+ additionally receives the lazy
+// Admin summary and Graphs tab; Admin+ receives the report and the lazily
+// fetched Timesheets tab, which is the pay record (D6); lower roles keep the
+// role-agnostic GET /hub shape.
 
 import { apiGetAttendanceMe, apiGetHub, apiGetHubAdmin, apiGetHubCrew, apiGetHubGraphs, apiGetHubReport } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
@@ -456,14 +457,18 @@ export async function loadUserHub() {
   const nextUserId = String(payload.user.id);
   const userChanged = loadedUserId !== nextUserId;
   const canViewSupervisorTabs = roleAtLeast(payload.user.role, "supervisor");
+  // D6: Timesheets is the pay record, so it sits with the report rather than
+  // with the crew board. `canViewSupervisorTabs` still governs the crew
+  // fetch, which a Supervisor keeps.
+  const canViewTimesheets = roleAtLeast(payload.user.role, "admin");
   const canViewAdminTiles = roleAtLeast(payload.user.role, "techfm_oa");
   const canViewReport = roleAtLeast(payload.user.role, "admin");
   if (userChanged || !canViewSupervisorTabs) {
     latestCrewPayload = null;
     crewError = null;
     crewRequestId += 1;
-    resetTimesheetsTab(tabPanels.timesheets);
   }
+  if (userChanged || !canViewTimesheets) resetTimesheetsTab(tabPanels.timesheets);
   if (userChanged || !canViewAdminTiles) {
     latestAdminPayload = null;
     adminError = null;
@@ -487,12 +492,12 @@ export async function loadUserHub() {
     activeTab = "home";
     latestAttendance = null;
   }
-  if (!canViewSupervisorTabs && activeTab === "timesheets") activeTab = "home";
+  if (!canViewTimesheets && activeTab === "timesheets") activeTab = "home";
   if (!canViewAdminTiles && activeTab === "graphs") activeTab = "home";
   if (!canViewReport && activeTab === "report") activeTab = "home";
   loadedUserId = nextUserId;
   latestPayload = payload;
-  setTimesheetsTabVisible(canViewSupervisorTabs);
+  setTimesheetsTabVisible(canViewTimesheets);
   setGraphsTabVisible(canViewAdminTiles);
   setReportTabVisible(canViewReport);
   renderWorkOrdersTabLabel();

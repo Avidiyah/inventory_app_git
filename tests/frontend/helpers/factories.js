@@ -383,38 +383,6 @@ export function hubOnClockEntry(overrides = {}) {
   };
 }
 
-export function hubTimesheets(overrides = {}) {
-  return {
-    range: { start: "2026-09-07", end: "2026-09-13" },
-    rows: [hubTimesheetRow()],
-    crew_totals_by_day: [],
-    ...overrides,
-  };
-}
-
-// The timesheet grid's own rows. `total_minutes` is a Pydantic computed field
-// on HubTimesheetDay -- present on the wire, so present here; a test that
-// moves the tracked/adjustment split sets it too.
-export function hubTimesheetDay(overrides = {}) {
-  return {
-    date: "2026-09-07", tracked_minutes: 0, adjustment_minutes: 0, total_minutes: 0,
-    flags: [], sessions: [], adjustments: [],
-    ...overrides,
-  };
-}
-
-export function hubTimesheetRow(overrides = {}) {
-  return {
-    user: { id: uuid(), first_name: "Crew", last_name: "One", role: "technician" },
-    days: [], total_minutes: 0,
-    ...overrides,
-  };
-}
-
-export function hubTimesheetDayTotal(overrides = {}) {
-  return { date: "2026-09-07", minutes: 0, ...overrides };
-}
-
 export function hubGraphs(overrides = {}) {
   return {
     generated_at: "2026-09-10T12:00:00Z",

@@ -50,11 +50,6 @@ describe("query parameters are omitted, not nulled", () => {
     await api.apiListTransactions({ page: 2, pageSize: 10, itemId: null, userId: 0, workOrder: "WO-1" });
     expect(lastUrl()).toBe("/transactions/?page=2&page_size=10&work_order_number=WO-1");
   });
-
-  it("apiGetHubTimesheets omits the query entirely when unfiltered", async () => {
-    await api.apiGetHubTimesheets();
-    expect(lastUrl()).toBe("/hub/timesheets");
-  });
 });
 
 describe("path segments are encoded", () => {
@@ -139,13 +134,6 @@ describe("blob downloads", () => {
     server.use(http.get("/work-orders/export", () =>
       HttpResponse.json({ detail: "Admin only" }, { status: 403 })));
     await expect(api.apiExportWorkOrders("all")).rejects.toEqual({ status: 403, detail: "Admin only" });
-  });
-
-  it("apiExportHubTimesheets defaults its filename to timesheet.csv", async () => {
-    server.use(http.get("/hub/timesheets/export", () => new HttpResponse("x")));
-    const result = await api.apiExportHubTimesheets({ start: "2026-09-01" });
-    expect(lastUrl()).toBe("/hub/timesheets/export?start=2026-09-01");
-    expect(result.filename).toBe("timesheet.csv");
   });
 
   it("apiExportHubAttendance sends the Monday and falls back to a named file", async () => {

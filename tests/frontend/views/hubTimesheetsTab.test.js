@@ -25,41 +25,12 @@ async function openTimesheets(opts = {}) {
   return mounted;
 }
 
-describe("below Admin", () => {
-  it("shows the crew grid with no sub-nav", async () => {
-    await openTimesheets({ role: "supervisor" });
-    await vi.waitFor(() => expect(panel().querySelector(".hub-timesheet-table")).not.toBeNull());
-    expect(panel().querySelector(".sub-nav")).toBeNull();
-    expect(queries("/hub/attendance/week")).toHaveLength(0);
-  });
-});
-
 describe("Admin", () => {
   it("opens on Hours and fetches only the attendance week", async () => {
     await openTimesheets({ role: "admin" });
     await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
-    expect(panel().querySelectorAll(".sub-nav-btn")).toHaveLength(3);
+    expect(panel().querySelectorAll(".sub-nav-btn")).toHaveLength(2);
     expect(queries("/hub/attendance/week")).toHaveLength(1);
-    expect(queries("/hub/timesheets")).toHaveLength(0);
-  });
-
-  it("fetches the crew grid only when that sub-tab is opened", async () => {
-    await openTimesheets({ role: "admin" });
-    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
-    await user().click(panel().querySelector('[data-feature="crew"]'));
-    await vi.waitFor(() => expect(panel().querySelector(".hub-timesheet-table")).not.toBeNull());
-    expect(queries("/hub/timesheets")).toHaveLength(1);
-  });
-
-  it("keeps each sub-tab's payload across a switch back", async () => {
-    await openTimesheets({ role: "admin" });
-    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
-    await user().click(panel().querySelector('.sub-nav-btn[data-feature="crew"]'));
-    await vi.waitFor(() => expect(panel().querySelector(".hub-timesheet-table")).not.toBeNull());
-    await user().click(panel().querySelector('.sub-nav-btn[data-feature="hours"]'));
-    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
-    expect(queries("/hub/attendance/week")).toHaveLength(1);
-    expect(queries("/hub/timesheets")).toHaveLength(1);
   });
 
   it("pages the week and sends a Monday", async () => {
@@ -173,14 +144,9 @@ describe("the Admin punch writes", () => {
     expect(panel().querySelector(".hub-hours-table")).not.toBeNull();
   });
 
-  it("gives a Supervisor no edit controls at all", async () => {
-    await openTimesheets({ role: "supervisor" });
-    await vi.waitFor(() => expect(panel().querySelector(".hub-timesheet-table")).not.toBeNull());
-    expect(panel().querySelector(".hub-hours-edit")).toBeNull();
-  });
 });
 
-// P4a: a third Admin sub-tab reading the *same* week payload as Hours. The
+// P4a: a second Admin sub-tab reading the *same* week payload as Hours. The
 // point of every test here is the request count -- two features that each
 // fetched their own week could disagree about payroll.
 describe("Charged vs clocked", () => {
@@ -190,11 +156,11 @@ describe("Charged vs clocked", () => {
     end_source: "admin_edit", needs_review: false,
   };
 
-  it("gives an Admin three sub-tabs, opening on Hours", async () => {
+  it("gives an Admin two sub-tabs, opening on Hours", async () => {
     await openTimesheets({ role: "admin" });
     await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
     expect([...panel().querySelectorAll(".sub-nav-btn")].map((b) => b.dataset.feature))
-      .toEqual(["hours", "compare", "crew"]);
+      .toEqual(["hours", "compare"]);
   });
 
   it("reuses the week already fetched for Hours instead of fetching twice", async () => {
@@ -235,10 +201,4 @@ describe("Charged vs clocked", () => {
     expect(queries("/hub/attendance/week")).toHaveLength(2);
   });
 
-  it("gives a Supervisor no comparison sub-tab and no attendance fetch", async () => {
-    await openTimesheets({ role: "supervisor" });
-    await vi.waitFor(() => expect(panel().querySelector(".hub-timesheet-table")).not.toBeNull());
-    expect(panel().querySelector('[data-feature="compare"]')).toBeNull();
-    expect(queries("/hub/attendance/week")).toHaveLength(0);
-  });
 });

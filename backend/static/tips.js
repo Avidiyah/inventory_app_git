@@ -231,10 +231,6 @@ export const TIPS = {
     label: "My crew",
     text: "Crew membership is derived from live work orders routed to you, not from a permanent team list. A person appears after a work order is assigned under your supervision.",
   },
-  "hub.timesheets": {
-    label: "Timesheets",
-    text: "Each day includes tracked sessions plus manual adjustments. Supervisors see their routed crew; TechFM OA and above see every live Supervisor and Technician account. Open a day cell to see the tracked/adjustment split and any estimate flags.",
-  },
   "hub.charged-vs-clocked": {
     label: "Charged vs clocked",
     text: "Clocked is time on shift, the number payroll uses. Charged is time on a work-order clock. The difference is time on shift with no job running. A warning flag means charged time that no punch covers, which is allowed and shown rather than refused. Hand-entered labor adjustments have no start or stop and are counted in neither column.",

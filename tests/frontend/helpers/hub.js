@@ -18,7 +18,7 @@ import { setTestUser } from "./session.js";
 import { restoreMediaStubs, stubPermissions, stubUserMedia } from "./media.js";
 import { startRecording, stopRecording, clearRequests, requests } from "./requests.js";
 import { installFakeWebSocket } from "./fakeSocket.js";
-import { attendanceLive, attendanceMe, attendanceWeek, hubAdmin, hubCrew, hubGraphs, hubPayload, hubTimesheets } from "./factories.js";
+import { attendanceLive, attendanceMe, attendanceWeek, hubAdmin, hubCrew, hubGraphs, hubPayload } from "./factories.js";
 
 // Getters, not nodes: every mount replaces `document.documentElement`.
 const byId = (id) => () => document.getElementById(id);
@@ -44,7 +44,7 @@ let ws = null;
 let hiddenRestore = null;
 
 export async function mountHub({
-  role = "technician", hub = null, crew = null, admin = null, timesheets = null, graphs = null,
+  role = "technician", hub = null, crew = null, admin = null, graphs = null,
   report = 500, workOrders = [], attendance = null, attendanceWeek: week = null,
   attendanceLive: live = null, handlers = [],
 } = {}) {
@@ -63,7 +63,6 @@ export async function mountHub({
     http.post("/attendance/self-close", () => HttpResponse.json({})),
     http.get("/hub/crew", () => answer(crew ?? hubCrew())),
     http.get("/hub/admin", () => answer(admin ?? hubAdmin())),
-    http.get("/hub/timesheets", () => answer(timesheets ?? hubTimesheets())),
     http.get("/hub/attendance/week", () => answer(week ?? attendanceWeek())),
     http.get("/hub/attendance/live", () => answer(live ?? attendanceLive())),
     http.get("/hub/graphs", () => answer(graphs ?? hubGraphs())),

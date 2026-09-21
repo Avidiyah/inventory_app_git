@@ -4,21 +4,19 @@
 // lazy loads, caches and request counters -- the machinery that used to live
 // in userHub.js beside four other tabs' copies of it.
 //
-// Three sub-features today:
-//   hours   -- P2's read-only clocked-hours grid, Admin+ only, because it is
-//              the pay record (D1).
-//   compare -- P4a's **Charged vs clocked** grid, Admin+ for the same reason.
-//   crew    -- the existing Supervisor+ charged-time grid,
-//              `GET /hub/timesheets`.
+// Two sub-features, both **Admin+**, because this tab is the pay record (D1):
+//   hours   -- P2's clocked-hours grid with the audited punch editor.
+//   compare -- P4a's **Charged vs clocked** grid, under P4b's live roster.
 //
-// `hours` and `compare` read **one** payload from `GET /hub/attendance/week`,
-// held in a single cache below. That is not an optimisation: two features
-// fetching their own week could show payroll two different answers, and
-// nothing downstream would notice the disagreement.
+// Both read **one** payload from `GET /hub/attendance/week`, held in a single
+// cache below. That is not an optimisation: two features fetching their own
+// week could show payroll two different answers, and nothing downstream would
+// notice the disagreement. The roster is the exception -- its own payload from
+// `GET /hub/attendance/live`, on its own cadence, because "now" is a different
+// question from "this week".
 //
-// Below Admin there is no sub-nav: one button is not a navigation, and the
-// crew grid then renders exactly as it did before this module existed. P4b
-// removes `crew` and retires `GET /hub/timesheets` (D6).
+// `GET /hub/timesheets` and the Supervisor crew grid it fed are gone (D6);
+// a Supervisor keeps the Dashboard crew board.
 //
 // The shell is built once and `initSubNav` wired once -- rebuilding the
 // panel's innerHTML would drop that listener. Each feature renders into its
@@ -30,7 +28,6 @@ import {
   apiEditAttendancePunch,
   apiGetHubAttendanceLive,
   apiGetHubAttendanceWeek,
-  apiGetHubTimesheets,
 } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
@@ -39,7 +36,6 @@ import { skeletonCard } from "../skeleton.js";
 import { mountHubAttendanceCompare } from "./hubAttendanceCompare.js";
 import { mountHubAttendanceHours } from "./hubAttendanceHours.js";
 import { destroyHubAttendanceRoster } from "./hubAttendanceRoster.js";
-import { mountHubTimesheets } from "./hubTimesheets.js";
 import { initSubNav } from "./subnav.js";
 
 let viewerRole = null;
@@ -58,18 +54,10 @@ let liveRequestId = 0;
 // subscription below has something to refresh. Set on every render.
 let hostPanel = null;
 
-let crewPayload = null;
-let crewRange = null;
-let crewRequestId = 0;
-
-// userHub.js's own loading shape, kept identical here so the crew grid's
-// first paint is the one it has always been.
+// userHub.js's own loading shape, kept identical here so the first paint is
+// the one this tab has always had.
 function skeletonGrid(cardCount = 2, { lines = 6 } = {}) {
   return `<div class="skel-grid">${skeletonCard({ lines }).repeat(cardCount)}</div>`;
-}
-
-function canSeeHours(role) {
-  return roleAtLeast(role, "admin");
 }
 
 function featurePanel(panelEl, feature) {
@@ -77,18 +65,12 @@ function featurePanel(panelEl, feature) {
 }
 
 function buildShell(panelEl, role) {
-  const nav = canSeeHours(role)
-    ? `<nav class="sub-nav hub-sub-nav" aria-label="Timesheet views">
-         <button type="button" class="sub-nav-btn active" data-feature="hours">Hours</button>
-         <button type="button" class="sub-nav-btn" data-feature="compare">Charged vs clocked</button>
-         <button type="button" class="sub-nav-btn" data-feature="crew">Crew time</button>
-       </nav>`
-    : "";
-  const adminPanels = canSeeHours(role)
-    ? `<section class="feature-panel" data-feature="hours"></section>`
-      + `<section class="feature-panel" data-feature="compare" hidden></section>`
-    : "";
-  panelEl.innerHTML = `${nav}${adminPanels}<section class="feature-panel" data-feature="crew"${canSeeHours(role) ? " hidden" : ""}></section>`;
+  panelEl.innerHTML = `<nav class="sub-nav hub-sub-nav" aria-label="Timesheet views">
+      <button type="button" class="sub-nav-btn active" data-feature="hours">Hours</button>
+      <button type="button" class="sub-nav-btn" data-feature="compare">Charged vs clocked</button>
+    </nav>
+    <section class="feature-panel" data-feature="hours"></section>
+    <section class="feature-panel" data-feature="compare" hidden></section>`;
   panelEl.dataset.timesheetsRole = role;
   delete panelEl.dataset.activeFeature;
   initSubNav(panelEl, {
@@ -98,6 +80,7 @@ function buildShell(panelEl, role) {
     fireInitialOnShow: false,
   });
 }
+
 
 // --- The attendance week: Hours and Charged vs clocked -------------------
 
@@ -220,57 +203,6 @@ async function loadWeek(panelEl) {
   }
 }
 
-// --- Crew time (unchanged behaviour, moved) ------------------------------
-
-function renderCrew(panelEl) {
-  const mount = featurePanel(panelEl, "crew");
-  if (!mount || !crewPayload) return;
-  mountHubTimesheets(mount, crewPayload, {
-    onWeekChange: (start, end) => void loadCrew(panelEl, { start, end }),
-    isAdminPlus: roleAtLeast(viewerRole, "techfm_oa"),
-  });
-}
-
-function showCrewError(panelEl, err, requestedRange) {
-  const mount = featurePanel(panelEl, "crew");
-  if (!mount) return;
-  const message = escapeHtml(friendlyError(err, "Could not load timesheets."));
-  let status = mount.querySelector(".hub-timesheet-message");
-  if (!status) {
-    mount.innerHTML = `<div class="hub-timesheet-load-error"><p class="hub-timesheet-message error"></p></div>`;
-    status = mount.querySelector(".hub-timesheet-message");
-  }
-  status.className = "hub-timesheet-message error";
-  status.innerHTML = `${message} <button type="button" class="secondary-btn hub-timesheet-retry">Retry</button>`;
-  status.querySelector(".hub-timesheet-retry")?.addEventListener("click", () => {
-    void loadCrew(panelEl, requestedRange);
-  });
-}
-
-async function loadCrew(panelEl, { start = null, end = null } = {}) {
-  const mount = featurePanel(panelEl, "crew");
-  if (!mount) return;
-  const requestedRange = { start, end };
-  const requestId = ++crewRequestId;
-  const existingStatus = mount.querySelector(".hub-timesheet-message");
-  if (crewPayload && existingStatus) {
-    existingStatus.className = "hub-timesheet-message";
-    existingStatus.textContent = "Loading…";
-  } else if (!crewPayload) {
-    mount.innerHTML = skeletonGrid();
-  }
-  try {
-    const payload = await apiGetHubTimesheets({ start, end });
-    if (requestId !== crewRequestId) return;
-    crewPayload = payload;
-    crewRange = { start: payload.range.start, end: payload.range.end };
-    renderCrew(panelEl);
-  } catch (err) {
-    if (requestId !== crewRequestId) return;
-    showCrewError(panelEl, err, requestedRange);
-  }
-}
-
 // --- The tab's two entry points ------------------------------------------
 
 // Repaint from cache, or lazily fetch the first time a feature is opened.
@@ -281,15 +213,9 @@ function showFeature(panelEl, feature) {
   // tick with it: an interval running behind a hidden panel is a timer this
   // module would then have to remember to stop somewhere else.
   if (feature !== "compare") destroyHubAttendanceRoster();
-  if (feature === "hours" || feature === "compare") {
-    if (weekPayload) renderWeek(panelEl);
-    else void loadWeek(panelEl);
-    if (feature === "compare" && !livePayload) void loadLive(panelEl);
-  } else if (crewPayload) {
-    renderCrew(panelEl);
-  } else {
-    void loadCrew(panelEl, crewRange || {});
-  }
+  if (weekPayload) renderWeek(panelEl);
+  else void loadWeek(panelEl);
+  if (feature === "compare" && !livePayload) void loadLive(panelEl);
 }
 
 // Called on every render of the Timesheets tab. Builds the shell the first
@@ -302,19 +228,17 @@ export function renderTimesheetsTab(panelEl, { role } = {}) {
   if (panelEl.dataset.timesheetsRole !== role || !panelEl.querySelector(".feature-panel")) {
     buildShell(panelEl, role);
   }
-  showFeature(panelEl, panelEl.dataset.activeFeature || (canSeeHours(role) ? "hours" : "crew"));
+  showFeature(panelEl, panelEl.dataset.activeFeature || "hours");
 }
 
 // A different person signed in, or this viewer no longer has the tab. Both
 // caches go, both request counters move so an in-flight response for the
-// previous viewer is discarded on arrival, and the panel is emptied.
+// previous viewer is discarded on arrival, the roster's tick is stopped, and
+// the panel is emptied.
 export function resetTimesheetsTab(panelEl) {
   weekPayload = null;
   week = null;
   weekRequestId += 1;
-  crewPayload = null;
-  crewRange = null;
-  crewRequestId += 1;
   livePayload = null;
   liveRequestId += 1;
   hostPanel = null;

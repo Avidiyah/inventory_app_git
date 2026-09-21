@@ -11,7 +11,7 @@ import { requestFor, requests, clearRequests } from "../helpers/requests.js";
 import {
   connectHub, el, mountHub, openHub, queries, restoreHub, restoreHubVisibility, stopClock,
 } from "../helpers/hub.js";
-import { filterOptions, hubGraphs, hubPayload, hubTimesheets, workOrderCard } from "../helpers/factories.js";
+import { filterOptions, hubGraphs, hubPayload, workOrderCard } from "../helpers/factories.js";
 
 afterEach(() => {
   stopClock();                          // the hide: clears the tick and the safety interval
@@ -32,10 +32,13 @@ describe("mountHub", () => {
 });
 
 describe("loadUserHub by role", () => {
+  // D6: Timesheets is the pay record now, so it moved up to Admin+ with the
+  // routes behind it. A Supervisor keeps the Dashboard crew board, which
+  // shows live crew status at their own scope.
   it.each([
     ["technician", { timesheets: false, graphs: false, report: false }, ["/hub", "/attendance/me"], "My Work Orders (0)"],
-    ["supervisor", { timesheets: true, graphs: false, report: false }, ["/hub", "/attendance/me", "/hub/crew"], "My Work Orders (0)"],
-    ["techfm_oa", { timesheets: true, graphs: true, report: false }, ["/hub", "/attendance/me", "/hub/crew", "/hub/admin"], "Work Orders"],
+    ["supervisor", { timesheets: false, graphs: false, report: false }, ["/hub", "/attendance/me", "/hub/crew"], "My Work Orders (0)"],
+    ["techfm_oa", { timesheets: false, graphs: true, report: false }, ["/hub", "/attendance/me", "/hub/crew", "/hub/admin"], "Work Orders"],
     ["admin", { timesheets: true, graphs: true, report: true }, ["/hub", "/attendance/me", "/hub/crew", "/hub/admin"], "Work Orders"],
     ["owner", { timesheets: true, graphs: true, report: true }, ["/hub", "/attendance/me", "/hub/crew", "/hub/admin"], "Work Orders"],
   ])("%s: tabs %j, requests %j, label %s", async (role, tabs, expected, label) => {
@@ -96,11 +99,11 @@ describe("loadUserHub by role", () => {
   });
 
   it("a user change resets to the home tab and clears the lazy payloads", async () => {
-    const { mod } = await openHub({ role: "supervisor" });
+    const { mod } = await openHub({ role: "admin" });
     await user().click(el.tab("timesheets"));
-    await vi.waitFor(() => expect(requestFor("/hub/timesheets")).not.toBeNull());
-    await vi.waitFor(() => expect(el.panel("timesheets").querySelector(".hub-timesheet-table")).not.toBeNull());
-    server.use(http.get("/hub", () => HttpResponse.json(hubPayload({ user: { id: "someone-else", role: "supervisor" } }))));
+    await vi.waitFor(() => expect(requestFor("/hub/attendance/week")).not.toBeNull());
+    await vi.waitFor(() => expect(el.panel("timesheets").querySelector(".hub-hours-table")).not.toBeNull());
+    server.use(http.get("/hub", () => HttpResponse.json(hubPayload({ user: { id: "someone-else", role: "admin" } }))));
     clearRequests();
     await mod.loadUserHub();
     expect(el.tab("home").classList.contains("active")).toBe(true);
@@ -142,20 +145,6 @@ describe("tabs", () => {
     await vi.waitFor(() => expect(queries("/work-orders/")).toHaveLength(1));
     expect(queries("/work-orders/")[0]).toEqual(expected);
     expect(el.panel("work-orders").querySelector(".hub-wo-list")).not.toBeNull();
-  });
-
-  it("Timesheets fetches once, then re-renders from memory; a week change refetches with start/end", async () => {
-    await openHub({ role: "supervisor" });
-    await user().click(el.tab("timesheets"));
-    await vi.waitFor(() => expect(queries("/hub/timesheets")).toHaveLength(1));
-    expect(queries("/hub/timesheets")[0]).toEqual({});
-    await vi.waitFor(() => expect(el.panel("timesheets").querySelector(".hub-timesheet-table")).not.toBeNull());
-    await user().click(el.tab("dashboard"));
-    await user().click(el.tab("timesheets"));
-    expect(queries("/hub/timesheets")).toHaveLength(1);
-    await user().click(el.panel("timesheets").querySelector(".hub-timesheet-prev"));
-    await vi.waitFor(() => expect(queries("/hub/timesheets")).toHaveLength(2));
-    expect(Object.keys(queries("/hub/timesheets")[1]).sort()).toEqual(["end", "start"]);
   });
 
   it("Graphs fetches with weeks=12, re-renders from memory on return, and a range change refetches", async () => {
@@ -247,16 +236,6 @@ describe("failure isolation", () => {
     await vi.waitFor(() => expect(queries("/hub/crew")).toHaveLength(2));
     expect(el.crewMount().querySelector(".hub-crew-card")).not.toBeNull();
     expect(el.crewMount().querySelector("p.error")).toBeNull();
-  });
-
-  it("timesheets fail: error with a Retry that refetches the same range", async () => {
-    await openHub({ role: "supervisor", timesheets: 500 });
-    await user().click(el.tab("timesheets"));
-    await vi.waitFor(() => expect(el.panel("timesheets").querySelector(".hub-timesheet-message.error")).not.toBeNull());
-    server.use(http.get("/hub/timesheets", () => HttpResponse.json(hubTimesheets())));
-    await user().click(el.panel("timesheets").querySelector(".hub-timesheet-retry"));
-    await vi.waitFor(() => expect(el.panel("timesheets").querySelector(".hub-timesheet-table")).not.toBeNull());
-    expect(queries("/hub/timesheets")).toHaveLength(2);
   });
 
   it("graphs fail: error with Retry; a later background failure keeps the last good render", async () => {

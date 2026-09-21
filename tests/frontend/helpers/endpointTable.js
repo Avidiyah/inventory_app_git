@@ -129,8 +129,6 @@ export const ENDPOINTS = [
   { fn: "apiGetHubAdmin", args: [], url: "/hub/admin", cache: "no-store" },
   { fn: "apiGetHubGraphs", args: [{}], url: "/hub/graphs?weeks=12", cache: "no-store" },
   { fn: "apiGetHubReport", args: [], url: "/hub/report", cache: "no-store" },
-  { fn: "apiGetHubTimesheets", args: [{}], url: "/hub/timesheets", cache: "no-store" },
-  { fn: "apiExportHubTimesheets", args: [{}], url: "/hub/timesheets/export", cache: "no-store" },
   { fn: "apiImportWorkOrders", args: [uploadFile()], method: "POST", url: "/work-orders/import", multipart: true },
 
   // --- Attendance ---

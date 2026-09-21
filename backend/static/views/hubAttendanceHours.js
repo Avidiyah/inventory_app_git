@@ -2,7 +2,7 @@
 //
 // Layer: views (no fetch, no state beyond which cell is open). The payload
 // owns both the grid and every cell's drill-down, so opening detail never
-// starts another request -- the rule hubTimesheets.js established.
+// starts another request -- the rule the retired crew grid established.
 //
 // **Clocked time only** (spec §8): what this prints is time on shift, the pay
 // number, never rounded to 30 minutes the way a billed number is. The
@@ -22,7 +22,7 @@ import { mountPunchEditor } from "./hubAttendancePunchEditor.js";
 const CENTRAL_TIME_ZONE = "America/Chicago";
 
 // `8:00`, not format.js's `8 h 0 m`: a seven-column grid of hours reads as a
-// column of clock times. hubTimesheets.js makes the same local choice.
+// column of clock times. hubAttendanceCompare.js makes the same choice.
 function formatHm(totalMinutes) {
   const minutes = Math.max(0, Math.round(Number(totalMinutes) || 0));
   return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}`;
