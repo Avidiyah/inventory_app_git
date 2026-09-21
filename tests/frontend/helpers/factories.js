@@ -589,3 +589,45 @@ export function lowStockItem(overrides = {}) {
     ...overrides,
   };
 }
+
+// --- Attendance week (backend/app/schemas/attendance.py, AttendanceWeekResponse)
+// One Monday-anchored attendance week. Defaults to the week of 2026-09-14
+// with a single 8-hour Monday for one technician -- enough to assert the
+// grid, the tally and one drill-down without every test building rows.
+export function attendanceWeek(overrides = {}) {
+  const days = ["2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17",
+                "2026-09-18", "2026-09-19", "2026-09-20"];
+  const blank = (date) => ({
+    date, clocked_minutes: 0, needs_review: false, has_open: false, punches: [],
+  });
+  const monday = {
+    ...blank("2026-09-14"),
+    clocked_minutes: 480,
+    punches: [{
+      id: "punch-1",
+      started_at: "2026-09-14T13:00:00Z",
+      ended_at: "2026-09-14T21:00:00Z",
+      start_source: "manual",
+      end_source: "manual",
+      needs_review: false,
+      minutes: 480,
+      carried: false,
+      open: false,
+    }],
+  };
+  return {
+    week_start: "2026-09-14",
+    week_end: "2026-09-20",
+    server_now: "2026-09-16T15:00:00Z",
+    days,
+    rows: [{
+      user: { id: "user-1", first_name: "Ann", last_name: "Lee", role: "technician" },
+      days: [monday, ...days.slice(1).map(blank)],
+      total_minutes: 480,
+    }],
+    totals_by_day: days.map((date) => ({ date, minutes: date === "2026-09-14" ? 480 : 0 })),
+    total_minutes: 480,
+    week_hours: 168,
+    ...overrides,
+  };
+}

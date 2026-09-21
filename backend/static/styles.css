@@ -2795,6 +2795,173 @@ tr.archived-user {
     }
 }
 
+/* --- Hub: the Admin Hours grid (attendance, clocked time) ---------------
+   Deliberately the same chrome as `.hub-timesheet-table` above: the two
+   grids answer different questions (paid vs charged) and an Admin reads
+   them minutes apart, so a different look would imply a difference that
+   isn't there. Separate class names because P4 replaces the timesheet one
+   and this must not inherit that change. The flag hues are the ones that
+   block already uses -- success for a running clock, error for a row a
+   human must look at. */
+.hub-hours-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+}
+
+.hub-hours-week-nav {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.hub-hours-table-wrap {
+    overflow-x: auto;
+    background: var(--panel-nested);
+    border: var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.hub-hours-table {
+    width: 100%;
+    min-width: 760px;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+}
+
+.hub-hours-table th,
+.hub-hours-table td {
+    padding: var(--space-2) var(--space-3);
+    text-align: right;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--panel-rule-soft);
+}
+
+.hub-hours-table th:first-child,
+.hub-hours-table td:first-child {
+    text-align: left;
+}
+
+.hub-hours-table thead th {
+    border-bottom: 1px solid var(--panel-rule);
+    color: var(--text-panel-mute);
+    font-size: var(--fs-sm);
+}
+
+.hub-hours-table tbody > tr:not(.hub-hours-detail-row):nth-child(even) {
+    background: var(--panel-well);
+}
+
+.hub-hours-table tfoot th,
+.hub-hours-table tfoot td {
+    border-top: 1px solid var(--panel-rule);
+    border-bottom: none;
+    font-weight: var(--fw-semibold);
+}
+
+.hub-hours-row-total {
+    font-weight: var(--fw-semibold);
+}
+
+.hub-hours-cell {
+    min-height: auto;
+    margin: 0;
+    padding: var(--space-1);
+    background: none;
+    border-radius: var(--radius-sm);
+    color: inherit;
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+}
+
+.hub-hours-cell:hover,
+.hub-hours-cell:active,
+.hub-hours-cell:focus-visible,
+.hub-hours-cell[aria-expanded="true"] {
+    background: var(--panel-well);
+    color: inherit;
+    text-decoration: underline;
+}
+
+.hub-hours-flag {
+    margin-left: var(--space-1);
+    font-size: var(--fs-xs);
+}
+
+.hub-hours-flag-open {
+    color: var(--color-success);
+}
+
+.hub-hours-flag-review {
+    color: var(--color-error);
+}
+
+.hub-hours-detail-row > td {
+    padding: 0 var(--space-3) var(--space-3);
+    white-space: normal;
+}
+
+.hub-hours-drilldown {
+    padding: var(--space-3) var(--space-4);
+    background: var(--panel-well);
+    border-left: 3px solid var(--panel-rule);
+    border-radius: var(--radius-sm);
+    text-align: left;
+}
+
+.hub-hours-drilldown-heading,
+.hub-hours-drilldown-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-4);
+}
+
+.hub-hours-drilldown-heading {
+    margin-bottom: var(--space-2);
+}
+
+.hub-hours-drilldown-row {
+    padding: var(--space-1) 0;
+    border-bottom: 1px solid var(--panel-rule-soft);
+    font-variant-numeric: tabular-nums;
+}
+
+.hub-hours-punch-note {
+    color: var(--text-panel-mute);
+    font-size: var(--fs-sm);
+}
+
+.hub-hours-no-detail,
+.hub-hours-empty {
+    margin: var(--space-2) 0;
+}
+
+.hub-hours-dst {
+    margin-top: var(--space-2);
+}
+
+.hub-hours-retry {
+    margin-left: var(--space-2);
+    padding-inline: var(--space-3);
+}
+
+@media (max-width: 600px) {
+    .hub-hours-toolbar,
+    .hub-hours-drilldown-heading,
+    .hub-hours-drilldown-row {
+        align-items: flex-start;
+    }
+
+    .hub-hours-drilldown-heading,
+    .hub-hours-drilldown-row {
+        flex-direction: column;
+        gap: var(--space-1);
+    }
+}
+
 /* Logout: white outline button on the dark header. */
 #logout-btn {
     margin-top: 0;
