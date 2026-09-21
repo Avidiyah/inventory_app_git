@@ -101,3 +101,33 @@ def test_no_week_means_the_week_in_progress(db):
     finally:
         del app.dependency_overrides[get_db]
     assert datetime.fromisoformat(body["week_start"]).weekday() == 0
+
+
+def test_the_week_read_carries_the_comparison_columns(db):
+    """P4a: one read serves both Admin sub-tabs. `test_a_non_monday_is_422`
+    above is the guard that the resolver still runs after the join."""
+    admin = _seed_user(db, role="admin", first="Dee", last="Ops")
+    tech = _seed_user(db)
+    db.add(AttendancePunch(
+        id=uuid.uuid4(), user_id=tech.id,
+        started_at=datetime(2026, 9, 14, 13, 0, tzinfo=timezone.utc),
+        ended_at=datetime(2026, 9, 14, 21, 0, tzinfo=timezone.utc),
+        start_source="manual", end_source="manual"))
+    db.commit()
+    try:
+        with _as(db, admin) as client:
+            response = client.get("/hub/attendance/week", params={"week": "2026-09-14"})
+    finally:
+        del app.dependency_overrides[get_db]
+
+    assert response.status_code == 200
+    body = response.json()
+    row = next(r for r in body["rows"] if r["user"]["id"] == str(tech.id))
+    day = row["days"][0]
+    assert set(day) >= {
+        "clocked_minutes", "tracked_minutes", "delta_minutes",
+        "outside_shift_minutes", "adjustment_minutes",
+    }
+    assert day["delta_minutes"] == 480      # clocked, nothing charged
+    assert row["tracked_minutes"] >= 0
+    assert {"tracked_minutes", "delta_minutes"} <= set(body)

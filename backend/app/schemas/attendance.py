@@ -79,6 +79,16 @@ class AttendanceWeekPunch(BaseModel):
 class AttendanceWeekDay(BaseModel):
     date: date
     clocked_minutes: int
+    # The comparison columns (P4a, spec §8). Real wall-clock, both of them:
+    # `tracked` is time on a job, `delta` is `clocked - tracked` floored at
+    # zero -- on shift, not on a job. `outside_shift` is the other direction,
+    # charged time no punch covers (§9), which is flagged, never refused.
+    # `adjustment` is hand-entered labor with no start or stop: carried here,
+    # never counted into either wall-clock number.
+    tracked_minutes: int
+    delta_minutes: int
+    outside_shift_minutes: int
+    adjustment_minutes: int
     needs_review: bool
     has_open: bool
     punches: list[AttendanceWeekPunch]
@@ -90,6 +100,8 @@ class AttendanceWeekRow(BaseModel):
     user: HubUser
     days: list[AttendanceWeekDay]
     total_minutes: int
+    tracked_minutes: int
+    delta_minutes: int
 
     model_config = {"from_attributes": True}
 
@@ -103,8 +115,12 @@ class AttendanceWeekDayTotal(BaseModel):
 
 class AttendanceWeekResponse(BaseModel):
     """Clocked time only (§8): real wall-clock on shift, never rounded.
-    `tracked` and `billed` join this payload additively in P4 -- the
-    comparison sub-tab reads the same object this one does.
+
+    Clocked is the pay number (§8) and is never rounded. `tracked_minutes`
+    and `delta_minutes` join it here for the comparison sub-tab; the Hours
+    grid reads the same object and ignores them. There is no billed column:
+    `billed_labor_minutes` rounds a whole work order's combined labor, so no
+    honest per-person-per-day billed number exists to put here.
 
     `week_hours` is 168, or 167 / 169 across a DST transition. The grid's
     footer prints it so a short week does not read as missing hours."""
@@ -116,6 +132,8 @@ class AttendanceWeekResponse(BaseModel):
     rows: list[AttendanceWeekRow]
     totals_by_day: list[AttendanceWeekDayTotal]
     total_minutes: int
+    tracked_minutes: int
+    delta_minutes: int
     week_hours: int
 
     model_config = {"from_attributes": True}

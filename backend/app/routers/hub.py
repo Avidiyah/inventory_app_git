@@ -50,7 +50,7 @@ from app.schemas.attendance import (
 )
 from app.schemas.hub import HubAdminResponse, HubClock, HubCrewResponse, HubGraphsResponse, HubReportResponse, HubResponse, HubTimesheetResponse
 from app.services import attendance as attendance_service
-from app.services import attendance_week
+from app.services import attendance_compare
 from app.services import hub as hub_service
 from app.services import work_order_report, work_order_report_xlsx
 
@@ -158,8 +158,10 @@ def get_hub_attendance_week(
     user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ):
-    """The Hours grid: one Central week of clocked attendance, per person
-    per day, with the punch rows behind every cell.
+    """One Central week of attendance, per person per day, serving **both**
+    Admin sub-tabs: Hours renders the clocked column and the punch rows
+    behind every cell, Charged vs clocked renders clocked, tracked and the
+    two gaps between them.
 
     **Admin, not TechFM OA.** This is the pay record (D1), so it sits above
     the rest of the admin toolkit -- `tests/test_route_role_gates.py` carries
@@ -171,14 +173,17 @@ def get_hub_attendance_week(
     the same reason it is on `GET /hub/report`.
 
     Side-effect-free (spec §4): no sweep, no row locks, unlike
-    `GET /hub/timesheets` -- which is what will let P4's live sub-tab poll.
+    `GET /hub/timesheets` -- which is what will let P4b's live sub-tab poll.
+    That now includes the labor half: a clock nobody stopped is clipped by
+    `work_orders.capped_session_end` on the way out rather than swept, so
+    reading the week never writes a row.
     """
     now = datetime.now(timezone.utc)
     try:
         week_start = work_order_report.resolve_week(week, now)
     except DomainError as exc:
         raise to_http(exc) from exc
-    return attendance_week.week_payload(db, week_start=week_start, now=now)
+    return attendance_compare.week_payload(db, week_start=week_start, now=now)
 
 
 # The audited writes behind the Hours drill-down (D2, §1). Admin floor, same
