@@ -15,7 +15,7 @@ known gaps change. For review/debugging: `Data Model` + `Known Gaps` identify
 the contract and the intentional limitations.
 
 If this file conflicts with code, trust the code and update this file as part
-of the change. Alembic head is **`d1e3f5a7b9c2`** (39 revisions). Operation
+of the change. Alembic head is **`c4a6e8b0d2f5`** (42 revisions). Operation
 and test counts are volatile — verify via `app.openapi()` and
 `pytest --collect-only` rather than trusting any quoted number.
 
@@ -110,7 +110,7 @@ Path shorthand:
 | Work Orders UI | `static/views/workOrder*.js` (barrel: `workOrders.js`), `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | `tests/frontend/views/workOrders/` (characterization: render, roles, actions, editor, filters, solo, realtime, integrations, plus the action/export audit), `backend/tests/e2e/test_work_orders.py`, backend work-order tests |
 | User Hub Graphs | `domain/hub.py`, `domain/work_orders.py`, `services/hub.py`, `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubGraphs.js`, `static/views/workOrderList.js`, `static/pages/user-hub.html`, `static/styles.css`, `static/tips.js`, `static/api.js` | `test_hub_graphs_domain.py`, hub service/router/gate/realtime tests, `tests/frontend/views/userHub.test.js` (tab shell, lazy fetch, failure isolation), `tests/frontend/views/hubGraphs.test.js` (donuts, the two-level drill, duration, the Work Orders hand-off); manual role/realtime checks. Aggregation semantics: endpoint-map → User Hub reads |
 | User Hub Report (Admin weekly closed report) | `services/work_order_report.py` (week resolution, window, lazy closed-row freeze, live new-work-order rows), `services/work_order_report_xlsx.py` + `services/_xlsx_theme.py`, `models.py` (`WorkOrderReportWeek`), `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubReport.js`, `static/views/workOrderList.js` (`openWorkOrdersByNumberSearch`), `static/pages/user-hub.html`, `static/styles.css`, `static/api.js` | `test_work_order_report.py` (resolve/window/projection/freeze/new work orders), `test_work_order_report_xlsx.py`, `test_work_order_report_weeks.py`, `test_xlsx_theme.py`, hub router + role-gate tests, `tests/frontend/views/userHub.test.js` (tab shell), `tests/frontend/views/hubReport.test.js` (week picker, counts, sections, hand-off, skeleton and retry); manual Excel check. **Admin-only**; completed closed rows are a **frozen record**, while `New Work Orders` is selected live by `created_at`, blocked by community, and always appears last in Excel; contract in endpoint-map → `HubReportResponse` |
-| Attendance (punches, Home tab, Admin Hours grid) | `domain/attendance.py`, `services/attendance.py` (punch writes), `services/attendance_week.py` (the week read), `routers/attendance.py`, `routers/hub.py` (`GET /hub/attendance/week`, **admin only**), `schemas/attendance.py`, `static/views/hubHome.js`, `static/views/hubTimesheetsTab.js` (tabpanel shell + sub-nav + both lazy loads), `static/views/hubAttendanceHours.js`, `static/views/workOrderActions.js` (stale-punch self-close on Start), `static/api.js` | `test_attendance_*.py`, `test_attendance_week_service.py`, `test_attendance_week_router.py`, `test_route_role_gates.py`, `tests/frontend/views/hubHome.test.js`, `hubAttendanceHours.test.js`, `hubTimesheetsTab.test.js`, `workOrderStartPunch.test.js`. Clocked minutes only — never rounded, never a labor-session number; the week read is side-effect-free and borrows `work_order_report.resolve_week` + `labor_day.day_bounds`. A cross-midnight punch is owned by the day it started and marked `carried` on the next. Read-only: editing punches is a later phase |
+| Attendance (punches, Home tab, Admin Hours grid) | `domain/attendance.py`, `services/attendance.py` (punch writes), `services/attendance_week.py` (the week read), `routers/attendance.py`, `routers/hub.py` (`GET /hub/attendance/week` + the three punch writes, **admin only**), `schemas/attendance.py`, `static/views/hubHome.js`, `static/views/hubTimesheetsTab.js` (tabpanel shell + sub-nav + both lazy loads + the write calls), `static/views/hubAttendanceHours.js`, `static/views/hubAttendancePunchEditor.js`, `static/views/workOrderActions.js` (stale-punch self-close on Start), `static/api.js` | `test_attendance_*.py`, `test_attendance_week_service.py`, `test_attendance_week_router.py`, `test_attendance_admin_service.py`, `test_attendance_admin_router.py`, `test_route_role_gates.py`, `tests/frontend/views/hubHome.test.js`, `hubAttendanceHours.test.js`, `hubAttendancePunchEditor.test.js`, `hubTimesheetsTab.test.js`, `workOrderStartPunch.test.js`. Clocked minutes only — never rounded, never a labor-session number; the week read is side-effect-free and borrows `work_order_report.resolve_week` + `labor_day.day_bounds`. A cross-midnight punch is owned by the day it started, is marked `carried` on the next, and is editable only on the day it started. An Admin edits, adds, and deletes punches from the Hours drill-down; every write lands one `attendance_punch_edits` row per field in the same transaction, any write clears `needs_review`, and a delete is **soft** (`deleted_at`). The grid refetches the week after a write rather than patching itself |
 | NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_cloud_auth.py`, `services/netfacilities_cloud_crypto.py`, `services/netfacilities_jobs.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | `test_netfacilities_*.py`; behavior under API Surface → NetFacilities |
 | Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, `tests/frontend/views/adminReview.test.js` |
 | Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
@@ -1264,9 +1264,10 @@ Rules:
 ### `attendance_punches`, `attendance_punch_edits`
 
 Fields: `id`, `user_id`, `started_at`, `ended_at`, `start_source`,
-`end_source`, `needs_review`, `created_at`. Audit rows: `id`, `punch_id`,
-`edited_by_id`, `edited_at`, `field`, `old_value`, `new_value`, `reason`
-(CASCADE on the punch). Added by migration `b7d9f1a3c5e8`.
+`end_source`, `needs_review`, `created_at`, `deleted_at`. Audit rows:
+`id`, `punch_id`, `edited_by_id`, `edited_at`, `field`, `old_value`,
+`new_value`, `reason` (CASCADE on the punch). Added by migrations
+`b7d9f1a3c5e8` and `c4a6e8b0d2f5`.
 
 Rules:
 
@@ -1279,8 +1280,16 @@ Rules:
   `auto_work_order`; punching out force-stops any running labor session.
   The coupling lives in `services/attendance.py` and points one way —
   attendance imports work orders, never the reverse.
-- `attendance_punch_edits` is unwritten until the Admin edit phase; the pair
-  was created in one migration because they are one design unit.
+- `attendance_punch_edits` is written by `services.attendance`'s
+  `admin_add_punch` / `admin_edit_punch` / `admin_delete_punch`, one row
+  per changed field (`created`, `started_at`, `ended_at`, `needs_review`,
+  `deleted`), in the same transaction as the change. `reason` is optional;
+  the row is written either way.
+- `deleted_at` makes a delete **soft**. The audit CASCADEs off the punch,
+  so a hard delete would erase the record of the deletion. Every read goes
+  through `attendance.live_punches()`, and the open-punch partial unique
+  index is `WHERE ended_at IS NULL AND deleted_at IS NULL` so a deleted
+  open punch does not occupy the one open slot a person has.
 
 ### `tools`
 
@@ -1643,7 +1652,7 @@ operational surface renders the derived full name.
 
 ## Migration History
 
-Alembic head: `d1e3f5a7b9c2`.
+Alembic head: `c4a6e8b0d2f5`.
 
 | Revision | Meaning |
 | --- | --- |
@@ -1682,6 +1691,7 @@ Alembic head: `d1e3f5a7b9c2`.
 | `1d2e3f4a5b6c` | `push_subscriptions` for Web Push opt-in, keyed on `endpoint` so a re-subscribe reassigns a shared device rather than duplicating it; nothing to backfill |
 | `a2c4e6b8d0f1` | `work_order_labor_sessions` for tracked start/stop labor, with a partial unique index on `(technician_id) WHERE ended_at IS NULL` enforcing one running clock per person; nothing backfilled, so existing labor rows keep rendering as a bare duration. The new `ready_to_complete` status needed no migration — `work_orders.status` has no CHECK constraint |
 | `b7d9f1a3c5e8` | `attendance_punches` + `attendance_punch_edits`, with a partial unique index on `(user_id) WHERE ended_at IS NULL` enforcing one open punch per person; nothing backfilled — there is no historical source for "was this person at work" |
+| `c4a6e8b0d2f5` | `attendance_punches.deleted_at` for the soft delete, with the open-punch partial unique index rebuilt as `WHERE ended_at IS NULL AND deleted_at IS NULL`; nothing backfilled |
 | `a1c3e5b7d9f0` | `items.low_stock_threshold` for the per-item reorder line |
 | `b3d5f7a9c1e2` → `c6e8a0b2d4f7` | work-order auto-close batch columns added, then dropped once the batch was retired |
 | `d1e3f5a7b9c2` | rename `user_requests.request_type` `item_request` → `catalogue_request` (data only) |

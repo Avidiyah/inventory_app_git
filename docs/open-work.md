@@ -50,25 +50,25 @@ primarily to group work orders by Location: if a saved Community from mass
 staging appears in a work order's Location field, display that work order
 under the Communities cards. Request logged only.
 
-### IMP-041 — Attendance timesheet, P3–P4
+### IMP-041 — Attendance timesheet, P4
 
 - **Logged** 2026-09-21 · *User Hub / Attendance* · spec
   `docs/superpowers/specs/2026-09-21-attendance-timesheet-design.md`
 
-P1 and P2 shipped: the table, the state machine, the four self-scoped routes,
-the work-order clock coupling, the Home tab, `GET /hub/attendance/week`, the
-Timesheets sub-nav, the read-only Hours grid, and the card-side self-close.
-What is left:
+P1–P3 shipped: the table, the state machine, the self-scoped routes, the
+work-order clock coupling, the Home tab, `GET /hub/attendance/week`, the
+Timesheets sub-nav, the Hours grid, the card-side self-close, and the Admin
+punch edit / add / soft delete with its audit. What is left:
 
-- **P3** — `promptTime`'s analog dial (the dropdown half shipped in P1, on the
-  same export), and the Admin edit / add / delete writing
-  `attendance_punch_edits`. The Hours drill-down is where the buttons land; a
-  `carried` punch row deliberately has none (§9).
 - **P4** — Charged vs clocked, the live roster, the `attendance.changed`
   envelope, the CSV export, and retiring `GET /hub/timesheets` — which drops
   the `crew` sub-feature from `hubTimesheetsTab.js`, moves the Timesheets tab
   to Admin+ (D6), and needs `test_route_role_gates.py`'s expected set amended
-  again in the same change.
+  again in the same change. §9's `⚠ charged outside shift` advisory rides
+  with it: the week payload carries no labor-session data until this phase.
+- Cut from P3, deliberately: `promptTime()`'s analog dial. The dropdowns +
+  nudge row shipped in P1, are complete and keyboard-accessible, and the dial
+  is optional polish — not an omission to re-open.
 
 ### IMP-035 — Item/work-order photo attachments
 
