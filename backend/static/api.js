@@ -626,6 +626,29 @@ export async function apiExportHubTimesheets({ start = null, end = null, userId 
   };
 }
 
+// --- Attendance ---------------------------------------------------
+// The on-shift record, separate from the work-order clock above: these
+// four are what a person does with their own shift. The Admin+ reads and
+// the audited edits are later phases.
+export async function apiGetAttendanceMe() {
+  return liveGet("/attendance/me");
+}
+
+export async function apiPunchIn() {
+  return jsonRequest("/attendance/punch-in", "POST", {});
+}
+
+export async function apiPunchOut() {
+  return jsonRequest("/attendance/punch-out", "POST", {});
+}
+
+// `endedAtIso` is the instant the technician states they actually left --
+// required, because a default here would be the estimate D4 keeps out of a
+// pay record.
+export async function apiSelfClosePunch(endedAtIso) {
+  return jsonRequest("/attendance/self-close", "POST", { ended_at: endedAtIso });
+}
+
 // Bulk-import work orders from the mass CSV export (Admin+). multipart upload --
 // do NOT set Content-Type by hand (the browser adds the multipart boundary),
 // mirroring apiDecodeBarcode. Returns the WorkOrderImportResult summary.
