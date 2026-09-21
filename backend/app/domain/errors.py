@@ -362,3 +362,40 @@ class TimesheetRangeTooLargeError(DomainError):
     def __init__(self, max_days: int):
         self.max_days = max_days
         super().__init__(f"Date range cannot exceed {max_days} days.")
+
+
+class PunchAlreadyOpenError(DomainError):
+    """Raised when a punch-in, or a labor start behind a *stale* punch, finds
+    an open `attendance_punches` row. Per D4 nothing auto-closes, so this is
+    a conflict the caller resolves (D5's self-close), not a failure.
+
+    Carries the offending punch so the router's message can name its start
+    time and so P3 can act on it. The wire payload is a plain sentence; the
+    structured punch reaches the UI from `GET /attendance/me`. Maps to 409."""
+
+    def __init__(self, message: str, *, punch_id, started_at, stale: bool):
+        super().__init__(message)
+        self.punch_id = punch_id
+        self.started_at = started_at
+        self.stale = stale
+
+
+class PunchOverlapError(DomainError):
+    """Raised when a punch would overlap another punch for the same person.
+    Open punches are guarded by the partial unique index; this is the domain
+    check that covers *closed* punches, which D2 lets an Admin create.
+    Carries the conflicting punch's id. Maps to 409."""
+
+    def __init__(self, message: str, *, punch_id):
+        super().__init__(message)
+        self.punch_id = punch_id
+
+
+class PunchTimeInvalidError(DomainError):
+    """Raised for a punch window that ends at or before it starts, or that
+    reaches into the future (spec 9). Maps to 400."""
+
+
+class PunchNotFoundError(DomainError):
+    """Raised when a punch write names a row that does not exist, or when a
+    punch-out / self-close finds no open punch for the caller. Maps to 404."""
