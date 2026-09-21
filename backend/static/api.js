@@ -659,6 +659,33 @@ export async function apiGetHubAttendanceWeek({ week = null } = {}) {
   return liveGet(query ? `/hub/attendance/week?${query}` : "/hub/attendance/week");
 }
 
+// The Admin punch writes (Admin only). Each one is audited server-side, so
+// the UI never has to prove anything about who changed what.
+//
+// An omitted key means **unchanged** -- the PATCH body carries only what the
+// editor actually touched, so a saved start time cannot quietly re-send a
+// stale end time from a payload rendered a minute ago.
+export async function apiAddAttendancePunch({ userId, startedAt, endedAt, reason = "" } = {}) {
+  const body = { user_id: userId, started_at: startedAt, ended_at: endedAt };
+  if (reason) body.reason = reason;
+  return jsonRequest("/hub/attendance/punches", "POST", body);
+}
+
+export async function apiEditAttendancePunch(punchId, { startedAt, endedAt, needsReview, reason = "" } = {}) {
+  const body = {};
+  if (startedAt) body.started_at = startedAt;
+  if (endedAt) body.ended_at = endedAt;
+  if (needsReview === false) body.needs_review = false;
+  if (reason) body.reason = reason;
+  return jsonRequest(`/hub/attendance/punches/${encodeURIComponent(punchId)}`, "PATCH", body);
+}
+
+export async function apiDeleteAttendancePunch(punchId, reason = "") {
+  const query = reason ? `?reason=${encodeURIComponent(reason)}` : "";
+  return jsonRequest(
+    `/hub/attendance/punches/${encodeURIComponent(punchId)}${query}`, "DELETE");
+}
+
 // Bulk-import work orders from the mass CSV export (Admin+). multipart upload --
 // do NOT set Content-Type by hand (the browser adds the multipart boundary),
 // mirroring apiDecodeBarcode. Returns the WorkOrderImportResult summary.
