@@ -50,22 +50,45 @@ primarily to group work orders by Location: if a saved Community from mass
 staging appears in a work order's Location field, display that work order
 under the Communities cards. Request logged only.
 
-### IMP-041 — Attendance timesheet, P4
+### IMP-041 — Attendance timesheet, P4b
 
 - **Logged** 2026-09-21 · *User Hub / Attendance* · spec
   `docs/superpowers/specs/2026-09-21-attendance-timesheet-design.md`
 
-P1–P3 shipped: the table, the state machine, the self-scoped routes, the
+P1–P4a shipped: the table, the state machine, the self-scoped routes, the
 work-order clock coupling, the Home tab, `GET /hub/attendance/week`, the
-Timesheets sub-nav, the Hours grid, the card-side self-close, and the Admin
-punch edit / add / soft delete with its audit. What is left:
+Timesheets sub-nav, the Hours grid, the card-side self-close, the Admin punch
+edit / add / soft delete with its audit, and P4a's Charged vs clocked sub-tab,
+`GET /hub/attendance/export`, and the read-side session cap
+(`work_orders.capped_session_end`) that keeps every attendance read
+side-effect-free. What is left:
 
-- **P4** — Charged vs clocked, the live roster, the `attendance.changed`
-  envelope, the CSV export, and retiring `GET /hub/timesheets` — which drops
-  the `crew` sub-feature from `hubTimesheetsTab.js`, moves the Timesheets tab
-  to Admin+ (D6), and needs `test_route_role_gates.py`'s expected set amended
-  again in the same change. §9's `⚠ charged outside shift` advisory rides
-  with it: the week payload carries no labor-session data until this phase.
+- **P4b** — the live roster (`GET /hub/attendance/live`, the `shift_state`
+  colours, red → yellow → green by longest idle, the `N not clocked in`
+  footer, client-side idle ticking). It must decide that an open labor session
+  past `LABOR_SESSION_MAX_MINUTES` is **not** "charging", or a forgotten clock
+  reads green forever; `capped_session_end` answers it.
+- **P4b** — the `attendance.changed` envelope: audience Admin, `id: None` like
+  `labor.session.changed`, emitted from the four self-scoped punch routes and
+  the three Admin punch writes. The auto-punch on a work-order clock start
+  needs no emit of its own — that route already emits `labor.session.changed`,
+  which the live layer also subscribes to.
+- **P4b** — retiring `GET /hub/timesheets` (§7, D6): drops the `crew`
+  sub-feature from `hubTimesheetsTab.js`, `views/hubTimesheets.js` and its two
+  api.js wrappers, moves the Timesheets tab to Admin+ in `userHub.js`, and
+  needs `test_route_role_gates.py`'s expected set amended again in the same
+  change. It also retires `MAX_TIMESHEET_RANGE_DAYS`,
+  `TimesheetRangeInvalidError` and `TimesheetRangeTooLargeError`, whose only
+  caller is `timesheets_hub` — contrary to spec §7's expectation. **Keep**
+  `labor_summary.crew_range_summaries` (P4a made the comparison its caller)
+  and the `.hub-timesheet-table*` CSS (`hubGraphs.js` and `hubReport.js`
+  borrow those classes).
+- Deferred, with cause: a **billed** column beside clocked and charged.
+  `billed_labor_minutes` rounds a *work order's combined* labor up to 30
+  minutes across every technician and day that touched it, so no
+  per-person-per-day billed number exists; one invented here would be an
+  approximation of an invoice in a column that reads as a fact. Reopen only
+  with a per-person billing rule behind it.
 - Cut from P3, deliberately: `promptTime()`'s analog dial. The dropdowns +
   nudge row shipped in P1, are complete and keyboard-accessible, and the dial
   is optional polish — not an omission to re-open.

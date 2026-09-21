@@ -2962,6 +2962,75 @@ tr.archived-user {
     padding-inline: var(--space-3);
 }
 
+/* P4a's comparison grid. Chrome is the Hours grid's, reused by class rather
+   than copied: the markup carries `.hub-hours-table-wrap` and
+   `.hub-hours-table` as well, so a change to the Hours sizing lands on both.
+   Only what differs lives here -- a cell is three stacked figures instead of
+   one, and nine such columns need a wider floor before the wrapper scrolls.
+   No new colour token and no fill: design-system.md allows `--color-error` as
+   text, which is what the outside-shift flag uses, and every flag prints its
+   words beside its glyph so no cell's meaning depends on hue. */
+.hub-compare-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+}
+
+.hub-compare-week-nav,
+.hub-compare-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.hub-compare-table {
+    min-width: 900px;
+}
+
+.hub-compare-cell {
+    display: grid;
+    gap: 2px;
+    justify-items: end;
+}
+
+.hub-compare-table th:first-child .hub-compare-cell,
+.hub-compare-table td:first-child .hub-compare-cell {
+    justify-items: start;
+}
+
+.hub-compare-tracked,
+.hub-compare-delta,
+.hub-compare-adjustment {
+    font-size: var(--fs-sm);
+    color: var(--text-panel-mute);
+}
+
+.hub-compare-flag {
+    font-size: var(--fs-xs);
+    white-space: normal;
+}
+
+.hub-compare-flag-outside {
+    color: var(--color-error);
+}
+
+.hub-compare-adjustment {
+    font-size: var(--fs-xs);
+}
+
+.hub-compare-empty,
+.hub-compare-dst,
+.hub-compare-legend {
+    margin-top: var(--space-2);
+}
+
+.hub-compare-legend {
+    max-width: 68ch;
+}
+
 .punch-editor {
     display: flex;
     flex-direction: column;
@@ -3011,6 +3080,7 @@ tr.archived-user {
 
 @media (max-width: 600px) {
     .hub-hours-toolbar,
+    .hub-compare-toolbar,
     .hub-hours-drilldown-heading,
     .hub-hours-drilldown-row {
         align-items: flex-start;

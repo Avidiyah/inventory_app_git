@@ -939,6 +939,42 @@ cell with an open clock; `assigned_idle` is never applied to a future day.
 sum for one day. `GET /hub/timesheets/export` serializes the same payload as
 `H:MM` CSV named `timesheet_<start>_to_<end>[_<user>].csv`.
 
+### Attendance (`schemas/attendance.py`)
+
+**`AttendanceWeekResponse`** — `GET /hub/attendance/week` (**admin only**),
+and the object `GET /hub/attendance/export` serializes. `week` is a Monday,
+absent = the week in progress; a non-Monday is 422 from
+`work_order_report.resolve_week`. Fields: `week_start`, `week_end`,
+`server_now`, `days` (seven Central dates), `rows`, `totals_by_day`,
+`total_minutes`, `tracked_minutes`, `delta_minutes`, and `week_hours` (168,
+or 167 / 169 across a DST transition). One read serves both Admin sub-tabs.
+
+**`AttendanceWeekRow`**: `user: HubUser`, `days`, `total_minutes` (clocked),
+`tracked_minutes`, `delta_minutes`.
+
+**`AttendanceWeekDay`**: `date`, `clocked_minutes`, `tracked_minutes`,
+`delta_minutes`, `outside_shift_minutes`, `adjustment_minutes`,
+`needs_review`, `has_open`, `punches`. All five minute fields are required —
+a defaulted 0 would print a confident zero for a number never computed.
+
+| Field | Means |
+|---|---|
+| `clocked_minutes` | time on shift; the pay number, never rounded |
+| `tracked_minutes` | real wall-clock on a work-order clock |
+| `delta_minutes` | `clocked - tracked`, floored at 0 — on shift, not on a job |
+| `outside_shift_minutes` | charged time no punch covers (§9): flagged, never refused |
+| `adjustment_minutes` | hand-entered labor, no start or stop — in neither wall-clock number |
+
+**No billed column, deliberately.** `billed_labor_minutes` rounds a *work
+order's combined* labor up to 30 minutes across every technician and day that
+touched it, so no honest per-person-per-day billed figure exists; one invented
+here would be an approximation of an invoice in a column that reads as a fact.
+
+**`AttendanceWeekPunch`**: `id`, `started_at`, `ended_at?`, `start_source`,
+`end_source?`, `needs_review`, `minutes` (clipped to that day), `carried`
+(true on every day after the one it started on — §9 gives the punch to the
+day it started, and it is editable only there), `open`.
+
 ---
 
 ## Error Catalog
