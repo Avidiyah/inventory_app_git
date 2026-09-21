@@ -659,6 +659,13 @@ export async function apiGetHubAttendanceWeek({ week = null } = {}) {
   return liveGet(query ? `/hub/attendance/week?${query}` : "/hub/attendance/week");
 }
 
+// The roster strip. No parameters: "now" is the only question it answers,
+// and the server is the one that knows what now is. Polled on the hub's
+// existing 60-second safety timer and on `attendance.changed`.
+export async function apiGetHubAttendanceLive() {
+  return liveGet("/hub/attendance/live");
+}
+
 // The comparison week as CSV. A blob, not a plain link like the report's
 // xlsx: a 403 or a 500 on a link is a broken download with no message, and
 // this button lives beside a grid that can say what went wrong.

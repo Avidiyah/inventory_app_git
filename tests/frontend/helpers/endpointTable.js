@@ -140,6 +140,7 @@ export const ENDPOINTS = [
   { fn: "apiSelfClosePunch", args: ["2026-09-21T18:00:00.000Z"], method: "POST",
     url: "/attendance/self-close", body: { ended_at: "2026-09-21T18:00:00.000Z" } },
   { fn: "apiGetHubAttendanceWeek", args: [{}], url: "/hub/attendance/week", cache: "no-store" },
+  { fn: "apiGetHubAttendanceLive", args: [], url: "/hub/attendance/live", cache: "no-store" },
   { fn: "apiExportHubAttendance", args: [{}], url: "/hub/attendance/export", cache: "no-store" },
   { fn: "apiAddAttendancePunch",
     args: [{ userId: "11111111-1111-4111-8111-111111111111",

@@ -590,6 +590,61 @@ export function lowStockItem(overrides = {}) {
   };
 }
 
+// --- Attendance live roster (backend/app/schemas/attendance.py, AttendanceLiveResponse)
+// The roster payload. Three cards, one of each colour, already in the order
+// the server sends them -- red, yellow, green -- plus one absent person, so
+// a test can assert the strip renders what it is given without re-sorting.
+export function attendanceLive(overrides = {}) {
+  return {
+    server_now: "2026-09-16T15:00:00Z",
+    idle_red_minutes: 10,
+    on_shift: [
+      {
+        user: { id: "user-1", first_name: "Ann", last_name: "Lee", role: "technician" },
+        state: "red",
+        punch_started_at: "2026-09-16T13:00:00Z",
+        idle_since: "2026-09-16T14:15:00Z",
+        idle_minutes: 45,
+        charging_since: null,
+        work_order_number: null,
+      },
+      {
+        user: { id: "user-2", first_name: "Bo", last_name: "Ruiz", role: "technician" },
+        state: "yellow",
+        punch_started_at: "2026-09-16T14:50:00Z",
+        idle_since: "2026-09-16T14:57:00Z",
+        idle_minutes: 3,
+        charging_since: null,
+        work_order_number: null,
+      },
+      {
+        user: { id: "user-3", first_name: "Cy", last_name: "Nolan", role: "supervisor" },
+        state: "green",
+        punch_started_at: "2026-09-16T12:00:00Z",
+        idle_since: null,
+        idle_minutes: 0,
+        charging_since: "2026-09-16T14:30:00Z",
+        work_order_number: "WO-1042",
+      },
+    ],
+    absent: [
+      {
+        user: { id: "user-4", first_name: "Dee", last_name: "Park", role: "technician" },
+        state: "gray",
+        punch_started_at: null,
+        idle_since: null,
+        idle_minutes: 0,
+        charging_since: null,
+        work_order_number: null,
+      },
+    ],
+    on_shift_count: 3,
+    charging_count: 1,
+    idle_count: 2,
+    ...overrides,
+  };
+}
+
 // --- Attendance week (backend/app/schemas/attendance.py, AttendanceWeekResponse)
 // One Monday-anchored attendance week. Defaults to the week of 2026-09-14
 // with a single 8-hour Monday for one technician -- enough to assert the
