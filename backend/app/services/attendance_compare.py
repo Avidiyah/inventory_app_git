@@ -27,6 +27,8 @@ wall-clock: it rides in `adjustment_minutes` and is never added into tracked
 or differenced into delta.
 """
 
+import csv
+import io
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -167,3 +169,58 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
         delta_minutes=week_delta,
         week_hours=clocked.week_hours,
     )
+
+
+def _hm(total_minutes: int) -> str:
+    """Payroll-facing `H:MM`, the convention the hub's exports already use."""
+    hours, minutes = divmod(max(0, round(total_minutes)), 60)
+    return f"{hours}:{minutes:02d}"
+
+
+# Five rows per person, always, in this order. A fixed block is what makes the
+# file parseable: a metric that appears only when non-zero turns every reader
+# into a state machine.
+_METRICS: tuple[tuple[str, str], ...] = (
+    ("Clocked", "clocked_minutes"),
+    ("Charged", "tracked_minutes"),
+    ("Off job", "delta_minutes"),
+    ("Charged outside shift", "outside_shift_minutes"),
+    ("Adjustments", "adjustment_minutes"),
+)
+
+
+def week_csv(payload: CompareWeek) -> str:
+    """The comparison as payroll-friendly CSV: five metric rows per person,
+    seven day columns, a week column, then the same block for the company.
+
+    One header row and nothing above it -- a title line is the first thing a
+    spreadsheet import gets wrong.
+    """
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\r\n")
+    writer.writerow(
+        ["Person", "Metric", *(day.isoformat() for day in payload.days), "Week"]
+    )
+
+    company: dict[str, list[int]] = {
+        label: [0] * len(payload.days) for label, _ in _METRICS
+    }
+    for row in payload.rows:
+        by_date = {day.date: day for day in row.days}
+        name = row.user.full_name
+        for label, field in _METRICS:
+            cells = [getattr(by_date[day], field) if day in by_date else 0
+                     for day in payload.days]
+            for index, value in enumerate(cells):
+                company[label][index] += value
+            writer.writerow(
+                [name, label, *(_hm(value) for value in cells), _hm(sum(cells))]
+            )
+
+    for label, _ in _METRICS:
+        cells = company[label]
+        writer.writerow(
+            ["Company total", label, *(_hm(value) for value in cells),
+             _hm(sum(cells))]
+        )
+    return buffer.getvalue()

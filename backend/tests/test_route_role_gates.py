@@ -534,12 +534,12 @@ def test_no_route_gate_is_left_at_the_admin_floor():
     # The attendance week joins it for a different reason: it is the payroll
     # record (2026-09-21-attendance-timesheet-design.md D1), and TechFM OA
     # holding the operational toolkit is not a reason to hand them everyone's
-    # paid hours. P4 adds `get_hub_attendance_live` and
-    # `export_hub_attendance` to this set on the same grounds.
+    # paid hours.
     #
     # P3's three audited writes join on the same grounds as the week read:
-    # they *are* the pay record. P4 adds `get_hub_attendance_live` and
-    # `export_hub_attendance`.
+    # they *are* the pay record.
+    # P4a adds the CSV export on the same grounds -- it *is* the pay record,
+    # rendered for payroll. P4b adds `get_hub_attendance_live`.
     assert offenders == {
         "get_hub_report",
         "export_hub_report",
@@ -547,6 +547,7 @@ def test_no_route_gate_is_left_at_the_admin_floor():
         "add_hub_attendance_punch",
         "edit_hub_attendance_punch",
         "delete_hub_attendance_punch",
+        "export_hub_attendance",
     }
 
 

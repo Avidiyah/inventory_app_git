@@ -10,7 +10,9 @@ stays the only place a role 403 is raised:
 - `GET /hub/admin`       techfm_oa+         -- the company-wide time summary
 - `GET /hub/graphs`      techfm_oa+         -- the lazy company-wide report
 - `GET /hub/timesheets`  supervisor+        -- routed-crew timesheets
-- `GET /hub/attendance/week` admin only -- the weekly clocked-hours grid
+- `GET /hub/attendance/week` admin only -- the weekly attendance grid,
+  clocked beside charged
+- `GET /hub/attendance/export` admin only -- that same week as CSV
 - `POST|PATCH|DELETE /hub/attendance/punches` admin only -- the audited
   punch writes behind that grid's drill-down
 - `GET /hub/report`      admin only         -- the weekly closed record
@@ -239,6 +241,34 @@ def delete_hub_attendance_punch(
             db, actor=user, punch_id=punch_id, reason=reason)
     except DomainError as exc:
         raise to_http(exc) from exc
+
+
+@router.get("/attendance/export")
+def export_hub_attendance(
+    week: Optional[date] = Query(None),
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """The comparison week as CSV. Admin floor, same grounds as the read it
+    serializes: this is the pay record, rendered for payroll.
+
+    Same `week` contract as `GET /hub/attendance/week` -- a Monday, or absent
+    for the week in progress, and a non-Monday is 422 from the same resolver.
+    """
+    now = datetime.now(timezone.utc)
+    try:
+        week_start = work_order_report.resolve_week(week, now)
+    except DomainError as exc:
+        raise to_http(exc) from exc
+    payload = attendance_compare.week_payload(db, week_start=week_start, now=now)
+    return Response(
+        content=attendance_compare.week_csv(payload),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="attendance_{week_start.isoformat()}.csv"'
+        },
+    )
 
 
 def _default_range(now: datetime) -> tuple[date, date]:
