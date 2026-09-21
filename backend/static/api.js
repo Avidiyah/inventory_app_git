@@ -649,6 +649,16 @@ export async function apiSelfClosePunch(endedAtIso) {
   return jsonRequest("/attendance/self-close", "POST", { ended_at: endedAtIso });
 }
 
+// The Admin Hours grid. `week` is a Monday (YYYY-MM-DD); omitted means the
+// week in progress. Anything else is a 422 from the server, deliberately --
+// the UI only ever sends Mondays.
+export async function apiGetHubAttendanceWeek({ week = null } = {}) {
+  const params = new URLSearchParams();
+  if (week) params.set("week", week);
+  const query = params.toString();
+  return liveGet(query ? `/hub/attendance/week?${query}` : "/hub/attendance/week");
+}
+
 // Bulk-import work orders from the mass CSV export (Admin+). multipart upload --
 // do NOT set Content-Type by hand (the browser adds the multipart boundary),
 // mirroring apiDecodeBarcode. Returns the WorkOrderImportResult summary.

@@ -139,6 +139,7 @@ export const ENDPOINTS = [
   { fn: "apiPunchOut", args: [], method: "POST", url: "/attendance/punch-out", body: {} },
   { fn: "apiSelfClosePunch", args: ["2026-09-21T18:00:00.000Z"], method: "POST",
     url: "/attendance/self-close", body: { ended_at: "2026-09-21T18:00:00.000Z" } },
+  { fn: "apiGetHubAttendanceWeek", args: [{}], url: "/hub/attendance/week", cache: "no-store" },
 
   // --- NetFacilities integration ---
   { fn: "apiStartNetFacilitiesEnrichment", args: [], method: "POST",
