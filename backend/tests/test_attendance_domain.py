@@ -186,3 +186,34 @@ def test_no_sessions_is_zero_not_an_error():
     assert attendance.minutes_charged_outside_shift(
         sessions=[], punches=[(_at(8), _at(17))], window=DAY, now=SHIFT_NOW
     ) == 0
+
+
+def test_idle_anchor_is_the_punch_when_there_is_no_labor():
+    started = datetime(2026, 9, 21, 13, 0, tzinfo=timezone.utc)
+    assert attendance.idle_anchor(
+        punch_started_at=started, last_labor_ended_at=None
+    ) == started
+
+
+def test_idle_anchor_is_the_later_of_the_punch_and_the_last_stop():
+    started = datetime(2026, 9, 21, 13, 0, tzinfo=timezone.utc)
+    stopped = datetime(2026, 9, 21, 15, 30, tzinfo=timezone.utc)
+    assert attendance.idle_anchor(
+        punch_started_at=started, last_labor_ended_at=stopped
+    ) == stopped
+    # A stop from a previous shift never drags the anchor backwards.
+    earlier = datetime(2026, 9, 20, 22, 0, tzinfo=timezone.utc)
+    assert attendance.idle_anchor(
+        punch_started_at=started, last_labor_ended_at=earlier
+    ) == started
+
+
+def test_idle_minutes_is_measured_from_the_anchor():
+    started = datetime(2026, 9, 21, 13, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 21, 13, 42, 30, tzinfo=timezone.utc)
+    anchor = attendance.idle_anchor(
+        punch_started_at=started, last_labor_ended_at=None
+    )
+    assert attendance.idle_minutes(
+        punch_started_at=started, last_labor_ended_at=None, now=now
+    ) == int((now - anchor).total_seconds() // 60) == 42

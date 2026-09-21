@@ -43,26 +43,45 @@ STATE_RED = "red"
 STATE_GRAY = "gray"
 
 
+def idle_anchor(
+    *,
+    punch_started_at: datetime,
+    last_labor_ended_at: Optional[datetime],
+) -> datetime:
+    """The instant idle time is measured from: the later of the punch and the
+    last reason this person had to be charging.
+
+    Split out of `idle_minutes` because the live roster ticks client-side.
+    The browser counts seconds from this instant and the server reports the
+    minutes; one function owning the anchor is what keeps the two from
+    disagreeing at the moment a card changes colour.
+    """
+    anchor = labor_day.as_utc(punch_started_at)
+    if last_labor_ended_at is not None:
+        anchor = max(anchor, labor_day.as_utc(last_labor_ended_at))
+    return anchor
+
+
 def idle_minutes(
     *,
     punch_started_at: datetime,
     last_labor_ended_at: Optional[datetime],
     now: datetime,
 ) -> int:
-    """Whole minutes since this person last had a reason to be charging.
+    """Whole minutes since `idle_anchor`.
 
-    `now - max(punch.started_at, last_labor_session.ended_at)`. With no labor
-    yet, the punch itself is the anchor -- the accepted consequence in 2 is
-    that a slow start after arrival shows red before the first job, which is
-    correct information, not a false alarm.
+    With no labor yet, the punch itself is the anchor -- the accepted
+    consequence in 2 is that a slow start after arrival shows red before the
+    first job, which is correct information, not a false alarm.
 
     Truncated, not rounded: the row prints `idle 12m` beside the color, and a
     number that rounds up would cross `IDLE_RED_MINUTES` a half-minute before
     the color does.
     """
-    anchor = labor_day.as_utc(punch_started_at)
-    if last_labor_ended_at is not None:
-        anchor = max(anchor, labor_day.as_utc(last_labor_ended_at))
+    anchor = idle_anchor(
+        punch_started_at=punch_started_at,
+        last_labor_ended_at=last_labor_ended_at,
+    )
     seconds = (labor_day.as_utc(now) - anchor).total_seconds()
     return max(0, int(seconds // 60))
 
