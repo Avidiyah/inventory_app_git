@@ -353,21 +353,6 @@ class ToolReturnExceedsCheckedOutError(DomainError):
         )
 
 
-class TimesheetRangeInvalidError(DomainError):
-    """Raised when a timesheet range ends before it starts. Maps to 400."""
-
-    def __init__(self):
-        super().__init__("End date must be on or after start date.")
-
-
-class TimesheetRangeTooLargeError(DomainError):
-    """Raised when an inclusive timesheet range exceeds its safety cap."""
-
-    def __init__(self, max_days: int):
-        self.max_days = max_days
-        super().__init__(f"Date range cannot exceed {max_days} days.")
-
-
 class PunchAlreadyOpenError(DomainError):
     """Raised when a punch-in, or a labor start behind a *stale* punch, finds
     an open `attendance_punches` row. Per D4 nothing auto-closes, so this is
