@@ -57,11 +57,11 @@ describe("the table cannot silently fall behind api.js", () => {
 });
 
 describe("docs/endpoint-map.md", () => {
-  // Known gap, filed in docs/open-work.md (Task 13). `apiGetHubAdmin` is live
-  // -- GET /hub/admin, called by views/userHub.js -- but the map never names
-  // it. Listing it here keeps the suite green while the gap stays visible; the
-  // fix is a doc edit, which P1 does not make.
-  const KNOWN_UNDOCUMENTED = ["apiGetHubAdmin"];
+  // Empty, and meant to stay that way: N-ENDPOINT-MAP-HUB-ADMIN's trigger was
+  // the next edit to the Master Endpoint Index, which P2 made, so `/hub/admin`
+  // now has its row (H2a). A wrapper listed here again is a documentation gap
+  // shipping, not a fix.
+  const KNOWN_UNDOCUMENTED = [];
 
   it("names every exported wrapper", async () => {
     const { readFileSync } = await import("node:fs");

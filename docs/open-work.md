@@ -50,26 +50,25 @@ primarily to group work orders by Location: if a saved Community from mass
 staging appears in a work order's Location field, display that work order
 under the Communities cards. Request logged only.
 
-### IMP-041 — Attendance timesheet, P2–P4
+### IMP-041 — Attendance timesheet, P3–P4
 
 - **Logged** 2026-09-21 · *User Hub / Attendance* · spec
   `docs/superpowers/specs/2026-09-21-attendance-timesheet-design.md`
 
-P1 shipped: `attendance_punches`, the pure state machine, the four
-self-scoped routes, the two-way work-order clock coupling, and the Home tab.
+P1 and P2 shipped: the table, the state machine, the four self-scoped routes,
+the work-order clock coupling, the Home tab, `GET /hub/attendance/week`, the
+Timesheets sub-nav, the read-only Hours grid, and the card-side self-close.
 What is left:
 
-- **P2** — the Timesheets sub-nav and the Hours grid. Plus decision D's
-  deferral: a shared self-close prompt **on the work-order card**, so a
-  technician whose Start button 409s on a stale punch can resolve it there
-  instead of navigating to the Home tab. P1's 409 copy names the Home tab as
-  the recovery.
-- **P3** — `promptTime`'s analog dial (the dropdown half shipped in P1, on
-  the same export), and the Admin edit / add / delete writing
-  `attendance_punch_edits`.
+- **P3** — `promptTime`'s analog dial (the dropdown half shipped in P1, on the
+  same export), and the Admin edit / add / delete writing
+  `attendance_punch_edits`. The Hours drill-down is where the buttons land; a
+  `carried` punch row deliberately has none (§9).
 - **P4** — Charged vs clocked, the live roster, the `attendance.changed`
-  envelope, the CSV export, and retiring `GET /hub/timesheets` — which needs
-  `test_route_role_gates.py`'s expected set amended in the same change.
+  envelope, the CSV export, and retiring `GET /hub/timesheets` — which drops
+  the `crew` sub-feature from `hubTimesheetsTab.js`, moves the Timesheets tab
+  to Admin+ (D6), and needs `test_route_role_gates.py`'s expected set amended
+  again in the same change.
 
 ### IMP-035 — Item/work-order photo attachments
 
@@ -92,24 +91,16 @@ None of this is scheduled work. Each is a real property of the system with a
 **named trigger** that promotes it, written down so the trigger is recognized
 when it arrives rather than rediscovered.
 
-### N-HUB-TAB-SHELL — `userHub.js` is over the 500-line rule (551)
+### N-HUB-TAB-SHELL — `userHub.js` is over the 500-line rule (561)
 
 A tab shell that grows ~55 lines per tab; the fifth tab (Report) crossed the
 limit and was wired in the established shape deliberately — one inconsistent
-tab would cost more than the overrun. **Trigger:** a sixth tab, or any
-substantive edit to the lazy-loading machinery. The extraction is mechanical:
-`loadTimesheets`/`loadGraphs`/`loadReport` and their error renderers into a
-`hubTabs.js` that owns the caches and request counters. Do it as its own
-change, verified by hand.
-
-### N-ENDPOINT-MAP-HUB-ADMIN — `GET /hub/admin` has no row in the endpoint map
-
-`apiGetHubAdmin` (`api.js:553`) calls a live route (`routers/hub.py:107`) for
-`views/userHub.js:374`, but `docs/endpoint-map.md`'s Master Endpoint Index
-never names it — the only one of the 98 wrappers missing. **Trigger:** the next
-edit to that index. Fix: add the row. Until then
-`tests/frontend/unit/api.endpoints.test.js` allows exactly this one name
-(`KNOWN_UNDOCUMENTED`) and fails on any other undocumented wrapper.
+tab would cost more than the overrun. Timesheets has since moved out whole
+(`hubTimesheetsTab.js` owns its caches, counters and sub-nav). **Trigger:** a
+sixth tab, or any substantive edit to the lazy-loading machinery. The
+extraction is mechanical: `loadGraphs`/`loadReport` and their error renderers
+into a `hubTabs.js` that owns the caches and request counters. Do it as its
+own change, verified by hand.
 
 ### N-WO-STATUS-EVENTS — no status history, so a live close can vanish
 
