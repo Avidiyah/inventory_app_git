@@ -617,6 +617,70 @@ class WorkOrderLaborSession(Base):
     )
 
 
+class AttendancePunch(Base):
+    """One stretch of being on shift, for one person.
+
+    The payroll record, and deliberately not the billable one: a
+    `WorkOrderLaborSession` says which customer is charged, this says whether
+    somebody was at work. The gap between them is the whole point of the
+    Admin timesheet (spec 8) and is never closed by code.
+
+    `ended_at IS NULL` means on shift. There is **no auto-close** (D4): a
+    punch forgotten on Tuesday stays open until a human resolves it, because
+    nothing estimated may silently reach a pay record. The technician's own
+    resolution sets `end_source='self_reported'` and `needs_review=True`
+    (D5).
+    """
+
+    __tablename__ = "attendance_punches"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+    start_source = Column(Text, nullable=False)
+    end_source = Column(Text, nullable=True)
+    needs_review = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", foreign_keys=[user_id], viewonly=True)
+    edits = relationship("AttendancePunchEdit", back_populates="punch",
+                         cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("ix_attendance_punches_user_started", "user_id", "started_at"),
+        Index("uq_attendance_punches_open_user", "user_id",
+              unique=True, postgresql_where=text("ended_at IS NULL")),
+    )
+
+
+class AttendancePunchEdit(Base):
+    """Append-only audit of an Admin's change to a punch (spec 1).
+
+    Written by P3's `edit_punch` / `add_punch` / `delete_punch`; nothing in
+    P1 writes here. One row per field changed, values stored as text so the
+    table does not need a column per punch field.
+    """
+
+    __tablename__ = "attendance_punch_edits"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    punch_id = Column(UUID(as_uuid=True),
+                      ForeignKey("attendance_punches.id", ondelete="CASCADE"),
+                      nullable=False)
+    edited_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    edited_at = Column(DateTime(timezone=True), nullable=False,
+                       default=lambda: datetime.now(timezone.utc))
+    field = Column(Text, nullable=False)
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+    reason = Column(Text, nullable=True)
+
+    punch = relationship("AttendancePunch", back_populates="edits")
+
+    __table_args__ = (Index("ix_attendance_punch_edits_punch_id", "punch_id"),)
+
+
 class MassStage(Base):
     """A truck-staging plan for one building.
 
