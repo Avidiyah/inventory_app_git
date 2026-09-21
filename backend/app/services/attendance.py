@@ -44,11 +44,18 @@ class AttendanceMe:
     clocked_minutes_today: int
 
 
+def live_punches(db: Session):
+    """The base query for every read. A soft-deleted punch is gone for every
+    purpose except the audit trail -- so this, not `db.query`, is what any
+    new punch read starts from."""
+    return db.query(AttendancePunch).filter(AttendancePunch.deleted_at.is_(None))
+
+
 def open_punch_for(db: Session, user_id: uuid.UUID) -> Optional[AttendancePunch]:
     """This person's open punch, or None. The partial unique index permits
     exactly one, so this is a single indexed lookup."""
     return (
-        db.query(AttendancePunch)
+        live_punches(db)
         .filter(AttendancePunch.user_id == user_id, AttendancePunch.ended_at.is_(None))
         .first()
     )
@@ -183,7 +190,7 @@ def me_payload(
     day_start, day_end = labor_day.day_bounds(today)
 
     punches = (
-        db.query(AttendancePunch)
+        live_punches(db)
         .filter(
             AttendancePunch.user_id == user.id,
             AttendancePunch.started_at < day_end,

@@ -120,6 +120,7 @@ def _population(db: Session, window_start: datetime, window_end: datetime) -> li
         row[0]
         for row in db.query(AttendancePunch.user_id)
         .filter(
+            AttendancePunch.deleted_at.is_(None),
             AttendancePunch.started_at < window_end,
             or_(
                 AttendancePunch.ended_at.is_(None),
@@ -156,6 +157,7 @@ def week_payload(
     punches = (
         db.query(AttendancePunch)
         .filter(
+            AttendancePunch.deleted_at.is_(None),
             AttendancePunch.user_id.in_(list(by_id)),
             AttendancePunch.started_at < window_end,
             or_(

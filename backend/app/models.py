@@ -630,6 +630,10 @@ class AttendancePunch(Base):
     nothing estimated may silently reach a pay record. The technician's own
     resolution sets `end_source='self_reported'` and `needs_review=True`
     (D5).
+
+    A delete is **soft** (`deleted_at`): the audit in
+    `attendance_punch_edits` cascades off this row, so a hard delete would
+    take the record of the deletion with it.
     """
 
     __tablename__ = "attendance_punches"
@@ -642,6 +646,11 @@ class AttendancePunch(Base):
     end_source = Column(Text, nullable=True)
     needs_review = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    # Soft delete (P3). `attendance_punch_edits.punch_id` is ON DELETE
+    # CASCADE, so a hard delete would erase the audit trail of the very
+    # write that most needs one -- a pay record vanishing with no record
+    # that it existed. Every read filters this; only the audit sees it.
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     user = relationship("User", foreign_keys=[user_id], viewonly=True)
     edits = relationship("AttendancePunchEdit", back_populates="punch",
@@ -650,7 +659,8 @@ class AttendancePunch(Base):
     __table_args__ = (
         Index("ix_attendance_punches_user_started", "user_id", "started_at"),
         Index("uq_attendance_punches_open_user", "user_id",
-              unique=True, postgresql_where=text("ended_at IS NULL")),
+              unique=True,
+              postgresql_where=text("ended_at IS NULL AND deleted_at IS NULL")),
     )
 
 
