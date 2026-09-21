@@ -66,7 +66,7 @@
 **Interfaces:**
 - Produces: `AttendancePunch.deleted_at: Optional[datetime]`; `attendance.live_punches(db) -> Query[AttendancePunch]` — the base query every read path uses.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # backend/tests/test_attendance_admin_service.py
@@ -109,12 +109,12 @@ def test_a_soft_deleted_open_punch_does_not_block_a_new_punch_in(db):
     assert attendance_service.open_punch_for(db, user.id).id == punch.id
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `cd backend && python -m pytest tests/test_attendance_admin_service.py -v`
 Expected: FAIL — `TypeError: 'deleted_at' is an invalid keyword argument for AttendancePunch`.
 
-- [ ] **Step 3: Add the column to the model**
+- [x] **Step 3: Add the column to the model**
 
 In `backend/app/models.py`, inside `AttendancePunch`, after `created_at`:
 
@@ -137,7 +137,7 @@ And amend the index tuple:
     )
 ```
 
-- [ ] **Step 4: Write the migration**
+- [x] **Step 4: Write the migration**
 
 ```python
 # backend/alembic/versions/c4a6e8b0d2f5_add_attendance_punch_deleted_at.py
@@ -192,7 +192,7 @@ def downgrade() -> None:
     op.drop_column("attendance_punches", "deleted_at")
 ```
 
-- [ ] **Step 5: Filter every read path**
+- [x] **Step 5: Filter every read path**
 
 In `backend/app/services/attendance.py`, add above `open_punch_for`:
 
@@ -208,12 +208,12 @@ Rewrite `open_punch_for`'s body to `return live_punches(db).filter(...).first()`
 
 In `backend/app/services/attendance_week.py`, add `AttendancePunch.deleted_at.is_(None),` as the first filter of **both** the `_population` `punched_ids` query and `week_payload`'s punch query.
 
-- [ ] **Step 6: Run the migration and the suite**
+- [x] **Step 6: Run the migration and the suite**
 
 Run: `cd backend && alembic upgrade head && python -m pytest tests/test_attendance_admin_service.py tests/test_attendance_service.py tests/test_attendance_week_service.py -v`
 Expected: PASS, all of them.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/alembic/versions/c4a6e8b0d2f5_add_attendance_punch_deleted_at.py backend/app/models.py backend/app/services/attendance.py backend/app/services/attendance_week.py backend/tests/test_attendance_admin_service.py
@@ -235,7 +235,7 @@ git commit -m "feat(attendance): soft-delete a punch so its audit survives"
   - `admin_edit_punch(db, *, actor: User, punch_id, started_at=None, ended_at=None, needs_review=None, reason=None, now=None) -> AttendancePunch` — `None` means *unchanged*, never *clear*.
   - `admin_delete_punch(db, *, actor: User, punch_id, reason=None, now=None) -> AttendancePunch`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `backend/tests/test_attendance_admin_service.py`:
 
@@ -362,12 +362,12 @@ def test_a_deleted_punch_cannot_be_edited(db):
             db, actor=admin, punch_id=punch.id, needs_review=False, now=now)
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd backend && python -m pytest tests/test_attendance_admin_service.py -v`
 Expected: FAIL — `AttributeError: module 'app.services.attendance' has no attribute 'admin_add_punch'`.
 
-- [ ] **Step 3: Implement the writes**
+- [x] **Step 3: Implement the writes**
 
 Append to `backend/app/services/attendance.py` (add `AttendancePunchEdit` to the `app.models` import, and `NoChangeError`, `PunchOverlapError`, `PunchTimeInvalidError` to the `app.domain.errors` import — `PunchNotFoundError` is already there):
 
@@ -514,12 +514,12 @@ Then extend `NoChangeError`'s docstring in `backend/app/domain/errors.py` with:
     an empty row is worst.
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cd backend && python -m pytest tests/test_attendance_admin_service.py -v`
 Expected: PASS (8 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/services/attendance.py backend/app/domain/errors.py backend/tests/test_attendance_admin_service.py
@@ -538,7 +538,7 @@ git commit -m "feat(attendance): audited admin add, edit, and delete of a punch"
 - Consumes: Task 2's three service functions.
 - Produces: `POST /hub/attendance/punches` (`add_hub_attendance_punch`), `PATCH /hub/attendance/punches/{punch_id}` (`edit_hub_attendance_punch`), `DELETE /hub/attendance/punches/{punch_id}?reason=` (`delete_hub_attendance_punch`) — all returning `AttendancePunchResponse`, all `roles.ROLE_ADMIN`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # backend/tests/test_attendance_admin_router.py
@@ -665,12 +665,12 @@ def test_delete_then_the_week_no_longer_shows_it(db):
     assert str(punch.id) not in ids
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd backend && python -m pytest tests/test_attendance_admin_router.py -v`
 Expected: FAIL — 405/404 from FastAPI; the routes do not exist.
 
-- [ ] **Step 3: Add the request schemas**
+- [x] **Step 3: Add the request schemas**
 
 Append to `backend/app/schemas/attendance.py`:
 
@@ -698,7 +698,7 @@ class PunchEditRequest(BaseModel):
     reason: Optional[str] = None
 ```
 
-- [ ] **Step 4: Add the routes**
+- [x] **Step 4: Add the routes**
 
 In `backend/app/routers/hub.py`, directly after `get_hub_attendance_week` (import `PunchAddRequest`, `PunchEditRequest`, `AttendancePunchResponse` from `app.schemas.attendance` and `attendance as attendance_service` from `app.services`):
 
@@ -760,7 +760,7 @@ def delete_hub_attendance_punch(
 
 Add `import uuid` to the module imports if it is not already there.
 
-- [ ] **Step 5: Amend the role-gate test**
+- [x] **Step 5: Amend the role-gate test**
 
 In `backend/tests/test_route_role_gates.py`, extend the expected set and the comment above it:
 
@@ -791,12 +791,12 @@ def test_the_punch_writes_sit_above_techfm_oa(endpoint_name):
     assert _min_role_for(hub_router, endpoint_name) == roles.ROLE_ADMIN
 ```
 
-- [ ] **Step 6: Run the backend suite**
+- [x] **Step 6: Run the backend suite**
 
 Run: `cd backend && python -m pytest tests/test_attendance_admin_router.py tests/test_route_role_gates.py tests/test_attendance_week_router.py -v`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/app/schemas/attendance.py backend/app/routers/hub.py backend/tests/test_attendance_admin_router.py backend/tests/test_route_role_gates.py
@@ -814,7 +814,7 @@ git commit -m "feat(attendance): the Admin punch write routes at the Admin floor
 **Interfaces:**
 - Produces: `apiAddAttendancePunch({ userId, startedAt, endedAt, reason })`, `apiEditAttendancePunch(punchId, { startedAt, endedAt, needsReview, reason })`, `apiDeleteAttendancePunch(punchId, reason)` — all resolving to the punch object.
 
-- [ ] **Step 1: Add the table rows (the failing test)**
+- [x] **Step 1: Add the table rows (the failing test)**
 
 In `tests/frontend/helpers/endpointTable.js`, after the `apiGetHubAttendanceWeek` row:
 
@@ -839,12 +839,12 @@ In `tests/frontend/helpers/endpointTable.js`, after the `apiGetHubAttendanceWeek
     url: "/hub/attendance/punches/22222222-2222-4222-8222-222222222222?reason=duplicate" },
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `npx vitest run tests/frontend/unit/api.endpoints.test.js`
 Expected: FAIL — `apiAddAttendancePunch is not a function`.
 
-- [ ] **Step 3: Write the wrappers**
+- [x] **Step 3: Write the wrappers**
 
 In `backend/static/api.js`, after `apiGetHubAttendanceWeek`:
 
@@ -879,12 +879,12 @@ export async function apiDeleteAttendancePunch(punchId, reason = "") {
 
 Check `jsonRequest`'s signature at the top of `api.js` first: if it requires a body argument, pass `{}` for the DELETE and drop the `body` assertion from that table row.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `npx vitest run tests/frontend/unit/api.endpoints.test.js tests/frontend/unit/api.shapes.test.js`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/static/api.js tests/frontend/helpers/endpointTable.js
@@ -903,7 +903,7 @@ git commit -m "feat(attendance): api.js wrappers for the Admin punch writes"
 - Consumes: `promptTime({ title, help, initial })` from `../dom.js` (P1, unchanged).
 - Produces: `mountPunchEditor(hostEl, { punch, date, onSave, onDelete, onCancel })`. `punch` is a week-payload punch or `null` for an add. `onSave({ startedAt, endedAt, reason })` receives ISO strings; `onDelete(reason)`; both may return a promise, during which the editor disables its buttons.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```js
 // tests/frontend/views/hubAttendancePunchEditor.test.js
@@ -966,12 +966,12 @@ describe("the inline punch editor", () => {
 });
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `npx vitest run tests/frontend/views/hubAttendancePunchEditor.test.js`
 Expected: FAIL — the module does not exist.
 
-- [ ] **Step 3: Write the editor**
+- [x] **Step 3: Write the editor**
 
 ```js
 // backend/static/views/hubAttendancePunchEditor.js
@@ -1099,12 +1099,12 @@ export function mountPunchEditor(hostEl, { punch, date, onSave, onDelete, onCanc
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `npx vitest run tests/frontend/views/hubAttendancePunchEditor.test.js`
 Expected: PASS (3 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/static/views/hubAttendancePunchEditor.js tests/frontend/views/hubAttendancePunchEditor.test.js
@@ -1123,7 +1123,7 @@ git commit -m "feat(attendance): the inline punch editor row"
 - Consumes: `mountPunchEditor` (Task 5).
 - Produces: `mountHubAttendanceHours(container, payload, { onWeekChange, onSavePunch, onAddPunch, onDeletePunch, onClearReview, canEdit })` — `onSavePunch(punchId, { startedAt, endedAt, reason })`, `onAddPunch(userId, { startedAt, endedAt, reason })`, `onDeletePunch(punchId, reason)`, `onClearReview(punchId)`. All optional; absent ones render no button, which keeps every existing caller and test valid.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/frontend/views/hubAttendanceHours.test.js`:
 
@@ -1174,12 +1174,12 @@ Append to `tests/frontend/views/hubAttendanceHours.test.js`:
   });
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `npx vitest run tests/frontend/views/hubAttendanceHours.test.js`
 Expected: FAIL — no `.hub-hours-edit` node.
 
-- [ ] **Step 3: Add the buttons and the editor mount**
+- [x] **Step 3: Add the buttons and the editor mount**
 
 In `backend/static/views/hubAttendanceHours.js`: import `{ mountPunchEditor }` from `./hubAttendancePunchEditor.js`, replace the module header's "Read-only in P2" paragraph with a line saying P3 added editing, take the four callbacks in the options object, and track `editing` (a punch id, `"add:<date>"`, or `null`) beside `expanded`, resetting it whenever `expanded` changes.
 
@@ -1225,17 +1225,17 @@ In `render()`, after the existing cell wiring, wire the new buttons: `.hub-hours
 
 where `findPunch` scans the expanded day's `punches` and `expandedUserId()` reads `payload.rows[expanded.rowIndex].user.id`. `canEdit` is `Boolean(onSavePunch)`.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `npx vitest run tests/frontend/views/hubAttendanceHours.test.js`
 Expected: PASS, including every pre-existing P2 test.
 
-- [ ] **Step 5: Check the file length**
+- [x] **Step 5: Check the file length**
 
 Run: `wc -l backend/static/views/hubAttendanceHours.js`
 Expected: under 500. If it is over, move `punchRowHtml` + `drilldownHtml` into the editor module — not a new split decision, just the same boundary drawn one function earlier.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/static/views/hubAttendanceHours.js tests/frontend/views/hubAttendanceHours.test.js
@@ -1253,7 +1253,7 @@ git commit -m "feat(attendance): edit, add, and review controls in the Hours dri
 **Interfaces:**
 - Consumes: Task 4's wrappers, Task 6's callbacks.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/frontend/views/hubTimesheetsTab.test.js` (MSW handlers in the existing style):
 
@@ -1299,12 +1299,12 @@ Append to `tests/frontend/views/hubTimesheetsTab.test.js` (MSW handlers in the e
   });
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `npx vitest run tests/frontend/views/hubTimesheetsTab.test.js`
 Expected: FAIL — no `.hub-hours-edit` is wired, so the click finds nothing.
 
-- [ ] **Step 3: Wire the callbacks**
+- [x] **Step 3: Wire the callbacks**
 
 In `renderHours`, pass the four callbacks through. Each one awaits its write, then reloads:
 
@@ -1326,16 +1326,16 @@ In `renderHours`, pass the four callbacks through. Each one awaits its write, th
 
 with `onSavePunch: (id, values) => write(panelEl, () => apiEditAttendancePunch(id, values))`, `onAddPunch: (userId, values) => write(panelEl, () => apiAddAttendancePunch({ userId, ...values }))`, `onDeletePunch: (id, reason) => write(panelEl, () => apiDeleteAttendancePunch(id, reason))`, and `onClearReview: (id) => write(panelEl, () => apiEditAttendancePunch(id, { needsReview: false }))`. `canEdit` follows from passing the callbacks only when `roleAtLeast(viewerRole, "admin")`.
 
-- [ ] **Step 4: Add the styles**
+- [x] **Step 4: Add the styles**
 
 In `backend/static/styles.css`, beside the existing `.hub-hours-*` block: `.hub-hours-row-actions` (inline flex, small gap), `.punch-editor` (column flex, padded, panel background), `.punch-editor-times` (row flex, wrap), `.punch-editor-actions` (row flex, gap), `.punch-editor-message` (the `.hint` size, red when it carries an error class). Reuse the existing `--` design tokens; add no new colors.
 
-- [ ] **Step 5: Run the frontend suite**
+- [x] **Step 5: Run the frontend suite**
 
 Run: `npx vitest run`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/static/views/hubTimesheetsTab.js backend/static/styles.css tests/frontend/views/hubTimesheetsTab.test.js
@@ -1349,24 +1349,24 @@ git commit -m "feat(attendance): wire the punch writes to the Hours refetch"
 **Files:**
 - Modify: `docs/endpoint-map.md:132`, `docs/current-state.md:113,1264-1290,1684`, `docs/open-work.md:53-70`
 
-- [ ] **Step 1: Run everything**
+- [x] **Step 1: Run everything**
 
 Run: `cd backend && python -m pytest -q` then `npx vitest run`
 Expected: both green. `test_cascade_deletes_with_user` may fail on a dev database carrying real cloud-session rows — that is environmental, not this change.
 
-- [ ] **Step 2: Endpoint map**
+- [x] **Step 2: Endpoint map**
 
 Add three rows after H8, in the existing column order (`H9` / `H10` / `H11`): the method, the path, **admin only**, `hub.py` → `attendance.admin_add_punch` / `admin_edit_punch` / `admin_delete_punch`, tables `attendance_punches (r/w), attendance_punch_edits (w), users (r)`, the api wrapper, and `hubAttendanceHours.js`, `hubAttendancePunchEditor.js`, `hubTimesheetsTab.js`.
 
-- [ ] **Step 3: current-state.md**
+- [x] **Step 3: current-state.md**
 
 In the Attendance row (line 113), replace "Read-only: editing punches is a later phase" with the Admin write surface, the soft delete, and the audit; add `hubAttendancePunchEditor.js`, `test_attendance_admin_service.py`, `test_attendance_admin_router.py` to its file and test lists. In the `attendance_punches` section (line 1264), replace "unwritten until the Admin edit phase" with one line on what writes it and one on `deleted_at`. Add the `c4a6e8b0d2f5` migration row. Delete, do not append: the budget is 16,500 words and history belongs to git.
 
-- [ ] **Step 4: open-work.md**
+- [x] **Step 4: open-work.md**
 
 Rewrite IMP-041 to P4 only — charged vs clocked, the live roster, `attendance.changed`, the CSV, and the §7 retirement — and add one line under it recording that `promptTime()`'s analog dial was cut from P3 (the dropdowns + nudge row are complete and keyboard-accessible; the dial is optional polish) so a future session does not re-litigate it as an omission. Note there that the `⚠ charged outside shift` advisory (§9) rides with P4's labor join.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/endpoint-map.md docs/current-state.md docs/open-work.md

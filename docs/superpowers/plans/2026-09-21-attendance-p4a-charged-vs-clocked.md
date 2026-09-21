@@ -60,7 +60,7 @@ Tests: `test_work_orders_domain.py`, `test_attendance_domain.py`, `test_labor_su
 - Produces: `work_orders.capped_session_end(started_at, ended_at, *, now) -> datetime`
 - Produces: `labor_summary.crew_range_summaries(db, ids, start_day, end_day, *, now, cap_running=False)`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `backend/tests/test_work_orders_domain.py`:
 
@@ -131,12 +131,12 @@ def test_crew_range_summaries_caps_a_forgotten_clock_when_asked(db):
 
 Use whatever technician/session factories that file already imports; do not add new ones.
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd backend && python -m pytest tests/test_work_orders_domain.py -k capped_session_end tests/test_labor_summary.py -k crew_range_summaries_ -v`
 Expected: FAIL — `AttributeError: module 'app.domain.work_orders' has no attribute 'capped_session_end'`, and `TypeError: crew_range_summaries() got an unexpected keyword argument 'cap_running'`.
 
-- [ ] **Step 3: Add the domain function**
+- [x] **Step 3: Add the domain function**
 
 In `backend/app/domain/work_orders.py`, directly after `capped_session_minutes`:
 
@@ -170,7 +170,7 @@ def capped_session_end(
 
 Add `from datetime import timedelta` and the `as_utc` import from `app.domain.labor_day` only if this module does not already have them — check the header first, and reuse what is there.
 
-- [ ] **Step 4: Add the flag to the range read**
+- [x] **Step 4: Add the flag to the range read**
 
 In `crew_range_summaries`, change the signature to
 `def crew_range_summaries(db, technician_ids, start_day, end_day, *, now, cap_running=False)`
@@ -198,12 +198,12 @@ Inside the session loop, replace the single `split_by_day` call with:
 
 `split_by_day` uses `now` only as the stand-in end for an open session, so handing it the capped instant produces the capped split and nothing else changes. Import `from app.domain import work_orders as wo` at the top of `labor_summary.py` if it is not already imported.
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `cd backend && python -m pytest tests/test_work_orders_domain.py tests/test_labor_summary.py -q`
 Expected: PASS, including every pre-existing test in both files.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/app/domain/work_orders.py backend/app/services/labor_summary.py backend/tests/test_work_orders_domain.py backend/tests/test_labor_summary.py
@@ -222,7 +222,7 @@ git commit -m "feat(attendance): the session cap as an instant, for reads that m
 - Consumes: nothing from Task 1 (pure, independent).
 - Produces: `attendance.minutes_charged_outside_shift(*, sessions, punches, window, now) -> int`, where `sessions` and `punches` are iterables of `(start, end_or_None)` instant pairs and `window` is a `(start, end)` UTC pair.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 DAY = labor_day.day_bounds(date(2026, 9, 14))
@@ -295,12 +295,12 @@ def test_no_sessions_is_zero_not_an_error():
 
 `_at` with a negative hour needs `datetime(2026, 9, 13, 22, ...)`; write that case out literally rather than relying on negative-hour arithmetic.
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd backend && python -m pytest tests/test_attendance_domain.py -k outside_shift -v`
 Expected: FAIL — `AttributeError: module 'app.domain.attendance' has no attribute 'minutes_charged_outside_shift'`.
 
-- [ ] **Step 3: Write the function**
+- [x] **Step 3: Write the function**
 
 ```python
 Span = tuple[datetime, Optional[datetime]]
@@ -379,12 +379,12 @@ def minutes_charged_outside_shift(
 
 `Iterable` and `Optional` are already imported in this module; `datetime` too.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cd backend && python -m pytest tests/test_attendance_domain.py -q`
 Expected: PASS, whole file.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/domain/attendance.py backend/tests/test_attendance_domain.py
@@ -403,7 +403,7 @@ git commit -m "feat(attendance): the pure rule for charged time no punch covers"
 - Consumes: `work_orders.capped_session_end`, `crew_range_summaries(..., cap_running=True)` (Task 1); `attendance.minutes_charged_outside_shift` (Task 2); `attendance_week.week_payload`, `attendance_week.WeekPunch`, `attendance_week.DayTotal` (P2, unchanged).
 - Produces: `attendance_compare.week_payload(db, *, week_start, now) -> CompareWeek`, with `CompareDay(date, clocked_minutes, tracked_minutes, delta_minutes, outside_shift_minutes, adjustment_minutes, needs_review, has_open, punches)`, `CompareRow(user, days, total_minutes, tracked_minutes, delta_minutes)`, `CompareWeek(week_start, week_end, server_now, days, rows, totals_by_day, total_minutes, tracked_minutes, delta_minutes, week_hours)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Model the fixtures on `backend/tests/test_attendance_week_service.py` — same `db` fixture, same punch/user helpers. Reuse its helpers by importing them if it exposes any; otherwise copy the smallest shape needed.
 
@@ -498,12 +498,12 @@ def test_the_clocked_half_is_exactly_what_the_hours_grid_reads(db):
     assert compared.rows[0].days[0].punches == clocked.rows[0].days[0].punches
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd backend && python -m pytest tests/test_attendance_compare_service.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'app.services.attendance_compare'`.
 
-- [ ] **Step 3: Write the service**
+- [x] **Step 3: Write the service**
 
 ```python
 """Charged against clocked: one week, per person per day.
@@ -677,12 +677,12 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
     )
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cd backend && python -m pytest tests/test_attendance_compare_service.py tests/test_attendance_week_service.py -q`
 Expected: PASS. The week-service file must be untouched and still green — that is the check that the clocked half was not disturbed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/services/attendance_compare.py backend/tests/test_attendance_compare_service.py
@@ -702,7 +702,7 @@ git commit -m "feat(attendance): the charged-vs-clocked week payload"
 - Consumes: `attendance_compare.week_payload` (Task 3).
 - Produces: `GET /hub/attendance/week` returning `AttendanceWeekResponse` with `tracked_minutes`, `delta_minutes`, `outside_shift_minutes`, `adjustment_minutes` on each day; `tracked_minutes`, `delta_minutes` on each row and on the week.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `backend/tests/test_attendance_week_router.py`, matching how that file builds its client and Admin session:
 
@@ -727,12 +727,12 @@ def test_a_non_monday_is_still_422_after_the_comparison_join(client, admin_sessi
 
 Adapt the fixture names to whatever that file already uses; do **not** invent new fixtures. Drive the route through the real `TestClient` — a direct handler call will not exercise `Query` validation (see `docs/open-work.md`'s note on int-Literal query params).
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `cd backend && python -m pytest tests/test_attendance_week_router.py -v`
 Expected: FAIL — `KeyError`/assertion on the missing `tracked_minutes`.
 
-- [ ] **Step 3: Extend the schemas**
+- [x] **Step 3: Extend the schemas**
 
 In `backend/app/schemas/attendance.py`, add to `AttendanceWeekDay`, after `clocked_minutes`:
 
@@ -761,7 +761,7 @@ Replace the "`tracked` and `billed` join this payload additively in P4" sentence
     honest per-person-per-day billed number exists to put here.
 ```
 
-- [ ] **Step 4: Point the route at the comparison service**
+- [x] **Step 4: Point the route at the comparison service**
 
 In `backend/app/routers/hub.py`, add `from app.services import attendance_compare` to the service imports, and change the last line of `get_hub_attendance_week` to:
 
@@ -771,12 +771,12 @@ In `backend/app/routers/hub.py`, add `from app.services import attendance_compar
 
 Update that handler's docstring: the read serves **both** sub-tabs — Hours renders the clocked column and the punches, Charged vs clocked renders clocked, tracked and the two gaps — and it remains side-effect-free, now including the labor half, which is capped rather than swept.
 
-- [ ] **Step 5: Run the backend suite**
+- [x] **Step 5: Run the backend suite**
 
 Run: `cd backend && python -m pytest -q`
 Expected: PASS. Watch for failures in `test_attendance_admin_router.py` and any schema-shape assertions — a required field added to a response model breaks any test constructing that model by hand.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/app/schemas/attendance.py backend/app/routers/hub.py backend/tests/test_attendance_week_router.py
@@ -797,7 +797,7 @@ git commit -m "feat(attendance): the week read carries charged and the two gaps"
 - Consumes: `attendance_compare.week_payload` (Task 3).
 - Produces: `attendance_compare.week_csv(payload: CompareWeek) -> str`; route `export_hub_attendance` at `GET /hub/attendance/export?week=`, `text/csv; charset=utf-8`, `attachment; filename="attendance_<week_start>.csv"`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `backend/tests/test_attendance_export_router.py`:
 
@@ -844,12 +844,12 @@ And in `backend/tests/test_route_role_gates.py`, add `"export_hub_attendance"` t
     # rendered for payroll. P4b adds `get_hub_attendance_live`.
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd backend && python -m pytest tests/test_attendance_export_router.py tests/test_route_role_gates.py -v`
 Expected: FAIL — 404 on the export path, and the role-gate set mismatching by one name.
 
-- [ ] **Step 3: Write the serializer**
+- [x] **Step 3: Write the serializer**
 
 Append to `backend/app/services/attendance_compare.py` (and add `import csv`, `import io` at the top):
 
@@ -909,7 +909,7 @@ def week_csv(payload: CompareWeek) -> str:
     return buffer.getvalue()
 ```
 
-- [ ] **Step 4: Add the route**
+- [x] **Step 4: Add the route**
 
 In `backend/app/routers/hub.py`, directly after `delete_hub_attendance_punch`:
 
@@ -944,12 +944,12 @@ def export_hub_attendance(
 
 Add the route to the module docstring's route list, beside the existing `GET /hub/attendance/week` line.
 
-- [ ] **Step 5: Run the backend suite**
+- [x] **Step 5: Run the backend suite**
 
 Run: `cd backend && python -m pytest -q`
 Expected: PASS, whole suite.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/app/services/attendance_compare.py backend/app/routers/hub.py backend/tests/test_attendance_export_router.py backend/tests/test_route_role_gates.py
@@ -968,7 +968,7 @@ git commit -m "feat(attendance): the weekly attendance CSV at the Admin floor"
 **Interfaces:**
 - Produces: `apiExportHubAttendance({ week }) -> { blob, filename }`.
 
-- [ ] **Step 1: Add the table row and the shape test (the failing tests)**
+- [x] **Step 1: Add the table row and the shape test (the failing tests)**
 
 In `tests/frontend/helpers/endpointTable.js`, after the `apiGetHubAttendanceWeek` row:
 
@@ -987,12 +987,12 @@ In `tests/frontend/unit/api.shapes.test.js`, beside the existing export-filename
   });
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `npx vitest run tests/frontend/unit/api.shapes.test.js tests/frontend/unit/api.endpoints.test.js`
 Expected: FAIL — `api.apiExportHubAttendance is not a function`.
 
-- [ ] **Step 3: Write the wrapper**
+- [x] **Step 3: Write the wrapper**
 
 ```js
 // The comparison week as CSV. A blob, not a plain link like the report's
@@ -1013,12 +1013,12 @@ export async function apiExportHubAttendance({ week = null } = {}) {
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `npx vitest run tests/frontend/unit/`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/static/api.js tests/frontend/helpers/endpointTable.js tests/frontend/unit/api.shapes.test.js
@@ -1039,7 +1039,7 @@ git commit -m "feat(attendance): api.js wrapper for the attendance CSV"
 - Consumes: the Task 4 payload; `apiExportHubAttendance` (Task 6).
 - Produces: `mountHubAttendanceCompare(container, payload, { onWeekChange })`. Pure view: it fetches nothing but the export blob, holds no state, and re-renders only from the payload it was handed.
 
-- [ ] **Step 1: Extend the factory, then write the failing test**
+- [x] **Step 1: Extend the factory, then write the failing test**
 
 In `tests/frontend/helpers/factories.js`, give `attendanceWeek` the new fields so every existing caller keeps working: on `blank(date)` add `tracked_minutes: 0, delta_minutes: 0, outside_shift_minutes: 0, adjustment_minutes: 0`; on `monday` add `tracked_minutes: 420, delta_minutes: 60, outside_shift_minutes: 0, adjustment_minutes: 0`; on the row add `tracked_minutes: 420, delta_minutes: 60`; on the week object add `tracked_minutes: 420, delta_minutes: 60`.
 
@@ -1146,12 +1146,12 @@ describe("the comparison grid", () => {
 
 `URL.createObjectURL` does not exist in jsdom — check `tests/frontend/helpers/browserStubs.js` for the stub `hubTimesheets.test.js` uses for the same download and reuse it; do not write a second one.
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `npx vitest run tests/frontend/views/hubAttendanceCompare.test.js`
 Expected: FAIL — cannot resolve `views/hubAttendanceCompare.js`.
 
-- [ ] **Step 3: Write the view**
+- [x] **Step 3: Write the view**
 
 Copy the date/`formatHm`/`userName` helpers from `hubAttendanceHours.js` verbatim (both modules print `H:MM` and Central instants; `format.js`'s `N h M m` is a different rendering with the same name and must not be imported here — see `open-work.md`'s note on the two `formatHm`s).
 
@@ -1222,12 +1222,12 @@ Then in `tips.js`, after the `hub.timesheets` entry:
   },
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `npx vitest run tests/frontend/views/hubAttendanceCompare.test.js tests/frontend/unit/tips.test.js`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/static/views/hubAttendanceCompare.js backend/static/tips.js tests/frontend/helpers/factories.js tests/frontend/views/hubAttendanceCompare.test.js
@@ -1246,7 +1246,7 @@ git commit -m "feat(attendance): the charged-vs-clocked grid"
 - Consumes: `mountHubAttendanceCompare` (Task 7).
 - Produces: no new exports. `renderTimesheetsTab(panelEl, { role })` and `resetTimesheetsTab(panelEl)` keep their signatures.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/frontend/views/hubTimesheetsTab.test.js`, and update the two existing sub-nav assertions that expect **two** buttons to expect **three**:
 
@@ -1305,12 +1305,12 @@ describe("Charged vs clocked", () => {
 
 Confirm the punch-editor save button's class against `hubAttendancePunchEditor.js` before relying on `.punch-editor-save`, and match whatever the existing write tests in this file already click.
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `npx vitest run tests/frontend/views/hubTimesheetsTab.test.js`
 Expected: FAIL — two sub-nav buttons, no `compare` feature.
 
-- [ ] **Step 3: Rename the cache and add the feature**
+- [x] **Step 3: Rename the cache and add the feature**
 
 The module currently keeps `hoursPayload` / `hoursWeek` / `hoursRequestId`. Both Admin features read the same endpoint, so collapse them into one cache — `weekPayload`, `week`, `weekRequestId` — and rename `loadHours` → `loadWeek`, `showHoursError` → `showWeekError`. The crew cache is untouched; P4b deletes it.
 
@@ -1349,17 +1349,17 @@ function renderCompare(panelEl) {
 - `resetTimesheetsTab` clears the single week cache and bumps the single counter.
 - Update the module header: three features today, `compare` reads the same payload as `hours`, and P4b removes `crew`.
 
-- [ ] **Step 4: Check the file length**
+- [x] **Step 4: Check the file length**
 
 Run: `npx eslint backend/static/views/hubTimesheetsTab.js && wc -l backend/static/views/hubTimesheetsTab.js`
 Expected: clean, and under 500 lines. The rename should leave it near its current 247 — if it has grown past ~300, the crew half is the part to move out, and that is P4b's deletion, not a new module here.
 
-- [ ] **Step 5: Run the frontend suite**
+- [x] **Step 5: Run the frontend suite**
 
 Run: `npx vitest run tests/frontend/views/hubTimesheetsTab.test.js tests/frontend/views/hubAttendanceHours.test.js tests/frontend/views/userHub.test.js`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/static/views/hubTimesheetsTab.js tests/frontend/views/hubTimesheetsTab.test.js
@@ -1374,25 +1374,25 @@ git commit -m "feat(attendance): the Charged vs clocked sub-tab, on one shared w
 - Modify: `backend/static/styles.css` (after the `.hub-hours-*` block P3 added)
 - Modify: `docs/endpoint-map.md`, `docs/current-state.md`, `docs/open-work.md`
 
-- [ ] **Step 1: Add the styles**
+- [x] **Step 1: Add the styles**
 
 After the `.hub-hours-*` rules, add a `.hub-compare-*` block: the cell is a vertical stack (`display: grid; gap: 2px`), `.hub-compare-clocked` at the panel's normal weight, `.hub-compare-tracked` and `.hub-compare-delta` one step down in size and at `--color-text-muted` (use whatever muted token the Hours block already uses), `.hub-compare-flag-outside` in `--color-error` as **text**, and `.hub-compare-adjustment` in the same muted tone. Reuse `.hub-hours-table-wrap` / `.hub-hours-table` sizing rules by extending their selector lists rather than copying the declarations. No new colour token, no fill: `design-system.md` allows `--color-error` as text or a left-accent rule, and that is what this uses.
 
 Check the result at phone width — seven numeric columns of three stacked figures is the layout most likely to overflow; the table wrapper already scrolls horizontally, so confirm it does here too.
 
-- [ ] **Step 2: Endpoint map**
+- [x] **Step 2: Endpoint map**
 
 `docs/endpoint-map.md`: update the H8 row's service chain to `attendance_compare.week_payload` → `attendance_week.week_payload` + `labor_summary.crew_range_summaries` (`cap_running=True`), and its table list to add `work_order_labor_sessions (r)`, `work_order_labor (r)`, `work_orders (r)` — still no writes, still no locks. Add an H12 row for `GET /hub/attendance/export?week=`, **admin only**, `apiExportHubAttendance`, `hubAttendanceCompare.js`. Add `hubAttendanceCompare.js` to H8's frontend column. In the schemas section, extend the attendance week entry with the four new day fields and the two new row/week fields, and say plainly that there is no billed column and why.
 
-- [ ] **Step 3: current-state.md**
+- [x] **Step 3: current-state.md**
 
 Extend the Attendance row (line ~113) with `services/attendance_compare.py`, `static/views/hubAttendanceCompare.js`, the export route, and the new tests. Add one sentence to the three-numbers note at line ~378: the comparison shows clocked, charged and their difference; charged time no punch covers is flagged, not refused; adjustments are carried beside both and counted in neither; billed is deliberately absent because it rounds per work order. Delete anything the edit makes stale rather than letting both readings stand.
 
-- [ ] **Step 4: open-work.md**
+- [x] **Step 4: open-work.md**
 
 Rewrite IMP-041's remaining-work list: P4a shipped (comparison grid, export, the read-side cap). P4b remains — live roster, `attendance.changed`, the Timesheets tab's move to Admin+, the §7 retirement of `GET /hub/timesheets` (which also retires `MAX_TIMESHEET_RANGE_DAYS`, `TimesheetRangeInvalidError` and `TimesheetRangeTooLargeError`, whose only caller is `timesheets_hub`, contrary to spec §7's expectation). Add one bullet for the deferred billed column, naming the reason: billing rounds a work order's combined labor up to 30 minutes across people and days, so a per-person-per-day billed figure would be an approximation of an invoice in a column that reads as a fact.
 
-- [ ] **Step 5: Run everything**
+- [x] **Step 5: Run everything**
 
 ```bash
 cd backend && python -m pytest -q
@@ -1400,7 +1400,7 @@ cd .. && npx vitest run
 ```
 Expected: both green. The frontend suite's baseline before this plan is 87 files / 2186 tests; this plan adds one file and should add no failures anywhere else.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/static/styles.css docs/
