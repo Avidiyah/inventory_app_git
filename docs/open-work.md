@@ -35,7 +35,7 @@ implemented or retired (IMP-034, the User Hub, shipped in phases P1–P5 ending
 two follow-ons live in section 2 as `N-WO-STATUS-EVENTS` and
 `N-REPORT-EXPORT-AUDIT`; IMP-039 was replaced by IMP-040, whose two standing
 notes live in section 2 as `N-NF-STEEL-SESSION`; IMP-038 and IMP-040 were
-owner-confirmed closed 2026-09-14). IMP-004 and IMP-035 are open requests.
+owner-confirmed closed 2026-09-14). IMP-004, IMP-035 and IMP-041 are open requests.
 
 ### IMP-004 — Mass Stage redesign
 
@@ -49,6 +49,27 @@ the rest of the work-order data after a result is selected. Use mass staging
 primarily to group work orders by Location: if a saved Community from mass
 staging appears in a work order's Location field, display that work order
 under the Communities cards. Request logged only.
+
+### IMP-041 — Attendance timesheet, P2–P4
+
+- **Logged** 2026-09-21 · *User Hub / Attendance* · spec
+  `docs/superpowers/specs/2026-09-21-attendance-timesheet-design.md`
+
+P1 shipped: `attendance_punches`, the pure state machine, the four
+self-scoped routes, the two-way work-order clock coupling, and the Home tab.
+What is left:
+
+- **P2** — the Timesheets sub-nav and the Hours grid. Plus decision D's
+  deferral: a shared self-close prompt **on the work-order card**, so a
+  technician whose Start button 409s on a stale punch can resolve it there
+  instead of navigating to the Home tab. P1's 409 copy names the Home tab as
+  the recovery.
+- **P3** — `promptTime`'s analog dial (the dropdown half shipped in P1, on
+  the same export), and the Admin edit / add / delete writing
+  `attendance_punch_edits`.
+- **P4** — Charged vs clocked, the live roster, the `attendance.changed`
+  envelope, the CSV export, and retiring `GET /hub/timesheets` — which needs
+  `test_route_role_gates.py`'s expected set amended in the same change.
 
 ### IMP-035 — Item/work-order photo attachments
 
@@ -278,7 +299,6 @@ the hub tab shell, the scanner widget, or the Mass Stage page.
 | `renderHistory` / `loadHistory` comments say the Charge column is "Admin/Owner"; the gate is `roleAtLeast(role, "techfm_oa")`. Comment drift, not behaviour. | `history.test.js` → "Charge column gating" |
 | `billingEditor.js` writes its message through `setMessage`, which replaces `className` wholesale, so `.charge-editor-msg` stops matching after the first message and any CSS keyed on it drops off. | `history.test.js` → "out-of-range shows the range message and sends nothing" |
 | The pricing list resolves a work-order **number** to an id and fetches the work order's line prices, but `markedCharge` only consults that map when the row itself carries `work_order_id` — so a row with `work_order_id: null` costs two round trips and is still dropped as unpriced. | `history.test.js` → "a row with no work_order_id resolves the number and fetches the work order, then drops the line anyway" |
-| For techfm_oa+ the Priorities card is blank after the first `loadUserHub()`: `refreshAdmin` mounts the summary without `renderPriorities`, and the crew pass that does call it ran before the admin payload landed. The card appears on the next repaint (tab switch, safety refresh, socket event). | `userHub.test.js` → "loadUserHub by role" |
 | The first open of the Graphs tab fetches `/hub/graphs` twice: `showTab → renderActiveTab → loadGraphs()` (no payload yet) and the click handler's own `loadGraphs()`. The request-id guard discards the first response. | `userHub.test.js` → "Graphs fetches with weeks=12" |
 | `mountHubGraphs` throws on a payload with no communities (`activeCommunity.key`); `loadGraphs` has already stored the payload so the catch returns early and the tab shows a skeleton forever, no error, no Retry. | `userHub.test.js` → "an empty graphs payload is swallowed" |
 | `destroyHubGraphs()` is a no-op; the "on tab change" lifecycle the P5 plan names has nothing to assert. | `userHub.test.js` → "Graphs: a community tab click re-renders from memory" |

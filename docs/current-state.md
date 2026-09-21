@@ -366,6 +366,17 @@ unauthorised oversized upload is 403. Refusals log
 
 These are the constraints most likely to break real behavior if missed.
 
+Attendance:
+
+- One open punch per person, enforced by `uq_attendance_punches_open_user`
+  (partial, `ended_at IS NULL`) — not by a service check.
+- Nothing auto-closes a punch. A punch open from an earlier Central day is
+  *stale* (`domain.attendance.is_stale`) and blocks a work-order clock start
+  until the technician self-closes it (`end_source=self_reported`,
+  `needs_review=true`).
+- Clocked ≠ tracked ≠ billed. Clocked comes from `attendance_punches` and is
+  never rounded to 30 minutes.
+
 Inventory/transactions:
 
 - Quantities and prices use `Decimal`/`Numeric`, not floats in backend logic.
@@ -1249,6 +1260,27 @@ Rules:
   log. Entries are appended in write order and never sorted; this is the one
   case where the two differ.
 
+### `attendance_punches`, `attendance_punch_edits`
+
+Fields: `id`, `user_id`, `started_at`, `ended_at`, `start_source`,
+`end_source`, `needs_review`, `created_at`. Audit rows: `id`, `punch_id`,
+`edited_by_id`, `edited_at`, `field`, `old_value`, `new_value`, `reason`
+(CASCADE on the punch). Added by migration `b7d9f1a3c5e8`.
+
+Rules:
+
+- A punch is **on-shift** time, the pay record — not the billable one.
+  `ended_at IS NULL` means on shift.
+- `start_source` is `manual` or `auto_work_order`; `end_source` is `manual`,
+  `auto_clock_out`, `self_reported`, or `admin_edit`. Nothing writes
+  `auto_clock_out`.
+- Starting a work-order clock off shift opens a punch tagged
+  `auto_work_order`; punching out force-stops any running labor session.
+  The coupling lives in `services/attendance.py` and points one way —
+  attendance imports work orders, never the reverse.
+- `attendance_punch_edits` is unwritten until the Admin edit phase; the pair
+  was created in one migration because they are one design unit.
+
 ### `tools`
 
 Fields: `id`, `barcode`, `name`, `quantity`, `created_at`, `archived_at`.
@@ -1648,6 +1680,7 @@ Alembic head: `d1e3f5a7b9c2`.
 | `0c1d2e3f4a5b` | nullable `work_orders.priority`; no default and no backfill, written only by NetFacilities enrichment |
 | `1d2e3f4a5b6c` | `push_subscriptions` for Web Push opt-in, keyed on `endpoint` so a re-subscribe reassigns a shared device rather than duplicating it; nothing to backfill |
 | `a2c4e6b8d0f1` | `work_order_labor_sessions` for tracked start/stop labor, with a partial unique index on `(technician_id) WHERE ended_at IS NULL` enforcing one running clock per person; nothing backfilled, so existing labor rows keep rendering as a bare duration. The new `ready_to_complete` status needed no migration — `work_orders.status` has no CHECK constraint |
+| `b7d9f1a3c5e8` | `attendance_punches` + `attendance_punch_edits`, with a partial unique index on `(user_id) WHERE ended_at IS NULL` enforcing one open punch per person; nothing backfilled — there is no historical source for "was this person at work" |
 | `a1c3e5b7d9f0` | `items.low_stock_threshold` for the per-item reorder line |
 | `b3d5f7a9c1e2` → `c6e8a0b2d4f7` | work-order auto-close batch columns added, then dropped once the batch was retired |
 | `d1e3f5a7b9c2` | rename `user_requests.request_type` `item_request` → `catalogue_request` (data only) |
