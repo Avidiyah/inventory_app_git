@@ -3031,6 +3031,78 @@ tr.archived-user {
     max-width: 68ch;
 }
 
+/* The live roster strip (attendance P4b). Status hue lives in a 4px left
+   rail only -- the card's own text says what the colour means, so the hues
+   stay inside the badge-only rule design-system.md sets. */
+.hub-roster {
+    margin-bottom: var(--space-4);
+}
+
+.hub-roster-counts {
+    font-weight: 600;
+    margin: 0 0 var(--space-2);
+}
+
+.hub-roster-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.hub-roster-card {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 11rem;
+    padding: var(--space-2) var(--space-3);
+    background-color: var(--panel-well);
+    border: 1px solid var(--panel-rule);
+    border-left-width: 4px;
+    border-radius: var(--radius-sm);
+}
+
+.hub-roster-name {
+    font-weight: 600;
+}
+
+.hub-roster-detail {
+    font-size: var(--fs-sm);
+}
+
+.hub-roster-since {
+    font-size: var(--fs-xs);
+    color: var(--text-panel-mute);
+}
+
+.hub-roster-green {
+    border-left-color: var(--color-success);
+}
+
+.hub-roster-yellow {
+    border-left-color: var(--status-dispense-text);
+}
+
+.hub-roster-red {
+    border-left-color: var(--color-error);
+}
+
+.hub-roster-gray {
+    border-left-color: var(--panel-rule);
+}
+
+.hub-roster-absent {
+    margin-top: var(--space-3);
+    font-size: var(--fs-sm);
+}
+
+.hub-roster-absent-list {
+    margin: var(--space-2) 0 0;
+    padding-left: var(--space-5);
+}
+
 .punch-editor {
     display: flex;
     flex-direction: column;
