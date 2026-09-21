@@ -26,6 +26,7 @@ from app.domain import roles
 from app.domain.rate_limit import is_over_limit, retry_after_seconds, window_start
 
 __all__ = [
+    "EVENT_ATTENDANCE_CHANGED",
     "EVENT_ITEM_LOW_STOCK_CHANGED",
     "EVENT_LABOR_SESSION_CHANGED",
     "EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED",
@@ -90,6 +91,17 @@ EVENT_ITEM_LOW_STOCK_CHANGED = "item.low_stock.changed"
 # they cannot see costs one request and discloses nothing.
 EVENT_USER_REQUEST_CHANGED = "user_request.changed"
 
+# An attendance punch opened, closed, was self-closed (D5), or was corrected
+# by an Admin. Like `labor.session.changed` this is a membership change to a
+# board rather than one row's fields, so `id` is always `None` and the
+# recipient refetches the roster and the week rather than targeting a card.
+#
+# Audience **Admin**, narrower than its sibling: the only consumer is the
+# Charged vs clocked sub-tab, and nothing below Admin can open it. Not a
+# security boundary -- P2 keeps row data out of the envelope -- but a lower
+# audience here would be pure noise.
+EVENT_ATTENDANCE_CHANGED = "attendance.changed"
+
 _AUDIENCE_MIN_ROLE = {
     EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED: roles.ROLE_TECHFM_OA,
     # Every role that can open the Work Orders page. Not a security boundary:
@@ -105,6 +117,8 @@ _AUDIENCE_MIN_ROLE = {
     # Technicians file, cancel, and add from the stocked line, so the whole
     # hierarchy subscribes. Not a security boundary (P2).
     EVENT_USER_REQUEST_CHANGED: roles.ROLE_TECHNICIAN,
+    # The pay record's live face (D1). See the note on the constant.
+    EVENT_ATTENDANCE_CHANGED: roles.ROLE_ADMIN,
 }
 
 # --- thresholds --------------------------------------------------------
