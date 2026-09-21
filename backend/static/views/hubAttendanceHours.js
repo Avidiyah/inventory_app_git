@@ -8,11 +8,16 @@
 // number, never rounded to 30 minutes the way a billed number is. The
 // comparison against tracked and billed is a different sub-tab, in P4.
 //
-// Read-only in P2. Editing a punch -- `[Edit]` per row, `[+ Add punch]` per
-// day -- is P3, and lands inside `drilldownHtml` below. A `carried` punch
-// never gets one: spec §9 gives a cross-midnight punch to the day it started.
+// P3 added editing: `[Edit]` / `[Looks right]` per punch row and
+// `[+ Add punch]` per day, all inside the drill-down and all withheld unless
+// the caller passes the matching callback -- which `hubTimesheetsTab.js` does
+// only for an Admin. A `carried` punch never gets one: spec §9 gives a
+// cross-midnight punch to the day it started, and it is editable only there.
+// The editor itself is `hubAttendancePunchEditor.js`; this module stays a
+// pure view and hands values back through callbacks.
 
 import { escapeHtml } from "../format.js";
+import { mountPunchEditor } from "./hubAttendancePunchEditor.js";
 
 const CENTRAL_TIME_ZONE = "America/Chicago";
 
@@ -81,7 +86,7 @@ function cellFlagLabels(day) {
   return labels.join(", ");
 }
 
-function punchRowHtml(punch) {
+function punchRowHtml(punch, { canEdit } = {}) {
   const ended = punch.open ? "running" : timeLabel(punch.ended_at);
   const notes = [];
   // Why the row is here rather than on its own day -- without this a two-hour
@@ -92,23 +97,33 @@ function punchRowHtml(punch) {
   const suffix = notes.length
     ? ` <span class="hub-hours-punch-note">${notes.join(" · ")}</span>`
     : "";
+  // Spec §9: a carried punch is owned by the day it started, so it is
+  // editable there and nowhere else.
+  const controls = !canEdit || punch.carried ? "" : `<span class="hub-hours-row-actions">
+      <button type="button" class="link-btn hub-hours-edit" data-punch="${escapeHtml(punch.id)}">Edit</button>
+      ${punch.needs_review ? `<button type="button" class="link-btn hub-hours-clear-review" data-punch="${escapeHtml(punch.id)}">Looks right</button>` : ""}
+    </span>`;
   return `<div class="hub-hours-drilldown-row">
     <span>${escapeHtml(timeLabel(punch.started_at))} – ${escapeHtml(ended)}${suffix}</span>
-    <span>${formatHm(punch.minutes)}</span>
+    <span>${formatHm(punch.minutes)}${controls}</span>
   </div>`;
 }
 
-function drilldownHtml(day, name) {
-  const rows = day.punches.map(punchRowHtml).join("");
+function drilldownHtml(day, name, { canEdit } = {}) {
+  const rows = day.punches.map((punch) => punchRowHtml(punch, { canEdit })).join("");
   const empty = day.punches.length
     ? ""
     : `<p class="hint hub-hours-no-detail">No punches recorded.</p>`;
+  const add = canEdit
+    ? `<button type="button" class="secondary-btn hub-hours-add" data-date="${escapeHtml(day.date)}">+ Add punch</button>`
+    : "";
   return `<div class="hub-hours-drilldown">
     <div class="hub-hours-drilldown-heading">
       <strong>${escapeHtml(name)} · ${escapeHtml(longDateLabel(day.date))}</strong>
       <strong>${formatHm(day.clocked_minutes)} clocked</strong>
     </div>
-    ${rows}${empty}
+    ${rows}${empty}${add}
+    <div class="hub-hours-editor" data-date="${escapeHtml(day.date)}"></div>
   </div>`;
 }
 
@@ -118,8 +133,34 @@ function shiftMonday(iso, days) {
   return monday.toISOString().slice(0, 10);
 }
 
-export function mountHubAttendanceHours(container, payload, { onWeekChange } = {}) {
+export function mountHubAttendanceHours(container, payload, {
+  onWeekChange, onSavePunch, onAddPunch, onDeletePunch, onClearReview,
+} = {}) {
   let expanded = null;
+  // A punch id, `add:<date>`, or null. Cleared whenever the open cell moves:
+  // an editor left mounted under a different day would save to the wrong one.
+  let editing = null;
+  const canEdit = Boolean(onSavePunch);
+
+  function openCell(picked) {
+    const same = expanded?.rowIndex === picked.rowIndex && expanded?.date === picked.date;
+    expanded = same ? null : picked;
+    editing = null;
+  }
+
+  function expandedDay() {
+    if (!expanded) return null;
+    return payload.rows[expanded.rowIndex]?.days
+      .find((day) => day.date === expanded.date) || null;
+  }
+
+  function findPunch(punchId) {
+    return expandedDay()?.punches.find((punch) => punch.id === punchId) || null;
+  }
+
+  function expandedUserId() {
+    return payload.rows[expanded?.rowIndex]?.user?.id;
+  }
 
   function render() {
     const headers = payload.days
@@ -145,7 +186,7 @@ export function mountHubAttendanceHours(container, payload, { onWeekChange } = {
         if (expanded?.rowIndex !== rowIndex) return mainRow;
         const day = byDate.get(expanded.date);
         if (!day) return mainRow;
-        return `${mainRow}<tr class="hub-hours-detail-row"><td colspan="${payload.days.length + 2}" id="hub-hours-detail-${rowIndex}">${drilldownHtml(day, name)}</td></tr>`;
+        return `${mainRow}<tr class="hub-hours-detail-row"><td colspan="${payload.days.length + 2}" id="hub-hours-detail-${rowIndex}">${drilldownHtml(day, name, { canEdit })}</td></tr>`;
       })
       .join("");
     const totals = payload.totals_by_day
@@ -182,14 +223,39 @@ export function mountHubAttendanceHours(container, payload, { onWeekChange } = {
 
     container.querySelectorAll(".hub-hours-cell").forEach((button) => {
       button.addEventListener("click", () => {
-        const picked = { rowIndex: Number(button.dataset.row), date: button.dataset.date };
-        expanded =
-          expanded?.rowIndex === picked.rowIndex && expanded?.date === picked.date
-            ? null
-            : picked;
+        openCell({ rowIndex: Number(button.dataset.row), date: button.dataset.date });
         render();
       });
     });
+    container.querySelectorAll(".hub-hours-edit").forEach((button) => {
+      button.addEventListener("click", () => {
+        editing = button.dataset.punch;
+        render();
+      });
+    });
+    container.querySelector(".hub-hours-add")?.addEventListener("click", (event) => {
+      editing = `add:${event.currentTarget.dataset.date}`;
+      render();
+    });
+    container.querySelectorAll(".hub-hours-clear-review").forEach((button) => {
+      button.addEventListener("click", () => onClearReview?.(button.dataset.punch));
+    });
+
+    const editorHost = container.querySelector(".hub-hours-editor");
+    if (editorHost && editing) {
+      const adding = editing.startsWith("add:");
+      const punch = adding ? null : findPunch(editing);
+      mountPunchEditor(editorHost, {
+        punch,
+        date: expanded.date,
+        onSave: (values) => (adding
+          ? onAddPunch?.(expandedUserId(), values)
+          : onSavePunch?.(editing, values)),
+        onDelete: (reason) => onDeletePunch?.(editing, reason),
+        onCancel: () => { editing = null; render(); },
+      });
+    }
+
     container.querySelector(".hub-hours-prev")?.addEventListener("click", () => {
       onWeekChange?.(shiftMonday(payload.week_start, -7));
     });

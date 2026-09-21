@@ -115,6 +115,53 @@ describe("the week bar", () => {
   });
 });
 
+describe("the edit controls", () => {
+  it("offers Edit on an owned punch and withholds it on a carried one", () => {
+    const payload = attendanceWeek();          // existing factory
+    const row = payload.rows[0];
+    row.days[0].punches = [
+      { id: "p-own", started_at: "2026-09-14T13:00:00.000Z",
+        ended_at: "2026-09-14T21:00:00.000Z", start_source: "manual",
+        end_source: "manual", needs_review: false, minutes: 480,
+        carried: false, open: false },
+      { id: "p-carried", started_at: "2026-09-13T22:00:00.000Z",
+        ended_at: "2026-09-14T02:00:00.000Z", start_source: "manual",
+        end_source: "manual", needs_review: false, minutes: 120,
+        carried: true, open: false },
+    ];
+    mountHubAttendanceHours(host, payload, { onSavePunch: vi.fn() });
+    host.querySelector(".hub-hours-cell").click();
+
+    const rows = host.querySelectorAll(".hub-hours-drilldown-row");
+    expect(rows[0].querySelector(".hub-hours-edit")).not.toBeNull();
+    expect(rows[1].querySelector(".hub-hours-edit")).toBeNull();
+  });
+
+  it("clears a needs_review flag through its own button", () => {
+    const payload = attendanceWeek();
+    payload.rows[0].days[0].punches = [
+      { id: "p-flagged", started_at: "2026-09-14T13:00:00.000Z",
+        ended_at: "2026-09-14T21:00:00.000Z", start_source: "manual",
+        end_source: "self_reported", needs_review: true, minutes: 480,
+        carried: false, open: false },
+    ];
+    const onClearReview = vi.fn();
+    mountHubAttendanceHours(host, payload, { onClearReview, onSavePunch: vi.fn() });
+    host.querySelector(".hub-hours-cell").click();
+    host.querySelector(".hub-hours-clear-review").click();
+
+    expect(onClearReview).toHaveBeenCalledWith("p-flagged");
+  });
+
+  it("renders no edit affordances at all when no callbacks are given", () => {
+    const payload = attendanceWeek();
+    mountHubAttendanceHours(host, payload, {});
+    host.querySelector(".hub-hours-cell").click();
+    expect(host.querySelector(".hub-hours-edit")).toBeNull();
+    expect(host.querySelector(".hub-hours-add")).toBeNull();
+  });
+});
+
 describe("the CSP rule", () => {
   it("emits no inline style attributes", () => {
     mountHubAttendanceHours(host, attendanceWeek());
