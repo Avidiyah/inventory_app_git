@@ -530,7 +530,17 @@ def test_no_route_gate_is_left_at_the_admin_floor():
     # §6. If that proves wrong in use, lowering the floor to techfm_oa is a
     # one-line change in the gate plus removing this exemption; nothing else in
     # the design depends on it.
-    assert offenders == {"get_hub_report", "export_hub_report"}
+    #
+    # The attendance week joins it for a different reason: it is the payroll
+    # record (2026-09-21-attendance-timesheet-design.md D1), and TechFM OA
+    # holding the operational toolkit is not a reason to hand them everyone's
+    # paid hours. P4 adds `get_hub_attendance_live` and
+    # `export_hub_attendance` to this set on the same grounds.
+    assert offenders == {
+        "get_hub_report",
+        "export_hub_report",
+        "get_hub_attendance_week",
+    }
 
 
 def test_the_admin_daily_report_sits_above_techfm_oa():
@@ -538,6 +548,12 @@ def test_the_admin_daily_report_sits_above_techfm_oa():
     # rest of the admin toolkit but does not see this report.
     assert _min_role_for(hub_router, "get_hub_report") == roles.ROLE_ADMIN
     assert _min_role_for(hub_router, "export_hub_report") == roles.ROLE_ADMIN
+
+
+def test_the_attendance_week_sits_above_techfm_oa():
+    # The pay record is Admin-only (D1). Pinned separately from the set above
+    # so a floor lowered by accident names itself in the failure.
+    assert _min_role_for(hub_router, "get_hub_attendance_week") == roles.ROLE_ADMIN
 
 
 def test_the_hub_is_open_to_any_authenticated_role():

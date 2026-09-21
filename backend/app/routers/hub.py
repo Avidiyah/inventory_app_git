@@ -10,6 +10,7 @@ stays the only place a role 403 is raised:
 - `GET /hub/admin`       techfm_oa+         -- the company-wide time summary
 - `GET /hub/graphs`      techfm_oa+         -- the lazy company-wide report
 - `GET /hub/timesheets`  supervisor+        -- routed-crew timesheets
+- `GET /hub/attendance/week` admin only -- the weekly clocked-hours grid
 - `GET /hub/report`      admin only         -- the weekly closed record
 
 The personal, crew, and timesheet reads are not side-effect-free. They sweep
@@ -39,7 +40,9 @@ from app.domain import labor_day, roles
 from app.domain.errors import DomainError
 from app.models import User
 from app.routers._errors import to_http
+from app.schemas.attendance import AttendanceWeekResponse
 from app.schemas.hub import HubAdminResponse, HubClock, HubCrewResponse, HubGraphsResponse, HubReportResponse, HubResponse, HubTimesheetResponse
+from app.services import attendance_week
 from app.services import hub as hub_service
 from app.services import work_order_report, work_order_report_xlsx
 
@@ -139,6 +142,35 @@ def get_hub_graphs(
     return HubGraphsResponse.model_validate(
         hub_service.graphs_hub(db, user, weeks=weeks)
     )
+
+
+@router.get("/attendance/week", response_model=AttendanceWeekResponse)
+def get_hub_attendance_week(
+    week: Optional[date] = Query(None),
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """The Hours grid: one Central week of clocked attendance, per person
+    per day, with the punch rows behind every cell.
+
+    **Admin, not TechFM OA.** This is the pay record (D1), so it sits above
+    the rest of the admin toolkit -- `tests/test_route_role_gates.py` carries
+    the matching exemption, and changing this floor means changing that test
+    deliberately.
+
+    `week` is a Monday; absent means the week in progress. Resolved by
+    `work_order_report.resolve_week`, so a non-Monday is 422 here for exactly
+    the same reason it is on `GET /hub/report`.
+
+    Side-effect-free (spec §4): no sweep, no row locks, unlike
+    `GET /hub/timesheets` -- which is what will let P4's live sub-tab poll.
+    """
+    now = datetime.now(timezone.utc)
+    try:
+        week_start = work_order_report.resolve_week(week, now)
+    except DomainError as exc:
+        raise to_http(exc) from exc
+    return attendance_week.week_payload(db, week_start=week_start, now=now)
 
 
 def _default_range(now: datetime) -> tuple[date, date]:
