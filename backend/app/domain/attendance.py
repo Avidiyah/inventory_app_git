@@ -153,3 +153,77 @@ def find_overlap(
         if o_start < end and start < o_end:
             return punch_id
     return None
+
+
+Span = tuple[datetime, Optional[datetime]]
+
+
+def _clipped(spans: Iterable[Span], window: tuple[datetime, datetime],
+             *, now: datetime) -> list[list[datetime]]:
+    """Every span, in UTC, trimmed to `window`, empty ones dropped. `None`
+    for an end means still open and `now` stands in for it."""
+    start_bound, end_bound = window
+    moment = labor_day.as_utc(now)
+    clipped: list[list[datetime]] = []
+    for start, end in spans:
+        begin = max(labor_day.as_utc(start), start_bound)
+        stop = min(labor_day.as_utc(end) if end is not None else moment, end_bound)
+        if stop > begin:
+            clipped.append([begin, stop])
+    return clipped
+
+
+def _merged(spans: list[list[datetime]]) -> list[list[datetime]]:
+    """Union of half-open intervals: sorted, non-overlapping, touching ones
+    joined. Two work orders charged over the same minute are one minute."""
+    merged: list[list[datetime]] = []
+    for begin, stop in sorted(spans):
+        if merged and begin <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], stop)
+        else:
+            merged.append([begin, stop])
+    return merged
+
+
+def minutes_charged_outside_shift(
+    *,
+    sessions: Iterable[Span],
+    punches: Iterable[Span],
+    window: tuple[datetime, datetime],
+    now: datetime,
+) -> int:
+    """Charged minutes inside `window` that no punch covers (spec §9).
+
+    Spec §9 allows charging outside a shift and flags it rather than refusing
+    it -- "refusing the edit is how people end up editing Postgres by hand."
+    This is that flag's number: how much, so an Admin can see whether it is a
+    forgotten punch-in or a rounding artifact.
+
+    Half-open on both sides, matching `find_overlap`: a session that starts
+    exactly when a punch ends is wholly outside it.
+
+    Rounded once, over the summed uncovered seconds -- not per span -- so a
+    day of six short gaps cannot accumulate six half-minute roundings. The
+    rule is Python's `round`, the same half-to-even
+    `labor_day.overlap_minutes` uses.
+    """
+    charged = _merged(_clipped(sessions, window, now=now))
+    if not charged:
+        return 0
+    covered = _merged(_clipped(punches, window, now=now))
+    seconds = 0.0
+    for begin, stop in charged:
+        cursor = begin
+        for shift_begin, shift_stop in covered:
+            if shift_stop <= cursor:
+                continue
+            if shift_begin >= stop:
+                break
+            if shift_begin > cursor:
+                seconds += (shift_begin - cursor).total_seconds()
+            cursor = max(cursor, shift_stop)
+            if cursor >= stop:
+                break
+        if cursor < stop:
+            seconds += (stop - cursor).total_seconds()
+    return round(seconds / 60)

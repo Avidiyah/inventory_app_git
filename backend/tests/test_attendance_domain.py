@@ -2,7 +2,7 @@
 import os, sys, uuid
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -112,3 +112,77 @@ def test_the_spring_forward_week_is_167_hours():
     start, _ = labor_day.day_bounds(monday)
     _, end = labor_day.day_bounds(sunday)
     assert (end - start) == timedelta(hours=167)
+
+
+# --- charged time no punch covers (spec §9) ------------------------------
+
+DAY = labor_day.day_bounds(date(2026, 9, 14))
+
+
+def _at(hour, minute=0):
+    # 2026-09-14 Central, expressed in UTC (CDT, UTC-5). Built by offset
+    # rather than by a literal hour so the evening cases and the previous
+    # evening both land on the right calendar day.
+    return datetime(2026, 9, 14, tzinfo=timezone.utc) + timedelta(
+        hours=hour + 5, minutes=minute
+    )
+
+
+SHIFT_NOW = _at(23)
+
+
+def test_no_charged_time_outside_a_shift_that_contains_every_session():
+    assert attendance.minutes_charged_outside_shift(
+        sessions=[(_at(9), _at(11)), (_at(13), _at(16))],
+        punches=[(_at(8), _at(17))],
+        window=DAY, now=SHIFT_NOW,
+    ) == 0
+
+
+def test_an_hour_charged_before_punching_in_is_counted():
+    assert attendance.minutes_charged_outside_shift(
+        sessions=[(_at(7), _at(9))],
+        punches=[(_at(8), _at(17))],
+        window=DAY, now=SHIFT_NOW,
+    ) == 60
+
+
+def test_two_overlapping_sessions_are_one_minute_each_not_two():
+    # The same minute charged on two work orders is one minute off shift.
+    assert attendance.minutes_charged_outside_shift(
+        sessions=[(_at(6), _at(7)), (_at(6, 30), _at(7, 30))],
+        punches=[],
+        window=DAY, now=SHIFT_NOW,
+    ) == 90
+
+
+def test_a_gap_between_two_punches_is_outside_the_shift():
+    # Punched out for lunch, still charging.
+    assert attendance.minutes_charged_outside_shift(
+        sessions=[(_at(11), _at(14))],
+        punches=[(_at(8), _at(12)), (_at(13), _at(17))],
+        window=DAY, now=SHIFT_NOW,
+    ) == 60
+
+
+def test_only_the_part_inside_the_window_counts():
+    # A session that starts the previous evening contributes only today.
+    assert attendance.minutes_charged_outside_shift(
+        sessions=[(_at(-2), _at(1))],   # 10 PM Sunday to 1 AM Monday
+        punches=[],
+        window=DAY, now=SHIFT_NOW,
+    ) == 60
+
+
+def test_an_open_session_and_an_open_punch_both_end_at_now():
+    assert attendance.minutes_charged_outside_shift(
+        sessions=[(_at(20), None)],
+        punches=[(_at(20), None)],
+        window=DAY, now=SHIFT_NOW,
+    ) == 0
+
+
+def test_no_sessions_is_zero_not_an_error():
+    assert attendance.minutes_charged_outside_shift(
+        sessions=[], punches=[(_at(8), _at(17))], window=DAY, now=SHIFT_NOW
+    ) == 0
