@@ -536,10 +536,17 @@ def test_no_route_gate_is_left_at_the_admin_floor():
     # holding the operational toolkit is not a reason to hand them everyone's
     # paid hours. P4 adds `get_hub_attendance_live` and
     # `export_hub_attendance` to this set on the same grounds.
+    #
+    # P3's three audited writes join on the same grounds as the week read:
+    # they *are* the pay record. P4 adds `get_hub_attendance_live` and
+    # `export_hub_attendance`.
     assert offenders == {
         "get_hub_report",
         "export_hub_report",
         "get_hub_attendance_week",
+        "add_hub_attendance_punch",
+        "edit_hub_attendance_punch",
+        "delete_hub_attendance_punch",
     }
 
 
@@ -554,6 +561,16 @@ def test_the_attendance_week_sits_above_techfm_oa():
     # The pay record is Admin-only (D1). Pinned separately from the set above
     # so a floor lowered by accident names itself in the failure.
     assert _min_role_for(hub_router, "get_hub_attendance_week") == roles.ROLE_ADMIN
+
+
+@pytest.mark.parametrize(
+    "endpoint_name",
+    ["add_hub_attendance_punch", "edit_hub_attendance_punch",
+     "delete_hub_attendance_punch"],
+)
+def test_the_punch_writes_sit_above_techfm_oa(endpoint_name):
+    # Writing somebody's paid hours is the narrowest capability in the app.
+    assert _min_role_for(hub_router, endpoint_name) == roles.ROLE_ADMIN
 
 
 def test_the_hub_is_open_to_any_authenticated_role():

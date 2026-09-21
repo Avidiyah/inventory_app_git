@@ -11,6 +11,8 @@ stays the only place a role 403 is raised:
 - `GET /hub/graphs`      techfm_oa+         -- the lazy company-wide report
 - `GET /hub/timesheets`  supervisor+        -- routed-crew timesheets
 - `GET /hub/attendance/week` admin only -- the weekly clocked-hours grid
+- `POST|PATCH|DELETE /hub/attendance/punches` admin only -- the audited
+  punch writes behind that grid's drill-down
 - `GET /hub/report`      admin only         -- the weekly closed record
 
 The personal, crew, and timesheet reads are not side-effect-free. They sweep
@@ -40,8 +42,14 @@ from app.domain import labor_day, roles
 from app.domain.errors import DomainError
 from app.models import User
 from app.routers._errors import to_http
-from app.schemas.attendance import AttendanceWeekResponse
+from app.schemas.attendance import (
+    AttendancePunchResponse,
+    AttendanceWeekResponse,
+    PunchAddRequest,
+    PunchEditRequest,
+)
 from app.schemas.hub import HubAdminResponse, HubClock, HubCrewResponse, HubGraphsResponse, HubReportResponse, HubResponse, HubTimesheetResponse
+from app.services import attendance as attendance_service
 from app.services import attendance_week
 from app.services import hub as hub_service
 from app.services import work_order_report, work_order_report_xlsx
@@ -171,6 +179,61 @@ def get_hub_attendance_week(
     except DomainError as exc:
         raise to_http(exc) from exc
     return attendance_week.week_payload(db, week_start=week_start, now=now)
+
+
+# The audited writes behind the Hours drill-down (D2, §1). Admin floor, same
+# grounds as the week read: this is the pay record. Every one of them writes
+# `attendance_punch_edits` in the same transaction as the change.
+
+
+@router.post("/attendance/punches", response_model=AttendancePunchResponse)
+def add_hub_attendance_punch(
+    payload: PunchAddRequest,
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """Add a punch nobody clocked. 400 on a bad window, 409 on an overlap."""
+    try:
+        return attendance_service.admin_add_punch(
+            db, actor=user, user_id=payload.user_id,
+            started_at=payload.started_at, ended_at=payload.ended_at,
+            reason=payload.reason)
+    except DomainError as exc:
+        raise to_http(exc) from exc
+
+
+@router.patch("/attendance/punches/{punch_id}", response_model=AttendancePunchResponse)
+def edit_hub_attendance_punch(
+    punch_id: uuid.UUID,
+    payload: PunchEditRequest,
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """Correct a punch, or clear its `needs_review` flag alone. An edit that
+    changes nothing is a 400, not a silent empty audit row."""
+    try:
+        return attendance_service.admin_edit_punch(
+            db, actor=user, punch_id=punch_id,
+            started_at=payload.started_at, ended_at=payload.ended_at,
+            needs_review=payload.needs_review, reason=payload.reason)
+    except DomainError as exc:
+        raise to_http(exc) from exc
+
+
+@router.delete("/attendance/punches/{punch_id}", response_model=AttendancePunchResponse)
+def delete_hub_attendance_punch(
+    punch_id: uuid.UUID,
+    reason: Optional[str] = Query(None),
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """Soft delete: the row leaves every read and keeps its audit. `reason`
+    rides the query string -- a DELETE body is not reliably carried."""
+    try:
+        return attendance_service.admin_delete_punch(
+            db, actor=user, punch_id=punch_id, reason=reason)
+    except DomainError as exc:
+        raise to_http(exc) from exc
 
 
 def _default_range(now: datetime) -> tuple[date, date]:

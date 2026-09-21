@@ -119,3 +119,26 @@ class AttendanceWeekResponse(BaseModel):
     week_hours: int
 
     model_config = {"from_attributes": True}
+
+
+class PunchAddRequest(BaseModel):
+    """D2's `+ Add punch`. Closed only: `ended_at` is required, because an
+    open punch is something a person is living through, not a record an
+    Admin writes for them. `reason` is optional -- the audit row is written
+    either way (who / when / field / old / new)."""
+
+    user_id: uuid.UUID
+    started_at: datetime
+    ended_at: datetime
+    reason: Optional[str] = None
+
+
+class PunchEditRequest(BaseModel):
+    """An omitted field means **unchanged**, never *clear*. `needs_review`
+    only ever arrives as `false`: alone it is the "Looks right" action, and
+    nothing but a D5 self-close may raise the flag."""
+
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    needs_review: Optional[bool] = None
+    reason: Optional[str] = None
