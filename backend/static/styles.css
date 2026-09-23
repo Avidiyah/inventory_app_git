@@ -2078,13 +2078,29 @@ tr.archived-user {
 .hub-graph-swatch { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
 .hub-duration-section { overflow: hidden; }
 .hub-duration-chart { display: block; width: 100%; min-height: 190px; margin: var(--space-3) 0; color: var(--text-panel-mute); font-size: 12px; }
+.hub-duration-chart text { fill: currentColor; }
 .hub-duration-axis { stroke: var(--panel-rule); stroke-width: 1; }
-.hub-duration-line { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
-.hub-duration-age { stroke: var(--status-adjust-text); }
-.hub-duration-close { stroke: var(--color-success); stroke-dasharray: 6 4; }
-.hub-duration-key { display: inline-block; width: 11px; height: 3px; margin: 0 var(--space-1); vertical-align: middle; }
-.hub-duration-key-age { background: var(--status-adjust-text); }
-.hub-duration-key-close { background: var(--color-success); }
+.hub-duration-grid { stroke: var(--panel-rule); stroke-width: 1; stroke-dasharray: 2 4; }
+/* Series colour lives in --series so line, band, dot and key share one rule. */
+.hub-duration-age, .hub-duration-point-age, .hub-duration-band-age, .hub-duration-key-age { --series: var(--status-adjust-text); }
+.hub-duration-close, .hub-duration-point-close, .hub-duration-band-close, .hub-duration-key-close { --series: var(--color-success); }
+.hub-duration-ontime, .hub-duration-point-ontime { --series: var(--text-panel); }
+.hub-duration-chart.hub-ontime-chart { min-height: 140px; }
+.hub-ontime-heading { margin: var(--space-4) 0 var(--space-1); font-size: 1rem; }
+.hub-duration-line { fill: none; stroke: var(--series); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.hub-duration-partial { stroke-dasharray: 5 5; }
+.hub-duration-band { fill: var(--series); fill-opacity: 0.14; stroke: none; }
+/* The transparent stroke widens the hover target without drawing anything. */
+.hub-duration-point { fill: var(--series); stroke: transparent; stroke-width: 8; }
+.hub-duration-point-low { fill-opacity: 0.35; }
+.hub-duration-point-partial { fill: var(--panel-nested); fill-opacity: 1; stroke: var(--series); stroke-width: 2; }
+.hub-duration-legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: var(--space-2) 0 0; padding: 0; list-style: none; color: var(--text-panel-mute); font-size: 12px; }
+.hub-duration-legend li { display: flex; align-items: center; gap: var(--space-1); }
+.hub-duration-key { display: inline-block; flex: 0 0 auto; width: 14px; height: 3px; background: var(--series, currentColor); }
+.hub-duration-key-band { height: 10px; background: currentColor; opacity: 0.25; }
+.hub-duration-key-partial, .hub-duration-key-low { width: 9px; height: 9px; border-radius: 50%; }
+.hub-duration-key-partial { background: transparent; border: 2px solid currentColor; }
+.hub-duration-key-low { background: currentColor; opacity: 0.35; }
 .hub-duration-details summary { cursor: pointer; margin-bottom: var(--space-2); }
 .hub-graphs-load-error { padding: var(--space-4); background: var(--panel-nested); border: var(--border); border-radius: var(--radius-md); }
 

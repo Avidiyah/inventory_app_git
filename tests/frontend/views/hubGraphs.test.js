@@ -214,26 +214,117 @@ describe("the duration chart", () => {
       .toContain("No duration samples in this range.");
   });
 
-  it("a null bucket splits that series into two polylines; the other stays whole", async () => {
-    await openGraphs(payloadFor({ duration: { range: { start: "2026-08-01", end: "2026-09-10" }, buckets: [
-      hubGraphBucket({ start: "2026-08-10", circulating_avg_age_days: 4 }),
-      hubGraphBucket({ start: "2026-08-17", circulating_avg_age_days: null, circulating_count: 0 }),
-      hubGraphBucket({ start: "2026-08-24", circulating_avg_age_days: 6 }),
-      hubGraphBucket({ start: "2026-08-31", circulating_avg_age_days: 7 }),
-    ] } }));
+  const noAge = { circulating_median_age_days: null, circulating_p90_age_days: null, circulating_count: 0 };
+  const weeks = (...buckets) => payloadFor({ duration: { range: { start: "2026-08-01", end: "2026-09-13" }, buckets } });
+
+  it("a null bucket splits that series' median line and p90 band in two; the other stays whole", async () => {
+    await openGraphs(weeks(
+      hubGraphBucket({ start: "2026-08-10", end: "2026-08-16" }),
+      hubGraphBucket({ start: "2026-08-17", end: "2026-08-23", ...noAge }),
+      hubGraphBucket({ start: "2026-08-24", end: "2026-08-30" }),
+      hubGraphBucket({ start: "2026-08-31", end: "2026-09-06" }),
+    ));
     expect(panel().querySelectorAll("polyline.hub-duration-age")).toHaveLength(2);
     expect(panel().querySelectorAll("polyline.hub-duration-close")).toHaveLength(1);
+    // A one-week run has no area to shade; its dot still shows it.
+    expect(panel().querySelectorAll("polygon.hub-duration-band-age")).toHaveLength(1);
+    expect(panel().querySelectorAll("polygon.hub-duration-band-close")).toHaveLength(1);
   });
 
-  it("the details table prints exact values, (partial), and No sample", async () => {
-    await openGraphs(payloadFor({ duration: { range: { start: "2026-08-01", end: "2026-09-13" }, buckets: [
+  it("every non-null week gets a dot whose tooltip carries the exact figures", async () => {
+    await openGraphs(weeks(
+      hubGraphBucket({ start: "2026-08-10", end: "2026-08-16" }),
+      hubGraphBucket({ start: "2026-08-17", end: "2026-08-23", ...noAge }),
+    ));
+    expect(panel().querySelectorAll(".hub-duration-point-age")).toHaveLength(1);
+    expect(panel().querySelectorAll(".hub-duration-point-close")).toHaveLength(2);
+    expect(panel().querySelector(".hub-duration-point-age title").textContent)
+      .toBe("Circulating age, week of Aug 10–16: median 4.5d · p90 9.0d · n=6");
+  });
+
+  it("the week in progress is hollow and joined by a dashed segment", async () => {
+    await openGraphs(weeks(
+      hubGraphBucket({ start: "2026-08-31", end: "2026-09-06" }),
       hubGraphBucket({ start: "2026-09-07", end: "2026-09-13", partial: true }),
-      hubGraphBucket({ start: "2026-08-31", end: "2026-09-06", circulating_avg_age_days: null, circulating_count: 0 }),
-    ] } }));
+    ));
+    expect(panel().querySelectorAll("line.hub-duration-partial.hub-duration-age")).toHaveLength(1);
+    const partial = panel().querySelectorAll(".hub-duration-point-age")[1];
+    expect(partial.classList.contains("hub-duration-point-partial")).toBe(true);
+    expect(partial.querySelector("title").textContent).toMatch(/\(in progress\)$/);
+  });
+
+  it("a week under five samples is faded and says so", async () => {
+    await openGraphs(weeks(hubGraphBucket({ start: "2026-08-31", end: "2026-09-06" })));
+    // The factory's age has n=6, its close-out n=1.
+    expect(panel().querySelector(".hub-duration-point-age").classList.contains("hub-duration-point-low")).toBe(false);
+    const close = panel().querySelector(".hub-duration-point-close");
+    expect(close.classList.contains("hub-duration-point-low")).toBe(true);
+    expect(close.querySelector("title").textContent).toMatch(/· low sample$/);
+  });
+
+  it("labels round-number gridlines from 0 up to the highest p90", async () => {
+    await openGraphs(weeks(hubGraphBucket({ start: "2026-08-31", end: "2026-09-06", circulating_p90_age_days: 37 })));
+    expect(Array.from(panel().querySelectorAll(".hub-duration-days .hub-duration-tick")).map((t) => t.textContent))
+      .toEqual(["0d", "10d", "20d", "30d", "40d"]);
+  });
+
+  it("the on-time chart runs 0–100% and its dot names both counts", async () => {
+    await openGraphs(weeks(hubGraphBucket({
+      start: "2026-08-31", end: "2026-09-06",
+      on_time_pct: 82, on_time_count: 41, scheduled_closed_count: 50, unscheduled_closed_count: 6,
+    })));
+    expect(panel().querySelector(".hub-ontime-heading").textContent).toBe("Closed within 4 days of schedule");
+    expect(Array.from(panel().querySelectorAll(".hub-ontime-chart .hub-duration-tick")).map((t) => t.textContent))
+      .toEqual(["0%", "25%", "50%", "75%", "100%"]);
+    expect(panel().querySelector(".hub-duration-point-ontime title").textContent)
+      .toBe("Week of Aug 31–Sep 6: 82% on time (41 of 50 scheduled · 6 unscheduled)");
+  });
+
+  it("the on-time chart fades a thin week and breaks on a week with no scheduled closes", async () => {
+    const none = { on_time_pct: null, on_time_count: 0, scheduled_closed_count: 0, unscheduled_closed_count: 3 };
+    await openGraphs(weeks(
+      hubGraphBucket({ start: "2026-08-10", end: "2026-08-16" }),
+      hubGraphBucket({ start: "2026-08-17", end: "2026-08-23", ...none }),
+      hubGraphBucket({ start: "2026-08-24", end: "2026-08-30" }),
+    ));
+    expect(panel().querySelectorAll("polyline.hub-duration-ontime")).toHaveLength(2);
+    const dots = panel().querySelectorAll(".hub-duration-point-ontime");
+    expect(dots).toHaveLength(2);
+    expect(dots[0].classList.contains("hub-duration-point-low")).toBe(true);
+  });
+
+  it("no scheduled closes anywhere: the on-time copy, and the duration chart still draws", async () => {
+    await openGraphs(weeks(hubGraphBucket({ on_time_pct: null, on_time_count: 0, scheduled_closed_count: 0, unscheduled_closed_count: 1 })));
+    expect(panel().querySelector(".hub-ontime-chart")).toBeNull();
+    expect(panel().querySelector(".hub-duration-days")).not.toBeNull();
+    expect(Array.from(panel().querySelectorAll(".hub-duration-section .hub-graph-empty")).map((e) => e.textContent))
+      .toContain("No scheduled work orders closed in this range.");
+  });
+
+  it("the legend names both medians, the p90 band, and the two point states", async () => {
+    await openGraphs(weeks(hubGraphBucket()));
+    expect(Array.from(panel().querySelectorAll(".hub-duration-legend li")).map((li) => li.textContent)).toEqual([
+      "Circulating age (median)",
+      "Time to close (median)",
+      "Shaded up to p90",
+      "Hollow: week in progress",
+      "Faded: fewer than 5 work orders",
+    ]);
+  });
+
+  it("the details table prints median / p90, on time, (partial), and No sample", async () => {
+    await openGraphs(weeks(
+      hubGraphBucket({ start: "2026-09-07", end: "2026-09-13", partial: true }),
+      hubGraphBucket({ start: "2026-08-31", end: "2026-09-06", ...noAge,
+        on_time_pct: null, on_time_count: 0, scheduled_closed_count: 0, unscheduled_closed_count: 2 }),
+    ));
+    expect(Array.from(panel().querySelectorAll(".hub-duration-details thead th")).map((th) => th.textContent))
+      .toEqual(["Week", "Circulating age (median / p90)", "Time to close (median / p90)", "Closed within 4 days of schedule"]);
     const rows = Array.from(panel().querySelectorAll(".hub-duration-details tbody tr"));
     expect(rows[0].querySelector("th").textContent).toBe("2026-09-07 – 2026-09-13 (partial)");
     expect(Array.from(rows[0].querySelectorAll("td")).map((td) => td.textContent))
-      .toEqual(["4.50 days (n=2)", "2.25 days (n=1)"]);
+      .toEqual(["4.50 / 9.00 days (n=6)", "2.25 / 2.25 days (n=1)", "100.0% on time (1 of 1 scheduled · 0 unscheduled)"]);
+    expect(rows[1].querySelectorAll("td")[2].textContent).toBe("No scheduled closes (2 unscheduled)");
     expect(rows[1].querySelector("th").textContent).toBe("2026-08-31 – 2026-09-06");
     expect(rows[1].querySelector("td").textContent).toBe("No sample");
   });

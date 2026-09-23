@@ -371,10 +371,16 @@ class HubGraphDurationBucket(BaseModel):
     start: date
     end: date
     partial: bool
-    circulating_avg_age_days: Optional[float] = None
+    circulating_median_age_days: Optional[float] = None
+    circulating_p90_age_days: Optional[float] = None
     circulating_count: int
-    closed_avg_days: Optional[float] = None
+    closed_median_days: Optional[float] = None
+    closed_p90_days: Optional[float] = None
     closed_count: int
+    on_time_pct: Optional[float] = None
+    on_time_count: int
+    scheduled_closed_count: int
+    unscheduled_closed_count: int
 
     model_config = {"from_attributes": True}
 

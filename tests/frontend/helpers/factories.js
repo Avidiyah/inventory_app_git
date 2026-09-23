@@ -412,8 +412,9 @@ export function hubGraphCommunity(overrides = {}) {
 export function hubGraphBucket(overrides = {}) {
   return {
     start: "2026-09-07", end: "2026-09-13", partial: false,
-    circulating_avg_age_days: 4.5, circulating_count: 2,
-    closed_avg_days: 2.25, closed_count: 1,
+    circulating_median_age_days: 4.5, circulating_p90_age_days: 9, circulating_count: 6,
+    closed_median_days: 2.25, closed_p90_days: 2.25, closed_count: 1,
+    on_time_pct: 100, on_time_count: 1, scheduled_closed_count: 1, unscheduled_closed_count: 0,
     ...overrides,
   };
 }

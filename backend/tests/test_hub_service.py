@@ -691,7 +691,8 @@ def test_graphs_hub_nests_service_type_and_priority_under_each_community(db):
 
     current = payload.duration.buckets[-1]
     assert current.closed_count == baseline.duration.buckets[-1].closed_count + 1
-    assert current.closed_avg_days is not None
+    assert current.closed_median_days is not None
+    assert current.closed_p90_days >= current.closed_median_days
 
 
 def test_graphs_hub_counts_a_two_community_row_in_both_communities(db):
@@ -784,14 +785,62 @@ def test_graphs_hub_keeps_empty_duration_samples_as_null(db):
     viewer = _seed_user(db, roles.ROLE_TECHFM_OA)
     payload = hub_service.graphs_hub(db, viewer, weeks=12, now=NOW)
 
-    assert all(
-        bucket.circulating_avg_age_days is None or bucket.circulating_count > 0
-        for bucket in payload.duration.buckets
+    for bucket in payload.duration.buckets:
+        assert (bucket.circulating_median_age_days is None) == (bucket.circulating_count == 0)
+        assert (bucket.circulating_p90_age_days is None) == (bucket.circulating_count == 0)
+        assert (bucket.closed_median_days is None) == (bucket.closed_count == 0)
+        assert (bucket.closed_p90_days is None) == (bucket.closed_count == 0)
+        assert (bucket.on_time_pct is None) == (bucket.scheduled_closed_count == 0)
+        assert bucket.scheduled_closed_count + bucket.unscheduled_closed_count == bucket.closed_count
+
+
+def test_graphs_hub_counts_closes_within_four_days_of_the_schedule_date(db):
+    creator = _seed_user(db, roles.ROLE_TECHFM_OA)
+    baseline = hub_service.graphs_hub(db, creator, weeks=12, now=NOW).duration.buckets[-1]
+    archived_at = NOW - timedelta(days=2)
+    closed_on = labor_day.central_date_of(archived_at)
+    # Four days late is still on time, five is not, early always is; a blank or
+    # unreadable schedule is left out of the percentage but still counted.
+    for schedule in (
+        closed_on - timedelta(days=4),
+        closed_on - timedelta(days=5),
+        closed_on + timedelta(days=3),
+        None,
+        "TBD",
+    ):
+        row = _seed_work_order(db, created_by=creator, status=wo.STATUS_COMPLETED)
+        row.created_at = NOW - timedelta(days=20)
+        row.archived_at = archived_at
+        row.schedule_date = (
+            f"{schedule.month}/{schedule.day}/{schedule.year} 8:00 AM"
+            if isinstance(schedule, date)
+            else schedule
+        )
+    db.flush()
+
+    current = hub_service.graphs_hub(db, creator, weeks=12, now=NOW).duration.buckets[-1]
+
+    assert current.on_time_count == baseline.on_time_count + 2
+    assert current.scheduled_closed_count == baseline.scheduled_closed_count + 3
+    assert current.unscheduled_closed_count == baseline.unscheduled_closed_count + 2
+    assert current.on_time_pct == round(
+        100 * current.on_time_count / current.scheduled_closed_count, 1
     )
-    assert all(
-        bucket.closed_avg_days is None or bucket.closed_count > 0
-        for bucket in payload.duration.buckets
-    )
+
+
+@pytest.mark.parametrize(
+    ("durations", "expected"),
+    [
+        ([], (None, None)),
+        ([5.0], (5.0, 5.0)),
+        ([3.0, 1.0, 2.0], (2.0, 2.8)),
+        ([4.0, 1.0, 3.0, 2.0], (2.5, 3.7)),
+        # One ancient row: the median ignores it, the p90 shows the tail.
+        ([1.0, 1.0, 1.0, 1.0, 100.0], (1.0, 60.4)),
+    ],
+)
+def test_median_and_p90_interpolate_linearly(durations, expected):
+    assert hub_service._median_and_p90(durations) == expected
 
 
 # --- admin_hub (P4 slice 1: the company-wide time summary) -----------------

@@ -377,7 +377,10 @@ endpoint or form exists; every other surface resolves an existing number and
   smallest raw spelling by code point, company-wide — the Work Orders
   dropdowns can select every one. Weekly duration buckets are Central Mon–Sun
   snapshots: circulating age = `snapshot − created_at`; close-out time =
-  `archived_at − created_at`.
+  `archived_at − created_at`; each reports a linear-interpolated median and
+  p90 plus `n` (both null when `n` is 0). `on_time_pct` = share of that
+  week's closes with a parseable `schedule_date` whose Central close date is
+  ≤ 4 days after it (early counts); unscheduled closes are counted apart.
 - `labor.session.changed` (audience Supervisor+) fires from both tracking
   routes after every clock start/stop with `id: null`; recipients refetch the
   crew board. `attendance.changed` (audience Admin) fires from the six punch

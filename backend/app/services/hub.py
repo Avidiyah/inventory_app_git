@@ -950,10 +950,16 @@ class GraphDurationBucket:
     start: date
     end: date
     partial: bool
-    circulating_avg_age_days: Optional[float]
+    circulating_median_age_days: Optional[float]
+    circulating_p90_age_days: Optional[float]
     circulating_count: int
-    closed_avg_days: Optional[float]
+    closed_median_days: Optional[float]
+    closed_p90_days: Optional[float]
     closed_count: int
+    on_time_pct: Optional[float]
+    on_time_count: int
+    scheduled_closed_count: int
+    unscheduled_closed_count: int
 
 
 @dataclass(frozen=True)
@@ -1043,8 +1049,27 @@ def _sorted_distributions(
     return rows
 
 
-def _average_days(durations: list[float]) -> Optional[float]:
-    return round(sum(durations) / len(durations), 2) if durations else None
+# A close this many calendar days after the schedule date is still on time.
+ON_TIME_DAYS = 4
+
+
+def _median_and_p90(durations: list[float]) -> tuple[Optional[float], Optional[float]]:
+    """Linear-interpolated median and 90th percentile, rounded to 2 places.
+
+    Medians, not means: one ancient work order drags a weekly mean far from
+    the typical row, while the p90 still surfaces that tail on its own.
+    """
+    if not durations:
+        return None, None
+    ordered = sorted(durations)
+
+    def quantile(q: float) -> float:
+        position = (len(ordered) - 1) * q
+        low = int(position)
+        high = min(low + 1, len(ordered) - 1)
+        return ordered[low] + (ordered[high] - ordered[low]) * (position - low)
+
+    return round(quantile(0.5), 2), round(quantile(0.9), 2)
 
 
 def graphs_hub(
@@ -1138,13 +1163,20 @@ def graphs_hub(
     _, last_end, _ = periods[-1]
     first_start_at = labor_day.day_bounds(first_start)[0]
     last_end_at = labor_day.day_bounds(last_end)[1]
-    history_rows = (
-        db.query(WorkOrder.created_at, WorkOrder.archived_at)
-        .filter(WorkOrder.created_at.is_not(None))
-        .filter(WorkOrder.created_at < last_end_at)
-        .filter(or_(WorkOrder.archived_at.is_(None), WorkOrder.archived_at >= first_start_at))
-        .all()
-    )
+    history_rows = [
+        (
+            labor_day.as_utc(created_at),
+            labor_day.as_utc(archived_at) if archived_at is not None else None,
+            wo.parse_schedule_date(schedule_date),
+        )
+        for created_at, archived_at, schedule_date in (
+            db.query(WorkOrder.created_at, WorkOrder.archived_at, WorkOrder.schedule_date)
+            .filter(WorkOrder.created_at.is_not(None))
+            .filter(WorkOrder.created_at < last_end_at)
+            .filter(or_(WorkOrder.archived_at.is_(None), WorkOrder.archived_at >= first_start_at))
+            .all()
+        )
+    ]
 
     buckets: list[GraphDurationBucket] = []
     for start, end, partial in periods:
@@ -1152,26 +1184,47 @@ def graphs_hub(
         end_at = labor_day.day_bounds(end)[1]
         snapshot_at = now if partial else end_at
         circulating = [
-            (snapshot_at - labor_day.as_utc(created_at)).total_seconds() / 86400
-            for created_at, archived_at in history_rows
-            if labor_day.as_utc(created_at) <= snapshot_at
-            and (archived_at is None or labor_day.as_utc(archived_at) > snapshot_at)
+            (snapshot_at - created_at).total_seconds() / 86400
+            for created_at, archived_at, _ in history_rows
+            if created_at <= snapshot_at and (archived_at is None or archived_at > snapshot_at)
+        ]
+        closed_rows = [
+            (created_at, archived_at, scheduled)
+            for created_at, archived_at, scheduled in history_rows
+            if archived_at is not None and start_at <= archived_at < end_at
         ]
         closed = [
-            (labor_day.as_utc(archived_at) - labor_day.as_utc(created_at)).total_seconds() / 86400
-            for created_at, archived_at in history_rows
-            if archived_at is not None
-            and start_at <= labor_day.as_utc(archived_at) < end_at
+            (archived_at - created_at).total_seconds() / 86400
+            for created_at, archived_at, _ in closed_rows
         ]
+        # On time = closed (Central calendar date) no more than
+        # ON_TIME_DAYS after the schedule date; early counts. Rows with no
+        # readable schedule date sit outside the percentage, counted apart.
+        scheduled_gaps = [
+            (labor_day.central_date_of(archived_at) - scheduled).days
+            for _, archived_at, scheduled in closed_rows
+            if scheduled is not None
+        ]
+        on_time = sum(1 for gap in scheduled_gaps if gap <= ON_TIME_DAYS)
+        circulating_median, circulating_p90 = _median_and_p90(circulating)
+        closed_median, closed_p90 = _median_and_p90(closed)
         buckets.append(
             GraphDurationBucket(
                 start=start,
                 end=end,
                 partial=partial,
-                circulating_avg_age_days=_average_days(circulating),
+                circulating_median_age_days=circulating_median,
+                circulating_p90_age_days=circulating_p90,
                 circulating_count=len(circulating),
-                closed_avg_days=_average_days(closed),
+                closed_median_days=closed_median,
+                closed_p90_days=closed_p90,
                 closed_count=len(closed),
+                on_time_pct=(
+                    round(100 * on_time / len(scheduled_gaps), 1) if scheduled_gaps else None
+                ),
+                on_time_count=on_time,
+                scheduled_closed_count=len(scheduled_gaps),
+                unscheduled_closed_count=len(closed_rows) - len(scheduled_gaps),
             )
         )
 
