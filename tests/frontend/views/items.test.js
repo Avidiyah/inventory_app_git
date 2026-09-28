@@ -208,9 +208,9 @@ describe("itemColumns per role", () => {
   it.each([
     ["technician", ["Name", "Quantity", "Location", "Barcode", "Notes"], []],
     ["supervisor", ["Barcode", "Name", "Quantity", "Location", "Notes", "Created", "Actions"], ["notes"]],
-    ["techfm_oa", ["Barcode", "Name", "Quantity", "Location", "Notes", "Price", "Link", "Created", "Actions"], ["edit", "label", "notes", "correct", "delete"]],
-    ["admin", ["Barcode", "Name", "Quantity", "Location", "Notes", "Price", "Link", "Created", "Actions"], ["edit", "label", "notes", "correct", "delete"]],
-    ["owner", ["Barcode", "Name", "Quantity", "Location", "Notes", "Price", "Link", "Created", "Actions"], ["edit", "label", "notes", "correct", "delete"]],
+    ["techfm_oa", ["Barcode", "Name", "Quantity", "Location", "Notes", "Price", "Link", "Created", "Actions"], ["edit", "label", "threshold", "notes", "correct", "delete"]],
+    ["admin", ["Barcode", "Name", "Quantity", "Location", "Notes", "Price", "Link", "Created", "Actions"], ["edit", "label", "threshold", "notes", "correct", "delete"]],
+    ["owner", ["Barcode", "Name", "Quantity", "Location", "Notes", "Price", "Link", "Created", "Actions"], ["edit", "label", "threshold", "notes", "correct", "delete"]],
   ])("%s sees %j with actions %j", async (role, expectedHeaders, actions) => {
     await mountItems({ role, items: [itemFactory({ name: "Widget" })] });
     await userEvent.setup().click(el.loadAllBtn());
@@ -262,6 +262,29 @@ describe("row actions", () => {
     await userEvent.setup().selectOptions(actionSelect(0), "label");
     expect(open).toHaveBeenCalledWith(`/items/labels?barcode=${encodeURIComponent(target.barcode)}`, "_blank", "noopener");
     open.mockRestore();
+  });
+
+  it("threshold: invalid input stays open; a valid one PATCHes, reports, and refreshes", async () => {
+    const { target } = await loadedRow("admin", { low_stock_threshold: 6 });
+    server.use(http.patch(`/items/${target.id}/low-stock-threshold`, () =>
+      HttpResponse.json({ ...target, low_stock_threshold: 3 })));
+    const user = userEvent.setup();
+    await user.selectOptions(actionSelect(0), "threshold");
+    const overlay = document.getElementById("threshold-overlay");
+    const input = document.getElementById("threshold-input");
+    expect(overlay.hidden).toBe(false);
+    expect(input.value).toBe("6");
+    await user.clear(input);
+    await user.type(input, "0");
+    await user.click(document.getElementById("threshold-save"));
+    expect(document.getElementById("threshold-message").textContent).toBe("Threshold must be a whole number of at least 1.");
+    expect(requestFor("/low-stock-threshold", "PATCH")).toBeNull();
+    await user.clear(input);
+    await user.type(input, "3{Enter}");
+    await vi.waitFor(() => expect(el.message().textContent).toBe('Low-stock threshold for "Target" set to 3.'));
+    expect(overlay.hidden).toBe(true);
+    expect(requestFor("/low-stock-threshold", "PATCH").body).toEqual({ low_stock_threshold: 3 });
+    expect(actionSelect(0).value).toBe("");
   });
 
   it("correct opens the correction panel", async () => {

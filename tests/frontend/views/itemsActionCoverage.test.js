@@ -10,7 +10,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 auditActions({
   name: "Items row actions",
   sources: [join(VIEWS_DIR, "items.js")],
-  frozen: ["correct", "delete", "edit", "label", "notes"],
+  frozen: ["correct", "delete", "edit", "label", "notes", "threshold"],
   behaviourDir: HERE,
   // Only items.test.js may satisfy the check; the other view files in this
   // directory mention "delete" and "edit" for their own reasons.

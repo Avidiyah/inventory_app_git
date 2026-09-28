@@ -72,6 +72,23 @@
         </div>
     </div>
 
+    <!-- Low-stock threshold editor (views/thresholdPrompt.js), opened from
+         the Find Item row Actions menu. TechFM OA+; the backend re-checks. -->
+    <div id="threshold-overlay" class="modal-overlay" hidden>
+        <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="threshold-title">
+            <p id="threshold-title" class="modal-title">Low-stock threshold</p>
+            <div class="form-stack">
+                <label for="threshold-input">Warn when the count is at or below</label>
+                <input type="number" id="threshold-input" min="1" step="1" inputmode="numeric">
+                <p id="threshold-message" aria-live="polite"></p>
+            </div>
+            <div class="modal-buttons">
+                <button id="threshold-save">Save threshold</button>
+                <button id="threshold-cancel" type="button" class="secondary-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Role editor for the Users page (Admin+). The select is filled by
          dom.js promptUserRole() with only the roles the current user may
          assign; the backend re-checks. -->

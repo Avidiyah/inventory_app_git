@@ -28,6 +28,7 @@ import {
 import { escapeHtml, friendlyError, formatMoney, safeHttpUrl } from "../format.js";
 import { setMessage, confirmArchivedReuse, confirmDialog } from "../dom.js";
 import { roleAtLeast } from "../roles.js";
+import { promptThreshold } from "./thresholdPrompt.js";
 import { openNotesEditor, closeNotesEditor, renderNotesSummary, setOnSaved } from "./notes.js";
 import {
   openItemEditor,
@@ -225,6 +226,7 @@ function itemColumns() {
     const options = [];
     if (canAdmin) options.push(`<option value="edit">Edit Details</option>`);
     if (canAdmin) options.push(`<option value="label">Print Label</option>`);
+    if (canAdmin) options.push(`<option value="threshold">Low-Stock Threshold</option>`);
     if (canNotes) options.push(`<option value="notes">Notes</option>`);
     if (canAdmin) {
       options.push(`<option value="correct">Correct Count</option>`);
@@ -446,6 +448,15 @@ itemsTbody.addEventListener("change", async (event) => {
 
   if (action === "label") {
     window.open(`/items/labels?barcode=${encodeURIComponent(item.barcode)}`, "_blank", "noopener");
+    return;
+  }
+
+  if (action === "threshold") {
+    setMessage(itemsMessage, "", "");
+    const updated = await promptThreshold(item);
+    if (!updated) return;
+    setMessage(itemsMessage, `Low-stock threshold for "${item.name}" set to ${updated.low_stock_threshold}.`, "success");
+    await refreshDisplayedItems();
     return;
   }
 
