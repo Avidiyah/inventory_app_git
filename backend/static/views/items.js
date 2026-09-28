@@ -268,15 +268,20 @@ function itemColumns() {
   return columns;
 }
 
-// The Barcode labels button prints what the list shows: a search or scan
-// result, else the whole catalogue.
+// Export labels prints what the list shows: a search or scan result (its
+// count on a second line), else the whole catalogue.
 function syncLabelsLink(count) {
   const params = resultMode === "search" ? `?q=${encodeURIComponent(resultQuery)}`
     : resultMode === "scan" ? `?barcode=${encodeURIComponent(resultQuery)}`
     : "";
   itemsLabelsLink.href = `/items/labels${params}`;
-  itemsLabelsLink.textContent = params
-    ? `Labels (${count} result${count === 1 ? "" : "s"})` : "Barcode labels";
+  itemsLabelsLink.textContent = "Export labels";
+  if (params) {
+    const sub = document.createElement("small");
+    sub.className = "page-action-sub";
+    sub.textContent = `${count} result${count === 1 ? "" : "s"}`;
+    itemsLabelsLink.append(sub);
+  }
 }
 
 export function renderItems(emptyMessage = "No items match that search.") {

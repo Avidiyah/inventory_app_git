@@ -1157,7 +1157,7 @@ class DispenseExport(Base):
 
     The next export starts at the latest row's `window_end`, so every
     dispense lands on exactly one sheet; the latest row is also what
-    "Reprint last" re-renders. See `services.dispense_export_xlsx`.
+    "Reprint weekly" re-renders. See `services.dispense_export_xlsx`.
     """
 
     __tablename__ = "dispense_exports"

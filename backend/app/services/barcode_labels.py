@@ -29,7 +29,7 @@ def labels_html(db: Session, *, search: str | None = None,
     )
     return (
         '<!doctype html><html><head><meta charset="utf-8">'
-        "<title>Barcode labels</title>"
+        "<title>Labels</title>"
         '<link rel="stylesheet" href="/static/labels.css"></head><body>'
         '<p class="hint">Press Ctrl+P, then print or choose "Save as PDF".</p>'
         f"{labels}</body></html>"

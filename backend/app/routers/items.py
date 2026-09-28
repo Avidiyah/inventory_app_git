@@ -217,7 +217,7 @@ def reprint_dispense_export(
     user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
-    """Reprint last: the latest weekly export's window, unchanged."""
+    """Reprint weekly: the latest weekly export's window, unchanged."""
     latest = dispense_export_xlsx.latest_export(db)
     if latest is None:
         raise HTTPException(status_code=404, detail="No weekly export has been run yet.")

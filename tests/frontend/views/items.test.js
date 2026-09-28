@@ -56,7 +56,8 @@ describe("search", () => {
     expect(el.count().textContent).toBe("2 items found");
     const labels = document.getElementById("items-labels-link");
     expect(labels.getAttribute("href")).toBe("/items/labels?q=bulb");
-    expect(labels.textContent).toBe("Labels (2 results)");
+    expect(labels.firstChild.textContent).toBe("Export labels");
+    expect(labels.querySelector(".page-action-sub").textContent).toBe("2 results");
     expect(el.searchBtn().disabled).toBe(false);
     expect(el.loadAllBtn().disabled).toBe(false);
   });

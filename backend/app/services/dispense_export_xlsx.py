@@ -5,7 +5,7 @@ DISPENSED column.
 Layer: services. Each `create_export` records its window in
 `dispense_exports`; the next one starts where the latest ended, so a
 dispense prints on exactly one sheet. `latest_export` re-renders the last
-window without moving it (Reprint last). Voided dispenses are left out.
+window without moving it (Reprint weekly). Voided dispenses are left out.
 """
 
 from __future__ import annotations

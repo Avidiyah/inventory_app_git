@@ -2663,12 +2663,18 @@ tr.archived-user {
     margin-top: var(--space-2);
 }
 
-/* Page-level actions (e.g. Export for print), pinned top right. */
+/* Page-level actions (e.g. Export inventory), pinned top right. */
 .page-actions {
     display: flex;
     justify-content: flex-end;
     gap: var(--space-2);
     margin-bottom: var(--space-2);
+}
+
+/* Second line inside a page action, e.g. Export labels' result count. */
+.page-action-sub {
+    display: block;
+    font-size: var(--fs-xs);
 }
 
 .hub-report-section {
