@@ -5,6 +5,9 @@
 // provides the receipt-aware Review -> Closed (soft archive) workflow. Admin+
 // may also archive from any status on the ordinary Work Orders page. A rejected
 // Review row can be sent back to In-Progress through the status update contract.
+// A work order with any blank or $0.00 price is painted red and never shows
+// its receipt: selecting it opens a picker that hands the chosen item to its
+// missing-price request on User Requests.
 
 import {
   apiArchiveWorkOrder,
@@ -12,10 +15,12 @@ import {
   apiListWorkOrders,
   apiUpdateWorkOrder,
 } from "../api.js";
-import { buildAdminReviewReceipt } from "../adminReviewReceipt.js";
+import { buildAdminReviewReceipt, isUnpriced } from "../adminReviewReceipt.js";
 import { confirmDialog, setMessage } from "../dom.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
+import { showPage } from "./nav.js";
+import { focusMissingPriceRequest } from "./userRequests.js";
 import { workOrderCardClass } from "./workOrders.js";
 
 const REVIEW_QUEUE_CHANGED_EVENT = "work_order.review_queue.changed";
@@ -29,6 +34,10 @@ const receiptOutput = document.getElementById("admin-review-receipt-output");
 const receiptMessage = document.getElementById("admin-review-receipt-message");
 const reopenBtn = document.getElementById("admin-review-reopen-btn");
 const closeBtn = document.getElementById("admin-review-close-btn");
+const unpricedOverlay = document.getElementById("admin-review-unpriced-overlay");
+const unpricedTitle = document.getElementById("admin-review-unpriced-title");
+const unpricedList = document.getElementById("admin-review-unpriced-list");
+const unpricedCancel = document.getElementById("admin-review-unpriced-cancel");
 
 let selectedDetail = null;
 let selectionRequestId = 0;
@@ -54,13 +63,18 @@ function buildCard(card) {
   button.type = "button";
   // Every queue row is a Review row, but the class still comes from the shared
   // builder so an urgent work order pulses here the way it does everywhere else.
+  const unpriced = Boolean(card.has_unpriced_items);
   button.className = `${workOrderCardClass(card)} admin-review-card`;
+  if (unpriced) button.classList.add("admin-review-card-unpriced");
   button.dataset.id = card.id;
-  button.setAttribute("aria-label", `Review work order ${card.number}`);
+  button.setAttribute(
+    "aria-label",
+    `Review work order ${card.number}${unpriced ? " (missing prices)" : ""}`
+  );
   if (selectedDetail?.id === card.id) button.classList.add("selected");
   button.innerHTML =
     `<span class="wo-card-wo">${escapeHtml(card.number)}</span>` +
-    `<span class="wo-card-status-label">Review</span>` +
+    `<span class="wo-card-status-label">${unpriced ? "Needs price" : "Review"}</span>` +
     `<span class="wo-card-meta">${escapeHtml(locationText(card))}</span>` +
     `<span class="wo-card-assignee">${escapeHtml(assignedNames(card))}</span>`;
   return button;
@@ -80,11 +94,70 @@ function renderQueue(cards) {
   }
 }
 
+function unpricedItems(detail) {
+  return (detail.items || []).filter((item) => isUnpriced(item.unit_price));
+}
+
+// Resolves the picked item, or null on Close / Esc / backdrop.
+function pickUnpricedItem(detail, items) {
+  return new Promise((resolve) => {
+    const previouslyFocused = document.activeElement;
+    unpricedTitle.textContent =
+      `WO ${detail.number} can't be billed until these items have a price`;
+    unpricedList.replaceChildren();
+    for (const item of items) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "admin-review-unpriced-item";
+      button.dataset.itemId = item.item_id;
+      button.textContent = item.item_name;
+      unpricedList.appendChild(button);
+    }
+    unpricedOverlay.hidden = false;
+    unpricedList.querySelector("button")?.focus();
+
+    function done(value) {
+      unpricedOverlay.hidden = true;
+      unpricedList.removeEventListener("click", onPick);
+      unpricedCancel.removeEventListener("click", onCancel);
+      unpricedOverlay.removeEventListener("click", onBackdrop);
+      document.removeEventListener("keydown", onKey);
+      if (!value && typeof previouslyFocused?.focus === "function") {
+        try { previouslyFocused.focus(); } catch (_err) { /* element removed */ }
+      }
+      resolve(value);
+    }
+    function onPick(event) {
+      const button = event.target.closest(".admin-review-unpriced-item");
+      if (!button) return;
+      done(items.find((item) => item.item_id === button.dataset.itemId) || null);
+    }
+    function onCancel() { done(null); }
+    function onBackdrop(event) { if (event.target === unpricedOverlay) done(null); }
+    function onKey(event) { if (event.key === "Escape") done(null); }
+
+    unpricedList.addEventListener("click", onPick);
+    unpricedCancel.addEventListener("click", onCancel);
+    unpricedOverlay.addEventListener("click", onBackdrop);
+    document.addEventListener("keydown", onKey);
+  });
+}
+
+async function openUnpricedPicker(detail, items) {
+  const item = await pickUnpricedItem(detail, items);
+  if (!item) return;
+  focusMissingPriceRequest({ itemId: item.item_id, itemName: item.item_name });
+  showPage("user-requests");
+}
+
 function renderReceipt(detail) {
   const { text, missingPrices } = buildAdminReviewReceipt(detail);
+  const unpriced = unpricedItems(detail);
   selectedDetail = detail;
   receiptTitle.textContent = `WO ${detail.number} Receipt`;
-  receiptOutput.value = text;
+  // An unpriced receipt is not billable, so it is never offered for copying.
+  receiptOutput.hidden = unpriced.length > 0;
+  receiptOutput.value = unpriced.length ? "" : text;
   receiptSection.hidden = false;
   reopenBtn.disabled = false;
   closeBtn.disabled = missingPrices.length > 0;
@@ -98,9 +171,10 @@ function renderReceipt(detail) {
       `Cannot close until a price is added for: ${missingPrices.join(", ")}.`,
       "error"
     );
-  } else {
-    setMessage(receiptMessage, "Receipt ready — select all and copy.", "success");
+    void openUnpricedPicker(detail, unpriced);
+    return;
   }
+  setMessage(receiptMessage, "Receipt ready — select all and copy.", "success");
 
   receiptOutput.focus();
   receiptOutput.select();
@@ -170,9 +244,7 @@ reopenBtn.addEventListener("click", async () => {
     );
   } catch (err) {
     reopenBtn.disabled = false;
-    closeBtn.disabled = (selectedDetail.items || []).some(
-      (item) => item.unit_price === null || item.unit_price === undefined
-    );
+    closeBtn.disabled = unpricedItems(selectedDetail).length > 0;
     setMessage(receiptMessage, friendlyError(err, "Could not return that work order."), "error");
   }
 });

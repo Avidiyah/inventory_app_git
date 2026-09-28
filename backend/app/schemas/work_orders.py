@@ -258,6 +258,9 @@ class WorkOrderCard(BaseModel):
     supervisor_id: Optional[UUID] = None
     supervisor_name: Optional[str] = None
     legacy: bool = False
+    # True when any logged material's item has no price or a $0.00 price -- the
+    # same rule that opens a missing-price request. Admin Review paints these red.
+    has_unpriced_items: bool = False
 
 
 class WorkOrderFilterChoice(BaseModel):

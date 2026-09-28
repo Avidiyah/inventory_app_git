@@ -42,6 +42,7 @@ from sqlalchemy.orm import Session
 from app.auth_deps import get_current_user, require_min_role
 from app.database import get_db
 from app.domain import realtime as realtime_policy
+from app.domain import receipt
 from app.domain import roles
 from app.domain import work_orders as wo
 from app.domain.errors import DomainError
@@ -404,6 +405,9 @@ def _card(work_order: WorkOrder) -> WorkOrderCard:
         supervisor_id=work_order.supervisor_id,
         supervisor_name=work_order.supervisor.full_name if work_order.supervisor else None,
         legacy=work_order.legacy,
+        has_unpriced_items=any(
+            not receipt.is_priced(line.item.price) for line in work_order.items
+        ),
     )
 
 

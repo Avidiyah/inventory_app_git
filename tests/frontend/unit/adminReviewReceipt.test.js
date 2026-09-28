@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { PRICING_LINE_WIDTH } from "../../../backend/static/pricingText.js";
-import { billedLaborHours, buildAdminReviewReceipt } from "../../../backend/static/adminReviewReceipt.js";
+import { billedLaborHours, buildAdminReviewReceipt, isUnpriced } from "../../../backend/static/adminReviewReceipt.js";
 
 describe("billedLaborHours", () => {
   it.each([[60, "1"], [90, "1.5"], [1, "0.02"], [0, "0"], [null, "0"], ["120", "2"]])(
     "converts %o minutes", (minutes, expected) => expect(billedLaborHours(minutes)).toBe(expected));
+});
+
+describe("isUnpriced", () => {
+  it.each([[null, true], [undefined, true], ["0.00", true], [0, true], ["-1", true], ["0.01", false], [5, false]])(
+    "%o -> %o", (price, expected) => expect(isUnpriced(price)).toBe(expected));
 });
 
 describe("buildAdminReviewReceipt", () => {
@@ -49,6 +54,15 @@ describe("buildAdminReviewReceipt", () => {
     expect(result.missingPrices).toEqual(["Mystery"]);
     expect(result.text).toContain("NO PRICE");
     expect(result.text).toContain("Total (incomplete)");
+  });
+
+  it("treats a $0.00 price as missing, like a blank one", () => {
+    const result = buildAdminReviewReceipt({
+      ...detail,
+      items: [{ item_name: "Free", quantity: 1, billable_quantity: null, unit_price: "0.00" }],
+    });
+    expect(result.missingPrices).toEqual(["Free"]);
+    expect(result.text).toContain("NO PRICE");
   });
 
   it("handles an empty work order", () => {

@@ -442,3 +442,15 @@ export function itemChoiceHtml(item) {
       <span class="hint">${escapeHtml(formatMoney(item.price) || "no price")}</span>
     </button>`;
 }
+
+// Outline, scroll to, and focus the price input of the card for `itemId`.
+// Returns false when no card in `listEl` is for that item.
+export function highlightItemCard(listEl, itemId) {
+  const card = Array.from(listEl.querySelectorAll(".user-request-card"))
+    .find((candidate) => candidate.dataset.itemId === itemId);
+  if (!card) return false;
+  card.classList.add("user-request-card-highlight");
+  card.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  card.querySelector(".user-request-price-input")?.focus({ preventScroll: true });
+  return true;
+}

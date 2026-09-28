@@ -16,7 +16,7 @@ import { setTestUser } from "../helpers/session.js";
 import { connectFakeRealtime } from "../helpers/realtime.js";
 import { clearRequests, requestFor, requests, startRecording, stopRecording } from "../helpers/requests.js";
 import { answerConfirm, confirmOverlay, confirmTitle } from "../helpers/dialogs.js";
-import { workOrderCard, workOrderDetail, workOrderItem } from "../helpers/factories.js";
+import { userRequest, workOrderCard, workOrderDetail, workOrderItem } from "../helpers/factories.js";
 import { buildAdminReviewReceipt } from "../../../backend/static/adminReviewReceipt.js";
 
 let realtime = null;
@@ -37,7 +37,11 @@ const el = {
   receiptMessage: byId("admin-review-receipt-message"),
   reopen: byId("admin-review-reopen-btn"),
   close: byId("admin-review-close-btn"),
+  picker: byId("admin-review-unpriced-overlay"),
+  pickerTitle: byId("admin-review-unpriced-title"),
+  pickerCancel: byId("admin-review-unpriced-cancel"),
 };
+const pickerItems = () => Array.from(document.querySelectorAll(".admin-review-unpriced-item"));
 const cards = () => Array.from(el.list().querySelectorAll(".admin-review-card"));
 const cardFor = (id) => el.list().querySelector(`.admin-review-card[data-id="${id}"]`);
 const listGets = () => requests().filter((r) => r.url.startsWith("/work-orders/?"));
@@ -132,6 +136,14 @@ describe("loadAdminReview: the queue", () => {
   // pulses here the way it does everywhere else" -- but `SETTLED_STATUSES` in
   // workOrderPresenters.js holds `review`, so `urgentFireActive` is false for
   // every card this queue can show. Filed under N-P7-CHARACTERIZED.
+  it("paints a card with blank or $0.00 prices red and labels it", async () => {
+    await mountAdminReview({ cards: [reviewCard({ id: "w1", number: "4242", has_unpriced_items: true })] });
+    const [button] = cards();
+    expect(button.classList.contains("admin-review-card-unpriced")).toBe(true);
+    expect(button.querySelector(".wo-card-status-label").textContent).toBe("Needs price");
+    expect(button.getAttribute("aria-label")).toBe("Review work order 4242 (missing prices)");
+  });
+
   it("never carries the urgent class: Review is a settled status", async () => {
     await mountAdminReview({ cards: [reviewCard({ priority: "Urgent" })] });
     expect(cards()[0].className).toBe("wo-card wo-card-status-review admin-review-card");
@@ -267,9 +279,13 @@ describe("selecting a card", () => {
     expect(el.output().scrollLeft).toBe(0);
   });
 
-  it("disables Close and names every unpriced line when a price is missing", async () => {
+  it("withholds the receipt, disables Close, and names every blank or $0.00 line", async () => {
     const detail = reviewDetail({
-      items: [unpriced({ item_name: "Bulb" }), priced({ item_name: "Fuse" }), unpriced({ item_name: "Wire" })],
+      number: "4242",
+      items: [
+        unpriced({ item_name: "Bulb" }), priced({ item_name: "Fuse" }),
+        priced({ item_name: "Wire", unit_price: "0.00" }),
+      ],
     });
     await mountAdminReview({ cards: [reviewCard({ id: detail.id })], details: [detail] });
     await select(detail.id);
@@ -277,7 +293,81 @@ describe("selecting a card", () => {
     expect(el.close().disabled).toBe(true);
     expect(el.receiptMessage().textContent).toBe("Cannot close until a price is added for: Bulb, Wire.");
     expect(el.receiptMessage().className).toBe("error");
-    expect(el.output().value).toBe(buildAdminReviewReceipt(detail).text);
+    expect(el.output().hidden).toBe(true);
+    expect(el.output().value).toBe("");
+
+    expect(el.picker().hidden).toBe(false);
+    expect(el.pickerTitle().textContent).toBe("WO 4242 can't be billed until these items have a price");
+    expect(pickerItems().map((b) => b.textContent)).toEqual(["Bulb", "Wire"]);
+    expect(document.activeElement).toBe(pickerItems()[0]);
+  });
+
+  it("Close on the picker dismisses it and stays on Admin Review", async () => {
+    const detail = reviewDetail({ items: [unpriced()] });
+    await mountAdminReview({ cards: [reviewCard({ id: detail.id })], details: [detail] });
+    await select(detail.id);
+    el.pickerCancel().click();
+    expect(el.picker().hidden).toBe(true);
+    await settle();
+    expect(requests().filter((r) => r.url.startsWith("/user-requests"))).toEqual([]);
+    expect(document.getElementById("user-requests-page").classList.contains("active")).toBe(false);
+  });
+
+  it("a priced selection after an unpriced one shows the receipt again", async () => {
+    const red = reviewDetail({ number: "1", items: [unpriced()] });
+    const green = reviewDetail({ number: "2", items: [priced()] });
+    await mountAdminReview({
+      cards: [reviewCard({ id: red.id }), reviewCard({ id: green.id })], details: [red, green],
+    });
+    await select(red.id);
+    el.pickerCancel().click();
+    await select(green.id);
+    expect(el.output().hidden).toBe(false);
+    expect(el.output().value).toBe(buildAdminReviewReceipt(green).text);
+    expect(el.picker().hidden).toBe(true);
+  });
+
+  it("picking an item opens its missing-price request, highlighted", async () => {
+    const bulb = unpriced({ item_name: "Bulb" });
+    const detail = reviewDetail({ items: [bulb] });
+    const request = userRequest({ request_type: "missing_item_price", item_id: bulb.item_id, item_name: "Bulb" });
+    const other = userRequest({ request_type: "missing_item_price", item_name: "Fuse" });
+    await mountAdminReview({
+      cards: [reviewCard({ id: detail.id })], details: [detail],
+      handlers: [
+        http.get("/user-requests/counts", () => HttpResponse.json({})),
+        http.get("/user-requests/", () => HttpResponse.json([other, request])),
+      ],
+    });
+    await select(detail.id);
+    pickerItems()[0].click();
+    expect(el.picker().hidden).toBe(true);
+    const card = () => document.querySelector(`.user-request-card[data-id="${request.id}"]`);
+    await vi.waitFor(() => expect(card()).not.toBeNull());
+
+    expect(document.getElementById("user-requests-page").classList.contains("active")).toBe(true);
+    expect(requestFor("/user-requests/?status=open&type=missing_item_price", "GET")).not.toBeNull();
+    expect(card().classList.contains("user-request-card-highlight")).toBe(true);
+    expect(document.activeElement).toBe(card().querySelector(".user-request-price-input"));
+    expect(document.querySelector(`.user-request-card[data-id="${other.id}"]`)
+      .classList.contains("user-request-card-highlight")).toBe(false);
+  });
+
+  it("picking an item with no open request says where to fix it", async () => {
+    const detail = reviewDetail({ items: [unpriced({ item_name: "Bulb" })] });
+    await mountAdminReview({
+      cards: [reviewCard({ id: detail.id })], details: [detail],
+      handlers: [
+        http.get("/user-requests/counts", () => HttpResponse.json({})),
+        http.get("/user-requests/", () => HttpResponse.json([])),
+      ],
+    });
+    await select(detail.id);
+    pickerItems()[0].click();
+    const message = document.getElementById("user-requests-message");
+    await vi.waitFor(() => expect(message.textContent).toBe(
+      "No open missing-price request for Bulb — edit its price on the Items page."));
+    expect(message.className).toBe("error");
   });
 
   it("moves .selected to the newly chosen card", async () => {

@@ -351,6 +351,11 @@ Real-time invalidation (`domain/realtime.py`, `services/realtime*.py`,
 - Admin Review: socket-driven refreshes are silent and never replace the open
   receipt; queue requests carry a monotonic id so an older response cannot
   repaint newer cards.
+- Admin Review unpriced rule: a blank or $0.00 price is unpriced (`is_priced` /
+  `isUnpriced`, same rule that opens a missing-price request). Cards with
+  `has_unpriced_items` paint red ("Needs price"); selecting one withholds the
+  receipt box, disables Close, and opens an item picker whose pick jumps to
+  User Requests → Missing price / link (Open) with that item's card highlighted.
 
 Upload size caps (`app/routers/_uploads.py`): exactly two upload routes, both
 capped — `POST /barcodes/decode` **10 MB**, `POST /work-orders/import`

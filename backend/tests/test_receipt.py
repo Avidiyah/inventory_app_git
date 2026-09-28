@@ -146,6 +146,27 @@ def test_unpriced_item_says_so_and_marks_the_total_incomplete():
     assert lines[-1].endswith("$42.75")
 
 
+def test_zero_price_is_unpriced_like_a_blank_one():
+    # $0.00 opens a missing-price request, so the receipt must not bill it as free.
+    document = receipt.build_receipt(
+        lines=[_line("Free Part", "2", "0.00"), _line("Mystery Part", "1", None)],
+        labor_billed_minutes=0,
+        labor_total=Decimal(0),
+    )
+
+    assert document.missing_prices == ("Free Part", "Mystery Part")
+    assert document.text.splitlines()[0].endswith("NO PRICE")
+    assert document.text.splitlines()[-1].startswith("Total (incomplete)")
+
+
+@pytest.mark.parametrize(
+    "price, priced",
+    [(None, False), (Decimal("0"), False), (Decimal("-1"), False), (Decimal("0.01"), True)],
+)
+def test_is_priced(price, priced):
+    assert receipt.is_priced(price) is priced
+
+
 def test_receipt_with_no_materials_or_labor_still_totals_zero():
     document = receipt.build_receipt(
         lines=[], labor_billed_minutes=0, labor_total=Decimal(0)

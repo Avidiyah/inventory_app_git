@@ -24,4 +24,17 @@
             </div>
         </section>
 
+        <!-- Unpriced work order: lists the items blocking billing; picking one
+             opens its missing-price request on User Requests. -->
+        <div id="admin-review-unpriced-overlay" class="modal-overlay" hidden>
+            <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="admin-review-unpriced-title">
+                <p id="admin-review-unpriced-title" class="modal-title">Missing prices</p>
+                <p class="hint">Pick an item to add its price on User Requests.</p>
+                <div id="admin-review-unpriced-list" class="admin-review-unpriced-list"></div>
+                <div class="modal-buttons">
+                    <button id="admin-review-unpriced-cancel" type="button" class="secondary-btn">Close</button>
+                </div>
+            </div>
+        </div>
+
     </div>

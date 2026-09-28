@@ -32,6 +32,7 @@ import {
   closeFormHtml,
   editFormHtml,
   fulfillFormHtml,
+  highlightItemCard,
   itemChoiceHtml,
   requestTypeLabel,
   siblingsHtml,
@@ -50,6 +51,10 @@ const STATUS_OPTIONS = {
   default: [["open", "Open"], ["resolved", "Resolved"]],
 };
 let activeType = "material_request";
+
+// Admin Review's unpriced-item picker sets this before navigating here; the
+// next render highlights that item's request once, then clears it.
+let pendingFocus = null;
 
 // The last loaded set (already narrowed to `activeType` by the server), kept
 // so a card can be re-rendered from its source data on Cancel.
@@ -94,10 +99,25 @@ function requestById(id) {
   return loaded.find((request) => request.id === id) || null;
 }
 
+// Missing price / link on Open; nav.js's page loader does the load itself.
+export function focusMissingPriceRequest({ itemId, itemName = "" }) {
+  if (!statusEl || !tabsEl) return;
+  selectTab("missing_item_price");
+  statusEl.value = "open";
+  pendingFocus = { itemId: String(itemId), itemName };
+}
+
 function render() {
   const requests = visibleRequests();
   listEl.replaceChildren();
   for (const request of requests) listEl.appendChild(buildRequestCard(request));
+  const focus = pendingFocus;
+  pendingFocus = null;
+  if (focus && !highlightItemCard(listEl, focus.itemId)) {
+    const name = focus.itemName || "that item";
+    setMessage(messageEl, `No open missing-price request for ${name} — edit its price on the Items page.`, "error");
+    return;
+  }
 
   const status = statusEl.value;
   const label = requestTypeLabel(activeType).toLowerCase();
@@ -122,6 +142,7 @@ export async function loadUserRequests() {
     void refreshCounts();
   } catch (err) {
     loaded = [];
+    pendingFocus = null;
     listEl.replaceChildren();
     setMessage(messageEl, friendlyError(err, "Could not load User Requests."), "error");
   }

@@ -17,6 +17,12 @@ function effectiveBillable(item) {
     : Number(item.billable_quantity);
 }
 
+// A blank or $0.00 price is no price at all: both open a missing-price
+// request, and neither may bill. Mirrors domain/receipt.py `is_priced`.
+export function isUnpriced(price) {
+  return price === null || price === undefined || !(Number(price) > 0);
+}
+
 export function billedLaborHours(minutes) {
   const hours = (Number(minutes) || 0) / 60;
   return String(Number(hours.toFixed(2)));
@@ -28,7 +34,7 @@ export function buildAdminReviewReceipt(detail) {
 
   for (const item of detail.items || []) {
     const quantity = effectiveBillable(item);
-    if (item.unit_price === null || item.unit_price === undefined) {
+    if (isUnpriced(item.unit_price)) {
       missingPrices.push(item.item_name);
       lines.push(pricingLine(
         formatPricingQuantity(quantity),

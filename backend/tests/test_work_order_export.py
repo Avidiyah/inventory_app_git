@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.domain import work_orders as wo
 from app.domain.errors import WorkOrderStateError
 from app.models import Item, User
+from app.routers.work_orders import _card as card_for
 from app.routers.work_orders import export_work_orders as export_route
 from app.services import auth
 from app.services import work_orders as wos
@@ -418,6 +419,22 @@ def test_client_row_flags_an_unpriced_item_rather_than_billing_zero(db):
     assert "Total (incomplete)" in row["RECEIPT"]
     # The priced line still bills; the unpriced one contributes nothing.
     assert row["MATERIAL TOTAL"] == "$2.88"
+
+
+@pytest.mark.parametrize(
+    "price, flagged", [("2.50", False), ("0.00", True), (None, True)]
+)
+def test_card_flags_blank_and_zero_prices_for_admin_review(db, price, flagged):
+    admin = _seed_user(db, "admin")
+    item = _seed_item(db, qty=100, price=price)
+    work_order = _wo(db, admin)
+    assert card_for(work_order).has_unpriced_items is False  # no materials yet
+    wos.add_work_order_item(
+        db, work_order.id, user=admin, item_id=item.id, quantity=Decimal(1)
+    )
+    db.refresh(work_order)
+
+    assert card_for(work_order).has_unpriced_items is flagged
 
 
 def test_client_variant_honours_scope_and_visibility(db):

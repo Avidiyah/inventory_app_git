@@ -137,9 +137,15 @@ def effective_billable(line: ReceiptLine) -> Decimal:
     return line.quantity if line.billable_quantity is None else line.billable_quantity
 
 
+def is_priced(price) -> bool:
+    """A blank or $0.00 price is no price at all: both open a missing-price
+    request, and neither may bill."""
+    return price is not None and Decimal(price) > 0
+
+
 def marked_material_charge(line: ReceiptLine) -> Optional[Decimal]:
-    """One line's marked-up charge, or None when the item has no price."""
-    if line.unit_price is None:
+    """One line's marked-up charge, or None when the item is unpriced."""
+    if not is_priced(line.unit_price):
         return None
     return effective_billable(line) * Decimal(line.unit_price) * MARKUP_RATE
 
@@ -153,7 +159,7 @@ def build_receipt(
     """Render the receipt: one line per material at the marked-up charge, the
     billed labor hours, then the Total.
 
-    An item with no price prints `NO PRICE` and is collected into
+    An unpriced item (blank or $0.00) prints `NO PRICE` and is collected into
     `missing_prices`, which also relabels the closing line
     `Total (incomplete)` -- the total below it is real but understated, and
     saying so is the point."""

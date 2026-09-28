@@ -1328,6 +1328,43 @@ tr:last-child td {
     min-height: 18rem;
 }
 
+/* A blank or $0.00 price blocks billing: the card goes brand red and its
+   receipt is withheld until the price is fixed on User Requests. */
+.admin-review-card.admin-review-card-unpriced,
+.admin-review-card.admin-review-card-unpriced:hover {
+    --card-accent: var(--color-brand);
+    --card-accent-rgb: 200, 16, 46;
+    border-color: var(--color-brand);
+    box-shadow: 0 4px 0 0 #8B0B20, 0 6px 16px -6px rgba(200, 16, 46, .45), var(--shadow-card);
+}
+
+.admin-review-unpriced-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: var(--space-3) 0;
+}
+
+.admin-review-unpriced-item {
+    margin-top: 0;
+    text-align: left;
+}
+
+/* Arrival from Admin Review's unpriced-item picker. */
+.user-request-card.user-request-card-highlight {
+    outline: 3px solid var(--color-brand);
+    outline-offset: 2px;
+    animation: user-request-highlight-pulse 1s ease-in-out 2;
+}
+
+@keyframes user-request-highlight-pulse {
+    50% { box-shadow: 0 0 0 6px rgba(200, 16, 46, .35); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .user-request-card.user-request-card-highlight { animation: none; }
+}
+
 .admin-review-actions {
     display: flex;
     gap: var(--space-2);
