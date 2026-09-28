@@ -43,11 +43,16 @@ def test_export_is_gated_at_techfm_oa(db):
 def test_export_holds_items_and_every_request_tab(db):
     name = f"Export widget {uuid.uuid4().hex[:6]}"
     db.add(Item(barcode=f"BC-{uuid.uuid4().hex[:10]}", name=name,
-                quantity=Decimal("3"), location="Bay 1", notes={"color": "red"}))
-    request_service.create_catalogue_request(
-        db, searched_text="Mystery pipe", quantity=Decimal("2"), note=None,
-        work_order_id=None, work_order_number=None, source="find_item", created_by_id=None,
-    )
+                quantity=Decimal("3"), low_stock_threshold=Decimal("5"), location="Bay 1", notes={"color": "red"}))
+    for text in ("Mystery pipe", "Settled pipe"):
+        request_service.create_catalogue_request(
+            db, searched_text=text, quantity=Decimal("2"), note=None,
+            work_order_id=None, work_order_number=None, source="find_item", created_by_id=None,
+        )
+    db.flush()
+    settled = next(r for r in request_service.list_user_requests(db) if
+                   (r.details or {}).get("searched_text") == "Settled pipe")
+    settled.status = request_service.STATUS_RESOLVED
     db.commit()
 
     response = _export(db, "techfm_oa")
@@ -63,4 +68,9 @@ def test_export_holds_items_and_every_request_tab(db):
     assert name in item_names
     requests = [row[2] for row in book["Catalogue requests"].iter_rows(min_row=5, values_only=True)]
     assert "Mystery pipe" in requests
+    assert "Settled pipe" not in requests  # resolved: nothing left to check
     assert book["Items"].print_title_rows == "$4:$4"
+    assert "low stock" in book["Items"]["A2"].value
+    low_rows = [r for r in book["Items"].iter_rows(min_row=5) if r[3].value == "LOW"]
+    assert name in [r[0].value for r in low_rows]
+    assert all(r[0].font.color.rgb.endswith("C8102E") for r in low_rows)
