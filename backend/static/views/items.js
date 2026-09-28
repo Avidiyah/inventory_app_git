@@ -45,6 +45,7 @@ import { openAddBarcode, closeAddBarcode, setOnSaved as setOnAddBarcodeSaved } f
 import { catalogueRequestPromptHtml } from "./catalogueRequest.js";
 import { initSubNav } from "./subnav.js";
 import { toolScanWidget } from "./tools.js";
+import { showDispenseExport } from "./dispenseExport.js";
 import { skeletonTableRows } from "../skeleton.js";
 
 const createItemBtn = document.getElementById("create-item-btn");
@@ -88,9 +89,12 @@ export function loadItems() {
   // rows. The plain search field has no browser-native suggestion popup;
   // results require Search / Enter, Load All Items, or a successful scan.
   resultRequestId += 1;
-  itemsExportLink.hidden = itemsLabelsLink.hidden = !roleAtLeast(getRole(), "techfm_oa");
+  const canExport = roleAtLeast(getRole(), "techfm_oa");
+  itemsExportLink.hidden = itemsLabelsLink.hidden = !canExport;
+  showDispenseExport(canExport);
   resultMode = "none";
   resultQuery = "";
+  syncLabelsLink(0);
   setItems([]);
   itemsSearch.value = "";
   itemsTbody.innerHTML = "";
@@ -220,6 +224,7 @@ function itemColumns() {
   function actionsCell(item) {
     const options = [];
     if (canAdmin) options.push(`<option value="edit">Edit Details</option>`);
+    if (canAdmin) options.push(`<option value="label">Print Label</option>`);
     if (canNotes) options.push(`<option value="notes">Notes</option>`);
     if (canAdmin) {
       options.push(`<option value="correct">Correct Count</option>`);
@@ -261,11 +266,23 @@ function itemColumns() {
   return columns;
 }
 
+// The Barcode labels button prints what the list shows: a search or scan
+// result, else the whole catalogue.
+function syncLabelsLink(count) {
+  const params = resultMode === "search" ? `?q=${encodeURIComponent(resultQuery)}`
+    : resultMode === "scan" ? `?barcode=${encodeURIComponent(resultQuery)}`
+    : "";
+  itemsLabelsLink.href = `/items/labels${params}`;
+  itemsLabelsLink.textContent = params
+    ? `Labels (${count} result${count === 1 ? "" : "s"})` : "Barcode labels";
+}
+
 export function renderItems(emptyMessage = "No items match that search.") {
   const items = getItems();
   hideEmptyState();
   itemsTable.hidden = false;
   const columns = itemColumns();
+  syncLabelsLink(items.length);
 
   // Header.
   itemsTheadRow.innerHTML = columns.map(c => `<th>${escapeHtml(c.label)}</th>`).join("");
@@ -424,6 +441,11 @@ itemsTbody.addEventListener("change", async (event) => {
 
   if (action === "edit") {
     openItemEditor(item);
+    return;
+  }
+
+  if (action === "label") {
+    window.open(`/items/labels?barcode=${encodeURIComponent(item.barcode)}`, "_blank", "noopener");
     return;
   }
 

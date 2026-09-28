@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
@@ -36,6 +36,7 @@ from app.schemas.items import (
     LowStockThresholdUpdate,
 )
 from app.services import barcode_labels as barcode_labels_service
+from app.services import dispense_export_xlsx
 from app.services import inventory_export_xlsx, work_order_report_xlsx
 from app.services import items as items_service
 from app.services import notes as notes_service
@@ -182,18 +183,62 @@ def export_inventory(
     )
 
 
+def _xlsx_download(content: bytes, filename: str) -> Response:
+    return Response(
+        content=content,
+        media_type=work_order_report_xlsx.XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post(
+    "/dispense-exports",
+    responses={403: {"description": "Requires the TechFM OA role or above."}},
+)
+def create_dispense_export(
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
+    db: Session = Depends(get_db),
+):
+    """Weekly export: items dispensed since the previous export. Records
+    the window, so the next export starts where this one ends."""
+    content, filename = dispense_export_xlsx.create_export(
+        db, user=user, now=datetime.now(timezone.utc))
+    return _xlsx_download(content, filename)
+
+
+@router.get(
+    "/dispense-exports/latest",
+    responses={
+        403: {"description": "Requires the TechFM OA role or above."},
+        404: {"description": "No weekly export has been run yet."},
+    },
+)
+def reprint_dispense_export(
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
+    db: Session = Depends(get_db),
+):
+    """Reprint last: the latest weekly export's window, unchanged."""
+    latest = dispense_export_xlsx.latest_export(db)
+    if latest is None:
+        raise HTTPException(status_code=404, detail="No weekly export has been run yet.")
+    return _xlsx_download(*latest)
+
+
 @router.get(
     "/labels",
     response_class=HTMLResponse,
     responses={403: {"description": "Requires the TechFM OA role or above."}},
 )
 def barcode_labels(
+    q: Optional[str] = Query(None),
+    barcode: list[str] = Query([]),
     user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
-    """Print page of barcode labels. Above `GET /items/{barcode}` for the
-    same shadowing reason as `/low-stock`."""
-    return barcode_labels_service.labels_html(db)
+    """Print page of barcode labels: every item, a search result (`q`), or
+    chosen items (`barcode`, repeatable). Above `GET /items/{barcode}` for
+    the same shadowing reason as `/low-stock`."""
+    return barcode_labels_service.labels_html(db, search=q, barcodes=barcode)
 
 
 @router.get(

@@ -931,3 +931,16 @@ export async function apiPushTest() {
     credentials: "include",
   }));
 }
+
+// Weekly export (TechFM OA+): POST records a new window and returns it;
+// GET /latest re-downloads the last one unchanged.
+async function xlsxDownload(url, method) {
+  const response = await rawFetch(url, { method, credentials: "include", cache: "no-store" });
+  if (!response.ok) return parseResponse(response); // always throws
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  return { blob: await response.blob(), filename: match ? match[1] : "weekly-export.xlsx" };
+}
+
+export const apiCreateDispenseExport = () => xlsxDownload("/items/dispense-exports", "POST");
+export const apiReprintDispenseExport = () => xlsxDownload("/items/dispense-exports/latest", "GET");

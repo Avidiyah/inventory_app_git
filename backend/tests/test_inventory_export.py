@@ -87,3 +87,16 @@ def test_labels_page_wraps_barcodes_for_code39_and_escapes_names(db):
     assert response.status_code == 200
     assert f'<div class="code39">*{barcode}*</div>' in response.text
     assert "Pipe &lt;1in&gt; &amp; cap" in response.text
+
+
+def test_labels_page_narrows_to_a_search_or_chosen_barcodes(db):
+    tag = uuid.uuid4().hex[:8].upper()
+    for n in ("A", "B"):
+        db.add(Item(barcode=f"LBL-{tag}-{n}", name=f"Narrow {tag} {n}",
+                    quantity=Decimal("1"), location="Bay 1"))
+    db.commit()
+
+    searched = _export(db, "techfm_oa", f"/items/labels?q=Narrow {tag}").text
+    assert f"*LBL-{tag}-A*" in searched and f"*LBL-{tag}-B*" in searched
+    chosen = _export(db, "techfm_oa", f"/items/labels?barcode=LBL-{tag}-B").text
+    assert f"*LBL-{tag}-A*" not in chosen and f"*LBL-{tag}-B*" in chosen

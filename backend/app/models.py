@@ -1150,3 +1150,21 @@ class WorkOrderReportWeek(Base):
     )
     schema_version = Column(Integer, nullable=False)
     payload = Column(JSONB, nullable=False)
+
+
+class DispenseExport(Base):
+    """One Weekly export run: the window of dispenses it printed.
+
+    The next export starts at the latest row's `window_end`, so every
+    dispense lands on exactly one sheet; the latest row is also what
+    "Reprint last" re-renders. See `services.dispense_export_xlsx`.
+    """
+
+    __tablename__ = "dispense_exports"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    window_start = Column(DateTime(timezone=True), nullable=False)
+    window_end = Column(DateTime(timezone=True), nullable=False, index=True)
+    created_by_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )

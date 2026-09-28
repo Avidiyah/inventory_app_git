@@ -32,6 +32,8 @@ export const ENDPOINTS = [
   { fn: "apiUpdateBarcodes", args: [3, ["x"]], method: "PATCH", url: "/items/3/barcodes",
     body: { barcodes: ["x"], override_archived: false } },
   { fn: "apiListLowStock", args: [], url: "/items/low-stock", cache: "no-store" },
+  { fn: "apiCreateDispenseExport", args: [], url: "/items/dispense-exports", method: "POST", cache: "no-store" },
+  { fn: "apiReprintDispenseExport", args: [], url: "/items/dispense-exports/latest", method: "GET", cache: "no-store" },
   { fn: "apiSetLowStockThreshold", args: [3, 5], method: "PATCH", url: "/items/3/low-stock-threshold",
     body: { low_stock_threshold: 5 } },
   { fn: "apiGetItemByBarcode", args: ["abc"], url: "/items/abc" },

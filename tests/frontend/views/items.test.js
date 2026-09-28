@@ -54,6 +54,9 @@ describe("search", () => {
     await vi.waitFor(() => expect(rows()).toHaveLength(2));
     expect(requestFor("/items/?q=", "GET").url).toBe("/items/?q=bulb");
     expect(el.count().textContent).toBe("2 items found");
+    const labels = document.getElementById("items-labels-link");
+    expect(labels.getAttribute("href")).toBe("/items/labels?q=bulb");
+    expect(labels.textContent).toBe("Labels (2 results)");
     expect(el.searchBtn().disabled).toBe(false);
     expect(el.loadAllBtn().disabled).toBe(false);
   });
@@ -205,9 +208,9 @@ describe("itemColumns per role", () => {
   it.each([
     ["technician", ["Name", "Quantity", "Location", "Barcode", "Notes"], []],
     ["supervisor", ["Barcode", "Name", "Quantity", "Location", "Notes", "Created", "Actions"], ["notes"]],
-    ["techfm_oa", ["Barcode", "Name", "Quantity", "Location", "Notes", "Price", "Link", "Created", "Actions"], ["edit", "notes", "correct", "delete"]],
-    ["admin", ["Barcode", "Name", "Quantity", "Location", "Notes", "Price", "Link", "Created", "Actions"], ["edit", "notes", "correct", "delete"]],
-    ["owner", ["Barcode", "Name", "Quantity", "Location", "Notes", "Price", "Link", "Created", "Actions"], ["edit", "notes", "correct", "delete"]],
+    ["techfm_oa", ["Barcode", "Name", "Quantity", "Location", "Notes", "Price", "Link", "Created", "Actions"], ["edit", "label", "notes", "correct", "delete"]],
+    ["admin", ["Barcode", "Name", "Quantity", "Location", "Notes", "Price", "Link", "Created", "Actions"], ["edit", "label", "notes", "correct", "delete"]],
+    ["owner", ["Barcode", "Name", "Quantity", "Location", "Notes", "Price", "Link", "Created", "Actions"], ["edit", "label", "notes", "correct", "delete"]],
   ])("%s sees %j with actions %j", async (role, expectedHeaders, actions) => {
     await mountItems({ role, items: [itemFactory({ name: "Widget" })] });
     await userEvent.setup().click(el.loadAllBtn());
@@ -251,6 +254,14 @@ describe("row actions", () => {
     expect(document.getElementById("item-editor-selected").textContent).toBe("Editing: Target");
     expect(document.getElementById("item-editor-barcode").value).toBe(target.barcode);
     expect(actionSelect(0).value).toBe("");
+  });
+
+  it("label opens that item's print label in a new tab", async () => {
+    const { target } = await loadedRow();
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    await userEvent.setup().selectOptions(actionSelect(0), "label");
+    expect(open).toHaveBeenCalledWith(`/items/labels?barcode=${encodeURIComponent(target.barcode)}`, "_blank", "noopener");
+    open.mockRestore();
   });
 
   it("correct opens the correction panel", async () => {
@@ -588,5 +599,35 @@ describe("Find/Scan sub-nav lifecycle", () => {
     expect(el.notesSection().hidden).toBe(true);
     expect(el.correctionSection().hidden).toBe(true);
     expect(el.addBarcodeSection().hidden).toBe(true);
+  });
+});
+
+describe("weekly export", () => {
+  const btn = (id) => document.getElementById(id);
+
+  it("is hidden below TechFM OA", async () => {
+    await mountItems({ role: "supervisor" });
+    expect(btn("dispense-export-btn").hidden).toBe(true);
+    expect(btn("dispense-reprint-btn").hidden).toBe(true);
+  });
+
+  it("POSTs a new export and reports the downloaded file", async () => {
+    server.use(http.post("/items/dispense-exports", () => new HttpResponse("x", {
+      headers: { "Content-Disposition": 'attachment; filename="weekly-export_2026-10-05.xlsx"' },
+    })));
+    await mountItems({ role: "techfm_oa" });
+    await userEvent.setup().click(btn("dispense-export-btn"));
+    await vi.waitFor(() => expect(btn("dispense-export-message").textContent)
+      .toBe("Downloaded weekly-export_2026-10-05.xlsx."));
+    expect(requestFor("/items/dispense-exports", "POST")).not.toBeNull();
+  });
+
+  it("shows the server's reason when there is nothing to reprint", async () => {
+    server.use(http.get("/items/dispense-exports/latest", () =>
+      HttpResponse.json({ detail: "No weekly export has been run yet." }, { status: 404 })));
+    await mountItems({ role: "techfm_oa" });
+    await userEvent.setup().click(btn("dispense-reprint-btn"));
+    await vi.waitFor(() => expect(btn("dispense-export-message").className).toBe("error"));
+    expect(btn("dispense-export-message").textContent).toContain("No weekly export");
   });
 });

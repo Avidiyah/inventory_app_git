@@ -13,8 +13,14 @@ from sqlalchemy.orm import Session
 from app.services import items as items_service
 
 
-def labels_html(db: Session) -> str:
-    items = sorted(items_service.list_items(db), key=lambda i: i.name.lower())
+def labels_html(db: Session, *, search: str | None = None,
+                barcodes: list[str] | None = None) -> str:
+    """All live items, a Find Item search result (`search`, same matching
+    as `GET /items?q=`), or specific primary `barcodes`."""
+    items = items_service.list_items(db, search=search)
+    if barcodes:
+        items = [i for i in items if i.barcode in barcodes]
+    items = sorted(items, key=lambda i: i.name.lower())
     # Code 39 fonts need the * start/stop characters to scan.
     labels = "".join(
         f'<div class="label"><div class="code39">*{escape(i.barcode)}*</div>'
