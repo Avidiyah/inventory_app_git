@@ -1476,12 +1476,20 @@ tr:last-child td {
     font-weight: var(--fw-bold);
 }
 
+.user-request-link-label {
+    flex: 1 1 14rem;
+    min-width: 0;
+}
+
 .user-request-price-input {
     width: 9rem;
+    max-width: 100%;
 }
 
 .user-request-link-input {
-    min-width: min(22rem, 70vw);
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
 }
 
 /* A catalogue request has no item yet, so it reads as a request for work rather
