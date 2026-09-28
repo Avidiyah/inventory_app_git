@@ -92,6 +92,8 @@ class AttendanceWeekDay(BaseModel):
     adjustment_minutes: int
     needs_review: bool
     has_open: bool
+    # The day rests on a forgotten clock; the leaderboard sets it aside.
+    pending_review: bool
     punches: list[AttendanceWeekPunch]
 
     model_config = {"from_attributes": True}
@@ -140,6 +142,7 @@ class AttendanceWeekResponse(BaseModel):
     delta_minutes: int
     week_hours: int
     labor_rate: Decimal
+    reviewable_count: int
 
     model_config = {"from_attributes": True}
 
@@ -193,6 +196,15 @@ class PunchAddRequest(BaseModel):
     started_at: datetime
     ended_at: datetime
     reason: Optional[str] = None
+
+
+class WeekReviewResponse(BaseModel):
+    """What `Mark all reviewed` accepted for one week."""
+
+    punches: int
+    sessions: int
+
+    model_config = {"from_attributes": True}
 
 
 class PunchEditRequest(BaseModel):

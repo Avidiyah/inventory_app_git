@@ -140,6 +140,8 @@ export const ENDPOINTS = [
   { fn: "apiGetHubAttendanceWeek", args: [{}], url: "/hub/attendance/week", cache: "no-store" },
   { fn: "apiGetHubAttendanceLive", args: [], url: "/hub/attendance/live", cache: "no-store" },
   { fn: "apiExportHubAttendance", args: [{}], url: "/hub/attendance/export", cache: "no-store" },
+  { fn: "apiReviewHubAttendanceWeek", args: [{ week: "2026-09-21" }], method: "POST",
+    url: "/hub/attendance/week/review?week=2026-09-21" },
   { fn: "apiAddAttendancePunch",
     args: [{ userId: "11111111-1111-4111-8111-111111111111",
              startedAt: "2026-09-21T13:00:00.000Z",

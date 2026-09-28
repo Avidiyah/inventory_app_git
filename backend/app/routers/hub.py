@@ -51,6 +51,7 @@ from app.schemas.attendance import (
     AttendanceWeekResponse,
     PunchAddRequest,
     PunchEditRequest,
+    WeekReviewResponse,
 )
 from app.schemas.hub import HubAdminResponse, HubClock, HubCrewResponse, HubGraphsResponse, HubReportResponse, HubResponse
 from app.services import attendance as attendance_service
@@ -271,6 +272,26 @@ def delete_hub_attendance_punch(
         raise to_http(exc) from exc
     emit_attendance_changed()
     return punch
+
+
+@router.post("/attendance/week/review", response_model=WeekReviewResponse)
+def review_hub_attendance_week(
+    week: Optional[date] = Query(None),
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """`Mark all reviewed`: accept every flagged punch and auto-closed
+    session touching the week, so the leaderboard ranks them again. Same
+    `week` contract and Admin floor as `GET /hub/attendance/week`."""
+    now = datetime.now(timezone.utc)
+    try:
+        week_start = work_order_report.resolve_week(week, now)
+    except DomainError as exc:
+        raise to_http(exc) from exc
+    result = attendance_service.mark_week_reviewed(
+        db, actor=user, week_start=week_start, now=now)
+    emit_attendance_changed()
+    return result
 
 
 @router.get("/attendance/export")

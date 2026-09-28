@@ -672,6 +672,13 @@ export async function apiEditAttendancePunch(punchId, { startedAt, endedAt, need
   return jsonRequest(`/hub/attendance/punches/${encodeURIComponent(punchId)}`, "PATCH", body);
 }
 
+// "Mark all reviewed": accepts every flagged punch and auto-closed session
+// touching the week, so the leaderboard ranks those days again.
+export async function apiReviewHubAttendanceWeek({ week = null } = {}) {
+  const query = week ? `?week=${encodeURIComponent(week)}` : "";
+  return jsonRequest(`/hub/attendance/week/review${query}`, "POST");
+}
+
 export async function apiDeleteAttendancePunch(punchId, reason = "") {
   const query = reason ? `?reason=${encodeURIComponent(reason)}` : "";
   return jsonRequest(

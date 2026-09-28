@@ -535,11 +535,12 @@ def test_stopping_a_clock_emits_a_labor_session_changed_envelope(monkeypatch):
 # --- attendance ---------------------------------------------------------
 
 
-def test_the_attendance_emitter_set_is_exactly_the_six_punch_writes():
+def test_the_attendance_emitter_set_is_exactly_the_punch_writes():
     """Every write to the pay record invalidates the Admin roster; nothing
     else may. The two reads (`GET /attendance/me`, the week) are absent by
     design -- P4a's inherited note said "four self-scoped routes", but one of
-    those four is a read, so the set is three plus three.
+    those four is a read, so the set is three plus three -- plus the bulk
+    week review, which clears punch review flags.
 
     The auto-punch on a work-order clock start needs no emit of its own: that
     route already emits `labor.session.changed`, which the live layer also
@@ -559,6 +560,7 @@ def test_the_attendance_emitter_set_is_exactly_the_six_punch_writes():
         "add_hub_attendance_punch",
         "edit_hub_attendance_punch",
         "delete_hub_attendance_punch",
+        "review_hub_attendance_week",
     }
 
 

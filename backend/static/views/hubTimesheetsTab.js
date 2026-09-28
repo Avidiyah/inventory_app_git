@@ -23,6 +23,7 @@ import {
   apiEditAttendancePunch,
   apiGetHubAttendanceLive,
   apiGetHubAttendanceWeek,
+  apiReviewHubAttendanceWeek,
 } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
@@ -38,6 +39,9 @@ let viewerRole = null;
 let weekPayload = null;
 let week = null;
 let weekRequestId = 0;
+// One-shot confirmation for the next leaderboard paint, set by "Mark all
+// reviewed" -- the refetch remounts the leaderboard and would wipe it.
+let weekNotice = "";
 
 // The roster's own cache, on its own cadence: the week is paged by hand and
 // the strip is polled. Sharing one counter would let a week change discard
@@ -94,13 +98,17 @@ function renderWeek(panelEl) {
   if (!area || !weekPayload) return;
   area.innerHTML = `<div class="hub-timesheets-leaderboard"></div>
     <div class="hub-timesheets-hours"></div>`;
+  const isAdmin = roleAtLeast(viewerRole, "admin");
   mountHubTimesheetLeaderboard(mountFor(panelEl, "leaderboard"), weekPayload, {
     onWeekChange: changeWeek(panelEl),
+    onReviewAll: isAdmin ? () => write(panelEl, () => reviewWeek()) : undefined,
+    notice: weekNotice,
   });
+  weekNotice = "";
   // The four write callbacks are passed only to an Admin, and the grid
   // renders an affordance only for a callback it was given -- so the floor
   // is expressed once, here, rather than re-derived inside the view.
-  const writes = roleAtLeast(viewerRole, "admin")
+  const writes = isAdmin
     ? {
       onSavePunch: (id, values) => write(panelEl, () => apiEditAttendancePunch(id, values)),
       onAddPunch: (userId, values) => write(panelEl, () => apiAddAttendancePunch({ userId, ...values })),
@@ -109,6 +117,12 @@ function renderWeek(panelEl) {
     }
     : {};
   mountHubAttendanceHours(mountFor(panelEl, "hours"), weekPayload, { weekNav: false, ...writes });
+}
+
+async function reviewWeek() {
+  const { punches, sessions } = await apiReviewHubAttendanceWeek({ week });
+  const count = punches + sessions;
+  weekNotice = `Marked ${count} ${count === 1 ? "item" : "items"} reviewed.`;
 }
 
 function changeWeek(panelEl) {

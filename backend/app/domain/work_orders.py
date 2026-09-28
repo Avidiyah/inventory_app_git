@@ -404,6 +404,30 @@ def capped_session_end(
     return min(moment, cap)
 
 
+def session_needs_review(
+    started_at: datetime,
+    ended_at: Optional[datetime],
+    *,
+    auto_closed_at: Optional[datetime],
+    reviewed_at: Optional[datetime],
+    now: datetime,
+) -> bool:
+    """Whether a session's minutes are an unaccepted estimate.
+
+    True for a session the cap closed that no Admin has accepted, and for a
+    running session already past the cap -- the one the sweep has not reached
+    yet, which will be auto-closed the moment anyone looks.
+    """
+    if reviewed_at is not None:
+        return False
+    if auto_closed_at is not None:
+        return True
+    if ended_at is not None:
+        return False
+    cap = as_utc(started_at) + timedelta(minutes=LABOR_SESSION_MAX_MINUTES)
+    return as_utc(now) >= cap
+
+
 def effective_billable(quantity: Decimal, billable_quantity: Optional[Decimal]) -> Decimal:
     """Units actually charged on a material line: the billing override when one is
     set, otherwise the full recorded quantity. Shared by the card/detail

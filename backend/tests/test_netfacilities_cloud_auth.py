@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 
 from cryptography.fernet import Fernet
@@ -338,16 +339,26 @@ def _chain_coordinator(db, provider, importer, jobs, notifier):
     )
 
 
-async def _run_chain(coordinator, user_id, **config_overrides):
+async def _run_chain(coordinator, user_id, notifier, **config_overrides):
+    """Run the chain until it has finished *and* notified.
+
+    `_finish_chain` publishes the final stage *before* it hands the push to
+    a worker thread. Returning on the stage alone lets `asyncio.run` exit
+    and cancel the poll task while that thread job is still queued -- a
+    queued job cancels cleanly, so under CPU load the push never ran and
+    `notifier.sent` read empty. A wall-clock deadline, not an iteration
+    count, bounds the wait.
+    """
     settings = {"capture_poll_seconds": 0.01, "enrichment_retry_seconds": 0.5}
     settings.update(config_overrides)
     await coordinator.start(user_id, _config(**settings))
-    for _ in range(600):
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
         await asyncio.sleep(0.01)
         snapshot = await coordinator.latest(user_id)
-        if snapshot.chain_stage in {"done", "failed"}:
-            break
-    return await coordinator.latest(user_id)
+        if snapshot.chain_stage in {"done", "failed"} and notifier.sent:
+            return snapshot
+    raise AssertionError(f"chain did not finish and notify: {snapshot!r}")
 
 
 def test_the_chain_imports_closes_and_enriches(db, monkeypatch):
@@ -360,7 +371,7 @@ def test_the_chain_imports_closes_and_enriches(db, monkeypatch):
     provider.csv_to_return = ("work-orders.csv", b"NUMBER\n1001\n")
     coordinator = _chain_coordinator(db, provider, importer, jobs, notifier)
 
-    snapshot = asyncio.run(_run_chain(coordinator, user.id))
+    snapshot = asyncio.run(_run_chain(coordinator, user.id, notifier))
 
     assert importer.calls == [(b"NUMBER\n1001\n", user.id)]
     assert provider.closed_sessions == ["sess-1"]  # E6, success path
@@ -388,7 +399,7 @@ def test_a_failed_import_keeps_the_session_open_and_skips_enrichment(db, monkeyp
     provider.csv_to_return = ("wrong.csv", b"nope")
     coordinator = _chain_coordinator(db, provider, importer, jobs, notifier)
 
-    snapshot = asyncio.run(_run_chain(coordinator, user.id))
+    snapshot = asyncio.run(_run_chain(coordinator, user.id, notifier))
 
     # E6: the user re-exports the right file without repeating the ceremony.
     assert provider.closed_sessions == []
@@ -414,7 +425,7 @@ def test_enrichment_retries_while_a_batch_is_running(db, monkeypatch):
     provider.csv_to_return = ("work-orders.csv", b"NUMBER\n1001\n")
     coordinator = _chain_coordinator(db, provider, importer, jobs, notifier)
 
-    snapshot = asyncio.run(_run_chain(coordinator, user.id))
+    snapshot = asyncio.run(_run_chain(coordinator, user.id, notifier))
 
     assert jobs.starts == 3
     assert snapshot.enrichment_job_id == jobs.job_id
@@ -433,7 +444,7 @@ def test_enrichment_giving_up_leaves_the_import_standing(db, monkeypatch):
     coordinator = _chain_coordinator(db, provider, importer, jobs, notifier)
 
     snapshot = asyncio.run(
-        _run_chain(coordinator, user.id, enrichment_retry_seconds=0.2)
+        _run_chain(coordinator, user.id, notifier, enrichment_retry_seconds=0.2)
     )
 
     assert snapshot.import_result == IMPORT_SUMMARY

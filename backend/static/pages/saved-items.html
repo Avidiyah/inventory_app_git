@@ -1,6 +1,11 @@
     <!-- =================== SAVED ITEMS PAGE =================== -->
     <div class="page" id="saved-items-page">
 
+        <!-- TechFM OA+ (views/items.js unhides it; GET /items/export enforces). -->
+        <div class="page-actions">
+            <a id="items-export-link" class="secondary-btn" href="/items/export" hidden>Export for print</a>
+        </div>
+
         <!-- In-page sub-navigation: one feature visible at a time (Find the
              list, or Scan a barcode). Distinct from the black header
              #main-nav. Wired by views/subnav.js via views/items.js. The

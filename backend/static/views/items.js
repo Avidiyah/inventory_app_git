@@ -62,6 +62,7 @@ const itemsEmptyText = document.getElementById("items-empty-text");
 const itemsEmptyExtra = document.getElementById("items-empty-extra");
 const itemsEmptyIconSearch = document.getElementById("items-empty-icon-search");
 const itemsEmptyIconBox = document.getElementById("items-empty-icon-box");
+const itemsExportLink = document.getElementById("items-export-link");
 
 let resultMode = "none";
 let resultQuery = "";
@@ -86,6 +87,7 @@ export function loadItems() {
   // rows. The plain search field has no browser-native suggestion popup;
   // results require Search / Enter, Load All Items, or a successful scan.
   resultRequestId += 1;
+  itemsExportLink.hidden = !roleAtLeast(getRole(), "techfm_oa");
   resultMode = "none";
   resultQuery = "";
   setItems([]);

@@ -53,6 +53,9 @@ class TimelineEntry:
     ended_at: Optional[datetime]
     auto_closed: bool
     minutes: int
+    # An auto-closed (or over-cap running) session no Admin has accepted:
+    # the leaderboard holds its day out of the ranking.
+    needs_review: bool = False
 
 
 @dataclass(frozen=True)
@@ -96,6 +99,16 @@ class DaySummary:
     def total_minutes(self) -> int:
         """The one number every hub surface shows for this day (spec D15)."""
         return self.closed_minutes + self.running_minutes + self.adjustment_minutes
+
+
+def _needs_review(session: WorkOrderLaborSession, now: datetime) -> bool:
+    return wo.session_needs_review(
+        session.started_at,
+        session.ended_at,
+        auto_closed_at=session.auto_closed_at,
+        reviewed_at=session.reviewed_at,
+        now=now,
+    )
 
 
 def _sessions_touching_day(
@@ -220,6 +233,7 @@ def day_summary(
                 ),
                 auto_closed=session.auto_closed_at is not None,
                 minutes=minutes,
+                needs_review=_needs_review(session, now),
             )
         )
         if is_running:
@@ -349,6 +363,7 @@ def crew_range_summaries(
                 ),
                 auto_closed=session.auto_closed_at is not None,
                 minutes=minutes,
+                needs_review=_needs_review(session, now),
             )
             running = summary.running
             if is_running:

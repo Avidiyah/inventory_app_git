@@ -591,6 +591,9 @@ class WorkOrderLaborSession(Base):
     # the produced labor row as an estimate for a supervisor to correct; the
     # row is never blocked from billing on account of it.
     auto_closed_at = Column(DateTime(timezone=True), nullable=True)
+    # Set when an Admin accepts an auto-closed session as it stands. Until
+    # then its minutes are held out of the leaderboard's ranking.
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime(timezone=True),

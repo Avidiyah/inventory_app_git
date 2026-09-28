@@ -19,6 +19,11 @@
 // work order's labor up to 30 minutes, which no per-person number can honestly
 // reproduce.
 //
+// A day the server marks `pending_review` rests on a forgotten clock and is
+// set aside whole -- clocked and charged both -- until an Admin reviews it.
+// Dropping only the suspect minutes would push the rest of that shift into
+// "uncharged" and misprice it the other way.
+//
 // The made/lost bar is sized through CSSOM after the markup lands -- the CSP
 // drops `style=` attributes parsed from a template (csp-blocks-inline-styles).
 
@@ -65,12 +70,16 @@ export function computeLeaderboard(payload) {
   const rate = Number(payload.labor_rate) || 0;
   const price = (minutes) => (minutes * rate) / 60;
   const entries = payload.rows.map((row) => {
-    const charged = row.tracked_minutes;
-    const uncharged = Math.max(0, row.total_minutes - charged);
+    const pending = row.days.filter((day) => day.pending_review);
+    const setAside = (field) => pending.reduce((sum, day) => sum + (day[field] || 0), 0);
+    const clocked = row.total_minutes - setAside("clocked_minutes");
+    const charged = row.tracked_minutes - setAside("tracked_minutes");
+    const uncharged = Math.max(0, clocked - charged);
     return {
       user: row.user,
       name: userName(row.user),
-      clocked: row.total_minutes,
+      pendingDays: pending.length,
+      clocked,
       charged,
       uncharged,
       made: price(charged),
@@ -110,10 +119,16 @@ function rankHtml(rank) {
     : escapeHtml(String(rank));
 }
 
+function pendingHtml(entry) {
+  if (!entry.pendingDays) return "";
+  const days = entry.pendingDays === 1 ? "1 day" : `${entry.pendingDays} days`;
+  return `<span class="hub-leaderboard-pending">⚠ ${days} pending review</span>`;
+}
+
 function rowHtml(entry) {
   return `<tr class="hub-leaderboard-row${entry.rank <= 3 ? " hub-leaderboard-top" : ""}">
       <td class="hub-leaderboard-rank">${rankHtml(entry.rank)}</td>
-      <th scope="row">${escapeHtml(entry.name)}</th>
+      <th scope="row">${escapeHtml(entry.name)}${pendingHtml(entry)}</th>
       <td class="hub-leaderboard-num">${formatHm(entry.charged)}</td>
       <td class="hub-leaderboard-num">${formatHm(entry.uncharged)}</td>
       <td class="hub-leaderboard-num hub-leaderboard-made">${escapeHtml(formatMoney(entry.made))}</td>
@@ -129,7 +144,7 @@ function setStatus(container, message, type = "") {
   status.className = `hub-leaderboard-message${type ? ` ${type}` : ""}`;
 }
 
-export function mountHubTimesheetLeaderboard(container, payload, { onWeekChange } = {}) {
+export function mountHubTimesheetLeaderboard(container, payload, { onWeekChange, onReviewAll, notice = "" } = {}) {
   async function downloadCsv(button) {
     button.disabled = true;
     setStatus(container, "Preparing export…");
@@ -153,6 +168,13 @@ export function mountHubTimesheetLeaderboard(container, payload, { onWeekChange 
 
   const { rate, entries, total } = computeLeaderboard(payload);
   const rateText = escapeHtml(formatMoney(rate));
+  const reviewable = Number(payload.reviewable_count) || 0;
+  const reviewButton = onReviewAll && reviewable
+    ? `<button type="button" class="secondary-btn hub-leaderboard-review-all">Mark all reviewed (${reviewable})</button>`
+    : "";
+  const pendingNote = entries.some((entry) => entry.pendingDays)
+    ? ` Days marked pending review rest on a forgotten clock and are left out until an Admin reviews them; a shift still open from an earlier day must be closed in the grid below.`
+    : "";
   const table = entries.length
     ? `<div class="hub-hours-table-wrap hub-leaderboard-wrap">
         <table class="hub-hours-table hub-leaderboard-table">
@@ -174,7 +196,7 @@ export function mountHubTimesheetLeaderboard(container, payload, { onWeekChange 
           </tr></tfoot>
         </table>
       </div>
-      <p class="hint hub-leaderboard-legend">Charged hours are time on a work-order clock; labor entered by hand is not counted. Uncharged hours are time clocked in but not on a work order. Each hour is worth ${rateText}: charged hours are money made, uncharged hours are money lost. Ranked by money made.</p>`
+      <p class="hint hub-leaderboard-legend">Charged hours are time on a work-order clock; labor entered by hand is not counted. Uncharged hours are time clocked in but not on a work order. Each hour is worth ${rateText}: charged hours are money made, uncharged hours are money lost. Ranked by money made.${pendingNote}</p>`
     : `<p class="hint hub-leaderboard-empty">Nobody clocked in this week.</p>`;
 
   container.innerHTML = `<section class="hub-leaderboard" aria-labelledby="hub-leaderboard-heading">
@@ -184,13 +206,22 @@ export function mountHubTimesheetLeaderboard(container, payload, { onWeekChange 
           <strong>${escapeHtml(weekLabel(payload.week_start, payload.week_end))}</strong>
           <button type="button" class="secondary-btn hub-timesheets-next" aria-label="Next week">▶</button>
         </div>
-        <button type="button" class="secondary-btn hub-timesheets-export">Export CSV</button>
+        <div class="hub-leaderboard-actions">
+          ${reviewButton}
+          <button type="button" class="secondary-btn hub-timesheets-export">Export CSV</button>
+        </div>
       </div>
       <h3 id="hub-leaderboard-heading" class="hub-leaderboard-heading">Leaderboard ${tipHtml("hub.leaderboard")}</h3>
       <p class="hub-leaderboard-message" aria-live="polite"></p>
       ${table}
     </section>`;
 
+  if (notice) setStatus(container, notice, "success");
+  container.querySelector(".hub-leaderboard-review-all")?.addEventListener("click", (event) => {
+    event.currentTarget.disabled = true;
+    setStatus(container, "Marking reviewed…");
+    void onReviewAll();
+  });
   container.querySelectorAll(".hub-leaderboard-bar").forEach((bar) => {
     const pct = Number(bar.dataset.pct);
     bar.querySelector(".hub-leaderboard-bar-made").style.width = `${pct}%`;

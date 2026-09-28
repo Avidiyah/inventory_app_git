@@ -25,6 +25,12 @@ covers, which §9 allows and flags. Both can be non-zero on the same day.
 A hand-entered labor adjustment has no start and no stop, so it is not
 wall-clock: it rides in `adjustment_minutes` and is never added into tracked
 or differenced into delta.
+
+`pending_review` marks a day whose numbers rest on a forgotten clock: a
+self-reported punch (`needs_review`), a punch still open from an earlier day,
+or an auto-closed session no Admin has accepted. The leaderboard sets such a
+day aside whole -- dropping only the suspect item would push the rest of the
+shift into "uncharged" and misprice it the other way.
 """
 
 import csv
@@ -52,6 +58,7 @@ class CompareDay:
     adjustment_minutes: int
     needs_review: bool
     has_open: bool
+    pending_review: bool
     punches: list[attendance_week.WeekPunch]
 
 
@@ -77,6 +84,10 @@ class CompareWeek:
     delta_minutes: int
     week_hours: int
     labor_rate: Decimal         # the leaderboard's $/hour; billing's own rate
+    # What "Mark all reviewed" would accept: flagged punches plus unaccepted
+    # auto-closed sessions. A stale open punch is pending but not in here --
+    # it has no stop to accept.
+    reviewable_count: int
 
 
 def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek:
@@ -101,6 +112,7 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
     rows: list[CompareRow] = []
     week_tracked = 0
     week_delta = 0
+    reviewable: set = set()
     for row in clocked.rows:
         by_day = {
             summary.day: summary for summary in summaries.get(row.user.id, [])
@@ -130,6 +142,17 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
                 now=now,
             )
             delta = max(0, day.clocked_minutes - tracked)
+            flagged_punches = {p.id for p in day.punches if p.needs_review}
+            flagged_sessions = {
+                (row.user.id, entry.work_order_id, entry.started_at)
+                for entry in (summary.timeline if summary else [])
+                if entry.needs_review
+            }
+            reviewable |= flagged_punches | flagged_sessions
+            pending = bool(flagged_punches or flagged_sessions) or any(
+                p.open and attendance.is_stale(p.started_at, now=now)
+                for p in day.punches
+            )
             row_tracked += tracked
             row_delta += delta
             days.append(
@@ -144,6 +167,7 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
                     ),
                     needs_review=day.needs_review,
                     has_open=day.has_open,
+                    pending_review=pending,
                     punches=day.punches,
                 )
             )
@@ -171,6 +195,7 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
         delta_minutes=week_delta,
         week_hours=clocked.week_hours,
         labor_rate=wo.LABOR_RATE,
+        reviewable_count=len(reviewable),
     )
 
 

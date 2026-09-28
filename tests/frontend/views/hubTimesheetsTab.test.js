@@ -136,6 +136,22 @@ describe("the Admin punch writes", () => {
     await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
   });
 
+  it("marks the week reviewed, refetches it, and says how many", async () => {
+    await openTimesheets({
+      role: "admin",
+      attendanceWeek: attendanceWeek({ reviewable_count: 2 }),
+      handlers: [http.post("/hub/attendance/week/review", () =>
+        HttpResponse.json({ punches: 1, sessions: 1 }))],
+    });
+    await vi.waitFor(() => expect(panel().querySelector(".hub-leaderboard-review-all")).not.toBeNull());
+
+    await user().click(panel().querySelector(".hub-leaderboard-review-all"));
+
+    await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
+    await vi.waitFor(() => expect(panel().querySelector(".hub-leaderboard-message").textContent)
+      .toBe("Marked 2 items reviewed."));
+  });
+
   it("surfaces a 409 from an edit without losing the grid", async () => {
     await openTimesheets({
       role: "admin",

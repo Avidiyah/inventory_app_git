@@ -175,3 +175,102 @@ def test_the_clocked_half_is_exactly_what_the_hours_grid_reads(db):
     assert _row_for(compared, tech).days[0].punches == (
         _row_for(clocked, tech).days[0].punches
     )
+
+
+# --- Pending review: days resting on a forgotten clock --------------------
+
+def _monday(db, tech, now=NOW):
+    week = attendance_compare.week_payload(db, week_start=MONDAY, now=now)
+    return week, _row_for(week, tech).days[0]
+
+
+def test_an_ordinary_day_is_not_pending(db):
+    tech = make_technician(db)
+    make_punch(db, tech, "2026-09-14T13:00Z", "2026-09-14T21:00Z")
+    make_session(db, tech, "2026-09-14T13:00Z", "2026-09-14T21:00Z")
+    week, monday = _monday(db, tech)
+    assert monday.pending_review is False
+    assert week.reviewable_count == 0
+
+
+def test_an_unaccepted_auto_closed_session_makes_its_day_pending(db):
+    tech = make_technician(db)
+    session = make_session(db, tech, "2026-09-14T13:00Z", "2026-09-15T01:00Z")
+    session.auto_closed_at = _instant("2026-09-15T02:00Z")
+    db.flush()
+    week, monday = _monday(db, tech)
+    assert monday.pending_review is True
+    # One session spanning two days is still one thing to review.
+    assert week.reviewable_count == 1
+
+    session.reviewed_at = _instant("2026-09-16T12:00Z")
+    db.flush()
+    week, monday = _monday(db, tech)
+    assert monday.pending_review is False
+    assert week.reviewable_count == 0
+
+
+def test_a_running_clock_past_the_cap_is_pending_before_any_sweep(db):
+    tech = make_technician(db)
+    make_running_session(db, tech, "2026-09-14T13:00Z")
+    week, monday = _monday(db, tech)
+    assert monday.pending_review is True
+    assert week.reviewable_count == 1
+
+
+def test_a_self_reported_punch_makes_its_day_pending(db):
+    tech = make_technician(db)
+    punch = make_punch(db, tech, "2026-09-14T13:00Z", "2026-09-14T21:00Z")
+    punch.needs_review = True
+    db.flush()
+    week, monday = _monday(db, tech)
+    assert monday.pending_review is True
+    assert week.reviewable_count == 1
+
+
+def test_an_open_punch_from_an_earlier_day_is_pending_but_not_reviewable(db):
+    tech = make_technician(db)
+    make_punch(db, tech, "2026-09-14T13:00Z")
+    week, monday = _monday(db, tech)
+    assert monday.pending_review is True
+    assert week.reviewable_count == 0
+
+
+def test_todays_open_punch_is_an_ordinary_shift(db):
+    tech = make_technician(db)
+    make_punch(db, tech, "2026-09-16T13:00Z")
+    week = attendance_compare.week_payload(db, week_start=MONDAY, now=NOW)
+    wednesday = _row_for(week, tech).days[2]
+    assert wednesday.has_open is True
+    assert wednesday.pending_review is False
+
+
+def test_mark_week_reviewed_accepts_every_estimate_but_the_open_punch(db):
+    from app.models import AttendancePunchEdit
+    from app.services import attendance as attendance_service
+
+    admin = make_technician(db, "Ada", "Min")
+    admin.role = "admin"
+    tech = make_technician(db)
+    punch = make_punch(db, tech, "2026-09-14T13:00Z", "2026-09-14T21:00Z")
+    punch.needs_review = True
+    make_running_session(db, tech, "2026-09-14T13:00Z")   # swept, then accepted
+    other = make_technician(db, "Bo", "Diaz")
+    make_punch(db, other, "2026-09-15T13:00Z")             # stale open punch
+    db.commit()
+
+    result = attendance_service.mark_week_reviewed(
+        db, actor=admin, week_start=MONDAY, now=NOW)
+
+    assert (result.punches, result.sessions) == (1, 1)
+    db.expire_all()
+    assert db.get(AttendancePunch, punch.id).needs_review is False
+    audit = db.query(AttendancePunchEdit).filter_by(punch_id=punch.id).one()
+    assert (audit.field, audit.reason) == ("needs_review", "Bulk reviewed")
+    session = reload_session(db, tech)
+    assert session.ended_at is not None and session.reviewed_at is not None
+
+    week = attendance_compare.week_payload(db, week_start=MONDAY, now=NOW)
+    assert week.reviewable_count == 0
+    assert _row_for(week, tech).days[0].pending_review is False
+    assert _row_for(week, other).days[1].pending_review is True

@@ -11,11 +11,11 @@ Mounted by `app/main.py` under the root prefix.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from app.auth_deps import get_current_user, require_min_role
@@ -34,6 +34,7 @@ from app.schemas.items import (
     LowStockItemResponse,
     LowStockThresholdUpdate,
 )
+from app.services import inventory_export_xlsx, work_order_report_xlsx
 from app.services import items as items_service
 from app.services import notes as notes_service
 
@@ -155,6 +156,28 @@ def list_low_stock(
         _low_stock_response(item, user.role, dispensed, last_dispensed_at)
         for item, dispensed, last_dispensed_at in items_service.list_low_stock(db)
     ]
+
+
+@router.get(
+    "/export",
+    responses={403: {"description": "Requires the TechFM OA role or above."}},
+)
+def export_inventory(
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
+    db: Session = Depends(get_db),
+):
+    """The item list plus every User Requests tab (all statuses) as one
+    print-ready workbook. Registered above `GET /items/{barcode}` for the
+    same shadowing reason as `/low-stock`."""
+    now = datetime.now(timezone.utc)
+    return Response(
+        content=inventory_export_xlsx.export_xlsx(db, now=now),
+        media_type=work_order_report_xlsx.XLSX_MEDIA_TYPE,
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="{inventory_export_xlsx.export_filename(now)}"'
+        },
+    )
 
 
 @router.get(

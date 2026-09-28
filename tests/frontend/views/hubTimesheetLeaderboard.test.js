@@ -66,6 +66,16 @@ describe("computeLeaderboard", () => {
     expect(computeLeaderboard(payload).entries[0]).toMatchObject({ uncharged: 0, lost: 0 });
   });
 
+  it("sets a pending-review day aside whole, clocked and charged both", () => {
+    const payload = twoPeople();
+    const bo = payload.rows[1];
+    bo.days[1] = { ...bo.days[1], clocked_minutes: 600, tracked_minutes: 720, pending_review: true };
+    bo.total_minutes += 600;
+    bo.tracked_minutes += 720;
+    const entry = computeLeaderboard(payload).entries.find((e) => e.name === "Bo Diaz");
+    expect(entry).toMatchObject({ charged: 540, uncharged: 60, pendingDays: 1 });
+  });
+
   it("ranks by money made, highest first, and totals the company", () => {
     const { entries, total } = computeLeaderboard(twoPeople());
     expect(entries.map((e) => [e.rank, e.name])).toEqual([[1, "Bo Diaz"], [2, "Ann Lee"]]);
@@ -126,6 +136,34 @@ describe("the leaderboard table", () => {
     await vi.waitFor(() => expect(host.querySelector(".hub-leaderboard-message").className)
       .toContain("error"));
     expect(host.querySelector(".hub-leaderboard-table")).not.toBeNull();
+  });
+
+  it("flags a person's pending days in words beside their name", () => {
+    const payload = attendanceWeek();
+    payload.rows[0].days[0].pending_review = true;
+    mount(payload);
+    expect(host.querySelector(".hub-leaderboard-pending").textContent).toBe("⚠ 1 day pending review");
+    expect(host.querySelector(".hub-leaderboard-legend").textContent).toContain("pending review");
+  });
+
+  it("offers Mark all reviewed only when there is something to review and a handler", () => {
+    mount(attendanceWeek({ reviewable_count: 0 }), { onReviewAll: () => {} });
+    expect(host.querySelector(".hub-leaderboard-review-all")).toBeNull();
+    mount(attendanceWeek({ reviewable_count: 3 }));
+    expect(host.querySelector(".hub-leaderboard-review-all")).toBeNull();
+  });
+
+  it("runs Mark all reviewed once and shows the notice it is handed", async () => {
+    const onReviewAll = vi.fn();
+    mount(attendanceWeek({ reviewable_count: 3 }), { onReviewAll });
+    const button = host.querySelector(".hub-leaderboard-review-all");
+    expect(button.textContent).toBe("Mark all reviewed (3)");
+    await user().click(button);
+    expect(onReviewAll).toHaveBeenCalledTimes(1);
+    expect(button.disabled).toBe(true);
+
+    mount(attendanceWeek(), { notice: "Marked 3 items reviewed." });
+    expect(host.querySelector(".hub-leaderboard-message").textContent).toBe("Marked 3 items reviewed.");
   });
 
   it("says nobody clocked in rather than drawing an empty table", () => {

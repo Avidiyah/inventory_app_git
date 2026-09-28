@@ -12,7 +12,7 @@ work orders, work orders never imports this.
 
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import or_
@@ -27,7 +27,12 @@ from app.domain.errors import (
     PunchOverlapError,
     PunchTimeInvalidError,
 )
-from app.models import AttendancePunch, AttendancePunchEdit, User
+from app.models import (
+    AttendancePunch,
+    AttendancePunchEdit,
+    User,
+    WorkOrderLaborSession,
+)
 from app.services import work_orders as wo_service
 
 
@@ -355,3 +360,60 @@ def admin_delete_punch(db: Session, *, actor: User, punch_id,
     db.commit()
     db.refresh(punch)
     return punch
+
+
+BULK_REVIEW_REASON = "Bulk reviewed"
+
+
+@dataclass(frozen=True)
+class WeekReview:
+    punches: int
+    sessions: int
+
+
+def mark_week_reviewed(db: Session, *, actor: User, week_start: date,
+                       now: Optional[datetime] = None) -> WeekReview:
+    """`Mark all reviewed`: accept every estimate touching one Central week.
+
+    Flagged punches are cleared exactly as "Looks right" clears one -- an
+    audit row each, under `BULK_REVIEW_REASON`. Auto-closed sessions get
+    `reviewed_at`. Over-cap clocks still running are swept first, so they
+    close at the capped instant and are accepted with the rest.
+
+    An open punch is left alone: it has no stop to accept, and D4 forbids
+    inventing one. It stays pending until someone closes it.
+    """
+    now = now or datetime.now(timezone.utc)
+    wo_service.sweep_stale_sessions(db, now=now)
+    window_start, _ = labor_day.day_bounds(week_start)
+    _, window_end = labor_day.day_bounds(week_start + timedelta(days=6))
+
+    punches = (
+        live_punches(db)
+        .filter(
+            AttendancePunch.needs_review.is_(True),
+            AttendancePunch.started_at < window_end,
+            AttendancePunch.ended_at > window_start,
+        )
+        .all()
+    )
+    for punch in punches:
+        punch.needs_review = False
+        _audit(db, punch=punch, actor=actor, field="needs_review", old="true",
+               new="false", reason=BULK_REVIEW_REASON, now=now)
+
+    sessions = (
+        db.query(WorkOrderLaborSession)
+        .filter(
+            WorkOrderLaborSession.auto_closed_at.isnot(None),
+            WorkOrderLaborSession.reviewed_at.is_(None),
+            WorkOrderLaborSession.started_at < window_end,
+            WorkOrderLaborSession.ended_at > window_start,
+        )
+        .all()
+    )
+    for session in sessions:
+        session.reviewed_at = now
+
+    db.commit()
+    return WeekReview(punches=len(punches), sessions=len(sessions))

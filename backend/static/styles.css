@@ -2663,6 +2663,13 @@ tr.archived-user {
     margin-top: var(--space-2);
 }
 
+/* Page-level actions (e.g. Export for print), pinned top right. */
+.page-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: var(--space-2);
+}
+
 .hub-report-section {
     margin-bottom: var(--space-5);
 }
@@ -3115,6 +3122,20 @@ tr.archived-user {
 
 .hub-leaderboard-legend {
     max-width: 68ch;
+}
+
+.hub-leaderboard-actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+/* Same hue as the Hours grid's needs-review flag, with the word beside it. */
+.hub-leaderboard-pending {
+    display: block;
+    font-size: var(--fs-xs);
+    font-weight: normal;
+    color: var(--color-error);
 }
 
 /* The live roster strip (attendance P4b). Status hue lives in a 4px left

@@ -397,6 +397,11 @@ Attendance:
   invoice: `billed_labor_minutes` rounds a *work order's combined* labor, so
   no honest per-person billed figure exists. A background refresh skips the
   week refetch while a punch drill-down is open.
+- A day with `pending_review` (a `needs_review` punch, a punch still open from
+  an earlier day, or an auto-closed/over-cap session with no `reviewed_at`) is
+  left out of the leaderboard whole -- clocked and charged -- and flagged
+  "⚠ N days pending review". Admin "Mark all reviewed" (H14) accepts the
+  week's estimates; an open punch stays pending until closed in Hours.
 
 Inventory/transactions:
 

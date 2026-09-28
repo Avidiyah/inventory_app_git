@@ -624,7 +624,7 @@ export function attendanceWeek(overrides = {}) {
   const blank = (date) => ({
     date, clocked_minutes: 0, tracked_minutes: 0, delta_minutes: 0,
     outside_shift_minutes: 0, adjustment_minutes: 0,
-    needs_review: false, has_open: false, punches: [],
+    needs_review: false, has_open: false, pending_review: false, punches: [],
   });
   const monday = {
     ...blank("2026-09-14"),
@@ -661,6 +661,7 @@ export function attendanceWeek(overrides = {}) {
     delta_minutes: 60,
     week_hours: 168,
     labor_rate: "62.50",
+    reviewable_count: 0,
     ...overrides,
   };
 }
