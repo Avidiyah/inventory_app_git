@@ -41,6 +41,11 @@ def test_a_soft_deleted_open_punch_does_not_block_a_new_punch_in(db):
     assert attendance_service.open_punch_for(db, user.id).id == punch.id
 
 
+# `_punch` pins clock hours on `now`'s date, so a real clock read before
+# 17:00 UTC would put those hours in the future and trip validation.
+_NOW = datetime(2026, 9, 15, 20, tzinfo=timezone.utc)
+
+
 def _punch(db, user, *, start_h, end_h, now, needs_review=False):
     punch = AttendancePunch(
         id=uuid.uuid4(), user_id=user.id,
@@ -70,7 +75,7 @@ def test_add_writes_the_punch_and_one_created_audit_row(db):
 
 def test_edit_writes_one_row_per_changed_field_and_clears_needs_review(db):
     admin, tech = _seed_user(db, "admin"), _seed_user(db)
-    now = datetime.now(timezone.utc)
+    now = _NOW
     punch = _punch(db, tech, start_h=8, end_h=15, now=now, needs_review=True)
     db.commit()
     new_end = punch.ended_at - timedelta(hours=1)
@@ -86,7 +91,7 @@ def test_edit_writes_one_row_per_changed_field_and_clears_needs_review(db):
 
 def test_clearing_the_flag_alone_is_a_legal_edit(db):
     admin, tech = _seed_user(db, "admin"), _seed_user(db)
-    now = datetime.now(timezone.utc)
+    now = _NOW
     punch = _punch(db, tech, start_h=8, end_h=15, now=now, needs_review=True)
     db.commit()
 
@@ -99,7 +104,7 @@ def test_clearing_the_flag_alone_is_a_legal_edit(db):
 
 def test_an_edit_that_changes_nothing_is_refused(db):
     admin, tech = _seed_user(db, "admin"), _seed_user(db)
-    now = datetime.now(timezone.utc)
+    now = _NOW
     punch = _punch(db, tech, start_h=8, end_h=15, now=now)
     db.commit()
     with pytest.raises(NoChangeError):
@@ -108,7 +113,7 @@ def test_an_edit_that_changes_nothing_is_refused(db):
 
 def test_an_edit_overlapping_another_punch_names_the_conflict(db):
     admin, tech = _seed_user(db, "admin"), _seed_user(db)
-    now = datetime.now(timezone.utc)
+    now = _NOW
     morning = _punch(db, tech, start_h=8, end_h=11, now=now)
     afternoon = _punch(db, tech, start_h=13, end_h=17, now=now)
     db.commit()
@@ -121,7 +126,7 @@ def test_an_edit_overlapping_another_punch_names_the_conflict(db):
 
 def test_a_punch_may_not_be_reopened(db):
     admin, tech = _seed_user(db, "admin"), _seed_user(db)
-    now = datetime.now(timezone.utc)
+    now = _NOW
     punch = _punch(db, tech, start_h=8, end_h=15, now=now)
     db.commit()
     with pytest.raises(PunchTimeInvalidError):
@@ -132,7 +137,7 @@ def test_a_punch_may_not_be_reopened(db):
 
 def test_delete_is_soft_keeps_the_audit_and_hides_the_row(db):
     admin, tech = _seed_user(db, "admin"), _seed_user(db)
-    now = datetime.now(timezone.utc)
+    now = _NOW
     punch = _punch(db, tech, start_h=8, end_h=15, now=now)
     db.commit()
 
@@ -148,7 +153,7 @@ def test_delete_is_soft_keeps_the_audit_and_hides_the_row(db):
 
 def test_a_deleted_punch_cannot_be_edited(db):
     admin, tech = _seed_user(db, "admin"), _seed_user(db)
-    now = datetime.now(timezone.utc)
+    now = _NOW
     punch = _punch(db, tech, start_h=8, end_h=15, now=now)
     db.commit()
     attendance_service.admin_delete_punch(db, actor=admin, punch_id=punch.id, now=now)
