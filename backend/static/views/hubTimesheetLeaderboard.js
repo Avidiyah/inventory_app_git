@@ -8,12 +8,14 @@
 // leaderboard is the headline of the week and the Hours grid is its record.
 //
 // The money is written for a layperson, one rule per column:
-//   charged   = time on a work-order clock + hand-entered labor
+//   charged   = time on a work-order clock, and nothing else
 //   uncharged = clocked - charged, never below zero
 //   made      = charged x the billing labor rate
 //   lost      = uncharged x the same rate
-// Hand-entered labor counts on purpose (see the `hub.leaderboard` tip). This
-// is an estimate at the hourly rate, not the invoice: billing rounds a whole
+// Hand-entered labor is left out on purpose: the board rewards charging work
+// orders on the clock as the work happens, and a typed duration has no real
+// time behind it -- it is dated by when it was keyed, not when it was worked
+// (see the `hub.leaderboard` tip). This is an estimate at the hourly rate, not the invoice: billing rounds a whole
 // work order's labor up to 30 minutes, which no per-person number can honestly
 // reproduce.
 //
@@ -63,8 +65,7 @@ export function computeLeaderboard(payload) {
   const rate = Number(payload.labor_rate) || 0;
   const price = (minutes) => (minutes * rate) / 60;
   const entries = payload.rows.map((row) => {
-    const adjusted = row.days.reduce((sum, day) => sum + (day.adjustment_minutes || 0), 0);
-    const charged = row.tracked_minutes + adjusted;
+    const charged = row.tracked_minutes;
     const uncharged = Math.max(0, row.total_minutes - charged);
     return {
       user: row.user,
@@ -173,7 +174,7 @@ export function mountHubTimesheetLeaderboard(container, payload, { onWeekChange 
           </tr></tfoot>
         </table>
       </div>
-      <p class="hint hub-leaderboard-legend">Charged hours are time spent on a work order. Uncharged hours are time clocked in but not on a work order. Each hour is worth ${rateText}: charged hours are money made, uncharged hours are money lost. Ranked by money made.</p>`
+      <p class="hint hub-leaderboard-legend">Charged hours are time on a work-order clock; labor entered by hand is not counted. Uncharged hours are time clocked in but not on a work order. Each hour is worth ${rateText}: charged hours are money made, uncharged hours are money lost. Ranked by money made.</p>`
     : `<p class="hint hub-leaderboard-empty">Nobody clocked in this week.</p>`;
 
   container.innerHTML = `<section class="hub-leaderboard" aria-labelledby="hub-leaderboard-heading">

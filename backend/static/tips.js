@@ -233,7 +233,7 @@ export const TIPS = {
   },
   "hub.leaderboard": {
     label: "Leaderboard",
-    text: "Money made is charged hours times the billing labor rate; money lost is hours clocked in but not on a work order, at the same rate. It is an estimate, not the invoice, which rounds each work order up to the next 30 minutes. Hours an admin entered or edited by hand are counted, not left out: pressing the clock button is easy, but doing it every time is a habit the crew is still building, so nobody drops in the ranking while it forms.",
+    text: "Money made is charged hours times the billing labor rate; money lost is hours clocked in but not on a work order, at the same rate. It is an estimate, not the invoice, which rounds each work order up to the next 30 minutes. Labor entered by hand is not counted: the board rewards starting and stopping the work-order clock as the work happens.",
   },
   "hub.attention": {
     label: "Needs attention",

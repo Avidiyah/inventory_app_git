@@ -389,8 +389,9 @@ Attendance:
 - Clocked ≠ tracked ≠ billed. Clocked comes from `attendance_punches` and is
   never rounded to 30 minutes.
 - The Timesheets leaderboard ranks the week by **money made**: charged =
-  work-order wall-clock + hand-entered labor adjustments (counted on purpose,
-  so no one is penalized while the clock habit forms); uncharged = clocked −
+  work-order wall-clock only; hand-entered labor adjustments are excluded
+  (the board rewards clocking work as it happens, and an adjustment is dated
+  by entry, not by work); uncharged = clocked −
   charged, floored at zero; made/lost = each × `labor_rate` (billing's
   `LABOR_RATE`, sent on the week payload). An hourly estimate, not the
   invoice: `billed_labor_minutes` rounds a *work order's combined* labor, so
