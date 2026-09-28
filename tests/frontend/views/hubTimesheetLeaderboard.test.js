@@ -35,7 +35,7 @@ function mount(payload = attendanceWeek(), options = {}) {
 }
 
 // Two people: Ann clocks 8:00 and charges 7:00; Bo clocks 10:00 and charges
-// 9:00 on the clock plus 0:30 entered by hand.
+// 9:00 on the clock plus 0:30 entered by hand, which the board ignores.
 function twoPeople() {
   const payload = attendanceWeek();
   const ann = payload.rows[0];
@@ -54,10 +54,10 @@ describe("computeLeaderboard", () => {
     expect(entries[0]).toMatchObject({ charged: 420, uncharged: 60, made: 437.5, lost: 62.5 });
   });
 
-  it("counts hand-entered labor as charged time", () => {
+  it("leaves hand-entered labor out of charged time", () => {
     const bo = computeLeaderboard(twoPeople()).entries.find((e) => e.name === "Bo Diaz");
-    expect(bo).toMatchObject({ charged: 570, uncharged: 30 });
-    expect(bo.made).toBeCloseTo(593.75);
+    expect(bo).toMatchObject({ charged: 540, uncharged: 60 });
+    expect(bo.made).toBeCloseTo(562.5);
   });
 
   it("never reports negative uncharged time when charged exceeds clocked", () => {
@@ -69,8 +69,8 @@ describe("computeLeaderboard", () => {
   it("ranks by money made, highest first, and totals the company", () => {
     const { entries, total } = computeLeaderboard(twoPeople());
     expect(entries.map((e) => [e.rank, e.name])).toEqual([[1, "Bo Diaz"], [2, "Ann Lee"]]);
-    expect(total.made).toBeCloseTo(437.5 + 593.75);
-    expect(total.lost).toBeCloseTo(62.5 + 31.25);
+    expect(total.made).toBeCloseTo(437.5 + 562.5);
+    expect(total.lost).toBeCloseTo(62.5 + 62.5);
   });
 });
 
@@ -81,8 +81,8 @@ describe("the leaderboard table", () => {
     expect(first.querySelector("th").textContent).toBe("Bo Diaz");
     expect(first.querySelector(".hub-leaderboard-rank").textContent).toContain("🥇");
     expect(first.querySelector(".hub-leaderboard-rank").textContent).toContain("1st");
-    expect(first.querySelector(".hub-leaderboard-made").textContent).toBe("$593.75");
-    expect(first.querySelector(".hub-leaderboard-lost").textContent).toBe("$31.25");
+    expect(first.querySelector(".hub-leaderboard-made").textContent).toBe("$562.50");
+    expect(first.querySelector(".hub-leaderboard-lost").textContent).toBe("$62.50");
     expect(host.querySelector("tfoot").textContent).toContain("Company total");
   });
 
