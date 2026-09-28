@@ -196,11 +196,9 @@ function recountActions(request) {
 }
 
 function missingPriceActions(request) {
+  // The resolution block's note says whether pricing or a manual remove closed it.
   if (request.status !== "open") {
-    return (
-      `<span class="hint">Resolved automatically when the item price and product link were added.</span>` +
-      `<button type="button" class="secondary-btn user-request-edit-open">Edit</button>`
-    );
+    return `<button type="button" class="secondary-btn user-request-edit-open">Edit</button>`;
   }
   return (
     `<label class="user-request-price-label">Price
@@ -210,6 +208,7 @@ function missingPriceActions(request) {
        <input type="url" class="user-request-link-input" placeholder="https://..." inputmode="url">
      </label>` +
     `<button type="button" class="user-request-price-save">Save price &amp; link</button>` +
+    `<button type="button" class="user-request-action secondary-btn" data-status="resolved" data-verb="remove">Remove</button>` +
     `<button type="button" class="secondary-btn user-request-edit-open">Edit</button>`
   );
 }

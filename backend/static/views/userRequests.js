@@ -484,12 +484,13 @@ if (listEl) {
     const button = event.target.closest(".user-request-action");
     if (!button) return;
     const targetStatus = button.dataset.status;
-    const verb = targetStatus === "resolved" ? "resolve" : "reopen";
+    const verb = button.dataset.verb || (targetStatus === "resolved" ? "resolve" : "reopen");
     if (!(await confirmDialog(`${verb[0].toUpperCase()}${verb.slice(1)} this user request?`))) return;
 
     button.disabled = true;
     try {
-      await apiUpdateUserRequest(card.dataset.id, { status: targetStatus });
+      const resolutionNote = verb === "remove" ? "Removed from the queue." : undefined;
+      await apiUpdateUserRequest(card.dataset.id, { status: targetStatus, resolutionNote });
       await loadUserRequests();
     } catch (err) {
       button.disabled = false;
