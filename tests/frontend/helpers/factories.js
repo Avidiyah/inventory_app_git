@@ -660,6 +660,7 @@ export function attendanceWeek(overrides = {}) {
     tracked_minutes: 420,
     delta_minutes: 60,
     week_hours: 168,
+    labor_rate: "62.50",
     ...overrides,
   };
 }

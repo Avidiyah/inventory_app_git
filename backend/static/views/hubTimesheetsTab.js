@@ -1,26 +1,21 @@
-// View: the User Hub's Timesheets tabpanel.
+// View: the User Hub's Timesheets tabpanel -- one page, no sub-tabs.
 //
-// Layer: views. Owns the panel's shell, its sub-nav, and both sub-features'
-// lazy loads, caches and request counters -- the machinery that used to live
-// in userHub.js beside four other tabs' copies of it.
+// Layer: views. Owns the panel's shell and both payloads' lazy loads,
+// caches and request counters. Admin+, because this is the pay record (D1).
 //
-// Two sub-features, both **Admin+**, because this tab is the pay record (D1):
-//   hours   -- P2's clocked-hours grid with the audited punch editor.
-//   compare -- P4a's **Charged vs clocked** grid, under P4b's live roster.
+// Top to bottom:
+//   roster      -- who is on the clock now, from `GET /hub/attendance/live`
+//   leaderboard -- the week's charged/uncharged hours and money, ranked; owns
+//                  the page's week picker and CSV export
+//   hours       -- the clocked-hours grid with the audited punch editor
 //
-// Both read **one** payload from `GET /hub/attendance/week`, held in a single
-// cache below. That is not an optimisation: two features fetching their own
-// week could show payroll two different answers, and nothing downstream would
-// notice the disagreement. The roster is the exception -- its own payload from
-// `GET /hub/attendance/live`, on its own cadence, because "now" is a different
-// question from "this week".
+// Leaderboard and hours read **one** payload from `GET /hub/attendance/week`:
+// two features fetching their own week could show payroll two different
+// answers. The roster is the exception -- "now" is a different question from
+// "this week", polled and pushed on its own cadence.
 //
-// `GET /hub/timesheets` and the Supervisor crew grid it fed are gone (D6);
-// a Supervisor keeps the Dashboard crew board.
-//
-// The shell is built once and `initSubNav` wired once -- rebuilding the
-// panel's innerHTML would drop that listener. Each feature renders into its
-// own `.feature-panel`, so a repaint of one never disturbs the other.
+// The shell is built once; each part renders into its own mount, so a roster
+// repaint never disturbs an open punch editor.
 
 import {
   apiAddAttendancePunch,
@@ -33,14 +28,13 @@ import { escapeHtml, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
 import { roleAtLeast } from "../roles.js";
 import { skeletonCard } from "../skeleton.js";
-import { mountHubAttendanceCompare } from "./hubAttendanceCompare.js";
 import { mountHubAttendanceHours } from "./hubAttendanceHours.js";
-import { destroyHubAttendanceRoster } from "./hubAttendanceRoster.js";
-import { initSubNav } from "./subnav.js";
+import { destroyHubAttendanceRoster, mountHubAttendanceRoster } from "./hubAttendanceRoster.js";
+import { mountHubTimesheetLeaderboard } from "./hubTimesheetLeaderboard.js";
 
 let viewerRole = null;
 
-// One cache for both Admin features -- see the header.
+// One cache for the leaderboard and the hours grid -- see the header.
 let weekPayload = null;
 let week = null;
 let weekRequestId = 0;
@@ -60,29 +54,17 @@ function skeletonGrid(cardCount = 2, { lines = 6 } = {}) {
   return `<div class="skel-grid">${skeletonCard({ lines }).repeat(cardCount)}</div>`;
 }
 
-function featurePanel(panelEl, feature) {
-  return panelEl.querySelector(`.feature-panel[data-feature="${feature}"]`);
+function mountFor(panelEl, part) {
+  return panelEl.querySelector(`.hub-timesheets-${part}`);
 }
 
 function buildShell(panelEl, role) {
-  panelEl.innerHTML = `<nav class="sub-nav hub-sub-nav" aria-label="Timesheet views">
-      <button type="button" class="sub-nav-btn active" data-feature="hours">Hours</button>
-      <button type="button" class="sub-nav-btn" data-feature="compare">Charged vs clocked</button>
-    </nav>
-    <section class="feature-panel" data-feature="hours"></section>
-    <section class="feature-panel" data-feature="compare" hidden></section>`;
+  panelEl.innerHTML = `<div class="hub-timesheets-roster"></div>
+    <div class="hub-timesheets-week"></div>`;
   panelEl.dataset.timesheetsRole = role;
-  delete panelEl.dataset.activeFeature;
-  initSubNav(panelEl, {
-    onShow: (feature) => showFeature(panelEl, feature),
-    // The initial switch must not fetch at build time: the caller shows the
-    // opening feature itself, right after the shell exists.
-    fireInitialOnShow: false,
-  });
 }
 
-
-// --- The attendance week: Hours and Charged vs clocked -------------------
+// --- The attendance week: the leaderboard and Hours -----------------------
 
 // The write path is deliberately dumb: call, then refetch the week. The
 // grid holds no optimistic state, so a 409 leaves exactly what the server
@@ -104,9 +86,17 @@ async function write(panelEl, work) {
   }
 }
 
-function renderHours(panelEl) {
-  const mount = featurePanel(panelEl, "hours");
-  if (!mount || !weekPayload) return;
+// Paint the leaderboard and the hours grid from the one cached week. Both
+// mounts are (re)created here so a load error or skeleton that replaced the
+// week area is cleared by the next good payload.
+function renderWeek(panelEl) {
+  const area = mountFor(panelEl, "week");
+  if (!area || !weekPayload) return;
+  area.innerHTML = `<div class="hub-timesheets-leaderboard"></div>
+    <div class="hub-timesheets-hours"></div>`;
+  mountHubTimesheetLeaderboard(mountFor(panelEl, "leaderboard"), weekPayload, {
+    onWeekChange: changeWeek(panelEl),
+  });
   // The four write callbacks are passed only to an Admin, and the grid
   // renders an affordance only for a callback it was given -- so the floor
   // is expressed once, here, rather than re-derived inside the view.
@@ -118,14 +108,9 @@ function renderHours(panelEl) {
       onClearReview: (id) => write(panelEl, () => apiEditAttendancePunch(id, { needsReview: false })),
     }
     : {};
-  mountHubAttendanceHours(mount, weekPayload, {
-    onWeekChange: changeWeek(panelEl),
-    ...writes,
-  });
+  mountHubAttendanceHours(mountFor(panelEl, "hours"), weekPayload, { weekNav: false, ...writes });
 }
 
-// Both Admin features page the week through the same setter, so a step taken
-// in one is already taken when the other is opened.
 function changeWeek(panelEl) {
   return (nextWeek) => {
     week = nextWeek;
@@ -133,64 +118,51 @@ function changeWeek(panelEl) {
   };
 }
 
-function renderCompare(panelEl) {
-  const mount = featurePanel(panelEl, "compare");
-  if (!mount || !weekPayload) return;
-  mountHubAttendanceCompare(mount, weekPayload, {
-    onWeekChange: changeWeek(panelEl),
-    live: livePayload,
-  });
+function renderLive(panelEl) {
+  const mount = mountFor(panelEl, "roster");
+  if (mount && livePayload) mountHubAttendanceRoster(mount, livePayload);
 }
 
-// A roster failure is deliberately silent: it leaves `livePayload` null, the
-// comparison renders without its strip, and the next poll tries again. The
-// alternative -- replacing a working grid with a retry box because a
-// decorative strip 500'd -- is worse.
+// A roster failure is deliberately silent: it leaves the strip empty and the
+// next poll tries again. Replacing a working page with a retry box because a
+// decorative strip 500'd would be worse.
 async function loadLive(panelEl) {
   const requestId = ++liveRequestId;
   try {
     const payload = await apiGetHubAttendanceLive();
     if (requestId !== liveRequestId) return;
     livePayload = payload;
-    if (panelEl.dataset.activeFeature === "compare") renderCompare(panelEl);
+    renderLive(panelEl);
   } catch (_err) {
     if (requestId !== liveRequestId) return;
   }
 }
 
 // Called by userHub.js on the hub's existing 60-second safety timer and on
-// an `attendance.changed` envelope. A no-op unless the comparison is the
-// open sub-tab: nothing else on screen reads either payload.
+// an `attendance.changed` envelope. Inert while the tab is hidden. The week
+// is refetched only when no punch drill-down is open: a background repaint
+// would otherwise close an Admin's editor mid-edit.
 export function refreshTimesheetsLive(panelEl = hostPanel) {
-  if (!panelEl || panelEl.dataset.activeFeature !== "compare") return;
+  if (!panelEl || panelEl.hidden || !panelEl.querySelector(".hub-timesheets-week")) return;
   void loadLive(panelEl);
-  void loadWeek(panelEl);
+  if (!panelEl.querySelector(".hub-hours-detail-row")) void loadWeek(panelEl);
 }
 
-// Paint whichever Admin feature is showing, from the one cached week.
-function renderWeek(panelEl) {
-  if (panelEl.dataset.activeFeature === "compare") renderCompare(panelEl);
-  else renderHours(panelEl);
-}
-
-// Rendered into whichever Admin feature is showing: a failed load reported
-// into a hidden panel is a blank sub-tab with no explanation.
-function showWeekError(panelEl, err, feature = panelEl.dataset.activeFeature) {
-  const mount = featurePanel(panelEl, feature === "compare" ? "compare" : "hours");
-  if (!mount) return;
+function showWeekError(panelEl, err) {
+  const area = mountFor(panelEl, "week");
+  if (!area) return;
   const message = escapeHtml(friendlyError(err, "Could not load clocked hours."));
-  mount.innerHTML = `<div class="hub-hours-load-error"><p class="hub-hours-message error">${message} <button type="button" class="secondary-btn hub-hours-retry">Retry</button></p></div>`;
-  mount.querySelector(".hub-hours-retry")?.addEventListener("click", () => {
+  area.innerHTML = `<div class="hub-hours-load-error"><p class="hub-hours-message error">${message} <button type="button" class="secondary-btn hub-hours-retry">Retry</button></p></div>`;
+  area.querySelector(".hub-hours-retry")?.addEventListener("click", () => {
     void loadWeek(panelEl);
   });
 }
 
 async function loadWeek(panelEl) {
-  const feature = panelEl.dataset.activeFeature === "compare" ? "compare" : "hours";
-  const mount = featurePanel(panelEl, feature);
-  if (!mount) return;
+  const area = mountFor(panelEl, "week");
+  if (!area) return;
   const requestId = ++weekRequestId;
-  if (!weekPayload) mount.innerHTML = skeletonGrid();
+  if (!weekPayload) area.innerHTML = skeletonGrid();
   try {
     const payload = await apiGetHubAttendanceWeek({ week });
     if (requestId !== weekRequestId) return;
@@ -199,36 +171,28 @@ async function loadWeek(panelEl) {
     renderWeek(panelEl);
   } catch (err) {
     if (requestId !== weekRequestId) return;
-    showWeekError(panelEl, err, feature);
+    showWeekError(panelEl, err);
   }
 }
 
-// --- The tab's two entry points ------------------------------------------
-
-// Repaint from cache, or lazily fetch the first time a feature is opened.
-// Both the sub-nav's `onShow` and a tab re-entry come through here, so
-// switching back to a sub-tab already loaded never starts a second request.
-function showFeature(panelEl, feature) {
-  // The strip only exists on the comparison. Leaving that sub-tab takes its
-  // tick with it: an interval running behind a hidden panel is a timer this
-  // module would then have to remember to stop somewhere else.
-  if (feature !== "compare") destroyHubAttendanceRoster();
-  if (weekPayload) renderWeek(panelEl);
-  else void loadWeek(panelEl);
-  if (feature === "compare" && !livePayload) void loadLive(panelEl);
-}
+// --- The tab's entry points ----------------------------------------------
 
 // Called on every render of the Timesheets tab. Builds the shell the first
 // time (and whenever the viewer's role changes what the shell contains),
-// then repaints or lazily loads whichever feature is showing.
+// then repaints or lazily loads.
 export function renderTimesheetsTab(panelEl, { role } = {}) {
   if (!panelEl) return;
   viewerRole = role;
   hostPanel = panelEl;
-  if (panelEl.dataset.timesheetsRole !== role || !panelEl.querySelector(".feature-panel")) {
+  if (panelEl.dataset.timesheetsRole !== role || !panelEl.querySelector(".hub-timesheets-week")) {
     buildShell(panelEl, role);
   }
-  showFeature(panelEl, panelEl.dataset.activeFeature || "hours");
+  // Repaint from cache, or lazily fetch the first time the tab is opened, so
+  // re-entering the tab never starts a second week request.
+  if (weekPayload) renderWeek(panelEl);
+  else void loadWeek(panelEl);
+  if (livePayload) renderLive(panelEl);
+  else void loadLive(panelEl);
 }
 
 // A different person signed in, or this viewer no longer has the tab. Both
@@ -246,15 +210,13 @@ export function resetTimesheetsTab(panelEl) {
   viewerRole = null;
   if (!panelEl) return;
   delete panelEl.dataset.timesheetsRole;
-  delete panelEl.dataset.activeFeature;
   panelEl.replaceChildren();
 }
 
-// Spec §6: this sub-tab owns the `attendance.changed` subscription. Every
-// punch write emits it (audience Admin), so a technician punching out moves
-// the strip without waiting out the 60-second poll. Background by nature --
-// a socket signal, not a user action -- and inert unless the comparison is
-// the open sub-tab.
+// Spec §6: this tab owns the `attendance.changed` subscription. Every punch
+// write emits it (audience Admin), so a technician punching out moves the
+// strip without waiting out the 60-second poll. Background by nature -- a
+// socket signal, not a user action -- and inert unless this tab is showing.
 subscribe("attendance.changed", ({ activePage }) => {
   if (activePage !== "user-hub") return;
   refreshTimesheetsLive();

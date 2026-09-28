@@ -1,12 +1,13 @@
-// View: the Admin Timesheets tab's **Hours** sub-feature.
+// View: the Admin Timesheets tab's **Hours** grid, under the leaderboard.
 //
 // Layer: views (no fetch, no state beyond which cell is open). The payload
 // owns both the grid and every cell's drill-down, so opening detail never
 // starts another request -- the rule the retired crew grid established.
 //
 // **Clocked time only** (spec §8): what this prints is time on shift, the pay
-// number, never rounded to 30 minutes the way a billed number is. The
-// comparison against tracked and billed is a different sub-tab, in P4.
+// number, never rounded to 30 minutes the way a billed number is. Charged
+// time and its money live in the leaderboard above (hubTimesheetLeaderboard.js),
+// which also owns the tab's week picker -- so the tab passes `weekNav: false`.
 //
 // P3 added editing: `[Edit]` / `[Looks right]` per punch row and
 // `[+ Add punch]` per day, all inside the drill-down and all withheld unless
@@ -22,7 +23,7 @@ import { mountPunchEditor } from "./hubAttendancePunchEditor.js";
 const CENTRAL_TIME_ZONE = "America/Chicago";
 
 // `8:00`, not format.js's `8 h 0 m`: a seven-column grid of hours reads as a
-// column of clock times. hubAttendanceCompare.js makes the same choice.
+// column of clock times. hubTimesheetLeaderboard.js makes the same choice.
 function formatHm(totalMinutes) {
   const minutes = Math.max(0, Math.round(Number(totalMinutes) || 0));
   return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}`;
@@ -134,7 +135,7 @@ function shiftMonday(iso, days) {
 }
 
 export function mountHubAttendanceHours(container, payload, {
-  onWeekChange, onSavePunch, onAddPunch, onDeletePunch, onClearReview,
+  onWeekChange, onSavePunch, onAddPunch, onDeletePunch, onClearReview, weekNav = true,
 } = {}) {
   let expanded = null;
   // A punch id, `add:<date>`, or null. Cleared whenever the open cell moves:
@@ -207,15 +208,19 @@ export function mountHubAttendanceHours(container, payload, {
         </div>`
       : `<p class="hint hub-hours-empty">Nobody clocked in this week.</p>`;
 
-    container.innerHTML = `<section class="hub-hours" aria-labelledby="hub-hours-heading">
-      <h3 id="hub-hours-heading" class="sr-only">Clocked hours</h3>
-      <div class="hub-hours-toolbar">
+    const toolbar = weekNav
+      ? `<div class="hub-hours-toolbar">
         <div class="hub-hours-week-nav">
           <button type="button" class="secondary-btn hub-hours-prev" aria-label="Previous week">◀</button>
           <strong>${escapeHtml(weekLabel(payload.week_start, payload.week_end))}</strong>
           <button type="button" class="secondary-btn hub-hours-next" aria-label="Next week">▶</button>
         </div>
-      </div>
+      </div>`
+      : "";
+    container.innerHTML = `<section class="hub-hours" aria-labelledby="hub-hours-heading">
+      <h3 id="hub-hours-heading" class="${weekNav ? "sr-only" : "hub-hours-heading"}">Daily hours</h3>
+      ${weekNav ? "" : `<p class="hint hub-hours-hint">Tap a day to see, fix or add punches.</p>`}
+      ${toolbar}
       <p class="hub-hours-message" aria-live="polite"></p>
       ${table}
       ${dst}

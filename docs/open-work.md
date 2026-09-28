@@ -58,7 +58,7 @@ under the Communities cards. Request logged only.
 
 P1–P4b shipped: the punch record and its state machine, the self-scoped
 routes, the work-order clock coupling, the Home tab, the Admin Timesheets tab
-(Hours + Charged vs clocked), the audited punch editor, `GET
+(now one page: roster, revenue leaderboard, Hours), the audited punch editor, `GET
 /hub/attendance/week` · `/export` · `/live`, the `attendance.changed`
 envelope, and the retirement of `GET /hub/timesheets` (D6) — at its accepted
 cost, that a Supervisor loses the tab and keeps the Dashboard crew board.

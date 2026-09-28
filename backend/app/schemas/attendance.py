@@ -7,6 +7,7 @@ quietly serialising as null -- the rule `schemas/hub.py` set.
 
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Optional
 
 from pydantic import BaseModel
@@ -117,13 +118,16 @@ class AttendanceWeekResponse(BaseModel):
     """Clocked time only (§8): real wall-clock on shift, never rounded.
 
     Clocked is the pay number (§8) and is never rounded. `tracked_minutes`
-    and `delta_minutes` join it here for the comparison sub-tab; the Hours
+    and `delta_minutes` join it here for the leaderboard; the Hours
     grid reads the same object and ignores them. There is no billed column:
     `billed_labor_minutes` rounds a whole work order's combined labor, so no
     honest per-person-per-day billed number exists to put here.
 
     `week_hours` is 168, or 167 / 169 across a DST transition. The grid's
-    footer prints it so a short week does not read as missing hours."""
+    footer prints it so a short week does not read as missing hours.
+
+    `labor_rate` is billing's own $/hour, sent so the revenue leaderboard
+    never carries a second copy of it."""
 
     week_start: date
     week_end: date
@@ -135,6 +139,7 @@ class AttendanceWeekResponse(BaseModel):
     tracked_minutes: int
     delta_minutes: int
     week_hours: int
+    labor_rate: Decimal
 
     model_config = {"from_attributes": True}
 

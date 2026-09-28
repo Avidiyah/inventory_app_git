@@ -184,9 +184,9 @@ def get_hub_attendance_week(
     db: Session = Depends(get_db),
 ):
     """One Central week of attendance, per person per day, serving **both**
-    Admin sub-tabs: Hours renders the clocked column and the punch rows
-    behind every cell, Charged vs clocked renders clocked, tracked and the
-    two gaps between them.
+    halves of the Timesheets tab: Hours renders the clocked column and the
+    punch rows behind every cell, the leaderboard ranks charged and
+    uncharged time priced at `labor_rate`.
 
     **Admin, not TechFM OA.** This is the pay record (D1), so it sits above
     the rest of the admin toolkit -- `tests/test_route_role_gates.py` carries
@@ -198,7 +198,7 @@ def get_hub_attendance_week(
     the same reason it is on `GET /hub/report`.
 
     Side-effect-free (spec §4): no sweep, no row locks, which is what lets
-    the comparison sub-tab poll beside it. That includes the labor half: a
+    the Timesheets tab poll it. That includes the labor half: a
     clock nobody stopped is clipped by `work_orders.capped_session_end` on
     the way out rather than swept, so reading the week never writes a row.
     """

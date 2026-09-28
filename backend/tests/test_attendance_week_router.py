@@ -131,3 +131,16 @@ def test_the_week_read_carries_the_comparison_columns(db):
     assert day["delta_minutes"] == 480      # clocked, nothing charged
     assert row["tracked_minutes"] >= 0
     assert {"tracked_minutes", "delta_minutes"} <= set(body)
+
+
+def test_the_week_read_carries_the_billing_labor_rate(db):
+    """The leaderboard prices hours at billing's own rate, sent here so the
+    client never holds a second copy of it."""
+    admin = _seed_user(db, role="admin", first="Dee", last="Ops")
+    db.commit()
+    try:
+        with _as(db, admin) as client:
+            body = client.get("/hub/attendance/week", params={"week": "2026-09-14"}).json()
+    finally:
+        del app.dependency_overrides[get_db]
+    assert float(body["labor_rate"]) == 62.5

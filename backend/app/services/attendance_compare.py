@@ -32,6 +32,7 @@ import io
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
@@ -75,13 +76,14 @@ class CompareWeek:
     tracked_minutes: int
     delta_minutes: int
     week_hours: int
+    labor_rate: Decimal         # the leaderboard's $/hour; billing's own rate
 
 
 def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek:
     """The comparison for the Central week beginning `week_start` (a Monday).
 
     `week_start` is resolved by `work_order_report.resolve_week` at the route,
-    exactly as the Hours read resolves it -- the two sub-tabs share one week
+    exactly as the Hours read resolves it -- the leaderboard and Hours share one week
     by construction, not by two agreeing implementations.
     """
     clocked = attendance_week.week_payload(db, week_start=week_start, now=now)
@@ -168,6 +170,7 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
         tracked_minutes=week_tracked,
         delta_minutes=week_delta,
         week_hours=clocked.week_hours,
+        labor_rate=wo.LABOR_RATE,
     )
 
 

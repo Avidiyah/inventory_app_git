@@ -231,9 +231,9 @@ export const TIPS = {
     label: "My crew",
     text: "Crew membership is derived from live work orders routed to you, not from a permanent team list. A person appears after a work order is assigned under your supervision.",
   },
-  "hub.charged-vs-clocked": {
-    label: "Charged vs clocked",
-    text: "Clocked is time on shift, the number payroll uses. Charged is time on a work-order clock. The difference is time on shift with no job running. A warning flag means charged time that no punch covers, which is allowed and shown rather than refused. Hand-entered labor adjustments have no start or stop and are counted in neither column.",
+  "hub.leaderboard": {
+    label: "Leaderboard",
+    text: "Money made is charged hours times the billing labor rate; money lost is hours clocked in but not on a work order, at the same rate. It is an estimate, not the invoice, which rounds each work order up to the next 30 minutes. Hours an admin entered or edited by hand are counted, not left out: pressing the clock button is easy, but doing it every time is a habit the crew is still building, so nobody drops in the ranking while it forms.",
   },
   "hub.attention": {
     label: "Needs attention",

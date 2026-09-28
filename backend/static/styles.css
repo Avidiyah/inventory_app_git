@@ -2978,15 +2978,16 @@ tr.archived-user {
     padding-inline: var(--space-3);
 }
 
-/* P4a's comparison grid. Chrome is the Hours grid's, reused by class rather
-   than copied: the markup carries `.hub-hours-table-wrap` and
-   `.hub-hours-table` as well, so a change to the Hours sizing lands on both.
-   Only what differs lives here -- a cell is three stacked figures instead of
-   one, and nine such columns need a wider floor before the wrapper scrolls.
-   No new colour token and no fill: design-system.md allows `--color-error` as
-   text, which is what the outside-shift flag uses, and every flag prints its
-   words beside its glyph so no cell's meaning depends on hue. */
-.hub-compare-toolbar {
+/* The Timesheets revenue leaderboard. Chrome is the Hours grid's, reused by
+   class (`.hub-hours-table-wrap`, `.hub-hours-table`). Money text uses
+   `--color-success` / `--color-error` as text only; the made/lost bar fill is
+   brand red against a neutral rule, and every bar prints its percentage in
+   words, so nothing depends on hue. Bar widths are set through CSSOM. */
+.hub-leaderboard {
+    margin-bottom: var(--space-4);
+}
+
+.hub-leaderboard-toolbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -2995,55 +2996,79 @@ tr.archived-user {
     margin-bottom: var(--space-3);
 }
 
-.hub-compare-week-nav,
-.hub-compare-actions {
+.hub-leaderboard-week-nav {
     display: flex;
     align-items: center;
     gap: var(--space-2);
 }
 
-.hub-compare-table {
-    min-width: 900px;
+.hub-leaderboard-heading,
+.hub-hours-heading {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-lg);
 }
 
-.hub-compare-cell {
-    display: grid;
-    gap: 2px;
-    justify-items: end;
+.hub-hours-hint {
+    margin: 0 0 var(--space-2);
 }
 
-.hub-compare-table th:first-child .hub-compare-cell,
-.hub-compare-table td:first-child .hub-compare-cell {
-    justify-items: start;
+.hub-leaderboard-table {
+    min-width: 720px;
 }
 
-.hub-compare-tracked,
-.hub-compare-delta,
-.hub-compare-adjustment {
-    font-size: var(--fs-sm);
-    color: var(--text-panel-mute);
+.hub-leaderboard-rank {
+    width: 3.5rem;
+    font-size: var(--fs-lg);
 }
 
-.hub-compare-flag {
-    font-size: var(--fs-xs);
-    white-space: normal;
+.hub-leaderboard-top th {
+    font-weight: 700;
 }
 
-.hub-compare-flag-outside {
+.hub-leaderboard-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.hub-leaderboard-made {
+    color: var(--color-success);
+    font-weight: 600;
+}
+
+.hub-leaderboard-lost {
     color: var(--color-error);
 }
 
-.hub-compare-adjustment {
-    font-size: var(--fs-xs);
+.hub-leaderboard-split {
+    min-width: 160px;
 }
 
-.hub-compare-empty,
-.hub-compare-dst,
-.hub-compare-legend {
+.hub-leaderboard-bar {
+    display: flex;
+    height: 10px;
+    border-radius: 5px;
+    overflow: hidden;
+    background: var(--panel-rule);
+}
+
+.hub-leaderboard-bar-made {
+    background: var(--color-brand);
+}
+
+.hub-leaderboard-pct {
+    font-size: var(--fs-xs);
+    color: var(--text-panel-mute);
+}
+
+.hub-leaderboard-empty,
+.hub-leaderboard-legend {
     margin-top: var(--space-2);
 }
 
-.hub-compare-legend {
+.hub-leaderboard-legend {
     max-width: 68ch;
 }
 
@@ -3159,16 +3184,9 @@ tr.archived-user {
     color: var(--color-error);
 }
 
-/* A sub-nav nested inside a hub tabpanel sits directly under the tab strip,
-   so it needs the breathing room the page-level `.sub-nav` gets from its
-   page header. Chrome itself is inherited from `.sub-nav` unchanged. */
-.hub-tabpanel .hub-sub-nav {
-    margin-bottom: var(--space-3);
-}
-
 @media (max-width: 600px) {
     .hub-hours-toolbar,
-    .hub-compare-toolbar,
+    .hub-leaderboard-toolbar,
     .hub-hours-drilldown-heading,
     .hub-hours-drilldown-row {
         align-items: flex-start;

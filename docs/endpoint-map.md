@@ -384,7 +384,7 @@ endpoint or form exists; every other surface resolves an existing number and
 - `labor.session.changed` (audience Supervisor+) fires from both tracking
   routes after every clock start/stop with `id: null`; recipients refetch the
   crew board. `attendance.changed` (audience Admin) fires from the six punch
-  writes, also with `id: null`; the Charged vs clocked sub-tab refetches the
+  writes, also with `id: null`; the Timesheets tab refetches the
   roster and the week. See `docs/notification-events.md`.
 
 ### Mass staging / tools
@@ -934,8 +934,9 @@ and the object `GET /hub/attendance/export` serializes. `week` is a Monday,
 absent = the week in progress; a non-Monday is 422 from
 `work_order_report.resolve_week`. Fields: `week_start`, `week_end`,
 `server_now`, `days` (seven Central dates), `rows`, `totals_by_day`,
-`total_minutes`, `tracked_minutes`, `delta_minutes`, and `week_hours` (168,
-or 167 / 169 across a DST transition). One read serves both Admin sub-tabs.
+`total_minutes`, `tracked_minutes`, `delta_minutes`, `week_hours` (168,
+or 167 / 169 across a DST transition), and `labor_rate` (billing's $/hour, for
+the leaderboard). One read serves the leaderboard and Hours.
 
 **`AttendanceWeekRow`**: `user: HubUser`, `days`, `total_minutes` (clocked),
 `tracked_minutes`, `delta_minutes`.

@@ -423,8 +423,7 @@ function startCrewSafetyRefresh() {
     if (viewerCanSeeAdminTiles()) void refreshAdmin({ background: true });
     if (activeTab === "graphs" && viewerCanSeeAdminTiles()) void loadGraphs({ background: true });
     // The Timesheets tab's roster rides the hub's existing safety timer
-    // rather than starting a second one; the call is inert unless Charged
-    // vs clocked is the open sub-tab.
+    // rather than starting a second one.
     if (activeTab === "timesheets") refreshTimesheetsLive(tabPanels.timesheets);
   }, CREW_SAFETY_REFRESH_MS);
 }
