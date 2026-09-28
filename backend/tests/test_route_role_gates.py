@@ -551,6 +551,7 @@ def test_no_route_gate_is_left_at_the_admin_floor():
         "get_hub_attendance_live",
         "add_hub_attendance_punch",
         "edit_hub_attendance_punch",
+        "clock_out_hub_attendance_user",
         "delete_hub_attendance_punch",
         "export_hub_attendance",
         "review_hub_attendance_week",
@@ -579,6 +580,7 @@ def test_the_live_roster_sits_above_techfm_oa():
 @pytest.mark.parametrize(
     "endpoint_name",
     ["add_hub_attendance_punch", "edit_hub_attendance_punch",
+     "clock_out_hub_attendance_user",
      "delete_hub_attendance_punch", "review_hub_attendance_week"],
 )
 def test_the_punch_writes_sit_above_techfm_oa(endpoint_name):

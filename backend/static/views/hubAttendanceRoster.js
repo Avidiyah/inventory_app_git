@@ -18,6 +18,7 @@
 // The absent footer is `<details>`, not a button that toggles a panel: a
 // button inside the strip's header row would be a button inside a button.
 
+import { confirmDialog } from "../dom.js";
 import { escapeHtml } from "../format.js";
 
 const DEFAULT_IDLE_RED_MINUTES = 10;
@@ -26,6 +27,9 @@ let container = null;
 let payload = null;
 let skewMs = 0;
 let tickHandle = null;
+// Admin-only: the tab passes it, the card renders a Clock out button only
+// when it has one.
+let onClockOut = null;
 // Set by the tab-hide, cleared by the tab-show. It outlives a single
 // mount on purpose: a poll fired before the tab went away can land after
 // it, and a strip nobody is looking at must not resume the tick that
@@ -88,6 +92,9 @@ function cardHtml(entry) {
     <span class="hub-roster-name">${escapeHtml(name)}</span>
     <span class="hub-roster-detail">${escapeHtml(detailText(entry, state))}</span>
     <span class="hub-roster-since">${escapeHtml(since)}</span>
+    ${onClockOut ? `<button type="button" class="hub-link-btn hub-roster-clock-out"
+      data-user="${escapeHtml(String(entry.user?.id ?? ""))}"
+      data-name="${escapeHtml(name)}">Clock out</button>` : ""}
   </li>`;
 }
 
@@ -150,9 +157,22 @@ function startTicking() {
   tickHandle = setInterval(tick, 1000);
 }
 
+async function clickClockOut(event) {
+  const button = event.target.closest(".hub-roster-clock-out");
+  if (!button || !onClockOut) return;
+  const ok = await confirmDialog(
+    `Clock out ${button.dataset.name} now? Any work order they are charging stops too.`,
+    { confirmText: "Clock out" });
+  if (!ok) return;
+  button.disabled = true;
+  await onClockOut(button.dataset.user);
+}
+
 // Payload in, strip out. Re-mounting with a fresh payload is how a poll or an
 // `attendance.changed` envelope lands -- and is also what re-sorts the list.
-export function mountHubAttendanceRoster(mountEl, newPayload) {
+export function mountHubAttendanceRoster(mountEl, newPayload, { onClockOut: clockOut = null } = {}) {
+  if (container !== mountEl) mountEl.addEventListener("click", clickClockOut);
+  onClockOut = clockOut;
   container = mountEl;
   payload = newPayload;
   skewMs = new Date(newPayload.server_now).getTime() - Date.now();
@@ -178,7 +198,9 @@ export function startHubRosterTicking() {
 export function destroyHubAttendanceRoster() {
   suspended = false;
   stopTicking();
+  container?.removeEventListener("click", clickClockOut);
   container = null;
   payload = null;
+  onClockOut = null;
   skewMs = 0;
 }

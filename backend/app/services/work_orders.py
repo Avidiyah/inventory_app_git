@@ -2750,6 +2750,28 @@ def stop_labor_session(
     return _record_transition(work_order, previous=previous)
 
 
+def stop_running_session_for(
+    db: Session,
+    technician_id: uuid.UUID,
+    *,
+    actor: Optional[User],
+    ended_at: datetime,
+) -> None:
+    """Close this person's running clock, if any, at `ended_at` -- the
+    labor half of every path that ends a shift (D3). Auto-holds like a Stop
+    tap, because a person really did stop. No permission check and **no
+    commit**: the caller is the attendance write, which owns both, so the
+    punch and the labor land in one transaction."""
+    running = _running_session_for_user(db, technician_id)
+    if running is None:
+        return
+    work_order = _get_locked(db, running.work_order_id)
+    if work_order is None:
+        return
+    _close_session(db, running, work_order=work_order, actor=actor, ended_at=ended_at)
+    _auto_hold_if_idle(db, work_order)
+
+
 # --- material lines ------------------------------------------------------
 
 def _locked_live_item(db: Session, item_id: uuid.UUID) -> Item:

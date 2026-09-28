@@ -3191,6 +3191,11 @@ tr.archived-user {
     color: var(--text-panel-mute);
 }
 
+.hub-roster-clock-out {
+    align-self: flex-start;
+    font-size: var(--fs-sm);
+}
+
 .hub-roster-green {
     border-left-color: var(--color-success);
 }

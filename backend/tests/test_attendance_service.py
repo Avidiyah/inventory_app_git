@@ -8,7 +8,7 @@ import pytest
 
 from app.domain import attendance as attendance_domain
 from app.domain.errors import PunchAlreadyOpenError, PunchNotFoundError, PunchTimeInvalidError
-from app.models import AttendancePunch, User
+from app.models import AttendancePunch, AttendancePunchEdit, User, WorkOrderLaborSession
 from app.services import attendance as attendance_service
 from app.services import auth as auth_service
 from app.services import work_orders as wo_service
@@ -112,6 +112,64 @@ def test_self_close_refuses_a_time_before_the_punch_started(db):
     db.commit()
     with pytest.raises(PunchTimeInvalidError):
         attendance_service.self_close(db, user=tech, ended_at=started - timedelta(hours=1))
+
+
+def _charging(db):
+    """A technician on shift and charging a work order, the clock backdated
+    so a stated end time can land inside it."""
+    admin, tech = _seed_user(db, "admin"), _seed_user(db)
+    order = _seed_work_order(db, admin, tech)
+    attendance_service.punch_in(db, user=tech)
+    wo_service.start_labor_session(db, order.id, user=tech)
+    now = datetime.now(timezone.utc)
+    attendance_service.open_punch_for(db, tech.id).started_at = now - timedelta(hours=3)
+    wo_service.running_labor_session_for(db, tech.id).started_at = now - timedelta(hours=2)
+    db.commit()
+    return admin, tech, now
+
+
+def test_admin_clock_out_closes_the_punch_stops_the_clock_and_audits(db):
+    admin, tech, _now = _charging(db)
+    punch = attendance_service.admin_clock_out(db, actor=admin, user_id=tech.id)
+    assert punch.ended_at is not None
+    assert punch.end_source == attendance_domain.END_SOURCE_ADMIN_EDIT
+    assert wo_service.running_labor_session_for(db, tech.id) is None
+    edit = db.query(AttendancePunchEdit).filter_by(punch_id=punch.id).one()
+    assert edit.field == "ended_at" and edit.edited_by_id == admin.id
+
+
+def test_admin_clock_out_of_someone_not_clocked_in_is_a_404(db):
+    admin, tech = _seed_user(db, "admin"), _seed_user(db)
+    with pytest.raises(PunchNotFoundError):
+        attendance_service.admin_clock_out(db, actor=admin, user_id=tech.id)
+
+
+def test_admin_edit_closing_an_open_punch_stops_the_clock_at_that_time(db):
+    admin, tech, now = _charging(db)
+    punch = attendance_service.open_punch_for(db, tech.id)
+    end = now - timedelta(hours=1)
+    attendance_service.admin_edit_punch(db, actor=admin, punch_id=punch.id, ended_at=end)
+    assert wo_service.running_labor_session_for(db, tech.id) is None
+    stopped = (db.query(WorkOrderLaborSession)
+               .filter_by(technician_id=tech.id).one())
+    assert stopped.ended_at == end
+
+
+def test_an_end_before_the_clock_started_is_refused_not_zeroed(db):
+    admin, tech, now = _charging(db)
+    punch = attendance_service.open_punch_for(db, tech.id)
+    with pytest.raises(PunchTimeInvalidError):
+        attendance_service.admin_edit_punch(
+            db, actor=admin, punch_id=punch.id, ended_at=now - timedelta(hours=2, minutes=30))
+    db.rollback()
+    assert wo_service.running_labor_session_for(db, tech.id) is not None
+    assert attendance_service.open_punch_for(db, tech.id) is not None
+
+
+def test_self_close_stops_the_clock_too(db):
+    _admin, tech, now = _charging(db)
+    attendance_service.self_close(db, user=tech, ended_at=now - timedelta(minutes=30))
+    assert wo_service.running_labor_session_for(db, tech.id) is None
 
 
 def test_me_payload_sums_todays_clocked_minutes_without_rounding(db):

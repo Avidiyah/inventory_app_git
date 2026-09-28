@@ -87,6 +87,18 @@ describe("the roster strip", () => {
     expect(vi.getTimerCount()).toBe(1);
   });
 
+  it("offers Clock out only when given the callback, and calls it with the user", async () => {
+    view.mountHubAttendanceRoster(host, attendanceLive());
+    expect(host.querySelector(".hub-roster-clock-out")).toBeNull();
+
+    const onClockOut = vi.fn().mockResolvedValue(undefined);
+    view.mountHubAttendanceRoster(host, attendanceLive(), { onClockOut });
+    const button = cards()[0].querySelector(".hub-roster-clock-out");
+    button.click();
+    await vi.waitFor(() => expect(onClockOut).toHaveBeenCalledTimes(1));
+    expect(onClockOut).toHaveBeenCalledWith(cards()[0].dataset.user);
+  });
+
   it("escapes a name and a work-order number", () => {
     const payload = attendanceLive();
     payload.on_shift[2].work_order_number = "<img src=x>";

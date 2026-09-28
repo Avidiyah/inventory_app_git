@@ -672,6 +672,12 @@ export async function apiEditAttendancePunch(punchId, { startedAt, endedAt, need
   return jsonRequest(`/hub/attendance/punches/${encodeURIComponent(punchId)}`, "PATCH", body);
 }
 
+// The roster's one-tap Clock out, stamped at the server's now so a skewed
+// client clock can never land it in the future.
+export async function apiClockOutAttendanceUser(userId) {
+  return jsonRequest(`/hub/attendance/clock-out/${encodeURIComponent(userId)}`, "POST", {});
+}
+
 // "Mark all reviewed": accepts every flagged punch and auto-closed session
 // touching the week, so the leaderboard ranks those days again.
 export async function apiReviewHubAttendanceWeek({ week = null } = {}) {

@@ -126,27 +126,36 @@ def punch_in(
 def punch_out(
     db: Session, *, user: User, now: Optional[datetime] = None
 ) -> AttendancePunch:
-    """Close the punch **and** force-stop any running labor session (D3).
-
-    Labor first, deliberately: `stop_labor_session` writes the labor row at
-    its own `now`, and closing the punch first would leave a charged minute
-    landing after the shift ended -- the exact shape 9 flags as a warning
-    rather than a refusal, and there is no reason to manufacture one here.
-    """
+    """Close the punch **and** force-stop any running labor session (D3),
+    both at the same `now` and in one commit."""
     now = now or datetime.now(timezone.utc)
     punch = open_punch_for(db, user.id)
     if punch is None:
         raise PunchNotFoundError("You are not punched in.")
 
-    running = wo_service.running_labor_session_for(db, user.id)
-    if running is not None:
-        wo_service.stop_labor_session(db, running.work_order_id, user=user)
-
+    _stop_labor(db, user_id=user.id, actor=user, ended_at=now)
     punch.ended_at = now
     punch.end_source = attendance.END_SOURCE_MANUAL
     db.commit()
     db.refresh(punch)
     return punch
+
+
+def _stop_labor(db: Session, *, user_id: uuid.UUID, actor: User,
+                ended_at: datetime) -> None:
+    """Every punch-out stops the person's running work-order clock at the
+    punch's end (D3). A clock that started *after* that end is refused, not
+    zeroed: it is real work the stated time would silently erase."""
+    running = wo_service.running_labor_session_for(db, user_id)
+    if running is None:
+        return
+    end = labor_day.as_utc(ended_at)
+    if end < labor_day.as_utc(running.started_at):
+        started = labor_day.as_utc(running.started_at).astimezone(labor_day.CENTRAL)
+        raise PunchTimeInvalidError(
+            "A work-order clock has been running since "
+            f"{started.hour % 12 or 12}:{started:%M %p}; end the shift after that.")
+    wo_service.stop_running_session_for(db, user_id, actor=actor, ended_at=end)
 
 
 def self_close(
@@ -163,6 +172,7 @@ def self_close(
     if punch is None:
         raise PunchNotFoundError("You have no open punch to close.")
     attendance.validate_punch_window(punch.started_at, ended_at, now=now)
+    _stop_labor(db, user_id=user.id, actor=user, ended_at=ended_at)
     punch.ended_at = labor_day.as_utc(ended_at)
     punch.end_source = attendance.END_SOURCE_SELF_REPORTED
     punch.needs_review = True
@@ -307,6 +317,9 @@ def admin_edit_punch(db: Session, *, actor: User, punch_id,
     `ended_at` would re-open a shift somebody already left, and the open-punch
     index would then fight whatever they are living through today.
 
+    Closing an open punch stops the person's running work-order clock at the
+    same instant, exactly as their own punch-out would.
+
     Any change clears `needs_review` -- an Admin who has looked at a
     self-reported time has reviewed it. Passing `needs_review=False` alone is
     the "Looks right" action: reviewed, nothing to correct.
@@ -332,6 +345,8 @@ def admin_edit_punch(db: Session, *, actor: User, punch_id,
     if not changes:
         raise NoChangeError("Nothing about that punch changed.")
 
+    if punch.ended_at is None and new_end is not None:
+        _stop_labor(db, user_id=punch.user_id, actor=actor, ended_at=new_end)
     punch.started_at, punch.ended_at = new_start, new_end
     if any(field == "ended_at" for field, _old, _new in changes):
         punch.end_source = attendance.END_SOURCE_ADMIN_EDIT
@@ -343,6 +358,18 @@ def admin_edit_punch(db: Session, *, actor: User, punch_id,
     db.commit()
     db.refresh(punch)
     return punch
+
+
+def admin_clock_out(db: Session, *, actor: User, user_id: uuid.UUID,
+                    now: Optional[datetime] = None) -> AttendancePunch:
+    """The roster's one-tap "Clock out": close this person's open punch at
+    the server's now -- an audited `admin_edit_punch`, labor stop included."""
+    now = now or datetime.now(timezone.utc)
+    punch = open_punch_for(db, user_id)
+    if punch is None:
+        raise PunchNotFoundError("They are not clocked in.")
+    return admin_edit_punch(db, actor=actor, punch_id=punch.id, ended_at=now,
+                            reason="Clocked out by an Admin", now=now)
 
 
 def admin_delete_punch(db: Session, *, actor: User, punch_id,

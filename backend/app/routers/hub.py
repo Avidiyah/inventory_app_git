@@ -256,6 +256,23 @@ def edit_hub_attendance_punch(
     return punch
 
 
+@router.post("/attendance/clock-out/{user_id}", response_model=AttendancePunchResponse)
+def clock_out_hub_attendance_user(
+    user_id: uuid.UUID,
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """The roster's "Clock out": close this person's open punch at the
+    server's now and stop their running work-order clock. 404 when they are
+    not clocked in."""
+    try:
+        punch = attendance_service.admin_clock_out(db, actor=user, user_id=user_id)
+    except DomainError as exc:
+        raise to_http(exc) from exc
+    emit_attendance_changed()
+    return punch
+
+
 @router.delete("/attendance/punches/{punch_id}", response_model=AttendancePunchResponse)
 def delete_hub_attendance_punch(
     punch_id: uuid.UUID,

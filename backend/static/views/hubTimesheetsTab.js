@@ -19,12 +19,14 @@
 
 import {
   apiAddAttendancePunch,
+  apiClockOutAttendanceUser,
   apiDeleteAttendancePunch,
   apiEditAttendancePunch,
   apiGetHubAttendanceLive,
   apiGetHubAttendanceWeek,
   apiReviewHubAttendanceWeek,
 } from "../api.js";
+import { messageDialog } from "../dom.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
 import { roleAtLeast } from "../roles.js";
@@ -134,7 +136,22 @@ function changeWeek(panelEl) {
 
 function renderLive(panelEl) {
   const mount = mountFor(panelEl, "roster");
-  if (mount && livePayload) mountHubAttendanceRoster(mount, livePayload);
+  if (!mount || !livePayload) return;
+  const onClockOut = roleAtLeast(viewerRole, "admin")
+    ? (userId) => clockOut(panelEl, userId)
+    : null;
+  mountHubAttendanceRoster(mount, livePayload, { onClockOut });
+}
+
+// Refetch both halves after: the strip loses the card, the grid closes the
+// cell. A refusal goes to a dialog -- the strip has no message line.
+async function clockOut(panelEl, userId) {
+  try {
+    await apiClockOutAttendanceUser(userId);
+  } catch (err) {
+    await messageDialog(friendlyError(err, "Could not clock them out."));
+  }
+  await Promise.all([loadLive(panelEl), loadWeek(panelEl)]);
 }
 
 // A roster failure is deliberately silent: it leaves the strip empty and the
