@@ -16,6 +16,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from app.auth_deps import get_current_user, require_min_role
@@ -34,6 +35,7 @@ from app.schemas.items import (
     LowStockItemResponse,
     LowStockThresholdUpdate,
 )
+from app.services import barcode_labels as barcode_labels_service
 from app.services import inventory_export_xlsx, work_order_report_xlsx
 from app.services import items as items_service
 from app.services import notes as notes_service
@@ -178,6 +180,20 @@ def export_inventory(
                 f'attachment; filename="{inventory_export_xlsx.export_filename(now)}"'
         },
     )
+
+
+@router.get(
+    "/labels",
+    response_class=HTMLResponse,
+    responses={403: {"description": "Requires the TechFM OA role or above."}},
+)
+def barcode_labels(
+    user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
+    db: Session = Depends(get_db),
+):
+    """Print page of barcode labels. Above `GET /items/{barcode}` for the
+    same shadowing reason as `/low-stock`."""
+    return barcode_labels_service.labels_html(db)
 
 
 @router.get(

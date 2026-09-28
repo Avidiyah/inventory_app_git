@@ -18,7 +18,7 @@ from app.services import auth as auth_service
 from app.services import user_requests as request_service
 
 
-def _export(db, role):
+def _export(db, role, path="/items/export"):
     user = User(
         username=f"u-{uuid.uuid4().hex[:10]}",
         password_hash=auth_service.hash_password("hunter2"),
@@ -31,7 +31,7 @@ def _export(db, role):
     try:
         with TestClient(app) as client:
             client.cookies.set("session", token)
-            return client.get("/items/export")
+            return client.get(path)
     finally:
         del app.dependency_overrides[get_db]
 
@@ -74,3 +74,16 @@ def test_export_holds_items_and_every_request_tab(db):
     low_rows = [r for r in book["Items"].iter_rows(min_row=5) if r[3].value == "LOW"]
     assert name in [r[0].value for r in low_rows]
     assert all(r[0].font.color.rgb.endswith("C8102E") for r in low_rows)
+
+
+def test_labels_page_wraps_barcodes_for_code39_and_escapes_names(db):
+    barcode = f"LBL-{uuid.uuid4().hex[:8].upper()}"
+    db.add(Item(barcode=barcode, name="Pipe <1in> & cap", quantity=Decimal("1"), location="Bay 1"))
+    db.commit()
+
+    assert _export(db, "supervisor", "/items/labels").status_code == 403
+    response = _export(db, "techfm_oa", "/items/labels")
+
+    assert response.status_code == 200
+    assert f'<div class="code39">*{barcode}*</div>' in response.text
+    assert "Pipe &lt;1in&gt; &amp; cap" in response.text

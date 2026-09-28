@@ -1,0 +1,31 @@
+/* GET /items/labels: one barcode label per row, cut along the dashed lines. */
+body {
+    margin: 0 auto;
+    max-width: 7.5in;
+    background: #fff;
+    color: #000;
+    font-family: Arial, sans-serif;
+}
+
+.label {
+    padding: 12pt 0;
+    border-bottom: 1px dashed #999;
+    text-align: center;
+    break-inside: avoid;
+}
+
+.code39 {
+    font-family: "IDAutomationHC39M Free Version", monospace;
+    font-size: 24pt;
+    white-space: nowrap;
+}
+
+.name {
+    margin-top: 4pt;
+    font-size: 14pt;
+    font-weight: bold;
+}
+
+@media print {
+    .hint { display: none; }
+}
