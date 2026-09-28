@@ -19,6 +19,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models import (
+    AttendancePunch,
     Item,
     MassStage,
     MassStageItem,
@@ -92,6 +93,8 @@ def _purge(db: Session, pattern: str) -> int:
             delete(ToolTransaction).where(ToolTransaction.assigned_to_id.in_(user_ids))
         )
         _run(delete(MassStage).where(MassStage.created_by_id.in_(user_ids)))
+        # Starting a labor clock auto-punches the owner in (D3).
+        _run(delete(AttendancePunch).where(AttendancePunch.user_id.in_(user_ids)))
 
     if work_order_ids:
         _run(delete(WorkOrder).where(WorkOrder.id.in_(work_order_ids)))

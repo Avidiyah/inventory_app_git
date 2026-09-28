@@ -24,7 +24,7 @@ from app.main import SHELL_PARTS
 # `integrations-import-section` ships with a `hidden` attribute and is
 # unhidden for Admin+ only, so asserting it visible also proves role gating ran.
 PAGE_LANDMARKS = {
-    "user-hub": "#hub-tabpanel-dashboard",
+    "user-hub": "#hub-tabpanel-home",  # the hub opens on Home
     "create-item": "#create-item-section",
     # NOT #items-table: it ships `hidden` and is unhidden only once a search
     # returns rows. #items-search is the always-rendered search control.
