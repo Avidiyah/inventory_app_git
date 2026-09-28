@@ -180,9 +180,12 @@ backend/static/views/push.js     opt-in button, iOS install instructions, Owner 
 backend/static/pricingText.js    shared price/redaction copy
 backend/static/adminReviewReceipt.js frontend half of the 41-char receipt contract
 backend/static/views/*.js        page/view modules
-backend/static/views/workOrders.js Work Orders public surface (barrel over the eight below)
+backend/static/views/workOrders.js Work Orders public surface (barrel over the siblings below)
 backend/static/views/workOrderList.js list load, card build, realtime, the openWorkOrders* entry points
 backend/static/views/workOrderCardHtml.js every card HTML builder + the picker/combo open-close helpers
+backend/static/views/workOrderStatusActions.js controls-row tiers (primary/secondary/tools) + charging strip
+backend/static/views/workOrderGlyphs.js status/priority/overdue/clock inline-SVG glyphs (group leaf)
+backend/static/views/workOrderFilterChips.js applied-filter chips + result count line
 backend/static/views/workOrderActions.js the six listeners delegated off #work-orders-list
 backend/static/views/workOrderIntegrations.js CSV import/export, NetFacilities enrichment + cloud auth
 backend/static/views/workOrderRouting.js card-page mode, /workorder_card/ URL, list scroll restore
@@ -205,12 +208,15 @@ backend/static/vendor/*          vendored ZXing browser library
 Work-order module rule: the nine other views import `workOrders.js` and only
 that; inside the group a sibling imports `workOrderList.js` directly, because
 importing the barrel from within the group makes a cycle. Dependency order,
-leaf first: `workOrderPresenters` → `workOrderReferenceData` /
-`workOrderFilters` → `workOrderCardHtml` → `workOrderRouting` →
+leaf first: `workOrderGlyphs` → `workOrderPresenters` →
+`workOrderReferenceData` / `workOrderFilters` (→ `workOrderFilterChips`) →
+`workOrderStatusActions` → `workOrderCardHtml` → `workOrderRouting` →
 `workOrderList` → `workOrderActions` / `workOrderIntegrations` → barrel.
 `workOrderRouting` takes its list dependencies by injection
 (`installWorkOrderRouting`), which keeps the one genuine mutual recursion
-(list → card page → back to list) out of the import graph.
+(list → card page → back to list) out of the import graph. A work-order
+module may pass the 500-line cap; past 1,000 it must move function bodies
+into helper modules.
 
 Tests:
 

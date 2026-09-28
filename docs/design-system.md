@@ -169,6 +169,20 @@ percentage. Color, hover, and a pointer device are never required to read an
 exact value. Other charts remain single-series or text-first unless this policy
 is deliberately amended.
 
+### Work-order cards: status, priority, actions
+
+- **Status pill** fills from its `--wo-status-*` token (same as the card
+  outline) and always carries a glyph (`views/workOrderGlyphs.js`); text is
+  `--color-ink` on Created / In-Progress, white elsewhere, each ≥ 4.5:1
+  (`tests/frontend/unit/workOrderContrast.test.js`). Never color alone.
+- **Priority tag** is square (`--radius-sm`) so it never reads as a status.
+  Normal / Low / None / Unknown are a neutral outline; only Emergency /
+  Urgent / High are filled, with a warning glyph. Overdue is a static
+  `--color-brand-light` outline tag.
+- **Controls row**: one filled primary per state (the lifecycle's next step,
+  `--btn-h`), other workflow buttons `.secondary-btn`, Admin+ tools
+  (Netfacilities, Archive) in a trailing `.wo-controls-tools` group.
+
 ### Text on dark glass
 
 `#login-section` is itself a `<section>`, so it now inherits the frosted

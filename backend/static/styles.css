@@ -160,7 +160,7 @@
 
     /* Langston University brand. Pulled from langston.edu's own stylesheet,
        NOT part of the TechFM red/black/white system -- see .lu-card and
-       .btn-netfacilities below, and docs/design-system.md. Reuse only for
+       .wo-netfacilities-btn below, and docs/design-system.md. Reuse only for
        chrome that specifically represents the NetFacilities/Langston side of
        the integration (the Integrations page card, and the per-work-order
        "Open Netfacilities" button); nowhere else. */
@@ -4286,41 +4286,79 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-card.wo-solo > .wo-summary::before { content: none; }
 .wo-card.wo-solo > .wo-summary > .wo-title { font-size: var(--fs-lg); }
 
-/* Work-order status pill. */
+/* Glyph in front of a status pill, priority/overdue tag, filter chip or the
+   charging strip (views/workOrderGlyphs.js). currentColor, so it takes the
+   text color of whatever it sits in. */
+.wo-glyph {
+    width: 12px;
+    height: 12px;
+    flex: none;
+}
+
+/* Work-order status pill: the same --wo-status-* token as the card outline,
+   plus a glyph, so status never rests on color alone. Text color per status
+   keeps >= 4.5:1 on its fill -- dark on the two light hues, white elsewhere
+   (tests/frontend/unit/workOrderContrast.test.js). */
 .wo-status {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
     padding: 2px var(--space-2);
     border-radius: var(--radius-pill);
     font-size: var(--fs-xs);
     font-weight: var(--fw-bold);
     color: var(--color-white);
 }
-.wo-status-created { background-color: #4B5563; }
-.wo-status-assigned { background-color: #7F1D1D; }
-.wo-status-in_progress { background-color: #854D0E; }
-.wo-status-on_hold { background-color: #9A3412; }
-.wo-status-ready_to_complete { background-color: #4C1D95; }
-.wo-status-completed { background-color: #1E3A8A; }
-.wo-status-review { background-color: #14532D; }
+.wo-status-created { background-color: var(--wo-status-created); color: var(--color-ink); }
+.wo-status-assigned { background-color: var(--wo-status-assigned); }
+.wo-status-in_progress { background-color: var(--wo-status-in-progress); color: var(--color-ink); }
+.wo-status-on_hold { background-color: var(--wo-status-on-hold); }
+.wo-status-ready_to_complete { background-color: var(--wo-status-ready-to-complete); }
+.wo-status-completed { background-color: var(--wo-status-completed); }
+.wo-status-review { background-color: var(--wo-status-review); }
 
-/* Priority pill: same shape as .wo-status, colored by severity bucket since
-   priority is free-form NetFacilities text (see priorityBucket() in
-   workOrders.js) rather than a fixed set of values. */
+/* Priority tag: square-cornered so it never reads as a status pill. Priority
+   is free-form NetFacilities text bucketed by keyword (priorityBucket() in
+   workOrderPresenters.js). Routine buckets are a quiet outline; only the
+   three that ask someone to act are filled and carry the warning glyph. */
 .wo-priority {
-    display: inline-block;
-    padding: 2px var(--space-2);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 1px var(--space-2);
+    border: 1px solid transparent;
     border-radius: var(--radius-sm);
     font-size: var(--fs-xs);
     font-weight: var(--fw-bold);
     color: var(--color-white);
+    background-color: var(--tag-fill, transparent);
 }
-.wo-priority-emergency { background-color: #B91C1C; }
-.wo-priority-urgent { background-color: #C2410C; }
-.wo-priority-high { background-color: #B45309; }
-.wo-priority-normal { background-color: #1D4ED8; }
-.wo-priority-low { background-color: #15803D; }
+.wo-priority-emergency { --tag-fill: #B91C1C; }
+.wo-priority-urgent { --tag-fill: #C2410C; }
+.wo-priority-high { --tag-fill: #B45309; }
+.wo-priority-normal,
+.wo-priority-low,
 .wo-priority-unknown,
-.wo-priority-none { background-color: #4B5563; }
+.wo-priority-none {
+    border-color: var(--panel-border);
+    color: var(--text-panel-mute);
+}
+/* The "!" inside the warning triangle, stroked in the tag's own fill. */
+.wo-glyph-cut { stroke: var(--tag-fill, currentColor); }
+
+/* Scheduled date passed while the job is still open. Static: overdue is a
+   fact to notice, not an alarm, so it never moves. */
+.wo-tag-overdue {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 1px var(--space-2);
+    border: 1px solid var(--color-brand-light);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    color: var(--color-brand-light);
+}
 
 /* Urgent is the one priority a person assigns by hand (the vendor never sends
    it), so it is the one priority allowed to move. Two layers, and they are
@@ -4521,21 +4559,32 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     color: var(--lu-navy);
 }
 
-/* "Open Netfacilities" on a work-order card (Admin+ only). Carries the same
-   Langston University navy/orange as .lu-card (see --lu-* vars above) since
-   it points at the same vendor system, even though it sits on an otherwise
-   red/black/white card. */
-.btn-netfacilities {
-    background-color: var(--lu-navy);
-    color: var(--color-white);
-    border-bottom: 3px solid var(--lu-orange);
-}
-.btn-netfacilities:hover {
-    background-color: var(--lu-navy);
-    border-bottom-color: var(--lu-orange-hover);
-}
+/* "Open Netfacilities" on a work-order card (Admin+ only). A secondary
+   button in the tools group; the Langston University orange underline (see
+   --lu-* vars above) marks it as pointing at the vendor system. */
+.wo-netfacilities-btn { border-bottom: 3px solid var(--lu-orange); }
+.wo-netfacilities-btn:hover { border-bottom-color: var(--lu-orange-hover); }
 
-/* Controls row: mode selector + complete/reopen. */
+/* "Charging since 9:14 AM": this caller's clock is running on the row. The
+   In-Progress yellow rule ties it to the status that charging implies. */
+.wo-charging-strip {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-left: 4px solid var(--wo-status-in-progress);
+    border-radius: var(--radius-sm);
+    background-color: var(--panel-well);
+    color: var(--text-panel);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+}
+.wo-charging-strip .wo-glyph { color: var(--wo-status-in-progress); }
+
+/* Controls row: mode selector, then one filled primary (the lifecycle's next
+   step, full --btn-h), secondaries, then the Admin+ tools group behind a
+   hairline (views/workOrderStatusActions.js). */
 .wo-controls {
     display: flex;
     gap: var(--space-3);
@@ -4546,6 +4595,59 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-mode-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 .wo-mode-select { margin-top: 0; min-height: var(--btn-h-sm); }
 .wo-controls button { margin-top: 0; min-height: var(--btn-h-sm); }
+.wo-controls > button:not(.secondary-btn):not(.btn-danger) { min-height: var(--btn-h); }
+.wo-controls-tools {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    flex-wrap: wrap;
+    margin-left: auto;
+    padding-left: var(--space-3);
+    border-left: 1px solid var(--panel-rule);
+}
+.wo-controls-tools button { font-size: var(--fs-sm); }
+
+/* Applied-filter chips + result count under the filter controls
+   (views/workOrderFilterChips.js). Each chip is a real button that clears
+   its one filter. */
+.wo-filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+}
+.wo-filter-chips[hidden] { display: none; }
+.wo-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--btn-h-sm);
+    margin-top: 0;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-pill);
+    background-color: var(--panel-well);
+    color: var(--text-panel);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+}
+.wo-filter-chip:hover { background-color: var(--panel-hover); color: var(--text-panel); }
+.wo-filter-chip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.wo-filter-chip-x { color: var(--text-panel-mute); font-size: var(--fs-base); }
+.wo-filter-chip-clear { color: var(--color-brand-light); border-color: var(--color-brand-light); }
+.wo-filter-chip-swatch {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: var(--radius-pill);
+}
+.wo-result-count {
+    margin: var(--space-2) 0 0;
+    color: var(--text-panel-mute);
+    font-size: var(--fs-sm);
+}
 .wo-review-ready { font-weight: var(--fw-bold); color: var(--color-success); }
 .wo-status-note { margin: 0; }
 

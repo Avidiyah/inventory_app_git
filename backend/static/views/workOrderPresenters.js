@@ -8,6 +8,7 @@
 import { escapeHtml, formatMoney } from "../format.js";
 import { getCurrentUser, getRole } from "../state.js";
 import { roleAtLeast } from "../roles.js";
+import { CLOCK_GLYPH, WARNING_GLYPH, statusGlyph } from "./workOrderGlyphs.js";
 
 export function isSupervisorPlus() {
   return roleAtLeast(getRole(), "supervisor");
@@ -127,8 +128,11 @@ export function statusLabel(status) {
   }[status] || status;
 }
 
+// One hue per status (the `--wo-status-*` token, shared with the card
+// outline) plus a glyph, so a status never rests on color alone. The glyph is
+// aria-hidden; the label is what screen readers and textContent read.
 export function statusBadge(status) {
-  return `<span class="wo-status wo-status-${escapeHtml(status)}">${escapeHtml(statusLabel(status))}</span>`;
+  return `<span class="wo-status wo-status-${escapeHtml(status)}">${statusGlyph(status)}${escapeHtml(statusLabel(status))}</span>`;
 }
 
 // Priority is raw NetFacilities vendor text with no fixed vocabulary (see
@@ -170,9 +174,48 @@ export function priorityBadgeClass(card) {
   return `wo-priority wo-priority-${priorityBucket(card.priority)}${fire}`;
 }
 
+// Only the buckets that ask someone to act get a filled tag and the warning
+// glyph; routine priority renders as a quiet outline (styles.css).
+const ATTENTION_BUCKETS = new Set(["emergency", "urgent", "high"]);
+
 export function priorityBadge(card) {
   const label = card.priority || "No priority";
-  return `<span class="${priorityBadgeClass(card)}">${escapeHtml(label)}</span>`;
+  const glyph = ATTENTION_BUCKETS.has(priorityBucket(card.priority)) ? WARNING_GLYPH : "";
+  return `<span class="${priorityBadgeClass(card)}">${glyph}${escapeHtml(label)}</span>`;
+}
+
+// `schedule_date` is raw import text. Mirrors domain/work_orders.py
+// parse_schedule_date: leading M/D/YYYY (vendor, 2-digit years are 20xx) or
+// YYYY-M-D (hand edits), optionally followed by a time. Returns a comparable
+// YYYYMMDD number, or null for blank / malformed / impossible dates.
+export function scheduleDayKey(value) {
+  const raw = String(value || "").trim();
+  let parts = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})(?:\s|$)/.exec(raw);
+  let year, month, day;
+  if (parts) {
+    [month, day, year] = parts.slice(1).map(Number);
+    if (year < 100) year += 2000;
+  } else {
+    parts = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s|$)/.exec(raw);
+    if (!parts) return null;
+    [year, month, day] = parts.slice(1).map(Number);
+  }
+  const probe = new Date(year, month - 1, day);
+  if (probe.getFullYear() !== year || probe.getMonth() !== month - 1 || probe.getDate() !== day) return null;
+  return year * 10000 + month * 100 + day;
+}
+
+// Scheduled before today (browser-local) and still open. Shares
+// SETTLED_STATUSES with urgentFireActive so a job that stops burning also
+// stops being overdue.
+export function isOverdue(card, now = new Date()) {
+  const key = scheduleDayKey(card.schedule_date);
+  if (key === null || SETTLED_STATUSES.has(card.status)) return false;
+  return key < now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate();
+}
+
+export function overdueTag(card) {
+  return isOverdue(card) ? `<span class="wo-tag-overdue">${CLOCK_GLYPH}Overdue</span>` : "";
 }
 
 // The class list for one work-order card. Every place that writes a card's

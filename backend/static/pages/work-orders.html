@@ -87,6 +87,10 @@
                 <input type="text" id="work-orders-task-search" placeholder="Search task keywords">
             </div>
             <p id="work-orders-export-message"></p>
+            <!-- Applied-filter chips + result count, filled after each list
+                 load by views/workOrderFilterChips.js. -->
+            <div id="work-orders-filter-chips" class="wo-filter-chips" aria-label="Applied filters" hidden></div>
+            <p id="work-orders-result-count" class="wo-result-count" aria-live="polite" hidden></p>
         </section>
 
         <section id="work-orders-list-section">

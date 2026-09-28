@@ -14,12 +14,11 @@ import {
   safeHttpUrl,
 } from "../format.js";
 import { tipHtml } from "../tooltip.js";
-import { getCurrentUser, getRole } from "../state.js";
+import { getCurrentUser } from "../state.js";
 import {
   assignedIds,
   assignedNames,
   canAddLabor,
-  canCurrentUserSendToReview,
   canEditLabor,
   formatMinutes,
   hoursInputValue,
@@ -33,9 +32,11 @@ import {
   notesLogContentsHtml,
   placeMeta,
   priorityBadge,
+  overdueTag,
   statusBadge,
   statusLabel,
 } from "./workOrderPresenters.js";
+import { chargingStripHtml, statusActionsHtml } from "./workOrderStatusActions.js";
 import { getAllSupervisors, getAllTechnicians } from "./workOrderReferenceData.js";
 import { livePriorityValues } from "./workOrderFilters.js";
 
@@ -487,6 +488,7 @@ export function summaryHtml(card) {
     `<span class="wo-title">WO ${escapeHtml(card.number)}</span>` +
     statusBadge(card.status) +
     priorityBadge(card) +
+    overdueTag(card) +
     legacyTag +
     `<span class="wo-meta">${place ? escapeHtml(place) + " · " : ""}${card.item_count} items${assignee}</span>`
   );
@@ -495,93 +497,13 @@ export function summaryHtml(card) {
 export function renderBody(detail, bodyEl) {
   const sup = isSupervisorPlus();
   const assignedToCurrentUser = isAssignedToCurrentUser(detail);
-  const canSendToReview = canCurrentUserSendToReview(detail);
   const items =
     detail.items.map((it) => renderLineHtml(it)).join("") ||
     `<p class="hint">No materials logged yet.</p>`;
 
-  // Whoever may hold a clock on this row: assigned workers, plus a Supervisor+
-  // on any work order they can see (they need not be on the crew to do the
-  // work and record it).
-  const canTrack = assignedToCurrentUser || sup;
-  const tracking = Boolean(detail.active_labor_session);
-  const startTracking = `<button type="button" data-action="start-tracking-wo">W.O. Received, Begin Charging</button>`;
-
-  let statusActions = "";
-  if (canTrack && (detail.status === "created" || detail.status === "assigned")) {
-    // "Set In-Progress" is gone: that transition is now a side effect of
-    // starting work, which is what the button always meant.
-    statusActions = startTracking;
-  } else if (canTrack && detail.status === "in_progress") {
-    statusActions = tracking
-      ? `<button type="button" data-action="stop-tracking-wo">Stop Charging</button>`
-      : startTracking;
-    // Notify Supervisor is the "I'm done" button and belongs to someone with a
-    // clock running; Stop Charging is the "I'm pausing" one. Both /complete and
-    // /hold require assignment server-side, so an unassigned supervisor who is
-    // only charging gets neither -- they close the row out with Mark Completed.
-    // A Supervisor+ who is *also* assigned skips this button entirely: they
-    // already have Mark Completed below, which is the real completion action
-    // for them, and complete_work_order's target status for a Supervisor+ is
-    // Completed anyway -- Notify Supervisor's "ask someone else" framing
-    // doesn't apply to the person who'd be notifying themself.
-    if (assignedToCurrentUser && tracking && !sup) {
-      statusActions += `<button type="button" data-action="notify-supervisor-wo">Notify Supervisor</button>`;
-    }
-    if (assignedToCurrentUser) {
-      statusActions += `<button type="button" class="secondary-btn" data-action="hold-assigned-wo">Place On-Hold</button>`;
-    }
-    if (sup) {
-      statusActions += `<button type="button" data-action="complete-wo">Mark Completed</button>`;
-    }
-  } else if (detail.status === "on_hold" && canTrack) {
-    // Begin Charging sits beside Resume and is the one a returning technician
-    // taps: it does the same transition *and* starts the clock. Resume stays
-    // for the case where work resumes without the tapper being the one doing
-    // it. Not an either/or with the supervisor half either -- a Supervisor who
-    // is also an assigned worker needs both.
-    statusActions += startTracking;
-    if (assignedToCurrentUser) {
-      statusActions += `<button type="button" class="secondary-btn" data-action="resume-assigned-wo">Resume In-Progress</button>`;
-    }
-    if (sup) {
-      statusActions += `<button type="button" data-action="complete-wo">Mark Completed</button>`;
-      statusActions += `<span class="hint wo-status-note">On-Hold — nobody is charging time. A supervisor can also resume or roll back this work order in the Edit details card.</span>`;
-    }
-  } else if (detail.status === "ready_to_complete") {
-    // The first review gate: one supervisor confirming the work happened.
-    // Distinct from Send to Review, which is the later Admin handoff.
-    if (sup) {
-      statusActions =
-        `<button type="button" data-action="complete-wo">Approve — Mark Completed</button>` +
-        `<button type="button" class="secondary-btn" data-action="send-back-wo">Send Back</button>`;
-    } else {
-      statusActions = `<span class="hint wo-status-note">Sent to your supervisor for review.</span>`;
-    }
-  } else if (detail.status === "completed") {
-    if (canSendToReview) {
-      statusActions += `<button type="button" data-action="review-wo">Send to Review</button>`;
-    } else if (getRole() === "techfm_oa") {
-      // A TechFM OA holds the rest of the Admin toolkit, so a missing button
-      // reads as a bug to them rather than as a rule. Show it, disabled, with
-      // the reason. Every other role keeps the hidden treatment -- for them
-      // Review was never on the menu. The server refuses the transition either
-      // way (services/work_orders._require_review_handoff_permission), and a
-      // disabled button fires no click, so the delegate below is unreachable.
-      statusActions += `<button type="button" data-action="review-wo" disabled title="An Admin or the Owner must send this to Review.">Send to Review</button>`;
-    }
-    if (sup) {
-      statusActions += `<button type="button" class="secondary-btn" data-action="reopen-wo">Reopen</button>`;
-    }
-  } else if (sup && detail.status === "review") {
-    statusActions =
-      `<span class="wo-review-ready">Ready for Admin Review</span>` +
-      `<button type="button" class="secondary-btn" data-action="reopen-wo">Reopen</button>`;
-  }
-  if (isAdminPlus()) {
-    statusActions += `<button type="button" class="btn-netfacilities" data-action="open-netfacilities-wo" data-number="${escapeHtml(detail.number)}">Open Netfacilities</button>`;
-    statusActions += `<button type="button" class="btn-danger" data-action="archive-wo">Archive</button>`;
-  }
+  const { primary, secondary, tools } = statusActionsHtml(detail);
+  const statusActions =
+    primary + secondary + (tools ? `<div class="wo-controls-tools">${tools}</div>` : "");
 
   const modeControl = sup
     ? `<div class="wo-mode-row">
@@ -594,6 +516,7 @@ export function renderBody(detail, bodyEl) {
     : "";
 
   bodyEl.innerHTML =
+    chargingStripHtml(detail) +
     ((modeControl || statusActions) ? `<div class="wo-controls">${modeControl}${statusActions}</div>` : "") +
     `<div class="wo-details">${detailsViewHtml(detail)}</div>` +
     (sup ? detailsEditorHtml(detail) : "") +

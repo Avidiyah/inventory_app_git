@@ -67,14 +67,21 @@ import {
   setSortDir,
 } from "./workOrderFilters.js";
 import {
+  hideResultCount,
+  installFilterChips,
+  renderFilterChips,
+  renderResultCount,
+} from "./workOrderFilterChips.js";
+import {
   ensureReferenceData,
   getAllItems,
 } from "./workOrderReferenceData.js";
 import {
   isAdminPlus,
   isSupervisorPlus,
-  statusLabel,
-  priorityBadgeClass,
+  overdueTag,
+  priorityBadge,
+  statusBadge,
   workOrderCardClass,
   placeMeta,
   assignedNames,
@@ -242,6 +249,8 @@ export async function loadWorkOrders({
     }
     renderCards(cards);
     renderMoreControl(capped, cards.length);
+    renderFilterChips();
+    renderResultCount({ count: cards.length, capped });
     setMessage(listMessage, "", "");
     // The list is on screen and final: the only point at which a remembered
     // offset means anything. Below the focus branch's `openWorkOrderPage`
@@ -274,6 +283,8 @@ export async function loadWorkOrders({
     clearPendingListScrollY();
     if (background) return;
     listEl.innerHTML = "";
+    renderFilterChips();
+    hideResultCount();
     if (moreEl) {
       moreEl.hidden = true;
       moreEl.innerHTML = "";
@@ -588,20 +599,15 @@ function paintDetail(detail, bodyEl, cardEl) {
 
   cardEl.dataset.loaded = "1";
   cardEl.className = workOrderCardClass(detail);
+  // The badges carry glyphs, so they are rewritten whole from the presenters
+  // rather than patched by className/textContent. Priority and schedule date
+  // are both edited in this card's own editor, so the priority pill and the
+  // Overdue tag have to follow a save the way the status badge does.
   const badge = cardEl.querySelector(".wo-status");
-  if (badge) {
-    badge.className = `wo-status wo-status-${detail.status}`;
-    badge.textContent = statusLabel(detail.status);
-  }
-  // Priority is edited in this card's own editor, so the pill has to follow a
-  // save the way the status badge does. Without this a work order just marked
-  // Urgent would pulse its card outline while the pill beside it still read
-  // the old level.
+  if (badge) badge.outerHTML = statusBadge(detail.status);
+  cardEl.querySelector(".wo-tag-overdue")?.remove();
   const priorityPill = cardEl.querySelector(".wo-priority");
-  if (priorityPill) {
-    priorityPill.className = priorityBadgeClass(detail);
-    priorityPill.textContent = detail.priority || "No priority";
-  }
+  if (priorityPill) priorityPill.outerHTML = priorityBadge(detail) + overdueTag(detail);
   const meta = cardEl.querySelector(".wo-meta");
   if (meta) {
     const place = placeMeta(detail);
@@ -698,16 +704,32 @@ if (sortSeg) {
   });
 }
 
-if (clearFiltersBtn) {
-  clearFiltersBtn.addEventListener("click", () => {
-    clearTimeout(woSearchDebounce);
-    cancelLocationSearchDebounce();
-    cancelTaskSearchDebounce();
-    resetFilterControls();
+function cancelSearchDebounces() {
+  clearTimeout(woSearchDebounce);
+  cancelLocationSearchDebounce();
+  cancelTaskSearchDebounce();
+}
+
+function clearFilters() {
+  cancelSearchDebounces();
+  resetFilterControls();
+  setShowAll(false);
+  loadWorkOrders();
+}
+
+if (clearFiltersBtn) clearFiltersBtn.addEventListener("click", clearFilters);
+
+// A chip's x has already reset its one control; reload the way a filter
+// change does. A pending keyword debounce would otherwise fire a second,
+// stale load after this one.
+installFilterChips({
+  onRemove: () => {
+    cancelSearchDebounces();
     setShowAll(false);
     loadWorkOrders();
-  });
-}
+  },
+  onClearAll: clearFilters,
+});
 
 // Status invalidations for the card list. Like Admin Review, this refreshes only
 // while its own page is active -- an inactive page needs no dirty flag because

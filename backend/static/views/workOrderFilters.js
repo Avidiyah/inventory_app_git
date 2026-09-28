@@ -126,6 +126,29 @@ export function currentFilters() {
   };
 }
 
+// Filter key (as `currentFilters` names it) -> its control, for the applied-
+// filter chips in workOrderFilterChips.js, in the order the chips render.
+const FILTER_CONTROLS = {
+  status: statusFilter,
+  serviceType: serviceTypeFilter,
+  priority: priorityFilter,
+  supervisorId: supervisorFilter,
+  assignedToId: technicianFilter,
+  community: communityFilter,
+  scheduledDate: scheduledDateFilter,
+  q: searchInput,
+  locationQ: locationSearchInput,
+  taskQ: taskSearchInput,
+};
+
+export function filterControl(key) {
+  return FILTER_CONTROLS[key] || null;
+}
+
+export function filterKeys() {
+  return Object.keys(FILTER_CONTROLS);
+}
+
 export function hasActiveFilters() {
   return Object.values(currentFilters()).some(Boolean);
 }
