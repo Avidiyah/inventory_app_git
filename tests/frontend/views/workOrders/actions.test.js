@@ -177,17 +177,15 @@ describe("hold-assigned-wo and resume-assigned-wo", () => {
 });
 
 describe("review-wo", () => {
-  // The routed supervisor, not assigned, is the minimum role that gets an
-  // enabled control (see roles.test.js).
+  // An unassigned Admin is the minimum role that gets an enabled control
+  // (see roles.test.js).
   async function openForReview() {
     const detail = workOrderDetail({ status: "completed" });
     await mountWorkOrders({
-      role: "supervisor",
+      role: "admin",
       cards: [workOrderCard({ id: detail.id, number: detail.number, status: "completed" })],
       details: [detail],
     });
-    const stateMod = await import("../../../../backend/static/state.js");
-    detail.supervisor_id = stateMod.getCurrentUser().id;
     await openCard(0);
     return detail;
   }

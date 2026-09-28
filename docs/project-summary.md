@@ -170,7 +170,7 @@ Capabilities added after the improvement batch include:
   from Set In-Progress to Mark Completed and then disappears; only while
   In-Progress, a second Place On-Hold button is available; while On-Hold, one
   Resume In-Progress button replaces it. Send to Review is shown
-  only to unassigned Admin+ or the unassigned routed Supervisor, and the backend
+  only to unassigned Admin+, and the backend
   enforces this second-person handoff from Completed. The technician
   assignment editor searches active Technicians and Supervisors by full name,
   shows matches only while searching, and lists removable selected workers below the search;

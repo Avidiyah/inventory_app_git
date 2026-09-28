@@ -415,7 +415,7 @@ def test_review_requires_second_unassigned_responsible_user(db):
     assert reviewed.status == "review"
 
 
-def test_unassigned_routed_supervisor_can_send_completed_work_to_review(db):
+def test_unassigned_routed_supervisor_cannot_send_completed_work_to_review(db):
     manager = _seed_user(db, "admin")
     routed_supervisor = _seed_user(db, "supervisor")
     worker = _seed_user(db, "technician")
@@ -427,14 +427,19 @@ def test_unassigned_routed_supervisor_can_send_completed_work_to_review(db):
     )
     wos.start_work_order(db, work_order.id, user=worker)
     # The technician's finish parks the row for review; the routed supervisor
-    # is the one who turns that into Completed.
+    # is the one who turns that into Completed -- and stops there.
     wos.complete_work_order(db, work_order.id, user=worker)
     wos.update_work_order(
         db, work_order.id, user=routed_supervisor, fields={"status": "completed"}
     )
 
+    with pytest.raises(RoleManagementError):
+        wos.update_work_order(
+            db, work_order.id, user=routed_supervisor, fields={"status": "review"}
+        )
+
     reviewed = wos.update_work_order(
-        db, work_order.id, user=routed_supervisor, fields={"status": "review"}
+        db, work_order.id, user=manager, fields={"status": "review"}
     )
     assert reviewed.status == "review"
 
@@ -1068,6 +1073,7 @@ def test_completed_work_order_still_editable(db):
 
 def test_review_retains_completion_time_and_reopen_clears_it(db):
     sup = _seed_user(db, "supervisor")
+    admin = _seed_user(db, "admin")
     w = _wo(db, created_by=sup, supervisor=sup)
 
     completed = wos.update_work_order(
@@ -1075,7 +1081,7 @@ def test_review_retains_completion_time_and_reopen_clears_it(db):
     )
     completed_at = completed.completed_at
     review = wos.update_work_order(
-        db, w.id, user=sup, fields={"status": "review"}
+        db, w.id, user=admin, fields={"status": "review"}
     )
     assert review.completed_at == completed_at
 
@@ -1997,7 +2003,7 @@ def test_techfm_oa_cannot_send_a_work_order_to_review():
 def test_techfm_oa_cannot_review_even_as_the_routed_supervisor():
     # TechFM OA IS a valid routing target (WORK_ORDER_SUPERVISOR_ROLES), so
     # this is reachable in production: they own the work order operationally
-    # and still hand the final step to an Admin, Owner, or routed Supervisor.
+    # and still hand the final step to an Admin or the Owner.
     actor = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_TECHFM_OA)
     with pytest.raises(RoleManagementError):
         wos._require_review_handoff_permission(
@@ -2011,11 +2017,12 @@ def test_admin_and_owner_still_send_work_orders_to_review():
         wos._require_review_handoff_permission(_review_stub_work_order(), actor)
 
 
-def test_unassigned_routed_supervisor_still_sends_to_review():
+def test_routed_supervisor_cannot_send_to_review():
     actor = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_SUPERVISOR)
-    wos._require_review_handoff_permission(
-        _review_stub_work_order(supervisor_id=actor.id), actor
-    )
+    with pytest.raises(RoleManagementError):
+        wos._require_review_handoff_permission(
+            _review_stub_work_order(supervisor_id=actor.id), actor
+        )
 
 
 # --- tracked labor sessions ----------------------------------------------

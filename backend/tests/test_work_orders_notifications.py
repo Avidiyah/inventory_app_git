@@ -761,7 +761,7 @@ def test_a_supervisor_returning_their_own_work_order_is_not_told(db, configured)
     supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
     worker = _seed_user(db, roles.ROLE_TECHNICIAN)
     work_order = _wo(db, created_by=admin, assigned_to=worker, supervisor=supervisor)
-    _to_review(db, work_order, worker=worker, reviewer=supervisor)
+    _to_review(db, work_order, worker=worker, reviewer=admin)
 
     background = BackgroundTasks()
     _patch(db, background, work_order.id, user=supervisor, status="in_progress")

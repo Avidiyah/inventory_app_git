@@ -217,12 +217,10 @@ export function isAssignedToCurrentUser(detail) {
   return Boolean(userId && assignedIds(detail).includes(userId));
 }
 
-// Review is a deliberate second-person handoff. Admin+ may review any work
-// order they are not working, while a Supervisor must be the routed supervisor
-// and must not also be one of the assigned workers.
+// Review is a deliberate second-person handoff, Admin and Owner only: they may
+// review any work order they are not working. Supervisors stop at Completed.
 export function canCurrentUserSendToReview(detail) {
   const user = getCurrentUser();
   if (!user || isAssignedToCurrentUser(detail)) return false;
-  return roleAtLeast(user.role, "admin") ||
-    (user.role === "supervisor" && detail.supervisor_id === user.id);
+  return roleAtLeast(user.role, "admin");
 }

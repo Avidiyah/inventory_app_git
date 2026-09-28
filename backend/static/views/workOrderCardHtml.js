@@ -568,7 +568,7 @@ export function renderBody(detail, bodyEl) {
       // Review was never on the menu. The server refuses the transition either
       // way (services/work_orders._require_review_handoff_permission), and a
       // disabled button fires no click, so the delegate below is unreachable.
-      statusActions += `<button type="button" data-action="review-wo" disabled title="An Admin, Owner, or the routed Supervisor must send this to Review.">Send to Review</button>`;
+      statusActions += `<button type="button" data-action="review-wo" disabled title="An Admin or the Owner must send this to Review.">Send to Review</button>`;
     }
     if (sup) {
       statusActions += `<button type="button" class="secondary-btn" data-action="reopen-wo">Reopen</button>`;

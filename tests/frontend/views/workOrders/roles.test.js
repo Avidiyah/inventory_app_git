@@ -312,10 +312,8 @@ describe("canCurrentUserSendToReview", () => {
     expect(await reviewControl({ role: "admin", assigned: true, supervisorIsMe: false })).toBeNull();
   });
 
-  it("lets the routed Supervisor send it", async () => {
-    const btn = await reviewControl({ role: "supervisor", assigned: false, supervisorIsMe: true });
-    expect(btn).not.toBeNull();
-    expect(btn.disabled).toBe(false);
+  it("hides it from the routed Supervisor", async () => {
+    expect(await reviewControl({ role: "supervisor", assigned: false, supervisorIsMe: true })).toBeNull();
   });
 
   it("hides it from a Supervisor who is not the routed one", async () => {
@@ -329,7 +327,7 @@ describe("canCurrentUserSendToReview", () => {
   it("shows a TechFM OA the control disabled, with the reason", async () => {
     const btn = await reviewControl({ role: "techfm_oa", assigned: false, supervisorIsMe: true });
     expect(btn.disabled).toBe(true);
-    expect(btn.title).toBe("An Admin, Owner, or the routed Supervisor must send this to Review.");
+    expect(btn.title).toBe("An Admin or the Owner must send this to Review.");
   });
 
   it("hides it from a technician entirely", async () => {

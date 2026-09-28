@@ -382,35 +382,25 @@ def _require_review_handoff_permission(
 ) -> None:
     """Require a second person before a Completed work order enters Review.
 
-    Internal callers retain their existing bypass. An authenticated caller may
-    not review work they are assigned to perform, even when they are also the
-    routed Supervisor. Otherwise Admin+ has global authority and the unassigned
-    routed Supervisor owns the operational handoff.
+    Internal callers retain their existing bypass. Otherwise only an Admin or
+    the Owner may send, and never on work they are assigned to perform.
+    Supervisors -- routed or not -- stop at Completed.
 
     The `ROLE_ADMIN` floor below is the one place in the application that still
     means Admin rather than TechFM OA, and it is deliberate: the Review handoff
-    is the single capability an Admin holds that a TechFM OA does not. A TechFM
-    OA may be the routed supervisor on a work order and still cannot complete
-    the handoff -- Review is a second-person control, so an Admin, the Owner, or
-    another routed Supervisor closes it out.
+    is the single capability an Admin holds that a TechFM OA does not.
     """
     if user is None:
         return
     if user.id in _assigned_technician_ids(work_order):
         raise RoleManagementError(
             "An assigned worker cannot send their own work order to Review. "
-            "Another routed Supervisor, Admin, or Owner must review it."
+            "Another Admin or the Owner must review it."
         )
     if roles.role_at_least(user.role, roles.ROLE_ADMIN):
         return
-    if (
-        user.role == roles.ROLE_SUPERVISOR
-        and work_order.supervisor_id == user.id
-    ):
-        return
     raise RoleManagementError(
-        "Only the unassigned routed Supervisor, an Admin, or the Owner can "
-        "send a work order to Review."
+        "Only an Admin or the Owner can send a work order to Review."
     )
 
 

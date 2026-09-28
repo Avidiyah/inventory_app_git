@@ -8,8 +8,8 @@ Most routes are open to any authenticated user but **server-scoped** (technician
 save notes, add materials, track their time, and use the narrow assigned-worker
 start/complete/hold/resume walkthrough. Supervisor+ owns operational routing,
 general status, entry mode, hand-entered labor, and material corrections, and
-may track time on any work order they can see without being assigned to it. Sending Completed work to Review requires a
-second person: an assigned worker is excluded even when also routed Supervisor.
+may track time on any work order they can see without being assigned to it. Sending Completed work to Review is Admin+
+only and requires a second person: an assigned worker is excluded.
 TechFM OA+ additionally owns imported and legacy metadata edits.
 Closing (the archive operation) is TechFM OA+ from any live status. Both an expanded
 Work Orders card and the Review queue may call the same endpoint.

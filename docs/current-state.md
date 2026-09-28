@@ -778,7 +778,7 @@ owner > admin > techfm_oa > supervisor > technician
 | Add from a stocked Materials line | whoever can add materials |
 | Close/archive a work order | techfm_oa+ (scoped), any live status; UI action lives on expanded Work Orders cards and remains in Admin Review for Review rows |
 | Set work-order line billing override | techfm_oa+ (scoped) |
-| Send a Completed work order to Review | **admin+**, or the routed Supervisor when not also an assigned worker. The one capability an Admin holds that a TechFM OA does not — see the note below |
+| Send a Completed work order to Review | **admin+** only, never an assigned worker; Supervisors stop at Completed. The one capability an Admin holds that a TechFM OA does not — see the note below |
 | Scan-gate work-order cards | any authenticated user (scoped Created/Assigned/In-Progress list); In-Progress starts a batch, Assigned confirms an in-place start for Technician+, Created opens Work Orders for assignment |
 | Tools: view list/lookup, return | any authenticated user |
 | Tools: create, edit, archive, checkout | techfm_oa+ |
@@ -790,10 +790,9 @@ rather than any special case:
 
 1. **It cannot send a work order to Review.** The handoff floor in
    `services.work_orders._require_review_handoff_permission` is the one
-   `ROLE_ADMIN` left in `backend/app`; a TechFM OA fails it, and fails the
-   routed-Supervisor branch too. A TechFM OA *is* a valid routing target, so
-   they can own a work order operationally and still hand the final step to an
-   Admin, the Owner, or another routed Supervisor. The Work Orders card shows
+   `ROLE_ADMIN` left in `backend/app`; a TechFM OA fails it. A TechFM OA *is* a
+   valid routing target, so they can own a work order operationally and still
+   hand the final step to an Admin or the Owner. The Work Orders card shows
    them the button disabled with that reason rather than hiding it.
 2. **It cannot re-role an Admin or Owner, or hand those roles out.**
    `can_manage` is false at equal rank and above. Admins keep full control of
