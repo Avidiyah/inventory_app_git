@@ -10,6 +10,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import base64
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -18,7 +19,7 @@ import pytest
 
 from app.domain import roles
 from app.domain import work_orders as wo
-from app.domain.errors import WorkOrderStateError
+from app.domain.errors import WorkOrderSignatureError, WorkOrderStateError
 
 
 # --- identity / normalization --------------------------------------------
@@ -502,3 +503,48 @@ def test_billed_labor_minutes_is_unchanged_by_tracking():
     assert wo.billed_labor_minutes(31) == 60
     # Three 5-minute return trips bill as one half hour, not three.
     assert wo.billed_labor_minutes(5 + 5 + 5) == 30
+
+
+# --- witness sign-off ----------------------------------------------------
+
+@pytest.mark.parametrize("raw", [
+    "(555) 555-1234", "555.555.1234", "1-555-555-1234", "+1 555 555 1234", "555-555-1234 ext",
+])
+def test_phone_normalizes_to_ten_digits(raw):
+    assert wo.normalize_witness_phone(raw) == "5555551234"
+
+
+@pytest.mark.parametrize("raw", ["", "   ", "555-555-123", "25555551234", "555555512345", "abc"])
+def test_phone_rejects_anything_not_ten_digits(raw):
+    with pytest.raises(WorkOrderSignatureError):
+        wo.normalize_witness_phone(raw)
+
+
+def test_phone_format():
+    assert wo.format_witness_phone("5555551234") == "(555) 555-1234"
+
+
+def test_name_trimmed_and_bounded():
+    assert wo.normalize_witness_name("  Pat Doe ") == "Pat Doe"
+    for bad in ("", "   ", "x" * 121):
+        with pytest.raises(WorkOrderSignatureError):
+            wo.normalize_witness_name(bad)
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+
+
+def test_decode_png_round_trip():
+    url = "data:image/png;base64," + base64.b64encode(PNG).decode()
+    assert wo.decode_signature_png(url) == PNG
+
+
+@pytest.mark.parametrize("url", [
+    "data:image/jpeg;base64," + base64.b64encode(PNG).decode(),
+    "data:image/png;base64,@@@not-base64@@@",
+    "data:image/png;base64," + base64.b64encode(b"GIF89a....").decode(),
+    "data:image/png;base64," + base64.b64encode(PNG + b"\x00" * (256 * 1024)).decode(),
+], ids=["wrong-type", "malformed", "not-png-bytes", "too-big"])
+def test_decode_png_rejects(url):
+    with pytest.raises(WorkOrderSignatureError):
+        wo.decode_signature_png(url)

@@ -15,6 +15,8 @@ for newly logged materials: `dispense` moves stock, `retroactive` is a
 stock-neutral paper backfill.
 """
 
+import base64
+import binascii
 import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -24,7 +26,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from app.domain import roles
-from app.domain.errors import WorkOrderStateError
+from app.domain.errors import WorkOrderSignatureError, WorkOrderStateError
 from app.domain.labor_day import as_utc
 
 
@@ -95,6 +97,10 @@ NOTE_STOPPED_WORK = "stopped work"
 # action instead. Historical lines carrying the old text stay as they are: the
 # log is append-only and they remain true about what happened at the time.
 NOTE_READY_TO_COMPLETE = "marked work ready to complete"
+# Witness sign-off (spec 2026-09-30, S9): the note log is the only record of
+# who signed and who cleared it -- there is no badge or report column.
+NOTE_SIGNED_OFF = "captured witness sign-off from {name}"
+NOTE_SIGNATURE_CLEARED = "cleared the witness sign-off"
 
 
 def format_note_timestamp(occurred_at: datetime) -> str:
@@ -141,6 +147,55 @@ def append_note_log(
     entry = f"{format_note_timestamp(occurred_at)} {author} {body}"
     prior = (existing or "").rstrip()
     return f"{prior}\n\n{entry}" if prior else entry
+
+
+# --- witness sign-off ----------------------------------------------------
+
+MAX_SIGNATURE_BYTES = 256 * 1024
+MAX_WITNESS_NAME = 120
+_PNG_PREFIX = "data:image/png;base64,"
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def normalize_witness_phone(raw: str) -> str:
+    """S7: strip non-digits, drop one leading `1` from 11 digits, then require
+    exactly 10. Letters are ignored, so "555-555-1234 ext" passes."""
+    digits = re.sub(r"\D", "", raw or "")
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    if len(digits) != 10:
+        raise WorkOrderSignatureError("Enter a 10-digit phone number.")
+    return digits
+
+
+def format_witness_phone(digits: str) -> str:
+    return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+
+
+def normalize_witness_name(raw: str) -> str:
+    name = (raw or "").strip()
+    if not name or len(name) > MAX_WITNESS_NAME:
+        raise WorkOrderSignatureError(
+            "Enter the witness's printed name (120 characters max)."
+        )
+    return name
+
+
+def decode_signature_png(data_url: str) -> bytes:
+    """The pad's `canvas.toDataURL("image/png")` output, as bytes. Rejects
+    anything but a PNG data URL, a malformed payload, bytes without the PNG
+    magic, or more than `MAX_SIGNATURE_BYTES` decoded."""
+    if not (data_url or "").startswith(_PNG_PREFIX):
+        raise WorkOrderSignatureError("Signature must be a PNG image.")
+    try:
+        png = base64.b64decode(data_url[len(_PNG_PREFIX):], validate=True)
+    except (binascii.Error, ValueError):
+        raise WorkOrderSignatureError("Signature image is unreadable.")
+    if not png.startswith(_PNG_MAGIC):
+        raise WorkOrderSignatureError("Signature must be a PNG image.")
+    if len(png) > MAX_SIGNATURE_BYTES:
+        raise WorkOrderSignatureError("Signature image is too large.")
+    return png
 
 
 # --- list-filter vocabulary ----------------------------------------------
