@@ -52,7 +52,9 @@ import {
 } from "./workOrderCardHtml.js";
 import { getAllItems } from "./workOrderReferenceData.js";
 import { exitSolo } from "./workOrderRouting.js";
-import { clearSignaturePad, mountSignaturePad, signaturePayload } from "./workOrderSignature.js";
+import {
+  clearSignaturePad, mountSignaturePad, signaturePayload, toggleSignatureFullscreen,
+} from "./workOrderSignature.js";
 import { loadWorkOrders, refreshCard } from "./workOrderList.js";
 
 const listEl = document.getElementById("work-orders-list");
@@ -475,6 +477,8 @@ listEl.addEventListener("click", async (event) => {
       await refreshCard(cardEl, ".wo-materials-section");
     } else if (action === "clear-signature-pad") {
       clearSignaturePad(btn.closest(".wo-signature-section"));
+    } else if (action === "signature-fullscreen") {
+      toggleSignatureFullscreen(btn.closest(".wo-signature-section"));
     } else if (action === "save-signature") {
       const section = btn.closest(".wo-signature-section");
       const payload = signaturePayload(section);

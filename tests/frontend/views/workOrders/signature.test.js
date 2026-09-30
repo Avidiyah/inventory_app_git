@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   card, confirmOverlay, mountWorkOrders, openCard, requestFor, requests, respond, seedDetail,
 } from "../../helpers/workOrders.js";
@@ -239,12 +239,93 @@ describe("the pad", () => {
   });
 });
 
+describe("signature-fullscreen", () => {
+  // jsdom lays nothing out: the pad's CSS box is whatever the test says it is.
+  const box = { w: 320, h: 180 };
+  beforeEach(() => {
+    Object.assign(box, { w: 320, h: 180 });
+    Object.defineProperty(HTMLCanvasElement.prototype, "clientWidth", { configurable: true, get: () => box.w });
+    Object.defineProperty(HTMLCanvasElement.prototype, "clientHeight", { configurable: true, get: () => box.h });
+  });
+  afterEach(() => {
+    delete HTMLCanvasElement.prototype.clientWidth;
+    delete HTMLCanvasElement.prototype.clientHeight;
+  });
+  const fullBtn = () => section().querySelector('[data-action="signature-fullscreen"]');
+  const isFull = () => section().querySelector(".wo-signature-pad-wrap").classList.contains("wo-signature-pad-wrap--full");
+
+  it("covers the screen until Done, resizing the pad to its box both ways", async () => {
+    stubPad();
+    await open({ role: "technician", status: "assigned" });
+    const canvas = (await openPad()).querySelector(".wo-signature-pad");
+    expect([canvas.width, canvas.height]).toEqual([320, 180]);
+    Object.assign(box, { w: 800, h: 400 });
+    fullBtn().click();
+    expect(isFull()).toBe(true);
+    expect(fullBtn().textContent).toBe("Done");
+    expect([canvas.width, canvas.height]).toEqual([800, 400]);
+    Object.assign(box, { w: 320, h: 180 });
+    fullBtn().click();
+    expect(isFull()).toBe(false);
+    expect(fullBtn().textContent).toBe("Full screen");
+    expect([canvas.width, canvas.height]).toEqual([320, 180]);
+  });
+
+  it("carries the drawing across the resize, contain-fit, and keeps Save's stroke", async () => {
+    const ctx = stubPad();
+    await open({ role: "technician", status: "assigned" });
+    const el = await openPad();
+    stroke(el.querySelector(".wo-signature-pad"));
+    Object.assign(box, { w: 800, h: 400 });
+    fullBtn().click();
+    // 320x180 into 800x400: scale = min(2.5, 2.22) = 2.22 -> 711x400.
+    const redraw = ctx.drawImage.mock.calls.at(-1);
+    expect(redraw[0]).toBeInstanceOf(HTMLCanvasElement);
+    expect(redraw.slice(1, 3)).toEqual([0, 0]);
+    expect(redraw[3]).toBeCloseTo(711.1, 0);
+    expect(redraw[4]).toBeCloseTo(400, 5);
+    expect(el.dataset.hasStroke).toBe("1");
+  });
+
+  it("Escape leaves full screen, and only once", async () => {
+    stubPad();
+    await open({ role: "technician", status: "assigned" });
+    await openPad();
+    fullBtn().click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(isFull()).toBe(false);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(isFull()).toBe(false);
+  });
+
+  it("refits the pad when the phone is turned while full, not after Done", async () => {
+    stubPad();
+    await open({ role: "technician", status: "assigned" });
+    const canvas = (await openPad()).querySelector(".wo-signature-pad");
+    fullBtn().click();
+    Object.assign(box, { w: 400, h: 800 });
+    window.dispatchEvent(new Event("resize"));
+    expect([canvas.width, canvas.height]).toEqual([400, 800]);
+    fullBtn().click();
+    Object.assign(box, { w: 999, h: 999 });
+    window.dispatchEvent(new Event("resize"));
+    expect(canvas.width).toBe(400);
+  });
+});
+
 describe("styles", () => {
+  const css = () => readFileSync(
+    join(HERE, "..", "..", "..", "..", "backend", "static", "styles.css"), "utf8"
+  );
+
   it("keeps the page still under a drawing finger", () => {
-    const css = readFileSync(
-      join(HERE, "..", "..", "..", "..", "backend", "static", "styles.css"), "utf8"
-    );
-    const rule = /\.wo-signature-pad\s*\{([^}]*)\}/.exec(css);
+    const rule = /\.wo-signature-pad\s*\{([^}]*)\}/.exec(css());
     expect(rule?.[1]).toMatch(/touch-action:\s*none/);
+  });
+
+  it("the full-screen pad covers the viewport", () => {
+    const rule = /\.wo-signature-pad-wrap--full\s*\{([^}]*)\}/.exec(css());
+    expect(rule?.[1]).toMatch(/position:\s*fixed/);
+    expect(rule?.[1]).toMatch(/inset:\s*0/);
   });
 });

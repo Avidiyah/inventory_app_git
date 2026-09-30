@@ -1,8 +1,9 @@
 // Work Orders: the witness Signature section (spec 2026-09-30).
 //
 // Layer: HTML builders + the drawing pad. The click handlers for
-// `save-signature`, `clear-signature` and `clear-signature-pad` live in
-// workOrderActions.js; this module only builds markup and owns the canvas.
+// `save-signature`, `clear-signature`, `clear-signature-pad` and
+// `signature-fullscreen` live in workOrderActions.js; this module only
+// builds markup and owns the canvas.
 // Imports only format.js and workOrderPresenters.js.
 
 import { escapeHtml } from "../format.js";
@@ -25,9 +26,13 @@ export function signatureSectionHtml(detail) {
        ${isSupervisorPlus()
          ? `<button type="button" class="btn-danger" data-action="clear-signature">Clear signature</button>`
          : ""}`
-    : `<canvas class="wo-signature-pad" aria-label="Signature pad"></canvas>
-       <div class="wo-signature-pad-actions">
-         <button type="button" class="secondary-btn" data-action="clear-signature-pad">Clear</button>
+    : `<div class="wo-signature-pad-wrap">
+         <canvas class="wo-signature-pad" aria-label="Signature pad"></canvas>
+         <div class="wo-signature-pad-actions">
+           <span class="wo-signature-rotate-hint hint">Turn your phone sideways</span>
+           <button type="button" class="secondary-btn" data-action="clear-signature-pad">Clear</button>
+           <button type="button" class="secondary-btn" data-action="signature-fullscreen">Full screen</button>
+         </div>
        </div>
        <label class="wo-signature-field"><span>Witness Printed Name:</span>
          <input type="text" class="wo-signature-name" maxlength="120"></label>
@@ -66,11 +71,8 @@ export function mountSignaturePad(section) {
   if (!canvas || section.dataset.padMounted) return;
   section.dataset.padMounted = "1";
   const ratio = window.devicePixelRatio || 1;
-  canvas.width = Math.round(canvas.clientWidth * ratio);
-  canvas.height = Math.round(canvas.clientHeight * ratio);
-  // ponytail: a rotate/resize after mount keeps the old backing size (strokes
-  // stay correct, just scaled); re-size on resize only if field users hit it.
   wipe(canvas);
+  fitPad(canvas);
   const ctx = canvas.getContext("2d");
   const point = (e) => {
     const r = canvas.getBoundingClientRect();
@@ -98,6 +100,46 @@ export function mountSignaturePad(section) {
   canvas.addEventListener("pointerup", end);
   canvas.addEventListener("pointercancel", end);
   section.addEventListener("input", () => updateSaveEnabled(section));
+}
+
+// Size the backing store to the CSS box, carrying the drawing across
+// contain-fit so a change of shape (full screen, a turned phone) loses
+// nothing. A hidden pad (collapsed card) has no box and is left alone.
+function fitPad(canvas) {
+  const ratio = window.devicePixelRatio || 1;
+  const w = Math.round(canvas.clientWidth * ratio);
+  const h = Math.round(canvas.clientHeight * ratio);
+  if (!w || !h || (w === canvas.width && h === canvas.height)) return;
+  const old = document.createElement("canvas");
+  old.width = canvas.width;
+  old.height = canvas.height;
+  old.getContext("2d").drawImage(canvas, 0, 0);
+  canvas.width = w;
+  canvas.height = h;
+  wipe(canvas);
+  const s = Math.min(w / old.width, h / old.height);
+  canvas.getContext("2d").drawImage(old, 0, 0, old.width * s, old.height * s);
+}
+
+// One pad at most can cover the screen, so one exit hook is enough.
+let leaveFullscreen = null;
+
+export function toggleSignatureFullscreen(section) {
+  const wrap = section.querySelector(".wo-signature-pad-wrap");
+  const canvas = wrap.querySelector(".wo-signature-pad");
+  leaveFullscreen?.();
+  leaveFullscreen = null;
+  const full = wrap.classList.toggle("wo-signature-pad-wrap--full");
+  wrap.querySelector('[data-action="signature-fullscreen"]').textContent = full ? "Done" : "Full screen";
+  if (full) {
+    const ac = new AbortController();
+    window.addEventListener("resize", () => fitPad(canvas), { signal: ac.signal });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") toggleSignatureFullscreen(section);
+    }, { signal: ac.signal });
+    leaveFullscreen = () => ac.abort();
+  }
+  fitPad(canvas); // reading the box forces layout, so the class change is in effect
 }
 
 export function clearSignaturePad(section) {

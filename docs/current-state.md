@@ -1618,7 +1618,9 @@ lists this work order's material/catalogue requests, with Cancel on the
 filer's own open ones), Labor (Technician fully read-only; the supervisor
 picker includes themselves "(not assigned)"; entries show their session
 window, capped ones tagged "auto-stopped"), Signature (last, every viewer:
-pointer-drawn pad + printed name + phone, Save gated on all three; one per
+pointer-drawn pad + printed name + phone, Save gated on all three; **Full
+screen** covers the viewport with the same pad (Done/Escape return, strokes
+carried across contain-fit, portrait hint to turn the phone); one per
 work order, locked after save with a "Captured by … on …" line; Supervisor+
 Clear; the pad is mounted on first open and an open section holds the card
 like the other editors). TechFM OA+ get import (with summary counts), filtered/
