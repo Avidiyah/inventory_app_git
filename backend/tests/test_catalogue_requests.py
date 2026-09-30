@@ -450,7 +450,7 @@ def test_the_material_card_offers_the_manual_fire_and_the_stocked_status():
 def test_the_work_order_card_mounts_the_request_section_and_stocked_lines():
     wo = work_orders_source()
     assert "wo-request-section" in wo
-    assert '".wo-edit-card, .wo-notes-section, .wo-materials-section, .wo-labor-section, .wo-request-section"' in wo
+    assert '".wo-edit-card, .wo-notes-section, .wo-materials-section, .wo-labor-section, .wo-request-section, .wo-signature-section"' in wo
     assert 'class="wo-requested-lines"' in wo
     assert "mountWorkOrderRequests(" in wo
     assert "materialRequestId: container.dataset.materialRequestId || null" in wo

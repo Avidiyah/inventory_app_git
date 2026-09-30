@@ -440,6 +440,9 @@ def test_the_status_emitter_set_includes_the_two_membership_commands():
         "update_work_order",
         "archive_work_order",
         "restore_work_order",
+        # S12: the witness sign-off changes the card another copy may be showing.
+        "save_work_order_signature",
+        "clear_work_order_signature",
     }
 
 
