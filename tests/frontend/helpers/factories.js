@@ -170,6 +170,7 @@ export function workOrderDetail(overrides = {}) {
     labor_billed_minutes: 0,
     labor_rate: "62.50",
     labor_total: "0.00",
+    signature: null,
     ...overrides,
   };
 }

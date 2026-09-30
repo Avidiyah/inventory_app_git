@@ -68,6 +68,8 @@ from app.schemas.work_orders import (
     WorkOrderLaborSessionDetail,
     WorkOrderLaborUpdate,
     WorkOrderLookup,
+    WorkOrderSignatureCreate,
+    WorkOrderSignatureOut,
     WorkOrderUpdate,
 )
 from app.routers.user_requests import build_response as build_request_response
@@ -76,6 +78,7 @@ from app.services import attendance as attendance_service
 from app.services import material_requests as material_service
 from app.services import notifications as notifications_service
 from app.services import realtime as realtime_service
+from app.services import work_order_signature as signature_service
 from app.services import work_orders as wo_service
 
 logger = logging.getLogger(__name__)
@@ -455,6 +458,24 @@ def _labor_detail(entry: WorkOrderLabor) -> WorkOrderLaborDetail:
     )
 
 
+def _signature_out(work_order: WorkOrder) -> Optional[WorkOrderSignatureOut]:
+    sig = getattr(work_order, "signature", None)
+    if sig is None:
+        return None
+    return WorkOrderSignatureOut(
+        witness_name=sig.witness_name,
+        witness_phone_display=wo.format_witness_phone(sig.witness_phone),
+        captured_by_name=sig.captured_by.full_name if sig.captured_by else "Name unavailable",
+        captured_at=sig.captured_at,
+        captured_at_label=wo.format_note_timestamp(sig.captured_at),
+        # Cache-buster: a clear-then-resign must never show the old image.
+        image_url=(
+            f"/work-orders/{work_order.id}/signature.png"
+            f"?v={int(sig.captured_at.timestamp())}"
+        ),
+    )
+
+
 def _detail(
     work_order: WorkOrder,
     *,
@@ -502,6 +523,7 @@ def _detail(
         labor_billed_minutes=wo.billed_labor_minutes(labor_minutes),
         labor_rate=wo.LABOR_RATE if include_price else None,
         labor_total=wo.labor_charge(labor_minutes) if include_price else None,
+        signature=_signature_out(work_order),
     )
 
 
@@ -1186,6 +1208,71 @@ def list_work_order_requests(
         ]
     except DomainError as exc:
         raise to_http(exc)
+
+
+@router.post("/{work_order_id}/signature", response_model=WorkOrderDetail, status_code=201)
+def save_work_order_signature(
+    work_order_id: uuid.UUID,
+    payload: WorkOrderSignatureCreate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Capture the witness sign-off (S1-S3). 404 not visible, 409 already
+    signed, 422 bad image / name / phone."""
+    try:
+        signature_service.save_signature(
+            db,
+            work_order_id,
+            user=user,
+            image_data_url=payload.image,
+            witness_name=payload.witness_name,
+            witness_phone=payload.witness_phone,
+        )
+        _emit_status_changed(work_order_id)
+        return _detail(
+            wo_service.get_work_order(db, work_order_id, user=user),
+            include_price=_can_see_price(user),
+            viewer_id=user.id,
+        )
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.delete(
+    "/{work_order_id}/signature",
+    response_model=WorkOrderDetail,
+    responses=_forbidden(roles.ROLE_SUPERVISOR),
+)
+def clear_work_order_signature(
+    work_order_id: uuid.UUID,
+    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
+    db: Session = Depends(get_db),
+):
+    """Clear the sign-off so it can be recaptured (S5). 404 when unsigned."""
+    try:
+        signature_service.clear_signature(db, work_order_id, user=user)
+        _emit_status_changed(work_order_id)
+        return _detail(
+            wo_service.get_work_order(db, work_order_id, user=user),
+            include_price=_can_see_price(user),
+            viewer_id=user.id,
+        )
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.get("/{work_order_id}/signature.png")
+def get_work_order_signature_png(
+    work_order_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """The signature image; `no-store` so a cleared signature never lingers."""
+    try:
+        png = signature_service.get_signature_png(db, work_order_id, user=user)
+    except DomainError as exc:
+        raise to_http(exc)
+    return Response(content=png, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
 @router.post("/{work_order_id}/items", response_model=WorkOrderItemDetail, status_code=201)

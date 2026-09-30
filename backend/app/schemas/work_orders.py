@@ -333,8 +333,31 @@ class WorkOrderImportResult(BaseModel):
     skipped: int
 
 
+class WorkOrderSignatureCreate(BaseModel):
+    """The witness sign-off as the pad captures it (spec 2026-09-30)."""
+
+    # ~350 KB of base64 is the 256 KB decoded cap plus the prefix; rejects a
+    # giant body before the service decodes it.
+    image: str = Field(max_length=360_000)
+    witness_name: str = Field(max_length=500)
+    witness_phone: str = Field(max_length=40)
+
+
+class WorkOrderSignatureOut(BaseModel):
+    """The locked sign-off on a card (S10). The image itself is fetched from
+    `image_url`; `?v=` changes with every capture so a clear-then-resign never
+    shows a cached image."""
+
+    witness_name: str
+    witness_phone_display: str
+    captured_by_name: str
+    captured_at: datetime
+    captured_at_label: str
+    image_url: str
+
+
 class WorkOrderDetail(WorkOrderCard):
-    """A work-order card plus notes, logged materials, and labor.
+    """A work-order card plus notes, logged materials, labor, and sign-off.
 
     Two fields are shaped per caller rather than per work order:
     `active_labor_session` is *this* caller's running clock (the card decides
@@ -356,3 +379,5 @@ class WorkOrderDetail(WorkOrderCard):
     # cost fields are TechFM OA and above only (None when redacted).
     labor_rate: Optional[Decimal] = None
     labor_total: Optional[Decimal] = None
+    # None until a witness signs; one per work order, locked after save (S1).
+    signature: Optional[WorkOrderSignatureOut] = None
