@@ -143,6 +143,29 @@ describe("save-signature", () => {
     expect(section().querySelector(".wo-signature-image")).not.toBeNull();
   });
 
+  it("ignores a double tap: one POST, no error under the saved signature", async () => {
+    stubPad();
+    const detail = await open({ role: "technician", status: "assigned" });
+    await fillPad();
+    respond("post", "/work-orders/:id/signature", { ...detail, signature: SIGNED }, { status: 201 });
+    seedDetail({ ...detail, signature: SIGNED });
+    saveBtn().click();
+    saveBtn().click();
+    await expectRefresh(detail.id);
+    expect(requests().filter((r) => r.method === "POST" && r.url.endsWith("/signature"))).toHaveLength(1);
+    expect(section().querySelector(".wo-signature-message").textContent).toBe("");
+  });
+
+  it("re-enables Save when the request fails so the operator can retry", async () => {
+    stubPad();
+    await open({ role: "technician", status: "assigned" });
+    await fillPad();
+    respond("post", "/work-orders/:id/signature", { detail: "Enter a 10-digit phone number." }, { status: 422 });
+    saveBtn().click();
+    await vi.waitFor(() => expect(requestFor("/signature", "POST")).not.toBeNull());
+    await vi.waitFor(() => expect(saveBtn().disabled).toBe(false));
+  });
+
   it("on 409 shows the signature that won and the server's reason", async () => {
     stubPad();
     const detail = await open({ role: "technician", status: "assigned" });

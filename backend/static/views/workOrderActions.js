@@ -479,9 +479,13 @@ listEl.addEventListener("click", async (event) => {
       const section = btn.closest(".wo-signature-section");
       const payload = signaturePayload(section);
       saveDraft(workOrderId, "signature", { number: cardEl.dataset.number, action: "save-signature", payload });
+      // A double tap on a phone must not race itself into a 409 under its own
+      // saved signature. The refresh replaces the button on every settled path.
+      btn.disabled = true;
       try {
         await apiSaveWorkOrderSignature(workOrderId, payload);
       } catch (err) {
+        btn.disabled = false;
         if (err?.status !== 409) throw err;
         // Someone else signed first: show the winner, keep the draft marked.
         markDraftError(workOrderId, "signature", err);
