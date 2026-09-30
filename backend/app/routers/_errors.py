@@ -56,8 +56,10 @@ from app.domain.errors import (
     UserHasCheckedOutToolsError,
     UserNotFoundError,
     UserRequestNotFoundError,
+    WorkOrderAlreadySignedError,
     WorkOrderAssignmentConflictError,
     WorkOrderNotFoundError,
+    WorkOrderSignatureError,
     WorkOrderStateError,
 )
 
@@ -77,6 +79,8 @@ _STATUS_MAP: dict[type[DomainError], int] = {
     WorkOrderNotFoundError: 404,
     WorkOrderAssignmentConflictError: 409,
     WorkOrderStateError: 400,
+    WorkOrderSignatureError: 422,
+    WorkOrderAlreadySignedError: 409,
     # 409, not 400: the payload is well-formed, the row's current state is what
     # refuses it -- an already-resolved request, or a details key its type does
     # not expose. Same reading as ArchivedBarcodeConflictError above.

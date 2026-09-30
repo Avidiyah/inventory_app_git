@@ -316,6 +316,17 @@ class WorkOrderStateError(DomainError):
     or a mode outside `dispense` / `retroactive`. Maps to 400."""
 
 
+class WorkOrderSignatureError(DomainError):
+    """Raised for a bad image, name or phone on a witness sign-off. Maps to
+    422: the request is well-formed, the value is not one the sign-off can
+    take."""
+
+
+class WorkOrderAlreadySignedError(DomainError):
+    """Raised for a second save on a signed work order (one sign-off per
+    work order, S1). Maps to 409."""
+
+
 class ReportWeekError(DomainError):
     """Raised by `services.work_order_report.resolve_week` for a `week` that is
     not a Monday or lies after the current week. Maps to 422: the request is

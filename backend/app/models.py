@@ -23,13 +23,15 @@ from sqlalchemy import (
     Boolean,
     ForeignKey,
     DateTime,
+    LargeBinary,
+    String,
     UniqueConstraint,
     Index,
     func,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import deferred, relationship
 from app.database import Base
 from app.domain.low_stock import DEFAULT_LOW_STOCK_THRESHOLD
 
@@ -453,6 +455,13 @@ class WorkOrder(Base):
         cascade="all, delete-orphan",
         order_by="WorkOrderLaborSession.started_at",
     )
+    signature = relationship(
+        "WorkOrderSignature",
+        back_populates="work_order",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
     # Viewonly (no back-populates on User): surface account + display identity.
     creator = relationship("User", foreign_keys=[created_by_id], viewonly=True)
     assignee = relationship("User", foreign_keys=[assigned_to_id], viewonly=True)
@@ -618,6 +627,34 @@ class WorkOrderLaborSession(Base):
             postgresql_where=text("ended_at IS NULL"),
         ),
     )
+
+
+class WorkOrderSignature(Base):
+    """The witness sign-off on one work order: drawn signature, printed name,
+    phone. One per work order (S1), locked once saved; "unsigned" is simply
+    no row, which keeps the image out of every list query and report.
+    """
+
+    __tablename__ = "work_order_signatures"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    work_order_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("work_orders.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    # Deferred: the card detail reads the metadata; only the PNG route reads bytes.
+    image_png = deferred(Column(LargeBinary, nullable=False))
+    witness_name = Column(Text, nullable=False)
+    witness_phone = Column(String(10), nullable=False)
+    captured_by_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    captured_at = Column(DateTime(timezone=True), nullable=False)
+
+    work_order = relationship("WorkOrder", back_populates="signature")
+    captured_by = relationship("User", foreign_keys=[captured_by_id], viewonly=True)
 
 
 class AttendancePunch(Base):
