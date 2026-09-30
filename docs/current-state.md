@@ -106,7 +106,7 @@ Path shorthand:
 | Scan-and-go work-order batch | `static/views/transactions.js`, `static/views/scan.js`, `routers/transactions.py`, `services/transactions.py`, `static/pages/transaction.html` | `tests/frontend/views/transactions.test.js`, transaction/domain tests, manual UI check for the camera |
 | Mass staging API/domain | `domain/mass_staging.py`, `services/mass_staging.py`, `routers/mass_stages.py`, `schemas/mass_stages.py`, `models.py` | `test_mass_staging.py`, `test_mass_staging_load.py`, `test_mass_stages_api.py` |
 | Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | `tests/frontend/views/massStage.test.js` (all thirteen `data-action` branches, named by `massStageActionCoverage.test.js`), backend mass-stage tests, manual UI check |
-| Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
+| Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `services/work_order_signature.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_signature.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
 | Work Orders UI | `static/views/workOrder*.js` (barrel: `workOrders.js`), `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | `tests/frontend/views/workOrders/` (characterization: render, roles, actions, editor, filters, solo, realtime, integrations, plus the action/export audit), `backend/tests/e2e/test_work_orders.py`, backend work-order tests |
 | User Hub Graphs | `domain/hub.py`, `domain/work_orders.py`, `services/hub.py`, `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubGraphs.js`, `static/views/workOrderList.js`, `static/pages/user-hub.html`, `static/styles.css`, `static/tips.js`, `static/api.js` | `test_hub_graphs_domain.py`, hub service/router/gate/realtime tests, `tests/frontend/views/userHub.test.js` (tab shell, lazy fetch, failure isolation), `tests/frontend/views/hubGraphs.test.js` (donuts, the two-level drill, duration, the Work Orders hand-off); manual role/realtime checks. Aggregation semantics: endpoint-map → User Hub reads |
 | User Hub Report (Admin weekly closed report) | `services/work_order_report.py` (week resolution, window, lazy closed-row freeze, live new-work-order rows), `services/work_order_report_xlsx.py` + `services/_xlsx_theme.py`, `models.py` (`WorkOrderReportWeek`), `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubReport.js`, `static/views/workOrderList.js` (`openWorkOrdersByNumberSearch`), `static/pages/user-hub.html`, `static/styles.css`, `static/api.js` | `test_work_order_report.py` (resolve/window/projection/freeze/new work orders), `test_work_order_report_xlsx.py`, `test_work_order_report_weeks.py`, `test_xlsx_theme.py`, hub router + role-gate tests, `tests/frontend/views/userHub.test.js` (tab shell), `tests/frontend/views/hubReport.test.js` (week picker, counts, sections, hand-off, skeleton and retry); manual Excel check. **Admin-only**; completed closed rows are a **frozen record**, while `New Work Orders` is selected live by `created_at`, blocked by community, and always appears last in Excel; contract in endpoint-map → `HubReportResponse` |
@@ -138,6 +138,7 @@ backend/app/routers/tools.py     Tools CRUD + checkout/return routes
 backend/app/schemas/*.py         request/response contracts
 backend/app/services/*.py        DB-backed application logic
 backend/app/services/work_orders.py Work Orders materials log (dispense/retro)
+backend/app/services/work_order_signature.py witness sign-off save/clear/PNG (sibling of work_orders.py)
 backend/app/services/tools.py    Tool CRUD + checkout/return + custody aggregate
 backend/app/services/user_requests.py durable operational exception queue
 backend/app/integrations/netfacilities/*.py NetFacilities config/contracts/validation, Steel cloud adapter + concrete read-only boundary
@@ -192,6 +193,7 @@ backend/static/views/workOrderRouting.js card-page mode, /workorder_card/ URL, l
 backend/static/views/workOrderPresenters.js status/priority/money/place formatting + role predicates
 backend/static/views/workOrderFilters.js filter reads, filter options, sort direction, RECENT_LIMIT
 backend/static/views/workOrderReferenceData.js allItems/allTechs/allSupers behind ensureReferenceData
+backend/static/views/workOrderSignature.js Signature section builders + the drawing pad (leaf after presenters)
 backend/static/views/tools.js    Tools page (list/search/scan) + Add Tool form binding
 backend/static/views/toolCheckout.js Tool checkout sub-flow (TechFM OA+)
 backend/static/views/toolReturn.js Tool return sub-flow (any role)
@@ -208,7 +210,7 @@ backend/static/vendor/*          vendored ZXing browser library
 Work-order module rule: the nine other views import `workOrders.js` and only
 that; inside the group a sibling imports `workOrderList.js` directly, because
 importing the barrel from within the group makes a cycle. Dependency order,
-leaf first: `workOrderGlyphs` → `workOrderPresenters` →
+leaf first: `workOrderGlyphs` → `workOrderPresenters` → `workOrderSignature` /
 `workOrderReferenceData` / `workOrderFilters` (→ `workOrderFilterChips`) →
 `workOrderStatusActions` → `workOrderCardHtml` → `workOrderRouting` →
 `workOrderList` → `workOrderActions` / `workOrderIntegrations` → barrel.
@@ -1285,6 +1287,23 @@ Rules:
   log. Entries are appended in write order and never sorted; this is the one
   case where the two differ.
 
+### `work_order_signatures`
+
+Fields: `id`, `work_order_id` (unique, `ON DELETE CASCADE`), `image_png`
+(bytea, deferred on the model), `witness_name`, `witness_phone` (10 digits),
+`captured_by_id` (`SET NULL`), `captured_at`. Added by migration `a7c3e9f1b2d4`.
+
+Rules:
+
+- One witness sign-off per work order, locked once saved: the unique index is
+  the backstop for two devices saving at once (the loser gets 409). "Unsigned"
+  is no row, which keeps the image out of every list query and report.
+- Optional and gates nothing; any viewer of the work order captures it,
+  Supervisor+ clears it (no confirm — the note log records both). Archive and
+  restore leave it alone; deleting the work order deletes it.
+- Input caps live in `domain/work_orders.py`: PNG magic + ≤ 256 KB decoded,
+  name ≤ 120, US phone normalized to 10 digits and shown `(555) 555-1234`.
+
 ### `attendance_punches`, `attendance_punch_edits`
 
 Fields: `id`, `user_id`, `started_at`, `ended_at`, `start_source`,
@@ -1598,7 +1617,11 @@ shelf lacks — an empty search offers the catalogue-request prompt — and
 lists this work order's material/catalogue requests, with Cancel on the
 filer's own open ones), Labor (Technician fully read-only; the supervisor
 picker includes themselves "(not assigned)"; entries show their session
-window, capped ones tagged "auto-stopped"). TechFM OA+ get import (with summary counts), filtered/
+window, capped ones tagged "auto-stopped"), Signature (last, every viewer:
+pointer-drawn pad + printed name + phone, Save gated on all three; one per
+work order, locked after save with a "Captured by … on …" line; Supervisor+
+Clear; the pad is mounted on first open and an open section holds the card
+like the other editors). TechFM OA+ get import (with summary counts), filtered/
 client CSV export, Archive on any live card, and the exact-archived-number
 restore prompt; the Owner additionally the hidden legacy re-archive button
 (preview count → confirm → actual count). The list shows the newest 10 by
@@ -1676,7 +1699,7 @@ operational surface renders the derived full name.
 
 ## Migration History
 
-Alembic head: `c4a6e8b0d2f5`.
+Alembic head: `a7c3e9f1b2d4`.
 
 | Revision | Meaning |
 | --- | --- |
@@ -1719,6 +1742,11 @@ Alembic head: `c4a6e8b0d2f5`.
 | `a1c3e5b7d9f0` | `items.low_stock_threshold` for the per-item reorder line |
 | `b3d5f7a9c1e2` → `c6e8a0b2d4f7` | work-order auto-close batch columns added, then dropped once the batch was retired |
 | `d1e3f5a7b9c2` | rename `user_requests.request_type` `item_request` → `catalogue_request` (data only) |
+| `fcbc2524ea62` | `netfacilities_cloud_sessions` (one encrypted cloud session per user) |
+| `e2f4a6c8b0d3` | `work_order_report_weeks` (the frozen weekly closed record) |
+| `d5b7f9a1c3e6` | `work_order_labor_sessions.reviewed_at` (Admin accepted an auto-closed session) |
+| `e7c9a1b3d5f7` | `dispense_exports` (Weekly export windows on Saved Items) |
+| `a7c3e9f1b2d4` | `work_order_signatures` — one witness sign-off per work order (unique `work_order_id`, cascade on delete); nothing backfilled |
 
 ## Test Map
 
@@ -1768,6 +1796,7 @@ Coverage map:
 | `test_mass_staging_load.py` | DB-backed slot load/return, add-work-order enforce-match + refusal of an unimported number, Technician/Supervisor worker assignment, reuse |
 | `test_work_orders_domain.py` | pure rules: number normalization, the seven-status lifecycle order, community vocabulary, worker-derived Created/Assigned, activity-derived In-Progress, note-log formatting, the 12-hour cap and 1-minute floor, combined labor rounding/charge, fill-blanks, visibility scope |
 | `test_work_orders_service.py` | DB-backed service coverage: find-or-create/resolve-only, assignment/scope/routing, the walkthrough actions, tracked sessions (auto-hold on last clock-out, cross-work-order auto-stop with `side_transitions`, the partial unique index, the lazy cap, an open session billing nothing), the two-person Review handoff, labor rules incl. a supervisor crediting themselves, notes/archive/materials, zero-stock adds + recount lifecycle, Owner legacy re-archive, AND-composed filters, community aliases, list cap |
+| `test_work_order_signature.py` | migration round-trip; service save/second-save 409/unique-constraint race/invisible 404/bad payload writes nothing/clear + notes/archive-restore keep/WO delete cascades/PNG read; every route over a real `TestClient` incl. the 422 body cap and the `no-store` PNG |
 | `test_work_order_import.py` | CSV parsing/import, required-number-header and UTF-8 preflight, blank/missing-task NetFacilities fallback, generated-to-real replacement, duplicate-row precedence, manual-task preservation, full-name Admin/Supervisor routing independent of Created status, unmatched/ambiguous/archived/ineligible-role fallback, idempotence, closed-row count/no-mutation, and Admin gate |
 | `test_work_order_name_responses.py` | work-order response exposes plural operational names, rounded labor detail/totals, and the note-log text while omitting login usernames |
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
@@ -1829,7 +1858,7 @@ Frontend layers:
   | --- | --- | --- |
   | `helpers/app.js` | `main.js`, `views/nav.js` | the real composition root over the assembled shell; page swaps |
   | `helpers/auth.js` | `views/auth.js` | mounted directly, so a test picks the `/auth/me` answer before `initAuth()` |
-  | `helpers/workOrders.js` | `views/workOrder*.js` (barrel + 8) | render, filters, roles, editor actions, realtime, the solo card, the Request section |
+  | `helpers/workOrders.js` | `views/workOrder*.js` (barrel + 9) | render, filters, roles, editor actions, realtime, the solo card, the Request section, the Signature pad and its offline replay/resume |
   | `helpers/items.js` | `views/items.js` + `notes`, `itemEditor`, `addBarcode`, `correction(+Panel)` | Find Item, the per-role columns, four row actions, create-item, both scanners' upload lookup; the notes ladder, `itemSave.js`'s write order under both prompts, the debounced add-barcode search, the correction ladder |
   | `helpers/transactions.js` | `views/transactions.js` | the work-order gate, batch lifecycle, commit/undo/retry, the `sessionStorage` snapshot and resume, manual entry |
   | `helpers/history.js` | `views/history.js`, `billingEditor.js` | tabs, overlay filters and the debounce, pagination, the Charge column, void, archived-restore, the pricing list |
