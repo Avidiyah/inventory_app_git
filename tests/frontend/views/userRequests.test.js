@@ -387,16 +387,20 @@ describe("actions by type and status", () => {
     expect(cardFor("r1").querySelector(".user-request-count-fix")).toBeNull();
   });
 
-  it("missing price: open offers the two inputs + save + edit; resolved the auto-resolved hint + edit", async () => {
+  it("missing price: open offers the two inputs + save + remove + edit; resolved only edit", async () => {
     await openUserRequests({ requests: [missingPrice({ id: "p1" }), missingPrice({ id: "p2", status: "resolved" })] });
     tab("missing_item_price").click();
     await vi.waitFor(() => expect(cardFor("p1")).not.toBeNull());
-    expect(actionsOf(cardFor("p1"))).toEqual(["user-request-price-save", "secondary-btn user-request-edit-open"]);
+    expect(actionsOf(cardFor("p1"))).toEqual([
+      "user-request-price-save", "user-request-action secondary-btn", "secondary-btn user-request-edit-open",
+    ]);
+    expect(cardFor("p1").querySelector(sel("user-request-action")).textContent).toBe("Remove");
     expect(cardFor("p1").querySelector(".user-request-link-input").type).toBe("url");
     el.status().value = "resolved";
     el.status().dispatchEvent(new Event("change"));
     await vi.waitFor(() => expect(cardFor("p2")).not.toBeNull());
-    expect(hintsOf(cardFor("p2"))).toEqual(["Resolved automatically when the item price and product link were added."]);
+    // The resolution block's note says how it closed; no hint in the actions.
+    expect(hintsOf(cardFor("p2"))).toEqual([]);
     expect(actionsOf(cardFor("p2"))).toEqual(["secondary-btn user-request-edit-open"]);
   });
 });
