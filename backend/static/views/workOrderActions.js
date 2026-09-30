@@ -15,12 +15,14 @@ import {
   apiAddWorkOrderItem,
   apiAddWorkOrderLabor,
   apiArchiveWorkOrder,
+  apiClearWorkOrderSignature,
   apiCompleteWorkOrder,
   apiDeleteWorkOrderItem,
   apiDeleteWorkOrderLabor,
   apiGetAttendanceMe,
   apiHoldWorkOrder,
   apiResumeWorkOrder,
+  apiSaveWorkOrderSignature,
   apiSelfClosePunch,
   apiSetWorkOrderItemBilling,
   apiStartWorkOrderTracking,
@@ -32,7 +34,7 @@ import {
 import { confirmDialog, messageDialog, promptTime, setMessage } from "../dom.js";
 import { escapeHtml, filterRanked, friendlyError } from "../format.js";
 import { getCurrentUser } from "../state.js";
-import { clearDraft, saveDraft } from "../workOrderDrafts.js";
+import { clearDraft, markDraftError, saveDraft } from "../workOrderDrafts.js";
 import { openBillingEditor } from "./billingEditor.js";
 import { catalogueRequestPromptHtml } from "./catalogueRequest.js";
 import {
@@ -50,9 +52,18 @@ import {
 } from "./workOrderCardHtml.js";
 import { getAllItems } from "./workOrderReferenceData.js";
 import { exitSolo } from "./workOrderRouting.js";
+import { clearSignaturePad, mountSignaturePad, signaturePayload } from "./workOrderSignature.js";
 import { loadWorkOrders, refreshCard } from "./workOrderList.js";
 
 const listEl = document.getElementById("work-orders-list");
+
+// --- signature pad (toggle delegation) -----------------------------------
+
+// `toggle` does not bubble; capture it so a collapsed card never builds a pad.
+listEl.addEventListener("toggle", (event) => {
+  const section = event.target;
+  if (section.matches?.(".wo-signature-section") && section.open) mountSignaturePad(section);
+}, true);
 
 // --- add-material search (input delegation) ------------------------------
 
@@ -462,6 +473,32 @@ listEl.addEventListener("click", async (event) => {
       if (!(await confirmDialog("Remove this material from the work order?"))) return;
       await apiDeleteWorkOrderItem(workOrderId, row.dataset.woItemId);
       await refreshCard(cardEl, ".wo-materials-section");
+    } else if (action === "clear-signature-pad") {
+      clearSignaturePad(btn.closest(".wo-signature-section"));
+    } else if (action === "save-signature") {
+      const section = btn.closest(".wo-signature-section");
+      const payload = signaturePayload(section);
+      saveDraft(workOrderId, "signature", { number: cardEl.dataset.number, action: "save-signature", payload });
+      try {
+        await apiSaveWorkOrderSignature(workOrderId, payload);
+      } catch (err) {
+        if (err?.status !== 409) throw err;
+        // Someone else signed first: show the winner, keep the draft marked.
+        markDraftError(workOrderId, "signature", err);
+        await refreshCard(cardEl, ".wo-signature-section");
+        // Not setMessage: it replaces className and would drop the aria-live hook.
+        const note = cardEl.querySelector(".wo-signature-message");
+        note.textContent = friendlyError(err, "Already signed.");
+        note.classList.add("error");
+        return;
+      }
+      clearDraft(workOrderId, "signature");
+      // Reopening fires `toggle`, which mounts the fresh pad if one is drawn.
+      await refreshCard(cardEl, ".wo-signature-section");
+    } else if (action === "clear-signature") {
+      // No confirm (S5): the note log records the clear.
+      await apiClearWorkOrderSignature(workOrderId);
+      await refreshCard(cardEl, ".wo-signature-section");
     }
   } catch (err) {
     if (

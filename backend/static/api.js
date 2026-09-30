@@ -911,6 +911,23 @@ export async function apiDeleteWorkOrderLabor(workOrderId, laborId) {
   }));
 }
 
+// Witness sign-off: one per work order, locked after save; DELETE is
+// Supervisor+ and returns the refreshed detail like POST does.
+export async function apiSaveWorkOrderSignature(workOrderId, { image, witnessName, witnessPhone }) {
+  return jsonRequest(`/work-orders/${workOrderId}/signature`, "POST", {
+    image,
+    witness_name: witnessName,
+    witness_phone: witnessPhone,
+  });
+}
+
+export async function apiClearWorkOrderSignature(workOrderId) {
+  return parseResponse(await rawFetch(`/work-orders/${workOrderId}/signature`, {
+    method: "DELETE",
+    credentials: "include",
+  }));
+}
+
 // --- Web Push ----------------------------------------------------
 export async function apiPushConfig() {
   return parseResponse(await rawFetch("/push/config", { credentials: "include" }));

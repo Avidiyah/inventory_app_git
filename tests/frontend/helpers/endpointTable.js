@@ -210,6 +210,10 @@ export const ENDPOINTS = [
   { fn: "apiUpdateWorkOrderLabor", args: [12, 7, { minutes: 45 }], method: "PATCH", url: "/work-orders/12/labor/7",
     body: { minutes: 45 } },
   { fn: "apiDeleteWorkOrderLabor", args: [12, 7], method: "DELETE", url: "/work-orders/12/labor/7" },
+  { fn: "apiSaveWorkOrderSignature",
+    args: [12, { image: "data:x", witnessName: "Pat", witnessPhone: "5555551234" }], method: "POST",
+    url: "/work-orders/12/signature", body: { image: "data:x", witness_name: "Pat", witness_phone: "5555551234" } },
+  { fn: "apiClearWorkOrderSignature", args: [12], method: "DELETE", url: "/work-orders/12/signature" },
 
   // --- Web Push ---
   { fn: "apiPushConfig", args: [], url: "/push/config" },

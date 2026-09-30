@@ -39,6 +39,7 @@ import {
 import { chargingStripHtml, statusActionsHtml } from "./workOrderStatusActions.js";
 import { getAllSupervisors, getAllTechnicians } from "./workOrderReferenceData.js";
 import { livePriorityValues } from "./workOrderFilters.js";
+import { signatureSectionHtml } from "./workOrderSignature.js";
 
 function renderLaborEntryHtml(entry) {
   const actions = canEditLabor(entry)
@@ -552,6 +553,8 @@ export function renderBody(detail, bodyEl) {
        <div class="wo-section-content"></div>
      </details>` +
     (sup || assignedToCurrentUser ? laborSectionHtml(detail) : "") +
+    // Last (S15), for every viewer (S3, S4).
+    signatureSectionHtml(detail) +
     `<p class="wo-message"></p>`;
 }
 

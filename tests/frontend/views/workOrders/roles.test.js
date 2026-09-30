@@ -413,7 +413,9 @@ describe("the denial spot-check", () => {
     for (const action of ["hold-assigned-wo", "notify-supervisor-wo", "stop-tracking-wo"]) {
       expect(cardEl.querySelector(`[data-action="${action}"]`), action).toBeNull();
     }
-    // Not disabled-but-present anywhere in the body either.
-    expect(cardEl.querySelectorAll("button[disabled]")).toHaveLength(0);
+    // Not disabled-but-present anywhere in the body either. Save signature is
+    // the one button that is disabled by an input gate (S6), not by role.
+    expect(cardEl.querySelectorAll('button[disabled]:not([data-action="save-signature"])'))
+      .toHaveLength(0);
   });
 });

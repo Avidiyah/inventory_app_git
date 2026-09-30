@@ -1,0 +1,116 @@
+// Work Orders: the witness Signature section (spec 2026-09-30).
+//
+// Layer: HTML builders + the drawing pad. The click handlers for
+// `save-signature`, `clear-signature` and `clear-signature-pad` live in
+// workOrderActions.js; this module only builds markup and owns the canvas.
+// Imports only format.js and workOrderPresenters.js.
+
+import { escapeHtml } from "../format.js";
+import { isSupervisorPlus } from "./workOrderPresenters.js";
+
+// Mirror of the domain rule (S7): strip non-digits, drop one leading `1`
+// from eleven, require exactly ten. `null` means "not a phone yet".
+export function normalizePhone(raw) {
+  let digits = String(raw ?? "").replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
+  return digits.length === 10 ? digits : null;
+}
+
+export function signatureSectionHtml(detail) {
+  const sig = detail.signature;
+  const body = sig
+    ? `<img class="wo-signature-image" alt="Witness signature" src="${escapeHtml(sig.image_url)}">
+       <p><strong>${escapeHtml(sig.witness_name)}</strong> · ${escapeHtml(sig.witness_phone_display)}</p>
+       <p class="hint">Captured by ${escapeHtml(sig.captured_by_name)} on ${escapeHtml(sig.captured_at_label)}</p>
+       ${isSupervisorPlus()
+         ? `<button type="button" class="btn-danger" data-action="clear-signature">Clear signature</button>`
+         : ""}`
+    : `<canvas class="wo-signature-pad" aria-label="Signature pad"></canvas>
+       <div class="wo-signature-pad-actions">
+         <button type="button" class="secondary-btn" data-action="clear-signature-pad">Clear</button>
+       </div>
+       <label class="wo-signature-field"><span>Witness Printed Name:</span>
+         <input type="text" class="wo-signature-name" maxlength="120"></label>
+       <label class="wo-signature-field"><span>Phone number:</span>
+         <input type="tel" class="wo-signature-phone" autocomplete="tel"></label>
+       <div class="wo-notes-actions"><button type="button" data-action="save-signature" disabled>Save signature</button></div>`;
+  return `<details class="wo-section-card wo-signature-section">
+            <summary class="wo-section-summary">Signature</summary>
+            <div class="wo-section-content">${body}<p class="wo-signature-message" aria-live="polite"></p></div>
+          </details>`;
+}
+
+// S6: Save needs a stroke, a nonblank name, and a phone that normalizes.
+function updateSaveEnabled(section) {
+  const save = section.querySelector('[data-action="save-signature"]');
+  if (!save) return;
+  save.disabled = !(
+    section.dataset.hasStroke === "1"
+    && section.querySelector(".wo-signature-name")?.value.trim()
+    && normalizePhone(section.querySelector(".wo-signature-phone")?.value)
+  );
+}
+
+// White before ink (S13): the PNG is opaque, so it reads the same in dark mode.
+function wipe(canvas) {
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+// Idempotent: a section re-opened after a live refresh is a fresh element,
+// but the same element toggled twice must not bind twice.
+export function mountSignaturePad(section) {
+  const canvas = section.querySelector(".wo-signature-pad");
+  if (!canvas || section.dataset.padMounted) return;
+  section.dataset.padMounted = "1";
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.round(canvas.clientWidth * ratio);
+  canvas.height = Math.round(canvas.clientHeight * ratio);
+  // ponytail: a rotate/resize after mount keeps the old backing size (strokes
+  // stay correct, just scaled); re-size on resize only if field users hit it.
+  wipe(canvas);
+  const ctx = canvas.getContext("2d");
+  const point = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return [
+      (e.clientX - r.left) * (canvas.width / (r.width || 1)),
+      (e.clientY - r.top) * (canvas.height / (r.height || 1)),
+    ];
+  };
+  let drawing = false;
+  canvas.addEventListener("pointerdown", (e) => {
+    drawing = true;
+    canvas.setPointerCapture?.(e.pointerId);
+    Object.assign(ctx, { strokeStyle: "#000", lineWidth: 2.5 * ratio, lineCap: "round", lineJoin: "round" });
+    ctx.beginPath();
+    ctx.moveTo(...point(e));
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!drawing) return;
+    ctx.lineTo(...point(e));
+    ctx.stroke();
+    section.dataset.hasStroke = "1";
+    updateSaveEnabled(section);
+  });
+  const end = () => { drawing = false; };
+  canvas.addEventListener("pointerup", end);
+  canvas.addEventListener("pointercancel", end);
+  section.addEventListener("input", () => updateSaveEnabled(section));
+}
+
+export function clearSignaturePad(section) {
+  const canvas = section.querySelector(".wo-signature-pad");
+  if (canvas) wipe(canvas);
+  delete section.dataset.hasStroke;
+  updateSaveEnabled(section);
+}
+
+export function signaturePayload(section) {
+  return {
+    image: section.querySelector(".wo-signature-pad").toDataURL("image/png"),
+    witnessName: section.querySelector(".wo-signature-name").value.trim(),
+    witnessPhone: normalizePhone(section.querySelector(".wo-signature-phone").value),
+  };
+}

@@ -118,6 +118,9 @@ writes (w).
 | 71a | POST | `/work-orders/{id}/tracking/start` | assigned Technician, or Supervisor+ on any visible row | `work_orders.py` → `attendance.ensure_punch_for_labor_start` + `work_orders.start_labor_session` | attendance_punches (r/w), work_orders (r/w status + notes, row lock), work_order_technicians (r), work_order_labor_sessions (r/w), work_order_labor (w, when it closes a clock elsewhere), push_subscriptions (r, via notify on that row's auto-hold) | `apiStartWorkOrderTracking` | `workOrderActions.js` |
 | 71b | POST | `/work-orders/{id}/tracking/stop` | assigned Technician, or Supervisor+ on any visible row | `work_orders.py` → `work_orders.stop_labor_session` | work_orders (r/w status + notes, row lock), work_order_technicians (r), work_order_labor_sessions (r/w), work_order_labor (w), push_subscriptions (r, via notify on auto-hold) | `apiStopWorkOrderTracking` | `workOrderActions.js` |
 | 72a | GET | `/work-orders/{id}/requests` | session scoped | `work_orders.py` → `work_orders.get_visible_work_order` + `material_requests.list_for_work_order` | user_requests (r), items (r), work_orders (r), users (r) | `apiListWorkOrderRequests` | `workOrderRequests.js` |
+| 72b | POST | `/work-orders/{id}/signature` | session scoped (any viewer) | `work_orders.py` → `work_order_signature.save_signature` (PNG ≤ 256 KB decoded, name ≤ 120, US 10-digit phone); 409 already signed, 422 bad input | work_order_signatures (w), work_orders (r/w notes, row lock), users (r) | `apiSaveWorkOrderSignature` | `workOrderActions.js` |
+| 72c | DELETE | `/work-orders/{id}/signature` | supervisor+ scoped | `work_orders.py` → `work_order_signature.clear_signature`; 404 when unsigned | work_order_signatures (w), work_orders (r/w notes, row lock) | `apiClearWorkOrderSignature` | `workOrderActions.js` |
+| 72d | GET | `/work-orders/{id}/signature.png` | session scoped (any viewer) | `work_orders.py` → `work_order_signature.get_signature_png` — `image/png`, `Cache-Control: no-store`; 404 unsigned | work_order_signatures (r), work_orders (r) | `<img src>` (`image_url` on `WorkOrderDetail.signature`) | `workOrderSignature.js` |
 | NF2 | POST | `/integrations/netfacilities/work-orders/enrich` | techfm_oa+ | `netfacilities.py` → `_resolve_cloud_enrichment_context` (the caller's own cloud session) → `netfacilities_jobs.start` → `netfacilities.enrich_work_orders` | work_orders (r/w, existing live candidates only; short compare-and-set locks); netfacilities_cloud_sessions (r, caller's own row only) | `apiStartNetFacilitiesEnrichment` | `workOrderIntegrations.js` |
 | NF3 | GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | techfm_oa+ | `netfacilities.py` → `netfacilities_jobs.get` | no DB; process-local aggregate-only job snapshot | `apiGetNetFacilitiesEnrichment` | `workOrderIntegrations.js` |
 | NF5 | GET | `/integrations/netfacilities/cloud/session` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.latest` + `NetFacilitiesCloudSession` existence check | netfacilities_cloud_sessions (r, existence only) | `apiGetNetFacilitiesCloudSession` | `workOrderIntegrations.js` (Integrations card, cloud sign-in) |
@@ -346,6 +349,12 @@ endpoint or form exists; every other surface resolves an existing number and
   `adjust` and clears a now-too-large billable override; delete (Supervisor+)
   returns stock, voids the line's whole contributing transaction set, and
   resolves linked requests.
+- Signature: optional witness sign-off, one row per work order, locked once
+  saved; any viewer captures it, Supervisor+ clears it, neither gates a
+  status change. Save and clear each append a server-authored note line and
+  emit the live status-changed event; the PNG is served `no-store` and
+  `image_url` carries `?v=<captured_at epoch>` so a re-sign never shows a
+  cached image. The save joins the offline-draft replay (`signature` section).
 
 ### User Hub reads
 - Day aggregation is **interval overlap** against the Central calendar day
@@ -425,6 +434,7 @@ Quick reverse lookup: "which endpoints touch table X?"
 | `work_order_technicians` | 28, 40, 55 | 25, 26, 28, 59, 64 |
 | `work_order_labor` | 59, 60, 61, 71a, 71b | 26, 60, 61, 63 |
 | `work_order_labor_sessions` | 71a, 71b, 69, 70, 26 (PATCH into a stopping status), 64 (archive), 27 (lazy 12-hour cap on read) | 71a, 71b, 27, 69, 70 |
+| `work_order_signatures` | 72b (insert; unique per WO), 72c (delete); cascades on WO delete | 26 (metadata on the detail), 72d (PNG bytes) |
 | `mass_stages` | 34, 37, 38, 39 | 35, 36 |
 | `mass_stage_work_orders` | 40, 41 | 36 |
 | `mass_stage_items` | 42, 43, 44, 45, 46 | 36 |
@@ -694,7 +704,12 @@ before the form body is read, so an unauthorised oversized upload is 403). **`Wo
 `items: list[WorkOrderItemDetail]` + `labor: list[WorkOrderLaborDetail]` +
 `labor_minutes` + `labor_billed_minutes` + `materials_total?` (TechFM OA and above; Σ
 `effective_billable × unit_price`) + `labor_rate?` / `labor_total?`
-(TechFM OA and above; fixed rate after combined-duration rounding).
+(TechFM OA and above; fixed rate after combined-duration rounding) +
+`signature: WorkOrderSignatureOut?`. **`WorkOrderSignatureCreate`** — `POST
+.../signature`: `image` (PNG data URL, ≤ 360,000 chars), `witness_name`,
+`witness_phone` (raw; normalized server-side). **`WorkOrderSignatureOut`**:
+`witness_name`, `witness_phone_display` (`(555) 555-1234`), `captured_by_name`,
+`captured_at`, `captured_at_label` (Central `MM/DD/YY hh:MM AM/PM`), `image_url`.
 
 ### NetFacilities (`schemas/netfacilities.py`)
 
