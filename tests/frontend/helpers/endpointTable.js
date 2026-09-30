@@ -144,6 +144,8 @@ export const ENDPOINTS = [
   { fn: "apiExportHubAttendance", args: [{}], url: "/hub/attendance/export", cache: "no-store" },
   { fn: "apiReviewHubAttendanceWeek", args: [{ week: "2026-09-21" }], method: "POST",
     url: "/hub/attendance/week/review?week=2026-09-21" },
+  { fn: "apiClockOutAttendanceUser", args: [7], method: "POST", url: "/hub/attendance/clock-out/7",
+    body: {} },
   { fn: "apiAddAttendancePunch",
     args: [{ userId: "11111111-1111-4111-8111-111111111111",
              startedAt: "2026-09-21T13:00:00.000Z",
