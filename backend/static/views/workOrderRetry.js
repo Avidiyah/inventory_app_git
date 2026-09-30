@@ -14,6 +14,7 @@
 import {
   apiAddWorkOrderItem,
   apiAddWorkOrderLabor,
+  apiSaveWorkOrderSignature,
   apiUpdateWorkOrder,
   apiUpdateWorkOrderItem,
   apiUpdateWorkOrderLabor,
@@ -41,6 +42,7 @@ const RETRY_ACTIONS = {
   "edit-item": (workOrderId, payload, targetId) => apiUpdateWorkOrderItem(workOrderId, targetId, payload),
   "save-notes": (workOrderId, payload) => apiUpdateWorkOrder(workOrderId, payload),
   "save-details": (workOrderId, payload) => apiUpdateWorkOrder(workOrderId, payload),
+  "save-signature": (workOrderId, payload) => apiSaveWorkOrderSignature(workOrderId, payload),
 };
 
 // Called on a socket reconnect and once at boot (see auth.js). Safe to run

@@ -389,12 +389,13 @@ async function refreshCardSummary(cardEl) {
   }
 }
 
-// The four editor sections inside a card body. A card holding any of them open
-// is "held": nothing refreshes it, because rewriting it would discard an unsaved
-// note, a material quantity, labor hours, or a technician selection in progress.
-// The technician combobox needs no entry -- it renders inside `.wo-edit-card`.
+// The editor sections inside a card body. A card holding any of them open is
+// "held": nothing refreshes it, because rewriting it would discard an unsaved
+// note, a material quantity, labor hours, a technician selection, or a
+// half-drawn signature in progress. The technician combobox needs no entry --
+// it renders inside `.wo-edit-card`.
 const EDITOR_SECTIONS =
-  ".wo-edit-card, .wo-notes-section, .wo-materials-section, .wo-labor-section, .wo-request-section";
+  ".wo-edit-card, .wo-notes-section, .wo-materials-section, .wo-labor-section, .wo-request-section, .wo-signature-section";
 
 function isHeld(cardEl) {
   return Array.from(cardEl.querySelectorAll(EDITOR_SECTIONS)).some((s) => s.open);

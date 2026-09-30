@@ -8,7 +8,7 @@
 // real 401/re-login round trip is available; this file only needs the
 // work-orders shell.
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../../helpers/handlers.js";
 import {
@@ -104,5 +104,81 @@ describe("edit-item offline recovery", () => {
     await vi.waitFor(() => expect(requestFor("/items/wi1", "PATCH")).not.toBeNull());
     expect(requestFor("/items/wi1", "PATCH").body).toEqual({ quantity: 5 });
     expect(localStorage.getItem(key)).toBeNull();
+  });
+});
+
+describe("save-signature offline recovery", () => {
+  const DRAFTS = "../../../../backend/static/workOrderDrafts.js";
+  const IMAGE = "data:image/png;base64,iVBORw0KGgo=";
+  const draftOf = (detail) => ({
+    number: detail.number,
+    action: "save-signature",
+    payload: { image: IMAGE, witnessName: "Pat Doe", witnessPhone: "5555551234" },
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("replays a stored draft as the POST and clears it on success", async () => {
+    const { mod, detail } = await open();
+    const drafts = await import(DRAFTS);
+    drafts.saveDraft(detail.id, "signature", draftOf(detail));
+    respond("post", "/work-orders/:id/signature", { ...detail }, { status: 201 });
+
+    await mod.replayPendingDrafts();
+
+    await vi.waitFor(() => expect(requestFor("/signature", "POST")).not.toBeNull());
+    expect(requestFor("/signature", "POST").body).toEqual({
+      image: IMAGE, witness_name: "Pat Doe", witness_phone: "5555551234",
+    });
+    expect(localStorage.getItem(`wo-draft:${detail.id}:signature`)).toBeNull();
+  });
+
+  it("keeps the draft marked 409 and never retries once someone else signed first", async () => {
+    const { mod, detail } = await open();
+    const drafts = await import(DRAFTS);
+    drafts.saveDraft(detail.id, "signature", draftOf(detail));
+    respond("post", "/work-orders/:id/signature",
+      { detail: "This work order is already signed." }, { status: 409 });
+
+    await mod.replayPendingDrafts();
+    await vi.waitFor(() => expect(requestFor("/signature", "POST")).not.toBeNull());
+
+    const key = `wo-draft:${detail.id}:signature`;
+    expect(JSON.parse(localStorage.getItem(key)).lastError).toEqual({
+      status: 409, detail: "This work order is already signed.",
+    });
+    clearRequests();
+    await mod.replayPendingDrafts();
+    expect(requestFor("/signature", "POST")).toBeNull();
+    expect(localStorage.getItem(key)).not.toBeNull();
+  });
+
+  it("resume after re-login reopens the section, refills name and phone, and redraws the image", async () => {
+    const ctx = {
+      fillRect: vi.fn(), drawImage: vi.fn(), setTransform: vi.fn(), beginPath: vi.fn(),
+      moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(),
+    };
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => ctx);
+    // jsdom never loads an image; the setter stands in for the network.
+    vi.stubGlobal("Image", class { set src(_value) { this.onload?.(); } });
+    const detail = workOrderDetail();
+    await mountWorkOrders({
+      role: "supervisor",
+      cards: [workOrderCard({ id: detail.id, number: detail.number, status: detail.status })],
+      details: [detail],
+    });
+    const drafts = await import(DRAFTS);
+    drafts.saveDraft(detail.id, "signature", draftOf(detail));
+    drafts.setPendingResume({ workOrderId: detail.id, number: detail.number, section: "signature" });
+
+    await openCard(0);
+
+    const section = card().querySelector(".wo-signature-section");
+    expect(section.open).toBe(true);
+    expect(section.querySelector(".wo-signature-name").value).toBe("Pat Doe");
+    expect(section.querySelector(".wo-signature-phone").value).toBe("5555551234");
+    expect(ctx.drawImage).toHaveBeenCalledTimes(1);
+    expect(section.querySelector('[data-action="save-signature"]').disabled).toBe(false);
+    expect(localStorage.getItem("wo-draft-resume")).toBeNull();
   });
 });

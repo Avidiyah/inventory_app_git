@@ -21,6 +21,7 @@ export const SECTION_SELECTOR = {
   notes: ".wo-notes-section",
   materials: ".wo-materials-section",
   labor: ".wo-labor-section",
+  signature: ".wo-signature-section",
 };
 
 function draftKey(workOrderId, section) {

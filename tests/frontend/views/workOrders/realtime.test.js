@@ -185,6 +185,7 @@ describe("a held card", () => {
   // discard an unsaved note, quantity, or technician selection.
   it.each([
     ".wo-edit-card", ".wo-notes-section", ".wo-materials-section", ".wo-labor-section",
+    ".wo-signature-section",
   ])("defers the update while %s is open", async (selector) => {
     const detail = workOrderDetail({ number: "4242", status: "in_progress" });
     await mountConnected({

@@ -114,3 +114,19 @@ export function signaturePayload(section) {
     witnessPhone: normalizePhone(section.querySelector(".wo-signature-phone").value),
   };
 }
+
+// Resume after a forced re-login (S11): refill the fields and paint the
+// drafted PNG back onto the pad so the operator can save, not redraw.
+export function restoreSignatureDraft(section, { image, witnessName, witnessPhone }) {
+  mountSignaturePad(section);
+  section.querySelector(".wo-signature-name").value = witnessName ?? "";
+  section.querySelector(".wo-signature-phone").value = witnessPhone ?? "";
+  const canvas = section.querySelector(".wo-signature-pad");
+  const img = new Image();
+  img.onload = () => {
+    canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+    section.dataset.hasStroke = "1";
+    section.dispatchEvent(new Event("input")); // re-run the Save gate
+  };
+  img.src = image;
+}
