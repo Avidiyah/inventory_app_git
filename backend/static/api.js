@@ -39,9 +39,25 @@ export function setConnectivityHandler(fn) {
 // resolves to the exact same live binding, so this is not a behavior change
 // versus every call site below -- only a place to hang the connectivity
 // signal on.
-async function rawFetch(url, init) {
+//
+// Every request also gets a deadline. A connection that dies silently (phone
+// slept, Wi-Fi handoff, server redeploy) otherwise leaves fetch pending for
+// minutes: neither handler above fires, and the caller's in-flight guard keeps
+// its button dead until a refresh. Aborting turns that into an ordinary
+// network failure -> "Not Connected" prompt, and the caller unlocks with its
+// form intact. Uploads, file downloads and NetFacilities calls (server-side
+// browser automation) legitimately run long, so they get the longer budget.
+export const REQUEST_TIMEOUT_MS = 20000;
+export const LONG_REQUEST_TIMEOUT_MS = 120000;
+const LONG_REQUEST_URL = /\/export|dispense-exports|\/integrations\/netfacilities\//;
+
+async function rawFetch(url, init = {}) {
+  const long = init.body instanceof FormData || LONG_REQUEST_URL.test(url);
+  // Optional-chained for browsers predating AbortSignal.timeout (iOS < 16):
+  // they keep the old no-deadline behavior rather than breaking.
+  const signal = AbortSignal.timeout?.(long ? LONG_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
   try {
-    const response = await globalThis.fetch(url, init);
+    const response = await globalThis.fetch(url, { ...init, signal });
     connectivityHandler?.(true);
     return response;
   } catch (err) {

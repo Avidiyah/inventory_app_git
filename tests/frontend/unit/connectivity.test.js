@@ -108,3 +108,19 @@ describe("the periodic probe while offline", () => {
     expect(handler).toHaveBeenCalledExactlyOnceWith(true); // only the initial sync call
   });
 });
+
+describe("a request that never answers (silently dead connection)", () => {
+  it("times out and marks offline instead of hanging forever", async () => {
+    const deadline = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal);
+    server.use(http.get("/auth/me", () => new Promise(() => {})));
+    const api = await import("../../../backend/static/api.js");
+    const pending = expect(api.apiMe()).rejects.toBeTruthy();
+    expect(timeout).toHaveBeenCalledWith(api.REQUEST_TIMEOUT_MS);
+    expect(connectivity.isOnline()).toBe(true);
+    deadline.abort(new DOMException("timed out", "TimeoutError"));
+    await pending;
+    expect(connectivity.isOnline()).toBe(false);
+    timeout.mockRestore();
+  });
+});
