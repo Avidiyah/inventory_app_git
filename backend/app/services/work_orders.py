@@ -68,6 +68,7 @@ from app.models import (
     WorkOrderItem,
     WorkOrderLabor,
     WorkOrderLaborSession,
+    WorkOrderSignature,
     WorkOrderTechnician,
 )
 from app.services import _list_cap
@@ -1859,6 +1860,16 @@ def update_work_order(
                 "Only a Completed work order can be sent to Review."
             )
         _require_review_handoff_permission(work_order, user)
+        if (
+            work_order_totals(work_order).total > wo.SIGNATURE_REQUIRED_OVER
+            and db.query(WorkOrderSignature.id)
+            .filter_by(work_order_id=work_order.id)
+            .first()
+            is None
+        ):
+            raise WorkOrderStateError(
+                "A witness signature is required to send a work order over $500 to Review."
+            )
 
     if "entry_mode" in fields:
         wo.validate_mode(fields["entry_mode"])

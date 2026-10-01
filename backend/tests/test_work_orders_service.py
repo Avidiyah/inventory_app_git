@@ -2246,6 +2246,31 @@ def test_notify_supervisor_does_not_auto_hold_despite_stopping_every_clock(db):
     assert finished.status == "ready_to_complete"
 
 
+def test_review_over_500_requires_a_signature(db):
+    from app.models import WorkOrderSignature
+
+    admin = _seed_user(db, "admin")
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.start_labor_session(db, w.id, user=tech)
+    wos.complete_work_order(db, w.id, user=tech)
+    wos.add_work_order_labor(db, w.id, user=sup, technician_id=tech.id, minutes=9 * 60)
+    # Completion itself is not gated.
+    wos.update_work_order(db, w.id, user=sup, fields={"status": "completed"})
+
+    with pytest.raises(WorkOrderStateError, match="signature"):
+        wos.update_work_order(db, w.id, user=admin, fields={"status": "review"})
+
+    db.add(WorkOrderSignature(
+        work_order_id=w.id, image_png=b"png", witness_name="W", witness_phone="5555555555",
+        captured_by_id=sup.id, captured_at=datetime.now(timezone.utc),
+    ))
+    db.commit()
+    done = wos.update_work_order(db, w.id, user=admin, fields={"status": "review"})
+    assert done.status == "review"
+
+
 def test_a_co_worker_cannot_start_again_on_a_ready_to_complete_row(db):
     sup = _seed_user(db, "supervisor")
     a = _seed_user(db, "technician")

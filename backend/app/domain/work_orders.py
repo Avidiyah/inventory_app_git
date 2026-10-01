@@ -152,6 +152,8 @@ def append_note_log(
 # --- witness sign-off ----------------------------------------------------
 
 MAX_SIGNATURE_BYTES = 256 * 1024
+# Completed -> Review needs a witness sign-off above this bill total.
+SIGNATURE_REQUIRED_OVER = Decimal(500)
 MAX_WITNESS_NAME = 120
 _PNG_PREFIX = "data:image/png;base64,"
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
