@@ -132,6 +132,10 @@ def test_labels_page_narrows_to_a_location_and_lists_every_location(db):
 
 
 def test_labels_page_has_size_sliders_up_to_the_printable_sheet(db):
+    db.add(Item(barcode=f"LBL-{uuid.uuid4().hex[:8].upper()}", name="Slider",
+                quantity=Decimal("1"), location="Bay 1"))
+    db.commit()
+
     page = _export(db, "techfm_oa", "/items/labels").text
 
     assert 'data-var="w" min="1" max="7.5" step="0.05" value="2.5"' in page
@@ -139,6 +143,8 @@ def test_labels_page_has_size_sliders_up_to_the_printable_sheet(db):
     assert 'data-var="b" min="10" max="80" step="1" value="30"' in page
     assert 'data-var="f" min="50" max="400" step="5" value="100"' in page
     assert '<script type="module" src="/static/labels.js"></script>' in page
+    assert '<input type="checkbox" id="select-all">' in page
+    assert '<div class="label" tabindex="0" role="checkbox" aria-checked="false">' in page
 
 
 def test_code39_modules_round_trip_through_the_decoder():

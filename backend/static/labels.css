@@ -6,16 +6,13 @@
 }
 
 :root {
-    /* Set by the sliders (labels.js): label width / height in inches,
-       barcode height as % of the label, text size as %. --s scales
-       spacing by whichever side shrank (or grew) the least, so 2.5 x 3 is
-       the 1:1 design size; --t is --s with the text slider on top. */
+    /* Set by the sliders (labels.js) on <html>, or on one label for a
+       per-label tweak: label width / height in inches, barcode height as
+       % of the label, text size as %. */
     --w: 2.5;
     --h: 3;
     --b: 30;
     --f: 100;
-    --s: min(var(--w) / 2.5, var(--h) / 3);
-    --t: calc(var(--s) * var(--f) / 100);
 }
 
 body {
@@ -39,13 +36,24 @@ body {
     min-width: 3em;
 }
 
+/* Wrapping rows, not a grid, so one label can differ in size; same-size
+   labels line up exactly like a grid. */
 .sheet {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, calc(var(--w) * 1in));
-    grid-auto-rows: calc(var(--h) * 1in);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
 }
 
 .label {
+    /* Declared here, not on :root, so each label computes them from its
+       own --w / --h / --f. --s scales spacing by whichever side shrank (or
+       grew) the least, so 2.5 x 3 is the 1:1 design size; --t is --s with
+       the text slider on top. */
+    --s: min(var(--w) / 2.5, var(--h) / 3);
+    --t: calc(var(--s) * var(--f) / 100);
+    flex: none;
+    width: calc(var(--w) * 1in);
+    height: calc(var(--h) * 1in);
     box-sizing: border-box;
     padding: calc(0.15in * var(--s));
     outline: 1px dashed #999;
@@ -81,6 +89,15 @@ body {
 .name-sub {
     font-size: calc(12pt * var(--t));
     font-weight: bold;
+}
+
+@media screen {
+    .label { cursor: pointer; }
+    .label.selected {
+        outline: 2px solid #c8102e;
+        outline-offset: -2px;
+        background: #fdf0f2;
+    }
 }
 
 @media print {

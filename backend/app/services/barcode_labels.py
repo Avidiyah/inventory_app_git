@@ -92,7 +92,9 @@ def labels_html(db: Session, *, search: str | None = None,
         for loc in sorted({i.location for i in everything}, key=str.lower)
     )
     labels = "".join(
-        f'<div class="label">{_bars_html(i.barcode)}'
+        # Selectable for per-label slider tweaks (static/labels.js).
+        '<div class="label" tabindex="0" role="checkbox" aria-checked="false">'
+        f'{_bars_html(i.barcode)}'
         f'<div class="code">{escape(i.barcode)}</div>{_name_html(i.name)}</div>'
         for i in items
     )
@@ -104,7 +106,8 @@ def labels_html(db: Session, *, search: str | None = None,
         '<form class="toolbar" method="get">'
         '<label>Location <select name="location"><option value="">All items</option>'
         f'{options}</select></label><button type="submit">Show</button>'
-        # No `name`: the sliders are client-side only (static/labels.js).
+        # No `name`: these controls are client-side only (static/labels.js).
+        '<label><input type="checkbox" id="select-all"> Select all</label>'
         '<label>Width <input type="range" data-var="w" min="1" max="7.5" '
         'step="0.05" value="2.5"><output>2.5"</output></label>'
         '<label>Height <input type="range" data-var="h" min="1" max="10" '
