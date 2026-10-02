@@ -6,12 +6,16 @@
 }
 
 :root {
-    /* Label width / height in inches; the sliders (labels.js) set them.
-       --s scales text and spacing by whichever side shrank (or grew) the
-       least, so the 2.5 x 3 default is the 1:1 design size. */
+    /* Set by the sliders (labels.js): label width / height in inches,
+       barcode height as % of the label, text size as %. --s scales
+       spacing by whichever side shrank (or grew) the least, so 2.5 x 3 is
+       the 1:1 design size; --t is --s with the text slider on top. */
     --w: 2.5;
     --h: 3;
+    --b: 30;
+    --f: 100;
     --s: min(var(--w) / 2.5, var(--h) / 3);
+    --t: calc(var(--s) * var(--f) / 100);
 }
 
 body {
@@ -54,28 +58,28 @@ body {
 .bars {
     display: block;
     width: 100%;
-    height: calc(var(--h) * 0.3in);
+    height: calc(var(--h) * var(--b) * 0.01in);
 }
 
 .code {
-    margin-top: calc(2pt * var(--s));
-    font-size: calc(9pt * var(--s));
+    margin-top: calc(2pt * var(--t));
+    font-size: calc(9pt * var(--t));
 }
 
 .no-bars {
     padding: calc(0.3in * var(--s)) 0;
-    font-size: calc(9pt * var(--s));
+    font-size: calc(9pt * var(--t));
     font-style: italic;
 }
 
 .name {
-    margin-top: calc(6pt * var(--s));
-    font-size: calc(14pt * var(--s));
+    margin-top: calc(6pt * var(--t));
+    font-size: calc(14pt * var(--t));
     font-weight: bold;
 }
 
 .name-sub {
-    font-size: calc(12pt * var(--s));
+    font-size: calc(12pt * var(--t));
     font-weight: bold;
 }
 

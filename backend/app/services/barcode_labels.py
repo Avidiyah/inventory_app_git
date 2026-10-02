@@ -1,5 +1,6 @@
 """Printable barcode labels: cells cut from letter paper (2.5in x 3in by
-default; on-page sliders resize them and scale their text), barcode over
+default; on-page sliders set label size, barcode height and text size, see
+`static/labels.js`), barcode over
 name, optionally narrowed to one item location.
 
 Rendered as HTML; the user prints or saves as PDF from the browser. The
@@ -108,6 +109,10 @@ def labels_html(db: Session, *, search: str | None = None,
         'step="0.05" value="2.5"><output>2.5"</output></label>'
         '<label>Height <input type="range" data-var="h" min="1" max="10" '
         'step="0.05" value="3"><output>3"</output></label>'
+        '<label>Barcode <input type="range" data-var="b" min="10" max="80" '
+        'step="1" value="30"><output>30%</output></label>'
+        '<label>Text <input type="range" data-var="f" min="50" max="400" '
+        'step="5" value="100"><output>100%</output></label>'
         f'<span>{count}. Press Ctrl+P and print at 100% scale, or choose "Save as PDF".'
         "</span></form>"
         f'<div class="sheet">{labels}</div>'
