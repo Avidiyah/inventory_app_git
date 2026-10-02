@@ -131,6 +131,14 @@ def test_labels_page_narrows_to_a_location_and_lists_every_location(db):
     assert f'<option value="Bay {tag}">' in page
 
 
+def test_labels_page_has_size_sliders_up_to_the_printable_sheet(db):
+    page = _export(db, "techfm_oa", "/items/labels").text
+
+    assert 'data-var="w" min="1" max="7.5" step="0.05" value="2.5"' in page
+    assert 'data-var="h" min="1" max="10" step="0.05" value="3"' in page
+    assert '<script type="module" src="/static/labels.js"></script>' in page
+
+
 def test_code39_modules_round_trip_through_the_decoder():
     from PIL import Image, ImageDraw
 

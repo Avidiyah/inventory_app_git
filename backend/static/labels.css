@@ -1,8 +1,17 @@
-/* GET /items/labels: 2.5in x 3in labels, three across a letter sheet,
-   cut along the dashed lines. Nothing may grow past its cell. */
+/* GET /items/labels: labels laid across a letter sheet, cut along the
+   dashed lines. Nothing may grow past its cell. */
 @page {
     size: letter;
     margin: 0.5in;
+}
+
+:root {
+    /* Label width / height in inches; the sliders (labels.js) set them.
+       --s scales text and spacing by whichever side shrank (or grew) the
+       least, so the 2.5 x 3 default is the 1:1 design size. */
+    --w: 2.5;
+    --h: 3;
+    --s: min(var(--w) / 2.5, var(--h) / 3);
 }
 
 body {
@@ -21,15 +30,20 @@ body {
     padding: 8pt 0;
 }
 
+.toolbar output {
+    display: inline-block;
+    min-width: 3em;
+}
+
 .sheet {
     display: grid;
-    grid-template-columns: repeat(auto-fill, 2.5in);
-    grid-auto-rows: 3in;
+    grid-template-columns: repeat(auto-fill, calc(var(--w) * 1in));
+    grid-auto-rows: calc(var(--h) * 1in);
 }
 
 .label {
     box-sizing: border-box;
-    padding: 0.15in;
+    padding: calc(0.15in * var(--s));
     outline: 1px dashed #999;
     overflow: hidden;
     overflow-wrap: anywhere;
@@ -40,28 +54,28 @@ body {
 .bars {
     display: block;
     width: 100%;
-    height: 0.9in;
+    height: calc(var(--h) * 0.3in);
 }
 
 .code {
-    margin-top: 2pt;
-    font-size: 9pt;
+    margin-top: calc(2pt * var(--s));
+    font-size: calc(9pt * var(--s));
 }
 
 .no-bars {
-    padding: 0.3in 0;
-    font-size: 9pt;
+    padding: calc(0.3in * var(--s)) 0;
+    font-size: calc(9pt * var(--s));
     font-style: italic;
 }
 
 .name {
-    margin-top: 6pt;
-    font-size: 14pt;
+    margin-top: calc(6pt * var(--s));
+    font-size: calc(14pt * var(--s));
     font-weight: bold;
 }
 
 .name-sub {
-    font-size: 12pt;
+    font-size: calc(12pt * var(--s));
     font-weight: bold;
 }
 

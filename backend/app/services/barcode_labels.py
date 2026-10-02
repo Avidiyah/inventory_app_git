@@ -1,5 +1,6 @@
-"""Printable barcode labels: 2.5in x 3in cells cut from letter paper,
-barcode over name, optionally narrowed to one item location.
+"""Printable barcode labels: cells cut from letter paper (2.5in x 3in by
+default; on-page sliders resize them and scale their text), barcode over
+name, optionally narrowed to one item location.
 
 Rendered as HTML; the user prints or saves as PDF from the browser. The
 Code 39 barcode is drawn as inline SVG stretched to the cell width, so a
@@ -102,7 +103,13 @@ def labels_html(db: Session, *, search: str | None = None,
         '<form class="toolbar" method="get">'
         '<label>Location <select name="location"><option value="">All items</option>'
         f'{options}</select></label><button type="submit">Show</button>'
+        # No `name`: the sliders are client-side only (static/labels.js).
+        '<label>Width <input type="range" data-var="w" min="1" max="7.5" '
+        'step="0.05" value="2.5"><output>2.5"</output></label>'
+        '<label>Height <input type="range" data-var="h" min="1" max="10" '
+        'step="0.05" value="3"><output>3"</output></label>'
         f'<span>{count}. Press Ctrl+P and print at 100% scale, or choose "Save as PDF".'
         "</span></form>"
-        f'<div class="sheet">{labels}</div></body></html>'
+        f'<div class="sheet">{labels}</div>'
+        '<script type="module" src="/static/labels.js"></script></body></html>'
     )
