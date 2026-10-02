@@ -232,13 +232,15 @@ def reprint_dispense_export(
 def barcode_labels(
     q: Optional[str] = Query(None),
     barcode: list[str] = Query([]),
+    location: Optional[str] = Query(None),
     user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
-    """Print page of barcode labels: every item, a search result (`q`), or
-    chosen items (`barcode`, repeatable). Above `GET /items/{barcode}` for
-    the same shadowing reason as `/low-stock`."""
-    return barcode_labels_service.labels_html(db, search=q, barcodes=barcode)
+    """Print page of barcode labels: every item, a search result (`q`),
+    chosen items (`barcode`, repeatable), or one `location`. Above
+    `GET /items/{barcode}` for the same shadowing reason as `/low-stock`."""
+    return barcode_labels_service.labels_html(
+        db, search=q, barcodes=barcode, location=location)
 
 
 @router.get(

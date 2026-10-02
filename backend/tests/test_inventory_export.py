@@ -76,17 +76,33 @@ def test_export_holds_items_and_every_request_tab(db):
     assert all(r[0].font.color.rgb.endswith("C8102E") for r in low_rows)
 
 
-def test_labels_page_wraps_barcodes_for_code39_and_escapes_names(db):
+def test_labels_page_draws_svg_barcodes_and_escapes_names(db):
     barcode = f"LBL-{uuid.uuid4().hex[:8].upper()}"
     db.add(Item(barcode=barcode, name="Pipe <1in> & cap", quantity=Decimal("1"), location="Bay 1"))
+    db.add(Item(barcode=f"lower-{uuid.uuid4().hex[:8]}", name="Lowercase code",
+                quantity=Decimal("1"), location="Bay 1"))
     db.commit()
 
     assert _export(db, "supervisor", "/items/labels").status_code == 403
     response = _export(db, "techfm_oa", "/items/labels")
 
     assert response.status_code == 200
-    assert f'<div class="code39">*{barcode}*</div>' in response.text
+    assert '<svg class="bars"' in response.text
+    assert f'<div class="code">{barcode}</div>' in response.text
     assert "Pipe &lt;1in&gt; &amp; cap" in response.text
+    assert '<div class="no-bars">' in response.text  # lowercase: no Code 39
+
+
+def test_labels_page_moves_the_parenthetical_to_its_own_line(db):
+    tag = uuid.uuid4().hex[:8].upper()
+    db.add(Item(barcode=f"LBL-{tag}", name=f'Blinds {tag} (35" x 72")',
+                quantity=Decimal("1"), location="Bay 1"))
+    db.commit()
+
+    page = _export(db, "techfm_oa", f"/items/labels?barcode=LBL-{tag}").text
+
+    assert (f'<div class="name">Blinds {tag}</div>'
+            '<div class="name-sub">(35&quot; x 72&quot;)</div>') in page
 
 
 def test_labels_page_narrows_to_a_search_or_chosen_barcodes(db):
@@ -97,6 +113,39 @@ def test_labels_page_narrows_to_a_search_or_chosen_barcodes(db):
     db.commit()
 
     searched = _export(db, "techfm_oa", f"/items/labels?q=Narrow {tag}").text
-    assert f"*LBL-{tag}-A*" in searched and f"*LBL-{tag}-B*" in searched
+    assert f">LBL-{tag}-A<" in searched and f">LBL-{tag}-B<" in searched
     chosen = _export(db, "techfm_oa", f"/items/labels?barcode=LBL-{tag}-B").text
-    assert f"*LBL-{tag}-A*" not in chosen and f"*LBL-{tag}-B*" in chosen
+    assert f">LBL-{tag}-A<" not in chosen and f">LBL-{tag}-B<" in chosen
+
+
+def test_labels_page_narrows_to_a_location_and_lists_every_location(db):
+    tag = uuid.uuid4().hex[:8].upper()
+    db.add(Item(barcode=f"LBL-{tag}-IN", name="In", quantity=Decimal("1"), location=f"Shelf {tag}"))
+    db.add(Item(barcode=f"LBL-{tag}-OUT", name="Out", quantity=Decimal("1"), location=f"Bay {tag}"))
+    db.commit()
+
+    page = _export(db, "techfm_oa", f"/items/labels?location=Shelf {tag}").text
+
+    assert f">LBL-{tag}-IN<" in page and f">LBL-{tag}-OUT<" not in page
+    assert f'<option value="Shelf {tag}" selected>' in page
+    assert f'<option value="Bay {tag}">' in page
+
+
+def test_code39_modules_round_trip_through_the_decoder():
+    from PIL import Image, ImageDraw
+
+    from app.services.barcode_labels import _code39_modules
+    from app.services.barcodes import decode_image
+
+    text = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%"  # every table entry
+    modules = "0" * 10 + _code39_modules(text) + "0" * 10
+    image = Image.new("L", (len(modules) * 3, 80), 255)
+    draw = ImageDraw.Draw(image)
+    for i, m in enumerate(modules):
+        if m == "1":
+            draw.rectangle([i * 3, 0, i * 3 + 2, 79], fill=0)
+    png = io.BytesIO()
+    image.save(png, format="PNG")
+
+    assert [(m.text, m.format) for m in decode_image(png.getvalue())] == [(text, "CODE_39")]
+    assert _code39_modules("lower") is None and _code39_modules("A*B") is None

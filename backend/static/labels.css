@@ -1,4 +1,10 @@
-/* GET /items/labels: one barcode label per row, cut along the dashed lines. */
+/* GET /items/labels: 2.5in x 3in labels, three across a letter sheet,
+   cut along the dashed lines. Nothing may grow past its cell. */
+@page {
+    size: letter;
+    margin: 0.5in;
+}
+
 body {
     margin: 0 auto;
     max-width: 7.5in;
@@ -7,25 +13,58 @@ body {
     font-family: Arial, sans-serif;
 }
 
+.toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8pt;
+    padding: 8pt 0;
+}
+
+.sheet {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, 2.5in);
+    grid-auto-rows: 3in;
+}
+
 .label {
-    padding: 12pt 0;
-    border-bottom: 1px dashed #999;
+    box-sizing: border-box;
+    padding: 0.15in;
+    outline: 1px dashed #999;
+    overflow: hidden;
+    overflow-wrap: anywhere;
     text-align: center;
     break-inside: avoid;
 }
 
-.code39 {
-    font-family: "IDAutomationHC39M Free Version", monospace;
-    font-size: 24pt;
-    white-space: nowrap;
+.bars {
+    display: block;
+    width: 100%;
+    height: 0.9in;
+}
+
+.code {
+    margin-top: 2pt;
+    font-size: 9pt;
+}
+
+.no-bars {
+    padding: 0.3in 0;
+    font-size: 9pt;
+    font-style: italic;
 }
 
 .name {
-    margin-top: 4pt;
+    margin-top: 6pt;
     font-size: 14pt;
     font-weight: bold;
 }
 
+.name-sub {
+    font-size: 12pt;
+    font-weight: bold;
+}
+
 @media print {
-    .hint { display: none; }
+    .toolbar { display: none; }
 }
