@@ -951,6 +951,22 @@ def test_dispense_delete_returns_stock_and_voids_txn(db):
     assert _txn(db, txn_id).voided_at is not None
 
 
+def test_a_line_for_an_archived_item_can_still_be_removed(db):
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    item = _seed_item(db, 100)
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    line = wos.add_work_order_item(db, w.id, user=tech, item_id=item.id, quantity=Decimal(4))
+    txn_id = line.transaction_id
+    item.archived_at = datetime.now(timezone.utc)
+    db.commit()
+
+    wos.delete_work_order_item(db, w.id, line.id, user=tech)
+    db.refresh(item)
+    assert item.quantity == Decimal(100)
+    assert _txn(db, txn_id).voided_at is not None
+
+
 def test_an_unassigned_technician_cannot_delete_a_work_order_item(db):
     """Removing a material is now Technician-and-above, but visibility still
     scopes a Technician to work orders they are assigned to."""

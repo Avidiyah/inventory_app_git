@@ -2785,13 +2785,13 @@ def stop_running_session_for(
 
 # --- material lines ------------------------------------------------------
 
-def _locked_live_item(db: Session, item_id: uuid.UUID) -> Item:
-    item = (
-        db.query(Item)
-        .filter(Item.id == item_id, Item.archived_at.is_(None))
-        .with_for_update()
-        .first()
-    )
+def _locked_live_item(
+    db: Session, item_id: uuid.UUID, *, allow_archived: bool = False
+) -> Item:
+    query = db.query(Item).filter(Item.id == item_id)
+    if not allow_archived:
+        query = query.filter(Item.archived_at.is_(None))
+    item = query.with_for_update().first()
     if item is None:
         raise ItemNotFoundError("Item not found.")
     return item
@@ -3107,7 +3107,8 @@ def delete_work_order_item(
         "remove logged materials.",
     )
     line = _get_line(db, work_order, wo_item_id)
-    item = _locked_live_item(db, line.item_id)
+    # An archived item must stay removable: the line was logged while it was live.
+    item = _locked_live_item(db, line.item_id, allow_archived=True)
 
     quantity_before = item.quantity
     if wo.affects_stock(line.mode):
