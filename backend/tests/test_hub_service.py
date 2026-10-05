@@ -909,10 +909,11 @@ def test_admin_hub_excludes_archived_users(db):
 def test_admin_hub_sweeps_a_forgotten_clock_before_summing(db):
     supervisor = _seed_user(db, roles.ROLE_SUPERVISOR)
     tech = _seed_user(db, roles.ROLE_TECHNICIAN)
+    baseline = hub_service.admin_hub(db, supervisor, now=NOW)
     work_order = _seed_work_order(
         db, created_by=supervisor, assigned_to=tech, status=wo.STATUS_IN_PROGRESS
     )
-    started = datetime.now(timezone.utc) - timedelta(hours=20)
+    started = NOW - timedelta(hours=20)
     session = WorkOrderLaborSession(
         id=uuid.uuid4(), work_order_id=work_order.id, technician_id=tech.id,
         started_at=started,
@@ -920,16 +921,15 @@ def test_admin_hub_sweeps_a_forgotten_clock_before_summing(db):
     db.add(session)
     db.flush()
 
-    payload = hub_service.admin_hub(db, supervisor)
+    payload = hub_service.admin_hub(db, supervisor, now=NOW)
 
     db.refresh(session)
     assert session.ended_at == started + timedelta(minutes=wo.LABOR_SESSION_MAX_MINUTES)
-    # The capped session straddles a Central day boundary (started 20h ago,
-    # real wall clock), so only part of it falls in "today" -- same reason
-    # the sibling crew_hub sweep test above doesn't assert an exact total.
-    # What matters here is that the sweep ran before the sum: a still-open
-    # session would read as 0 minutes, so any positive total proves it.
-    assert payload.technician_minutes_today > 0
+    # Pinned to NOW (2 PM Central): the capped session ends 6 AM Central, so
+    # exactly 6h of it fall in "today". A wall-clock `now` made this flaky
+    # before 8 AM Central. A still-open session would read as 0 minutes, so
+    # a positive total proves the sweep ran before the sum.
+    assert payload.technician_minutes_today - baseline.technician_minutes_today == 360
 
 
 def test_admin_hub_pipeline_counts_are_company_wide_and_unscoped(db):
