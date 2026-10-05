@@ -52,20 +52,10 @@ import {
 } from "./workOrderCardHtml.js";
 import { getAllItems } from "./workOrderReferenceData.js";
 import { exitSolo } from "./workOrderRouting.js";
-import {
-  clearSignaturePad, mountSignaturePad, signaturePayload, toggleSignatureFullscreen,
-} from "./workOrderSignature.js";
+import { openSignatureFlow } from "./workOrderSignature.js";
 import { loadWorkOrders, refreshCard } from "./workOrderList.js";
 
 const listEl = document.getElementById("work-orders-list");
-
-// --- signature pad (toggle delegation) -----------------------------------
-
-// `toggle` does not bubble; capture it so a collapsed card never builds a pad.
-listEl.addEventListener("toggle", (event) => {
-  const section = event.target;
-  if (section.matches?.(".wo-signature-section") && section.open) mountSignaturePad(section);
-}, true);
 
 // --- add-material search (input delegation) ------------------------------
 
@@ -475,36 +465,42 @@ listEl.addEventListener("click", async (event) => {
       if (!(await confirmDialog("Remove this material from the work order?"))) return;
       await apiDeleteWorkOrderItem(workOrderId, row.dataset.woItemId);
       await refreshCard(cardEl, ".wo-materials-section");
-    } else if (action === "clear-signature-pad") {
-      clearSignaturePad(btn.closest(".wo-signature-section"));
-    } else if (action === "signature-fullscreen") {
-      toggleSignatureFullscreen(btn.closest(".wo-signature-section"));
-    } else if (action === "save-signature") {
-      const section = btn.closest(".wo-signature-section");
-      const payload = signaturePayload(section);
-      saveDraft(workOrderId, "signature", { number: cardEl.dataset.number, action: "save-signature", payload });
-      // A double tap on a phone must not race itself into a 409 under its own
-      // saved signature. The refresh replaces the button on every settled path.
-      btn.disabled = true;
-      try {
-        await apiSaveWorkOrderSignature(workOrderId, payload);
-      } catch (err) {
-        btn.disabled = false;
-        if (err?.status !== 409) throw err;
-        // Someone else signed first: show the winner, keep the draft marked.
-        markDraftError(workOrderId, "signature", err);
-        await refreshCard(cardEl, ".wo-signature-section");
-        // Not setMessage: it replaces className and would drop the aria-live hook.
-        const note = cardEl.querySelector(".wo-signature-message");
-        note.textContent = friendlyError(err, "Already signed.");
-        note.classList.add("error");
-        return;
-      }
-      clearDraft(workOrderId, "signature");
-      // Reopening fires `toggle`, which mounts the fresh pad if one is drawn.
-      await refreshCard(cardEl, ".wo-signature-section");
+    } else if (action === "capture-signature") {
+      const number = cardEl.dataset.number;
+      openSignatureFlow({
+        number,
+        // Resolving closes the flow; throwing keeps it open with the reason.
+        onSave: async (payload) => {
+          saveDraft(workOrderId, "signature", { number, action: "save-signature", payload });
+          try {
+            await apiSaveWorkOrderSignature(workOrderId, payload);
+          } catch (err) {
+            // The server refused this payload: the operator fixes it in place.
+            if (err?.status !== undefined && err.status !== 401 && err.status !== 409) throw err;
+            if (err?.status === 409) {
+              // Someone else signed first: show the winner, keep the draft marked.
+              markDraftError(workOrderId, "signature", err);
+              await refreshCard(cardEl, ".wo-signature-section");
+              // Not setMessage: it replaces className and would drop the aria-live hook.
+              const note = cardEl.querySelector(".wo-signature-message");
+              note.textContent = friendlyError(err, "Already signed.");
+              note.classList.add("error");
+            } else if (msg) {
+              // Offline or signed out: the draft replays on reconnect (workOrderRetry.js).
+              setMessage(msg, friendlyError(err, "That action did not work."), "error");
+            }
+            return;
+          }
+          clearDraft(workOrderId, "signature");
+          await refreshCard(cardEl, ".wo-signature-section");
+        },
+      });
     } else if (action === "clear-signature") {
-      // No confirm (S5): the note log records the clear.
+      const sure = await confirmDialog(
+        `Clear the saved witness sign-off from ${btn.dataset.witness}? The clear is recorded under your name in the notes.`,
+        { confirmText: "Clear signature", cancelText: "Keep" },
+      );
+      if (!sure) return;
       await apiClearWorkOrderSignature(workOrderId);
       await refreshCard(cardEl, ".wo-signature-section");
     }

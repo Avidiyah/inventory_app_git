@@ -16,7 +16,6 @@ import { skeletonCard } from "../skeleton.js";
 import { SECTION_SELECTOR, readDraft, takePendingResume } from "../workOrderDrafts.js";
 import { ensureReferenceData, getAllItems } from "./workOrderReferenceData.js";
 import { hoursInputValue } from "./workOrderPresenters.js";
-import { restoreSignatureDraft } from "./workOrderSignature.js";
 
 const listEl = document.getElementById("work-orders-list");
 const listMessage = document.getElementById("work-orders-list-message");
@@ -321,10 +320,9 @@ function fillDraftFields(section, draft) {
   } else if (action === "save-notes") {
     const notes = section.querySelector(".wo-notes-input");
     if (notes) notes.value = payload.notes;
-  } else if (action === "save-signature") {
-    // The locked view has no pad: a resume onto an already-signed card is a no-op.
-    if (section.querySelector(".wo-signature-pad")) restoreSignatureDraft(section, payload);
   }
+  // A drafted sign-off has no field to refill: the capture is a pop-up flow,
+  // and the replay in workOrderRetry.js saves the draft on its own.
 }
 
 // A card page that has no card: the work order could not be fetched, could not

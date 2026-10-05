@@ -8,7 +8,7 @@
 // real 401/re-login round trip is available; this file only needs the
 // work-orders shell.
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../../helpers/handlers.js";
 import {
@@ -116,8 +116,6 @@ describe("save-signature offline recovery", () => {
     payload: { image: IMAGE, witnessName: "Pat Doe", witnessPhone: "5555551234" },
   });
 
-  afterEach(() => vi.unstubAllGlobals());
-
   it("replays a stored draft as the POST and clears it on success", async () => {
     const { mod, detail } = await open();
     const drafts = await import(DRAFTS);
@@ -153,14 +151,7 @@ describe("save-signature offline recovery", () => {
     expect(localStorage.getItem(key)).not.toBeNull();
   });
 
-  it("resume after re-login reopens the section, refills name and phone, and redraws the image", async () => {
-    const ctx = {
-      fillRect: vi.fn(), drawImage: vi.fn(), setTransform: vi.fn(), beginPath: vi.fn(),
-      moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(),
-    };
-    HTMLCanvasElement.prototype.getContext = vi.fn(() => ctx);
-    // jsdom never loads an image; the setter stands in for the network.
-    vi.stubGlobal("Image", class { set src(_value) { this.onload?.(); } });
+  it("resume after re-login reopens the section and leaves the draft for the replay", async () => {
     const detail = workOrderDetail();
     await mountWorkOrders({
       role: "supervisor",
@@ -173,12 +164,12 @@ describe("save-signature offline recovery", () => {
 
     await openCard(0);
 
+    // The capture is a pop-up flow: nothing on the card to refill, and no flow
+    // reopened over a save the replay is about to make.
     const section = card().querySelector(".wo-signature-section");
     expect(section.open).toBe(true);
-    expect(section.querySelector(".wo-signature-name").value).toBe("Pat Doe");
-    expect(section.querySelector(".wo-signature-phone").value).toBe("5555551234");
-    expect(ctx.drawImage).toHaveBeenCalledTimes(1);
-    expect(section.querySelector('[data-action="save-signature"]').disabled).toBe(false);
+    expect(document.querySelector(".wo-sig-flow")).toBeNull();
+    expect(drafts.readDraft(detail.id, "signature")).toMatchObject({ action: "save-signature" });
     expect(localStorage.getItem("wo-draft-resume")).toBeNull();
   });
 });

@@ -193,7 +193,7 @@ backend/static/views/workOrderRouting.js card-page mode, /workorder_card/ URL, l
 backend/static/views/workOrderPresenters.js status/priority/money/place formatting + role predicates
 backend/static/views/workOrderFilters.js filter reads, filter options, sort direction, RECENT_LIMIT
 backend/static/views/workOrderReferenceData.js allItems/allTechs/allSupers behind ensureReferenceData
-backend/static/views/workOrderSignature.js Signature section builders + the drawing pad (leaf after presenters)
+backend/static/views/workOrderSignature.js Signature section builders, the guided sign-off flow + its stroke pad (leaf after presenters)
 backend/static/views/tools.js    Tools page (list/search/scan) + Add Tool form binding
 backend/static/views/toolCheckout.js Tool checkout sub-flow (TechFM OA+)
 backend/static/views/toolReturn.js Tool return sub-flow (any role)
@@ -1618,12 +1618,15 @@ lists this work order's material/catalogue requests, with Cancel on the
 filer's own open ones), Labor (Technician fully read-only; the supervisor
 picker includes themselves "(not assigned)"; entries show their session
 window, capped ones tagged "auto-stopped"), Signature (last, every viewer:
-pointer-drawn pad + printed name + phone, Save gated on all three; **Full
-screen** covers the viewport with the same pad (Done/Escape return, strokes
-carried across contain-fit, portrait hint to turn the phone); one per
-work order, locked after save with a "Captured by … on …" line; Supervisor+
-Clear; the pad is mounted on first open and an open section holds the card
-like the other editors). TechFM OA+ get import (with summary counts), filtered/
+**Capture witness signature** opens a four-step pop-up mounted on the page,
+not in the list `<section>`, whose backdrop-filter traps fixed overlays —
+guidance → printed name + phone → pad with Clear / Undo stroke / Submit →
+confirmation showing the signature, then **Save and lock**; each step names
+what it still needs; a phone signs full screen and a portrait one sideways,
+standing back up on Submit; the pad keeps strokes, so every resize redraws
+and the saved PNG is always 1000×400; one per work order, locked after save
+with a "Captured by … on …" line; Supervisor+ Clear behind a confirm; an
+open section holds the card like the other editors). TechFM OA+ get import (with summary counts), filtered/
 client CSV export, Archive on any live card, and the exact-archived-number
 restore prompt; the Owner additionally the hidden legacy re-archive button
 (preview count → confirm → actual count). The list shows the newest 10 by
@@ -1860,7 +1863,7 @@ Frontend layers:
   | --- | --- | --- |
   | `helpers/app.js` | `main.js`, `views/nav.js` | the real composition root over the assembled shell; page swaps |
   | `helpers/auth.js` | `views/auth.js` | mounted directly, so a test picks the `/auth/me` answer before `initAuth()` |
-  | `helpers/workOrders.js` | `views/workOrder*.js` (barrel + 9) | render, filters, roles, editor actions, realtime, the solo card, the Request section, the Signature pad and its offline replay/resume |
+  | `helpers/workOrders.js` | `views/workOrder*.js` (barrel + 9) | render, filters, roles, editor actions, realtime, the solo card, the Request section, the Signature flow and its offline replay/resume |
   | `helpers/items.js` | `views/items.js` + `notes`, `itemEditor`, `addBarcode`, `correction(+Panel)` | Find Item, the per-role columns, four row actions, create-item, both scanners' upload lookup; the notes ladder, `itemSave.js`'s write order under both prompts, the debounced add-barcode search, the correction ladder |
   | `helpers/transactions.js` | `views/transactions.js` | the work-order gate, batch lifecycle, commit/undo/retry, the `sessionStorage` snapshot and resume, manual entry |
   | `helpers/history.js` | `views/history.js`, `billingEditor.js` | tabs, overlay filters and the debounce, pagination, the Charge column, void, archived-restore, the pricing list |

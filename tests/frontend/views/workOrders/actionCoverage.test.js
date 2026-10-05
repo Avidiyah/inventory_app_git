@@ -42,13 +42,12 @@ const declaredNames = (text) => [
 // silently widening what the audit calls "covered".
 const ACTIONS = [
   "add-item", "add-labor", "archive-wo", "back-to-work-orders", "cancel-edit",
-  "clear-signature", "clear-signature-pad", "complete-wo", "edit-item",
+  "capture-signature", "clear-signature", "complete-wo", "edit-item",
   "edit-labor", "hold-assigned-wo", "notify-supervisor-wo",
   "open-netfacilities-wo", "pick-combo-option", "pick-item", "pick-technician",
   "remove-item", "remove-labor", "remove-technician", "reopen-wo",
   "resume-assigned-wo", "review-wo", "save-details", "save-notes",
-  "save-signature", "send-back-wo", "signature-fullscreen", "start-tracking-wo",
-  "stop-tracking-wo", "toggle-combo",
+  "send-back-wo", "start-tracking-wo", "stop-tracking-wo", "toggle-combo",
 ];
 
 // The thirteen exports other views import. P4 must re-export every one.
