@@ -350,8 +350,7 @@ endpoint or form exists; every other surface resolves an existing number and
   returns stock, voids the line's whole contributing transaction set, and
   resolves linked requests.
 - Signature: optional witness sign-off, one row per work order, locked once
-  saved; any viewer captures it, Supervisor+ clears it. It gates one move:
-  Completed → Review on a bill over $500 needs one. Save and clear each append a server-authored note line and
+  saved; any viewer captures it, Supervisor+ clears it. It gates nothing. Save and clear each append a server-authored note line and
   emit the live status-changed event; the PNG is served `no-store` and
   `image_url` carries `?v=<captured_at epoch>` so a re-sign never shows a
   cached image. The save joins the offline-draft replay (`signature` section).

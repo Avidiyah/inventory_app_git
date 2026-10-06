@@ -2262,9 +2262,7 @@ def test_notify_supervisor_does_not_auto_hold_despite_stopping_every_clock(db):
     assert finished.status == "ready_to_complete"
 
 
-def test_review_over_500_requires_a_signature(db):
-    from app.models import WorkOrderSignature
-
+def test_review_over_500_needs_no_signature(db):
     admin = _seed_user(db, "admin")
     sup = _seed_user(db, "supervisor")
     tech = _seed_user(db, "technician")
@@ -2272,17 +2270,9 @@ def test_review_over_500_requires_a_signature(db):
     wos.start_labor_session(db, w.id, user=tech)
     wos.complete_work_order(db, w.id, user=tech)
     wos.add_work_order_labor(db, w.id, user=sup, technician_id=tech.id, minutes=9 * 60)
-    # Completion itself is not gated.
     wos.update_work_order(db, w.id, user=sup, fields={"status": "completed"})
 
-    with pytest.raises(WorkOrderStateError, match="signature"):
-        wos.update_work_order(db, w.id, user=admin, fields={"status": "review"})
-
-    db.add(WorkOrderSignature(
-        work_order_id=w.id, image_png=b"png", witness_name="W", witness_phone="5555555555",
-        captured_by_id=sup.id, captured_at=datetime.now(timezone.utc),
-    ))
-    db.commit()
+    # The witness sign-off is optional: an unsigned bill over $500 still goes to Review.
     done = wos.update_work_order(db, w.id, user=admin, fields={"status": "review"})
     assert done.status == "review"
 
