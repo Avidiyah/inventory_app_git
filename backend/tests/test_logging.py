@@ -343,3 +343,66 @@ def test_a_throttled_login_is_logged_with_its_retry_window(monkeypatch, caplog):
     record = next(r for r in caplog.records if r.getMessage() == "auth.login_throttled")
     assert record.fields["user"] == "owner"
     assert record.fields["retry_after"] == 42
+
+
+# --------------------------------------------------------------------------
+# memory sampling
+# --------------------------------------------------------------------------
+
+MB = 1024 * 1024
+
+
+def _point_sampler_at(monkeypatch, tmp_path, *, statm=None, cgroup=()):
+    """Redirect the sampler's file reads into tmp_path. `statm` is the
+    whole /proc/self/statm line; `cgroup` is an ordered list of
+    (filename, content) in fallback order, content None = file absent."""
+    statm_path = tmp_path / "statm"
+    if statm is not None:
+        statm_path.write_text(statm)
+    cgroup_paths = []
+    for name, content in cgroup:
+        path = tmp_path / name
+        if content is not None:
+            path.write_text(content)
+        cgroup_paths.append(str(path))
+    monkeypatch.setattr(logging_config, "_STATM_PATH", str(statm_path))
+    monkeypatch.setattr(logging_config, "_CGROUP_PATHS", tuple(cgroup_paths))
+    monkeypatch.setattr(logging_config, "_PAGE_SIZE", 4096)
+
+
+def test_memory_sample_reads_rss_pages_and_cgroup_v2_bytes(monkeypatch, tmp_path):
+    # statm: size resident shared text lib data dt -- resident is field 2.
+    _point_sampler_at(
+        monkeypatch, tmp_path,
+        statm="9000 2560 100 1 0 200 0",
+        cgroup=[("memory.current", str(300 * MB))],
+    )
+
+    assert logging_config.memory_sample() == {"rss_mb": 10, "cg_mb": 300}
+
+
+def test_memory_sample_falls_back_to_cgroup_v1(monkeypatch, tmp_path):
+    _point_sampler_at(
+        monkeypatch, tmp_path,
+        statm="9000 2560 100 1 0 200 0",
+        cgroup=[("memory.current", None), ("memory.usage_in_bytes", str(123 * MB))],
+    )
+
+    assert logging_config.memory_sample()["cg_mb"] == 123
+
+
+def test_memory_sample_is_absent_where_the_files_do_not_exist(monkeypatch, tmp_path):
+    # Windows dev box: no /proc, no cgroup. Must not raise.
+    _point_sampler_at(monkeypatch, tmp_path, statm=None, cgroup=[("memory.current", None)])
+
+    assert logging_config.memory_sample() == {"rss_mb": None, "cg_mb": None}
+
+
+def test_memory_sample_treats_garbage_as_absent(monkeypatch, tmp_path):
+    _point_sampler_at(
+        monkeypatch, tmp_path,
+        statm="not numbers",
+        cgroup=[("memory.current", "max\n")],
+    )
+
+    assert logging_config.memory_sample() == {"rss_mb": None, "cg_mb": None}

@@ -212,3 +212,43 @@ def bind_user(user_id: Any) -> None:
     context = request_context.get()
     if context is not _EMPTY:
         context["user"] = user_id
+
+
+# Memory readings for the request-completion line. Two numbers on purpose:
+# the Python process's resident set, and the container's cgroup total. The
+# platform enforces its limit on the cgroup figure, and child processes
+# (the Playwright driver, for one) count there but never in RSS -- so the
+# gap between the two is what separates heap growth from subprocesses.
+# Both are plain file reads that exist only on Linux; elsewhere they read
+# as absent, which the formatter renders as `-`.
+_STATM_PATH = "/proc/self/statm"
+_CGROUP_PATHS = (
+    "/sys/fs/cgroup/memory.current",                # cgroup v2
+    "/sys/fs/cgroup/memory/memory.usage_in_bytes",  # cgroup v1
+)
+_PAGE_SIZE = os.sysconf("SC_PAGE_SIZE") if hasattr(os, "sysconf") else 4096
+_MB = 1024 * 1024
+
+
+def _read_int_field(path: str, index: int = 0) -> Optional[int]:
+    """Whitespace-split field `index` of a small text file as an int, or
+    None if the file is missing or the field is not a number."""
+    try:
+        with open(path) as handle:
+            return int(handle.read().split()[index])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def memory_sample() -> dict[str, Optional[int]]:
+    """Current memory in whole MB: `rss_mb` for this process, `cg_mb` for
+    the container. Either is None where its file is unavailable."""
+    resident_pages = _read_int_field(_STATM_PATH, index=1)
+    cgroup_bytes = next(
+        (value for value in map(_read_int_field, _CGROUP_PATHS) if value is not None),
+        None,
+    )
+    return {
+        "rss_mb": None if resident_pages is None else resident_pages * _PAGE_SIZE // _MB,
+        "cg_mb": None if cgroup_bytes is None else cgroup_bytes // _MB,
+    }
