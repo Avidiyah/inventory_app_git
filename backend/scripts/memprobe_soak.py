@@ -268,8 +268,8 @@ def writer_loop(w: Worker, base: str, groups, tokens, n: int, gap: float, skew: 
                                                 seq0=len(w.passes) * n).items():
                     w.sent.setdefault(route, []).extend(sent)
             _end_pass(w, base, openers["owner"], started)
-    except (RuntimeError, OSError) as exc:
-        w.error = str(exc)
+    except Exception as exc:  # anything escaping a worker aborts the run
+        w.error = f"{type(exc).__name__}: {exc}"
         stop.set()
 
 
@@ -285,8 +285,8 @@ def reader_loop(w: Worker, base: str, steps, tokens, gap: float, skew: timedelta
                 w.sent.setdefault(step.route, []).append(mp._send(opener, base, step.method, path, body, ctype))
                 time.sleep(gap)
             _end_pass(w, base, opener, started)
-    except (RuntimeError, OSError) as exc:
-        w.error = str(exc)
+    except Exception as exc:
+        w.error = f"{type(exc).__name__}: {exc}"
         stop.set()
 
 
@@ -296,8 +296,8 @@ def sampler_loop(w: Worker, base: str, opener, every: float, stop: threading.Eve
     try:
         while not stop.wait(every):
             w.sent.setdefault("GET /healthz", []).append(mp._send(opener, base, "GET", "/healthz", None))
-    except (RuntimeError, OSError) as exc:
-        w.error = str(exc)
+    except Exception as exc:
+        w.error = f"{type(exc).__name__}: {exc}"
         stop.set()
 
 

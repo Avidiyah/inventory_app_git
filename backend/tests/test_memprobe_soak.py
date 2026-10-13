@@ -319,3 +319,16 @@ def test_writer_loop_continues_seq_across_passes(monkeypatch):
     create = Step("POST /items/", "POST", "/items/", '{"barcode": "I{seq}"}', None, None, "owner")
     soak.writer_loop(w, "http://x", [[create]], {}, 2, 0.0, soak.timedelta(0), stop, lambda u: "o", time.time())
     assert [b for b in bodies if b] == ['{"barcode": "I0"}', '{"barcode": "I1"}', '{"barcode": "I2"}', '{"barcode": "I3"}']
+
+
+def test_unexpected_worker_exception_also_sets_stop_and_records_it(monkeypatch):
+    # Anything that escapes a worker must abort the run, not just a dropped
+    # connection: a thread dying with a traceback while the run exits 0 hides
+    # a two-hour result.
+    def boom(*a, **k):
+        raise ValueError("bad body")
+
+    monkeypatch.setattr(memprobe, "_send", boom)
+    w, stop = soak.Worker("reader1"), threading.Event()
+    soak.reader_loop(w, "http://x", [_step("GET", "/items")], {}, 0.0, soak.timedelta(0), stop, "o", time.time())
+    assert stop.is_set() and "ValueError: bad body" in w.error
