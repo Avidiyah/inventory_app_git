@@ -338,6 +338,13 @@ reading carries the cgroup figure Render enforces:
   `tests/test_memprobe.py` fails when a new route is neither. Exit 1 on
   any failed/skipped route, 2 on container/login loss. Phase 2; spec
   `docs/superpowers/specs/2026-10-13-memory-sweep-p2-design.md`.
+- Soak and jump finder: `python scripts/memprobe.py soak --minutes 120
+  --workers 3 --out soak.csv` (one writer running the sweep plan, GET-only
+  readers, a `/healthz` sampler; ends with trend, jumps, failed) and
+  `python scripts/memprobe.py jumps FILE|--container` (every cgroup step ≥
+  `--step` MB with the log window before it and a tally across windows;
+  works on a Render log export). Phase 3; spec
+  `docs/superpowers/specs/2026-10-13-memory-soak-p3-design.md`.
 
 Logging (`app/logging_config.py`, added 2026-08-09 as N1):
 

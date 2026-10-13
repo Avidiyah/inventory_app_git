@@ -101,15 +101,21 @@ repeats growth**: top five by `rest(sum)` were
 `POST /mass-stages/{stage_id}/reuse` (2 MB), then `GET /attendance/me`,
 `GET /auth/me`, `GET /hub/attendance/week`, `GET /hub/report` (1 MB each);
 cgroup drifted 179→182 MB across ~2,500 requests. The growth is not a
-per-route leak at this request count; Phase 3 (long runs, traffic mixes,
-concurrency) is next.
+per-route leak at this request count. Phase 3 (`soak`, `jumps`) shipped
+2026-10-13: ~22 minutes of mixed 3-worker traffic (19,483 samples, three
+runs) showed five warm-up jumps in the container's first three minutes
+(login, `/hub/graphs`, punch-in, `/hub`, `POST /users/`, +67 MB in all),
+then a flat 185 MB through ~14,000 more requests — no staircase locally yet;
+the 120-minute soak is still owed (host memory pressure cut the first
+attempt at 7 minutes). Production readout: export Render logs spanning the
+next step and run `jumps` on the file.
 
 Facts the suite is built from (2026-10-13):
 
 - Surface: 125 HTTP routes plus one WebSocket (`app.routes` is the list).
-- No load or soak tooling exists. `backend/tests/e2e/_seed.py` (prefixed
-  seed rows, prefix teardown, debris sweep) and `_availability.py` (skip
-  locally / raise in CI) are the only real-database helpers to reuse.
+- `backend/tests/e2e/_seed.py` (prefixed seed rows, prefix teardown, debris
+  sweep) and `_availability.py` (skip locally / raise in CI) are the
+  real-database helpers the suite reuses.
 - Environment: the `inventory-local` container, never the host — see
   `docs/current-state.md` → Runtime And Stack → Local Docker reproduction.
   Idle baseline varies per container lifetime (178/112 at start, 131/127

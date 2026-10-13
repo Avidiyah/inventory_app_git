@@ -144,8 +144,9 @@ workers, sends the end `/healthz`, sleeps 0.5 s, reads `docker logs
 3. Failed routes, as the sweep prints them: route, status counts, which
    worker. A reader seeing a non-2xx on a route the writer just mutated
    (a 404 on an archived work order) is expected and is listed under
-   `expected` when the status matches the catalogue's `expect` or is 404 on
-   a route whose writer cycle archives or deletes; anything else is failed.
+   `expected` when the status matches the catalogue's `expect` or is a
+   reader's 404 (it raced the writer's archive/delete on a seed row);
+   anything else is failed.
 
 `--out` writes the sample series: `ts, cg_mb, rss_mb, method, path,
 cg_delta_mb, worker` for every request line in the run, so Excel can chart
