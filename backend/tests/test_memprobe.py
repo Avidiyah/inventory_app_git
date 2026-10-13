@@ -188,3 +188,80 @@ def test_catalogue_keys_are_real_routes():
     routes, _ = mr.enumerate_routes(app)
     keys = {f"{m} {p}" for m, p in routes}
     assert set(mr.CATALOGUE) - keys == set()
+
+
+# --- Phase 2: ranking, CSV, multipart and the cycle driver ---
+
+
+def _result(route, first=0, rest=(0,), expect=None):
+    sent = [memprobe.Sent(f"{route}-{i}", 200) for i in range(1 + len(rest))]
+    samples = {s.req: memprobe.Sample(s.req, 200, 5, 100, 200, d, d) for s, d in zip(sent, (first,) + rest)}
+    return mr.RouteResult(route, memprobe.aggregate(sent, samples), expect, "measured")
+
+
+def test_rank_orders_by_rest_sum_then_max_and_tolerates_none():
+    rows = mr.rank([_result("GET /a", rest=(1, 1)), _result("GET /b", rest=(2, 0)), _result("GET /c", rest=()),
+                    _result("GET /d", rest=(0, 2))])
+    assert [r.path for r in rows] == ["/b", "/d", "/a", "/c"]   # sum 2,2,2,0; max 2,2,1; then path
+    assert rows[-1].rest_mean_cg is None
+
+
+def test_rank_marks_unexpected_status_failed_and_expected_ok():
+    ok = mr.RouteResult("GET /x", memprobe.aggregate([memprobe.Sent("1", 404)], {"1": memprobe.Sample("1", 404, 1, 1, 1, 0, 0)}), 404, "measured")
+    bad = mr.RouteResult("GET /y", memprobe.aggregate([memprobe.Sent("2", 422)], {"2": memprobe.Sample("2", 422, 1, 1, 1, 0, 0)}), None, "measured")
+    rows = mr.rank([ok, bad])
+    assert {r.path: r.state for r in rows} == {"/x": "measured", "/y": "failed"}
+
+
+def test_to_csv_writes_one_row_per_route(tmp_path):
+    rows = mr.rank([_result("GET /a", rest=(1,))])
+    out = tmp_path / "s.csv"
+    mr.to_csv(rows, [("POST", "/new")], [("WS", "/ws")], str(out))
+    lines = out.read_text().splitlines()
+    assert lines[0].startswith("method,path,n,first_cg,rest_sum_cg")
+    assert len(lines) == 4 and lines[2].startswith("POST,/new") and lines[3].endswith("excluded")
+
+
+def test_multipart_body_carries_filename_and_boundary():
+    body, ctype = memprobe.multipart("a.csv", b"WORK ORDER\r\n1\r\n")
+    boundary = ctype.split("boundary=")[1]
+    assert boundary.encode() in body and b'filename="a.csv"' in body and body.endswith(b"--\r\n")
+
+
+class _FakeOpener:
+    def __init__(self, responses): self.calls, self.responses = [], list(responses)
+    def open(self, req, timeout=0):
+        self.calls.append((req.get_method(), req.full_url, req.data))
+        status, body = self.responses.pop(0)
+        return _FakeResp(status, body)
+
+
+class _FakeResp:
+    def __init__(self, status, body): self.status, self._b = status, body; self.headers = {"X-Request-ID": f"r{status}{len(body)}"}
+    def __enter__(self): return self
+    def __exit__(self, *a): pass
+    def read(self): return self._b
+
+
+def test_run_group_fills_id_from_the_create_response():
+    group = [mr.Step("POST /items/", "POST", "/items/", '{"b":"{prefix}-{seq}"}', None, None, "owner"),
+             mr.Step("DELETE /items/{item_id}", "DELETE", "/items/{id}", None, None, None, "owner")]
+    op = _FakeOpener([(200, b'{"id":"X1"}'), (204, b""), (200, b'{"id":"X2"}'), (204, b"")])
+    out = memprobe.run_group({"owner": op}, "http://h", group, {"prefix": "p"}, 2, 0, NOW)
+    assert [c[1] for c in op.calls] == ["http://h/items/", "http://h/items/X1", "http://h/items/", "http://h/items/X2"]
+    assert len(out["POST /items/"]) == 2 and len(out["DELETE /items/{item_id}"]) == 2
+
+
+def test_sweep_group_records_missing_id_as_failed():
+    group = [mr.Step("POST /items/", "POST", "/items/", "{}", None, None, "owner"),
+             mr.Step("DELETE /items/{item_id}", "DELETE", "/items/{id}", None, None, None, "owner")]
+    op = _FakeOpener([(422, b'{"detail":"no"}')])
+    out = memprobe.run_group({"owner": op}, "http://h", group, {}, 1, 0, NOW)
+    assert out["DELETE /items/{item_id}"] == [memprobe.Sent(None, 0, None)]
+    assert len(op.calls) == 1
+
+
+def test_plan_marks_technician_groups():
+    cat = {"POST /a": mr.Entry(as_user="technician")}
+    p = mr.plan([("POST", "/a")], cat, {}, None)
+    assert p.groups[0][0].as_user == "technician"

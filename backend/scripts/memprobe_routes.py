@@ -122,6 +122,95 @@ def plan(routes, catalogue: dict[str, Entry], tokens: dict[str, str], only: Opti
     return out
 
 
+# --- ranking and output ----------------------------------------------------
+
+@dataclass
+class RouteResult:
+    route: str
+    summary: object  # memprobe.Summary
+    expect: Optional[int]
+    state: str  # measured | failed
+
+
+COLUMNS = ("method", "path", "n", "first_cg", "rest_sum_cg", "rest_max_cg", "rest_mean_cg", "first_rss",
+           "rest_sum_rss", "drift_cg", "p50_ms", "max_ms", "statuses", "matched", "state")
+
+
+@dataclass
+class Row:
+    method: str
+    path: str
+    n: int
+    first_cg: Optional[int]
+    rest_sum_cg: Optional[float]
+    rest_max_cg: Optional[float]
+    rest_mean_cg: Optional[float]
+    first_rss: Optional[int]
+    rest_sum_rss: Optional[float]
+    drift_cg: Optional[int]
+    p50_ms: Optional[int]
+    max_ms: Optional[int]
+    statuses: str
+    matched: str
+    state: str
+
+
+def _state(r: RouteResult) -> str:
+    s = r.summary
+    bad = any(not (200 <= code < 300) and code != r.expect for code in s.statuses)
+    return "failed" if bad or s.unmatched or r.state == "failed" else "measured"
+
+
+def rank(results: list[RouteResult]) -> list[Row]:
+    rows = []
+    for r in results:
+        s = r.summary
+        method, path = r.route.split(" ", 1)
+        a, b = s.drift["cg_mb"]
+        rows.append(Row(method, path, s.sent, s.first["cg_delta_mb"], s.rest["cg_delta_mb"]["sum"],
+                        s.rest["cg_delta_mb"]["max"], s.rest["cg_delta_mb"]["mean"], s.first["rss_delta_mb"],
+                        s.rest["rss_delta_mb"]["sum"], None if a is None or b is None else b - a, s.ms_p50, s.ms_max,
+                        " ".join(f"{c}x{n}" for c, n in s.statuses.items()), f"{s.matched}/{s.sent}", _state(r)))
+    return sorted(rows, key=lambda x: (-(x.rest_sum_cg or 0), -(x.rest_max_cg or 0), x.path))
+
+
+def to_csv(rows: list[Row], skipped, excluded, path: str) -> None:
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(COLUMNS)
+        for r in rows:
+            w.writerow(["" if getattr(r, c) is None else getattr(r, c) for c in COLUMNS])
+        for state, pairs in (("skipped", skipped), ("excluded", excluded)):
+            for m, p in pairs:
+                w.writerow([m, p] + [""] * (len(COLUMNS) - 3) + [state])
+
+
+def render_sweep(rows: list[Row], start, end, plan: Plan, container: str, n: int) -> str:
+    def fmt(v):
+        return "-" if v is None else (f"{v:.2f}" if isinstance(v, float) else str(v))
+
+    def base(s):
+        return "-" if s is None else f"cg_mb={fmt(s.cg_mb)} rss_mb={fmt(s.rss_mb)}"
+
+    measured = [r for r in rows if r.state == "measured"]
+    failed = [r for r in rows if r.state == "failed"]
+    out = [f"sweep        routes={len(rows) + len(plan.skipped) + len(plan.excluded)} measured={len(measured)} "
+           f"failed={len(failed)} skipped={len(plan.skipped)} excluded={len(plan.excluded)}   n={n}  container={container}",
+           f"baseline     start {base(start)}   end {base(end)}", "",
+           f"{'rank':>4}  {'route':64} {'first':>5} {'rest(sum)':>9} {'rest(max)':>9} {'rest(mean)':>10} "
+           f"{'rss(sum)':>8} {'p50ms':>5}  statuses"]
+    for i, r in enumerate(rows, 1):
+        out.append(f"{i:>4}  {r.method + ' ' + r.path:64} {fmt(r.first_cg):>5} {fmt(r.rest_sum_cg):>9} "
+                   f"{fmt(r.rest_max_cg):>9} {fmt(r.rest_mean_cg):>10} {fmt(r.rest_sum_rss):>8} {fmt(r.p50_ms):>5}  "
+                   f"{r.statuses}")
+    for title, items in (("failed", [f"{r.method} {r.path}  {r.statuses}  matched {r.matched}" for r in failed]),
+                         ("skipped", [f"{m} {p}  no catalogue entry or unresolvable token" for m, p in plan.skipped]),
+                         ("excluded", [f"{m} {p}" for m, p in plan.excluded])):
+        if items:
+            out += ["", title] + [f"  {x}" for x in items]
+    return "\n".join(out)
+
+
 # ---------------------------------------------------------------------------
 # The catalogue. Keys are exactly what enumerate_routes prints. Every mutating
 # route is here; GETs appear only when they carry a token or need a query.

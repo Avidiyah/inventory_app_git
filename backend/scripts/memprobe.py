@@ -3,8 +3,10 @@ its memory cost from the container's own `event=request` lines.
 
     python scripts/memprobe.py GET /items --n 50
     python scripts/memprobe.py POST /items/search --body '{"q":"wid"}' --n 20
+    python scripts/memprobe.py sweep --n 20 --out sweep.csv     # every route, ranked
 
-Spec: docs/superpowers/specs/2026-10-13-memory-probe-harness-design.md.
+Specs: docs/superpowers/specs/2026-10-13-memory-probe-harness-design.md (one
+route) and 2026-10-13-memory-sweep-p2-design.md (sweep).
 Correlation is by the echoed `X-Request-ID`, never by time, so other
 traffic (the platform's /healthz polls, for one) cannot be mis-attributed.
 """
@@ -20,8 +22,10 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from http.cookiejar import CookieJar
 from typing import Optional
 
@@ -70,6 +74,7 @@ _LEVELS = ("cg_mb", "rss_mb")
 class Sent:
     req: Optional[str]  # None when the response carried no X-Request-ID
     status: int
+    body: Optional[str] = None  # the sweep reads a created row's `id` from it
 
 
 @dataclass
@@ -153,18 +158,69 @@ def render(route: str, container: str, baseline: Optional[Sample], summary: Summ
     return "\n".join(rows)
 
 
-def _send(opener, base: str, method: str, path: str, body: Optional[str]) -> Sent:
-    data = body.encode() if body is not None else None
+def _send(opener, base: str, method: str, path: str, body, content_type: str = "application/json") -> Sent:
+    data = body.encode() if isinstance(body, str) else body
     req = urllib.request.Request(base + path, data=data, method=method)
     if data is not None:
-        req.add_header("Content-Type", "application/json")
+        req.add_header("Content-Type", content_type)
     try:
         resp = opener.open(req, timeout=60)
     except urllib.error.HTTPError as err:  # a 4xx/5xx is still a response
         resp = err
     with resp:
-        resp.read()
-        return Sent(resp.headers.get("X-Request-ID"), resp.status)
+        raw = resp.read()
+        return Sent(resp.headers.get("X-Request-ID"), resp.status, raw.decode("utf-8", "replace") if raw else None)
+
+
+def multipart(filename: str, data: bytes) -> tuple[bytes, str]:
+    """One `file` part, the way the import and decode routes expect it."""
+    boundary = "memprobe" + uuid.uuid4().hex
+    body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n"
+            f"Content-Type: application/octet-stream\r\n\r\n").encode() + data + f"\r\n--{boundary}--\r\n".encode()
+    return body, f"multipart/form-data; boundary={boundary}"
+
+
+def _payload(step, tokens, seq: int, now: datetime, last_id: Optional[str]):
+    """(path, body, content_type) for one step, or None when the path needs an
+    `{id}` no earlier response in the group supplied."""
+    from scripts.memprobe_routes import fill
+    path = fill(step.path, tokens, seq, now)
+    if "{id}" in path:
+        if last_id is None:
+            return None
+        path = path.replace("{id}", last_id)
+    if step.file is None:
+        return path, (fill(step.body, tokens, seq, now) if step.body else None), "application/json"
+    if isinstance(step.file, tuple):
+        name, data = step.file[0], fill(step.file[1], tokens, seq, now).encode()
+    else:
+        with open(step.file, "rb") as fh:
+            name, data = os.path.basename(step.file), fh.read()
+    body, ctype = multipart(name, data)
+    return path, body, ctype
+
+
+def run_group(openers, base: str, group, tokens, n: int, gap: float, now: datetime) -> dict[str, list[Sent]]:
+    """One cycle rotation: every member is sent n times; `{id}` comes from the
+    most recent JSON response in the group that carried one. A step whose
+    `{id}` is unresolvable is recorded as Sent(None, 0) and not sent."""
+    out: dict[str, list[Sent]] = {s.route: [] for s in group}
+    last_id = None
+    for seq in range(n):
+        for step in group:
+            p = _payload(step, tokens, seq, now, last_id)
+            if p is None:
+                out[step.route].append(Sent(None, 0, None))
+                continue
+            path, body, ctype = p
+            sent = _send(openers[step.as_user], base, step.method, path, body, ctype)
+            out[step.route].append(sent)
+            try:
+                last_id = str(json.loads(sent.body or "")["id"]) or last_id
+            except (ValueError, KeyError, TypeError):
+                pass
+            time.sleep(gap)
+    return out
 
 
 def drive(opener, base: str, method: str, path: str, n: int, gap: float, body: Optional[str]) -> list[Sent]:
@@ -195,17 +251,101 @@ def _login(opener, base: str, username: str, password: str) -> None:
         raise RuntimeError(f"login failed: HTTP {sent.status}")
 
 
-def main(argv: Optional[list[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("method"); ap.add_argument("path")
+def _opener():
+    return urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+
+
+def _common_flags(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--n", type=int, default=20)
-    ap.add_argument("--body")
     ap.add_argument("--base", default="http://localhost:8124")
     ap.add_argument("--container", default="inventory-local")
     ap.add_argument("--gap", type=float, default=0.05)
+
+
+def run_sweep(args) -> int:
+    """Every catalogued route through the Phase 1 instrument, ranked by
+    repeating cgroup growth. Exit 0 clean, 1 any failed/skipped route, 2
+    container/Docker/login lost."""
+    from scripts.memprobe_routes import CATALOGUE, RouteResult, enumerate_routes, plan, rank, render_sweep, to_csv
+
+    owner = _opener()
+    try:
+        _send(owner, args.base, "GET", "/healthz", None)
+    except (urllib.error.URLError, OSError) as exc:
+        print(f"container not reachable at {args.base}: {exc}", file=sys.stderr)
+        return 2
+
+    from app.database import SessionLocal
+    from app.main import app
+    from tests.e2e import _seed
+
+    start, now = time.time(), datetime.now(timezone.utc)
+    db, seed, aborted = SessionLocal(), None, False
+    sent_by_route: dict[str, list[Sent]] = {}
+    start_sent = end_sent = None
+    samples = {}
+    try:
+        _seed.sweep_debris(db)
+        seed = _seed.build(db)
+        tokens = {**vars(seed), "barcode": seed.item_barcode, "wo": seed.work_order_number}
+        routes, _ = enumerate_routes(app)
+        p = plan(routes, CATALOGUE, tokens, args.only)
+        try:
+            _login(owner, args.base, seed.owner_username, _seed.SEED_PASSWORD)
+            start_sent = _send(owner, args.base, "GET", "/healthz", None)
+            for group in p.groups:
+                openers = {"owner": owner}
+                if any(s.as_user == "technician" for s in group):
+                    # Archiving the technician revokes their sessions: log in
+                    # again before every group that uses the technician jar.
+                    openers["technician"] = _opener()
+                    _login(openers["technician"], args.base, seed.technician_username, _seed.SEED_PASSWORD)
+                for route, sent in run_group(openers, args.base, group, tokens, args.n, args.gap, now).items():
+                    sent_by_route.setdefault(route, []).extend(sent)
+            end_sent = _send(owner, args.base, "GET", "/healthz", None)
+            time.sleep(0.5)  # let the last line flush before reading
+            wanted = {s.req for v in sent_by_route.values() for s in v if s.req} | {start_sent.req, end_sent.req}
+            samples = parse_request_lines(read_container_logs(args.container, start), wanted)
+        except (RuntimeError, OSError) as exc:
+            print(str(exc), file=sys.stderr)
+            aborted = True
+    finally:
+        if seed is not None:
+            _seed.destroy(db, seed)
+        db.close()
+
+    def expect_for(route):
+        entry = CATALOGUE.get(route)
+        return entry.expect if entry else None
+
+    results = [RouteResult(route, aggregate(sent, samples), expect_for(route), "measured")
+               for route, sent in sent_by_route.items()]
+    rows = rank(results)
+    print(render_sweep(rows, samples.get(start_sent.req) if start_sent else None,
+                       samples.get(end_sent.req) if end_sent else None, p, args.container, args.n))
+    if args.out:
+        to_csv(rows, p.skipped, p.excluded, args.out)
+    if aborted:
+        return 2
+    return 1 if p.skipped or any(r.state == "failed" for r in rows) else 0
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["sweep"]:
+        ap = argparse.ArgumentParser(prog="memprobe.py sweep", description=run_sweep.__doc__)
+        _common_flags(ap)
+        ap.add_argument("--out", help="CSV path, written even when the run fails")
+        ap.add_argument("--only", help="substring filter on 'METHOD /path'")
+        return run_sweep(ap.parse_args(argv[1:]))
+
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("method"); ap.add_argument("path")
+    ap.add_argument("--body")
+    _common_flags(ap)
     args = ap.parse_args(argv)
 
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+    opener = _opener()
     try:
         _send(opener, args.base, "GET", "/healthz", None)
     except (urllib.error.URLError, OSError) as exc:
