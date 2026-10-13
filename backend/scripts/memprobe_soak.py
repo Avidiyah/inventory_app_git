@@ -155,3 +155,23 @@ def render_jumps(report: JumpReport) -> str:
         rows += ["", f"tally  (of {len(report.jumps)} windows)"]
         rows += [f"{n:>4}  {name}" for name, n in tally(report.jumps)]
     return "\n".join(rows)
+
+
+# --- jumps subcommand -------------------------------------------------------
+
+def run_jumps(args) -> int:
+    """Find every cgroup step in a log (file, stdin or the container) and print
+    the window before each. Exit 0; 2 when nothing carried cg_mb."""
+    if args.file == "-":
+        source, text = "stdin", sys.stdin.read()
+    elif args.file:
+        with open(args.file, encoding="utf-8", errors="replace") as fh:
+            source, text = args.file, fh.read()
+    else:
+        source, text = args.container, mp.read_container_logs(args.container, None)
+    report = find_jumps(parse_lines(text), args.step, args.window)
+    if report.samples == 0:
+        print(f"no cg_mb lines in {source}", file=sys.stderr)
+        return 2
+    print(render_jumps(report))
+    return 0

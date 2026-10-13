@@ -118,3 +118,44 @@ def test_render_jumps_shows_summary_carriers_windows_and_tally():
     assert "#1" in text and "180->200 (+20)" in text and "carrier POST /items/dispense-exports cg_delta_mb=20" in text
     assert "-1.0s" in text and "realtime.wakeup_failed" in text
     assert text.rstrip().endswith("1  realtime.wakeup_failed")
+
+
+# --- jumps subcommand -------------------------------------------------------
+
+def test_jumps_subcommand_reads_a_file_and_exits_zero(tmp_path, capsys):
+    log = tmp_path / "render.log"
+    log.write_text("\n".join(_req(_ts(s), cg=180 + (20 if s >= 4 else 0), req=f"r{s}") for s in range(6)),
+                   encoding="utf-8")
+    assert memprobe.main(["jumps", str(log), "--step", "8", "--window", "2"]) == 0
+    out = capsys.readouterr().out
+    assert "jumps=1" in out and "#1" in out
+
+
+def test_jumps_subcommand_exits_two_without_samples(tmp_path, capsys):
+    log = tmp_path / "empty.log"
+    log.write_text("INFO:     Application startup complete.\n", encoding="utf-8")
+    assert memprobe.main(["jumps", str(log)]) == 2
+    assert "no cg_mb lines" in capsys.readouterr().err
+
+
+def test_jumps_subcommand_reads_the_container_when_no_file(monkeypatch, capsys):
+    calls = []
+
+    def fake_logs(container, since_epoch):
+        calls.append((container, since_epoch))
+        return _req(_ts(1))
+
+    monkeypatch.setattr(memprobe, "read_container_logs", fake_logs)
+    assert memprobe.main(["jumps", "--container", "other"]) == 0
+    assert calls == [("other", None)]
+
+
+def test_read_container_logs_omits_since_when_none(monkeypatch):
+    seen = {}
+
+    class Proc:
+        returncode, stdout, stderr = 0, "", ""
+
+    monkeypatch.setattr(memprobe.subprocess, "run", lambda argv, **kw: seen.setdefault("argv", argv) and Proc())
+    memprobe.read_container_logs("c", None)
+    assert seen["argv"] == ["docker", "logs", "c"]

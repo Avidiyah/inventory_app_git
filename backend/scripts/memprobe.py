@@ -4,9 +4,12 @@ its memory cost from the container's own `event=request` lines.
     python scripts/memprobe.py GET /items --n 50
     python scripts/memprobe.py POST /items/search --body '{"q":"wid"}' --n 20
     python scripts/memprobe.py sweep --n 20 --out sweep.csv     # every route, ranked
+    python scripts/memprobe.py jumps FILE                       # cgroup steps in any log text
+    python scripts/memprobe.py soak --minutes 120               # mixed concurrent traffic
 
 Specs: docs/superpowers/specs/2026-10-13-memory-probe-harness-design.md (one
-route) and 2026-10-13-memory-sweep-p2-design.md (sweep).
+route), 2026-10-13-memory-sweep-p2-design.md (sweep) and
+2026-10-13-memory-soak-p3-design.md (jumps, soak).
 Correlation is by the echoed `X-Request-ID`, never by time, so other
 traffic (the platform's /healthz polls, for one) cannot be mis-attributed.
 """
@@ -236,12 +239,11 @@ def drive(opener, base: str, method: str, path: str, n: int, gap: float, body: O
     return sent
 
 
-def read_container_logs(container: str, since_epoch: float) -> str:
-    since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since_epoch - 1))
-    proc = subprocess.run(
-        ["docker", "logs", "--since", since, container],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-    )
+def read_container_logs(container: str, since_epoch: Optional[float]) -> str:
+    argv = ["docker", "logs"]
+    if since_epoch is not None:
+        argv += ["--since", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since_epoch - 1))]
+    proc = subprocess.run(argv + [container], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if proc.returncode != 0:
         raise RuntimeError(f"docker logs failed: {proc.stderr.strip()}")
     return proc.stdout + proc.stderr  # uvicorn writes to stderr
@@ -352,6 +354,14 @@ def run_sweep(args) -> int:
 
 def main(argv: Optional[list[str]] = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["jumps"]:
+        from scripts.memprobe_soak import run_jumps
+        ap = argparse.ArgumentParser(prog="memprobe.py jumps", description=run_jumps.__doc__)
+        ap.add_argument("file", nargs="?", help="log text; '-' for stdin; omit to read --container")
+        ap.add_argument("--step", type=int, default=8)
+        ap.add_argument("--window", type=float, default=30.0)
+        ap.add_argument("--container", default="inventory-local")
+        return run_jumps(ap.parse_args(argv[1:]))
     if argv[:1] == ["sweep"]:
         ap = argparse.ArgumentParser(prog="memprobe.py sweep", description=run_sweep.__doc__)
         _common_flags(ap)
