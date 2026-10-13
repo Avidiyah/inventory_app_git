@@ -108,6 +108,7 @@ def test_render_prints_dashes_for_absent_values():
 
 # --- Phase 2: catalogue model and planner (scripts/memprobe_routes.py) ---
 
+import json  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 
 import pytest  # noqa: E402
@@ -120,7 +121,16 @@ TOKENS = {"item_id": "I1", "barcode": "E2E-x-ITEM", "prefix": "E2E-x"}
 
 def test_fill_substitutes_seed_seq_now_and_days_ago():
     out = mr.fill('{"a":"{item_id}","b":"{prefix}-{seq}","c":"{now}","d":"{days_ago:3}","e":"{id}"}', TOKENS, 7, NOW)
-    assert out == '{"a":"I1","b":"E2E-x-7","c":"2026-10-13T15:00:00Z","d":"2026-10-10","e":"{id}"}'
+    assert out == '{"a":"I1","b":"E2E-x-7","c":"2026-10-13T15:00:00.000000Z","d":"2026-10-10","e":"{id}"}'
+
+
+def test_run_group_takes_the_wall_clock_per_request_when_now_is_none():
+    group = [mr.Step("POST /a", "POST", "/a", '{"t":"{now}"}', None, None, "owner")]
+    op = _FakeOpener([(200, b"{}"), (200, b"{}")])
+    before = datetime.now(timezone.utc)
+    memprobe.run_group({"owner": op}, "http://h", group, {}, 2, 0, None)
+    stamps = [datetime.strptime(json.loads(c[2])["t"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc) for c in op.calls]
+    assert all(s >= before.replace(microsecond=0) for s in stamps) and stamps[0] <= stamps[1]
 
 
 def test_fill_raises_on_unknown_token():
@@ -265,3 +275,18 @@ def test_plan_marks_technician_groups():
     cat = {"POST /a": mr.Entry(as_user="technician")}
     p = mr.plan([("POST", "/a")], cat, {}, None)
     assert p.groups[0][0].as_user == "technician"
+
+
+def test_plan_applies_entry_token_literals_to_the_step():
+    cat = {"GET /x/{job_id}": mr.Entry(token={"job_id": "J1"}, body='{"j":"{job_id}"}')}
+    p = mr.plan([("GET", "/x/{job_id}")], cat, {}, None)
+    assert (p.groups[0][0].path, p.groups[0][0].body) == ("/x/J1", '{"j":"J1"}')
+
+
+def test_run_group_applies_clock_skew_to_now():
+    from datetime import timedelta
+    group = [mr.Step("POST /a", "POST", "/a", '{"t":"{now}"}', None, None, "owner")]
+    op = _FakeOpener([(200, b"{}")])
+    memprobe.run_group({"owner": op}, "http://h", group, {}, 1, 0, None, skew=timedelta(hours=1))
+    stamp = datetime.strptime(json.loads(op.calls[0][2])["t"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+    assert stamp - datetime.now(timezone.utc) > timedelta(minutes=59)

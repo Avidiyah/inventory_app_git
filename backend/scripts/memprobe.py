@@ -25,7 +25,7 @@ import urllib.request
 import uuid
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.cookiejar import CookieJar
 from typing import Optional
 
@@ -200,15 +200,18 @@ def _payload(step, tokens, seq: int, now: datetime, last_id: Optional[str]):
     return path, body, ctype
 
 
-def run_group(openers, base: str, group, tokens, n: int, gap: float, now: datetime) -> dict[str, list[Sent]]:
+def run_group(openers, base: str, group, tokens, n: int, gap: float,
+              now: Optional[datetime] = None, skew: timedelta = timedelta(0)) -> dict[str, list[Sent]]:
     """One cycle rotation: every member is sent n times; `{id}` comes from the
     most recent JSON response in the group that carried one. A step whose
-    `{id}` is unresolvable is recorded as Sent(None, 0) and not sent."""
+    `{id}` is unresolvable is recorded as Sent(None, 0) and not sent. `{now}`
+    is the wall clock at each request plus `skew` (container minus host, so a
+    self-close lands after its punch-in) unless a fixed `now` is given."""
     out: dict[str, list[Sent]] = {s.route: [] for s in group}
     last_id = None
     for seq in range(n):
         for step in group:
-            p = _payload(step, tokens, seq, now, last_id)
+            p = _payload(step, tokens, seq, now or datetime.now(timezone.utc) + skew, last_id)
             if p is None:
                 out[step.route].append(Sent(None, 0, None))
                 continue
@@ -255,6 +258,17 @@ def _opener():
     return urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
 
 
+def _clock_skew(me: Sent) -> timedelta:
+    """Container clock minus host clock, from /attendance/me's server_now. The
+    Docker VM drifts enough that a host-stamped self-close can precede its
+    own punch-in. Zero when the field is missing."""
+    try:
+        server_now = datetime.fromisoformat(json.loads(me.body or "")["server_now"].replace("Z", "+00:00"))
+    except (ValueError, KeyError, TypeError):
+        return timedelta(0)
+    return server_now - datetime.now(timezone.utc)
+
+
 def _common_flags(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--n", type=int, default=20)
     ap.add_argument("--base", default="http://localhost:8124")
@@ -279,7 +293,7 @@ def run_sweep(args) -> int:
     from app.main import app
     from tests.e2e import _seed
 
-    start, now = time.time(), datetime.now(timezone.utc)
+    start = time.time()
     db, seed, aborted = SessionLocal(), None, False
     sent_by_route: dict[str, list[Sent]] = {}
     start_sent = end_sent = None
@@ -292,6 +306,7 @@ def run_sweep(args) -> int:
         p = plan(routes, CATALOGUE, tokens, args.only)
         try:
             _login(owner, args.base, seed.owner_username, _seed.SEED_PASSWORD)
+            skew = _clock_skew(_send(owner, args.base, "GET", "/attendance/me", None))
             start_sent = _send(owner, args.base, "GET", "/healthz", None)
             for group in p.groups:
                 openers = {"owner": owner}
@@ -300,7 +315,7 @@ def run_sweep(args) -> int:
                     # again before every group that uses the technician jar.
                     openers["technician"] = _opener()
                     _login(openers["technician"], args.base, seed.technician_username, _seed.SEED_PASSWORD)
-                for route, sent in run_group(openers, args.base, group, tokens, args.n, args.gap, now).items():
+                for route, sent in run_group(openers, args.base, group, tokens, args.n, args.gap, skew=skew).items():
                     sent_by_route.setdefault(route, []).extend(sent)
             end_sent = _send(owner, args.base, "GET", "/healthz", None)
             time.sleep(0.5)  # let the last line flush before reading

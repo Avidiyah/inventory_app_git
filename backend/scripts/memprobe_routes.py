@@ -53,7 +53,7 @@ def fill(template: str, tokens: dict[str, str], seq: int, now: datetime) -> str:
         if name == "seq":
             return str(seq)
         if name == "now":
-            return now.strftime("%Y-%m-%dT%H:%M:%SZ")
+            return now.strftime("%Y-%m-%dT%H:%M:%S.%fZ")  # microseconds: a self-close must land after its punch-in
         if name == "days_ago":
             return (now - timedelta(days=int(arg))).strftime("%Y-%m-%d")
         return tokens[name]  # KeyError = unresolvable, caller decides
@@ -77,12 +77,16 @@ def _resolvable(template: str, tokens: dict[str, str]) -> bool:
 
 
 def _step(method: str, path: str, entry: Entry, tokens: dict[str, str]) -> Optional[Step]:
-    merged = {**tokens, **(entry.token or {})}
-    requested = entry.path or path
-    templates = [requested, entry.body or ""] + ([entry.file[1]] if isinstance(entry.file, tuple) else [])
-    if not all(_resolvable(t, merged) for t in templates):
+    def literals(template: Optional[str]) -> Optional[str]:
+        for name, value in (entry.token or {}).items():  # entry literals are applied at plan time
+            template = template.replace(f"{{{name}}}", value) if template else template
+        return template
+
+    requested, body = literals(entry.path or path), literals(entry.body)
+    templates = [requested, body or ""] + ([entry.file[1]] if isinstance(entry.file, tuple) else [])
+    if not all(_resolvable(t, tokens) for t in templates):
         return None
-    return Step(f"{method} {path}", method, requested, entry.body, entry.file, entry.expect, entry.as_user)
+    return Step(f"{method} {path}", method, requested, body, entry.file, entry.expect, entry.as_user)
 
 
 def plan(routes, catalogue: dict[str, Entry], tokens: dict[str, str], only: Optional[str]) -> Plan:
@@ -262,9 +266,12 @@ CATALOGUE: dict[str, Entry] = {k: Entry(exclude="see EXCLUDED") for k in EXCLUDE
     "POST /attendance/self-close": Entry(body=J({"ended_at": "{now}"}), as_user=T),
     "POST /hub/attendance/punches": Entry(
         body=J({"user_id": "{user_id}", "started_at": "{days_ago:3}T08:00:00Z", "ended_at": "{days_ago:3}T09:00:00Z"}),
-        cycle=["POST /hub/attendance/punches", "DELETE /hub/attendance/punches/{punch_id}"]),
+        cycle=["POST /hub/attendance/punches", "PATCH /hub/attendance/punches/{punch_id}",
+               "DELETE /hub/attendance/punches/{punch_id}"]),
+    # An edit that changes nothing is a 400, so the PATCH moves the fresh punch's end.
+    "PATCH /hub/attendance/punches/{punch_id}": Entry(path="/hub/attendance/punches/{id}",
+                                                      body=J({"ended_at": "{days_ago:3}T10:00:00Z", "reason": "memprobe"})),
     "DELETE /hub/attendance/punches/{punch_id}": Entry(path="/hub/attendance/punches/{id}?reason=memprobe"),
-    "PATCH /hub/attendance/punches/{punch_id}": Entry(body=J({"needs_review": False, "reason": "memprobe"})),
     "POST /barcodes/decode": Entry(file="tests/fixtures/code128.png"),
     # --- items ---
     "POST /items/": Entry(body=J({"barcode": "{prefix}-I{seq}", "name": "{prefix} new", "location": "{prefix}-shelf"}),
@@ -303,7 +310,8 @@ CATALOGUE: dict[str, Entry] = {k: Entry(exclude="see EXCLUDED") for k in EXCLUDE
                           cycle=["POST /tools/", "DELETE /tools/{tool_id}"]),
     "DELETE /tools/{tool_id}": Entry(path="/tools/{id}"),
     "PATCH /tools/{tool_id}": Entry(body=J({"name": "{prefix} drill"})),
-    "POST /tools/{tool_id}/adjust": Entry(body=J({"new_quantity": 5, "reason": "memprobe"})),
+    # Adjusting to the current quantity is a 400; "1{seq}" is a new number every request.
+    "POST /tools/{tool_id}/adjust": Entry(body='{"new_quantity": 1{seq}, "reason": "memprobe"}'),
     "POST /tools/{tool_id}/checkout": Entry(body=J({"quantity": 1, "assigned_to_id": "{user_id}"}),
                                             cycle=["POST /tools/{tool_id}/checkout", "POST /tools/{tool_id}/return"]),
     "POST /tools/{tool_id}/return": Entry(body=J({"quantity": 1, "assigned_to_id": "{user_id}"})),
@@ -311,7 +319,7 @@ CATALOGUE: dict[str, Entry] = {k: Entry(exclude="see EXCLUDED") for k in EXCLUDE
     "POST /transactions/": Entry(body=J({"item_id": "{item_id}", "transaction_type": "stock", "quantity": 1}),
                                  cycle=["POST /transactions/", "DELETE /transactions/{transaction_id}"]),
     "DELETE /transactions/{transaction_id}": Entry(path="/transactions/{id}"),
-    "POST /transactions/adjust": Entry(body=J({"item_id": "{item_id}", "new_quantity": 5, "reason": "memprobe"})),
+    "POST /transactions/adjust": Entry(body='{"item_id": "{item_id}", "new_quantity": 1{seq}, "reason": "memprobe"}'),
     "PATCH /transactions/{transaction_id}/billing": Entry(body=J({"billable_quantity": 1})),
     # --- user requests ---
     "POST /user-requests/material-request": Entry(

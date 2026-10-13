@@ -258,6 +258,7 @@ def build(db: Session) -> Seed:
         db, searched_text=f"{RUN_PREFIX} thing", quantity=Decimal("1"), note=None,
         work_order_id=active.id, work_order_number=active.number, source="find_item",
         created_by_id=owner.id)
+    db.flush()  # the service only adds; the id is assigned at flush
     seed.request_id = str(request.id)
 
     day = datetime.now(timezone.utc).replace(hour=8, minute=0, second=0, microsecond=0) - timedelta(days=2)
