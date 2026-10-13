@@ -94,8 +94,15 @@ when it arrives rather than rediscovered.
 **Trigger: already fired — this is the next workstream.** The endpoint
 memory test suite exists to reproduce the growth locally and name the
 request. It is built in phases, each Spec → Plan → Execute. Phase 1
-(harness, `backend/scripts/memprobe.py`) shipped 2026-10-13; Phase 2
-(sweep every route, rank by repeating delta) is next.
+(harness, `backend/scripts/memprobe.py`) and Phase 2 (`sweep`: every
+route, ranked by repeating cgroup delta) shipped 2026-10-13. Phase 2's
+acceptance sweep (n=20, 125 routes, 0 failed) found **no route that
+repeats growth**: top five by `rest(sum)` were
+`POST /mass-stages/{stage_id}/reuse` (2 MB), then `GET /attendance/me`,
+`GET /auth/me`, `GET /hub/attendance/week`, `GET /hub/report` (1 MB each);
+cgroup drifted 179→182 MB across ~2,500 requests. The growth is not a
+per-route leak at this request count; Phase 3 (long runs, traffic mixes,
+concurrency) is next.
 
 Facts the suite is built from (2026-10-13):
 
@@ -112,8 +119,7 @@ Facts the suite is built from (2026-10-13):
   `docs/superpowers/plans/2026-10-13-request-memory-telemetry.md`.
 
 Open alongside it: the Render dashboard Auto-Deploy toggle is not yet
-confirmed off, and `render.yaml` `plan: free` is stale (live plan is 2 GB /
-1 CPU) — fix it inside the next backend commit, not alone.
+confirmed off.
 
 ### N-HUB-TAB-SHELL — `userHub.js` is over the 500-line rule (561)
 

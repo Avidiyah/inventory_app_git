@@ -329,6 +329,15 @@ reading carries the cgroup figure Render enforces:
   `E2E-` owner, signs in, correlates by `X-Request-ID`, prints first/rest
   deltas and drift. Phase 1 of the endpoint memory suite; spec
   `docs/superpowers/specs/2026-10-13-memory-probe-harness-design.md`.
+- Full sweep: `python scripts/memprobe.py sweep --n 20 --out sweep.csv`
+  (`--only /tools` to iterate) drives every HTTP route through the same
+  instrument and prints a table ranked by `rest(sum)` of the cgroup delta,
+  plus the CSV. Catalogue `backend/scripts/memprobe_routes.py`: mutations
+  run in cycles that return the seed to its start state; two cookie jars
+  (owner, seed technician). Every route is catalogued or excluded and
+  `tests/test_memprobe.py` fails when a new route is neither. Exit 1 on
+  any failed/skipped route, 2 on container/login loss. Phase 2; spec
+  `docs/superpowers/specs/2026-10-13-memory-sweep-p2-design.md`.
 
 Logging (`app/logging_config.py`, added 2026-08-09 as N1):
 

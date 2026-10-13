@@ -7,7 +7,7 @@ services:
   - type: web
     name: inventory-app
     runtime: docker
-    plan: free            # free web tier sleeps when idle (~30s cold start)
+    plan: standard        # 2 GB / 1 CPU, the live tier (docs/current-state.md)
     rootDir: backend
     dockerfilePath: ./Dockerfile
     dockerContext: .
