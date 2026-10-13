@@ -27,6 +27,7 @@ import logging
 import time
 import uuid
 from pathlib import Path
+from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -40,6 +41,7 @@ from app.domain import rate_limit as rate_limit_policy
 from app.domain import roles
 from app.logging_config import (
     configure_logging,
+    memory_sample,
     new_request_context,
     request_context,
 )
@@ -257,6 +259,10 @@ async def log_request(request, call_next):
     is caller-controlled and is exactly the kind of place a token ends up
     by accident.
 
+    Three memory fields ride on both lines (`rss_mb`, `cg_mb`,
+    `cg_delta_mb`, see `logging_config.memory_sample`) so a memory step-up
+    in production can be matched to the request that caused it.
+
     Unhandled exceptions are logged with the request's context and
     re-raised. Deliberately **without** `exc_info`: uvicorn logs the
     traceback for the same exception a moment later (it sits outside all
@@ -268,9 +274,21 @@ async def log_request(request, call_next):
     context = new_request_context(uuid.uuid4().hex[:12])
     token = request_context.set(context)
     started = time.perf_counter()
+    before = memory_sample()
 
     def elapsed_ms() -> int:
         return round((time.perf_counter() - started) * 1000)
+
+    def memory_fields() -> dict[str, Any]:
+        # Sampled at completion so the line shows where memory ended up.
+        # The delta is on the cgroup figure because that is what the
+        # platform's limit is enforced against; sort the stream by it to
+        # find the request behind a step-up.
+        after = memory_sample()
+        delta = None
+        if before["cg_mb"] is not None and after["cg_mb"] is not None:
+            delta = after["cg_mb"] - before["cg_mb"]
+        return {**after, "cg_delta_mb": delta}
 
     try:
         try:
@@ -283,6 +301,7 @@ async def log_request(request, call_next):
                     "path": request.url.path,
                     "exc_type": type(exc).__name__,
                     "ms": elapsed_ms(),
+                    **memory_fields(),
                 }},
             )
             raise
@@ -295,6 +314,7 @@ async def log_request(request, call_next):
                 "path": request.url.path,
                 "status": response.status_code,
                 "ms": elapsed_ms(),
+                **memory_fields(),
             }},
         )
         return response

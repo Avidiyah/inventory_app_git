@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 from fastapi import HTTPException, Response
+from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
 
 from app import logging_config, main
@@ -406,3 +407,62 @@ def test_memory_sample_treats_garbage_as_absent(monkeypatch, tmp_path):
     )
 
     assert logging_config.memory_sample() == {"rss_mb": None, "cg_mb": None}
+
+
+def _sampler_returning(monkeypatch, *samples):
+    """Make `main.memory_sample` hand out the given dicts in order."""
+    queue = iter(samples)
+    monkeypatch.setattr(main, "memory_sample", lambda: next(queue))
+
+
+def test_the_request_line_carries_memory_fields_and_the_cgroup_delta(monkeypatch, caplog):
+    monkeypatch.setattr(main, "check_connection", lambda: None)
+    _sampler_returning(
+        monkeypatch,
+        {"rss_mb": 80, "cg_mb": 300},
+        {"rss_mb": 95, "cg_mb": 420},
+    )
+    caplog.set_level(logging.INFO)
+
+    TestClient(main.app).get("/healthz")
+
+    record = next(r for r in caplog.records if r.getMessage() == "request")
+    assert record.fields["rss_mb"] == 95
+    assert record.fields["cg_mb"] == 420
+    assert record.fields["cg_delta_mb"] == 120
+
+
+def test_the_request_line_survives_absent_memory_readings(monkeypatch, caplog):
+    monkeypatch.setattr(main, "check_connection", lambda: None)
+    _sampler_returning(
+        monkeypatch,
+        {"rss_mb": None, "cg_mb": None},
+        {"rss_mb": None, "cg_mb": None},
+    )
+    caplog.set_level(logging.INFO)
+
+    response = TestClient(main.app).get("/healthz")
+
+    assert response.status_code == 200
+    record = next(r for r in caplog.records if r.getMessage() == "request")
+    assert record.fields["cg_delta_mb"] is None
+    # The formatter renders None as the column placeholder, not "None".
+    assert "cg_delta_mb=-" in LogfmtFormatter().format(record)
+
+
+def test_the_error_line_carries_memory_fields(monkeypatch, caplog):
+    def explode():
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(main, "check_connection", explode)
+    _sampler_returning(
+        monkeypatch,
+        {"rss_mb": 80, "cg_mb": 300},
+        {"rss_mb": 80, "cg_mb": 480},
+    )
+    caplog.set_level(logging.ERROR)
+
+    TestClient(main.app, raise_server_exceptions=False).get("/healthz")
+
+    record = next(r for r in caplog.records if r.getMessage() == "request.error")
+    assert record.fields["cg_delta_mb"] == 180
