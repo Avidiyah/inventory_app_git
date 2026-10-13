@@ -300,3 +300,22 @@ def test_soak_subcommand_defaults(monkeypatch):
     monkeypatch.setattr(soak, "run_soak", lambda args: seen.update(vars(args)) or 0)
     assert memprobe.main(["soak"]) == 0
     assert (seen["n"], seen["gap"], seen["minutes"], seen["workers"], seen["sample"]) == (5, 0.1, 60.0, 3, 5.0)
+
+
+def test_writer_loop_continues_seq_across_passes(monkeypatch):
+    # An archived row keeps its barcode, so a {seq} that restarts every pass
+    # makes the second pass's create a 409.
+    bodies = []
+
+    def send(opener, base, method, path, body, content_type="application/json"):
+        bodies.append(body)
+        if len(bodies) >= 4:
+            stop.set()
+        return memprobe.Sent(f"r{len(bodies)}", 200, None)
+
+    monkeypatch.setattr(memprobe, "_send", send)
+    monkeypatch.setattr(soak.time, "sleep", lambda s: None)
+    w, stop = soak.Worker("writer"), threading.Event()
+    create = Step("POST /items/", "POST", "/items/", '{"barcode": "I{seq}"}', None, None, "owner")
+    soak.writer_loop(w, "http://x", [[create]], {}, 2, 0.0, soak.timedelta(0), stop, lambda u: "o", time.time())
+    assert [b for b in bodies if b] == ['{"barcode": "I0"}', '{"barcode": "I1"}', '{"barcode": "I2"}', '{"barcode": "I3"}']

@@ -204,15 +204,18 @@ def _payload(step, tokens, seq: int, now: datetime, last_id: Optional[str]):
 
 
 def run_group(openers, base: str, group, tokens, n: int, gap: float,
-              now: Optional[datetime] = None, skew: timedelta = timedelta(0)) -> dict[str, list[Sent]]:
+              now: Optional[datetime] = None, skew: timedelta = timedelta(0),
+              seq0: int = 0) -> dict[str, list[Sent]]:
     """One cycle rotation: every member is sent n times; `{id}` comes from the
     most recent JSON response in the group that carried one. A step whose
     `{id}` is unresolvable is recorded as Sent(None, 0) and not sent. `{now}`
     is the wall clock at each request plus `skew` (container minus host, so a
-    self-close lands after its punch-in) unless a fixed `now` is given."""
+    self-close lands after its punch-in) unless a fixed `now` is given. `{seq}`
+    counts from `seq0`: an archived row keeps its barcode, so a repeat rotation
+    must not reuse one."""
     out: dict[str, list[Sent]] = {s.route: [] for s in group}
     last_id = None
-    for seq in range(n):
+    for seq in range(seq0, seq0 + n):
         for step in group:
             p = _payload(step, tokens, seq, now or datetime.now(timezone.utc) + skew, last_id)
             if p is None:

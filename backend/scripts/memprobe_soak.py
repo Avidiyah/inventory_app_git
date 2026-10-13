@@ -264,7 +264,8 @@ def writer_loop(w: Worker, base: str, groups, tokens, n: int, gap: float, skew: 
                     break
                 if any(s.as_user == "technician" for s in group):
                     openers["technician"] = login("technician")  # archive revokes the old session
-                for route, sent in mp.run_group(openers, base, group, tokens, n, gap, skew=skew).items():
+                for route, sent in mp.run_group(openers, base, group, tokens, n, gap, skew=skew,
+                                                seq0=len(w.passes) * n).items():
                     w.sent.setdefault(route, []).extend(sent)
             _end_pass(w, base, openers["owner"], started)
     except (RuntimeError, OSError) as exc:
