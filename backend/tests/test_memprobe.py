@@ -290,3 +290,28 @@ def test_run_group_applies_clock_skew_to_now():
     memprobe.run_group({"owner": op}, "http://h", group, {}, 1, 0, None, skew=timedelta(hours=1))
     stamp = datetime.strptime(json.loads(op.calls[0][2])["t"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
     assert stamp - datetime.now(timezone.utc) > timedelta(minutes=59)
+
+
+def test_sweep_still_reads_logs_when_the_run_aborts(monkeypatch):
+    """Spec: infrastructure loss mid-run prints what was measured and exits 2."""
+    import types
+    import urllib.error
+    from app import database
+    from tests.e2e import _seed
+
+    class _Db:
+        def close(self): pass
+
+    calls = []
+    monkeypatch.setattr(database, "SessionLocal", lambda: _Db())
+    monkeypatch.setattr(_seed, "sweep_debris", lambda db: 0)
+    monkeypatch.setattr(_seed, "build", lambda db: _seed.Seed("p", "o", "w", "b"))
+    monkeypatch.setattr(_seed, "destroy", lambda db, seed: calls.append("destroy"))
+    monkeypatch.setattr(memprobe, "_send", lambda *a, **k: memprobe.Sent("h1", 200, "{}"))
+    monkeypatch.setattr(memprobe, "_login", lambda *a, **k: None)
+    monkeypatch.setattr(memprobe, "run_group", lambda *a, **k: (_ for _ in ()).throw(urllib.error.URLError("dropped")))
+    monkeypatch.setattr(memprobe, "read_container_logs", lambda *a, **k: calls.append("logs") or "")
+    monkeypatch.setattr(memprobe.time, "sleep", lambda s: None)
+    args = types.SimpleNamespace(base="http://h", container="c", n=1, gap=0, only="/healthz", out=None)
+    assert memprobe.run_sweep(args) == 2
+    assert calls == ["logs", "destroy"]

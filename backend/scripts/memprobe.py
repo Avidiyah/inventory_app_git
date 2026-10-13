@@ -318,8 +318,13 @@ def run_sweep(args) -> int:
                 for route, sent in run_group(openers, args.base, group, tokens, args.n, args.gap, skew=skew).items():
                     sent_by_route.setdefault(route, []).extend(sent)
             end_sent = _send(owner, args.base, "GET", "/healthz", None)
+        except (RuntimeError, OSError) as exc:
+            print(str(exc), file=sys.stderr)
+            aborted = True
+        try:  # an aborted run still reports what it measured
             time.sleep(0.5)  # let the last line flush before reading
-            wanted = {s.req for v in sent_by_route.values() for s in v if s.req} | {start_sent.req, end_sent.req}
+            wanted = {s.req for v in sent_by_route.values() for s in v if s.req}
+            wanted |= {s.req for s in (start_sent, end_sent) if s and s.req}
             samples = parse_request_lines(read_container_logs(args.container, start), wanted)
         except (RuntimeError, OSError) as exc:
             print(str(exc), file=sys.stderr)
