@@ -61,3 +61,60 @@ def test_route_of_names_requests_by_method_and_path_and_others_by_event():
     ]))
     assert soak.route_of(req) == "POST /items"
     assert soak.route_of(other) == "realtime.dispatch_stop_failed"
+
+
+# --- jump finder ------------------------------------------------------------
+
+def _staircase():
+    # 10 healthz samples a second apart; +20 MB at t=4 carried by a POST,
+    # +30 MB at t=8 observed by a healthz (background work), a realtime
+    # event at t=7 sits in the second window.
+    rows = []
+    for s in range(10):
+        cg = 180 + (20 if s >= 4 else 0) + (30 if s >= 8 else 0)
+        if s == 4:
+            rows.append(_req(_ts(s), path="/items/dispense-exports", method="POST", cg=cg, cgd=20, req=f"r{s}"))
+        else:
+            rows.append(_req(_ts(s), cg=cg, req=f"r{s}"))
+    rows.append(f"ts={_ts(7)} level=WARNING event=realtime.wakeup_failed")
+    return soak.parse_lines("\n".join(rows))
+
+
+def test_find_jumps_finds_both_steps_and_names_carriers():
+    report = soak.find_jumps(_staircase(), step=8, window=3)
+    assert report.samples == 10 and (report.first, report.last) == (180, 230)
+    assert [(j.before, j.after) for j in report.jumps] == [(180, 200), (200, 230)]
+    first, second = report.jumps
+    assert soak.route_of(first.carrier) == "POST /items/dispense-exports"
+    assert first.carrier.fields["cg_delta_mb"] == "20"          # allocating
+    assert soak.route_of(second.carrier) == "GET /healthz"
+    assert second.carrier.fields["cg_delta_mb"] == "0"          # observing
+    assert [l.fields["req"] for l in first.window] == ["r1", "r2", "r3"]   # 3 s before, carrier excluded
+    assert "realtime.wakeup_failed" in {soak.route_of(l) for l in second.window}
+
+
+def test_find_jumps_gradual_rise_reports_rise_above_jump_sum():
+    lines = soak.parse_lines("\n".join(_req(_ts(s), cg=180 + 3 * s, req=f"r{s}") for s in range(10)))
+    report = soak.find_jumps(lines, step=8)
+    assert report.jumps == [] and report.jump_sum == 0 and report.rise == 27
+
+
+def test_find_jumps_with_no_samples():
+    report = soak.find_jumps(soak.parse_lines(f"ts={_ts(1)} event=auth.login_ok"))
+    assert report.samples == 0 and report.rise == 0 and report.jumps == []
+
+
+def test_tally_counts_windows_not_occurrences():
+    report = soak.find_jumps(_staircase(), step=8, window=3)
+    counts = dict(soak.tally(report.jumps))
+    assert counts["GET /healthz"] == 2                 # present in both windows
+    assert counts["realtime.wakeup_failed"] == 1
+    assert soak.tally(report.jumps)[0] == ("GET /healthz", 2)
+
+
+def test_render_jumps_shows_summary_carriers_windows_and_tally():
+    text = soak.render_jumps(soak.find_jumps(_staircase(), step=8, window=3))
+    assert "levels  180->230 MB  rise +50   jumps=2  jump sum=50  (step>=8)" in text
+    assert "#1" in text and "180->200 (+20)" in text and "carrier POST /items/dispense-exports cg_delta_mb=20" in text
+    assert "-1.0s" in text and "realtime.wakeup_failed" in text
+    assert text.rstrip().endswith("1  realtime.wakeup_failed")
