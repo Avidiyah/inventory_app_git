@@ -11,11 +11,18 @@ traffic (the platform's /healthz polls, for one) cannot be mis-attributed.
 
 from __future__ import annotations
 
+import argparse
+import json
 import os
 import statistics
+import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 from collections import Counter
 from dataclasses import dataclass
+from http.cookiejar import CookieJar
 from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -144,3 +151,99 @@ def render(route: str, container: str, baseline: Optional[Sample], summary: Summ
     if summary.unmatched:
         rows.append(f"unmatched    {' '.join(summary.unmatched)}")
     return "\n".join(rows)
+
+
+def _send(opener, base: str, method: str, path: str, body: Optional[str]) -> Sent:
+    data = body.encode() if body is not None else None
+    req = urllib.request.Request(base + path, data=data, method=method)
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
+    try:
+        resp = opener.open(req, timeout=60)
+    except urllib.error.HTTPError as err:  # a 4xx/5xx is still a response
+        resp = err
+    with resp:
+        resp.read()
+        return Sent(resp.headers.get("X-Request-ID"), resp.status)
+
+
+def drive(opener, base: str, method: str, path: str, n: int, gap: float, body: Optional[str]) -> list[Sent]:
+    """Strictly sequential: attribution per request is the whole point, and
+    the app's limiter allows 60/s per session."""
+    sent = []
+    for _ in range(n):
+        sent.append(_send(opener, base, method, path, body))
+        time.sleep(gap)
+    return sent
+
+
+def read_container_logs(container: str, since_epoch: float) -> str:
+    since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since_epoch - 1))
+    proc = subprocess.run(
+        ["docker", "logs", "--since", since, container],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"docker logs failed: {proc.stderr.strip()}")
+    return proc.stdout + proc.stderr  # uvicorn writes to stderr
+
+
+def _login(opener, base: str, username: str, password: str) -> None:
+    sent = _send(opener, base, "POST", "/auth/login",
+                 json.dumps({"username": username, "password": password}))
+    if sent.status != 200:
+        raise RuntimeError(f"login failed: HTTP {sent.status}")
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("method"); ap.add_argument("path")
+    ap.add_argument("--n", type=int, default=20)
+    ap.add_argument("--body")
+    ap.add_argument("--base", default="http://localhost:8124")
+    ap.add_argument("--container", default="inventory-local")
+    ap.add_argument("--gap", type=float, default=0.05)
+    args = ap.parse_args(argv)
+
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+    try:
+        _send(opener, args.base, "GET", "/healthz", None)
+    except (urllib.error.URLError, OSError) as exc:
+        print(f"container not reachable at {args.base}: {exc}", file=sys.stderr)
+        return 2
+
+    # Imported here so tests/test_memprobe.py never opens the database.
+    from app.database import SessionLocal
+    from tests.e2e import _seed
+
+    start = time.time()
+    db = SessionLocal()
+    seed = None
+    try:
+        _seed.sweep_debris(db)
+        seed = _seed.build(db)
+        path = args.path.replace("{barcode}", seed.item_barcode).replace("{wo}", seed.work_order_number)
+        try:
+            _login(opener, args.base, seed.owner_username, _seed.SEED_PASSWORD)
+            baseline_sent = _send(opener, args.base, "GET", "/healthz", None)
+            sent = drive(opener, args.base, args.method.upper(), path, args.n, args.gap, args.body)
+            time.sleep(0.5)  # let the last line flush before reading
+            wanted = {s.req for s in sent if s.req} | {baseline_sent.req}
+            samples = parse_request_lines(read_container_logs(args.container, start), wanted)
+        except (RuntimeError, OSError) as exc:
+            # OSError covers a vanished docker CLI (FileNotFoundError) and a
+            # dropped connection mid-drive (URLError). Teardown still runs.
+            print(str(exc), file=sys.stderr)
+            return 2
+    finally:
+        if seed is not None:
+            _seed.destroy(db, seed)
+        db.close()
+
+    summary = aggregate(sent, samples)
+    print(render(f"{args.method.upper()} {path}", args.container, samples.get(baseline_sent.req), summary))
+    return 1 if summary.unmatched else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
