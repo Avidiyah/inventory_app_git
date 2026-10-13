@@ -430,6 +430,9 @@ def test_the_request_line_carries_memory_fields_and_the_cgroup_delta(monkeypatch
     assert record.fields["rss_mb"] == 95
     assert record.fields["cg_mb"] == 420
     assert record.fields["cg_delta_mb"] == 120
+    # Logged as well: the cgroup file may be unreadable on some hosts, and
+    # the RSS delta then remains as a sort key.
+    assert record.fields["rss_delta_mb"] == 15
 
 
 def test_the_request_line_survives_absent_memory_readings(monkeypatch, caplog):

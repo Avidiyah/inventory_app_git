@@ -313,8 +313,9 @@ Logging (`app/logging_config.py`, added 2026-08-09 as N1):
 - **One `event=request` line per request**, with method, path, status, ms,
   and memory: `rss_mb` (Python process), `cg_mb` (container cgroup total,
   the figure Render enforces; child processes count here, not in RSS), and
-  `cg_delta_mb` (change across the request). To find what caused a memory
-  step-up, sort `event=request` lines by `cg_delta_mb`; the same request
+  `cg_delta_mb` / `rss_delta_mb` (change across the request). To find what
+  caused a memory step-up, sort `event=request` lines by `cg_delta_mb` (or
+  `rss_delta_mb` where the cgroup file is unreadable); the same request
   repeating with a positive delta is a leak, a one-off is allocator
   high-water retention. `request.error` lines carry the same three fields.
   Uvicorn's own access log stays on alongside it: it is the fallback that keeps

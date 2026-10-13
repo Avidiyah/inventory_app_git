@@ -259,8 +259,8 @@ async def log_request(request, call_next):
     is caller-controlled and is exactly the kind of place a token ends up
     by accident.
 
-    Three memory fields ride on both lines (`rss_mb`, `cg_mb`,
-    `cg_delta_mb`, see `logging_config.memory_sample`) so a memory step-up
+    Memory fields ride on both lines (`rss_mb`, `cg_mb`, `cg_delta_mb`,
+    `rss_delta_mb`, see `logging_config.memory_sample`) so a memory step-up
     in production can be matched to the request that caused it.
 
     Unhandled exceptions are logged with the request's context and
@@ -285,10 +285,13 @@ async def log_request(request, call_next):
         # platform's limit is enforced against; sort the stream by it to
         # find the request behind a step-up.
         after = memory_sample()
-        delta = None
-        if before["cg_mb"] is not None and after["cg_mb"] is not None:
-            delta = after["cg_mb"] - before["cg_mb"]
-        return {**after, "cg_delta_mb": delta}
+
+        def delta(key: str) -> Any:
+            if before[key] is None or after[key] is None:
+                return None
+            return after[key] - before[key]
+
+        return {**after, "cg_delta_mb": delta("cg_mb"), "rss_delta_mb": delta("rss_mb")}
 
     try:
         try:
