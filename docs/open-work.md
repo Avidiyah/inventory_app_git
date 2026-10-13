@@ -56,15 +56,8 @@ under the Communities cards. Request logged only.
 - **Logged** 2026-09-21 · *User Hub / Attendance* · **closed** 2026-09-21 · spec
   `docs/superpowers/specs/2026-09-21-attendance-timesheet-design.md`
 
-P1–P4b shipped: the punch record and its state machine, the self-scoped
-routes, the work-order clock coupling, the Home tab, the Admin Timesheets tab
-(now one page: roster, revenue leaderboard, Hours), the audited punch editor, `GET
-/hub/attendance/week` · `/export` · `/live`, the `attendance.changed`
-envelope, and the retirement of `GET /hub/timesheets` (D6) — at its accepted
-cost, that a Supervisor loses the tab and keeps the Dashboard crew board.
-
-Two things were deliberately not built, and reopening either needs a new
-reason, not a reminder:
+Shipped in full (P1–P4b); the spec owns what. Two things were deliberately
+not built, and reopening either needs a new reason, not a reminder:
 
 - A **billed** column beside clocked and charged. `billed_labor_minutes`
   rounds a *work order's combined* labor up to 30 minutes across every
@@ -95,6 +88,32 @@ before promotion.
 None of this is scheduled work. Each is a real property of the system with a
 **named trigger** that promotes it, written down so the trigger is recognized
 when it arrives rather than rediscovered.
+
+### N-MEMORY-CRASH — production crashes from stepwise memory growth; cause unknown
+
+**Trigger: already fired — this is the next workstream.** The endpoint
+memory test suite exists to reproduce the growth locally and name the
+request. It is built in phases, each Spec → Plan → Execute. Phase 1
+(harness, `backend/scripts/memprobe.py`) shipped 2026-10-13; Phase 2
+(sweep every route, rank by repeating delta) is next.
+
+Facts the suite is built from (2026-10-13):
+
+- Surface: 125 HTTP routes plus one WebSocket (`app.routes` is the list).
+- No load or soak tooling exists. `backend/tests/e2e/_seed.py` (prefixed
+  seed rows, prefix teardown, debris sweep) and `_availability.py` (skip
+  locally / raise in CI) are the only real-database helpers to reuse.
+- Environment: the `inventory-local` container, never the host — see
+  `docs/current-state.md` → Runtime And Stack → Local Docker reproduction.
+  Idle baseline varies per container lifetime (178/112 at start, 131/127
+  after an hour); compare within one lifetime.
+- Readout: the `event=request` memory fields (`docs/current-state.md` →
+  Logging); `/healthz` lines are a free periodic sampler. Caveats:
+  `docs/superpowers/plans/2026-10-13-request-memory-telemetry.md`.
+
+Open alongside it: the Render dashboard Auto-Deploy toggle is not yet
+confirmed off, and `render.yaml` `plan: free` is stale (live plan is 2 GB /
+1 CPU) — fix it inside the next backend commit, not alone.
 
 ### N-HUB-TAB-SHELL — `userHub.js` is over the 500-line rule (561)
 

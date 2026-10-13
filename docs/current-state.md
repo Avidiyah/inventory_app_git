@@ -1,6 +1,6 @@
 # Inventory App Current State
 
-Last reviewed: 2026-08-31 · Soft word budget: 16,500 (CLAUDE.md → Documentation
+Last reviewed: 2026-10-13 · Soft word budget: 16,500 (CLAUDE.md → Documentation
 conventions)
 
 Contracts and invariants — **the authority**; enough current-state context to
@@ -282,8 +282,7 @@ Deployment:
   attachment feature. Growth is rows only (`transactions` grows forever;
   `sessions` and `login_attempts` are swept). Revisit if files are ever stored.
 - `healthCheckPath: /healthz` runs a real database query, so a deploy that
-  cannot reach Postgres fails instead of going green; it does not keep a free
-  instance awake. `/db-test` (TechFM OA+) verifies database identity;
+  cannot reach Postgres fails instead of going green. `/db-test` (TechFM OA+) verifies database identity;
   `/healthz` proves only reachability.
 - Required env: `DATABASE_URL`. Production sets `COOKIE_SECURE=true`,
   `SQL_ECHO=false`, `LOG_LEVEL=INFO`.
@@ -300,6 +299,36 @@ Deployment:
 - Static assets are served `Cache-Control: no-cache`; the app sends
   `Permissions-Policy: camera=(self)` and `X-Request-ID: <12 hex>`. Windows
   local pyzbar may need the Visual C++ 2013 runtime (`msvcr120.dll`).
+
+Local Docker reproduction — **the test environment for memory and load
+work.** Measurements run inside the container, never on the host, so every
+reading carries the cgroup figure Render enforces:
+
+- Image `inventory-app` from `backend/Dockerfile` (context `backend/`);
+  container `inventory-local` on port 8124 with `--memory=2g` (the live
+  service ceiling), reaching host Postgres 8801 via `host.docker.internal`.
+
+  ```
+  docker build -t inventory-app backend
+  docker run -d --name inventory-local --memory=2g -p 8124:8124 --env-file <copy> inventory-app
+  ```
+
+- `<copy>` is a swapped copy of `.env` with the `DATABASE_URL` host rewritten
+  to `host.docker.internal:8801`; recreate it when `.env` changes, never edit
+  `.env` itself. Secrets stay out of the image.
+- Idle baseline is per container lifetime, not a constant: `cg_mb=178` /
+  `rss_mb=112` right after start, `131` / `127` after an hour idle. Compare
+  runs within one lifetime, or restart first.
+  Render polls `/healthz`, so every `event=request` line is a free periodic
+  sampler and `docker logs inventory-local | grep event=request` is the
+  readout. Field meanings: Logging below. Design and caveats (streaming
+  bodies, concurrency smearing):
+  `docs/superpowers/plans/2026-10-13-request-memory-telemetry.md`.
+- Per-route probe: `python scripts/memprobe.py GET /items --n 50` from
+  `backend/` (PowerShell; under Git Bash set `MSYS_NO_PATHCONV=1`). Seeds an
+  `E2E-` owner, signs in, correlates by `X-Request-ID`, prints first/rest
+  deltas and drift. Phase 1 of the endpoint memory suite; spec
+  `docs/superpowers/specs/2026-10-13-memory-probe-harness-design.md`.
 
 Logging (`app/logging_config.py`, added 2026-08-09 as N1):
 
