@@ -159,3 +159,50 @@ def test_read_container_logs_omits_since_when_none(monkeypatch):
     monkeypatch.setattr(memprobe.subprocess, "run", lambda argv, **kw: seen.setdefault("argv", argv) and Proc())
     memprobe.read_container_logs("c", None)
     assert seen["argv"] == ["docker", "logs", "c"]
+
+
+# --- soak: pure parts -------------------------------------------------------
+
+def _step(method, path, route=None):
+    return Step(route or f"{method} {path}", method, path, None, None, None, "owner")
+
+
+def test_reader_steps_keeps_only_single_get_steps_without_id_and_shuffles_deterministically():
+    p = Plan(groups=[
+        [_step("GET", "/items")],
+        [_step("GET", "/work-orders/{work_order_id}")],
+        [_step("POST", "/items/search")],                                    # not a GET
+        [_step("POST", "/items/"), _step("DELETE", "/items/{id}")],           # a cycle
+        [_step("GET", "/hub/report")],
+        [_step("GET", "/x/{id}")],                                            # needs a created id
+    ])
+    a = soak.reader_steps(p, 1)
+    assert {s.route for s in a} == {"GET /items", "GET /work-orders/{work_order_id}", "GET /hub/report"}
+    assert a == soak.reader_steps(p, 1)  # same seed, same order
+
+
+def test_render_trend_reads_each_pass_sample_by_request_id():
+    samples = memprobe.parse_request_lines("\n".join([
+        _req(_ts(0), cg=180, rss=120, req="h0"), _req(_ts(9), cg=190, rss=125, req="h1"),
+        _req(_ts(20), cg=230, rss=140, req="h2"),
+    ]), {"h0", "h1", "h2"})
+    passes = [soak.Pass(9.0, 600, 0, "h1"), soak.Pass(20.5, 1200, 2, "h2"), soak.Pass(30.0, 1800, 2, "missing")]
+    text = soak.render_trend(passes, samples, samples["h0"])
+    assert "pass   elapsed   cg_mb  rss_mb   rise  requests  failed" in text
+    assert "   1      0:09     190     125    +10       600       0" in text
+    assert "   2      0:20     230     140    +50      1200       2" in text
+    assert "   3      0:30       -       -      -      1800       2" in text
+
+
+def test_series_csv_writes_request_lines_with_worker(tmp_path):
+    lines = soak.parse_lines("\n".join([
+        _req(_ts(1), path="/items", cg=180, cgd=0, req="a"),
+        _req(_ts(2), path="/healthz", cg=181, cgd=1, req="b"),
+        f"ts={_ts(3)} event=auth.login_ok",
+    ]))
+    out = tmp_path / "s.csv"
+    soak.series_csv(lines, {"a": "reader1"}, str(out))
+    rows = out.read_text(encoding="utf-8").splitlines()
+    assert rows[0] == "ts,cg_mb,rss_mb,method,path,cg_delta_mb,worker"
+    assert rows[1].endswith(",180,120,GET,/items,0,reader1")
+    assert rows[2].endswith(",181,120,GET,/healthz,1,") and len(rows) == 3

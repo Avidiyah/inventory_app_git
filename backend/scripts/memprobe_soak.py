@@ -175,3 +175,68 @@ def run_jumps(args) -> int:
         return 2
     print(render_jumps(report))
     return 0
+
+
+# --- soak: pure parts -------------------------------------------------------
+
+@dataclass
+class Pass:
+    elapsed: float
+    requests: int
+    failed: int
+    healthz_req: Optional[str]
+
+
+@dataclass
+class Worker:
+    name: str
+    sent: dict[str, list] = field(default_factory=dict)  # route -> list[memprobe.Sent]
+    passes: list[Pass] = field(default_factory=list)
+    error: Optional[str] = None
+
+    def requests(self) -> int:
+        return sum(len(v) for v in self.sent.values())
+
+    def failed(self) -> int:
+        return sum(1 for v in self.sent.values() for s in v if not (200 <= s.status < 300))
+
+
+def reader_steps(plan, seed: int) -> list:
+    """The read-only half of the plan: single-step GET groups whose path needs
+    no created id. Shuffled per reader so two readers never walk in step."""
+    steps = [g[0] for g in plan.groups if len(g) == 1 and g[0].method == "GET" and "{id}" not in g[0].path]
+    random.Random(seed).shuffle(steps)
+    return steps
+
+
+def _clock(seconds: float) -> str:
+    m, s = divmod(int(seconds), 60)
+    return f"{m}:{s:02d}"
+
+
+def render_trend(passes: list[Pass], samples: dict, start) -> str:
+    rows = ["pass   elapsed   cg_mb  rss_mb   rise  requests  failed"]
+    base = start.cg_mb if start else None
+    for i, p in enumerate(passes, 1):
+        s = samples.get(p.healthz_req) if p.healthz_req else None
+        cg = s.cg_mb if s else None
+        rise = None if cg is None or base is None else cg - base
+        rows.append(f"{i:>4}  {_clock(p.elapsed):>8}  {mp._fmt(cg):>6}  {mp._fmt(s.rss_mb if s else None):>6}  "
+                    f"{('-' if rise is None else f'{rise:+d}'):>5}  {p.requests:>8}  {p.failed:>6}")
+    return "\n".join(rows)
+
+
+SERIES_COLUMNS = ("ts", "cg_mb", "rss_mb", "method", "path", "cg_delta_mb", "worker")
+
+
+def series_csv(lines: list[Line], owner_of: dict[str, str], path: str) -> None:
+    """Every request line of the run, Excel-ready, tagged with the worker
+    whose request id it carries (blank for traffic the harness did not send)."""
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(SERIES_COLUMNS)
+        for l in lines:
+            if l.event in REQUEST_EVENTS:
+                f = l.fields
+                w.writerow([_iso(l.ts), f.get("cg_mb", ""), f.get("rss_mb", ""), f.get("method", ""),
+                            f.get("path", ""), f.get("cg_delta_mb", ""), owner_of.get(f.get("req", ""), "")])
