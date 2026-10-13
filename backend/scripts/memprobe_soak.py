@@ -240,3 +240,199 @@ def series_csv(lines: list[Line], owner_of: dict[str, str], path: str) -> None:
                 f = l.fields
                 w.writerow([_iso(l.ts), f.get("cg_mb", ""), f.get("rss_mb", ""), f.get("method", ""),
                             f.get("path", ""), f.get("cg_delta_mb", ""), owner_of.get(f.get("req", ""), "")])
+
+
+# --- soak: threads ----------------------------------------------------------
+
+def _end_pass(w: Worker, base: str, opener, started: float) -> None:
+    """One /healthz per pass, kept by request id so the trend table reads
+    the container's figure for this moment and no other."""
+    h = mp._send(opener, base, "GET", "/healthz", None)
+    w.sent.setdefault("GET /healthz", []).append(h)
+    w.passes.append(Pass(time.time() - started, w.requests(), w.failed(), h.req))
+
+
+def writer_loop(w: Worker, base: str, groups, tokens, n: int, gap: float, skew: timedelta,
+                stop: threading.Event, login: Callable[[str], object], started: float) -> None:
+    """The Phase 2 sweep in rotation until `stop`. Checks the flag between
+    groups (a group is at most 2n requests)."""
+    try:
+        openers = {"owner": login("owner")}
+        while not stop.is_set():
+            for group in groups:
+                if stop.is_set():
+                    break
+                if any(s.as_user == "technician" for s in group):
+                    openers["technician"] = login("technician")  # archive revokes the old session
+                for route, sent in mp.run_group(openers, base, group, tokens, n, gap, skew=skew).items():
+                    w.sent.setdefault(route, []).extend(sent)
+            _end_pass(w, base, openers["owner"], started)
+    except (RuntimeError, OSError) as exc:
+        w.error = str(exc)
+        stop.set()
+
+
+def reader_loop(w: Worker, base: str, steps, tokens, gap: float, skew: timedelta,
+                stop: threading.Event, opener, started: float) -> None:
+    """GET-only traffic until `stop`, checked between requests."""
+    try:
+        while not stop.is_set():
+            for step in steps:
+                if stop.is_set():
+                    break
+                path, body, ctype = mp._payload(step, tokens, 0, datetime.now(timezone.utc) + skew, None)
+                w.sent.setdefault(step.route, []).append(mp._send(opener, base, step.method, path, body, ctype))
+                time.sleep(gap)
+            _end_pass(w, base, opener, started)
+    except (RuntimeError, OSError) as exc:
+        w.error = str(exc)
+        stop.set()
+
+
+def sampler_loop(w: Worker, base: str, opener, every: float, stop: threading.Event) -> None:
+    """A /healthz every `every` seconds so the series never starves behind a
+    slow route. /healthz is exempt from the limiter."""
+    try:
+        while not stop.wait(every):
+            w.sent.setdefault("GET /healthz", []).append(mp._send(opener, base, "GET", "/healthz", None))
+    except (RuntimeError, OSError) as exc:
+        w.error = str(exc)
+        stop.set()
+
+
+def wait(threads: list[threading.Thread], deadline: float, stop: threading.Event) -> None:
+    """Block until the deadline, every thread has ended, or Ctrl-C. Sets
+    `stop` on every exit so the caller can join."""
+    try:
+        while time.time() < deadline and any(t.is_alive() for t in threads) and not stop.is_set():
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        print("stopping: Ctrl-C", file=sys.stderr)
+    stop.set()
+
+
+# --- soak: orchestration ----------------------------------------------------
+
+def _counts(c: Counter) -> str:
+    return " ".join(f"{status}x{n}" for status, n in sorted(c.items()))
+
+
+def _failed_routes(workers: list[Worker], catalogue) -> tuple[list[str], list[str]]:
+    """(failed, expected) lines. The writer follows the sweep rule: 2xx or the
+    catalogue's `expect`. A reader's 404 is expected: it raced the writer's
+    archive/delete on a seed row; Phase 2 proved those GETs 200 otherwise."""
+    failed, expected = [], []
+    for w in workers:
+        for route, sent in w.sent.items():
+            entry = catalogue.get(route)
+            allow = {entry.expect} if entry and entry.expect else set()
+            if w.name != "writer":
+                allow.add(404)
+            bad = Counter(s.status for s in sent if not (200 <= s.status < 300) and s.status not in allow)
+            ok = Counter(s.status for s in sent if s.status in allow)
+            if bad:
+                failed.append(f"  {route:<50} {_counts(bad)}  ({w.name})")
+            if ok:
+                expected.append(f"  {route:<50} {_counts(ok)}  ({w.name})")
+    return failed, expected
+
+
+def run_soak(args) -> int:
+    """Mixed concurrent traffic against the container for --minutes: one writer
+    running the sweep plan, --workers-1 GET-only readers, a /healthz sampler.
+    Ends with the trend table, the jumps report over the run's logs, the failed
+    routes, and --out as the sample series. Exit 0 clean, 1 any failed route,
+    2 container/Docker/login/worker connection lost."""
+    from scripts.memprobe_routes import CATALOGUE, enumerate_routes, plan
+
+    owner = mp._opener()
+    try:
+        mp._send(owner, args.base, "GET", "/healthz", None)
+    except OSError as exc:  # URLError is an OSError
+        print(f"container not reachable at {args.base}: {exc}", file=sys.stderr)
+        return 2
+
+    from app.database import SessionLocal
+    from app.main import app
+    from tests.e2e import _seed
+
+    started = time.time()
+    db, seed, aborted, text = SessionLocal(), None, False, ""
+    stop = threading.Event()
+    workers: list[Worker] = []
+    start_sent = end_sent = None
+    try:
+        _seed.sweep_debris(db)
+        seed = _seed.build(db)
+        tokens = {**vars(seed), "barcode": seed.item_barcode, "wo": seed.work_order_number}
+        routes, _ = enumerate_routes(app)
+        p = plan(routes, CATALOGUE, tokens, args.only)
+
+        def login(user: str):
+            opener = mp._opener()
+            name = seed.owner_username if user == "owner" else seed.technician_username
+            mp._login(opener, args.base, name, _seed.SEED_PASSWORD)
+            return opener
+
+        try:
+            mp._login(owner, args.base, seed.owner_username, _seed.SEED_PASSWORD)
+            skew = mp._clock_skew(mp._send(owner, args.base, "GET", "/attendance/me", None))
+            start_sent = mp._send(owner, args.base, "GET", "/healthz", None)
+            writer = Worker("writer")
+            readers = [Worker(f"reader{i}") for i in range(1, args.workers)]
+            sampler = Worker("sampler")
+            workers = [writer, *readers, sampler]
+            threads = [threading.Thread(target=writer_loop, daemon=True, args=(
+                writer, args.base, p.groups, tokens, args.n, args.gap, skew, stop, login, started))]
+            threads += [threading.Thread(target=reader_loop, daemon=True, args=(
+                r, args.base, reader_steps(p, i), tokens, args.gap, skew, stop, login("owner"), started))
+                for i, r in enumerate(readers, 1)]
+            sampler_thread = threading.Thread(target=sampler_loop, daemon=True,
+                                              args=(sampler, args.base, owner, args.sample, stop))
+            for t in threads + [sampler_thread]:
+                t.start()
+            wait(threads, started + args.minutes * 60, stop)
+            for t in threads + [sampler_thread]:
+                t.join()
+            end_sent = mp._send(owner, args.base, "GET", "/healthz", None)
+        except (RuntimeError, OSError) as exc:
+            print(str(exc), file=sys.stderr)
+            aborted = True
+        for w in workers:
+            if w.error:
+                print(f"{w.name}: {w.error}", file=sys.stderr)
+                aborted = True
+        try:  # an aborted run still reports what it measured
+            time.sleep(0.5)
+            text = mp.read_container_logs(args.container, started)
+        except (RuntimeError, OSError) as exc:
+            print(str(exc), file=sys.stderr)
+            aborted = True
+    finally:
+        stop.set()
+        if seed is not None:
+            _seed.destroy(db, seed)
+        db.close()
+
+    owner_of = {s.req: w.name for w in workers for v in w.sent.values() for s in v if s.req}
+    wanted = set(owner_of) | {s.req for s in (start_sent, end_sent) if s and s.req}
+    samples = mp.parse_request_lines(text, wanted)
+    lines = parse_lines(text)
+    writer_passes = workers[0].passes if workers else []
+    start = samples.get(start_sent.req) if start_sent else None
+    end = samples.get(end_sent.req) if end_sent else None
+    print(f"soak    minutes={args.minutes}  workers={args.workers}  n={args.n}  gap={args.gap}  "
+          f"container={args.container}  requests={sum(w.requests() for w in workers)}")
+    print(f"levels  start cg_mb={mp._fmt(start.cg_mb if start else None)}  "
+          f"end cg_mb={mp._fmt(end.cg_mb if end else None)}\n")
+    print(render_trend(writer_passes, samples, start), "\n")
+    print(render_jumps(find_jumps(lines)), "\n")
+    failed, expected = _failed_routes(workers, CATALOGUE)
+    print("failed\n" + ("\n".join(failed) if failed else "  none"))
+    if expected:
+        print("expected\n" + "\n".join(expected))
+    if args.out:
+        series_csv(lines, owner_of, args.out)
+    if aborted:
+        return 2
+    return 1 if failed else 0

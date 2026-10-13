@@ -362,6 +362,17 @@ def main(argv: Optional[list[str]] = None) -> int:
         ap.add_argument("--window", type=float, default=30.0)
         ap.add_argument("--container", default="inventory-local")
         return run_jumps(ap.parse_args(argv[1:]))
+    if argv[:1] == ["soak"]:
+        from scripts import memprobe_soak
+        ap = argparse.ArgumentParser(prog="memprobe.py soak", description=memprobe_soak.run_soak.__doc__)
+        _common_flags(ap)
+        ap.set_defaults(n=5, gap=0.1)
+        ap.add_argument("--minutes", type=float, default=60.0)
+        ap.add_argument("--workers", type=int, default=3)
+        ap.add_argument("--sample", type=float, default=5.0)
+        ap.add_argument("--out", help="CSV path for the sample series")
+        ap.add_argument("--only", help="substring filter on 'METHOD /path'")
+        return memprobe_soak.run_soak(ap.parse_args(argv[1:]))
     if argv[:1] == ["sweep"]:
         ap = argparse.ArgumentParser(prog="memprobe.py sweep", description=run_sweep.__doc__)
         _common_flags(ap)

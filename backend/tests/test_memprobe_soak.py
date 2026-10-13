@@ -206,3 +206,97 @@ def test_series_csv_writes_request_lines_with_worker(tmp_path):
     assert rows[0] == "ts,cg_mb,rss_mb,method,path,cg_delta_mb,worker"
     assert rows[1].endswith(",180,120,GET,/items,0,reader1")
     assert rows[2].endswith(",181,120,GET,/healthz,1,") and len(rows) == 3
+
+
+# --- soak: threads ----------------------------------------------------------
+
+def _fake_send(log):
+    def send(opener, base, method, path, body, content_type="application/json"):
+        log.append((opener, method, path))
+        return memprobe.Sent(f"r{len(log)}", 200, None)
+    return send
+
+
+def test_reader_loop_sends_every_step_per_pass_and_records_a_healthz_per_pass(monkeypatch):
+    log = []
+    monkeypatch.setattr(memprobe, "_send", _fake_send(log))
+    w, stop = soak.Worker("reader1"), threading.Event()
+    steps = [_step("GET", "/items"), _step("GET", "/hub/report")]
+
+    def one_pass_then_stop(seconds):   # gap sleep -> stop after the second request
+        if len(log) >= 2:
+            stop.set()
+
+    monkeypatch.setattr(soak.time, "sleep", one_pass_then_stop)
+    soak.reader_loop(w, "http://x", steps, {}, 0.0, soak.timedelta(0), stop, "opener", time.time())
+    assert [p for _, _, p in log] == ["/items", "/hub/report", "/healthz"]
+    assert w.requests() == 3 and len(w.passes) == 1 and w.passes[0].healthz_req == "r3"  # the pass healthz counts
+
+
+def test_writer_loop_relogs_technician_per_group_and_stops_between_groups(monkeypatch):
+    log, logins = [], []
+    monkeypatch.setattr(memprobe, "_send", _fake_send(log))
+    monkeypatch.setattr(soak.time, "sleep", lambda s: None)
+    w, stop = soak.Worker("writer"), threading.Event()
+    tech = Step("POST /attendance/punch-in", "POST", "/attendance/punch-in", None, None, None, "technician")
+    groups = [[_step("GET", "/items")], [tech]]
+
+    def login(user):
+        logins.append(user)
+        if user == "technician":
+            stop.set()   # set during the second group's login: the loop ends after that group
+        return f"{user}-opener"
+
+    soak.writer_loop(w, "http://x", groups, {}, 1, 0.0, soak.timedelta(0), stop, login, time.time())
+    assert logins == ["owner", "technician"]
+    assert [m for _, m, _ in log] == ["GET", "POST", "GET"] and w.requests() == 3  # two steps + pass healthz
+    assert len(w.passes) == 1
+
+
+def test_reader_error_sets_stop_and_records_message(monkeypatch):
+    def boom(*a, **k):
+        raise OSError("connection dropped")
+
+    monkeypatch.setattr(memprobe, "_send", boom)
+    w, stop = soak.Worker("reader1"), threading.Event()
+    soak.reader_loop(w, "http://x", [_step("GET", "/items")], {}, 0.0, soak.timedelta(0), stop, "o", time.time())
+    assert stop.is_set() and "connection dropped" in w.error
+
+
+def test_sampler_loop_polls_until_stopped(monkeypatch):
+    log = []
+    monkeypatch.setattr(memprobe, "_send", _fake_send(log))
+    w, stop = soak.Worker("sampler"), threading.Event()
+    threading.Timer(0.05, stop.set).start()
+    soak.sampler_loop(w, "http://x", "o", 0.01, stop)
+    assert 1 <= len(log) <= 20 and all(p == "/healthz" for _, _, p in log)  # Windows timers are coarse
+
+
+def test_wait_returns_on_keyboard_interrupt_and_sets_stop(monkeypatch):
+    stop = threading.Event()
+    t = threading.Thread(target=stop.wait)
+    t.start()
+
+    def interrupt(seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(soak.time, "sleep", interrupt)
+    soak.wait([t], time.time() + 60, stop)
+    t.join(1)
+    assert stop.is_set() and not t.is_alive()
+
+
+def test_wait_returns_at_deadline(monkeypatch):
+    stop = threading.Event()
+    t = threading.Thread(target=stop.wait)
+    t.start()
+    soak.wait([t], time.time() - 1, stop)
+    t.join(1)
+    assert stop.is_set() and not t.is_alive()
+
+
+def test_soak_subcommand_defaults(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(soak, "run_soak", lambda args: seen.update(vars(args)) or 0)
+    assert memprobe.main(["soak"]) == 0
+    assert (seen["n"], seen["gap"], seen["minutes"], seen["workers"], seen["sample"]) == (5, 0.1, 60.0, 3, 5.0)
