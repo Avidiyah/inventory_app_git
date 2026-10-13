@@ -104,3 +104,66 @@ def test_render_prints_dashes_for_absent_values():
     text = memprobe.render("GET /items", "inventory-local", None, s)
     assert "baseline     -" in text
     assert "rest(max)" in text and "matched      1/1" in text
+
+
+# --- Phase 2: catalogue model and planner (scripts/memprobe_routes.py) ---
+
+from datetime import datetime, timezone  # noqa: E402
+
+import pytest  # noqa: E402
+
+from scripts import memprobe_routes as mr  # noqa: E402
+
+NOW = datetime(2026, 10, 13, 15, 0, 0, tzinfo=timezone.utc)
+TOKENS = {"item_id": "I1", "barcode": "E2E-x-ITEM", "prefix": "E2E-x"}
+
+
+def test_fill_substitutes_seed_seq_now_and_days_ago():
+    out = mr.fill('{"a":"{item_id}","b":"{prefix}-{seq}","c":"{now}","d":"{days_ago:3}","e":"{id}"}', TOKENS, 7, NOW)
+    assert out == '{"a":"I1","b":"E2E-x-7","c":"2026-10-13T15:00:00Z","d":"2026-10-10","e":"{id}"}'
+
+
+def test_fill_raises_on_unknown_token():
+    with pytest.raises(KeyError):
+        mr.fill("/x/{nope}", TOKENS, 0, NOW)
+
+
+def _routes():
+    return [("GET", "/healthz"), ("GET", "/items/{barcode}"), ("POST", "/items/"),
+            ("DELETE", "/items/{item_id}"), ("POST", "/new"), ("GET", "/x/{unknown}")]
+
+
+def _catalogue():
+    return {
+        "POST /items/": mr.Entry(body='{"barcode":"{prefix}-{seq}"}', cycle=["POST /items/", "DELETE /items/{item_id}"]),
+        "DELETE /items/{item_id}": mr.Entry(path="/items/{id}"),
+        "POST /new": mr.Entry(exclude="because"),
+    }
+
+
+def test_plan_groups_cycles_and_token_free_gets():
+    p = mr.plan(_routes()[:5], _catalogue(), TOKENS, only=None)
+    routes = [[s.route for s in g] for g in p.groups]
+    assert routes == [["GET /healthz"], ["GET /items/{barcode}"], ["POST /items/", "DELETE /items/{item_id}"]]
+    assert p.excluded == [("POST", "/new")]
+    assert p.skipped == []
+    assert p.groups[2][1].path == "/items/{id}"
+
+
+def test_plan_skips_uncatalogued_and_unresolvable():
+    p = mr.plan(_routes(), {}, TOKENS, only=None)
+    assert ("POST", "/items/") in p.skipped and ("GET", "/x/{unknown}") in p.skipped
+    assert ("GET", "/items/{barcode}") not in p.skipped
+
+
+def test_plan_only_filters_by_substring():
+    p = mr.plan(_routes()[:5], _catalogue(), TOKENS, only="/items")
+    assert [s.route for g in p.groups for s in g] == ["GET /items/{barcode}", "POST /items/", "DELETE /items/{item_id}"]
+    assert p.excluded == []
+
+
+def test_plan_cycle_declared_once_and_member_in_one_cycle():
+    bad = {"POST /items/": mr.Entry(cycle=["POST /items/", "DELETE /items/{item_id}"]),
+           "DELETE /items/{item_id}": mr.Entry(cycle=["DELETE /items/{item_id}", "POST /items/"])}
+    with pytest.raises(ValueError):
+        mr.plan(_routes()[:4], bad, TOKENS, only=None)
