@@ -167,3 +167,24 @@ def test_plan_cycle_declared_once_and_member_in_one_cycle():
            "DELETE /items/{item_id}": mr.Entry(cycle=["DELETE /items/{item_id}", "POST /items/"])}
     with pytest.raises(ValueError):
         mr.plan(_routes()[:4], bad, TOKENS, only=None)
+
+
+def test_every_route_is_catalogued_or_excluded():
+    """The drift guard: a new route must get a catalogue entry or an exclude."""
+    from app.main import app
+    from tests.e2e import _seed
+    routes, _ = mr.enumerate_routes(app)
+    tokens = {k: "x" for k in vars(_seed.Seed("p", "o", "w", "b"))} | {"barcode": "x", "wo": "x", "prefix": "x"}
+    p = mr.plan(routes, mr.CATALOGUE, tokens, only=None)
+    assert p.skipped == []
+    assert {f"{m} {path}" for m, path in p.excluded} == set(mr.EXCLUDED)
+    covered = {s.route for g in p.groups for s in g} | {f"{m} {path}" for m, path in p.excluded}
+    assert covered == {f"{m} {path}" for m, path in routes}
+    assert mr.SIGNATURE_PNG == _seed.SIGNATURE_PNG
+
+
+def test_catalogue_keys_are_real_routes():
+    from app.main import app
+    routes, _ = mr.enumerate_routes(app)
+    keys = {f"{m} {p}" for m, p in routes}
+    assert set(mr.CATALOGUE) - keys == set()
