@@ -508,10 +508,10 @@ def _detail(
         None,
     )
     # The row's own session, so the ~dozen builders need no new argument.
-    db = object_session(work_order)
+    db = object_session(work_order) if viewer_id is not None else None
     prior = (
         wo_service.unseen_prior_work(db, work_order, viewer_id)
-        if db is not None and viewer_id is not None
+        if db is not None
         else None
     )
     return WorkOrderDetail(

@@ -23,7 +23,7 @@ from fastapi import BackgroundTasks
 from app.domain import roles
 from app.models import User
 from app.routers import work_orders as work_orders_router
-from app.schemas.work_orders import WorkOrderUpdate
+from app.schemas.work_orders import WorkOrderStartTracking, WorkOrderUpdate
 from app.services import auth
 from app.services import notifications as notifications_service
 from app.services import push as push_service
@@ -251,8 +251,13 @@ def test_a_technician_finishing_twice_alerts_once(db, configured):
 # --- tracking: start is silent, stop speaks only when it auto-holds -----
 
 def _start_tracking(db, background, work_order_id, *, user):
+    # These tests are about who is notified, not the prior-work guardrail.
     return work_orders_router.start_work_order_tracking(
-        work_order_id, background, user=user, db=db
+        work_order_id,
+        background,
+        WorkOrderStartTracking(notes_acknowledged=True),
+        user=user,
+        db=db,
     )
 
 

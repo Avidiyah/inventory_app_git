@@ -132,3 +132,8 @@ def login_as(page, base_url):
 @pytest.fixture
 def owner_page(login_as, console_errors, seeded):
     return login_as(seeded.owner_username)
+
+
+@pytest.fixture
+def admin_page(login_as, console_errors, seeded):
+    return login_as(f"{seeded.prefix}-admin")

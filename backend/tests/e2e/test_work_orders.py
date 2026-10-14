@@ -23,9 +23,11 @@ def test_a_deep_linked_card_renders_on_its_own(owner_page, seeded, base_url):
     assert card.locator(".wo-status-created").count() == 1
 
 
-def test_beginning_work_moves_the_badge_to_in_progress(owner_page, seeded, base_url):
-    owner_page.goto(f"{base_url}/workorder_card/{seeded.work_order_number}")
-    card = owner_page.locator(".wo-card", has_text=seeded.work_order_number)
+def test_beginning_work_moves_the_badge_to_in_progress(admin_page, seeded, base_url):
+    admin_page.goto(f"{base_url}/workorder_card/{seeded.work_order_number}")
+    # The deep-link load re-runs boot, which re-offers the clock-in prompt.
+    admin_page.click('[data-action="skip"]')
+    card = admin_page.locator(".wo-card", has_text=seeded.work_order_number)
     card.wait_for(state="visible", timeout=15000)
 
     # The only status control on a `created` card for a Supervisor+ viewer.

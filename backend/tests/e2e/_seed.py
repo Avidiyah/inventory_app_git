@@ -176,7 +176,16 @@ def build(db: Session) -> Seed:
         password_hash=auth_service.hash_password(SEED_PASSWORD),
         role="owner",
     )
-    db.add(owner)
+    # The Owner cannot track time, so the Begin Charging journey needs an
+    # Admin; `admin_page` logs in as `<prefix>-admin`.
+    admin = User(
+        username=f"{seed.prefix}-admin",
+        first_name="Eetoo",
+        last_name="Admin",
+        password_hash=auth_service.hash_password(SEED_PASSWORD),
+        role="admin",
+    )
+    db.add_all([owner, admin])
     db.commit()
 
     items_service.create_item(
