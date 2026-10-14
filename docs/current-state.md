@@ -277,6 +277,8 @@ Deployment:
   the Render dashboard; nothing in the repo can detect them changing. The
   dashboard is also the authority for the production hostname
   (`https://inventory-app-gb1c.onrender.com` when last recorded).
+- Deploys are manual: `autoDeploy: false` and CI has no deploy job. Click
+  Manual Deploy in the Render dashboard on a commit that is green in CI.
 - The 1 GB ceiling is structurally distant: **no binary data is persisted
   anywhere** — decode stores nothing, imports discard the file, there is no
   attachment feature. Growth is rows only (`transactions` grows forever;
@@ -1549,7 +1551,7 @@ stays here is behavior that table cannot carry:
 - All routes except `POST /auth/login`, `GET /`, `GET /workorder_card/*`, and
   `GET /healthz` require authentication.
 - **NetFacilities.** Disabled by default; production enables it in both the
-  Dockerfile and `render.yaml` (a Render deploy hook does not sync new
+  Dockerfile and `render.yaml` (a plain Render deploy does not sync new
   `render.yaml` env declarations into an existing service). Auth is per-user
   Steel cloud sign-in only. Gated by `NETFACILITIES_CLOUD_AUTH_ENABLED` (plus
   base `NETFACILITIES_ENABLED`), `STEEL_API_KEY`, and

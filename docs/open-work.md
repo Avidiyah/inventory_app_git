@@ -994,9 +994,9 @@ DEC-002 growth changes the target).
 `Candidate`.
 
 - **Evidence/outcome:** `.github/workflows/ci.yml:43-153` tests the checkout but
-  never builds `backend/Dockerfile`; the generic deploy hook at `:215-219` does
-  not bind the release to the tested SHA. CI must build and boot the production
-  image against migrated PostgreSQL, then deploy that exact digest/SHA.
+  never builds `backend/Dockerfile`, and deploys are a manual dashboard click not
+  bound to the tested SHA. CI must build and boot the production image against
+  migrated PostgreSQL, then deploy that exact digest/SHA.
 - **Done when:** CI verifies `/healthz`, `/`, static assets, and an authenticated
   route's unauthenticated response; records the digest and source SHA; production
   reports the identical artifact.
