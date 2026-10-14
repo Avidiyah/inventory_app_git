@@ -5516,3 +5516,19 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .hub-punch-message:empty {
     display: none;
 }
+
+.clock-in-prompt {
+    text-align: center;
+}
+
+.clock-in-prompt-btn {
+    width: 100%;
+    min-height: 96px;
+    margin: var(--space-3) 0;
+    font-size: 2rem;
+    font-weight: 700;
+}
+
+.clock-in-prompt-message:empty {
+    display: none;
+}

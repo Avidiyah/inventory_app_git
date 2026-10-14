@@ -20,6 +20,7 @@ import { friendlyError, formatUserName } from "../format.js";
 import { applyRoleVisibility, canAccessPage, landingPageForRole, showPage } from "./nav.js";
 import { roleLabel } from "../roles.js";
 import { loadUsers } from "./users.js";
+import { closeClockInPrompt, maybePromptClockIn } from "./clockInPrompt.js";
 import { setHistoryTab } from "./history.js";
 import { resetBatch, tryResumeBatch } from "./transactions.js";
 import { resetToolsView } from "./tools.js";
@@ -60,6 +61,7 @@ function setPasswordVisible(visible) {
 // (apiMe) is just "not signed in yet", not an expiry, and must stay quiet.
 function showLoginScreen({ expired = false } = {}) {
   disconnectRealtime();
+  closeClockInPrompt();
   const wasInApp = !appRoot.hidden;
   // Same "timeout, not a deliberate logout" gate as the batch below: an
   // operator mid-entry on a work order when the session drops should land
@@ -152,6 +154,9 @@ async function enterApp(user, { resume = false } = {}) {
     showPage(resumed ? "transaction" : landingPageForRole(user.role));
   }
   connectRealtime();
+
+  // Not awaited: the prompt only appears if the user is off the clock.
+  void maybePromptClockIn(user);
 
   // Not awaited: a push subscription is not required for the app to be
   // usable, and iOS can take a moment over the service-worker
