@@ -102,13 +102,18 @@ repeats growth**: top five by `rest(sum)` were
 `GET /auth/me`, `GET /hub/attendance/week`, `GET /hub/report` (1 MB each);
 cgroup drifted 179→182 MB across ~2,500 requests. The growth is not a
 per-route leak at this request count. Phase 3 (`soak`, `jumps`) shipped
-2026-10-13: ~22 minutes of mixed 3-worker traffic (19,483 samples, three
-runs) showed five warm-up jumps in the container's first three minutes
-(login, `/hub/graphs`, punch-in, `/hub`, `POST /users/`, +67 MB in all),
-then a flat 185 MB through ~14,000 more requests — no staircase locally yet;
-the 120-minute soak is still owed (host memory pressure cut the first
-attempt at 7 minutes). Production readout: export Render logs spanning the
-next step and run `jumps` on the file.
+2026-10-13. Longest clean run so far: 30 minutes of 3-worker traffic
+(32,807 requests; the laptop slept at 21:26Z, so the 120-minute run is
+still owed and needs the machine kept awake). Warm-up steps aside, **one
+mid-run step reproduced**: at 21:10:58Z `GET /hub/admin` went 190→204 MB
+(`cg_delta_mb=14`, rss +16) on its 279th call of the run after 278 calls at
+−1..+1, and the level held 206–208 for the remaining 16 minutes. Allocating,
+not observing, so the work is inside that request (global over-cap session
+sweep + company-wide minutes). Concurrent in the 3 s window: the writer's
+`POST /user-requests/catalogue-request` + `.../fulfill` cycle, `POST|DELETE
+/users/`, `/push/test` fan-outs. Phase 4 candidate; series in
+`soak-120.csv`. Production readout: export Render logs spanning the next
+step and run `jumps` on the file.
 
 Facts the suite is built from (2026-10-13):
 
