@@ -337,19 +337,24 @@ def test_unknown_scope_reaches_the_caller_as_a_domain_error(db):
 
 def test_export_is_scoped_like_the_list(db):
     # An export must not become a way to read work orders the page hides.
+    # The page now hides nothing from a recognised role, so neither does the
+    # service; the route's TechFM OA+ gate is what limits who may export.
     admin = _seed_user(db, "admin")
     tech = _seed_user(db, "technician")
+    ghost = _seed_user(db, "contractor")
     mine = _wo(db, admin)
     theirs = _wo(db, admin)
     wos.update_work_order(db, mine.id, user=admin, fields={"assigned_to_ids": [tech.id]})
     numbers = [mine.number, theirs.number]
 
-    assert [r["WORK ORDER"] for r in _rows(db, user=tech, scope="all", numbers=numbers)] == [
-        mine.number
-    ]
+    assert {r["WORK ORDER"] for r in _rows(db, user=tech, scope="all", numbers=numbers)} == set(
+        numbers
+    )
     assert {r["WORK ORDER"] for r in _rows(db, user=admin, scope="all", numbers=numbers)} == set(
         numbers
     )
+    # An unrecognised role still fails closed to its assignments (none here).
+    assert _rows(db, user=ghost, scope="all", numbers=numbers) == []
 
 
 # --- the "For Client" variant --------------------------------------------
@@ -442,12 +447,14 @@ def test_client_variant_honours_scope_and_visibility(db):
     tech = _seed_user(db, "technician")
     mine = _wo(db, admin)
     theirs = _wo(db, admin)
+    ghost = _seed_user(db, "contractor")
     wos.update_work_order(db, mine.id, user=admin, fields={"assigned_to_ids": [tech.id]})
     numbers = [mine.number, theirs.number]
 
-    assert [r["WORK ORDER"] for r in _client_rows(db, user=tech, scope="all", numbers=numbers)] == [
-        mine.number
-    ]
+    assert {r["WORK ORDER"] for r in _client_rows(db, user=tech, scope="all", numbers=numbers)} == set(
+        numbers
+    )
+    assert _client_rows(db, user=ghost, scope="all", numbers=numbers) == []
 
 
 def test_client_variant_remains_scope_only_when_operational_filters_are_supplied(db):

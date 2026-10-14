@@ -215,7 +215,7 @@ describe("detailsViewHtml", () => {
     const terms = [...cardEl.querySelectorAll(".wo-import-meta dt")].map((dt) => dt.textContent);
     expect(terms).toEqual([
       "Location", "Service type", "Scheduled", "Output to", "Vendor contact",
-      "Symptom / task", "Priority", "Supervisor", "Technicians",
+      "Symptom / task", "Priority", "Team Lead", "Technicians",
     ]);
   });
 
@@ -420,7 +420,7 @@ describe("the labor section", () => {
   it("treats a blank or non-numeric duration as zero", async () => {
     const { cardEl } = await renderBody({
       labor: [workOrderLabor({ minutes: "" }), workOrderLabor({ minutes: "abc" })],
-    }, { role: "supervisor" });
+    }, { role: "admin" });
     const entries = [...cardEl.querySelectorAll(".wo-labor-entry .hint")];
     expect(entries.map((e) => e.textContent)).toEqual(["0 min actual", "0 min actual"]);
     // `hoursInputValue` has no such guard -- it writes the string "NaN" --
@@ -453,13 +453,13 @@ describe("the labor section", () => {
   it("seeds the hours input from the stored minutes and shows the session window", async () => {
     const { cardEl } = await renderBody({
       labor: [workOrderLabor({ minutes: 75, session_window: "2:10-3:25 PM", auto_closed: true })],
-    }, { role: "supervisor" });
+    }, { role: "admin" });
     expect(cardEl.querySelector(".wo-labor-hours").value).toBe("1.25");
     expect(cardEl.querySelector(".wo-labor-window").textContent).toBe("2:10-3:25 PM");
     expect(cardEl.querySelector(".wo-labor-auto-stopped").textContent).toBe("auto-stopped");
   });
 
-  it("lets an assigned technician add their own labor, but not touch a row credited to someone else", async () => {
+  it("shows an assigned technician the hours read-only: no add row, no edit, no remove", async () => {
     const me = user({ role: "technician" });
     const detail = workOrderDetail({
       assigned_to_ids: [me.id], labor: [workOrderLabor({ minutes: 60 })],
@@ -474,22 +474,32 @@ describe("the labor section", () => {
     detail.assigned_to_ids = [state_.getCurrentUser().id];
     await openCard(0);
     expect(card().querySelector(".wo-labor-section")).not.toBeNull();
-    // The seeded entry is credited to someone else (a random factory id).
+    // Hand-keyed hours are Admin and Owner only: the entry is listed, with no
+    // controls, and there is no add row or picker.
+    expect(card().querySelectorAll(".wo-labor-entry")).toHaveLength(1);
     expect(card().querySelector(".wo-labor-actions")).toBeNull();
-    // The technician may still add their own hours, with no picker (self only).
-    expect(card().querySelector(".wo-add-labor")).not.toBeNull();
+    expect(card().querySelector(".wo-add-labor")).toBeNull();
     expect(card().querySelector(".wo-labor-technician")).toBeNull();
     expect(card().querySelector(".wo-labor-section").textContent)
-      .toContain("Add or adjust your own hours by hand");
+      .toContain("Only an Admin or the Owner can add or change them by hand.");
   });
 
-  it("offers a supervisor themselves as a labor technician when they are not on the crew", async () => {
-    const { cardEl } = await renderBody({ assigned_to_ids: [] }, { role: "supervisor" });
-    const options = [...cardEl.querySelectorAll(".wo-labor-technician option")];
-    expect(options).toHaveLength(1);
-    expect(options[0].textContent).toContain("(not assigned)");
-    expect(cardEl.querySelector(".wo-new-labor-hours")).not.toBeNull();
-  });
+  it.each(["supervisor", "techfm_oa"])(
+    "shows a %s the hours read-only too", async (role) => {
+      const { cardEl } = await renderBody({ labor: [workOrderLabor({ minutes: 60 })] }, { role });
+      expect(cardEl.querySelectorAll(".wo-labor-entry")).toHaveLength(1);
+      expect(cardEl.querySelector(".wo-labor-actions")).toBeNull();
+      expect(cardEl.querySelector(".wo-add-labor")).toBeNull();
+    });
+
+  it.each(["admin", "owner"])(
+    "offers an %s themselves as a labor technician when they are not on the crew", async (role) => {
+      const { cardEl } = await renderBody({ assigned_to_ids: [] }, { role });
+      const options = [...cardEl.querySelectorAll(".wo-labor-technician option")];
+      expect(options).toHaveLength(1);
+      expect(options[0].textContent).toContain("(not assigned)");
+      expect(cardEl.querySelector(".wo-new-labor-hours")).not.toBeNull();
+    });
 });
 
 describe("the materials section", () => {

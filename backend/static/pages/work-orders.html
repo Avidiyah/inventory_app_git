@@ -2,8 +2,8 @@
     <!-- Technician-facing work-order log. Static shell only: the collapsible
          work-order cards and their material rows are built by
          views/workOrders.js and toggled by views/nav.js (`.page.active`).
-         Server-scoped (technician -> assigned, supervisor -> created,
-         admin/owner -> all).
+         Every recognised role sees every work order; a Technician off a work
+         order's crew is read-only on it (see workOrderCardHtml.js).
 
          Work orders are IMPORT-ONLY -- there is no create form here (or
          anywhere else). The CSV import below is how a work order enters the
@@ -44,14 +44,13 @@
                     </select>
                 </div>
                 <div class="wo-filter-field">
-                    <label for="work-orders-supervisor-filter">Assigned Supervisor</label>
+                    <label for="work-orders-supervisor-filter">Assigned Team Lead</label>
                     <select id="work-orders-supervisor-filter">
-                        <option value="">All supervisors</option>
+                        <option value="">All Team Leads</option>
                     </select>
                 </div>
-                <!-- Supervisor+ only: hidden for a Technician, whose own scope is
-                     already just their own work. See workOrderList.js's
-                     isSupervisorPlus() toggle. -->
+                <!-- Team Lead+ only: hidden for a Technician. See
+                     workOrderList.js's isSupervisorPlus() toggle. -->
                 <div class="wo-filter-field" id="work-orders-technician-field" hidden>
                     <label for="work-orders-technician-filter">Assigned Technician</label>
                     <select id="work-orders-technician-filter">

@@ -63,20 +63,30 @@ ROLE_LABELS: dict[str, str] = {
     ROLE_OWNER: "Owner",
     ROLE_ADMIN: "Admin",
     ROLE_TECHFM_OA: "TechFM OA",
-    ROLE_SUPERVISOR: "Supervisor",
+    ROLE_SUPERVISOR: "Team Lead",
     ROLE_TECHNICIAN: "Technician",
 }
 
 # Work-order assignment roles are intentionally narrower than authority floors.
 # Owners retain full access but are not operational routing/worker choices.
-# TechFM OA is a routing choice for the same reason Admin is; it is not a
-# worker, for the same reason Admin is not.
+# `supervisor` is stored as-is and shown as "Team Lead" (ROLE_LABELS).
 WORK_ORDER_SUPERVISOR_ROLES: tuple[str, ...] = (
     ROLE_ADMIN,
     ROLE_TECHFM_OA,
     ROLE_SUPERVISOR,
 )
+# Who the attendance rosters and the Admin hub time buckets count as floor
+# crew. Deliberately NOT the assignable set below: widening this would put
+# Admins and TechFM OA on the hours grid.
 WORK_ORDER_TECHNICIAN_ROLES: tuple[str, ...] = (
+    ROLE_SUPERVISOR,
+    ROLE_TECHNICIAN,
+)
+# Who may be put on a work order's crew -- by a Team Lead+ in the editor, or by
+# Begin Charging. The Owner is not assignable (and cannot Begin Charging).
+WORK_ORDER_ASSIGNEE_ROLES: tuple[str, ...] = (
+    ROLE_ADMIN,
+    ROLE_TECHFM_OA,
     ROLE_SUPERVISOR,
     ROLE_TECHNICIAN,
 )
@@ -112,8 +122,13 @@ def can_be_work_order_supervisor(role: str) -> bool:
 
 
 def can_be_work_order_technician(role: str) -> bool:
-    """Whether an account may perform work as an assigned technician."""
+    """Whether an account counts as floor crew (attendance rosters, hub buckets)."""
     return role in WORK_ORDER_TECHNICIAN_ROLES
+
+
+def can_be_work_order_assignee(role: str) -> bool:
+    """Whether an account may be put on a work order's crew."""
+    return role in WORK_ORDER_ASSIGNEE_ROLES
 
 
 def can_transact(actor_role: str, transaction_type: str) -> bool:

@@ -25,7 +25,7 @@ const BTN = {
   begin: '<button type="button" data-action="start-tracking-wo">W.O. Received, Begin Charging</button>',
   completePrimary: '<button type="button" data-action="complete-wo">Mark Completed</button>',
   completeSecondary: '<button type="button" class="secondary-btn" data-action="complete-wo">Mark Completed</button>',
-  notify: '<button type="button" data-action="notify-supervisor-wo">Notify Supervisor</button>',
+  notify: '<button type="button" data-action="notify-supervisor-wo">Notify Team Lead</button>',
   stop: '<button type="button" class="secondary-btn" data-action="stop-tracking-wo">Stop Charging</button>',
   hold: '<button type="button" class="secondary-btn" data-action="hold-assigned-wo">Place On-Hold</button>',
   resume: '<button type="button" class="secondary-btn" data-action="resume-assigned-wo">Resume In-Progress</button>',
@@ -40,10 +40,10 @@ const BTN = {
 export function statusActionsHtml(detail) {
   const sup = isSupervisorPlus();
   const assigned = isAssignedToCurrentUser(detail);
-  // Whoever may hold a clock on this row: assigned workers, plus a Supervisor+
-  // on any work order they can see (they need not be on the crew to do the
-  // work and record it).
-  const canTrack = assigned || sup;
+  // Every role but the Owner may Begin Charging on any work order they can see:
+  // the server adds the caller to the crew, so the tap is also the
+  // self-assignment. The Owner is not assignable and cannot track time.
+  const canTrack = getRole() !== "owner";
   const tracking = Boolean(detail.active_labor_session);
   let primary = "";
   let secondary = "";
@@ -59,15 +59,15 @@ export function statusActionsHtml(detail) {
     // "Set In-Progress" is gone: that transition is a side effect of starting
     // work, which is what the button always meant.
     primary = begin;
-  } else if (canTrack && detail.status === "in_progress") {
-    // Notify Supervisor is the "I'm done" button and belongs to a Technician
+  } else if ((canTrack || sup) && detail.status === "in_progress") {
+    // Notify Team Lead is the "I'm done" button and belongs to a Technician
     // with a clock running; Stop Charging is the "I'm pausing" one. /complete
-    // and /hold both require assignment server-side, so an unassigned
-    // supervisor who is only charging gets neither -- they close the row out
-    // with Mark Completed. A Supervisor+ never gets Notify Supervisor: Mark
-    // Completed is the real completion action for them.
+    // and /hold both require the crew server-side, which Begin Charging joins
+    // the caller to. A Team Lead+ never gets Notify Team Lead: Mark Completed
+    // is the real completion action for them -- and the only one the Owner
+    // has, since the Owner cannot Begin Charging.
     if (!tracking) {
-      primary = begin;
+      primary = canTrack ? begin : BTN.completePrimary;
     } else if (sup) {
       primary = BTN.completePrimary;
     } else if (assigned) {
@@ -75,25 +75,25 @@ export function statusActionsHtml(detail) {
     }
     if (tracking) secondary += BTN.stop;
     if (assigned) secondary += BTN.hold;
-    if (sup && !tracking) secondary += BTN.completeSecondary;
-  } else if (detail.status === "on_hold" && canTrack) {
+    if (sup && !tracking && canTrack) secondary += BTN.completeSecondary;
+  } else if (detail.status === "on_hold" && (canTrack || sup)) {
     // Begin Charging is the one a returning technician taps: it does the same
     // transition as Resume *and* starts the clock. Resume stays for work that
     // resumes without the tapper being the one doing it.
-    primary = begin;
+    if (canTrack) primary = begin;
     if (assigned) secondary += BTN.resume;
     if (sup) {
       secondary += BTN.completeSecondary;
-      secondary += `<span class="hint wo-status-note">On-Hold — nobody is charging time. A supervisor can also resume or roll back this work order in the Edit details card.</span>`;
+      secondary += `<span class="hint wo-status-note">On-Hold — nobody is charging time. A Team Lead can also resume or roll back this work order in the Edit details card.</span>`;
     }
   } else if (detail.status === "ready_to_complete") {
-    // The first review gate: one supervisor confirming the work happened.
+    // The first review gate: one Team Lead confirming the work happened.
     // Distinct from Send to Review, which is the later Admin handoff.
     if (sup) {
       primary = BTN.approve;
       secondary = BTN.sendBack;
     } else {
-      secondary = `<span class="hint wo-status-note">Sent to your supervisor for review.</span>`;
+      secondary = `<span class="hint wo-status-note">Sent to your Team Lead for review.</span>`;
     }
   } else if (detail.status === "completed") {
     if (canCurrentUserSendToReview(detail)) {

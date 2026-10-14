@@ -102,18 +102,31 @@ export function laborSummaryHtml(detail) {
   return `<div class="wo-labor-summary"><span>Actual: <strong>${escapeHtml(actual)}</strong></span><span>Billed: <strong>${escapeHtml(billed)}</strong></span>${charge}</div>`;
 }
 
-// Supervisor+ may edit or remove any labor entry; a Technician only one
-// attributed to them (their manual add/subtract self-service).
-export function canEditLabor(entry) {
-  if (isSupervisorPlus()) return true;
-  const userId = getCurrentUser()?.id;
-  return Boolean(userId && entry && entry.technician_id === userId);
+// Hand-keying, editing and removing hours is Admin and Owner only (mirrors the
+// server's `_require_labor_editor`). Everyone else's hours come from Begin and
+// Stop Charging.
+export function canKeyLabor() {
+  return roleAtLeast(getRole(), "admin");
 }
 
-// Supervisor+ can always add labor (crediting themselves when unassigned); a
-// Technician may add their own hours once they're assigned to the job.
-export function canAddLabor(detail) {
-  return isSupervisorPlus() || isAssignedToCurrentUser(detail);
+// A Technician who is not on a work order's crew can read it but not write to
+// it -- notes, materials, requests, the sign-off. Begin Charging adds them.
+// Every other role is never locked. Mirrors the server's
+// `require_crew_for_technician`.
+export function isCrewLocked(detail) {
+  return getRole() === "technician" && !isAssignedToCurrentUser(detail);
+}
+
+// The one hint a locked card shows in place of its input controls. Begin
+// Charging is only on offer while the work is unfinished (the server's start
+// statuses), so a finished work order says why it stays read-only instead.
+const BEGIN_CHARGING_STATUSES = ["created", "assigned", "in_progress", "on_hold"];
+export function crewLockHtml(detail) {
+  if (!isCrewLocked(detail)) return "";
+  const text = BEGIN_CHARGING_STATUSES.includes(detail.status)
+    ? "Begin Charging to add notes, materials, requests, or a signature."
+    : "You are not on this work order's crew, so it is read-only for you.";
+  return `<p class="hint wo-crew-lock">${escapeHtml(text)}</p>`;
 }
 
 // Someone else has already worked this order and the caller has not: the card

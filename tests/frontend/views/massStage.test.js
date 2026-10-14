@@ -32,7 +32,7 @@ describe("mountMassStage", () => {
 const uuidLike = () => `00000000-0000-4000-8000-${String(Math.floor(Math.random() * 1e12)).padStart(12, "0")}`;
 
 describe("loadStages", () => {
-  it("refreshReferenceData: items and users fetched, technicians filtered by canBeWorkOrderTechnician", async () => {
+  it("refreshReferenceData: items and users fetched, assignees filtered by canBeWorkOrderAssignee (everyone but the owner)", async () => {
     const users = [userFactory({ role: "technician", full_name: "Tech One" }), userFactory({ role: "supervisor", full_name: "Sup" }),
       userFactory({ role: "admin", full_name: "Adm" }), userFactory({ role: "techfm_oa", full_name: "OA" })];
     const detail = massStageDetail();
@@ -41,7 +41,7 @@ describe("loadStages", () => {
     expect(requests().map((r) => r.url)).toEqual(["/items/", "/users/", "/mass-stages/"]);
     await openCard(detail.id);
     const options = Array.from(card(detail.id).querySelector(".ms-add-assignee").options).map((o) => o.textContent);
-    expect(options).toEqual(["Unassigned", "Tech One", "Sup"]);
+    expect(options).toEqual(["Unassigned", "Tech One", "Sup", "Adm", "OA"]);
   });
 
   it("without refreshReferenceData the caches are reused; user-names-updated invalidates techs", async () => {

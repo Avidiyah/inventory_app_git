@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import { card, mountWorkOrders, openCard } from "../../helpers/workOrders.js";
 import { workOrderCard, workOrderDetail, workOrderItem } from "../../helpers/factories.js";
 
-const ROLES = ["technician", "supervisor", "techfm_oa", "admin"];
+const ROLES = ["technician", "supervisor", "techfm_oa", "admin", "owner"];
 const STATUSES = [
   "created", "assigned", "in_progress", "on_hold",
   "ready_to_complete", "completed", "review",
@@ -38,141 +38,182 @@ const CONTROL_SELECTOR = {
   labor: ".wo-labor-section",
   "add-material": ".wo-add-item",
   notes: ".wo-notes-section",
+  "notes-input": ".wo-notes-input",
+  // The single hint a Technician off the crew sees in place of their inputs.
+  "crew-lock": ".wo-crew-lock",
   mode: ".wo-mode-row",
 };
 const ALL_CONTROLS = Object.keys(CONTROL_SELECTOR);
 
+// Everyone sees every work order; an unassigned Technician is read-only
+// (no notes box, no add-material row, one hint) until Begin Charging adds them.
+// Begin Charging is on offer on every unfinished status, for every role but
+// the Owner.
 const MATRIX = {
   technician: {
     created: {
-      assigned: ["start-tracking-wo", "labor", "add-material", "notes"],
-      unassigned: ["add-material", "notes"],
+      assigned: ["start-tracking-wo", "labor", "add-material", "notes", "notes-input"],
+      unassigned: ["start-tracking-wo", "notes", "crew-lock"],
     },
     assigned: {
-      assigned: ["start-tracking-wo", "labor", "add-material", "notes"],
-      unassigned: ["add-material", "notes"],
+      assigned: ["start-tracking-wo", "labor", "add-material", "notes", "notes-input"],
+      unassigned: ["start-tracking-wo", "notes", "crew-lock"],
     },
     in_progress: {
-      assigned: ["start-tracking-wo", "hold-assigned-wo", "labor", "add-material", "notes"],
-      unassigned: ["add-material", "notes"],
+      assigned: ["start-tracking-wo", "hold-assigned-wo", "labor", "add-material", "notes", "notes-input"],
+      unassigned: ["start-tracking-wo", "notes", "crew-lock"],
     },
     on_hold: {
-      assigned: ["start-tracking-wo", "resume-assigned-wo", "labor", "add-material", "notes"],
-      unassigned: ["add-material", "notes"],
+      assigned: ["start-tracking-wo", "resume-assigned-wo", "labor", "add-material", "notes", "notes-input"],
+      unassigned: ["start-tracking-wo", "notes", "crew-lock"],
     },
     ready_to_complete: {
-      assigned: ["labor", "add-material", "notes"],
-      unassigned: ["add-material", "notes"],
+      assigned: ["labor", "add-material", "notes", "notes-input"],
+      unassigned: ["notes", "crew-lock"],
     },
     completed: {
-      assigned: ["labor", "add-material", "notes"],
-      unassigned: ["add-material", "notes"],
+      assigned: ["labor", "add-material", "notes", "notes-input"],
+      unassigned: ["notes", "crew-lock"],
     },
     review: {
-      assigned: ["labor", "add-material", "notes"],
-      unassigned: ["add-material", "notes"],
+      assigned: ["labor", "add-material", "notes", "notes-input"],
+      unassigned: ["notes", "crew-lock"],
     },
   },
   supervisor: {
     created: {
-      assigned: ["start-tracking-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["start-tracking-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["start-tracking-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["start-tracking-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     assigned: {
-      assigned: ["start-tracking-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["start-tracking-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["start-tracking-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["start-tracking-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     in_progress: {
-      assigned: ["start-tracking-wo", "hold-assigned-wo", "complete-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["start-tracking-wo", "complete-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["start-tracking-wo", "hold-assigned-wo", "complete-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["start-tracking-wo", "complete-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     on_hold: {
-      assigned: ["start-tracking-wo", "resume-assigned-wo", "complete-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["start-tracking-wo", "complete-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["start-tracking-wo", "resume-assigned-wo", "complete-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["start-tracking-wo", "complete-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     ready_to_complete: {
-      assigned: ["send-back-wo", "complete-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["send-back-wo", "complete-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["send-back-wo", "complete-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["send-back-wo", "complete-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     completed: {
-      assigned: ["reopen-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["reopen-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["reopen-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["reopen-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     review: {
-      assigned: ["reopen-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["reopen-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["reopen-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["reopen-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
   },
   techfm_oa: {
     created: {
-      assigned: ["start-tracking-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["start-tracking-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["start-tracking-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["start-tracking-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     assigned: {
-      assigned: ["start-tracking-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["start-tracking-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["start-tracking-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["start-tracking-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     in_progress: {
-      assigned: ["start-tracking-wo", "hold-assigned-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["start-tracking-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["start-tracking-wo", "hold-assigned-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["start-tracking-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     on_hold: {
-      assigned: ["start-tracking-wo", "resume-assigned-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["start-tracking-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["start-tracking-wo", "resume-assigned-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["start-tracking-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     ready_to_complete: {
-      assigned: ["send-back-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["send-back-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["send-back-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["send-back-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     completed: {
-      assigned: ["review-wo:disabled", "reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["review-wo:disabled", "reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["review-wo:disabled", "reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["review-wo:disabled", "reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     review: {
-      assigned: ["reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
   },
   admin: {
     created: {
-      assigned: ["start-tracking-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["start-tracking-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["start-tracking-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["start-tracking-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     assigned: {
-      assigned: ["start-tracking-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["start-tracking-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["start-tracking-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["start-tracking-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     in_progress: {
-      assigned: ["start-tracking-wo", "hold-assigned-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["start-tracking-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["start-tracking-wo", "hold-assigned-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["start-tracking-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     on_hold: {
-      assigned: ["start-tracking-wo", "resume-assigned-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["start-tracking-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["start-tracking-wo", "resume-assigned-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["start-tracking-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     ready_to_complete: {
-      assigned: ["send-back-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["send-back-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["send-back-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["send-back-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     completed: {
-      assigned: ["reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["review-wo", "reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["review-wo", "reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
     review: {
-      assigned: ["reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
-      unassigned: ["reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"],
+      assigned: ["reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+    },
+  },
+  // The Owner is not assignable and cannot Begin Charging (no start button in
+  // any cell), so Mark Completed is the only way it moves unfinished work on.
+  // An `assigned` Owner is an impossible state kept only so the table stays
+  // rectangular; the server never produces one.
+  owner: {
+    created: {
+      assigned: ["archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+    },
+    assigned: {
+      assigned: ["archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+    },
+    in_progress: {
+      assigned: ["hold-assigned-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+    },
+    on_hold: {
+      assigned: ["resume-assigned-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+    },
+    ready_to_complete: {
+      assigned: ["send-back-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["send-back-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+    },
+    completed: {
+      assigned: ["reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["review-wo", "reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+    },
+    review: {
+      assigned: ["reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
+      unassigned: ["reopen-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"],
     },
   },
 };
 
 // The only cell tracking changes: an In-Progress row with the caller's own
 // clock running swaps Begin Charging for Stop Charging (and, for an assigned
-// non-supervisor, adds Notify Supervisor).
+// non-Team-Lead, adds Notify Team Lead). The Owner cannot track, so it has no row.
 const WHILE_TRACKING = {
-  technician: { assigned: ["stop-tracking-wo", "notify-supervisor-wo", "hold-assigned-wo", "labor", "add-material", "notes"], unassigned: ["add-material", "notes"] },
-  supervisor: { assigned: ["stop-tracking-wo", "hold-assigned-wo", "complete-wo", "editor", "labor", "add-material", "notes", "mode"], unassigned: ["stop-tracking-wo", "complete-wo", "editor", "labor", "add-material", "notes", "mode"] },
-  techfm_oa: { assigned: ["stop-tracking-wo", "hold-assigned-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"], unassigned: ["stop-tracking-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"] },
-  admin: { assigned: ["stop-tracking-wo", "hold-assigned-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"], unassigned: ["stop-tracking-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "mode"] },
+  technician: { assigned: ["stop-tracking-wo", "notify-supervisor-wo", "hold-assigned-wo", "labor", "add-material", "notes", "notes-input"], unassigned: ["stop-tracking-wo", "notes", "crew-lock"] },
+  supervisor: { assigned: ["stop-tracking-wo", "hold-assigned-wo", "complete-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"], unassigned: ["stop-tracking-wo", "complete-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"] },
+  techfm_oa: { assigned: ["stop-tracking-wo", "hold-assigned-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"], unassigned: ["stop-tracking-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"] },
+  admin: { assigned: ["stop-tracking-wo", "hold-assigned-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"], unassigned: ["stop-tracking-wo", "complete-wo", "archive-wo", "open-netfacilities-wo", "editor", "labor", "add-material", "notes", "notes-input", "mode"] },
 };
 
 // A control named "x:disabled" is present but disabled -- the TechFM OA
@@ -230,7 +271,7 @@ describe("the render-time role matrix", () => {
 });
 
 describe("an In-Progress row with the caller's clock running", () => {
-  it.each(ROLES.flatMap((role) => [[role, true], [role, false]]))(
+  it.each(ROLES.filter((role) => role !== "owner").flatMap((role) => [[role, true], [role, false]]))(
     "%s, assigned=%s", async (role, assigned) => {
       const cardEl = await renderCell({ role, status: "in_progress", assigned, tracking: true });
       expectCell(cardEl, WHILE_TRACKING[role][assigned ? "assigned" : "unassigned"]);
@@ -337,13 +378,14 @@ describe("canCurrentUserSendToReview", () => {
 
 describe("labor entry controls (edit-labor / remove-labor)", () => {
   it.each([
-    // A Technician may edit/remove only a row attributed to them; every
-    // Supervisor+ role may touch any row regardless of who it is credited to.
+    // Hand-keyed hours are Admin and Owner only. Nobody else may edit or remove
+    // an entry, not even a Technician on the row they are credited for.
     ["technician", false, false],
-    ["technician", true, true],
-    ["supervisor", false, true],
-    ["techfm_oa", false, true],
+    ["technician", true, false],
+    ["supervisor", false, false],
+    ["techfm_oa", false, false],
     ["admin", false, true],
+    ["owner", false, true],
   ])("%s, owns the entry: %s -> can edit/remove: %s", async (role, ownsEntry, canEdit) => {
     const detail = workOrderDetail({
       status: "in_progress",
@@ -367,11 +409,14 @@ describe("labor entry controls (edit-labor / remove-labor)", () => {
 
 describe("add-labor visibility", () => {
   it.each([
-    // A Technician needs to be assigned before they may add their own hours;
-    // a Supervisor+ always can (they credit themselves when unassigned).
+    // Only an Admin or the Owner may add hours by hand; they credit themselves
+    // when unassigned. Everyone else's hours come from Begin / Stop Charging.
     ["technician", false, false],
-    ["technician", true, true],
-    ["supervisor", false, true],
+    ["technician", true, false],
+    ["supervisor", false, false],
+    ["techfm_oa", false, false],
+    ["admin", false, true],
+    ["owner", false, true],
   ])("%s, assigned: %s -> can add labor: %s", async (role, assigned, canAdd) => {
     const detail = workOrderDetail({ status: "in_progress", labor: [] });
     const { currentUser } = await mountWorkOrders({
@@ -386,7 +431,7 @@ describe("add-labor visibility", () => {
 });
 
 describe("material line controls", () => {
-  it("lets a Technician remove a material line, with no quantity editor", async () => {
+  async function materialCard({ assigned }) {
     const detail = workOrderDetail({
       status: "in_progress",
       items: [workOrderItem({ id: "wi1", quantity: "2" })],
@@ -396,22 +441,78 @@ describe("material line controls", () => {
       cards: [workOrderCard({ id: detail.id, number: detail.number, status: "in_progress" })],
       details: [detail],
     });
+    if (assigned) {
+      const state = await import("../../../../backend/static/state.js");
+      detail.assigned_to_ids = [state.getCurrentUser().id];
+    }
     await openCard(0);
-    expect(card().querySelector('[data-action="remove-item"]')).not.toBeNull();
-    expect(card().querySelector('[data-action="edit-item"]')).toBeNull();
-    expect(card().querySelector(".wo-line-qty")).toBeNull();
+    return card();
+  }
+
+  it("lets a Technician on the crew remove a material line, with no quantity editor", async () => {
+    const cardEl = await materialCard({ assigned: true });
+    expect(cardEl.querySelector('[data-action="remove-item"]')).not.toBeNull();
+    expect(cardEl.querySelector('[data-action="edit-item"]')).toBeNull();
+    expect(cardEl.querySelector(".wo-line-qty")).toBeNull();
+  });
+
+  it("draws the line read-only for a Technician off the crew: quantity shown, no Remove", async () => {
+    const cardEl = await materialCard({ assigned: false });
+    expect(cardEl.querySelectorAll(".wo-item")).toHaveLength(1);
+    expect(cardEl.querySelector(".wo-item .hint").textContent).toBe("Quantity: 2");
+    expect(cardEl.querySelector('[data-action="remove-item"]')).toBeNull();
+    expect(cardEl.querySelector('[data-action="edit-item"]')).toBeNull();
+  });
+});
+
+describe("the crew-lock hint", () => {
+  it.each([
+    ["created", "Begin Charging to add notes, materials, requests, or a signature."],
+    ["on_hold", "Begin Charging to add notes, materials, requests, or a signature."],
+    ["completed", "You are not on this work order's crew, so it is read-only for you."],
+  ])("an unassigned Technician on a %s work order reads: %s", async (status, text) => {
+    const cardEl = await renderCell({ role: "technician", status, assigned: false });
+    expect(cardEl.querySelector(".wo-crew-lock").textContent).toBe(text);
+  });
+
+  // One mount per test (see the note above `the labor section`).
+  it.each(
+    ["supervisor", "techfm_oa", "admin", "owner"].flatMap((role) => [[role, true], [role, false]])
+  )("never locks a %s, assigned=%s", async (role, assigned) => {
+    const cardEl = await renderCell({ role, status: "created", assigned });
+    expect(cardEl.querySelector(".wo-crew-lock")).toBeNull();
+    expect(cardEl.querySelector(".wo-notes-input")).not.toBeNull();
+  });
+
+  it("hides the request form and the signature button too, but leaves the lists readable", async () => {
+    const cardEl = await renderCell({ role: "technician", status: "in_progress", assigned: false });
+    expect(cardEl.querySelector(".wo-request-section")).not.toBeNull();
+    expect(cardEl.querySelector(".wo-request-form")).toBeNull();
+    expect(cardEl.querySelector('[data-action="capture-signature"]')).toBeNull();
+    expect(cardEl.querySelector(".wo-signature-section")).not.toBeNull();
+  });
+
+  it("unlocks once the Technician is on the crew", async () => {
+    const cardEl = await renderCell({ role: "technician", status: "in_progress", assigned: true });
+    expect(cardEl.querySelector(".wo-crew-lock")).toBeNull();
+    expect(cardEl.querySelector(".wo-request-form")).not.toBeNull();
+    expect(cardEl.querySelector('[data-action="capture-signature"]')).not.toBeNull();
   });
 });
 
 describe("the denial spot-check", () => {
-  it("removes the three assigned-only controls from the DOM, not merely disables them", async () => {
-    // In-Progress with a clock running is the only state where Notify, Hold
-    // and Stop Charging would all render for an assigned technician.
+  it("removes the assigned-only controls from the DOM, not merely disables them", async () => {
+    // An unassigned Technician has Begin Charging only: no Notify, Hold, or
+    // Resume, and no add-material or note input -- gone, not disabled. (Stop
+    // Charging cannot render without a running clock, which assigns them.)
     const cardEl = await renderCell({
-      role: "technician", status: "in_progress", assigned: false, tracking: true,
+      role: "technician", status: "in_progress", assigned: false,
     });
-    for (const action of ["hold-assigned-wo", "notify-supervisor-wo", "stop-tracking-wo"]) {
+    for (const action of ["hold-assigned-wo", "notify-supervisor-wo", "resume-assigned-wo", "stop-tracking-wo"]) {
       expect(cardEl.querySelector(`[data-action="${action}"]`), action).toBeNull();
+    }
+    for (const selector of [".wo-add-item", ".wo-notes-input", '[data-action="add-item"]', '[data-action="save-notes"]']) {
+      expect(cardEl.querySelector(selector), selector).toBeNull();
     }
     // Not disabled-but-present anywhere in the body either. Save signature is
     // the one button that is disabled by an input gate (S6), not by role.

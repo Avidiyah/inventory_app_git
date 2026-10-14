@@ -96,7 +96,7 @@ network and must not be on the user's tap.
 
 ## Recipe: adding one trigger
 
-Worked example is "notify the supervisor when a work order goes On-Hold".
+Worked example is "notify the Team Lead when a work order goes On-Hold".
 
 ### Step 1 — Name the event and write the rule (pure, no database)
 
@@ -226,9 +226,9 @@ worse than none, because it will be believed.
 | `push.send_to_min_role(db, minimum, …)` | `services/push.py` | every device of every user at or above a role |
 | `push.user_ids_for_min_role(db, minimum)` | `services/push.py` | the *people* at or above a role, so the actor can be filtered out |
 | `wo_service.assigned_technician_ids(wo)` | `services/work_orders.py` | plural assignments, with the legacy singular folded in |
-| `work_order.supervisor_id` | model | the routed supervisor, may be `None` |
-| `wo_service.newly_routed_supervisor_id(wo)` | `services/work_orders.py` | the supervisor *this write* routed the row to, else `None` |
-| `material_requests.StockedFact` | `services/material_requests.py` | frozen assignee/supervisor/requester ids for a request that just became stocked |
+| `work_order.supervisor_id` | model | the routed Team Lead, may be `None` |
+| `wo_service.newly_routed_supervisor_id(wo)` | `services/work_orders.py` | the Team Lead *this write* routed the row to, else `None` |
+| `material_requests.StockedFact` | `services/material_requests.py` | frozen assignee/Team Lead/requester ids for a request that just became stocked |
 
 Prefer `user_ids_for_min_role` + `send_to_users` over `send_to_min_role` for
 anything with an actor. A role-addressed send cannot express "everyone at this
@@ -268,9 +268,9 @@ above is to add your event to it, in the same commit.**
 
 ## Traps
 
-- **A `None` supervisor and an empty assignee list are normal.** Guard by
+- **A `None` Team Lead and an empty assignee list are normal.** Guard by
   letting `select_recipients` drop them, not with an `if` at the call site.
-- **The actor is not always a technician.** A supervisor completing work on
+- **The actor is not always a technician.** A Team Lead completing work on
   someone's behalf is the actor; suppress by id, never by role.
 - **`update_work_order` is one write that can be several events.** A single
   PATCH can add assignees *and* change status. Evaluate each rule
@@ -283,7 +283,7 @@ above is to add your event to it, in the same commit.**
   the router where the realtime emit already is.
 - **Do not batch or digest.** One event, one notification. The single exception
   is the CSV import (`work_order.supervisor_assigned_bulk`), which sends once per
-  matched supervisor because forty pushes in a few seconds is not a
+  matched Team Lead because forty pushes in a few seconds is not a
   notification. That exception was argued from observed volume and is scoped to
   the import; it is not a licence for a digest layer. See N14 in
   `open-work.md`.

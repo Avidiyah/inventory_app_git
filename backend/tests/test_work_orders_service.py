@@ -47,6 +47,7 @@ from app.models import (
     WorkOrderItem,
     WorkOrderLabor,
     WorkOrderLaborSession,
+    WorkOrderTechnician,
 )
 from app.services import auth
 from app.services import work_orders as wos
@@ -190,18 +191,17 @@ def test_supervisor_can_assign_self_and_other_supervisor_as_technicians(db):
         assigner.id,
         other_supervisor.id,
     }
-    # Worker assignment keeps both Supervisors in scope even though an Admin is
-    # the routed supervisor.
     assert wos.get_work_order(db, work_order.id, user=assigner).id == work_order.id
     assert wos.get_work_order(db, work_order.id, user=other_supervisor).id == work_order.id
     assert work_order.id in {
         row.id for row in wos.list_work_orders(db, user=other_supervisor)
     }
 
+    # Hand-keyed hours are Admin/Owner only; the crew member is a valid credit.
     labor = wos.add_work_order_labor(
         db,
         work_order.id,
-        user=assigner,
+        user=admin,
         technician_id=other_supervisor.id,
         minutes=30,
     )
@@ -226,13 +226,14 @@ def test_assigned_technician_can_start_work_order(db):
     assert wos.start_work_order(db, work_order.id, user=technician).status == "in_progress"
 
 
-def test_technician_cannot_start_unassigned_or_out_of_scope_work_order(db):
+def test_technician_cannot_start_a_work_order_they_are_not_on(db):
     supervisor = _seed_user(db, "supervisor")
     technician = _seed_user(db, "technician")
     other_technician = _seed_user(db, "technician")
     created = _wo(db, created_by=supervisor)
 
-    with pytest.raises(WorkOrderNotFoundError):
+    # Visible to everyone now, but the in-place start needs the crew.
+    with pytest.raises(RoleManagementError):
         wos.start_work_order(db, created.id, user=technician)
 
     wos.update_work_order(
@@ -241,8 +242,10 @@ def test_technician_cannot_start_unassigned_or_out_of_scope_work_order(db):
         user=supervisor,
         fields={"assigned_to_ids": [other_technician.id]},
     )
-    with pytest.raises(WorkOrderNotFoundError):
+    with pytest.raises(RoleManagementError):
         wos.start_work_order(db, created.id, user=technician)
+    # A Team Lead may start it without being on the crew.
+    assert wos.start_work_order(db, created.id, user=supervisor).status == "in_progress"
 
 
 @pytest.mark.parametrize("worker_role", ["technician", "supervisor"])
@@ -448,12 +451,15 @@ def test_unassigned_routed_supervisor_cannot_send_completed_work_to_review(db):
 
 def test_labor_tracks_technician_without_advancing_status(db):
     """Hand-keyed labor is the correction route, so it leaves the lifecycle
-    alone: a supervisor backfilling a paper sheet must not push an Assigned row
-    to In-Progress. Material activity and Start Tracking still advance it."""
+    alone: an Admin backfilling a paper sheet must not push an Assigned row to
+    In-Progress. Material activity and Begin Charging still advance it. Only
+    an Admin or the Owner may key hours; Team Lead and TechFM OA may not."""
+    admin = _seed_user(db, "admin")
     sup = _seed_user(db, "supervisor")
+    oa = _seed_user(db, "techfm_oa")
     tech1 = _seed_user(db, "technician")
     tech2 = _seed_user(db, "technician")
-    w = _wo(db, created_by=sup)
+    w = _wo(db, created_by=admin)
     wos.update_work_order(
         db,
         w.id,
@@ -461,16 +467,17 @@ def test_labor_tracks_technician_without_advancing_status(db):
         fields={"assigned_to_ids": [tech1.id, tech2.id]},
     )
 
-    with pytest.raises(RoleManagementError):
-        wos.add_work_order_labor(
-            db, w.id, user=tech1, technician_id=tech2.id, minutes=35
-        )
+    for blocked in (tech1, sup, oa):
+        with pytest.raises(RoleManagementError):
+            wos.add_work_order_labor(
+                db, w.id, user=blocked, technician_id=tech2.id, minutes=35
+            )
 
     first = wos.add_work_order_labor(
-        db, w.id, user=sup, technician_id=tech1.id, minutes=35
+        db, w.id, user=admin, technician_id=tech1.id, minutes=35
     )
     second = wos.add_work_order_labor(
-        db, w.id, user=sup, technician_id=tech2.id, minutes=40
+        db, w.id, user=admin, technician_id=tech2.id, minutes=40
     )
     detail = wos.get_work_order(db, w.id, user=tech2)
 
@@ -479,159 +486,108 @@ def test_labor_tracks_technician_without_advancing_status(db):
     assert sum(entry.minutes for entry in detail.labor_entries) == 75
 
     updated = wos.update_work_order_labor(
-        db, w.id, first.id, user=sup, minutes=50
+        db, w.id, first.id, user=admin, minutes=50
     )
     assert updated.minutes == 50
 
-    wos.delete_work_order_labor(db, w.id, first.id, user=sup)
+    wos.delete_work_order_labor(db, w.id, first.id, user=admin)
     detail = wos.get_work_order(db, w.id, user=tech2)
     assert [entry.id for entry in detail.labor_entries] == [second.id]
     # Deleting labor moves no status either, in both directions.
     assert detail.status == "assigned"
 
 
-def test_a_technician_can_key_their_own_labor_by_hand(db):
-    """A Technician may log their own manual hours -- e.g. a forgotten Start
-    Tracking -- but still cannot key labor for anyone else."""
+def test_a_technician_cannot_key_hours_even_for_themselves(db):
+    """The old self-service escape hatch is gone: hours come from Begin / Stop
+    Charging, and a correction is an Admin's or the Owner's job. That holds for
+    a crew member and for one who is not on the crew."""
     sup = _seed_user(db, "supervisor")
-    tech = _seed_user(db, "technician")
-    other = _seed_user(db, "technician")
-    w = _wo(db, created_by=sup)
-    wos.update_work_order(
-        db, w.id, user=sup, fields={"assigned_to_ids": [tech.id, other.id]}
-    )
-
-    entry = wos.add_work_order_labor(
-        db, w.id, user=tech, technician_id=tech.id, minutes=35
-    )
-    assert entry.technician_id == tech.id
-    assert entry.minutes == 35
+    crew = _seed_user(db, "technician")
+    stranger = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=crew)
 
     with pytest.raises(RoleManagementError):
         wos.add_work_order_labor(
-            db, w.id, user=tech, technician_id=other.id, minutes=35
-        )
-
-
-def test_a_technician_can_revise_and_erase_their_own_labor(db):
-    """A Technician may correct or remove their own hand-entered hours, but
-    still cannot touch a hand-entered row attributed to someone else."""
-    sup = _seed_user(db, "supervisor")
-    tech = _seed_user(db, "technician")
-    other = _seed_user(db, "technician")
-    w = _wo(db, created_by=sup)
-    wos.update_work_order(
-        db, w.id, user=sup, fields={"assigned_to_ids": [tech.id, other.id]}
-    )
-    own_entry = wos.add_work_order_labor(
-        db, w.id, user=sup, technician_id=tech.id, minutes=35
-    )
-    others_entry = wos.add_work_order_labor(
-        db, w.id, user=sup, technician_id=other.id, minutes=35
-    )
-
-    with pytest.raises(RoleManagementError):
-        wos.update_work_order_labor(
-            db, w.id, others_entry.id, user=tech, minutes=5
+            db, w.id, user=crew, technician_id=crew.id, minutes=35
         )
     with pytest.raises(RoleManagementError):
-        wos.delete_work_order_labor(db, w.id, others_entry.id, user=tech)
-
-    updated = wos.update_work_order_labor(
-        db, w.id, own_entry.id, user=tech, minutes=20
-    )
-    assert updated.minutes == 20
-
-    wos.delete_work_order_labor(db, w.id, own_entry.id, user=tech)
-    detail = wos.get_work_order(db, w.id, user=sup)
-    assert own_entry.id not in {entry.id for entry in detail.labor_entries}
+        wos.add_work_order_labor(
+            db, w.id, user=stranger, technician_id=stranger.id, minutes=35
+        )
+    assert wos.get_work_order(db, w.id, user=sup).labor_entries == []
 
 
-def test_a_technicians_manual_labor_changes_are_marked_in_notes(db):
-    """Self-service hour changes leave a plain-language trace in the note
-    log -- the accountability trade for letting a Technician type a duration
-    at all."""
-    sup = _seed_user(db, "supervisor")
-    tech = _seed_user(db, "technician", first_name="Jamie", last_name="Rivera")
-    w = _wo(db, created_by=sup, assigned_to=tech)
-
-    added = wos.add_work_order_labor(
-        db, w.id, user=tech, technician_id=tech.id, minutes=45
-    )
-    after_add = wos.get_work_order(db, w.id, user=sup)
-    assert "Jamie Rivera" in after_add.notes
-    assert "manually logged 45m of labor" in after_add.notes
-
-    wos.update_work_order_labor(db, w.id, added.id, user=tech, minutes=15)
-    after_subtract = wos.get_work_order(db, w.id, user=sup)
-    assert "manually subtracted 30m from a labor entry" in after_subtract.notes
-
-    wos.update_work_order_labor(db, w.id, added.id, user=tech, minutes=25)
-    after_add_more = wos.get_work_order(db, w.id, user=sup)
-    assert "manually added 10m to a labor entry" in after_add_more.notes
-
-    wos.delete_work_order_labor(db, w.id, added.id, user=tech)
-    after_delete = wos.get_work_order(db, w.id, user=sup)
-    assert "manually removed 25m of labor" in after_delete.notes
-
-
-def test_a_supervisors_manual_labor_entries_do_not_touch_notes(db):
-    """The note-log accountability trade is specific to Technician
-    self-service; a Supervisor's hand-entered correction stays as quiet as
-    it always was."""
+def test_only_admin_and_owner_may_edit_or_remove_hand_keyed_hours(db):
+    admin = _seed_user(db, "admin")
+    owner = _seed_user(db, "owner")
+    oa = _seed_user(db, "techfm_oa")
     sup = _seed_user(db, "supervisor")
     tech = _seed_user(db, "technician")
-    w = _wo(db, created_by=sup, assigned_to=tech)
+    w = _wo(db, created_by=admin, assigned_to=tech)
+    entry = wos.add_work_order_labor(
+        db, w.id, user=admin, technician_id=tech.id, minutes=45
+    )
+
+    for blocked in (tech, sup, oa):
+        with pytest.raises(RoleManagementError):
+            wos.update_work_order_labor(db, w.id, entry.id, user=blocked, minutes=5)
+        with pytest.raises(RoleManagementError):
+            wos.delete_work_order_labor(db, w.id, entry.id, user=blocked)
+    # Refused edits changed nothing.
+    detail = wos.get_work_order(db, w.id, user=admin)
+    assert [(e.id, e.minutes) for e in detail.labor_entries] == [(entry.id, 45)]
+
+    assert wos.update_work_order_labor(
+        db, w.id, entry.id, user=owner, minutes=30
+    ).minutes == 30
+    wos.delete_work_order_labor(db, w.id, entry.id, user=owner)
+    assert wos.get_work_order(db, w.id, user=admin).labor_entries == []
+
+
+def test_an_admins_manual_labor_entries_do_not_touch_notes(db):
+    """Hand-entered corrections leave no note-log line; the self-service
+    trace the Technician route used to write is gone with that route."""
+    admin = _seed_user(db, "admin")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=admin, assigned_to=tech)
 
     entry = wos.add_work_order_labor(
-        db, w.id, user=sup, technician_id=tech.id, minutes=45
+        db, w.id, user=admin, technician_id=tech.id, minutes=45
     )
-    wos.update_work_order_labor(db, w.id, entry.id, user=sup, minutes=30)
-    wos.delete_work_order_labor(db, w.id, entry.id, user=sup)
+    wos.update_work_order_labor(db, w.id, entry.id, user=admin, minutes=30)
+    wos.delete_work_order_labor(db, w.id, entry.id, user=admin)
 
-    detail = wos.get_work_order(db, w.id, user=sup)
+    detail = wos.get_work_order(db, w.id, user=admin)
     assert detail.notes is None
 
 
-def test_a_supervisor_records_their_own_labor_without_being_assigned(db):
-    """A supervisor who does the work should record it without adding
-    themselves to the crew list. A genuine permission widening: bounded by
-    visibility and attributed by name."""
-    sup = _seed_user(db, "supervisor", first_name="Robin", last_name="Vance")
+@pytest.mark.parametrize("recorder_role", ["admin", "owner"])
+def test_an_admin_or_owner_records_their_own_labor_without_being_assigned(
+    db, recorder_role
+):
+    """Whoever did the work records it without joining the crew list. Bounded
+    by visibility and attributed by name."""
+    recorder = _seed_user(db, recorder_role, first_name="Robin", last_name="Vance")
     tech = _seed_user(db, "technician")
-    w = _wo(db, created_by=sup, assigned_to=tech)
+    w = _wo(db, created_by=recorder, assigned_to=tech)
 
     entry = wos.add_work_order_labor(
-        db, w.id, user=sup, technician_id=sup.id, minutes=40
+        db, w.id, user=recorder, technician_id=recorder.id, minutes=40
     )
 
-    assert entry.technician_id == sup.id
+    assert entry.technician_id == recorder.id
     assert entry.minutes == 40
-    assert sup.id not in wos.assigned_technician_ids(w)
-
-
-def test_a_technician_still_needs_the_assignment_to_log_their_own_labor(db):
-    """The own-row rule narrows the Supervisor+ permission; it does not
-    replace the assignment check that was already there."""
-    sup = _seed_user(db, "supervisor")
-    tech = _seed_user(db, "technician")
-    other = _seed_user(db, "technician")
-    w = _wo(db, created_by=sup, assigned_to=other)
-
-    with pytest.raises(WorkOrderNotFoundError):
-        wos.add_work_order_labor(
-            db, w.id, user=tech, technician_id=tech.id, minutes=30
-        )
+    assert recorder.id not in wos.assigned_technician_ids(w)
 
 
 def test_labor_requires_current_technician_assignment(db):
-    sup = _seed_user(db, "supervisor")
+    admin = _seed_user(db, "admin")
     tech = _seed_user(db, "technician")
-    w = _wo(db, created_by=sup)
+    w = _wo(db, created_by=admin)
 
     with pytest.raises(InvalidAssigneeError):
         wos.add_work_order_labor(
-            db, w.id, user=sup, technician_id=tech.id, minutes=30
+            db, w.id, user=admin, technician_id=tech.id, minutes=30
         )
 
 
@@ -665,26 +621,30 @@ def test_import_resolver_leaves_archived_number_untouched(db):
     assert found.location is None
 
 
-def test_assignee_must_be_active_technician_or_supervisor(db):
+def test_assignee_must_be_an_active_non_owner(db):
     sup = _seed_user(db, "supervisor")
     admin = _seed_user(db, "admin")
+    oa = _seed_user(db, "techfm_oa")
+    owner = _seed_user(db, "owner")
     archived_supervisor = _seed_user(db, "supervisor")
     archived_supervisor.archived_at = datetime.now(timezone.utc)
     db.flush()
 
-    assigned = wos.get_or_create_work_order(
-        db,
-        number=f"WO-SUP-{uuid.uuid4().hex[:8]}",
-        assigned_to_id=sup.id,
-        created_by_id=admin.id,
-    )
-    assert assigned.assigned_to_id == sup.id
+    for assignee in (sup, admin, oa):
+        assigned = wos.get_or_create_work_order(
+            db,
+            number=f"WO-{assignee.role}-{uuid.uuid4().hex[:8]}",
+            assigned_to_id=assignee.id,
+            created_by_id=admin.id,
+        )
+        assert assigned.assigned_to_id == assignee.id
 
+    # The Owner is the one role that cannot be put on a crew.
     with pytest.raises(InvalidAssigneeError):
         wos.get_or_create_work_order(
             db,
-            number=f"WO-ADMIN-{uuid.uuid4().hex[:8]}",
-            assigned_to_id=admin.id,
+            number=f"WO-OWNER-{uuid.uuid4().hex[:8]}",
+            assigned_to_id=owner.id,
             created_by_id=admin.id,
         )
     with pytest.raises(InvalidAssigneeError):
@@ -750,12 +710,12 @@ def test_lookup_reports_an_archived_work_order(db):
     assert found is not None and found.archived_at is not None
 
 
-def test_lookup_hides_a_work_order_out_of_scope(db):
-    # Scoping still applies after a work order leaves the shared pickup queue.
+def test_lookup_finds_a_work_order_routed_to_someone_else(db):
+    # Everyone sees every work order, so routing no longer hides it.
     mine = _seed_user(db, "supervisor")
     theirs = _seed_user(db, "supervisor")
     a = _wo(db, created_by=mine, supervisor=theirs)
-    assert wos.lookup_work_order(db, number=a.number, user=mine) is None
+    assert wos.lookup_work_order(db, number=a.number, user=mine).id == a.id
 
 
 def test_lookup_unknown_number_is_none(db):
@@ -812,13 +772,12 @@ def test_archiving_keeps_the_work_orders_history_searchable(db):
     assert len(history_rows()) == 1  # and unchanged by the restore
 
 
-def test_restore_is_scoped(db):
+def test_restore_is_not_limited_by_routing(db):
     mine = _seed_user(db, "supervisor")
     theirs = _seed_user(db, "supervisor")
     a = _wo(db, created_by=mine, supervisor=theirs)
     _close(db, a, user=theirs)
-    with pytest.raises(WorkOrderNotFoundError):
-        wos.restore_work_order(db, a.id, user=mine)
+    assert wos.restore_work_order(db, a.id, user=mine).archived_at is None
 
 
 # --- dispense mode (moves stock) -----------------------------------------
@@ -970,8 +929,8 @@ def test_a_line_for_an_archived_item_can_still_be_removed(db):
 
 
 def test_an_unassigned_technician_cannot_delete_a_work_order_item(db):
-    """Removing a material is now Technician-and-above, but visibility still
-    scopes a Technician to work orders they are assigned to."""
+    """Removing a material is Technician-and-above, but a Technician off the
+    crew is read-only: they see the work order and are refused, not hidden."""
     sup = _seed_user(db, "supervisor")
     tech = _seed_user(db, "technician")
     outsider = _seed_user(db, "technician")
@@ -979,8 +938,33 @@ def test_an_unassigned_technician_cannot_delete_a_work_order_item(db):
     w = _wo(db, created_by=sup, assigned_to=tech)
     line = wos.add_work_order_item(db, w.id, user=tech, item_id=item.id, quantity=Decimal(4))
 
-    with pytest.raises(WorkOrderNotFoundError):
+    with pytest.raises(RoleManagementError):
         wos.delete_work_order_item(db, w.id, line.id, user=outsider)
+
+
+def test_an_unassigned_technician_is_read_only_on_a_work_order(db):
+    """Every role sees every work order; a Technician off the crew may read but
+    not write notes or materials. A Team Lead off the crew is not locked."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    outsider = _seed_user(db, "technician")
+    item = _seed_item(db, 100)
+    w = _wo(db, created_by=sup, assigned_to=tech)
+
+    assert wos.get_work_order(db, w.id, user=outsider).id == w.id
+    with pytest.raises(RoleManagementError, match="Begin Charging"):
+        wos.add_work_order_item(db, w.id, user=outsider, item_id=item.id, quantity=Decimal(1))
+    with pytest.raises(RoleManagementError, match="Begin Charging"):
+        wos.update_work_order(db, w.id, user=outsider, fields={"notes": "hello"})
+    db.refresh(item)
+    assert item.quantity == Decimal(100)
+    assert wos.get_work_order(db, w.id, user=sup).notes is None
+
+    # The crew and a Team Lead off the crew both write normally.
+    wos.update_work_order(db, w.id, user=tech, fields={"notes": "on it"})
+    wos.add_work_order_item(db, w.id, user=sup, item_id=item.id, quantity=Decimal(1))
+    db.refresh(item)
+    assert item.quantity == Decimal(99)
 
 
 def test_readd_same_item_accumulates_quantity(db):
@@ -1200,7 +1184,7 @@ def test_work_order_update_role_matrix_separates_metadata_and_operations(db):
             user=supervisor,
             fields={"location": "Commons 101", "description": "Leaking sink"},
         )
-    with pytest.raises(RoleManagementError, match="Supervisor"):
+    with pytest.raises(RoleManagementError, match="Team Lead"):
         wos.update_work_order(
             db,
             work_order.id,
@@ -1357,7 +1341,7 @@ def test_work_order_routing_requires_an_active_supervisor(db):
     work_order = _wo(db, created_by=admin)
     db.commit()
 
-    with pytest.raises(InvalidSupervisorError, match="active TechFM OA, Admin, or Supervisor"):
+    with pytest.raises(InvalidSupervisorError, match="active TechFM OA, Admin, or Team Lead"):
         wos.update_work_order(
             db,
             work_order.id,
@@ -1367,7 +1351,7 @@ def test_work_order_routing_requires_an_active_supervisor(db):
         )
     db.rollback()
 
-    with pytest.raises(InvalidSupervisorError, match="active TechFM OA, Admin, or Supervisor"):
+    with pytest.raises(InvalidSupervisorError, match="active TechFM OA, Admin, or Team Lead"):
         wos.update_work_order(
             db,
             work_order.id,
@@ -1377,7 +1361,7 @@ def test_work_order_routing_requires_an_active_supervisor(db):
         )
     db.rollback()
 
-    with pytest.raises(InvalidSupervisorError, match="active TechFM OA, Admin, or Supervisor"):
+    with pytest.raises(InvalidSupervisorError, match="active TechFM OA, Admin, or Team Lead"):
         wos.update_work_order(
             db,
             work_order.id,
@@ -1428,19 +1412,37 @@ def test_scoping_list_and_access(db):
     def ids(user, **kw):
         return {w.id for w in wos.list_work_orders(db, user=user, **kw)}
 
-    assert ids(tech1) == {a.id}
-    assert ids(tech2) == {b.id}
-    assert {a.id, pickup.id} <= ids(sup_a)
-    assert b.id not in ids(sup_a)
-    assert {b.id, pickup.id} <= ids(sup_b)
-    assert a.id not in ids(sup_b)
-    assert {a.id, b.id} <= ids(admin)
+    # Every recognised role lists every live work order.
+    everything = {a.id, b.id, pickup.id}
+    for viewer in (tech1, tech2, sup_a, sup_b, admin):
+        assert everything <= ids(viewer)
+    # `mine` / `assigned_to_id` are how a client narrows to its own assignments.
+    assert ids(tech1, assigned_to_id=tech1.id) == {a.id}
+    assert ids(tech2, assigned_to_id=tech2.id) == {b.id}
+    assert {a.id} <= ids(sup_a, mine=True) and b.id not in ids(sup_a, mine=True)
 
-    with pytest.raises(WorkOrderNotFoundError):
-        wos.get_work_order(db, b.id, user=tech1)
+    # Seeing is not acting: a Technician reads the other crew's work order...
+    assert wos.get_work_order(db, b.id, user=tech1).id == b.id
+    # ...but cannot write to it.
     item = _seed_item(db, 100)
-    with pytest.raises(WorkOrderNotFoundError):
+    with pytest.raises(RoleManagementError):
         wos.add_work_order_item(db, b.id, user=tech1, item_id=item.id, quantity=Decimal(1))
+
+
+def test_an_unrecognised_role_still_sees_only_its_assignments(db):
+    sup = _seed_user(db, "supervisor")
+    ghost = _seed_user(db, "contractor")
+    mine = _wo(db, created_by=sup)
+    theirs = _wo(db, created_by=sup)
+    # Written directly: the assignee validator would refuse a corrupt role.
+    db.add(WorkOrderTechnician(work_order_id=mine.id, technician_id=ghost.id))
+    db.flush()
+
+    listed = {w.id for w in wos.list_work_orders(db, user=ghost)}
+    assert mine.id in listed and theirs.id not in listed
+    assert wos.get_work_order(db, mine.id, user=ghost).id == mine.id
+    with pytest.raises(WorkOrderNotFoundError):
+        wos.get_work_order(db, theirs.id, user=ghost)
 
 
 def test_status_filter_and_search(db):
@@ -1736,7 +1738,7 @@ def test_community_filters_are_membership_based_with_academics_fallback(db):
     assert multiple.id not in academics
 
 
-def test_filter_options_are_distinct_and_server_scoped(db):
+def test_filter_options_are_distinct_and_unscoped(db):
     admin = _seed_user(db, "admin")
     tech = _seed_user(db, "technician")
     other_tech = _seed_user(db, "technician")
@@ -1774,10 +1776,15 @@ def test_filter_options_are_distinct_and_server_scoped(db):
 
     options = wos.get_work_order_filter_options(db, user=tech)
 
-    assert options["service_types"] == ["SMR27 - Belfor"]
-    assert options["supervisors"] == [
-        {"id": visible_sup.id, "name": "Visible Supervisor"}
-    ]
+    # Case variants fold to one option; the longer "Re-Work" type is its own.
+    belfor = [s for s in options["service_types"] if s.casefold() == "smr27 - belfor"]
+    assert belfor == ["SMR27 - Belfor"]
+    assert "SMR27 - Belfor Re-Work" in options["service_types"]
+    # Every recognised role sees every work order, so both routed supervisors
+    # are offered to a Technician (no longer only the ones on their own work).
+    offered = {entry["id"]: entry["name"] for entry in options["supervisors"]}
+    assert offered[visible_sup.id] == "Visible Supervisor"
+    assert offered[hidden_sup.id] == "Hidden Supervisor"
     assert [option["value"] for option in options["communities"]] == list(
         wo.ALL_COMMUNITY_FILTERS
     )
@@ -1807,7 +1814,7 @@ def test_edited_priority_case_variant_does_not_duplicate_the_filter_option(db):
     wos.update_work_order(db, edited.id, user=admin, fields={"priority": "normal"})
 
     options = wos.get_work_order_filter_options(db, user=tech)
-    assert options["priorities"] == ["Normal"]
+    assert [p for p in options["priorities"] if p.casefold() == "normal"] == ["Normal"]
 
 
 # --- priority filter -----------------------------------------------------
@@ -1861,7 +1868,10 @@ def test_filter_options_report_distinct_priorities(db):
 
     options = wos.get_work_order_filter_options(db, user=tech)
 
-    assert options["priorities"] == ["Emergency", "Normal"]
+    # Unscoped now, so other rows' priorities may share the list: assert only
+    # that these three fold to one entry each, in case-insensitive order.
+    mine = [p for p in options["priorities"] if p.casefold() in ("emergency", "normal")]
+    assert mine == ["Emergency", "Normal"]
 
 
 def test_list_limit_applies_after_scheduled_date_sort(db):
@@ -2271,7 +2281,7 @@ def test_review_over_500_needs_no_signature(db):
     w = _wo(db, created_by=sup, assigned_to=tech)
     wos.start_labor_session(db, w.id, user=tech)
     wos.complete_work_order(db, w.id, user=tech)
-    wos.add_work_order_labor(db, w.id, user=sup, technician_id=tech.id, minutes=9 * 60)
+    wos.add_work_order_labor(db, w.id, user=admin, technician_id=tech.id, minutes=9 * 60)
     wos.update_work_order(db, w.id, user=sup, fields={"status": "completed"})
 
     # The witness sign-off is optional: an unsigned bill over $500 still goes to Review.
@@ -2296,31 +2306,113 @@ def test_a_co_worker_cannot_start_again_on_a_ready_to_complete_row(db):
     assert wos.start_labor_session(db, w.id, user=b, notes_acknowledged=True).status == "in_progress"
 
 
-def test_a_supervisor_tracks_a_work_order_they_are_not_assigned_to(db):
-    """A supervisor who does the work records it without joining the crew."""
-    sup = _seed_user(db, "supervisor", first_name="Robin", last_name="Vance")
+@pytest.mark.parametrize("role", ["technician", "supervisor", "techfm_oa", "admin"])
+def test_begin_charging_puts_the_caller_on_the_crew(db, role):
+    """Begin Charging is self-assignment, for every role that can be assigned.
+    It adds to the crew -- the existing crew stays -- and records who did it."""
+    boss = _seed_user(db, "admin")
+    crew = _seed_user(db, "technician")
+    worker = _seed_user(db, role, first_name="Robin", last_name="Vance")
+    w = _wo(db, created_by=boss, assigned_to=crew)
+    assert worker.id not in wos.assigned_technician_ids(w)
+
+    started = wos.start_labor_session(db, w.id, user=worker)
+
+    assert started.status == "in_progress"
+    assert wos.assigned_technician_ids(w) == [crew.id, worker.id]
+    row = (
+        db.query(WorkOrderTechnician)
+        .filter_by(work_order_id=w.id, technician_id=worker.id)
+        .one()
+    )
+    assert row.assigned_by_id == worker.id
+    # Self-assignment is silent: it is not a "newly assigned" notification event.
+    assert wos.newly_assigned_ids(started) == []
+    # The unlocked crew member may now write; stopping still produces labor.
+    wos.stop_labor_session(db, w.id, user=worker)
+    assert [e.technician_id for e in _labor(db, w)] == [worker.id]
+
+
+def test_begin_charging_on_an_unassigned_work_order_assigns_only_the_caller(db):
+    boss = _seed_user(db, "admin")
     tech = _seed_user(db, "technician")
-    w = _wo(db, created_by=sup, assigned_to=tech)
+    w = _wo(db, created_by=boss)
+    assert w.status == "created"
 
-    wos.start_labor_session(db, w.id, user=sup)
-    wos.stop_labor_session(db, w.id, user=sup)
+    wos.start_labor_session(db, w.id, user=tech)
 
-    entries = _labor(db, w)
-    assert [e.technician_id for e in entries] == [sup.id]
-    assert sup.id not in wos.assigned_technician_ids(w)
+    assert wos.assigned_technician_ids(w) == [tech.id]
+    assert w.assigned_to_id == tech.id  # the legacy mirror follows
 
 
-def test_an_unassigned_technician_cannot_track(db):
-    """The Supervisor widening does not reach down a rank."""
+def test_begin_charging_twice_adds_one_crew_row(db):
+    boss = _seed_user(db, "admin")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=boss)
+
+    wos.start_labor_session(db, w.id, user=tech)
+    wos.start_labor_session(db, w.id, user=tech)
+
+    assert wos.assigned_technician_ids(w) == [tech.id]
+    assert db.query(WorkOrderTechnician).filter_by(work_order_id=w.id).count() == 1
+
+
+def test_begin_charging_keeps_a_legacy_only_assignee(db):
+    """`assigned_to_id` set with no `work_order_technicians` row is still a
+    crew member; adding the caller must not drop or duplicate them."""
+    boss = _seed_user(db, "admin")
+    legacy = _seed_user(db, "technician")
+    newcomer = _seed_user(db, "technician")
+    w = _wo(db, created_by=boss)
+    w.assigned_to_id = legacy.id
+    db.flush()
+    assert db.query(WorkOrderTechnician).filter_by(work_order_id=w.id).count() == 0
+
+    wos.start_labor_session(db, w.id, user=newcomer)
+
+    assert sorted(wos.assigned_technician_ids(w)) == sorted([legacy.id, newcomer.id])
+    assert db.query(WorkOrderTechnician).filter_by(work_order_id=w.id).count() == 2
+
+
+def test_the_owner_cannot_begin_charging_and_is_not_added(db):
+    boss = _seed_user(db, "admin")
+    owner = _seed_user(db, "owner")
+    w = _wo(db, created_by=boss)
+
+    with pytest.raises(RoleManagementError, match="Owner"):
+        wos.start_labor_session(db, w.id, user=owner)
+
+    assert wos.assigned_technician_ids(w) == []
+    assert db.query(WorkOrderLaborSession).filter_by(work_order_id=w.id).count() == 0
+
+
+def test_a_refused_start_on_finished_work_assigns_nobody(db):
+    boss = _seed_user(db, "admin")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=boss)
+    wos.update_work_order(db, w.id, user=boss, fields={"status": "completed"})
+
+    with pytest.raises(WorkOrderStateError):
+        wos.start_labor_session(db, w.id, user=tech)
+
+    assert wos.assigned_technician_ids(w) == []
+
+
+def test_an_unassigned_technician_can_read_then_unlocks_by_beginning_charging(db):
     sup = _seed_user(db, "supervisor")
-    assigned = _seed_user(db, "technician")
+    crew = _seed_user(db, "technician")
     outsider = _seed_user(db, "technician")
-    w = _wo(db, created_by=sup, assigned_to=assigned)
+    item = _seed_item(db, 100)
+    w = _wo(db, created_by=sup, assigned_to=crew)
 
-    # Not visible to them at all, so it is a 404 rather than a 403 -- the
-    # existence of the row is not leaked.
-    with pytest.raises(WorkOrderNotFoundError):
-        wos.start_labor_session(db, w.id, user=outsider)
+    assert wos.get_work_order(db, w.id, user=outsider).id == w.id
+    with pytest.raises(RoleManagementError):
+        wos.add_work_order_item(db, w.id, user=outsider, item_id=item.id, quantity=Decimal(1))
+
+    wos.start_labor_session(db, w.id, user=outsider)
+
+    line = wos.add_work_order_item(db, w.id, user=outsider, item_id=item.id, quantity=Decimal(1))
+    assert line.quantity == Decimal(1)
 
 
 def test_starting_elsewhere_closes_the_clock_on_the_previous_work_order(db):

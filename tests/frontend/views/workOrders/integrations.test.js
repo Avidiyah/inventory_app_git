@@ -120,7 +120,7 @@ describe("the CSV import", () => {
     seedList([workOrderCard({ number: "1" })]);
     chooseFile(csv());
     await vi.waitFor(() => expect(importLine().textContent)
-      .toBe("2 new work orders · 1 with a supervisor name match."));
+      .toBe("2 new work orders · 1 with a Team Lead name match."));
     expect(importLine().className).toBe("success");
     expect(requestFor("/work-orders/import", "POST")).not.toBeNull();
     expect(requestFor("/work-orders/?")).not.toBeNull();
@@ -133,7 +133,7 @@ describe("the CSV import", () => {
     respond("post", "/work-orders/import", { created: 1, supervisors_matched: 0 });
     chooseFile(csv());
     await vi.waitFor(() => expect(importLine().textContent)
-      .toBe("1 new work order · 0 with a supervisor name match."));
+      .toBe("1 new work order · 0 with a Team Lead name match."));
   });
 
   it("says so when the file added nothing", async () => {
@@ -253,7 +253,7 @@ describe("the exports", () => {
       HttpResponse.json({ detail: "Admin only" }, { status: 403 })));
     el("wo-export-btn").click();
     await vi.waitFor(() => expect(exportLine().textContent)
-      .toBe("Your account can't do that. Ask a supervisor if this seems wrong."));
+      .toBe("Your account can't do that. Ask a Team Lead if this seems wrong."));
     expect(el("wo-export-btn").disabled).toBe(false);
   });
 
@@ -455,7 +455,7 @@ describe("the cloud sign-in controls", () => {
       }),
     });
     expect(statusLine().textContent).toBe(
-      "3 new work orders · 2 with a supervisor name match. "
+      "3 new work orders · 2 with a Team Lead name match. "
       + "Enrichment is busy — click Import Tasks and Priority when it frees up.");
     await vi.waitFor(() => expect(requestFor("/work-orders/?")).not.toBeNull());
     // The reload also invalidates the user cache, so let that settle too.
@@ -522,7 +522,7 @@ describe("the cloud sign-in controls", () => {
     });
     el("wo-netfacilities-cloud-import-download-btn").click();
     await vi.waitFor(() => expect(importLine().textContent)
-      .toBe("1 new work order · 0 with a supervisor name match."));
+      .toBe("1 new work order · 0 with a Team Lead name match."));
     // The chain owns enrichment, so this path must not start a second job.
     expect(requestFor("/work-orders/enrich", "POST")).toBeNull();
     expect(el("wo-netfacilities-cloud-import-download-btn").disabled).toBe(false);

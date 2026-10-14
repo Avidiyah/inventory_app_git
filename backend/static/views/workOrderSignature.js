@@ -8,7 +8,7 @@
 // Imports only format.js and workOrderPresenters.js.
 
 import { escapeHtml, friendlyError } from "../format.js";
-import { isSupervisorPlus } from "./workOrderPresenters.js";
+import { isCrewLocked, isSupervisorPlus } from "./workOrderPresenters.js";
 
 // Mirror of the domain rule (S7): strip non-digits, drop one leading `1`
 // from eleven, require exactly ten. `null` means "not a phone yet".
@@ -38,7 +38,9 @@ export function signatureSectionHtml(detail) {
          ? `<button type="button" class="btn-danger" data-action="clear-signature" data-witness="${escapeHtml(sig.witness_name)}">Clear signature</button>`
          : ""}`
     : `<p class="hint">Captured step by step with the witness present. It locks once saved.</p>
-       <div class="wo-notes-actions"><button type="button" data-action="capture-signature">Capture witness signature</button></div>`;
+       ${isCrewLocked(detail)
+         ? ""
+         : `<div class="wo-notes-actions"><button type="button" data-action="capture-signature">Capture witness signature</button></div>`}`;
   return `<details class="wo-section-card wo-signature-section">
             <summary class="wo-section-summary">Signature</summary>
             <div class="wo-section-content">${body}<p class="wo-signature-message" aria-live="polite"></p></div>
@@ -223,7 +225,7 @@ function flowHtml(number) {
       <ul class="wo-sig-guidance">
         <li>You enter the witness's printed name and phone number, then hand them this device to sign.</li>
         <li>The witness signs in their own hand. Never sign for someone else.</li>
-        <li>Once saved, the sign-off is locked and recorded under your name. Only a supervisor can clear it.</li>
+        <li>Once saved, the sign-off is locked and recorded under your name. Only a Team Lead can clear it.</li>
       </ul>
       <div class="modal-buttons">
         <button type="button" class="secondary-btn" data-sig="cancel">Cancel</button>
@@ -254,7 +256,7 @@ function flowHtml(number) {
     <div class="wo-sig-panel" data-step="confirm" hidden>
       <img class="wo-signature-image wo-sig-preview" alt="Witness signature">
       <p class="wo-sig-who"></p>
-      <p class="hint">Saving locks this sign-off to WO ${wo} and records it under your name. Only a supervisor can clear it.</p>
+      <p class="hint">Saving locks this sign-off to WO ${wo} and records it under your name. Only a Team Lead can clear it.</p>
       <p class="wo-sig-error" aria-live="polite"></p>
       <div class="modal-buttons">
         <button type="button" class="secondary-btn" data-sig="back">Go back</button>

@@ -33,7 +33,6 @@ import {
 } from "../api.js";
 import { confirmDialog, messageDialog, promptTime, setMessage } from "../dom.js";
 import { escapeHtml, filterRanked, friendlyError } from "../format.js";
-import { getCurrentUser } from "../state.js";
 import { clearDraft, markDraftError, saveDraft } from "../workOrderDrafts.js";
 import { openBillingEditor } from "./billingEditor.js";
 import { catalogueRequestPromptHtml } from "./catalogueRequest.js";
@@ -298,7 +297,7 @@ listEl.addEventListener("click", async (event) => {
         // hard stop above rather than the quiet inline .wo-message text.
         if (
           err?.status === 400 &&
-          err.detail === "All Users must Stop Charging before a Supervisor can be notified."
+          err.detail === "All Users must Stop Charging before a Team Lead can be notified."
         ) {
           await messageDialog(err.detail);
           return;
@@ -312,7 +311,7 @@ listEl.addEventListener("click", async (event) => {
       if (finished?.status === "ready_to_complete") {
         setMessage(
           cardEl.querySelector(".wo-message"),
-          "Sent to your supervisor for review.",
+          "Sent to your Team Lead for review.",
           "success"
         );
       }
@@ -397,13 +396,9 @@ listEl.addEventListener("click", async (event) => {
       if (notesSection) notesSection.open = false;
     } else if (action === "add-labor") {
       const section = btn.closest(".wo-labor-section");
-      const technicianSelect = section.querySelector(".wo-labor-technician");
-      // A Technician has no picker -- they can only credit themselves -- so
-      // the control defaults to the current user's id. A Supervisor's picker
-      // emptied of its options still requires an explicit pick.
-      const technicianId = technicianSelect
-        ? technicianSelect.value
-        : getCurrentUser()?.id;
+      // Only an Admin or the Owner is ever shown this form, and always with the
+      // picker. A picker emptied of its options still requires an explicit pick.
+      const technicianId = section.querySelector(".wo-labor-technician")?.value;
       const minutes = hoursToMinutes(section.querySelector(".wo-new-labor-hours")?.value);
       if (!technicianId) {
         setMessage(msg, "Assign and select a technician first.", "error");

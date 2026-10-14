@@ -66,7 +66,7 @@ export async function loadFilterOptions() {
   );
   populateFilterSelect(
     supervisorFilter,
-    "All supervisors",
+    "All Team Leads",
     (options.supervisors || []).map((option) => ({
       value: option.id,
       label: option.name,

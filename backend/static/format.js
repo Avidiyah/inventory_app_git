@@ -248,7 +248,7 @@ export function friendlyError(err, fallback) {
     return "You were signed out. Sign in again.";
   }
   if (err.status === 403) {
-    return "Your account can't do that. Ask a supervisor if this seems wrong.";
+    return "Your account can't do that. Ask a Team Lead if this seems wrong.";
   }
   if (err.detail === "Insufficient stock to dispense.") {
     return "Not enough stock available. Check the count before taking more out.";

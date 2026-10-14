@@ -19,7 +19,7 @@ const CHIP_PREFIX = {
   status: "Status",
   serviceType: "Service type",
   priority: "Priority",
-  supervisorId: "Supervisor",
+  supervisorId: "Team Lead",
   assignedToId: "Technician",
   community: "Community",
   scheduledDate: "Scheduled",

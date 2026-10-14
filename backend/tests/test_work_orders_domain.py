@@ -262,63 +262,41 @@ def test_admin_and_owner_see_everything():
     )
 
 
-def test_supervisor_sees_unassigned_and_self_routed_work_orders():
-    me, other, tech = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    # Creator identity no longer controls supervisor visibility: an unrouted
-    # row is the shared pickup queue.
-    assert wo.can_view_work_order(
-        roles.ROLE_SUPERVISOR,
-        created_by_id=other,
-        assigned_to_id=tech,
-        user_id=me,
-        supervisor_id=None,
-    )
-    assert wo.can_view_work_order(
-        roles.ROLE_SUPERVISOR,
-        created_by_id=other,
-        assigned_to_id=tech,
-        user_id=me,
-        supervisor_id=me,
-    )
+def test_every_recognised_role_sees_every_work_order():
+    me, creator, tech, other_supervisor = (uuid.uuid4() for _ in range(4))
+    for role in roles.ALL_ROLES:
+        # Assigned to someone else, routed to someone else, created by someone
+        # else, and never touched by `me` -- still visible.
+        assert wo.can_view_work_order(
+            role,
+            created_by_id=creator,
+            assigned_to_id=tech,
+            user_id=me,
+            supervisor_id=other_supervisor,
+        )
+        # Unassigned and unrouted too.
+        assert wo.can_view_work_order(
+            role, created_by_id=creator, assigned_to_id=None, user_id=me
+        )
 
 
-def test_supervisor_sees_other_routing_only_when_assigned_as_worker():
-    me, importer, tech = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    other_supervisor = uuid.uuid4()
-    assert not wo.can_view_work_order(
-        roles.ROLE_SUPERVISOR,
-        created_by_id=me,
-        assigned_to_id=tech,
-        user_id=me,
-        supervisor_id=other_supervisor,
-    )
-    assert wo.can_view_work_order(
-        roles.ROLE_SUPERVISOR,
-        created_by_id=importer,
-        assigned_to_id=tech,
-        assigned_to_ids=[tech, me],
-        user_id=me,
-        supervisor_id=other_supervisor,
-    )
-
-
-def test_technician_sees_only_what_is_assigned_to_them():
+def test_an_unrecognised_role_fails_closed_to_assignment_only():
     me, creator, other = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     assert wo.can_view_work_order(
-        roles.ROLE_TECHNICIAN, created_by_id=creator, assigned_to_id=me, user_id=me
+        "contractor", created_by_id=creator, assigned_to_id=me, user_id=me
     )
     assert not wo.can_view_work_order(
-        roles.ROLE_TECHNICIAN, created_by_id=me, assigned_to_id=other, user_id=me
+        "contractor", created_by_id=me, assigned_to_id=other, user_id=me
     )
     assert not wo.can_view_work_order(
-        roles.ROLE_TECHNICIAN, created_by_id=creator, assigned_to_id=None, user_id=me
+        "contractor", created_by_id=creator, assigned_to_id=None, user_id=me
     )
 
 
-def test_technician_visibility_accepts_any_plural_assignment():
+def test_an_unrecognised_role_accepts_any_plural_assignment():
     me, primary, creator = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     assert wo.can_view_work_order(
-        roles.ROLE_TECHNICIAN,
+        "contractor",
         created_by_id=creator,
         assigned_to_id=primary,
         assigned_to_ids=[primary, me],

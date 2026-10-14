@@ -111,11 +111,11 @@ describe("on the clock now", () => {
 });
 
 describe("time tiles", () => {
-  it("Supervisor Time and Technician Time through formatHm", async () => {
+  it("Team Lead Time and Technician Time through formatHm", async () => {
     await openAdmin({ supervisor_minutes_today: 185, technician_minutes_today: 0 });
     const tiles = Array.from(summary().querySelector(".hub-tile-grid").querySelectorAll(".hub-tile"));
     expect(tiles.map((t) => t.querySelector(".hub-tile-label").textContent))
-      .toEqual(["Supervisor Time", "Technician Time"]);
+      .toEqual(["Team Lead Time", "Technician Time"]);
     expect(tiles.map((t) => t.querySelector(".hub-tile-value").textContent)).toEqual(["3 h 5 m", "0 m"]);
   });
 });

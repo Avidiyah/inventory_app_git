@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  ALL_ROLES, assignableRoles, canBeWorkOrderSupervisor, canBeWorkOrderTechnician,
+  ALL_ROLES, assignableRoles, canBeWorkOrderAssignee, canBeWorkOrderSupervisor,
   canManage, roleAtLeast, roleLabel,
 } from "../../../backend/static/roles.js";
 
@@ -11,6 +11,9 @@ import {
 describe("roleLabel", () => {
   it("renders the one label capitalisation cannot produce", () => {
     expect(roleLabel("techfm_oa")).toBe("TechFM OA");
+  });
+  it("shows the stored supervisor role as Team Lead", () => {
+    expect(roleLabel("supervisor")).toBe("Team Lead");
   });
   it("passes an unrecognised role through unchanged", () => {
     expect(roleLabel("contractor")).toBe("contractor");
@@ -43,12 +46,14 @@ describe("work-order assignment eligibility", () => {
   it.each(ALL_ROLES)("canBeWorkOrderSupervisor(%s)", (role) => {
     expect(canBeWorkOrderSupervisor(role)).toBe(["admin", "techfm_oa", "supervisor"].includes(role));
   });
-  it.each(ALL_ROLES)("canBeWorkOrderTechnician(%s)", (role) => {
-    expect(canBeWorkOrderTechnician(role)).toBe(["supervisor", "technician"].includes(role));
+  it.each(ALL_ROLES)("canBeWorkOrderAssignee(%s)", (role) => {
+    expect(canBeWorkOrderAssignee(role)).toBe(
+      ["admin", "techfm_oa", "supervisor", "technician"].includes(role)
+    );
   });
   it("excludes owner from both, deliberately", () => {
     expect(canBeWorkOrderSupervisor("owner")).toBe(false);
-    expect(canBeWorkOrderTechnician("owner")).toBe(false);
+    expect(canBeWorkOrderAssignee("owner")).toBe(false);
   });
 });
 

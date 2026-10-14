@@ -31,7 +31,7 @@ export const TIPS = {
   },
   "txn.quick-mode": {
     label: "Quick mode",
-    text: "Quick mode commits a dispense scan immediately instead of showing the confirm dialog. Add Stock always keeps its confirm, because a mistake there is costlier to reverse. Supervisor and above get an Undo on each logged line; other roles do not.",
+    text: "Quick mode commits a dispense scan immediately instead of showing the confirm dialog. Add Stock always keeps its confirm, because a mistake there is costlier to reverse. Team Lead and above get an Undo on each logged line; other roles do not.",
   },
   "txn.advanced": {
     label: "Manual entry and stock options",
@@ -115,7 +115,7 @@ export const TIPS = {
   // --- Work Orders (pages/work-orders.html) ------------------------------
   "wo.status": {
     label: "Status",
-    text: "The lifecycle runs Created, Assigned, In-Progress, Ready to Complete, Completed, Review, with On-Hold as the pause state meaning nobody is on the clock. Ready to Complete is a technician saying the job is done and waiting on a supervisor; Completed is the supervisor agreeing and is what the billing queue reads; Review is the final admin billing check.",
+    text: "The lifecycle runs Created, Assigned, In-Progress, Ready to Complete, Completed, Review, with On-Hold as the pause state meaning nobody is on the clock. Ready to Complete is a technician saying the job is done and waiting on a Team Lead; Completed is the Team Lead agreeing and is what the billing queue reads; Review is the final admin billing check.",
   },
   "wo.community": {
     label: "Community",
@@ -131,7 +131,7 @@ export const TIPS = {
   },
   "wo.routing": {
     label: "Assigned technicians",
-    text: "The routed Supervisor oversees the order. More than one technician can be assigned. Technicians must be assigned to track time; Supervisors and higher roles may also work and record time on any order they can see.",
+    text: "The routed Team Lead oversees the order. More than one person can be assigned, and a Team Lead or higher assigns them here. Anyone but the Owner can also tap Begin Charging on any order, which adds them to the crew. Only an Admin or the Owner can add or change hours by hand.",
   },
   "wo.entry-mode": {
     label: "New material entry mode",
@@ -151,7 +151,7 @@ export const TIPS = {
   // --- History (pages/history.html) --------------------------------------
   "history.wo-filter": {
     label: "Filter by Work Order",
-    text: "Filters on the work-order number stored on each row, so a work order's history survives the work order being archived. If the number you type names an archived work order, Supervisor and above are offered a restore.",
+    text: "Filters on the work-order number stored on each row, so a work order's history survives the work order being archived. If the number you type names an archived work order, Team Lead and above are offered a restore.",
   },
   "history.date-range": {
     label: "Date range",
@@ -207,7 +207,7 @@ export const TIPS = {
   // --- Add User (pages/create-user.html) ---------------------------------
   "user.role": {
     label: "Role",
-    text: "Technicians scan and work assigned jobs; Supervisors run the board and approve finished work. TechFM OA handles imports, exports, and the request queues, and Admin and Owner add billing review and full account management. You can only create roles at or below your own.",
+    text: "Technicians see every job but write only to ones they are on (Begin Charging puts them on the crew) and scan the ones assigned to them; Team Leads run the board and approve finished work. TechFM OA handles imports, exports, and the request queues, and Admin and Owner add billing review and full account management. You can only create roles at or below your own.",
   },
   "user.lifecycle": {
     label: "User lifecycle",
@@ -225,11 +225,11 @@ export const TIPS = {
   },
   "hub.priorities": {
     label: "Hub priorities",
-    text: "Technicians see high-priority work assigned to them. Supervisors see high-priority live work orders routed to them, and TechFM OA and above see company-wide counts. The main count includes the unassigned subset shown beside it.",
+    text: "Technicians see high-priority work assigned to them. Team Leads see high-priority live work orders routed to them, and TechFM OA and above see company-wide counts. The main count includes the unassigned subset shown beside it.",
   },
   "hub.crew": {
     label: "My crew",
-    text: "Crew membership is derived from live work orders routed to you, not from a permanent team list. A person appears after a work order is assigned under your supervision.",
+    text: "Crew membership is derived from live work orders routed to you, not from a permanent team list. A person appears after a work order is assigned under your lead.",
   },
   "hub.leaderboard": {
     label: "Leaderboard",

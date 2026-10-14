@@ -747,22 +747,17 @@ def can_view_work_order(
     supervisor_id: Optional[UUID] = None,
     assigned_to_ids: Optional[Sequence[UUID]] = None,
 ) -> bool:
-    """Whether a user of `role` may see/act on a work order.
+    """Whether a user of `role` may see a work order.
 
-    TechFM OA and above (and a `None`-role internal caller) see all. A Supervisor sees
-    unrouted work orders available to pick up, work orders routed to them, and
-    work orders where they are assigned to perform technician work. A Technician
-    sees only work orders assigned to them.
+    Every recognised role (Technician and above) and a `None`-role internal
+    caller sees every live work order. Seeing is not acting: a Technician who is
+    not on the crew is read-only (`services.work_orders.require_crew_for_technician`).
+    An *unrecognised* role fails closed to assignment-only, so a corrupt role
+    value never widens access.
     """
-    if role is None or roles.role_at_least(role, roles.ROLE_TECHFM_OA):
+    if role is None or roles.role_at_least(role, roles.ROLE_TECHNICIAN):
         return True
     technician_ids = tuple(assigned_to_ids or ())
     if assigned_to_id is not None and assigned_to_id not in technician_ids:
         technician_ids += (assigned_to_id,)
-    if role == roles.ROLE_SUPERVISOR:
-        return user_id is not None and (
-            supervisor_id is None
-            or supervisor_id == user_id
-            or user_id in technician_ids
-        )
     return user_id is not None and user_id in technician_ids

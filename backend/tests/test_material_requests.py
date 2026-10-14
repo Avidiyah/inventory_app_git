@@ -735,10 +735,35 @@ def test_a_technician_cannot_file_against_a_work_order_they_are_not_on(db):
         "item_id": str(item.id), "work_order_id": str(work_order.id), "quantity": "1",
     })
 
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Work order not found."
-    assert work_order.number not in response.text
+    # Visible to everyone, but a Technician off the crew is read-only.
+    assert response.status_code == 403
+    assert "Begin Charging" in response.json()["detail"]
     assert db.query(UserRequest).filter(UserRequest.item_id == item.id).count() == 0
+
+
+def test_a_technician_off_the_crew_cannot_file_a_work_order_catalogue_request(db):
+    tech = _user(db)
+    other = _user(db)
+    work_order = _work_order(db, other, assigned_to=other)
+    db.commit()
+    body = {"searched_text": "grommet 1in", "quantity": "1", "source": "request_card"}
+
+    refused = _post(db, tech, "/user-requests/catalogue-request", {
+        **body, "work_order_id": str(work_order.id),
+    })
+    assert refused.status_code == 403
+    assert "Begin Charging" in refused.json()["detail"]
+    assert db.query(UserRequest).filter(UserRequest.work_order_id == work_order.id).count() == 0
+
+    # A request tied to no work order is the Find Item path and stays open.
+    free = _post(db, tech, "/user-requests/catalogue-request", {**body, "source": "find_item"})
+    assert free.status_code == 201
+
+    # The crew files against their own work order as before.
+    crew = _post(db, other, "/user-requests/catalogue-request", {
+        **body, "work_order_id": str(work_order.id),
+    })
+    assert crew.status_code == 201
 
 
 def test_filing_against_an_archived_work_order_is_404(db):
@@ -871,7 +896,7 @@ def test_patch_to_stocked_is_422(db):
 # The work-order side
 # --------------------------------------------------------------------------
 
-def test_the_work_order_requests_list_is_visibility_scoped(db):
+def test_the_work_order_requests_list_is_readable_by_every_role(db):
     tech = _user(db)
     other = _user(db)
     work_order = _work_order(db, tech, assigned_to=tech)
@@ -883,7 +908,11 @@ def test_the_work_order_requests_list_is_visibility_scoped(db):
     assert [row["id"] for row in mine.json()] == [str(request.id)]
     assert mine.json()[0]["item_quantity"] == "0"
 
-    assert _get(db, other, f"/work-orders/{work_order.id}/requests").status_code == 404
+    # Reading is open: a Technician off the crew sees the same list.
+    theirs = _get(db, other, f"/work-orders/{work_order.id}/requests")
+    assert theirs.status_code == 200
+    assert [row["id"] for row in theirs.json()] == [str(request.id)]
+    assert _get(db, other, f"/work-orders/{uuid.uuid4()}/requests").status_code == 404
 
 
 def test_adding_from_the_stocked_line_resolves_the_request(db, monkeypatch):

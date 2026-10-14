@@ -532,10 +532,11 @@ export async function apiReuseStage(stageId) {
 
 // --- Work Orders -------------------------------------------------------
 // A work order is the standalone entity (identity = number). List/get/items are
-// open to any authenticated user but server-scoped (technician -> assigned,
-// supervisor -> created/routed, admin/owner -> all). Notes/add-item are
-// Technician+; operations/labor/material corrections are Supervisor+; imported
-// metadata and close/archive are Admin+.
+// open to any authenticated user, and every role sees every live work order
+// (`mine` / `assignedToId` narrow it). Notes/add-item are Technician+, but a
+// Technician must be on the crew (Begin Charging adds them); operations and
+// material corrections are Team Lead+; hand-keyed labor is Admin and Owner
+// only; imported metadata and close/archive are TechFM OA+.
 //
 // There is no create call: work orders are import-only, so apiImportWorkOrders
 // is the only thing that brings one into existence. Every other surface looks an
@@ -822,7 +823,7 @@ export async function apiUpdateWorkOrder(workOrderId, patch) {
 }
 
 // Narrow lifecycle action used by Scan / Stock and the Work Orders walkthrough.
-// Assigned Technicians and Supervisor+ may start a visible Assigned work order
+// Crew Technicians and Team Lead+ may start a visible Assigned work order
 // without receiving general status-edit permission.
 export async function apiStartWorkOrder(workOrderId) {
   return jsonRequest(`/work-orders/${workOrderId}/start`, "POST", {});
@@ -836,8 +837,9 @@ export async function apiCompleteWorkOrder(workOrderId) {
   return jsonRequest(`/work-orders/${workOrderId}/complete`, "POST", {});
 }
 
-// Start / stop the caller's own labor clock. Assigned Technicians, plus
-// Supervisor+ on any visible work order. Both are idempotent and both return
+// Start / stop the caller's own labor clock. Any role but the Owner, on any
+// visible work order; starting also adds the caller to the crew. Both are
+// idempotent and both return
 // the refreshed WorkOrderDetail, so the card repaints from one response.
 // Starting advances a pre-work row to In-Progress and resumes an On-Hold one;
 // stopping the last clock on an In-Progress row puts it back On-Hold.

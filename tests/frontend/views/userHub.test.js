@@ -133,10 +133,10 @@ describe("tabs", () => {
     }
   });
 
-  // `mine=true` is a supervisor-only flag: a technician is already scoped by
-  // role on the server, and techfm_oa+ is deliberately unscoped (P4 Tab 3).
+  // `mine=true` is how a Technician or Team Lead asks for their own work: every
+  // role sees every work order server-side. techfm_oa+ is deliberately unscoped (P4 Tab 3).
   it.each([
-    ["technician", { limit: "10" }],
+    ["technician", { mine: "true", limit: "10" }],
     ["supervisor", { mine: "true", limit: "10" }],
     ["admin", { limit: "10" }],
   ])("My Work Orders mounts the capped list: %s sends %j", async (role, expected) => {

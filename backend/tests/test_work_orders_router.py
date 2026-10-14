@@ -14,13 +14,15 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import uuid
+from contextlib import contextmanager
+from decimal import Decimal
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from app.database import get_db
 from app.main import app
-from app.models import User
+from app.models import Item, User
 from app.services import auth as auth_service
 from app.services import work_orders as wos
 from tests._work_orders_source import work_orders_source
@@ -94,6 +96,121 @@ def test_mine_defaults_to_off(db):
     assert someone_elses.number not in _numbers(
         db, token, f"?mine=true&q={prefix}"
     )
+
+
+# --- open visibility, self-assignment and the Technician write lock -------------
+
+@contextmanager
+def _http(db, user):
+    """A real `TestClient` signed in as `user`, with the test DB wired in."""
+    token = auth_service.create_session(db, user)
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        with TestClient(app) as client:
+            client.cookies.set("session", token)
+            yield client
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def _item(db):
+    item = Item(
+        barcode=f"BC-{uuid.uuid4().hex[:10]}",
+        name="Wire Nut",
+        quantity=Decimal("50"),
+        location="Bay 2",
+        price=Decimal("1.00"),
+    )
+    db.add(item)
+    db.flush()
+    return item
+
+
+def test_a_technician_lists_every_work_order_and_narrows_to_theirs_on_request(db):
+    admin = _seed_user(db, "admin")
+    tech = _seed_user(db, "technician")
+    other = _seed_user(db, "technician")
+    prefix = f"WO-OPEN-{uuid.uuid4().hex[:8]}"
+    mine = wos.get_or_create_work_order(
+        db, number=f"{prefix}-M", created_by_id=admin.id, assigned_to_id=tech.id
+    )
+    theirs = wos.get_or_create_work_order(
+        db, number=f"{prefix}-T", created_by_id=admin.id, assigned_to_id=other.id
+    )
+    db.commit()
+    token = auth_service.create_session(db, tech)
+
+    assert {mine.number, theirs.number} <= _numbers(db, token, f"?q={prefix}")
+    # The client's own narrowing -- what Scan / Stock sends for a Technician.
+    assert _numbers(db, token, f"?assigned_to_id={tech.id}&q={prefix}") == {mine.number}
+
+
+def test_begin_charging_over_http_puts_the_technician_on_the_crew(db):
+    admin = _seed_user(db, "admin")
+    crew = _seed_user(db, "technician")
+    tech = _seed_user(db, "technician")
+    work_order = wos.get_or_create_work_order(
+        db, number=f"WO-SELF-{uuid.uuid4().hex[:8]}", created_by_id=admin.id,
+        assigned_to_id=crew.id,
+    )
+    db.commit()
+
+    with _http(db, tech) as client:
+        response = client.post(f"/work-orders/{work_order.id}/tracking/start")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "in_progress"
+    assert set(body["assigned_to_ids"]) == {str(crew.id), str(tech.id)}
+
+
+def test_the_owner_cannot_begin_charging_and_no_punch_is_opened(db):
+    admin = _seed_user(db, "admin")
+    owner = _seed_user(db, "owner")
+    work_order = wos.get_or_create_work_order(
+        db, number=f"WO-OWN-{uuid.uuid4().hex[:8]}", created_by_id=admin.id
+    )
+    db.commit()
+
+    with _http(db, owner) as client:
+        response = client.post(f"/work-orders/{work_order.id}/tracking/start")
+        punch = client.get("/attendance/me").json()
+
+    assert response.status_code == 403
+    assert "Owner" in response.json()["detail"]
+    # The refusal comes before the attendance coupling, so nothing was opened.
+    assert punch["open_punch"] is None
+
+
+def test_a_technician_off_the_crew_cannot_dispense_against_the_work_order(db):
+    admin = _seed_user(db, "admin")
+    crew = _seed_user(db, "technician")
+    outsider = _seed_user(db, "technician")
+    item = _item(db)
+    work_order = wos.get_or_create_work_order(
+        db, number=f"WO-DISP-{uuid.uuid4().hex[:8]}", created_by_id=admin.id,
+        assigned_to_id=crew.id,
+    )
+    db.commit()
+    body = {
+        "item_id": str(item.id),
+        "transaction_type": "dispense",
+        "quantity": "2",
+        "work_order_id": str(work_order.id),
+    }
+
+    with _http(db, outsider) as client:
+        refused = client.post("/transactions/", json=body)
+    assert refused.status_code == 403
+    assert "Begin Charging" in refused.json()["detail"]
+    db.refresh(item)
+    assert item.quantity == Decimal("50")
+
+    with _http(db, crew) as client:
+        accepted = client.post("/transactions/", json=body)
+    assert accepted.status_code == 201, accepted.text
+    db.refresh(item)
+    assert item.quantity == Decimal("48")
 
 
 

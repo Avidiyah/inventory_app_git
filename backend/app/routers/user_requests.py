@@ -137,12 +137,13 @@ def create_material_request(
 
     Open to any authenticated session, scoped by the same visible-work-order
     reader the Work Orders page uses (SEC-021 applied from day one): a
-    Technician can only file against a job they are assigned to, and an
-    invisible or archived work order is 404, not 403. On-hand is read for
-    the response only -- never a gate.
+    Technician can only file against a job they are on the crew of (Begin
+    Charging adds them; otherwise 403), and an unknown or archived work order
+    is 404. On-hand is read for the response only -- never a gate.
     """
     try:
         work_order = wo_service.get_visible_work_order(db, payload.work_order_id, user)
+        wo_service.require_crew_for_technician(work_order, user)
         item = material_service.lock_live_item(db, payload.item_id)
         request, created = material_service.create_or_update(
             db,
@@ -192,6 +193,11 @@ def create_catalogue_request(
         )
         if work_order is None:
             raise to_http(WorkOrderNotFoundError("Work order not found."))
+        try:
+            # A request linked to a work order is a write to it.
+            wo_service.require_crew_for_technician(work_order, user)
+        except DomainError as exc:
+            raise to_http(exc)
         number = work_order.number
 
     request = request_service.create_catalogue_request(

@@ -6,7 +6,7 @@
 // declares it can refill it.
 
 import { apiListItems, apiListUsers } from "../api.js";
-import { canBeWorkOrderSupervisor, canBeWorkOrderTechnician } from "../roles.js";
+import { canBeWorkOrderSupervisor, canBeWorkOrderAssignee } from "../roles.js";
 import { isSupervisorPlus } from "./workOrderPresenters.js";
 
 // Reference lists are reused during interactions within one visit (for example,
@@ -51,7 +51,7 @@ export async function ensureReferenceData({ refresh = false } = {}) {
   if ((refresh || !usersLoaded) && isSupervisorPlus()) {
     try {
       const users = await apiListUsers();
-      allTechs = users.filter((u) => canBeWorkOrderTechnician(u.role));
+      allTechs = users.filter((u) => canBeWorkOrderAssignee(u.role));
       allSupers = users.filter((u) => canBeWorkOrderSupervisor(u.role));
       usersLoaded = true;
     } catch {

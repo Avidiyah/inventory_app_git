@@ -341,8 +341,8 @@ if (moreEl) {
 // body's status actions never disagree. A held card's editor is never
 // touched -- the caller filters those out before calling this.
 //
-// A 404 means the work order left this user's view: archived, or unassigned
-// from them. Either way the row goes. Only 404 removes a card; a network blip
+// A 404 means the work order left this user's view: archived (every recognised
+// role sees every live work order). The row goes. Only 404 removes a card; a network blip
 // rejects without a `status` field and must leave the list alone.
 async function refreshCardSummary(cardEl) {
   let detail;
@@ -351,8 +351,8 @@ async function refreshCardSummary(cardEl) {
   } catch (err) {
     if (err?.status !== 404) return;
     if (isSoloActive()) {
-      // The card page's only card just left this user's view -- archived, or
-      // unassigned from them. Wiping to the list's "No work orders match."
+      // The card page's only card just left this user's view -- archived.
+      // Wiping to the list's "No work orders match."
       // would leave a page with no card and no way back.
       renderSoloError("This work order is no longer available.");
       return;
@@ -558,12 +558,10 @@ export function openWorkOrdersFilteredByDistribution({
 //
 // `lockedFilter` is forwarded to `apiListWorkOrders` as-is (the same
 // {status, serviceType, supervisorId, assignedToId, community, priority,
-// scheduledDate, q, mine, limit} shape that function already accepts). The
-// technician's own scope needs no filter at all -- `apiListWorkOrders` is
-// already scoped server-side per role (`_scoped_to_user`), so an unfiltered
-// call already returns exactly "my work orders" for a Technician. The
-// Supervisor caller passes `{ mine: true }` -- routed to me or assigned to
-// me -- and the Admin caller passes nothing.
+// scheduledDate, q, mine, limit} shape that function already accepts). Every
+// role sees every work order server-side, so the Technician and Team Lead
+// callers both pass `{ mine: true }` -- routed to me or assigned to me -- and
+// the Admin caller passes nothing.
 export function mountWorkOrderList({ container, lockedFilter = null, onOpen } = {}) {
   async function refresh() {
     container.innerHTML = skeletonCard({ lines: 1 }).repeat(3);

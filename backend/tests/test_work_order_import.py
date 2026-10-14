@@ -358,7 +358,7 @@ def test_import_counts_and_ignores_closed_work_orders(db):
     wos.add_work_order_labor(
         db,
         work_order.id,
-        user=supervisor,
+        user=admin,
         technician_id=technician.id,
         minutes=45,
     )
@@ -651,11 +651,12 @@ def test_routed_supervisor_can_see_imported_work_order(db):
     wos.import_work_orders(db, csv_bytes=csv_bytes, user=admin)
     row = wos.find_by_number(db, n1)
 
-    # The routed supervisor sees it; another supervisor does not (404 scope).
+    # The routed Team Lead sees it, and so does every other Team Lead: routing
+    # no longer hides a work order. It only decides who `mine` and the
+    # supervisor-assigned notification address.
+    assert row.supervisor_id == sup.id
     assert wos.get_work_order(db, row.id, user=sup).id == row.id
-    from app.domain.errors import WorkOrderNotFoundError
-    with pytest.raises(WorkOrderNotFoundError):
-        wos.get_work_order(db, row.id, user=other_sup)
+    assert wos.get_work_order(db, row.id, user=other_sup).id == row.id
 
 
 # --- router gate ---------------------------------------------------------

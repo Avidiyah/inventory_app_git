@@ -23,6 +23,7 @@ import { escapeHtml, filterRanked, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
 import { getCurrentUser } from "../state.js";
 import { catalogueRequestPromptHtml } from "./catalogueRequest.js";
+import { isCrewLocked } from "./workOrderPresenters.js";
 
 const USER_REQUEST_CHANGED_EVENT = "user_request.changed";
 
@@ -121,7 +122,12 @@ export async function mountWorkOrderRequests(cardEl, detail, { items = [] } = {}
   const section = cardEl.querySelector(".wo-request-section .wo-section-content");
   const lines = cardEl.querySelector(".wo-requested-lines");
   if (!section) return;
-  section.innerHTML = requestFormHtml() + `<div class="wo-request-list"><p class="hint">Loading requests…</p></div>`;
+  // A Technician off the crew reads the requests but files none (and cannot add
+  // a stocked line to the work order): no form, no "Add requested material".
+  const locked = isCrewLocked(detail);
+  section.innerHTML =
+    (locked ? "" : requestFormHtml()) +
+    `<div class="wo-request-list"><p class="hint">Loading requests…</p></div>`;
   let requests = [];
   try {
     requests = await apiListWorkOrderRequests(detail.id);
@@ -133,7 +139,7 @@ export async function mountWorkOrderRequests(cardEl, detail, { items = [] } = {}
   const me = getCurrentUser()?.id || null;
   const list = section.querySelector(".wo-request-list");
   if (list) list.innerHTML = requestListHtml(requests, me);
-  if (lines) lines.innerHTML = stockedLinesHtml(requests);
+  if (lines) lines.innerHTML = locked ? "" : stockedLinesHtml(requests);
 }
 
 // --- search inside the Request form ----------------------------------------

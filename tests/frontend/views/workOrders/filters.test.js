@@ -293,7 +293,7 @@ describe("the filter options request", () => {
     });
     const values = (id) => [...el(id).options].map((o) => `${o.value}|${o.textContent}`);
     expect(values("work-orders-service-filter")).toEqual(["|All service types", "Electrical|Electrical"]);
-    expect(values("work-orders-supervisor-filter")).toEqual(["|All supervisors", "s1|Sue S"]);
+    expect(values("work-orders-supervisor-filter")).toEqual(["|All Team Leads", "s1|Sue S"]);
     expect(values("work-orders-community-filter")).toEqual(["|All communities", "mr|Maple Ridge"]);
     // Priority always gains the "not imported" sentinel at the end.
     expect(values("work-orders-priority-filter"))

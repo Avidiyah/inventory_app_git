@@ -110,7 +110,7 @@ describe("notify-supervisor-wo", () => {
     seedDetail({ ...detail, status: "ready_to_complete", active_labor_session: null });
     click("notify-supervisor-wo");
     await vi.waitFor(() =>
-      expect(message().textContent).toBe("Sent to your supervisor for review."));
+      expect(message().textContent).toBe("Sent to your Team Lead for review."));
     expect(requestFor("/complete", "POST").url).toBe(`/work-orders/${detail.id}/complete`);
   });
 
@@ -124,7 +124,7 @@ describe("notify-supervisor-wo", () => {
 
   it("pops the co-worker rule as a dialog and issues NO refresh", async () => {
     const detail = await setup();
-    const rule = "All Users must Stop Charging before a Supervisor can be notified.";
+    const rule = "All Users must Stop Charging before a Team Lead can be notified.";
     respond("post", "/work-orders/:id/complete", { detail: rule }, { status: 400 });
     click("notify-supervisor-wo");
     expect(await dismissMessageDialog()).toBe(rule);
@@ -294,7 +294,7 @@ describe("the shared error paths", () => {
     respond("post", "/work-orders/:id/tracking/start", { detail: "nope" }, { status: 403 });
     click("start-tracking-wo");
     await vi.waitFor(() => expect(message().textContent)
-      .toBe("Your account can't do that. Ask a supervisor if this seems wrong."));
+      .toBe("Your account can't do that. Ask a Team Lead if this seems wrong."));
   });
 
   it("swallows the SECOND error on a card, because setMessage stripped the class", async () => {

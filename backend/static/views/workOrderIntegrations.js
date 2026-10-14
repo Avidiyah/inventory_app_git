@@ -338,7 +338,7 @@ function importSummary(r) {
   if (r.created) {
     const noun = r.created === 1 ? "new work order" : "new work orders";
     clauses.push(`${r.created} ${noun}`);
-    clauses.push(`${r.supervisors_matched} with a supervisor name match`);
+    clauses.push(`${r.supervisors_matched} with a Team Lead name match`);
   }
   if (!clauses.length) return "No new work orders.";
   return `${clauses.join(" · ")}.`;

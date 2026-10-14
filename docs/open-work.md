@@ -317,7 +317,7 @@ the hub tab shell, the scanner widget, or the Mass Stage page.
 | `tryResumeBatch` writes "Your previous work order is no longer active…" into `#wo-gate-message` on a stale or 404 work order, then `enterApp`'s `resetBatch()` → `resetWoCards()` (`transactions.js:436`) blanks that same element. The operator is never told why their batch vanished. | `auth.test.js` → "a stale work order clears the snapshot, but the explanation never reaches the gate" |
 | `enterApp`'s "History keeps its All sub-tab primed" comment: `setHistoryTab("all")` is a no-op on first boot, because `history.html` pre-marks that tab and `subnav.showFeature` short-circuits when the feature is unchanged. No transactions load happens. | `auth.test.js` → "setHistoryTab('all') on a fresh mount is a no-op" |
 | `enterApp`'s deep-link fallback (`replaceState("/")` for a role that cannot reach Work Orders) is unreachable: `PAGE_ACCESS["work-orders"]` grants all five roles. Dead branch, not a defect — pinned so it goes red the day that map narrows. | `auth.test.js` → "every role can reach work-orders, so the drop-the-URL branch is unreachable today" |
-| `loadItemResults`'s error row hardcodes `colspan="8"`, but the column count is role-derived: 5 (technician), 7 (supervisor), 9 (techfm_oa+). The load-failure cell under- or over-spans for every role. | `items.test.js` → "a failed list renders friendlyError in a single error cell" |
+| `loadItemResults`'s error row hardcodes `colspan="8"`, but the column count is role-derived: 5 (technician), 7 (Team Lead), 9 (techfm_oa+). The load-failure cell under- or over-spans for every role. | `items.test.js` → "a failed list renders friendlyError in a single error cell" |
 | `renderItems` renders Created as `new Date(i.created_at).toLocaleString()` with no guard, so a null timestamp shows a fabricated epoch date and an absent one shows the literal "Invalid Date". | `items.test.js` → "a null created_at renders the epoch" / "an absent created_at renders the literal 'Invalid Date'" |
 | The sub-flow panels (`notes.js`, `itemEditor.js`, `correctionPanel.js`, `addBarcode.js`, `toolCheckout.js`, `toolReturn.js`, plus `tools.js`'s own editor and user-picker keyboard navigation) call `scrollIntoView` unguarded on open, while the row-scroll in `items.js` and `tools.js` guards the same call with `typeof === "function"`. Harmless in a browser; the inconsistency is the finding. | `helpers/browserStubs.js` → `stubScrollIntoView()`, needed only because of the unguarded callers |
 | `startBatchFor` assigns `batchWorkOrder` before `setScangoType("dispense")`, so the batch snapshot is written at batch **start**, not at the first commit — `setScangoType`'s "no-op while at the gate" comment does not hold on this path. | `transactions.test.js` → "in_progress starts the batch" |
@@ -325,7 +325,7 @@ the hub tab shell, the scanner widget, or the Mass Stage page.
 | The snapshot carries `workOrder.status`, but `tryResumeBatch` re-fetches the work order and decides on the response — the persisted field is dead weight. | `transactions.test.js` → "is written after the first commit in the documented shape" |
 | The batch summary has no singular for units: one unit reads "1 scan, 1 units". | `transactions.test.js` → "a failing void re-enables the button" |
 | `tryResumeBatch`'s network-error branch is silent only in the sense that it writes nothing: it leaves whatever copy is already in `#wo-gate-message`, so a preceding 404's "no longer active" line still stands over an inconclusive retry. | `transactions.test.js` → "404 clears; a network error keeps the snapshot and stays silent" (the test blanks the element by hand first) |
-| `loadHistory`'s error row hardcodes `colspan="8"`; a supervisor's table has 7 columns. | `history.test.js` → "a failed load renders friendlyError in an 8-span error cell" |
+| `loadHistory`'s error row hardcodes `colspan="8"`; a Team Lead's table has 7 columns. | `history.test.js` → "a failed load renders friendlyError in an 8-span error cell" |
 | `woRestoreAsked` is documented as remembering a *decline*, but a failed restore also keeps the key (it is deleted only on success), so the offer is never repeated after a transient error. | `history.test.js` → "a restore failure reports friendlyError and the number is NOT asked again" |
 | `formatRow` renders the timestamp with `toLocaleString()` — locale-dependent on screen and in the pricing/TSV paths; the test can only pin non-empty. | `history.test.js` → "formats the six columns" |
 | `renderHistory` / `loadHistory` comments say the Charge column is "Admin/Owner"; the gate is `roleAtLeast(role, "techfm_oa")`. Comment drift, not behaviour. | `history.test.js` → "Charge column gating" |
@@ -365,7 +365,7 @@ tab, the Tools page, the Users page, or the push opt-in.
 | The first entry to the Graphs tab fetches `/hub/graphs` twice: `showTab` → `renderActiveTab` finds no payload and calls `loadGraphs()`, then the tab button's own listener calls `loadGraphs({background: false})`. The request-id guard discards the duplicate render, not the duplicate request. | `hubGraphs.test.js` → "opening the tab fetches the graphs twice — renderActiveTab and the tab button both load" |
 | Two different `formatHm`s: `hubTimesheets.js` defines a private one rendering `h:mm` while `format.js` exports one rendering `N h M m`, and the hub shows both at once (the Dashboard's "1 h 30 m" beside the grid's "1:30"). A reader importing the shared one into that grid would silently change every cell. | `hubTimesheets.test.js` → "renders h:mm, not format.js's 'N h M m' — two renderings, one name" |
 | Two unreachable validation branches behind `input[type=number]`, which drops any non-numeric text so the raw value arrives as `""`: `notes.js`'s `Invalid number for "k".` and the `!Number.isFinite` half of `correctionPanel.js`'s "Enter a valid new count." Each is answered first by its own blank-value branch. Harmless today; a change to a text input would make both live, untested paths. `toolCheckout.js` and `toolReturn.js` carry the same dead `!Number.isFinite(quantity)` half in front of "Enter a quantity greater than zero." | `notes.test.js` → "a number field holding text is refused as invalid"; `correction.test.js` → "a non-numeric count is refused"; `toolsCheckout.test.js` → "refuses a blank quantity" (both editors) |
-| `tools.js`'s `loadTools` writes its failed-`/tools/` error row with a hardcoded `colspan="5"`, but a non-manager's table has four columns — the row overhangs for Supervisor and Technician. `renderTools` never runs on that branch either, so the header row stays empty and the overhang is invisible in practice. | `toolsCustody.test.js` → "a failed /tools/ writes one error row for technician — always colspan 5" |
+| `tools.js`'s `loadTools` writes its failed-`/tools/` error row with a hardcoded `colspan="5"`, but a non-manager's table has four columns — the row overhangs for Team Lead and Technician. `renderTools` never runs on that branch either, so the header row stays empty and the overhang is invisible in practice. | `toolsCustody.test.js` → "a failed /tools/ writes one error row for technician — always colspan 5" |
 | The checkout-scan guard in `tools.js`'s `onItemFound` has an unreachable half: `!canManageCustody()` can never be true there, because `#tool-checkout-scan-btn` refuses a non-manager with "Select an active user first." before `scanPurpose` can become `"checkout"`. Only the `!user` half — a reload that drops the user the scan was armed for — reaches "Select an active user before scanning for checkout." | `toolsScan.test.js` → "refuses once a reload has dropped the user it was armed for" |
 | `resetToolsView` empties the tool cache (`setTools([])`) without calling `renderTools`, so the table keeps its last rows over an empty cache until the next load repaints it. Reached on logout, where the page is hidden anyway. | `toolsScan.test.js` → "empties every field, closes every panel and returns to Custody" |
 | Entering the Tools Scan feature calls `toolsScanner.refreshPermissionState()` twice — once from the entering button's own listener (the Scan sub-nav button, or Scan Tool to Check Out) and once from `initSubNav`'s `onShow`. Two permission queries per entry. | `toolsScan.test.js` → "the Scan sub-nav button resets the widget and refreshes permission twice" |
@@ -403,7 +403,7 @@ in the same change.
 to a job archived under them.** Four candidates, ordered by value-to-effort,
 each costing the three steps in `docs/adding-a-notification-trigger.md`:
 (1) Completed → Review notifies Admin — the forward handoff deliberately
-notifies nobody on the crew; (2) On-Hold notifies supervisor and assignees;
+notifies nobody on the crew; (2) On-Hold notifies Team Lead and assignees;
 (3) Archive notifies assignees — the one with real operational cost attached;
 (4) NetFacilities enrichment finished notifies the starting Admin
 (currently poll-only). Retired 2026-09-08: `material_request.filed` /
@@ -414,9 +414,9 @@ until real volume is observed (see N14).
 
 ### N12 — auto-hold is the largest source of notification volume ever added
 
-**Trigger: a supervisor saying the On-Hold alerts are noise, or observably
+**Trigger: a Team Lead saying the On-Hold alerts are noise, or observably
 ignoring them.** Stopping the last clock on an In-Progress work order
-auto-holds it, and every entry into On-Hold notifies the routed supervisor —
+auto-holds it, and every entry into On-Hold notifies the routed Team Lead —
 a rule written when On-Hold was deliberate, now firing several times a day
 per crew (lunch, parts runs, end of shift). Chosen behavior: shipped loud to
 reveal whether the volume is actually a problem. The mitigation is already
@@ -429,7 +429,7 @@ alone, leaving `/hold` and the PATCH arm untouched. See
 **Trigger: a second batching case appearing, or an import send that is wrong
 in a way per-work-order sends would not have been.**
 `work_order.supervisor_assigned_bulk` collapses a whole import into one push
-per matched supervisor — the only place one notification stands for many
+per matched Team Lead — the only place one notification stands for many
 events, argued from import volume. **It is not precedent** — a second
 batching case argues its own volume evidence. **It under-counts on purpose**
 — only work orders the import *created* count, so the push and the on-screen
@@ -447,7 +447,7 @@ not renumbered. Promote one into this file's section 1 as an `IMP-` item before
 treating it as active — that promotion step is what #19 followed, and it is not
 optional.
 
-### 21. Supervisor+ "Add Stock" path is one toggle deep
+### 21. Team Lead+ "Add Stock" path is one toggle deep
 
 The direction toggle (Add Stock / Take Out) is hidden behind *Manual entry &
 stock options* by default. Reasonable given dispense-only is the common case.
@@ -477,7 +477,7 @@ Files: `backend/static/views/scan.js`, `backend/static/views/transactions.js`.
 Mass Stage already computes and displays "short by N" during staging
 (`massStage.js` `shortBy`/`coverageHtml`), but Find Item never surfaces low
 stock — the first signal is a rejected dispense on the floor. Highlighting
-quantity at or below a threshold on the Find Item table would let supervisors
+quantity at or below a threshold on the Find Item table would let Team Leads
 act before the crew hits a wall, even without a formal reorder-point field.
 
 **Assumes people are being surprised by empty stock** — worth one question
@@ -576,22 +576,22 @@ binds:
 - **DEC-004 — identity:** local credentials + TOTP MFA for Admin/Owner only;
   no external IdP (each future per-university deployment owns its own MFA
   enrollment/recovery). Splits `SEC-004` by role: Admin/Owner get the
-  approved-standard length (NIST 800-63B); Supervisor/Technician stay
+  approved-standard length (NIST 800-63B); Team Lead/Technician stay
   sole-factor, so the ≥15-character minimum binds them. The measured
   enumeration-timing gap and the 4-character minimum stay in scope for every
   account. `SEC-011` becomes TOTP enrollment/recovery/step-up for Admin/Owner
   only; the lost-authenticator recovery path will need its own follow-up
   decision.
-- **DEC-005 — technician visibility:** `can_view_work_order` is correct as
-  written — reassignment and archiving revoke access immediately and
-  completely, no read-only carve-out; mutation falls out of visibility, not a
-  separate rule. Policy closed; **code fixes still outstanding**: `SEC-002`
-  (`routers/transactions.py`) and `SEC-021` (`routers/user_requests.py`) each
-  just need to call the predicate.
+- **DEC-005 — visibility vs. writing (revised 2026-10-14):** every recognised
+  role sees every live work order (`can_view_work_order`); archiving still
+  removes it from view. A Technician *writes* only to a work order they are on
+  the crew of (`require_crew_for_technician`, 403 otherwise) and Begin Charging
+  puts them on it. `SEC-021` is closed by this; `SEC-002`'s crew half is done
+  (`routers/transactions.py`), its archived-ID half is still outstanding.
 - **DEC-006 — Mass Stage ownership:** creator-owned; Admin/Owner/TechFM OA
   bypass as everywhere else. The fix tightens `get_stage` and the mutations
   to match `list_stages`'s existing scoping; inaccessible IDs return 404.
-  Accepted tradeoff: no peer-Supervisor coverage — if that bites, add a
+  Accepted tradeoff: no peer-Team Lead coverage — if that bites, add a
   logged Admin-gated transfer action rather than reopening the model. Scopes
   `SEC-007`.
 - **DEC-007 — imports:** preview-then-commit, undo, and skip-and-report with
@@ -656,7 +656,7 @@ binds:
 | SEC-018 | High: gives ordinary operational data an owned lifecycle and export policy. | DEC-009. |
 | SEC-019 | Compliance-dependent: satisfies only applicable legal/contractual duties. | DEC-001, DEC-009, and legal/contract owner. |
 | SEC-020 | Very high: prevents an unvalidated quantity from being billed to a customer work order. | None. |
-| SEC-021 | Done 2026-09-08 for material requests; the catalogue-request route still resolves by existence only. | DEC-005. |
+| SEC-021 | Done 2026-10-14: both request routes refuse a Technician who is not on the work order's crew. | DEC-005. |
 
 #### SEC-001 - Trustworthy, bounded request throttling
 
@@ -676,12 +676,14 @@ binds:
 
 `Must-fix`; `M`; Security + Integrity; `Confirmed`; status `Candidate`.
 
-- **Evidence/outcome:** `routers/transactions.py:66-85` accepts a work-order ID
-  by existence only; the downstream service can attach material and advance
-  state. A proof accepted an archived order for a Technician. Enforce current
-  visibility and archive policy inside the service transaction.
-- **Done when:** inaccessible, archived, and reassigned IDs return `404` with no
-  mutation; Technician, Supervisor, and Admin cases are covered.
+- **Evidence/outcome:** `routers/transactions.py` accepts a work-order ID by
+  existence only; the downstream service can attach material and advance state.
+  A proof accepted an archived order for a Technician. **Crew half done
+  2026-10-14:** a dispense by ID now returns 403 for a Technician who is not on
+  the crew (`test_work_orders_router.py`). **Remaining:** an archived order is
+  still accepted; enforce the archive policy inside the service transaction.
+- **Done when:** an archived ID returns `404` with no mutation; Technician, Team
+  Lead, and Admin cases are covered.
 - **Dependency/decision:** DEC-005.
 
 #### SEC-003 - Bounded barcode-image decoding and ingress
@@ -742,7 +744,7 @@ binds:
 
 `Must-fix`; `M`; Security; `Confirmed`; status `Candidate`.
 
-- **Evidence/outcome:** Supervisor lists are creator-scoped in
+- **Evidence/outcome:** Team Lead lists are creator-scoped in
   `services/mass_staging.py:148-169`, while ID-based detail and mutations do not
   receive the caller. Apply one policy to list, detail, slots, transitions,
   load/return, reuse, and deletion.
@@ -951,21 +953,14 @@ DEC-002 growth changes the target).
 
 #### SEC-021 - Work-order visibility check when filing a request
 
-`Must-fix`; `S`; Security + Integrity; `Confirmed`; status **Done 2026-09-08
-(material requests)** — residual on the catalogue route.
+`Must-fix`; `S`; Security + Integrity; `Confirmed`; status **Done 2026-10-14**.
 
-- **Evidence/outcome:** `POST /user-requests/material-request` resolves
-  `work_order_id` through `work_orders.get_visible_work_order`, so an
-  out-of-scope work order is 404 with no row and no number disclosed
-  (Technician/Supervisor/Admin cases in `test_material_requests.py`).
-  **Residual:** `POST /user-requests/catalogue-request` still resolves by
-  existence and `archived_at IS NULL` only; a proof filed a request against a
-  work order assigned to another Technician and got its `number` back, and
-  fulfilment retroactively bills material to it. Same shape as SEC-002.
-- **Done when:** the catalogue route uses the same reader, with the three role
-  cases covered.
-- **Dependency/decision:** DEC-005, same as SEC-002 — the visibility rule for
-  reassigned/archived work orders is the same policy question.
+- **Evidence/outcome:** both `POST /user-requests/material-request` and
+  `POST /user-requests/catalogue-request` (when it names a work order) now
+  refuse a Technician who is not on the work order's crew with 403
+  (`test_material_requests.py`). Every role sees every live work order, so the
+  old "number disclosed to another Technician" concern no longer applies;
+  an unknown or archived ID is still 404.
 
 ### Professionalism candidates
 

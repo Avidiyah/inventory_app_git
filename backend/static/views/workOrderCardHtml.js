@@ -18,13 +18,14 @@ import { getCurrentUser } from "../state.js";
 import {
   assignedIds,
   assignedNames,
-  canAddLabor,
-  canEditLabor,
+  canKeyLabor,
+  crewLockHtml,
   formatMinutes,
   hasUnreadPriorWork,
   hoursInputValue,
   isAdminPlus,
   isAssignedToCurrentUser,
+  isCrewLocked,
   isSupervisorPlus,
   laborSummaryHtml,
   lineChargeHtml,
@@ -32,8 +33,8 @@ import {
   modeLabel,
   notesLogContentsHtml,
   placeMeta,
-  priorityBadge,
   priorWorkBannerHtml,
+  priorityBadge,
   overdueTag,
   statusBadge,
   statusLabel,
@@ -44,7 +45,7 @@ import { livePriorityValues } from "./workOrderFilters.js";
 import { signatureSectionHtml } from "./workOrderSignature.js";
 
 function renderLaborEntryHtml(entry) {
-  const actions = canEditLabor(entry)
+  const actions = canKeyLabor()
     ? `<div class="wo-labor-actions">
          <input type="number" class="wo-labor-hours" value="${escapeHtml(hoursInputValue(entry.minutes))}" min="0.01" step="0.01" aria-label="Actual labor hours">
          <button type="button" class="secondary-btn" data-action="edit-labor">Update</button>
@@ -68,14 +69,13 @@ function renderLaborEntryHtml(entry) {
           </div>`;
 }
 
-// Supervisor+ picks who a manual entry credits; a Technician can only credit
-// themselves, so they get the plain hours input in laborSectionHtml instead
-// of this picker. A supervisor may also credit themselves without being on
-// the crew (the server allows "assigned, or the Supervisor recording
-// themselves"), so they are appended to the list when they are not already
-// in it.
+// An Admin or the Owner -- the only roles that may hand-key hours -- picks who
+// a manual entry credits. They may also credit themselves without being on the
+// crew (the server allows "on the crew, or the Admin/Owner recording
+// themselves"), so they are appended to the list when they are not already in
+// it.
 function laborTechnicianControl(detail) {
-  if (!isSupervisorPlus()) return "";
+  if (!canKeyLabor()) return "";
   const ids = assignedIds(detail).slice();
   const names = assignedNames(detail).slice();
   const user = getCurrentUser();
@@ -95,19 +95,17 @@ function laborTechnicianControl(detail) {
 function laborSectionHtml(detail) {
   const entries = (detail.labor || []).map(renderLaborEntryHtml).join("") ||
     `<p class="hint">No labor recorded yet.</p>`;
-  // Charged time is authoritative: entries mostly come from tracked sessions.
-  // A Supervisor may key a figure by hand for anyone; a Technician may do the
-  // same, but only for themselves, once they're assigned to the job.
+  // Charged time is authoritative: entries come from tracked sessions. Only an
+  // Admin or the Owner may key, change or remove a figure by hand.
   const technicianControl = laborTechnicianControl(detail);
-  const canAdd = isSupervisorPlus()
-    ? Boolean(technicianControl) && !technicianControl.startsWith("<p")
-    : canAddLabor(detail);
+  const canAdd =
+    canKeyLabor() && Boolean(technicianControl) && !technicianControl.startsWith("<p");
   const rateText = detail.labor_rate === null || detail.labor_rate === undefined
     ? "The combined actual time is rounded up to the next 30 minutes for billing."
     : `Labor is billed at ${formatMoney(detail.labor_rate)}/hour. The combined actual time is rounded up to the next 30 minutes.`;
-  const trackedHint = isSupervisorPlus()
+  const trackedHint = canKeyLabor()
     ? "Entries come from charged sessions. Add one by hand only to correct a missed clock-in."
-    : "Your hours come from Begin Charging. Add or adjust your own hours by hand to correct a missed clock-in or a mistake -- it's recorded in Notes.";
+    : "Hours come from Begin Charging and Stop Charging. Only an Admin or the Owner can add or change them by hand.";
   return `<details class="wo-section-card wo-labor-section">
             <summary class="wo-section-summary">Labor</summary>
             <div class="wo-section-content">
@@ -116,7 +114,7 @@ function laborSectionHtml(detail) {
               <div class="wo-labor-list">${entries}</div>
               ${laborSummaryHtml(detail)}
               ${canAdd ? `<div class="wo-add-labor">
-                ${isSupervisorPlus() ? technicianControl : ""}
+                ${technicianControl}
                 <label><span>Actual hours</span><input type="number" class="wo-new-labor-hours" min="0.01" step="0.01" placeholder="e.g. 1.25"></label><button type="button" data-action="add-labor">Add labor</button>
               </div>` : ""}
             </div>
@@ -155,7 +153,7 @@ function technicianPickerHtml(detail) {
             </div>
             <div class="wo-tech-search-wrap">
               <label class="wo-tech-search-label">
-                <span>Search Technicians or Supervisors</span>
+                <span>Search people to assign</span>
                 <input type="search" class="wo-tech-search" placeholder="Search by name" autocomplete="off" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-controls="${escapeHtml(resultsId)}" aria-expanded="false">
               </label>
               <div class="wo-tech-results" id="${escapeHtml(resultsId)}" role="listbox" aria-label="Technician search results" hidden></div>
@@ -200,7 +198,7 @@ export function renderTechnicianSearch(input) {
   ).slice(0, 8);
 
   if (!technicians.length) {
-    results.innerHTML = `<p class="hint">No active Technicians or Supervisors are available.</p>`;
+    results.innerHTML = `<p class="hint">No active people are available to assign.</p>`;
   } else if (!matches.length) {
     results.innerHTML = `<p class="hint">No matching technicians.</p>`;
   } else {
@@ -311,7 +309,7 @@ function detailsViewHtml(detail) {
     ["Vendor contact", detail.vendor_assignee],
     ["Symptom / task", detail.description],
     ["Priority", detail.priority || "Not imported"],
-    ["Supervisor", detail.supervisor_name],
+    ["Team Lead", detail.supervisor_name],
     ["Technicians", assignedNames(detail).join(", ")],
   ];
   if (hasLegacyPlace(detail)) {
@@ -452,14 +450,14 @@ function detailsEditorHtml(detail) {
               <div class="wo-edit-grid">
                 ${adminMetadata}
                 <label class="wo-edit-field">
-                  <span>Supervisor</span>
+                  <span>Team Lead</span>
                   ${comboHtml({
                     id: `wo-supervisor-list-${detail.id}`,
                     extraClass: "wo-supervisor-combo",
                     nativeSelectHtml: `<select class="wo-edit-supervisor wo-combo-native" hidden>${supervisorOptions(detail.supervisor_id || "")}</select>`,
                     options: supervisorChoices(),
                     selectedValue: detail.supervisor_id || "",
-                    ariaLabel: "Supervisor",
+                    ariaLabel: "Team Lead",
                   })}
                 </label>
                 <fieldset class="wo-edit-field wo-edit-technicians">
@@ -500,10 +498,14 @@ export function summaryHtml(card) {
 export function renderBody(detail, bodyEl) {
   const sup = isSupervisorPlus();
   const assignedToCurrentUser = isAssignedToCurrentUser(detail);
+  // A Technician off the crew reads the card but writes nothing: the notes box,
+  // add-material row, remove buttons, request form and signature button are not
+  // rendered, and one hint says how to unlock them (Begin Charging).
+  const locked = isCrewLocked(detail);
   // Someone else worked this order and there are notes to read first.
   const gated = hasUnreadPriorWork(detail);
   const items =
-    detail.items.map((it) => renderLineHtml(it)).join("") ||
+    detail.items.map((it) => renderLineHtml(it, locked)).join("") ||
     `<p class="hint">No materials logged yet.</p>`;
 
   const { primary, secondary, tools } = statusActionsHtml(detail);
@@ -523,6 +525,7 @@ export function renderBody(detail, bodyEl) {
   bodyEl.innerHTML =
     chargingStripHtml(detail) +
     ((modeControl || statusActions) ? `<div class="wo-controls">${modeControl}${statusActions}</div>` : "") +
+    crewLockHtml(detail) +
     priorWorkBannerHtml(detail) +
     `<div class="wo-details">${detailsViewHtml(detail)}</div>` +
     (sup ? detailsEditorHtml(detail) : "") +
@@ -531,11 +534,11 @@ export function renderBody(detail, bodyEl) {
        <div class="wo-section-content">
          <div class="wo-notes-log" aria-label="Work order note log">${notesLogContentsHtml(detail.notes)}</div>
          ${gated ? `<button type="button" class="secondary-btn" data-action="ack-notes-wo">I have read the notes</button>` : ""}
-         <textarea class="wo-notes-input" rows="4" aria-label="Add a work order note" placeholder="Add a note…"></textarea>
+         ${locked ? "" : `<textarea class="wo-notes-input" rows="4" aria-label="Add a work order note" placeholder="Add a note…"></textarea>
          <div class="wo-notes-actions">
            <button type="button" data-action="save-notes">Save note</button>
          </div>
-         <p class="wo-notes-message" aria-live="polite"></p>
+         <p class="wo-notes-message" aria-live="polite"></p>`}
        </div>
      </details>` +
     `<details class="wo-section-card wo-materials-section">
@@ -544,14 +547,14 @@ export function renderBody(detail, bodyEl) {
          <div class="wo-items">${items}</div>
          ${materialsTotalHtml(detail)}
          <div class="wo-requested-lines"></div>
-         <div class="wo-add-item">
+         ${locked ? "" : `<div class="wo-add-item">
            <div class="wo-add-item-row">
              <input type="text" class="ms-item-search" placeholder="Search item by name or barcode">
              <input type="number" class="wo-item-qty" placeholder="Qty" min="0" step="any">
              <button type="button" data-action="add-item">Add</button>
            </div>
            <div class="ms-item-results scan-chooser" hidden></div>
-         </div>
+         </div>`}
        </div>
      </details>` +
     `<details class="wo-section-card wo-request-section">
@@ -564,12 +567,13 @@ export function renderBody(detail, bodyEl) {
     `<p class="wo-message"></p>`;
 }
 
-function renderLineHtml(it) {
+function renderLineHtml(it, locked = false) {
   const modeTag = `<span class="wo-line-mode wo-line-mode-${escapeHtml(it.mode)}">${escapeHtml(modeLabel(it.mode))}</span>`;
-  const removeBtn = `<button type="button" class="btn-danger" data-action="remove-item">Remove</button>`;
-  // Quantity edit stays Supervisor+; removal is Technician and above -- the
-  // server scopes it by work-order visibility, so anyone who can see this
-  // card is already allowed to act on it.
+  // Quantity edit stays Team Lead+; removal is Technician and above, but a
+  // Technician off the crew (`locked`) is read-only, so the button is not drawn.
+  const removeBtn = locked
+    ? ""
+    : `<button type="button" class="btn-danger" data-action="remove-item">Remove</button>`;
   const actions = isSupervisorPlus()
     ? `<div class="wo-item-actions">
          <input type="number" class="wo-line-qty" value="${escapeHtml(it.quantity)}" min="0" step="any" aria-label="Quantity">

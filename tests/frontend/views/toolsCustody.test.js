@@ -286,7 +286,7 @@ describe("the selected user's card", () => {
     await chooseUser(holder);
 
     expect(el.userName().textContent).toBe("Ann Holder");
-    expect(el.userMeta().textContent).toBe(`Supervisor · Created ${new Date(created).toLocaleString()}`);
+    expect(el.userMeta().textContent).toBe(`Team Lead · Created ${new Date(created).toLocaleString()}`);
     expect(el.userStatus().textContent).toBe("Active");
     expect(document.activeElement).toBe(el.userCard());
     expect(el.custodyMessage().textContent).toBe("");

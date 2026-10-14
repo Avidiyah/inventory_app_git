@@ -146,7 +146,7 @@ export function mountHubAdminSummary(container, payload) {
   container.innerHTML = `
     ${onClockHtml(payload.on_the_clock)}
     <div class="hub-tile-grid">
-      ${tileHtml("Supervisor Time", formatHm(payload.supervisor_minutes_today))}
+      ${tileHtml("Team Lead Time", formatHm(payload.supervisor_minutes_today))}
       ${tileHtml("Technician Time", formatHm(payload.technician_minutes_today))}
     </div>
     ${pipelineHtml(payload.pipeline)}

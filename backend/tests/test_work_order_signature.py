@@ -20,6 +20,7 @@ from sqlalchemy import delete, text
 
 from app.domain import roles
 from app.domain.errors import (
+    RoleManagementError,
     WorkOrderAlreadySignedError,
     WorkOrderNotFoundError,
     WorkOrderSignatureError,
@@ -154,15 +155,27 @@ def test_concurrent_insert_maps_to_conflict(db, monkeypatch):
     assert db.query(WorkOrderSignature).one().witness_name == "First"
 
 
-def test_save_on_invisible_work_order_is_not_found(db):
+def test_save_by_a_technician_off_the_crew_is_refused(db):
+    """Everyone sees every work order, but a Technician who is not on the crew
+    cannot capture the sign-off -- Begin Charging adds them first."""
     admin = _seed_user(db, roles.ROLE_ADMIN)
     tech = _seed_user(db, roles.ROLE_TECHNICIAN)
     stranger = _seed_user(db, roles.ROLE_TECHNICIAN)
     work_order = _work_order(db, admin, tech)
 
-    with pytest.raises(WorkOrderNotFoundError):
+    with pytest.raises(RoleManagementError, match="Begin Charging"):
         _save(db, work_order.id, stranger)
     assert _rows(db, work_order.id) == 0
+
+
+def test_a_team_lead_off_the_crew_can_still_capture_the_signature(db):
+    admin = _seed_user(db, roles.ROLE_ADMIN)
+    tech = _seed_user(db, roles.ROLE_TECHNICIAN)
+    lead = _seed_user(db, roles.ROLE_SUPERVISOR)
+    work_order = _work_order(db, admin, tech)
+
+    _save(db, work_order.id, lead)
+    assert _rows(db, work_order.id) == 1
 
 
 @pytest.mark.parametrize("bad", [
@@ -308,7 +321,7 @@ def test_unsigned_detail_has_null_signature(db):
     assert detail.json()["signature"] is None
 
 
-def test_unassigned_technician_gets_404(db):
+def test_technician_off_the_crew_gets_403_on_save_but_can_read(db):
     admin = _seed_user(db, roles.ROLE_ADMIN)
     tech = _seed_user(db, roles.ROLE_TECHNICIAN)
     stranger = _seed_user(db, roles.ROLE_TECHNICIAN)
@@ -316,7 +329,10 @@ def test_unassigned_technician_gets_404(db):
 
     with _Client(db, stranger) as client:
         response = client.post(f"/work-orders/{work_order.id}/signature", json=SIG_BODY)
-    assert response.status_code == 404
+        assert response.status_code == 403
+        assert "Begin Charging" in response.json()["detail"]
+        # Reading the work order is open to every role.
+        assert client.get(f"/work-orders/{work_order.id}").status_code == 200
 
 
 def test_second_save_is_409(db):

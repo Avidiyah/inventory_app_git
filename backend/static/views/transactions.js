@@ -488,7 +488,15 @@ async function refreshWoCards() {
   const requestId = ++woCardsRequestId;
   setMessage(woGateCardsMessage, query ? "Searching…" : "Loading work orders…", "");
   try {
-    const workOrders = (await apiListWorkOrders({ q: query || null })).filter(
+    // Every role sees every work order, so a Technician's gate asks for their
+    // own assignments -- the jobs they may dispense against. Team Lead and above
+    // keep the full searchable list.
+    const workOrders = (
+      await apiListWorkOrders({
+        q: query || null,
+        assignedToId: isTechnician() ? getCurrentUser()?.id ?? null : null,
+      })
+    ).filter(
       (workOrder) => ["created", "assigned", "in_progress"].includes(workOrder.status)
     );
     if (requestId !== woCardsRequestId || batchWorkOrder !== null) return;

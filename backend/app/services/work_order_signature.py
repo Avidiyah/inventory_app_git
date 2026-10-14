@@ -1,11 +1,12 @@
 """Witness sign-off on a work order (spec 2026-09-30).
 
 Layer: services (SQLAlchemy session in, ORM rows out). One row per work
-order, locked once saved; Supervisor+ may clear it. Sibling of
+order, locked once saved; Team Lead+ may clear it. Sibling of
 `work_orders.py`, which is past its size budget.
 
 Visibility is the Work Orders page rule (`get_visible_work_order`): a caller
-who cannot see the work order gets not-found, never 403. The Supervisor+ gate
+who cannot see the work order gets not-found, never 403. A Technician who is
+not on the crew can read the sign-off but not capture one. The Team Lead+ gate
 on `clear_signature` is the router's `require_min_role`; the service trusts
 it, as `restore_work_order` does.
 """
@@ -19,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.domain import work_orders as wo
 from app.domain.errors import WorkOrderAlreadySignedError, WorkOrderNotFoundError
 from app.models import User, WorkOrder, WorkOrderSignature
-from app.services.work_orders import get_visible_work_order
+from app.services.work_orders import get_visible_work_order, require_crew_for_technician
 
 
 def _locked_visible(db: Session, work_order_id: uuid.UUID, user: User) -> WorkOrder:
@@ -57,6 +58,7 @@ def save_signature(
     name = wo.normalize_witness_name(witness_name)
     phone = wo.normalize_witness_phone(witness_phone)
     work_order = _locked_visible(db, work_order_id, user)
+    require_crew_for_technician(work_order, user)
     if _already_signed(db, work_order.id):
         raise WorkOrderAlreadySignedError("This work order is already signed.")
     now = datetime.now(timezone.utc)

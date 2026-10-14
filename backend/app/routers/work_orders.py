@@ -3,12 +3,15 @@
 Layer: routers (FastAPI). Thin handlers: parse via a Pydantic schema, delegate
 to `app.services.work_orders`, translate `DomainError` via `to_http`.
 
-Most routes are open to any authenticated user but **server-scoped** (technician
--> assigned, supervisor -> created/routed, admin/owner -> all). Technicians may
-save notes, add materials, track their time, and use the narrow assigned-worker
-start/complete/hold/resume walkthrough. Supervisor+ owns operational routing,
-general status, entry mode, hand-entered labor, and material corrections, and
-may track time on any work order they can see without being assigned to it. Sending Completed work to Review is Admin+
+Most routes are open to any authenticated user, and **every recognised role sees
+every live work order**. A Technician who is not on a work order's crew is
+read-only on it: notes, materials, requests, the witness sign-off and Scan / Stock
+dispenses unlock once Begin Charging (`/tracking/start`) adds them to the crew,
+which it does for every role except the Owner (who cannot track time). The
+assigned-worker start/complete/hold/resume walkthrough stays crew-only. Team Lead+
+owns operational routing, crew edits, general status, entry mode and material
+corrections. Hand-entered labor (add, edit, remove) is Admin and Owner only.
+Sending Completed work to Review is Admin+
 only and requires a second person: an assigned worker is excluded.
 TechFM OA+ additionally owns imported and legacy metadata edits.
 Closing (the archive operation) is TechFM OA+ from any live status. Both an expanded
@@ -592,15 +595,12 @@ def list_work_orders(
     User Hub's "My Work Orders" tab. It is the only filter that covers
     *routing*: `assigned_to_id` tests worker assignment alone, so it can
     never match a work order that was routed to a Supervisor rather than
-    handed to them as a worker. It also excludes the unrouted pickup queue
-    a Supervisor's own scope would otherwise admit. `limit`
+    handed to them as a worker. `limit`
     caps that scheduled-date ordering (the
     page browses the first 10 by default and omits `limit` for Show all / search).
-    Blank or malformed schedule values sort last. Any authenticated user;
-    server-scoped -- `assigned_to_id` only narrows within that scope, it
-    never widens it (e.g. a Technician cannot pass someone else's id to see
-    their work orders; the caller's own `_scoped_to_user` filter still
-    applies on top of it)."""
+    Blank or malformed schedule values sort last. Any authenticated user sees
+    every live work order; `mine` and `assigned_to_id` only narrow it. Scan /
+    Stock and the Hub's Technician tab send them to list assignments only."""
     try:
         return [
             _card(w)
@@ -1098,10 +1098,13 @@ def start_work_order_tracking(
     the first start (409) until the body sends `notes_acknowledged: true`; the
     card's `prior_work` says whether that applies.
 
-    Assigned Technicians, and Supervisor+ on any work order they can see.
+    Any role but the Owner (403), on any work order they can see. **Starting
+    the clock adds the caller to the work order's crew** -- Begin Charging is
+    self-assignment -- keeping whoever is already on it, with no notification.
     Advances a pre-work row to In-Progress and resumes an On-Hold one, so the
     technician taps once rather than setting a status and then starting work.
-    Rejected on Ready to Complete and Completed. Idempotent.
+    Rejected on Ready to Complete and Completed, and a rejected start assigns
+    nobody. Idempotent.
 
     Fires **no** notification of its own: starting a timer is not news to a
     supervisor, and the transition it performs matches no arm of any rule. It
@@ -1109,8 +1112,10 @@ def start_work_order_tracking(
     on a *different* work order, that one is closed here and may auto-hold.
     """
     try:
+        # Before the punch: a refused Owner start must not open one.
+        wo_service.require_tracking_role(user)
         acknowledged = bool(payload and payload.notes_acknowledged)
-        # Before the punch: a refused start must not open one.
+        # Also before the punch: a refused start must not open one.
         wo_service.require_prior_work_acknowledged(
             db,
             wo_service.get_visible_work_order(db, work_order_id, user),
@@ -1241,8 +1246,9 @@ def save_work_order_signature(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Capture the witness sign-off (S1-S3). 404 not visible, 409 already
-    signed, 422 bad image / name / phone."""
+    """Capture the witness sign-off (S1-S3). 404 unknown or archived, 403 a
+    Technician not on the crew, 409 already signed, 422 bad image / name /
+    phone."""
     try:
         signature_service.save_signature(
             db,
@@ -1410,11 +1416,11 @@ def add_work_order_labor(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Record actual labor by hand (Supervisor+).
+    """Record actual labor by hand (Admin and Owner only; 403 otherwise).
 
     The correction route now that tracked sessions are authoritative: a dead
-    battery, a forgotten Start Tracking, a paper sheet. The technician credited
-    must be assigned to the work order, or be the Supervisor recording
+    battery, a forgotten Begin Charging, a paper sheet. The technician credited
+    must be on the work order's crew, or be the Admin or Owner recording
     themselves. Changes no status -- a backfilled duration says nothing about
     whether the job is running. Billing rounds the combined work-order duration
     upward to the next 30 minutes.
@@ -1444,7 +1450,7 @@ def update_work_order_labor(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Replace a labor entry's actual duration (Supervisor+; server-scoped)."""
+    """Replace a labor entry's actual duration (Admin and Owner only)."""
     try:
         return _labor_detail(
             wo_service.update_work_order_labor(
@@ -1466,7 +1472,7 @@ def delete_work_order_labor(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Remove labor (Supervisor+) without rolling lifecycle status back."""
+    """Remove labor (Admin and Owner only) without rolling lifecycle status back."""
     try:
         wo_service.delete_work_order_labor(
             db, work_order_id, labor_id, user=user

@@ -43,7 +43,11 @@ describe("enterTransactionPage at the gate", () => {
     expect(el.gateCardsSection().hidden).toBe(false);
     expect(el.gateSearchCard().hidden).toBe(searchHidden);
     expect(el.gateCardsMessage().textContent).toBe(copy);
-    expect(requestFor("/work-orders/", "GET").url).toBe("/work-orders/");
+    // Every role sees every work order server-side, so the Technician's gate
+    // asks for their own assignments; Team Lead and above ask for the full list.
+    const url = requestFor("/work-orders/", "GET").url;
+    if (role === "technician") expect(url).toMatch(/^\/work-orders\/\?assigned_to_id=[^&]+$/);
+    else expect(url).toBe("/work-orders/");
   });
 
   it("renders only created/assigned/in_progress cards, with status label, place, and assignee for supervisor+", async () => {
@@ -125,7 +129,9 @@ describe("gate filter (supervisor+)", () => {
     clearRequests();
     el.gateInput().value = "42";
     mod.enterTransactionPage(); // re-runs refreshWoCards
-    await vi.waitFor(() => expect(requests().at(-1).url).toBe("/work-orders/"));
+    await vi.waitFor(() =>
+      expect(requests().at(-1).url).toMatch(/^\/work-orders\/\?assigned_to_id=[^&]+$/));
+    expect(requests().at(-1).url).not.toContain("q=");
   });
 });
 

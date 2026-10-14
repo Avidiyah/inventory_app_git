@@ -34,20 +34,20 @@ screen whether or not the app is open.
 
 | Event | Raised by | Trigger site | Told |
 | --- | --- | --- | --- |
-| `work_order.assigned` | Supervisor+ (only they may edit assignments) | `PATCH /work-orders/{id}` | the technicians that write **newly added** — not the whole assignee list |
-| `work_order.completed` | an assigned worker who is Supervisor+, or any Supervisor+ editor | `POST /work-orders/{id}/complete`, and `PATCH` to `completed` | everyone at `COMPLETED_AUDIENCE_MIN_ROLE` (**Admin** and above) |
-| `work_order.reopened` | Supervisor+ | `PATCH` only | assigned technicians + the routed supervisor |
-| `work_order.returned_from_review` | Supervisor+ — in practice the Admin Review page's Return button, the only UI that sends it | `PATCH`, `review → in_progress` | assigned technicians + the routed supervisor |
-| `work_order.held` | an assigned worker (Technician+), or any Supervisor+ editor | `POST /work-orders/{id}/hold`, `PATCH` to `on_hold`, and `POST /work-orders/{id}/tracking/stop` **only when it auto-holds** (see below) | the routed supervisor — or `UNROUTED_HOLD_AUDIENCE_MIN_ROLE` (**Admin** and above) when nobody is routed |
-| `work_order.held_for_review` | an assigned **Technician** — the role is what makes their finish a handoff | `POST /work-orders/{id}/complete` when it lands `ready_to_complete` | the routed supervisor — or **Admin** and above when nobody is routed |
-| `work_order.sent_back` | Supervisor+ — in practice the work-order card's **Send Back** button, the only UI that sends it | `PATCH`, `ready_to_complete → in_progress` | assigned technicians + the routed supervisor |
-| `work_order.supervisor_assigned` | Supervisor+ (routing is a `_SUPERVISOR_UPDATE_FIELDS` edit, **not** Admin-only) | `PATCH` that *changes* `supervisor_id` to somebody | the newly routed supervisor, and nobody else |
-| `work_order.supervisor_assigned_bulk` | TechFM OA+ (whoever ran the import) | `POST /work-orders/import` | each supervisor the import name-matched, **once for the whole import** |
+| `work_order.assigned` | Team Lead+ (only they may edit assignments) | `PATCH /work-orders/{id}` | the technicians that write **newly added** — not the whole assignee list. **Begin Charging adds the caller to the crew silently**: `tracking/start` records no `newly_assigned`, and a self-assignment is not news to the caller |
+| `work_order.completed` | an assigned worker who is Team Lead+, or any Team Lead+ editor | `POST /work-orders/{id}/complete`, and `PATCH` to `completed` | everyone at `COMPLETED_AUDIENCE_MIN_ROLE` (**Admin** and above) |
+| `work_order.reopened` | Team Lead+ | `PATCH` only | assigned technicians + the routed Team Lead |
+| `work_order.returned_from_review` | Team Lead+ — in practice the Admin Review page's Return button, the only UI that sends it | `PATCH`, `review → in_progress` | assigned technicians + the routed Team Lead |
+| `work_order.held` | an assigned worker (Technician+), or any Team Lead+ editor | `POST /work-orders/{id}/hold`, `PATCH` to `on_hold`, and `POST /work-orders/{id}/tracking/stop` **only when it auto-holds** (see below) | the routed Team Lead — or `UNROUTED_HOLD_AUDIENCE_MIN_ROLE` (**Admin** and above) when nobody is routed |
+| `work_order.held_for_review` | an assigned **Technician** — the role is what makes their finish a handoff | `POST /work-orders/{id}/complete` when it lands `ready_to_complete` | the routed Team Lead — or **Admin** and above when nobody is routed |
+| `work_order.sent_back` | Team Lead+ — in practice the work-order card's **Send Back** button, the only UI that sends it | `PATCH`, `ready_to_complete → in_progress` | assigned technicians + the routed Team Lead |
+| `work_order.supervisor_assigned` | Team Lead+ (routing is a `_SUPERVISOR_UPDATE_FIELDS` edit, **not** Admin-only) | `PATCH` that *changes* `supervisor_id` to somebody | the newly routed Team Lead, and nobody else |
+| `work_order.supervisor_assigned_bulk` | TechFM OA+ (whoever ran the import) | `POST /work-orders/import` | each Team Lead the import name-matched, **once for the whole import** |
 | `netfacilities.import_finished` | the capture chain, acting for the TechFM OA+ user who exported the CSV | `netfacilities_cloud_auth.dispatch_capture` -- the automatic capture trigger and `POST /integrations/netfacilities/cloud/downloads/import` both run it | **the ceremony's own user** -- deliberately the actor; see below |
 | `netfacilities.import_failed` | same chain | same -- fired instead of `import_finished` when the import or the enrichment start fails | the ceremony's own user |
 | `item.low_stock` | any stock write, or a threshold raise | `POST /transactions/`, `POST /transactions/adjust`, `DELETE /transactions/{id}`, `POST /mass-stages/{id}/load`, `POST /mass-stages/{id}/return`, the three `/work-orders/{id}/items` routes, `PATCH /items/{id}/low-stock-threshold` | everyone at `LOW_STOCK_AUDIENCE_MIN_ROLE` (**TechFM OA** and above), **including the actor** |
 | `material_request.filed` | any user who can see the work order (Technician+) | `POST /user-requests/material-request`, **new rows only** — a duplicate filing updates fields and pushes nobody | everyone at `MATERIAL_REQUEST_AUDIENCE_MIN_ROLE` (**TechFM OA** and above), **including the actor** |
-| `material_request.stocked` | any stock write, or a TechFM OA+ pressing **Mark stocked & notify** | the eight stock-writing sites drained by `flush_stock_events` (same routes as `item.low_stock`, minus the threshold route); `POST /user-requests/{id}/mark-stocked` | the work order's assigned technicians + routed supervisor **at stocking time** + the original filer, **actor not suppressed** |
+| `material_request.stocked` | any stock write, or a TechFM OA+ pressing **Mark stocked & notify** | the eight stock-writing sites drained by `flush_stock_events` (same routes as `item.low_stock`, minus the threshold route); `POST /user-requests/{id}/mark-stocked` | the work order's assigned technicians + routed Team Lead **at stocking time** + the original filer, **actor not suppressed** |
 
 `item.low_stock` does not suppress the actor. It is a state alarm about
 the stockroom rather than a report of somebody's action, and whoever just
@@ -57,13 +57,13 @@ inversion is expressed as `actor_id=None` in
 
 `material_request.filed` and `material_request.stocked` keep the actor for
 the same reason: both are state alarms. The filer wants confirmation the
-request went up the chain; a supervisor who restocks and is also on the crew
+request went up the chain; a Team Lead who restocks and is also on the crew
 is exactly who should see the line is ready.
 
-**Every other rule suppresses the acting user, by id.** A supervisor completing work
+**Every other rule suppresses the acting user, by id.** A Team Lead completing work
 on someone else's behalf is as much the actor as a technician is, so
 suppression never reads a role. It happens centrally in
-`select_recipients`, which also drops `None` and de-duplicates — a supervisor
+`select_recipients`, which also drops `None` and de-duplicates — a Team Lead
 who is also an assignee is one person and gets one notification.
 
 ## What each one says
@@ -102,9 +102,9 @@ string plus an opaque identifier.
 | `material_request.stocked` | Material in stock | `{name}` for `{number}` is now in stock. |
 | `netfacilities.import_failed` | NetFacilities import needs you | Names the failing stage and the next move: *import* → still signed in, export again; *enrichment* → imported `{created}` work orders, click Enrich when it frees up. |
 
-An import that matched a supervisor to exactly **one** work order sends the
+An import that matched a Team Lead to exactly **one** work order sends the
 singular `work_order.supervisor_assigned` text instead, naming the number. Correct
-grammar is the smaller reason; the larger one is that a supervisor who received
+grammar is the smaller reason; the larger one is that a Team Lead who received
 one work order can be told which one.
 
 ## Why the chain events notify the actor
@@ -157,8 +157,8 @@ technician's phone.
   per response.
 - **Nothing is batched or digested, with one named exception.** One event, one
   notification — except `work_order.supervisor_assigned_bulk`, which is one send
-  per supervisor per import however many rows matched them. Real volume did
-  argue otherwise: an import creating forty work orders for one supervisor
+  per Team Lead per import however many rows matched them. Real volume did
+  argue otherwise: an import creating forty work orders for one Team Lead
   would fire forty pushes in a few seconds, which is not a notification but a
   denial of service aimed at the person who most needs to read it. The
   exception is the *import*, not a general licence to digest.
@@ -169,7 +169,7 @@ Read this before "simplifying" two rows into one.
 
 - **Reopen has exactly one trigger site.** The narrow `start` / `hold` /
   `resume` endpoints all reject a Completed row outright, so the only way out of
-  Completed is the Supervisor+ PATCH.
+  Completed is the Team Lead+ PATCH.
 - **Completed → Review is carved out of the reopen rule.** It is a move out of
   Completed, so the literal rule would fire, but Review is the forward handoff
   rather than work coming back: the assignees have nothing to do about it, and
@@ -178,7 +178,7 @@ Read this before "simplifying" two rows into one.
   pinned by two tests — one that Review is silent, one that the carve-out stays
   a carve-out.
 - **Reopen and Returned-from-Review share an audience and stay two rules.**
-  Both address the assignees plus the supervisor. One says the work is live
+  Both address the assignees plus the Team Lead. One says the work is live
   again; the other says somebody looked at it and wants it changed. Merging them
   to remove the duplication would delete the only thing the recipient actually
   needs from a lock screen.
@@ -186,7 +186,7 @@ Read this before "simplifying" two rows into one.
   "leaves Review" and "is now Completed"; it resolves as a completion because
   that arm comes first. `completed → on_hold` is both "leaves Completed" and
   "entered On-Hold"; the On-Hold arm sorts ahead of everything, so it is a hold
-  — the reopen audience already contains the routed supervisor, and evaluating
+  — the reopen audience already contains the routed Team Lead, and evaluating
   both would buzz one person twice for one edit. A new rule whose transition can
   overlap an existing one needs a test pinning which wins.
 - **One endpoint can raise different events.** `POST /complete` raises
@@ -207,22 +207,22 @@ Read this before "simplifying" two rows into one.
   the trigger site is new.
   **This is the design's largest new source of alert volume** and is named
   rather than smoothed over: every lunch break, parts run, and end of shift now
-  moves a row into On-Hold and pushes to the routed supervisor. That is
+  moves a row into On-Hold and pushes to the routed Team Lead. That is
   consistent with the existing rule that every entry into On-Hold notifies, but
   that rule was written when On-Hold happened only by deliberate tap. If it
   proves noisy the mitigation is narrow — suppress on the auto-hold path only,
   one condition at one trigger site, leaving `/hold` and the PATCH arm alone.
 - **Starting a clock notifies nobody.** `POST /tracking/start` is silent by
-  decision, not by omission: starting a timer is not news to a supervisor, and
+  decision, not by omission: starting a timer is not news to a Team Lead, and
   the Assigned → In-Progress transition it performs matches no arm of any
   chain. It can still emit one `held` indirectly — if the caller had a clock
   running on a *different* work order, that row is closed here and may
   auto-hold, and it is handed back through `side_transitions` precisely so its
   alert is not silently dropped.
-- **Three rules now share the assignees-plus-supervisor audience, and they stay
+- **Three rules now share the assignees-plus-Team Lead audience, and they stay
   three.** Reopen says the work is live again; returned-from-review says an
   Admin looked at it and wants changes; sent-back says the crew's own
-  supervisor rejected the handoff. Identical recipient lists, three different
+  Team Lead rejected the handoff. Identical recipient lists, three different
   next moves for the technician, and the words are the only thing that carries
   which. Merging any two of them to remove the duplication deletes the only
   thing the recipient needed from a lock screen — the same argument the
@@ -233,29 +233,29 @@ Read this before "simplifying" two rows into one.
   the ordering between them is free rather than load-bearing — but
   `test_send_back_is_its_own_event_not_a_return_from_review` pins the wording
   anyway, because they share an audience and nothing else would catch a mix-up.
-- **Routing a supervisor is evaluated outside the transition chain**, beside the
+- **Routing a Team Lead is evaluated outside the transition chain**, beside the
   technician-assignment rule and for the same reason: one PATCH can route a
-  supervisor *and* move the status, and a chain of `elif`s drops whichever arm
-  comes second. A person routed as supervisor and added as a technician in the
+  Team Lead *and* move the status, and a chain of `elif`s drops whichever arm
+  comes second. A person routed as Team Lead and added as a technician in the
   same write receives two notifications. Both are true, they say different
   things, and suppression is per-rule by design.
 - **`work_order.supervisor_assigned` fires on a change, not on a field.** The
   editor sends the whole form, so "`supervisor_id` was in the payload" would
-  re-notify a supervisor every time somebody saved a note. `services/work_orders.
+  re-notify a Team Lead every time somebody saved a note. `services/work_orders.
   newly_routed_supervisor_id` carries the fact off the write, exactly as
   `previous_status` does for transitions — the post-write row cannot tell a real
   re-route from a re-save. Clearing the routing sends nothing.
 - **The import counts only rows it created, and that is a deliberate
   under-count.** An import also routes *existing* unrouted work orders to a
-  matched supervisor, and those are silent. The reason is that
+  matched Team Lead, and those are silent. The reason is that
   `supervisors_matched` — the number the operator sees on screen — is computed on
   the same branch, so the push and the import summary can never tell two people
   different stories about the same upload. Owner decision, 2026-08-20. Widening
   one without the other is the bug this is written to prevent.
 - **An audience of one still needs a fallback.** Both hold events address the
-  routed supervisor, and an unrouted work order would otherwise alert nobody.
+  routed Team Lead, and an unrouted work order would otherwise alert nobody.
   The fallback branches on *who is routed*, never on how many recipients
-  survived suppression: a supervisor pausing their own job must not escalate it
+  survived suppression: a Team Lead pausing their own job must not escalate it
   to every Admin by taking it.
 
 ---
@@ -272,7 +272,7 @@ one when you meant a push.
 | --- | --- | --- | --- |
 | `work_order.review_queue.changed` | any caller authorized for the write | work-order import, legacy archive, `PATCH`, archive, restore | connected clients at **TechFM OA** and above |
 | `work_order.status.changed` | any caller authorized for the write | work-order import, bulk legacy archive, `PATCH`, `start`, `complete`, `hold`, `resume`, archive, restore, tracking `start`/`stop` | connected clients at **Technician** and above |
-| `labor.session.changed` | any caller authorized for the write | tracking `start`, tracking `stop` | connected clients at **Supervisor** and above |
+| `labor.session.changed` | any caller authorized for the write | tracking `start`, tracking `stop` | connected clients at **Team Lead** and above |
 | `attendance.changed` | any caller authorized for the write | `punch-in`, `punch-out`, `self-close`, and the three `/hub/attendance/punches` writes | connected clients at **Admin** and above |
 | `item.low_stock.changed` | any caller authorized for the write | an item entered or left the low-stock set; a threshold edit; item create or archive | connected clients at **TechFM OA** and above |
 | `user_request.changed` | any caller authorized for the write | filing, `mark-stocked`, `cancel`, `PATCH /user-requests/{id}`, every stock write that stocks or un-stocks a request, adding from a stocked Materials line, catalogue fulfilment | connected clients at **Technician** and above |
@@ -317,7 +317,7 @@ When a change touches notifications:
 No per-user opt-out. No per-event preferences. No delivery record. Routing is by
 role and assignment only.
 
-**Losing a work order is not an event.** Re-routing tells the new supervisor and
+**Losing a work order is not an event.** Re-routing tells the new Team Lead and
 says nothing to the one who held it, who may keep working a job that is no
 longer theirs. Named here rather than left undocumented, because the recipient
 list in `recipients_for_supervisor_assignment` looks like an oversight and is

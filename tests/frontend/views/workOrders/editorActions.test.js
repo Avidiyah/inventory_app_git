@@ -179,7 +179,7 @@ describe("add-labor", () => {
     // renders as a hint, so the Add button is absent entirely -- the
     // "Assign and select a technician first." guard is only reachable when
     // the select exists but holds no value.
-    const detail = await open({ assigned_to_ids: [] });
+    const detail = await open({ role: "admin", assigned_to_ids: [] });
     expect(card().querySelector(".wo-labor-technician")).not.toBeNull();
     card().querySelector(".wo-labor-technician").innerHTML = "";
     card().querySelector(".wo-new-labor-hours").value = "1";
@@ -191,7 +191,7 @@ describe("add-labor", () => {
 
   it.each([["", "blank"], ["0", "zero"], ["-2", "negative"], ["abc", "non-numeric"]])(
     "refuses %s hours (%s)", async (value) => {
-      const detail = await open({ assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
+      const detail = await open({ role: "admin", assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
       card().querySelector(".wo-new-labor-hours").value = value;
       click("add-labor");
       await vi.waitFor(() =>
@@ -200,7 +200,7 @@ describe("add-labor", () => {
     });
 
   it("converts hours to minutes and reopens the labor section", async () => {
-    const detail = await open({ assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
+    const detail = await open({ role: "admin", assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
     respond("post", "/work-orders/:id/labor", { ok: true });
     card().querySelector(".wo-new-labor-hours").value = "1.25";
     click("add-labor");
@@ -212,7 +212,7 @@ describe("add-labor", () => {
   });
 
   it("rounds a sub-minute entry up to one minute", async () => {
-    await open({ assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
+    await open({ role: "admin", assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
     respond("post", "/work-orders/:id/labor", { ok: true });
     card().querySelector(".wo-new-labor-hours").value = "0.001";
     click("add-labor");
@@ -220,11 +220,11 @@ describe("add-labor", () => {
     expect(requestFor("/labor", "POST").body.minutes).toBe(1);
   });
 
-  // Role gating itself is frozen in roles.test.js, but this is genuinely new
-  // interaction logic (the self-id fallback) reachable only as a Technician,
-  // so it lives here with the rest of add-labor's behaviour.
-  it("a Technician with no picker defaults to their own id", async () => {
-    const detail = workOrderDetail({ assigned_to_ids: [] });
+  // Hand-keyed hours are Admin and Owner only (the full role matrix is frozen in
+  // roles.test.js). A Technician on the crew gets the read-only list and a hint,
+  // never the add row -- there is no self-service path left to default an id for.
+  it("a Technician on the crew gets no add controls at all", async () => {
+    const detail = workOrderDetail({ assigned_to_ids: [], labor: [workOrderLabor({ id: "l1" })] });
     const { currentUser } = await mountWorkOrders({
       role: "technician",
       cards: [workOrderCard({ id: detail.id, number: detail.number, status: detail.status })],
@@ -232,19 +232,18 @@ describe("add-labor", () => {
     });
     detail.assigned_to_ids = [currentUser.id];
     await openCard(0);
-    expect(card().querySelector(".wo-labor-technician")).toBeNull();
-    respond("post", "/work-orders/:id/labor", { ok: true });
-    card().querySelector(".wo-new-labor-hours").value = "1.5";
-    click("add-labor");
-    await vi.waitFor(() => expect(requestFor("/labor", "POST")).not.toBeNull());
-    expect(requestFor("/labor", "POST").body).toEqual({
-      technician_id: currentUser.id, minutes: 90,
-    });
+    expect(card().querySelector(".wo-labor-section")).not.toBeNull();
+    expect(card().querySelector(".wo-add-labor")).toBeNull();
+    expect(card().querySelector('[data-action="add-labor"]')).toBeNull();
+    expect(card().querySelector('[data-action="edit-labor"]')).toBeNull();
+    expect(card().querySelector('[data-action="remove-labor"]')).toBeNull();
+    expect(card().querySelector(".wo-labor-section").textContent)
+      .toContain("Only an Admin or the Owner can add or change them by hand.");
   });
 });
 
 describe("edit-labor and remove-labor", () => {
-  const withEntry = () => open({
+  const withEntry = () => open({ role: "admin",
     labor: [workOrderLabor({ id: "l1", minutes: 60, technician_name: "Ada L" })],
   });
 
@@ -473,7 +472,7 @@ describe("the technician picker", () => {
     await open({ users: [] });
     type(card().querySelector(".wo-tech-search"), "a");
     expect(card().querySelector(".wo-tech-results").textContent)
-      .toContain("No active Technicians or Supervisors are available.");
+      .toContain("No active people are available to assign.");
   });
 
   it("pick-technician adds a selection row and clears the search", async () => {

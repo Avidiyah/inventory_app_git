@@ -25,7 +25,7 @@ export const ROLE_LABELS = {
   owner: "Owner",
   admin: "Admin",
   techfm_oa: "TechFM OA",
-  supervisor: "Supervisor",
+  supervisor: "Team Lead",
   technician: "Technician",
 };
 
@@ -47,14 +47,14 @@ export function roleAtLeast(role, minimum) {
 }
 
 // Operational Work Order assignment eligibility mirrors app/domain/roles.py.
-// Owner retains full authority but is not an assignment target. TechFM OA is
-// a routing choice for the same reason Admin is.
+// Owner retains full authority but is not an assignment target.
 export function canBeWorkOrderSupervisor(role) {
   return role === "admin" || role === "techfm_oa" || role === "supervisor";
 }
 
-export function canBeWorkOrderTechnician(role) {
-  return role === "supervisor" || role === "technician";
+// Who may be put on a work order's crew (the technician picker, Mass Stage).
+export function canBeWorkOrderAssignee(role) {
+  return role === "admin" || role === "techfm_oa" || role === "supervisor" || role === "technician";
 }
 
 // True if an actor may create/reset/delete a user holding `targetRole`.

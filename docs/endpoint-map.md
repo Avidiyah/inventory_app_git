@@ -46,43 +46,43 @@ writes (w).
 | 8 | POST | `/items/` | techfm_oa+ | `items.py` → `items.create_item` | items (w), item_barcodes (r) | `apiCreateItem` | `items.js` |
 | 9 | PATCH | `/items/{id}` | techfm_oa+ | `items.py` → `items.update_item` (+ `user_requests.resolve_missing_price_requests`) | items (w/lock), item_barcodes (r), user_requests (w when price+link complete) | `apiUpdateItem` | `itemEditor.js`, `userRequests.js` |
 | 9a | PATCH | `/items/{id}/low-stock-threshold` | techfm_oa+ | `items.py` → `items.set_low_stock_threshold` | items (w/lock) | `apiSetLowStockThreshold` | `lowStock.js` |
-| 10 | PATCH | `/items/{id}/notes` | supervisor+ | `items.py` → `notes.replace_notes` | items (w) | `apiUpdateNotes` | `notes.js` |
+| 10 | PATCH | `/items/{id}/notes` | Team Lead+ | `items.py` → `notes.replace_notes` | items (w) | `apiUpdateNotes` | `notes.js` |
 | 11 | PATCH | `/items/{id}/barcodes` | techfm_oa+ | `items.py` → `items.replace_barcodes` | item_barcodes (w), items (r) | `apiUpdateBarcodes` | `itemEditor.js`, `addBarcode.js` |
 | 12 | DELETE | `/items/{id}` | techfm_oa+ | `items.py` → `items.delete_item` | items (w, archive) | `apiDeleteItem` | `items.js` |
 | 13 | POST | `/barcodes/decode` | session | `barcodes.py` → `barcodes.decode_image` | — (no persistence) | `apiDecodeBarcode` | `scan.js` |
-| 14 | GET | `/users/` | supervisor+ | `users.py` → `users.list_users` | users (r) | `apiListUsers` | `users.js`, `transactions.js`, `massStage.js`, `workOrderReferenceData.js`, `tools.js` (TechFM OA and above only) |
+| 14 | GET | `/users/` | Team Lead+ | `users.py` → `users.list_users` | users (r) | `apiListUsers` | `users.js`, `transactions.js`, `massStage.js`, `workOrderReferenceData.js`, `tools.js` (TechFM OA and above only) |
 | 15 | POST | `/users/` | outranks target | `users.py` → `users.create_user` | users (w) | `apiCreateUser` | `users.js` |
 | 16 | POST | `/users/{id}/reset-password` | outranks target | `users.py` → `users.reset_password` | users (w) | `apiResetPassword` | `users.js` |
 | 17 | POST | `/users/{id}/archive` | outranks target | `users.py` → `users.archive_user` + `tools.user_custody` (+ `tools.return_all_for_user` when `?force_return_tools=true`) | users (w), sessions (w, revoke), tools/tool_transactions (r, custody guard; w on force check-in) | `apiArchiveUser` | `users.js` |
 | 18 | POST | `/users/{id}/restore` | outranks target | `users.py` → `users.restore_user` | users (w) | `apiRestoreUser` | `users.js` |
 | 19 | DELETE | `/users/{id}` | outranks target | `users.py` → `users.delete_user` | users (w, hard) | `apiDeleteUser` | **API-only** (no UI; UI uses archive) |
-| 20 | GET | `/transactions/` | supervisor+ | `transactions.py` → `history.list_history` | transactions (r), items (r), users (r) | `apiListTransactions` | `history.js` |
+| 20 | GET | `/transactions/` | Team Lead+ | `transactions.py` → `history.list_history` | transactions (r), items (r), users (r) | `apiListTransactions` | `history.js` |
 | 21 | POST | `/transactions/` | session + direction¹ | `transactions.py` → `transactions.apply_transaction` (+ `work_orders.resolve_work_order`, `attach_dispense_line`; User Request producers for shortage/missing price) | items (w), transactions (w), work_orders (r/w²), work_order_items (w³), user_requests (w on shortage or NULL/non-positive work-order price; w: material_request stocked/open edges) | `apiCreateTransaction` | `transactions.js` |
 | 22 | POST | `/transactions/adjust` | techfm_oa+ | `transactions.py` → `transactions.apply_correction` | items (w), transactions (w), user_requests (w: material_request stocked/open edges) | `apiCreateCorrection` | `correction.js` |
 | 23 | PATCH | `/transactions/{id}/billing` | techfm_oa+ | `transactions.py` → `transactions.set_billable_quantity` | transactions (w) | `apiSetBillableQuantity` | `history.js` |
-| 24 | DELETE | `/transactions/{id}` | supervisor+, or Technician's own linked dispense | `transactions.py` → `transactions.void_transaction` (+ `user_requests.resolve_for_transaction`) | transactions (w, soft), items (w), work_order_items (w⁴), user_requests (w if linked; w: material_request stocked/open edges) | `apiVoidTransaction` | `history.js`, `transactions.js` |
-| 25 | GET | `/work-orders/` | session scoped | `work_orders.py` → `work_orders.list_work_orders` (scheduled-date descending, `sort=scheduled_asc` flips; joinable status/service/supervisor/community/date/number/location/task filters) | work_orders (r), work_order_items (r), work_order_technicians (r), users (r) | `apiListWorkOrders` | `workOrderList.js`, `workOrderRouting.js`, `transactions.js`, `history.js`, `adminReview.js` |
-| 26 | GET | `/work-orders/{id}` | session scoped | `work_orders.py` → `work_orders.get_work_order` | work_orders (r), work_order_items (r/w⁵), work_order_technicians (r), work_order_labor (r), items (r), users (r) | `apiGetWorkOrder` | `workOrderList.js`, `workOrderRouting.js`, `history.js`, `adminReview.js` |
-| 27 | GET | `/work-orders/lookup?number=` | supervisor+ scoped | `work_orders.py` → `work_orders.lookup_work_order` | work_orders (r, **incl. archived**) | `apiLookupWorkOrder` | `history.js`, `workOrderList.js` (TechFM OA+ exact search) |
-| 28 | PATCH | `/work-orders/{id}` | scoped; notes→tech+, operations→sup+, metadata→techfm_oa+; stale supervisor precondition→409 | `work_orders.py` → `work_orders.update_work_order` | work_orders (r/w, row lock; incl. notes/primary mirror), work_order_technicians (w), users (r) | `apiUpdateWorkOrder` | `workOrderActions.js`, `adminReview.js` (Return to In-Progress) |
+| 24 | DELETE | `/transactions/{id}` | Team Lead+, or Technician's own linked dispense | `transactions.py` → `transactions.void_transaction` (+ `user_requests.resolve_for_transaction`) | transactions (w, soft), items (w), work_order_items (w⁴), user_requests (w if linked; w: material_request stocked/open edges) | `apiVoidTransaction` | `history.js`, `transactions.js` |
+| 25 | GET | `/work-orders/` | any session; every role sees every live work order (`mine` / `assigned_to_id` narrow it) | `work_orders.py` → `work_orders.list_work_orders` (scheduled-date descending, `sort=scheduled_asc` flips; joinable status/service/Team Lead/community/date/number/location/task filters) | work_orders (r), work_order_items (r), work_order_technicians (r), users (r) | `apiListWorkOrders` | `workOrderList.js`, `workOrderRouting.js`, `transactions.js`, `history.js`, `adminReview.js` |
+| 26 | GET | `/work-orders/{id}` | any session (every live work order is visible) | `work_orders.py` → `work_orders.get_work_order` | work_orders (r), work_order_items (r/w⁵), work_order_technicians (r), work_order_labor (r), items (r), users (r) | `apiGetWorkOrder` | `workOrderList.js`, `workOrderRouting.js`, `history.js`, `adminReview.js` |
+| 27 | GET | `/work-orders/lookup?number=` | Team Lead+ scoped | `work_orders.py` → `work_orders.lookup_work_order` | work_orders (r, **incl. archived**) | `apiLookupWorkOrder` | `history.js`, `workOrderList.js` (TechFM OA+ exact search) |
+| 28 | PATCH | `/work-orders/{id}` | any session; notes→tech+ (a Technician off the crew gets 403), operations→team lead+, metadata→techfm_oa+; stale Team Lead precondition→409 | `work_orders.py` → `work_orders.update_work_order` | work_orders (r/w, row lock; incl. notes/primary mirror), work_order_technicians (w), users (r) | `apiUpdateWorkOrder` | `workOrderActions.js`, `adminReview.js` (Return to In-Progress) |
 | 29 | POST | `/work-orders/{id}/archive` | techfm_oa+ scoped; any live status | `work_orders.py` → `work_orders.archive_work_order` | work_orders (w, Closed/archive) | `apiArchiveWorkOrder` | `workOrderActions.js`, `adminReview.js` |
-| 30 | POST | `/work-orders/{id}/items` | Technician+ scoped | `work_orders.py` → `work_orders.add_work_order_item` (+ `material_requests.resolve_from_line` when `material_request_id?` is sent) | items (w; negative expected count allowed in dispense mode), transactions (w), work_order_items (w), user_requests (w if stock is short or item is unpriced; w when `material_request_id`; w: material_request stocked/open edges) | `apiAddWorkOrderItem` | `workOrderActions.js` |
-| 31 | PATCH | `/work-orders/{id}/items/{wid}` | supervisor+ scoped | `work_orders.py` → `work_orders.update_work_order_item` | items (w), transactions (w, adjust), work_order_items (w), user_requests (w: material_request stocked/open edges) | `apiUpdateWorkOrderItem` | `workOrderActions.js` |
+| 30 | POST | `/work-orders/{id}/items` | Technician+ (a Technician must be on the crew, else 403); team lead+ any | `work_orders.py` → `work_orders.add_work_order_item` (+ `material_requests.resolve_from_line` when `material_request_id?` is sent) | items (w; negative expected count allowed in dispense mode), transactions (w), work_order_items (w), user_requests (w if stock is short or item is unpriced; w when `material_request_id`; w: material_request stocked/open edges) | `apiAddWorkOrderItem` | `workOrderActions.js` |
+| 31 | PATCH | `/work-orders/{id}/items/{wid}` | Team Lead+ scoped | `work_orders.py` → `work_orders.update_work_order_item` | items (w), transactions (w, adjust), work_order_items (w), user_requests (w: material_request stocked/open edges) | `apiUpdateWorkOrderItem` | `workOrderActions.js` |
 | 32 | PATCH | `/work-orders/{id}/items/{wid}/billing` | techfm_oa+ scoped | `work_orders.py` → `work_orders.set_work_order_item_billable` | work_order_items (w) | `apiSetWorkOrderItemBilling` | `workOrderActions.js` |
-| 33 | DELETE | `/work-orders/{id}/items/{wid}` | technician+ scoped | `work_orders.py` → `work_orders.delete_work_order_item` | items (w), transactions (w, void), work_order_items (w), user_requests (w, resolve source-linked; w: material_request stocked/open edges) | `apiDeleteWorkOrderItem` | `workOrderActions.js` |
-| 34 | POST | `/mass-stages/` | supervisor+ | `mass_stages.py` → `mass_staging.create_stage` | mass_stages (w) | `apiCreateStage` | `massStage.js` |
-| 35 | GET | `/mass-stages/` | supervisor+ scoped | `mass_stages.py` → `mass_staging.list_stages` | mass_stages (r) | `apiListStages` | `massStage.js` |
-| 36 | GET | `/mass-stages/{id}` | supervisor+ | `mass_stages.py` → `mass_staging.get_stage` | mass_stages (r), mass_stage_work_orders (r), mass_stage_items (r), work_orders (r), items (r) | `apiGetStage` | `massStage.js` |
-| 37 | PATCH | `/mass-stages/{id}` | supervisor+ | `mass_stages.py` → `mass_staging.update_stage` | mass_stages (w) | `apiUpdateStage` | `massStage.js` |
-| 38 | DELETE | `/mass-stages/{id}` | supervisor+ | `mass_stages.py` → `mass_staging.delete_stage` | mass_stages (w), slots/items (cascade) | `apiDeleteStage` | `massStage.js` |
-| 39 | POST | `/mass-stages/{id}/reuse` | supervisor+ | `mass_stages.py` → `mass_staging.reuse_stage` | mass_stages (w) | `apiReuseStage` | `massStage.js` |
-| 40 | POST | `/mass-stages/{id}/work-orders` | supervisor+ | `mass_stages.py` → `mass_staging.add_work_order_to_stage` | mass_stage_work_orders (w), work_orders (r/w, **resolve** — 404 if not imported) | `apiAddStageWorkOrder` | `massStage.js` |
-| 41 | DELETE | `/mass-stages/{id}/work-orders/{slot}` | supervisor+ | `mass_stages.py` → `mass_staging.delete_slot` | mass_stage_work_orders (w), mass_stage_items (cascade) | `apiDeleteStageWorkOrder` | `massStage.js` |
-| 42 | POST | `/mass-stages/{id}/work-orders/{slot}/items` | supervisor+ | `mass_stages.py` → `mass_staging.add_item` | mass_stage_items (w) | `apiAddStageItem` | `massStage.js` |
-| 43 | PATCH | `/mass-stages/{id}/work-orders/{slot}/items/{sid}` | supervisor+ | `mass_stages.py` → `mass_staging.update_item` | mass_stage_items (w) | `apiUpdateStageItem` | `massStage.js` |
-| 44 | DELETE | `/mass-stages/{id}/work-orders/{slot}/items/{sid}` | supervisor+ | `mass_stages.py` → `mass_staging.delete_item` | mass_stage_items (w) | `apiDeleteStageItem` | `massStage.js` |
-| 45 | POST | `/mass-stages/{id}/load` | supervisor+ | `mass_stages.py` → `mass_staging.load_item` | items (w), transactions (w), work_order_items (w), mass_stage_items (w), user_requests (w if unpriced; w: material_request stocked/open edges) | `apiLoadStageItem` | `massStage.js` |
-| 46 | POST | `/mass-stages/{id}/return` | supervisor+ | `mass_stages.py` → `mass_staging.return_item` | items (w, silent), work_order_items (w), mass_stage_items (w), user_requests (w: material_request stocked/open edges) | `apiReturnStageItem` | `massStage.js` |
+| 33 | DELETE | `/work-orders/{id}/items/{wid}` | Technician+ (on the crew, else 403); team lead+ any | `work_orders.py` → `work_orders.delete_work_order_item` | items (w), transactions (w, void), work_order_items (w), user_requests (w, resolve source-linked; w: material_request stocked/open edges) | `apiDeleteWorkOrderItem` | `workOrderActions.js` |
+| 34 | POST | `/mass-stages/` | Team Lead+ | `mass_stages.py` → `mass_staging.create_stage` | mass_stages (w) | `apiCreateStage` | `massStage.js` |
+| 35 | GET | `/mass-stages/` | Team Lead+ scoped | `mass_stages.py` → `mass_staging.list_stages` | mass_stages (r) | `apiListStages` | `massStage.js` |
+| 36 | GET | `/mass-stages/{id}` | Team Lead+ | `mass_stages.py` → `mass_staging.get_stage` | mass_stages (r), mass_stage_work_orders (r), mass_stage_items (r), work_orders (r), items (r) | `apiGetStage` | `massStage.js` |
+| 37 | PATCH | `/mass-stages/{id}` | Team Lead+ | `mass_stages.py` → `mass_staging.update_stage` | mass_stages (w) | `apiUpdateStage` | `massStage.js` |
+| 38 | DELETE | `/mass-stages/{id}` | Team Lead+ | `mass_stages.py` → `mass_staging.delete_stage` | mass_stages (w), slots/items (cascade) | `apiDeleteStage` | `massStage.js` |
+| 39 | POST | `/mass-stages/{id}/reuse` | Team Lead+ | `mass_stages.py` → `mass_staging.reuse_stage` | mass_stages (w) | `apiReuseStage` | `massStage.js` |
+| 40 | POST | `/mass-stages/{id}/work-orders` | Team Lead+ | `mass_stages.py` → `mass_staging.add_work_order_to_stage` | mass_stage_work_orders (w), work_orders (r/w, **resolve** — 404 if not imported) | `apiAddStageWorkOrder` | `massStage.js` |
+| 41 | DELETE | `/mass-stages/{id}/work-orders/{slot}` | Team Lead+ | `mass_stages.py` → `mass_staging.delete_slot` | mass_stage_work_orders (w), mass_stage_items (cascade) | `apiDeleteStageWorkOrder` | `massStage.js` |
+| 42 | POST | `/mass-stages/{id}/work-orders/{slot}/items` | Team Lead+ | `mass_stages.py` → `mass_staging.add_item` | mass_stage_items (w) | `apiAddStageItem` | `massStage.js` |
+| 43 | PATCH | `/mass-stages/{id}/work-orders/{slot}/items/{sid}` | Team Lead+ | `mass_stages.py` → `mass_staging.update_item` | mass_stage_items (w) | `apiUpdateStageItem` | `massStage.js` |
+| 44 | DELETE | `/mass-stages/{id}/work-orders/{slot}/items/{sid}` | Team Lead+ | `mass_stages.py` → `mass_staging.delete_item` | mass_stage_items (w) | `apiDeleteStageItem` | `massStage.js` |
+| 45 | POST | `/mass-stages/{id}/load` | Team Lead+ | `mass_stages.py` → `mass_staging.load_item` | items (w), transactions (w), work_order_items (w), mass_stage_items (w), user_requests (w if unpriced; w: material_request stocked/open edges) | `apiLoadStageItem` | `massStage.js` |
+| 46 | POST | `/mass-stages/{id}/return` | Team Lead+ | `mass_stages.py` → `mass_staging.return_item` | items (w, silent), work_order_items (w), mass_stage_items (w), user_requests (w: material_request stocked/open edges) | `apiReturnStageItem` | `massStage.js` |
 | 47 | POST | `/tools/` | techfm_oa+ | `tools.py` → `tools_service.create_tool` | tools (w) | `apiCreateTool` | `tools.js` |
 | 48 | GET | `/tools/` | session | `tools.py` → `tools_service.list_tools` + `tool_custody` | tools (r), tool_transactions (r), users (r) | `apiListTools` | `tools.js` |
 | 49 | GET | `/tools/{barcode}` | session | `tools.py` → `tools_service.get_tool_by_barcode` + `tool_custody` | tools (r), tool_transactions (r), users (r) | `apiGetToolByBarcode` | `tools.js` |
@@ -91,36 +91,36 @@ writes (w).
 | 52 | POST | `/tools/{tool_id}/checkout` | techfm_oa+ | `tools.py` → `tools_service.checkout_tool` | users (r, active-target guard), tools (w), tool_transactions (w) | `apiCheckoutTool` | `toolCheckout.js` |
 | 53 | POST | `/tools/{tool_id}/return` | session | `tools.py` → `tools_service.return_tool` | tools (w), tool_transactions (w, r for cap check) | `apiReturnTool` | `toolReturn.js` |
 | 54 | POST | `/tools/{tool_id}/adjust` | techfm_oa+ | `tools.py` → `tools_service.adjust_tool_quantity` | tools (w), tool_transactions (w) | `apiAdjustTool` | `toolCorrection.js` |
-| 55 | POST | `/work-orders/import` | techfm_oa+ | `work_orders.py` → `work_orders.import_work_orders` | work_orders (r/w, locked find-or-create — **the only create path**), users (r, active-supervisor name-match) | `apiImportWorkOrders` | `workOrderIntegrations.js` |
-| 56 | POST | `/work-orders/{id}/restore` | supervisor+ scoped | `work_orders.py` → `work_orders.restore_work_order` | work_orders (w, un-archive) | `apiRestoreWorkOrder` | `history.js`, `workOrderList.js` (TechFM OA+ exact search) |
+| 55 | POST | `/work-orders/import` | techfm_oa+ | `work_orders.py` → `work_orders.import_work_orders` | work_orders (r/w, locked find-or-create — **the only create path**), users (r, active-Team Lead name-match) | `apiImportWorkOrders` | `workOrderIntegrations.js` |
+| 56 | POST | `/work-orders/{id}/restore` | Team Lead+ scoped | `work_orders.py` → `work_orders.restore_work_order` | work_orders (w, un-archive) | `apiRestoreWorkOrder` | `history.js`, `workOrderList.js` (TechFM OA+ exact search) |
 | 57 | PATCH | `/users/{id}/name` | self or outranks target | `users.py` → `users.update_name` | users (w; first/last name + optional `username`) | `apiUpdateUserName` | `users.js` |
-| 58 | POST | `/work-orders/{id}/labor` | supervisor+ scoped (assigned worker, or self), or a Technician crediting themselves | `work_orders.py` → `work_orders.add_work_order_labor` | work_orders (r/w status + notes), work_order_technicians (r), work_order_labor (w), users (r) | `apiAddWorkOrderLabor` | `workOrderActions.js` |
-| 59 | PATCH | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped, or a Technician on their own entry | `work_orders.py` → `work_orders.update_work_order_labor` | work_order_labor (r/w), work_orders (w notes if Technician) | `apiUpdateWorkOrderLabor` | `workOrderActions.js` |
-| 60 | DELETE | `/work-orders/{id}/labor/{labor_id}` | supervisor+ scoped, or a Technician on their own entry | `work_orders.py` → `work_orders.delete_work_order_labor` | work_order_labor (r/w), work_orders (w notes if Technician) | `apiDeleteWorkOrderLabor` | `workOrderActions.js` |
+| 58 | POST | `/work-orders/{id}/labor` | **admin or owner only** (credited worker on the crew, or the recorder) | `work_orders.py` → `work_orders.add_work_order_labor` | work_orders (r), work_order_technicians (r), work_order_labor (w), users (r) | `apiAddWorkOrderLabor` | `workOrderActions.js` |
+| 59 | PATCH | `/work-orders/{id}/labor/{labor_id}` | admin or owner only | `work_orders.py` → `work_orders.update_work_order_labor` | work_order_labor (r/w), work_orders (r) | `apiUpdateWorkOrderLabor` | `workOrderActions.js` |
+| 60 | DELETE | `/work-orders/{id}/labor/{labor_id}` | admin or owner only | `work_orders.py` → `work_orders.delete_work_order_labor` | work_order_labor (r/w), work_orders (r) | `apiDeleteWorkOrderLabor` | `workOrderActions.js` |
 | 61 | PATCH | `/users/{id}/role` | techfm_oa+ AND outranks both current and new role | `users.py` → `users.update_role` | users (w), sessions (w, revoke) | `apiUpdateUserRole` | `users.js` |
 | 62 | GET | `/work-orders/export` | techfm_oa+, server-scoped | `work_orders.py` → `work_orders.export_work_orders_csv` (full: current live filters incl. location/task keyword search; client: unchanged scope dropdown; + `domain.receipt`) | work_orders (r), work_order_items (r), items (r), work_order_labor (r), users (r) | `apiExportWorkOrders` | `workOrderIntegrations.js` |
-| 63 | GET | `/work-orders/filter-options` | session scoped | `work_orders.py` → `work_orders.get_work_order_filter_options` | work_orders (r), work_order_technicians (r, scope), users (r) | `apiGetWorkOrderFilterOptions` | `workOrderFilters.js` |
+| 63 | GET | `/work-orders/filter-options` | any session (unscoped) | `work_orders.py` → `work_orders.get_work_order_filter_options` | work_orders (r), users (r) | `apiGetWorkOrderFilterOptions` | `workOrderFilters.js` |
 | 64 | GET | `/work-orders/legacy/archive` | owner exactly | `work_orders.py` → `work_orders.count_live_legacy_work_orders` | work_orders (r; live legacy count) | `apiGetLegacyWorkOrderArchivePreview` | — (no frontend caller) |
 | 65 | POST | `/work-orders/legacy/archive` | owner exactly | `work_orders.py` → `work_orders.archive_live_legacy_work_orders` | work_orders (w; atomic bulk soft-archive) | `apiArchiveLegacyWorkOrders` | — (no frontend caller) |
-| 66 | POST | `/work-orders/{id}/start` | technician+ scoped | `work_orders.py` → `work_orders.start_work_order` | work_orders (r/w, row lock) | `apiStartWorkOrder` | `transactions.js` |
+| 66 | POST | `/work-orders/{id}/start` | a Technician on the crew, or team lead+ | `work_orders.py` → `work_orders.start_work_order` | work_orders (r/w, row lock) | `apiStartWorkOrder` | `transactions.js` |
 | 67 | GET | `/user-requests/` | techfm_oa+ (`status=open|stocked|resolved`, `type=`) | `user_requests.py` → `user_requests.list_user_requests` | user_requests (r), items (r), work_orders (r), users (r) | `apiListUserRequests` | `userRequests.js` |
 | 68 | PATCH | `/user-requests/{id}` | techfm_oa+ | `user_requests.py` → `user_requests.update_user_request` / `update_user_request_fields` | user_requests (r/w), users (r) | `apiUpdateUserRequest` | `userRequests.js` |
-| 68a | POST | `/user-requests/catalogue-request` | session (any role) | `user_requests.py` → `user_requests.create_catalogue_request` | user_requests (w), work_orders (r) | `apiCreateCatalogueRequest` | `catalogueRequest.js` |
+| 68a | POST | `/user-requests/catalogue-request` | session (any role); a request tied to a work order needs the crew for a Technician (403) | `user_requests.py` → `user_requests.create_catalogue_request` | user_requests (w), work_orders (r) | `apiCreateCatalogueRequest` | `catalogueRequest.js` |
 | 68b | GET | `/user-requests/{id}/siblings` | techfm_oa+ | `user_requests.py` → `user_requests.find_sibling_catalogue_requests` | user_requests (r), work_orders (r), users (r) | `apiListRequestSiblings` | `userRequests.js` |
 | 68c | POST | `/user-requests/{id}/fulfill` | techfm_oa+ | `user_requests.py` → `items.create_item` (optional) + `user_requests.fulfill_catalogue_request` → `work_orders.attach_dispense_line` (+ `material_requests.create_or_update` when the item ends `<= 0`) | user_requests (r/w, row lock), items (r/w on create), work_orders (r/w status), work_order_items (w, retroactive) | `apiFulfillCatalogueRequest` | `userRequests.js` |
-| 68d | POST | `/user-requests/material-request` | session, WO-visible | `user_requests.py` → `work_orders.get_visible_work_order` + `material_requests.create_or_update` (+ `notifications.notify_material_request_filed` on create) | user_requests (w), items (r, row lock), work_orders (r), push_subscriptions (r) | `apiCreateMaterialRequest` | `workOrderRequests.js` |
+| 68d | POST | `/user-requests/material-request` | session; a Technician must be on the work order's crew (403) | `user_requests.py` → `work_orders.get_visible_work_order` + `material_requests.create_or_update` (+ `notifications.notify_material_request_filed` on create) | user_requests (w), items (r, row lock), work_orders (r), push_subscriptions (r) | `apiCreateMaterialRequest` | `workOrderRequests.js` |
 | 68e | POST | `/user-requests/{id}/mark-stocked` | techfm_oa+ | `user_requests.py` → `material_requests.mark_stocked` → `_stock_events.flush_stock_events` | user_requests (r/w, row lock), work_orders (r), work_order_technicians (r), push_subscriptions (r) | `apiMarkRequestStocked` | `userRequests.js` |
 | 68f | POST | `/user-requests/{id}/cancel` | session, filer only | `user_requests.py` → `material_requests.cancel` | user_requests (r/w, row lock) | `apiCancelMaterialRequest` | `workOrderRequests.js` |
 | 68g | GET | `/user-requests/counts` | techfm_oa+ | `user_requests.py` → `material_requests.open_counts` | user_requests (r) | `apiListUserRequestCounts` | `userRequests.js` |
-| 69 | POST | `/work-orders/{id}/complete` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.complete_work_order` | work_orders (r/w status + notes, row lock), work_order_technicians (r), push_subscriptions (r, via notify) | `apiCompleteWorkOrder` | `workOrderActions.js` |
-| 70 | POST | `/work-orders/{id}/hold` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.hold_work_order` | work_orders (r/w, row lock), work_order_technicians (r), push_subscriptions (r, via notify) | `apiHoldWorkOrder` | `workOrderActions.js` |
-| 71 | POST | `/work-orders/{id}/resume` | assigned Technician/Supervisor | `work_orders.py` → `work_orders.resume_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiResumeWorkOrder` | `workOrderActions.js` |
-| 71a | POST | `/work-orders/{id}/tracking/start` | assigned Technician, or Supervisor+ on any visible row; optional body `{notes_acknowledged}` — **409 before the punch** when others worked the row, the caller has not, and it has notes | `work_orders.py` → `attendance.ensure_punch_for_labor_start` + `work_orders.start_labor_session` | attendance_punches (r/w), work_orders (r/w status + notes, row lock), work_order_technicians (r), work_order_labor_sessions (r/w), work_order_labor (w, when it closes a clock elsewhere), push_subscriptions (r, via notify on that row's auto-hold) | `apiStartWorkOrderTracking` | `workOrderActions.js` |
-| 71b | POST | `/work-orders/{id}/tracking/stop` | assigned Technician, or Supervisor+ on any visible row | `work_orders.py` → `work_orders.stop_labor_session` | work_orders (r/w status + notes, row lock), work_order_technicians (r), work_order_labor_sessions (r/w), work_order_labor (w), push_subscriptions (r, via notify on auto-hold) | `apiStopWorkOrderTracking` | `workOrderActions.js` |
-| 72a | GET | `/work-orders/{id}/requests` | session scoped | `work_orders.py` → `work_orders.get_visible_work_order` + `material_requests.list_for_work_order` | user_requests (r), items (r), work_orders (r), users (r) | `apiListWorkOrderRequests` | `workOrderRequests.js` |
-| 72b | POST | `/work-orders/{id}/signature` | session scoped (any viewer) | `work_orders.py` → `work_order_signature.save_signature` (PNG ≤ 256 KB decoded, name ≤ 120, US 10-digit phone); 409 already signed, 422 bad input | work_order_signatures (w), work_orders (r/w notes, row lock), users (r) | `apiSaveWorkOrderSignature` | `workOrderActions.js` |
-| 72c | DELETE | `/work-orders/{id}/signature` | supervisor+ scoped | `work_orders.py` → `work_order_signature.clear_signature`; 404 when unsigned | work_order_signatures (w), work_orders (r/w notes, row lock) | `apiClearWorkOrderSignature` | `workOrderActions.js` |
-| 72d | GET | `/work-orders/{id}/signature.png` | session scoped (any viewer) | `work_orders.py` → `work_order_signature.get_signature_png` — `image/png`, `Cache-Control: no-store`; 404 unsigned | work_order_signatures (r), work_orders (r) | `<img src>` (`image_url` on `WorkOrderDetail.signature`) | `workOrderSignature.js` |
+| 69 | POST | `/work-orders/{id}/complete` | crew member (assigned worker) | `work_orders.py` → `work_orders.complete_work_order` | work_orders (r/w status + notes, row lock), work_order_technicians (r), push_subscriptions (r, via notify) | `apiCompleteWorkOrder` | `workOrderActions.js` |
+| 70 | POST | `/work-orders/{id}/hold` | crew member (assigned worker) | `work_orders.py` → `work_orders.hold_work_order` | work_orders (r/w, row lock), work_order_technicians (r), push_subscriptions (r, via notify) | `apiHoldWorkOrder` | `workOrderActions.js` |
+| 71 | POST | `/work-orders/{id}/resume` | crew member (assigned worker) | `work_orders.py` → `work_orders.resume_work_order` | work_orders (r/w, row lock), work_order_technicians (r) | `apiResumeWorkOrder` | `workOrderActions.js` |
+| 71a | POST | `/work-orders/{id}/tracking/start` | any role **except the Owner (403, before the punch opens)**, any visible row; **adds the caller to the crew**; optional body `{notes_acknowledged}` — **409 before the punch** when others worked the row, the caller has not, and it has notes | `work_orders.py` → `attendance.ensure_punch_for_labor_start` + `work_orders.start_labor_session` | attendance_punches (r/w), work_orders (r/w status + notes, row lock), work_order_technicians (r/w, adds the caller), work_order_labor_sessions (r/w), work_order_labor (w, when it closes a clock elsewhere), push_subscriptions (r, via notify on that row's auto-hold) | `apiStartWorkOrderTracking` | `workOrderActions.js` |
+| 71b | POST | `/work-orders/{id}/tracking/stop` | any role (closes only the caller's own running clock) | `work_orders.py` → `work_orders.stop_labor_session` | work_orders (r/w status + notes, row lock), work_order_technicians (r), work_order_labor_sessions (r/w), work_order_labor (w), push_subscriptions (r, via notify on auto-hold) | `apiStopWorkOrderTracking` | `workOrderActions.js` |
+| 72a | GET | `/work-orders/{id}/requests` | any session | `work_orders.py` → `work_orders.get_visible_work_order` + `material_requests.list_for_work_order` | user_requests (r), items (r), work_orders (r), users (r) | `apiListWorkOrderRequests` | `workOrderRequests.js` |
+| 72b | POST | `/work-orders/{id}/signature` | any session; a Technician must be on the crew (403), unknown/archived 404 | `work_orders.py` → `work_order_signature.save_signature` (PNG ≤ 256 KB decoded, name ≤ 120, US 10-digit phone); 409 already signed, 422 bad input | work_order_signatures (w), work_orders (r/w notes, row lock), users (r) | `apiSaveWorkOrderSignature` | `workOrderActions.js` |
+| 72c | DELETE | `/work-orders/{id}/signature` | Team Lead+ scoped | `work_orders.py` → `work_order_signature.clear_signature`; 404 when unsigned | work_order_signatures (w), work_orders (r/w notes, row lock) | `apiClearWorkOrderSignature` | `workOrderActions.js` |
+| 72d | GET | `/work-orders/{id}/signature.png` | any session | `work_orders.py` → `work_order_signature.get_signature_png` — `image/png`, `Cache-Control: no-store`; 404 unsigned | work_order_signatures (r), work_orders (r) | `<img src>` (`image_url` on `WorkOrderDetail.signature`) | `workOrderSignature.js` |
 | NF2 | POST | `/integrations/netfacilities/work-orders/enrich` | techfm_oa+ | `netfacilities.py` → `_resolve_cloud_enrichment_context` (the caller's own cloud session) → `netfacilities_jobs.start` → `netfacilities.enrich_work_orders` | work_orders (r/w, existing live candidates only; short compare-and-set locks); netfacilities_cloud_sessions (r, caller's own row only) | `apiStartNetFacilitiesEnrichment` | `workOrderIntegrations.js` |
 | NF3 | GET | `/integrations/netfacilities/work-orders/enrich/{job_id}` | techfm_oa+ | `netfacilities.py` → `netfacilities_jobs.get` | no DB; process-local aggregate-only job snapshot | `apiGetNetFacilitiesEnrichment` | `workOrderIntegrations.js` |
 | NF5 | GET | `/integrations/netfacilities/cloud/session` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.latest` + `NetFacilitiesCloudSession` existence check | netfacilities_cloud_sessions (r, existence only) | `apiGetNetFacilitiesCloudSession` | `workOrderIntegrations.js` (Integrations card, cloud sign-in) |
@@ -129,7 +129,7 @@ writes (w).
 | NF6 | POST | `/integrations/netfacilities/cloud/downloads/import` | techfm_oa+ | `netfacilities.py` → `netfacilities_cloud_auth.dispatch_capture` → `work_orders.run_csv_import` → close session → `netfacilities_jobs.start` → chain push | **work_orders** (find-or-create by number, same realtime + push side effects as WO import), netfacilities_cloud_sessions (r), push_subscriptions (r, chain outcome push) | `apiImportNetFacilitiesCloudDownload` | `workOrderIntegrations.js` (Integrations card, **Import downloaded CSV** — returns `NetFacilitiesCloudSessionStatus`, runs the same chain the automatic capture trigger does) |
 | WS1 | WS | `/ws` | session cookie + same-origin | `realtime.py` → `services/realtime` registry → `domain/realtime` policy | **none** — carries no row data, reads and writes nothing | — (`static/realtime.js` owns the socket; not an `api.js` wrapper) | `adminReview.js`, `workOrderList.js`, `userHub.js` (subscribers), `auth.js` + `nav.js` (lifecycle) |
 | H1 | GET | `/hub` | any authenticated | `hub.py` → `hub.personal_hub` → `work_orders.sweep_stale_sessions` + `labor_summary.day_summary` + `tools.user_custody_detail` | work_order_labor_sessions (r/w on sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), tool_transactions (r), tools (r), users (r) | `apiGetHub` | `userHub.js`, `hubClock.js`, `hubTechnician.js` |
-| H2 | GET | `/hub/crew` | supervisor+ | `hub.py` → `hub.crew_hub` → `work_orders.sweep_stale_sessions` (per crew member) + `labor_summary.crew_day_summaries` + `labor_summary.last_worked` | work_order_labor_sessions (r/w on per-member sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), users (r) | `apiGetHubCrew` | `userHub.js`, `hubSupervisor.js` |
+| H2 | GET | `/hub/crew` | Team Lead+ | `hub.py` → `hub.crew_hub` → `work_orders.sweep_stale_sessions` (per crew member) + `labor_summary.crew_day_summaries` + `labor_summary.last_worked` | work_order_labor_sessions (r/w on per-member sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), users (r) | `apiGetHubCrew` | `userHub.js`, `hubSupervisor.js` |
 | H2a | GET | `/hub/admin` | techfm_oa+ | `hub.py` → `hub.admin_hub` → `work_orders.sweep_stale_sessions` (global) + `labor_summary` day totals | work_order_labor_sessions (r/w on sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), users (r) | `apiGetHubAdmin` | `userHub.js`, `hubAdmin.js` |
 | H5 | GET | `/hub/graphs?weeks=12\|26\|52` | techfm_oa+ | `hub.py` → `hub.graphs_hub` → shared graph/community rules | work_orders (narrow status/location/service/timestamp projections; read-only) | `apiGetHubGraphs` | `userHub.js`, `hubGraphs.js` |
 | H6 | GET | `/hub/report?week=` | **admin only** | `hub.py` → `work_order_report.resolve_week` + `report_for_week` (frozen closed rows + live new rows) | work_orders (r), work_order_report_weeks (r/w) | `apiGetHubReport` | `userHub.js`, `hubReport.js` |
@@ -156,10 +156,10 @@ NF4) are removed endpoints; WS1 and the H*/NF* rows are numbered apart from the
 resource rows.)
 
 Footnotes:
-1. `POST /transactions/`: dispense = any authenticated user; stock = supervisor+ (`domain.roles.can_transact`). A Scan/Stock dispense may take expected quantity below zero and opens a recount request. Work Orders Add Item has the same deliberate exception; Work Order quantity edits and the other stock-out paths retain the strict no-overdraft domain rule.
-2. work_orders: read when a scanned card passes `work_order_id`; resolved (read, plus a fill-blanks write) when a Supervisor+ passes a free-text `work_order_number` — 404 if that number was never imported.
+1. `POST /transactions/`: dispense = any authenticated user; stock = Team Lead+ (`domain.roles.can_transact`). A Scan/Stock dispense may take expected quantity below zero and opens a recount request. Work Orders Add Item has the same deliberate exception; Work Order quantity edits and the other stock-out paths retain the strict no-overdraft domain rule.
+2. work_orders: read when a scanned card passes `work_order_id`; resolved (read, plus a fill-blanks write) when a Team Lead+ passes a free-text `work_order_number` — 404 if that number was never imported.
 3. work_order_items: a line is created/accumulated only for a `dispense` carrying a `work_order_id` (a stock-in writes none).
-4. void walks the work_order_items line back (drops it at zero) when the voided row carries a `work_order_id`; it also resolves any request linked to the source transaction. Supervisor+ may void any eligible row, while a Technician may remove only their own work-order-linked dispense.
+4. void walks the work_order_items line back (drops it at zero) when the voided row carries a `work_order_id`; it also resolves any request linked to the source transaction. Team Lead+ may void any eligible row, while a Technician may remove only their own work-order-linked dispense.
 5. `get_work_order` lazily self-heals orphaned linked dispenses into lines on read (a write inside a read).
 
 ---
@@ -183,7 +183,7 @@ action → wrapper → endpoint → service → table effect.
 - Find Item fires no request on entry; results render only on explicit
   Search/Enter or Load All Items (TechFM OA+ see price/link columns).
 - `GET /items/` also feeds `addBarcode.js` (debounced name picker),
-  `transactions.js` (manual pick panel; Supervisor+ may browse-all with an
+  `transactions.js` (manual pick panel; Team Lead+ may browse-all with an
   empty search), and the massStage/workOrders item pickers.
 - `GET /items/{barcode}` resolves scans (`scan.js`), attach-target confirms
   (`addBarcode.js`), and History's by-item lookup.
@@ -191,7 +191,7 @@ action → wrapper → endpoint → service → table effect.
 ### Users / history
 - `GET /users/` feeds the account table (archived included, dimmed), full-name
   technician dropdowns, workOrders' local assignee search, and tools' active-
-  user custody search (TechFM OA+). Supervisor/Technician use `/auth/me` for a
+  user custody search (TechFM OA+). Team Lead/Technician use `/auth/me` for a
   self-only tools card instead.
 - History renders full names, never login usernames. The Charge column
   (`item_price` × qty × 1.15) is TechFM OA+ and **null for work-order rows** —
@@ -218,7 +218,7 @@ action → wrapper → endpoint → service → table effect.
   affected work-order number.
 - Void (`DELETE /transactions/{id}`): reverses stock, walks the
   work_order_items line back (deletes at zero), soft-voids the row, resolves
-  the linked request. Supervisor+ may void any eligible row; a Technician only
+  the linked request. Team Lead+ may void any eligible row; a Technician only
   their own work-order-linked dispense.
 - Correction (`POST /transactions/adjust`): absolute target quantity, signed
   `adjust` row. Billing edit (`PATCH .../billing`): no stock change.
@@ -260,11 +260,11 @@ endpoint or form exists; every other surface resolves an existing number and
 
 - Import: per row, locked find-or-create with idempotent fill-blanks merge.
   A blank task stores the canonical NetFacilities URL, replaceable by a later
-  real CSV task; real/manual tasks stay authoritative. Supervisor routing
-  (name-matched from `ASSIGNED TO` against active supervisors; miss/ambiguity
+  real CSV task; real/manual tasks stay authoritative. Team Lead routing
+  (name-matched from `ASSIGNED TO` against active Team Leads; miss/ambiguity
   stays unassigned) fills only a still-NULL `supervisor_id`, so a manual
   reroute wins. A person-archived match counts as closed and is ignored.
-  Each matched supervisor gets one bulk push
+  Each matched Team Lead gets one bulk push
   (`work_order.supervisor_assigned_bulk`, created rows only).
 - Cloud auth (Steel): `POST .../cloud/auth/start` opens a cloud browser and
   returns its live-view URL; credentials/CAPTCHA/MFA are completed there; the
@@ -287,21 +287,21 @@ endpoint or form exists; every other surface resolves an existing number and
   only for an unconsumed capture) runs the same chain, so manual and automatic
   cannot drift; the session poll narrates it (`chain_stage`, `import_result`,
   `enrichment_job_id`).
-- Edit details (`PATCH /work-orders/{id}`): Supervisor sees routing and
+- Edit details (`PATCH /work-orders/{id}`): Team Lead sees routing and
   status; TechFM OA+ also imported metadata. `number` is not editable — the
   import matches on it. The patch carries the editor's original
   `supervisor_id` as `expected_supervisor_id`; a stale value returns 409
-  naming the current supervisor and the UI reloads on dismiss. The status
+  naming the current Team Lead and the UI reloads on dismiss. The status
   selector offers In-Progress from Created/Assigned (replacing the old
   standalone start action), rollback, and On-Hold; Review stays outside it.
   Created/Assigned is normalized from technician presence.
 - Assigned-worker walkthrough (built on the clock, not status buttons): the
   seven-status lifecycle is created → assigned → in_progress →
   ready_to_complete → completed → review, with on_hold as the pause. Where
-  `POST .../complete` ("Notify Supervisor") lands is the **caller's role**
-  (`domain.work_orders.completion_target_status`): Supervisor+ reaches
+  `POST .../complete` ("Notify Team Lead") lands is the **caller's role**
+  (`domain.work_orders.completion_target_status`): Team Lead+ reaches
   Completed; a Technician's finish lands **Ready to Complete** with a
-  server-authored note, and Supervisor+ then Approve (PATCH completed) or
+  server-authored note, and Team Lead+ then Approve (PATCH completed) or
   Send Back (PATCH in_progress). Complete/hold stop every clock; resume
   starts none. These narrow routes require current assignment and grant no
   general status authority. Material activity still auto-advances pre-work
@@ -317,11 +317,10 @@ endpoint or form exists; every other surface resolves an existing number and
   stopping the last clock on an In-Progress row moves it to On-Hold and the
   card says so. Every close appends a `stopped work` note authored by the
   session's technician. Each response is the full refreshed detail.
-- Manual labor: whole minutes; Supervisor+ may add/revise/remove any entry
-  (the picker also offers the supervisor themselves), and a Technician may
-  add/revise/remove an entry attributed to themselves — self-service for a
-  missed clock or a logging mistake, marked in the note log
-  (`manually logged`/`added`/`subtracted`/`removed …`). Entries show their
+- Manual labor: whole minutes; **Admin and Owner only** may add/revise/remove an
+  entry (the picker also offers the Admin/Owner themselves); everyone else's
+  hours come from Begin / Stop Charging. A hand-keyed change leaves no
+  note-log line. Entries show their
   session window; auto-capped ones are tagged "auto-stopped". Billing: sum
   minutes, round up once to 30 min, × $62.50/hr (rate/charge TechFM OA+ only).
 - Admin Review: `apiListWorkOrders({status:"review"})` → receipt via
@@ -345,12 +344,12 @@ endpoint or form exists; every other surface resolves an existing number and
   `tests/test_receipt.py`). Filenames `MM-DD-YY_HH-MM_<filters>.csv` (UTC;
   `-` replaces the time colon).
 - Materials: add (Technician+) may drive the expected count negative (recount
-  request, red banner); qty update (Supervisor+) applies a reconciling
-  `adjust` and clears a now-too-large billable override; delete (Supervisor+)
+  request, red banner); qty update (Team Lead+) applies a reconciling
+  `adjust` and clears a now-too-large billable override; delete (Team Lead+)
   returns stock, voids the line's whole contributing transaction set, and
   resolves linked requests.
 - Signature: optional witness sign-off, one row per work order, locked once
-  saved; any viewer captures it, Supervisor+ clears it. It gates nothing. Save and clear each append a server-authored note line and
+  saved; any viewer captures it, Team Lead+ clears it. It gates nothing. Save and clear each append a server-authored note line and
   emit the live status-changed event; the PNG is served `no-store` and
   `image_url` carries `?v=<captured_at epoch>` so a re-sign never shows a
   cached image. The save joins the offline-draft replay (`signature` section).
@@ -395,7 +394,7 @@ endpoint or form exists; every other surface resolves an existing number and
   p90 plus `n` (both null when `n` is 0). `on_time_pct` = share of that
   week's closes with a parseable `schedule_date` whose Central close date is
   ≤ 4 days after it (early counts); unscheduled closes are counted apart.
-- `labor.session.changed` (audience Supervisor+) fires from both tracking
+- `labor.session.changed` (audience Team Lead+) fires from both tracking
   routes after every clock start/stop with `id: null`; recipients refetch the
   crew board. `attendance.changed` (audience Admin) fires from the six punch
   writes, also with `id: null`; the Timesheets tab refetches the
@@ -423,7 +422,7 @@ Quick reverse lookup: "which endpoints touch table X?"
 
 | Table | Written by (endpoint #) | Read by (endpoint #) |
 |-------|-------------------------|----------------------|
-| `users` | 15, 16, 17, 18, 19, 58, 62 | 3, 5, 14, 20, 25–28 (assignee validation), 40, 55 (supervisor name-match), 59–61, 63–64, 68–69 |
+| `users` | 15, 16, 17, 18, 19, 58, 62 | 3, 5, 14, 20, 25–28 (assignee validation), 40, 55 (Team Lead name-match), 59–61, 63–64, 68–69 |
 | `sessions` | 3 (insert), 4 (delete), 17 (revoke), 19 (cascade), 62 (revoke) | every authenticated request (5 + all gated) |
 | `items` | 8, 9, 9a, 10, 12, 21, 22, 24, 30, 31, 33, 45, 46 | 6, 6a, 7, 20, 26, 36, 63, 68 |
 | `item_barcodes` | 8 (check), 11 | 7, 8 (uniqueness) |
@@ -647,13 +646,13 @@ selector does not offer `ready_to_complete` (reached by a Technician's
 complete action only).
 Notes are trimmed per-entry text; every in-scope user may append one. The
 service supplies timestamp/date/author metadata and preserves the prior log.
-`status`, `entry_mode`, supervisor, and technician assignment require
-Supervisor+; imported/legacy text metadata and number require TechFM OA+. A Review
+`status`, `entry_mode`, Team Lead, and technician assignment require
+Team Lead+; imported/legacy text metadata and number require TechFM OA+. A Review
 status is accepted only while the stored row is Completed and only from TechFM OA+
-or its routed Supervisor when the caller is not an assigned worker.
-`supervisor_id` may target an active Admin or Supervisor; `assigned_to_ids` may
-contain active Technician or Supervisor accounts (including the acting
-Supervisor). Owners retain global authority but are not assignment targets.
+or its routed Team Lead when the caller is not an assigned worker.
+`supervisor_id` may target an active Admin or Team Lead; `assigned_to_ids` may
+contain active Technician or Team Lead accounts (including the acting
+Team Lead). Owners retain global authority but are not assignment targets.
 `supervisor_id?` may be paired with `expected_supervisor_id?`, including an
 explicit NULL expectation for pickup. The expectation is a concurrency
 precondition, not a stored field and not an update by itself.
@@ -690,7 +689,7 @@ service).
 fields `location?`, `output_to?`, `vendor_assignee?`, `service_type?`,
 `schedule_date?`, `supervisor_id?`, `supervisor_name?`, and `legacy` (bool).
 `WorkOrderUpdate` additionally accepts `supervisor_id` and those text fields.
-The service applies the Technician-notes / Supervisor-operations / Admin-metadata
+The service applies the Technician-notes / Team Lead-operations / Admin-metadata
 matrix. **`WorkOrderImportResult`** (return of
 `POST /work-orders/import`): `total`, `created`, `opened`, `closed`, `supervisors_matched`,
 `supervisors_unmatched`, `skipped` (all int). The request is a `multipart/form-data`
@@ -777,7 +776,7 @@ deliberately:
 |---|---|---|---|
 | `work_order.review_queue.changed` | TechFM OA+ | import, bulk legacy archive, update, archive, restore | `adminReview.js` |
 | `work_order.status.changed` | any role | those six plus start, complete, hold, resume, tracking start/stop — card **summary** invalidation (status/assignee/item count); tracking start also emits for a side-transitioned row | `workOrderList.js`, `userHub.js` |
-| `labor.session.changed` | Supervisor+ | exactly the two tracking routes; always `id: null` | `userHub.js` (crew board) |
+| `labor.session.changed` | Team Lead+ | exactly the two tracking routes; always `id: null` | `userHub.js` (crew board) |
 | `attendance.changed` | Admin+ | the punch writes — `punch-in`, `punch-out`, `self-close`, the three `/hub/attendance/punches` writes and `clock-out`; always `id: null` | `hubTimesheetsTab.js` |
 | `item.low_stock.changed` | TechFM OA+ | any stock write that crosses an item's threshold, and a threshold edit; `id` is the item | `lowStock.js` |
 | `user_request.changed` | Technician+ | filing, mark-stocked, cancel, PATCH, fulfil, every stock write that crosses zero for a requested item, add-from-line; `id` is the request | `userRequests.js`, `userHub.js`, `workOrderRequests.js` |
@@ -888,7 +887,7 @@ report an hour for a session that has given today thirty minutes.
 `auto_closed: bool`, `minutes: int`. `minutes` is that session's share of
 **this** day, so a midnight crossing appears on both days at its real weight
 and is not `ended_at − started_at`. `auto_closed` marks a session the 12-hour
-cap ended — an estimate a supervisor should correct, not a fact. A session
+cap ended — an estimate a Team Lead should correct, not a fact. A session
 that only touches the day (a stop at exactly midnight) is omitted.
 
 **`HubAdjustment`**: `minutes`, `recorded_by_name` (`"Name unavailable"` when
@@ -911,14 +910,14 @@ owns every address in the app.
 **`HubToolOut`**: `tool_id`, `name`, `barcode`, `quantity: Decimal`,
 `since: datetime?` — oldest spell first.
 
-**`HubCrewResponse`** — `GET /hub/crew` (supervisor+): `server_now: datetime`,
+**`HubCrewResponse`** — `GET /hub/crew` (Team Lead+): `server_now: datetime`,
 `led: HubLedCounts`, `crew_on_clock: int`, `crew_total: int`,
 `crew_minutes_today: int`, `technicians: list[HubCrewTechnician] = []`,
 `attention: list[HubAttentionItem] = []`. Minutes only — cost figures stay
 redacted below TechFM OA per the existing role rule; nothing here needs one.
 
 **`HubLedCounts`**: `total`, `in_progress`, `ready_to_complete` — a total and
-two subsets of the work orders this supervisor leads, same convention as
+two subsets of the work orders this Team Lead leads, same convention as
 `HubCounts`.
 
 **`HubCrewTechnician`**: `user: HubUser`, `running_session: HubRunningSession?
@@ -1021,8 +1020,8 @@ non-domain exceptions become FastAPI's default 500.
 | `StageNotFoundError` | 404 | mass-stage id unknown |
 | `RoomNotFoundError` | 404 | stage **slot** not found / not in the stage (name retains old "room") |
 | `StageItemNotFoundError` | 404 | planned stage item not found (incl. loading an unplanned item) |
-| `WorkOrderNotFoundError` | 404 | work order unknown, archived, or **out of visibility scope** (404 hides existence) |
-| `WorkOrderAssignmentConflictError` | **409** | a routing patch's `expected_supervisor_id` differs from the freshly locked row; names its current supervisor when assigned |
+| `WorkOrderNotFoundError` | 404 | work order unknown or archived (every recognised role sees every live work order; an unrecognised role also gets 404 for one it is not assigned to) |
+| `WorkOrderAssignmentConflictError` | **409** | a routing patch's `expected_supervisor_id` differs from the freshly locked row; names its current Team Lead when assigned |
 | `WorkOrderStateError` | 400 | invalid live status/mode, assigned-worker completion/hold outside In-Progress, assigned-worker resume outside On-Hold, Review before Completed, or number collision on edit |
 | `ToolNotFoundError` | 404 | tool id/barcode unknown or archived |
 | `DuplicateToolBarcodeError` | 400 | barcode held by a **live** tool (no archived-conflict/override flow, unlike items) |
@@ -1035,8 +1034,8 @@ non-domain exceptions become FastAPI's default 500.
 | `DuplicateUsernameError` | 400 | username UNIQUE constraint fired |
 | `DuplicateBuildingStageError` | 400 | a (community, building) already has an active stage |
 | `InvalidStageTransitionError` | 400 | stage status move not `planning→loading→completed` |
-| `InvalidAssigneeError` | 400 | work-order worker missing, archived, or not a Technician/Supervisor |
-| `InvalidSupervisorError` | 400 | work-order routing target missing, archived, or not an Admin/Supervisor |
+| `InvalidAssigneeError` | 400 | work-order worker missing, archived, or not a Technician, Team Lead, TechFM OA or Admin (the Owner is not assignable) |
+| `InvalidSupervisorError` | 400 | work-order routing target missing, archived, or not an Admin, TechFM OA or Team Lead |
 | `ReturnExceedsLoadedError` | 400 | mass-stage return > net loaded |
 | `StageStateError` | 400 | mass-stage op illegal for current status (edit after planning, load before loading) |
 | `ItemHasTransactionsError` | 400 | hard-deleting an item with txns/stage rows (FK RESTRICT) |
@@ -1048,7 +1047,7 @@ non-domain exceptions become FastAPI's default 500.
 | `TransactionVoidError` | 400 | voiding would drive stock < 0 ("make a correction instead") |
 | `UnreadableImageError` | 400 | uploaded bytes are not a decodable image |
 | `InvalidCredentialsError` | **401** | bad username/password **or archived user** (indistinguishable) |
-| `RoleManagementError` | **403** | actor fails a role/ownership gate, including unassigned completion, assigned-worker Review, or a Technician removing a transaction other than their own work-order-linked dispense |
+| `RoleManagementError` | **403** | actor fails a role/ownership gate, including unassigned completion, assigned-worker Review, a Technician writing to a work order they are not on the crew of ("Begin Charging on this work order first"), the Owner starting a clock, hand-keyed labor below Admin, or a Technician removing a transaction other than their own work-order-linked dispense |
 
 Auth/gate errors are raised directly by `auth_deps.py` (not `DomainError`): **401**
 no/invalid/expired session (`get_current_user`); **403** valid session but role too
@@ -1095,16 +1094,16 @@ Pure functions (no DB) in `domain/*.py` — the business rules, testable in isol
 - Ranks: `technician 0 < supervisor 1 < techfm_oa 2 < admin 3 < owner 4`. Unknown
   role → rank −1.
 - `role_at_least(role, min)` — the route-gate primitive (`>=` on rank).
-- `can_be_work_order_supervisor(role)` — true for TechFM OA, Admin, and Supervisor.
+- `can_be_work_order_supervisor(role)` — true for TechFM OA, Admin, and Team Lead.
 - `label(role)` / `ROLE_LABELS` — display names; "TechFM OA" is not derivable by
   capitalising its slug, so UI copy and OpenAPI 403 descriptions read from here.
 - TechFM OA holds the Admin toolkit minus two things, both consequences of its
   rank: it fails `role_at_least(role, ROLE_ADMIN)`, which is the Review handoff
   floor, and `can_manage` is false against Admin and Owner.
-- `can_be_work_order_technician(role)` — true only for Supervisor and Technician.
+- `can_be_work_order_technician(role)` — true only for Team Lead and Technician.
   These assignment predicates intentionally exclude Owner despite Owner's global
   authority.
-- `can_transact(role, type)` — `dispense`: any valid role; `stock`: supervisor+; else False.
+- `can_transact(role, type)` — `dispense`: any valid role; `stock`: Team Lead+; else False.
 - `can_manage(actor, target)` — actor rank **strictly >** target rank (so no one
   manages their own level or an owner).
 - `assignable_roles(actor)` — every role ranked strictly below the actor.
@@ -1132,21 +1131,22 @@ Pure functions (no DB) in `domain/*.py` — the business rules, testable in isol
   `lower(btrim(number))`. Internal whitespace preserved.
 - Stored/live statuses: `created`, `assigned`, `in_progress`, `on_hold`,
   `ready_to_complete`, `completed`, `review`; Closed is archive state.
-  `completion_target_status(role)`: Supervisor+ → completed, Technician →
+  `completion_target_status(role)`: Team Lead+ → completed, Technician →
   ready_to_complete. `initial_status(assigned_to_id)` and
   `reconcile_assignment_status` align only Created/Assigned with technician
   assignment without rewinding work underway. `status_after_activity` advances
   either pre-work state to In-Progress for material activity and tracking
   start (not hand-keyed labor) but preserves
-  On-Hold until an explicit supervisor edit. Modes: `dispense`,
+  On-Hold until an explicit Team Lead edit. Modes: `dispense`,
   `retroactive`; `affects_stock(mode)` = `mode == "dispense"`.
 - `validate_status` / `validate_mode` → `WorkOrderStateError` on anything else.
 - `fill_blank(current, incoming)` = keep non-blank `current`, else `incoming`
   (the find-or-create merge; `is_blank` = None or all-whitespace).
 - `can_view_work_order(role, created_by_id, assigned_to_id, assigned_to_ids,
-  user_id, supervisor_id)`: admin/owner (and `None` internal role) → all;
-  supervisor → unrouted or routed to them; technician → present in the plural assignment set (with the
-  singular compatibility fallback).
+  user_id, supervisor_id)`: every recognised role (Technician and above) and the
+  `None` internal role → all; an *unrecognised* role → present in the plural
+  assignment set (with the singular compatibility fallback). Seeing is not
+  acting: `services.work_orders.require_crew_for_technician` is the write gate.
 - Labor constants/rules: `LABOR_RATE = Decimal("62.50")`, increment = 30 minutes;
   `billed_labor_minutes(total)` rounds the combined duration upward once and
   `labor_charge(total)` applies the hourly rate.

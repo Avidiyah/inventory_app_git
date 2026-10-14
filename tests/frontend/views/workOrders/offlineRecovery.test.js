@@ -31,7 +31,7 @@ const click = (action) => card().querySelector(`[data-action="${action}"]`).clic
 
 describe("add-labor offline recovery", () => {
   it("drafts a failed save locally instead of just erroring inline", async () => {
-    const { detail } = await open({ assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
+    const { detail } = await open({ role: "admin", assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
     server.use(http.post("/work-orders/:id/labor", () => HttpResponse.error()));
     card().querySelector(".wo-new-labor-hours").value = "1";
     click("add-labor");
@@ -47,7 +47,7 @@ describe("add-labor offline recovery", () => {
   });
 
   it("replays and clears the draft once the server is reachable again", async () => {
-    const { mod, detail } = await open({ assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
+    const { mod, detail } = await open({ role: "admin", assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
     server.use(http.post("/work-orders/:id/labor", () => HttpResponse.error()));
     card().querySelector(".wo-new-labor-hours").value = "1";
     click("add-labor");
@@ -63,7 +63,7 @@ describe("add-labor offline recovery", () => {
   });
 
   it("stops auto-retrying once the server actively rejects the replay", async () => {
-    const { mod, detail } = await open({ assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
+    const { mod, detail } = await open({ role: "admin", assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
     server.use(http.post("/work-orders/:id/labor", () => HttpResponse.error()));
     card().querySelector(".wo-new-labor-hours").value = "1";
     click("add-labor");

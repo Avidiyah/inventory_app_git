@@ -22,8 +22,8 @@ ordinary `work_order_labor` entry that billing has always read, so an open
 session contributes nothing to any total and the whole feature is additive.
 Starting a clock is what advances a row to In-Progress, and stopping the last
 one puts it back On-Hold -- the status stops being something anyone has to
-remember to set. Hand-entered labor is Supervisor+ and exists to correct a
-forgotten Start.
+remember to set. Hand-entered labor is Admin and Owner only and exists to
+correct a forgotten Start. Starting a clock also puts the caller on the crew.
 
 Materials logged against a work order write a `dispense` transaction carrying
 `work_order_id` + the number; the work order's `entry_mode` decides
@@ -128,7 +128,7 @@ def _require_update_permissions(user: Optional[User], fields: dict) -> None:
         _require_role(
             user,
             roles.ROLE_SUPERVISOR,
-            "Only a Supervisor, Admin, or Owner can edit work order operations.",
+            "Only a Team Lead, Admin, or Owner can edit work order operations.",
         )
 
 
@@ -194,21 +194,22 @@ def _apply_priority_filter(query, value: Optional[str]):
 
 def _validate_assignee(db: Session, assigned_to_id: Optional[uuid.UUID]) -> None:
     """A work order may be unassigned, but if assigned the target must exist and
-    be an active Technician or Supervisor account."""
+    be an active Technician, Team Lead, TechFM OA, or Admin account."""
     if assigned_to_id is None:
         return
     user = (
         db.query(User.id)
         .filter(
             User.id == assigned_to_id,
-            User.role.in_(roles.WORK_ORDER_TECHNICIAN_ROLES),
+            User.role.in_(roles.WORK_ORDER_ASSIGNEE_ROLES),
             User.archived_at.is_(None),
         )
         .first()
     )
     if user is None:
         raise InvalidAssigneeError(
-            "Work orders can only be assigned to an active Technician or Supervisor."
+            "Work orders can only be assigned to an active Technician, Team "
+            "Lead, TechFM OA, or Admin."
         )
 
 
@@ -224,14 +225,15 @@ def _validate_assignees(
         for row in db.query(User.id)
         .filter(
             User.id.in_(normalized),
-            User.role.in_(roles.WORK_ORDER_TECHNICIAN_ROLES),
+            User.role.in_(roles.WORK_ORDER_ASSIGNEE_ROLES),
             User.archived_at.is_(None),
         )
         .all()
     }
     if len(valid_ids) != len(normalized):
         raise InvalidAssigneeError(
-            "Work orders can only be assigned to active Technicians or Supervisors."
+            "Work orders can only be assigned to active Technicians, Team "
+            "Leads, TechFM OAs, or Admins."
         )
     return normalized
 
@@ -240,7 +242,7 @@ def _validate_supervisor(
     db: Session, supervisor_id: Optional[uuid.UUID]
 ) -> None:
     """A routed work order must target an active TechFM OA, Admin, or
-    Supervisor account."""
+    Team Lead account."""
     if supervisor_id is None:
         return
     supervisor = (
@@ -255,7 +257,7 @@ def _validate_supervisor(
     if supervisor is None:
         raise InvalidSupervisorError(
             "Work orders can only be routed to an active TechFM OA, Admin, or "
-            "Supervisor."
+            "Team Lead."
         )
 
 
@@ -279,6 +281,32 @@ def assigned_technician_ids(work_order: WorkOrder) -> list[uuid.UUID]:
     fallback someone else's problem to remember.
     """
     return _assigned_technician_ids(work_order)
+
+
+def require_crew_for_technician(
+    work_order: WorkOrder, user: Optional[User]
+) -> None:
+    """A Technician sees every work order but writes only to one they are on.
+
+    Notes, materials, requests, the witness sign-off and Scan / Stock dispenses
+    all call this. Begin Charging puts the caller on the crew, so the way to
+    unlock a work order is the same tap that starts the work. Team Lead and
+    above, and the `None` internal caller, are never locked.
+    """
+    if (
+        user is not None
+        and user.role == roles.ROLE_TECHNICIAN
+        and user.id not in _assigned_technician_ids(work_order)
+    ):
+        raise RoleManagementError("Begin Charging on this work order first.")
+
+
+def require_tracking_role(user: Optional[User]) -> None:
+    """The Owner cannot track time: starting a clock puts the caller on the
+    crew and the Owner is not an assignable role. The router calls this before
+    opening an attendance punch so a refused start leaves nothing behind."""
+    if user is not None and user.role == roles.ROLE_OWNER:
+        raise RoleManagementError("The Owner cannot track time on work orders.")
 
 
 # Transition facts, attached to the row a write returns.
@@ -925,12 +953,8 @@ def mine_predicate(user_id: uuid.UUID):
     Supervisor matched nothing and vanished from their own dashboard while the
     "Work orders I lead" tile counted it.
 
-    The unrouted pickup queue is deliberately excluded even though a
-    Supervisor's own `_scoped_to_user` scope admits it. Roughly half of all
-    live work orders are unrouted at any time, so including it made this read
-    as "every work order in the company" -- the opposite of what a personal
-    list is for. The pickup queue is still one click away on the standalone
-    Work Orders page.
+    Everyone now sees every work order, so this predicate is what keeps a
+    personal list personal -- unrouted work is excluded.
     """
     return or_(
         WorkOrder.supervisor_id == user_id,
@@ -1091,9 +1115,8 @@ def list_work_orders(
     descending: bool = True,
 ) -> Sequence[WorkOrder]:
     """Live work orders by scheduled date (descending by default; `descending=False`
-    flips to oldest first), scoped to `user`
-    (technician -> assigned, supervisor -> created/routed, admin/owner -> all).
-    Optional status, service type, routed supervisor, derived community,
+    flips to oldest first), visible to every recognised role (see
+    `_scoped_to_user`). Optional status, service type, routed supervisor, derived community,
     priority, exact scheduled date, and
     number-substring filters combine with AND. `location_search` matches raw
     location plus structured community/building/unit; `task_search` matches
@@ -1103,9 +1126,7 @@ def list_work_orders(
     `PRIORITY_FILTER_NONE` for the rows enrichment never reached.
     `mine` narrows to what is
     routed to `user` or assigned to `user` -- the User Hub's "My Work Orders"
-    tab, and the only filter that covers routing. It excludes the unrouted
-    pickup queue that a Supervisor's own scope would otherwise admit (see
-    `_apply_work_order_filters`). Blank or malformed schedule
+    tab, and the only filter that covers routing. Blank or malformed schedule
     values sort last, with creation time
     breaking ties. `limit`, when set, caps this ordering; filters and Show all
     omit it to reach the full matching set.
@@ -1182,27 +1203,13 @@ def list_work_orders(
 
 
 def _scoped_to_user(query, user: Optional[User]):
-    """Narrow a `WorkOrder` query to what `user` may see. TechFM OA and above
-    (and a `None` internal caller) see everything, so the query is returned
-    unchanged. Mirrors `domain.work_orders.can_view_work_order`; shared by the
-    list and the CSV export so neither can drift into showing more than the
-    other."""
-    if user is None or roles.role_at_least(user.role, roles.ROLE_TECHFM_OA):
+    """Narrow a `WorkOrder` query to what `user` may see. Every recognised role
+    (and a `None` internal caller) sees everything, so the query is returned
+    unchanged; an unrecognised role fails closed to assignment-only. Mirrors
+    `domain.work_orders.can_view_work_order`; shared by the list and the CSV
+    export so neither can drift into showing more than the other."""
+    if user is None or roles.role_at_least(user.role, roles.ROLE_TECHNICIAN):
         return query
-    if user.role == roles.ROLE_SUPERVISOR:
-        # Unrouted work orders are the shared pickup queue. A Supervisor also
-        # retains worker access when assigned in the technician set, even if a
-        # different routing-eligible account owns the routing field.
-        return query.filter(
-            or_(
-                WorkOrder.supervisor_id.is_(None),
-                WorkOrder.supervisor_id == user.id,
-                WorkOrder.assigned_to_id == user.id,
-                WorkOrder.technician_assignments.any(
-                    WorkOrderTechnician.technician_id == user.id
-                ),
-            )
-        )
     return query.filter(
         or_(
             WorkOrder.assigned_to_id == user.id,
@@ -1604,6 +1611,9 @@ def start_work_order(
         or not _visible(work_order, user)
     ):
         raise WorkOrderNotFoundError("Work order not found.")
+    # Seeing a work order no longer implies being on it: a Technician starts
+    # the ones they are assigned to (Begin Charging is the self-assigning path).
+    require_crew_for_technician(work_order, user)
     if work_order.status == wo.STATUS_IN_PROGRESS:
         return _record_transition(work_order, previous=work_order.status)
     if work_order.status != wo.STATUS_ASSIGNED:
@@ -1682,7 +1692,7 @@ def complete_work_order(
         for session in _running_sessions(db, work_order)
     ):
         raise WorkOrderStateError(
-            "All Users must Stop Charging before a Supervisor can be notified."
+            "All Users must Stop Charging before a Team Lead can be notified."
         )
 
     previous = work_order.status
@@ -1853,6 +1863,8 @@ def update_work_order(
 
     if not _visible(work_order, user):
         raise WorkOrderNotFoundError("Work order not found.")
+    # A Technician's only editable field is notes; off the crew they are read-only.
+    require_crew_for_technician(work_order, user)
 
     if fields.get("status") == wo.STATUS_REVIEW:
         if work_order.status != wo.STATUS_COMPLETED:
@@ -2097,51 +2109,20 @@ def _get_labor_entry(
     return entry
 
 
-def _require_labor_author(
-    user: Optional[User], technician_id: uuid.UUID
-) -> None:
-    """Hand-entering labor -- adding, revising, or removing -- is Supervisor+
-    for anyone, or a Technician acting on their own row.
+def _require_labor_editor(user: Optional[User]) -> None:
+    """Hand-entering labor -- adding, revising, or removing -- is Admin and Owner
+    only.
 
-    A Technician's hours normally come from a tracked session, but this is
-    the self-service escape hatch for a forgotten Start Tracking or a logging
-    mistake: they may add a manual entry for themselves, or revise/remove one
-    already attributed to them. They still cannot touch a row credited to
-    anyone else. Every such change is written to the note log
-    (`_log_manual_labor_note`) since letting the hours' own author key them is
-    the trade for that visibility.
+    Hours normally come from a tracked session (`stop_labor_session`); this is
+    the correction route for a forgotten Begin Charging or a paper sheet, so it
+    sits above Team Lead and TechFM OA. A deliberate service check rather than
+    a route gate: the routes stay open to any session and the row-level rule
+    lives here beside the data, like the Review handoff floor.
     """
-    if user is None or roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
+    if user is None or roles.role_at_least(user.role, roles.ROLE_ADMIN):
         return
-    if user.id != technician_id:
-        raise RoleManagementError(
-            "A Technician can only record, revise, or remove their own "
-            "labor."
-        )
-
-
-def _format_labor_duration(minutes: int) -> str:
-    """Plain-language duration for a manual-labor note line, e.g. '1h 15m'."""
-    hours, mins = divmod(abs(minutes), 60)
-    if hours and mins:
-        return f"{hours}h {mins}m"
-    if hours:
-        return f"{hours}h"
-    return f"{mins}m"
-
-
-def _log_manual_labor_note(
-    db: Session, work_order: WorkOrder, user: Optional[User], body: str
-) -> None:
-    """Mark a Technician's self-service labor change in the note log. A
-    Supervisor's hand-entered correction stays as quiet as it always was."""
-    if user is None or user.role != roles.ROLE_TECHNICIAN:
-        return
-    work_order.notes = wo.append_note_log(
-        work_order.notes,
-        body,
-        author_name=user.full_name,
-        occurred_at=datetime.now(timezone.utc),
+    raise RoleManagementError(
+        "Only an Admin or the Owner can add, edit, or remove labor hours."
     )
 
 
@@ -2153,40 +2134,35 @@ def add_work_order_labor(
     technician_id: uuid.UUID,
     minutes: int,
 ) -> WorkOrderLabor:
-    """Record actual labor by hand -- Supervisor+ for anyone, or a Technician
-    for themselves.
+    """Record actual labor by hand -- Admin and Owner only.
 
-    This is the *correction* route: a dead battery, a forgotten Start
-    Tracking, a paper sheet. A Technician's hours normally come from stopping
-    a session (`stop_labor_session`), but they may also key a manual entry for
-    themselves -- self-service is bounded by `_require_labor_author` to their
-    own row, and marked in the note log (`_log_manual_labor_note`).
+    This is the *correction* route: a dead battery, a forgotten Begin
+    Charging, a paper sheet. Hours normally come from stopping a session
+    (`stop_labor_session`).
 
-    The technician being credited must be assigned to the work order **or** be
-    the supervisor recording themselves. That second case is the widening: a
-    supervisor who did the work attaches their own billable labor without being
-    listed on the crew. It is bounded by `_get_visible` and attributed by name,
-    and the labor card already lists every row on the work order regardless of
-    assignment, so it displays beside the crew's with no special handling.
+    The technician being credited must be on the crew **or** be the Admin or
+    Owner recording it, so an Admin who did the work can attach their own
+    billable labor without being listed. It is bounded by `_get_visible` and
+    attributed by name; the labor card lists every row regardless of crew.
 
     The duration is stored without rounding. Billing is derived from the sum of
     every entry on the work order, rounded upward once to the next 30 minutes.
 
     **Changes no status.** Because this is the correction route, keying hours
-    after the fact says nothing about whether the job is running now -- a
-    supervisor backfilling a paper sheet must not push a Created/Assigned row
-    to In-Progress. Material activity and Start Tracking still advance the
+    after the fact says nothing about whether the job is running now -- an
+    Admin backfilling a paper sheet must not push a Created/Assigned row to
+    In-Progress. Material activity and Begin Charging still advance the
     lifecycle; typing a duration does not.
     """
     work_order = _get_visible(db, work_order_id, user)
     wo.validate_labor_minutes(minutes)
-    _require_labor_author(user, technician_id)
+    _require_labor_editor(user)
     if technician_id not in _assigned_technician_ids(work_order) and not (
         user is not None and technician_id == user.id
     ):
         raise InvalidAssigneeError(
             "Labor can only be recorded for a technician assigned to this "
-            "work order, or for the Supervisor recording it."
+            "work order, or for the Admin or Owner recording it."
         )
 
     entry = WorkOrderLabor(
@@ -2197,12 +2173,6 @@ def add_work_order_labor(
         recorded_by_id=user.id if user else None,
     )
     db.add(entry)
-    _log_manual_labor_note(
-        db,
-        work_order,
-        user,
-        f"manually logged {_format_labor_duration(minutes)} of labor",
-    )
     db.commit()
     return _get_labor_entry(db, work_order, entry.id)
 
@@ -2216,28 +2186,12 @@ def update_work_order_labor(
     minutes: int,
 ) -> WorkOrderLabor:
     """Replace one labor entry's actual duration without re-rounding it --
-    Supervisor+ for any entry, or a Technician for their own."""
+    Admin and Owner only."""
     work_order = _get_visible(db, work_order_id, user)
     entry = _get_labor_entry(db, work_order, labor_id)
     wo.validate_labor_minutes(minutes)
-    _require_labor_author(user, entry.technician_id)
-    delta = minutes - entry.minutes
+    _require_labor_editor(user)
     entry.minutes = minutes
-    if delta > 0:
-        _log_manual_labor_note(
-            db,
-            work_order,
-            user,
-            f"manually added {_format_labor_duration(delta)} to a labor entry",
-        )
-    elif delta < 0:
-        _log_manual_labor_note(
-            db,
-            work_order,
-            user,
-            f"manually subtracted {_format_labor_duration(delta)} from a "
-            "labor entry",
-        )
     db.commit()
     return _get_labor_entry(db, work_order, entry.id)
 
@@ -2249,17 +2203,11 @@ def delete_work_order_labor(
     *,
     user: Optional[User],
 ) -> None:
-    """Remove one labor entry -- Supervisor+ for any entry, or a Technician
-    for their own. Lifecycle status is not rolled backward."""
+    """Remove one labor entry -- Admin and Owner only. Lifecycle status is not
+    rolled backward."""
     work_order = _get_visible(db, work_order_id, user)
     entry = _get_labor_entry(db, work_order, labor_id)
-    _require_labor_author(user, entry.technician_id)
-    _log_manual_labor_note(
-        db,
-        work_order,
-        user,
-        f"manually removed {_format_labor_duration(entry.minutes)} of labor",
-    )
+    _require_labor_editor(user)
     db.delete(entry)
     db.commit()
 
@@ -2296,26 +2244,6 @@ _SESSION_STOPPING_STATUSES = (
     wo.STATUS_READY_TO_COMPLETE,
     wo.STATUS_COMPLETED,
 )
-
-
-def _require_tracking_permission(
-    work_order: WorkOrder, user: Optional[User]
-) -> None:
-    """A Technician tracks only work they are assigned to; Supervisor+ tracks
-    any work order they can see.
-
-    The Supervisor widening is deliberate and is half the point of the change:
-    a supervisor who does the job should record it without adding themselves to
-    the crew list. It stays bounded by `_visible` and the resulting labor is
-    attributed to them by name, so it is a wider surface rather than a hidden
-    one.
-    """
-    if user is None or roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
-        return
-    if user.id not in _assigned_technician_ids(work_order):
-        raise RoleManagementError(
-            "Only a worker assigned to this work order can track time on it."
-        )
 
 
 def _last_activity_by_user(
@@ -2721,6 +2649,7 @@ def start_labor_session(
         roles.ROLE_TECHNICIAN,
         "Only a Technician or above can track time on a work order.",
     )
+    require_tracking_role(user)
     work_order = _get_locked(db, work_order_id)
     if (
         work_order is None
@@ -2728,7 +2657,6 @@ def start_labor_session(
         or not _visible(work_order, user)
     ):
         raise WorkOrderNotFoundError("Work order not found.")
-    _require_tracking_permission(work_order, user)
 
     # Before looking for the caller's clock: the cap may be about to close it,
     # in which case they are starting fresh rather than repeating themselves.
@@ -2749,6 +2677,16 @@ def start_labor_session(
 
     # Before the crew sync: a refused start assigns nobody and opens nothing.
     require_prior_work_acknowledged(db, work_order, user, notes_acknowledged)
+
+    # Begin Charging *is* self-assignment: past the status guard (a refused
+    # start assigns nobody), add the caller to the crew. Additive -- the
+    # existing crew, legacy-column assignee included, stays -- and silent: the
+    # router notifies on transitions, and this is not news to the caller.
+    crew = _assigned_technician_ids(work_order)
+    if user.id not in crew:
+        _sync_technician_assignments(
+            db, work_order, [*crew, user.id], assigned_by_id=user.id, actor=user
+        )
 
     side: list[WorkOrder] = []
     if running is not None:
@@ -2814,7 +2752,6 @@ def stop_labor_session(
         or not _visible(work_order, user)
     ):
         raise WorkOrderNotFoundError("Work order not found.")
-    _require_tracking_permission(work_order, user)
 
     running = _running_session_for_user(db, user.id)
     session = (
@@ -3027,6 +2964,7 @@ def add_work_order_item(
     line is resolved in the same transaction (`Added to {number}.`); it must be
     `stocked`, on this work order, for this item."""
     work_order = _get_visible(db, work_order_id, user)
+    require_crew_for_technician(work_order, user)
     item = _locked_live_item(db, item_id)
     if material_request_id is not None:
         material_requests.resolve_from_line(
@@ -3109,7 +3047,7 @@ def update_work_order_item(
     _require_role(
         user,
         roles.ROLE_SUPERVISOR,
-        "Only a Supervisor, Admin, or Owner can edit logged materials.",
+        "Only a Team Lead, Admin, or Owner can edit logged materials.",
     )
     line = _get_line(db, work_order, wo_item_id)
     item = _locked_live_item(db, line.item_id)
@@ -3190,9 +3128,10 @@ def delete_work_order_item(
     _require_role(
         user,
         roles.ROLE_TECHNICIAN,
-        "Only a Technician assigned to this work order (or above) can "
+        "Only a Technician on this work order's crew (or above) can "
         "remove logged materials.",
     )
+    require_crew_for_technician(work_order, user)
     line = _get_line(db, work_order, wo_item_id)
     # An archived item must stay removable: the line was logged while it was live.
     item = _locked_live_item(db, line.item_id, allow_archived=True)

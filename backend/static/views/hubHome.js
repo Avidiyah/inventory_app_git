@@ -53,7 +53,7 @@ function stalePunchHtml() {
   return `
     <section class="hub-punch hub-punch-on hub-punch-stale">
       <p class="hub-punch-status">&#9888; Still punched in from ${escapeHtml(shortDay(punch.started_at))}, ${escapeHtml(shortTime(punch.started_at))}</p>
-      <p class="hub-punch-note">Tell us when you actually left. A supervisor will check it.</p>
+      <p class="hub-punch-note">Tell us when you actually left. A Team Lead will check it.</p>
       <button type="button" class="hub-punch-btn" data-action="hub-punch-self-close">Close it</button>
       <p class="hub-punch-message" id="hub-punch-message"></p>
     </section>`;

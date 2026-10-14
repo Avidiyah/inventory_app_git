@@ -28,7 +28,7 @@ function countsHtml(counts) {
     <div class="hub-tile-grid">
       ${tileHtml("Assigned to me", counts.assigned, "work orders")}
       ${tileHtml("In progress", counts.in_progress, "")}
-      ${tileHtml("Ready to complete", counts.ready_to_complete, counts.ready_to_complete ? "waiting on supervisor" : "")}
+      ${tileHtml("Ready to complete", counts.ready_to_complete, counts.ready_to_complete ? "waiting on Team Lead" : "")}
     </div>`;
 }
 
@@ -208,10 +208,9 @@ export function mountHubWorkOrders(container, payload) {
   `;
   const listContainer = container.querySelector(".hub-wo-list");
   // `mine` -- routed to me or assigned to me -- is what this tab means by
-  // "My Work Orders" for a Supervisor. It deliberately excludes the unrouted
-  // pickup queue that their server-side scope would otherwise admit: about
-  // half of all live work orders are unrouted, so including it made this
-  // read as "every work order in the company".
+  // "My Work Orders". It deliberately excludes unrouted work: about half of all
+  // live work orders are unrouted, so including it would read as "every work
+  // order in the company".
   //
   // This used to narrow with `assignedToId`, which was wrong: that filter
   // tests *worker* assignment only (the legacy column plus
@@ -221,11 +220,11 @@ export function mountHubWorkOrders(container, payload) {
   // counted the very same rows. Passing both filters would not have helped
   // either -- the server ANDs them, so the pair intersects to nothing.
   //
-  // Technician scope is already exactly this by role, so the flag would be
-  // redundant for them; Admin+'s Tab 3 is intentionally unscoped and skips
-  // it deliberately.
+  // Every role sees every work order now, so a Technician's personal tab has to
+  // ask for `mine` too; Admin+'s Tab 3 is intentionally unscoped and skips it
+  // deliberately.
   const lockedFilter = { limit: HUB_WORK_ORDERS_LIMIT };
-  if (payload.user.role === "supervisor") {
+  if (payload.user.role === "supervisor" || payload.user.role === "technician") {
     lockedFilter.mine = true;
   }
   mountedList = mountWorkOrderList({

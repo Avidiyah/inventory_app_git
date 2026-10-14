@@ -41,6 +41,16 @@ def test_work_order_assignment_role_eligibility():
     assert roles.can_be_work_order_technician("owner") is False
 
 
+def test_work_order_assignee_roles_are_everyone_but_the_owner():
+    # Who may be put on a crew (editor or Begin Charging). Not the floor-crew
+    # set above: attendance rosters read that one and must not gain Admins.
+    for role in ("technician", "supervisor", "techfm_oa", "admin"):
+        assert roles.can_be_work_order_assignee(role) is True
+    assert roles.can_be_work_order_assignee("owner") is False
+    assert roles.can_be_work_order_assignee("bogus") is False
+    assert roles.WORK_ORDER_TECHNICIAN_ROLES == ("supervisor", "technician")
+
+
 def test_can_manage_requires_strictly_higher_rank():
     assert roles.can_manage("owner", "admin") is True
     assert roles.can_manage("admin", "supervisor") is True
@@ -119,8 +129,9 @@ def test_admin_retains_control_of_techfm_oa_accounts():
     assert roles.can_manage("supervisor", "techfm_oa") is False
 
 
-def test_techfm_oa_is_a_work_order_supervisor_but_not_a_worker():
+def test_techfm_oa_is_a_routing_target_and_assignable_but_not_floor_crew():
     assert roles.can_be_work_order_supervisor("techfm_oa") is True
+    assert roles.can_be_work_order_assignee("techfm_oa") is True
     assert roles.can_be_work_order_technician("techfm_oa") is False
 
 
@@ -134,6 +145,8 @@ def test_role_labels_cover_every_role_and_spell_techfm_oa_exactly():
     assert set(roles.ROLE_LABELS) == set(roles.ALL_ROLES)
     assert roles.label("techfm_oa") == "TechFM OA"
     assert roles.label("admin") == "Admin"
+    # The stored role value stays `supervisor`; only its label is Team Lead.
+    assert roles.label("supervisor") == "Team Lead"
     # An unrecognised role must not crash a description string.
     assert roles.label("bogus") == "bogus"
 

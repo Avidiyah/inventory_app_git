@@ -101,7 +101,7 @@ describe("friendlyError", () => {
     [undefined, "Could not reach the app. Check your signal and try again."],
     [{}, "Could not reach the app. Check your signal and try again."],
     [{ status: 401 }, "You were signed out. Sign in again."],
-    [{ status: 403 }, "Your account can't do that. Ask a supervisor if this seems wrong."],
+    [{ status: 403 }, "Your account can't do that. Ask a Team Lead if this seems wrong."],
     [{ status: 400, detail: "Insufficient stock to dispense." },
       "Not enough stock available. Check the count before taking more out."],
   ])("maps %o to crew-facing copy", (err, expected) => {

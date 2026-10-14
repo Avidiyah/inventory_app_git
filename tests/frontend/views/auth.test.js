@@ -400,7 +400,8 @@ describe("resuming a held work-order editor after a session expiry", () => {
       assigned_to_names: ["Ada L"],
     });
     window.history.replaceState({}, "", "/workorder_card/4242");
-    const current = userFactory({ role: "supervisor" });
+    // The labor editor this test resumes is Admin/Owner only.
+    const current = userFactory({ role: "admin" });
     const { mod } = await mountAuth({ me: current, handlers: answerWorkOrder(detail) });
     await mod.initAuth();
     await vi.waitFor(() =>

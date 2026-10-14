@@ -78,6 +78,10 @@ def create_transaction(
                 work_order_id = None
             else:
                 work_order_number = wo_row.number
+                if payload.transaction_type == "dispense":
+                    # A Technician dispenses only against a job they are on
+                    # the crew of; Scan / Stock lists exactly those.
+                    wo_service.require_crew_for_technician(wo_row, user)
         elif work_order_number and work_order_number.strip():
             if roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
                 wo_row = wo_service.resolve_work_order(db, number=work_order_number)

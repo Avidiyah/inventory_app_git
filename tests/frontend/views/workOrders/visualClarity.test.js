@@ -236,7 +236,7 @@ describe("C6 applied-filter chips and result count", () => {
     change(el("work-orders-supervisor-filter"), "s1");
     await vi.waitFor(() => expect(chips().length).toBeGreaterThan(1));
     const labels = chips().map((c) => c.getAttribute("aria-label"));
-    expect(labels).toContain("Remove filter Supervisor: Sue S");
+    expect(labels).toContain("Remove filter Team Lead: Sue S");
     expect(labels).toContain('Remove filter Location: "bldg 4"');
   });
 

@@ -110,7 +110,7 @@ Path shorthand:
 | Work Orders UI | `static/views/workOrder*.js` (barrel: `workOrders.js`), `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | `tests/frontend/views/workOrders/` (characterization: render, roles, actions, editor, filters, solo, realtime, integrations, plus the action/export audit), `backend/tests/e2e/test_work_orders.py`, backend work-order tests |
 | User Hub Graphs | `domain/hub.py`, `domain/work_orders.py`, `services/hub.py`, `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubGraphs.js`, `static/views/workOrderList.js`, `static/pages/user-hub.html`, `static/styles.css`, `static/tips.js`, `static/api.js` | `test_hub_graphs_domain.py`, hub service/router/gate/realtime tests, `tests/frontend/views/userHub.test.js` (tab shell, lazy fetch, failure isolation), `tests/frontend/views/hubGraphs.test.js` (donuts, the two-level drill, duration, the Work Orders hand-off); manual role/realtime checks. Aggregation semantics: endpoint-map → User Hub reads |
 | User Hub Report (Admin weekly closed report) | `services/work_order_report.py` (week resolution, window, lazy closed-row freeze, live new-work-order rows), `services/work_order_report_xlsx.py` + `services/_xlsx_theme.py`, `models.py` (`WorkOrderReportWeek`), `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubReport.js`, `static/views/workOrderList.js` (`openWorkOrdersByNumberSearch`), `static/pages/user-hub.html`, `static/styles.css`, `static/api.js` | `test_work_order_report.py` (resolve/window/projection/freeze/new work orders), `test_work_order_report_xlsx.py`, `test_work_order_report_weeks.py`, `test_xlsx_theme.py`, hub router + role-gate tests, `tests/frontend/views/userHub.test.js` (tab shell), `tests/frontend/views/hubReport.test.js` (week picker, counts, sections, hand-off, skeleton and retry); manual Excel check. **Admin-only**; completed closed rows are a **frozen record**, while `New Work Orders` is selected live by `created_at`, blocked by community, and always appears last in Excel; contract in endpoint-map → `HubReportResponse` |
-| Attendance (punches, Home tab, Admin Timesheets: live roster + revenue leaderboard + Hours, one page) | `domain/attendance.py`, `services/attendance.py` (punch writes), `services/attendance_week.py` (the clocked week read), `services/attendance_compare.py` (clocked + charged, and the CSV), `routers/attendance.py`, `services/attendance_live.py` (the live roster), `routers/attendance.py`, `routers/_attendance_events.py` (`attendance.changed`), `routers/hub.py` (`GET /hub/attendance/week`, `/export`, `/live`, + the three punch writes, **admin only**), `schemas/attendance.py`, `static/views/hubHome.js`, `static/views/hubTimesheetsTab.js` (tabpanel shell + one shared week payload + the write calls), `static/views/hubTimesheetLeaderboard.js` (week picker, CSV export, leaderboard), `static/views/hubAttendanceHours.js`, `static/views/hubAttendanceRoster.js`, `static/views/hubAttendancePunchEditor.js`, `static/views/workOrderActions.js` (stale-punch self-close on Start), `static/api.js` | `test_attendance_*.py`, `test_attendance_week_service.py`, `test_attendance_week_router.py`, `test_attendance_compare_service.py`, `test_attendance_export_router.py`, `test_attendance_live_service.py`, `test_attendance_live_router.py`, `test_attendance_admin_service.py`, `test_attendance_admin_router.py`, `test_route_role_gates.py`, `tests/frontend/views/hubHome.test.js`, `hubAttendanceHours.test.js`, `hubTimesheetLeaderboard.test.js`, `hubAttendanceRoster.test.js`, `hubAttendancePunchEditor.test.js`, `hubTimesheetsTab.test.js`, `workOrderStartPunch.test.js`. The week read serves the leaderboard and Hours from one payload and is side-effect-free — no sweep, no row locks; a forgotten work-order clock is clipped on read by `work_orders.capped_session_end`. It borrows `work_order_report.resolve_week` + `labor_day.day_bounds`. A cross-midnight punch is owned by the day it started, is marked `carried` on the next, and is editable only on the day it started. An Admin edits, adds, and deletes punches from the Hours drill-down; every write lands one `attendance_punch_edits` row per field in the same transaction, any write clears `needs_review`, and a delete is **soft** (`deleted_at`). The grid refetches the week after a write rather than patching itself. The Timesheets tab is **Admin+**, one page with no sub-tabs; `GET /hub/timesheets` and the Supervisor crew grid are retired (D6) — a Supervisor keeps the Dashboard crew board. At the top sits the live roster from `GET /hub/attendance/live`: green charging / yellow idle / red idle past `IDLE_RED_MINUTES`, sorted red→yellow→green longest-idle-first, with everybody unclocked behind an `N not clocked in` footer. It is side-effect-free too, so the tab polls it on the hub's existing 60 s timer and on `attendance.changed` (audience Admin, emitted by all six punch writes); the strip ticks client-side from `domain.attendance.idle_anchor` plus the server skew, and an open labor session past `LABOR_SESSION_MAX_MINUTES` is not charging |
+| Attendance (punches, Home tab, Admin Timesheets: live roster + revenue leaderboard + Hours, one page) | `domain/attendance.py`, `services/attendance.py` (punch writes), `services/attendance_week.py` (the clocked week read), `services/attendance_compare.py` (clocked + charged, and the CSV), `routers/attendance.py`, `services/attendance_live.py` (the live roster), `routers/attendance.py`, `routers/_attendance_events.py` (`attendance.changed`), `routers/hub.py` (`GET /hub/attendance/week`, `/export`, `/live`, + the three punch writes, **admin only**), `schemas/attendance.py`, `static/views/hubHome.js`, `static/views/hubTimesheetsTab.js` (tabpanel shell + one shared week payload + the write calls), `static/views/hubTimesheetLeaderboard.js` (week picker, CSV export, leaderboard), `static/views/hubAttendanceHours.js`, `static/views/hubAttendanceRoster.js`, `static/views/hubAttendancePunchEditor.js`, `static/views/workOrderActions.js` (stale-punch self-close on Start), `static/api.js` | `test_attendance_*.py`, `test_attendance_week_service.py`, `test_attendance_week_router.py`, `test_attendance_compare_service.py`, `test_attendance_export_router.py`, `test_attendance_live_service.py`, `test_attendance_live_router.py`, `test_attendance_admin_service.py`, `test_attendance_admin_router.py`, `test_route_role_gates.py`, `tests/frontend/views/hubHome.test.js`, `hubAttendanceHours.test.js`, `hubTimesheetLeaderboard.test.js`, `hubAttendanceRoster.test.js`, `hubAttendancePunchEditor.test.js`, `hubTimesheetsTab.test.js`, `workOrderStartPunch.test.js`. The week read serves the leaderboard and Hours from one payload and is side-effect-free — no sweep, no row locks; a forgotten work-order clock is clipped on read by `work_orders.capped_session_end`. It borrows `work_order_report.resolve_week` + `labor_day.day_bounds`. A cross-midnight punch is owned by the day it started, is marked `carried` on the next, and is editable only on the day it started. An Admin edits, adds, and deletes punches from the Hours drill-down; every write lands one `attendance_punch_edits` row per field in the same transaction, any write clears `needs_review`, and a delete is **soft** (`deleted_at`). The grid refetches the week after a write rather than patching itself. The Timesheets tab is **Admin+**, one page with no sub-tabs; `GET /hub/timesheets` and the Team Lead crew grid are retired (D6) — a Team Lead keeps the Dashboard crew board. At the top sits the live roster from `GET /hub/attendance/live`: green charging / yellow idle / red idle past `IDLE_RED_MINUTES`, sorted red→yellow→green longest-idle-first, with everybody unclocked behind an `N not clocked in` footer. It is side-effect-free too, so the tab polls it on the hub's existing 60 s timer and on `attendance.changed` (audience Admin, emitted by all six punch writes); the strip ticks client-side from `domain.attendance.idle_anchor` plus the server skew, and an open labor session past `LABOR_SESSION_MAX_MINUTES` is not charging |
 | NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_cloud_auth.py`, `services/netfacilities_cloud_crypto.py`, `services/netfacilities_jobs.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | `test_netfacilities_*.py`; behavior under API Surface → NetFacilities |
 | Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, `tests/frontend/views/adminReview.test.js` |
 | Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
@@ -598,9 +598,9 @@ Work orders:
   so a refresh, bookmark, or pasted link resolves instead of 404ing. Deep links
   resolve number→id through the server-scoped list search
   (`apiListWorkOrders({ q })`), **not** `/work-orders/lookup`, which is
-  Supervisor+ and would 403 a technician following a link to their own assigned
-  work order. An archived and an out-of-scope number are therefore
-  indistinguishable and both report "not available". The Mass Stage hand-off
+  Team Lead+ and would 403 a Technician following a link. An archived and an
+  unknown number are therefore indistinguishable and both report "not
+  available". The Mass Stage hand-off
   routes to the same card page via the existing `pendingFocusId` mechanism.
   **Back returns to the list at the offset it was left at.** `history.
   scrollRestoration` is `manual`: the browser's own restore fires at `popstate`,
@@ -612,7 +612,7 @@ Work orders:
   keeps nav entry, filter changes, and the realtime background refresh from
   jumping the page. Cold deep links have no stamp and land at the top.
 - Work Orders list filters are server-side and joinable: status, exact normalized
-  service type, routed supervisor, derived community, exact scheduled date, and
+  service type, routed Team Lead, derived community, exact scheduled date, and
   number substring all combine with AND before the caller's normal visibility
   scope is applied.
   Community membership checks both `community` and raw CSV `location` for
@@ -629,7 +629,7 @@ Work orders:
   surface calls `resolve_work_order`, which attaches to an existing number and
   404s on one no import has brought in. References still fill blank attributes
   but never overwrite non-blank ones. Existing rows are locked before an import
-  merge: incoming supervisor routing applies only while the freshly locked row
+  merge: incoming Team Lead routing applies only while the freshly locked row
   is still unassigned, so a manual reroute survives both later and concurrent
   re-imports.
 - `GET /work-orders/export?scope=` writes one CSV row per work order and remains
@@ -637,9 +637,9 @@ Work orders:
   different controls:
   - `variant=full` (the "Export filtered CSV" button beside Search) exports the
     complete current live result set with the same status, service type,
-    supervisor, community, scheduled date, and number predicates as the cards;
+    Team Lead, community, scheduled date, and number predicates as the cards;
     the recent-10 display cap never applies. It leads with the seven import
-    headers and adds status, technicians, supervisor, billing totals, and
+    headers and adds status, technicians, Team Lead, billing totals, and
     timestamps, so the file re-imports through the idempotent fill-blanks path.
     The filename is a readable UTC date/time plus the active filter values, such
     as `08-04-26_17-12_status-in-progress-community-commons.csv`; an
@@ -671,46 +671,51 @@ Work orders:
   resumes an On-Hold one — so "Set In-Progress" is no longer a button anyone has
   to find. `POST /work-orders/{id}/tracking/stop` closes it, and when it closes
   the **last** running session on an In-Progress row the work order moves itself
-  to On-Hold. Both are idempotent, and both are open to assigned Technicians
-  **and to Supervisor+ on any work order they can see** — a supervisor who does
-  the work records it without joining the crew.
-  **Prior-work gate:** when another user has a labor session, labor entry or
-  material line on the row, the caller has none, and the row has notes,
-  `start` returns 409 until the body sends `notes_acknowledged: true` (checked
-  before the punch opens). The card's `prior_work` drives a banner, opens
-  Notes, and disables Begin Charging until "I have read the notes".
-  The narrow `POST /work-orders/{id}/complete` action ("Notify Supervisor")
+  to On-Hold. Both are idempotent. **Begin Charging is self-assignment:**
+  `start` is open to every role except the Owner (403, checked before the
+  attendance punch opens) on any work order they can see, and past the status
+  guard it adds the caller to the crew (`work_order_technicians`, `assigned_by_id`
+  = the caller) without removing anyone and without a notification. A start the
+  status guard refuses assigns nobody. **Prior-work gate:** when another user has
+  a labor session, labor entry or material line on the row, the caller has none,
+  and the row has notes, `start` returns 409 until the body sends
+  `notes_acknowledged: true` (checked before the punch opens). The card's
+  `prior_work` drives a banner, opens Notes, and disables Begin Charging until
+  "I have read the notes". `stop` only closes the caller's own
+  running session.
+  The narrow `POST /work-orders/{id}/complete` action ("Notify Team Lead")
   finishes the job and stops every clock on it. **Where that finish
   lands is the caller's role** (`domain.work_orders.completion_target_status`):
-  Supervisor+ reaches Completed, while a Technician's finish moves the row to
+  Team Lead+ reaches Completed, while a Technician's finish moves the row to
   **Ready to Complete** and appends the server-authored note `marked work ready
   to complete`. Ready to Complete is a real status rather than a note on an
-  On-Hold row, so a supervisor's filter separates "the job is done and waiting
+  On-Hold row, so a Team Lead's filter separates "the job is done and waiting
   on you" from "the crew is at lunch" without opening a card. From there
-  Supervisor+ gets Approve — Mark Completed (`PATCH {status: "completed"}`) and
+  Team Lead+ gets Approve — Mark Completed (`PATCH {status: "completed"}`) and
   Send Back (`PATCH {status: "in_progress"}`); no new endpoint. Send Back raises
-  `work_order.sent_back` to the assignees and the routed supervisor. Completed is the
+  `work_order.sent_back` to the assignees and the routed Team Lead. Completed is the
   billing state the Admin review queue reads, so it
   stays a supervisory decision even once the work itself is done. The rule keys
-  on role rather than assignment because a Supervisor may also be an assigned
+  on role rather than assignment because a Team Lead may also be an assigned
   worker and uses the same button. Idempotency compares against the caller's own
   target, so a double tap appends no second note.
-  `POST /work-orders/{id}/start` survives unchanged for the Scan / Stock
-  confirmation, which is a different surface with its own reasons.
+  `POST /work-orders/{id}/start` survives for the Scan / Stock confirmation,
+  which is a different surface with its own reasons; a Technician must already
+  be on the crew for it (Team Lead+ need not).
   While In-Progress, the assigned worker also has a separate narrow `POST
   /work-orders/{id}/hold` action that places the row On-Hold and stops **every**
   clock on it. The assignment-checked `POST /work-orders/{id}/resume` returns the
   row to In-Progress and deliberately **starts no clock**: stopping a clock can
   only under-bill, while starting one bills somebody who may not be on site.
-  Supervisor+ retains the unchanged general status controls as an additional
+  Team Lead+ retains the unchanged general status controls as an additional
   management path; driving a row into `on_hold`, `ready_to_complete`, or
   `completed` by PATCH also stops every session.
   Selecting an Assigned Scan / Stock card also confirms the start transition and
   starts the batch in place; Created still redirects to Work Orders for
-  assignment. Supervisor+ retains general status rollback, On-Hold/resume, and
+  assignment. Team Lead+ retains general status rollback, On-Hold/resume, and
   completion authority. Review is stricter: the row must already be Completed,
-  and the caller must be an Admin+ or its routed Supervisor who is not also an
-  assigned worker. This two-person handoff prevents an assigned Supervisor from
+  and the caller must be an Admin+ or its routed Team Lead who is not also an
+  assigned worker. This two-person handoff prevents an assigned Team Lead from
   completing and reviewing the same work. Manual pre-work rollback still derives
   Created/Assigned from the technician field. Material activity does not
   resume On-Hold, and hand-keyed labor changes no status at all. `completed_at` is retained through Review and cleared by
@@ -758,22 +763,28 @@ Work orders:
   never moves stock. Lowering a line's `quantity` below an existing override
   clears the override (reverts to full). Labor billing is implemented separately;
   additional fee, tax, and discount layers remain deferred.
-- List/get/items are scoped server-side by
-  `domain.work_orders.can_view_work_order`; out-of-scope/archived/unknown
-  surface as 404. Supervisors see the shared unassigned pickup queue, rows
-  routed to themselves, and rows where they are assigned to perform technician
-  work; creator identity alone does not grant visibility after a row is routed
-  elsewhere. A routing edit may target an active Admin or Supervisor. The
-  editor sends its original `supervisor_id`; the service locks the row and
-  returns a named 409 conflict if another request assigned it first. Notes,
-  adding materials, tracking their own time, and the assignment-checked
-  start/finish/hold/resume walkthrough are Technician+ — but a Technician's
+- **Every recognised role sees every live work order.** List/get/items use
+  `domain.work_orders.can_view_work_order` (and `_scoped_to_user` for lists and
+  exports), which return everything for Technician and above; an *unrecognised*
+  role fails closed to its assignments. Archived/unknown surface as 404. The list
+  filters `mine` and `assigned_to_id` are how a client narrows to its own work:
+  Scan / Stock and the Hub's Technician tab send them (`assigned_to_id`, `mine`).
+  **Seeing is not acting:** a Technician who is not on the crew is read-only —
+  notes, adding/removing materials, Material and Catalogue requests, the witness
+  sign-off, the in-place `/start`, and Scan / Stock dispenses against that work
+  order all return 403 "Begin Charging on this work order first"
+  (`services.work_orders.require_crew_for_technician`; Team Lead+ is never
+  locked). A routing edit may target an active Admin, TechFM OA or Team Lead.
+  The editor sends its original `supervisor_id`; the service locks the row and
+  returns a named 409 conflict if another request assigned it first. Notes and
+  adding materials are Technician+ (a Technician must be on the crew); the
+  finish/hold/resume walkthrough is crew-only for every role — a Technician's
   finish lands Ready to Complete, not Completed (see the walkthrough rules
-  below), and a Technician can no longer key labor hours by hand at all;
-  operational routing/general status/mode, hand-entered labor, and material
-  corrections are Supervisor+; Review adds the Completed + second-person gate;
-  imported/legacy metadata and close/archive are TechFM OA+; archive accepts
-  any live status.
+  above); operational
+  routing/crew/general status/mode and material corrections are Team Lead+;
+  hand-entering, editing and removing labor hours is **Admin and Owner only**;
+  Review adds the Completed + second-person gate; imported/legacy metadata and
+  close/archive are TechFM OA+; archive accepts any live status.
 
 Mass staging:
 
@@ -811,30 +822,37 @@ Role order:
 owner > admin > techfm_oa > supervisor > technician
 ```
 
+**Naming:** the stored role value, API fields (`supervisor_id`…), CSS classes
+and code identifiers keep the word `supervisor`; every label a person reads says
+**Team Lead** (`roles.ROLE_LABELS`, mirrored in `static/roles.js`). In the table
+below `supervisor+` / `team lead+` both mean rank ≥ 1, and "admin and owner"
+means rank ≥ 3 (TechFM OA is rank 2).
+
 | Capability | Rule |
 | --- | --- |
 | Login/logout/me | login public; logout/me require session |
 | Dispense | any authenticated role |
-| Stock | supervisor+ |
-| History | supervisor+ |
-| Void transaction | supervisor+ for any actionable row; Technician may remove only their own work-order dispense |
-| Edit item notes | supervisor+ |
+| Stock | Team Lead+ |
+| History | Team Lead+ |
+| Void transaction | Team Lead+ for any actionable row; Technician may remove only their own work-order dispense |
+| Edit item notes | Team Lead+ |
 | Create/edit/archive item | techfm_oa+ |
 | Correct count | techfm_oa+ |
 | View item price/product link | techfm_oa+; server redaction below techfm_oa |
 | Set billing override | techfm_oa+ |
-| List users | supervisor+ |
+| List users | Team Lead+ |
 | Create/reset/archive/restore/delete user | actor must outrank target |
 | Edit user name + username | self, or actor outranks target |
 | Change a user's role | techfm_oa+ AND actor outranks both the current and the new role (so a TechFM OA can never touch an Admin or Owner, nor hand those roles out) |
-| Mass-stage page/API | supervisor+ |
-| Work Orders list/get/items | any authenticated user, server-scoped (Technician: assigned; Supervisor: unassigned OR routed to self OR assigned as a worker; TechFM OA+: all) |
-| Edit Work Order notes / add material | any authenticated in-scope user |
-| Start / stop time tracking | assigned Technician, or supervisor+ on any visible work order (no assignment needed) |
-| Record labor by hand (any worker, or self when unassigned) | supervisor+ (scoped) — the correction route; a Technician's hours come from tracked sessions |
-| Edit Work Order supervisor / technicians / status / entry mode / labor revision or removal / logged-material quantity or removal | supervisor+ (scoped) |
-| Finish assigned work into Completed | supervisor+ (a Technician's finish lands Ready to Complete for review) |
-| Approve / Send Back from Ready to Complete | supervisor+ (the existing status PATCH) |
+| Mass-stage page/API | Team Lead+ |
+| Work Orders list/get/items | any authenticated user — **every role sees every live work order** (an unrecognised role stays assignment-only); `mine` / `assigned_to_id` narrow it |
+| Edit Work Order notes / add or remove material / file a Material or Catalogue request / capture the witness sign-off / Scan / Stock dispense against a work order | Team Lead+ on any work order; a **Technician only on a work order they are on the crew of** (403 "Begin Charging on this work order first" otherwise) |
+| Start / stop time tracking (Begin / Stop Charging) | every role **except the Owner** (403), on any visible work order; starting adds the caller to the crew |
+| Be assigned to a work order (editor picker, Mass Stage, Begin Charging) | Technician, Team Lead, TechFM OA, Admin — not the Owner |
+| Record, revise, or remove labor hours by hand | **admin and owner only** — the correction route; everyone else's hours come from tracked sessions (the credited worker must be on the crew or be the recorder) |
+| Edit Work Order team lead (routing) / crew / status / entry mode / logged-material quantity | team lead+ (visible work orders) |
+| Finish assigned work into Completed | team lead+ on the crew (a Technician's finish lands Ready to Complete for review) |
+| Approve / Send Back from Ready to Complete | Team Lead+ (the existing status PATCH) |
 | Edit imported Work Order metadata (Location, Service, Schedule Date, Output to, Vendor Contact, Symptom/Task) | techfm_oa+ (scoped) |
 | Import work orders (CSV) | techfm_oa+ |
 | Export work orders (CSV, full or For Client) | techfm_oa+, server-scoped |
@@ -849,48 +867,52 @@ owner > admin > techfm_oa > supervisor > technician
 | Add from a stocked Materials line | whoever can add materials |
 | Close/archive a work order | techfm_oa+ (scoped), any live status; UI action lives on expanded Work Orders cards and remains in Admin Review for Review rows |
 | Set work-order line billing override | techfm_oa+ (scoped) |
-| Send a Completed work order to Review | **admin+** only, never an assigned worker; Supervisors stop at Completed. The one capability an Admin holds that a TechFM OA does not — see the note below |
-| Scan-gate work-order cards | any authenticated user (scoped Created/Assigned/In-Progress list); In-Progress starts a batch, Assigned confirms an in-place start for Technician+, Created opens Work Orders for assignment |
+| Send a Completed work order to Review | **admin+** only, never an assigned worker; Team Leads stop at Completed. The one capability an Admin holds that a TechFM OA does not — see the note below |
+| Scan-gate work-order cards | any authenticated user (Created/Assigned/In-Progress list; a Technician's gate lists only their own assignments); In-Progress starts a batch, Assigned confirms an in-place start for a crew member or Team Lead+, Created opens Work Orders for assignment |
 | Tools: view list/lookup, return | any authenticated user |
 | Tools: create, edit, archive, checkout | techfm_oa+ |
 
-TechFM OA nuance: the role sits between Supervisor and Admin (rank 2 of
+TechFM OA nuance: the role sits between Team Lead and Admin (rank 2 of
 `technician 0 < supervisor 1 < techfm_oa 2 < admin 3 < owner 4`) and carries the
-whole Admin toolkit with two subtractions, both of which fall out of the rank
+whole Admin toolkit with three subtractions, all of which fall out of the rank
 rather than any special case:
 
 1. **It cannot send a work order to Review.** The handoff floor in
-   `services.work_orders._require_review_handoff_permission` is the one
-   `ROLE_ADMIN` left in `backend/app`; a TechFM OA fails it. A TechFM OA *is* a
-   valid routing target, so they can own a work order operationally and still
-   hand the final step to an Admin or the Owner. The Work Orders card shows
-   them the button disabled with that reason rather than hiding it.
-2. **It cannot re-role an Admin or Owner, or hand those roles out.**
+   `services.work_orders._require_review_handoff_permission` is a `ROLE_ADMIN`
+   floor; a TechFM OA fails it. A TechFM OA *is* a valid routing target, so they
+   can own a work order operationally and still hand the final step to an Admin
+   or the Owner. The Work Orders card shows them the button disabled with that
+   reason rather than hiding it. An Admin who Begins Charging joins the crew and
+   is then excluded from reviewing that work order too.
+2. **It cannot hand-key, edit or remove labor hours.**
+   `services.work_orders._require_labor_editor` is the second `ROLE_ADMIN`
+   floor. Hours come from Begin / Stop Charging; an Admin or the Owner corrects.
+3. **It cannot re-role an Admin or Owner, or hand those roles out.**
    `can_manage` is false at equal rank and above. Admins keep full control of
    TechFM OA accounts and can create them, which is why the role got its own
    rank instead of sharing Admin's.
 
-`tests/test_route_role_gates.py` asserts that no route gate is left at the Admin
+`tests/test_route_role_gates.py` asserts that no *route* gate is left at the Admin
 floor, so a new route written with `ROLE_ADMIN` out of habit fails loudly
-instead of silently locking TechFM OA out.
+instead of silently locking TechFM OA out. The two service-level Admin floors
+above are deliberate and are not route gates.
 
 Tools UI nuance: TechFM OA and above can search every active user and act on that
-user's custody card. Supervisor/Technician are pinned to their own card. The
+user's custody card. Team Lead/Technician are pinned to their own card. The
 HTTP return route remains session-gated and accepts any `assigned_to_id`; this
 self-scope is a frontend workflow boundary, not a backend authorization rule.
 
 Scoping nuance:
 
-- `GET /mass-stages/` list is scoped: supervisor sees own stages, techfm_oa+
-  all. Direct stage-by-ID routes are supervisor+ gated but not additionally
+- `GET /mass-stages/` list is scoped: Team Lead sees own stages, techfm_oa+
+  all. Direct stage-by-ID routes are Team Lead+ gated but not additionally
   creator-scoped once the caller has a stage id.
-- The `/work-orders` routes DO add real per-row assignment scope checks
-  (`services.work_orders`), because technicians reach them. Unassigned rows are
-  the shared Supervisor pickup queue; a routed row is visible only to its
-  selected Supervisor and TechFM OA and above. The service also
-  enforces the edit matrix: Technician = notes/add material/own labor;
-  Supervisor+ = operations/labor and material corrections/completion;
-  TechFM OA+ = imported/legacy metadata.
+- The `/work-orders` routes add per-row *write* checks (`services.work_orders`),
+  because technicians reach them: every role sees every live work order, but a
+  Technician writes only on one they are on the crew of. The service also
+  enforces the edit matrix: Technician (on the crew) = notes/add material;
+  Team Lead+ = operations/crew and material corrections/completion;
+  Admin and Owner = hand-keyed labor; TechFM OA+ = imported/legacy metadata.
 
 ## Data Model
 
@@ -926,7 +948,7 @@ Rules:
 - `role` is editable by TechFM OA+ through `PATCH /users/{id}/role`, which revokes
   the target's sessions so the role-shaped frontend cannot outlive the change.
 - Full names are not unique. Two active routing-eligible users (Admin or
-  Supervisor) with the same normalized first + last name are intentionally
+  Team Lead) with the same normalized first + last name are intentionally
   ambiguous during CSV routing.
 
 Password hash format: `scrypt$n$r$p$salt_hex$hash_hex`.
@@ -1139,8 +1161,8 @@ Rules:
   `ready_to_complete`, `completed`, and `review`, in that lifecycle order —
   which is also the order every dropdown and filter renders in. Closed is
   `archived_at`, not a stored status value.
-  On-Hold is stable during material activity until Supervisor+ explicitly
-  resumes or rolls it back, or a technician taps Start Tracking (the tracking
+  On-Hold is stable during material activity until Team Lead+ explicitly
+  resumes or rolls it back, or a technician taps Begin Charging (the tracking
   service performs that transition itself rather than widening
   `status_after_activity`). New imports
   default to Created; worker assignment derives Assigned, and the first
@@ -1158,27 +1180,29 @@ Rules:
   `America/Chicago`. Pre-log free-form text and lines written in the earlier
   `[h:mm AM/PM] [MMDDYY] [Full Name]` shape remain intact and are never
   rewritten, so the two shapes coexist and age out; blank/null input cannot
-  erase the history. Start Tracking, Stop Tracking, and Notify Supervisor each
+  erase the history. Begin Charging, Stop Charging, and Notify Team Lead each
   append a server-authored line through the same formatter, so the work
   timeline is public rather than buried in the sessions table.
 - `work_order_technicians` is the authoritative plural assignment relation.
-  Active Technician and Supervisor accounts are eligible workers; membership
-  drives Technician visibility and also preserves a working Supervisor's scope
-  when a different Admin/Supervisor owns routing
-  (`domain.work_orders.can_view_work_order`). `assigned_to_id` remains a
-  compatibility mirror of the first selected worker for Mass Stage and older
-  clients.
+  Active Technician, Team Lead, TechFM OA and Admin accounts are eligible
+  workers (`roles.WORK_ORDER_ASSIGNEE_ROLES`; the Owner is not). Membership
+  gates what a Technician may write and who may hold/resume/finish; it no
+  longer gates visibility (`domain.work_orders.can_view_work_order`).
+  `assigned_to_id` remains a compatibility mirror of the first selected worker
+  for Mass Stage and older clients. The narrower
+  `roles.WORK_ORDER_TECHNICIAN_ROLES` (Team Lead, Technician) still defines
+  floor crew for attendance rosters and the Admin hub time buckets.
 - Soft delete via `archived_at` is the Closed state; the number stays reserved
   and material lines are kept. Closing is TechFM OA+ from any live status and is
   available on expanded Work Orders cards. A closed work order is invisible to list
   and detail loads, so it comes back only through explicit `restore_work_order`
-  (`POST /work-orders/{id}/restore`, Supervisor+). CSV import and ordinary
+  (`POST /work-orders/{id}/restore`, Team Lead+). CSV import and ordinary
   references leave it archived. `lookup_work_order` is the one read that reports a closed
   work order so History can offer restore.
 - References fill blank attributes but never overwrite non-blank ones; explicit
   edits (`update_work_order`) overwrite. Reference/import merges lock the row;
   `supervisor_id` fills only when the locked value is NULL. Explicit routing
-  locks the same row, validates an active Admin or Supervisor target, and can compare the
+  locks the same row, validates an active Admin or Team Lead target, and can compare the
   caller's `expected_supervisor_id` to reject stale pickup attempts with 409.
 - **CSV-import schema (the new default source of truth).** The mass work-order
   export is bulk-imported via `POST /work-orders/import` (TechFM OA+). Its columns
@@ -1194,20 +1218,20 @@ Rules:
   billing, and existing non-blank values remain untouched. Archived matches are counted
   as `closed` and skipped before routing or merge, so CSV import cannot restore
   or alter a closed work order.
-- `supervisor_id` is the Admin/Supervisor a work order is routed to. Import sets it by
-  matching the normalized `vendor_assignee` name to an active Admin or Supervisor's
-  first + last name (`services.work_orders._supervisor_lookup`). Missing,
-  unmatched, incomplete, archived, ineligible-role, or duplicate/ambiguous names
-  import cleanly as unassigned (`NULL`); Supervisor+ can route one later via
-  `update_work_order`. Supervisor routing does not change lifecycle status.
+- `supervisor_id` is the Admin/TechFM OA/Team Lead a work order is routed to
+  (the column and API field keep the name `supervisor`; the UI says Team Lead).
+  Import sets it by matching the normalized `vendor_assignee` name to an active
+  Admin, TechFM OA or Team Lead's first + last name
+  (`services.work_orders._supervisor_lookup`). Missing, unmatched, incomplete,
+  archived, ineligible-role, or duplicate/ambiguous names import cleanly as
+  unassigned (`NULL`); Team Lead+ can route one later via `update_work_order`.
+  Routing does not change lifecycle status.
   The plural worker set advances a Created row to Assigned when non-empty
   and returns an Assigned row to Created when cleared, while later lifecycle
-  states never rewind automatically. `supervisor_id` drives Supervisor
-  visibility directly (see `can_view_work_order`): NULL is the shared pickup
-  queue, a routed row is visible to that Supervisor, and an assigned Supervisor
-  retains access as a worker even under different routing. Import and explicit
-  routing lock the same row so import fills only NULL routing and a stale pickup
-  cannot overwrite a winner.
+  states never rewind automatically. Routing no longer affects visibility (every
+  role sees every work order); it drives `mine`, notifications and the Hub crew
+  board. Import and explicit routing lock the same row so import fills only NULL
+  routing and a stale pickup cannot overwrite a winner.
 - `legacy` marks a pre-import work order. The import migration
   (`f2a4c6b8d0e1`) set `legacy=true` on every then-existing row and NULLed its
   old descriptive attributes (`community`/`building_number`/`unit_number`/
@@ -1235,7 +1259,7 @@ Rules:
   response `unit_price`, redacted below Admin), so work-order-linked transaction
   rows carry no per-row charge in History.
 - Every in-scope role may add a material. Editing an aggregate line quantity or
-  removing a line requires Supervisor+; the UI therefore gives Technicians a
+  removing a line requires Team Lead+; the UI therefore gives Technicians a
   read-only quantity plus only the Add Item workflow.
 - `billable_quantity` is the per-line billing override: NULL bills the full
   `quantity`, `0` records but does not charge, a value <= `quantity` bills a
@@ -1255,13 +1279,15 @@ Fields: `work_order_id`, `technician_id`, `assigned_by_id`, `created_at`.
 Rules:
 
 - Composite primary key `(work_order_id, technician_id)` permits each work order
-  to carry multiple unique workers. Active Technician and Supervisor accounts
-  are eligible. Work-order deletion cascades; removing an assignment does not
-  remove that worker's historical labor.
-- Supervisor+ replaces the complete assignment set through
-  `PATCH /work-orders/{id}` with `assigned_to_ids`. Every assigned Technician or
-  Supervisor can list and act on the work order. The legacy singular request remains accepted
-  for compatibility.
+  to carry multiple unique workers. Active Technician, Team Lead, TechFM OA and
+  Admin accounts are eligible. Work-order deletion cascades; removing an
+  assignment does not remove that worker's historical labor.
+- Two writers: Team Lead+ replaces the complete assignment set through
+  `PATCH /work-orders/{id}` with `assigned_to_ids` (removing someone closes their
+  running clock), and **Begin Charging adds the caller** (`assigned_by_id` is the
+  caller; never replaces, no notification). A Technician on the crew can write
+  to the work order; one off it is read-only. The legacy singular request remains
+  accepted for compatibility.
 
 ### `work_order_labor`
 
@@ -1273,17 +1299,19 @@ Rules:
 - Each row records positive whole-minute actual labor attributed to a worker.
   **Most rows are produced by stopping a tracked session** (see
   `work_order_labor_sessions` below), not typed by anyone.
-- Hand-entering, editing, and removing labor are all **Supervisor+**. A
-  Technician cannot key a duration at all — their hours come from the clock, and
-  a supervisor is the only one who can correct the result. That is what keeps
-  the billed figure trustworthy: hours are never written, rewritten, or erased
-  by the person they are attributed to. The direct cost is that a forgotten
-  Start Tracking is unrecoverable by the technician who forgot it.
-- The credited worker must be assigned to the work order **or** be the
-  Supervisor recording themselves. That second case is a deliberate widening: a
-  supervisor who does the work attaches billable labor without joining the crew.
-  It is bounded by visibility and attributed by name, and the labor card already
-  lists every row regardless of assignment, so it renders with no special case.
+- Hand-entering, editing, and removing labor are all **Admin and Owner only**
+  (`services.work_orders._require_labor_editor`, a service check, not a route
+  gate). Nobody else can key a duration — their hours come from the clock, and
+  an Admin or the Owner is the only one who can correct the result. That is what
+  keeps the billed figure trustworthy: hours are never written, rewritten, or
+  erased by the person they are attributed to. The direct cost is that a
+  forgotten Begin Charging is unrecoverable by whoever forgot it. This is the
+  second `ROLE_ADMIN` floor in `services` (the first is the Review handoff).
+- The credited worker must be on the crew **or** be the Admin/Owner recording
+  themselves. That second case lets an Admin who did the work attach billable
+  labor without joining the crew. It is bounded by visibility and attributed by
+  name, and the labor card already lists every row regardless of assignment, so
+  it renders with no special case.
 - Billing sums all actual minutes on the work order, rounds the combined total
   upward once to the next 30 minutes, then charges `$62.50/hour`. Rate and total
   are returned only to TechFM OA and above; actual and billed durations are visible to
@@ -1322,7 +1350,7 @@ Rules:
   fires `work_order.held`. A co-worker still tracking keeps it In-Progress, and
   an idempotent repeat closes nothing, so it neither transitions nor notifies.
 - Sessions are stopped wherever work provably ended: Stop Tracking, `/hold`,
-  Notify Supervisor, archive, and a Supervisor's PATCH into `on_hold` /
+  Notify Team Lead, archive, and a Team Lead's PATCH into `on_hold` /
   `ready_to_complete` / `completed`. `/resume` starts none. Each closed session
   writes its own `stopped work` note authored by **its own technician**, not by
   whoever tapped.
@@ -1335,7 +1363,7 @@ Rules:
   `_heal_orphan_lines`. A session on a work order nobody opens therefore stays
   open past 12 hours until it is read, but still closes at the *correct* capped
   time, so only the flag is late. The cap deliberately does **not** auto-hold: a
-  status change and a supervisor's phone buzzing as a side effect of somebody
+  status change and a Team Lead's phone buzzing as a side effect of somebody
   opening a card would be indefensible. Auto-closed entries are tagged
   "auto-stopped" on the labor card as a prompt to review, and nothing blocks
   them from billing.
@@ -1356,7 +1384,7 @@ Rules:
   the backstop for two devices saving at once (the loser gets 409). "Unsigned"
   is no row, which keeps the image out of every list query and report.
 - Optional and gates nothing; any viewer of the work order captures it,
-  Supervisor+ clears it (no confirm — the note log records both). Archive and
+  Team Lead+ clears it (no confirm — the note log records both). Archive and
   restore leave it alone; deleting the work order deletes it.
 - Input caps live in `domain/work_orders.py`: PNG magic + ≤ 256 KB decoded,
   name ≤ 120, US phone normalized to 10 digits and shown `(555) 555-1234`.
@@ -1567,7 +1595,7 @@ stays here is behavior that table cannot carry:
   `previous_status` stamped on the returned row — idempotent repeats and
   re-saves send nothing); one PATCH can be several independently evaluated
   events; overlapping transitions resolve by pinned branch order; a rule that
-  raises never fails the committed write; the CSV import's per-supervisor
+  raises never fails the committed write; the CSV import's per-Team Lead
   bulk send is the single batching exception.
 - Web Push facts that are not obvious: iOS exposes push only to a
   Home-Screen-installed app (own cookie jar; no programmatic install offer
@@ -1597,7 +1625,7 @@ Find Item, or Mass Stage refetches current server data
 
 Login/landing: boot calls `/auth/me`; 401 shows login; any later 401 returns
 to login globally. Landing is role-based (`landingPageForRole`): technician →
-Transaction, supervisor → Work Orders, admin/owner → History; a resumed batch
+Transaction, Team Lead → Work Orders, admin/owner → History; a resumed batch
 overrides the default and opens Transaction.
 
 Find/Add Item: Add Item (TechFM OA+) is Item/Tool sub-nav tabs, each with its
@@ -1609,11 +1637,12 @@ item-request prompt. Technicians get a simplified table; TechFM OA+ see
 price/link columns and get Create Item / Add Barcode shortcuts on an unknown
 scan.
 
-Scan / Stock: the gate lists scoped Created/Assigned/In-Progress cards —
+Scan / Stock: the gate lists Created/Assigned/In-Progress cards —
 In-Progress arms the batch, Assigned confirms the in-place start, Created
-offers navigation to Work Orders. Supervisor+ get a debounced number filter
+offers navigation to Work Orders. Team Lead+ get a debounced number filter
 and an advanced mode (Add Stock/Take Out toggle, browse-all on empty search);
-Technicians see only assigned cards. Manual entry hides until a card is
+Technicians see only their assigned cards (the gate sends `assigned_to_id`, and
+the server refuses a dispense against a work order they are not on). Manual entry hides until a card is
 selected and commits through the same `commitScannedItem` path a scan uses.
 A short dispense still commits and renders red `Please re-count stock`; an
 unpriced work-order item raises the deduplicated missing-price request. Live
@@ -1650,21 +1679,26 @@ work order's card; completed stages are read-only and terminal.
 
 Work Orders: **cards are pages** — clicking navigates to
 `/workorder_card/<number>` (served the same SPA shell as `/`; deep links
-resolve number→id via the scoped list search, **not** the Supervisor+
-lookup, so an archived and an out-of-scope number are indistinguishable and
+resolve number→id via the list search, **not** the Team Lead+
+lookup, so an archived and an unknown number are indistinguishable and
 both report "not available"). The card must remain a `details.wo-card`
 inside `#work-orders-list` — moving it into another container silently
 breaks the delegated action layer (~20 click branches) and the realtime
 card lookup. Collapsed card background encodes status: Created gray,
 Assigned red, In-Progress yellow, On-Hold orange, Ready to Complete violet,
 Completed blue, Review green. The technician ladder is built on the clock —
-Start Tracking / Stop Tracking / Notify Supervisor / Place On-Hold / Resume
-(rules in Hard Invariants); Ready to Complete shows Supervisor+
-**Approve — Mark Completed** and **Send Back**, and a technician a hint with
-no actions; the Edit-details status dropdown never offers
-`ready_to_complete` or Review. Buttons that need assignment server-side are
-gated on it client-side too. Nested collapsed cards: Edit details
-(Supervisor sees routing/assignment/status; TechFM OA+ also imported
+Begin Charging / Stop Charging / Notify Team Lead / Place On-Hold / Resume
+(rules in Hard Invariants); Begin Charging is offered to every role but the
+Owner, whose only forward action is Mark Completed. Ready to Complete shows
+Team Lead+ **Approve — Mark Completed** and **Send Back**, and a technician a
+hint with no actions; the Edit-details status dropdown never offers
+`ready_to_complete` or Review. Buttons that need the crew server-side are
+gated on it client-side too. **A Technician off the crew gets a read-only
+card:** the notes box, add-material row, Remove buttons, Request form, stocked
+"Add requested material" line and Capture-signature button are not rendered,
+and one `.wo-crew-lock` hint says to Begin Charging (or, on a finished work
+order, that it is read-only). Nested collapsed cards: Edit details
+(Team Lead sees routing/assignment/status; TechFM OA+ also imported
 metadata; `number` never), Notes (append-only log; save clears and closes),
 Materials (Technicians add-only, read-only quantities; a green one-tap
 **Add requested material** line per stocked material request prefills the
@@ -1672,9 +1706,10 @@ add row and resolves the request on Add), Request (after Materials:
 `workOrderRequests.js` files a material request for a catalogue item the
 shelf lacks — an empty search offers the catalogue-request prompt — and
 lists this work order's material/catalogue requests, with Cancel on the
-filer's own open ones), Labor (Technician fully read-only; the supervisor
+filer's own open ones), Labor (read-only below Admin; the Admin/Owner
 picker includes themselves "(not assigned)"; entries show their session
-window, capped ones tagged "auto-stopped"), Signature (last, every viewer:
+window, capped ones tagged "auto-stopped"; a Technician off the crew gets no
+Labor section), Signature (last, every viewer:
 **Capture witness signature** opens a four-step pop-up mounted on the page,
 not in the list `<section>`, whose backdrop-filter traps fixed overlays —
 guidance → printed name + phone → pad with Clear / Undo stroke / Submit →
@@ -1682,7 +1717,7 @@ confirmation showing the signature, then **Save and lock**; each step names
 what it still needs; a phone signs full screen and a portrait one sideways,
 standing back up on Submit; the pad keeps strokes, so every resize redraws
 and the saved PNG is always 1000×400; one per work order, locked after save
-with a "Captured by … on …" line; Supervisor+ Clear behind a confirm; an
+with a "Captured by … on …" line; Team Lead+ Clear behind a confirm; an
 open section holds the card like the other editors). TechFM OA+ get import (with summary counts), filtered/
 client CSV export, Archive on any live card, and the exact-archived-number
 restore prompt; the Owner additionally the hidden legacy re-archive button
@@ -1715,7 +1750,7 @@ action keeps the receipt visible for copying.
 
 Tools: Add Tool is the Tool tab on Add Item (TechFM OA+; barcode + name +
 quantity only). The Tools page defaults to **Custody**: TechFM OA+ search
-active users into a profile card; Supervisor/Technician are pinned to their
+active users into a profile card; Team Lead/Technician are pinned to their
 own `/auth/me` card — a frontend workflow boundary, since the return route
 accepts any `assigned_to_id`. Check-in starts from a holding row, defaulted
 and capped to the outstanding balance; checkout is TechFM OA+ from the
@@ -1725,7 +1760,7 @@ path. The page composes existing endpoints — no custody endpoint or
 migration exists; custody stays ledger-derived. Auth reset clears page-local
 selection/scan context.
 
-History: Supervisor+; tabs all / by item / by user plus an overlay
+History: Team Lead+; tabs all / by item / by user plus an overlay
 work-order filter matching each row's own `work_order_number` — searchable
 forever, including archived work orders. An exact archived number prompts
 restore (a declined number is not re-prompted this session). Voided rows
@@ -1737,7 +1772,7 @@ rows' pricing from the line `unit_price` and appends the per-work-order
 **Work Order Summary** block (`materials_total` + 15%) — per-row figures can
 diverge from it; the summary is authoritative.
 
-Users: Supervisor+ list, archived included (dimmed, restorable — keeps the
+Users: Team Lead+ list, archived included (dimmed, restorable — keeps the
 History by-user filter working). Add User requires username + both names +
 password + a subordinate role. Edit Name (self or manageable subordinate)
 also corrects login usernames and remediates legacy no-name accounts; Edit
@@ -1786,10 +1821,10 @@ Alembic head: `a7c3e9f1b2d4`.
 | `a9d1f3b7c2e8` | `work_order_items.billable_quantity` (per-line billing override) |
 | `d2f4b6a8c0e3` | `tools` + `tool_transactions` tables (tool custody tracking) |
 | `e4a6c8b0d2f7` | `tool_transactions.reason` + nullable `assigned_to_id` (Correct Count / `adjust`) |
-| `f2a4c6b8d0e1` | work-order CSV import fields + supervisor routing + legacy backfill |
+| `f2a4c6b8d0e1` | work-order CSV import fields + Team Lead routing + legacy backfill |
 | `f3b5d7a9c1e2` | nullable user first/last names for legacy-safe display and CSV routing |
 | `f4c6e8a0b2d3` | work-order Created/Assigned default and five-state live lifecycle; existing statuses preserved |
-| `f5d7f9b1c3e4` | reconcile Created/Assigned pre-work rows from technician assignment instead of supervisor routing |
+| `f5d7f9b1c3e4` | reconcile Created/Assigned pre-work rows from technician assignment instead of Team Lead routing |
 | `f6e8a0b2d4f5` | nullable `work_orders.notes` text storage (now used as an append-only authored/timestamped log without another migration); On-Hold uses the existing application-validated text status column |
 | `f7a9b1c3d5e6` | plural `work_order_technicians` assignments (backfilled from `assigned_to_id`) + per-technician `work_order_labor` minute entries |
 | `f8a0c2e4b6d8` | durable generic `user_requests` queue; first producer is a linked Scan / Stock inventory-recount exception |
@@ -1855,11 +1890,11 @@ Coverage map:
 | `test_quantity_reverse.py` | stock delta reversal for voids |
 | `test_mass_staging.py` | pure mass-stage allocation/lifecycle rules |
 | `test_mass_stages_api.py` | schemas, route gates, response builders |
-| `test_mass_staging_load.py` | DB-backed slot load/return, add-work-order enforce-match + refusal of an unimported number, Technician/Supervisor worker assignment, reuse |
+| `test_mass_staging_load.py` | DB-backed slot load/return, add-work-order enforce-match + refusal of an unimported number, Technician/Team Lead worker assignment, reuse |
 | `test_work_orders_domain.py` | pure rules: number normalization, the seven-status lifecycle order, community vocabulary, worker-derived Created/Assigned, activity-derived In-Progress, note-log formatting, the 12-hour cap and 1-minute floor, combined labor rounding/charge, fill-blanks, visibility scope |
-| `test_work_orders_service.py` | DB-backed service coverage: find-or-create/resolve-only, assignment/scope/routing, the walkthrough actions, tracked sessions (auto-hold on last clock-out, cross-work-order auto-stop with `side_transitions`, the partial unique index, the lazy cap, an open session billing nothing), the two-person Review handoff, labor rules incl. a supervisor crediting themselves, notes/archive/materials, zero-stock adds + recount lifecycle, Owner legacy re-archive, AND-composed filters, community aliases, list cap |
+| `test_work_orders_service.py` | DB-backed service coverage: find-or-create/resolve-only, assignment/scope/routing, the walkthrough actions, tracked sessions (auto-hold on last clock-out, cross-work-order auto-stop with `side_transitions`, the partial unique index, the lazy cap, an open session billing nothing), the two-person Review handoff, labor rules (Admin/Owner-only hand-keyed hours, an Admin/Owner crediting themselves), Begin-Charging auto-assign (incl. legacy-only assignee, Owner refused, refused start assigns nobody), the Technician crew write-lock, open visibility with an unrecognised role failing closed, notes/archive/materials, zero-stock adds + recount lifecycle, Owner legacy re-archive, AND-composed filters, community aliases, list cap |
 | `test_work_order_signature.py` | migration round-trip; service save/second-save 409/unique-constraint race/invisible 404/bad payload writes nothing/clear + notes/archive-restore keep/WO delete cascades/PNG read; every route over a real `TestClient` incl. the 422 body cap and the `no-store` PNG |
-| `test_work_order_import.py` | CSV parsing/import, required-number-header and UTF-8 preflight, blank/missing-task NetFacilities fallback, generated-to-real replacement, duplicate-row precedence, manual-task preservation, full-name Admin/Supervisor routing independent of Created status, unmatched/ambiguous/archived/ineligible-role fallback, idempotence, closed-row count/no-mutation, and Admin gate |
+| `test_work_order_import.py` | CSV parsing/import, required-number-header and UTF-8 preflight, blank/missing-task NetFacilities fallback, generated-to-real replacement, duplicate-row precedence, manual-task preservation, full-name Admin/Team Lead routing independent of Created status, unmatched/ambiguous/archived/ineligible-role fallback, idempotence, closed-row count/no-mutation, and Admin gate |
 | `test_work_order_name_responses.py` | work-order response exposes plural operational names, rounded labor detail/totals, and the note-log text while omitting login usernames |
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
 | `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin; history row exposes `work_order_id` |
@@ -1904,9 +1939,9 @@ Coverage map:
 | `test_push_domain.py` | pure Web Push response classification and endpoint allowlist |
 | `test_vapid_keys.py` | VAPID keypair interoperability (not cryptography) |
 | `test_push_subscriptions.py` | Owner-only send gate, the two separate role floors, and the Admin-and-above test audience derived from rank; DB-backed endpoint reassignment on a shared device, caller-scoped delete, archived-user exclusion, delete-only-on-404/410, and the SSRF guard refusing a disallowed endpoint before any request — on both fan-out entry points. Its fan-out tests hide any subscription the developer's own database holds, inside the rolled-back transaction; without that a genuinely enrolled device joins every send under test |
-| `test_notifications_domain.py` | pure recipient rules: actor suppression, dedup, dropping an unrouted supervisor, and that message text interpolates a work-order number or a count and nothing else. Every event is partitioned into a number event or a count event, so a new one cannot skip that decision |
+| `test_notifications_domain.py` | pure recipient rules: actor suppression, dedup, dropping an unrouted Team Lead, and that message text interpolates a work-order number or a count and nothing else. Every event is partitioned into a number event or a count event, so a new one cannot skip that decision |
 | `test_notifications.py` | recipient resolution against the DB, that nothing is scheduled without recipients or without a VAPID key, and that delivery opens its own session and swallows failures |
-| `test_work_orders_notifications.py` | every trigger at its route: right recipients, once per event across idempotent repeats, multi-event PATCHes, pinned overlap ordering, tracking-stop firing `held` only on the true auto-hold, the approve/send-back pair, routing notifying only the new supervisor, and a broken rule never failing the write |
+| `test_work_orders_notifications.py` | every trigger at its route: right recipients, once per event across idempotent repeats, multi-event PATCHes, pinned overlap ordering, tracking-stop firing `held` only on the true auto-hold, the approve/send-back pair, routing notifying only the new Team Lead, and a broken rule never failing the write |
 
 Frontend layers:
 
@@ -1957,7 +1992,7 @@ Do not "fix" these accidentally unless the task asks for it.
 - Notes saves replace the entire notes object; no partial merge.
 - Create Item UI sends blank price as `0`.
 - Mass-stage unused returns intentionally do not create transaction rows.
-- Direct mass-stage detail/mutation routes are Supervisor+ gated but not
+- Direct mass-stage detail/mutation routes are Team Lead+ gated but not
   creator/assignee scoped.
 - Completed mass stages cannot be reopened.
 - Stage deletion does not reverse load transactions already written.
@@ -1989,7 +2024,7 @@ Do not "fix" these accidentally unless the task asks for it.
   header returns HTTP 400 before any work-order row is written. CSV records are
   materialized before row-level commits so parser errors also fail in preflight.
 - A free-text work-order number on a transaction is *resolved* (never created,
-  since work orders are import-only) and only for Supervisor+; a technician's
+  since work orders are import-only) and only for Team Lead+; a technician's
   scan must carry a `work_order_id` (from a card).
 - Deferred work-order attributes not yet built: `due_date` and
   `external_ref`/`source`. Priority now exists as a nullable, source-owned,

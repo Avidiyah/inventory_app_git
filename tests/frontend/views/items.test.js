@@ -334,7 +334,7 @@ describe("row actions", () => {
     await answerConfirm(true);
     await choosing;
     await vi.waitFor(() => expect(el.message().className).toBe("error"));
-    expect(el.message().textContent).toBe("Your account can't do that. Ask a supervisor if this seems wrong.");
+    expect(el.message().textContent).toBe("Your account can't do that. Ask a Team Lead if this seems wrong.");
     expect(rows()).toHaveLength(1);
   });
 

@@ -2,7 +2,7 @@
 
 ## What it is
 
-A **self-hosted inventory + work-order staging system** for physical materials tracked by barcode — built for a field crew scanning items on a phone, plus supervisors/admins doing office-side review and billing.
+A **self-hosted inventory + work-order staging system** for physical materials tracked by barcode — built for a field crew scanning items on a phone, plus Team Leads/admins doing office-side review and billing.
 
 **Stack:** a single FastAPI process serving both the JSON API and a no-build static SPA (`backend/static`, plain ES modules — no bundler). PostgreSQL via SQLAlchemy + Alembic. Barcode *uploads* decode server-side (`pyzbar`/zbar); *live camera* scanning uses vendored `@zxing/browser`. One same-origin WebSocket (`/ws`) carries real-time cache invalidation — REST stays the source of truth. Read-only NetFacilities enrichment drives a bundled Playwright Chromium. Deploys as one Docker web service + one managed Postgres on Render (port 8124).
 
@@ -11,15 +11,15 @@ A **self-hosted inventory + work-order staging system** for physical materials t
 ## Core domains
 
 - **Items, transactions & User Requests** — find/create/edit items by barcode; Find Item opens with no item request or native suggestion popup, then explicit Search or Load All retrieves full records. Stock, dispense, correct (append-only `adjust` rows), and void (soft delete, reverses stock). A Scan / Stock or Work Orders Add Item dispense beyond the recorded count is saved with a negative expected balance and atomically raises a durable TechFM OA and above inventory-recount request; removing the source transaction/line resolves it. Prices/links are cost-sensitive and redacted below TechFM OA. Row locks guard every quantity change; money is `Decimal`.
-- **Work orders** — first-class standalone, import-only entities whose case-insensitive identity is the **number**. Live workflow is Created → Assigned → In-Progress → Completed → Review, with On-Hold as a pause state; Closed is archived. Work orders support multiple worker assignments: active Technicians and Supervisors may perform work, while active TechFM OAs, Admins, and Supervisors may supervise. Assigned workers receive narrow card actions without general status permission: Set In-Progress → Mark Completed, Place On-Hold only while In-Progress, and Resume In-Progress only while On-Hold. Review requires Completed state and a second person: Admin+ (Admin proper, not TechFM OA) or the routed Supervisor, provided the caller is not assigned to the work. Missing imported tasks become clickable NetFacilities URLs; that exact synthetic value can be replaced by a later real task, while real/manual tasks retain normal fill-blank protection. An append-only note log carries server-generated Central time/date and authenticated full name; aggregate material billing and per-worker labor bill at $62.50/hour after combined duration rounds upward to 30 minutes. Edit permissions are least-privilege: Technician = notes/add material/narrow worker actions; Supervisor+ = routing/general status/mode/labor/material corrections; TechFM OA+ = imported metadata and archive from any live status. Supervisors see the shared unassigned pickup queue, work routed to themselves, and work where they are assigned as a worker. Pickup and import merges lock the same row; a stale pickup receives a named 409, while import fills supervisor routing only when the locked row is still unassigned, preserving manual reroutes. Archived import matches are counted as closed and ignored. The server-side list composes status, service type, routed supervisor, derived community, exact scheduled date, and number filters with AND, then sorts by parsed Scheduled Date descending. TechFM OA+ can export that uncapped filtered set as a re-importable operational CSV; the client billing/receipt CSV remains scope-based. Everything is server-scoped by role (Technician→any assignment, Supervisor→unassigned/self-routed/worker-assigned, TechFM OA and above→all).
+- **Work orders** — first-class standalone, import-only entities whose case-insensitive identity is the **number**. Live workflow is Created → Assigned → In-Progress → Completed → Review, with On-Hold as a pause state; Closed is archived. Work orders support multiple worker assignments: active Technicians and Team Leads may perform work, while active TechFM OAs, Admins, and Team Leads may supervise. Assigned workers receive narrow card actions without general status permission: Set In-Progress → Mark Completed, Place On-Hold only while In-Progress, and Resume In-Progress only while On-Hold. Review requires Completed state and a second person: Admin+ (Admin proper, not TechFM OA) or the routed Team Lead, provided the caller is not assigned to the work. Missing imported tasks become clickable NetFacilities URLs; that exact synthetic value can be replaced by a later real task, while real/manual tasks retain normal fill-blank protection. An append-only note log carries server-generated Central time/date and authenticated full name; aggregate material billing and per-worker labor bill at $62.50/hour after combined duration rounds upward to 30 minutes. Edit permissions are least-privilege: Technician = notes/add material/narrow worker actions; Team Lead+ = routing/general status/mode/labor/material corrections; TechFM OA+ = imported metadata and archive from any live status. Team Leads see the shared unassigned pickup queue, work routed to themselves, and work where they are assigned as a worker. Pickup and import merges lock the same row; a stale pickup receives a named 409, while import fills Team Lead routing only when the locked row is still unassigned, preserving manual reroutes. Archived import matches are counted as closed and ignored. The server-side list composes status, service type, routed Team Lead, derived community, exact scheduled date, and number filters with AND, then sorts by parsed Scheduled Date descending. TechFM OA+ can export that uncapped filtered set as a re-importable operational CSV; the client billing/receipt CSV remains scope-based. Everything is server-scoped by role (Technician→any assignment, Team Lead→unassigned/self-routed/worker-assigned, TechFM OA and above→all).
 - **Mass staging** — truck-loading plans per community/building/unit that *reference* work orders; forward-only lifecycle planning→loading→completed.
 - **Tools** — parallel to items but smaller (no price/location); ledger-derived custody ("who has what" is computed, never stored). Checkout is TechFM OA+, check-in any role.
 - **Users/roles** — `owner > admin > supervisor > technician`; unique usernames
   stay login/account identifiers, while first + last names drive operational
-  display and CSV supervisor routing. Legacy NULL names are explicitly editable
+  display and CSV Team Lead routing. Legacy NULL names are explicitly editable
   on Users, login usernames can be corrected in the same flow, and TechFM OA+ may
   change only strictly subordinate roles. Role changes revoke active sessions.
-  Five roles, strictly ranked: `technician 0 < supervisor 1 < techfm_oa 2 <
+  Five roles, strictly ranked: `technician 0 < Team Lead 1 < techfm_oa 2 <
   admin 3 < owner 4`. **TechFM OA** carries the whole Admin toolkit minus two
   things, both consequences of its rank rather than special cases: it cannot
   send a work order to Review, and it cannot re-role an Admin or Owner or hand
@@ -122,7 +122,7 @@ Capabilities added after the improvement batch include:
   immediately use the live price.
 
 - Scan / Stock now starts a scoped Assigned work order in place after the
-  Technician/Supervisor confirms, using a narrow status action rather than
+  Technician/Team Lead confirms, using a narrow status action rather than
   general Technician status editing. Every committed batch line has Remove;
   Technicians are limited server-side to their own work-order dispenses.
 - Short-count dispenses from Scan / Stock or Work Orders Add Item are recorded
@@ -151,7 +151,7 @@ Capabilities added after the improvement batch include:
   Download names use `MM-DD-YY_HH-MM_filter1-filter2.csv` in UTC; filtered
   exports list every active filter and client exports use `client-<scope>`.
 - Work Orders advanced search composes status, dynamic service type, assigned
-  supervisor, derived community, exact scheduled date, and number with AND.
+  Team Lead, derived community, exact scheduled date, and number with AND.
   Community membership is derived from structured/raw location text; Academics
   is the fallback. Cards and operational exports sort parsed Scheduled Date
   descending, with malformed/blank legacy values last. Export filtered CSV sits
@@ -160,22 +160,22 @@ Capabilities added after the improvement batch include:
   shared modal says `Work Order has been closed.` and offers Restore or Close;
   Restore uses the existing unarchive endpoint and reloads the matching live card.
 - Expanded Work Order controls follow the backend role matrix. TechFM OA and above Edit
-  details includes imported metadata plus operations; Supervisor sees only
-  supervisor, technicians, and status plus separate mode/labor/material-correction
+  details includes imported metadata plus operations; Team Lead sees only
+  Team Lead, technicians, and status plus separate mode/labor/material-correction
   controls; Technician sees Notes, Add Item, and the assigned-worker walkthrough.
   Edit details is a nested card, collapsed by default beneath the persistent
   read-only overview, and is unchanged by the walkthrough. Its status dropdown
-  remains the Supervisor's general Created/Assigned → In-Progress, rollback, and
+  remains the Team Lead's general Created/Assigned → In-Progress, rollback, and
   On-Hold control. The card's primary quick button advances an assigned worker
   from Set In-Progress to Mark Completed and then disappears; only while
   In-Progress, a second Place On-Hold button is available; while On-Hold, one
   Resume In-Progress button replaces it. Send to Review is shown
   only to unassigned Admin+, and the backend
   enforces this second-person handoff from Completed. The technician
-  assignment editor searches active Technicians and Supervisors by full name,
+  assignment editor searches active Technicians and Team Leads by full name,
   shows matches only while searching, and lists removable selected workers below the search;
-  Save replaces the complete plural assignment set. The Supervisor selector
-  lists active Admins and Supervisors. Notes, Materials, and Labor
+  Save replaces the complete plural assignment set. The Team Lead selector
+  lists active Admins and Team Leads. Notes, Materials, and Labor
   are also nested cards that start collapsed. Notes displays its accumulated
   text log above an empty input; Save appends `MM/DD/YY hh:MM AM/PM User`
   metadata, clears the input, and closes the card. The same line shape carries
@@ -184,9 +184,9 @@ Capabilities added after the improvement batch include:
   write-triggered detail refreshes so the changed rows remain visible. Logged material rows, the total, and Add Item controls
   stay grouped inside Materials. TechFM OA and above additionally receives a confirmed
   Archive action on every expanded live-status card.
-- Supervisors share unassigned Work Orders as a pickup queue. Edit Details sends
-  the originally rendered supervisor as an optimistic precondition; a competing
-  pickup returns the current supervisor's full name in a 409 prompt and reloads
+- Every role sees every work order; Team Leads claim and route unassigned ones. Edit Details sends
+  the originally rendered Team Lead as an optimistic precondition; a competing
+  pickup returns the current Team Lead's full name in a 409 prompt and reloads
   the page after dismissal. Import and manual routing serialize on a row lock,
   so import assigns only a still-unassigned row and never overwrites a manual
   reroute.
@@ -212,11 +212,11 @@ Capabilities added after the improvement batch include:
   the suite against its own Postgres service — a local run additionally needs a
   reachable `DATABASE_URL`. Coverage spans the Work Order
   authored/timestamped append-only note log, Scan/Stock and
-  Technician/Supervisor Work Orders short-count recount creation, Technician
+  Technician/Team Lead Work Orders short-count recount creation, Technician
   scan-removal boundaries, automatic request resolution,
   missing-price/link deduplication and completion, request-queue management,
   assigned-worker start/finish/hold/resume walkthrough (a Technician's finish
-  lands On-Hold for review) and two-person Review handoff, technician-own labor,
+  lands On-Hold for review) and two-person Review handoff, Admin/Owner-only hand-keyed labor, Begin-Charging self-assignment and the Technician crew write-lock,
   the work-order push-notification triggers,
   the NetFacilities enrichment stack, the real-time invalidation layer, and the
   rate-limit (B3) and list-ceiling (X3) suites.

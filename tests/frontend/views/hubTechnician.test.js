@@ -71,10 +71,10 @@ describe("count tiles", () => {
     expect(tiles[2].querySelector(".hub-tile-sub")).toBeNull();
   });
 
-  it("Ready to complete carries 'waiting on supervisor' when non-zero", async () => {
+  it("Ready to complete carries 'waiting on Team Lead' when non-zero", async () => {
     await openHub({ role: "technician", hub: hubPayload({ counts: { assigned: 3, in_progress: 1, ready_to_complete: 2 } }) });
     const tiles = dash().querySelector(":scope > .hub-tile-grid").querySelectorAll(".hub-tile");
-    expect(tiles[2].querySelector(".hub-tile-sub").textContent).toBe("waiting on supervisor");
+    expect(tiles[2].querySelector(".hub-tile-sub").textContent).toBe("waiting on Team Lead");
   });
 });
 
@@ -277,6 +277,6 @@ describe("My Work Orders tab", () => {
     await vi.waitFor(() => expect(listQueries()).toHaveLength(1));
     await vi.advanceTimersByTimeAsync(60000);
     await vi.waitFor(() => expect(listQueries()).toHaveLength(2));
-    expect(listQueries()[1]).toEqual({ limit: "10" });
+    expect(listQueries()[1]).toEqual({ mine: "true", limit: "10" });
   });
 });
