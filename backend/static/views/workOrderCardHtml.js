@@ -21,6 +21,7 @@ import {
   canAddLabor,
   canEditLabor,
   formatMinutes,
+  hasUnreadPriorWork,
   hoursInputValue,
   isAdminPlus,
   isAssignedToCurrentUser,
@@ -32,6 +33,7 @@ import {
   notesLogContentsHtml,
   placeMeta,
   priorityBadge,
+  priorWorkBannerHtml,
   overdueTag,
   statusBadge,
   statusLabel,
@@ -498,6 +500,8 @@ export function summaryHtml(card) {
 export function renderBody(detail, bodyEl) {
   const sup = isSupervisorPlus();
   const assignedToCurrentUser = isAssignedToCurrentUser(detail);
+  // Someone else worked this order and there are notes to read first.
+  const gated = hasUnreadPriorWork(detail);
   const items =
     detail.items.map((it) => renderLineHtml(it)).join("") ||
     `<p class="hint">No materials logged yet.</p>`;
@@ -519,12 +523,14 @@ export function renderBody(detail, bodyEl) {
   bodyEl.innerHTML =
     chargingStripHtml(detail) +
     ((modeControl || statusActions) ? `<div class="wo-controls">${modeControl}${statusActions}</div>` : "") +
+    priorWorkBannerHtml(detail) +
     `<div class="wo-details">${detailsViewHtml(detail)}</div>` +
     (sup ? detailsEditorHtml(detail) : "") +
-    `<details class="wo-section-card wo-notes-section">
+    `<details class="wo-section-card wo-notes-section"${gated ? " open" : ""}>
        <summary class="wo-section-summary">Notes</summary>
        <div class="wo-section-content">
          <div class="wo-notes-log" aria-label="Work order note log">${notesLogContentsHtml(detail.notes)}</div>
+         ${gated ? `<button type="button" class="secondary-btn" data-action="ack-notes-wo">I have read the notes</button>` : ""}
          <textarea class="wo-notes-input" rows="4" aria-label="Add a work order note" placeholder="Add a note…"></textarea>
          <div class="wo-notes-actions">
            <button type="button" data-action="save-notes">Save note</button>

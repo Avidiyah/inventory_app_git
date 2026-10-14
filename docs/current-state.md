@@ -674,6 +674,11 @@ Work orders:
   to On-Hold. Both are idempotent, and both are open to assigned Technicians
   **and to Supervisor+ on any work order they can see** — a supervisor who does
   the work records it without joining the crew.
+  **Prior-work gate:** when another user has a labor session, labor entry or
+  material line on the row, the caller has none, and the row has notes,
+  `start` returns 409 until the body sends `notes_acknowledged: true` (checked
+  before the punch opens). The card's `prior_work` drives a banner, opens
+  Notes, and disables Begin Charging until "I have read the notes".
   The narrow `POST /work-orders/{id}/complete` action ("Notify Supervisor")
   finishes the job and stops every clock on it. **Where that finish
   lands is the caller's role** (`domain.work_orders.completion_target_status`):

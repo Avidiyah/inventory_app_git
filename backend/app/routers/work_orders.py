@@ -37,7 +37,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile
 from fastapi.responses import Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.auth_deps import get_current_user, require_min_role
 from app.database import get_db
@@ -70,6 +70,7 @@ from app.schemas.work_orders import (
     WorkOrderLookup,
     WorkOrderSignatureCreate,
     WorkOrderSignatureOut,
+    WorkOrderStartTracking,
     WorkOrderUpdate,
 )
 from app.routers.user_requests import build_response as build_request_response
@@ -503,9 +504,17 @@ def _detail(
         (s for s in running if viewer_id is not None and s.technician_id == viewer_id),
         None,
     )
+    # The row's own session, so the ~dozen builders need no new argument.
+    db = object_session(work_order)
+    prior = (
+        wo_service.unseen_prior_work(db, work_order, viewer_id)
+        if db is not None and viewer_id is not None
+        else None
+    )
     return WorkOrderDetail(
         **_card(work_order).model_dump(),
         notes=work_order.notes,
+        prior_work=prior,
         items=[_line_detail(line, include_price=include_price) for line in work_order.items],
         labor=[_labor_detail(entry) for entry in labor_entries],
         active_labor_session=(
@@ -1079,10 +1088,15 @@ def _notify_auto_hold(
 def start_work_order_tracking(
     work_order_id: uuid.UUID,
     background: BackgroundTasks,
+    payload: Optional[WorkOrderStartTracking] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Start the clock on a work order -- the field's primary action.
+
+    Someone else having already worked the order, with notes to read, refuses
+    the first start (409) until the body sends `notes_acknowledged: true`; the
+    card's `prior_work` says whether that applies.
 
     Assigned Technicians, and Supervisor+ on any work order they can see.
     Advances a pre-work row to In-Progress and resumes an On-Hold one, so the
@@ -1095,13 +1109,23 @@ def start_work_order_tracking(
     on a *different* work order, that one is closed here and may auto-hold.
     """
     try:
+        acknowledged = bool(payload and payload.notes_acknowledged)
+        # Before the punch: a refused start must not open one.
+        wo_service.require_prior_work_acknowledged(
+            db,
+            wo_service.get_visible_work_order(db, work_order_id, user),
+            user,
+            acknowledged,
+        )
         # D3, one way only: starting a clock off-shift opens a punch, and a
         # stale punch refuses here rather than charging a job against a
         # shift that began two days ago. The coupling lives in
         # `services/attendance.py`, not inside `services/work_orders.py` --
         # attendance knows about labor, labor knows nothing about attendance.
         attendance_service.ensure_punch_for_labor_start(db, user=user)
-        work_order = wo_service.start_labor_session(db, work_order_id, user=user)
+        work_order = wo_service.start_labor_session(
+            db, work_order_id, user=user, notes_acknowledged=acknowledged
+        )
         _emit_status_changed(work_order.id)
         _emit_labor_session_changed()
         for other in wo_service.side_transitions(work_order):

@@ -316,6 +316,17 @@ class WorkOrderStateError(DomainError):
     or a mode outside `dispense` / `retroactive`. Maps to 400."""
 
 
+class PriorWorkUnacknowledgedError(DomainError):
+    """Raised when someone starts charging a work order another person has
+    already worked without confirming they read its notes. Carries the
+    `prior_work` payload (`{"by": [...], "last_at": ...}`) so the card can
+    name who was there. Maps to 409."""
+
+    def __init__(self, prior_work: dict):
+        self.prior_work = prior_work
+        super().__init__("Someone has been here. Check the notes before charging.")
+
+
 class WorkOrderSignatureError(DomainError):
     """Raised for a bad image, name or phone on a witness sign-off. Maps to
     422: the request is well-formed, the value is not one the sign-off can

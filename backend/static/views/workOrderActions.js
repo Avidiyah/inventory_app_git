@@ -246,14 +246,30 @@ listEl.addEventListener("click", async (event) => {
   if (msg) setMessage(msg, "", "");
 
   try {
-    if (action === "start-tracking-wo") {
+    if (action === "ack-notes-wo") {
+      // The notes are open (the button lives inside them): the read is the
+      // unlock. Held in the DOM, which the open section keeps from repainting.
+      cardEl.dataset.notesAck = "1";
+      btn.hidden = true;
+      cardEl.querySelectorAll('[data-action="start-tracking-wo"]').forEach((b) => {
+        b.disabled = false;
+        b.removeAttribute("title");
+      });
+    } else if (action === "start-tracking-wo") {
+      const acknowledged = cardEl.dataset.notesAck === "1";
       try {
-        await apiStartWorkOrderTracking(workOrderId);
+        await apiStartWorkOrderTracking(workOrderId, acknowledged);
       } catch (err) {
+        // Someone charged after this card loaded: repaint so the banner and
+        // the gate appear, instead of leaving a bare error.
+        if (err?.status === 409 && String(err.detail).startsWith("Someone has been here")) {
+          await refreshCard(cardEl);
+          return;
+        }
         // A stale punch is resolvable here; anything else falls through to
         // the shared inline handler below.
         if (!(await resolveStalePunch(err))) throw err;
-        await apiStartWorkOrderTracking(workOrderId);
+        await apiStartWorkOrderTracking(workOrderId, acknowledged);
       }
       await refreshCard(cardEl);
     } else if (action === "stop-tracking-wo") {

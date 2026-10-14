@@ -14,6 +14,7 @@ import { DOT_GLYPH } from "./workOrderGlyphs.js";
 import {
   canCurrentUserSendToReview,
   isAdminPlus,
+  hasUnreadPriorWork,
   isAssignedToCurrentUser,
   isSupervisorPlus,
 } from "./workOrderPresenters.js";
@@ -46,11 +47,18 @@ export function statusActionsHtml(detail) {
   const tracking = Boolean(detail.active_labor_session);
   let primary = "";
   let secondary = "";
+  // Waits for "I've read the notes" (ack-notes-wo), which re-enables it.
+  const begin = hasUnreadPriorWork(detail)
+    ? BTN.begin.replace(
+        "<button ",
+        '<button disabled title="Read the notes first: someone has been here." '
+      )
+    : BTN.begin;
 
   if (canTrack && (detail.status === "created" || detail.status === "assigned")) {
     // "Set In-Progress" is gone: that transition is a side effect of starting
     // work, which is what the button always meant.
-    primary = BTN.begin;
+    primary = begin;
   } else if (canTrack && detail.status === "in_progress") {
     // Notify Supervisor is the "I'm done" button and belongs to a Technician
     // with a clock running; Stop Charging is the "I'm pausing" one. /complete
@@ -59,7 +67,7 @@ export function statusActionsHtml(detail) {
     // with Mark Completed. A Supervisor+ never gets Notify Supervisor: Mark
     // Completed is the real completion action for them.
     if (!tracking) {
-      primary = BTN.begin;
+      primary = begin;
     } else if (sup) {
       primary = BTN.completePrimary;
     } else if (assigned) {
@@ -72,7 +80,7 @@ export function statusActionsHtml(detail) {
     // Begin Charging is the one a returning technician taps: it does the same
     // transition as Resume *and* starts the clock. Resume stays for work that
     // resumes without the tapper being the one doing it.
-    primary = BTN.begin;
+    primary = begin;
     if (assigned) secondary += BTN.resume;
     if (sup) {
       secondary += BTN.completeSecondary;

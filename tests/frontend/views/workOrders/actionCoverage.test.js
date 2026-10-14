@@ -41,7 +41,7 @@ const declaredNames = (text) => [
 // Frozen. Adding an action to the source lands here deliberately rather than
 // silently widening what the audit calls "covered".
 const ACTIONS = [
-  "add-item", "add-labor", "archive-wo", "back-to-work-orders", "cancel-edit",
+  "ack-notes-wo", "add-item", "add-labor", "archive-wo", "back-to-work-orders", "cancel-edit",
   "capture-signature", "clear-signature", "complete-wo", "edit-item",
   "edit-labor", "hold-assigned-wo", "notify-supervisor-wo",
   "open-netfacilities-wo", "pick-combo-option", "pick-item", "pick-technician",

@@ -52,6 +52,7 @@ from app.domain.errors import (
     InvalidAssigneeError,
     InvalidSupervisorError,
     ItemNotFoundError,
+    PriorWorkUnacknowledgedError,
     RoleManagementError,
     WorkOrderAssignmentConflictError,
     WorkOrderNotFoundError,
@@ -2317,6 +2318,96 @@ def _require_tracking_permission(
         )
 
 
+def _last_activity_by_user(
+    db: Session,
+    work_order: WorkOrder,
+    viewer_id: Optional[uuid.UUID],
+    *,
+    mine: bool,
+) -> dict[uuid.UUID, datetime]:
+    """Latest work timestamp per user: everyone but the viewer, or only them.
+
+    "Worked" is a labor session, a labor entry credited to someone, or a
+    material line -- not a note and not crew membership, both of which exist
+    without any work done.
+    """
+    last_by_user: dict[uuid.UUID, datetime] = {}
+    for model, actor, stamp in (
+        (
+            WorkOrderLaborSession,
+            WorkOrderLaborSession.technician_id,
+            WorkOrderLaborSession.started_at,
+        ),
+        (WorkOrderLabor, WorkOrderLabor.technician_id, WorkOrderLabor.created_at),
+        (WorkOrderItem, WorkOrderItem.created_by_id, WorkOrderItem.created_at),
+    ):
+        query = db.query(actor, func.max(stamp)).filter(
+            model.work_order_id == work_order.id, actor.isnot(None)
+        )
+        if viewer_id is not None:
+            query = query.filter(actor == viewer_id if mine else actor != viewer_id)
+        elif mine:
+            continue
+        for user_id, last_at in query.group_by(actor).all():
+            if last_at is not None and (
+                user_id not in last_by_user or last_at > last_by_user[user_id]
+            ):
+                last_by_user[user_id] = last_at
+    return last_by_user
+
+
+def prior_work(
+    db: Session, work_order: WorkOrder, viewer_id: Optional[uuid.UUID]
+) -> Optional[dict]:
+    """Who *other than the viewer* has already worked this order, or None.
+
+    The viewer's own rows never count, so clocking back in after lunch or an
+    auto-hold is not "someone has been here". Returns
+    `{"by": [full_name, ...], "last_at": datetime}`, most recent worker first.
+    """
+    last_by_user = _last_activity_by_user(db, work_order, viewer_id, mine=False)
+    if not last_by_user:
+        return None
+    names = {
+        u.id: u.full_name
+        for u in db.query(User).filter(User.id.in_(list(last_by_user))).all()
+    }
+    ordered = sorted(last_by_user, key=last_by_user.__getitem__, reverse=True)
+    return {
+        "by": [names.get(user_id, "Name unavailable") for user_id in ordered],
+        "last_at": last_by_user[ordered[0]],
+    }
+
+
+def require_prior_work_acknowledged(
+    db: Session, work_order: WorkOrder, user: User, notes_acknowledged: bool
+) -> None:
+    """Refuse a first start on an order someone else already worked.
+
+    Exempt: an acknowledged start, an order with no notes to read, nobody else
+    having worked it, and a caller who has worked it themselves (they have
+    already seen the notes and the history).
+    """
+    if notes_acknowledged or not (work_order.notes or "").strip():
+        return
+    prior = unseen_prior_work(db, work_order, user.id)
+    if prior is not None:
+        raise PriorWorkUnacknowledgedError(prior)
+
+
+def unseen_prior_work(
+    db: Session, work_order: WorkOrder, viewer_id: Optional[uuid.UUID]
+) -> Optional[dict]:
+    """`prior_work`, but None once the viewer has worked the order themselves.
+
+    This is what the card shows: the "someone has been here" banner is for the
+    person arriving, not for someone who was already on the job."""
+    prior = prior_work(db, work_order, viewer_id)
+    if prior is None or _last_activity_by_user(db, work_order, viewer_id, mine=True):
+        return None
+    return prior
+
+
 def _running_sessions(
     db: Session, work_order: WorkOrder
 ) -> list[WorkOrderLaborSession]:
@@ -2595,7 +2686,11 @@ def _auto_hold_if_idle(db: Session, work_order: WorkOrder) -> Optional[str]:
 
 
 def start_labor_session(
-    db: Session, work_order_id: uuid.UUID, *, user: User
+    db: Session,
+    work_order_id: uuid.UUID,
+    *,
+    user: User,
+    notes_acknowledged: bool = False,
 ) -> WorkOrder:
     """Open a tracking session for the caller -- the field's primary action.
 
@@ -2651,6 +2746,9 @@ def start_labor_session(
             "Work can only be started on a work order that is not yet "
             "finished."
         )
+
+    # Before the crew sync: a refused start assigns nobody and opens nothing.
+    require_prior_work_acknowledged(db, work_order, user, notes_acknowledged)
 
     side: list[WorkOrder] = []
     if running is not None:

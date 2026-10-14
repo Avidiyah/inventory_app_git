@@ -291,3 +291,50 @@ def test_sort_flips_scheduled_date_order_and_keeps_blank_dates_last(db):
     assert _ordered_numbers(db, token, f"?q={prefix}&sort=scheduled_asc") == [
         f"{prefix}-A", f"{prefix}-B", f"{prefix}-X",
     ]
+
+
+# --- prior-work guardrail -------------------------------------------------
+
+from contextlib import contextmanager as _contextmanager
+
+
+@_contextmanager
+def _as(db, user):
+    token = auth_service.create_session(db, user)
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        with TestClient(app) as client:
+            client.cookies.set("session", token)
+            yield client
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_begin_charging_after_someone_else_needs_the_notes_acknowledged(db):
+    admin = _seed_user(db, "admin")
+    crew = _seed_user(db, "technician")
+    tech = _seed_user(db, "supervisor")
+    work_order = wos.get_or_create_work_order(
+        db, number=f"WO-PRIOR-{uuid.uuid4().hex[:8]}", created_by_id=admin.id,
+        assigned_to_id=crew.id,
+    )
+    db.commit()
+    url = f"/work-orders/{work_order.id}/tracking/start"
+
+    with _as(db, crew) as client:
+        assert client.post(url).status_code == 200  # nobody before them
+        assert client.get(f"/work-orders/{work_order.id}").json()["prior_work"] is None
+
+    with _as(db, tech) as client:
+        card = client.get(f"/work-orders/{work_order.id}").json()
+        assert card["prior_work"]["by"] == [crew.full_name]
+
+        refused = client.post(url)
+        assert refused.status_code == 409
+        assert "check the notes" in refused.json()["detail"].lower()
+        # Refused before the attendance coupling: no punch opened.
+        assert client.get("/attendance/me").json()["open_punch"] is None
+
+        accepted = client.post(url, json={"notes_acknowledged": True})
+        assert accepted.status_code == 200, accepted.text
+        assert accepted.json()["prior_work"] is None  # now they have worked it

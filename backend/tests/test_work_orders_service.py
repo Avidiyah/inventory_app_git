@@ -30,6 +30,7 @@ from app.domain import list_limits
 from app.domain import roles
 from app.domain import work_orders as wo
 from app.domain.errors import (
+    PriorWorkUnacknowledgedError,
     InvalidAssigneeError,
     InvalidSupervisorError,
     ItemNotFoundError,
@@ -43,6 +44,7 @@ from app.models import (
     Transaction,
     User,
     UserRequest,
+    WorkOrderItem,
     WorkOrderLabor,
     WorkOrderLaborSession,
 )
@@ -299,7 +301,7 @@ def test_notify_supervisor_is_blocked_while_a_co_worker_is_charging(db):
         db, work_order.id, user=manager, fields={"assigned_to_ids": [a.id, b.id]}
     )
     wos.start_labor_session(db, work_order.id, user=a)
-    wos.start_labor_session(db, work_order.id, user=b)
+    wos.start_labor_session(db, work_order.id, user=b, notes_acknowledged=True)
 
     with pytest.raises(WorkOrderStateError):
         wos.complete_work_order(db, work_order.id, user=a)
@@ -2171,7 +2173,7 @@ def test_a_co_worker_still_tracking_keeps_the_row_in_progress(db):
     w = _wo(db, created_by=sup)
     wos.update_work_order(db, w.id, user=sup, fields={"assigned_to_ids": [a.id, b.id]})
     wos.start_labor_session(db, w.id, user=a)
-    wos.start_labor_session(db, w.id, user=b)
+    wos.start_labor_session(db, w.id, user=b, notes_acknowledged=True)
 
     stopped = wos.stop_labor_session(db, w.id, user=a)
 
@@ -2204,7 +2206,7 @@ def test_hold_stops_every_clock_on_the_work_order(db):
     w = _wo(db, created_by=sup)
     wos.update_work_order(db, w.id, user=sup, fields={"assigned_to_ids": [a.id, b.id]})
     wos.start_labor_session(db, w.id, user=a)
-    wos.start_labor_session(db, w.id, user=b)
+    wos.start_labor_session(db, w.id, user=b, notes_acknowledged=True)
 
     held = wos.hold_work_order(db, w.id, user=a)
 
@@ -2241,7 +2243,7 @@ def test_notify_supervisor_refuses_while_a_co_worker_is_still_charging(db):
     w = _wo(db, created_by=sup)
     wos.update_work_order(db, w.id, user=sup, fields={"assigned_to_ids": [a.id, b.id]})
     wos.start_labor_session(db, w.id, user=a)
-    wos.start_labor_session(db, w.id, user=b)
+    wos.start_labor_session(db, w.id, user=b, notes_acknowledged=True)
 
     with pytest.raises(WorkOrderStateError):
         wos.complete_work_order(db, w.id, user=a)
@@ -2291,7 +2293,7 @@ def test_a_co_worker_cannot_start_again_on_a_ready_to_complete_row(db):
 
     # Send Back puts the crew live again.
     wos.update_work_order(db, w.id, user=sup, fields={"status": "in_progress"})
-    assert wos.start_labor_session(db, w.id, user=b).status == "in_progress"
+    assert wos.start_labor_session(db, w.id, user=b, notes_acknowledged=True).status == "in_progress"
 
 
 def test_a_supervisor_tracks_a_work_order_they_are_not_assigned_to(db):
@@ -2642,7 +2644,7 @@ def test_reassignment_only_stops_the_removed_technicians_clock(db):
         db, work_order.id, user=manager, fields={"assigned_to_ids": [a.id, b.id]}
     )
     wos.start_labor_session(db, work_order.id, user=a)
-    wos.start_labor_session(db, work_order.id, user=b)
+    wos.start_labor_session(db, work_order.id, user=b, notes_acknowledged=True)
 
     wos.update_work_order(
         db, work_order.id, user=manager, fields={"assigned_to_ids": [b.id]}
@@ -2814,3 +2816,114 @@ def test_blank_keyword_searches_are_noops(db):
         )
     }
     assert work_order.id in found
+
+
+# --- prior-work guardrail ------------------------------------------------
+
+def test_prior_work_is_none_on_a_fresh_order_and_for_the_viewers_own_work(db):
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    assert wos.prior_work(db, w, tech.id) is None
+
+    wos.start_labor_session(db, w.id, user=tech)
+    db.add(
+        WorkOrderItem(
+            work_order_id=w.id,
+            item_id=_seed_item(db).id,
+            quantity=Decimal(1),
+            mode="retroactive",
+            created_by_id=tech.id,
+        )
+    )
+    db.flush()
+
+    assert wos.prior_work(db, w, tech.id) is None
+
+
+def test_prior_work_counts_a_session_a_labor_entry_or_a_material_line(db):
+    sup = _seed_user(db, "supervisor")
+    viewer = _seed_user(db, "technician")
+    session_tech = _seed_user(db, "technician", first_name="Ann", last_name="Lee")
+    labor_tech = _seed_user(db, "technician", first_name="Bo", last_name="Ray")
+    item_tech = _seed_user(db, "technician", first_name="Cy", last_name="Dee")
+    admin = _seed_user(db, "admin")
+
+    for who, setup in (
+        (session_tech, lambda w: wos.start_labor_session(db, w.id, user=session_tech)),
+        (
+            labor_tech,
+            lambda w: wos.add_work_order_labor(
+                db, w.id, user=admin, technician_id=labor_tech.id, minutes=30
+            ),
+        ),
+        (
+            item_tech,
+            lambda w: db.add(
+                WorkOrderItem(
+                    work_order_id=w.id,
+                    item_id=_seed_item(db).id,
+                    quantity=Decimal(1),
+                    mode="retroactive",
+                    created_by_id=item_tech.id,
+                )
+            ),
+        ),
+    ):
+        w = _wo(db, created_by=sup, assigned_to=who)
+        setup(w)
+        db.flush()
+        found = wos.prior_work(db, w, viewer.id)
+        assert found is not None
+        assert found["by"] == [who.full_name]
+        assert found["last_at"] is not None
+
+
+def test_prior_work_lists_only_others_when_the_viewer_also_worked(db):
+    sup = _seed_user(db, "supervisor")
+    viewer = _seed_user(db, "supervisor", first_name="Me", last_name="Self")
+    other = _seed_user(db, "technician", first_name="Ann", last_name="Lee")
+    w = _wo(db, created_by=sup, assigned_to=other)
+    wos.start_labor_session(db, w.id, user=other)
+    wos.start_labor_session(db, w.id, user=viewer, notes_acknowledged=True)
+
+    assert wos.prior_work(db, w, viewer.id)["by"] == ["Ann Lee"]
+
+
+def _worked_by_other(db):
+    """A work order with notes that `other` has already started working."""
+    sup = _seed_user(db, "supervisor")
+    other = _seed_user(db, "technician", first_name="Ann", last_name="Lee")
+    me = _seed_user(db, "supervisor")
+    w = _wo(db, created_by=sup, assigned_to=other)
+    wos.start_labor_session(db, w.id, user=other)
+    wos.stop_labor_session(db, w.id, user=other)
+    return w, other, me
+
+
+def test_start_refuses_until_notes_acknowledged_and_changes_nothing(db):
+    w, other, me = _worked_by_other(db)
+    sessions_before = len(_sessions(db, w))
+
+    with pytest.raises(PriorWorkUnacknowledgedError) as excinfo:
+        wos.start_labor_session(db, w.id, user=me)
+
+    assert excinfo.value.prior_work["by"] == ["Ann Lee"]
+    assert len(_sessions(db, w)) == sessions_before
+
+    started = wos.start_labor_session(db, w.id, user=me, notes_acknowledged=True)
+    assert started.status == "in_progress"
+
+
+def test_start_gate_exempts_empty_notes_own_history_and_a_running_clock(db):
+    w, other, me = _worked_by_other(db)
+
+    w.notes = ""
+    db.flush()
+    wos.start_labor_session(db, w.id, user=me)  # nothing to read
+    wos.stop_labor_session(db, w.id, user=me)
+
+    w.notes = "Ann Lee began work"
+    db.flush()
+    wos.start_labor_session(db, w.id, user=me)  # me has worked here before
+    wos.start_labor_session(db, w.id, user=me)  # idempotent re-tap

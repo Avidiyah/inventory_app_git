@@ -4615,6 +4615,14 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 }
 .wo-charging-strip .wo-glyph { color: var(--wo-status-in-progress); }
 
+.wo-prior-work {
+    margin-bottom: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-left: 4px solid var(--wo-status-on-hold);
+    border-radius: var(--radius-sm);
+    background-color: var(--panel-well);
+}
+
 /* Controls row: mode selector, then one filled primary (the lifecycle's next
    step, full --btn-h), secondaries, then the Admin+ tools group behind a
    hairline (views/workOrderStatusActions.js). */

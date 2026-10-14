@@ -356,6 +356,19 @@ class WorkOrderSignatureOut(BaseModel):
     image_url: str
 
 
+class PriorWorkOut(BaseModel):
+    """Who has already worked an order, shown to a caller who has not yet."""
+
+    by: list[str]
+    last_at: datetime
+
+
+class WorkOrderStartTracking(BaseModel):
+    """Optional body of `POST /{id}/tracking/start`."""
+
+    notes_acknowledged: bool = False
+
+
 class WorkOrderDetail(WorkOrderCard):
     """A work-order card plus notes, logged materials, labor, and sign-off.
 
@@ -370,6 +383,9 @@ class WorkOrderDetail(WorkOrderCard):
     labor: list[WorkOrderLaborDetail] = Field(default_factory=list)
     active_labor_session: Optional[WorkOrderLaborSessionDetail] = None
     tracking_technician_ids: list[UUID] = Field(default_factory=list)
+    # Others' prior work, for a caller who has not worked the order themselves;
+    # the card warns on it and gates Begin Charging when there are notes.
+    prior_work: Optional[PriorWorkOut] = None
     # Base materials charge = sum over lines of (effective_billable * unit_price),
     # before the +15% mark-up. TechFM OA and above only (None when redacted).
     materials_total: Optional[Decimal] = None

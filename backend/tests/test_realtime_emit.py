@@ -479,7 +479,18 @@ def test_starting_a_clock_emits_a_labor_session_changed_envelope(monkeypatch):
     monkeypatch.setattr(
         work_orders_router.wo_service,
         "start_labor_session",
-        lambda db, incoming_id, *, user: saved,
+        lambda db, incoming_id, *, user, notes_acknowledged=False: saved,
+    )
+    # Likewise the prior-work gate, which reads the row through `db`.
+    monkeypatch.setattr(
+        work_orders_router.wo_service,
+        "get_visible_work_order",
+        lambda db, incoming_id, user: saved,
+    )
+    monkeypatch.setattr(
+        work_orders_router.wo_service,
+        "require_prior_work_acknowledged",
+        lambda db, work_order, user, acknowledged: None,
     )
     monkeypatch.setattr(
         work_orders_router.wo_service, "side_transitions", lambda work_order: []

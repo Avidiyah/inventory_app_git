@@ -841,8 +841,14 @@ export async function apiCompleteWorkOrder(workOrderId) {
 // the refreshed WorkOrderDetail, so the card repaints from one response.
 // Starting advances a pre-work row to In-Progress and resumes an On-Hold one;
 // stopping the last clock on an In-Progress row puts it back On-Hold.
-export async function apiStartWorkOrderTracking(workOrderId) {
-  return jsonRequest(`/work-orders/${workOrderId}/tracking/start`, "POST", {});
+// `notesAcknowledged` answers the server's prior-work gate: someone else has
+// already worked the order, so the first start needs the notes read.
+export async function apiStartWorkOrderTracking(workOrderId, notesAcknowledged = false) {
+  return jsonRequest(
+    `/work-orders/${workOrderId}/tracking/start`,
+    "POST",
+    notesAcknowledged ? { notes_acknowledged: true } : {}
+  );
 }
 
 export async function apiStopWorkOrderTracking(workOrderId) {

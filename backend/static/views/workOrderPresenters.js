@@ -116,6 +116,28 @@ export function canAddLabor(detail) {
   return isSupervisorPlus() || isAssignedToCurrentUser(detail);
 }
 
+// Someone else has already worked this order and the caller has not: the card
+// warns, and (with notes to read) Begin Charging waits for "I've read the
+// notes". Mirrors the server's `require_prior_work_acknowledged`, which
+// enforces it; `detail.prior_work` is null for anyone who has worked here.
+export function hasUnreadPriorWork(detail) {
+  return Boolean(detail.prior_work) && String(detail.notes || "").trim() !== "";
+}
+
+export function priorWorkBannerHtml(detail) {
+  const prior = detail.prior_work;
+  if (!prior) return "";
+  const when = new Date(prior.last_at);
+  const stamp = Number.isNaN(when.getTime())
+    ? ""
+    : ` Last activity ${when.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.`;
+  const action = hasUnreadPriorWork(detail)
+    ? "Check the notes before charging."
+    : "There are no notes to read.";
+  return `<div class="wo-prior-work" role="status"><strong>Someone has been here.</strong> ` +
+    `${escapeHtml(action)} <span class="hint">${escapeHtml(prior.by.join(", "))}.${escapeHtml(stamp)}</span></div>`;
+}
+
 export function statusLabel(status) {
   return {
     created: "Created",
