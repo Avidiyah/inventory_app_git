@@ -493,6 +493,17 @@ describe("the technician picker", () => {
     expect(card().querySelector(".wo-tech-empty").textContent).toBe("No technicians assigned.");
   });
 
+  // Safari never focuses a clicked button, so the input's focusout would close
+  // the list mid-click; cancelling mousedown is what keeps it open.
+  it("cancels mousedown on a result so Safari's focusout cannot close the list", async () => {
+    await open({ users: [ada] });
+    type(card().querySelector(".wo-tech-search"), "ada");
+    const result = card().querySelector(".wo-tech-result");
+    const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    result.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+  });
+
   it("Escape closes the results without clearing the selection", async () => {
     await open({ users: [ada] });
     const input = card().querySelector(".wo-tech-search");

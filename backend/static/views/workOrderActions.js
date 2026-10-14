@@ -539,6 +539,13 @@ listEl.addEventListener("keydown", (event) => {
   if (combo) closeCombo(combo);
 });
 
+// Safari does not focus a button on click, so pressing a result would blur the
+// input, trip the focusout below and remove the list before `click` lands.
+// Cancelling mousedown keeps focus where it is (a no-op in Chrome).
+listEl.addEventListener("mousedown", (event) => {
+  if (event.target.closest(".wo-tech-result, .wo-combo-option")) event.preventDefault();
+});
+
 listEl.addEventListener("focusout", (event) => {
   const picker = event.target.closest(".wo-tech-picker");
   if (picker) {
