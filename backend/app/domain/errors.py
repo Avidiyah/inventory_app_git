@@ -407,7 +407,7 @@ class PunchTimeInvalidError(DomainError):
 
 class PunchNotFoundError(DomainError):
     """Raised when a punch write names a row that does not exist, or when a
-    punch-out / self-close finds no open punch for the caller. Maps to 404."""
+    punch-out finds no open punch for the caller. Maps to 404."""
 
 
 class PersonNotProfilableError(DomainError):

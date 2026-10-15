@@ -552,9 +552,9 @@ def test_stopping_a_clock_emits_a_labor_session_changed_envelope(monkeypatch):
 def test_the_attendance_emitter_set_is_exactly_the_punch_writes():
     """Every write to the pay record invalidates the Admin roster; nothing
     else may. The two reads (`GET /attendance/me`, the week) are absent by
-    design -- P4a's inherited note said "four self-scoped routes", but one of
-    those four is a read, so the set is three plus three -- plus the bulk
-    week review, which clears punch review flags.
+    design. The set is the two self-scoped punch routes, the four Admin
+    punch writes, plus the bulk week review, which clears punch review
+    flags. The midnight sweep emits nothing: every read computes the cap.
 
     The auto-punch on a work-order clock start needs no emit of its own: that
     route already emits `labor.session.changed`, which the live layer also
@@ -570,7 +570,6 @@ def test_the_attendance_emitter_set_is_exactly_the_punch_writes():
     assert emitters == {
         "punch_in",
         "punch_out",
-        "self_close",
         "add_hub_attendance_punch",
         "edit_hub_attendance_punch",
         "clock_out_hub_attendance_user",
@@ -604,8 +603,7 @@ def test_a_failed_punch_in_emits_nothing(monkeypatch):
     def _refuse(db, *, user):
         raise PunchAlreadyOpenError(
             "already on shift", punch_id=uuid.uuid4(),
-            started_at=datetime(2026, 9, 21, 13, 0, tzinfo=timezone.utc),
-            stale=False)
+            started_at=datetime(2026, 9, 21, 13, 0, tzinfo=timezone.utc))
 
     monkeypatch.setattr(attendance_router.attendance_service, "punch_in", _refuse)
 

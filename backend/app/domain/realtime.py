@@ -91,7 +91,7 @@ EVENT_ITEM_LOW_STOCK_CHANGED = "item.low_stock.changed"
 # they cannot see costs one request and discloses nothing.
 EVENT_USER_REQUEST_CHANGED = "user_request.changed"
 
-# An attendance punch opened, closed, was self-closed (D5), or was corrected
+# An attendance punch opened, closed, or was corrected
 # by an Admin. Like `labor.session.changed` this is a membership change to a
 # board rather than one row's fields, so `id` is always `None` and the
 # recipient refetches the roster and the week rather than targeting a card.

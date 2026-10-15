@@ -53,7 +53,7 @@ def fill(template: str, tokens: dict[str, str], seq: int, now: datetime) -> str:
         if name == "seq":
             return str(seq)
         if name == "now":
-            return now.strftime("%Y-%m-%dT%H:%M:%S.%fZ")  # microseconds: a self-close must land after its punch-in
+            return now.strftime("%Y-%m-%dT%H:%M:%S.%fZ")  # microseconds: a write must land after its punch-in
         if name == "days_ago":
             return (now - timedelta(days=int(arg))).strftime("%Y-%m-%d")
         return tokens[name]  # KeyError = unresolvable, caller decides
@@ -243,7 +243,6 @@ WO_LIFECYCLE = ["PATCH /work-orders/{work_order_id}", "POST /work-orders/{work_o
                 "POST /work-orders/{work_order_id}/hold", "POST /work-orders/{work_order_id}/resume",
                 "POST /work-orders/{work_order_id}/complete"]
 ATTENDANCE = ["POST /attendance/punch-in", "POST /attendance/punch-out",
-              "POST /attendance/punch-in", "POST /attendance/self-close",
               "POST /attendance/punch-in", "POST /hub/attendance/clock-out/{user_id}"]
 MATERIAL = ["POST /user-requests/material-request", "POST /user-requests/{request_id}/cancel",
             "POST /user-requests/material-request", "POST /user-requests/{request_id}/mark-stocked",
@@ -263,7 +262,6 @@ CATALOGUE: dict[str, Entry] = {k: Entry(exclude="see EXCLUDED") for k in EXCLUDE
     # --- attendance (technician punches; owner clocks them out) ---
     "POST /attendance/punch-in": Entry(cycle=ATTENDANCE, as_user=T),
     "POST /attendance/punch-out": Entry(as_user=T),
-    "POST /attendance/self-close": Entry(body=J({"ended_at": "{now}"}), as_user=T),
     "POST /hub/attendance/punches": Entry(
         body=J({"user_id": "{user_id}", "started_at": "{days_ago:3}T08:00:00Z", "ended_at": "{days_ago:3}T09:00:00Z"}),
         cycle=["POST /hub/attendance/punches", "PATCH /hub/attendance/punches/{punch_id}",
