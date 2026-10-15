@@ -16,6 +16,7 @@ import { skeletonCard } from "../skeleton.js";
 import { SECTION_SELECTOR, readDraft, takePendingResume } from "../workOrderDrafts.js";
 import { ensureReferenceData, getAllItems } from "./workOrderReferenceData.js";
 import { hoursInputValue } from "./workOrderPresenters.js";
+import { peekProfileOrigin } from "./profileOrigin.js";
 
 const listEl = document.getElementById("work-orders-list");
 const listMessage = document.getElementById("work-orders-list-message");
@@ -159,9 +160,9 @@ export function exitSolo() {
 function soloBackControl() {
   const wrap = document.createElement("div");
   wrap.className = "wo-solo-back";
+  const label = peekProfileOrigin() ? "‹ Back to profile" : "&larr; Back to work orders";
   wrap.innerHTML =
-    `<button type="button" class="secondary-btn" data-action="back-to-work-orders">` +
-    `&larr; Back to work orders</button>`;
+    `<button type="button" class="secondary-btn" data-action="back-to-work-orders">${label}</button>`;
   return wrap;
 }
 

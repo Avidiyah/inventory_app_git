@@ -51,6 +51,7 @@ import {
 } from "./workOrderCardHtml.js";
 import { getAllItems } from "./workOrderReferenceData.js";
 import { exitSolo } from "./workOrderRouting.js";
+import { takeProfileOrigin } from "./profileOrigin.js";
 import { openSignatureFlow } from "./workOrderSignature.js";
 import { loadWorkOrders, refreshCard } from "./workOrderList.js";
 
@@ -216,6 +217,29 @@ listEl.addEventListener("click", async (event) => {
   if (action === "back-to-work-orders") {
     // Above the `.wo-card` lookup below: this control lives in the list but
     // outside any card, so the `if (!cardEl) return` guard would swallow it.
+    const origin = takeProfileOrigin();
+    if (origin) {
+      // E8: leave the card the way a nav click would (no history unwind; the
+      // stale entry is normalized by the next list render) and re-open the
+      // profile where the click came from. Dynamic imports: nav.js imports
+      // this page, so a static import would be a cycle.
+      exitSolo();
+      void (async () => {
+        const { showPage } = await import("./nav.js");
+        showPage(origin.page);
+        if (origin.page === "user-hub") {
+          const [{ openTimesheetsProfile }, { openHubTab }] = await Promise.all([
+            import("./hubTimesheetsTab.js"), import("./userHub.js"),
+          ]);
+          openTimesheetsProfile(origin.userId, { week: origin.week });
+          openHubTab("timesheets");
+        } else {
+          const { openUserProfile } = await import("./users.js");
+          void openUserProfile(origin.userId, { week: origin.week });
+        }
+      })();
+      return;
+    }
     if (window.history.state?.solo) {
       // We pushed this entry. Unwinding it keeps Back and Forward agreeing
       // with the button; `popstate` does the actual restore.

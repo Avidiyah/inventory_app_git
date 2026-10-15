@@ -10,6 +10,21 @@ import {
 import { HttpResponse } from "msw";
 import { restoreBrowserStubs, stubScroll } from "../../helpers/browserStubs.js";
 import { workOrderCard, workOrderDetail } from "../../helpers/factories.js";
+import { importView } from "../../helpers/shell.js";
+
+// Loaded per test, the way the fixture loads views (a file URL), so it is
+// the same instance workOrderRouting.js and workOrderActions.js import.
+let origin;
+
+// The Back branch's landing modules, mocked: the fixture mounts
+// views/workOrders.js alone, and the branch reaches these by dynamic import.
+const { showPage, openUserProfile, openTimesheetsProfile, openHubTab } = vi.hoisted(() => ({
+  showPage: vi.fn(), openUserProfile: vi.fn(), openTimesheetsProfile: vi.fn(), openHubTab: vi.fn(),
+}));
+vi.mock("../../../../backend/static/views/nav.js", () => ({ showPage }));
+vi.mock("../../../../backend/static/views/users.js", () => ({ openUserProfile }));
+vi.mock("../../../../backend/static/views/hubTimesheetsTab.js", () => ({ openTimesheetsProfile }));
+vi.mock("../../../../backend/static/views/userHub.js", () => ({ openHubTab }));
 
 let scrollTo;
 
@@ -176,6 +191,48 @@ describe("back-to-work-orders", () => {
     await vi.waitFor(() => expect(window.location.pathname).toBe("/"));
     expect(controls().hidden).toBe(false);
     expect(cardEls()).toHaveLength(1);
+  });
+});
+
+describe("back-to-work-orders with a profile origin", () => {
+  beforeEach(async () => {
+    origin = await importView("views/profileOrigin.js");
+    origin.clearProfileOrigin();
+    vi.clearAllMocks();
+  });
+
+  it("labels the control and returns to the Users profile at the week", async () => {
+    origin.setProfileOrigin({ page: "users", userId: "u1", week: "2026-09-07" });
+    await mountOne({ number: "4242" });
+    activatePage();
+    await openCard(0);
+    expect(backBtn().textContent).toBe("‹ Back to profile");
+    backBtn().click();
+    await vi.waitFor(() => expect(showPage).toHaveBeenCalledWith("users"));
+    await vi.waitFor(() => expect(openUserProfile).toHaveBeenCalledWith("u1", { week: "2026-09-07" }));
+    expect(origin.peekProfileOrigin()).toBeNull();
+    expect(window.location.pathname).toBe("/");
+  });
+
+  it("returns to the Timesheets profile", async () => {
+    origin.setProfileOrigin({ page: "user-hub", userId: "u1", week: null });
+    await mountOne({ number: "4242" });
+    activatePage();
+    await openCard(0);
+    backBtn().click();
+    await vi.waitFor(() => expect(showPage).toHaveBeenCalledWith("user-hub"));
+    await vi.waitFor(() => expect(openTimesheetsProfile).toHaveBeenCalledWith("u1", { week: null }));
+    expect(openHubTab).toHaveBeenCalledWith("timesheets");
+  });
+
+  it("keeps today's label and path without an origin", async () => {
+    await mountOne({ number: "4242" });
+    activatePage();
+    await openCard(0);
+    expect(backBtn().textContent).toBe("← Back to work orders");
+    backBtn().click();
+    await vi.waitFor(() => expect(controls().hidden).toBe(false));
+    expect(showPage).not.toHaveBeenCalled();
   });
 });
 

@@ -20,6 +20,7 @@ import { loadTools, toolsScanner, toolScanWidget } from "./tools.js";
 import { txnScanner } from "./scan.js";
 import { itemsScanner, itemScanWidget } from "./items.js";
 import { closeTip } from "../tooltip.js";
+import { clearProfileOrigin } from "./profileOrigin.js";
 
 const navButtons = document.querySelectorAll(".nav-btn");
 const navGroups = document.querySelectorAll(".nav-group");
@@ -241,5 +242,5 @@ export function showPage(pageName) {
 }
 
 navButtons.forEach(btn => {
-  btn.addEventListener("click", () => showPage(btn.dataset.page));
+  btn.addEventListener("click", () => { clearProfileOrigin(); showPage(btn.dataset.page); });
 });

@@ -24,6 +24,7 @@ import { closeClockInPrompt, maybePromptClockIn } from "./clockInPrompt.js";
 import { setHistoryTab } from "./history.js";
 import { resetBatch, tryResumeBatch } from "./transactions.js";
 import { resetToolsView } from "./tools.js";
+import { clearProfileOrigin } from "./profileOrigin.js";
 import { initPushForUser, resetPushView, unsubscribeThisDevice, requestPermissionAtLogin } from "./push.js";
 import {
   captureHeldEditorForResume,
@@ -71,6 +72,7 @@ function showLoginScreen({ expired = false } = {}) {
   if (expired && wasInApp) captureHeldEditorForResume();
   setCurrentUser(null);
   resetToolsView();
+  clearProfileOrigin();
   resetPushView();
   // On a timeout, keep the batch snapshot so a re-login by the same operator
   // can resume the work order (see enterApp). A deliberate logout clears it.

@@ -413,3 +413,13 @@ describe("visibilitychange", () => {
     expect(document.getElementById("txn-scan-torch-btn").hidden).toBe(false);
   });
 });
+
+describe("a nav click clears the origin", () => {
+  it("drops a remembered profile origin", async () => {
+    await bootApp({ role: "admin" });
+    const origin = await import("../../../backend/static/views/profileOrigin.js");
+    origin.setProfileOrigin({ page: "users", userId: "u1", week: null });
+    await userEvent.setup().click(document.querySelector('.nav-btn[data-page="work-orders"]'));
+    expect(origin.peekProfileOrigin()).toBeNull();
+  });
+});
