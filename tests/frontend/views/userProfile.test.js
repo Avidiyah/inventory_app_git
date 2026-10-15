@@ -97,6 +97,17 @@ describe("the panel", () => {
     expect(rows()[1].querySelector(".user-profile-day-body").textContent).toContain("Nothing recorded");
   });
 
+  it("prints punch and charge clock times beside the day totals", async () => {
+    const week = personWeek();
+    week.days[0].charged[0].spans = [{ started_at: "2026-09-14T14:00:00Z", ended_at: "2026-09-14T17:00:00Z" }];
+    serve(week);
+    await mount();
+    const cells = rows()[0].querySelectorAll("summary .user-profile-col");
+    expect(cells[0].textContent).toContain("8:00 AM – 4:00 PM");
+    expect(cells[1].textContent).toContain("9:00 AM – 12:00 PM");
+    expect(rows()[0].querySelector(".user-profile-day-body").textContent).toContain("WO-1 · 3:00 9:00 AM – 12:00 PM");
+  });
+
   it("flags a day that needs review and notes an open shift", async () => {
     const week = personWeek();
     week.days[1] = { ...week.days[1], needs_review: true, has_open: true, clocked_minutes: 60 };

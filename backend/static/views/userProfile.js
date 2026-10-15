@@ -14,21 +14,13 @@ import { apiGetPersonWeek } from "../api.js";
 import { escapeHtml, formatUserName, friendlyError } from "../format.js";
 import { roleLabel } from "../roles.js";
 import { skeletonTableRows } from "../skeleton.js";
-import { formatHm, isoDate, shiftMonday, weekLabel } from "./hubWeek.js";
+import { formatHm, isoDate, shiftMonday, spanList, timeLabel, weekLabel } from "./hubWeek.js";
 import { statusBadge } from "./workOrderPresenters.js";
 import { setProfileOrigin } from "./profileOrigin.js";
-
-const CENTRAL_TIME_ZONE = "America/Chicago";
 
 function dayLabel(iso) {
   return isoDate(iso).toLocaleDateString([], {
     weekday: "short", month: "numeric", day: "numeric", timeZone: "UTC",
-  });
-}
-
-function timeLabel(instant) {
-  return new Date(instant).toLocaleTimeString([], {
-    hour: "numeric", minute: "2-digit", timeZone: CENTRAL_TIME_ZONE,
   });
 }
 
@@ -64,7 +56,7 @@ function dayBodyHtml(day) {
     if (c.auto_closed) marks.push("auto-stopped");
     if (c.running) marks.push("running");
     const note = marks.length ? ` <span class="hub-hours-punch-note">${marks.join(" · ")}</span>` : "";
-    return `<li>${woButton(c.number)} · ${formatHm(c.minutes)}${note}</li>`;
+    return `<li>${woButton(c.number)} · ${formatHm(c.minutes)}${timesNote(c.spans)}${note}</li>`;
   });
   const adjustments = day.adjustments.map((a) =>
     `<li>${formatHm(a.minutes)} · recorded by ${escapeHtml(a.recorded_by_name)} · ${woButton(a.work_order_number)}</li>`);
@@ -82,6 +74,10 @@ function dayBodyHtml(day) {
   return html || `<p class="hint">Nothing recorded.</p>`;
 }
 
+function timesNote(spans) {
+  return spans?.length ? ` <span class="hub-hours-punch-note">${escapeHtml(spanList(spans))}</span>` : "";
+}
+
 function flagsHtml(day) {
   return day.needs_review
     ? `<span class="hub-hours-flag hub-hours-flag-review"><span aria-hidden="true">&#9888;</span><span class="sr-only"> needs review</span></span>`
@@ -93,8 +89,8 @@ function dayHtml(day) {
   return `<details class="user-profile-day user-profile-day-${dayBand(day.clocked_minutes)}">
     <summary class="user-profile-summary">
       <span class="user-profile-col-day">${escapeHtml(dayLabel(day.date))}${flagsHtml(day)}</span>
-      <span class="user-profile-col">${formatHm(day.clocked_minutes)}${onShift}</span>
-      <span class="user-profile-col">${formatHm(day.charged_minutes)}</span>
+      <span class="user-profile-col">${formatHm(day.clocked_minutes)}${timesNote(day.punches)}${onShift}</span>
+      <span class="user-profile-col">${formatHm(day.charged_minutes)}${timesNote(day.charged.flatMap((c) => c.spans ?? []))}</span>
       <span class="user-profile-col">${day.completed_count}</span>
     </summary>
     <div class="user-profile-day-body">${dayBodyHtml(day)}</div>

@@ -14,7 +14,7 @@
 import { escapeHtml } from "../format.js";
 import { mountPunchEditor } from "./hubAttendancePunchEditor.js";
 import { drilldownHtml, PROFILABLE_ROLES } from "./hubAttendanceHours.js";
-import { formatHm, isoDate, shiftMonday, weekLabel } from "./hubWeek.js";
+import { formatHm, isoDate, shiftMonday, spanList, weekLabel } from "./hubWeek.js";
 
 function cardLabel(iso) {
   return isoDate(iso).toLocaleDateString([], {
@@ -52,10 +52,16 @@ export function mountHubAttendanceDays(container, payload, { onWeekChange, onOpe
     const minutes = payload.totals_by_day.find((t) => t.date === date)?.minutes ?? 0;
     const flags = people.some(({ day }) => day.has_open) ? `<span class="hub-hours-flag hub-hours-flag-open"><span aria-hidden="true">●</span><span class="sr-only"> someone still on shift</span></span>` : "";
     const count = `${people.length} clocked in`;
+    const punches = people.flatMap(({ day }) => day.punches);
+    const span = punches.length ? spanList([{
+      started_at: punches.map((p) => p.started_at).sort()[0],
+      ended_at: punches.some((p) => !p.ended_at) ? null : punches.map((p) => p.ended_at).sort().at(-1),
+    }]) : "";
     return `<button type="button" class="hub-day-card" data-date="${escapeHtml(date)}" aria-label="${escapeHtml(`${longLabel(date)}, ${count}, ${formatHm(minutes)} clocked`)}">
       <span class="hub-day-card-date">${escapeHtml(cardLabel(date))}${flags}</span>
       <span class="hub-day-card-count">${escapeHtml(count)}</span>
       <span class="hub-day-card-hours">${formatHm(minutes)}</span>
+      ${span ? `<span class="hub-hours-punch-note">${escapeHtml(span)}</span>` : ""}
     </button>`;
   }).join("");
   // 167 or 169. Said out loud so a short week does not read as lost hours.

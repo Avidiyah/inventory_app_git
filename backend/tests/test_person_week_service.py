@@ -143,6 +143,8 @@ def test_charged_collapses_two_sessions_on_one_work_order(db):
     assert monday.charged[0].minutes == 180
     assert monday.charged[0].auto_closed is True
     assert monday.charged[0].running is False
+    assert [(s.started_at, s.ended_at) for s in monday.charged[0].spans] == [
+        (_utc(14, 13), _utc(14, 15)), (_utc(14, 16), _utc(14, 17))]
 
 
 def test_adjustments_are_shown_but_never_summed_into_charged(db):

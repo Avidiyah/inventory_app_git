@@ -41,12 +41,19 @@ class PersonCompleted:
 
 
 @dataclass(frozen=True)
+class PersonChargedSpan:
+    started_at: datetime
+    ended_at: datetime | None
+
+
+@dataclass(frozen=True)
 class PersonCharged:
     work_order_id: uuid.UUID
     number: str
     minutes: int
     auto_closed: bool
     running: bool
+    spans: list[PersonChargedSpan]
 
 
 @dataclass(frozen=True)
@@ -90,6 +97,8 @@ def _collapse_charged(timeline: list[labor_summary.TimelineEntry]) -> list[Perso
             minutes=(prior.minutes if prior else 0) + entry.minutes,
             auto_closed=(prior.auto_closed if prior else False) or entry.auto_closed,
             running=(prior.running if prior else False) or entry.ended_at is None,
+            spans=[*(prior.spans if prior else []),
+                   PersonChargedSpan(entry.started_at, entry.ended_at)],
         )
     return list(by_wo.values())
 

@@ -683,7 +683,7 @@ export function personWeek(overrides = {}) {
     completed: [{ work_order_id: "wo-1", number: "WO-1", location: "Bldg 4",
                   completed_at: "2026-09-14T20:00:00Z", status: "completed", archived: false }],
     charged: [{ work_order_id: "wo-1", number: "WO-1", minutes: 180,
-                auto_closed: true, running: false }],
+                auto_closed: true, running: false, spans: [] }],
     adjustments: [{ minutes: 30, recorded_by_name: "Dee Ops", work_order_number: "WO-1" }],
     punches: [{ id: "punch-1", started_at: "2026-09-14T13:00:00Z",
                 ended_at: "2026-09-14T21:00:00Z", start_source: "manual",

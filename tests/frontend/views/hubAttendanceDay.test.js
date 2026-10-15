@@ -26,6 +26,7 @@ describe("the day strip", () => {
     expect(cards).toHaveLength(7);
     expect(cards[0].textContent).toContain("1 clocked in");
     expect(cards[0].textContent).toContain("8:00");
+    expect(cards[0].textContent).toContain("8:00 AM – 4:00 PM");
     expect(cards[1].textContent).toContain("0 clocked in");
   });
 

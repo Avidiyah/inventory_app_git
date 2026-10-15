@@ -229,15 +229,23 @@ class PersonWeekCompleted(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PersonWeekChargedSpan(BaseModel):
+    started_at: datetime
+    ended_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 class PersonWeekCharged(BaseModel):
     """One work order's charged minutes for one day, summed across that day's
-    sessions on it."""
+    sessions on it; `spans` keeps each session's clock times."""
 
     work_order_id: uuid.UUID
     number: str
     minutes: int
     auto_closed: bool
     running: bool
+    spans: list[PersonWeekChargedSpan]
 
     model_config = {"from_attributes": True}
 
