@@ -17,6 +17,9 @@ vi.mock("../../../backend/static/views/workOrders.js", () => ({
   openWorkOrdersByNumberSearch: openSearch, focusWorkOrder,
 }));
 vi.mock("../../../backend/static/views/nav.js", () => ({ showPage }));
+const promptTime = vi.fn();
+vi.mock("../../../backend/static/dom.js", () => ({ promptTime }));
+import { setCurrentUser } from "../../../backend/static/state.js";
 import { peekProfileOrigin, clearProfileOrigin } from "../../../backend/static/views/profileOrigin.js";
 
 const { mountUserProfile } = await import("../../../backend/static/views/userProfile.js");
@@ -49,6 +52,8 @@ beforeEach(() => {
   host = document.getElementById("host");
   startRecording(); clearRequests();
   openSearch.mockClear(); showPage.mockClear(); focusWorkOrder.mockClear(); clearProfileOrigin();
+  promptTime.mockReset();
+  setCurrentUser({ id: "viewer", role: "technician" });
 });
 afterEach(() => stopRecording());
 
@@ -212,5 +217,84 @@ describe("the panel", () => {
     host.querySelector(".user-profile-retry").click();
     await flush(); await flush();
     expect(rows()).toHaveLength(7);
+  });
+
+  describe("punch editing", () => {
+    const punchWrites = () => requests().filter((r) => r.url.includes("/hub/attendance/punches"));
+
+    it("shows no Edit or Add punch controls to a non-Admin viewer", async () => {
+      serve(personWeek());
+      await mount();
+      expect(host.querySelector(".hub-hours-edit")).toBeNull();
+      expect(host.querySelector(".hub-hours-add")).toBeNull();
+    });
+
+    it("an Admin edits a punch inline; the save PATCHes and the week reloads", async () => {
+      setCurrentUser({ id: "viewer", role: "admin" });
+      promptTime.mockResolvedValue(new Date("2026-09-14T13:30:00.000Z"));
+      server.use(http.patch("/hub/attendance/punches/:id", () => HttpResponse.json({ ok: true })));
+      serve(personWeek());
+      await mount();
+      rows()[0].querySelector(".hub-hours-edit").click();
+      const day = rows()[0];
+      expect(day.open).toBe(true);
+      expect(day.querySelector(".punch-editor")).not.toBeNull();
+      day.querySelector(".punch-editor-start").click();
+      await flush();
+      day.querySelector(".punch-editor-save").click();
+      await flush(); await flush(); await flush();
+      const patch = punchWrites().find((r) => r.method === "PATCH");
+      expect(patch.url).toContain("/hub/attendance/punches/punch-1");
+      expect(weekQueries()).toHaveLength(2);
+      expect(host.querySelector(".punch-editor")).toBeNull();
+    });
+
+    it("an Admin adds a punch for that day and user", async () => {
+      setCurrentUser({ id: "viewer", role: "admin" });
+      promptTime.mockResolvedValue(new Date("2026-09-15T13:00:00.000Z"));
+      let posted = null;
+      server.use(http.post("/hub/attendance/punches", async ({ request }) => {
+        posted = await request.json();
+        return HttpResponse.json({ ok: true }, { status: 201 });
+      }));
+      serve(personWeek());
+      await mount();
+      rows()[1].querySelector(".hub-hours-add").click();
+      const day = rows()[1];
+      day.querySelector(".punch-editor-start").click();
+      await flush();
+      day.querySelector(".punch-editor-end").click();
+      await flush();
+      day.querySelector(".punch-editor-save").click();
+      await flush(); await flush(); await flush();
+      expect(posted.user_id).toBe(USER.id);
+      expect(weekQueries()).toHaveLength(2);
+    });
+
+    it("a refused save stays open with the server's message", async () => {
+      setCurrentUser({ id: "viewer", role: "admin" });
+      promptTime.mockResolvedValue(new Date("2026-09-14T13:30:00.000Z"));
+      server.use(http.patch("/hub/attendance/punches/:id", () =>
+        HttpResponse.json({ detail: "overlaps another punch." }, { status: 409 })));
+      serve(personWeek());
+      await mount();
+      rows()[0].querySelector(".hub-hours-edit").click();
+      const day = rows()[0];
+      day.querySelector(".punch-editor-save").click();
+      await flush(); await flush(); await flush();
+      expect(day.querySelector(".punch-editor-message").textContent).toContain("overlaps");
+      expect(weekQueries()).toHaveLength(1);
+    });
+
+    it("Cancel closes the editor and keeps the day open", async () => {
+      setCurrentUser({ id: "viewer", role: "admin" });
+      serve(personWeek());
+      await mount();
+      const day = rows()[0];
+      day.querySelector(".hub-hours-edit").click();
+      rows()[0].querySelector(".punch-editor-cancel").click();
+      expect(rows()[0].open).toBe(true);
+      expect(host.querySelector(".punch-editor")).toBeNull();
+    });
   });
 });

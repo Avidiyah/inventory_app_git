@@ -116,16 +116,8 @@
             <p id="prompt-time-title" class="modal-title">Pick a time</p>
             <p id="prompt-time-help" class="hint"></p>
             <div class="prompt-time-fields">
-                <label for="prompt-time-hour" class="sr-only">Hour</label>
-                <select id="prompt-time-hour"></select>
-                <span aria-hidden="true">:</span>
-                <label for="prompt-time-minute" class="sr-only">Minute</label>
-                <select id="prompt-time-minute"></select>
-                <label for="prompt-time-meridiem" class="sr-only">AM or PM</label>
-                <select id="prompt-time-meridiem">
-                    <option value="AM">AM</option>
-                    <option value="PM">PM</option>
-                </select>
+                <label for="prompt-time-input" class="sr-only">Time</label>
+                <input id="prompt-time-input" type="text" inputmode="numeric" autocomplete="off" placeholder="8:05 AM" maxlength="8">
             </div>
             <div class="prompt-time-nudge">
                 <button type="button" class="secondary-btn" data-nudge="-15">&minus;15</button>

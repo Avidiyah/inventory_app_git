@@ -5479,8 +5479,10 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     margin: var(--space-3) 0;
 }
 
-.prompt-time-fields select {
-    min-width: 72px;
+.prompt-time-fields input {
+    flex: 1;
+    min-width: 0;
+    font-size: 1.25rem;
 }
 
 .prompt-time-nudge {

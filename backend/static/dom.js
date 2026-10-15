@@ -526,44 +526,40 @@ export function promptUserRole(user, options = []) {
 const promptTimeOverlay = document.getElementById("prompt-time-overlay");
 const promptTimeTitle = document.getElementById("prompt-time-title");
 const promptTimeHelp = document.getElementById("prompt-time-help");
-const promptTimeHour = document.getElementById("prompt-time-hour");
-const promptTimeMinute = document.getElementById("prompt-time-minute");
-const promptTimeMeridiem = document.getElementById("prompt-time-meridiem");
+const promptTimeInput = document.getElementById("prompt-time-input");
 const promptTimeMessage = document.getElementById("prompt-time-message");
 const promptTimeSave = document.getElementById("prompt-time-save");
 const promptTimeCancel = document.getElementById("prompt-time-cancel");
 
 const MINUTES_IN_DAY = 24 * 60;
 
-function fillTimeOptions() {
-  if (promptTimeHour.options.length) return;   // idempotent across calls
-  for (let h = 1; h <= 12; h += 1) {
-    const option = document.createElement("option");
-    option.value = String(h);
-    option.textContent = String(h);
-    promptTimeHour.appendChild(option);
-  }
-  for (let m = 0; m < 60; m += 1) {
-    const option = document.createElement("option");
-    option.value = String(m).padStart(2, "0");
-    option.textContent = String(m).padStart(2, "0");
-    promptTimeMinute.appendChild(option);
-  }
+// One typed field, not selects: on a phone a <select> (and <input type=time>)
+// opens a spinner wheel, and the crew asked for a keyboard. Accepts "8:05",
+// "805", "8:05a", "8:05 PM", "17:30"; returns minutes since midnight, or null.
+export function parseTimeText(text) {
+  const match = String(text).trim().toLowerCase()
+    .match(/^(\d{1,2})(?::?(\d{2}))?\s*(a|p|am|pm)?$/);
+  if (!match) return null;
+  let hour = Number(match[1]);
+  const minute = Number(match[2] ?? 0);
+  const meridiem = match[3]?.[0];
+  if (minute > 59) return null;
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return null;
+    hour = (hour % 12) + (meridiem === "p" ? 12 : 0);
+  } else if (hour > 23) return null;
+  return hour * 60 + minute;
 }
 
-function readPromptTimeMinutes() {
-  const hour12 = Number(promptTimeHour.value) % 12;
-  const hour24 = promptTimeMeridiem.value === "PM" ? hour12 + 12 : hour12;
-  return hour24 * 60 + Number(promptTimeMinute.value);
+function formatTimeText(totalMinutes) {
+  const hour24 = Math.floor(totalMinutes / 60);
+  const minute = String(totalMinutes % 60).padStart(2, "0");
+  return `${hour24 % 12 || 12}:${minute} ${hour24 >= 12 ? "PM" : "AM"}`;
 }
 
 function writePromptTimeMinutes(totalMinutes) {
   // Clamped, not wrapped: see the module comment above.
-  const clamped = Math.min(MINUTES_IN_DAY - 1, Math.max(0, totalMinutes));
-  const hour24 = Math.floor(clamped / 60);
-  promptTimeHour.value = String(hour24 % 12 || 12);
-  promptTimeMinute.value = String(clamped % 60).padStart(2, "0");
-  promptTimeMeridiem.value = hour24 >= 12 ? "PM" : "AM";
+  promptTimeInput.value = formatTimeText(Math.min(MINUTES_IN_DAY - 1, Math.max(0, totalMinutes)));
 }
 
 export function promptTime({ title = "Pick a time", help = "", initial = new Date() } = {}) {
@@ -573,24 +569,34 @@ export function promptTime({ title = "Pick a time", help = "", initial = new Dat
       return;
     }
     const previouslyFocused = document.activeElement;
-    const focusables = [promptTimeHour, promptTimeMinute, promptTimeMeridiem,
-                        promptTimeSave, promptTimeCancel];
+    const focusables = [promptTimeInput, promptTimeSave, promptTimeCancel];
     const day = new Date(initial.getFullYear(), initial.getMonth(), initial.getDate());
 
-    fillTimeOptions();
     promptTimeTitle.textContent = title;
     promptTimeHelp.textContent = help;
     writePromptTimeMinutes(initial.getHours() * 60 + initial.getMinutes());
     setMessage(promptTimeMessage, "", "");
     promptTimeOverlay.hidden = false;
-    promptTimeHour.focus();
+    promptTimeInput.focus();
+    promptTimeInput.select();
 
     const nudgeRow = promptTimeOverlay.querySelector(".prompt-time-nudge");
 
+    function readMinutes() {
+      const minutes = parseTimeText(promptTimeInput.value);
+      if (minutes === null) {
+        setMessage(promptTimeMessage, "Type a time like 8:05 AM or 17:30.", "error");
+        promptTimeInput.focus();
+      }
+      return minutes;
+    }
     function onNudge(event) {
       const btn = event.target.closest("[data-nudge]");
       if (!btn) return;
-      writePromptTimeMinutes(readPromptTimeMinutes() + Number(btn.dataset.nudge));
+      const minutes = readMinutes();
+      if (minutes === null) return;
+      setMessage(promptTimeMessage, "", "");
+      writePromptTimeMinutes(minutes + Number(btn.dataset.nudge));
     }
     function cleanup() {
       promptTimeSave.removeEventListener("click", onSave);
@@ -608,17 +614,19 @@ export function promptTime({ title = "Pick a time", help = "", initial = new Dat
       resolve(value);
     }
     function onSave() {
+      const minutes = readMinutes();
+      if (minutes === null) return;
       const chosen = new Date(day);
       // setHours(0, minutes, ...) is deliberate: one call carries both
       // components, with no second rounding step.
-      chosen.setHours(0, readPromptTimeMinutes(), 0, 0);
+      chosen.setHours(0, minutes, 0, 0);
       done(chosen);
     }
     function onCancel() { done(null); }
     function onBackdrop(event) { if (event.target === promptTimeOverlay) done(null); }
     function onKey(event) {
       if (event.key === "Escape") { done(null); return; }
-      if (event.key === "Enter" && focusables.slice(0, 3).includes(event.target)) {
+      if (event.key === "Enter" && event.target === promptTimeInput) {
         event.preventDefault();
         onSave();
         return;
