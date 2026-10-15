@@ -5543,19 +5543,26 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 }
 
 /* --- Users page: per-person weekly profile ------------------------------ */
-.user-profile-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
-.user-profile-header h3 { margin: 0; }
-.user-profile-week-nav { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
-.user-profile-summary { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: var(--space-2); padding: var(--space-2) var(--space-3); align-items: center; }
-.user-profile-head { font-size: var(--fs-xs); text-transform: uppercase; color: var(--text-panel-mute); }
-.user-profile-day { border-top: 1px solid var(--border); }
+/* Same type and chrome as the hub Timesheets grid (.hub-hours-*): h2 title,
+   th-style column heads, tabular numbers, nested-panel wrap, zebra rows. */
+.user-profile-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-2); }
+.user-profile-header h2 { margin: 0; }
+.user-profile-role { margin: 0; }
+.user-profile-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-3); }
+.user-profile-week-nav { display: flex; align-items: center; gap: var(--space-2); }
+.user-profile-table-wrap { background: var(--panel-nested); border: var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.user-profile-summary { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: var(--space-2); padding: var(--space-2) var(--space-3); align-items: center; font-variant-numeric: tabular-nums; }
+.user-profile-col { text-align: right; }
+.user-profile-head { border-bottom: 1px solid var(--panel-rule); color: var(--text-panel-mute); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+.user-profile-day { border-top: 1px solid var(--panel-rule-soft); }
+.user-profile-day:nth-of-type(even) { background: var(--panel-well); }
 .user-profile-day > summary { cursor: pointer; list-style: none; }
 .user-profile-day > summary::-webkit-details-marker { display: none; }
-.user-profile-day[open] > summary { background: var(--panel-well); }
+.user-profile-day > summary:hover, .user-profile-day[open] > summary { background: var(--panel-hover); }
 .user-profile-day-body { padding: 0 var(--space-3) var(--space-3); }
-.user-profile-list-title { margin: var(--space-2) 0 var(--space-1); font-size: var(--fs-xs); text-transform: uppercase; color: var(--text-panel-mute); }
+.user-profile-list-title { margin: var(--space-2) 0 var(--space-1); font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--text-panel-mute); }
 .user-profile-list { margin: 0; padding-left: var(--space-4); }
-.user-profile-totals { border-top: 2px solid var(--border); font-weight: 600; }
+.user-profile-totals { border-top: 1px solid var(--panel-rule); font-weight: var(--fw-semibold); }
 
 /* Day cards: clocked time as a colour on the left edge only (spec E5). Same
    4px edge and tokens as .hub-roster-card so the two read as one system. */

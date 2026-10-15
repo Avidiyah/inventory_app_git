@@ -102,21 +102,18 @@ function dayHtml(day) {
 }
 
 function weekHtml(payload) {
-  return `<div class="user-profile-week-nav">
-      <button type="button" class="secondary-btn user-profile-prev" aria-label="Previous week">◀</button>
-      <strong>${escapeHtml(weekLabel(payload.week_start, payload.week_end))}</strong>
-      <button type="button" class="secondary-btn user-profile-next" aria-label="Next week">▶</button>
-    </div>
-    <div class="user-profile-summary user-profile-head" aria-hidden="true">
-      <span class="user-profile-col-day">Day</span><span class="user-profile-col">Clocked</span>
-      <span class="user-profile-col">Charged</span><span class="user-profile-col">Completed</span>
-    </div>
-    ${payload.days.map(dayHtml).join("")}
-    <div class="user-profile-summary user-profile-totals">
-      <span class="user-profile-col-day">Week</span>
-      <span class="user-profile-col">${formatHm(payload.total_clocked_minutes)}</span>
-      <span class="user-profile-col">${formatHm(payload.total_charged_minutes)}</span>
-      <span class="user-profile-col">${payload.total_completed}</span>
+  return `<div class="user-profile-table-wrap">
+      <div class="user-profile-summary user-profile-head" aria-hidden="true">
+        <span class="user-profile-col-day">Day</span><span class="user-profile-col">Clocked</span>
+        <span class="user-profile-col">Charged</span><span class="user-profile-col">Completed</span>
+      </div>
+      ${payload.days.map(dayHtml).join("")}
+      <div class="user-profile-summary user-profile-totals">
+        <span class="user-profile-col-day">Week</span>
+        <span class="user-profile-col">${formatHm(payload.total_clocked_minutes)}</span>
+        <span class="user-profile-col">${formatHm(payload.total_charged_minutes)}</span>
+        <span class="user-profile-col">${payload.total_completed}</span>
+      </div>
     </div>
     ${payload.total_adjustment_minutes ? `<p class="hint">Adjustments this week: ${formatHm(payload.total_adjustment_minutes)} (shown per day, not counted as charged).</p>` : ""}`;
 }
@@ -129,13 +126,17 @@ export function mountUserProfile(container, user, { onBack, week: initialWeek = 
 
   container.innerHTML = `<section class="user-profile" aria-labelledby="user-profile-heading">
     <div class="user-profile-header">
+      <h2 id="user-profile-heading"></h2>
+      <p class="hint user-profile-role"></p>
+    </div>
+    <div class="user-profile-toolbar">
       <button type="button" class="hub-link-btn user-profile-back">${BACK_LABEL[page] || BACK_LABEL.users}</button>
-      <h3 id="user-profile-heading"></h3>
-      <p class="muted user-profile-role"></p>
+      <div class="user-profile-week-nav"></div>
     </div>
     <div class="user-profile-body"></div>
   </section>`;
   const body = container.querySelector(".user-profile-body");
+  const weekNav = container.querySelector(".user-profile-week-nav");
   container.querySelector(".user-profile-back").addEventListener("click", () => onBack?.());
 
   function paintHeading(payload) {
@@ -167,8 +168,11 @@ export function mountUserProfile(container, user, { onBack, week: initialWeek = 
   }
 
   function wire(payload) {
-    body.querySelector(".user-profile-prev").addEventListener("click", () => load(shiftMonday(payload.week_start, -7)));
-    body.querySelector(".user-profile-next").addEventListener("click", () => load(shiftMonday(payload.week_start, 7)));
+    weekNav.innerHTML = `<button type="button" class="secondary-btn user-profile-prev" aria-label="Previous week">◀</button>
+      <strong>${escapeHtml(weekLabel(payload.week_start, payload.week_end))}</strong>
+      <button type="button" class="secondary-btn user-profile-next" aria-label="Next week">▶</button>`;
+    weekNav.querySelector(".user-profile-prev").addEventListener("click", () => load(shiftMonday(payload.week_start, -7)));
+    weekNav.querySelector(".user-profile-next").addEventListener("click", () => load(shiftMonday(payload.week_start, 7)));
     body.querySelectorAll(".user-profile-wo-btn").forEach((button) => {
       button.addEventListener("click", () => { void openByNumber(button.dataset.number); });
     });
