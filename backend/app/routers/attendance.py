@@ -26,7 +26,6 @@ from app.routers._errors import to_http
 from app.schemas.attendance import (
     AttendanceMeResponse,
     AttendancePunchResponse,
-    SelfCloseRequest,
 )
 from app.services import attendance as attendance_service
 
@@ -50,9 +49,8 @@ def punch_in(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Start a shift. 409 when one is already open (D4) -- the client reads
-    the blocking punch back from `GET /attendance/me` and offers the
-    self-close (D5) when it is stale."""
+    """Start a shift. 409 when today's punch is already open; yesterday's
+    is swept to its midnight first (M2), so it never blocks."""
     try:
         punch = attendance_service.punch_in(db, user=user)
     except DomainError as exc:
@@ -69,23 +67,6 @@ def punch_out(
     """End the shift, force-stopping any running work-order clock (D3)."""
     try:
         punch = attendance_service.punch_out(db, user=user)
-    except DomainError as exc:
-        raise to_http(exc) from exc
-    emit_attendance_changed()
-    return punch
-
-
-@router.post("/self-close", response_model=AttendancePunchResponse)
-def self_close(
-    payload: SelfCloseRequest,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Close a forgotten punch at a stated time (D5). The result is flagged
-    `needs_review` -- an estimate, labelled as one."""
-    try:
-        punch = attendance_service.self_close(
-            db, user=user, ended_at=payload.ended_at)
     except DomainError as exc:
         raise to_http(exc) from exc
     emit_attendance_changed()

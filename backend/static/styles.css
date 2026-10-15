@@ -5512,10 +5512,6 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     color: var(--color-success);
 }
 
-.hub-punch-stale .hub-punch-status {
-    color: var(--color-error);
-}
-
 .hub-punch-dot {
     width: 8px;
     height: 8px;
@@ -5547,10 +5543,6 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 
 .hub-punch-btn {
     min-width: 96px;
-}
-
-.hub-punch-stale .hub-punch-btn {
-    margin-top: var(--space-3);
 }
 
 .hub-punch-message:empty {

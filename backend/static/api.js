@@ -627,13 +627,6 @@ export async function apiPunchOut() {
   return jsonRequest("/attendance/punch-out", "POST", {});
 }
 
-// `endedAtIso` is the instant the technician states they actually left --
-// required, because a default here would be the estimate D4 keeps out of a
-// pay record.
-export async function apiSelfClosePunch(endedAtIso) {
-  return jsonRequest("/attendance/self-close", "POST", { ended_at: endedAtIso });
-}
-
 // The Admin Hours grid. `week` is a Monday (YYYY-MM-DD); omitted means the
 // week in progress. Anything else is a 422 from the server, deliberately --
 // the UI only ever sends Mondays.

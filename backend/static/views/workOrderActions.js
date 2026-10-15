@@ -19,11 +19,9 @@ import {
   apiCompleteWorkOrder,
   apiDeleteWorkOrderItem,
   apiDeleteWorkOrderLabor,
-  apiGetAttendanceMe,
   apiHoldWorkOrder,
   apiResumeWorkOrder,
   apiSaveWorkOrderSignature,
-  apiSelfClosePunch,
   apiSetWorkOrderItemBilling,
   apiStartWorkOrderTracking,
   apiStopWorkOrderTracking,
@@ -31,7 +29,7 @@ import {
   apiUpdateWorkOrderItem,
   apiUpdateWorkOrderLabor,
 } from "../api.js";
-import { confirmDialog, messageDialog, promptTime, setMessage } from "../dom.js";
+import { confirmDialog, messageDialog, setMessage } from "../dom.js";
 import { escapeHtml, filterRanked, friendlyError } from "../format.js";
 import { clearDraft, markDraftError, saveDraft } from "../workOrderDrafts.js";
 import { openBillingEditor } from "./billingEditor.js";
@@ -100,43 +98,6 @@ listEl.addEventListener("input", (event) => {
       });
   results.hidden = false;
 });
-
-// D5, on the card instead of the Home tab.
-//
-// A Start blocked by a punch left open on an earlier day is a clerical error,
-// not a refusal to work -- and P1's 409 copy sends the technician to the Home
-// tab to fix it, which is a page away from the unit they are standing in.
-// This resolves it in place.
-//
-// The 409's body is a plain sentence by design, so the structured punch comes
-// from `GET /attendance/me` (side-effect-free, and exactly what that route's
-// docstring says the client does). Only a *stale* punch prompts: an ordinary
-// "already punched in since 8:12" 409 is information, not a problem to solve.
-//
-// Returns true when the punch was closed and the caller should retry.
-async function resolveStalePunch(err) {
-  if (err?.status !== 409) return false;
-  let me;
-  try {
-    me = await apiGetAttendanceMe();
-  } catch (_err) {
-    // The recovery must never swallow the original error.
-    return false;
-  }
-  const punch = me?.open_punch;
-  if (!punch?.stale) return false;
-  const startedAt = new Date(punch.started_at);
-  const chosen = await promptTime({
-    title: "When did you leave?",
-    help: `You are still punched in from ${startedAt.toLocaleDateString([], { weekday: "long" })} at ${startedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Close it and we'll start your clock.`,
-    // The prompt opens on the punch's OWN day, not today -- the rule
-    // hubHome.js::handleSelfClose follows, and promptTime never leaves it.
-    initial: startedAt,
-  });
-  if (!chosen) return false;
-  await apiSelfClosePunch(chosen.toISOString());
-  return true;
-}
 
 // --- actions (click delegation) ------------------------------------------
 
@@ -290,10 +251,8 @@ listEl.addEventListener("click", async (event) => {
           await refreshCard(cardEl);
           return;
         }
-        // A stale punch is resolvable here; anything else falls through to
-        // the shared inline handler below.
-        if (!(await resolveStalePunch(err))) throw err;
-        await apiStartWorkOrderTracking(workOrderId, acknowledged);
+        // Anything else falls through to the shared inline handler below.
+        throw err;
       }
       await refreshCard(cardEl);
     } else if (action === "stop-tracking-wo") {

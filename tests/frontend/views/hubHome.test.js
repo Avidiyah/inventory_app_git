@@ -1,5 +1,5 @@
-// The Home tab: the punch hero, the relocated quick-start clock, and the D5
-// self-close prompt. The work-order clock's own behaviour stays in
+// The Home tab: the punch hero and the relocated quick-start clock. The
+// work-order clock's own behaviour stays in
 // hubClock.test.js; this file only proves it landed here.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
@@ -55,7 +55,7 @@ describe("on shift", () => {
       attendance: attendanceMe({
         server_now: payload.server_now,
         open_punch: { id: "p1", started_at: "2026-09-10T10:00:00Z",
-                      start_source: "manual", stale: false },
+                      start_source: "manual" },
       }) });
     expect(punch().classList.contains("hub-punch-on")).toBe(true);
     expect(punch().querySelector(".hub-punch-hero").textContent).toBe("2 h 0 m");
@@ -65,53 +65,21 @@ describe("on shift", () => {
   it("punches out at the wire", async () => {
     await openHub({ role: "technician",
       attendance: attendanceMe({ open_punch: { id: "p1",
-        started_at: "2026-09-10T10:00:00Z", start_source: "manual", stale: false } }) });
+        started_at: "2026-09-10T10:00:00Z", start_source: "manual" } }) });
     clearRequests();
     await user().click(punch().querySelector('[data-action="hub-punch-out"]'));
     expect(requestFor("/attendance/punch-out").method).toBe("POST");
   });
 });
 
-describe("a stale punch (D5)", () => {
-  it("replaces the punch buttons with Close it", async () => {
+describe("no self-close prompt (M5)", () => {
+  it("renders any open punch as on shift, never Close it", async () => {
     await openHub({ role: "technician",
       attendance: attendanceMe({ open_punch: { id: "p1",
         started_at: "2026-09-09T13:00:00Z", start_source: "manual", stale: true } }) });
-    expect(punch().classList.contains("hub-punch-stale")).toBe(true);
-    expect(punch().querySelector('[data-action="hub-punch-out"]')).toBeNull();
-    expect(punch().querySelector('[data-action="hub-punch-self-close"]')).not.toBeNull();
-  });
-
-  it("sends the time the prompt returned, on the punch's own day", async () => {
-    await openHub({ role: "technician",
-      attendance: attendanceMe({ open_punch: { id: "p1",
-        started_at: "2026-09-09T13:00:00Z", start_source: "manual", stale: true } }) });
-    clearRequests();
-    const typist = user();
-    await typist.click(punch().querySelector('[data-action="hub-punch-self-close"]'));
-    await typist.selectOptions(document.getElementById("prompt-time-meridiem"), "PM");
-    await typist.selectOptions(document.getElementById("prompt-time-hour"), "5");
-    await typist.selectOptions(document.getElementById("prompt-time-minute"), "30");
-    await typist.click(document.getElementById("prompt-time-save"));
-    // `requests.js` already parses a JSON body into an object.
-    const sent = requestFor("/attendance/self-close").body;
-    const endedAt = new Date(sent.ended_at);
-    expect(endedAt.getHours()).toBe(17);
-    expect(endedAt.getMinutes()).toBe(30);
-    // The punch's own local calendar day, not today's.
-    expect(endedAt.getDate()).toBe(new Date("2026-09-09T13:00:00Z").getDate());
-  });
-
-  it("cancelling the prompt sends nothing", async () => {
-    await openHub({ role: "technician",
-      attendance: attendanceMe({ open_punch: { id: "p1",
-        started_at: "2026-09-09T13:00:00Z", start_source: "manual", stale: true } }) });
-    clearRequests();
-    const typist = user();
-    await typist.click(punch().querySelector('[data-action="hub-punch-self-close"]'));
-    await typist.click(document.getElementById("prompt-time-cancel"));
-    // `requestFor` returns null on a miss rather than throwing.
-    expect(requestFor("/attendance/self-close")).toBeNull();
+    expect(punch().classList.contains("hub-punch-stale")).toBe(false);
+    expect(punch().querySelector('[data-action="hub-punch-out"]')).not.toBeNull();
+    expect(punch().querySelector('[data-action="hub-punch-self-close"]')).toBeNull();
   });
 });
 

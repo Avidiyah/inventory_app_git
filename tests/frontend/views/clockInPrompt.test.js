@@ -34,7 +34,7 @@ describe("the clock-in prompt", () => {
   });
 
   it("stays away when already clocked in", async () => {
-    const clockedIn = attendanceMe({ open_punch: { started_at: "2026-09-10T08:00:00Z", stale: false } });
+    const clockedIn = attendanceMe({ open_punch: { started_at: "2026-09-10T08:00:00Z" } });
     await bootApp({ role: "technician", handlers: [http.get("/attendance/me", () => HttpResponse.json(clockedIn))] });
     await settle();
     expect(prompt()).toBeNull();

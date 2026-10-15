@@ -16,13 +16,12 @@ from app.schemas.hub import HubAdjustment, HubUser
 
 
 class AttendanceOpenPunch(BaseModel):
-    """The caller's open punch. `stale` means it began on an earlier Central
-    day, which is what drives the Home tab's self-close prompt (D5)."""
+    """The caller's open punch: always today's, because a punch past its
+    midnight reads closed (M1)."""
 
     id: uuid.UUID
     started_at: datetime
     start_source: str
-    stale: bool
 
     model_config = {"from_attributes": True}
 
@@ -48,14 +47,6 @@ class AttendancePunchResponse(BaseModel):
     needs_review: bool
 
     model_config = {"from_attributes": True}
-
-
-class SelfCloseRequest(BaseModel):
-    """The instant the technician states they actually left (D5). Required:
-    there is no default, because a default would be the estimate D4 exists
-    to keep out of a pay record."""
-
-    ended_at: datetime
 
 
 class AttendanceWeekPunch(BaseModel):
@@ -210,7 +201,7 @@ class WeekReviewResponse(BaseModel):
 class PunchEditRequest(BaseModel):
     """An omitted field means **unchanged**, never *clear*. `needs_review`
     only ever arrives as `false`: alone it is the "Looks right" action, and
-    nothing but a D5 self-close may raise the flag."""
+    nothing but the midnight close may raise the flag."""
 
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None

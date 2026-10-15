@@ -137,8 +137,6 @@ export const ENDPOINTS = [
   { fn: "apiGetAttendanceMe", args: [], url: "/attendance/me", cache: "no-store" },
   { fn: "apiPunchIn", args: [], method: "POST", url: "/attendance/punch-in", body: {} },
   { fn: "apiPunchOut", args: [], method: "POST", url: "/attendance/punch-out", body: {} },
-  { fn: "apiSelfClosePunch", args: ["2026-09-21T18:00:00.000Z"], method: "POST",
-    url: "/attendance/self-close", body: { ended_at: "2026-09-21T18:00:00.000Z" } },
   { fn: "apiGetHubAttendanceWeek", args: [{}], url: "/hub/attendance/week", cache: "no-store" },
   { fn: "apiGetPersonWeek", args: ["u1", {}], url: "/hub/people/u1/week", cache: "no-store" },
   { fn: "apiGetHubAttendanceLive", args: [], url: "/hub/attendance/live", cache: "no-store" },

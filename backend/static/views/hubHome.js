@@ -10,9 +10,9 @@
 // `#hub-clock-mount` node into `#hub-home-clock-slot` after every render, so
 // hubClock.js keeps its own state and wiring.
 
-import { apiPunchIn, apiPunchOut, apiSelfClosePunch } from "../api.js";
+import { apiPunchIn, apiPunchOut } from "../api.js";
 import { escapeHtml, formatHm, friendlyError } from "../format.js";
-import { promptTime, setMessage } from "../dom.js";
+import { setMessage } from "../dom.js";
 
 let container = null;
 let hub = null;
@@ -33,29 +33,11 @@ function shortTime(iso) {
   return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-function shortDay(iso) {
-  return new Date(iso).toLocaleDateString([], { weekday: "long" });
-}
-
 function errorPunchHtml() {
   return `
     <section class="hub-punch hub-punch-error">
       <p class="hub-punch-status">Could not load your shift.</p>
       <button type="button" class="secondary-btn hub-punch-retry" data-action="hub-punch-retry">Retry</button>
-    </section>`;
-}
-
-// D5: a punch left open from an earlier day. No auto-close (D4), so the only
-// way forward is the technician stating when they actually left -- flagged
-// for an Admin rather than guessed at.
-function stalePunchHtml() {
-  const punch = attendance.open_punch;
-  return `
-    <section class="hub-punch hub-punch-on hub-punch-stale">
-      <p class="hub-punch-status">&#9888; Still punched in from ${escapeHtml(shortDay(punch.started_at))}, ${escapeHtml(shortTime(punch.started_at))}</p>
-      <p class="hub-punch-note">Tell us when you actually left. A Team Lead will check it.</p>
-      <button type="button" class="hub-punch-btn" data-action="hub-punch-self-close">Close it</button>
-      <p class="hub-punch-message" id="hub-punch-message"></p>
     </section>`;
 }
 
@@ -90,7 +72,7 @@ function offShiftHtml() {
 function punchHtml() {
   if (!attendance) return errorPunchHtml();
   if (!attendance.open_punch) return offShiftHtml();
-  return attendance.open_punch.stale ? stalePunchHtml() : onShiftHtml();
+  return onShiftHtml();
 }
 
 // Today's own numbers, the same three the Dashboard tab leads with -- Home
@@ -116,20 +98,6 @@ async function run(action, message) {
   if (refreshCallback) await refreshCallback();
 }
 
-async function handleSelfClose() {
-  const punch = attendance?.open_punch;
-  if (!punch) return;
-  // The prompt opens on the punch's OWN day, not today: a Date built from
-  // `started_at` carries that day, and promptTime never leaves it.
-  const chosen = await promptTime({
-    title: "When did you leave?",
-    help: `You punched in ${shortDay(punch.started_at)} at ${shortTime(punch.started_at)}.`,
-    initial: new Date(punch.started_at),
-  });
-  if (!chosen) return;
-  await run(() => apiSelfClosePunch(chosen.toISOString()), "Could not close that shift.");
-}
-
 export function mountHubHome(mountEl, hubPayload, attendancePayload, { onChanged } = {}) {
   container = mountEl;
   hub = hubPayload;
@@ -148,7 +116,6 @@ export function mountHubHome(mountEl, hubPayload, attendancePayload, { onChanged
       const action = event.target.closest("[data-action]")?.dataset.action;
       if (action === "hub-punch-in") void run(apiPunchIn, "Could not punch in.");
       else if (action === "hub-punch-out") void run(apiPunchOut, "Could not punch out.");
-      else if (action === "hub-punch-self-close") void handleSelfClose();
       else if (action === "hub-punch-retry" && refreshCallback) void refreshCallback();
     });
   }
