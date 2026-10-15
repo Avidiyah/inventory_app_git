@@ -223,8 +223,8 @@ def get_hub_person_week(
 ):
     """One crew member's Central week, one row per day: completed, charged,
     clocked. **Admin, not TechFM OA** -- same grounds as the attendance week
-    it is built from. Target must be Technician, Team Lead, or TechFM OA
-    (403 otherwise, raised in the service); archived targets are allowed.
+    it is built from. Target must be Technician, Team Lead, TechFM OA, or
+    Admin (Owner is 403, raised in the service); archived targets are allowed.
     Same `week` contract as `GET /hub/attendance/week`. Side-effect-free."""
     now = datetime.now(timezone.utc)
     try:

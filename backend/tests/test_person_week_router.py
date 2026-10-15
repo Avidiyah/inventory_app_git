@@ -71,6 +71,13 @@ def test_techfm_oa_viewer_is_refused(db):
     assert _get(db, oa, tech.id, week="2026-09-14").status_code == 403
 
 
+def test_admin_target_is_200(db):
+    admin = _seed_user(db, role="admin")
+    other = _seed_user(db, role="admin", first="Bo", last="Kay")
+    db.commit()
+    assert _get(db, admin, other.id, week="2026-09-14").status_code == 200
+
+
 def test_owner_target_is_403(db):
     admin = _seed_user(db, role="admin")
     owner = _seed_user(db, role="owner")

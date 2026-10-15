@@ -26,7 +26,7 @@ from app.models import User, WorkOrder, WorkOrderTechnician
 from app.services import attendance_week, labor_summary
 
 PROFILABLE_ROLES: tuple[str, ...] = (
-    *roles.WORK_ORDER_TECHNICIAN_ROLES, roles.ROLE_TECHFM_OA,
+    *roles.WORK_ORDER_TECHNICIAN_ROLES, roles.ROLE_TECHFM_OA, roles.ROLE_ADMIN,
 )
 
 
@@ -127,7 +127,7 @@ def week_payload(
 ) -> PersonWeek:
     """`week_start` is a Monday already resolved by
     `work_order_report.resolve_week`. Raises `UserNotFoundError` (404) and
-    `PersonNotProfilableError` (403, Admin/Owner target) here, not at the
+    `PersonNotProfilableError` (403, Owner target) here, not at the
     route, so no future caller can skip the check."""
     person = db.get(User, user_id)
     if person is None:

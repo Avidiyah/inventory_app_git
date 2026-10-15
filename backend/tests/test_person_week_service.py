@@ -216,12 +216,17 @@ def test_team_lead_and_techfm_oa_are_profilable(db, role):
     assert _payload(db, person).user.role == role
 
 
-@pytest.mark.parametrize("role", [roles.ROLE_ADMIN, roles.ROLE_OWNER])
-def test_admin_and_owner_targets_raise(db, role):
-    person = _user(db, role=role)
+def test_owner_target_raises(db):
+    person = _user(db, role=roles.ROLE_OWNER)
     db.commit()
     with pytest.raises(PersonNotProfilableError):
         _payload(db, person)
+
+
+def test_admin_target_is_profilable(db):
+    person = _user(db, role=roles.ROLE_ADMIN)
+    db.commit()
+    assert _payload(db, person).user.role == roles.ROLE_ADMIN
 
 
 def test_unknown_user_raises_not_found(db):

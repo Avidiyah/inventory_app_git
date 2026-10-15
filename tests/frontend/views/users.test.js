@@ -365,7 +365,7 @@ describe("creating a user", () => {
 
 describe("the profile hand-off", () => {
   const PROFILE_BTN = `.${"user-profile-btn"}`;
-  const PROFILE_ROLES = ["technician", "supervisor", "techfm_oa"];
+  const PROFILE_ROLES = ["technician", "supervisor", "techfm_oa", "admin"];
   const crew = () => ROLES.map((role) => userFactory({ role }));
 
   it.each(["owner", "admin"])("renders a name button only on crew rows for an %s", async (role) => {

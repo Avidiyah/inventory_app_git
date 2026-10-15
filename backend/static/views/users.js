@@ -42,7 +42,7 @@ const usersMessage = document.getElementById("users-message");
 const usersTable = document.getElementById("users-table");
 const userProfile = document.getElementById("user-profile");
 // Roles whose name opens the weekly profile, for an Admin+ viewer only.
-const PROFILE_ROLES = ["technician", "supervisor", "techfm_oa"];
+const PROFILE_ROLES = ["technician", "supervisor", "techfm_oa", "admin"];
 const usernameInput = document.getElementById("username");
 const firstNameInput = document.getElementById("user-first-name");
 const lastNameInput = document.getElementById("user-last-name");
