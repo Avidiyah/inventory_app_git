@@ -87,12 +87,21 @@ export function mountPunchEditor(hostEl, { punch, date, onSave, onDelete, onCanc
     }
   }
 
+  // A legacy punch can end on a later day (pre-M4). Re-seat its end on the
+  // start's day, clock time kept, or every picked end crosses midnight.
+  function endAnchor() {
+    if (!endedAt || !startedAt) return anchor(date, endedAt);
+    const s = new Date(startedAt);
+    const e = new Date(endedAt);
+    if (s.toDateString() === e.toDateString()) return e;
+    return new Date(s.getFullYear(), s.getMonth(), s.getDate(), e.getHours(), e.getMinutes());
+  }
+
   async function pick(which) {
-    const current = which === "start" ? startedAt : endedAt;
     const chosen = await promptTime({
       title: which === "start" ? "Punch in at" : "Punch out at",
       help: "Central time, on this day.",
-      initial: anchor(date, current),
+      initial: which === "start" ? anchor(date, startedAt) : endAnchor(),
     });
     if (!chosen) return;
     const value = chosen.toISOString();

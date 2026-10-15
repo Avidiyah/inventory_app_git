@@ -47,6 +47,18 @@ describe("the inline punch editor", () => {
     });
   });
 
+  it("seats a legacy next-day end on the start's day", () => {
+    promptTime.mockResolvedValue(null);
+    const legacy = { ...PUNCH, ended_at: "2026-09-23T18:44:00.000Z" };
+    mountPunchEditor(host, { punch: legacy, date: "2026-09-21", onSave: vi.fn() });
+    host.querySelector(".punch-editor-end").click();
+    const { initial } = promptTime.mock.calls[0][0];
+    const start = new Date(PUNCH.started_at);
+    const end = new Date(legacy.ended_at);
+    expect(initial.toDateString()).toBe(start.toDateString());
+    expect(initial.getHours()).toBe(end.getHours());
+  });
+
   it("offers no delete when adding, and needs both times before saving", () => {
     const onSave = vi.fn();
     mountPunchEditor(host, { punch: null, date: "2026-09-21", onSave });

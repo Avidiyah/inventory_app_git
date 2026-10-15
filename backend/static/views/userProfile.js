@@ -74,6 +74,7 @@ function dayBodyHtml(day, canEdit) {
     if (p.start_source === "auto_work_order") notes.push("auto, from a work-order clock");
     if (p.end_source === "auto_clock_out") notes.push("auto-closed at midnight");
     if (p.needs_review) notes.push("needs review");
+    if (p.crosses_midnight) notes.push("crossed midnight, fix the end");
     const note = notes.length ? ` <span class="hub-hours-punch-note">${notes.join(" · ")}</span>` : "";
     const edit = canEdit && !p.carried
       ? ` <button type="button" class="hub-link-btn hub-hours-edit" data-punch="${escapeHtml(p.id)}">Edit</button>`

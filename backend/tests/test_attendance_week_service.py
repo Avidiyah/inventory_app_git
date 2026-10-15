@@ -98,6 +98,19 @@ def test_needs_review_propagates_to_the_day(db):
     assert monday.punches[0].needs_review is True
 
 
+def test_a_legacy_punch_past_midnight_flags_the_day_not_the_punch(db):
+    user = _user(db)
+    _punch(db, user, datetime(2026, 9, 14, 13, 0, tzinfo=timezone.utc),
+           datetime(2026, 9, 15, 18, 0, tzinfo=timezone.utc))
+    db.commit()
+
+    row = _row_for(attendance_week.week_payload(db, week_start=MONDAY, now=NOW), user)
+    monday = next(day for day in row.days if day.date == MONDAY)
+    assert monday.needs_review is True
+    assert monday.punches[0].crosses_midnight is True
+    assert monday.punches[0].needs_review is False
+
+
 def test_live_crew_appear_with_zero_hours(db):
     user = _user(db, role="technician")
     db.commit()

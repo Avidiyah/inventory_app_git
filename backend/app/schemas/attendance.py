@@ -65,6 +65,7 @@ class AttendanceWeekPunch(BaseModel):
     carried: bool
     open: bool
     lunch_waived: bool
+    crosses_midnight: bool = False
 
     model_config = {"from_attributes": True}
 

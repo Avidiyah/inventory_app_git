@@ -84,6 +84,7 @@ function punchRowHtml(punch, { canEdit } = {}) {
   if (punch.start_source === "auto_work_order") notes.push("auto, from a work-order clock");
   if (punch.end_source === "auto_clock_out") notes.push("auto-closed at midnight");
   if (punch.needs_review) notes.push("needs review");
+  if (punch.crosses_midnight) notes.push("crossed midnight, fix the end");
   const suffix = notes.length
     ? ` <span class="hub-hours-punch-note">${notes.join(" · ")}</span>`
     : "";

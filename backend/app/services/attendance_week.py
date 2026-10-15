@@ -52,6 +52,9 @@ class WeekPunch:
     carried: bool
     open: bool
     lunch_waived: bool
+    # Legacy row stored past its start's midnight; flags the day (not the
+    # punch, so "Looks right" can't hide it) until an Admin fixes the end.
+    crosses_midnight: bool = False
 
 
 @dataclass(frozen=True)
@@ -221,6 +224,8 @@ def week_payload(
                         carried=labor_day.central_date_of(punch.started_at) < day,
                         open=end is None,
                         lunch_waived=bool(punch.lunch_waived),
+                        crosses_midnight=end is not None
+                        and end > attendance.midnight_after(punch.started_at),
                     )
                 )
             day_minutes = sum(entry.minutes for entry in day_punches)
@@ -238,7 +243,8 @@ def week_payload(
                     lunch_minutes=lunch,
                     lunch_waived=waived,
                     paid_minutes=paid,
-                    needs_review=any(entry.needs_review for entry in day_punches),
+                    needs_review=any(entry.needs_review or entry.crosses_midnight
+                                     for entry in day_punches),
                     has_open=any(entry.open for entry in day_punches),
                     punches=day_punches,
                 )
