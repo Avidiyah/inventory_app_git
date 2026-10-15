@@ -47,14 +47,21 @@ describe("the grid", () => {
     expect(onOpenProfile).toHaveBeenCalledWith(week.rows[0].user);
   });
 
-  it("prints a plain name without onOpenProfile or for an Admin row", () => {
+  it("prints a plain name without onOpenProfile or for an Owner row", () => {
     mountHubAttendanceHours(host, attendanceWeek());
     expect(host.querySelector(".hub-hours-person")).toBeNull();
     const week = attendanceWeek();
-    week.rows[0].user = { ...week.rows[0].user, role: "admin" };
+    week.rows[0].user = { ...week.rows[0].user, role: "owner" };
     mountHubAttendanceHours(host, week, { onOpenProfile: vi.fn() });
     expect(host.querySelector(".hub-hours-person")).toBeNull();
     expect(host.textContent).toContain("Ann Lee");
+  });
+
+  it("links an Admin row to their profile", () => {
+    const week = attendanceWeek();
+    week.rows[0].user = { ...week.rows[0].user, role: "admin" };
+    mountHubAttendanceHours(host, week, { onOpenProfile: vi.fn() });
+    expect(host.querySelector(".hub-hours-person")).not.toBeNull();
   });
 });
 

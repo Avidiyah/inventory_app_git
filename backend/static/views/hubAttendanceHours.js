@@ -23,8 +23,8 @@ import { formatHm, isoDate, shiftMonday, weekLabel } from "./hubWeek.js";
 
 const CENTRAL_TIME_ZONE = "America/Chicago";
 
-// Roles whose rows link to a weekly profile; Admin/Owner are not profilable.
-export const PROFILABLE_ROLES = ["technician", "supervisor", "techfm_oa"];
+// Roles whose rows link to a weekly profile; mirrors person_week.PROFILABLE_ROLES (Owner is not).
+export const PROFILABLE_ROLES = ["technician", "supervisor", "techfm_oa", "admin"];
 
 function shortDateLabel(iso) {
   return isoDate(iso).toLocaleDateString([], {
