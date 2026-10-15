@@ -5,7 +5,7 @@
 //
 // Top to bottom:
 //   roster      -- who is on the clock now, from `GET /hub/attendance/live`
-//   leaderboard -- the week's charged/uncharged hours and money, ranked; owns
+//   leaderboard (last on the page) -- the week's charged/uncharged hours and money, ranked; owns
 //                  the page's week picker and CSV export
 //   hours       -- the clocked-hours grid with the audited punch editor
 //
@@ -133,8 +133,8 @@ function renderWeek(panelEl) {
   if (profileOpen) { renderProfile(panelEl); return; }
   const area = mountFor(panelEl, "week");
   if (!area || !weekPayload) return;
-  area.innerHTML = `<div class="hub-timesheets-leaderboard"></div>
-    <div class="hub-timesheets-hours"></div>`;
+  area.innerHTML = `<div class="hub-timesheets-hours"></div>
+    <div class="hub-timesheets-leaderboard"></div>`;
   const isAdmin = roleAtLeast(viewerRole, "admin");
   mountHubTimesheetLeaderboard(mountFor(panelEl, "leaderboard"), weekPayload, {
     onWeekChange: changeWeek(panelEl),

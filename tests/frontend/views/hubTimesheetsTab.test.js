@@ -26,12 +26,12 @@ async function openTimesheets(opts = {}) {
 }
 
 describe("Admin", () => {
-  it("shows one page with no sub-tabs: roster, leaderboard, then daily hours", async () => {
+  it("shows one page with no sub-tabs: roster, daily hours, then leaderboard", async () => {
     await openTimesheets({ role: "admin" });
     await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
     await vi.waitFor(() => expect(panel().querySelector(".hub-roster-strip")).not.toBeNull());
     expect(panel().querySelectorAll(".sub-nav-btn")).toHaveLength(0);
-    const order = [".hub-roster", ".hub-leaderboard-table", ".hub-hours .hub-hours-table"]
+    const order = [".hub-roster", ".hub-hours .hub-hours-table", ".hub-leaderboard-table"]
       .map((selector) => panel().querySelector(selector));
     expect(order[0].compareDocumentPosition(order[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(order[1].compareDocumentPosition(order[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
