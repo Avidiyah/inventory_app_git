@@ -327,6 +327,12 @@ def admin_edit_punch(db: Session, *, actor: User, punch_id,
     """
     now = now or datetime.now(timezone.utc)
     punch = _live_punch(db, punch_id)
+    # The Admin acted on what the read showed: a punch past its midnight is
+    # closed and flagged there (M1). Write that first, so "Looks right" has a
+    # flag to clear and an end correction is not an open-punch close that
+    # would stop today's work-order clock.
+    if sweep_open_punches(db, now=now, user_id=punch.user_id):
+        db.refresh(punch)
     new_start = labor_day.as_utc(started_at) if started_at is not None else punch.started_at
     new_end = labor_day.as_utc(ended_at) if ended_at is not None else punch.ended_at
     if punch.ended_at is not None and new_end is None:

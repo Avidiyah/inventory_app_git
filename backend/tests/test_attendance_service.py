@@ -283,3 +283,28 @@ def test_restating_the_same_waiver_changes_nothing(db):
     with pytest.raises(NoChangeError):
         attendance_service.admin_edit_punch(db, actor=admin, punch_id=old.id,
                                             lunch_waived=False, now=NOW)
+
+
+# --- Admin acts on a punch the read shows midnight-closed, before any sweep ---
+
+def test_looks_right_on_an_unswept_past_midnight_punch_succeeds(db):
+    admin, tech = _seed_user(db, "admin"), _seed_user(db)
+    old = _open_punch(db, tech, YESTERDAY_7AM)
+    attendance_service.admin_edit_punch(db, actor=admin, punch_id=old.id,
+                                        needs_review=False, now=NOW)
+    db.refresh(old)
+    assert old.ended_at == MIDNIGHT and old.needs_review is False
+
+
+def test_correcting_an_unswept_punch_leaves_todays_clock_running(db):
+    admin, tech = _seed_user(db, "admin"), _seed_user(db)
+    order = _seed_work_order(db, admin, tech)
+    real_now = datetime.now(timezone.utc)
+    yesterday = attendance_domain.midnight_after(real_now) - timedelta(days=2, hours=-7)
+    old = _open_punch(db, tech, yesterday)                      # 7 AM yesterday, forgotten
+    wo_service.start_labor_session(db, order.id, user=tech)     # today's clock, running
+    attendance_service.admin_edit_punch(db, actor=admin, punch_id=old.id,
+                                        ended_at=yesterday + timedelta(hours=9))
+    db.refresh(old)
+    assert old.ended_at == yesterday + timedelta(hours=9)
+    assert wo_service.running_labor_session_for(db, tech.id) is not None
