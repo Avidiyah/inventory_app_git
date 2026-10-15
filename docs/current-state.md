@@ -447,6 +447,12 @@ Attendance:
   never stops a work-order clock (the 12-hour cap owns that). No self-close.
 - Clocked ≠ tracked ≠ billed. Clocked comes from `attendance_punches` and is
   never rounded to 30 minutes.
+- Lunch is flat: `LUNCH_MINUTES` (30) comes off any day whose gross clocked
+  minutes reach `LUNCH_MIN_DAY_MINUTES` (360) unless waived; no time-of-day
+  logic. `paid_minutes = clocked - lunch` is what the day cards, day page,
+  profile and CSV print; delta, the leaderboard and the Home tab stay gross.
+  The waiver is `lunch_waived` on the day's first non-carried punch (the
+  day page's Remove/Restore lunch, audited); it never clears `needs_review`.
 - The Timesheets leaderboard ranks the week by **money made**: charged =
   work-order wall-clock only; hand-entered labor adjustments are excluded
   (the board rewards clocking work as it happens, and an adjustment is dated
@@ -1398,7 +1404,7 @@ Rules:
 ### `attendance_punches`, `attendance_punch_edits`
 
 Fields: `id`, `user_id`, `started_at`, `ended_at`, `start_source`,
-`end_source`, `needs_review`, `created_at`, `deleted_at`. Audit rows:
+`end_source`, `needs_review`, `lunch_waived`, `created_at`, `deleted_at`. Audit rows:
 `id`, `punch_id`, `edited_by_id`, `edited_at`, `field`, `old_value`,
 `new_value`, `reason` (CASCADE on the punch). Added by migrations
 `b7d9f1a3c5e8` and `c4a6e8b0d2f5`.

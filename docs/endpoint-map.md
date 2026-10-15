@@ -136,11 +136,11 @@ writes (w).
 | H7 | GET | `/hub/report/export?week=` | **admin only** | `hub.py` → same as H6 + `work_order_report_xlsx.report_xlsx` | same as H6 | — (plain link) | `hubReport.js` |
 | H8 | GET | `/hub/attendance/week?week=` | **admin only** | `hub.py` → `work_order_report.resolve_week` + `attendance_compare.week_payload` → `attendance_week.week_payload` + `labor_summary.crew_range_summaries` (`cap_running=True`) | attendance_punches (r), users (r), work_order_labor_sessions (r), work_order_labor (r), work_orders (r) — side-effect-free: no sweep, no row locks, no commit; a forgotten clock is clipped by `work_orders.capped_session_end` on read | `apiGetHubAttendanceWeek` | `hubTimesheetsTab.js`, `hubAttendanceDay.js`, `hubTimesheetLeaderboard.js` |
 | H9 | POST | `/hub/attendance/punches` | **admin only** | `hub.py` → `attendance.admin_add_punch` → `domain.attendance.validate_punch_window`/`find_overlap`; 400 on a window crossing Central midnight | attendance_punches (r/w), attendance_punch_edits (w), users (r) | `apiAddAttendancePunch` | `hubAttendanceHours.js`, `hubAttendancePunchEditor.js`, `hubTimesheetsTab.js` |
-| H10 | PATCH | `/hub/attendance/punches/{id}` | **admin only** | `hub.py` → `attendance.admin_edit_punch` — an omitted field means unchanged; a time change clears `needs_review` and must not cross Central midnight (400; unchanged legacy times are not re-checked), and `needs_review=false` alone is "Looks right"; closing an open punch stops the person's WO clock at that end (400 if it started after) | attendance_punches (r/w), attendance_punch_edits (w), users (r), work_order_labor_sessions (r/w), work_order_labor (w), work_orders (r/w status; row lock) | `apiEditAttendancePunch` | `hubAttendanceHours.js`, `hubAttendancePunchEditor.js`, `hubTimesheetsTab.js` |
+| H10 | PATCH | `/hub/attendance/punches/{id}` | **admin only** | `hub.py` → `attendance.admin_edit_punch` — an omitted field means unchanged; a time change clears `needs_review` and must not cross Central midnight (400; unchanged legacy times are not re-checked), and `needs_review=false` alone is "Looks right"; `lunch_waived` removes/restores the day's lunch (audited, never clears `needs_review`); closing an open punch stops the person's WO clock at that end (400 if it started after) | attendance_punches (r/w), attendance_punch_edits (w), users (r), work_order_labor_sessions (r/w), work_order_labor (w), work_orders (r/w status; row lock) | `apiEditAttendancePunch` | `hubAttendanceHours.js`, `hubAttendancePunchEditor.js`, `hubTimesheetsTab.js` |
 | H15 | POST | `/hub/attendance/clock-out/{user_id}` | **admin only** | `hub.py` → `attendance.admin_clock_out` → `admin_edit_punch` at server now (audited, labor stopped); 404 if not clocked in | same as H10 | `apiClockOutAttendanceUser` | `hubAttendanceRoster.js`, `hubTimesheetsTab.js` |
 | H16 | GET | `/hub/people/{user_id}/week?week=` | **admin only** | `hub.py` → `work_order_report.resolve_week` + `person_week.week_payload` → `attendance_week.week_payload` (target row) + `labor_summary.crew_range_summaries` (`cap_running=True`) + one `work_orders ⋈ work_order_technicians` query by `completed_at` | users (r), attendance_punches (r), work_order_labor_sessions (r), work_order_labor (r), work_orders (r), work_order_technicians (r) — side-effect-free; target must be Technician/Team Lead/TechFM OA/Admin (Owner 403), archived allowed, unknown 404 | `apiGetPersonWeek` | `users.js`, `userProfile.js`, `hubWeek.js` |
 | H11 | DELETE | `/hub/attendance/punches/{id}?reason=` | **admin only** | `hub.py` → `attendance.admin_delete_punch` — **soft** (`deleted_at`), so the audit that cascades off the row survives | attendance_punches (r/w), attendance_punch_edits (w), users (r) | `apiDeleteAttendancePunch` | `hubAttendanceHours.js`, `hubAttendancePunchEditor.js`, `hubTimesheetsTab.js` |
-| H12 | GET | `/hub/attendance/export?week=` | **admin only** | `hub.py` → `work_order_report.resolve_week` + `attendance_compare.week_payload` → `attendance_compare.week_csv` — `text/csv`, five metric rows per person then a company block | same reads as H8, no writes | `apiExportHubAttendance` | `hubAttendanceCompare.js` |
+| H12 | GET | `/hub/attendance/export?week=` | **admin only** | `hub.py` → `work_order_report.resolve_week` + `attendance_compare.week_payload` → `attendance_compare.week_csv` — `text/csv`, seven metric rows per person (Clocked, Lunch, Paid, Charged, Off job, Charged outside shift, Adjustments) then a company block | same reads as H8, no writes | `apiExportHubAttendance` | `hubAttendanceCompare.js` |
 | H14 | POST | `/hub/attendance/week/review?week=` | **admin only** | `hub.py` → `attendance.mark_week_reviewed` → `work_orders.sweep_stale_sessions` + `attendance.sweep_open_punches` (global) — clears every flagged punch touching the week, midnight closes included (audited, reason "Bulk reviewed"), and stamps `reviewed_at` on its auto-closed sessions | attendance_punches (r/w), attendance_punch_edits (w), work_order_labor_sessions (r/w), work_order_labor (w on sweep), work_orders (row lock on sweep) | `apiReviewHubAttendanceWeek` | `hubTimesheetsTab.js`, `hubTimesheetLeaderboard.js` |
 | H13 | GET | `/hub/attendance/live` | **admin only** | `hub.py` → `attendance_live.roster` → `domain.attendance.shift_state` + `work_orders.capped_session_end` | attendance_punches (r), users (r), work_order_labor_sessions (r), work_orders (r) — side-effect-free: no sweep, no row locks, no commit | `apiGetHubAttendanceLive` | `hubTimesheetsTab.js`, `hubAttendanceCompare.js`, `hubAttendanceRoster.js` |
 | A1 | GET | `/attendance/me` | any authenticated | `attendance.py` → `attendance.me_payload` → `domain.attendance.capped_end` + `labor_day.overlap_minutes` (a punch past its midnight is neither open nor counted today) | attendance_punches (r) | `apiGetAttendanceMe` | `userHub.js`, `hubHome.js` |
@@ -948,7 +948,7 @@ TYPE | SCHEDULE DATE | PRIORITY`. The final sheet is always present and says
 
 ### Attendance (`schemas/attendance.py`)
 
-**`PersonWeekResponse`** — `GET /hub/people/{user_id}/week` (**admin only**): `user`, `archived`, `week_start/week_end`, `server_now`, seven `days` (`clocked_minutes`, `charged_minutes` = closed + capped running, `adjustment_minutes` shown never summed, `completed_count`, `needs_review`, `has_open`, and the four detail lists), each `completed` item carrying `status` and `archived` (archived rows are included), week totals, `reviewable`. Wall-clock minutes, no money. Models live in `schemas/attendance.py`.
+**`PersonWeekResponse`** — `GET /hub/people/{user_id}/week` (**admin only**): `user`, `archived`, `week_start/week_end`, `server_now`, seven `days` (`clocked_minutes`, `lunch_minutes`, `paid_minutes`, `charged_minutes` = closed + capped running, `adjustment_minutes` shown never summed, `completed_count`, `needs_review`, `has_open`, and the four detail lists), each `completed` item carrying `status` and `archived` (archived rows are included), week totals, `reviewable`. Wall-clock minutes, no money. Models live in `schemas/attendance.py`.
 
 **`AttendanceWeekResponse`** — `GET /hub/attendance/week` (**admin only**),
 and the object `GET /hub/attendance/export` serializes. `week` is a Monday,
@@ -962,16 +962,20 @@ the leaderboard). One read serves the leaderboard and Hours.
 **`AttendanceWeekRow`**: `user: HubUser`, `days`, `total_minutes` (clocked),
 `tracked_minutes`, `delta_minutes`.
 
-**`AttendanceWeekDay`**: `date`, `clocked_minutes`, `tracked_minutes`,
-`delta_minutes`, `outside_shift_minutes`, `adjustment_minutes`,
-`needs_review`, `has_open`, `punches`. All five minute fields are required —
+**`AttendanceWeekDay`**: `date`, `clocked_minutes`, `lunch_minutes`,
+`lunch_waived`, `paid_minutes`, `tracked_minutes`, `delta_minutes`,
+`outside_shift_minutes`, `adjustment_minutes`, `needs_review`, `has_open`,
+`punches`. Rows, `totals_by_day[]` and the week add `paid_minutes`; the
+person week adds `total_paid_minutes`. All minute fields are required —
 a defaulted 0 would print a confident zero for a number never computed.
 
 | Field | Means |
 |---|---|
-| `clocked_minutes` | time on shift; the pay number, never rounded |
+| `clocked_minutes` | gross time on shift, never rounded |
+| `lunch_minutes` | 30 on a day of 6 h+ gross unless waived, else 0 |
+| `paid_minutes` | `clocked - lunch`; the pay number every printed total shows |
 | `tracked_minutes` | real wall-clock on a work-order clock |
-| `delta_minutes` | `clocked - tracked`, floored at 0 — on shift, not on a job |
+| `delta_minutes` | `clocked - tracked` (gross), floored at 0 — on shift, not on a job |
 | `outside_shift_minutes` | charged time no punch covers (§9): flagged, never refused |
 | `adjustment_minutes` | hand-entered labor, no start or stop — in neither wall-clock number |
 
