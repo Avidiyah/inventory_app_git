@@ -14,7 +14,7 @@ import {
   buttonsIn, cells, el, historyOptions, mountUsers, openUsers, requestFor,
   requests, restoreUsers, roleOptions, rowFor, rows,
 } from "../helpers/users.js";
-import { user as userFactory } from "../helpers/factories.js";
+import { personWeek, user as userFactory } from "../helpers/factories.js";
 
 afterEach(() => restoreUsers());
 
@@ -399,5 +399,20 @@ describe("the profile hand-off", () => {
     expect(document.getElementById("users-table").hidden).toBe(false);
     expect(document.getElementById("user-profile").hidden).toBe(true);
     expect(rows().length).toBe(users.length);
+  });
+});
+
+describe("openUserProfile", () => {
+  it("loads the list if needed and mounts the profile at the week", async () => {
+    const tech = userFactory({ role: "technician", first_name: "Ann", last_name: "Lee" });
+    server.use(http.get("/hub/people/:id/week", ({ request }) =>
+      HttpResponse.json({ ...personWeek(), week_start: new URL(request.url).searchParams.get("week") })));
+    const { mod } = await mountUsers({ role: "admin", users: [tech] });
+    await mod.openUserProfile(tech.id, { week: "2026-09-07" });
+    const profile = document.getElementById("user-profile");
+    await vi.waitFor(() => expect(profile.querySelector(".user-profile")).not.toBeNull());
+    expect(document.getElementById("users-table").hidden).toBe(true);
+    expect(requestFor("/users/")).toBeDefined();
+    await vi.waitFor(() => expect(requestFor("/hub/people/")?.url).toContain("week=2026-09-07"));
   });
 });

@@ -163,11 +163,18 @@ function populateRoleSelect() {
   updateRoleHelp();
 }
 
-async function showProfile(user) {
+async function showProfile(user, { week = null } = {}) {
   const { mountUserProfile } = await import("./userProfile.js");
   usersTable.hidden = true;
   userProfile.hidden = false;
-  mountUserProfile(userProfile, user, { onBack: hideProfile });
+  mountUserProfile(userProfile, user, { onBack: hideProfile, week, page: "users" });
+}
+
+// The Back path from a work order (E8): re-open a profile without a click.
+export async function openUserProfile(userId, { week = null } = {}) {
+  if (!getUsers().length) await loadUsers();
+  const user = getUsers().find((candidate) => candidate.id === userId) ?? { id: userId };
+  await showProfile(user, { week });
 }
 
 // Back restores the table as it was: no refetch, the cache is still current.
