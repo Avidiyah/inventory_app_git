@@ -134,6 +134,17 @@ def test_an_admin_who_punched_is_included_though_not_crew(db):
     assert _row_for(payload, admin).total_minutes == 60
 
 
+def test_a_live_admin_without_punches_has_a_row_and_owner_does_not(db):
+    admin = _user(db, role="admin", first="Ada", last="Min")
+    owner = _user(db, role="owner", first="Own", last="Er")
+    db.commit()
+
+    payload = attendance_week.week_payload(db, week_start=MONDAY, now=NOW)
+
+    assert _row_for(payload, admin).total_minutes == 0
+    assert all(row.user.id != owner.id for row in payload.rows)
+
+
 def test_an_archived_user_without_punches_is_absent(db):
     gone = _user(db, first="Old", last="Hand")
     gone.archived_at = NOW

@@ -125,7 +125,8 @@ def _population(db: Session, window_start: datetime, window_end: datetime) -> li
     crew = (
         db.query(User)
         .filter(
-            User.role.in_(roles.WORK_ORDER_TECHNICIAN_ROLES),
+            # Admins too, so one Admin can add a punch for another (Owner stays out).
+            User.role.in_((*roles.WORK_ORDER_TECHNICIAN_ROLES, roles.ROLE_ADMIN)),
             User.archived_at.is_(None),
         )
         .all()
