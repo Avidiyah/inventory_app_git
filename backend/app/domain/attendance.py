@@ -25,6 +25,10 @@ from app.domain.errors import PunchTimeInvalidError
 # and idle this long or longer reads red on the Admin roster (2).
 IDLE_RED_MINUTES = 10
 
+# L1: a flat lunch off any day long enough to have one.
+LUNCH_MINUTES = 30
+LUNCH_MIN_DAY_MINUTES = 360   # owner, 2026-10-15
+
 START_SOURCE_MANUAL = "manual"
 START_SOURCE_AUTO_WORK_ORDER = "auto_work_order"
 
@@ -110,6 +114,12 @@ def midnight_after(started_at: datetime) -> datetime:
     """The Central midnight that ends `started_at`'s day (M1). DST-safe
     because `day_bounds` is."""
     return labor_day.day_bounds(labor_day.central_date_of(started_at))[1]
+
+
+def lunch_minutes(gross: int, *, waived: bool) -> int:
+    """L1: the lunch a day's gross clocked minutes lose. No time-of-day logic
+    and no gap detection -- one punch pair per day is the assumption."""
+    return LUNCH_MINUTES if gross >= LUNCH_MIN_DAY_MINUTES and not waived else 0
 
 
 def capped_end(started_at: datetime, ended_at: Optional[datetime], *,

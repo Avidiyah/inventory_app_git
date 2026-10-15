@@ -233,3 +233,9 @@ def test_idle_minutes_is_measured_from_the_anchor():
     assert attendance.idle_minutes(
         punch_started_at=started, last_labor_ended_at=None, now=now
     ) == int((now - anchor).total_seconds() // 60) == 42
+
+
+def test_lunch_at_the_threshold():
+    assert attendance.lunch_minutes(360, waived=False) == 30
+    assert attendance.lunch_minutes(359, waived=False) == 0
+    assert attendance.lunch_minutes(600, waived=True) == 0

@@ -685,6 +685,8 @@ class AttendancePunch(Base):
     start_source = Column(Text, nullable=False)
     end_source = Column(Text, nullable=True)
     needs_review = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # L2: an Admin removed this day's flat lunch (set on the day's first punch).
+    lunch_waived = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     # Soft delete (P3). `attendance_punch_edits.punch_id` is ON DELETE
     # CASCADE, so a hard delete would erase the audit trail of the very
