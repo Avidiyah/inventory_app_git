@@ -12,7 +12,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from app.schemas.hub import HubUser
+from app.schemas.hub import HubAdjustment, HubUser
 
 
 class AttendanceOpenPunch(BaseModel):
@@ -216,3 +216,61 @@ class PunchEditRequest(BaseModel):
     ended_at: Optional[datetime] = None
     needs_review: Optional[bool] = None
     reason: Optional[str] = None
+
+
+class PersonWeekCompleted(BaseModel):
+    work_order_id: uuid.UUID
+    number: str
+    location: Optional[str] = None
+    completed_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PersonWeekCharged(BaseModel):
+    """One work order's charged minutes for one day, summed across that day's
+    sessions on it."""
+
+    work_order_id: uuid.UUID
+    number: str
+    minutes: int
+    auto_closed: bool
+    running: bool
+
+    model_config = {"from_attributes": True}
+
+
+class PersonWeekDay(BaseModel):
+    date: date
+    clocked_minutes: int
+    charged_minutes: int
+    adjustment_minutes: int
+    completed_count: int
+    needs_review: bool
+    has_open: bool
+    completed: list[PersonWeekCompleted] = []
+    charged: list[PersonWeekCharged] = []
+    adjustments: list[HubAdjustment] = []
+    punches: list[AttendanceWeekPunch] = []
+
+    model_config = {"from_attributes": True}
+
+
+class PersonWeekResponse(BaseModel):
+    """`GET /hub/people/{user_id}/week`: one crew member's Central week,
+    seven days always present. Wall-clock minutes only -- no billed number,
+    no dollar figure (spec D9)."""
+
+    user: HubUser
+    archived: bool
+    week_start: date
+    week_end: date
+    server_now: datetime
+    days: list[PersonWeekDay]
+    total_clocked_minutes: int
+    total_charged_minutes: int
+    total_adjustment_minutes: int
+    total_completed: int
+    reviewable: bool
+
+    model_config = {"from_attributes": True}

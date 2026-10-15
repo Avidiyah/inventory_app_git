@@ -35,6 +35,7 @@ from app.domain.errors import (
     MaterialRequestOwnershipError,
     NegativeQuantityError,
     NoChangeError,
+    PersonNotProfilableError,
     PriorWorkUnacknowledgedError,
     PunchAlreadyOpenError,
     PunchNotFoundError,
@@ -116,6 +117,7 @@ _STATUS_MAP: dict[type[DomainError], int] = {
     UnreadableImageError: 400,
     InvalidCredentialsError: 401,
     RoleManagementError: 403,
+    PersonNotProfilableError: 403,
     MaterialRequestOwnershipError: 403,
     # Safety net only. `routers/auth.py` handles this one directly so it
     # can attach a `Retry-After` header, which `to_http` cannot carry.
