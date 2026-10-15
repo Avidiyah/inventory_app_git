@@ -5,7 +5,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { attendanceWeek } from "../helpers/factories.js";
-import { mountHubAttendanceHours } from "../../../backend/static/views/hubAttendanceHours.js";
+import { drilldownHtml, mountHubAttendanceHours } from "../../../backend/static/views/hubAttendanceHours.js";
 
 let host;
 
@@ -24,11 +24,11 @@ describe("the grid", () => {
     expect(host.textContent).toContain("Ann Lee");
   });
 
-  it("prints clocked time as h:mm and tallies the week", () => {
+  it("prints paid time as h:mm and tallies the week", () => {
     mountHubAttendanceHours(host, attendanceWeek());
-    expect(cells()[0].textContent).toContain("8:00");
-    expect(host.querySelector(".hub-hours-row-total").textContent).toContain("8:00");
-    expect(host.querySelector("tfoot").textContent).toContain("8:00");
+    expect(cells()[0].textContent).toContain("7:30");
+    expect(host.querySelector(".hub-hours-row-total").textContent).toContain("7:30");
+    expect(host.querySelector("tfoot").textContent).toContain("7:30");
   });
 
   it("shows the empty state when nobody is in the payload", () => {
@@ -186,5 +186,63 @@ describe("the CSP rule", () => {
   it("emits no inline style attributes", () => {
     mountHubAttendanceHours(host, attendanceWeek());
     expect(host.innerHTML).not.toMatch(/\sstyle="/);
+  });
+});
+
+describe("the lunch line (L1-L3)", () => {
+  const punch = (id, extra = {}) => ({
+    id, started_at: "2026-09-14T12:00:00Z", ended_at: "2026-09-14T20:00:00Z",
+    start_source: "manual", end_source: "manual", needs_review: false, minutes: 480,
+    carried: false, open: false, lunch_waived: false, ...extra,
+  });
+  const day = (extra = {}) => ({
+    date: "2026-09-14", clocked_minutes: 480, lunch_minutes: 30, lunch_waived: false,
+    paid_minutes: 450, needs_review: false, has_open: false, punches: [punch("p1")], ...extra,
+  });
+
+  it("prints paid in the heading and a removable lunch line", () => {
+    const html = drilldownHtml(day(), "Ann", { canEdit: true });
+    expect(html).toContain("7:30 paid");
+    expect(html).toContain("Lunch −0:30");
+    expect(html).toMatch(/data-punch="p1" data-waive="true">Remove lunch/);
+  });
+
+  it("offers Restore lunch on a waived day", () => {
+    const html = drilldownHtml(
+      day({ lunch_minutes: 0, lunch_waived: true, paid_minutes: 480 }), "Ann", { canEdit: true });
+    expect(html).toContain("No lunch deducted");
+    expect(html).toMatch(/data-waive="false">Restore lunch/);
+  });
+
+  it("prints no lunch line under the threshold", () => {
+    const html = drilldownHtml(
+      day({ clocked_minutes: 300, lunch_minutes: 0, paid_minutes: 300 }), "Ann", {});
+    expect(html).not.toContain("unch");
+  });
+
+  it("shows the line without its button to a read-only viewer", () => {
+    const html = drilldownHtml(day(), "Ann", {});
+    expect(html).toContain("Lunch −0:30");
+    expect(html).not.toContain("Remove lunch");
+  });
+
+  it("lunch button targets the first non-carried punch", () => {
+    const html = drilldownHtml(
+      day({ punches: [punch("p0", { carried: true }), punch("p1")] }), "Ann", { canEdit: true });
+    expect(html).toMatch(/hub-hours-lunch" data-punch="p1"/);
+  });
+
+  it("labels a midnight-closed punch", () => {
+    const html = drilldownHtml(day({ punches: [punch("p1", {
+      end_source: "auto_clock_out", needs_review: true })] }), "Ann", { canEdit: true });
+    expect(html).toContain("auto-closed at midnight");
+  });
+
+  it("calls onToggleLunch with the punch and the new waiver", () => {
+    const onToggleLunch = vi.fn();
+    mountHubAttendanceHours(host, attendanceWeek(), { onToggleLunch, onSavePunch: vi.fn() });
+    cells()[0].click();
+    host.querySelector(".hub-hours-lunch").click();
+    expect(onToggleLunch).toHaveBeenCalledWith("punch-1", true);
   });
 });

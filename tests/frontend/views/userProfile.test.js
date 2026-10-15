@@ -66,9 +66,9 @@ describe("the panel", () => {
     expect(host.querySelector(".user-profile-header").textContent).toContain("Ann Lee");
     expect(host.querySelector(".user-profile-header").textContent).toContain("Technician");
     expect(rows()).toHaveLength(7);
-    expect(rows()[0].querySelector("summary").textContent).toContain("8:00");
+    expect(rows()[0].querySelector("summary").textContent).toContain("7:30");
     expect(rows()[0].querySelector("summary").textContent).toContain("3:00");
-    expect(host.querySelector(".user-profile-totals").textContent).toContain("8:00");
+    expect(host.querySelector(".user-profile-totals").textContent).toContain("7:30");
     expect(host.querySelector(".user-profile-totals").textContent).toContain("1");
   });
 
@@ -122,9 +122,9 @@ describe("the panel", () => {
     expect(rows()[1].querySelector("summary").textContent).toContain("on shift");
   });
 
-  it("colours each day by clocked minutes", async () => {
+  it("colours each day by paid minutes", async () => {
     const week = personWeek();
-    [0, 479, 480, 600, 601].forEach((m, i) => { week.days[i] = { ...week.days[i], clocked_minutes: m }; });
+    [0, 479, 480, 600, 601].forEach((m, i) => { week.days[i] = { ...week.days[i], paid_minutes: m }; });
     serve(week);
     await mount();
     expect(rows().slice(0, 5).map((r) => r.className)).toEqual([
@@ -296,5 +296,15 @@ describe("the panel", () => {
       expect(rows()[0].open).toBe(true);
       expect(host.querySelector(".punch-editor")).toBeNull();
     });
+  });
+});
+
+describe("lunch on the profile", () => {
+  it("prints paid in the day summary and the week, with a lunch note in the body", async () => {
+    serve(personWeek());
+    await mount();
+    const summary = rows()[0].querySelector("summary .user-profile-col");
+    expect(summary.textContent).toContain("7:30");
+    expect(rows()[0].querySelector(".user-profile-day-body").textContent).toContain("lunch −0:30");
   });
 });

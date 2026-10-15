@@ -683,11 +683,13 @@ export async function apiAddAttendancePunch({ userId, startedAt, endedAt, reason
   return jsonRequest("/hub/attendance/punches", "POST", body);
 }
 
-export async function apiEditAttendancePunch(punchId, { startedAt, endedAt, needsReview, reason = "" } = {}) {
+export async function apiEditAttendancePunch(punchId, { startedAt, endedAt, needsReview, lunchWaived, reason = "" } = {}) {
   const body = {};
   if (startedAt) body.started_at = startedAt;
   if (endedAt) body.ended_at = endedAt;
   if (needsReview === false) body.needs_review = false;
+  // L2: remove (true) or restore (false) the day's flat lunch.
+  if (typeof lunchWaived === "boolean") body.lunch_waived = lunchWaived;
   if (reason) body.reason = reason;
   return jsonRequest(`/hub/attendance/punches/${encodeURIComponent(punchId)}`, "PATCH", body);
 }

@@ -72,6 +72,7 @@ function dayBodyHtml(day, canEdit) {
     const notes = [];
     if (p.carried) notes.push("carried");
     if (p.start_source === "auto_work_order") notes.push("auto, from a work-order clock");
+    if (p.end_source === "auto_clock_out") notes.push("auto-closed at midnight");
     if (p.needs_review) notes.push("needs review");
     const note = notes.length ? ` <span class="hub-hours-punch-note">${notes.join(" · ")}</span>` : "";
     const edit = canEdit && !p.carried
@@ -79,7 +80,10 @@ function dayBodyHtml(day, canEdit) {
       : "";
     return `<li>${escapeHtml(timeLabel(p.started_at))} – ${escapeHtml(ended)} · ${formatHm(p.minutes)}${note}${edit}</li>`;
   });
-  const html = listHtml("Completed", completed) + listHtml("Charged", charged)
+  const lunch = day.lunch_minutes
+    ? `<p class="hint">lunch −${formatHm(day.lunch_minutes)}</p>`
+    : "";
+  const html = lunch + listHtml("Completed", completed) + listHtml("Charged", charged)
     + listHtml("Adjustments", adjustments) + listHtml("Punches", punches);
   const editor = canEdit
     ? `<button type="button" class="secondary-btn hub-hours-add" data-date="${escapeHtml(day.date)}">+ Add punch</button>
@@ -100,10 +104,10 @@ function flagsHtml(day) {
 
 function dayHtml(day, canEdit) {
   const onShift = day.has_open ? ` <span class="hub-hours-punch-note">(on shift)</span>` : "";
-  return `<details class="user-profile-day user-profile-day-${dayBand(day.clocked_minutes)}" data-date="${escapeHtml(day.date)}">
+  return `<details class="user-profile-day user-profile-day-${dayBand(day.paid_minutes)}" data-date="${escapeHtml(day.date)}">
     <summary class="user-profile-summary">
       <span class="user-profile-col-day">${escapeHtml(dayLabel(day.date))}${flagsHtml(day)}</span>
-      <span class="user-profile-col">${formatHm(day.clocked_minutes)}${timesNote(day.punches)}${onShift}</span>
+      <span class="user-profile-col">${formatHm(day.paid_minutes)}${timesNote(day.punches)}${onShift}</span>
       <span class="user-profile-col">${formatHm(day.charged_minutes)}${timesNote(day.charged.flatMap((c) => c.spans ?? []))}</span>
       <span class="user-profile-col">${day.completed_count}</span>
     </summary>
@@ -114,13 +118,13 @@ function dayHtml(day, canEdit) {
 function weekHtml(payload, canEdit) {
   return `<div class="user-profile-table-wrap">
       <div class="user-profile-summary user-profile-head" aria-hidden="true">
-        <span class="user-profile-col-day">Day</span><span class="user-profile-col">Clocked</span>
+        <span class="user-profile-col-day">Day</span><span class="user-profile-col">Paid</span>
         <span class="user-profile-col">Charged</span><span class="user-profile-col">Completed</span>
       </div>
       ${payload.days.map((day) => dayHtml(day, canEdit)).join("")}
       <div class="user-profile-summary user-profile-totals">
         <span class="user-profile-col-day">Week</span>
-        <span class="user-profile-col">${formatHm(payload.total_clocked_minutes)}</span>
+        <span class="user-profile-col">${formatHm(payload.total_paid_minutes)}</span>
         <span class="user-profile-col">${formatHm(payload.total_charged_minutes)}</span>
         <span class="user-profile-col">${payload.total_completed}</span>
       </div>

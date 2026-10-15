@@ -82,6 +82,7 @@ function punchRowHtml(punch, { canEdit } = {}) {
   // Tuesday cell with a punch stamped 10 PM Monday reads as a data error.
   if (punch.carried) notes.push(`carried from ${escapeHtml(dayLabel(punch.started_at))}`);
   if (punch.start_source === "auto_work_order") notes.push("auto, from a work-order clock");
+  if (punch.end_source === "auto_clock_out") notes.push("auto-closed at midnight");
   if (punch.needs_review) notes.push("needs review");
   const suffix = notes.length
     ? ` <span class="hub-hours-punch-note">${notes.join(" · ")}</span>`
@@ -98,6 +99,27 @@ function punchRowHtml(punch, { canEdit } = {}) {
   </div>`;
 }
 
+// L2: the waiver rides on the day's first punch it owns. A carried punch
+// belongs to yesterday, so it never carries today's lunch.
+function lunchLineHtml(day, canEdit) {
+  let text;
+  let waive;
+  if (day.lunch_minutes > 0) {
+    text = `Lunch −${formatHm(day.lunch_minutes)}`;
+    waive = true;
+  } else if (day.lunch_waived) {
+    text = "No lunch deducted";
+    waive = false;
+  } else {
+    return "";
+  }
+  const anchor = day.punches.find((p) => !p.carried);
+  const button = canEdit && anchor
+    ? `<button type="button" class="hub-link-btn hub-hours-lunch" data-punch="${escapeHtml(anchor.id)}" data-waive="${waive}">${waive ? "Remove lunch" : "Restore lunch"}</button>`
+    : "";
+  return `<div class="hub-hours-drilldown-row hub-hours-lunch-line"><span>${text}</span><span>${button}</span></div>`;
+}
+
 // Shared with the day page (hubAttendanceDay.js), which stacks one of these
 // per person for a single date and so needs `userId` on the add button.
 export function drilldownHtml(day, name, { canEdit, userId = "" } = {}) {
@@ -111,15 +133,15 @@ export function drilldownHtml(day, name, { canEdit, userId = "" } = {}) {
   return `<div class="hub-hours-drilldown">
     <div class="hub-hours-drilldown-heading">
       <strong>${escapeHtml(name)} · ${escapeHtml(longDateLabel(day.date))}</strong>
-      <strong>${formatHm(day.clocked_minutes)} clocked</strong>
+      <strong>${formatHm(day.paid_minutes)} paid</strong>
     </div>
-    ${rows}${empty}${add}
+    ${rows}${lunchLineHtml(day, canEdit)}${empty}${add}
     <div class="hub-hours-editor" data-date="${escapeHtml(day.date)}" data-user="${escapeHtml(userId)}"></div>
   </div>`;
 }
 
 export function mountHubAttendanceHours(container, payload, {
-  onWeekChange, onSavePunch, onAddPunch, onDeletePunch, onClearReview, onOpenProfile, weekNav = true,
+  onWeekChange, onSavePunch, onAddPunch, onDeletePunch, onClearReview, onToggleLunch, onOpenProfile, weekNav = true,
 } = {}) {
   let expanded = null;
   // A punch id, `add:<date>`, or null. Cleared whenever the open cell moves:
@@ -158,19 +180,19 @@ export function mountHubAttendanceHours(container, payload, {
         const cells = payload.days
           .map((dateValue) => {
             const day = byDate.get(dateValue) || {
-              date: dateValue, clocked_minutes: 0, needs_review: false,
-              has_open: false, punches: [],
+              date: dateValue, clocked_minutes: 0, lunch_minutes: 0, lunch_waived: false,
+              paid_minutes: 0, needs_review: false, has_open: false, punches: [],
             };
             const isExpanded = expanded?.rowIndex === rowIndex && expanded?.date === dateValue;
             const flags = cellFlagLabels(day);
-            const label = `${name}, ${longDateLabel(dateValue)}, ${formatHm(day.clocked_minutes)} clocked${flags ? `, ${flags}` : ""}`;
-            return `<td><button type="button" class="hub-hours-cell" data-row="${rowIndex}" data-date="${escapeHtml(dateValue)}" aria-label="${escapeHtml(label)}" aria-expanded="${isExpanded}" aria-controls="hub-hours-detail-${rowIndex}">${formatHm(day.clocked_minutes)}${cellFlagsHtml(day)}</button></td>`;
+            const label = `${name}, ${longDateLabel(dateValue)}, ${formatHm(day.paid_minutes)} paid${flags ? `, ${flags}` : ""}`;
+            return `<td><button type="button" class="hub-hours-cell" data-row="${rowIndex}" data-date="${escapeHtml(dateValue)}" aria-label="${escapeHtml(label)}" aria-expanded="${isExpanded}" aria-controls="hub-hours-detail-${rowIndex}">${formatHm(day.paid_minutes)}${cellFlagsHtml(day)}</button></td>`;
           })
           .join("");
         const nameCell = onOpenProfile && PROFILABLE_ROLES.includes(row.user?.role)
           ? `<button type="button" class="hub-link-btn hub-hours-person" data-row="${rowIndex}">${escapeHtml(name)}</button>`
           : escapeHtml(name);
-        const mainRow = `<tr><th scope="row">${nameCell}</th>${cells}<td class="hub-hours-row-total">${formatHm(row.total_minutes)}</td></tr>`;
+        const mainRow = `<tr><th scope="row">${nameCell}</th>${cells}<td class="hub-hours-row-total">${formatHm(row.paid_minutes)}</td></tr>`;
         if (expanded?.rowIndex !== rowIndex) return mainRow;
         const day = byDate.get(expanded.date);
         if (!day) return mainRow;
@@ -178,7 +200,7 @@ export function mountHubAttendanceHours(container, payload, {
       })
       .join("");
     const totals = payload.totals_by_day
-      .map((entry) => `<td>${formatHm(entry.minutes)}</td>`)
+      .map((entry) => `<td>${formatHm(entry.paid_minutes)}</td>`)
       .join("");
     // 167 or 169. Said out loud so a short week does not read as lost hours.
     const dst = payload.week_hours === 168
@@ -187,10 +209,10 @@ export function mountHubAttendanceHours(container, payload, {
     const table = payload.rows.length
       ? `<div class="hub-hours-table-wrap">
           <table class="hub-hours-table">
-            <caption class="sr-only">Clocked hours for ${escapeHtml(payload.week_start)} through ${escapeHtml(payload.week_end)}</caption>
+            <caption class="sr-only">Paid hours for ${escapeHtml(payload.week_start)} through ${escapeHtml(payload.week_end)}</caption>
             <thead><tr><th scope="col">Person</th>${headers}<th scope="col">Week</th></tr></thead>
             <tbody>${rows}</tbody>
-            <tfoot><tr><th scope="row">Company total</th>${totals}<td>${formatHm(payload.total_minutes)}</td></tr></tfoot>
+            <tfoot><tr><th scope="row">Company total</th>${totals}<td>${formatHm(payload.paid_minutes)}</td></tr></tfoot>
           </table>
         </div>`
       : `<p class="hint hub-hours-empty">Nobody clocked in this week.</p>`;
@@ -234,6 +256,10 @@ export function mountHubAttendanceHours(container, payload, {
     });
     container.querySelectorAll(".hub-hours-clear-review").forEach((button) => {
       button.addEventListener("click", () => onClearReview?.(button.dataset.punch));
+    });
+    container.querySelectorAll(".hub-hours-lunch").forEach((button) => {
+      button.addEventListener("click", () =>
+        onToggleLunch?.(button.dataset.punch, button.dataset.waive === "true"));
     });
 
     const editorHost = container.querySelector(".hub-hours-editor");

@@ -156,7 +156,7 @@ function renderWeek(panelEl) {
 function renderDay(panelEl, isAdmin) {
   const area = mountFor(panelEl, "week");
   area.innerHTML = `<div class="hub-timesheets-day"></div>`;
-  // The four write callbacks are passed only to an Admin, and the grid
+  // The write callbacks are passed only to an Admin, and the grid
   // renders an affordance only for a callback it was given -- so the floor
   // is expressed once, here, rather than re-derived inside the view.
   const writes = isAdmin
@@ -165,6 +165,10 @@ function renderDay(panelEl, isAdmin) {
       onAddPunch: (userId, values) => write(panelEl, () => apiAddAttendancePunch({ userId, ...values })),
       onDeletePunch: (id, reason) => write(panelEl, () => apiDeleteAttendancePunch(id, reason)),
       onClearReview: (id) => write(panelEl, () => apiEditAttendancePunch(id, { needsReview: false })),
+      onToggleLunch: (id, waived) => write(panelEl, () => apiEditAttendancePunch(id, {
+        lunchWaived: waived,
+        reason: waived ? "Lunch removed by an Admin" : "Lunch restored by an Admin",
+      })),
     }
     : {};
   mountHubAttendanceDayPage(area.firstElementChild, weekPayload, dayOpen, {

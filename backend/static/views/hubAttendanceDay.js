@@ -49,7 +49,7 @@ function peopleOn(payload, date) {
 export function mountHubAttendanceDays(container, payload, { onWeekChange, onOpenDay } = {}) {
   const cards = payload.days.map((date) => {
     const people = peopleOn(payload, date);
-    const minutes = payload.totals_by_day.find((t) => t.date === date)?.minutes ?? 0;
+    const minutes = payload.totals_by_day.find((t) => t.date === date)?.paid_minutes ?? 0;
     const flags = people.some(({ day }) => day.has_open) ? `<span class="hub-hours-flag hub-hours-flag-open"><span aria-hidden="true">●</span><span class="sr-only"> someone still on shift</span></span>` : "";
     const count = `${people.length} clocked in`;
     const punches = people.flatMap(({ day }) => day.punches);
@@ -57,7 +57,7 @@ export function mountHubAttendanceDays(container, payload, { onWeekChange, onOpe
       started_at: punches.map((p) => p.started_at).sort()[0],
       ended_at: punches.some((p) => !p.ended_at) ? null : punches.map((p) => p.ended_at).sort().at(-1),
     }]) : "";
-    return `<button type="button" class="hub-day-card" data-date="${escapeHtml(date)}" aria-label="${escapeHtml(`${longLabel(date)}, ${count}, ${formatHm(minutes)} clocked`)}">
+    return `<button type="button" class="hub-day-card" data-date="${escapeHtml(date)}" aria-label="${escapeHtml(`${longLabel(date)}, ${count}, ${formatHm(minutes)} paid`)}">
       <span class="hub-day-card-date">${escapeHtml(cardLabel(date))}${flags}</span>
       <span class="hub-day-card-count">${escapeHtml(count)}</span>
       <span class="hub-day-card-hours">${formatHm(minutes)}</span>
@@ -95,13 +95,13 @@ export function mountHubAttendanceDays(container, payload, { onWeekChange, onOpe
 // --- The day page: everyone clocked in on one date -------------------------
 
 export function mountHubAttendanceDayPage(container, payload, date, {
-  onBack, onDayChange, onOpenProfile, onSavePunch, onAddPunch, onDeletePunch, onClearReview,
+  onBack, onDayChange, onOpenProfile, onSavePunch, onAddPunch, onDeletePunch, onClearReview, onToggleLunch,
 } = {}) {
   // A punch id, `add:<userId>`, or null.
   let editing = null;
   const canEdit = Boolean(onSavePunch);
   const people = peopleOn(payload, date);
-  const total = people.reduce((sum, { day }) => sum + day.clocked_minutes, 0);
+  const total = people.reduce((sum, { day }) => sum + day.paid_minutes, 0);
 
   function findPunch(punchId) {
     for (const { day } of people) {
@@ -151,6 +151,10 @@ export function mountHubAttendanceDayPage(container, payload, date, {
     });
     container.querySelectorAll(".hub-hours-clear-review").forEach((button) => {
       button.addEventListener("click", () => onClearReview?.(button.dataset.punch));
+    });
+    container.querySelectorAll(".hub-hours-lunch").forEach((button) => {
+      button.addEventListener("click", () =>
+        onToggleLunch?.(button.dataset.punch, button.dataset.waive === "true"));
     });
 
     if (!editing) return;

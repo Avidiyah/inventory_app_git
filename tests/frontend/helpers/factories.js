@@ -625,13 +625,16 @@ export function attendanceWeek(overrides = {}) {
   const days = ["2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17",
                 "2026-09-18", "2026-09-19", "2026-09-20"];
   const blank = (date) => ({
-    date, clocked_minutes: 0, tracked_minutes: 0, delta_minutes: 0,
+    date, clocked_minutes: 0, lunch_minutes: 0, lunch_waived: false, paid_minutes: 0,
+    tracked_minutes: 0, delta_minutes: 0,
     outside_shift_minutes: 0, adjustment_minutes: 0,
     needs_review: false, has_open: false, pending_review: false, punches: [],
   });
   const monday = {
     ...blank("2026-09-14"),
     clocked_minutes: 480,
+    lunch_minutes: 30,
+    paid_minutes: 450,
     tracked_minutes: 420,
     delta_minutes: 60,
     punches: [{
@@ -644,6 +647,7 @@ export function attendanceWeek(overrides = {}) {
       minutes: 480,
       carried: false,
       open: false,
+      lunch_waived: false,
     }],
   };
   return {
@@ -655,11 +659,17 @@ export function attendanceWeek(overrides = {}) {
       user: { id: "user-1", first_name: "Ann", last_name: "Lee", role: "technician" },
       days: [monday, ...days.slice(1).map(blank)],
       total_minutes: 480,
+      paid_minutes: 450,
       tracked_minutes: 420,
       delta_minutes: 60,
     }],
-    totals_by_day: days.map((date) => ({ date, minutes: date === "2026-09-14" ? 480 : 0 })),
+    totals_by_day: days.map((date) => ({
+      date,
+      minutes: date === "2026-09-14" ? 480 : 0,
+      paid_minutes: date === "2026-09-14" ? 450 : 0,
+    })),
     total_minutes: 480,
+    paid_minutes: 450,
     tracked_minutes: 420,
     delta_minutes: 60,
     week_hours: 168,
@@ -673,13 +683,15 @@ export function personWeek(overrides = {}) {
   const days = ["2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17",
                 "2026-09-18", "2026-09-19", "2026-09-20"];
   const blank = (date) => ({
-    date, clocked_minutes: 0, charged_minutes: 0, adjustment_minutes: 0,
+    date, clocked_minutes: 0, lunch_minutes: 0, paid_minutes: 0,
+    charged_minutes: 0, adjustment_minutes: 0,
     completed_count: 0, needs_review: false, has_open: false,
     completed: [], charged: [], adjustments: [], punches: [],
   });
   const monday = {
     ...blank("2026-09-14"),
-    clocked_minutes: 480, charged_minutes: 180, adjustment_minutes: 30, completed_count: 1,
+    clocked_minutes: 480, lunch_minutes: 30, paid_minutes: 450,
+    charged_minutes: 180, adjustment_minutes: 30, completed_count: 1,
     completed: [{ work_order_id: "wo-1", number: "WO-1", location: "Bldg 4",
                   completed_at: "2026-09-14T20:00:00Z", status: "completed", archived: false }],
     charged: [{ work_order_id: "wo-1", number: "WO-1", minutes: 180,
@@ -696,7 +708,7 @@ export function personWeek(overrides = {}) {
     week_start: "2026-09-14", week_end: "2026-09-20",
     server_now: "2026-09-16T15:00:00Z",
     days: [monday, ...days.slice(1).map(blank)],
-    total_clocked_minutes: 480, total_charged_minutes: 180,
+    total_clocked_minutes: 480, total_paid_minutes: 450, total_charged_minutes: 180,
     total_adjustment_minutes: 30, total_completed: 1, reviewable: false,
     ...overrides,
   };

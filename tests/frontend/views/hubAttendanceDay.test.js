@@ -98,3 +98,14 @@ describe("mondayOf", () => {
     expect(mondayOf("2026-09-20")).toBe("2026-09-14");
   });
 });
+
+describe("lunch on the day page", () => {
+  it("prints paid and wires Remove lunch to onToggleLunch", () => {
+    const onToggleLunch = vi.fn();
+    mountHubAttendanceDayPage(host, attendanceWeek(), "2026-09-14",
+      { onToggleLunch, onSavePunch: vi.fn() });
+    expect(host.textContent).toContain("7:30 paid");
+    host.querySelector(".hub-hours-lunch").click();
+    expect(onToggleLunch).toHaveBeenCalledWith("punch-1", true);
+  });
+});
