@@ -64,13 +64,19 @@ class AttendanceWeekPunch(BaseModel):
     minutes: int
     carried: bool
     open: bool
+    lunch_waived: bool
 
     model_config = {"from_attributes": True}
 
 
 class AttendanceWeekDay(BaseModel):
     date: date
+    # Gross on-shift time; `paid_minutes = clocked_minutes - lunch_minutes`
+    # (L3). Delta below stays on the gross number.
     clocked_minutes: int
+    lunch_minutes: int
+    lunch_waived: bool
+    paid_minutes: int
     # The comparison columns (P4a, spec §8). Real wall-clock, both of them:
     # `tracked` is time on a job, `delta` is `clocked - tracked` floored at
     # zero -- on shift, not on a job. `outside_shift` is the other direction,
@@ -94,6 +100,7 @@ class AttendanceWeekRow(BaseModel):
     user: HubUser
     days: list[AttendanceWeekDay]
     total_minutes: int
+    paid_minutes: int
     tracked_minutes: int
     delta_minutes: int
 
@@ -103,6 +110,7 @@ class AttendanceWeekRow(BaseModel):
 class AttendanceWeekDayTotal(BaseModel):
     date: date
     minutes: int
+    paid_minutes: int
 
     model_config = {"from_attributes": True}
 
@@ -129,6 +137,7 @@ class AttendanceWeekResponse(BaseModel):
     rows: list[AttendanceWeekRow]
     totals_by_day: list[AttendanceWeekDayTotal]
     total_minutes: int
+    paid_minutes: int
     tracked_minutes: int
     delta_minutes: int
     week_hours: int
@@ -247,6 +256,8 @@ class PersonWeekCharged(BaseModel):
 class PersonWeekDay(BaseModel):
     date: date
     clocked_minutes: int
+    lunch_minutes: int
+    paid_minutes: int
     charged_minutes: int
     adjustment_minutes: int
     completed_count: int
@@ -272,6 +283,7 @@ class PersonWeekResponse(BaseModel):
     server_now: datetime
     days: list[PersonWeekDay]
     total_clocked_minutes: int
+    total_paid_minutes: int
     total_charged_minutes: int
     total_adjustment_minutes: int
     total_completed: int

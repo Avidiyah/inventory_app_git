@@ -186,3 +186,50 @@ def test_a_forgotten_sunday_punch_stays_on_sunday(db):
     assert this_week.days[6].clocked_minutes == 17 * 60
     assert next_week.days[0].clocked_minutes == 0
     assert next_week.days[0].punches == []
+
+
+# --- Lunch and paid (L1-L3) -----------------------------------------------
+
+def _closed(db, user, start, hours, waived=False):
+    punch = _punch(db, user, start, start + timedelta(hours=hours))
+    punch.lunch_waived = waived
+    db.flush()
+    return punch
+
+
+MON_7AM = datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)
+
+
+def test_lunch_comes_off_a_long_day_and_not_a_short_one(db):
+    user = _user(db)
+    _closed(db, user, MON_7AM, 8)
+    _closed(db, user, MON_7AM + timedelta(days=1), 5)
+    db.commit()
+    week = attendance_week.week_payload(db, week_start=MONDAY, now=NOW)
+    row = _row_for(week, user)
+    mon, tue = row.days[0], row.days[1]
+    assert (mon.clocked_minutes, mon.lunch_minutes, mon.paid_minutes) == (480, 30, 450)
+    assert (tue.lunch_minutes, tue.paid_minutes) == (0, 300)
+    assert row.total_minutes == 780 and row.paid_minutes == 750
+    assert week.totals_by_day[0].paid_minutes >= 450
+    assert week.paid_minutes == sum(t.paid_minutes for t in week.totals_by_day)
+
+
+def test_a_waiver_on_any_punch_waives_the_day(db):
+    user = _user(db)
+    _closed(db, user, MON_7AM, 4)
+    _closed(db, user, MON_7AM + timedelta(hours=5), 4, waived=True)
+    db.commit()
+    mon = _row_for(attendance_week.week_payload(db, week_start=MONDAY, now=NOW), user).days[0]
+    assert mon.lunch_waived is True
+    assert (mon.lunch_minutes, mon.paid_minutes) == (0, 480)
+
+
+def test_a_carried_punchs_waiver_does_not_waive_the_next_day(db):
+    user = _user(db)
+    # Legacy 10 PM Mon -> 6 AM Tue, waived; then a normal 8-hour Tuesday.
+    _closed(db, user, datetime(2026, 9, 15, 3, 0, tzinfo=timezone.utc), 8, waived=True)
+    _closed(db, user, datetime(2026, 9, 15, 13, 0, tzinfo=timezone.utc), 8)
+    db.commit()
+    tue = _row_for(attendance_week.week_payload(db, week_start=MONDAY, now=NOW), user).days[1]
+    assert tue.lunch_waived is False and tue.lunch_minutes == 30

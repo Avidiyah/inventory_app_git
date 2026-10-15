@@ -51,12 +51,19 @@ class WeekPunch:
     minutes: int
     carried: bool
     open: bool
+    lunch_waived: bool
 
 
 @dataclass(frozen=True)
 class WeekDay:
+    """`clocked_minutes` stays gross; `paid_minutes = clocked - lunch` (L3).
+    The day is waived when any punch it owns (not a carried one) is (L2)."""
+
     date: date
     clocked_minutes: int
+    lunch_minutes: int
+    lunch_waived: bool
+    paid_minutes: int
     needs_review: bool
     has_open: bool
     punches: list[WeekPunch]
@@ -67,12 +74,14 @@ class WeekRow:
     user: User
     days: list[WeekDay]
     total_minutes: int
+    paid_minutes: int
 
 
 @dataclass(frozen=True)
 class DayTotal:
     date: date
     minutes: int
+    paid_minutes: int
 
 
 @dataclass(frozen=True)
@@ -84,6 +93,7 @@ class AttendanceWeek:
     rows: list[WeekRow]
     totals_by_day: list[DayTotal]
     total_minutes: int
+    paid_minutes: int
     week_hours: int
 
 
@@ -180,11 +190,13 @@ def week_payload(
     # Day bounds computed once for all seven days, not once per person-day.
     bounds = {day: labor_day.day_bounds(day) for day in days}
     totals_by_day: dict[date, int] = {day: 0 for day in days}
+    paid_by_day: dict[date, int] = {day: 0 for day in days}
     rows: list[WeekRow] = []
 
     for person in sorted(people, key=_sort_key):
         week_days: list[WeekDay] = []
         row_total = 0
+        row_paid = 0
         for day in days:
             day_start, day_end = bounds[day]
             day_punches: list[WeekPunch] = []
@@ -208,21 +220,31 @@ def week_payload(
                         minutes=minutes,
                         carried=labor_day.central_date_of(punch.started_at) < day,
                         open=end is None,
+                        lunch_waived=bool(punch.lunch_waived),
                     )
                 )
             day_minutes = sum(entry.minutes for entry in day_punches)
+            waived = any(e.lunch_waived for e in day_punches if not e.carried)
+            lunch = attendance.lunch_minutes(day_minutes, waived=waived)
+            paid = day_minutes - lunch
             row_total += day_minutes
+            row_paid += paid
             totals_by_day[day] += day_minutes
+            paid_by_day[day] += paid
             week_days.append(
                 WeekDay(
                     date=day,
                     clocked_minutes=day_minutes,
+                    lunch_minutes=lunch,
+                    lunch_waived=waived,
+                    paid_minutes=paid,
                     needs_review=any(entry.needs_review for entry in day_punches),
                     has_open=any(entry.open for entry in day_punches),
                     punches=day_punches,
                 )
             )
-        rows.append(WeekRow(user=person, days=week_days, total_minutes=row_total))
+        rows.append(WeekRow(user=person, days=week_days, total_minutes=row_total,
+                            paid_minutes=row_paid))
 
     return AttendanceWeek(
         week_start=week_start,
@@ -230,8 +252,10 @@ def week_payload(
         server_now=now,
         days=days,
         rows=rows,
-        totals_by_day=[DayTotal(date=day, minutes=totals_by_day[day]) for day in days],
+        totals_by_day=[DayTotal(date=day, minutes=totals_by_day[day],
+                                paid_minutes=paid_by_day[day]) for day in days],
         total_minutes=sum(totals_by_day.values()),
+        paid_minutes=sum(paid_by_day.values()),
         # 167 or 169 across a DST transition. The grid's footer says so rather
         # than letting an Admin read a short week as missing hours.
         week_hours=round((window_end - window_start).total_seconds() / 3600),

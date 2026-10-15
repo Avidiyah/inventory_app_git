@@ -60,6 +60,8 @@ class PersonCharged:
 class PersonDay:
     date: date
     clocked_minutes: int
+    lunch_minutes: int
+    paid_minutes: int
     charged_minutes: int
     adjustment_minutes: int
     completed_count: int
@@ -80,6 +82,7 @@ class PersonWeek:
     server_now: datetime
     days: list[PersonDay]
     total_clocked_minutes: int
+    total_paid_minutes: int
     total_charged_minutes: int
     total_adjustment_minutes: int
     total_completed: int
@@ -166,6 +169,8 @@ def week_payload(
         out.append(PersonDay(
             date=day,
             clocked_minutes=clocked_day.clocked_minutes if clocked_day else 0,
+            lunch_minutes=clocked_day.lunch_minutes if clocked_day else 0,
+            paid_minutes=clocked_day.paid_minutes if clocked_day else 0,
             charged_minutes=summary.closed_minutes + summary.running_minutes,
             adjustment_minutes=summary.adjustment_minutes,
             completed_count=len(completed),
@@ -186,6 +191,7 @@ def week_payload(
         server_now=now,
         days=out,
         total_clocked_minutes=sum(d.clocked_minutes for d in out),
+        total_paid_minutes=sum(d.paid_minutes for d in out),
         total_charged_minutes=sum(d.charged_minutes for d in out),
         total_adjustment_minutes=sum(d.adjustment_minutes for d in out),
         total_completed=sum(d.completed_count for d in out),

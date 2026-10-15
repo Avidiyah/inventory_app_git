@@ -65,7 +65,7 @@ def test_the_export_is_csv_with_the_week_in_its_filename(db):
     )
 
 
-def test_every_person_gets_the_same_five_metric_rows(db):
+def test_every_person_gets_the_same_seven_metric_rows(db):
     admin = _seed_user(db, role="admin", first="Dee", last="Ops")
     _seed_week(db)
 
@@ -73,9 +73,10 @@ def test_every_person_gets_the_same_five_metric_rows(db):
 
     assert lines[0].split(",")[:2] == ["Person", "Metric"]
     assert lines[0].split(",")[-1] == "Week"
-    metrics = [line.split(",")[1] for line in lines[1:6]]
+    metrics = [line.split(",")[1] for line in lines[1:8]]
     assert metrics == [
-        "Clocked", "Charged", "Off job", "Charged outside shift", "Adjustments"
+        "Clocked", "Lunch", "Paid", "Charged", "Off job", "Charged outside shift",
+        "Adjustments",
     ]
 
 
@@ -93,7 +94,10 @@ def test_the_figures_are_h_mm_and_the_last_block_is_the_company_total(db):
     )
     assert clocked.split(",")[2] == "8:00"      # Monday, the seeded 8-hour shift
     assert clocked.split(",")[-1] == "8:00"     # and the week column
-    assert lines[-5].split(",")[0] == "Company total"
+    lunch = next(line for line in lines if line.startswith(f"{tech.full_name},Lunch,"))
+    paid = next(line for line in lines if line.startswith(f"{tech.full_name},Paid,"))
+    assert lunch.split(",")[2] == "0:30" and paid.split(",")[2] == "7:30"
+    assert lines[-7].split(",")[0] == "Company total"
 
 
 def test_a_non_monday_is_422_exactly_as_the_week_read_is(db):

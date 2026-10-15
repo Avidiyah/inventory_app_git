@@ -275,3 +275,15 @@ def test_mark_week_reviewed_accepts_every_estimate_including_a_midnight_close(db
     assert week.reviewable_count == 0
     assert _row_for(week, tech).days[0].pending_review is False
     assert _row_for(week, other).days[1].pending_review is False
+
+
+
+def test_delta_stays_gross_when_lunch_comes_off(db):
+    tech = make_technician(db)
+    make_punch(db, tech, "2026-09-14T13:00Z", "2026-09-14T21:00Z")
+    week = attendance_compare.week_payload(db, week_start=MONDAY, now=NOW)
+    row = _row_for(week, tech)
+    monday = row.days[0]
+    assert (monday.paid_minutes, monday.lunch_minutes) == (450, 30)
+    assert monday.delta_minutes == 480
+    assert row.paid_minutes == 450 and week.paid_minutes >= 450

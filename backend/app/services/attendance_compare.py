@@ -52,6 +52,9 @@ from app.services import attendance_week, labor_summary
 class CompareDay:
     date: date
     clocked_minutes: int
+    lunch_minutes: int
+    lunch_waived: bool
+    paid_minutes: int
     tracked_minutes: int
     delta_minutes: int
     outside_shift_minutes: int
@@ -67,6 +70,7 @@ class CompareRow:
     user: User
     days: list[CompareDay]
     total_minutes: int          # clocked; the name the Hours grid already uses
+    paid_minutes: int
     tracked_minutes: int
     delta_minutes: int
 
@@ -80,6 +84,7 @@ class CompareWeek:
     rows: list[CompareRow]
     totals_by_day: list[attendance_week.DayTotal]
     total_minutes: int
+    paid_minutes: int
     tracked_minutes: int
     delta_minutes: int
     week_hours: int
@@ -156,6 +161,9 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
                 CompareDay(
                     date=day.date,
                     clocked_minutes=day.clocked_minutes,
+                    lunch_minutes=day.lunch_minutes,
+                    lunch_waived=day.lunch_waived,
+                    paid_minutes=day.paid_minutes,
                     tracked_minutes=tracked,
                     delta_minutes=delta,
                     outside_shift_minutes=outside,
@@ -175,6 +183,7 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
                 user=row.user,
                 days=days,
                 total_minutes=row.total_minutes,
+                paid_minutes=row.paid_minutes,
                 tracked_minutes=row_tracked,
                 delta_minutes=row_delta,
             )
@@ -188,6 +197,7 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
         rows=rows,
         totals_by_day=clocked.totals_by_day,
         total_minutes=clocked.total_minutes,
+        paid_minutes=clocked.paid_minutes,
         tracked_minutes=week_tracked,
         delta_minutes=week_delta,
         week_hours=clocked.week_hours,
@@ -202,11 +212,13 @@ def _hm(total_minutes: int) -> str:
     return f"{hours}:{minutes:02d}"
 
 
-# Five rows per person, always, in this order. A fixed block is what makes the
+# Seven rows per person, always, in this order. A fixed block is what makes the
 # file parseable: a metric that appears only when non-zero turns every reader
 # into a state machine.
 _METRICS: tuple[tuple[str, str], ...] = (
     ("Clocked", "clocked_minutes"),
+    ("Lunch", "lunch_minutes"),
+    ("Paid", "paid_minutes"),
     ("Charged", "tracked_minutes"),
     ("Off job", "delta_minutes"),
     ("Charged outside shift", "outside_shift_minutes"),
@@ -215,7 +227,7 @@ _METRICS: tuple[tuple[str, str], ...] = (
 
 
 def week_csv(payload: CompareWeek) -> str:
-    """The comparison as payroll-friendly CSV: five metric rows per person,
+    """The comparison as payroll-friendly CSV: seven metric rows per person,
     seven day columns, a week column, then the same block for the company.
 
     One header row and nothing above it -- a title line is the first thing a

@@ -248,3 +248,14 @@ def test_completed_carries_status_and_archived(db):
     assert (by_number["WO-A"].status, by_number["WO-A"].archived) == ("completed", True)
     from app.schemas.attendance import PersonWeekCompleted
     assert PersonWeekCompleted.model_validate(by_number["WO-A"]).archived is True
+
+
+
+def test_paid_and_lunch_ride_on_each_day_and_the_week(db):
+    tech = _user(db)
+    _punch(db, tech, _utc(14, 13), _utc(14, 21))
+    db.commit()
+    payload = _payload(db, tech)
+    monday = _day(payload, MONDAY)
+    assert (monday.clocked_minutes, monday.lunch_minutes, monday.paid_minutes) == (480, 30, 450)
+    assert payload.total_paid_minutes == 450
