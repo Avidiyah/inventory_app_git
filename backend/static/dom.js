@@ -515,9 +515,9 @@ export function promptUserRole(user, options = []) {
 
 // --- Time picker ------------------------------------------------------
 //
-// Two callers earn this a place beside confirmDialog and promptUserRole
-// rather than a home inside one view: the technician's D5 self-close prompt
-// (P1) and the Admin punch edit (P3).
+// Lives beside confirmDialog and promptUserRole rather than inside one view
+// because the Admin punch editor opens it from three places: the Timesheets
+// tab, the day page and a user's profile.
 //
 // Resolves a Date on `initial`'s own calendar day. A shift is picked, not
 // dated -- the day comes from the punch being corrected, and letting a
