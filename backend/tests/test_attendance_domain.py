@@ -49,19 +49,35 @@ def test_idle_counts_from_the_later_of_the_two_anchors():
         last_labor_ended_at=NOW - timedelta(minutes=3), now=NOW) == 3
 
 
-def test_a_punch_from_an_earlier_central_day_is_stale():
-    # 11:00 PM Central Sunday, read at 1:00 PM Central Monday.
-    assert attendance.is_stale(datetime(2026, 9, 21, 4, 0, tzinfo=timezone.utc), now=NOW)
+def test_midnight_after_is_the_next_central_midnight():
+    # 8:00 PM Central Mon 9/21 = 01:00 UTC Tue; its midnight is 05:00 UTC Tue.
+    start = datetime(2026, 9, 22, 1, 0, tzinfo=timezone.utc)
+    assert attendance.midnight_after(start) == datetime(2026, 9, 22, 5, 0, tzinfo=timezone.utc)
 
 
-def test_a_punch_from_this_central_day_is_not_stale():
-    assert not attendance.is_stale(NOW - timedelta(hours=6), now=NOW)
+def test_midnight_after_across_dst():
+    fall = datetime(2026, 11, 1, 9, 0, tzinfo=labor_day.CENTRAL)     # DST ends that night
+    spring = datetime(2026, 3, 8, 9, 0, tzinfo=labor_day.CENTRAL)    # DST starts that morning
+    assert attendance.midnight_after(fall) == datetime(2026, 11, 2, 6, 0, tzinfo=timezone.utc)
+    assert attendance.midnight_after(spring) == datetime(2026, 3, 9, 5, 0, tzinfo=timezone.utc)
 
 
-def test_the_central_day_is_what_decides_staleness_not_utc():
-    # 8:00 PM Central Monday = 01:00 UTC Tuesday. Same Central day, not stale.
-    later = datetime(2026, 9, 22, 2, 0, tzinfo=timezone.utc)   # 9:00 PM Central Mon
-    assert not attendance.is_stale(datetime(2026, 9, 22, 1, 0, tzinfo=timezone.utc), now=later)
+def test_capped_end():
+    today = NOW - timedelta(hours=6)
+    yesterday = datetime(2026, 9, 20, 12, 0, tzinfo=timezone.utc)
+    midnight = datetime(2026, 9, 21, 5, 0, tzinfo=timezone.utc)
+    assert attendance.capped_end(today, None, now=NOW) is None
+    assert attendance.capped_end(yesterday, None, now=NOW) == midnight
+    assert attendance.capped_end(today, NOW, now=NOW) == NOW
+
+
+def test_a_punch_may_not_cross_midnight():
+    start = datetime(2026, 9, 20, 12, 0, tzinfo=timezone.utc)
+    with pytest.raises(PunchTimeInvalidError, match="may not cross midnight"):
+        attendance.validate_punch_window(
+            start, datetime(2026, 9, 21, 5, 1, tzinfo=timezone.utc), now=NOW)
+    attendance.validate_punch_window(
+        start, datetime(2026, 9, 21, 5, 0, tzinfo=timezone.utc), now=NOW)
 
 
 @pytest.mark.parametrize("started,ended,fragment", [

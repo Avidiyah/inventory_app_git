@@ -41,7 +41,6 @@ class OpenPunch:
     id: uuid.UUID
     started_at: datetime
     start_source: str
-    stale: bool
 
 
 @dataclass(frozen=True)
@@ -72,20 +71,36 @@ def open_punch_for(db: Session, user_id: uuid.UUID) -> Optional[AttendancePunch]
     )
 
 
-def _already_open(punch: AttendancePunch, *, now: datetime) -> PunchAlreadyOpenError:
-    stale = attendance.is_stale(punch.started_at, now=now)
+def sweep_open_punches(db: Session, *, now: Optional[datetime] = None,
+                       user_id: Optional[uuid.UUID] = None) -> int:
+    """M1/M2: close every live punch still open from an earlier Central day
+    at that day's midnight, `auto_clock_out`, flagged. Idempotent; commits
+    only when it closed something; no audit row (no actor -- the source and
+    flag are the record, as `auto_closed_at` is for a session). Never stops
+    a work-order clock (M3). Emits nothing: every read computes the cap."""
+    now = now or datetime.now(timezone.utc)
+    today_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    query = live_punches(db).filter(AttendancePunch.ended_at.is_(None),
+                                    AttendancePunch.started_at < today_start)
+    if user_id is not None:
+        query = query.filter(AttendancePunch.user_id == user_id)
+    expired = query.all()
+    for punch in expired:
+        punch.ended_at = attendance.midnight_after(punch.started_at)
+        punch.end_source = attendance.END_SOURCE_AUTO_CLOCK_OUT
+        punch.needs_review = True
+    if expired:
+        db.commit()
+    return len(expired)
+
+
+def _already_open(punch: AttendancePunch) -> PunchAlreadyOpenError:
     started = labor_day.as_utc(punch.started_at).astimezone(labor_day.CENTRAL)
     # Hour formatted by hand: `%-I` is glibc-only and `%#I` is Windows-only,
     # and this app runs on both.
     when = f"{started:%a} {started.hour % 12 or 12}:{started:%M %p}"
-    message = (
-        f"You are still punched in from {when}. Close it on your Home tab "
-        "before starting again."
-        if stale
-        else f"You are already punched in since {when}."
-    )
-    return PunchAlreadyOpenError(message, punch_id=punch.id,
-                                 started_at=punch.started_at, stale=stale)
+    return PunchAlreadyOpenError(f"You are already punched in since {when}.",
+                                 punch_id=punch.id, started_at=punch.started_at)
 
 
 def punch_in(
@@ -95,17 +110,18 @@ def punch_in(
     now: Optional[datetime] = None,
     source: str = attendance.START_SOURCE_MANUAL,
 ) -> AttendancePunch:
-    """Open a punch. Refuses when one is open (D4), returning it on the
-    exception so the UI can drive D5's prompt.
+    """Open a punch. Refuses when one is open today; yesterday's is swept
+    to its midnight first (M2), so it never blocks.
 
     The `IntegrityError` arm is the race the partial unique index exists to
     win: two taps that both pass the pre-check, one insert, the loser
     re-reads and reports the same conflict.
     """
     now = now or datetime.now(timezone.utc)
+    sweep_open_punches(db, now=now, user_id=user.id)
     existing = open_punch_for(db, user.id)
     if existing is not None:
-        raise _already_open(existing, now=now)
+        raise _already_open(existing)
 
     punch = AttendancePunch(
         id=uuid.uuid4(), user_id=user.id, started_at=now, start_source=source
@@ -118,7 +134,7 @@ def punch_in(
         winner = open_punch_for(db, user.id)
         if winner is None:
             raise
-        raise _already_open(winner, now=now) from exc
+        raise _already_open(winner) from exc
     db.refresh(punch)
     return punch
 
@@ -129,6 +145,9 @@ def punch_out(
     """Close the punch **and** force-stop any running labor session (D3),
     both at the same `now` and in one commit."""
     now = now or datetime.now(timezone.utc)
+    # Before the lookup: a punch from an earlier day ends at its midnight,
+    # never at a time past it (M4).
+    sweep_open_punches(db, now=now, user_id=user.id)
     punch = open_punch_for(db, user.id)
     if punch is None:
         raise PunchNotFoundError("You are not punched in.")
@@ -158,29 +177,6 @@ def _stop_labor(db: Session, *, user_id: uuid.UUID, actor: User,
     wo_service.stop_running_session_for(db, user_id, actor=actor, ended_at=end)
 
 
-def self_close(
-    db: Session, *, user: User, ended_at: datetime, now: Optional[datetime] = None
-) -> AttendancePunch:
-    """D5: the technician closes their own stale punch at a stated time.
-
-    Flagged `needs_review` and `end_source='self_reported'` -- an estimate,
-    labelled as one, that an Admin corrects in P3. Without this, D3 and D4
-    together would let Tuesday's clerical error stop Wednesday's jobs.
-    """
-    now = now or datetime.now(timezone.utc)
-    punch = open_punch_for(db, user.id)
-    if punch is None:
-        raise PunchNotFoundError("You have no open punch to close.")
-    attendance.validate_punch_window(punch.started_at, ended_at, now=now)
-    _stop_labor(db, user_id=user.id, actor=user, ended_at=ended_at)
-    punch.ended_at = labor_day.as_utc(ended_at)
-    punch.end_source = attendance.END_SOURCE_SELF_REPORTED
-    punch.needs_review = True
-    db.commit()
-    db.refresh(punch)
-    return punch
-
-
 def ensure_punch_for_labor_start(
     db: Session, *, user: User, now: Optional[datetime] = None
 ) -> AttendancePunch:
@@ -188,15 +184,13 @@ def ensure_punch_for_labor_start(
 
     A technician who ignores the punch button still produces a correct
     timesheet: starting a clock off-shift opens a punch tagged
-    `auto_work_order`. A *stale* punch refuses instead, because charging a
-    job against a shift that started two days ago is not a record anyone can
-    pay from.
+    `auto_work_order`. Yesterday's forgotten punch is swept to its midnight
+    first (M2), so it never blocks today's job.
     """
     now = now or datetime.now(timezone.utc)
+    sweep_open_punches(db, now=now, user_id=user.id)
     existing = open_punch_for(db, user.id)
     if existing is not None:
-        if attendance.is_stale(existing.started_at, now=now):
-            raise _already_open(existing, now=now)
         return existing
     return punch_in(db, user=user, now=now,
                     source=attendance.START_SOURCE_AUTO_WORK_ORDER)
@@ -220,11 +214,15 @@ def me_payload(
         )
         .all()
     )
+    # Every end through `capped_end` (M1): yesterday's forgotten punch adds
+    # nothing to today and is not "on shift", sweep or no sweep.
+    ends = {p.id: attendance.capped_end(p.started_at, p.ended_at, now=now)
+            for p in punches}
     minutes = sum(
-        labor_day.overlap_minutes(p.started_at, p.ended_at, day_start, day_end, now=now)
+        labor_day.overlap_minutes(p.started_at, ends[p.id], day_start, day_end, now=now)
         for p in punches
     )
-    open_row = next((p for p in punches if p.ended_at is None), None)
+    open_row = next((p for p in punches if ends[p.id] is None), None)
     return AttendanceMe(
         server_now=now,
         day=today,
@@ -232,7 +230,6 @@ def me_payload(
             id=open_row.id,
             started_at=open_row.started_at,
             start_source=open_row.start_source,
-            stale=attendance.is_stale(open_row.started_at, now=now),
         ),
         clocked_minutes_today=minutes,
     )
@@ -321,7 +318,7 @@ def admin_edit_punch(db: Session, *, actor: User, punch_id,
     same instant, exactly as their own punch-out would.
 
     Any change clears `needs_review` -- an Admin who has looked at a
-    self-reported time has reviewed it. Passing `needs_review=False` alone is
+    midnight-closed or self-reported time has reviewed it. Passing `needs_review=False` alone is
     the "Looks right" action: reviewed, nothing to correct.
     """
     now = now or datetime.now(timezone.utc)
@@ -330,9 +327,12 @@ def admin_edit_punch(db: Session, *, actor: User, punch_id,
     new_end = labor_day.as_utc(ended_at) if ended_at is not None else punch.ended_at
     if punch.ended_at is not None and new_end is None:
         raise PunchTimeInvalidError("A closed punch cannot be re-opened.")
-    attendance.validate_punch_window(new_start, new_end, now=now)
-    _assert_no_overlap(db, user_id=punch.user_id, punch_id=punch.id,
-                       started_at=new_start, ended_at=new_end, now=now)
+    # M4 checks a time an Admin writes, not one already on file: "Looks
+    # right" on a legacy cross-midnight row must still work.
+    if (new_start, new_end) != (punch.started_at, punch.ended_at):
+        attendance.validate_punch_window(new_start, new_end, now=now)
+        _assert_no_overlap(db, user_id=punch.user_id, punch_id=punch.id,
+                           started_at=new_start, ended_at=new_end, now=now)
 
     changes: list[tuple[str, Optional[str], Optional[str]]] = []
     if new_start != punch.started_at:
@@ -365,6 +365,7 @@ def admin_clock_out(db: Session, *, actor: User, user_id: uuid.UUID,
     """The roster's one-tap "Clock out": close this person's open punch at
     the server's now -- an audited `admin_edit_punch`, labor stop included."""
     now = now or datetime.now(timezone.utc)
+    sweep_open_punches(db, now=now, user_id=user_id)
     punch = open_punch_for(db, user_id)
     if punch is None:
         raise PunchNotFoundError("They are not clocked in.")
@@ -407,11 +408,12 @@ def mark_week_reviewed(db: Session, *, actor: User, week_start: date,
     `reviewed_at`. Over-cap clocks still running are swept first, so they
     close at the capped instant and are accepted with the rest.
 
-    An open punch is left alone: it has no stop to accept, and D4 forbids
-    inventing one. It stays pending until someone closes it.
+    Punches still open from an earlier day are swept first, so a midnight
+    close is accepted with the rest.
     """
     now = now or datetime.now(timezone.utc)
     wo_service.sweep_stale_sessions(db, now=now)
+    sweep_open_punches(db, now=now)
     window_start, _ = labor_day.day_bounds(week_start)
     _, window_end = labor_day.day_bounds(week_start + timedelta(days=6))
 

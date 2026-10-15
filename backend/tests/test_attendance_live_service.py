@@ -101,10 +101,12 @@ def test_a_clock_past_the_cap_is_not_charging(db):
     ended, and idle is measured from where a sweep would have closed it."""
     tech = make_technician(db)
     work_order = make_work_order(db, tech)
-    started = NOW - timedelta(minutes=wo.LABOR_SESSION_MAX_MINUTES + 60)
+    # 10 PM Central, so the 13-hour-old punch is still today's (M1).
+    late = datetime(2026, 9, 22, 3, 0, tzinfo=timezone.utc)
+    started = late - timedelta(minutes=wo.LABOR_SESSION_MAX_MINUTES + 60)
     open_punch(db, tech, started_at=started)
     open_session(db, tech, work_order, started_at=started)
-    entry = attendance_live.roster(db, now=NOW).on_shift[0]
+    entry = attendance_live.roster(db, now=late).on_shift[0]
     assert entry.state == attendance_domain.STATE_RED
     assert entry.work_order_number is None
     assert entry.idle_minutes == 60
@@ -152,3 +154,11 @@ def test_an_admin_who_punches_in_is_not_colour_judged(db):
     payload = attendance_live.roster(db, now=NOW)
     assert payload.on_shift == []
     assert _entry_for(payload.absent, admin) is None
+
+
+def test_a_punch_past_midnight_is_absent_not_red(db):
+    tech = make_technician(db)
+    open_punch(db, tech, started_at=NOW - timedelta(days=1))
+    payload = attendance_live.roster(db, now=NOW)
+    assert _entry_for(payload.absent, tech) is not None
+    assert _entry_for(payload.on_shift, tech) is None

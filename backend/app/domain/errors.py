@@ -376,19 +376,17 @@ class ToolReturnExceedsCheckedOutError(DomainError):
 
 
 class PunchAlreadyOpenError(DomainError):
-    """Raised when a punch-in, or a labor start behind a *stale* punch, finds
-    an open `attendance_punches` row. Per D4 nothing auto-closes, so this is
-    a conflict the caller resolves (D5's self-close), not a failure.
+    """Raised when a punch-in finds today's punch still open. An earlier
+    day's punch never raises it: the caller's own sweep closes that one at
+    its midnight first (M2).
 
     Carries the offending punch so the router's message can name its start
-    time and so P3 can act on it. The wire payload is a plain sentence; the
-    structured punch reaches the UI from `GET /attendance/me`. Maps to 409."""
+    time. The wire payload is a plain sentence. Maps to 409."""
 
-    def __init__(self, message: str, *, punch_id, started_at, stale: bool):
+    def __init__(self, message: str, *, punch_id, started_at):
         super().__init__(message)
         self.punch_id = punch_id
         self.started_at = started_at
-        self.stale = stale
 
 
 class PunchOverlapError(DomainError):

@@ -146,6 +146,9 @@ def roster(db: Session, *, now: Optional[datetime] = None) -> LiveRoster:
     absent: list[RosterEntry] = []
     for person in people:
         punch = punches.get(person.id)
+        if punch is not None and attendance.capped_end(
+                punch.started_at, None, now=moment) is not None:
+            punch = None   # past its midnight: closed for every read (M1)
         if punch is None:
             absent.append(RosterEntry(
                 user=person, state=attendance.STATE_GRAY, punch_started_at=None,

@@ -29,10 +29,9 @@ START_SOURCE_MANUAL = "manual"
 START_SOURCE_AUTO_WORK_ORDER = "auto_work_order"
 
 END_SOURCE_MANUAL = "manual"
-# Declared for completeness of the 1 vocabulary. Nothing writes it: D4
-# forbids auto-close, so the value exists only so a future rule that needs
-# it does not invent a sixth name.
+# The midnight close (M1): `services.attendance.sweep_open_punches` writes it.
 END_SOURCE_AUTO_CLOCK_OUT = "auto_clock_out"
+# Legacy rows from the retired self-close; nothing writes it any more.
 END_SOURCE_SELF_REPORTED = "self_reported"
 END_SOURCE_ADMIN_EDIT = "admin_edit"
 
@@ -107,20 +106,22 @@ def shift_state(
     return STATE_RED if idle >= IDLE_RED_MINUTES else STATE_YELLOW
 
 
-def is_stale(punch_started_at: datetime, *, now: datetime) -> bool:
-    """Whether an open punch began on an **earlier Central calendar day**.
+def midnight_after(started_at: datetime) -> datetime:
+    """The Central midnight that ends `started_at`'s day (M1). DST-safe
+    because `day_bounds` is."""
+    return labor_day.day_bounds(labor_day.central_date_of(started_at))[1]
 
-    The spec names a "stale punch" in D5 and 9 without defining it; this is
-    that definition. Today's open punch is an ordinary on-shift punch and
-    blocks nothing -- a technician who punched in this morning and starts a
-    second job at noon must not be stopped. Yesterday's is the clerical error
-    D5 exists to unblock, and blocking *that* is what would stop Wednesday's
-    jobs.
 
-    Built on `labor_day.central_date_of`, so a 9 PM punch read at 10 PM is
-    the same day even though it crossed midnight UTC.
-    """
-    return labor_day.central_date_of(punch_started_at) < labor_day.central_date_of(now)
+def capped_end(started_at: datetime, ended_at: Optional[datetime], *,
+               now: datetime) -> Optional[datetime]:
+    """Where a punch ends for every read (M1/M2). The stored end when set;
+    the midnight after the start once `now` reaches it; else None (still on
+    shift). Sibling of `work_orders.capped_session_end`: reads compute the
+    cap, `services.attendance.sweep_open_punches` writes it lazily."""
+    if ended_at is not None:
+        return labor_day.as_utc(ended_at)
+    midnight = midnight_after(started_at)
+    return midnight if labor_day.as_utc(now) >= midnight else None
 
 
 def validate_punch_window(
@@ -129,7 +130,8 @@ def validate_punch_window(
     *,
     now: datetime,
 ) -> None:
-    """Spec 9's first two rows. `ended_at=None` is an open punch, valid."""
+    """Spec 9's first two rows plus M4 (no punch crosses Central midnight).
+    `ended_at=None` is an open punch, valid."""
     moment = labor_day.as_utc(now)
     start = labor_day.as_utc(started_at)
     if start > moment:
@@ -141,6 +143,8 @@ def validate_punch_window(
         raise PunchTimeInvalidError("A punch cannot end in the future.")
     if end <= start:
         raise PunchTimeInvalidError("A punch must end after it starts.")
+    if end > midnight_after(start):
+        raise PunchTimeInvalidError("A punch may not cross midnight.")
 
 
 def find_overlap(

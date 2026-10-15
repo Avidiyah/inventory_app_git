@@ -26,6 +26,7 @@ from app.domain import receipt
 from app.domain import roles
 from app.domain import work_orders as wo
 from app.models import User, UserRequest, WorkOrder, WorkOrderLaborSession, WorkOrderTechnician
+from app.services import attendance as attendance_service
 from app.services import labor_summary
 from app.services import material_requests as material_requests_service
 from app.services import tools as tools_service
@@ -244,6 +245,7 @@ def personal_hub(db: Session, user: User) -> HubPayload:
     work_orders_service.sweep_stale_sessions(
         db, technician_id=user.id, now=now
     )
+    attendance_service.sweep_open_punches(db, now=now, user_id=user.id)
     day = labor_day.central_date_of(now)
 
     mine = _assigned_work_orders(db, user.id)
@@ -489,6 +491,7 @@ def crew_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> HubC
         work_orders_service.sweep_stale_sessions(
             db, technician_id=technician_id, now=now
         )
+        attendance_service.sweep_open_punches(db, now=now, user_id=technician_id)
 
     summaries = labor_summary.crew_day_summaries(db, list(crew_ids), day, now=now)
     crew_users = (
@@ -887,6 +890,7 @@ def admin_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> Hub
     day = labor_day.central_date_of(now)
 
     work_orders_service.sweep_stale_sessions(db, now=now)
+    attendance_service.sweep_open_punches(db, now=now)
 
     supervisors = (
         db.query(User)

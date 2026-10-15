@@ -1,8 +1,8 @@
-"""The coupling in both directions, the stale refusal, and the self-close."""
+"""The coupling in both directions and the midnight close."""
 import os, sys, uuid
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -43,7 +43,6 @@ def test_punch_in_refuses_while_one_is_open_and_names_it(db):
     with pytest.raises(PunchAlreadyOpenError) as exc:
         attendance_service.punch_in(db, user=user)
     assert exc.value.punch_id == first.id
-    assert exc.value.stale is False
 
 
 def test_starting_a_work_order_clock_off_shift_punches_in_automatically(db):
@@ -62,15 +61,6 @@ def test_an_open_punch_from_today_lets_a_labor_start_through_unchanged(db):
     assert attendance_service.ensure_punch_for_labor_start(db, user=tech).id == opened.id
 
 
-def test_a_stale_punch_blocks_the_labor_start(db):
-    tech = _seed_user(db)
-    now = datetime.now(timezone.utc)
-    db.add(AttendancePunch(user_id=tech.id, started_at=now - timedelta(days=2),
-                           start_source=attendance_domain.START_SOURCE_MANUAL))
-    db.commit()
-    with pytest.raises(PunchAlreadyOpenError) as exc:
-        attendance_service.ensure_punch_for_labor_start(db, user=tech)
-    assert exc.value.stale is True
 
 
 def test_punch_out_force_stops_the_running_work_order_clock(db):
@@ -88,30 +78,8 @@ def test_punch_out_without_a_punch_is_a_404(db):
         attendance_service.punch_out(db, user=_seed_user(db))
 
 
-def test_self_close_flags_the_punch_for_review_at_the_stated_time(db):
-    tech = _seed_user(db)
-    now = datetime.now(timezone.utc)
-    started = now - timedelta(days=1, hours=6)
-    db.add(AttendancePunch(user_id=tech.id, started_at=started,
-                           start_source=attendance_domain.START_SOURCE_MANUAL))
-    db.commit()
-    stated = started + timedelta(hours=8)
-    punch = attendance_service.self_close(db, user=tech, ended_at=stated)
-    assert punch.ended_at == stated
-    assert punch.end_source == attendance_domain.END_SOURCE_SELF_REPORTED
-    assert punch.needs_review is True
-    # And the next punch-in is unblocked -- the whole point of D5.
-    assert attendance_service.punch_in(db, user=tech) is not None
 
 
-def test_self_close_refuses_a_time_before_the_punch_started(db):
-    tech = _seed_user(db)
-    started = datetime.now(timezone.utc) - timedelta(hours=3)
-    db.add(AttendancePunch(user_id=tech.id, started_at=started,
-                           start_source=attendance_domain.START_SOURCE_MANUAL))
-    db.commit()
-    with pytest.raises(PunchTimeInvalidError):
-        attendance_service.self_close(db, user=tech, ended_at=started - timedelta(hours=1))
 
 
 def _charging(db):
@@ -166,10 +134,6 @@ def test_an_end_before_the_clock_started_is_refused_not_zeroed(db):
     assert attendance_service.open_punch_for(db, tech.id) is not None
 
 
-def test_self_close_stops_the_clock_too(db):
-    _admin, tech, now = _charging(db)
-    attendance_service.self_close(db, user=tech, ended_at=now - timedelta(minutes=30))
-    assert wo_service.running_labor_session_for(db, tech.id) is None
 
 
 def test_me_payload_sums_todays_clocked_minutes_without_rounding(db):
@@ -185,3 +149,112 @@ def test_me_payload_sums_todays_clocked_minutes_without_rounding(db):
     payload = attendance_service.me_payload(db, user=tech, now=now)
     assert payload.open_punch is None
     assert payload.clocked_minutes_today == 42      # not 60, not 30
+
+
+# --- The midnight close (M1-M5) -------------------------------------------
+
+YESTERDAY_7AM = datetime(2026, 9, 20, 12, 0, tzinfo=timezone.utc)   # 7:00 AM CDT Sun
+MIDNIGHT = datetime(2026, 9, 21, 5, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 9, 21, 18, 0, tzinfo=timezone.utc)              # 1:00 PM CDT Mon
+
+
+def _open_punch(db, user, started_at):
+    punch = AttendancePunch(id=uuid.uuid4(), user_id=user.id, started_at=started_at,
+                            start_source=attendance_domain.START_SOURCE_MANUAL)
+    db.add(punch); db.commit()
+    return punch
+
+
+def test_sweep_closes_yesterday_at_midnight_and_leaves_today(db):
+    tech, other = _seed_user(db), _seed_user(db)
+    old = _open_punch(db, tech, YESTERDAY_7AM)
+    today = _open_punch(db, other, NOW - timedelta(hours=2))
+    assert attendance_service.sweep_open_punches(db, now=NOW) == 1
+    db.refresh(old); db.refresh(today)
+    assert old.ended_at == MIDNIGHT
+    assert old.end_source == attendance_domain.END_SOURCE_AUTO_CLOCK_OUT
+    assert old.needs_review is True
+    assert today.ended_at is None
+    assert attendance_service.sweep_open_punches(db, now=NOW) == 0
+    assert db.query(AttendancePunchEdit).filter_by(punch_id=old.id).count() == 0
+
+
+def test_sweep_leaves_the_work_order_clock_running(db):
+    admin, tech = _seed_user(db, "admin"), _seed_user(db)
+    order = _seed_work_order(db, admin, tech)
+    wo_service.start_labor_session(db, order.id, user=tech)
+    _open_punch(db, tech, datetime.now(timezone.utc) - timedelta(days=1))
+    assert attendance_service.sweep_open_punches(db, user_id=tech.id) == 1
+    assert wo_service.running_labor_session_for(db, tech.id) is not None
+
+
+def test_punch_in_after_a_forgotten_day_succeeds(db):
+    tech = _seed_user(db)
+    _open_punch(db, tech, YESTERDAY_7AM)
+    punch = attendance_service.punch_in(db, user=tech, now=NOW)
+    assert punch.started_at == NOW
+
+
+def test_labor_start_after_a_forgotten_day_opens_a_fresh_punch(db):
+    tech = _seed_user(db)
+    _open_punch(db, tech, YESTERDAY_7AM)
+    punch = attendance_service.ensure_punch_for_labor_start(db, user=tech, now=NOW)
+    assert punch.started_at == NOW
+    assert punch.start_source == attendance_domain.START_SOURCE_AUTO_WORK_ORDER
+
+
+def test_punch_out_after_midnight_closes_at_midnight_and_reports_not_punched_in(db):
+    tech = _seed_user(db)
+    old = _open_punch(db, tech, YESTERDAY_7AM)
+    with pytest.raises(PunchNotFoundError):
+        attendance_service.punch_out(db, user=tech, now=NOW)
+    db.refresh(old)
+    assert old.ended_at == MIDNIGHT
+
+
+def test_admin_clock_out_after_midnight_is_a_404_not_a_cross_midnight_end(db):
+    admin, tech = _seed_user(db, "admin"), _seed_user(db)
+    old = _open_punch(db, tech, YESTERDAY_7AM)
+    with pytest.raises(PunchNotFoundError):
+        attendance_service.admin_clock_out(db, actor=admin, user_id=tech.id, now=NOW)
+    db.refresh(old)
+    assert old.ended_at == MIDNIGHT
+
+
+def test_looks_right_on_a_legacy_cross_midnight_punch_succeeds(db):
+    admin, tech = _seed_user(db, "admin"), _seed_user(db)
+    legacy = AttendancePunch(id=uuid.uuid4(), user_id=tech.id, started_at=YESTERDAY_7AM,
+                             ended_at=MIDNIGHT + timedelta(hours=2), start_source="manual",
+                             end_source="self_reported", needs_review=True)
+    db.add(legacy); db.commit()
+    attendance_service.admin_edit_punch(db, actor=admin, punch_id=legacy.id,
+                                        needs_review=False, now=NOW)
+    db.refresh(legacy)
+    assert legacy.needs_review is False
+
+
+def test_an_admin_edit_across_midnight_is_refused(db):
+    admin, tech = _seed_user(db, "admin"), _seed_user(db)
+    punch = attendance_service.admin_add_punch(
+        db, actor=admin, user_id=tech.id, started_at=YESTERDAY_7AM,
+        ended_at=YESTERDAY_7AM + timedelta(hours=8), now=NOW)
+    with pytest.raises(PunchTimeInvalidError, match="cross midnight"):
+        attendance_service.admin_edit_punch(
+            db, actor=admin, punch_id=punch.id,
+            ended_at=MIDNIGHT + timedelta(minutes=1), now=NOW)
+
+
+def test_mark_week_reviewed_accepts_a_midnight_close(db):
+    admin, tech = _seed_user(db, "admin"), _seed_user(db)
+    old = _open_punch(db, tech, YESTERDAY_7AM)
+    result = attendance_service.mark_week_reviewed(
+        db, actor=admin, week_start=date(2026, 9, 14), now=NOW)   # Mon 9/14 - Sun 9/20
+    db.refresh(old)
+    assert result.punches >= 1 and old.needs_review is False
+
+
+def test_me_payload_does_not_count_yesterdays_open_punch_into_today(db):
+    tech = _seed_user(db)
+    _open_punch(db, tech, YESTERDAY_7AM)
+    me = attendance_service.me_payload(db, user=tech, now=NOW)
+    assert me.open_punch is None and me.clocked_minutes_today == 0

@@ -27,7 +27,7 @@ from typing import Optional
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.domain import labor_day, roles
+from app.domain import attendance, labor_day, roles
 from app.models import AttendancePunch, User
 
 
@@ -37,8 +37,9 @@ class WeekPunch:
 
     A punch that crosses midnight appears twice -- once per day it touches --
     with `minutes` clipped to that day and `carried=True` on every day after
-    the one it started on. Spec §9: the punch is owned by the day it started,
-    so P3 offers its edit button only where `carried` is False.
+    the one it started on. Legacy rows only: no write may cross midnight now
+    (M4). A punch still open past its midnight reads exactly as the sweep
+    will write it -- ended at midnight, `auto_clock_out`, flagged (M1).
     """
 
     id: uuid.UUID
@@ -188,8 +189,10 @@ def week_payload(
             day_start, day_end = bounds[day]
             day_punches: list[WeekPunch] = []
             for punch in punches_by_user[person.id]:
+                end = attendance.capped_end(punch.started_at, punch.ended_at, now=now)
+                capped = punch.ended_at is None and end is not None
                 minutes = labor_day.overlap_minutes(
-                    punch.started_at, punch.ended_at, day_start, day_end, now=now
+                    punch.started_at, end, day_start, day_end, now=now
                 )
                 if minutes == 0:
                     continue
@@ -197,13 +200,14 @@ def week_payload(
                     WeekPunch(
                         id=punch.id,
                         started_at=punch.started_at,
-                        ended_at=punch.ended_at,
+                        ended_at=end,
                         start_source=punch.start_source,
-                        end_source=punch.end_source,
-                        needs_review=bool(punch.needs_review),
+                        end_source=(attendance.END_SOURCE_AUTO_CLOCK_OUT if capped
+                                    else punch.end_source),
+                        needs_review=bool(punch.needs_review) or capped,
                         minutes=minutes,
                         carried=labor_day.central_date_of(punch.started_at) < day,
-                        open=punch.ended_at is None,
+                        open=end is None,
                     )
                 )
             day_minutes = sum(entry.minutes for entry in day_punches)

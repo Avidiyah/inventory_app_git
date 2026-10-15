@@ -27,8 +27,8 @@ wall-clock: it rides in `adjustment_minutes` and is never added into tracked
 or differenced into delta.
 
 `pending_review` marks a day whose numbers rest on a forgotten clock: a
-self-reported punch (`needs_review`), a punch still open from an earlier day,
-or an auto-closed session no Admin has accepted. The leaderboard sets such a
+flagged punch (`needs_review`, which a midnight close always is), or an
+auto-closed session no Admin has accepted. The leaderboard sets such a
 day aside whole -- dropping only the suspect item would push the rest of the
 shift into "uncharged" and misprice it the other way.
 """
@@ -84,9 +84,9 @@ class CompareWeek:
     delta_minutes: int
     week_hours: int
     labor_rate: Decimal         # the leaderboard's $/hour; billing's own rate
-    # What "Mark all reviewed" would accept: flagged punches plus unaccepted
-    # auto-closed sessions. A stale open punch is pending but not in here --
-    # it has no stop to accept.
+    # What "Mark all reviewed" would accept: flagged punches (midnight closes
+    # included -- review sweeps them first) plus unaccepted auto-closed
+    # sessions.
     reviewable_count: int
 
 
@@ -149,10 +149,7 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
                 if entry.needs_review
             }
             reviewable |= flagged_punches | flagged_sessions
-            pending = bool(flagged_punches or flagged_sessions) or any(
-                p.open and attendance.is_stale(p.started_at, now=now)
-                for p in day.punches
-            )
+            pending = bool(flagged_punches or flagged_sessions)
             row_tracked += tracked
             row_delta += delta
             days.append(

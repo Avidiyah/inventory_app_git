@@ -228,12 +228,13 @@ def test_a_self_reported_punch_makes_its_day_pending(db):
     assert week.reviewable_count == 1
 
 
-def test_an_open_punch_from_an_earlier_day_is_pending_but_not_reviewable(db):
+def test_an_open_punch_from_an_earlier_day_reads_midnight_closed_and_reviewable(db):
     tech = make_technician(db)
-    make_punch(db, tech, "2026-09-14T13:00Z")
+    make_punch(db, tech, "2026-09-14T13:00Z")              # 8:00 AM CDT Monday
     week, monday = _monday(db, tech)
+    assert monday.clocked_minutes == 16 * 60               # to Central midnight
     assert monday.pending_review is True
-    assert week.reviewable_count == 0
+    assert week.reviewable_count == 1
 
 
 def test_todays_open_punch_is_an_ordinary_shift(db):
@@ -245,7 +246,7 @@ def test_todays_open_punch_is_an_ordinary_shift(db):
     assert wednesday.pending_review is False
 
 
-def test_mark_week_reviewed_accepts_every_estimate_but_the_open_punch(db):
+def test_mark_week_reviewed_accepts_every_estimate_including_a_midnight_close(db):
     from app.models import AttendancePunchEdit
     from app.services import attendance as attendance_service
 
@@ -256,13 +257,13 @@ def test_mark_week_reviewed_accepts_every_estimate_but_the_open_punch(db):
     punch.needs_review = True
     make_running_session(db, tech, "2026-09-14T13:00Z")   # swept, then accepted
     other = make_technician(db, "Bo", "Diaz")
-    make_punch(db, other, "2026-09-15T13:00Z")             # stale open punch
+    make_punch(db, other, "2026-09-15T13:00Z")             # forgotten: swept to midnight
     db.commit()
 
     result = attendance_service.mark_week_reviewed(
         db, actor=admin, week_start=MONDAY, now=NOW)
 
-    assert (result.punches, result.sessions) == (1, 1)
+    assert (result.punches, result.sessions) == (2, 1)
     db.expire_all()
     assert db.get(AttendancePunch, punch.id).needs_review is False
     audit = db.query(AttendancePunchEdit).filter_by(punch_id=punch.id).one()
@@ -273,4 +274,4 @@ def test_mark_week_reviewed_accepts_every_estimate_but_the_open_punch(db):
     week = attendance_compare.week_payload(db, week_start=MONDAY, now=NOW)
     assert week.reviewable_count == 0
     assert _row_for(week, tech).days[0].pending_review is False
-    assert _row_for(week, other).days[1].pending_review is True
+    assert _row_for(week, other).days[1].pending_review is False

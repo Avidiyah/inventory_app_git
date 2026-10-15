@@ -1122,9 +1122,9 @@ def start_work_order_tracking(
             user,
             acknowledged,
         )
-        # D3, one way only: starting a clock off-shift opens a punch, and a
-        # stale punch refuses here rather than charging a job against a
-        # shift that began two days ago. The coupling lives in
+        # D3, one way only: starting a clock off-shift opens a punch (and
+        # sweeps yesterday's forgotten one to its midnight first, M2). The
+        # coupling lives in
         # `services/attendance.py`, not inside `services/work_orders.py` --
         # attendance knows about labor, labor knows nothing about attendance.
         attendance_service.ensure_punch_for_labor_start(db, user=user)

@@ -157,3 +157,32 @@ def test_the_spring_forward_week_is_167_hours(db):
     assert payload.week_hours == 167
     assert payload.week_start == date(2026, 3, 2)
     assert payload.week_end == date(2026, 3, 8)
+
+
+# --- The midnight cap on the read (M1/M2) ---------------------------------
+
+def test_a_punch_past_midnight_reads_closed_and_flagged_before_any_sweep(db):
+    user = _user(db)
+    _punch(db, user, datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc))   # 7:00 AM CDT Mon
+    db.commit()
+    row = _row_for(attendance_week.week_payload(db, week_start=MONDAY, now=NOW), user)
+    monday = row.days[0]
+    assert monday.clocked_minutes == 17 * 60
+    assert monday.needs_review is True and monday.has_open is False
+    assert monday.punches[0].end_source == "auto_clock_out"
+    assert monday.punches[0].ended_at == datetime(2026, 9, 15, 5, 0, tzinfo=timezone.utc)
+    assert row.days[1].clocked_minutes == 0
+    assert db.get(AttendancePunch, monday.punches[0].id).ended_at is None   # read wrote nothing
+
+
+def test_a_forgotten_sunday_punch_stays_on_sunday(db):
+    user = _user(db)
+    _punch(db, user, datetime(2026, 9, 20, 12, 0, tzinfo=timezone.utc))   # 7:00 AM CDT Sun
+    db.commit()
+    later = datetime(2026, 9, 21, 18, 0, tzinfo=timezone.utc)
+    this_week = _row_for(attendance_week.week_payload(db, week_start=MONDAY, now=later), user)
+    next_week = _row_for(attendance_week.week_payload(
+        db, week_start=MONDAY + timedelta(days=7), now=later), user)
+    assert this_week.days[6].clocked_minutes == 17 * 60
+    assert next_week.days[0].clocked_minutes == 0
+    assert next_week.days[0].punches == []
