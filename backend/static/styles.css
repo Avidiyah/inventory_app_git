@@ -5540,3 +5540,18 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .clock-in-prompt-message:empty {
     display: none;
 }
+
+/* --- Users page: per-person weekly profile ------------------------------ */
+.user-profile-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
+.user-profile-header h3 { margin: 0; }
+.user-profile-week-nav { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
+.user-profile-summary { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: var(--space-2); padding: var(--space-2) var(--space-3); align-items: center; }
+.user-profile-head { font-size: var(--fs-xs); text-transform: uppercase; color: var(--text-panel-mute); }
+.user-profile-day { border-top: 1px solid var(--border); }
+.user-profile-day > summary { cursor: pointer; list-style: none; }
+.user-profile-day > summary::-webkit-details-marker { display: none; }
+.user-profile-day[open] > summary { background: var(--panel-well); }
+.user-profile-day-body { padding: 0 var(--space-3) var(--space-3); }
+.user-profile-list-title { margin: var(--space-2) 0 var(--space-1); font-size: var(--fs-xs); text-transform: uppercase; color: var(--text-panel-mute); }
+.user-profile-list { margin: 0; padding-left: var(--space-4); }
+.user-profile-totals { border-top: 2px solid var(--border); font-weight: 600; }
