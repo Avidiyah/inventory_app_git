@@ -107,16 +107,24 @@ Two follow-on details worth knowing when touching this code:
   in place). There is no reliable CSS-only fix for that path.
 
   The **only** dependable fix is to not use a native `<select>` where the
-  popup must match the theme: build a custom listbox instead, the way the
-  work-order technician picker already does (`.wo-tech-search` /
-  `.wo-tech-results` in `views/workOrderCardHtml.js` / `styles.css`). The Status and
-  Team Lead fields on the work-order card editor (`comboHtml()` /
-  `.wo-combo-*` in the same two files) follow this pattern: a real `<select>`
-  stays in the DOM, hidden, purely to hold the value for existing save/read
-  code; a styled trigger button + `.wo-combo-list` popover (visually matching
-  `.wo-tech-results`) is what the user actually sees and clicks. Reach for
-  this pattern for any future dropdown that needs to look right rather than
-  a native `<select>`.
+  popup must match the theme. That pattern now lives in `static/menus.js`
+  as two shared shapes. The themed dropdowns migrated here use one of them:
+
+  - `actionMenuHtml()` — a fire-and-close command menu (`role="menu"`).
+    The Actions column on Find Item and Tools.
+  - `comboHtml()` — a value picker (`role="listbox"`) that keeps a real
+    `<select>` in the DOM, hidden, holding the value so existing save/read
+    code is untouched. The work-order card's Status and Team Lead fields
+    and the Notes editor's type and boolean fields.
+
+  Both render `.menu-*` classes (`styles.css`, "POPUP MENUS"). The older
+  page-local `.wo-combo-*` copy is gone. Reach for one of these rather than
+  a native `<select>` for any new dropdown; `select option { }` and
+  `color-scheme: dark` remain in the sheet as a fallback for the plain
+  `<select>`s that are left, but they do not reach the OS-drawn path.
+
+  One trap when styling either: every rule has to out-specify the global
+  `button` style, which is a solid brand-red block.
 
 ### Dark glass (brand/photo moments only)
 
@@ -151,6 +159,10 @@ variants; the originals are kept for fills, where white-on-color is unaffected:
 | Brand red | `--color-brand` `#C8102E` | 2.4:1 | `--color-brand-light` `#FF7585` | 5.5:1 |
 | Amber | `--status-dispense` `#D97706` | 3.8:1 (nested) | `--status-dispense-text` `#F5A524` | 5.9:1 |
 | Blue | `--status-adjust` `#2563EB` | 2.3:1 | `--status-adjust-text` `#7DA6FF` | 5.1:1 |
+
+`backend/tests/test_menu_parity.py` computes these ratios from the `:root`
+tokens rather than trusting the table above to be re-measured by hand. A
+token that stops clearing 4.5:1 on a panel fails the suite.
 
 `--color-brand-light` is **not a second brand red** — same hue, lifted
 lightness, for red text and outlines only. Solid red fills keep `--color-brand`.

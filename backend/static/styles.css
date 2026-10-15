@@ -879,6 +879,149 @@ button:focus-visible {
     }
 }
 
+/* =================== POPUP MENUS =================== */
+/* Shared trigger + popover for anything that used to be a native <select>.
+   A native select's open popup is drawn by the OS on some Windows/Chromium
+   builds and ignores page CSS, so it renders as a white system list on our
+   dark UI -- see docs/design-system.md. Rendered by static/menus.js.
+   Every rule here has to out-specify the global `button` style, which is a
+   solid brand-red block; `.menu-trigger` (0,1,0) beats `button` (0,0,1) and
+   `.menu-trigger:hover` (0,2,0) beats `button:hover` (0,1,1). */
+.menu { position: relative; }
+
+.menu-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    width: 100%;
+    min-height: var(--control-h);
+    padding: 0 var(--space-3);
+    margin-top: 0;
+    border: var(--border-input);
+    border-radius: var(--radius-md);
+    background-color: var(--input-bg);
+    color: var(--text-panel);
+    font-size: var(--fs-base);
+    font-family: inherit;
+    font-weight: normal;
+    text-align: left;
+    cursor: pointer;
+    /* Matches the inset well on input/select/textarea so a menu trigger and a
+       text field read as the same class of control. */
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, .35);
+}
+
+.menu-trigger:hover { background-color: var(--panel-hover); }
+
+.menu-chevron {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+    color: var(--text-panel-mute);
+    transition: transform .12s ease;
+}
+
+.menu-trigger[aria-expanded="true"] .menu-chevron { transform: rotate(180deg); }
+
+/* Right-aligned with min-width rather than left/right pinned: the Actions
+   column is the last one, so a left-aligned popover would run off the
+   viewport, while a full-width trigger still gets a full-width popover. */
+.menu-list {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + var(--space-1));
+    right: 0;
+    min-width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    max-height: 240px;
+    overflow-y: auto;
+    padding: var(--space-2);
+    border: 1px solid var(--gray-700);
+    border-radius: var(--radius-sm);
+    /* --color-header, not --panel-bg: a translucent popover over a
+       translucent panel composites to mud and the text behind shows through. */
+    background-color: var(--color-header);
+    box-shadow: var(--shadow-md);
+    scrollbar-width: thin;
+    scrollbar-color: var(--gray-700) transparent;
+}
+
+/* [hidden] is only display:none in the UA sheet, which the display:flex above
+   outranks. Without this the popover is always open. */
+.menu-list[hidden] { display: none; }
+
+.menu-option {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    min-height: var(--btn-h-sm);
+    margin-top: 0;
+    padding: 0 var(--space-3);
+    border: none;
+    border-radius: var(--radius-sm);
+    background-color: transparent;
+    color: var(--text-panel);
+    font-size: var(--fs-sm);
+    font-family: inherit;
+    font-weight: normal;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.menu-option:hover,
+.menu-option:focus-visible { background-color: var(--panel-hover); }
+
+/* Archive/remove. Ghost red below a hairline -- the treatment
+   .delete-user-btn already uses for exactly this action. Red here is the
+   brand red doing double duty as emphasis, not a "delete hue": the real
+   safeguard is the separating rule plus confirmDialog().
+   Hover keeps --color-brand-light rather than dropping to
+   --color-brand-hover the way .note-remove-btn does; #A50D25 on this
+   near-black popover is about 2:1, whereas .note-remove-btn sits on a
+   lighter panel. */
+.menu-option-danger {
+    margin-top: var(--space-1);
+    padding-top: var(--space-1);
+    border-top: 1px solid var(--panel-rule);
+    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+    color: var(--color-brand-light);
+}
+
+.menu-option-danger:hover,
+.menu-option-danger:focus-visible {
+    background-color: var(--color-brand-tint);
+    color: var(--color-brand-light);
+}
+
+/* In a table cell the trigger is a compact control, not a full-width field. */
+.action-menu { display: inline-block; }
+
+.action-menu .menu-trigger {
+    width: auto;
+    min-height: var(--btn-h-sm);
+    padding: 0 var(--space-2);
+    font-size: var(--fs-sm);
+}
+
+/* --- Value picker (combo) --------------------------------------------
+   Same trigger and popover as the action menu; the difference is that a
+   combo persists a selection and keeps a real <select> holding the value. */
+.menu-native { display: none; }
+
+.menu-option[aria-selected="true"] {
+    background-color: var(--color-brand);
+    color: var(--color-white);
+}
+
+.menu-option[aria-selected="true"]:hover {
+    background-color: var(--color-brand-hover);
+}
+
 /* =================== TABLES =================== */
 table {
     width: 100%;
@@ -904,8 +1047,10 @@ tr:last-child td {
 }
 
 /* Find Item results: row hover, gated on a real pointer so a tapped row on a
-   phone doesn't keep the highlight stuck to it. Scoped to this table -- the
-   other .stack-table users get it in their own branding pass. */
+   phone doesn't keep the highlight stuck to it.
+   --panel-hover, not --gray-50: this rule survived the flip to a dark canvas
+   unchanged, and a #F7F7F7 fill under --text-panel (#EDEEF0) row text made a
+   hovered row white-on-white. */
 @media (hover: hover) {
     #items-table tbody tr:hover {
         background-color: var(--panel-hover);
@@ -923,7 +1068,11 @@ tr:last-child td {
     padding: var(--space-8) var(--space-4);
     text-align: center;
     font-size: var(--fs-sm);
-    color: var(--gray-500);
+    /* --text-panel-mute, not --gray-500: #6B6B6B was a secondary-text color
+       for a white panel and reads at 2.7:1 on the dark one, under the 4.5
+       floor. This is Find Item's opening state, so it is the first text on
+       the page. */
+    color: var(--text-panel-mute);
 }
 
 .empty-state-icon {
@@ -974,18 +1123,6 @@ tr:last-child td {
     gap: var(--space-2);
     align-items: center;
     flex-wrap: wrap;
-}
-
-.row-actions-select {
-    padding: 0 var(--space-2);
-    min-height: var(--btn-h-sm);
-    font-size: var(--fs-sm);
-    margin-top: 0;
-    border: var(--border-input);
-    border-radius: var(--radius-md);
-    background-color: var(--input-bg);
-    color: var(--text-panel);
-    cursor: pointer;
 }
 
 .sr-only {
@@ -1848,7 +1985,7 @@ details[open] > .low-stock-summary::before { content: "\25BE"; }
 }
 
 .note-row input,
-.note-row select {
+.note-row .menu {
     width: 100%;
     margin: 0;
 }
@@ -4822,94 +4959,35 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 
 /* Shared scrollbar theme for the app's scrollable dropdown/results lists
    (.wo-tech-results here, .manual-results in the manual-entry search,
-   .wo-combo-list below) so they match instead of each falling back to a
-   different browser default. */
+   .menu-list in the shared popup menus) so they match instead of each
+   falling back to a different browser default. */
 .wo-tech-results,
 .manual-results,
-.wo-combo-list {
+.menu-list {
     scrollbar-width: thin;
     scrollbar-color: var(--gray-700) transparent;
 }
 .wo-tech-results::-webkit-scrollbar,
 .manual-results::-webkit-scrollbar,
-.wo-combo-list::-webkit-scrollbar {
+.menu-list::-webkit-scrollbar {
     width: 8px;
 }
 .wo-tech-results::-webkit-scrollbar-track,
 .manual-results::-webkit-scrollbar-track,
-.wo-combo-list::-webkit-scrollbar-track {
+.menu-list::-webkit-scrollbar-track {
     background: transparent;
 }
 .wo-tech-results::-webkit-scrollbar-thumb,
 .manual-results::-webkit-scrollbar-thumb,
-.wo-combo-list::-webkit-scrollbar-thumb {
+.menu-list::-webkit-scrollbar-thumb {
     background-color: var(--gray-700);
     border-radius: var(--radius-sm);
 }
 .wo-tech-results::-webkit-scrollbar-thumb:hover,
 .manual-results::-webkit-scrollbar-thumb:hover,
-.wo-combo-list::-webkit-scrollbar-thumb:hover {
+.menu-list::-webkit-scrollbar-thumb:hover {
     background-color: var(--panel-hover);
 }
-
-/* Custom dropdown ("combo") for Status/Supervisor: a real <select> stays in
-   the DOM (hidden) to hold the value for save/read logic unchanged; this is
-   the visible trigger + listbox, styled like .wo-tech-results so the two
-   pickers on this card read as one system instead of a native popup that
-   escapes our CSS (see docs/design-system.md's note on OS-rendered <select>
-   popups). */
-.wo-combo { position: relative; }
-.wo-combo-native { display: none; }
-
-.wo-combo-trigger {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-    width: 100%;
-    min-height: var(--control-h);
-    padding: 0 var(--space-3);
-    margin-top: 0;
-    border: var(--border-input);
-    border-radius: var(--radius-md);
-    background-color: var(--input-bg);
-    color: var(--text-panel);
-    font-size: var(--fs-base);
-    font-family: inherit;
-    font-weight: normal;
-    text-align: left;
-    cursor: pointer;
-    box-shadow: inset 0 1px 3px rgba(0, 0, 0, .35);
-}
-.wo-combo-trigger:hover { background-color: var(--panel-hover); }
-
-.wo-combo-chevron {
-    width: 16px;
-    height: 16px;
-    flex: 0 0 auto;
-    color: var(--text-panel-mute);
-    transition: transform .12s ease;
-}
-.wo-combo-trigger[aria-expanded="true"] .wo-combo-chevron { transform: rotate(180deg); }
-
-.wo-combo-list {
-    position: absolute;
-    z-index: 20;
-    top: calc(100% + var(--space-1));
-    right: 0;
-    left: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-    max-height: 240px;
-    overflow-y: auto;
-    padding: var(--space-2);
-    border: 1px solid var(--gray-700);
-    border-radius: var(--radius-sm);
-    background-color: var(--color-header);
-    box-shadow: var(--shadow-md);
-}
-.wo-combo-list[hidden] { display: none; }
 
 /* =================== FIELD-HELP TOOLTIPS (`?` bubbles) =================== */
 /* See docs/superpowers/specs/2026-08-23-tooltips-design.md.
@@ -4921,7 +4999,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
    tip as siblings, avoiding a second interactive descendant. Everything here
    is sized in `em` and constrained to the line box.
 
-   The bubble copies the `.wo-combo-list` recipe directly above: opaque
+   The bubble copies the `.menu-list` popover recipe: opaque
    --color-header, --gray-700 hairline, --shadow-md. A floating layer over a
    frosted panel has to be opaque to stay readable -- do NOT reach for the
    --glass-* tokens here (docs/design-system.md). */
@@ -4965,7 +5043,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 /* `fixed` and parented to <body>, so no ancestor's `overflow-x: auto` (the
    table wrappers) can clip it. `left`/`top` are placeholders -- tooltip.js
    overwrites them through CSSOM on every open, because the CSP drops inline
-   style attributes. Above the .wo-combo-list popovers (20), below the modal
+   style attributes. Above the .menu-list popovers (20), below the modal
    overlay (1000). */
 .tip-bubble {
     position: fixed;
@@ -4985,20 +5063,6 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 }
 .tip-bubble[hidden] { display: none; }
 
-.wo-combo-option {
-    justify-content: flex-start;
-    width: 100%;
-    min-height: var(--btn-h-sm);
-    margin-top: 0;
-    text-align: left;
-}
-.wo-combo-option[aria-selected="true"] {
-    background-color: var(--color-brand);
-    color: var(--color-white);
-}
-.wo-combo-option[aria-selected="true"]:hover {
-    background-color: var(--color-brand-hover);
-}
 .wo-tech-result {
     justify-content: flex-start;
     width: 100%;
@@ -5454,7 +5518,8 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     .stack-table td[colspan]::before { content: none; }
 
     /* The single Actions menu fills the card width. */
-    .stack-table .row-actions-select { width: 100%; }
+    .stack-table .action-menu,
+    .stack-table .action-menu .menu-trigger { width: 100%; }
 
     /* Notes editor: stack each note's fields so they're scannable on a
        phone instead of cramming four controls into one row. */
@@ -5616,3 +5681,19 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .user-profile-wo-ready_to_complete { --card-accent: var(--wo-status-ready-to-complete); }
 .user-profile-wo-completed { --card-accent: var(--wo-status-completed); }
 .user-profile-wo-review { --card-accent: var(--wo-status-review); }
+
+/* =================== REDUCED MOTION =================== */
+/* Inputs, menu chevrons and cards all transition. A reader who has asked the
+   OS for less movement gets the end state immediately instead. Kept as a
+   blanket rule rather than per-component opt-outs so a new transition is
+   covered the day it lands. */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

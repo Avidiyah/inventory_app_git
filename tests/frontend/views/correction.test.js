@@ -11,7 +11,7 @@ import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
 import { server } from "../helpers/handlers.js";
 import {
-  actionSelect, clearRequests, el, mountItems, requestFor, requests, restoreItems, rows,
+  actionSelect, pickAction, clearRequests, el, mountItems, requestFor, requests, restoreItems, rows,
 } from "../helpers/items.js";
 import { importView } from "../helpers/shell.js";
 import { item as itemFactory } from "../helpers/factories.js";
@@ -36,7 +36,7 @@ async function loadedRow({ role = "admin", fake = false, ...overrides } = {}) {
 }
 
 async function openCorrection(ctx) {
-  await ctx.user.selectOptions(actionSelect(0), "correct");
+  await pickAction(0, "correct");
   expect(el.correctionSection().hidden).toBe(false);
 }
 

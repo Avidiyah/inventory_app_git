@@ -365,9 +365,9 @@ describe("detailsEditorHtml", () => {
     expect(native.value).toBe(String(supervisorUser.id));
     expect([...native.options].map((o) => o.textContent)).toEqual(["Unassigned", "Sue S"]);
     const combo = card().querySelector(".wo-supervisor-combo");
-    expect(combo.querySelector(".wo-combo-trigger-label").textContent).toBe("Sue S");
-    expect(combo.querySelector(".wo-combo-list").hidden).toBe(true);
-    expect([...combo.querySelectorAll(".wo-combo-option")].map((b) => b.dataset.value))
+    expect(combo.querySelector(".menu-trigger-label").textContent).toBe("Sue S");
+    expect(combo.querySelector(".menu-list").hidden).toBe(true);
+    expect([...combo.querySelectorAll(".menu-option")].map((b) => b.dataset.value))
       .toEqual(["", String(supervisorUser.id)]);
   });
 

@@ -515,54 +515,59 @@ describe("the technician picker", () => {
 });
 
 describe("the combo", () => {
-  it("toggle-combo opens one list and closes every other", async () => {
+  // The shared menus module (static/menus.js) owns toggle/pick through
+  // document-level listeners, so these click its own data-menu-action hooks.
+  const toggle = (index = 0) =>
+    card().querySelectorAll('[data-menu-action="toggle"]')[index].click();
+
+  it("opening one combo closes every other", async () => {
     await open({ users: [user({ role: "supervisor" })] });
-    const combos = [...card().querySelectorAll(".wo-combo")];
+    const combos = [...card().querySelectorAll(".menu-combo")];
     expect(combos).toHaveLength(2); // supervisor + status
-    click("toggle-combo", 0);
-    expect(combos[0].querySelector(".wo-combo-list").hidden).toBe(false);
-    expect(combos[0].querySelector(".wo-combo-trigger").getAttribute("aria-expanded")).toBe("true");
-    click("toggle-combo", 1);
-    expect(combos[0].querySelector(".wo-combo-list").hidden).toBe(true);
-    expect(combos[1].querySelector(".wo-combo-list").hidden).toBe(false);
+    toggle(0);
+    expect(combos[0].querySelector(".menu-list").hidden).toBe(false);
+    expect(combos[0].querySelector(".menu-trigger").getAttribute("aria-expanded")).toBe("true");
+    toggle(1);
+    expect(combos[0].querySelector(".menu-list").hidden).toBe(true);
+    expect(combos[1].querySelector(".menu-list").hidden).toBe(false);
   });
 
-  it("toggle-combo closes its own list on a second click", async () => {
+  it("a second toggle closes its own list", async () => {
     await open({});
-    click("toggle-combo");
-    click("toggle-combo");
-    expect(card().querySelector(".wo-combo-list").hidden).toBe(true);
+    toggle();
+    toggle();
+    expect(card().querySelector(".menu-list").hidden).toBe(true);
   });
 
-  it("pick-combo-option writes through to the hidden native select", async () => {
+  it("a pick writes through to the hidden native select", async () => {
     await open({ status: "in_progress", assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
     const combo = card().querySelector(".wo-status-combo");
-    combo.querySelector('[data-action="toggle-combo"]').click();
-    const onHold = [...combo.querySelectorAll('[data-action="pick-combo-option"]')]
+    combo.querySelector('[data-menu-action="toggle"]').click();
+    const onHold = [...combo.querySelectorAll('[data-menu-action="pick"]')]
       .find((b) => b.dataset.value === "on_hold");
     onHold.click();
     expect(card().querySelector(".wo-edit-status").value).toBe("on_hold");
-    expect(combo.querySelector(".wo-combo-trigger-label").textContent).toBe("On-Hold");
+    expect(combo.querySelector(".menu-trigger-label").textContent).toBe("On-Hold");
     expect(onHold.getAttribute("aria-selected")).toBe("true");
-    expect(combo.querySelector(".wo-combo-list").hidden).toBe(true);
-    expect(document.activeElement).toBe(combo.querySelector(".wo-combo-trigger"));
+    expect(combo.querySelector(".menu-list").hidden).toBe(true);
+    expect(document.activeElement).toBe(combo.querySelector(".menu-trigger"));
   });
 
   it("Escape closes an open combo", async () => {
     await open({});
-    click("toggle-combo");
-    const combo = card().querySelector(".wo-combo");
-    combo.querySelector(".wo-combo-trigger")
+    toggle();
+    const combo = card().querySelector(".menu-combo");
+    combo.querySelector(".menu-trigger")
       .dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    expect(combo.querySelector(".wo-combo-list").hidden).toBe(true);
+    expect(combo.querySelector(".menu-list").hidden).toBe(true);
   });
 
   it("a saved status combo choice is what save-details sends", async () => {
     const detail = await open({ status: "in_progress", assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
     respond("patch", "/work-orders/:id", detail);
     const combo = card().querySelector(".wo-status-combo");
-    combo.querySelector('[data-action="toggle-combo"]').click();
-    [...combo.querySelectorAll('[data-action="pick-combo-option"]')]
+    combo.querySelector('[data-menu-action="toggle"]').click();
+    [...combo.querySelectorAll('[data-menu-action="pick"]')]
       .find((b) => b.dataset.value === "on_hold").click();
     click("save-details");
     await vi.waitFor(() =>

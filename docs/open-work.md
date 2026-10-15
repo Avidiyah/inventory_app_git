@@ -488,6 +488,24 @@ before any code.
 
 Files: `backend/static/views/items.js`, `backend/static/pages/saved-items.html`.
 
+### Dropdown-normalization follow-ups (2026-08-21)
+
+- **`--gray-600` is used but never defined.** `styles.css:1398`
+  (`.user-request-resolved .user-request-status`) reads `var(--gray-600)`;
+  `:root` declares 50/100/200/300/400/500/700/900 and no 600. The
+  declaration is invalid at computed-value time, so a resolved user request
+  silently inherits the panel text color instead of going muted. Either add
+  the token or point the rule at `--text-panel-mute`.
+- **`.lu-card-body` still uses light-panel colors.** `styles.css:3569-3587`
+  sets `--color-ink` text and `--gray-300` borders on the work-order lookup
+  card, both of which the design system says disappear on the dark canvas.
+- **`.wo-mode-select` is still a native `<select>`.** `styles.css:3616`,
+  on the Work Orders page — same OS-drawn-popup problem the rest of the app
+  was migrated off. `static/menus.js`'s `comboHtml()` makes it a small fix.
+- **`scrollIntoView({ behavior: "smooth" })` ignores reduced-motion.** The
+  CSS `prefers-reduced-motion` block cannot reach a scripted scroll. Call
+  sites across `views/` need to read the media query and pass `"auto"`.
+
 ---
 
 ## 4. Stack maturity register - candidates for later roadmapping

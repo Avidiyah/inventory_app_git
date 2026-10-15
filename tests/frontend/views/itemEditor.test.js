@@ -11,7 +11,7 @@ import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
 import { server } from "../helpers/handlers.js";
 import {
-  actionSelect, answerConfirm, clearRequests, el, mountItems, requestFor, requests, restoreItems, rows,
+  actionSelect, pickAction, answerConfirm, clearRequests, el, mountItems, requestFor, requests, restoreItems, rows,
 } from "../helpers/items.js";
 import { confirmTitle } from "../helpers/dialogs.js";
 import { importView } from "../helpers/shell.js";
@@ -40,7 +40,7 @@ async function loadedRow({ role = "admin", fake = false, ...overrides } = {}) {
 }
 
 async function openEditor(ctx) {
-  await ctx.user.selectOptions(actionSelect(0), "edit");
+  await pickAction(0, "edit");
   expect(el.editorSection().hidden).toBe(false);
 }
 

@@ -48,6 +48,7 @@ import { initSubNav } from "./subnav.js";
 import { toolScanWidget } from "./tools.js";
 import { showDispenseExport } from "./dispenseExport.js";
 import { skeletonTableRows } from "../skeleton.js";
+import { actionMenuHtml, initActionMenus } from "../menus.js";
 
 const createItemBtn = document.getElementById("create-item-btn");
 const createItemMessage = document.getElementById("create-item-message");
@@ -222,23 +223,24 @@ function itemColumns() {
 
   // Per-row Actions menu (only the actions this role can perform). Returns
   // the empty string for a role with no actions, so the column is omitted.
+  // A themed menu rather than a native select: the OS draws a select's
+  // popup itself on some Windows/Chromium builds, in white (docs/design-system.md).
   function actionsCell(item) {
     const options = [];
-    if (canAdmin) options.push(`<option value="edit">Edit Details</option>`);
-    if (canAdmin) options.push(`<option value="label">Print Label</option>`);
-    if (canAdmin) options.push(`<option value="threshold">Low-Stock Threshold</option>`);
-    if (canNotes) options.push(`<option value="notes">Notes</option>`);
+    if (canAdmin) options.push({ value: "edit", label: "Edit Details" });
+    if (canAdmin) options.push({ value: "label", label: "Print Label" });
+    if (canAdmin) options.push({ value: "threshold", label: "Low-Stock Threshold" });
+    if (canNotes) options.push({ value: "notes", label: "Notes" });
     if (canAdmin) {
-      options.push(`<option value="correct">Correct Count</option>`);
-      options.push(`<option value="delete">Archive Item</option>`);
+      options.push({ value: "correct", label: "Correct Count" });
+      options.push({ value: "delete", label: "Archive Item", danger: true });
     }
-    if (options.length === 0) return "";
-    const ariaLabel = `Actions for ${item.name}`;
-    return `<label class="sr-only" for="row-actions-${item.id}">${escapeHtml(ariaLabel)}</label>
-       <select id="row-actions-${item.id}" class="row-actions-select" data-id="${item.id}" aria-label="${escapeHtml(ariaLabel)}">
-         <option value="" disabled selected>Actions</option>
-         ${options.join("")}
-       </select>`;
+    return actionMenuHtml({
+      id: `row-actions-${item.id}`,
+      ariaLabel: `Actions for ${item.name}`,
+      itemId: item.id,
+      options,
+    });
   }
 
   const cols = {
@@ -431,17 +433,7 @@ initSubNav(document.getElementById("create-item-page"), {
   },
 });
 
-itemsTbody.addEventListener("change", async (event) => {
-  const target = event.target;
-  if (!target.classList.contains("row-actions-select")) return;
-
-  const action = target.value;
-  const itemId = target.dataset.id;
-  // Reset to the placeholder so picking the same action twice in a
-  // row still fires `change` and so the cell never visually "remembers"
-  // a destructive choice.
-  target.value = "";
-
+initActionMenus(itemsTbody, async (action, itemId) => {
   if (!action || !itemId) return;
   const item = getItems().find(i => i.id === itemId);
   if (!item) return;

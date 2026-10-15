@@ -3,7 +3,7 @@ import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
 import { server } from "../helpers/handlers.js";
 import {
-  actionSelect, answerConfirm, answerDecode, answerLookup, clearRequests, el, headers, mountItems,
+  actionSelect, pickAction, answerConfirm, answerDecode, answerLookup, clearRequests, el, headers, mountItems,
   requestFor, requests, restoreItems, rows, upload,
 } from "../helpers/items.js";
 import { item as itemFactory } from "../helpers/factories.js";
@@ -221,9 +221,8 @@ describe("itemColumns per role", () => {
     if (actions.length === 0) {
       expect(select).toBeNull();
     } else {
-      expect(Array.from(select.options).map((o) => o.value).filter(Boolean)).toEqual(actions);
-      expect(select.getAttribute("aria-label")).toBe("Actions for Widget");
-      expect(rows()[0].querySelector(`label[for="${select.id}"]`).className).toBe("sr-only");
+      expect(Array.from(select.querySelectorAll(".menu-option")).map((o) => o.dataset.value)).toEqual(actions);
+      expect(select.querySelector(".menu-trigger").getAttribute("aria-label")).toBe("Actions for Widget");
     }
   });
 
@@ -250,17 +249,17 @@ async function loadedRow(role = "admin", overrides = {}) {
 describe("row actions", () => {
   it("edit opens the item editor for that row and resets the select", async () => {
     const { target } = await loadedRow();
-    await userEvent.setup().selectOptions(actionSelect(0), "edit");
+    await pickAction(0, "edit");
     expect(el.editorSection().hidden).toBe(false);
     expect(document.getElementById("item-editor-selected").textContent).toBe("Editing: Target");
     expect(document.getElementById("item-editor-barcode").value).toBe(target.barcode);
-    expect(actionSelect(0).value).toBe("");
+    expect(actionSelect(0).querySelector(".menu-list").hidden).toBe(true);
   });
 
   it("label opens that item's print label in a new tab", async () => {
     const { target } = await loadedRow();
     const open = vi.spyOn(window, "open").mockReturnValue(null);
-    await userEvent.setup().selectOptions(actionSelect(0), "label");
+    await pickAction(0, "label");
     expect(open).toHaveBeenCalledWith(`/items/labels?barcode=${encodeURIComponent(target.barcode)}`, "_blank", "noopener");
     open.mockRestore();
   });
@@ -270,7 +269,7 @@ describe("row actions", () => {
     server.use(http.patch(`/items/${target.id}/low-stock-threshold`, () =>
       HttpResponse.json({ ...target, low_stock_threshold: 3 })));
     const user = userEvent.setup();
-    await user.selectOptions(actionSelect(0), "threshold");
+    await pickAction(0, "threshold");
     const overlay = document.getElementById("threshold-overlay");
     const input = document.getElementById("threshold-input");
     expect(overlay.hidden).toBe(false);
@@ -285,26 +284,26 @@ describe("row actions", () => {
     await vi.waitFor(() => expect(el.message().textContent).toBe('Low-stock threshold for "Target" set to 3.'));
     expect(overlay.hidden).toBe(true);
     expect(requestFor("/low-stock-threshold", "PATCH").body).toEqual({ low_stock_threshold: 3 });
-    expect(actionSelect(0).value).toBe("");
+    expect(actionSelect(0).querySelector(".menu-list").hidden).toBe(true);
   });
 
   it("correct opens the correction panel", async () => {
     await loadedRow();
-    await userEvent.setup().selectOptions(actionSelect(0), "correct");
+    await pickAction(0, "correct");
     expect(el.correctionSection().hidden).toBe(false);
     expect(document.getElementById("correction-selected").textContent).toContain("Target");
   });
 
   it("notes opens the notes editor", async () => {
     await loadedRow("supervisor");
-    await userEvent.setup().selectOptions(actionSelect(0), "notes");
+    await pickAction(0, "notes");
     expect(el.notesSection().hidden).toBe(false);
     expect(document.getElementById("notes-editor-selected").textContent).toBe("Editing notes for: Target");
   });
 
   it("delete: No leaves the item and issues nothing", async () => {
     await loadedRow();
-    const choosing = userEvent.setup().selectOptions(actionSelect(0), "delete");
+    const choosing = pickAction(0, "delete");
     await answerConfirm(false);
     await choosing;
     expect(requestFor("/items/", "DELETE")).toBeNull();
@@ -315,9 +314,9 @@ describe("row actions", () => {
     const { target } = await loadedRow();
     server.use(http.delete(`/items/${target.id}`, () => new HttpResponse(null, { status: 204 })));
     const user = userEvent.setup();
-    await user.selectOptions(actionSelect(0), "edit");
+    await pickAction(0, "edit");
     expect(el.editorSection().hidden).toBe(false);
-    const choosing = user.selectOptions(actionSelect(0), "delete");
+    const choosing = pickAction(0, "delete");
     await answerConfirm(true);
     await choosing;
     await vi.waitFor(() => expect(el.message().textContent).toBe('Archived "Target".'));
@@ -330,7 +329,7 @@ describe("row actions", () => {
   it("delete: a failing DELETE surfaces friendlyError", async () => {
     const { target } = await loadedRow();
     server.use(http.delete(`/items/${target.id}`, () => HttpResponse.json({ detail: "nope" }, { status: 403 })));
-    const choosing = userEvent.setup().selectOptions(actionSelect(0), "delete");
+    const choosing = pickAction(0, "delete");
     await answerConfirm(true);
     await choosing;
     await vi.waitFor(() => expect(el.message().className).toBe("error"));
@@ -340,7 +339,7 @@ describe("row actions", () => {
 
   it("the confirm copy names the item", async () => {
     await loadedRow();
-    const choosing = userEvent.setup().selectOptions(actionSelect(0), "delete");
+    const choosing = pickAction(0, "delete");
     await vi.waitFor(() => expect(document.getElementById("scan-confirm-overlay").hidden).toBe(false));
     expect(document.getElementById("scan-confirm-title").textContent)
       .toBe('Archive "Target"? It will be hidden from lookup and lists, but its history is kept.');
@@ -360,7 +359,7 @@ describe("save callbacks refresh the displayed set", () => {
     // notes.js setOnSaved(refreshDisplayedItems): drive a notes save through
     // its real button rather than reaching for the callback.
     server.use(http.patch(`/items/${target.id}/notes`, () => HttpResponse.json(target)));
-    await user.selectOptions(actionSelect(0), "notes");
+    await pickAction(0, "notes");
     await user.click(document.getElementById("notes-save-btn"));
     await vi.waitFor(() => expect(requestFor("/items/?q=target", "GET")).not.toBeNull());
   });
@@ -373,7 +372,7 @@ describe("save callbacks refresh the displayed set", () => {
     // Open the notes editor from a loaded row, THEN drop back to resultMode
     // "none" -- the editor keeps its item, so Save still fires, and the
     // refresh guard is the only reason no list request follows.
-    await userEvent.setup().selectOptions(actionSelect(0), "notes");
+    await pickAction(0, "notes");
     mod.loadItems();
     clearRequests();
     server.use(http.patch(`/items/${target.id}/notes`, () => HttpResponse.json(target)));
@@ -543,7 +542,7 @@ describe("itemsScanner (Find Item → Scan)", () => {
     await vi.waitFor(() => expect(rows()).toHaveLength(1));
     clearRequests();
     server.use(http.delete(`/items/${found.id}`, () => new HttpResponse(null, { status: 204 })));
-    const choosing = userEvent.setup().selectOptions(actionSelect(0), "delete");
+    const choosing = pickAction(0, "delete");
     await answerConfirm(true);
     await choosing;
     await vi.waitFor(() => expect(requestFor("/items/?q=F1", "GET")).not.toBeNull());
@@ -616,7 +615,7 @@ describe("Find/Scan sub-nav lifecycle", () => {
   it("switching feature closes every open sub-flow", async () => {
     await loadedRow("admin");
     const user = userEvent.setup();
-    await user.selectOptions(actionSelect(0), "edit");
+    await pickAction(0, "edit");
     expect(el.editorSection().hidden).toBe(false);
     await user.click(el.subNavBtn("scan"));
     expect(el.editorSection().hidden).toBe(true);

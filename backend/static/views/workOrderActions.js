@@ -40,7 +40,6 @@ import {
   notesLogContentsHtml,
 } from "./workOrderPresenters.js";
 import {
-  closeCombo,
   closeTechnicianResults,
   emptyTechnicianSelectionHtml,
   renderBody,
@@ -144,34 +143,6 @@ listEl.addEventListener("click", async (event) => {
       list.innerHTML = emptyTechnicianSelectionHtml();
     }
     picker.querySelector(".wo-tech-search")?.focus();
-    return;
-  }
-
-  if (action === "toggle-combo") {
-    const combo = btn.closest(".wo-combo");
-    const list = combo.querySelector(".wo-combo-list");
-    const opening = list.hidden;
-    // Only one open at a time -- picking in one shouldn't leave another
-    // combo's listbox stranded open behind it.
-    listEl.querySelectorAll(".wo-combo").forEach((other) => {
-      if (other !== combo) closeCombo(other);
-    });
-    list.hidden = !opening;
-    btn.setAttribute("aria-expanded", String(opening));
-    return;
-  }
-
-  if (action === "pick-combo-option") {
-    const combo = btn.closest(".wo-combo");
-    const nativeSelect = combo.querySelector(".wo-combo-native");
-    const label = combo.querySelector(".wo-combo-trigger-label");
-    nativeSelect.value = btn.dataset.value;
-    label.textContent = btn.textContent;
-    combo.querySelectorAll(".wo-combo-option").forEach((opt) => {
-      opt.setAttribute("aria-selected", String(opt === btn));
-    });
-    closeCombo(combo);
-    combo.querySelector(".wo-combo-trigger")?.focus();
     return;
   }
 
@@ -517,17 +488,14 @@ listEl.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (event.target.classList.contains("wo-tech-search")) {
     closeTechnicianResults(event.target.closest(".wo-tech-picker"));
-    return;
   }
-  const combo = event.target.closest(".wo-combo");
-  if (combo) closeCombo(combo);
 });
 
 // Safari does not focus a button on click, so pressing a result would blur the
 // input, trip the focusout below and remove the list before `click` lands.
 // Cancelling mousedown keeps focus where it is (a no-op in Chrome).
 listEl.addEventListener("mousedown", (event) => {
-  if (event.target.closest(".wo-tech-result, .wo-combo-option")) event.preventDefault();
+  if (event.target.closest(".wo-tech-result, .menu-option")) event.preventDefault();
 });
 
 listEl.addEventListener("focusout", (event) => {
@@ -535,13 +503,6 @@ listEl.addEventListener("focusout", (event) => {
   if (picker) {
     setTimeout(() => {
       if (!picker.contains(document.activeElement)) closeTechnicianResults(picker);
-    }, 0);
-    return;
-  }
-  const combo = event.target.closest(".wo-combo");
-  if (combo) {
-    setTimeout(() => {
-      if (!combo.contains(document.activeElement)) closeCombo(combo);
     }, 0);
   }
 });

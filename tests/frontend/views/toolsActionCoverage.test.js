@@ -1,4 +1,4 @@
-// Tools delegates on a <select> `change`, like Items, so "rendered" is an
+// Tools delegates on its themed Actions menu (menus.js `initActionMenus`), like Items, so "rendered" is an
 // <option value>. Unlike Items it guards the last branch with
 // `action !== "delete"` rather than an equality, which the default
 // `handledPattern` does not match -- hence the widened regex here.
@@ -23,8 +23,7 @@ auditActions({
   frozen: ["correct", "delete", "edit"],
   behaviourDir: HERE,
   behaviourExclude: readdirSync(HERE).filter((f) => !OURS.includes(f)),
-  // The placeholder `<option value="" disabled selected>` does not match:
-  // `[a-z-]+` requires at least one character.
-  renderedPattern: /<option value="([a-z-]+)">/g,
+  // Each menu option is a `{ value, label }` object handed to actionMenuHtml.
+  renderedPattern: /\{ value: "([a-z-]+)", label:/g,
   handledPattern: /action (?:===|!==) "([a-z-]+)"/g,
 });

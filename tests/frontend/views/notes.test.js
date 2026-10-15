@@ -12,7 +12,7 @@ import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
 import { server } from "../helpers/handlers.js";
 import {
-  actionSelect, clearRequests, el, mountItems, requestFor, requests, restoreItems, rows,
+  actionSelect, pickAction, clearRequests, el, mountItems, requestFor, requests, restoreItems, rows,
 } from "../helpers/items.js";
 import { importView } from "../helpers/shell.js";
 import { item as itemFactory } from "../helpers/factories.js";
@@ -41,7 +41,7 @@ async function loadedRow({ role = "admin", fake = false, ...overrides } = {}) {
 }
 
 async function openNotes(ctx) {
-  await ctx.user.selectOptions(actionSelect(0), "notes");
+  await pickAction(0, "notes");
   expect(el.notesSection().hidden).toBe(false);
 }
 

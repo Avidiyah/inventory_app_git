@@ -39,7 +39,19 @@ export const el = {
 
 export const rows = () => Array.from(el.tbody().querySelectorAll("tr"));
 export const headers = () => Array.from(el.theadRow().querySelectorAll("th")).map((th) => th.textContent);
-export const actionSelect = (rowIndex = 0) => rows()[rowIndex]?.querySelector("select.row-actions-select") ?? null;
+export const actionSelect = (rowIndex = 0) => rows()[rowIndex]?.querySelector(".action-menu") ?? null;
+
+// The row Actions control is the shared themed menu (static/menus.js), not a
+// <select>: open its trigger, then click the option. Plain .click() so the
+// document-level menu listeners run synchronously, as they do for a user.
+export async function pickAction(rowIndex, value) {
+  const menu = actionSelect(rowIndex);
+  if (!menu) throw new Error(`no action menu on row ${rowIndex}`);
+  menu.querySelector('[data-menu-action="toggle"]').click();
+  const option = menu.querySelector(`[data-menu-action="pick"][data-value="${value}"]`);
+  if (!option) throw new Error(`no "${value}" action on row ${rowIndex}`);
+  option.click();
+}
 
 // --- request recording -----------------------------------------------------
 // The shared recorder in `helpers/requests.js`; re-exported so this fixture's

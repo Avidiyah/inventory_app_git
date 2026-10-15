@@ -12,7 +12,7 @@ import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
 import { server } from "../helpers/handlers.js";
 import {
-  actionSelect, activeFeature, answerConfirm, answerDecode, answerToolLookup, el, headers,
+  actionSelect, pickAction, activeFeature, answerConfirm, answerDecode, answerToolLookup, el, headers,
   openTools, requestFor, requests, restoreTools, rows, upload,
 } from "../helpers/tools.js";
 import { importView } from "../helpers/shell.js";
@@ -160,12 +160,13 @@ describe("the tool table", () => {
   it("offers the three row actions to a custody manager only", async () => {
     const drill = DRILL();
     await openInventory({ tools: [drill] });
-    const select = actionSelect(0);
-    expect(select.id).toBe(`tool-row-actions-${drill.id}`);
-    expect(select.dataset.id).toBe(drill.id);
-    expect(select.getAttribute("aria-label")).toBe("Actions for Drill");
-    expect(Array.from(select.options).map((o) => o.value)).toEqual(["", "edit", "correct", "delete"]);
-    expect(document.querySelector(`label[for="${select.id}"]`).className).toBe("sr-only");
+    const menu = actionSelect(0);
+    const list = menu.querySelector(".menu-list");
+    expect(list.id).toBe(`tool-row-actions-${drill.id}`);
+    expect(menu.dataset.id).toBe(drill.id);
+    expect(menu.querySelector(".menu-trigger").getAttribute("aria-label")).toBe("Actions for Drill");
+    expect(Array.from(menu.querySelectorAll(".menu-option")).map((o) => o.dataset.value))
+      .toEqual(["edit", "correct", "delete"]);
   });
 
   it("renders no actions column below techfm_oa", async () => {
@@ -216,10 +217,10 @@ describe("the tool table", () => {
 
 describe("the edit action", () => {
   async function openEditor(ctx) {
-    await ctx.user.selectOptions(actionSelect(0), "edit");
+    await pickAction(0, "edit");
     expect(el.editorSection().hidden).toBe(false);
     // The select always snaps back to its disabled placeholder.
-    expect(actionSelect(0).value).toBe("");
+    expect(actionSelect(0).querySelector(".menu-list").hidden).toBe(true);
   }
 
   it("opens prefilled and named", async () => {
@@ -295,7 +296,7 @@ describe("the correct action", () => {
     const correction = await importView("views/toolCorrection.js");
     answer("post", `/tools/${drill.id}/adjust`);
 
-    await ctx.user.selectOptions(actionSelect(0), "correct");
+    await pickAction(0, "correct");
     expect(el.correctionSection().hidden).toBe(false);
     expect(el.correctionSelected().textContent).toBe("Correcting: Drill (T1)");
     expect(el.correctionCurrent().textContent).toBe("Current count: 3");
@@ -338,7 +339,7 @@ describe("the correct action", () => {
   it("Cancel closes it and drops the editing id", async () => {
     const ctx = await openInventory({ tools: [DRILL()] });
     const correction = await importView("views/toolCorrection.js");
-    await ctx.user.selectOptions(actionSelect(0), "correct");
+    await pickAction(0, "correct");
     await ctx.user.click(el.correctionCancelBtn());
     expect(el.correctionSection().hidden).toBe(true);
     expect(correction.getCorrectingToolId()).toBeNull();
@@ -352,7 +353,7 @@ describe("the delete action", () => {
       : new HttpResponse(null, { status: 204 }))));
 
   async function archiveRow(ctx, yes, index = 0) {
-    const choosing = ctx.user.selectOptions(actionSelect(index), "delete");
+    const choosing = pickAction(index, "delete");
     await answerConfirm(yes);
     await choosing;
   }
@@ -361,7 +362,7 @@ describe("the delete action", () => {
     const drill = DRILL();
     const ctx = await openInventory({ tools: [drill] });
     archive(drill.id);
-    const choosing = ctx.user.selectOptions(actionSelect(0), "delete");
+    const choosing = pickAction(0, "delete");
 
     await vi.waitFor(() => expect(document.getElementById("scan-confirm-overlay").hidden).toBe(false));
     expect(document.getElementById("scan-confirm-title").textContent)
@@ -394,7 +395,7 @@ describe("the delete action", () => {
     archive(drill.id);
     server.use(http.get("/tools/", () => HttpResponse.json([])));
 
-    await ctx.user.selectOptions(actionSelect(0), "edit");
+    await pickAction(0, "edit");
     expect(el.editorSection().hidden).toBe(false);
     await archiveRow(ctx, true);
     await vi.waitFor(() => expect(el.editorSection().hidden).toBe(true));
@@ -407,7 +408,7 @@ describe("the delete action", () => {
     archive(drill.id);
     server.use(http.get("/tools/", () => HttpResponse.json([])));
 
-    await ctx.user.selectOptions(actionSelect(0), "correct");
+    await pickAction(0, "correct");
     await archiveRow(ctx, true);
     await vi.waitFor(() => expect(el.correctionSection().hidden).toBe(true));
     expect(correction.getCorrectingToolId()).toBeNull();
@@ -420,7 +421,7 @@ describe("the delete action", () => {
     archive(saw.id);
     server.use(http.get("/tools/", () => HttpResponse.json([drill])));
 
-    await ctx.user.selectOptions(actionSelect(0), "edit");    // Drill
+    await pickAction(0, "edit");    // Drill
     expect(el.editorSelected().textContent).toBe("Editing: Drill (T1)");
     await archiveRow(ctx, true, 1);                            // archive Saw
     await vi.waitFor(() => expect(rows()).toHaveLength(1));
@@ -441,7 +442,7 @@ describe("the delete action", () => {
   it("ignores an action on a row whose tool has left the cache", async () => {
     const ctx = await openInventory({ tools: [DRILL()] });
     actionSelect(0).dataset.id = "no-such-tool";
-    await ctx.user.selectOptions(actionSelect(0), "edit");
+    await pickAction(0, "edit");
     expect(el.editorSection().hidden).toBe(true);
     expect(requests()).toHaveLength(0);
   });

@@ -14,7 +14,7 @@ import { userEvent } from "@testing-library/user-event";
 import { server } from "../helpers/handlers.js";
 import {
   activeFeature, answerDecode, answerToolLookup, checkoutOptions, chooseUser,
-  el, openTools, restoreTools, rows, upload,
+  el, openTools, pickAction, restoreTools, rows, upload,
 } from "../helpers/tools.js";
 import { tool, user as userFactory } from "../helpers/factories.js";
 
@@ -202,8 +202,7 @@ describe("the sub-nav lifecycle hooks", () => {
     const drill = DRILL();
     const ctx = await mounted({ tools: [drill] });
     await ctx.user.click(el.subNavBtn("inventory"));
-    const select = rows()[0].querySelector("select.row-actions-select");
-    await ctx.user.selectOptions(select, "edit");
+    await pickAction(0, "edit");
     expect(el.editorSection().hidden).toBe(false);
 
     await ctx.user.click(el.subNavBtn("custody"));
@@ -225,7 +224,7 @@ describe("resetToolsView", () => {
     await ctx.user.click(checkoutOptions()[0]);
     await ctx.user.click(el.subNavBtn("inventory"));
     await ctx.user.type(el.search(), "T1");
-    await ctx.user.selectOptions(rows()[0].querySelector("select.row-actions-select"), "correct");
+    await pickAction(0, "correct");
     expect(el.correctionSection().hidden).toBe(false);
 
     ctx.mod.resetToolsView();
