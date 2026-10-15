@@ -274,7 +274,8 @@ def edit_hub_attendance_punch(
         punch = attendance_service.admin_edit_punch(
             db, actor=user, punch_id=punch_id,
             started_at=payload.started_at, ended_at=payload.ended_at,
-            needs_review=payload.needs_review, reason=payload.reason)
+            needs_review=payload.needs_review, lunch_waived=payload.lunch_waived,
+            reason=payload.reason)
     except DomainError as exc:
         raise to_http(exc) from exc
     emit_attendance_changed()

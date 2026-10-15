@@ -258,3 +258,28 @@ def test_me_payload_does_not_count_yesterdays_open_punch_into_today(db):
     _open_punch(db, tech, YESTERDAY_7AM)
     me = attendance_service.me_payload(db, user=tech, now=NOW)
     assert me.open_punch is None and me.clocked_minutes_today == 0
+
+
+# --- The lunch waiver (L2/L4) ---------------------------------------------
+
+def test_waiving_lunch_writes_an_audit_row_and_keeps_needs_review(db):
+    admin, tech = _seed_user(db, "admin"), _seed_user(db)
+    old = _open_punch(db, tech, YESTERDAY_7AM)
+    attendance_service.sweep_open_punches(db, now=NOW)          # flagged
+    attendance_service.admin_edit_punch(db, actor=admin, punch_id=old.id,
+        lunch_waived=True, reason="Lunch removed by an Admin", now=NOW)
+    db.refresh(old)
+    assert old.lunch_waived is True and old.needs_review is True
+    edit = db.query(AttendancePunchEdit).filter_by(punch_id=old.id).one()
+    assert (edit.field, edit.old_value, edit.new_value) == ("lunch_waived", "false", "true")
+    assert edit.reason == "Lunch removed by an Admin"
+
+
+def test_restating_the_same_waiver_changes_nothing(db):
+    from app.domain.errors import NoChangeError
+    admin, tech = _seed_user(db, "admin"), _seed_user(db)
+    old = _open_punch(db, tech, YESTERDAY_7AM)
+    attendance_service.sweep_open_punches(db, now=NOW)
+    with pytest.raises(NoChangeError):
+        attendance_service.admin_edit_punch(db, actor=admin, punch_id=old.id,
+                                            lunch_waived=False, now=NOW)

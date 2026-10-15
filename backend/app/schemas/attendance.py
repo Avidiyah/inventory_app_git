@@ -206,6 +206,9 @@ class PunchEditRequest(BaseModel):
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
     needs_review: Optional[bool] = None
+    # L2: remove (true) or restore (false) the day's flat lunch. Never
+    # clears `needs_review`.
+    lunch_waived: Optional[bool] = None
     reason: Optional[str] = None
 
 

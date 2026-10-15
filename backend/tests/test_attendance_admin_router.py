@@ -119,3 +119,24 @@ def test_delete_then_the_week_no_longer_shows_it(db):
     ids = [entry["id"] for row in week["rows"] for day in row["days"]
            for entry in day["punches"]]
     assert str(punch.id) not in ids
+
+
+def test_patch_lunch_waived_is_200(db):
+    admin, tech = _seed_user(db, "admin"), _seed_user(db)
+    start = datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)      # 7:00 AM CDT Mon
+    punch = AttendancePunch(id=uuid.uuid4(), user_id=tech.id, started_at=start,
+                            ended_at=start + timedelta(hours=8),
+                            start_source="manual", end_source="manual")
+    db.add(punch); db.commit()
+    try:
+        with _as(db, admin) as client:
+            response = client.patch(f"/hub/attendance/punches/{punch.id}",
+                                    json={"lunch_waived": True})
+            crossing = client.patch(f"/hub/attendance/punches/{punch.id}", json={
+                "ended_at": (start + timedelta(hours=17, minutes=1)).isoformat()})
+    finally:
+        del app.dependency_overrides[get_db]
+    assert response.status_code == 200
+    db.refresh(punch)
+    assert punch.lunch_waived is True
+    assert crossing.status_code == 400

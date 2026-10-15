@@ -308,6 +308,7 @@ def admin_edit_punch(db: Session, *, actor: User, punch_id,
                      started_at: Optional[datetime] = None,
                      ended_at: Optional[datetime] = None,
                      needs_review: Optional[bool] = None,
+                     lunch_waived: Optional[bool] = None,
                      reason: Optional[str] = None,
                      now: Optional[datetime] = None) -> AttendancePunch:
     """Correct a punch. `None` means *unchanged*, never *clear*: clearing
@@ -320,6 +321,9 @@ def admin_edit_punch(db: Session, *, actor: User, punch_id,
     Any change clears `needs_review` -- an Admin who has looked at a
     midnight-closed or self-reported time has reviewed it. Passing `needs_review=False` alone is
     the "Looks right" action: reviewed, nothing to correct.
+
+    `lunch_waived` removes or restores the day's flat lunch (L2). It never
+    clears `needs_review` (L4): a midnight close is still an estimate.
     """
     now = now or datetime.now(timezone.utc)
     punch = _live_punch(db, punch_id)
@@ -339,9 +343,12 @@ def admin_edit_punch(db: Session, *, actor: User, punch_id,
         changes.append(("started_at", _stamp(punch.started_at), _stamp(new_start)))
     if new_end != punch.ended_at:
         changes.append(("ended_at", _stamp(punch.ended_at), _stamp(new_end)))
-    clearing = punch.needs_review and (needs_review is False or changes)
+    clearing = punch.needs_review and (needs_review is False or bool(changes))
     if clearing:
         changes.append(("needs_review", "true", "false"))
+    if lunch_waived is not None and lunch_waived != bool(punch.lunch_waived):
+        changes.append(("lunch_waived", str(bool(punch.lunch_waived)).lower(),
+                        str(lunch_waived).lower()))
     if not changes:
         raise NoChangeError("Nothing about that punch changed.")
 
@@ -352,6 +359,8 @@ def admin_edit_punch(db: Session, *, actor: User, punch_id,
         punch.end_source = attendance.END_SOURCE_ADMIN_EDIT
     if clearing:
         punch.needs_review = False
+    if lunch_waived is not None:
+        punch.lunch_waived = lunch_waived
     for field, old, new in changes:
         _audit(db, punch=punch, actor=actor, field=field, old=old, new=new,
                reason=reason, now=now)
