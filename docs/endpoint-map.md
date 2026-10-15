@@ -949,7 +949,7 @@ TYPE | SCHEDULE DATE | PRIORITY`. The final sheet is always present and says
 
 ### Attendance (`schemas/attendance.py`)
 
-**`PersonWeekResponse`** — `GET /hub/people/{user_id}/week` (**admin only**): `user`, `archived`, `week_start/week_end`, `server_now`, seven `days` (`clocked_minutes`, `charged_minutes` = closed + capped running, `adjustment_minutes` shown never summed, `completed_count`, `needs_review`, `has_open`, and the four detail lists), week totals, `reviewable`. Wall-clock minutes, no money. Models live in `schemas/attendance.py`.
+**`PersonWeekResponse`** — `GET /hub/people/{user_id}/week` (**admin only**): `user`, `archived`, `week_start/week_end`, `server_now`, seven `days` (`clocked_minutes`, `charged_minutes` = closed + capped running, `adjustment_minutes` shown never summed, `completed_count`, `needs_review`, `has_open`, and the four detail lists), each `completed` item carrying `status` and `archived` (archived rows are included), week totals, `reviewable`. Wall-clock minutes, no money. Models live in `schemas/attendance.py`.
 
 **`AttendanceWeekResponse`** — `GET /hub/attendance/week` (**admin only**),
 and the object `GET /hub/attendance/export` serializes. `week` is a Monday,

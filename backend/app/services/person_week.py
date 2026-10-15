@@ -36,6 +36,8 @@ class PersonCompleted:
     number: str
     location: str | None
     completed_at: datetime
+    status: str
+    archived: bool
 
 
 @dataclass(frozen=True)
@@ -114,6 +116,7 @@ def _completed_by_day(
             PersonCompleted(
                 work_order_id=work_order.id, number=work_order.number,
                 location=work_order.location, completed_at=completed_at,
+                status=work_order.status, archived=work_order.archived_at is not None,
             )
         )
     return buckets

@@ -223,6 +223,8 @@ class PersonWeekCompleted(BaseModel):
     number: str
     location: Optional[str] = None
     completed_at: datetime
+    status: str
+    archived: bool
 
     model_config = {"from_attributes": True}
 

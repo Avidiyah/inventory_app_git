@@ -227,3 +227,17 @@ def test_admin_and_owner_targets_raise(db, role):
 def test_unknown_user_raises_not_found(db):
     with pytest.raises(UserNotFoundError):
         person_week.week_payload(db, user_id=uuid.uuid4(), week_start=MONDAY, now=NOW)
+
+
+def test_completed_carries_status_and_archived(db):
+    tech = _user(db)
+    _wo(db, tech, completed_at=_utc(15, 15), crew=[tech], number="WO-L")
+    gone = _wo(db, tech, completed_at=_utc(15, 16), crew=[tech], number="WO-A")
+    gone.archived_at = NOW
+    db.commit()
+    day = _day(_payload(db, tech), MONDAY + timedelta(days=1))
+    by_number = {c.number: c for c in day.completed}
+    assert (by_number["WO-L"].status, by_number["WO-L"].archived) == ("completed", False)
+    assert (by_number["WO-A"].status, by_number["WO-A"].archived) == ("completed", True)
+    from app.schemas.attendance import PersonWeekCompleted
+    assert PersonWeekCompleted.model_validate(by_number["WO-A"]).archived is True
