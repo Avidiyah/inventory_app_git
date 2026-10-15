@@ -102,7 +102,7 @@ describe("loadUserHub by role", () => {
     const { mod } = await openHub({ role: "admin" });
     await user().click(el.tab("timesheets"));
     await vi.waitFor(() => expect(requestFor("/hub/attendance/week")).not.toBeNull());
-    await vi.waitFor(() => expect(el.panel("timesheets").querySelector(".hub-hours-table")).not.toBeNull());
+    await vi.waitFor(() => expect(el.panel("timesheets").querySelector(".hub-day-card")).not.toBeNull());
     server.use(http.get("/hub", () => HttpResponse.json(hubPayload({ user: { id: "someone-else", role: "admin" } }))));
     clearRequests();
     await mod.loadUserHub();

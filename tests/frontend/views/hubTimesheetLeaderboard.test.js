@@ -110,14 +110,6 @@ describe("the leaderboard table", () => {
     expect(host.querySelector(".hub-leaderboard-legend").textContent).toContain("$62.50");
   });
 
-  it("pages the week by a whole week at a time", async () => {
-    const weeks = [];
-    mount(attendanceWeek(), { onWeekChange: (w) => weeks.push(w) });
-    await user().click(host.querySelector(".hub-timesheets-prev"));
-    await user().click(host.querySelector(".hub-timesheets-next"));
-    expect(weeks).toEqual(["2026-09-07", "2026-09-21"]);
-  });
-
   it("downloads the CSV and reports the filename", async () => {
     server.use(http.get("/hub/attendance/export", () => new HttpResponse("x", {
       headers: { "Content-Disposition": 'attachment; filename="attendance_2026-09-14.csv"' },

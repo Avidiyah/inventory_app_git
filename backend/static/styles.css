@@ -3055,11 +3055,42 @@ tr.archived-user {
     margin-bottom: var(--space-3);
 }
 
-.hub-leaderboard-week-nav {
-    display: flex;
-    align-items: center;
+/* Day cards: one per day of the week, opening the day page in place. */
+.hub-day-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
     gap: var(--space-2);
 }
+
+.hub-day-card {
+    min-height: auto;
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+    background: var(--panel-nested);
+    border: 1px solid var(--panel-rule-soft);
+    border-radius: var(--radius-sm);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    font-variant-numeric: tabular-nums;
+}
+
+.hub-day-card:hover,
+.hub-day-card:focus-visible {
+    background: var(--panel-well);
+    color: inherit;
+}
+
+.hub-day-card-date { font-weight: 600; }
+.hub-day-card-count { font-size: 0.875rem; opacity: 0.8; }
+.hub-day-card-hours { font-size: 1.25rem; font-weight: 600; }
+
+.hub-day-person { padding: var(--space-2) 0; border-top: 1px solid var(--panel-rule-soft); }
+.hub-day-person-name { margin: 0 0 var(--space-1); font-size: 1rem; }
 
 .hub-leaderboard-heading,
 .hub-hours-heading {

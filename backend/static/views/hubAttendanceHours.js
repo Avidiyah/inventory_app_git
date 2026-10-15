@@ -98,13 +98,15 @@ function punchRowHtml(punch, { canEdit } = {}) {
   </div>`;
 }
 
-function drilldownHtml(day, name, { canEdit } = {}) {
+// Shared with the day page (hubAttendanceDay.js), which stacks one of these
+// per person for a single date and so needs `userId` on the add button.
+export function drilldownHtml(day, name, { canEdit, userId = "" } = {}) {
   const rows = day.punches.map((punch) => punchRowHtml(punch, { canEdit })).join("");
   const empty = day.punches.length
     ? ""
     : `<p class="hint hub-hours-no-detail">No punches recorded.</p>`;
   const add = canEdit
-    ? `<button type="button" class="secondary-btn hub-hours-add" data-date="${escapeHtml(day.date)}">+ Add punch</button>`
+    ? `<button type="button" class="secondary-btn hub-hours-add" data-date="${escapeHtml(day.date)}" data-user="${escapeHtml(userId)}">+ Add punch</button>`
     : "";
   return `<div class="hub-hours-drilldown">
     <div class="hub-hours-drilldown-heading">
@@ -112,7 +114,7 @@ function drilldownHtml(day, name, { canEdit } = {}) {
       <strong>${formatHm(day.clocked_minutes)} clocked</strong>
     </div>
     ${rows}${empty}${add}
-    <div class="hub-hours-editor" data-date="${escapeHtml(day.date)}"></div>
+    <div class="hub-hours-editor" data-date="${escapeHtml(day.date)}" data-user="${escapeHtml(userId)}"></div>
   </div>`;
 }
 

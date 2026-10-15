@@ -5,9 +5,10 @@
 //
 // Top to bottom:
 //   roster      -- who is on the clock now, from `GET /hub/attendance/live`
-//   leaderboard (last on the page) -- the week's charged/uncharged hours and money, ranked; owns
-//                  the page's week picker and CSV export
-//   hours       -- the clocked-hours grid with the audited punch editor
+//   days        -- the week picker and seven day cards; a card opens the
+//                  day page in place (everyone clocked in, punch editor)
+//   leaderboard -- the week's charged/uncharged hours and money, ranked;
+//                  owns the CSV export
 //
 // Leaderboard and hours read **one** payload from `GET /hub/attendance/week`:
 // two features fetching their own week could show payroll two different
@@ -31,7 +32,7 @@ import { escapeHtml, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
 import { roleAtLeast } from "../roles.js";
 import { skeletonCard } from "../skeleton.js";
-import { mountHubAttendanceHours } from "./hubAttendanceHours.js";
+import { mondayOf, mountHubAttendanceDayPage, mountHubAttendanceDays } from "./hubAttendanceDay.js";
 import { destroyHubAttendanceRoster, mountHubAttendanceRoster } from "./hubAttendanceRoster.js";
 import { mountHubTimesheetLeaderboard } from "./hubTimesheetLeaderboard.js";
 import { mountUserProfile } from "./userProfile.js";
@@ -48,6 +49,8 @@ let weekNotice = "";
 // The profile mounted in place of the week area (E2): `{ user, week }` or
 // null. While set, renderWeek and the background week refresh stand down.
 let profileOpen = null;
+// The day page mounted in place of the week area: an ISO date or null.
+let dayOpen = null;
 
 // The roster's own cache, on its own cadence: the week is paged by hand and
 // the strip is polled. Sharing one counter would let a week change discard
@@ -133,15 +136,26 @@ function renderWeek(panelEl) {
   if (profileOpen) { renderProfile(panelEl); return; }
   const area = mountFor(panelEl, "week");
   if (!area || !weekPayload) return;
-  area.innerHTML = `<div class="hub-timesheets-hours"></div>
-    <div class="hub-timesheets-leaderboard"></div>`;
   const isAdmin = roleAtLeast(viewerRole, "admin");
-  mountHubTimesheetLeaderboard(mountFor(panelEl, "leaderboard"), weekPayload, {
+  if (dayOpen) { renderDay(panelEl, isAdmin); return; }
+  area.innerHTML = `<div class="hub-timesheets-days"></div>
+    <div class="hub-timesheets-leaderboard"></div>`;
+  mountHubAttendanceDays(mountFor(panelEl, "days"), weekPayload, {
     onWeekChange: changeWeek(panelEl),
+    onOpenDay: (date) => { dayOpen = date; renderWeek(panelEl); },
+  });
+  mountHubTimesheetLeaderboard(mountFor(panelEl, "leaderboard"), weekPayload, {
     onReviewAll: isAdmin ? () => write(panelEl, () => reviewWeek()) : undefined,
     notice: weekNotice,
   });
   weekNotice = "";
+}
+
+// The day page (one date, everyone clocked in). Stepping past the week's
+// edge moves the week and refetches; the page repaints from the new payload.
+function renderDay(panelEl, isAdmin) {
+  const area = mountFor(panelEl, "week");
+  area.innerHTML = `<div class="hub-timesheets-day"></div>`;
   // The four write callbacks are passed only to an Admin, and the grid
   // renders an affordance only for a callback it was given -- so the floor
   // is expressed once, here, rather than re-derived inside the view.
@@ -153,8 +167,14 @@ function renderWeek(panelEl) {
       onClearReview: (id) => write(panelEl, () => apiEditAttendancePunch(id, { needsReview: false })),
     }
     : {};
-  mountHubAttendanceHours(mountFor(panelEl, "hours"), weekPayload, {
-    weekNav: false, ...writes,
+  mountHubAttendanceDayPage(area.firstElementChild, weekPayload, dayOpen, {
+    ...writes,
+    onBack: () => { dayOpen = null; renderWeek(panelEl); },
+    onDayChange: (date) => {
+      dayOpen = date;
+      if (weekPayload.days.includes(date)) renderWeek(panelEl);
+      else changeWeek(panelEl)(mondayOf(date));
+    },
     onOpenProfile: isAdmin ? (user) => openProfile(panelEl, user, week) : undefined,
   });
 }
@@ -214,7 +234,7 @@ async function loadLive(panelEl) {
 export function refreshTimesheetsLive(panelEl = hostPanel) {
   if (!panelEl || panelEl.hidden || !panelEl.querySelector(".hub-timesheets-week")) return;
   void loadLive(panelEl);
-  if (!profileOpen && !panelEl.querySelector(".hub-hours-detail-row")) void loadWeek(panelEl);
+  if (!profileOpen && !panelEl.querySelector(".punch-editor")) void loadWeek(panelEl);
 }
 
 function showWeekError(panelEl, err) {
@@ -271,6 +291,7 @@ export function renderTimesheetsTab(panelEl, { role } = {}) {
 export function resetTimesheetsTab(panelEl) {
   weekPayload = null;
   profileOpen = null;
+  dayOpen = null;
   week = null;
   weekRequestId += 1;
   livePayload = null;

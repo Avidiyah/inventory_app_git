@@ -26,29 +26,29 @@ async function openTimesheets(opts = {}) {
 }
 
 describe("Admin", () => {
-  it("shows one page with no sub-tabs: roster, daily hours, then leaderboard", async () => {
+  it("shows one page with no sub-tabs: roster, day cards, then leaderboard", async () => {
     await openTimesheets({ role: "admin" });
-    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
+    await vi.waitFor(() => expect(panel().querySelector(".hub-day-card")).not.toBeNull());
     await vi.waitFor(() => expect(panel().querySelector(".hub-roster-strip")).not.toBeNull());
     expect(panel().querySelectorAll(".sub-nav-btn")).toHaveLength(0);
-    const order = [".hub-roster", ".hub-hours .hub-hours-table", ".hub-leaderboard-table"]
+    const order = [".hub-roster", ".hub-day-cards", ".hub-leaderboard-table"]
       .map((selector) => panel().querySelector(selector));
     expect(order[0].compareDocumentPosition(order[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(order[1].compareDocumentPosition(order[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // One week picker for the whole page, owned by the leaderboard.
+    // One week picker for the whole page, owned by the day strip.
     expect(panel().querySelectorAll('[aria-label="Previous week"]')).toHaveLength(1);
   });
 
-  it("fetches the week once for both the leaderboard and the hours grid", async () => {
+  it("fetches the week once for both the day strip and the leaderboard", async () => {
     await openTimesheets({ role: "admin" });
-    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
+    await vi.waitFor(() => expect(panel().querySelector(".hub-day-card")).not.toBeNull());
     expect(queries("/hub/attendance/week")).toHaveLength(1);
     expect(queries("/hub/attendance/live")).toHaveLength(1);
   });
 
   it("pages the week and sends a Monday", async () => {
     await openTimesheets({ role: "admin", attendanceWeek: attendanceWeek() });
-    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
+    await vi.waitFor(() => expect(panel().querySelector(".hub-day-card")).not.toBeNull());
     await user().click(panel().querySelector(".hub-timesheets-prev"));
     await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
     expect(queries("/hub/attendance/week").at(-1)).toEqual({ week: "2026-09-07" });
@@ -67,30 +67,48 @@ describe("Admin", () => {
       handlers: [http.get("/hub/attendance/live", () => HttpResponse.json({ detail: "" }, { status: 500 }))],
     });
     await vi.waitFor(() => expect(panel().querySelector(".hub-leaderboard-table")).not.toBeNull());
-    expect(panel().querySelector(".hub-hours-table")).not.toBeNull();
+    expect(panel().querySelector(".hub-day-cards")).not.toBeNull();
     expect(panel().querySelector(".hub-roster-strip")).toBeNull();
   });
 
   it("refetches the roster and the week on attendance.changed", async () => {
     const { emit } = await connectHub();
     await openTimesheets({ role: "admin" });
-    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
+    await vi.waitFor(() => expect(panel().querySelector(".hub-day-card")).not.toBeNull());
     await vi.waitFor(() => expect(queries("/hub/attendance/live")).toHaveLength(1));
     emit("attendance.changed");
     await vi.waitFor(() => expect(queries("/hub/attendance/live")).toHaveLength(2));
     await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
   });
 
-  it("leaves an open punch drill-down alone on a background refresh", async () => {
+  it("leaves an open punch editor alone on a background refresh", async () => {
     const { emit } = await connectHub();
     await openTimesheets({ role: "admin" });
-    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
-    await user().click(panel().querySelector(".hub-hours-cell"));
-    expect(panel().querySelector(".hub-hours-detail-row")).not.toBeNull();
+    await vi.waitFor(() => expect(panel().querySelector(".hub-day-card")).not.toBeNull());
+    await user().click(panel().querySelector(".hub-day-card"));
+    await user().click(panel().querySelector(".hub-hours-edit"));
+    expect(panel().querySelector(".punch-editor")).not.toBeNull();
     emit("attendance.changed");
     await vi.waitFor(() => expect(queries("/hub/attendance/live")).toHaveLength(2));
     expect(queries("/hub/attendance/week")).toHaveLength(1);
-    expect(panel().querySelector(".hub-hours-detail-row")).not.toBeNull();
+    expect(panel().querySelector(".punch-editor")).not.toBeNull();
+  });
+
+  it("opens a day page from a card, steps across the week edge, and Back restores the week", async () => {
+    await openTimesheets({ role: "admin" });
+    await vi.waitFor(() => expect(panel().querySelector(".hub-day-card")).not.toBeNull());
+    expect(panel().querySelector(".hub-day-card").textContent).toContain("1 clocked in");
+    await user().click(panel().querySelector(".hub-day-card"));
+    expect(panel().querySelector(".hub-day-page")).not.toBeNull();
+    expect(panel().querySelector(".hub-day-person").textContent).toContain("Ann Lee");
+    expect(queries("/hub/attendance/week")).toHaveLength(1);
+    await user().click(panel().querySelector(".hub-day-prev"));
+    await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
+    expect(queries("/hub/attendance/week").at(-1)).toEqual({ week: "2026-09-07" });
+    await vi.waitFor(() => expect(panel().querySelector(".hub-day-page").textContent).toContain("Sunday"));
+    await user().click(panel().querySelector(".hub-day-back"));
+    expect(panel().querySelector(".hub-day-cards")).not.toBeNull();
+    expect(queries("/hub/attendance/week")).toHaveLength(2);
   });
 
   it("refreshes the roster on the hub's 60-second timer and starts no timer of its own", async () => {
@@ -115,10 +133,10 @@ describe("the Admin punch writes", () => {
     end_source: "admin_edit", needs_review: false,
   };
 
-  // Open the drill-down on Monday's cell and start editing its punch.
+  // Open Monday's day page and start editing its punch.
   async function openEditor() {
-    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
-    await user().click(panel().querySelector(".hub-hours-cell"));
+    await vi.waitFor(() => expect(panel().querySelector(".hub-day-card")).not.toBeNull());
+    await user().click(panel().querySelector(".hub-day-card"));
     await user().click(panel().querySelector(".hub-hours-edit"));
     await vi.waitFor(() => expect(panel().querySelector(".punch-editor")).not.toBeNull());
   }
@@ -164,7 +182,7 @@ describe("the Admin punch writes", () => {
 
     await vi.waitFor(() => expect(panel().querySelector(".punch-editor-message").textContent)
       .toMatch(/overlaps/i));
-    expect(panel().querySelector(".hub-hours-table")).not.toBeNull();
+    expect(panel().querySelector(".hub-day-page")).not.toBeNull();
   });
 
 });
@@ -174,23 +192,24 @@ describe("the profile", () => {
 
   async function openProfile(opts = {}) {
     const mounted = await openTimesheets({ role: "admin", handlers: [profileHandler()], ...opts });
-    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
+    await vi.waitFor(() => expect(panel().querySelector(".hub-day-card")).not.toBeNull());
+    await user().click(panel().querySelector(".hub-day-card"));
     await user().click(panel().querySelector(".hub-hours-person"));
     await vi.waitFor(() => expect(panel().querySelector("#hub-timesheets-profile .user-profile")).not.toBeNull());
     return mounted;
   }
 
-  it("swaps the week area for the profile at the shown week, and Back restores it without a fetch", async () => {
+  it("swaps the week area for the profile at the shown week, and Back restores the day page without a fetch", async () => {
     await openProfile();
     expect(panel().querySelector(".hub-leaderboard-table")).toBeNull();
-    expect(panel().querySelector(".hub-hours-table")).toBeNull();
+    expect(panel().querySelector(".hub-day-page")).toBeNull();
     await vi.waitFor(() => expect(queries("/hub/people/")).toEqual([{ week: "2026-09-14" }]));
     expect(panel().querySelector(".user-profile-back").textContent).toContain("timesheets");
     const before = queries("/hub/attendance/week").length;
     await user().click(panel().querySelector(".user-profile-back"));
     expect(panel().querySelector("#hub-timesheets-profile")).toBeNull();
-    expect(panel().querySelector(".hub-leaderboard-table")).not.toBeNull();
-    expect(panel().querySelector(".hub-hours-table")).not.toBeNull();
+    expect(panel().querySelector(".hub-day-page")).not.toBeNull();
+    expect(panel().querySelector(".hub-day-person").textContent).toContain("Ann Lee");
     expect(queries("/hub/attendance/week")).toHaveLength(before);
   });
 
@@ -206,7 +225,8 @@ describe("the profile", () => {
 
   it("does not offer the link to a Team Lead viewer", async () => {
     await openTimesheets({ role: "supervisor" });
-    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
+    await vi.waitFor(() => expect(panel().querySelector(".hub-day-card")).not.toBeNull());
+    await user().click(panel().querySelector(".hub-day-card"));
     expect(panel().querySelector(".hub-hours-person")).toBeNull();
   });
 

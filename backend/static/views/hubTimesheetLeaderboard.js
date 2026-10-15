@@ -2,10 +2,8 @@
 //
 // Layer: views. No fetch but the export blob, no state: everything on screen
 // comes from the week payload `hubTimesheetsTab.js` hands in -- the same
-// payload the Hours grid below it reads, so the two cannot disagree.
-//
-// Owns the page's one week picker and the CSV export, because the
-// leaderboard is the headline of the week and the Hours grid is its record.
+// payload the day strip above it reads, so the two cannot disagree. The
+// week picker lives on the strip; this owns the CSV export.
 //
 // The money is written for a layperson, one rule per column:
 //   charged   = time on a work-order clock, and nothing else
@@ -48,11 +46,6 @@ function weekLabel(start, end) {
   return `${isoDate(start).toLocaleDateString([], options)} – ${isoDate(end).toLocaleDateString([], options)}`;
 }
 
-function shiftMonday(iso, days) {
-  const monday = isoDate(iso);
-  monday.setUTCDate(monday.getUTCDate() + days);
-  return monday.toISOString().slice(0, 10);
-}
 
 function userName(user) {
   return `${user?.first_name || ""} ${user?.last_name || ""}`.trim() || "Unknown";
@@ -144,7 +137,7 @@ function setStatus(container, message, type = "") {
   status.className = `hub-leaderboard-message${type ? ` ${type}` : ""}`;
 }
 
-export function mountHubTimesheetLeaderboard(container, payload, { onWeekChange, onReviewAll, notice = "" } = {}) {
+export function mountHubTimesheetLeaderboard(container, payload, { onReviewAll, notice = "" } = {}) {
   async function downloadCsv(button) {
     button.disabled = true;
     setStatus(container, "Preparing export…");
@@ -201,11 +194,7 @@ export function mountHubTimesheetLeaderboard(container, payload, { onWeekChange,
 
   container.innerHTML = `<section class="hub-leaderboard" aria-labelledby="hub-leaderboard-heading">
       <div class="hub-leaderboard-toolbar">
-        <div class="hub-leaderboard-week-nav">
-          <button type="button" class="secondary-btn hub-timesheets-prev" aria-label="Previous week">◀</button>
-          <strong>${escapeHtml(weekLabel(payload.week_start, payload.week_end))}</strong>
-          <button type="button" class="secondary-btn hub-timesheets-next" aria-label="Next week">▶</button>
-        </div>
+        <strong>${escapeHtml(weekLabel(payload.week_start, payload.week_end))}</strong>
         <div class="hub-leaderboard-actions">
           ${reviewButton}
           <button type="button" class="secondary-btn hub-timesheets-export">Export CSV</button>
@@ -226,12 +215,6 @@ export function mountHubTimesheetLeaderboard(container, payload, { onWeekChange,
     const pct = Number(bar.dataset.pct);
     bar.querySelector(".hub-leaderboard-bar-made").style.width = `${pct}%`;
     bar.querySelector(".hub-leaderboard-bar-lost").style.width = `${100 - pct}%`;
-  });
-  container.querySelector(".hub-timesheets-prev")?.addEventListener("click", () => {
-    onWeekChange?.(shiftMonday(payload.week_start, -7));
-  });
-  container.querySelector(".hub-timesheets-next")?.addEventListener("click", () => {
-    onWeekChange?.(shiftMonday(payload.week_start, 7));
   });
   container.querySelector(".hub-timesheets-export")?.addEventListener("click", (event) => {
     void downloadCsv(event.currentTarget);
