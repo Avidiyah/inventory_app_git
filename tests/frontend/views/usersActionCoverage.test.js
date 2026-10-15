@@ -18,7 +18,7 @@ auditActions({
   sources: [join(VIEWS_DIR, "users.js")],
   frozen: [
     "archive-user-btn", "edit-user-name-btn", "edit-user-role-btn",
-    "reset-pw-btn", "restore-user-btn",
+    "reset-pw-btn", "restore-user-btn", "user-profile-btn",
   ],
   behaviourDir: HERE,
   behaviourExclude: readdirSync(HERE).filter((f) => !OURS.includes(f)),

@@ -39,6 +39,10 @@ const createUserBtn = document.getElementById("create-user-btn");
 const createUserMessage = document.getElementById("create-user-message");
 const usersTbody = document.getElementById("users-tbody");
 const usersMessage = document.getElementById("users-message");
+const usersTable = document.getElementById("users-table");
+const userProfile = document.getElementById("user-profile");
+// Roles whose name opens the weekly profile, for an Admin+ viewer only.
+const PROFILE_ROLES = ["technician", "supervisor", "techfm_oa"];
 const usernameInput = document.getElementById("username");
 const firstNameInput = document.getElementById("user-first-name");
 const lastNameInput = document.getElementById("user-last-name");
@@ -90,6 +94,7 @@ export async function loadUsers() {
 }
 
 function renderUsersTable() {
+  hideProfile();
   const actorRole = getRole();
   const actorId = getCurrentUser()?.id;
   usersTbody.innerHTML = "";
@@ -122,9 +127,14 @@ function renderUsersTable() {
     const actions = editNameAction || editRoleAction || lifecycleActions
       ? `<div class="row-actions">${editNameAction}${editRoleAction}${lifecycleActions}</div>`
       : `<span class="empty">—</span>`;
+    const canProfile = roleAtLeast(actorRole, "admin") && PROFILE_ROLES.includes(user.role);
+    const firstName = escapeHtml(user.first_name || "Name unavailable");
+    const firstNameCell = canProfile
+      ? `<button type="button" class="user-profile-btn hub-link-btn" data-id="${user.id}">${firstName}</button>`
+      : firstName;
     const archivedTag = isArchived ? ` <span class="muted">(archived)</span>` : "";
     row.innerHTML = `
-      <td data-label="First Name">${escapeHtml(user.first_name || "Name unavailable")}${archivedTag}</td>
+      <td data-label="First Name">${firstNameCell}${archivedTag}</td>
       <td data-label="Last Name">${escapeHtml(user.last_name || "Name unavailable")}</td>
       <td data-label="Username">${escapeHtml(user.username)}</td>
       <td data-label="Role">${escapeHtml(roleLabel(user.role))}</td>
@@ -151,6 +161,20 @@ function populateRoleSelect() {
     userRoleSelect.value = previous;
   }
   updateRoleHelp();
+}
+
+async function showProfile(user) {
+  const { mountUserProfile } = await import("./userProfile.js");
+  usersTable.hidden = true;
+  userProfile.hidden = false;
+  mountUserProfile(userProfile, user, { onBack: hideProfile });
+}
+
+// Back restores the table as it was: no refetch, the cache is still current.
+function hideProfile() {
+  userProfile.hidden = true;
+  userProfile.innerHTML = "";
+  usersTable.hidden = false;
 }
 
 // Repopulate the History "by user" filter, preserving the current
@@ -209,6 +233,12 @@ createUserBtn.addEventListener("click", async () => {
 
 usersTbody.addEventListener("click", async (event) => {
   const target = event.target;
+
+  if (target.classList.contains("user-profile-btn")) {
+    const user = getUsers().find((candidate) => candidate.id === target.dataset.id);
+    if (user) await showProfile(user);
+    return;
+  }
 
   if (target.classList.contains("edit-user-name-btn")) {
     const user = getUsers().find((candidate) => candidate.id === target.dataset.id);

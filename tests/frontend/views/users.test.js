@@ -362,3 +362,42 @@ describe("creating a user", () => {
     expect(el.password().value).toBe("hunter2");
   });
 });
+
+describe("the profile hand-off", () => {
+  const PROFILE_BTN = `.${"user-profile-btn"}`;
+  const PROFILE_ROLES = ["technician", "supervisor", "techfm_oa"];
+  const crew = () => ROLES.map((role) => userFactory({ role }));
+
+  it.each(["owner", "admin"])("renders a name button only on crew rows for an %s", async (role) => {
+    const users = crew();
+    await openUsers({ role, users });
+    for (const target of users) {
+      const button = rowFor(target.username).querySelector(PROFILE_BTN);
+      expect(Boolean(button), `${role} -> ${target.role}`).toBe(PROFILE_ROLES.includes(target.role));
+    }
+  });
+
+  it.each(["techfm_oa", "supervisor", "technician"])("renders no name button for a %s viewer", async (role) => {
+    await openUsers({ role, users: crew() });
+    expect(document.querySelectorAll(PROFILE_BTN)).toHaveLength(0);
+  });
+
+  it("swaps the table for the profile and Back restores it without refetching", async () => {
+    const users = crew();
+    const tech = users.find((u) => u.role === "technician");
+    server.use(http.get("/hub/people/:id/week", () => HttpResponse.json({
+      user: tech, archived: false, week_start: "2026-09-14", week_end: "2026-09-20",
+      server_now: "2026-09-16T15:00:00Z", days: [], total_clocked_minutes: 0,
+      total_charged_minutes: 0, total_adjustment_minutes: 0, total_completed: 0, reviewable: false,
+    })));
+    await openUsers({ role: "admin", users });
+    rowFor(tech.username).querySelector(PROFILE_BTN).click();
+    await vi.waitFor(() => expect(document.querySelector(".user-profile-header")).not.toBeNull());
+    expect(document.getElementById("users-table").hidden).toBe(true);
+    expect(document.querySelector(".user-profile-header").textContent).toContain(tech.last_name);
+    document.querySelector(".user-profile-back").click();
+    expect(document.getElementById("users-table").hidden).toBe(false);
+    expect(document.getElementById("user-profile").hidden).toBe(true);
+    expect(rows().length).toBe(users.length);
+  });
+});
