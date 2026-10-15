@@ -23,6 +23,9 @@ import { formatHm, isoDate, shiftMonday, weekLabel } from "./hubWeek.js";
 
 const CENTRAL_TIME_ZONE = "America/Chicago";
 
+// Roles whose rows link to a weekly profile; Admin/Owner are not profilable.
+export const PROFILABLE_ROLES = ["technician", "supervisor", "techfm_oa"];
+
 function shortDateLabel(iso) {
   return isoDate(iso).toLocaleDateString([], {
     weekday: "short", month: "numeric", day: "numeric", timeZone: "UTC",
@@ -114,7 +117,7 @@ function drilldownHtml(day, name, { canEdit } = {}) {
 }
 
 export function mountHubAttendanceHours(container, payload, {
-  onWeekChange, onSavePunch, onAddPunch, onDeletePunch, onClearReview, weekNav = true,
+  onWeekChange, onSavePunch, onAddPunch, onDeletePunch, onClearReview, onOpenProfile, weekNav = true,
 } = {}) {
   let expanded = null;
   // A punch id, `add:<date>`, or null. Cleared whenever the open cell moves:
@@ -162,7 +165,10 @@ export function mountHubAttendanceHours(container, payload, {
             return `<td><button type="button" class="hub-hours-cell" data-row="${rowIndex}" data-date="${escapeHtml(dateValue)}" aria-label="${escapeHtml(label)}" aria-expanded="${isExpanded}" aria-controls="hub-hours-detail-${rowIndex}">${formatHm(day.clocked_minutes)}${cellFlagsHtml(day)}</button></td>`;
           })
           .join("");
-        const mainRow = `<tr><th scope="row">${escapeHtml(name)}</th>${cells}<td class="hub-hours-row-total">${formatHm(row.total_minutes)}</td></tr>`;
+        const nameCell = onOpenProfile && PROFILABLE_ROLES.includes(row.user?.role)
+          ? `<button type="button" class="hub-link-btn hub-hours-person" data-row="${rowIndex}">${escapeHtml(name)}</button>`
+          : escapeHtml(name);
+        const mainRow = `<tr><th scope="row">${nameCell}</th>${cells}<td class="hub-hours-row-total">${formatHm(row.total_minutes)}</td></tr>`;
         if (expanded?.rowIndex !== rowIndex) return mainRow;
         const day = byDate.get(expanded.date);
         if (!day) return mainRow;
@@ -210,6 +216,9 @@ export function mountHubAttendanceHours(container, payload, {
         openCell({ rowIndex: Number(button.dataset.row), date: button.dataset.date });
         render();
       });
+    });
+    container.querySelectorAll(".hub-hours-person").forEach((button) => {
+      button.addEventListener("click", () => onOpenProfile?.(payload.rows[Number(button.dataset.row)].user));
     });
     container.querySelectorAll(".hub-hours-edit").forEach((button) => {
       button.addEventListener("click", () => {

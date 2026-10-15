@@ -36,6 +36,26 @@ describe("the grid", () => {
     expect(host.querySelector(".hub-hours-empty")).not.toBeNull();
     expect(host.querySelector("table")).toBeNull();
   });
+
+  it("renders a name as a link only with onOpenProfile and a profilable role", () => {
+    const onOpenProfile = vi.fn();
+    const week = attendanceWeek();
+    mountHubAttendanceHours(host, week, { onOpenProfile });
+    const link = host.querySelector("th[scope=row] .hub-hours-person");
+    expect(link.tagName).toBe("BUTTON");
+    link.click();
+    expect(onOpenProfile).toHaveBeenCalledWith(week.rows[0].user);
+  });
+
+  it("prints a plain name without onOpenProfile or for an Admin row", () => {
+    mountHubAttendanceHours(host, attendanceWeek());
+    expect(host.querySelector(".hub-hours-person")).toBeNull();
+    const week = attendanceWeek();
+    week.rows[0].user = { ...week.rows[0].user, role: "admin" };
+    mountHubAttendanceHours(host, week, { onOpenProfile: vi.fn() });
+    expect(host.querySelector(".hub-hours-person")).toBeNull();
+    expect(host.textContent).toContain("Ann Lee");
+  });
 });
 
 describe("the drill-down", () => {
