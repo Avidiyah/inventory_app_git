@@ -208,7 +208,8 @@ describe("back-to-work-orders with a profile origin", () => {
     await openCard(0);
     expect(backBtn().textContent).toBe("‹ Back to profile");
     backBtn().click();
-    await vi.waitFor(() => expect(showPage).toHaveBeenCalledWith("users"));
+    // The router's name for the Users page, not the origin's label.
+    await vi.waitFor(() => expect(showPage).toHaveBeenCalledWith("saved-users"));
     await vi.waitFor(() => expect(openUserProfile).toHaveBeenCalledWith("u1", { week: "2026-09-07" }));
     expect(origin.peekProfileOrigin()).toBeNull();
     expect(window.location.pathname).toBe("/");

@@ -226,8 +226,9 @@ listEl.addEventListener("click", async (event) => {
       exitSolo();
       void (async () => {
         const { showPage } = await import("./nav.js");
-        showPage(origin.page);
-        if (origin.page === "user-hub") {
+        const hub = origin.page === "user-hub";
+        showPage(hub ? "user-hub" : "saved-users");
+        if (hub) {
           const [{ openTimesheetsProfile }, { openHubTab }] = await Promise.all([
             import("./hubTimesheetsTab.js"), import("./userHub.js"),
           ]);

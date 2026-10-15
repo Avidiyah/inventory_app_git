@@ -68,7 +68,18 @@ function updateRoleHelp() {
 
 if (userRoleSelect) userRoleSelect.addEventListener("change", updateRoleHelp);
 
-export async function loadUsers() {
+// The last list refresh, awaited by openUserProfile so a refresh started a
+// moment earlier (nav.js's page loader) cannot repaint over the profile.
+let lastLoad = Promise.resolve();
+// A profile to show on the next table paint instead of hiding it (E8).
+let pendingProfile = null;
+
+export function loadUsers() {
+  lastLoad = loadUsersNow();
+  return lastLoad;
+}
+
+async function loadUsersNow() {
   // #9: in-progress placeholder (see loadItems for why this lives in the
   // table body rather than the #users-message slot, which carries
   // archive/restore/reset success text set just before a reload).
@@ -94,7 +105,13 @@ export async function loadUsers() {
 }
 
 function renderUsersTable() {
-  hideProfile();
+  if (pendingProfile) {
+    const { userId, week } = pendingProfile;
+    pendingProfile = null;
+    void showProfile(getUsers().find((candidate) => candidate.id === userId) ?? { id: userId }, { week });
+  } else {
+    hideProfile();
+  }
   const actorRole = getRole();
   const actorId = getCurrentUser()?.id;
   usersTbody.innerHTML = "";
@@ -171,10 +188,14 @@ async function showProfile(user, { week = null } = {}) {
 }
 
 // The Back path from a work order (E8): re-open a profile without a click.
+// The next table paint shows it; if no refresh is running, show it now.
 export async function openUserProfile(userId, { week = null } = {}) {
+  pendingProfile = { userId, week };
   if (!getUsers().length) await loadUsers();
-  const user = getUsers().find((candidate) => candidate.id === userId) ?? { id: userId };
-  await showProfile(user, { week });
+  else await lastLoad;
+  if (!pendingProfile) return;
+  pendingProfile = null;
+  await showProfile(getUsers().find((candidate) => candidate.id === userId) ?? { id: userId }, { week });
 }
 
 // Back restores the table as it was: no refetch, the cache is still current.

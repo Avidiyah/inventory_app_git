@@ -415,4 +415,31 @@ describe("openUserProfile", () => {
     expect(requestFor("/users/")).toBeDefined();
     await vi.waitFor(() => expect(requestFor("/hub/people/")?.url).toContain("week=2026-09-07"));
   });
+
+  it("survives the page loader's refresh that showPage fires alongside it", async () => {
+    // Back from a work order: nav.js's showPage("saved-users") starts
+    // loadUsers, and the Back branch calls openUserProfile right after. The
+    // refresh's table repaint must not hide the profile it raced.
+    const tech = userFactory({ role: "technician", first_name: "Ann", last_name: "Lee" });
+    const { mod } = await openUsers({ role: "admin", users: [tech] });
+    // The list is held until released, so it answers after the profile's
+    // module import has had time to land -- the browser's order, where that
+    // import is cached from the first profile click.
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    server.use(
+      http.get("/hub/people/:id/week", () => HttpResponse.json(personWeek())),
+      http.get("/users/", async () => { await held; return HttpResponse.json([tech]); }),
+    );
+    const refresh = mod.loadUsers();
+    const opening = mod.openUserProfile(tech.id, { week: null });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    release();
+    await refresh;
+    await opening;
+    const profile = document.getElementById("user-profile");
+    await vi.waitFor(() => expect(profile.querySelector(".user-profile")).not.toBeNull());
+    expect(profile.hidden).toBe(false);
+    expect(document.getElementById("users-table").hidden).toBe(true);
+  });
 });
