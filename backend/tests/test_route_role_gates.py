@@ -555,6 +555,8 @@ def test_no_route_gate_is_left_at_the_admin_floor():
         "delete_hub_attendance_punch",
         "export_hub_attendance",
         "review_hub_attendance_week",
+        # The per-person profile is the pay record read one name at a time.
+        "get_hub_person_week",
     }
 
 
@@ -575,6 +577,11 @@ def test_the_live_roster_sits_above_techfm_oa():
     # Pinned separately from the set above so a floor lowered by accident
     # names itself in the failure.
     assert _min_role_for(hub_router, "get_hub_attendance_live") == roles.ROLE_ADMIN
+
+
+def test_the_person_week_sits_above_techfm_oa():
+    # One person's clocked and charged week is the pay record (D1).
+    assert _min_role_for(hub_router, "get_hub_person_week") == roles.ROLE_ADMIN
 
 
 @pytest.mark.parametrize(

@@ -11,6 +11,7 @@ stays the only place a role 403 is raised:
 - `GET /hub/graphs`      techfm_oa+         -- the lazy company-wide report
 - `GET /hub/attendance/week` admin only -- the weekly attendance grid,
   clocked beside charged
+- `GET /hub/people/{user_id}/week` admin only -- one crew member's week
 - `GET /hub/attendance/live` admin only -- the roster: who is on shift and
   who has a reason to be charging, read-only and poll-safe
 - `GET /hub/attendance/export` admin only -- that same week as CSV
@@ -53,11 +54,13 @@ from app.schemas.attendance import (
     PunchEditRequest,
     WeekReviewResponse,
 )
+from app.schemas.attendance import PersonWeekResponse
 from app.schemas.hub import HubAdminResponse, HubClock, HubCrewResponse, HubGraphsResponse, HubReportResponse, HubResponse
 from app.services import attendance as attendance_service
 from app.services import attendance_compare
 from app.services import attendance_live
 from app.services import hub as hub_service
+from app.services import person_week
 from app.services import work_order_report, work_order_report_xlsx
 
 router = APIRouter(prefix="/hub", tags=["hub"])
@@ -209,6 +212,28 @@ def get_hub_attendance_week(
     except DomainError as exc:
         raise to_http(exc) from exc
     return attendance_compare.week_payload(db, week_start=week_start, now=now)
+
+
+@router.get("/people/{user_id}/week", response_model=PersonWeekResponse)
+def get_hub_person_week(
+    user_id: uuid.UUID,
+    week: Optional[date] = Query(None),
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """One crew member's Central week, one row per day: completed, charged,
+    clocked. **Admin, not TechFM OA** -- same grounds as the attendance week
+    it is built from. Target must be Technician, Team Lead, or TechFM OA
+    (403 otherwise, raised in the service); archived targets are allowed.
+    Same `week` contract as `GET /hub/attendance/week`. Side-effect-free."""
+    now = datetime.now(timezone.utc)
+    try:
+        week_start = work_order_report.resolve_week(week, now)
+        payload = person_week.week_payload(
+            db, user_id=user_id, week_start=week_start, now=now)
+    except DomainError as exc:
+        raise to_http(exc) from exc
+    return PersonWeekResponse.model_validate(payload)
 
 
 # The audited writes behind the Hours drill-down (D2, §1). Admin floor, same
