@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
-import { attendanceWeek } from "../helpers/factories.js";
+import { attendanceWeek, personWeek } from "../helpers/factories.js";
 import { connectHub, el, openHub, queries, restoreHub, stopClock } from "../helpers/hub.js";
 
 afterEach(() => {
@@ -167,4 +167,56 @@ describe("the Admin punch writes", () => {
     expect(panel().querySelector(".hub-hours-table")).not.toBeNull();
   });
 
+});
+
+describe("the profile", () => {
+  const profileHandler = () => http.get("/hub/people/:id/week", () => HttpResponse.json(personWeek()));
+
+  async function openProfile(opts = {}) {
+    const mounted = await openTimesheets({ role: "admin", handlers: [profileHandler()], ...opts });
+    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
+    await user().click(panel().querySelector(".hub-hours-person"));
+    await vi.waitFor(() => expect(panel().querySelector("#hub-timesheets-profile .user-profile")).not.toBeNull());
+    return mounted;
+  }
+
+  it("swaps the week area for the profile at the shown week, and Back restores it without a fetch", async () => {
+    await openProfile();
+    expect(panel().querySelector(".hub-leaderboard-table")).toBeNull();
+    expect(panel().querySelector(".hub-hours-table")).toBeNull();
+    await vi.waitFor(() => expect(queries("/hub/people/")).toEqual([{ week: "2026-09-14" }]));
+    expect(panel().querySelector(".user-profile-back").textContent).toContain("timesheets");
+    const before = queries("/hub/attendance/week").length;
+    await user().click(panel().querySelector(".user-profile-back"));
+    expect(panel().querySelector("#hub-timesheets-profile")).toBeNull();
+    expect(panel().querySelector(".hub-leaderboard-table")).not.toBeNull();
+    expect(panel().querySelector(".hub-hours-table")).not.toBeNull();
+    expect(queries("/hub/attendance/week")).toHaveLength(before);
+  });
+
+  it("leaves an open profile alone on a background refresh", async () => {
+    const { emit } = await connectHub();
+    await openProfile();
+    const before = queries("/hub/attendance/week").length;
+    emit("attendance.changed");
+    await vi.waitFor(() => expect(queries("/hub/attendance/live")).toHaveLength(2));
+    expect(queries("/hub/attendance/week")).toHaveLength(before);
+    expect(panel().querySelector("#hub-timesheets-profile .user-profile")).not.toBeNull();
+  });
+
+  it("does not offer the link to a Team Lead viewer", async () => {
+    await openTimesheets({ role: "supervisor" });
+    await vi.waitFor(() => expect(panel().querySelector(".hub-hours-table")).not.toBeNull());
+    expect(panel().querySelector(".hub-hours-person")).toBeNull();
+  });
+
+  it("openTimesheetsProfile mounts after the hub loads", async () => {
+    const { mod } = await openHub({ role: "admin", handlers: [profileHandler()] });
+    const tab = await import("../../../backend/static/views/hubTimesheetsTab.js");
+    tab.openTimesheetsProfile("10000000-0000-4000-8000-000000000001", { week: "2026-09-07" });
+    mod.openHubTab("timesheets");
+    await vi.waitFor(() => expect(panel().querySelector("#hub-timesheets-profile .user-profile")).not.toBeNull());
+    await vi.waitFor(() => expect(queries("/hub/people/")).toEqual([{ week: "2026-09-07" }]));
+    expect(panel().querySelector("#user-profile-heading").textContent).toContain("Ann Lee");
+  });
 });

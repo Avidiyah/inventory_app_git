@@ -34,6 +34,7 @@ import { skeletonCard } from "../skeleton.js";
 import { mountHubAttendanceHours } from "./hubAttendanceHours.js";
 import { destroyHubAttendanceRoster, mountHubAttendanceRoster } from "./hubAttendanceRoster.js";
 import { mountHubTimesheetLeaderboard } from "./hubTimesheetLeaderboard.js";
+import { mountUserProfile } from "./userProfile.js";
 
 let viewerRole = null;
 
@@ -44,6 +45,9 @@ let weekRequestId = 0;
 // One-shot confirmation for the next leaderboard paint, set by "Mark all
 // reviewed" -- the refetch remounts the leaderboard and would wipe it.
 let weekNotice = "";
+// The profile mounted in place of the week area (E2): `{ user, week }` or
+// null. While set, renderWeek and the background week refresh stand down.
+let profileOpen = null;
 
 // The roster's own cache, on its own cadence: the week is paged by hand and
 // the strip is polled. Sharing one counter would let a week change discard
@@ -92,10 +96,41 @@ async function write(panelEl, work) {
   }
 }
 
+function renderProfile(panelEl) {
+  const area = mountFor(panelEl, "week");
+  if (!area || !profileOpen) return;
+  if (area.querySelector("#hub-timesheets-profile")) return;
+  area.innerHTML = `<div id="hub-timesheets-profile"></div>`;
+  mountUserProfile(area.firstElementChild, profileOpen.user, {
+    week: profileOpen.week, page: "user-hub",
+    onBack: () => {
+      profileOpen = null;
+      if (weekPayload) renderWeek(panelEl);
+      else void loadWeek(panelEl);
+    },
+  });
+}
+
+function openProfile(panelEl, user, week) {
+  profileOpen = { user, week };
+  renderProfile(panelEl);
+}
+
+// The Back path from a work order (E8). The hub may not be on screen yet:
+// the request is held in `profileOpen` and painted by the next
+// renderTimesheetsTab. `user` is resolved from the cached week when
+// possible; otherwise the profile paints its own heading from the payload.
+export function openTimesheetsProfile(userId, { week: requested = null } = {}) {
+  const row = weekPayload?.rows.find((r) => r.user?.id === userId);
+  profileOpen = { user: row?.user ?? { id: userId }, week: requested };
+  if (hostPanel && !hostPanel.hidden) renderProfile(hostPanel);
+}
+
 // Paint the leaderboard and the hours grid from the one cached week. Both
 // mounts are (re)created here so a load error or skeleton that replaced the
 // week area is cleared by the next good payload.
 function renderWeek(panelEl) {
+  if (profileOpen) { renderProfile(panelEl); return; }
   const area = mountFor(panelEl, "week");
   if (!area || !weekPayload) return;
   area.innerHTML = `<div class="hub-timesheets-leaderboard"></div>
@@ -118,7 +153,10 @@ function renderWeek(panelEl) {
       onClearReview: (id) => write(panelEl, () => apiEditAttendancePunch(id, { needsReview: false })),
     }
     : {};
-  mountHubAttendanceHours(mountFor(panelEl, "hours"), weekPayload, { weekNav: false, ...writes });
+  mountHubAttendanceHours(mountFor(panelEl, "hours"), weekPayload, {
+    weekNav: false, ...writes,
+    onOpenProfile: isAdmin ? (user) => openProfile(panelEl, user, week) : undefined,
+  });
 }
 
 async function reviewWeek() {
@@ -176,7 +214,7 @@ async function loadLive(panelEl) {
 export function refreshTimesheetsLive(panelEl = hostPanel) {
   if (!panelEl || panelEl.hidden || !panelEl.querySelector(".hub-timesheets-week")) return;
   void loadLive(panelEl);
-  if (!panelEl.querySelector(".hub-hours-detail-row")) void loadWeek(panelEl);
+  if (!profileOpen && !panelEl.querySelector(".hub-hours-detail-row")) void loadWeek(panelEl);
 }
 
 function showWeekError(panelEl, err) {
@@ -193,7 +231,7 @@ async function loadWeek(panelEl) {
   const area = mountFor(panelEl, "week");
   if (!area) return;
   const requestId = ++weekRequestId;
-  if (!weekPayload) area.innerHTML = skeletonGrid();
+  if (!weekPayload && !profileOpen) area.innerHTML = skeletonGrid();
   try {
     const payload = await apiGetHubAttendanceWeek({ week });
     if (requestId !== weekRequestId) return;
@@ -232,6 +270,7 @@ export function renderTimesheetsTab(panelEl, { role } = {}) {
 // the panel is emptied.
 export function resetTimesheetsTab(panelEl) {
   weekPayload = null;
+  profileOpen = null;
   week = null;
   weekRequestId += 1;
   livePayload = null;

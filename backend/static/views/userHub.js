@@ -439,6 +439,9 @@ tabButtons.forEach((btn) => {
 // every entry (not a cache) matches the rest of the app's data-driven pages
 // (loadWorkOrders, loadTools, ...) -- the hub is exactly the kind of page
 // where "stale since I last looked" is the failure mode to avoid.
+// Select a tab from outside the hub (the work-order Back path, E8).
+export function openHubTab(name) { showTab(name); }
+
 export async function loadUserHub() {
   let payload;
   // First entry only: Home is empty until the payload lands, so it gets
