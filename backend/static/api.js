@@ -644,6 +644,16 @@ export async function apiGetHubAttendanceWeek({ week = null } = {}) {
   return liveGet(query ? `/hub/attendance/week?${query}` : "/hub/attendance/week");
 }
 
+// One crew member's week for the Users-page profile. `week` is a Monday;
+// absent means the week in progress. Admin only.
+export async function apiGetPersonWeek(userId, { week = null } = {}) {
+  const params = new URLSearchParams();
+  if (week) params.set("week", week);
+  const query = params.toString();
+  const path = `/hub/people/${encodeURIComponent(userId)}/week`;
+  return liveGet(query ? `${path}?${query}` : path);
+}
+
 // The roster strip. No parameters: "now" is the only question it answers,
 // and the server is the one that knows what now is. Polled on the hub's
 // existing 60-second safety timer and on `attendance.changed`.

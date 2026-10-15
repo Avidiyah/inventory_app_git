@@ -19,19 +19,9 @@
 
 import { escapeHtml } from "../format.js";
 import { mountPunchEditor } from "./hubAttendancePunchEditor.js";
+import { formatHm, isoDate, shiftMonday, weekLabel } from "./hubWeek.js";
 
 const CENTRAL_TIME_ZONE = "America/Chicago";
-
-// `8:00`, not format.js's `8 h 0 m`: a seven-column grid of hours reads as a
-// column of clock times. hubTimesheetLeaderboard.js makes the same choice.
-function formatHm(totalMinutes) {
-  const minutes = Math.max(0, Math.round(Number(totalMinutes) || 0));
-  return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}`;
-}
-
-function isoDate(iso) {
-  return new Date(`${iso}T00:00:00Z`);
-}
 
 function shortDateLabel(iso) {
   return isoDate(iso).toLocaleDateString([], {
@@ -43,11 +33,6 @@ function longDateLabel(iso) {
   return isoDate(iso).toLocaleDateString([], {
     weekday: "long", month: "short", day: "numeric", year: "numeric", timeZone: "UTC",
   });
-}
-
-function weekLabel(start, end) {
-  const options = { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" };
-  return `${isoDate(start).toLocaleDateString([], options)} – ${isoDate(end).toLocaleDateString([], options)}`;
 }
 
 // Punch instants are rendered in Central, not the viewer's zone: the week
@@ -126,12 +111,6 @@ function drilldownHtml(day, name, { canEdit } = {}) {
     ${rows}${empty}${add}
     <div class="hub-hours-editor" data-date="${escapeHtml(day.date)}"></div>
   </div>`;
-}
-
-function shiftMonday(iso, days) {
-  const monday = isoDate(iso);
-  monday.setUTCDate(monday.getUTCDate() + days);
-  return monday.toISOString().slice(0, 10);
 }
 
 export function mountHubAttendanceHours(container, payload, {
