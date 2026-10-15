@@ -56,7 +56,10 @@ under the Communities cards. Request logged only.
 - **Logged** 2026-09-21 · *User Hub / Attendance* · **closed** 2026-09-21 · spec
   `docs/superpowers/specs/2026-09-21-attendance-timesheet-design.md`
 
-Shipped in full (P1–P4b); the spec owns what. Two things were deliberately
+Shipped in full (P1–P4b); the spec owns what. Amended 2026-10-15 by
+`2026-10-15-attendance-midnight-close-and-lunch-design.md` (midnight close
+replaces D4/D5; flat lunch). Night shifts crossing midnight are its
+non-goal. Two things were deliberately
 not built, and reopening either needs a new reason, not a reminder:
 
 - A **billed** column beside clocked and charged. `billed_labor_minutes`
