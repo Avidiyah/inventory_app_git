@@ -10,9 +10,14 @@ import { personWeek } from "../helpers/factories.js";
 
 // `vi.mock` is hoisted above every import, so the fns it closes over must be
 // hoisted too.
-const { openSearch, showPage } = vi.hoisted(() => ({ openSearch: vi.fn(), showPage: vi.fn() }));
-vi.mock("../../../backend/static/views/workOrders.js", () => ({ openWorkOrdersByNumberSearch: openSearch }));
+const { openSearch, focusWorkOrder, showPage } = vi.hoisted(() => ({
+  openSearch: vi.fn(), focusWorkOrder: vi.fn(), showPage: vi.fn(),
+}));
+vi.mock("../../../backend/static/views/workOrders.js", () => ({
+  openWorkOrdersByNumberSearch: openSearch, focusWorkOrder,
+}));
 vi.mock("../../../backend/static/views/nav.js", () => ({ showPage }));
+import { peekProfileOrigin, clearProfileOrigin } from "../../../backend/static/views/profileOrigin.js";
 
 const { mountUserProfile } = await import("../../../backend/static/views/userProfile.js");
 
@@ -43,7 +48,7 @@ beforeEach(() => {
   document.body.innerHTML = `<div id="host"></div>`;
   host = document.getElementById("host");
   startRecording(); clearRequests();
-  openSearch.mockClear(); showPage.mockClear();
+  openSearch.mockClear(); showPage.mockClear(); focusWorkOrder.mockClear(); clearProfileOrigin();
 });
 afterEach(() => stopRecording());
 
@@ -101,13 +106,83 @@ describe("the panel", () => {
     expect(rows()[1].querySelector("summary").textContent).toContain("on shift");
   });
 
-  it("hands a work order number to the Work Orders page", async () => {
+  it("colours each day by clocked minutes", async () => {
+    const week = personWeek();
+    [0, 479, 480, 600, 601].forEach((m, i) => { week.days[i] = { ...week.days[i], clocked_minutes: m }; });
+    serve(week);
+    await mount();
+    expect(rows().slice(0, 5).map((r) => r.className)).toEqual([
+      "user-profile-day user-profile-day-none", "user-profile-day user-profile-day-short",
+      "user-profile-day user-profile-day-full", "user-profile-day user-profile-day-full",
+      "user-profile-day user-profile-day-over",
+    ]);
+  });
+
+  it("renders each completed work order as a card with its status badge", async () => {
+    serve(personWeek());
+    await mount();
+    const card = rows()[0].querySelector(".user-profile-wo-card");
+    expect(card.tagName).toBe("BUTTON");
+    expect(card.classList.contains("user-profile-wo-completed")).toBe(true);
+    expect(card.querySelector(".wo-status-completed")).not.toBeNull();
+    expect(card.textContent).toContain("WO-1");
+    expect(card.textContent).toContain("Bldg 4");
+    expect(card.querySelector(".wo-archived-tag")).toBeNull();
+    expect(card.querySelector("button")).toBeNull();
+  });
+
+  it("renders a card without a location", async () => {
+    const week = personWeek();
+    week.days[0].completed[0] = { ...week.days[0].completed[0], location: null };
+    serve(week);
+    await mount();
+    expect(rows()[0].querySelector(".user-profile-wo-location")).toBeNull();
+  });
+
+  it("tags an archived work order and sends it through the number search", async () => {
+    const week = personWeek();
+    week.days[0].completed[0] = { ...week.days[0].completed[0], archived: true };
+    serve(week);
+    await mount();
+    const card = rows()[0].querySelector(".user-profile-wo-card");
+    expect(card.querySelector(".wo-archived-tag").textContent).toBe("Archived");
+    card.click();
+    await flush(); await flush();
+    expect(openSearch).toHaveBeenCalledWith("WO-1");
+    expect(focusWorkOrder).not.toHaveBeenCalled();
+    expect(showPage).toHaveBeenCalledWith("work-orders");
+  });
+
+  it("opens a live work order by id and records the origin", async () => {
+    serve(personWeek());
+    await mount(USER, { page: "user-hub" });
+    rows()[0].querySelector(".user-profile-wo-card").click();
+    await flush(); await flush();
+    expect(focusWorkOrder).toHaveBeenCalledWith("wo-1");
+    expect(openSearch).not.toHaveBeenCalled();
+    expect(showPage).toHaveBeenCalledWith("work-orders");
+    expect(peekProfileOrigin()).toEqual({ page: "user-hub", userId: USER.id, week: "2026-09-14" });
+  });
+
+  it("still hands charged and adjustment numbers to the number search", async () => {
     serve(personWeek());
     await mount();
     rows()[0].querySelector(".user-profile-wo-btn").click();
     await flush(); await flush();
     expect(openSearch).toHaveBeenCalledWith("WO-1");
-    expect(showPage).toHaveBeenCalledWith("work-orders");
+  });
+
+  it("fetches the requested week first and labels Back by page", async () => {
+    serve(personWeek());
+    await mount(USER, { week: "2026-09-07", page: "user-hub" });
+    expect(weekQueries()).toEqual([{ week: "2026-09-07" }]);
+    expect(host.querySelector(".user-profile-back").textContent).toContain("Back to timesheets");
+  });
+
+  it("paints the heading from the payload when only an id is given", async () => {
+    serve(personWeek());
+    await mount({ id: USER.id });
+    expect(host.querySelector("#user-profile-heading").textContent).toContain("Ann Lee");
   });
 
   it("calls onBack from the Back link", async () => {

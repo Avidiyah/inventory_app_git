@@ -681,7 +681,7 @@ export function personWeek(overrides = {}) {
     ...blank("2026-09-14"),
     clocked_minutes: 480, charged_minutes: 180, adjustment_minutes: 30, completed_count: 1,
     completed: [{ work_order_id: "wo-1", number: "WO-1", location: "Bldg 4",
-                  completed_at: "2026-09-14T20:00:00Z" }],
+                  completed_at: "2026-09-14T20:00:00Z", status: "completed", archived: false }],
     charged: [{ work_order_id: "wo-1", number: "WO-1", minutes: 180,
                 auto_closed: true, running: false }],
     adjustments: [{ minutes: 30, recorded_by_name: "Dee Ops", work_order_number: "WO-1" }],

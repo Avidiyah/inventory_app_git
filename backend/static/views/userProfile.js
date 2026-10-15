@@ -15,6 +15,8 @@ import { escapeHtml, formatUserName, friendlyError } from "../format.js";
 import { roleLabel } from "../roles.js";
 import { skeletonTableRows } from "../skeleton.js";
 import { formatHm, isoDate, shiftMonday, weekLabel } from "./hubWeek.js";
+import { statusBadge } from "./workOrderPresenters.js";
+import { setProfileOrigin } from "./profileOrigin.js";
 
 const CENTRAL_TIME_ZONE = "America/Chicago";
 
@@ -34,14 +36,29 @@ function woButton(number) {
   return `<button type="button" class="hub-link-btn user-profile-wo-btn" data-number="${escapeHtml(number)}">${escapeHtml(number)}</button>`;
 }
 
+function dayBand(minutes) {
+  if (!minutes) return "none";
+  if (minutes < 480) return "short";
+  return minutes > 600 ? "over" : "full";
+}
+
+// A minimal card: status colour on the edge and the badge, "Archived" as an
+// extra tag never a replacement (E6). No element inside may be a button.
+function woCard(wo) {
+  const location = wo.location ? `<span class="user-profile-wo-location">${escapeHtml(wo.location)}</span>` : "";
+  const archived = wo.archived ? `<span class="wo-archived-tag">Archived</span>` : "";
+  return `<li><button type="button" class="user-profile-wo-card user-profile-wo-${escapeHtml(wo.status)}" data-id="${escapeHtml(wo.work_order_id)}" data-number="${escapeHtml(wo.number)}" data-archived="${wo.archived ? "1" : ""}">
+    <span class="user-profile-wo-number">${escapeHtml(wo.number)}</span>${statusBadge(wo.status)}${location}${archived}
+  </button></li>`;
+}
+
 function listHtml(title, items) {
   if (!items.length) return "";
   return `<h4 class="user-profile-list-title">${title}</h4><ul class="user-profile-list">${items.join("")}</ul>`;
 }
 
 function dayBodyHtml(day) {
-  const completed = day.completed.map((wo) =>
-    `<li>${woButton(wo.number)}${wo.location ? ` · ${escapeHtml(wo.location)}` : ""}</li>`);
+  const completed = day.completed.map(woCard);
   const charged = day.charged.map((c) => {
     const marks = [];
     if (c.auto_closed) marks.push("auto-stopped");
@@ -73,7 +90,7 @@ function flagsHtml(day) {
 
 function dayHtml(day) {
   const onShift = day.has_open ? ` <span class="hub-hours-punch-note">(on shift)</span>` : "";
-  return `<details class="user-profile-day">
+  return `<details class="user-profile-day user-profile-day-${dayBand(day.clocked_minutes)}">
     <summary class="user-profile-summary">
       <span class="user-profile-col-day">${escapeHtml(dayLabel(day.date))}${flagsHtml(day)}</span>
       <span class="user-profile-col">${formatHm(day.clocked_minutes)}${onShift}</span>
@@ -104,23 +121,31 @@ function weekHtml(payload) {
     ${payload.total_adjustment_minutes ? `<p class="hint">Adjustments this week: ${formatHm(payload.total_adjustment_minutes)} (shown per day, not counted as charged).</p>` : ""}`;
 }
 
-export function mountUserProfile(container, user, { onBack } = {}) {
-  let week = null;
+const BACK_LABEL = { users: "‹ Back to users", "user-hub": "‹ Back to timesheets" };
+
+export function mountUserProfile(container, user, { onBack, week: initialWeek = null, page = "users" } = {}) {
+  let week = initialWeek;
   let requestId = 0;
-  const archived = user.archived_at ? ` <span class="muted">(archived)</span>` : "";
 
   container.innerHTML = `<section class="user-profile" aria-labelledby="user-profile-heading">
     <div class="user-profile-header">
-      <button type="button" class="hub-link-btn user-profile-back">‹ Back to users</button>
-      <h3 id="user-profile-heading">${escapeHtml(formatUserName(user))}${archived}</h3>
-      <p class="muted">${escapeHtml(roleLabel(user.role))}</p>
+      <button type="button" class="hub-link-btn user-profile-back">${BACK_LABEL[page] || BACK_LABEL.users}</button>
+      <h3 id="user-profile-heading"></h3>
+      <p class="muted user-profile-role"></p>
     </div>
     <div class="user-profile-body"></div>
   </section>`;
   const body = container.querySelector(".user-profile-body");
   container.querySelector(".user-profile-back").addEventListener("click", () => onBack?.());
 
-  async function openWorkOrder(number) {
+  function paintHeading(payload) {
+    const who = payload.user ?? user;
+    const archived = payload.archived ? ` <span class="muted">(archived)</span>` : "";
+    container.querySelector("#user-profile-heading").innerHTML = `${escapeHtml(formatUserName(who))}${archived}`;
+    container.querySelector(".user-profile-role").textContent = roleLabel(who.role);
+  }
+
+  async function openByNumber(number) {
     const [{ openWorkOrdersByNumberSearch }, { showPage }] = await Promise.all([
       import("./workOrders.js"), import("./nav.js"),
     ]);
@@ -128,11 +153,27 @@ export function mountUserProfile(container, user, { onBack } = {}) {
     showPage("work-orders");
   }
 
+  // E7: a live card lands on the solo page by id (`focusWorkOrder` is the
+  // path Mass Stage uses); an archived one takes the number search so the
+  // restore pop-up fires. Either way the origin is remembered first (E8).
+  async function openCard(card) {
+    setProfileOrigin({ page, userId: user.id, week });
+    if (card.dataset.archived) return openByNumber(card.dataset.number);
+    const [{ focusWorkOrder }, { showPage }] = await Promise.all([
+      import("./workOrders.js"), import("./nav.js"),
+    ]);
+    focusWorkOrder(card.dataset.id);
+    showPage("work-orders");
+  }
+
   function wire(payload) {
     body.querySelector(".user-profile-prev").addEventListener("click", () => load(shiftMonday(payload.week_start, -7)));
     body.querySelector(".user-profile-next").addEventListener("click", () => load(shiftMonday(payload.week_start, 7)));
     body.querySelectorAll(".user-profile-wo-btn").forEach((button) => {
-      button.addEventListener("click", () => { void openWorkOrder(button.dataset.number); });
+      button.addEventListener("click", () => { void openByNumber(button.dataset.number); });
+    });
+    body.querySelectorAll(".user-profile-wo-card").forEach((card) => {
+      card.addEventListener("click", () => { void openCard(card); });
     });
   }
 
@@ -143,6 +184,7 @@ export function mountUserProfile(container, user, { onBack } = {}) {
       const payload = await apiGetPersonWeek(user.id, { week: requested });
       if (id !== requestId) return;
       week = payload.week_start;
+      paintHeading(payload);
       body.innerHTML = weekHtml(payload);
       wire(payload);
     } catch (err) {

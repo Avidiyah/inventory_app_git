@@ -4478,7 +4478,8 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 
 /* Pre-import (legacy) work order: kept for search, old attributes dropped. A
    muted outline pill so it reads as a state marker, not an action. */
-.wo-legacy-tag {
+.wo-legacy-tag,
+.wo-archived-tag {
     display: inline-block;
     padding: 2px var(--space-2);
     border: 1px solid var(--panel-border);
@@ -5555,3 +5556,31 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .user-profile-list-title { margin: var(--space-2) 0 var(--space-1); font-size: var(--fs-xs); text-transform: uppercase; color: var(--text-panel-mute); }
 .user-profile-list { margin: 0; padding-left: var(--space-4); }
 .user-profile-totals { border-top: 2px solid var(--border); font-weight: 600; }
+
+/* Day cards: clocked time as a colour on the left edge only (spec E5). Same
+   4px edge and tokens as .hub-roster-card so the two read as one system. */
+.user-profile-day { border-left: 4px solid var(--panel-rule); }
+.user-profile-day-short { border-left-color: var(--status-dispense-text); }
+.user-profile-day-full { border-left-color: var(--color-success); }
+.user-profile-day-over { border-left-color: var(--color-error); }
+
+/* Completed work orders inside an open day: a row button, status on the
+   same edge, no card chrome. */
+.user-profile-list:has(.user-profile-wo-card) { list-style: none; padding: 0; margin: 0; }
+.user-profile-wo-card {
+    display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2);
+    width: 100%; margin: 0 0 var(--space-1); padding: var(--space-2) var(--space-3);
+    background: var(--panel-well); border: 1px solid var(--panel-rule);
+    border-left: 4px solid var(--card-accent, var(--panel-rule));
+    border-radius: var(--radius-sm); color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.user-profile-wo-card:hover, .user-profile-wo-card:focus-visible { border-color: var(--card-accent, var(--panel-rule)); }
+.user-profile-wo-number { font-weight: var(--fw-bold); }
+.user-profile-wo-location { color: var(--text-panel-mute); }
+.user-profile-wo-created { --card-accent: var(--wo-status-created); }
+.user-profile-wo-assigned { --card-accent: var(--wo-status-assigned); }
+.user-profile-wo-in_progress { --card-accent: var(--wo-status-in-progress); }
+.user-profile-wo-on_hold { --card-accent: var(--wo-status-on-hold); }
+.user-profile-wo-ready_to_complete { --card-accent: var(--wo-status-ready-to-complete); }
+.user-profile-wo-completed { --card-accent: var(--wo-status-completed); }
+.user-profile-wo-review { --card-accent: var(--wo-status-review); }
