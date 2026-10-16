@@ -109,6 +109,18 @@ export function canKeyLabor() {
   return roleAtLeast(getRole(), "admin");
 }
 
+// 2026-10-16 self-edit, mirroring `_require_labor_editor`: anyone else may
+// revise or remove only their own hand-entered row from the open week...
+export function canEditLaborEntry(entry) {
+  if (canKeyLabor()) return true;
+  return Boolean(entry.hand_entered && entry.week_open && entry.technician_id === getCurrentUser()?.id);
+}
+
+// ...and add labor only for themselves, while on the crew.
+export function canAddLabor(detail) {
+  return canKeyLabor() || isAssignedToCurrentUser(detail);
+}
+
 // A Technician who is not on a work order's crew can read it but not write to
 // it -- notes, materials, requests, the sign-off. Begin Charging adds them.
 // Every other role is never locked. Mirrors the server's

@@ -409,10 +409,10 @@ describe("labor entry controls (edit-labor / remove-labor)", () => {
 
 describe("add-labor visibility", () => {
   it.each([
-    // Only an Admin or the Owner may add hours by hand; they credit themselves
-    // when unassigned. Everyone else's hours come from Begin / Stop Charging.
+    // An Admin or the Owner may add hours by hand, crediting themselves when
+    // unassigned. Anyone else only for themselves, while on the crew.
     ["technician", false, false],
-    ["technician", true, false],
+    ["technician", true, true],
     ["supervisor", false, false],
     ["techfm_oa", false, false],
     ["admin", false, true],
@@ -518,5 +518,75 @@ describe("the denial spot-check", () => {
     // the one button that is disabled by an input gate (S6), not by role.
     expect(cardEl.querySelectorAll('button[disabled]:not([data-action="save-signature"])'))
       .toHaveLength(0);
+  });
+});
+
+// 2026-10-16 self-edit: a worker keys and revises their own hand-entered
+// labor in the open week. The server enforces it; the card only mirrors it.
+describe("Labor card self-edit", () => {
+  async function laborCard(role, { assigned = true, labor = () => [] } = {}) {
+    const detail = workOrderDetail({ status: "in_progress", supervisor_id: null });
+    await mountWorkOrders({
+      role,
+      cards: [workOrderCard({ id: detail.id, number: detail.number, status: "in_progress" })],
+      details: [detail],
+    });
+    const state = await import("../../../../backend/static/state.js");
+    const me = state.getCurrentUser().id;
+    detail.assigned_to_ids = assigned ? [me, "peer"] : ["peer"];
+    detail.assigned_to_names = assigned ? ["Me", "Peer"] : ["Peer"];
+    detail.labor = labor(me);
+    await openCard(0);
+    return card();
+  }
+  const row = (id, overrides) => ({
+    id, technician_id: "peer", technician_name: "Someone", minutes: 60,
+    session_window: null, auto_closed: false,
+    hand_entered: true, week_open: true, recorded_by_self: true, ...overrides,
+  });
+  const entry = (cardEl, id) => cardEl.querySelector(`.wo-labor-entry[data-labor-id="${id}"]`);
+  const hasUpdate = (cardEl, id) => Boolean(entry(cardEl, id).querySelector('[data-action="edit-labor"]'));
+
+  it("technician sees Update on own hand-entered row in the open week only", async () => {
+    const cardEl = await laborCard("technician", { labor: (me) => [
+      row("open", { technician_id: me }),
+      row("closed", { technician_id: me, week_open: false }),
+    ] });
+    expect(hasUpdate(cardEl, "open")).toBe(true);
+    expect(entry(cardEl, "open").querySelector('[data-action="remove-labor"]')).not.toBeNull();
+    expect(entry(cardEl, "open").textContent).toContain("Self-entered");
+    expect(hasUpdate(cardEl, "closed")).toBe(false);
+  });
+
+  it("technician never sees Update on a session row or a peer's row", async () => {
+    const cardEl = await laborCard("technician", { labor: (me) => [
+      row("session", { technician_id: me, hand_entered: false, session_window: "8:00 AM – 9:00 AM" }),
+      row("peer", { recorded_by_self: false }),
+    ] });
+    expect(hasUpdate(cardEl, "session")).toBe(false);
+    expect(hasUpdate(cardEl, "peer")).toBe(false);
+    expect(entry(cardEl, "peer").textContent).toContain("Admin-entered");
+  });
+
+  it("technician on the crew sees Add labor with only themselves", async () => {
+    const cardEl = await laborCard("technician");
+    const options = [...cardEl.querySelectorAll(".wo-labor-technician option")];
+    expect(cardEl.querySelector('[data-action="add-labor"]')).not.toBeNull();
+    const state = await import("../../../../backend/static/state.js");
+    expect(options.map((o) => o.value)).toEqual([state.getCurrentUser().id]);
+  });
+
+  it("technician off the crew gets no Add labor", async () => {
+    const cardEl = await laborCard("technician", { assigned: false });
+    expect(cardEl.querySelector('[data-action="add-labor"]')).toBeNull();
+  });
+
+  it("admin unchanged", async () => {
+    const cardEl = await laborCard("admin", { labor: () => [
+      row("session", { hand_entered: false, week_open: false }),
+    ] });
+    expect(hasUpdate(cardEl, "session")).toBe(true);
+    const options = [...cardEl.querySelectorAll(".wo-labor-technician option")].map((o) => o.value);
+    expect(options).toContain("peer");
   });
 });

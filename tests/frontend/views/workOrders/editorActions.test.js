@@ -220,10 +220,9 @@ describe("add-labor", () => {
     expect(requestFor("/labor", "POST").body.minutes).toBe(1);
   });
 
-  // Hand-keyed hours are Admin and Owner only (the full role matrix is frozen in
-  // roles.test.js). A Technician on the crew gets the read-only list and a hint,
-  // never the add row -- there is no self-service path left to default an id for.
-  it("a Technician on the crew gets no add controls at all", async () => {
+  // A Technician on the crew keys hours only for themselves (self-edit rules
+  // in roles.test.js), so the picker holds just them; a session row stays read-only.
+  it("a Technician on the crew adds only for themselves, and cannot touch a session row", async () => {
     const detail = workOrderDetail({ assigned_to_ids: [], labor: [workOrderLabor({ id: "l1" })] });
     const { currentUser } = await mountWorkOrders({
       role: "technician",
@@ -233,12 +232,12 @@ describe("add-labor", () => {
     detail.assigned_to_ids = [currentUser.id];
     await openCard(0);
     expect(card().querySelector(".wo-labor-section")).not.toBeNull();
-    expect(card().querySelector(".wo-add-labor")).toBeNull();
-    expect(card().querySelector('[data-action="add-labor"]')).toBeNull();
+    expect([...card().querySelectorAll(".wo-labor-technician option")].map((o) => o.value))
+      .toEqual([currentUser.id]);
     expect(card().querySelector('[data-action="edit-labor"]')).toBeNull();
     expect(card().querySelector('[data-action="remove-labor"]')).toBeNull();
     expect(card().querySelector(".wo-labor-section").textContent)
-      .toContain("Only an Admin or the Owner can add or change them by hand.");
+      .toContain("You can add or fix your own by hand this week.");
   });
 });
 

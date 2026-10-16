@@ -18,6 +18,8 @@ import { getCurrentUser } from "../state.js";
 import {
   assignedIds,
   assignedNames,
+  canAddLabor,
+  canEditLaborEntry,
   canKeyLabor,
   crewLockHtml,
   formatMinutes,
@@ -46,7 +48,7 @@ import { signatureSectionHtml } from "./workOrderSignature.js";
 import { comboHtml } from "../menus.js";
 
 function renderLaborEntryHtml(entry) {
-  const actions = canKeyLabor()
+  const actions = canEditLaborEntry(entry)
     ? `<div class="wo-labor-actions">
          <input type="number" class="wo-labor-hours" value="${escapeHtml(hoursInputValue(entry.minutes))}" min="0.01" step="0.01" aria-label="Actual labor hours">
          <button type="button" class="secondary-btn" data-action="edit-labor">Update</button>
@@ -64,19 +66,26 @@ function renderLaborEntryHtml(entry) {
   const autoStopped = entry.auto_closed
     ? `<span class="wo-labor-auto-stopped">auto-stopped</span>${tipHtml("wo.auto-stopped")}`
     : "";
+  // Same Self/Admin tag classes as the profile timeline.
+  const keyedBy = entry.hand_entered
+    ? ` <span class="day-tl-tag day-tl-tag-${entry.recorded_by_self ? "self" : "admin"}">${entry.recorded_by_self ? "Self" : "Admin"}-entered</span>`
+    : "";
   return `<div class="wo-labor-entry" data-labor-id="${escapeHtml(entry.id)}" data-technician-id="${escapeHtml(entry.technician_id)}">
-            <div><strong>${escapeHtml(entry.technician_name)}</strong><span class="hint">${escapeHtml(formatMinutes(entry.minutes))} actual</span>${window}${autoStopped}</div>
+            <div><strong>${escapeHtml(entry.technician_name)}</strong><span class="hint">${escapeHtml(formatMinutes(entry.minutes))} actual</span>${window}${autoStopped}${keyedBy}</div>
             ${actions}
           </div>`;
 }
 
-// An Admin or the Owner -- the only roles that may hand-key hours -- picks who
-// a manual entry credits. They may also credit themselves without being on the
-// crew (the server allows "on the crew, or the Admin/Owner recording
-// themselves"), so they are appended to the list when they are not already in
-// it.
+// An Admin or the Owner picks who a manual entry credits. They may also credit
+// themselves without being on the crew (the server allows "on the crew, or the
+// Admin/Owner recording themselves"), so they are appended to the list when
+// they are not already in it. Anyone else on the crew keys only their own.
 function laborTechnicianControl(detail) {
-  if (!canKeyLabor()) return "";
+  if (!canAddLabor(detail)) return "";
+  if (!canKeyLabor()) {
+    const user = getCurrentUser();
+    return `<label><span>Technician</span><select class="wo-labor-technician"><option value="${escapeHtml(user.id)}">${escapeHtml(user.full_name || "You")}</option></select></label>`;
+  }
   const ids = assignedIds(detail).slice();
   const names = assignedNames(detail).slice();
   const user = getCurrentUser();
@@ -96,17 +105,16 @@ function laborTechnicianControl(detail) {
 function laborSectionHtml(detail) {
   const entries = (detail.labor || []).map(renderLaborEntryHtml).join("") ||
     `<p class="hint">No labor recorded yet.</p>`;
-  // Charged time is authoritative: entries come from tracked sessions. Only an
-  // Admin or the Owner may key, change or remove a figure by hand.
+  // Charged time is authoritative: entries come from tracked sessions. An
+  // Admin or the Owner keys any figure by hand; a worker only their own.
   const technicianControl = laborTechnicianControl(detail);
-  const canAdd =
-    canKeyLabor() && Boolean(technicianControl) && !technicianControl.startsWith("<p");
+  const canAdd = Boolean(technicianControl) && !technicianControl.startsWith("<p");
   const rateText = detail.labor_rate === null || detail.labor_rate === undefined
     ? "The combined actual time is rounded up to the next 30 minutes for billing."
     : `Labor is billed at ${formatMoney(detail.labor_rate)}/hour. The combined actual time is rounded up to the next 30 minutes.`;
   const trackedHint = canKeyLabor()
     ? "Entries come from charged sessions. Add one by hand only to correct a missed clock-in."
-    : "Hours come from Begin Charging and Stop Charging. Only an Admin or the Owner can add or change them by hand.";
+    : "Hours come from Begin Charging and Stop Charging. You can add or fix your own by hand this week.";
   return `<details class="wo-section-card wo-labor-section">
             <summary class="wo-section-summary">Labor</summary>
             <div class="wo-section-content">

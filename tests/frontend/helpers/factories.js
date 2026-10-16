@@ -200,6 +200,9 @@ export function workOrderLabor(overrides = {}) {
     minutes: 90,
     session_window: null,
     auto_closed: false,
+    hand_entered: false,
+    week_open: false,
+    recorded_by_self: false,
     ...overrides,
   };
 }

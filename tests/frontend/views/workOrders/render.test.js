@@ -459,7 +459,7 @@ describe("the labor section", () => {
     expect(cardEl.querySelector(".wo-labor-auto-stopped").textContent).toBe("auto-stopped");
   });
 
-  it("shows an assigned technician the hours read-only: no add row, no edit, no remove", async () => {
+  it("shows an assigned technician a session row read-only, and an add row for themselves", async () => {
     const me = user({ role: "technician" });
     const detail = workOrderDetail({
       assigned_to_ids: [me.id], labor: [workOrderLabor({ minutes: 60 })],
@@ -474,14 +474,13 @@ describe("the labor section", () => {
     detail.assigned_to_ids = [state_.getCurrentUser().id];
     await openCard(0);
     expect(card().querySelector(".wo-labor-section")).not.toBeNull();
-    // Hand-keyed hours are Admin and Owner only: the entry is listed, with no
-    // controls, and there is no add row or picker.
+    // A worker revises only their own hand-entered rows (Labor card self-edit
+    // in roles.test.js); this row has no controls. The add row picks only them.
     expect(card().querySelectorAll(".wo-labor-entry")).toHaveLength(1);
     expect(card().querySelector(".wo-labor-actions")).toBeNull();
-    expect(card().querySelector(".wo-add-labor")).toBeNull();
-    expect(card().querySelector(".wo-labor-technician")).toBeNull();
+    expect(card().querySelectorAll(".wo-labor-technician option")).toHaveLength(1);
     expect(card().querySelector(".wo-labor-section").textContent)
-      .toContain("Only an Admin or the Owner can add or change them by hand.");
+      .toContain("You can add or fix your own by hand this week.");
   });
 
   it.each(["supervisor", "techfm_oa"])(
