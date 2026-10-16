@@ -147,7 +147,9 @@ def test_charged_collapses_two_sessions_on_one_work_order(db):
         (_utc(14, 13), _utc(14, 15)), (_utc(14, 16), _utc(14, 17))]
 
 
-def test_adjustments_are_shown_but_never_summed_into_charged(db):
+def test_charged_includes_hand_entered_labor(db):
+    """2026-10-16 U6: hand-entered labor counts as charged; the split rides
+    beside it in `adjustment_minutes`."""
     tech = _user(db)
     wo = _wo(db, tech, crew=[tech])
     _session(db, wo, tech, _utc(14, 13), _utc(14, 14))
@@ -156,10 +158,10 @@ def test_adjustments_are_shown_but_never_summed_into_charged(db):
     db.commit()
     payload = _payload(db, tech)
     monday = _day(payload, MONDAY)
-    assert monday.charged_minutes == 60
+    assert monday.charged_minutes == 90
     assert monday.adjustment_minutes == 30
     assert monday.adjustments[0].minutes == 30
-    assert payload.total_charged_minutes == 60
+    assert payload.total_charged_minutes == 90
     assert payload.total_adjustment_minutes == 30
 
 
@@ -171,7 +173,9 @@ def test_a_running_session_is_capped_and_marked_running_without_writing(db):
     payload = _payload(db, tech)
     charged = [c for d in payload.days for c in d.charged]
     assert charged and all(c.running for c in charged)
-    assert payload.total_charged_minutes == 12 * 60
+    # Past the cap the day is pending: shown at the cap, kept out of totals.
+    assert sum(d.charged_minutes for d in payload.days) == 12 * 60
+    assert payload.total_charged_minutes == 0
     db.refresh(session)
     assert session.ended_at is None
 
@@ -259,3 +263,56 @@ def test_paid_and_lunch_ride_on_each_day_and_the_week(db):
     monday = _day(payload, MONDAY)
     assert (monday.clocked_minutes, monday.lunch_minutes, monday.paid_minutes) == (480, 30, 450)
     assert payload.total_paid_minutes == 450
+
+
+# --- 2026-10-16: uncharged, pending, edit marks ---------------------------
+
+def test_uncharged_is_floored_at_zero(db):
+    tech = _user(db)
+    wo = _wo(db, tech, crew=[tech])
+    _punch(db, tech, _utc(14, 13), _utc(14, 15))                 # 2h, no lunch
+    db.add(WorkOrderLabor(id=uuid.uuid4(), work_order_id=wo.id, technician_id=tech.id,
+                          minutes=180, recorded_by_id=tech.id, created_at=_utc(14, 18)))
+    db.commit()
+    monday = _day(_payload(db, tech), MONDAY)
+    assert (monday.paid_minutes, monday.charged_minutes) == (120, 180)
+    assert monday.uncharged_minutes == 0
+
+
+def test_pending_day_is_shown_but_left_out_of_week_totals(db):
+    tech = _user(db)
+    _punch(db, tech, _utc(14, 13), _utc(14, 21))
+    _punch(db, tech, _utc(15, 13), _utc(15, 21), needs_review=True)
+    db.commit()
+    payload = _payload(db, tech)
+    tuesday = _day(payload, MONDAY + timedelta(days=1))
+    assert tuesday.pending_review is True and tuesday.paid_minutes == 450
+    assert _day(payload, MONDAY).pending_review is False
+    assert payload.total_paid_minutes == 450
+    assert payload.total_clocked_minutes == 480
+    assert payload.total_uncharged_minutes == 450
+
+
+def test_punch_marks_ride_the_day(db):
+    from app.models import AttendancePunchEdit
+    tech, admin = _user(db), _user(db, role=roles.ROLE_ADMIN)
+    punch = _punch(db, tech, _utc(14, 13), _utc(14, 21))
+    db.add(AttendancePunchEdit(id=uuid.uuid4(), punch_id=punch.id, edited_by_id=admin.id,
+                               edited_at=_utc(15, 1), field="ended_at",
+                               old_value="a", new_value="b"))
+    db.commit()
+    marks = _day(_payload(db, tech), MONDAY).punch_marks
+    assert [(m.punch_id, m.tags) for m in marks] == [(punch.id, ["admin"])]
+
+
+def test_adjustment_carries_labor_id_and_recorded_by_self(db):
+    tech, admin = _user(db), _user(db, role=roles.ROLE_ADMIN)
+    wo = _wo(db, tech, crew=[tech])
+    own = WorkOrderLabor(id=uuid.uuid4(), work_order_id=wo.id, technician_id=tech.id,
+                         minutes=30, recorded_by_id=tech.id, created_at=_utc(14, 18))
+    keyed = WorkOrderLabor(id=uuid.uuid4(), work_order_id=wo.id, technician_id=tech.id,
+                           minutes=20, recorded_by_id=admin.id, created_at=_utc(14, 19))
+    db.add_all([own, keyed]); db.commit()
+    adjustments = _day(_payload(db, tech), MONDAY).adjustments
+    assert [(a.labor_id, a.recorded_by_self) for a in adjustments] == [
+        (own.id, True), (keyed.id, False)]

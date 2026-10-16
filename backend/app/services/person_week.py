@@ -23,6 +23,8 @@ from sqlalchemy.orm import Session
 from app.domain import labor_day, roles
 from app.domain.errors import PersonNotProfilableError, UserNotFoundError
 from app.models import User, WorkOrder, WorkOrderTechnician
+from app.domain import attendance as attendance_domain
+from app.services import attendance as attendance_service
 from app.services import attendance_week, labor_summary
 
 PROFILABLE_ROLES: tuple[str, ...] = (
@@ -62,15 +64,18 @@ class PersonDay:
     clocked_minutes: int
     lunch_minutes: int
     paid_minutes: int
-    charged_minutes: int
+    charged_minutes: int            # live + hand-entered (2026-10-16 U6)
     adjustment_minutes: int
+    uncharged_minutes: int
     completed_count: int
     needs_review: bool
+    pending_review: bool            # shown, left out of week totals (U9)
     has_open: bool
     completed: list[PersonCompleted]
     charged: list[PersonCharged]
     adjustments: list[labor_summary.Adjustment]
     punches: list[attendance_week.WeekPunch]
+    punch_marks: list[attendance_service.PunchMarks]
 
 
 @dataclass(frozen=True)
@@ -85,6 +90,7 @@ class PersonWeek:
     total_paid_minutes: int
     total_charged_minutes: int
     total_adjustment_minutes: int
+    total_uncharged_minutes: int
     total_completed: int
     reviewable: bool
 
@@ -160,28 +166,39 @@ def week_payload(
     ).get(user_id, [])
     summary_by_day = {s.day: s for s in summaries}
     completed_by_day = _completed_by_day(db, user_id, window_start, window_end)
+    marks = attendance_service.punch_marks(db, {
+        punch.id: user_id
+        for day in (row.days if row else []) for punch in day.punches if not punch.carried
+    })
 
     out: list[PersonDay] = []
     for day in days:
         clocked_day = clocked_by_day.get(day)
         summary = summary_by_day.get(day, labor_summary.DaySummary(day=day))
         completed = completed_by_day.get(day, [])
+        punches = list(clocked_day.punches) if clocked_day else []
+        paid = clocked_day.paid_minutes if clocked_day else 0
+        charged = summary.total_minutes
         out.append(PersonDay(
             date=day,
             clocked_minutes=clocked_day.clocked_minutes if clocked_day else 0,
             lunch_minutes=clocked_day.lunch_minutes if clocked_day else 0,
-            paid_minutes=clocked_day.paid_minutes if clocked_day else 0,
-            charged_minutes=summary.closed_minutes + summary.running_minutes,
+            paid_minutes=paid,
+            charged_minutes=charged,
             adjustment_minutes=summary.adjustment_minutes,
+            uncharged_minutes=max(0, paid - charged),
             completed_count=len(completed),
             needs_review=bool(clocked_day and clocked_day.needs_review)
                 or any(e.needs_review for e in summary.timeline),
+            pending_review=attendance_domain.day_pending_review(punches, summary.timeline),
             has_open=bool(clocked_day and clocked_day.has_open),
             completed=completed,
             charged=_collapse_charged(summary.timeline),
             adjustments=list(summary.adjustments),
-            punches=list(clocked_day.punches) if clocked_day else [],
+            punches=punches,
+            punch_marks=[marks[p.id] for p in punches if p.id in marks and not p.carried],
         ))
+    counted = [d for d in out if not d.pending_review]
 
     return PersonWeek(
         user=person,
@@ -190,10 +207,11 @@ def week_payload(
         week_end=week_end,
         server_now=now,
         days=out,
-        total_clocked_minutes=sum(d.clocked_minutes for d in out),
-        total_paid_minutes=sum(d.paid_minutes for d in out),
-        total_charged_minutes=sum(d.charged_minutes for d in out),
-        total_adjustment_minutes=sum(d.adjustment_minutes for d in out),
+        total_clocked_minutes=sum(d.clocked_minutes for d in counted),
+        total_paid_minutes=sum(d.paid_minutes for d in counted),
+        total_charged_minutes=sum(d.charged_minutes for d in counted),
+        total_adjustment_minutes=sum(d.adjustment_minutes for d in counted),
+        total_uncharged_minutes=sum(d.uncharged_minutes for d in counted),
         total_completed=sum(d.completed_count for d in out),
         reviewable=any(d.needs_review for d in out),
     )

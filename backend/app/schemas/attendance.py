@@ -270,20 +270,47 @@ class PersonWeekCharged(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PersonWeekPunchEdit(BaseModel):
+    by_name: str
+    self: bool
+    field: str
+    old: Optional[str] = None
+    new: Optional[str] = None
+    at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PersonWeekPunchMarks(BaseModel):
+    """Self/Admin edit marks for one punch, with the audit's old -> new."""
+
+    punch_id: uuid.UUID
+    tags: list[str]
+    edits: list[PersonWeekPunchEdit]
+
+    model_config = {"from_attributes": True}
+
+
 class PersonWeekDay(BaseModel):
     date: date
     clocked_minutes: int
     lunch_minutes: int
     paid_minutes: int
+    # Live clocks plus hand-entered labor (2026-10-16 U6); the hand-entered
+    # share is `adjustment_minutes`. `uncharged = max(0, paid - charged)`.
     charged_minutes: int
     adjustment_minutes: int
+    uncharged_minutes: int = 0
     completed_count: int
     needs_review: bool
+    # Shown but left out of every week total (U9).
+    pending_review: bool = False
     has_open: bool
     completed: list[PersonWeekCompleted] = []
     charged: list[PersonWeekCharged] = []
     adjustments: list[HubAdjustment] = []
     punches: list[AttendanceWeekPunch] = []
+    punch_marks: list[PersonWeekPunchMarks] = []
 
     model_config = {"from_attributes": True}
 
@@ -303,6 +330,7 @@ class PersonWeekResponse(BaseModel):
     total_paid_minutes: int
     total_charged_minutes: int
     total_adjustment_minutes: int
+    total_uncharged_minutes: int = 0
     total_completed: int
     reviewable: bool
 

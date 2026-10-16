@@ -83,6 +83,10 @@ class Adjustment:
     minutes: int
     recorded_by_name: str
     work_order_number: str
+    # 2026-10-16: the row, and whether the credited worker keyed it themselves
+    # (the profile's Self/Admin mark).
+    labor_id: uuid.UUID | None = None
+    recorded_by_self: bool = False
 
 
 @dataclass(frozen=True)
@@ -178,6 +182,8 @@ def _adjustments_for_day(
                 recorded_by.full_name if recorded_by is not None else "Name unavailable"
             ),
             work_order_number=number,
+            labor_id=entry.id,
+            recorded_by_self=entry.recorded_by_id == entry.technician_id,
         )
         for entry, number, recorded_by in rows
     ]
@@ -422,6 +428,8 @@ def crew_range_summaries(
                 else "Name unavailable"
             ),
             work_order_number=number,
+            labor_id=labor_entry.id,
+            recorded_by_self=labor_entry.recorded_by_id == labor_entry.technician_id,
         )
         technician_bucket[day] = replace(
             summary,

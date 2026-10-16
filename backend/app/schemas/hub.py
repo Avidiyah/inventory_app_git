@@ -53,6 +53,8 @@ class HubAdjustment(BaseModel):
     minutes: int
     recorded_by_name: str
     work_order_number: str
+    labor_id: Optional[uuid.UUID] = None
+    recorded_by_self: bool = False
 
     model_config = {"from_attributes": True}
 
