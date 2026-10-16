@@ -240,6 +240,8 @@ export function formatError(detail, fallback) {
 // with no `status`. Connection / session / permission / insufficient-stock
 // get crew-friendly wording with a next step; anything else falls back to
 // the backend detail via `formatError`, then to `fallback`.
+const TIME_EDIT_REFUSAL = "You can only change your own time in the current week.";
+
 export function friendlyError(err, fallback) {
   if (!err || err.status === undefined) {
     return "Could not reach the app. Check your signal and try again.";
@@ -248,6 +250,8 @@ export function friendlyError(err, fallback) {
     return "You were signed out. Sign in again.";
   }
   if (err.status === 403) {
+    // The self-edit refusal (TimeEditForbiddenError) says what to do; show it.
+    if (err.detail === TIME_EDIT_REFUSAL) return TIME_EDIT_REFUSAL;
     return "Your account can't do that. Ask a Team Lead if this seems wrong.";
   }
   if (err.detail === "Insufficient stock to dispense.") {

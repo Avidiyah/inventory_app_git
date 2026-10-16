@@ -10,9 +10,14 @@
 // `#hub-clock-mount` node into `#hub-home-clock-slot` after every render, so
 // hubClock.js keeps its own state and wiring.
 
-import { apiPunchIn, apiPunchOut } from "../api.js";
+import {
+  apiAddAttendancePunch, apiDeleteAttendancePunch, apiEditAttendancePunch, apiPunchIn, apiPunchOut,
+} from "../api.js";
 import { escapeHtml, formatHm, friendlyError } from "../format.js";
 import { setMessage } from "../dom.js";
+import { getCurrentUser } from "../state.js";
+import { mountPunchEditor } from "./hubAttendancePunchEditor.js";
+import { timeLabel } from "./hubWeek.js";
 
 let container = null;
 let hub = null;
@@ -75,6 +80,60 @@ function punchHtml() {
   return onShiftHtml();
 }
 
+// The worker's own open-week punches, each editable (the server refuses
+// anything outside the open week). Tags are the Self/Admin edit marks.
+function weekPunchRowHtml(p) {
+  const day = new Date(p.started_at).toLocaleDateString([], {
+    weekday: "short", month: "short", day: "numeric", timeZone: "America/Chicago",
+  });
+  const span = `${timeLabel(p.started_at)} – ${p.ended_at ? timeLabel(p.ended_at) : "running"}`;
+  const minutes = p.ended_at ? formatHm((new Date(p.ended_at) - new Date(p.started_at)) / 60000) : "";
+  const tags = (p.tags || []).map((t) =>
+    ` <span class="day-tl-tag day-tl-tag-${t}">${t === "self" ? "Self" : "Admin"}-edited</span>`).join("");
+  const flag = p.needs_review ? ` <span class="hub-home-punch-flag">⚠ needs review</span>` : "";
+  return `<li class="hub-home-punch-row">
+      <span>${escapeHtml(day)}</span> <span>${escapeHtml(span)}</span> <span>${escapeHtml(minutes)}</span>${tags}${flag}
+      <button type="button" class="secondary-btn" data-action="hub-home-edit-punch" data-punch="${escapeHtml(p.id)}">Edit</button>
+    </li>`;
+}
+
+function weekPunchesHtml() {
+  if (!attendance) return "";
+  const rows = (attendance.week_punches || []).map(weekPunchRowHtml).join("");
+  return `<details class="hub-home-week-punches">
+      <summary>This week's punches</summary>
+      <ul class="hub-home-punch-list">${rows}</ul>
+      <button type="button" class="secondary-btn" data-action="hub-home-add-punch">+ Add punch</button>
+      <div class="hub-home-punch-editor"></div>
+    </details>`;
+}
+
+// One editor at a time; a refresh repaints Home and so closes it.
+function openPunchEditor(punchId) {
+  const host = container.querySelector(".hub-home-punch-editor");
+  const punch = (attendance.week_punches || []).find((p) => p.id === punchId) || null;
+  async function save(work) {
+    try {
+      await work();
+    } catch (err) {
+      const message = host.querySelector(".punch-editor-message");
+      message.className = "punch-editor-message error";
+      message.textContent = friendlyError(err, "Could not save that punch.");
+      return;
+    }
+    if (refreshCallback) await refreshCallback();
+  }
+  mountPunchEditor(host, {
+    punch,
+    date: punch ? punch.started_at.slice(0, 10) : attendance.day,
+    onSave: (values) => save(() => (punch
+      ? apiEditAttendancePunch(punch.id, values)
+      : apiAddAttendancePunch({ userId: getCurrentUser().id, ...values }))),
+    onDelete: (reason) => save(() => apiDeleteAttendancePunch(punch.id, reason)),
+    onCancel: () => host.replaceChildren(),
+  });
+}
+
 // Today's own numbers, the same three the Dashboard tab leads with -- Home
 // answers "what is in front of me" without a tab switch.
 function countsHtml() {
@@ -107,6 +166,7 @@ export function mountHubHome(mountEl, hubPayload, attendancePayload, { onChanged
 
   container.innerHTML = `
     ${punchHtml()}
+    ${weekPunchesHtml()}
     <div id="hub-home-clock-slot"></div>
     ${countsHtml()}`;
 
@@ -117,6 +177,8 @@ export function mountHubHome(mountEl, hubPayload, attendancePayload, { onChanged
       if (action === "hub-punch-in") void run(apiPunchIn, "Could not punch in.");
       else if (action === "hub-punch-out") void run(apiPunchOut, "Could not punch out.");
       else if (action === "hub-punch-retry" && refreshCallback) void refreshCallback();
+      else if (action === "hub-home-edit-punch") openPunchEditor(event.target.closest("[data-punch]").dataset.punch);
+      else if (action === "hub-home-add-punch") openPunchEditor(null);
     });
   }
 }

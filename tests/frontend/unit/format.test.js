@@ -102,6 +102,8 @@ describe("friendlyError", () => {
     [{}, "Could not reach the app. Check your signal and try again."],
     [{ status: 401 }, "You were signed out. Sign in again."],
     [{ status: 403 }, "Your account can't do that. Ask a Team Lead if this seems wrong."],
+    [{ status: 403, detail: "You can only change your own time in the current week." },
+      "You can only change your own time in the current week."],
     [{ status: 400, detail: "Insufficient stock to dispense." },
       "Not enough stock available. Check the count before taking more out."],
   ])("maps %o to crew-facing copy", (err, expected) => {

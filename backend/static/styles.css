@@ -5600,6 +5600,40 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     display: none;
 }
 
+/* Home: the worker's own open-week punches, editable in place. */
+.hub-home-week-punches {
+    margin: var(--space-3) 0;
+}
+
+.hub-home-week-punches summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.hub-home-punch-list {
+    list-style: none;
+    margin: var(--space-2) 0;
+    padding: 0;
+}
+
+.hub-home-punch-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) 0;
+    border-top: 1px solid var(--panel-rule-soft);
+    font-variant-numeric: tabular-nums;
+}
+
+.hub-home-punch-row button {
+    margin-left: auto;
+}
+
+.hub-home-punch-flag {
+    color: var(--color-error);
+}
+
 .clock-in-prompt {
     text-align: center;
 }
