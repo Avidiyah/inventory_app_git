@@ -38,6 +38,8 @@ END_SOURCE_AUTO_CLOCK_OUT = "auto_clock_out"
 # Legacy rows from the retired self-close; nothing writes it any more.
 END_SOURCE_SELF_REPORTED = "self_reported"
 END_SOURCE_ADMIN_EDIT = "admin_edit"
+# A worker corrected their own punch (2026-10-16 self-edit).
+END_SOURCE_SELF_EDIT = "self_edit"
 
 # On shift and charging / on shift, idle briefly / on shift, idle long / off.
 STATE_GREEN = "green"
@@ -260,3 +262,11 @@ def minutes_charged_outside_shift(
         if cursor < stop:
             seconds += (stop - cursor).total_seconds()
     return round(seconds / 60)
+
+
+def day_pending_review(punches, timeline) -> bool:
+    """A day whose numbers rest on an estimate: a flagged or past-midnight
+    punch, or a flagged work-order session. Every hours total leaves such a
+    day out whole until it is fixed or reviewed (spec U8/U9)."""
+    return (any(p.needs_review or getattr(p, "crosses_midnight", False) for p in punches)
+            or any(e.needs_review for e in timeline))

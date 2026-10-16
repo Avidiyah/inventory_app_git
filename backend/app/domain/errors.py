@@ -414,3 +414,8 @@ class PersonNotProfilableError(DomainError):
     """Raised by `services.person_week.week_payload` when the target is an
     Admin or Owner (spec D2): the profile shows crew roles only. Maps to 403
     -- the account exists, this surface refuses it."""
+
+
+class TimeEditForbiddenError(DomainError):
+    """A worker tried to change time that is not theirs, or is in a closed
+    week. Maps to 403."""

@@ -74,6 +74,13 @@ def week_bounds_containing(day: date) -> tuple[date, date]:
     return start, start + timedelta(days=6)
 
 
+def week_is_open(instant: datetime, now: datetime) -> bool:
+    """True when ``instant`` falls in the same Central week as ``now``: the
+    window a worker may still change their own time in (spec B1)."""
+    return (week_bounds_containing(central_date_of(instant))[0]
+            == week_bounds_containing(central_date_of(now))[0])
+
+
 def overlap_minutes(
     start: datetime,
     end: Optional[datetime],

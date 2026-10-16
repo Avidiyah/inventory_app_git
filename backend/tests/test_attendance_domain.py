@@ -239,3 +239,20 @@ def test_lunch_at_the_threshold():
     assert attendance.lunch_minutes(360, waived=False) == 30
     assert attendance.lunch_minutes(359, waived=False) == 0
     assert attendance.lunch_minutes(600, waived=True) == 0
+
+
+def test_day_pending_review_flags():
+    from types import SimpleNamespace as NS
+    clean = NS(needs_review=False, crosses_midnight=False)
+    assert attendance.day_pending_review([NS(needs_review=True, crosses_midnight=False)], []) is True
+    assert attendance.day_pending_review([NS(needs_review=False, crosses_midnight=True)], []) is True
+    assert attendance.day_pending_review([clean], [NS(needs_review=True)]) is True
+    assert attendance.day_pending_review([clean], [NS(needs_review=False)]) is False
+    # A punch shape without `crosses_midnight` still reads.
+    assert attendance.day_pending_review([NS(needs_review=False)], []) is False
+
+
+def test_time_edit_forbidden_maps_to_403():
+    from app.domain.errors import TimeEditForbiddenError
+    from app.routers._errors import to_http
+    assert to_http(TimeEditForbiddenError("x")).status_code == 403

@@ -290,3 +290,18 @@ def test_week_bounds_containing_on_sunday():
         date(2026, 8, 17),
         date(2026, 8, 23),
     )
+
+
+def test_week_is_open_same_central_week():
+    # Mon 2026-10-12 00:30 CDT and Sun 2026-10-18 23:00 CDT share a week.
+    monday = datetime(2026, 10, 12, 5, 30, tzinfo=timezone.utc)
+    sunday = datetime(2026, 10, 19, 4, 0, tzinfo=timezone.utc)
+    assert labor_day.week_is_open(monday, sunday) is True
+    assert labor_day.week_is_open(sunday, monday) is True
+
+
+def test_week_is_open_previous_week_is_closed():
+    # Sun 2026-10-11 23:59 CDT belongs to the week before.
+    last_sunday = datetime(2026, 10, 12, 4, 59, tzinfo=timezone.utc)
+    now = datetime(2026, 10, 14, 15, 0, tzinfo=timezone.utc)
+    assert labor_day.week_is_open(last_sunday, now) is False
