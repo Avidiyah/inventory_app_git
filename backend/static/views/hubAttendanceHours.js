@@ -71,7 +71,8 @@ function cellFlagsHtml(day) {
 function cellFlagLabels(day) {
   const labels = [];
   if (day.has_open) labels.push("still on shift");
-  if (day.needs_review) labels.push("needs review");
+  if (day.pending_review) labels.push("not counted, needs review");
+  else if (day.needs_review) labels.push("needs review");
   return labels.join(", ");
 }
 
@@ -187,7 +188,9 @@ export function mountHubAttendanceHours(container, payload, {
             const isExpanded = expanded?.rowIndex === rowIndex && expanded?.date === dateValue;
             const flags = cellFlagLabels(day);
             const label = `${name}, ${longDateLabel(dateValue)}, ${formatHm(day.paid_minutes)} paid${flags ? `, ${flags}` : ""}`;
-            return `<td><button type="button" class="hub-hours-cell" data-row="${rowIndex}" data-date="${escapeHtml(dateValue)}" aria-label="${escapeHtml(label)}" aria-expanded="${isExpanded}" aria-controls="hub-hours-detail-${rowIndex}">${formatHm(day.paid_minutes)}${cellFlagsHtml(day)}</button></td>`;
+            // A pending day is printed but left out of every total (U9).
+            const pending = day.pending_review ? " hub-hours-cell-pending" : "";
+            return `<td><button type="button" class="hub-hours-cell${pending}" data-row="${rowIndex}" data-date="${escapeHtml(dateValue)}" aria-label="${escapeHtml(label)}" aria-expanded="${isExpanded}" aria-controls="hub-hours-detail-${rowIndex}">${formatHm(day.paid_minutes)}${cellFlagsHtml(day)}</button></td>`;
           })
           .join("");
         const nameCell = onOpenProfile && PROFILABLE_ROLES.includes(row.user?.role)

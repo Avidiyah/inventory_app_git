@@ -101,7 +101,8 @@ export function mountHubAttendanceDayPage(container, payload, date, {
   let editing = null;
   const canEdit = Boolean(onSavePunch);
   const people = peopleOn(payload, date);
-  const total = people.reduce((sum, { day }) => sum + day.paid_minutes, 0);
+  // A needs-review day is listed but never added (spec 2026-10-16 U9).
+  const total = people.reduce((sum, { day }) => sum + (day.pending_review ? 0 : day.paid_minutes), 0);
 
   function findPunch(punchId) {
     for (const { day } of people) {

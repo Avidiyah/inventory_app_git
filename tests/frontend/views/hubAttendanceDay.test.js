@@ -109,3 +109,17 @@ describe("lunch on the day page", () => {
     expect(onToggleLunch).toHaveBeenCalledWith("punch-1", true);
   });
 });
+
+describe("the day page total (2026-10-16 totals rule)", () => {
+  it("day page total skips a pending person", () => {
+    const week = attendanceWeek();
+    const other = structuredClone(week.rows[0]);
+    other.user = { ...other.user, id: "user-2", first_name: "Bo" };
+    other.days[0] = { ...other.days[0], paid_minutes: 300, pending_review: true };
+    week.rows.push(other);
+    mountHubAttendanceDayPage(host, week, "2026-09-14");
+    const heading = host.querySelector("#hub-day-heading").textContent;
+    expect(heading).toContain("2 clocked in");
+    expect(heading).toContain("7:30");
+  });
+});

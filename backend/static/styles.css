@@ -5729,6 +5729,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .day-tl-key-edited::before { background: rgba(255, 255, 255, .22) repeating-linear-gradient(135deg, rgba(255, 255, 255, .5) 0 3px, transparent 3px 6px); }
 .day-tl-pending .day-tl-lane, .day-tl-pending .day-tl-divider { filter: grayscale(1); opacity: .55; }
 .day-tl-pending-note { margin: 0 0 var(--space-1); color: var(--status-dispense-text); font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
+.hub-hours-cell-pending { color: var(--text-panel-mute); text-decoration: line-through; text-decoration-color: var(--panel-border); }
 .user-profile-split { display: block; color: var(--text-panel-mute); font-size: var(--fs-xs); }
 .user-profile-day-pending > summary { color: var(--text-panel-mute); }
 @media (max-width: 600px) {

@@ -253,3 +253,14 @@ describe("the lunch line (L1-L3)", () => {
     expect(onToggleLunch).toHaveBeenCalledWith("punch-1", true);
   });
 });
+
+describe("a needs-review day (2026-10-16 totals rule)", () => {
+  it("a pending cell is greyed and labelled not counted", () => {
+    const week = attendanceWeek();
+    week.rows[0].days[0] = { ...week.rows[0].days[0], pending_review: true, needs_review: true };
+    mountHubAttendanceHours(host, week);
+    expect(cells()[0].classList.contains("hub-hours-cell-pending")).toBe(true);
+    expect(cells()[0].getAttribute("aria-label")).toContain("not counted, needs review");
+    expect(cells()[1].classList.contains("hub-hours-cell-pending")).toBe(false);
+  });
+});
