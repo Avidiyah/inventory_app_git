@@ -11,7 +11,7 @@ work orders, work orders never imports this.
 """
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Iterable, Optional
 
@@ -45,6 +45,18 @@ class OpenPunch:
 
 
 @dataclass(frozen=True)
+class MyPunch:
+    """One of the caller's own punches in the open week, for the Home tab's
+    self-edit list."""
+
+    id: uuid.UUID
+    started_at: datetime
+    ended_at: Optional[datetime]
+    needs_review: bool
+    tags: list[str]
+
+
+@dataclass(frozen=True)
 class AttendanceMe:
     """What the Home tab needs and nothing more. `clocked_minutes_today` is
     the *pay* number -- real wall-clock, never rounded to 30 (8)."""
@@ -53,6 +65,59 @@ class AttendanceMe:
     day: date
     open_punch: Optional[OpenPunch]
     clocked_minutes_today: int
+    week_punches: list[MyPunch] = field(default_factory=list)
+
+
+# Audit fields that change a punch's time or pay; "Looks right"
+# (`needs_review`) reviews a punch, it does not edit it.
+TAG_FIELDS = ("created", "started_at", "ended_at", "lunch_waived")
+
+
+@dataclass(frozen=True)
+class PunchEditView:
+    by_name: str
+    self: bool
+    field: str
+    old: Optional[str]
+    new: Optional[str]
+    at: datetime
+
+
+@dataclass(frozen=True)
+class PunchMarks:
+    punch_id: uuid.UUID
+    tags: list[str]
+    edits: list[PunchEditView]
+
+
+def punch_marks(db: Session, owners: dict[uuid.UUID, uuid.UUID]) -> dict[uuid.UUID, PunchMarks]:
+    """Self/Admin edit marks per punch (spec B2), from `punch_id -> owner_id`.
+    An edit by the punch's owner is Self, anyone else's is Admin. A punch with
+    no time edits is absent."""
+    if not owners:
+        return {}
+    rows = (
+        db.query(AttendancePunchEdit, User)
+        .join(User, User.id == AttendancePunchEdit.edited_by_id)
+        .filter(AttendancePunchEdit.punch_id.in_(list(owners)),
+                AttendancePunchEdit.field.in_(TAG_FIELDS))
+        .order_by(AttendancePunchEdit.edited_at)
+        .all()
+    )
+    edits: dict[uuid.UUID, list[PunchEditView]] = {}
+    for edit, editor in rows:
+        edits.setdefault(edit.punch_id, []).append(PunchEditView(
+            by_name=editor.full_name, self=editor.id == owners[edit.punch_id],
+            field=edit.field, old=edit.old_value, new=edit.new_value,
+            at=edit.edited_at))
+    return {
+        punch_id: PunchMarks(
+            punch_id=punch_id,
+            tags=[tag for tag, wanted in (("self", True), ("admin", False))
+                  if any(e.self is wanted for e in views)],
+            edits=views)
+        for punch_id, views in edits.items()
+    }
 
 
 def live_punches(db: Session):
@@ -224,6 +289,16 @@ def me_payload(
         for p in punches
     )
     open_row = next((p for p in punches if ends[p.id] is None), None)
+    week_start, _ = labor_day.week_bounds_containing(today)
+    window_start, _ = labor_day.day_bounds(week_start)
+    week_rows = (
+        live_punches(db)
+        .filter(AttendancePunch.user_id == user.id,
+                AttendancePunch.started_at >= window_start)
+        .order_by(AttendancePunch.started_at)
+        .all()
+    )
+    marks = punch_marks(db, {p.id: user.id for p in week_rows})
     return AttendanceMe(
         server_now=now,
         day=today,
@@ -233,6 +308,13 @@ def me_payload(
             start_source=open_row.start_source,
         ),
         clocked_minutes_today=minutes,
+        week_punches=[
+            MyPunch(id=p.id, started_at=p.started_at,
+                    ended_at=attendance.capped_end(p.started_at, p.ended_at, now=now),
+                    needs_review=bool(p.needs_review),
+                    tags=marks[p.id].tags if p.id in marks else [])
+            for p in week_rows
+        ],
     )
 
 

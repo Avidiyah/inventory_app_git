@@ -10,7 +10,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.hub import HubAdjustment, HubUser
 
@@ -26,6 +26,19 @@ class AttendanceOpenPunch(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AttendanceMyPunch(BaseModel):
+    """One of the caller's own open-week punches; `tags` holds `self` /
+    `admin` edit marks (2026-10-16 self-edit)."""
+
+    id: uuid.UUID
+    started_at: datetime
+    ended_at: Optional[datetime] = None
+    needs_review: bool
+    tags: list[str] = Field(default_factory=list)
+
+    model_config = {"from_attributes": True}
+
+
 class AttendanceMeResponse(BaseModel):
     """`clocked_minutes_today` is the pay number: real wall-clock on shift,
     never rounded to 30 the way `billed_labor_minutes` is (8)."""
@@ -34,6 +47,7 @@ class AttendanceMeResponse(BaseModel):
     day: date
     open_punch: Optional[AttendanceOpenPunch] = None
     clocked_minutes_today: int
+    week_punches: list[AttendanceMyPunch] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 

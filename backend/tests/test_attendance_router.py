@@ -58,6 +58,8 @@ def test_punch_in_then_me_reports_the_open_punch(db):
         del app.dependency_overrides[get_db]
     assert body["open_punch"]["start_source"] == "manual"
     assert "stale" not in body["open_punch"]
+    assert [p["id"] for p in body["week_punches"]] == [body["open_punch"]["id"]]
+    assert body["week_punches"][0]["tags"] == []
 
 
 def test_a_second_punch_in_is_409(db):

@@ -308,3 +308,59 @@ def test_correcting_an_unswept_punch_leaves_todays_clock_running(db):
     db.refresh(old)
     assert old.ended_at == yesterday + timedelta(hours=9)
     assert wo_service.running_labor_session_for(db, tech.id) is not None
+
+
+# --- Edit marks and this week's punches (2026-10-16 self-edit) ------------
+
+_MARK_NOW = datetime(2026, 9, 15, 20, tzinfo=timezone.utc)   # Tue; week from Mon 9/14
+
+
+def _closed_punch(db, user, start):
+    punch = AttendancePunch(id=uuid.uuid4(), user_id=user.id, started_at=start,
+                            ended_at=start + timedelta(hours=1),
+                            start_source="manual", end_source="manual")
+    db.add(punch); db.flush()
+    return punch
+
+
+def _edit_row(db, punch, by, field):
+    db.add(AttendancePunchEdit(id=uuid.uuid4(), punch_id=punch.id, edited_by_id=by.id,
+                               edited_at=_MARK_NOW, field=field, old_value="a",
+                               new_value="b"))
+    db.flush()
+
+
+def test_punch_marks_self_admin_both_and_none(db):
+    tech, admin = _seed_user(db), _seed_user(db, "admin")
+    base = datetime(2026, 9, 15, 13, tzinfo=timezone.utc)
+    own, by_admin, both, looked = (_closed_punch(db, tech, base + timedelta(hours=2 * i))
+                                   for i in range(4))
+    _edit_row(db, own, tech, "ended_at")
+    _edit_row(db, by_admin, admin, "started_at")
+    _edit_row(db, both, tech, "ended_at")
+    _edit_row(db, both, admin, "lunch_waived")
+    _edit_row(db, looked, admin, "needs_review")
+
+    marks = attendance_service.punch_marks(
+        db, {p.id: tech.id for p in (own, by_admin, both, looked)})
+
+    assert marks[own.id].tags == ["self"]
+    assert marks[by_admin.id].tags == ["admin"]
+    assert marks[both.id].tags == ["self", "admin"]
+    assert looked.id not in marks
+    edit = marks[own.id].edits[0]
+    assert (edit.self, edit.field, edit.old, edit.new) == (True, "ended_at", "a", "b")
+
+
+def test_me_payload_lists_this_weeks_punches_only(db):
+    tech = _seed_user(db)
+    _closed_punch(db, tech, datetime(2026, 9, 11, 14, tzinfo=timezone.utc))   # last week
+    first = _closed_punch(db, tech, datetime(2026, 9, 14, 14, tzinfo=timezone.utc))
+    second = _closed_punch(db, tech, datetime(2026, 9, 15, 14, tzinfo=timezone.utc))
+    _edit_row(db, second, tech, "ended_at")
+    db.commit()
+
+    me = attendance_service.me_payload(db, user=tech, now=_MARK_NOW)
+
+    assert [p.id for p in me.week_punches] == [first.id, second.id]
+    assert me.week_punches[0].tags == [] and me.week_punches[1].tags == ["self"]
