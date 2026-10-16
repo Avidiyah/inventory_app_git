@@ -65,7 +65,7 @@ def test_the_export_is_csv_with_the_week_in_its_filename(db):
     )
 
 
-def test_every_person_gets_the_same_seven_metric_rows(db):
+def test_every_person_gets_the_same_eight_metric_rows(db):
     admin = _seed_user(db, role="admin", first="Dee", last="Ops")
     _seed_week(db)
 
@@ -73,10 +73,10 @@ def test_every_person_gets_the_same_seven_metric_rows(db):
 
     assert lines[0].split(",")[:2] == ["Person", "Metric"]
     assert lines[0].split(",")[-1] == "Week"
-    metrics = [line.split(",")[1] for line in lines[1:8]]
+    metrics = [line.split(",")[1] for line in lines[1:9]]
     assert metrics == [
         "Clocked", "Lunch", "Paid", "Charged", "Off job", "Charged outside shift",
-        "Adjustments",
+        "Adjustments", "Pending review",
     ]
 
 
@@ -109,3 +109,23 @@ def test_below_admin_is_403(db):
     # D1: the pay record sits above the rest of the admin toolkit.
     oa = _seed_user(db, role="techfm_oa", first="Oa", last="Person")
     assert _get(db, oa, "/hub/attendance/export?week=2026-09-14").status_code == 403
+
+
+def test_csv_week_column_skips_pending_and_marks_it(db):
+    admin = _seed_user(db, role="admin", first="Dee", last="Ops")
+    tech = _seed_week(db)
+    db.add(AttendancePunch(
+        id=uuid.uuid4(), user_id=tech.id,
+        started_at=datetime(2026, 9, 15, 13, 0, tzinfo=timezone.utc),
+        ended_at=datetime(2026, 9, 15, 21, 0, tzinfo=timezone.utc),
+        start_source="manual", end_source="manual", needs_review=True))
+
+    lines = _get(db, admin, "/hub/attendance/export?week=2026-09-14").text.splitlines()
+
+    clocked = next(line for line in lines if line.startswith(f"{tech.full_name},Clocked,"))
+    cells = clocked.split(",")
+    assert cells[3] == "8:00"           # Tuesday still printed
+    assert cells[-1] == "8:00"          # but only Monday reaches the week
+    pending = next(line for line in lines
+                   if line.startswith(f"{tech.full_name},Pending review,")).split(",")
+    assert pending[2:4] == ["", "yes"]

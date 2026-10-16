@@ -287,3 +287,45 @@ def test_delta_stays_gross_when_lunch_comes_off(db):
     assert (monday.paid_minutes, monday.lunch_minutes) == (450, 30)
     assert monday.delta_minutes == 480
     assert row.paid_minutes == 450 and week.paid_minutes >= 450
+
+
+# --- The totals rule: a pending day is shown, never added (2026-10-16) ----
+
+def test_pending_day_is_out_of_every_total(db):
+    tech = make_technician(db)
+    make_punch(db, tech, "2026-09-14T13:00Z", "2026-09-14T21:00Z")      # Mon 8h
+    flagged = make_punch(db, tech, "2026-09-15T13:00Z", "2026-09-15T21:00Z")
+    make_session(db, tech, "2026-09-15T13:00Z", "2026-09-15T15:00Z")
+    flagged.needs_review = True
+    db.flush()
+    week = attendance_compare.week_payload(db, week_start=MONDAY, now=NOW)
+    row = _row_for(week, tech)
+
+    tuesday = row.days[1]
+    assert tuesday.pending_review is True and tuesday.paid_minutes == 450
+    assert (row.total_minutes, row.paid_minutes) == (480, 450)
+    assert (row.tracked_minutes, row.delta_minutes) == (0, 480)
+    others = sum(r.paid_minutes for r in week.rows if r.user.id != tech.id)
+    tuesday_others = sum(r.days[1].paid_minutes for r in week.rows
+                         if r.user.id != tech.id and not r.days[1].pending_review)
+    assert week.totals_by_day[1].paid_minutes == tuesday_others
+    assert week.paid_minutes == others + 450
+
+
+def test_crosses_midnight_day_is_pending(db):
+    tech = make_technician(db)
+    make_punch(db, tech, "2026-09-14T13:00Z", "2026-09-15T07:00Z")      # past Central midnight
+    week, monday = _monday(db, tech)
+    assert monday.pending_review is True
+
+
+def test_row_adjustment_minutes_counts_unflagged_days_only(db):
+    tech = make_technician(db)
+    make_punch(db, tech, "2026-09-14T13:00Z", "2026-09-14T21:00Z")
+    flagged = make_punch(db, tech, "2026-09-15T13:00Z", "2026-09-15T21:00Z")
+    flagged.needs_review = True
+    make_adjustment(db, tech, minutes=40, created_at="2026-09-14T18:00Z")
+    make_adjustment(db, tech, minutes=25, created_at="2026-09-15T18:00Z")
+    db.flush()
+    week = attendance_compare.week_payload(db, week_start=MONDAY, now=NOW)
+    assert _row_for(week, tech).adjustment_minutes == 40

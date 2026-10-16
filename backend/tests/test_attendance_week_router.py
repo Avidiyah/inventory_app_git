@@ -144,3 +144,8 @@ def test_the_week_read_carries_the_billing_labor_rate(db):
     finally:
         del app.dependency_overrides[get_db]
     assert float(body["labor_rate"]) == 62.5
+
+
+def test_week_rows_carry_adjustment_minutes():
+    from app.schemas.attendance import AttendanceWeekRow
+    assert "adjustment_minutes" in AttendanceWeekRow.model_fields

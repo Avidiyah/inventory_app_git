@@ -118,6 +118,8 @@ class AttendanceWeekRow(BaseModel):
     paid_minutes: int
     tracked_minutes: int
     delta_minutes: int
+    # Hand-entered labor on unflagged days; the Efficiency board adds it.
+    adjustment_minutes: int = 0
 
     model_config = {"from_attributes": True}
 

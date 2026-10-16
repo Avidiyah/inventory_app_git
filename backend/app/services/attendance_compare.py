@@ -7,9 +7,9 @@ likes, and P4b's live layer may poll it.
 This is the one module that holds two of spec §8's three numbers at once, so
 it is the one place they could be blurred. Three rules keep them apart:
 
-- **Clocked** comes from `attendance_week.week_payload` and is passed through
-  untouched. That module stays clocked-only; nothing here recomputes a pay
-  number.
+- **Clocked** comes from `attendance_week.week_payload`; each day is passed
+  through untouched. That module stays clocked-only; nothing here recomputes
+  a day's pay number. The *totals* are summed here, over unflagged days only.
 - **Tracked** is real wall-clock on jobs, from labor sessions, with a running
   session clipped at the 12-hour cap by `work_orders.capped_session_end`
   rather than by a sweep.
@@ -28,9 +28,10 @@ or differenced into delta.
 
 `pending_review` marks a day whose numbers rest on a forgotten clock: a
 flagged punch (`needs_review`, which a midnight close always is), or an
-auto-closed session no Admin has accepted. The leaderboard sets such a
-day aside whole -- dropping only the suspect item would push the rest of the
-shift into "uncharged" and misprice it the other way.
+auto-closed session no Admin has accepted (`attendance.day_pending_review`).
+Every total here -- row, day, week, CSV week column -- sets such a day aside
+whole (spec 2026-10-16 U9); dropping only the suspect item would push the rest
+of the shift into "uncharged" and misprice it the other way.
 """
 
 import csv
@@ -73,6 +74,7 @@ class CompareRow:
     paid_minutes: int
     tracked_minutes: int
     delta_minutes: int
+    adjustment_minutes: int = 0
 
 
 @dataclass(frozen=True)
@@ -115,16 +117,14 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
     bounds = {day: labor_day.day_bounds(day) for day in clocked.days}
 
     rows: list[CompareRow] = []
-    week_tracked = 0
-    week_delta = 0
+    totals_minutes = {day: 0 for day in clocked.days}
+    totals_paid = {day: 0 for day in clocked.days}
     reviewable: set = set()
     for row in clocked.rows:
         by_day = {
             summary.day: summary for summary in summaries.get(row.user.id, [])
         }
         days: list[CompareDay] = []
-        row_tracked = 0
-        row_delta = 0
         for day in row.days:
             summary = by_day.get(day.date)
             tracked = (
@@ -154,9 +154,8 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
                 if entry.needs_review
             }
             reviewable |= flagged_punches | flagged_sessions
-            pending = bool(flagged_punches or flagged_sessions)
-            row_tracked += tracked
-            row_delta += delta
+            pending = attendance.day_pending_review(
+                day.punches, summary.timeline if summary else [])
             days.append(
                 CompareDay(
                     date=day.date,
@@ -176,18 +175,22 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
                     punches=day.punches,
                 )
             )
-        week_tracked += row_tracked
-        week_delta += row_delta
+        # The totals rule (spec U9): a pending day is shown, never added.
+        counted = [day for day in days if not day.pending_review]
         rows.append(
             CompareRow(
                 user=row.user,
                 days=days,
-                total_minutes=row.total_minutes,
-                paid_minutes=row.paid_minutes,
-                tracked_minutes=row_tracked,
-                delta_minutes=row_delta,
+                total_minutes=sum(d.clocked_minutes for d in counted),
+                paid_minutes=sum(d.paid_minutes for d in counted),
+                tracked_minutes=sum(d.tracked_minutes for d in counted),
+                delta_minutes=sum(d.delta_minutes for d in counted),
+                adjustment_minutes=sum(d.adjustment_minutes for d in counted),
             )
         )
+        for day in counted:
+            totals_minutes[day.date] += day.clocked_minutes
+            totals_paid[day.date] += day.paid_minutes
 
     return CompareWeek(
         week_start=clocked.week_start,
@@ -195,11 +198,15 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
         server_now=clocked.server_now,
         days=clocked.days,
         rows=rows,
-        totals_by_day=clocked.totals_by_day,
-        total_minutes=clocked.total_minutes,
-        paid_minutes=clocked.paid_minutes,
-        tracked_minutes=week_tracked,
-        delta_minutes=week_delta,
+        totals_by_day=[
+            attendance_week.DayTotal(date=day, minutes=totals_minutes[day],
+                                     paid_minutes=totals_paid[day])
+            for day in clocked.days
+        ],
+        total_minutes=sum(r.total_minutes for r in rows),
+        paid_minutes=sum(r.paid_minutes for r in rows),
+        tracked_minutes=sum(r.tracked_minutes for r in rows),
+        delta_minutes=sum(r.delta_minutes for r in rows),
         week_hours=clocked.week_hours,
         labor_rate=wo.LABOR_RATE,
         reviewable_count=len(reviewable),
@@ -212,7 +219,8 @@ def _hm(total_minutes: int) -> str:
     return f"{hours}:{minutes:02d}"
 
 
-# Seven rows per person, always, in this order. A fixed block is what makes the
+# Seven metric rows per person, always, in this order, then "Pending review".
+# A fixed block is what makes the
 # file parseable: a metric that appears only when non-zero turns every reader
 # into a state machine.
 _METRICS: tuple[tuple[str, str], ...] = (
@@ -224,10 +232,11 @@ _METRICS: tuple[tuple[str, str], ...] = (
     ("Charged outside shift", "outside_shift_minutes"),
     ("Adjustments", "adjustment_minutes"),
 )
+PENDING_LABEL = "Pending review"
 
 
 def week_csv(payload: CompareWeek) -> str:
-    """The comparison as payroll-friendly CSV: seven metric rows per person,
+    """The comparison as payroll-friendly CSV: eight rows per person,
     seven day columns, a week column, then the same block for the company.
 
     One header row and nothing above it -- a title line is the first thing a
@@ -245,14 +254,20 @@ def week_csv(payload: CompareWeek) -> str:
     for row in payload.rows:
         by_date = {day.date: day for day in row.days}
         name = row.user.full_name
+        pending = [day in by_date and by_date[day].pending_review
+                   for day in payload.days]
         for label, field in _METRICS:
             cells = [getattr(by_date[day], field) if day in by_date else 0
                      for day in payload.days]
-            for index, value in enumerate(cells):
+            # Every day is printed; only unflagged days reach the sums (U9).
+            counted = [0 if flag else value for value, flag in zip(cells, pending)]
+            for index, value in enumerate(counted):
                 company[label][index] += value
             writer.writerow(
-                [name, label, *(_hm(value) for value in cells), _hm(sum(cells))]
+                [name, label, *(_hm(value) for value in cells), _hm(sum(counted))]
             )
+        writer.writerow([name, PENDING_LABEL, *("yes" if flag else "" for flag in pending),
+                         str(sum(pending)) if any(pending) else ""])
 
     for label, _ in _METRICS:
         cells = company[label]
