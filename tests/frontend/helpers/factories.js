@@ -684,19 +684,20 @@ export function personWeek(overrides = {}) {
                 "2026-09-18", "2026-09-19", "2026-09-20"];
   const blank = (date) => ({
     date, clocked_minutes: 0, lunch_minutes: 0, paid_minutes: 0,
-    charged_minutes: 0, adjustment_minutes: 0,
-    completed_count: 0, needs_review: false, has_open: false,
-    completed: [], charged: [], adjustments: [], punches: [],
+    charged_minutes: 0, adjustment_minutes: 0, uncharged_minutes: 0,
+    completed_count: 0, needs_review: false, pending_review: false, has_open: false,
+    completed: [], charged: [], adjustments: [], punches: [], punch_marks: [],
   });
   const monday = {
     ...blank("2026-09-14"),
     clocked_minutes: 480, lunch_minutes: 30, paid_minutes: 450,
-    charged_minutes: 180, adjustment_minutes: 30, completed_count: 1,
+    charged_minutes: 180, adjustment_minutes: 30, uncharged_minutes: 270, completed_count: 1,
     completed: [{ work_order_id: "wo-1", number: "WO-1", location: "Bldg 4",
                   completed_at: "2026-09-14T20:00:00Z", status: "completed", archived: false }],
     charged: [{ work_order_id: "wo-1", number: "WO-1", minutes: 180,
                 auto_closed: true, running: false, spans: [] }],
-    adjustments: [{ minutes: 30, recorded_by_name: "Dee Ops", work_order_number: "WO-1" }],
+    adjustments: [{ minutes: 30, recorded_by_name: "Dee Ops", work_order_number: "WO-1",
+                    labor_id: "labor-1", recorded_by_self: false }],
     punches: [{ id: "punch-1", started_at: "2026-09-14T13:00:00Z",
                 ended_at: "2026-09-14T21:00:00Z", start_source: "manual",
                 end_source: "manual", needs_review: false, minutes: 480,
@@ -709,7 +710,7 @@ export function personWeek(overrides = {}) {
     server_now: "2026-09-16T15:00:00Z",
     days: [monday, ...days.slice(1).map(blank)],
     total_clocked_minutes: 480, total_paid_minutes: 450, total_charged_minutes: 180,
-    total_adjustment_minutes: 30, total_completed: 1, reviewable: false,
+    total_adjustment_minutes: 30, total_uncharged_minutes: 270, total_completed: 1, reviewable: false,
     ...overrides,
   };
 }

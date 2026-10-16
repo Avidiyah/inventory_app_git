@@ -308,3 +308,57 @@ describe("lunch on the profile", () => {
     expect(rows()[0].querySelector(".user-profile-day-body").textContent).toContain("lunch −0:30");
   });
 });
+
+describe("the day timeline and the uncharged column (2026-10-16)", () => {
+  it("summary shows Uncharged and the hand-entered split", async () => {
+    serve(personWeek());
+    await mount();
+    expect(host.querySelector(".user-profile-head").textContent).toContain("Uncharged");
+    const cells = rows()[0].querySelectorAll("summary .user-profile-col");
+    expect(cells[1].textContent).toContain("3:00");
+    expect(cells[1].textContent).toContain("incl. 0:30 hand-entered");
+    expect(cells[2].textContent).toContain("4:30");
+    expect(host.querySelector(".user-profile-totals").textContent).toContain("4:30");
+    expect(host.textContent).not.toContain("not counted as charged");
+  });
+
+  it("an opened day carries the timeline above the lists", async () => {
+    serve(personWeek());
+    await mount();
+    const body = rows()[0].querySelector(".user-profile-day-body");
+    expect(body.firstElementChild.classList.contains("day-tl")).toBe(true);
+  });
+
+  it("clicking a charged block opens the work order", async () => {
+    const week = personWeek();
+    week.days[0].charged[0].spans = [{ started_at: "2026-09-14T14:00:00Z", ended_at: "2026-09-14T17:00:00Z" }];
+    serve(week);
+    await mount();
+    rows()[0].querySelector(".day-tl-charged").click();
+    await flush(); await flush();
+    expect(openSearch).toHaveBeenCalledWith("WO-1");
+  });
+
+  it("an Admin clicking a punch block opens the editor; a non-Admin's does nothing", async () => {
+    serve(personWeek());
+    await mount();
+    rows()[0].querySelector(".day-tl-punch").click();
+    expect(host.querySelector(".punch-editor")).toBeNull();
+    setCurrentUser({ id: "viewer", role: "admin" });
+    await mount();
+    rows()[0].querySelector(".day-tl-punch").click();
+    expect(rows()[0].querySelector(".punch-editor")).not.toBeNull();
+  });
+
+  it("a pending day is greyed and its lists tag edits", async () => {
+    const week = personWeek();
+    week.days[0] = { ...week.days[0], pending_review: true,
+      punch_marks: [{ punch_id: "punch-1", tags: ["self"], edits: [] }] };
+    serve(week);
+    await mount();
+    expect(rows()[0].classList.contains("user-profile-day-pending")).toBe(true);
+    const body = rows()[0].querySelector(".user-profile-day-body").textContent;
+    expect(body).toContain("Self-edited");
+    expect(body).toContain("Admin-entered");
+  });
+});

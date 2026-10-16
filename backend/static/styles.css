@@ -5641,7 +5641,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .user-profile-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-3); }
 .user-profile-week-nav { display: flex; align-items: center; gap: var(--space-2); }
 .user-profile-table-wrap { background: var(--panel-nested); border: var(--border); border-radius: var(--radius-sm); overflow: hidden; }
-.user-profile-summary { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: var(--space-2); padding: var(--space-2) var(--space-3); align-items: center; font-variant-numeric: tabular-nums; }
+.user-profile-summary { display: grid; grid-template-columns: 1.6fr 1fr 1.2fr 1fr 1fr; gap: var(--space-2); padding: var(--space-2) var(--space-3); align-items: center; font-variant-numeric: tabular-nums; }
 .user-profile-col { text-align: right; }
 .user-profile-head { border-bottom: 1px solid var(--panel-rule); color: var(--text-panel-mute); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
 .user-profile-day { border-top: 1px solid var(--panel-rule-soft); }
@@ -5681,6 +5681,63 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .user-profile-wo-ready_to_complete { --card-accent: var(--wo-status-ready-to-complete); }
 .user-profile-wo-completed { --card-accent: var(--wo-status-completed); }
 .user-profile-wo-review { --card-accent: var(--wo-status-review); }
+
+/* =================== PROFILE DAY TIMELINE (2026-10-16) =================== */
+/* Punched is the quiet neutral ground; charged is the one brand-red fill;
+   uncharged is a thin hatched rail under them. Hand-entered labor has no
+   time of day, so it sits apart under a dashed rule as hollow red chips.
+   Edited time is striped and always tagged in words -- never colour alone. */
+.day-tl { margin: var(--space-2) 0 var(--space-3); padding: var(--space-2) var(--space-3) var(--space-3); background: var(--panel-well); border: var(--border); border-radius: var(--radius-sm); }
+.day-tl-axis { margin-left: 92px; }
+.day-tl-lane { display: grid; grid-template-columns: 84px 1fr; gap: var(--space-2); align-items: center; margin-top: 4px; }
+.day-tl-lane-name { color: var(--text-panel-mute); font-size: var(--fs-xs); text-align: right; }
+.day-tl-track { position: relative; height: 26px; border-radius: 3px; background: rgba(255, 255, 255, .03); }
+.day-tl-lane-uncharged .day-tl-track { height: 8px; background: none; }
+.day-tl-block {
+    position: absolute; top: 2px; bottom: 2px; margin: 0 1px; padding: 0 4px;
+    display: flex; align-items: center; gap: 4px; overflow: hidden; white-space: nowrap;
+    border: 0; border-radius: 2px; font: inherit; font-size: var(--fs-xs); cursor: pointer;
+}
+.day-tl-block:focus-visible, .day-tl-chip:focus-visible { outline: 2px solid var(--color-brand-light); outline-offset: 1px; }
+.day-tl-punch { background: rgba(255, 255, 255, .22); color: var(--text-panel); }
+.day-tl-charged { background: var(--color-brand); color: var(--color-white); }
+.day-tl-gap {
+    position: absolute; top: 0; bottom: 0;
+    background: repeating-linear-gradient(90deg, var(--text-panel-mute) 0 2px, transparent 2px 5px);
+    opacity: .7; border-radius: 1px;
+}
+.day-tl-edited {
+    background-image: repeating-linear-gradient(135deg, rgba(255, 255, 255, .28) 0 4px, transparent 4px 9px);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .45);
+}
+.day-tl-narrow .day-tl-label, .day-tl-narrow .day-tl-tag { display: none; }
+.day-tl-divider { border: 0; border-top: 1px dashed var(--panel-rule); margin: var(--space-2) 0 0; padding-top: 8px; }
+.day-tl-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.day-tl-chip {
+    display: inline-flex; align-items: center; gap: 6px; min-width: max-content; padding: 2px 8px;
+    background: transparent; color: var(--text-panel); border: 1px solid var(--color-brand); border-radius: 3px;
+    font: inherit; font-size: var(--fs-xs); cursor: pointer;
+}
+.day-tl-tag { font-size: 11px; line-height: 1.3; padding: 0 5px; border-radius: 3px; border: 1px solid var(--panel-border); color: var(--text-panel); background: rgba(0, 0, 0, .35); }
+.day-tl-tag-self { border-color: var(--color-brand-light); color: var(--color-brand-light); }
+.day-tl-legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: var(--space-2) 0 0; color: var(--text-panel-mute); font-size: var(--fs-xs); }
+.day-tl-key::before { content: ""; display: inline-block; width: 14px; height: 9px; margin-right: 5px; vertical-align: middle; border-radius: 2px; }
+.day-tl-key-punched::before { background: rgba(255, 255, 255, .22); }
+.day-tl-key-charged::before { background: var(--color-brand); }
+.day-tl-key-uncharged::before { background: repeating-linear-gradient(90deg, var(--text-panel-mute) 0 2px, transparent 2px 5px); }
+.day-tl-key-hand::before { border: 1px solid var(--color-brand); }
+.day-tl-key-edited::before { background: rgba(255, 255, 255, .22) repeating-linear-gradient(135deg, rgba(255, 255, 255, .5) 0 3px, transparent 3px 6px); }
+.day-tl-pending .day-tl-lane, .day-tl-pending .day-tl-divider { filter: grayscale(1); opacity: .55; }
+.day-tl-pending-note { margin: 0 0 var(--space-1); color: var(--status-dispense-text); font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
+.user-profile-split { display: block; color: var(--text-panel-mute); font-size: var(--fs-xs); }
+.user-profile-day-pending > summary { color: var(--text-panel-mute); }
+@media (max-width: 600px) {
+    .day-tl { padding: var(--space-2); }
+    .day-tl-lane { grid-template-columns: 1fr; gap: 2px; }
+    .day-tl-lane-name { text-align: left; }
+    .day-tl-axis { margin-left: 0; }
+    .user-profile-summary { grid-template-columns: 1.3fr repeat(4, 1fr); font-size: var(--fs-sm); padding: var(--space-2); }
+}
 
 /* =================== REDUCED MOTION =================== */
 /* Inputs, menu chevrons and cards all transition. A reader who has asked the

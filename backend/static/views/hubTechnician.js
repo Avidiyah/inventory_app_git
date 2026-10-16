@@ -8,6 +8,7 @@ import { escapeHtml, formatHm } from "../format.js";
 import { mountWorkOrderList, focusWorkOrderNumber } from "./workOrders.js";
 import { showPage } from "./nav.js";
 import { roleAtLeast } from "../roles.js";
+import { hourLabelsHtml } from "./dayTimeline.js";
 
 // Mirrors `domain.labor_day.DISPLAY_ANCHOR_HOUR` -- the timeline strip's
 // axis starts here unless work began earlier. A *display* anchor only,
@@ -50,18 +51,6 @@ function timelineRangeMinutes(timeline, nowMinutes) {
 function minutesSinceMidnight(isoString) {
   const d = new Date(isoString);
   return d.getHours() * 60 + d.getMinutes();
-}
-
-function hourLabelsHtml(rangeStart, rangeEnd) {
-  const labels = [];
-  const firstHour = Math.floor(rangeStart / 60);
-  const lastHour = Math.ceil(rangeEnd / 60);
-  for (let h = firstHour; h <= lastHour; h++) {
-    const hour12 = ((h + 11) % 12) + 1;
-    const suffix = h < 12 || h === 24 ? "a" : "p";
-    labels.push(`<span class="hub-timeline-hour">${hour12}${suffix}</span>`);
-  }
-  return `<div class="hub-timeline-axis">${labels.join("")}</div>`;
 }
 
 function timelineBlocksHtml(timeline, rangeStart, rangeEnd) {
