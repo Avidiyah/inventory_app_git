@@ -236,8 +236,9 @@ def get_hub_person_week(
     return PersonWeekResponse.model_validate(payload)
 
 
-# The audited writes behind the Hours drill-down (D2, §1). Admin floor, same
-# grounds as the week read: this is the pay record. Every one of them writes
+# The audited writes behind the Hours drill-down (D2, §1). Open to any
+# signed-in user: the service lets Admin+ change anyone's punch and a worker
+# only their own in the open week (2026-10-16 self-edit). Every one of them writes
 # `attendance_punch_edits` in the same transaction as the change, and each
 # emits `attendance.changed` after its commit, so an Admin correcting a punch
 # in one window sees the roster and the grid move in another.
@@ -246,7 +247,7 @@ def get_hub_person_week(
 @router.post("/attendance/punches", response_model=AttendancePunchResponse)
 def add_hub_attendance_punch(
     payload: PunchAddRequest,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Add a punch nobody clocked. 400 on a bad window, 409 on an overlap."""
@@ -265,7 +266,7 @@ def add_hub_attendance_punch(
 def edit_hub_attendance_punch(
     punch_id: uuid.UUID,
     payload: PunchEditRequest,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Correct a punch, or clear its `needs_review` flag alone. An edit that
@@ -303,7 +304,7 @@ def clock_out_hub_attendance_user(
 def delete_hub_attendance_punch(
     punch_id: uuid.UUID,
     reason: Optional[str] = Query(None),
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Soft delete: the row leaves every read and keeps its audit. `reason`

@@ -140,3 +140,19 @@ def test_patch_lunch_waived_is_200(db):
     db.refresh(punch)
     assert punch.lunch_waived is True
     assert crossing.status_code == 400
+
+
+def test_technician_patches_own_punch_200(db):
+    # ponytail: 2-hour-old punch; would cross into last week only in the first
+    # two hours of a Central Monday.
+    tech = _seed_user(db)
+    punch = _punch(db, tech, hours_ago=2, length_hours=1); db.commit()
+    new_end = (punch.ended_at + timedelta(minutes=30)).isoformat()
+    try:
+        with _as(db, tech) as client:
+            response = client.patch(f"/hub/attendance/punches/{punch.id}",
+                                    json={"ended_at": new_end})
+    finally:
+        del app.dependency_overrides[get_db]
+    assert response.status_code == 200
+    assert response.json()["end_source"] == "self_edit"

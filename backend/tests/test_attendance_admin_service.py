@@ -160,3 +160,115 @@ def test_a_deleted_punch_cannot_be_edited(db):
     with pytest.raises(PunchNotFoundError):
         attendance_service.admin_edit_punch(
             db, actor=admin, punch_id=punch.id, needs_review=False, now=now)
+
+
+# --- A worker's own time (2026-10-16 self-edit) --------------------------
+# _NOW is Tue 2026-09-15; its Central week starts Mon 2026-09-14.
+
+def _punch_at(db, user, start, end, *, needs_review=False):
+    punch = AttendancePunch(id=uuid.uuid4(), user_id=user.id, started_at=start,
+                            ended_at=end, start_source="manual",
+                            end_source="manual", needs_review=needs_review)
+    db.add(punch); db.flush()
+    return punch
+
+
+_TUE_9 = datetime(2026, 9, 15, 14, tzinfo=timezone.utc)      # 09:00 CDT
+_LAST_FRI_9 = datetime(2026, 9, 11, 14, tzinfo=timezone.utc)  # previous week
+
+
+def test_worker_adds_edits_deletes_own_open_week_punch(db):
+    from app.domain.attendance import END_SOURCE_SELF_EDIT
+    tech = _seed_user(db); db.commit()
+
+    added = attendance_service.admin_add_punch(
+        db, actor=tech, user_id=tech.id, started_at=_TUE_9,
+        ended_at=_TUE_9 + timedelta(hours=2), now=_NOW)
+    assert added.end_source == END_SOURCE_SELF_EDIT
+    attendance_service.admin_edit_punch(
+        db, actor=tech, punch_id=added.id,
+        ended_at=_TUE_9 + timedelta(hours=3), now=_NOW)
+    assert added.end_source == END_SOURCE_SELF_EDIT
+    attendance_service.admin_delete_punch(db, actor=tech, punch_id=added.id, now=_NOW)
+
+    rows = db.query(AttendancePunchEdit).filter_by(punch_id=added.id).all()
+    assert sorted(r.field for r in rows) == ["created", "deleted", "ended_at"]
+    assert {r.edited_by_id for r in rows} == {tech.id}
+
+
+def test_worker_cannot_touch_another_persons_punch(db):
+    from app.domain.errors import TimeEditForbiddenError
+    tech, peer = _seed_user(db), _seed_user(db)
+    punch = _punch_at(db, peer, _TUE_9, _TUE_9 + timedelta(hours=2)); db.commit()
+
+    with pytest.raises(TimeEditForbiddenError):
+        attendance_service.admin_edit_punch(
+            db, actor=tech, punch_id=punch.id,
+            ended_at=_TUE_9 + timedelta(hours=3), now=_NOW)
+    with pytest.raises(TimeEditForbiddenError):
+        attendance_service.admin_delete_punch(db, actor=tech, punch_id=punch.id, now=_NOW)
+    with pytest.raises(TimeEditForbiddenError):
+        attendance_service.admin_add_punch(
+            db, actor=tech, user_id=peer.id, started_at=_TUE_9 + timedelta(hours=4),
+            ended_at=_TUE_9 + timedelta(hours=5), now=_NOW)
+
+
+def test_self_edit_cannot_touch_a_closed_week(db):
+    from app.domain.errors import TimeEditForbiddenError
+    tech = _seed_user(db)
+    punch = _punch_at(db, tech, _LAST_FRI_9, _LAST_FRI_9 + timedelta(hours=2)); db.commit()
+
+    with pytest.raises(TimeEditForbiddenError):
+        attendance_service.admin_edit_punch(
+            db, actor=tech, punch_id=punch.id,
+            ended_at=_LAST_FRI_9 + timedelta(hours=3), now=_NOW)
+    with pytest.raises(TimeEditForbiddenError):
+        attendance_service.admin_delete_punch(db, actor=tech, punch_id=punch.id, now=_NOW)
+    with pytest.raises(TimeEditForbiddenError):
+        attendance_service.admin_add_punch(
+            db, actor=tech, user_id=tech.id, started_at=_LAST_FRI_9 + timedelta(hours=4),
+            ended_at=_LAST_FRI_9 + timedelta(hours=5), now=_NOW)
+
+
+def test_self_edit_cannot_move_a_punch_into_a_closed_week(db):
+    from app.domain.errors import TimeEditForbiddenError
+    tech = _seed_user(db)
+    start = datetime(2026, 9, 14, 5, 30, tzinfo=timezone.utc)   # Mon 00:30 CDT
+    punch = _punch_at(db, tech, start, start + timedelta(hours=1)); db.commit()
+    sunday = datetime(2026, 9, 14, 4, 30, tzinfo=timezone.utc)  # Sun 23:30 CDT
+
+    with pytest.raises(TimeEditForbiddenError):
+        attendance_service.admin_edit_punch(
+            db, actor=tech, punch_id=punch.id, started_at=sunday, now=_NOW)
+    db.refresh(punch)
+    assert punch.started_at == start
+
+
+def test_self_edit_cannot_look_right_or_waive_lunch(db):
+    from app.domain.errors import TimeEditForbiddenError
+    tech = _seed_user(db)
+    punch = _punch_at(db, tech, _TUE_9, _TUE_9 + timedelta(hours=8),
+                      needs_review=True); db.commit()
+
+    with pytest.raises(TimeEditForbiddenError):
+        attendance_service.admin_edit_punch(
+            db, actor=tech, punch_id=punch.id, needs_review=False, now=_NOW)
+    with pytest.raises(TimeEditForbiddenError):
+        attendance_service.admin_edit_punch(
+            db, actor=tech, punch_id=punch.id, lunch_waived=True, now=_NOW)
+    db.refresh(punch)
+    assert punch.needs_review is True and punch.lunch_waived is False
+
+
+def test_self_fix_clears_needs_review(db):
+    tech = _seed_user(db)
+    punch = _punch_at(db, tech, _TUE_9, _TUE_9 + timedelta(hours=8),
+                      needs_review=True); db.commit()
+
+    attendance_service.admin_edit_punch(
+        db, actor=tech, punch_id=punch.id,
+        ended_at=_TUE_9 + timedelta(hours=6), now=_NOW)
+
+    assert punch.needs_review is False
+    fields = [r.field for r in db.query(AttendancePunchEdit).filter_by(punch_id=punch.id)]
+    assert "needs_review" in fields

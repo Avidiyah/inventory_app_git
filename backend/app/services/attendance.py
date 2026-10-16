@@ -13,19 +13,20 @@ work orders, work orders never imports this.
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional
+from typing import Iterable, Optional
 
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.domain import attendance, labor_day
+from app.domain import attendance, labor_day, roles
 from app.domain.errors import (
     NoChangeError,
     PunchAlreadyOpenError,
     PunchNotFoundError,
     PunchOverlapError,
     PunchTimeInvalidError,
+    TimeEditForbiddenError,
 )
 from app.models import (
     AttendancePunch,
@@ -269,6 +270,26 @@ def _assert_no_overlap(db: Session, *, user_id: uuid.UUID, punch_id,
             "That overlaps another punch for this person.", punch_id=clash)
 
 
+SELF_EDIT_REFUSAL = "You can only change your own time in the current week."
+
+
+def _require_punch_editor(actor: User, *, owner_id: uuid.UUID,
+                          starts: Iterable[datetime], now: datetime) -> bool:
+    """Admin+ may change anyone's punch; anyone else only their own, and only
+    while every start involved sits in the open Central week (spec U1/U4).
+    Returns whether the actor is the punch's owner."""
+    is_self = actor.id == owner_id
+    if _is_admin(actor):
+        return is_self
+    if not is_self or not all(labor_day.week_is_open(s, now) for s in starts):
+        raise TimeEditForbiddenError(SELF_EDIT_REFUSAL)
+    return True
+
+
+def _is_admin(actor: User) -> bool:
+    return actor.role is not None and roles.role_at_least(actor.role, roles.ROLE_ADMIN)
+
+
 def _live_punch(db: Session, punch_id) -> AttendancePunch:
     punch = live_punches(db).filter(AttendancePunch.id == punch_id).first()
     if punch is None:
@@ -283,8 +304,11 @@ def admin_add_punch(db: Session, *, actor: User, user_id: uuid.UUID,
     """D2: a day is a list of punches, so an Admin can add one that was never
     clocked. Closed only -- an open punch is something a person is living
     through, not a record an Admin writes on their behalf, and the partial
-    unique index would fight a second one anyway."""
+    unique index would fight a second one anyway.
+
+    A worker may add one for themselves inside the open week (spec U1)."""
     now = now or datetime.now(timezone.utc)
+    is_self = _require_punch_editor(actor, owner_id=user_id, starts=(started_at,), now=now)
     if db.query(User).filter(User.id == user_id).first() is None:
         raise PunchNotFoundError("That person no longer exists.")
     attendance.validate_punch_window(started_at, ended_at, now=now)
@@ -294,7 +318,8 @@ def admin_add_punch(db: Session, *, actor: User, user_id: uuid.UUID,
         id=uuid.uuid4(), user_id=user_id,
         started_at=labor_day.as_utc(started_at), ended_at=labor_day.as_utc(ended_at),
         start_source=attendance.START_SOURCE_MANUAL,
-        end_source=attendance.END_SOURCE_ADMIN_EDIT)
+        end_source=(attendance.END_SOURCE_SELF_EDIT if is_self
+                    else attendance.END_SOURCE_ADMIN_EDIT))
     db.add(punch)
     db.flush()
     _audit(db, punch=punch, actor=actor, field="created", old=None,
@@ -324,9 +349,19 @@ def admin_edit_punch(db: Session, *, actor: User, punch_id,
 
     `lunch_waived` removes or restores the day's flat lunch (L2). It never
     clears `needs_review` (L4): a midnight close is still an estimate.
+
+    A worker may correct their own open-week punch's times (spec U1); "Looks
+    right" alone and the lunch waiver stay Admin-only.
     """
     now = now or datetime.now(timezone.utc)
     punch = _live_punch(db, punch_id)
+    new_start = labor_day.as_utc(started_at) if started_at is not None else punch.started_at
+    is_self = _require_punch_editor(actor, owner_id=punch.user_id,
+                                    starts=(punch.started_at, new_start), now=now)
+    if not _is_admin(actor) and (
+            lunch_waived is not None
+            or (needs_review is False and started_at is None and ended_at is None)):
+        raise TimeEditForbiddenError(SELF_EDIT_REFUSAL)
     # The Admin acted on what the read showed: a punch past its midnight is
     # closed and flagged there (M1). Write that first, so "Looks right" has a
     # flag to clear and an end correction is not an open-punch close that
@@ -362,7 +397,8 @@ def admin_edit_punch(db: Session, *, actor: User, punch_id,
         _stop_labor(db, user_id=punch.user_id, actor=actor, ended_at=new_end)
     punch.started_at, punch.ended_at = new_start, new_end
     if any(field == "ended_at" for field, _old, _new in changes):
-        punch.end_source = attendance.END_SOURCE_ADMIN_EDIT
+        punch.end_source = (attendance.END_SOURCE_SELF_EDIT if is_self
+                            else attendance.END_SOURCE_ADMIN_EDIT)
     if clearing:
         punch.needs_review = False
     if lunch_waived is not None:
@@ -393,9 +429,11 @@ def admin_delete_punch(db: Session, *, actor: User, punch_id,
                        now: Optional[datetime] = None) -> AttendancePunch:
     """Soft: the row and its audit stay, every read stops seeing it. A pay
     record that vanishes without a trace is exactly what §1's audit table is
-    for, and `punch_id` is ON DELETE CASCADE."""
+    for, and `punch_id` is ON DELETE CASCADE. A worker may delete their own
+    open-week punch (spec U1)."""
     now = now or datetime.now(timezone.utc)
     punch = _live_punch(db, punch_id)
+    _require_punch_editor(actor, owner_id=punch.user_id, starts=(punch.started_at,), now=now)
     punch.deleted_at = now
     _audit(db, punch=punch, actor=actor, field="deleted",
            old=f"{_stamp(punch.started_at)}/{_stamp(punch.ended_at)}", new=None,
