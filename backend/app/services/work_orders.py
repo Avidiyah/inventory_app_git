@@ -22,7 +22,7 @@ ordinary `work_order_labor` entry that billing has always read, so an open
 session contributes nothing to any total and the whole feature is additive.
 Starting a clock is what advances a row to In-Progress, and stopping the last
 one puts it back On-Hold -- the status stops being something anyone has to
-remember to set. Hand-entered labor is Admin and Owner only and exists to
+remember to set. Hand-entered labor (Admin/Owner, or a worker for their own open week) exists to
 correct a forgotten Start. Starting a clock also puts the caller on the crew.
 
 Materials logged against a work order write a `dispense` transaction carrying
@@ -59,6 +59,7 @@ from app.domain.errors import (
     WorkOrderStateError,
 )
 from app.domain.billing import validate_billable_value
+from app.domain import labor_day
 from app.domain import list_limits
 from app.domain.quantity import apply_delta
 from app.models import (
@@ -2109,21 +2110,37 @@ def _get_labor_entry(
     return entry
 
 
-def _require_labor_editor(user: Optional[User]) -> None:
-    """Hand-entering labor -- adding, revising, or removing -- is Admin and Owner
-    only.
+def _require_labor_editor(
+    user: Optional[User],
+    *,
+    technician_id: uuid.UUID,
+    entry: Optional[WorkOrderLabor] = None,
+    work_order: Optional[WorkOrder] = None,
+    now: Optional[datetime] = None,
+) -> None:
+    """Hand-entering labor -- adding, revising, or removing.
 
-    Hours normally come from a tracked session (`stop_labor_session`); this is
-    the correction route for a forgotten Begin Charging or a paper sheet, so it
-    sits above Team Lead and TechFM OA. A deliberate service check rather than
-    a route gate: the routes stay open to any session and the row-level rule
-    lives here beside the data, like the Review handoff floor.
+    Admin and Owner may key anyone's. Anyone else only their own (2026-10-16
+    self-edit): an add needs them on the crew; a revise or remove needs a
+    hand-entered row (no session behind it) keyed in the open Central week.
+    Every keyed row is marked Self or Admin on the profile, which is the
+    safeguard. A deliberate service check rather than a route gate: the
+    routes stay open to any session and the row-level rule lives here beside
+    the data, like the Review handoff floor.
     """
     if user is None or roles.role_at_least(user.role, roles.ROLE_ADMIN):
         return
-    raise RoleManagementError(
-        "Only an Admin or the Owner can add, edit, or remove labor hours."
-    )
+    now = now or datetime.now(timezone.utc)
+    allowed = technician_id == user.id
+    if work_order is not None:
+        allowed = allowed and user.id in _assigned_technician_ids(work_order)
+    if entry is not None:
+        allowed = (allowed and getattr(entry, "session", None) is None
+                   and labor_day.week_is_open(entry.created_at, now))
+    if not allowed:
+        raise RoleManagementError(
+            "You can only change your own time in the current week."
+        )
 
 
 def add_work_order_labor(
@@ -2134,7 +2151,7 @@ def add_work_order_labor(
     technician_id: uuid.UUID,
     minutes: int,
 ) -> WorkOrderLabor:
-    """Record actual labor by hand -- Admin and Owner only.
+    """Record actual labor by hand -- Admin and Owner, or a crew member for themselves.
 
     This is the *correction* route: a dead battery, a forgotten Begin
     Charging, a paper sheet. Hours normally come from stopping a session
@@ -2156,7 +2173,7 @@ def add_work_order_labor(
     """
     work_order = _get_visible(db, work_order_id, user)
     wo.validate_labor_minutes(minutes)
-    _require_labor_editor(user)
+    _require_labor_editor(user, technician_id=technician_id, work_order=work_order)
     if technician_id not in _assigned_technician_ids(work_order) and not (
         user is not None and technician_id == user.id
     ):
@@ -2186,12 +2203,15 @@ def update_work_order_labor(
     minutes: int,
 ) -> WorkOrderLabor:
     """Replace one labor entry's actual duration without re-rounding it --
-    Admin and Owner only."""
+    Admin and Owner, or the worker on their own open-week hand-keyed row."""
     work_order = _get_visible(db, work_order_id, user)
     entry = _get_labor_entry(db, work_order, labor_id)
     wo.validate_labor_minutes(minutes)
-    _require_labor_editor(user)
+    _require_labor_editor(user, technician_id=entry.technician_id, entry=entry)
     entry.minutes = minutes
+    if user is not None:
+        # B2: the latest editor decides the Self/Admin mark.
+        entry.recorded_by_id = user.id
     db.commit()
     return _get_labor_entry(db, work_order, entry.id)
 
@@ -2203,11 +2223,11 @@ def delete_work_order_labor(
     *,
     user: Optional[User],
 ) -> None:
-    """Remove one labor entry -- Admin and Owner only. Lifecycle status is not
+    """Remove one labor entry -- see `_require_labor_editor`. Lifecycle status is not
     rolled backward."""
     work_order = _get_visible(db, work_order_id, user)
     entry = _get_labor_entry(db, work_order, labor_id)
-    _require_labor_editor(user)
+    _require_labor_editor(user, technician_id=entry.technician_id, entry=entry)
     db.delete(entry)
     db.commit()
 

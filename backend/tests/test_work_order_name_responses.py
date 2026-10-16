@@ -101,3 +101,26 @@ def test_detail_exposes_multiple_technicians_and_rounded_labor_total():
     assert detail.labor_minutes == 75
     assert detail.labor_billed_minutes == 90
     assert detail.labor_total == 93.75
+
+
+def test_labor_detail_marks_hand_entered_self_and_open_week():
+    from datetime import datetime, timedelta, timezone
+    from app.routers.work_orders import _labor_detail
+
+    tech_id, admin_id = uuid4(), uuid4()
+    tech = SimpleNamespace(id=tech_id, full_name="Jamie Rivera")
+    now = datetime.now(timezone.utc)
+    started = now - timedelta(hours=2)
+    session_row = SimpleNamespace(
+        id=uuid4(), technician_id=tech_id, technician=tech, minutes=60,
+        recorded_by_id=tech_id, created_at=now,
+        session=SimpleNamespace(started_at=started, ended_at=started + timedelta(hours=1),
+                                auto_closed_at=None))
+    hand_row = SimpleNamespace(
+        id=uuid4(), technician_id=tech_id, technician=tech, minutes=30,
+        recorded_by_id=admin_id, created_at=now - timedelta(days=8), session=None)
+
+    live, keyed = _labor_detail(session_row), _labor_detail(hand_row)
+
+    assert (live.hand_entered, live.recorded_by_self, live.week_open) == (False, True, True)
+    assert (keyed.hand_entered, keyed.recorded_by_self, keyed.week_open) == (True, False, False)

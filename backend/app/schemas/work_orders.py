@@ -220,6 +220,12 @@ class WorkOrderLaborDetail(BaseModel):
     # The 12-hour cap closed this session rather than a person. The figure is a
     # prompt to review, never a billing fact accepted on its own.
     auto_closed: bool = False
+    # 2026-10-16 self-edit: no session behind the row (typed by a person);
+    # keyed by the credited worker themselves; still inside the open Central
+    # week. Together they say whether a non-Admin may revise it.
+    hand_entered: bool = False
+    recorded_by_self: bool = False
+    week_open: bool = True
 
 
 class WorkOrderLaborSessionDetail(BaseModel):

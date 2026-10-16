@@ -497,49 +497,98 @@ def test_labor_tracks_technician_without_advancing_status(db):
     assert detail.status == "assigned"
 
 
-def test_a_technician_cannot_key_hours_even_for_themselves(db):
-    """The old self-service escape hatch is gone: hours come from Begin / Stop
-    Charging, and a correction is an Admin's or the Owner's job. That holds for
-    a crew member and for one who is not on the crew."""
+def test_worker_keys_and_revises_own_labor_on_their_crew(db):
+    """2026-10-16 self-edit: a crew member keys, revises and removes their own
+    hand-entered labor while the week is open."""
     sup = _seed_user(db, "supervisor")
-    crew = _seed_user(db, "technician")
-    stranger = _seed_user(db, "technician")
-    w = _wo(db, created_by=sup, assigned_to=crew)
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
 
-    with pytest.raises(RoleManagementError):
-        wos.add_work_order_labor(
-            db, w.id, user=crew, technician_id=crew.id, minutes=35
-        )
-    with pytest.raises(RoleManagementError):
-        wos.add_work_order_labor(
-            db, w.id, user=stranger, technician_id=stranger.id, minutes=35
-        )
+    entry = wos.add_work_order_labor(db, w.id, user=tech, technician_id=tech.id, minutes=35)
+    assert entry.recorded_by_id == tech.id
+    assert wos.update_work_order_labor(db, w.id, entry.id, user=tech, minutes=50).minutes == 50
+    wos.delete_work_order_labor(db, w.id, entry.id, user=tech)
     assert wos.get_work_order(db, w.id, user=sup).labor_entries == []
 
 
-def test_only_admin_and_owner_may_edit_or_remove_hand_keyed_hours(db):
+def test_worker_off_the_crew_cannot_key_own_labor(db):
+    sup = _seed_user(db, "supervisor")
+    crew = _seed_user(db, "technician")
+    stranger = _seed_user(db, "supervisor")
+    w = _wo(db, created_by=sup, assigned_to=crew)
+
+    with pytest.raises(RoleManagementError):
+        wos.add_work_order_labor(db, w.id, user=stranger, technician_id=stranger.id, minutes=35)
+    with pytest.raises(RoleManagementError):
+        wos.add_work_order_labor(db, w.id, user=crew, technician_id=sup.id, minutes=35)
+    assert wos.get_work_order(db, w.id, user=sup).labor_entries == []
+
+
+def test_worker_cannot_edit_another_persons_labor(db):
     admin = _seed_user(db, "admin")
-    owner = _seed_user(db, "owner")
     oa = _seed_user(db, "techfm_oa")
     sup = _seed_user(db, "supervisor")
     tech = _seed_user(db, "technician")
     w = _wo(db, created_by=admin, assigned_to=tech)
-    entry = wos.add_work_order_labor(
-        db, w.id, user=admin, technician_id=tech.id, minutes=45
-    )
+    entry = wos.add_work_order_labor(db, w.id, user=admin, technician_id=tech.id, minutes=45)
 
-    for blocked in (tech, sup, oa):
+    for blocked in (sup, oa):
         with pytest.raises(RoleManagementError):
             wos.update_work_order_labor(db, w.id, entry.id, user=blocked, minutes=5)
         with pytest.raises(RoleManagementError):
             wos.delete_work_order_labor(db, w.id, entry.id, user=blocked)
-    # Refused edits changed nothing.
     detail = wos.get_work_order(db, w.id, user=admin)
     assert [(e.id, e.minutes) for e in detail.labor_entries] == [(entry.id, 45)]
 
-    assert wos.update_work_order_labor(
-        db, w.id, entry.id, user=owner, minutes=30
-    ).minutes == 30
+
+def test_worker_cannot_edit_a_session_labor_row(db):
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.start_labor_session(db, w.id, user=tech)
+    wos.stop_labor_session(db, w.id, user=tech)
+    entry = _labor(db, w)[0]
+
+    with pytest.raises(RoleManagementError):
+        wos.update_work_order_labor(db, w.id, entry.id, user=tech, minutes=90)
+    with pytest.raises(RoleManagementError):
+        wos.delete_work_order_labor(db, w.id, entry.id, user=tech)
+
+
+def test_worker_cannot_edit_labor_from_a_closed_week(db):
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    entry = wos.add_work_order_labor(db, w.id, user=tech, technician_id=tech.id, minutes=35)
+    entry.created_at = datetime.now(timezone.utc) - timedelta(days=8)
+    db.commit()
+
+    with pytest.raises(RoleManagementError):
+        wos.update_work_order_labor(db, w.id, entry.id, user=tech, minutes=50)
+    with pytest.raises(RoleManagementError):
+        wos.delete_work_order_labor(db, w.id, entry.id, user=tech)
+
+
+def test_worker_revising_an_admin_row_takes_recorded_by(db):
+    admin = _seed_user(db, "admin")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=admin, assigned_to=tech)
+    entry = wos.add_work_order_labor(db, w.id, user=admin, technician_id=tech.id, minutes=45)
+    assert entry.recorded_by_id == admin.id
+
+    revised = wos.update_work_order_labor(db, w.id, entry.id, user=tech, minutes=30)
+
+    assert revised.recorded_by_id == tech.id
+
+
+def test_admin_and_owner_still_edit_anyones_hand_keyed_hours(db):
+    admin = _seed_user(db, "admin")
+    owner = _seed_user(db, "owner")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=admin, assigned_to=tech)
+    entry = wos.add_work_order_labor(db, w.id, user=admin, technician_id=tech.id, minutes=45)
+
+    assert wos.update_work_order_labor(db, w.id, entry.id, user=owner, minutes=30).minutes == 30
     wos.delete_work_order_labor(db, w.id, entry.id, user=owner)
     assert wos.get_work_order(db, w.id, user=admin).labor_entries == []
 

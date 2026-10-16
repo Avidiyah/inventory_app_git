@@ -44,6 +44,7 @@ from sqlalchemy.orm import Session, object_session
 
 from app.auth_deps import get_current_user, require_min_role
 from app.database import get_db
+from app.domain import labor_day
 from app.domain import realtime as realtime_policy
 from app.domain import receipt
 from app.domain import roles
@@ -452,6 +453,7 @@ def _session_window(session) -> Optional[str]:
 
 def _labor_detail(entry: WorkOrderLabor) -> WorkOrderLaborDetail:
     session = getattr(entry, "session", None)
+    created_at = getattr(entry, "created_at", None)
     return WorkOrderLaborDetail(
         id=entry.id,
         technician_id=entry.technician_id,
@@ -459,6 +461,10 @@ def _labor_detail(entry: WorkOrderLabor) -> WorkOrderLaborDetail:
         minutes=entry.minutes,
         session_window=_session_window(session),
         auto_closed=session is not None and session.auto_closed_at is not None,
+        hand_entered=session is None,
+        recorded_by_self=getattr(entry, "recorded_by_id", None) == entry.technician_id,
+        week_open=created_at is None or labor_day.week_is_open(
+            created_at, datetime.now(timezone.utc)),
     )
 
 
