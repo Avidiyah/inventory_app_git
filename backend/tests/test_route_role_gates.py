@@ -536,8 +536,9 @@ def test_no_route_gate_is_left_at_the_admin_floor():
     # holding the operational toolkit is not a reason to hand them everyone's
     # paid hours.
     #
-    # P3's three audited writes join on the same grounds as the week read:
-    # they *are* the pay record.
+    # P3's three audited punch writes left the set on 2026-10-16: a worker
+    # edits their own open-week punches, so the route is session-only and
+    # `services.attendance._require_punch_editor` holds the row-level rule.
     # P4a adds the CSV export on the same grounds -- it *is* the pay record,
     # rendered for payroll. P4b adds the live roster: it says where each
     # person is right now, which is that record's live face, and TechFM OA
@@ -549,10 +550,7 @@ def test_no_route_gate_is_left_at_the_admin_floor():
         "export_hub_report",
         "get_hub_attendance_week",
         "get_hub_attendance_live",
-        "add_hub_attendance_punch",
-        "edit_hub_attendance_punch",
         "clock_out_hub_attendance_user",
-        "delete_hub_attendance_punch",
         "export_hub_attendance",
         "review_hub_attendance_week",
         # The per-person profile is the pay record read one name at a time.
@@ -585,14 +583,21 @@ def test_the_person_week_sits_above_techfm_oa():
 
 
 @pytest.mark.parametrize(
-    "endpoint_name",
-    ["add_hub_attendance_punch", "edit_hub_attendance_punch",
-     "clock_out_hub_attendance_user",
-     "delete_hub_attendance_punch", "review_hub_attendance_week"],
+    "endpoint_name", ["clock_out_hub_attendance_user", "review_hub_attendance_week"],
 )
 def test_the_punch_writes_sit_above_techfm_oa(endpoint_name):
     # Writing somebody's paid hours is the narrowest capability in the app.
     assert _min_role_for(hub_router, endpoint_name) == roles.ROLE_ADMIN
+
+
+@pytest.mark.parametrize(
+    "endpoint_name",
+    ["add_hub_attendance_punch", "edit_hub_attendance_punch", "delete_hub_attendance_punch"],
+)
+def test_the_self_editable_punch_writes_are_session_only(endpoint_name):
+    # 2026-10-16 self-edit: the service decides (Admin+ anyone, else own
+    # punch in the open week); the route only requires a session.
+    assert _min_role_for(hub_router, endpoint_name) is None
 
 
 def test_the_hub_is_open_to_any_authenticated_role():

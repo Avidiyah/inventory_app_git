@@ -440,9 +440,9 @@ def admin_edit_punch(db: Session, *, actor: User, punch_id,
     new_start = labor_day.as_utc(started_at) if started_at is not None else punch.started_at
     is_self = _require_punch_editor(actor, owner_id=punch.user_id,
                                     starts=(punch.started_at, new_start), now=now)
-    if not _is_admin(actor) and (
-            lunch_waived is not None
-            or (needs_review is False and started_at is None and ended_at is None)):
+    # A worker clears a flag only by changing a time (U11), never by sending
+    # `needs_review` -- not even beside a resent, unchanged time.
+    if not _is_admin(actor) and (lunch_waived is not None or needs_review is not None):
         raise TimeEditForbiddenError(SELF_EDIT_REFUSAL)
     # The Admin acted on what the read showed: a punch past its midnight is
     # closed and flagged there (M1). Write that first, so "Looks right" has a

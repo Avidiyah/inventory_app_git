@@ -260,6 +260,20 @@ def test_self_edit_cannot_look_right_or_waive_lunch(db):
     assert punch.needs_review is True and punch.lunch_waived is False
 
 
+def test_self_edit_cannot_look_right_by_resending_the_same_time(db):
+    from app.domain.errors import TimeEditForbiddenError
+    tech = _seed_user(db)
+    punch = _punch_at(db, tech, _TUE_9, _TUE_9 + timedelta(hours=8),
+                      needs_review=True); db.commit()
+
+    with pytest.raises(TimeEditForbiddenError):
+        attendance_service.admin_edit_punch(
+            db, actor=tech, punch_id=punch.id, started_at=_TUE_9,
+            needs_review=False, now=_NOW)
+    db.refresh(punch)
+    assert punch.needs_review is True
+
+
 def test_self_fix_clears_needs_review(db):
     tech = _seed_user(db)
     punch = _punch_at(db, tech, _TUE_9, _TUE_9 + timedelta(hours=8),
