@@ -36,15 +36,16 @@ describe("loadUserHub by role", () => {
   // routes behind it. A Supervisor keeps the Dashboard crew board, which
   // shows live crew status at their own scope.
   it.each([
-    ["technician", { timesheets: false, graphs: false, report: false }, ["/hub", "/attendance/me"], "My Work Orders (0)"],
-    ["supervisor", { timesheets: false, graphs: false, report: false }, ["/hub", "/attendance/me", "/hub/crew"], "My Work Orders (0)"],
-    ["techfm_oa", { timesheets: false, graphs: true, report: false }, ["/hub", "/attendance/me", "/hub/crew", "/hub/admin"], "Work Orders"],
-    ["admin", { timesheets: true, graphs: true, report: true }, ["/hub", "/attendance/me", "/hub/crew", "/hub/admin"], "Work Orders"],
-    ["owner", { timesheets: true, graphs: true, report: true }, ["/hub", "/attendance/me", "/hub/crew", "/hub/admin"], "Work Orders"],
+    ["technician", { timesheets: false, leaderboards: false, graphs: false, report: false }, ["/hub", "/attendance/me"], "My Work Orders (0)"],
+    ["supervisor", { timesheets: false, leaderboards: false, graphs: false, report: false }, ["/hub", "/attendance/me", "/hub/crew"], "My Work Orders (0)"],
+    ["techfm_oa", { timesheets: false, leaderboards: false, graphs: true, report: false }, ["/hub", "/attendance/me", "/hub/crew", "/hub/admin"], "Work Orders"],
+    ["admin", { timesheets: true, leaderboards: true, graphs: true, report: true }, ["/hub", "/attendance/me", "/hub/crew", "/hub/admin"], "Work Orders"],
+    ["owner", { timesheets: true, leaderboards: true, graphs: true, report: true }, ["/hub", "/attendance/me", "/hub/crew", "/hub/admin"], "Work Orders"],
   ])("%s: tabs %j, requests %j, label %s", async (role, tabs, expected, label) => {
     await openHub({ role, hub: hubPayload({ mine_total: 0 }) });
     expect(requests().map((r) => r.url)).toEqual(expected);
     expect(el.tab("timesheets").hidden).toBe(!tabs.timesheets);
+    expect(el.tab("leaderboards").hidden).toBe(!tabs.leaderboards);
     expect(el.tab("graphs").hidden).toBe(!tabs.graphs);
     expect(el.tab("report").hidden).toBe(!tabs.report);
     expect(el.tab("work-orders").textContent).toBe(label);

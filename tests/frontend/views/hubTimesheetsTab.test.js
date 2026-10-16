@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
 import { attendanceWeek, personWeek } from "../helpers/factories.js";
+import { restoreBrowserStubs, stubObjectUrl } from "../helpers/browserStubs.js";
 import { connectHub, el, openHub, queries, restoreHub, stopClock } from "../helpers/hub.js";
 
 afterEach(() => {
@@ -26,12 +27,12 @@ async function openTimesheets(opts = {}) {
 }
 
 describe("Admin", () => {
-  it("shows one page with no sub-tabs: roster, day cards, then leaderboard", async () => {
+  it("shows one page with no sub-tabs: roster, actions, then day cards", async () => {
     await openTimesheets({ role: "admin" });
     await vi.waitFor(() => expect(panel().querySelector(".hub-day-card")).not.toBeNull());
     await vi.waitFor(() => expect(panel().querySelector(".hub-roster-strip")).not.toBeNull());
     expect(panel().querySelectorAll(".sub-nav-btn")).toHaveLength(0);
-    const order = [".hub-roster", ".hub-day-cards", ".hub-leaderboard-table"]
+    const order = [".hub-roster", ".hub-timesheets-export", ".hub-day-cards"]
       .map((selector) => panel().querySelector(selector));
     expect(order[0].compareDocumentPosition(order[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(order[1].compareDocumentPosition(order[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -39,7 +40,7 @@ describe("Admin", () => {
     expect(panel().querySelectorAll('[aria-label="Previous week"]')).toHaveLength(1);
   });
 
-  it("fetches the week once for both the day strip and the leaderboard", async () => {
+  it("fetches the week once for the day strip", async () => {
     await openTimesheets({ role: "admin" });
     await vi.waitFor(() => expect(panel().querySelector(".hub-day-card")).not.toBeNull());
     expect(queries("/hub/attendance/week")).toHaveLength(1);
@@ -66,8 +67,7 @@ describe("Admin", () => {
       role: "admin",
       handlers: [http.get("/hub/attendance/live", () => HttpResponse.json({ detail: "" }, { status: 500 }))],
     });
-    await vi.waitFor(() => expect(panel().querySelector(".hub-leaderboard-table")).not.toBeNull());
-    expect(panel().querySelector(".hub-day-cards")).not.toBeNull();
+    await vi.waitFor(() => expect(panel().querySelector(".hub-day-cards")).not.toBeNull());
     expect(panel().querySelector(".hub-roster-strip")).toBeNull();
   });
 
@@ -161,13 +161,30 @@ describe("the Admin punch writes", () => {
       handlers: [http.post("/hub/attendance/week/review", () =>
         HttpResponse.json({ punches: 1, sessions: 1 }))],
     });
-    await vi.waitFor(() => expect(panel().querySelector(".hub-leaderboard-review-all")).not.toBeNull());
+    await vi.waitFor(() => expect(panel().querySelector(".hub-timesheets-review-all")).not.toBeNull());
 
-    await user().click(panel().querySelector(".hub-leaderboard-review-all"));
+    await user().click(panel().querySelector(".hub-timesheets-review-all"));
 
     await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
-    await vi.waitFor(() => expect(panel().querySelector(".hub-leaderboard-message").textContent)
+    await vi.waitFor(() => expect(panel().querySelector(".hub-timesheets-message").textContent)
       .toBe("Marked 2 items reviewed."));
+  });
+
+  it("keeps Export CSV and Mark all reviewed, and reports the export", async () => {
+    stubObjectUrl();
+    await openTimesheets({
+      role: "admin",
+      attendanceWeek: attendanceWeek({ reviewable_count: 2 }),
+      handlers: [http.get("/hub/attendance/export", () => new HttpResponse("x", {
+        headers: { "Content-Disposition": 'attachment; filename="attendance_2026-09-14.csv"' },
+      }))],
+    });
+    await vi.waitFor(() => expect(panel().querySelector(".hub-timesheets-review-all")).not.toBeNull());
+    expect(panel().querySelector(".hub-timesheets-review-all").textContent).toBe("Mark all reviewed (2)");
+    await user().click(panel().querySelector(".hub-timesheets-export"));
+    await vi.waitFor(() => expect(panel().querySelector(".hub-timesheets-message").textContent)
+      .toContain("attendance_2026-09-14.csv"));
+    restoreBrowserStubs();
   });
 
   it("surfaces a 409 from an edit without losing the grid", async () => {
@@ -201,7 +218,7 @@ describe("the profile", () => {
 
   it("swaps the week area for the profile at the shown week, and Back restores the day page without a fetch", async () => {
     await openProfile();
-    expect(panel().querySelector(".hub-leaderboard-table")).toBeNull();
+    expect(panel().querySelector(".hub-timesheets-export")).toBeNull();
     expect(panel().querySelector(".hub-day-page")).toBeNull();
     await vi.waitFor(() => expect(queries("/hub/people/")).toEqual([{ week: "2026-09-14" }]));
     expect(panel().querySelector(".user-profile-back").textContent).toContain("timesheets");

@@ -25,6 +25,7 @@ import { mountHubCrew } from "./hubSupervisor.js";
 import { mountHubAdminSummary } from "./hubAdmin.js";
 import { startHubRosterTicking, stopHubRosterTicking } from "./hubAttendanceRoster.js";
 import { refreshTimesheetsLive, renderTimesheetsTab, resetTimesheetsTab } from "./hubTimesheetsTab.js";
+import { renderLeaderboardsTab, resetLeaderboardsTab } from "./hubLeaderboardsTab.js";
 import { destroyHubGraphs, largestCommunityKey, mountHubGraphs } from "./hubGraphs.js";
 import { mountHubReport, renderReportError, renderReportSkeleton } from "./hubReport.js";
 import { openWorkOrdersFilteredByDistribution } from "./workOrders.js";
@@ -46,12 +47,14 @@ const tabPanels = {
   home: document.getElementById("hub-tabpanel-home"),
   dashboard: document.getElementById("hub-tabpanel-dashboard"),
   timesheets: document.getElementById("hub-tabpanel-timesheets"),
+  leaderboards: document.getElementById("hub-tabpanel-leaderboards"),
   "work-orders": document.getElementById("hub-tabpanel-work-orders"),
   graphs: document.getElementById("hub-tabpanel-graphs"),
   report: document.getElementById("hub-tabpanel-report"),
 };
 const clockMount = document.getElementById("hub-clock-mount");
 const timesheetsTabButton = document.getElementById("hub-tab-timesheets");
+const leaderboardsTabButton = document.getElementById("hub-tab-leaderboards");
 const graphsTabButton = document.getElementById("hub-tab-graphs");
 const reportTabButton = document.getElementById("hub-tab-report");
 
@@ -210,6 +213,8 @@ function renderActiveTab() {
     renderAdmin();
   } else if (activeTab === "timesheets") {
     renderTimesheetsTab(tabPanels.timesheets, { role: latestPayload.user.role });
+  } else if (activeTab === "leaderboards") {
+    renderLeaderboardsTab(tabPanels.leaderboards);
   } else if (activeTab === "graphs") {
     if (latestGraphsPayload) renderGraphs();
     else void loadGraphs();
@@ -248,10 +253,13 @@ function renderGraphs() {
   });
 }
 
+// Leaderboards shares the Timesheets gate (Admin+).
 function setTimesheetsTabVisible(visible) {
-  if (!timesheetsTabButton) return;
-  timesheetsTabButton.hidden = !visible;
-  timesheetsTabButton.classList.toggle("hidden", !visible);
+  for (const button of [timesheetsTabButton, leaderboardsTabButton]) {
+    if (!button) continue;
+    button.hidden = !visible;
+    button.classList.toggle("hidden", !visible);
+  }
 }
 
 function setGraphsTabVisible(visible) {
@@ -470,7 +478,10 @@ export async function loadUserHub() {
     crewError = null;
     crewRequestId += 1;
   }
-  if (userChanged || !canViewTimesheets) resetTimesheetsTab(tabPanels.timesheets);
+  if (userChanged || !canViewTimesheets) {
+    resetTimesheetsTab(tabPanels.timesheets);
+    resetLeaderboardsTab(tabPanels.leaderboards);
+  }
   if (userChanged || !canViewAdminTiles) {
     latestAdminPayload = null;
     adminError = null;
@@ -494,7 +505,7 @@ export async function loadUserHub() {
     activeTab = "home";
     latestAttendance = null;
   }
-  if (!canViewTimesheets && activeTab === "timesheets") activeTab = "home";
+  if (!canViewTimesheets && ["timesheets", "leaderboards"].includes(activeTab)) activeTab = "home";
   if (!canViewAdminTiles && activeTab === "graphs") activeTab = "home";
   if (!canViewReport && activeTab === "report") activeTab = "home";
   loadedUserId = nextUserId;

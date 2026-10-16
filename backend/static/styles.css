@@ -3174,22 +3174,35 @@ tr.archived-user {
     padding-inline: var(--space-3);
 }
 
-/* The Timesheets revenue leaderboard. Chrome is the Hours grid's, reused by
-   class (`.hub-hours-table-wrap`, `.hub-hours-table`). Money text uses
-   `--color-success` / `--color-error` as text only; the made/lost bar fill is
-   brand red against a neutral rule, and every bar prints its percentage in
-   words, so nothing depends on hue. Bar widths are set through CSSOM. */
+/* A Leaderboards board (Accuracy / Efficiency). Chrome is the Hours grid's,
+   reused by class (`.hub-hours-table-wrap`, `.hub-hours-table`). Money text
+   uses `--color-success` / `--color-error` as text only. */
 .hub-leaderboard {
     margin-bottom: var(--space-4);
 }
 
-.hub-leaderboard-toolbar {
+/* Leaderboards tab: the two boards side by side on a wide screen. */
+.hub-leaderboards-grid {
+    display: grid;
+    gap: var(--space-4);
+}
+
+@media (min-width: 900px) {
+    .hub-leaderboards-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+/* Timesheets payroll actions: Mark all reviewed and Export CSV. */
+.hub-timesheets-action-row {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
+    justify-content: flex-end;
+    gap: var(--space-2);
     flex-wrap: wrap;
-    margin-bottom: var(--space-3);
+}
+
+.hub-timesheets-message:empty {
+    display: none;
 }
 
 /* Day cards: one per day of the week, opening the day page in place. */
@@ -3243,7 +3256,7 @@ tr.archived-user {
 }
 
 .hub-leaderboard-table {
-    min-width: 720px;
+    min-width: 560px;
 }
 
 .hub-leaderboard-rank {
@@ -3269,40 +3282,12 @@ tr.archived-user {
     color: var(--color-error);
 }
 
-.hub-leaderboard-split {
-    min-width: 160px;
-}
-
-.hub-leaderboard-bar {
-    display: flex;
-    height: 10px;
-    border-radius: 5px;
-    overflow: hidden;
-    background: var(--panel-rule);
-}
-
-.hub-leaderboard-bar-made {
-    background: var(--color-brand);
-}
-
 .hub-leaderboard-pct {
-    font-size: var(--fs-xs);
-    color: var(--text-panel-mute);
+    font-weight: 600;
 }
 
-.hub-leaderboard-empty,
-.hub-leaderboard-legend {
+.hub-leaderboard-empty {
     margin-top: var(--space-2);
-}
-
-.hub-leaderboard-legend {
-    max-width: 68ch;
-}
-
-.hub-leaderboard-actions {
-    display: flex;
-    gap: var(--space-2);
-    flex-wrap: wrap;
 }
 
 /* Same hue as the Hours grid's needs-review flag, with the word beside it. */
@@ -3432,7 +3417,6 @@ tr.archived-user {
 
 @media (max-width: 600px) {
     .hub-hours-toolbar,
-    .hub-leaderboard-toolbar,
     .hub-hours-drilldown-heading,
     .hub-hours-drilldown-row {
         align-items: flex-start;

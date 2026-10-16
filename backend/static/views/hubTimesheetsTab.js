@@ -5,14 +5,12 @@
 //
 // Top to bottom:
 //   roster      -- who is on the clock now, from `GET /hub/attendance/live`
+//   actions     -- Mark all reviewed and the CSV export (payroll actions)
 //   days        -- the week picker and seven day cards; a card opens the
 //                  day page in place (everyone clocked in, punch editor)
-//   leaderboard -- the week's charged/uncharged hours and money, ranked;
-//                  owns the CSV export
 //
-// Leaderboard and hours read **one** payload from `GET /hub/attendance/week`:
-// two features fetching their own week could show payroll two different
-// answers. The roster is the exception -- "now" is a different question from
+// The actions and the days read **one** payload from `GET /hub/attendance/week`.
+// The ranked boards live on the Leaderboards tab. The roster is the exception -- "now" is a different question from
 // "this week", polled and pushed on its own cadence.
 //
 // The shell is built once; each part renders into its own mount, so a roster
@@ -22,6 +20,7 @@ import {
   apiAddAttendancePunch,
   apiClockOutAttendanceUser,
   apiDeleteAttendancePunch,
+  apiExportHubAttendance,
   apiEditAttendancePunch,
   apiGetHubAttendanceLive,
   apiGetHubAttendanceWeek,
@@ -34,17 +33,16 @@ import { roleAtLeast } from "../roles.js";
 import { skeletonCard } from "../skeleton.js";
 import { mondayOf, mountHubAttendanceDayPage, mountHubAttendanceDays } from "./hubAttendanceDay.js";
 import { destroyHubAttendanceRoster, mountHubAttendanceRoster } from "./hubAttendanceRoster.js";
-import { mountHubTimesheetLeaderboard } from "./hubTimesheetLeaderboard.js";
 import { mountUserProfile } from "./userProfile.js";
 
 let viewerRole = null;
 
-// One cache for the leaderboard and the hours grid -- see the header.
+// One cache for the actions and the hours grid -- see the header.
 let weekPayload = null;
 let week = null;
 let weekRequestId = 0;
-// One-shot confirmation for the next leaderboard paint, set by "Mark all
-// reviewed" -- the refetch remounts the leaderboard and would wipe it.
+// One-shot confirmation for the next actions paint, set by "Mark all
+// reviewed" -- the refetch remounts the actions and would wipe it.
 let weekNotice = "";
 // The profile mounted in place of the week area (E2): `{ user, week }` or
 // null. While set, renderWeek and the background week refresh stand down.
@@ -77,7 +75,7 @@ function buildShell(panelEl, role) {
   panelEl.dataset.timesheetsRole = role;
 }
 
-// --- The attendance week: the leaderboard and Hours -----------------------
+// --- The attendance week: the actions and Hours ---------------------------
 
 // The write path is deliberately dumb: call, then refetch the week. The
 // grid holds no optimistic state, so a 409 leaves exactly what the server
@@ -129,7 +127,7 @@ export function openTimesheetsProfile(userId, { week: requested = null } = {}) {
   if (hostPanel && !hostPanel.hidden) renderProfile(hostPanel);
 }
 
-// Paint the leaderboard and the hours grid from the one cached week. Both
+// Paint the actions and the hours grid from the one cached week. Both
 // mounts are (re)created here so a load error or skeleton that replaced the
 // week area is cleared by the next good payload.
 function renderWeek(panelEl) {
@@ -138,17 +136,66 @@ function renderWeek(panelEl) {
   if (!area || !weekPayload) return;
   const isAdmin = roleAtLeast(viewerRole, "admin");
   if (dayOpen) { renderDay(panelEl, isAdmin); return; }
-  area.innerHTML = `<div class="hub-timesheets-days"></div>
-    <div class="hub-timesheets-leaderboard"></div>`;
+  area.innerHTML = `<div class="hub-timesheets-actions"></div>
+    <div class="hub-timesheets-days"></div>`;
+  renderActions(panelEl, isAdmin);
   mountHubAttendanceDays(mountFor(panelEl, "days"), weekPayload, {
     onWeekChange: changeWeek(panelEl),
     onOpenDay: (date) => { dayOpen = date; renderWeek(panelEl); },
   });
-  mountHubTimesheetLeaderboard(mountFor(panelEl, "leaderboard"), weekPayload, {
-    onReviewAll: isAdmin ? () => write(panelEl, () => reviewWeek()) : undefined,
-    notice: weekNotice,
-  });
+}
+
+function setActionStatus(panelEl, message, type = "") {
+  const status = panelEl.querySelector(".hub-timesheets-message");
+  if (!status) return;
+  status.textContent = message;
+  status.className = `hub-timesheets-message${type ? ` ${type}` : ""}`;
+}
+
+// The payroll actions: Mark all reviewed (Admin, when anything is
+// reviewable) and the CSV export, plus the notice line they report into.
+function renderActions(panelEl, isAdmin) {
+  const reviewable = Number(weekPayload.reviewable_count) || 0;
+  const reviewButton = isAdmin && reviewable
+    ? `<button type="button" class="secondary-btn hub-timesheets-review-all">Mark all reviewed (${reviewable})</button>`
+    : "";
+  const mount = mountFor(panelEl, "actions");
+  mount.innerHTML = `<div class="hub-timesheets-action-row">
+      ${reviewButton}
+      <button type="button" class="secondary-btn hub-timesheets-export">Export CSV</button>
+    </div>
+    <p class="hub-timesheets-message" aria-live="polite"></p>`;
+  if (weekNotice) setActionStatus(panelEl, weekNotice, "success");
   weekNotice = "";
+  mount.querySelector(".hub-timesheets-review-all")?.addEventListener("click", (event) => {
+    event.currentTarget.disabled = true;
+    setActionStatus(panelEl, "Marking reviewed…");
+    void write(panelEl, () => reviewWeek());
+  });
+  mount.querySelector(".hub-timesheets-export").addEventListener("click", (event) => {
+    void downloadCsv(panelEl, event.currentTarget);
+  });
+}
+
+async function downloadCsv(panelEl, button) {
+  button.disabled = true;
+  setActionStatus(panelEl, "Preparing export…");
+  try {
+    const { blob, filename } = await apiExportHubAttendance({ week: weekPayload.week_start });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    setActionStatus(panelEl, `Exported ${filename}.`, "success");
+  } catch (err) {
+    setActionStatus(panelEl, friendlyError(err, "Could not export attendance."), "error");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 // The day page (one date, everyone clocked in). Stepping past the week's

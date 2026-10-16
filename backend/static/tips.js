@@ -232,8 +232,16 @@ export const TIPS = {
     text: "Crew membership is derived from live work orders routed to you, not from a permanent team list. A person appears after a work order is assigned under your lead.",
   },
   "hub.leaderboard": {
-    label: "Leaderboard",
-    text: "Money made is charged hours times the billing labor rate; money lost is hours clocked in but not on a work order, at the same rate. It is an estimate, not the invoice, which rounds each work order up to the next 30 minutes. Labor entered by hand is not counted: the board rewards starting and stopping the work-order clock as the work happens.",
+    label: "Leaderboards",
+    text: "Money made is charged hours times the billing labor rate; money lost is hours clocked in but not on a work order, at the same rate. It is an estimate, not the invoice, which rounds each work order up to the next 30 minutes. Days pending review are left out until an Admin reviews them.",
+  },
+  "hub.leaderboard-accuracy": {
+    label: "Accuracy",
+    text: "Ranks the share of clocked time charged on a live work-order clock. Hand-entered labor is not counted.",
+  },
+  "hub.leaderboard-efficiency": {
+    label: "Efficiency",
+    text: "Ranks the share of clocked time charged, counting live clocks and hand-entered labor. Above 100% means more labor was keyed than clocked.",
   },
   "hub.attention": {
     label: "Needs attention",

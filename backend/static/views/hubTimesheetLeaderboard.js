@@ -1,51 +1,25 @@
-// View: the Admin Timesheets tab's weekly **revenue leaderboard**.
+// View: one weekly **leaderboard board** -- Accuracy or Efficiency.
 //
-// Layer: views. No fetch but the export blob, no state: everything on screen
-// comes from the week payload `hubTimesheetsTab.js` hands in -- the same
-// payload the day strip above it reads, so the two cannot disagree. The
-// week picker lives on the strip; this owns the CSV export.
+// Layer: views. Pure: no fetch, no state, no buttons. `hubLeaderboardsTab.js`
+// owns the week and mounts one board per kind from the same payload.
 //
-// The money is written for a layperson, one rule per column:
-//   charged   = time on a work-order clock, and nothing else
+// One rule per column:
+//   clocked   = the row's total_minutes (the server already left out
+//               pending-review days, so nothing is subtracted here)
+//   charged   = live work-order clock time; Efficiency adds hand-entered labor
 //   uncharged = clocked - charged, never below zero
-//   made      = charged x the billing labor rate
-//   lost      = uncharged x the same rate
-// Hand-entered labor is left out on purpose: the board rewards charging work
-// orders on the clock as the work happens, and a typed duration has no real
-// time behind it -- it is dated by when it was keyed, not when it was worked
-// (see the `hub.leaderboard` tip). This is an estimate at the hourly rate, not the invoice: billing rounds a whole
-// work order's labor up to 30 minutes, which no per-person number can honestly
-// reproduce.
-//
-// A day the server marks `pending_review` rests on a forgotten clock and is
-// set aside whole -- clocked and charged both -- until an Admin reviews it.
-// Dropping only the suspect minutes would push the rest of that shift into
-// "uncharged" and misprice it the other way.
-//
-// The made/lost bar is sized through CSSOM after the markup lands -- the CSP
-// drops `style=` attributes parsed from a template (csp-blocks-inline-styles).
+//   %         = charged / clocked, uncapped -- Efficiency can pass 100% when
+//               more labor was keyed than clocked
+//   made/lost = charged / uncharged x the billing labor rate
+// Ranked by %, then money made, then name. This is an estimate at the hourly
+// rate, not the invoice: billing rounds a work order's labor up to 30 minutes.
 
-import { apiExportHubAttendance } from "../api.js";
-import { escapeHtml, formatMoney, friendlyError } from "../format.js";
+import { escapeHtml, formatMoney } from "../format.js";
 import { tipHtml } from "../tooltip.js";
+import { formatHm } from "./hubWeek.js";
 
 const MEDALS = ["🥇", "🥈", "🥉"];
-
-// `8:00`, the Hours grid's own clock-style figure.
-function formatHm(totalMinutes) {
-  const minutes = Math.max(0, Math.round(Number(totalMinutes) || 0));
-  return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}`;
-}
-
-function isoDate(iso) {
-  return new Date(`${iso}T00:00:00Z`);
-}
-
-function weekLabel(start, end) {
-  const options = { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" };
-  return `${isoDate(start).toLocaleDateString([], options)} – ${isoDate(end).toLocaleDateString([], options)}`;
-}
-
+const TITLES = { accuracy: "Accuracy", efficiency: "Efficiency" };
 
 function userName(user) {
   return `${user?.first_name || ""} ${user?.last_name || ""}`.trim() || "Unknown";
@@ -57,52 +31,36 @@ function ordinal(n) {
   return `${n}${{ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th"}`;
 }
 
-// Pure: the ranked rows and the company total. Exported for the tests, which
-// pin the money math without going through the DOM.
-export function computeLeaderboard(payload) {
+// Pure: the ranked rows and the company total. Exported for the tests.
+export function computeLeaderboard(payload, { kind = "accuracy" } = {}) {
   const rate = Number(payload.labor_rate) || 0;
   const price = (minutes) => (minutes * rate) / 60;
   const entries = payload.rows.map((row) => {
-    const pending = row.days.filter((day) => day.pending_review);
-    const setAside = (field) => pending.reduce((sum, day) => sum + (day[field] || 0), 0);
-    const clocked = row.total_minutes - setAside("clocked_minutes");
-    const charged = row.tracked_minutes - setAside("tracked_minutes");
+    const clocked = row.total_minutes || 0;
+    const charged = (row.tracked_minutes || 0) + (kind === "efficiency" ? row.adjustment_minutes || 0 : 0);
     const uncharged = Math.max(0, clocked - charged);
     return {
       user: row.user,
       name: userName(row.user),
-      pendingDays: pending.length,
+      pendingDays: row.days.filter((day) => day.pending_review).length,
       clocked,
       charged,
       uncharged,
+      pct: clocked ? Math.round((charged / clocked) * 100) : (charged ? 100 : 0),
       made: price(charged),
       lost: price(uncharged),
     };
   });
-  entries.sort((a, b) => b.made - a.made || a.lost - b.lost || a.name.localeCompare(b.name));
+  entries.sort((a, b) => b.pct - a.pct || b.made - a.made || a.name.localeCompare(b.name));
   entries.forEach((entry, index) => { entry.rank = index + 1; });
   const total = entries.reduce((sum, entry) => ({
+    clocked: sum.clocked + entry.clocked,
     charged: sum.charged + entry.charged,
     uncharged: sum.uncharged + entry.uncharged,
     made: sum.made + entry.made,
     lost: sum.lost + entry.lost,
-  }), { charged: 0, uncharged: 0, made: 0, lost: 0 });
+  }), { clocked: 0, charged: 0, uncharged: 0, made: 0, lost: 0 });
   return { rate, entries, total };
-}
-
-// Share of on-the-clock time that was charged, 0-100. Someone who charged
-// with no punch at all counts as fully charged rather than dividing by zero.
-function chargedPercent(entry) {
-  const whole = entry.charged + entry.uncharged;
-  return whole ? Math.round((entry.charged / whole) * 100) : 100;
-}
-
-function barHtml(entry) {
-  const pct = chargedPercent(entry);
-  return `<div class="hub-leaderboard-bar" role="img" aria-label="${pct}% of clocked time charged" data-pct="${pct}">
-      <span class="hub-leaderboard-bar-made"></span><span class="hub-leaderboard-bar-lost"></span>
-    </div>
-    <span class="hub-leaderboard-pct">${pct}% charged</span>`;
 }
 
 function rankHtml(rank) {
@@ -118,105 +76,46 @@ function pendingHtml(entry) {
   return `<span class="hub-leaderboard-pending">⚠ ${days} pending review</span>`;
 }
 
+function moneyCells(row) {
+  return `<td class="hub-leaderboard-num">${formatHm(row.clocked)}</td>
+      <td class="hub-leaderboard-num">${formatHm(row.charged)}</td>
+      <td class="hub-leaderboard-num">${formatHm(row.uncharged)}</td>
+      <td class="hub-leaderboard-num hub-leaderboard-made">${escapeHtml(formatMoney(row.made))}</td>
+      <td class="hub-leaderboard-num hub-leaderboard-lost">${escapeHtml(formatMoney(row.lost))}</td>`;
+}
+
 function rowHtml(entry) {
   return `<tr class="hub-leaderboard-row${entry.rank <= 3 ? " hub-leaderboard-top" : ""}">
       <td class="hub-leaderboard-rank">${rankHtml(entry.rank)}</td>
       <th scope="row">${escapeHtml(entry.name)}${pendingHtml(entry)}</th>
-      <td class="hub-leaderboard-num">${formatHm(entry.charged)}</td>
-      <td class="hub-leaderboard-num">${formatHm(entry.uncharged)}</td>
-      <td class="hub-leaderboard-num hub-leaderboard-made">${escapeHtml(formatMoney(entry.made))}</td>
-      <td class="hub-leaderboard-num hub-leaderboard-lost">${escapeHtml(formatMoney(entry.lost))}</td>
-      <td class="hub-leaderboard-split">${barHtml(entry)}</td>
+      <td class="hub-leaderboard-num hub-leaderboard-pct">${entry.pct}%</td>
+      ${moneyCells(entry)}
     </tr>`;
 }
 
-function setStatus(container, message, type = "") {
-  const status = container.querySelector(".hub-leaderboard-message");
-  if (!status) return;
-  status.textContent = message;
-  status.className = `hub-leaderboard-message${type ? ` ${type}` : ""}`;
-}
-
-export function mountHubTimesheetLeaderboard(container, payload, { onReviewAll, notice = "" } = {}) {
-  async function downloadCsv(button) {
-    button.disabled = true;
-    setStatus(container, "Preparing export…");
-    try {
-      const { blob, filename } = await apiExportHubAttendance({ week: payload.week_start });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
-      setStatus(container, `Exported ${filename}.`, "success");
-    } catch (err) {
-      setStatus(container, friendlyError(err, "Could not export attendance."), "error");
-    } finally {
-      button.disabled = false;
-    }
-  }
-
-  const { rate, entries, total } = computeLeaderboard(payload);
-  const rateText = escapeHtml(formatMoney(rate));
-  const reviewable = Number(payload.reviewable_count) || 0;
-  const reviewButton = onReviewAll && reviewable
-    ? `<button type="button" class="secondary-btn hub-leaderboard-review-all">Mark all reviewed (${reviewable})</button>`
-    : "";
-  const pendingNote = entries.some((entry) => entry.pendingDays)
-    ? ` Days marked pending review rest on a forgotten clock and are left out until an Admin reviews them; a shift still open from an earlier day must be closed in the grid below.`
-    : "";
+export function mountLeaderboardBoard(container, payload, { kind = "accuracy" } = {}) {
+  const { entries, total } = computeLeaderboard(payload, { kind });
+  const title = TITLES[kind];
+  const headingId = `hub-leaderboard-heading-${kind}`;
   const table = entries.length
     ? `<div class="hub-hours-table-wrap hub-leaderboard-wrap">
         <table class="hub-hours-table hub-leaderboard-table">
-          <caption class="sr-only">Revenue leaderboard for ${escapeHtml(payload.week_start)} through ${escapeHtml(payload.week_end)}</caption>
+          <caption class="sr-only">${title} leaderboard for ${escapeHtml(payload.week_start)} through ${escapeHtml(payload.week_end)}</caption>
           <thead><tr>
-            <th scope="col">Rank</th><th scope="col">Person</th>
-            <th scope="col">Charged hours</th><th scope="col">Uncharged hours</th>
-            <th scope="col">Money made</th><th scope="col">Money lost</th>
-            <th scope="col">Charged vs uncharged</th>
+            <th scope="col">Rank</th><th scope="col">Person</th><th scope="col">%</th>
+            <th scope="col">Clocked</th><th scope="col">Charged</th><th scope="col">Uncharged</th>
+            <th scope="col">Made</th><th scope="col">Lost</th>
           </tr></thead>
           <tbody>${entries.map(rowHtml).join("")}</tbody>
           <tfoot><tr>
-            <td></td><th scope="row">Company total</th>
-            <td class="hub-leaderboard-num">${formatHm(total.charged)}</td>
-            <td class="hub-leaderboard-num">${formatHm(total.uncharged)}</td>
-            <td class="hub-leaderboard-num hub-leaderboard-made">${escapeHtml(formatMoney(total.made))}</td>
-            <td class="hub-leaderboard-num hub-leaderboard-lost">${escapeHtml(formatMoney(total.lost))}</td>
-            <td></td>
+            <td></td><th scope="row">Company total</th><td></td>
+            ${moneyCells(total)}
           </tr></tfoot>
         </table>
-      </div>
-      <p class="hint hub-leaderboard-legend">Charged hours are time on a work-order clock; labor entered by hand is not counted. Uncharged hours are time clocked in but not on a work order. Each hour is worth ${rateText}: charged hours are money made, uncharged hours are money lost. Ranked by money made.${pendingNote}</p>`
+      </div>`
     : `<p class="hint hub-leaderboard-empty">Nobody clocked in this week.</p>`;
-
-  container.innerHTML = `<section class="hub-leaderboard" aria-labelledby="hub-leaderboard-heading">
-      <div class="hub-leaderboard-toolbar">
-        <strong>${escapeHtml(weekLabel(payload.week_start, payload.week_end))}</strong>
-        <div class="hub-leaderboard-actions">
-          ${reviewButton}
-          <button type="button" class="secondary-btn hub-timesheets-export">Export CSV</button>
-        </div>
-      </div>
-      <h3 id="hub-leaderboard-heading" class="hub-leaderboard-heading">Leaderboard ${tipHtml("hub.leaderboard")}</h3>
-      <p class="hub-leaderboard-message" aria-live="polite"></p>
+  container.innerHTML = `<section class="hub-leaderboard" aria-labelledby="${headingId}">
+      <h3 id="${headingId}" class="hub-leaderboard-heading">${title} ${tipHtml(`hub.leaderboard-${kind}`)}</h3>
       ${table}
     </section>`;
-
-  if (notice) setStatus(container, notice, "success");
-  container.querySelector(".hub-leaderboard-review-all")?.addEventListener("click", (event) => {
-    event.currentTarget.disabled = true;
-    setStatus(container, "Marking reviewed…");
-    void onReviewAll();
-  });
-  container.querySelectorAll(".hub-leaderboard-bar").forEach((bar) => {
-    const pct = Number(bar.dataset.pct);
-    bar.querySelector(".hub-leaderboard-bar-made").style.width = `${pct}%`;
-    bar.querySelector(".hub-leaderboard-bar-lost").style.width = `${100 - pct}%`;
-  });
-  container.querySelector(".hub-timesheets-export")?.addEventListener("click", (event) => {
-    void downloadCsv(event.currentTarget);
-  });
 }

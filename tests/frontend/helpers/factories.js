@@ -662,6 +662,7 @@ export function attendanceWeek(overrides = {}) {
       paid_minutes: 450,
       tracked_minutes: 420,
       delta_minutes: 60,
+      adjustment_minutes: 0,
     }],
     totals_by_day: days.map((date) => ({
       date,

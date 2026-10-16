@@ -1,18 +1,13 @@
-// The Admin Timesheets **revenue leaderboard**: the money math, the ranking,
-// the week picker, the CSV export and the empty state.
+// One **leaderboard board** (Accuracy or Efficiency): the % math, the
+// ranking, the money columns and the empty state.
 //
-// A pure view except for the export blob, so the payload goes in directly and
-// MSW is involved only for `/hub/attendance/export`.
+// A pure view: the week payload goes in directly, nothing is fetched.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { http, HttpResponse } from "msw";
-import { userEvent } from "@testing-library/user-event";
-import { server } from "../helpers/handlers.js";
+import { beforeEach, describe, expect, it } from "vitest";
 import { attendanceWeek } from "../helpers/factories.js";
-import { restoreBrowserStubs, stubObjectUrl } from "../helpers/browserStubs.js";
 import {
   computeLeaderboard,
-  mountHubTimesheetLeaderboard,
+  mountLeaderboardBoard,
 } from "../../../backend/static/views/hubTimesheetLeaderboard.js";
 
 let host;
@@ -20,22 +15,15 @@ let host;
 beforeEach(() => {
   document.body.innerHTML = `<div id="host"></div>`;
   host = document.getElementById("host");
-  stubObjectUrl();
 });
 
-afterEach(() => {
-  restoreBrowserStubs();
-});
-
-const user = () => userEvent.setup();
-
-function mount(payload = attendanceWeek(), options = {}) {
-  mountHubTimesheetLeaderboard(host, payload, options);
+function mount(payload = attendanceWeek(), kind = "accuracy") {
+  mountLeaderboardBoard(host, payload, { kind });
   return host;
 }
 
-// Two people: Ann clocks 8:00 and charges 7:00; Bo clocks 10:00 and charges
-// 9:00 on the clock plus 0:30 entered by hand, which the board ignores.
+// Ann clocks 8:00 and charges 7:00 live (88%). Bo clocks 10:00, charges 9:00
+// live (90%) plus 2:00 keyed by hand.
 function twoPeople() {
   const payload = attendanceWeek();
   const ann = payload.rows[0];
@@ -43,91 +31,80 @@ function twoPeople() {
   bo.user = { id: "user-2", first_name: "Bo", last_name: "Diaz", role: "technician" };
   bo.total_minutes = 600;
   bo.tracked_minutes = 540;
-  bo.days[0].adjustment_minutes = 30;
+  bo.adjustment_minutes = 120;
   payload.rows = [ann, bo];
   return payload;
 }
 
+const entryFor = (payload, name, kind) =>
+  computeLeaderboard(payload, { kind }).entries.find((e) => e.name === name);
+
 describe("computeLeaderboard", () => {
-  it("prices charged and uncharged hours at the payload's rate", () => {
-    const { entries } = computeLeaderboard(attendanceWeek());
-    expect(entries[0]).toMatchObject({ charged: 420, uncharged: 60, made: 437.5, lost: 62.5 });
-  });
-
-  it("leaves hand-entered labor out of charged time", () => {
-    const bo = computeLeaderboard(twoPeople()).entries.find((e) => e.name === "Bo Diaz");
-    expect(bo).toMatchObject({ charged: 540, uncharged: 60 });
-    expect(bo.made).toBeCloseTo(562.5);
-  });
-
-  it("never reports negative uncharged time when charged exceeds clocked", () => {
+  it("uses server row totals as-is", () => {
+    // The server already left the pending day out of total_minutes.
     const payload = attendanceWeek();
-    payload.rows[0].tracked_minutes = 600;
-    expect(computeLeaderboard(payload).entries[0]).toMatchObject({ uncharged: 0, lost: 0 });
+    payload.rows[0].days[1] = { ...payload.rows[0].days[1], clocked_minutes: 600, pending_review: true };
+    const entry = computeLeaderboard(payload, { kind: "accuracy" }).entries[0];
+    expect(entry).toMatchObject({ clocked: 480, charged: 420, uncharged: 60, pendingDays: 1 });
   });
 
-  it("sets a pending-review day aside whole, clocked and charged both", () => {
+  it("accuracy ranks by live % and ignores hand-entered", () => {
+    const { entries } = computeLeaderboard(twoPeople(), { kind: "accuracy" });
+    expect(entries.map((e) => [e.rank, e.name, e.pct])).toEqual([[1, "Bo Diaz", 90], [2, "Ann Lee", 88]]);
+    expect(entries[0]).toMatchObject({ charged: 540, uncharged: 60 });
+    expect(entries[0].made).toBeCloseTo(562.5);
+  });
+
+  it("efficiency adds adjustment_minutes and may exceed 100", () => {
+    const bo = entryFor(twoPeople(), "Bo Diaz", "efficiency");
+    expect(bo).toMatchObject({ charged: 660, uncharged: 0, pct: 110, lost: 0 });
+  });
+
+  it("zero clocked with charge is 100%, with none is 0%", () => {
     const payload = twoPeople();
-    const bo = payload.rows[1];
-    bo.days[1] = { ...bo.days[1], clocked_minutes: 600, tracked_minutes: 720, pending_review: true };
-    bo.total_minutes += 600;
-    bo.tracked_minutes += 720;
-    const entry = computeLeaderboard(payload).entries.find((e) => e.name === "Bo Diaz");
-    expect(entry).toMatchObject({ charged: 540, uncharged: 60, pendingDays: 1 });
+    payload.rows[0].total_minutes = 0;
+    payload.rows[0].tracked_minutes = 0;
+    payload.rows[1].total_minutes = 0;
+    expect(entryFor(payload, "Ann Lee", "accuracy").pct).toBe(0);
+    expect(entryFor(payload, "Bo Diaz", "accuracy").pct).toBe(100);
   });
 
-  it("ranks by money made, highest first, and totals the company", () => {
-    const { entries, total } = computeLeaderboard(twoPeople());
-    expect(entries.map((e) => [e.rank, e.name])).toEqual([[1, "Bo Diaz"], [2, "Ann Lee"]]);
-    expect(total.made).toBeCloseTo(437.5 + 562.5);
-    expect(total.lost).toBeCloseTo(62.5 + 62.5);
+  it("breaks a % tie on money made, then name", () => {
+    const payload = twoPeople();
+    payload.rows[1].total_minutes = 960;
+    payload.rows[1].tracked_minutes = 840; // 88%, more money than Ann
+    const { entries, total } = computeLeaderboard(payload, { kind: "accuracy" });
+    expect(entries.map((e) => e.name)).toEqual(["Bo Diaz", "Ann Lee"]);
+    expect(total.made).toBeCloseTo(437.5 + 875);
   });
 });
 
-describe("the leaderboard table", () => {
-  it("prints hours and money in plain columns with a medal for first place", () => {
+describe("the board", () => {
+  it("prints the % and the hours and money columns, with a medal for first", () => {
     mount(twoPeople());
+    const headers = [...host.querySelectorAll("thead th")].map((th) => th.textContent);
+    expect(headers).toEqual(["Rank", "Person", "%", "Clocked", "Charged", "Uncharged", "Made", "Lost"]);
     const first = host.querySelector(".hub-leaderboard-row");
     expect(first.querySelector("th").textContent).toBe("Bo Diaz");
     expect(first.querySelector(".hub-leaderboard-rank").textContent).toContain("🥇");
     expect(first.querySelector(".hub-leaderboard-rank").textContent).toContain("1st");
+    expect(first.querySelector(".hub-leaderboard-pct").textContent).toBe("90%");
     expect(first.querySelector(".hub-leaderboard-made").textContent).toBe("$562.50");
-    expect(first.querySelector(".hub-leaderboard-lost").textContent).toBe("$62.50");
     expect(host.querySelector("tfoot").textContent).toContain("Company total");
   });
 
-  it("says the charged share in words and sizes the bar to match", () => {
-    mount();
-    const bar = host.querySelector(".hub-leaderboard-bar");
-    expect(bar.getAttribute("aria-label")).toBe("88% of clocked time charged");
-    expect(bar.querySelector(".hub-leaderboard-bar-made").style.width).toBe("88%");
-    expect(bar.querySelector(".hub-leaderboard-bar-lost").style.width).toBe("12%");
+  it("titles each kind and carries its tip", () => {
+    mount(attendanceWeek(), "accuracy");
+    expect(host.querySelector(".hub-leaderboard-heading").textContent).toContain("Accuracy");
+    expect(host.querySelector('[data-tip="hub.leaderboard-accuracy"]')).not.toBeNull();
+    mount(attendanceWeek(), "efficiency");
+    expect(host.querySelector(".hub-leaderboard-heading").textContent).toContain("Efficiency");
+    expect(host.querySelector('[data-tip="hub.leaderboard-efficiency"]')).not.toBeNull();
   });
 
-  it("carries the leaderboard tooltip and states the rate", () => {
-    mount();
-    expect(host.querySelector('[data-tip="hub.leaderboard"]')).not.toBeNull();
-    expect(host.querySelector(".hub-leaderboard-legend").textContent).toContain("$62.50");
-  });
-
-  it("downloads the CSV and reports the filename", async () => {
-    server.use(http.get("/hub/attendance/export", () => new HttpResponse("x", {
-      headers: { "Content-Disposition": 'attachment; filename="attendance_2026-09-14.csv"' },
-    })));
-    mount();
-    await user().click(host.querySelector(".hub-timesheets-export"));
-    await vi.waitFor(() => expect(host.querySelector(".hub-leaderboard-message").textContent)
-      .toContain("attendance_2026-09-14.csv"));
-  });
-
-  it("explains a refused export without losing the table", async () => {
-    server.use(http.get("/hub/attendance/export", () =>
-      HttpResponse.json({ detail: "Nope." }, { status: 403 })));
-    mount();
-    await user().click(host.querySelector(".hub-timesheets-export"));
-    await vi.waitFor(() => expect(host.querySelector(".hub-leaderboard-message").className)
-      .toContain("error"));
-    expect(host.querySelector(".hub-leaderboard-table")).not.toBeNull();
+  it("has no action buttons, only its tip", () => {
+    mount(twoPeople());
+    expect(host.querySelectorAll("button:not([data-tip])")).toHaveLength(0);
   });
 
   it("flags a person's pending days in words beside their name", () => {
@@ -135,27 +112,6 @@ describe("the leaderboard table", () => {
     payload.rows[0].days[0].pending_review = true;
     mount(payload);
     expect(host.querySelector(".hub-leaderboard-pending").textContent).toBe("⚠ 1 day pending review");
-    expect(host.querySelector(".hub-leaderboard-legend").textContent).toContain("pending review");
-  });
-
-  it("offers Mark all reviewed only when there is something to review and a handler", () => {
-    mount(attendanceWeek({ reviewable_count: 0 }), { onReviewAll: () => {} });
-    expect(host.querySelector(".hub-leaderboard-review-all")).toBeNull();
-    mount(attendanceWeek({ reviewable_count: 3 }));
-    expect(host.querySelector(".hub-leaderboard-review-all")).toBeNull();
-  });
-
-  it("runs Mark all reviewed once and shows the notice it is handed", async () => {
-    const onReviewAll = vi.fn();
-    mount(attendanceWeek({ reviewable_count: 3 }), { onReviewAll });
-    const button = host.querySelector(".hub-leaderboard-review-all");
-    expect(button.textContent).toBe("Mark all reviewed (3)");
-    await user().click(button);
-    expect(onReviewAll).toHaveBeenCalledTimes(1);
-    expect(button.disabled).toBe(true);
-
-    mount(attendanceWeek(), { notice: "Marked 3 items reviewed." });
-    expect(host.querySelector(".hub-leaderboard-message").textContent).toBe("Marked 3 items reviewed.");
   });
 
   it("says nobody clocked in rather than drawing an empty table", () => {
