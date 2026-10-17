@@ -60,12 +60,12 @@ describe("computeLeaderboard", () => {
     expect(bo).toMatchObject({ charged: 660, uncharged: 0, pct: 110, lost: 0 });
   });
 
-  it("zero clocked with charge is 100%, with none is 0%", () => {
+  it("zero clocked with charge is 100%; no time at all is left off", () => {
     const payload = twoPeople();
     payload.rows[0].total_minutes = 0;
     payload.rows[0].tracked_minutes = 0;
     payload.rows[1].total_minutes = 0;
-    expect(entryFor(payload, "Ann Lee", "accuracy").pct).toBe(0);
+    expect(entryFor(payload, "Ann Lee", "accuracy")).toBeUndefined();
     expect(entryFor(payload, "Bo Diaz", "accuracy").pct).toBe(100);
   });
 

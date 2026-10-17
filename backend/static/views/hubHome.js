@@ -100,12 +100,13 @@ function weekPunchRowHtml(p) {
 function weekPunchesHtml() {
   if (!attendance) return "";
   const rows = (attendance.week_punches || []).map(weekPunchRowHtml).join("");
-  return `<details class="hub-home-week-punches">
+  // A <section> for the panel surface and text colour the other Home cards get.
+  return `<section class="hub-home-week-punches"><details>
       <summary>This week's punches</summary>
       <ul class="hub-home-punch-list">${rows}</ul>
       <button type="button" class="secondary-btn" data-action="hub-home-add-punch">+ Add punch</button>
       <div class="hub-home-punch-editor"></div>
-    </details>`;
+    </details></section>`;
 }
 
 // One editor at a time; a refresh repaints Home and so closes it.

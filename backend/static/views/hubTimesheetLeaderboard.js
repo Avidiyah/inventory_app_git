@@ -50,7 +50,8 @@ export function computeLeaderboard(payload, { kind = "accuracy" } = {}) {
       made: price(charged),
       lost: price(uncharged),
     };
-  });
+  // Nobody with no time on this board: an idle week is not a 0% to rank.
+  }).filter((entry) => entry.clocked || entry.charged);
   entries.sort((a, b) => b.pct - a.pct || b.made - a.made || a.name.localeCompare(b.name));
   entries.forEach((entry, index) => { entry.rank = index + 1; });
   const total = entries.reduce((sum, entry) => ({

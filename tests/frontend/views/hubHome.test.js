@@ -116,6 +116,9 @@ describe("this week's punches (self-edit)", () => {
 
   it("lists this week's punches with tags", async () => {
     await openHub({ role: "technician", attendance: weekPunches() });
+    // A <section>, so it gets the panel surface and text colour like its
+    // neighbours -- a bare <details> rendered dark text on the dark page.
+    expect(section().tagName).toBe("SECTION");
     expect(section().querySelector("summary").textContent).toBe("This week's punches");
     const rows = section().querySelectorAll(".hub-home-punch-row");
     expect(rows).toHaveLength(2);

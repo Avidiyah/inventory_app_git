@@ -2207,8 +2207,11 @@ tr.archived-user {
     border-bottom-color: var(--color-brand);
 }
 
+/* Loose text in a hub tab (a week label, a notice line) sits on the dark
+   canvas, not a panel; without this it inherits the body's dark ink. */
 .hub-tabpanel {
     display: none;
+    color: var(--text-panel);
 }
 
 .hub-tabpanel.active {
@@ -5601,10 +5604,6 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 }
 
 /* Home: the worker's own open-week punches, editable in place. */
-.hub-home-week-punches {
-    margin: var(--space-3) 0;
-}
-
 .hub-home-week-punches summary {
     cursor: pointer;
     font-weight: 600;
