@@ -102,15 +102,19 @@ describe("the panel", () => {
     expect(rows()[1].querySelector(".user-profile-day-body").textContent).toContain("Nothing recorded");
   });
 
-  it("prints punch and charge clock times beside the day totals", async () => {
+  it("reads an opened day in time order, gaps as Not charged rows", async () => {
     const week = personWeek();
     week.days[0].charged[0].spans = [{ started_at: "2026-09-14T14:00:00Z", ended_at: "2026-09-14T17:00:00Z" }];
     serve(week);
     await mount();
-    const cells = rows()[0].querySelectorAll("summary .user-profile-col");
-    expect(cells[0].textContent).toContain("8:00 AM – 4:00 PM");
-    expect(cells[1].textContent).toContain("9:00 AM – 12:00 PM");
-    expect(rows()[0].querySelector(".user-profile-day-body").textContent).toContain("WO-1 · 3:00 9:00 AM – 12:00 PM");
+    const body = rows()[0].querySelector(".user-profile-day-body");
+    expect(body.querySelector(".day-tl-clock").textContent).toContain("On the clock 8:00 AM – 4:00 PM");
+    const runs = Array.from(body.querySelectorAll(".day-run")).map((r) => r.textContent.replace(/\s+/g, " "));
+    expect(runs).toEqual([
+      "8:00 AM – 9:00 AMNot charged to a work order1:00",
+      "9:00 AM – 12:00 PMWO-1 auto-stopped3:00",
+      "12:00 PM – 4:00 PMNot charged to a work order4:00",
+    ]);
   });
 
   it("flags a day that needs review and notes an open shift", async () => {
@@ -132,6 +136,8 @@ describe("the panel", () => {
       "user-profile-day user-profile-day-full", "user-profile-day user-profile-day-full",
       "user-profile-day user-profile-day-over",
     ]);
+    expect(rows().slice(0, 5).map((r) => r.querySelector(".user-profile-band")?.textContent ?? null))
+      .toEqual([null, "under 8h", "8–10h", "8–10h", "over 10h"]);
   });
 
   it("renders each completed work order as a card with its status badge", async () => {
@@ -303,23 +309,26 @@ describe("lunch on the profile", () => {
   it("prints paid in the day summary and the week, with a lunch note in the body", async () => {
     serve(personWeek());
     await mount();
-    const summary = rows()[0].querySelector("summary .user-profile-col");
-    expect(summary.textContent).toContain("7:30");
+    expect(rows()[0].querySelector("summary").textContent).toContain("Paid 7:30");
     expect(rows()[0].querySelector(".user-profile-day-body").textContent).toContain("lunch −0:30");
   });
 });
 
-describe("the day timeline and the uncharged column (2026-10-16)", () => {
-  it("summary shows Uncharged and the hand-entered split", async () => {
+describe("the day cards and the day in order (2026-10-16)", () => {
+  it("summary labels every number and says what the bar means", async () => {
     serve(personWeek());
     await mount();
-    expect(host.querySelector(".user-profile-head").textContent).toContain("Uncharged");
-    const cells = rows()[0].querySelectorAll("summary .user-profile-col");
-    expect(cells[1].textContent).toContain("3:00");
-    expect(cells[1].textContent).toContain("incl. 0:30 hand-entered");
-    expect(cells[2].textContent).toContain("4:30");
-    expect(host.querySelector(".user-profile-totals").textContent).toContain("4:30");
-    expect(host.textContent).not.toContain("not counted as charged");
+    const text = rows()[0].querySelector("summary").textContent.replace(/\s+/g, " ");
+    expect(text).toContain("Paid 7:30");
+    expect(text).toContain("Charged to work orders 3:00 (incl. 0:30 by hand)");
+    expect(text).toContain("Not charged 4:30");
+    expect(text).toContain("1 work order completed");
+    expect(text).toContain("40% of paid time charged to work orders");
+    expect(rows()[0].querySelector("summary progress").value).toBe(180);
+    const totals = host.querySelector(".user-profile-totals").textContent;
+    expect(totals).toContain("This week");
+    expect(totals).toContain("4:30");
+    expect(rows()[1].querySelector("summary").textContent).toContain("Nothing recorded");
   });
 
   it("an opened day carries the timeline above the lists", async () => {
@@ -329,25 +338,14 @@ describe("the day timeline and the uncharged column (2026-10-16)", () => {
     expect(body.firstElementChild.classList.contains("day-tl")).toBe(true);
   });
 
-  it("clicking a charged block opens the work order", async () => {
+  it("clicking a work order in the day opens it", async () => {
     const week = personWeek();
     week.days[0].charged[0].spans = [{ started_at: "2026-09-14T14:00:00Z", ended_at: "2026-09-14T17:00:00Z" }];
     serve(week);
     await mount();
-    rows()[0].querySelector(".day-tl-charged").click();
+    rows()[0].querySelector(".day-run-charged .user-profile-wo-btn").click();
     await flush(); await flush();
     expect(openSearch).toHaveBeenCalledWith("WO-1");
-  });
-
-  it("an Admin clicking a punch block opens the editor; a non-Admin's does nothing", async () => {
-    serve(personWeek());
-    await mount();
-    rows()[0].querySelector(".day-tl-punch").click();
-    expect(host.querySelector(".punch-editor")).toBeNull();
-    setCurrentUser({ id: "viewer", role: "admin" });
-    await mount();
-    rows()[0].querySelector(".day-tl-punch").click();
-    expect(rows()[0].querySelector(".punch-editor")).not.toBeNull();
   });
 
   it("a pending day is greyed and its lists tag edits", async () => {

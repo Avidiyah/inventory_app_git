@@ -5,9 +5,10 @@
 // Timesheets tab uses; everyone else reads.
 //
 // Layer: views. Owns its fetch (`apiGetPersonWeek`) and two pieces of state,
-// the week and which punch is being edited. Each day is a native <details>:
-// totals in the summary, the four lists in the body. Wall-clock minutes only;
-// no money.
+// the week and which punch is being edited. The week totals lead; each day
+// is a native <details> card: labelled totals and a charged-share bar in the
+// summary, the day in time order and three lists in the body. Wall-clock
+// minutes only; no money.
 //
 // `users.js` dynamic-imports this module on the first profile click, and this
 // module dynamic-imports the Work Orders hand-off on the first number click,
@@ -21,8 +22,8 @@ import { roleAtLeast, roleLabel } from "../roles.js";
 import { skeletonTableRows } from "../skeleton.js";
 import { getRole } from "../state.js";
 import { mountPunchEditor } from "./hubAttendancePunchEditor.js";
-import { applyTimelinePositions, dayTimelineHtml } from "./dayTimeline.js";
-import { formatHm, isoDate, shiftMonday, spanList, timeLabel, weekLabel } from "./hubWeek.js";
+import { dayTimelineHtml } from "./dayTimeline.js";
+import { formatHm, isoDate, shiftMonday, timeLabel, weekLabel } from "./hubWeek.js";
 import { statusBadge } from "./workOrderPresenters.js";
 import { setProfileOrigin } from "./profileOrigin.js";
 
@@ -40,6 +41,14 @@ function dayBand(minutes) {
   if (!minutes) return "none";
   if (minutes < 480) return "short";
   return minutes > 600 ? "over" : "full";
+}
+
+// The edge colour's meaning in words, so the colour never stands alone.
+const BAND_LABEL = { short: "under 8h", full: "8–10h", over: "over 10h" };
+
+function bandHtml(minutes) {
+  const band = dayBand(minutes);
+  return BAND_LABEL[band] ? ` <span class="user-profile-band user-profile-band-${band}">${BAND_LABEL[band]}</span>` : "";
 }
 
 // A minimal card: status colour on the edge and the badge, "Archived" as an
@@ -64,15 +73,8 @@ function editTagsHtml(tags, word) {
 
 function dayBodyHtml(day, canEdit, now) {
   const completed = day.completed.map(woCard);
-  const charged = day.charged.map((c) => {
-    const marks = [];
-    if (c.auto_closed) marks.push("auto-stopped");
-    if (c.running) marks.push("running");
-    const note = marks.length ? ` <span class="hub-hours-punch-note">${marks.join(" · ")}</span>` : "";
-    return `<li>${woButton(c.number)} · ${formatHm(c.minutes)}${timesNote(c.spans)}${note}</li>`;
-  });
   const adjustments = day.adjustments.map((a) =>
-    `<li>${formatHm(a.minutes)} · recorded by ${escapeHtml(a.recorded_by_name)} · ${woButton(a.work_order_number)}${editTagsHtml([a.recorded_by_self ? "self" : "admin"], "entered")}</li>`);
+    `<li>${woButton(a.work_order_number)} · ${formatHm(a.minutes)} · entered by ${escapeHtml(a.recorded_by_name)}${editTagsHtml([a.recorded_by_self ? "self" : "admin"], "entered")}</li>`);
   const marks = Object.fromEntries((day.punch_marks || []).map((m) => [m.punch_id, m.tags]));
   const punches = day.punches.map((p) => {
     const ended = p.open ? "running" : timeLabel(p.ended_at);
@@ -88,68 +90,77 @@ function dayBodyHtml(day, canEdit, now) {
       : "";
     return `<li>${escapeHtml(timeLabel(p.started_at))} – ${escapeHtml(ended)} · ${formatHm(p.minutes)}${editTagsHtml(marks[p.id], "edited")}${note}${edit}</li>`;
   });
-  const lunch = day.lunch_minutes
-    ? `<p class="hint">lunch −${formatHm(day.lunch_minutes)}</p>`
-    : "";
-  const html = lunch + listHtml("Completed", completed) + listHtml("Charged", charged)
-    + listHtml("Adjustments", adjustments) + listHtml("Punches", punches);
+  const html = dayTimelineHtml(day, { now })
+    + listHtml("Entered by hand (no clock times)", adjustments)
+    + listHtml("Work orders completed", completed) + listHtml("Punches", punches);
   const editor = canEdit
     ? `<button type="button" class="secondary-btn hub-hours-add" data-date="${escapeHtml(day.date)}">+ Add punch</button>
        <div class="hub-hours-editor" data-date="${escapeHtml(day.date)}"></div>`
     : "";
-  return dayTimelineHtml(day, { now }) + (html || `<p class="hint">Nothing recorded.</p>`) + editor;
-}
-
-function timesNote(spans) {
-  return spans?.length ? ` <span class="hub-hours-punch-note">${escapeHtml(spanList(spans))}</span>` : "";
+  return (html || `<p class="hint">Nothing recorded.</p>`) + editor;
 }
 
 function flagsHtml(day) {
   return day.needs_review
-    ? `<span class="hub-hours-flag hub-hours-flag-review"><span aria-hidden="true">&#9888;</span><span class="sr-only"> needs review</span></span>`
+    ? ` <span class="hub-hours-flag hub-hours-flag-review"><span aria-hidden="true">&#9888;</span> needs review</span>`
     : "";
 }
 
-// Charged includes hand-entered labor (spec U6); the split rides under it.
-function chargedHtml(charged, handEntered) {
-  const split = handEntered
-    ? `<span class="user-profile-split">incl. ${formatHm(handEntered)} hand-entered</span>`
+// Every number carries its own words, so no column head is needed (the
+// self-explanation rule). Charged includes hand-entered labor (spec U6).
+function figuresHtml(t) {
+  const split = t.hand
+    ? ` <span class="user-profile-split">(incl. ${formatHm(t.hand)} by hand)</span>`
     : "";
-  return `${formatHm(charged)}${split}`;
+  const done = `${t.completed} work order${t.completed === 1 ? "" : "s"} completed`;
+  return `<span class="user-profile-figures">
+      <span class="user-profile-figure">Paid <strong>${formatHm(t.paid)}</strong>${t.onShift || ""}</span>
+      <span class="user-profile-figure">Charged to work orders <strong>${formatHm(t.charged)}</strong>${split}</span>
+      <span class="user-profile-figure">Not charged <strong>${formatHm(t.uncharged)}</strong></span>
+      <span class="user-profile-figure">${done}</span>
+    </span>${shareHtml(t.paid, t.charged)}`;
+}
+
+// The bar is a native <progress>; the sentence beside it says what it means.
+function shareHtml(paid, charged) {
+  if (!paid) return "";
+  const pct = Math.round((charged / paid) * 100);
+  return `<span class="user-profile-share"><progress max="${paid}" value="${Math.min(charged, paid)}" aria-hidden="true"></progress><span>${pct}% of paid time charged to work orders</span></span>`;
 }
 
 function dayHtml(day, canEdit, now) {
-  const onShift = day.has_open ? ` <span class="hub-hours-punch-note">(on shift)</span>` : "";
+  const empty = !day.paid_minutes && !day.charged_minutes && !day.completed_count
+    && !day.punches.length && !day.has_open;
+  const figures = empty
+    ? `<span class="hint">Nothing recorded</span>`
+    : figuresHtml({
+      paid: day.paid_minutes, charged: day.charged_minutes, hand: day.adjustment_minutes,
+      uncharged: day.uncharged_minutes, completed: day.completed_count,
+      onShift: day.has_open ? ` <span class="hub-hours-punch-note">(on shift now)</span>` : "",
+    });
   const pending = day.pending_review ? " user-profile-day-pending" : "";
   return `<details class="user-profile-day user-profile-day-${dayBand(day.paid_minutes)}${pending}" data-date="${escapeHtml(day.date)}">
     <summary class="user-profile-summary">
-      <span class="user-profile-col-day">${escapeHtml(dayLabel(day.date))}${flagsHtml(day)}</span>
-      <span class="user-profile-col">${formatHm(day.paid_minutes)}${timesNote(day.punches)}${onShift}</span>
-      <span class="user-profile-col">${chargedHtml(day.charged_minutes, day.adjustment_minutes)}${timesNote(day.charged.flatMap((c) => c.spans ?? []))}</span>
-      <span class="user-profile-col">${formatHm(day.uncharged_minutes)}</span>
-      <span class="user-profile-col">${day.completed_count}</span>
+      <span class="user-profile-day-head"><strong>${escapeHtml(dayLabel(day.date))}</strong>${bandHtml(day.paid_minutes)}${flagsHtml(day)}<span class="user-profile-toggle" aria-hidden="true"></span></span>
+      ${figures}
     </summary>
     <div class="user-profile-day-body">${dayBodyHtml(day, canEdit, now)}</div>
   </details>`;
 }
 
 function weekHtml(payload, canEdit) {
-  return `<div class="user-profile-table-wrap">
-      <div class="user-profile-summary user-profile-head" aria-hidden="true">
-        <span class="user-profile-col-day">Day</span><span class="user-profile-col">Paid</span>
-        <span class="user-profile-col">Charged</span><span class="user-profile-col">Uncharged</span>
-        <span class="user-profile-col">Completed</span>
-      </div>
-      ${payload.days.map((day) => dayHtml(day, canEdit, payload.server_now)).join("")}
-      <div class="user-profile-summary user-profile-totals">
-        <span class="user-profile-col-day">Week</span>
-        <span class="user-profile-col">${formatHm(payload.total_paid_minutes)}</span>
-        <span class="user-profile-col">${chargedHtml(payload.total_charged_minutes, payload.total_adjustment_minutes)}</span>
-        <span class="user-profile-col">${formatHm(payload.total_uncharged_minutes)}</span>
-        <span class="user-profile-col">${payload.total_completed}</span>
-      </div>
+  return `<div class="user-profile-summary user-profile-totals">
+      <span class="user-profile-day-head"><strong>This week</strong></span>
+      ${figuresHtml({
+        paid: payload.total_paid_minutes, charged: payload.total_charged_minutes,
+        hand: payload.total_adjustment_minutes, uncharged: payload.total_uncharged_minutes,
+        completed: payload.total_completed,
+      })}
     </div>
-    ${payload.days.some((d) => d.pending_review) ? `<p class="hint">Days marked ⚠ need review and are left out of the week totals.</p>` : ""}`;
+    ${payload.days.some((d) => d.pending_review) ? `<p class="hint">Days marked ⚠ need review and are left out of the week totals.</p>` : ""}
+    <div class="user-profile-table-wrap">
+      ${payload.days.map((day) => dayHtml(day, canEdit, payload.server_now)).join("")}
+    </div>`;
 }
 
 const BACK_LABEL = { users: "‹ Back to users", "user-hub": "‹ Back to timesheets" };
@@ -210,16 +221,6 @@ export function mountUserProfile(container, user, { onBack, week: initialWeek = 
       <button type="button" class="secondary-btn user-profile-next" aria-label="Next week">▶</button>`;
     weekNav.querySelector(".user-profile-prev").addEventListener("click", () => load(shiftMonday(payload.week_start, -7)));
     weekNav.querySelector(".user-profile-next").addEventListener("click", () => load(shiftMonday(payload.week_start, 7)));
-    applyTimelinePositions(body);
-    body.querySelectorAll(".day-tl-charged, .day-tl-chip").forEach((button) => {
-      button.addEventListener("click", () => { void openByNumber(button.dataset.number); });
-    });
-    if (canEdit) {
-      body.querySelectorAll(".day-tl-punch").forEach((button) => {
-        if (!findPunch(button.dataset.punch)) return;
-        button.addEventListener("click", () => { editing = button.dataset.punch; paint(); });
-      });
-    }
     body.querySelectorAll(".user-profile-wo-btn").forEach((button) => {
       button.addEventListener("click", () => { void openByNumber(button.dataset.number); });
     });
