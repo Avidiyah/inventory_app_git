@@ -30,7 +30,7 @@ import {
   apiUpdateWorkOrderLabor,
 } from "../api.js";
 import { confirmDialog, messageDialog, setMessage } from "../dom.js";
-import { escapeHtml, filterRanked, friendlyError } from "../format.js";
+import { escapeHtml, filterRanked, friendlyError, netfacilitiesWorkOrderUrl } from "../format.js";
 import { clearDraft, markDraftError, saveDraft } from "../workOrderDrafts.js";
 import { openBillingEditor } from "./billingEditor.js";
 import { catalogueRequestPromptHtml } from "./catalogueRequest.js";
@@ -187,11 +187,7 @@ listEl.addEventListener("click", async (event) => {
   }
 
   if (action === "open-netfacilities-wo") {
-    // Placeholder pending real NetFacilities integration on this button --
-    // same destination the domain layer's work_order_task_fallback generates
-    // (app/domain/work_orders.py) for an imported task with no real one yet.
-    const url = `https://system.netfacilities.com/tools/viewworkorders/${encodeURIComponent(btn.dataset.number)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+    window.open(netfacilitiesWorkOrderUrl(btn.dataset.number), "_blank", "noopener,noreferrer");
     return;
   }
 

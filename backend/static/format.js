@@ -225,6 +225,14 @@ export function safeHttpUrl(url) {
   return "";
 }
 
+// The NetFacilities record for a work order -- the destination of every
+// "Open Netfacilities" button (Work Orders card, Admin Review receipt).
+// Same destination the domain layer's work_order_task_fallback generates
+// (app/domain/work_orders.py) for an imported task with no real one yet.
+export function netfacilitiesWorkOrderUrl(number) {
+  return `https://system.netfacilities.com/tools/viewworkorders/${encodeURIComponent(number)}`;
+}
+
 // FastAPI returns validation errors as `detail: [{msg, loc, ...}]`
 // and business errors as `detail: "text"`. This collapses both
 // shapes into a single string for `setMessage`.

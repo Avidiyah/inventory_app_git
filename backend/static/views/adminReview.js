@@ -17,7 +17,7 @@ import {
 } from "../api.js";
 import { buildAdminReviewReceipt, isUnpriced } from "../adminReviewReceipt.js";
 import { confirmDialog, setMessage } from "../dom.js";
-import { escapeHtml, friendlyError } from "../format.js";
+import { escapeHtml, friendlyError, netfacilitiesWorkOrderUrl } from "../format.js";
 import { subscribe } from "../realtime.js";
 import { showPage } from "./nav.js";
 import { focusMissingPriceRequest } from "./userRequests.js";
@@ -224,6 +224,11 @@ listEl.addEventListener("click", (event) => {
   const card = event.target.closest(".admin-review-card");
   if (!card) return;
   selectWorkOrder(card.dataset.id);
+});
+
+document.getElementById("admin-review-netfacilities-btn").addEventListener("click", () => {
+  if (!selectedDetail) return;
+  window.open(netfacilitiesWorkOrderUrl(selectedDetail.number), "_blank", "noopener,noreferrer");
 });
 
 reopenBtn.addEventListener("click", async () => {

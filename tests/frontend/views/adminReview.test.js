@@ -11,6 +11,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../helpers/handlers.js";
+import { restoreBrowserStubs, stubWindowOpen } from "../helpers/browserStubs.js";
 import { mountView } from "../helpers/shell.js";
 import { setTestUser } from "../helpers/session.js";
 import { connectFakeRealtime } from "../helpers/realtime.js";
@@ -423,6 +424,28 @@ describe("selecting a card", () => {
     expect(el.title().textContent).toBe("WO 2 Receipt");
     expect(cardFor("a").classList.contains("selected")).toBe(false);
     expect(cardFor("b").classList.contains("selected")).toBe(true);
+  });
+});
+
+describe("Open Netfacilities", () => {
+  afterEach(restoreBrowserStubs);
+
+  it("opens the selected work order's vendor link in a new tab", async () => {
+    const openSpy = stubWindowOpen();
+    await mountSelected({ number: "WO 12/34" });
+    document.getElementById("admin-review-netfacilities-btn").click();
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://system.netfacilities.com/tools/viewworkorders/WO%2012%2F34",
+      "_blank",
+      "noopener,noreferrer",
+    );
+  });
+
+  it("does nothing with no selection", async () => {
+    const openSpy = stubWindowOpen();
+    await mountAdminReview();
+    document.getElementById("admin-review-netfacilities-btn").click();
+    expect(openSpy).not.toHaveBeenCalled();
   });
 });
 
