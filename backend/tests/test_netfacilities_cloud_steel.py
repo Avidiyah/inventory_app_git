@@ -89,17 +89,20 @@ class FakePlaywright:
 
 
 class FakeBrowser:
-    def __init__(self, context, *, cdp_fails=False, close_fails=False):
+    def __init__(self, context, *, cdp_fails=False, close_fails=False, new_context_fails=False):
         self.contexts = [context]
         self.closed = False
         self.cdp_session = FakeCdpSession(fail=cdp_fails)
         self.playwright = FakePlaywright()
         self._close_fails = close_fails
+        self._new_context_fails = new_context_fails
 
     async def new_browser_cdp_session(self):
         return self.cdp_session
 
     async def new_context(self, **_kwargs):
+        if self._new_context_fails:
+            raise RuntimeError("storage_state rejected")
         return self.contexts[0]
 
     async def close(self):
@@ -451,6 +454,64 @@ def test_close_login_session_still_stops_the_driver_when_the_browser_close_fails
 
     assert browser.playwright.stopped is True
     assert fake_client.sessions.released == ["sess-1"]
+
+
+def test_a_login_session_that_fails_to_open_stops_the_driver(monkeypatch):
+    # The driver is spawned before the failure point, so a raise after the
+    # connect must not leave it running.
+    provider, _fake_client = _provider(monkeypatch)
+    context = FakeContext(pages=[FakePage("https://system.netfacilities.com/account/login")])
+    browser = FakeBrowser(context, cdp_fails=True)
+    monkeypatch.setattr(
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((browser.playwright, browser))
+    )
+
+    try:
+        asyncio.run(provider.open_login_session())
+    except NetFacilitiesUnavailable:
+        pass
+
+    assert browser.playwright.stopped is True
+
+
+def test_an_enrichment_context_that_fails_to_open_stops_the_driver(monkeypatch):
+    provider, _fake_client = _provider(monkeypatch)
+    browser = FakeBrowser(FakeContext(pages=[]), new_context_fails=True)
+    monkeypatch.setattr(
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((browser.playwright, browser))
+    )
+
+    try:
+        asyncio.run(_open_enrichment_context(provider))
+    except RuntimeError:
+        pass
+
+    assert browser.playwright.stopped is True
+
+
+def test_a_failed_cdp_connect_stops_the_driver_it_just_started(monkeypatch):
+    import playwright.async_api as playwright_api
+
+    playwright = FakePlaywright()
+
+    class _Chromium:
+        async def connect_over_cdp(self, _url):
+            raise RuntimeError("websocket refused")
+
+    playwright.chromium = _Chromium()
+
+    class _Starter:
+        async def start(self):
+            return playwright
+
+    monkeypatch.setattr(playwright_api, "async_playwright", lambda: _Starter())
+
+    try:
+        asyncio.run(cloud_steel._connect_over_cdp("wss://x?a=1", "key"))
+    except RuntimeError:
+        pass
+
+    assert playwright.stopped is True
 
 
 def _open_enrichment_context(provider):

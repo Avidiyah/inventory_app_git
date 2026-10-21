@@ -65,7 +65,11 @@ async def _connect_over_cdp(websocket_url: str, api_key: str):
     from playwright.async_api import async_playwright
 
     playwright = await async_playwright().start()
-    browser = await playwright.chromium.connect_over_cdp(f"{websocket_url}&apiKey={api_key}")
+    try:
+        browser = await playwright.chromium.connect_over_cdp(f"{websocket_url}&apiKey={api_key}")
+    except BaseException:
+        await playwright.stop()
+        raise
     return playwright, browser
 
 
@@ -104,52 +108,58 @@ class SteelCloudBrowserProvider:
         playwright, browser = await _connect_over_cdp(
             steel_session.websocket_url, self._api_key
         )
-        context = browser.contexts[0]
-        # Browser-level, not page-level: the behavior must outlive any one
-        # page, and creating a page here left a stray blank tab in the live
-        # view the user is looking at. A ceremony that cannot capture
-        # downloads is not a working ceremony, so this no longer swallows.
         try:
-            cdp_session = await browser.new_browser_cdp_session()
-            await cdp_session.send(
-                "Browser.setDownloadBehavior",
-                {"behavior": "allow", "downloadPath": DOWNLOAD_PATH, "eventsEnabled": True},
+            context = browser.contexts[0]
+            # Browser-level, not page-level: the behavior must outlive any one
+            # page, and creating a page here left a stray blank tab in the live
+            # view the user is looking at. A ceremony that cannot capture
+            # downloads is not a working ceremony, so this no longer swallows.
+            try:
+                cdp_session = await browser.new_browser_cdp_session()
+                await cdp_session.send(
+                    "Browser.setDownloadBehavior",
+                    {"behavior": "allow", "downloadPath": DOWNLOAD_PATH, "eventsEnabled": True},
+                )
+            except Exception as exc:
+                logger.error("netfacilities.cloud_download_behavior_setup_failed")
+                raise NetFacilitiesUnavailable(
+                    "Could not prepare the NetFacilities cloud browser for downloads."
+                ) from exc
+
+            # The sign-in ceremony never reads a work order, so rendering is moot here.
+            client = NetFacilitiesClient(headless=True, _context=context)
+            await client.open_authentication_page()
+
+            session = _SteelLoginSession(
+                session_id=steel_session.id,
+                # `debug_url`, not `session_viewer_url` -- see CloudLoginSession's
+                # docstring for why. Confirmed against a real session 2026-08-28.
+                live_view_url=steel_session.debug_url,
+                _playwright=playwright,
+                _browser=browser,
+                _client=client,
             )
-        except Exception as exc:
-            logger.error("netfacilities.cloud_download_behavior_setup_failed")
-            raise NetFacilitiesUnavailable(
-                "Could not prepare the NetFacilities cloud browser for downloads."
-            ) from exc
 
-        # The sign-in ceremony never reads a work order, so rendering is moot here.
-        client = NetFacilitiesClient(headless=True, _context=context)
-        await client.open_authentication_page()
+            # Recorded for every page open now and opened later, so an export
+            # clicked from any tab of the live view counts. The recording is
+            # what lets `poll_downloaded_csv` log which capture path won
+            # (listener or poll) and settle spec 3's open question from
+            # production logs rather than argument.
+            def _record(download) -> None:
+                session.download_events.append(download.suggested_filename)
 
-        session = _SteelLoginSession(
-            session_id=steel_session.id,
-            # `debug_url`, not `session_viewer_url` -- see CloudLoginSession's
-            # docstring for why. Confirmed against a real session 2026-08-28.
-            live_view_url=steel_session.debug_url,
-            _playwright=playwright,
-            _browser=browser,
-            _client=client,
-        )
+            def _watch(page) -> None:
+                page.on("download", _record)
 
-        # Recorded for every page open now and opened later, so an export
-        # clicked from any tab of the live view counts. The recording is
-        # what lets `poll_downloaded_csv` log which capture path won
-        # (listener or poll) and settle spec 3's open question from
-        # production logs rather than argument.
-        def _record(download) -> None:
-            session.download_events.append(download.suggested_filename)
-
-        def _watch(page) -> None:
-            page.on("download", _record)
-
-        for existing in context.pages:
-            _watch(existing)
-        context.on("page", _watch)
-        return session
+            for existing in context.pages:
+                _watch(existing)
+            context.on("page", _watch)
+            return session
+        except BaseException:
+            # No session object exists for the caller to close, so the
+            # driver `_connect_over_cdp` spawned would otherwise be orphaned.
+            await playwright.stop()
+            raise
 
     async def poll_signed_in(self, session: _SteelLoginSession) -> str | None:
         try:
@@ -227,7 +237,11 @@ class SteelCloudBrowserProvider:
         playwright, browser = await _connect_over_cdp(
             steel_session.websocket_url, self._api_key
         )
-        context = await browser.new_context(storage_state=json.loads(storage_state))
+        try:
+            context = await browser.new_context(storage_state=json.loads(storage_state))
+        except BaseException:
+            await playwright.stop()
+            raise
         return _SteelEnrichmentContext(
             client=self,
             steel_session_id=steel_session.id,
