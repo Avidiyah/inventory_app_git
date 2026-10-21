@@ -67,6 +67,9 @@ class FakeContext:
     def on(self, event, handler):
         self.handlers[event] = handler
 
+    async def close(self):
+        self.closed = True
+
     async def new_page(self):
         page = FakePage("about:blank")
         self.created_pages.append(page)
@@ -74,16 +77,34 @@ class FakeContext:
         return page
 
 
+class FakePlaywright:
+    """The Node driver subprocess `async_playwright().start()` spawns; it
+    outlives the browser unless something calls `stop()`."""
+
+    def __init__(self):
+        self.stopped = False
+
+    async def stop(self):
+        self.stopped = True
+
+
 class FakeBrowser:
-    def __init__(self, context, *, cdp_fails=False):
+    def __init__(self, context, *, cdp_fails=False, close_fails=False):
         self.contexts = [context]
         self.closed = False
         self.cdp_session = FakeCdpSession(fail=cdp_fails)
+        self.playwright = FakePlaywright()
+        self._close_fails = close_fails
 
     async def new_browser_cdp_session(self):
         return self.cdp_session
 
+    async def new_context(self, **_kwargs):
+        return self.contexts[0]
+
     async def close(self):
+        if self._close_fails:
+            raise RuntimeError("CDP connection already gone")
         self.closed = True
 
 
@@ -183,7 +204,7 @@ def test_open_login_session_creates_and_tracks_a_context(monkeypatch):
     context = FakeContext(pages=[FakePage("https://system.netfacilities.com/account/login")])
     browser = FakeBrowser(context)
     monkeypatch.setattr(
-        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((None, browser))
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((browser.playwright, browser))
     )
 
     session = asyncio.run(provider.open_login_session())
@@ -200,7 +221,7 @@ def test_poll_signed_in_returns_none_before_login(monkeypatch):
     context = FakeContext(pages=[FakePage("https://system.netfacilities.com/account/login")])
     browser = FakeBrowser(context)
     monkeypatch.setattr(
-        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((None, browser))
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((browser.playwright, browser))
     )
 
     async def _exercise():
@@ -220,7 +241,7 @@ def test_poll_signed_in_returns_state_json_after_login(monkeypatch):
     )
     browser = FakeBrowser(context)
     monkeypatch.setattr(
-        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((None, browser))
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((browser.playwright, browser))
     )
 
     async def _exercise():
@@ -238,7 +259,7 @@ def test_download_behavior_is_set_on_a_browser_level_cdp_session(monkeypatch):
     context = FakeContext(pages=[FakePage("https://system.netfacilities.com/account/login")])
     browser = FakeBrowser(context)
     monkeypatch.setattr(
-        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((None, browser))
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((browser.playwright, browser))
     )
 
     asyncio.run(provider.open_login_session())
@@ -257,7 +278,7 @@ def test_a_ceremony_that_cannot_capture_downloads_fails_to_open(monkeypatch):
     context = FakeContext(pages=[FakePage("https://system.netfacilities.com/account/login")])
     browser = FakeBrowser(context, cdp_fails=True)
     monkeypatch.setattr(
-        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((None, browser))
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((browser.playwright, browser))
     )
 
     try:
@@ -273,7 +294,7 @@ def _provider_with_files(monkeypatch):
     context = FakeContext(pages=[FakePage("https://system.netfacilities.com/myhome")])
     browser = FakeBrowser(context)
     monkeypatch.setattr(
-        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((None, browser))
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((browser.playwright, browser))
     )
     return provider, fake_client
 
@@ -379,7 +400,7 @@ def test_close_login_session_releases_the_steel_session(monkeypatch):
     context = FakeContext(pages=[FakePage("https://system.netfacilities.com/myhome")])
     browser = FakeBrowser(context)
     monkeypatch.setattr(
-        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((None, browser))
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((browser.playwright, browser))
     )
 
     async def _exercise():
@@ -389,6 +410,90 @@ def test_close_login_session_releases_the_steel_session(monkeypatch):
     asyncio.run(_exercise())
 
     assert browser.closed is True
+    assert fake_client.sessions.released == ["sess-1"]
+
+
+def test_close_login_session_stops_the_playwright_driver(monkeypatch):
+    # Each session spawns a Node driver (~150 MB, outside the app's RSS);
+    # leaving it running is what filled the 2 GB container in production.
+    provider, fake_client = _provider(monkeypatch)
+    context = FakeContext(pages=[FakePage("https://system.netfacilities.com/myhome")])
+    browser = FakeBrowser(context)
+    monkeypatch.setattr(
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((browser.playwright, browser))
+    )
+
+    async def _exercise():
+        session = await provider.open_login_session()
+        await provider.close_login_session(session)
+
+    asyncio.run(_exercise())
+
+    assert browser.playwright.stopped is True
+
+
+def test_close_login_session_still_stops_the_driver_when_the_browser_close_fails(monkeypatch):
+    provider, fake_client = _provider(monkeypatch)
+    context = FakeContext(pages=[FakePage("https://system.netfacilities.com/myhome")])
+    browser = FakeBrowser(context, close_fails=True)
+    monkeypatch.setattr(
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((browser.playwright, browser))
+    )
+
+    async def _exercise():
+        session = await provider.open_login_session()
+        try:
+            await provider.close_login_session(session)
+        except RuntimeError:
+            pass
+
+    asyncio.run(_exercise())
+
+    assert browser.playwright.stopped is True
+    assert fake_client.sessions.released == ["sess-1"]
+
+
+def _open_enrichment_context(provider):
+    return provider.open_replay_context("{}", render_document=False, render_settle_ms=0)
+
+
+def test_enrichment_context_exit_stops_the_playwright_driver(monkeypatch):
+    provider, fake_client = _provider(monkeypatch)
+    context = FakeContext(pages=[])
+    browser = FakeBrowser(context)
+    monkeypatch.setattr(
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((browser.playwright, browser))
+    )
+
+    async def _exercise():
+        enrichment = await _open_enrichment_context(provider)
+        await enrichment.__aexit__(None, None, None)
+
+    asyncio.run(_exercise())
+
+    assert browser.closed is True
+    assert browser.playwright.stopped is True
+    assert fake_client.sessions.released == ["sess-1"]
+
+
+def test_enrichment_context_exit_still_stops_the_driver_when_close_fails(monkeypatch):
+    provider, fake_client = _provider(monkeypatch)
+    context = FakeContext(pages=[])
+    browser = FakeBrowser(context, close_fails=True)
+    monkeypatch.setattr(
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((browser.playwright, browser))
+    )
+
+    async def _exercise():
+        enrichment = await _open_enrichment_context(provider)
+        try:
+            await enrichment.__aexit__(None, None, None)
+        except RuntimeError:
+            pass
+
+    asyncio.run(_exercise())
+
+    assert browser.playwright.stopped is True
     assert fake_client.sessions.released == ["sess-1"]
 
 
@@ -402,7 +507,7 @@ def test_a_download_event_is_recorded_for_pages_open_and_pages_created(monkeypat
     context = FakeContext(pages=[page])
     browser = FakeBrowser(context)
     monkeypatch.setattr(
-        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((None, browser))
+        cloud_steel, "_connect_over_cdp", lambda *_args, **_kwargs: _resolved((browser.playwright, browser))
     )
 
     async def _exercise():

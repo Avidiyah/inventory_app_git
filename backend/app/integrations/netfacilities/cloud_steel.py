@@ -198,8 +198,15 @@ class SteelCloudBrowserProvider:
         return None
 
     async def close_login_session(self, session: _SteelLoginSession) -> None:
-        await session._browser.close()
-        await self._client.sessions.release(session.session_id)
+        try:
+            try:
+                await session._browser.close()
+            finally:
+                # The Node driver `_connect_over_cdp` spawned outlives the
+                # browser (~150 MB, outside the app's RSS) unless stopped.
+                await session._playwright.stop()
+        finally:
+            await self._client.sessions.release(session.session_id)
 
     async def open_replay_context(
         self,
@@ -258,7 +265,10 @@ class _SteelEnrichmentContext:
 
     async def __aexit__(self, exc_type, exc, traceback) -> None:
         try:
-            await self.context.close()
-            await self.browser.close()
+            try:
+                await self.context.close()
+                await self.browser.close()
+            finally:
+                await self.playwright.stop()
         finally:
             await self.client._client.sessions.release(self.steel_session_id)
