@@ -34,6 +34,8 @@ import {
   lineChargeHtml,
   materialsTotalHtml,
   modeLabel,
+  targetLaborHtml,
+  targetMaterialsHtml,
   notesLogContentsHtml,
   placeMeta,
   priorWorkBannerHtml,
@@ -123,6 +125,7 @@ function laborSectionHtml(detail) {
               <p class="hint">${escapeHtml(trackedHint)}</p>
               <div class="wo-labor-list">${entries}</div>
               ${laborSummaryHtml(detail)}
+              ${targetLaborHtml(detail)}
               ${canKeySkilledLabor(detail) ? `<div class="wo-add-labor wo-add-skilled-labor">
                 <label><span>Skilled Technician hours</span><input type="number" class="wo-new-skilled-hours" min="0.01" step="0.01" placeholder="e.g. 0.5"></label><button type="button" data-action="add-skilled-labor">Add Skilled Technician</button>
               </div>` : ""}
@@ -523,6 +526,7 @@ export function renderBody(detail, bodyEl) {
        <div class="wo-section-content">
          <div class="wo-items">${items}</div>
          ${materialsTotalHtml(detail)}
+         ${targetMaterialsHtml(detail)}
          <div class="wo-requested-lines"></div>
          ${locked ? "" : `<div class="wo-add-item">
            <div class="wo-add-item-row">

@@ -473,6 +473,52 @@ describe("the labor section", () => {
     expect(cardEl.querySelector(".wo-labor-summary").textContent).toContain("Skilled: 30 min");
   });
 
+  // The client's target (spec 2026-10-23-smr-target-match): one line under
+  // the labor summary, one under the materials total, each with its own state.
+  const TARGET = {
+    hours: "2", current_hours: "1.5", gap_hours: "-0.5", remaining_hours: "0.5", matched: false,
+    labor_total: "125.00", total: "192.16", materials_total: "67.16", current_materials_total: "0.00",
+    gap_materials_total: "-67.16", remaining_materials_total: "67.16",
+  };
+
+  const laborTarget = (cardEl) => cardEl.querySelector(".wo-labor-section .wo-target");
+  const materialsTarget = (cardEl) => cardEl.querySelector(".wo-materials-section .wo-target");
+
+  it("SMR order with a target shows the gap under labor and materials", async () => {
+    const { cardEl } = await renderBody({ smr: true, smr_target: TARGET }, { role: "admin" });
+    expect(cardEl.querySelectorAll(".wo-target")).toHaveLength(2);
+    expect(laborTarget(cardEl).textContent).toBe("Client sheet: 2.0 h · Charged: 1.5 h · Remaining: 0.5 h · Within 0.5 h");
+    expect(laborTarget(cardEl).classList.contains("wo-target--matched")).toBe(true);
+    expect(materialsTarget(cardEl).textContent).toBe("Client sheet: $67.16 · Charged (+15%): $0.00 · Remaining: $67.16 · Short by $67.16");
+    expect(materialsTarget(cardEl).classList.contains("wo-target--short")).toBe(true);
+  });
+
+  it("says Matched at or above target and Short by beyond the hours band", async () => {
+    const { cardEl } = await renderBody({ smr: true, smr_target: {
+      ...TARGET, current_hours: "0.5", gap_hours: "-1.5", remaining_hours: "1.5",
+      current_materials_total: "80.00", gap_materials_total: "12.84", remaining_materials_total: "0.00",
+    } }, { role: "admin" });
+    expect(laborTarget(cardEl).textContent).toBe("Client sheet: 2.0 h · Charged: 0.5 h · Remaining: 1.5 h · Short by 1.5 h");
+    expect(laborTarget(cardEl).classList.contains("wo-target--short")).toBe(true);
+    expect(materialsTarget(cardEl).textContent).toBe("Client sheet: $67.16 · Charged (+15%): $80.00 · Remaining: $0.00 · Matched");
+    expect(materialsTarget(cardEl).classList.contains("wo-target--matched")).toBe(true);
+  });
+
+  it("renders no target line without a target", async () => {
+    const { cardEl } = await renderBody({ smr: true, smr_target: null }, { role: "admin" });
+    expect(cardEl.querySelectorAll(".wo-target")).toHaveLength(0);
+  });
+
+  it("keeps the hours line and drops the money line when cost is redacted", async () => {
+    const { cardEl } = await renderBody({ smr: true, smr_target: {
+      ...TARGET, labor_total: null, total: null, materials_total: null, current_materials_total: null,
+      gap_materials_total: null, remaining_materials_total: null,
+    } }, { role: "supervisor" });
+    expect(cardEl.querySelectorAll(".wo-target")).toHaveLength(1);
+    expect(laborTarget(cardEl).textContent).toContain("Client sheet: 2.0 h");
+    expect(materialsTarget(cardEl)).toBeNull();
+  });
+
   it("drops the charge and softens the rate line when cost is redacted", async () => {
     const { cardEl } = await renderBody({
       labor_total: null, labor_rate: null,

@@ -173,6 +173,7 @@ export function workOrderDetail(overrides = {}) {
     labor_rate: "62.50",
     labor_total: "0.00",
     signature: null,
+    smr_target: null,
     ...overrides,
   };
 }

@@ -67,6 +67,51 @@ export function materialsTotalHtml(detail) {
     `<span class="charge-marked">+15%: ${escapeHtml(formatMoney(marked))}</span></div>`;
 }
 
+// The client's target for an SMR order (spec 2026-10-23-smr-target-match):
+// one line under the labor summary, one under the materials total. Matched
+// means at or above the client's number, or within the band below it (0.5 h,
+// $10); the server decides `matched` for the order, the line words its own
+// number so an Admin sees which side still needs work.
+const TARGET_HOURS_BAND = 0.5;
+const TARGET_MATERIAL_BAND = 10;
+
+function targetState(remaining, band, within) {
+  if (remaining <= 0) return { word: "Matched", cls: "wo-target--matched" };
+  if (remaining <= band) return { word: within, cls: "wo-target--matched" };
+  return null;
+}
+
+function targetLineHtml(parts, remaining, band, within, shortText) {
+  const state = targetState(remaining, band, within) || { word: shortText, cls: "wo-target--short" };
+  const text = [...parts, `Remaining: ${remaining <= 0 ? parts.zero : parts.remainingText}`, state.word].join(" · ");
+  return `<div class="wo-target ${state.cls}">${escapeHtml(text)}</div>`;
+}
+
+const hoursText = (value) => `${Number(value).toFixed(1)} h`;
+
+export function targetLaborHtml(detail) {
+  const t = detail?.smr && detail.smr_target;
+  if (!t) return "";
+  const remaining = Number(t.remaining_hours) || 0;
+  const parts = [`Client sheet: ${hoursText(t.hours)}`, `Charged: ${hoursText(t.current_hours)}`];
+  parts.remainingText = hoursText(remaining);
+  parts.zero = hoursText(0);
+  return targetLineHtml(parts, remaining, TARGET_HOURS_BAND, `Within ${hoursText(TARGET_HOURS_BAND)}`, `Short by ${hoursText(remaining)}`);
+}
+
+export function targetMaterialsHtml(detail) {
+  const t = detail?.smr && detail.smr_target;
+  if (!t || t.materials_total === null || t.materials_total === undefined) return "";
+  const remaining = Number(t.remaining_materials_total) || 0;
+  const parts = [
+    `Client sheet: ${formatMoney(t.materials_total)}`,
+    `Charged (+15%): ${formatMoney(t.current_materials_total || 0)}`,
+  ];
+  parts.remainingText = formatMoney(remaining);
+  parts.zero = formatMoney(0);
+  return targetLineHtml(parts, remaining, TARGET_MATERIAL_BAND, `Within ${formatMoney(TARGET_MATERIAL_BAND)}`, `Short by ${formatMoney(remaining)}`);
+}
+
 export function notesLogContentsHtml(notes) {
   const log = String(notes || "").trim();
   return log
