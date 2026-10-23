@@ -23,7 +23,8 @@ const filterButtons = Array.from(document.querySelectorAll(".smr-btn[data-filter
 
 export const EMPTY_COPY = "NO SMR ORDERS. OWNER: IMPORT FROM INTEGRATIONS.";
 
-let activeFilter = "all";
+// Untouched is the working view: the orders still to be re-charged.
+let activeFilter = "untouched";
 let lastPayload = null;
 
 // "+$58.40" / "-$3.00" / "$0.00": the sign is the whole point of a delta.
