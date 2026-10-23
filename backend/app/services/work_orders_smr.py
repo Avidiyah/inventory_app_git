@@ -25,6 +25,7 @@ from app.schemas.work_orders_smr import (
     SmrDelta,
     SmrFilterOptions,
     SmrImportResult,
+    SmrTargetImportResult,
     SmrTile,
     SmrTilesResponse,
     SmrTotals,
@@ -34,7 +35,7 @@ from app.services import work_orders as wos
 
 # --- import --------------------------------------------------------------
 
-def _read_sheet(csv_bytes: bytes) -> list[dict]:
+def _read_sheet(csv_bytes: bytes, *, required: tuple[str, ...] = smr.SMR_REQUIRED_HEADERS) -> list[dict]:
     """Decode, strip an Excel `sep=,` line, parse every record before any
     write, and insist on the headers the import reads by name."""
     try:
@@ -47,7 +48,7 @@ def _read_sheet(csv_bytes: bytes) -> list[dict]:
     try:
         reader = csv.DictReader(stream)
         headers = reader.fieldnames or []
-        missing = [h for h in smr.SMR_REQUIRED_HEADERS if headers.count(h) != 1]
+        missing = [h for h in required if headers.count(h) != 1]
         if missing:
             raise WorkOrderStateError(
                 "SMR sheet must include exactly one of each column: " + ", ".join(missing)
@@ -120,6 +121,41 @@ def import_smr(db: Session, *, csv_bytes: bytes, user: User) -> SmrImportResult:
         restored=restored,
         skipped=skipped,
         baselined=baselined,
+    )
+
+
+def import_smr_targets(db: Session, *, csv_bytes: bytes, user: User) -> SmrTargetImportResult:
+    """Import the client's Breakdown sheet (Owner, spec 2026-10-23-smr-target-match).
+
+    Every row with a WO# that is already an SMR order gets its `smr_target`
+    (over)written; a later duplicate row simply overwrites an earlier one,
+    which is "last row wins". Blank WO#s (the totals footer) are skipped;
+    numbers that are not SMR orders are counted as unknown and never created.
+    All rows parse before the first write, so a bad cell fails the whole file."""
+    parsed_rows = [smr.parse_target_row(row) for row in _read_sheet(csv_bytes, required=smr.TARGET_REQUIRED_HEADERS)]
+    now = datetime.now(timezone.utc)
+    targeted = skipped = unknown = 0
+    unknown_numbers: list[str] = []
+
+    for parsed in parsed_rows:
+        if parsed is None:
+            skipped += 1
+            continue
+        existing = wos.find_by_number(db, parsed["number"])
+        if existing is None or existing.smr_imported_at is None:
+            unknown += 1
+            unknown_numbers.append(parsed["number"])
+            continue
+        existing.smr_target = smr.target_record(parsed, imported_at=now)
+        targeted += 1
+    db.commit()
+
+    return SmrTargetImportResult(
+        total=targeted + skipped + unknown,
+        targeted=targeted,
+        skipped=skipped,
+        unknown=unknown,
+        unknown_numbers=unknown_numbers[:50],
     )
 
 

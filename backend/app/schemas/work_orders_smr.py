@@ -26,6 +26,19 @@ class SmrImportResult(BaseModel):
     baselined: int
 
 
+class SmrTargetImportResult(BaseModel):
+    """Summary of `POST /work-orders/smr/import-targets`. `targeted` rows set
+    an SMR order's target (a later duplicate overwrites an earlier one);
+    `skipped` are blank WO#s (the footer); `unknown` are WO#s that are not SMR
+    orders, the first 50 listed in `unknown_numbers`."""
+
+    total: int
+    targeted: int
+    skipped: int
+    unknown: int
+    unknown_numbers: list[str] = Field(default_factory=list)
+
+
 class SmrTotals(BaseModel):
     materials_total: Decimal
     real_minutes: int

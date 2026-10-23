@@ -102,3 +102,60 @@ def test_smr_import_requires_filed_status_header(db):
     owner = _user(db, roles.ROLE_OWNER)
     with pytest.raises(WorkOrderStateError, match="FILED STATUS"):
         smr_service.import_smr(db, csv_bytes=b"WORK ORDER,LOCATION\r\n1,x\r\n", user=owner)
+
+
+# --- target import (spec 2026-10-23-smr-target-match) ---------------------
+
+BREAKDOWN_HEADERS = "WO#,Unit#,Closed Date,Labor Type,BELFOR HRS,Add HRS,Duplicate HRS,Hours,Labor $,OT Hours,OT $,Total Material Cost,Total L&M,"
+
+
+def _breakdown(rows):
+    # Money cells are quoted: "$1,067.16" carries a comma.
+    lines = [BREAKDOWN_HEADERS] + [f'{n},Young Hall 108,05/21/26,SL,,,,{h},$0.00,,$0.00,"{m}",$0.00,' for n, h, m in rows]
+    return ("\r\n".join(lines) + "\r\n").encode("utf-8")
+
+
+def test_import_targets_attaches_last_row_wins(db):
+    owner = _user(db, roles.ROLE_OWNER)
+    number = _num()
+    smr_service.import_smr(db, csv_bytes=_csv([(number, "Closed", "")]), user=owner)
+
+    result = smr_service.import_smr_targets(
+        db, csv_bytes=_breakdown([(number, "0.5", "$31.25"), (number, "1.5", "$1,067.16")]), user=owner
+    )
+
+    assert (result.total, result.targeted, result.unknown, result.skipped) == (2, 2, 0, 0)
+    order = wos.find_by_number(db, number)
+    assert order.smr_target["hours"] == "1.5" and order.smr_target["materials_total"] == "1067.16"
+    assert order.smr_target["source_row"]["Unit#"] == "Young Hall 108"
+    assert order.smr_baseline is not None and "hours" not in order.smr_baseline
+
+
+def test_import_targets_skips_footer_and_unknown(db):
+    owner = _user(db, roles.ROLE_OWNER)
+    smr_number, live_number, ghost = _num(), _num(), _num()
+    smr_service.import_smr(db, csv_bytes=_csv([(smr_number, "Closed", "")]), user=owner)
+    wos.get_or_create_work_order(db, number=live_number, created_by_id=owner.id)  # not SMR
+    sheet = _breakdown([(smr_number, "1", "$9.38"), (live_number, "1", "$1.00"), (ghost, "1", "$1.00"), ("", "4455.5", "$149,961.19")])
+
+    result = smr_service.import_smr_targets(db, csv_bytes=sheet, user=owner)
+
+    assert (result.total, result.targeted, result.unknown, result.skipped) == (4, 1, 2, 1)
+    assert sorted(result.unknown_numbers) == sorted([live_number, ghost])
+    assert wos.find_by_number(db, live_number).smr_target is None
+    assert wos.find_by_number(db, ghost) is None
+
+
+def test_import_targets_requires_breakdown_headers(db):
+    owner = _user(db, roles.ROLE_OWNER)
+    with pytest.raises(WorkOrderStateError, match="Total Material Cost"):
+        smr_service.import_smr_targets(db, csv_bytes=_csv([]), user=owner)
+
+
+def test_import_targets_rerun_overwrites(db):
+    owner = _user(db, roles.ROLE_OWNER)
+    number = _num()
+    smr_service.import_smr(db, csv_bytes=_csv([(number, "Closed", "")]), user=owner)
+    smr_service.import_smr_targets(db, csv_bytes=_breakdown([(number, "1", "$5.00")]), user=owner)
+    smr_service.import_smr_targets(db, csv_bytes=_breakdown([(number, "2", "$6.00")]), user=owner)
+    assert wos.find_by_number(db, number).smr_target["hours"] == "2"

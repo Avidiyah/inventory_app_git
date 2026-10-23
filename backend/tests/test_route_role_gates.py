@@ -659,6 +659,7 @@ def test_filing_and_cancelling_a_material_request_have_no_static_min_role(endpoi
     "endpoint_name,expected",
     [
         ("import_smr", roles.ROLE_OWNER),
+        ("import_smr_targets", roles.ROLE_OWNER),
         ("export_smr_xlsx", roles.ROLE_OWNER),
         ("list_smr_tiles", roles.ROLE_ADMIN),
     ],

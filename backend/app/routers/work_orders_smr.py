@@ -20,7 +20,7 @@ from app.domain.errors import DomainError
 from app.models import User
 from app.routers._errors import to_http
 from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_capped
-from app.schemas.work_orders_smr import SmrImportResult, SmrTilesResponse
+from app.schemas.work_orders_smr import SmrImportResult, SmrTargetImportResult, SmrTilesResponse
 from app.services import work_orders_smr as smr_service
 from app.services import work_orders_smr_xlsx as smr_xlsx
 
@@ -47,6 +47,24 @@ def import_smr(
     data = read_capped(file, limit=MAX_CSV_UPLOAD_BYTES, what="CSV file")
     try:
         return smr_service.import_smr(db, csv_bytes=data, user=user)
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.post(
+    "/import-targets",
+    response_model=SmrTargetImportResult,
+    responses={**_forbidden(roles.ROLE_OWNER), 413: {"description": "CSV exceeds the upload size cap."}},
+)
+def import_smr_targets(
+    file: UploadFile = File(...),
+    user: User = Depends(require_min_role(roles.ROLE_OWNER)),
+    db: Session = Depends(get_db),
+) -> SmrTargetImportResult:
+    """Import the client's Breakdown sheet as per-order targets (Owner)."""
+    data = read_capped(file, limit=MAX_CSV_UPLOAD_BYTES, what="CSV file")
+    try:
+        return smr_service.import_smr_targets(db, csv_bytes=data, user=user)
     except DomainError as exc:
         raise to_http(exc)
 
