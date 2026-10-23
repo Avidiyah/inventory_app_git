@@ -1010,6 +1010,17 @@ export async function apiImportSmr(file) {
   });
   return parseResponse(response);
 }
+// The client's Breakdown sheet: per-order hours and material targets (Owner).
+export async function apiImportSmrTargets(file) {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await rawFetch("/work-orders/smr/import-targets", {
+    method: "POST",
+    body: form,
+    credentials: "include",
+  });
+  return parseResponse(response);
+}
 export async function apiListSmrTiles({
   status = null, supervisorId = null, assignedToId = null, community = null,
   priority = null, scheduledDate = null, q = null, locationQ = null, taskQ = null, sort = null,

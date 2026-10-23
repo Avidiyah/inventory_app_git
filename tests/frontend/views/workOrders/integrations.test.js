@@ -165,6 +165,43 @@ describe("the CSV import", () => {
   });
 });
 
+describe("the SMR Labor Import (spec 2026-10-23-smr-target-match)", () => {
+  const breakdown = () => new File(["WO#,Hours,Total Material Cost\n1,0.5,$31.25"], "breakdown.csv", { type: "text/csv" });
+
+  function chooseTargetsFile(file) {
+    const input = el("wo-smr-targets-file");
+    Object.defineProperty(input, "files", { configurable: true, value: file ? [file] : [] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  it("is hidden for an Admin", async () => {
+    await mountIntegrations({ role: "admin" });
+    expect(el("wo-smr-targets-btn").hidden).toBe(true);
+  });
+
+  it("is shown for an Owner and opens its own file picker", async () => {
+    await mountIntegrations({ role: "owner" });
+    expect(el("wo-smr-targets-btn").hidden).toBe(false);
+    const clicked = vi.fn();
+    el("wo-smr-targets-file").addEventListener("click", clicked);
+    el("wo-smr-targets-btn").click();
+    expect(clicked).toHaveBeenCalledTimes(1);
+  });
+
+  it("posts the Breakdown sheet and reports targeted / unknown counts", async () => {
+    await mountIntegrations({ role: "owner" });
+    respond("post", "/work-orders/smr/import-targets", { total: 6, targeted: 3, skipped: 1, unknown: 2, unknown_numbers: ["1", "2"] });
+    chooseTargetsFile(breakdown());
+    await vi.waitFor(() => expect(importLine().textContent)
+      .toBe("SMR labor targets: 3 orders set, 2 unknown WO#s skipped."));
+    expect(importLine().className).toBe("success");
+    expect(requestFor("/work-orders/smr/import-targets", "POST")).not.toBeNull();
+    // `requestFor` matches by fragment, so check the sibling route exactly.
+    expect(requests().some((call) => call.url.endsWith("/work-orders/smr/import"))).toBe(false);
+    expect(el("wo-smr-targets-btn").disabled).toBe(false);
+  });
+});
+
 describe("the SMR import (spec 2026-10-23 D2)", () => {
   const sheet = () => new File(["WORK ORDER,FILED STATUS\n1,Closed"], "smr.csv", { type: "text/csv" });
 

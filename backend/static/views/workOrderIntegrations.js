@@ -13,6 +13,7 @@ import {
   apiGetNetFacilitiesEnrichment,
   apiImportNetFacilitiesCloudDownload,
   apiImportSmr,
+  apiImportSmrTargets,
   apiImportWorkOrders,
   apiStartNetFacilitiesCloudAuthentication,
   apiStartNetFacilitiesEnrichment,
@@ -32,6 +33,8 @@ const importBtn = document.getElementById("wo-import-btn");
 const importMessage = document.getElementById("wo-import-message");
 const smrImportFile = document.getElementById("wo-smr-import-file");
 const smrImportBtn = document.getElementById("wo-smr-import-btn");
+const smrTargetsFile = document.getElementById("wo-smr-targets-file");
+const smrTargetsBtn = document.getElementById("wo-smr-targets-btn");
 const netFacilitiesStatus = document.getElementById("wo-netfacilities-status");
 const netFacilitiesEnrichBtn = document.getElementById("wo-netfacilities-enrich-btn");
 const netFacilitiesCloudSignInBtn = document.getElementById("wo-netfacilities-cloud-sign-in-btn");
@@ -52,6 +55,7 @@ export async function loadIntegrationsPage() {
   if (importSection) importSection.hidden = !isAdminPlus();
   // SMR Import is the Owner's: it restores archived orders (spec 2026-10-23 D2).
   if (smrImportBtn) smrImportBtn.hidden = !roleAtLeast(getRole(), "owner");
+  if (smrTargetsBtn) smrTargetsBtn.hidden = !roleAtLeast(getRole(), "owner");
   if (!isAdminPlus()) return;
   void refreshNetFacilitiesCloudSession();
 }
@@ -424,6 +428,34 @@ if (smrImportBtn) smrImportBtn.addEventListener("click", (event) => {
   if (smrImportFile) smrImportFile.click();
 });
 if (smrImportFile) smrImportFile.addEventListener("change", handleSmrImport);
+
+// The client's Breakdown sheet (Owner): per-order hours and material targets
+// (spec 2026-10-23-smr-target-match). Attaches to SMR orders only.
+async function handleSmrTargetsImport() {
+  const file = smrTargetsFile.files && smrTargetsFile.files[0];
+  if (!file) return;
+  setMessage(importMessage, "Importing SMR labor targets…", "");
+  smrTargetsBtn.disabled = true;
+  try {
+    const r = await apiImportSmrTargets(file);
+    setMessage(
+      importMessage,
+      `SMR labor targets: ${r.targeted} orders set, ${r.unknown} unknown WO#s skipped.`,
+      "success",
+    );
+  } catch (err) {
+    setMessage(importMessage, friendlyError(err, "Could not import the SMR labor targets."), "error");
+  } finally {
+    smrTargetsBtn.disabled = false;
+    smrTargetsFile.value = "";
+  }
+}
+
+if (smrTargetsBtn) smrTargetsBtn.addEventListener("click", (event) => {
+  if (event.target.closest(".tip-btn")) return;
+  if (smrTargetsFile) smrTargetsFile.click();
+});
+if (smrTargetsFile) smrTargetsFile.addEventListener("change", handleSmrTargetsImport);
 
 // --- CSV export (Admin+) --------------------------------------------------
 

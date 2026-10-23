@@ -265,6 +265,10 @@ export const TIPS = {
     label: "SMR Import (Owner)",
     text: "Imports the SMR27 vendor sheet. Every Closed row becomes an SMR work order -- restored if it was archived -- with its pre-audit numbers frozen once. Edit them on the SMR27 page; the export there shows before and after.",
   },
+  "integrations.smr-targets": {
+    label: "SMR Labor Import (Owner)",
+    text: "Imports the client's Breakdown sheet. Each WO#'s hours and material dollars become that SMR order's target; the SMR27 page and the editor show how far each order is from it. Rows for unknown WO#s are skipped.",
+  },
   "integrations.netfacilities": {
     label: "NetFacilities import and export",
     text: "Log in to NetFacilities opens a cloud sign-in window from any device. Export the work-order CSV there; Import downloaded CSV brings it in, then Import Tasks and Priority fills in Task/Symptom and Priority from the same session. Import from CSV still accepts any file you already have. For Client exports the billing sheet with totals and receipts, scoped by the dropdown beside it.",
