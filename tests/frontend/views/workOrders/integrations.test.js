@@ -165,6 +165,51 @@ describe("the CSV import", () => {
   });
 });
 
+describe("the SMR import (spec 2026-10-23 D2)", () => {
+  const sheet = () => new File(["WORK ORDER,FILED STATUS\n1,Closed"], "smr.csv", { type: "text/csv" });
+
+  function chooseSmrFile(file) {
+    const input = el("wo-smr-import-file");
+    Object.defineProperty(input, "files", { configurable: true, value: file ? [file] : [] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  it("is hidden for an Admin and shown for an Owner", async () => {
+    await mountIntegrations({ role: "admin" });
+    expect(el("wo-smr-import-btn").hidden).toBe(true);
+  });
+
+  it("opens the SMR file picker for an Owner", async () => {
+    await mountIntegrations({ role: "owner" });
+    expect(el("wo-smr-import-btn").hidden).toBe(false);
+    const clicked = vi.fn();
+    el("wo-smr-import-file").addEventListener("click", clicked);
+    el("wo-smr-import-btn").click();
+    expect(clicked).toHaveBeenCalledTimes(1);
+  });
+
+  it("posts the sheet to the SMR route and summarises the counts", async () => {
+    await mountIntegrations({ role: "owner" });
+    respond("post", "/work-orders/smr/import", { total: 9, created: 3, opened: 2, restored: 4, skipped: 0, baselined: 7 });
+    chooseSmrFile(sheet());
+    await vi.waitFor(() => expect(importLine().textContent)
+      .toBe("SMR import: 3 created, 4 restored, 2 opened, 0 skipped."));
+    expect(importLine().className).toBe("success");
+    expect(requestFor("/work-orders/smr/import", "POST")).not.toBeNull();
+    expect(requestFor("/work-orders/import", "POST")).toBeNull();
+    expect(el("wo-smr-import-btn").disabled).toBe(false);
+  });
+
+  it("reports a refusal through friendlyError", async () => {
+    await mountIntegrations({ role: "owner" });
+    respond("post", "/work-orders/smr/import", { detail: "Requires Owner or above." }, { status: 403 });
+    chooseSmrFile(sheet());
+    await vi.waitFor(() => expect(importLine().textContent)
+      .toBe("Your account can't do that. Ask a Team Lead if this seems wrong."));
+    expect(importLine().className).toBe("error");
+  });
+});
+
 describe("the exports", () => {
   function csvResponse(text, filename = "20260910_all.csv") {
     return new HttpResponse(text, {

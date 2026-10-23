@@ -20,6 +20,7 @@
                 </div>
                 <div class="lu-card-body">
                     <input type="file" id="wo-import-file" accept=".csv,text/csv" hidden>
+                    <input type="file" id="wo-smr-import-file" accept=".csv,text/csv" hidden>
                     <p id="wo-netfacilities-status" class="hint"></p>
                     <div class="filter-row">
                         <button id="wo-netfacilities-cloud-sign-in-btn" type="button" class="secondary-btn" hidden>Log in to NetFacilities</button>
@@ -27,6 +28,7 @@
                         <button id="wo-netfacilities-cloud-import-download-btn" type="button" hidden>Import downloaded CSV</button>
                         <button id="wo-import-btn" type="button">Import from CSV&hellip;</button>
                         <button id="wo-netfacilities-enrich-btn" type="button" class="secondary-btn" hidden>Import Tasks and Priority</button>
+                        <button id="wo-smr-import-btn" type="button" class="secondary-btn" hidden>SMR Import<button type="button" class="tip-btn" data-tip="integrations.smr">?</button></button>
                         <select id="wo-export-scope" aria-label="Work orders to export">
                             <option value="all">All (live)</option>
                             <option value="created">Created</option>

@@ -12,6 +12,7 @@ import {
   apiGetNetFacilitiesCloudSession,
   apiGetNetFacilitiesEnrichment,
   apiImportNetFacilitiesCloudDownload,
+  apiImportSmr,
   apiImportWorkOrders,
   apiStartNetFacilitiesCloudAuthentication,
   apiStartNetFacilitiesEnrichment,
@@ -19,6 +20,8 @@ import {
 import { setMessage } from "../dom.js";
 import { friendlyError } from "../format.js";
 import { isAdminPlus } from "./workOrderPresenters.js";
+import { getRole } from "../state.js";
+import { roleAtLeast } from "../roles.js";
 import { invalidateUsers } from "./workOrderReferenceData.js";
 import { currentFilters, invalidateFilterOptions } from "./workOrderFilters.js";
 import { loadWorkOrders } from "./workOrderList.js";
@@ -27,6 +30,8 @@ const importSection = document.getElementById("integrations-import-section");
 const importFile = document.getElementById("wo-import-file");
 const importBtn = document.getElementById("wo-import-btn");
 const importMessage = document.getElementById("wo-import-message");
+const smrImportFile = document.getElementById("wo-smr-import-file");
+const smrImportBtn = document.getElementById("wo-smr-import-btn");
 const netFacilitiesStatus = document.getElementById("wo-netfacilities-status");
 const netFacilitiesEnrichBtn = document.getElementById("wo-netfacilities-enrich-btn");
 const netFacilitiesCloudSignInBtn = document.getElementById("wo-netfacilities-cloud-sign-in-btn");
@@ -45,6 +50,8 @@ let netFacilitiesPollingJobId = null;
 // used to do when the card lived on the Work Orders page.
 export async function loadIntegrationsPage() {
   if (importSection) importSection.hidden = !isAdminPlus();
+  // SMR Import is the Owner's: it restores archived orders (spec 2026-10-23 D2).
+  if (smrImportBtn) smrImportBtn.hidden = !roleAtLeast(getRole(), "owner");
   if (!isAdminPlus()) return;
   void refreshNetFacilitiesCloudSession();
 }
@@ -389,6 +396,34 @@ async function handleImport() {
 
 if (importBtn) importBtn.addEventListener("click", () => importFile && importFile.click());
 if (importFile) importFile.addEventListener("change", handleImport);
+
+// SMR27 sheet import (Owner). Deliberately not `afterWorkOrderImport`: SMR
+// orders never reach the live list, and enrichment is the Owner's next click.
+async function handleSmrImport() {
+  const file = smrImportFile.files && smrImportFile.files[0];
+  if (!file) return;
+  setMessage(importMessage, "Importing SMR sheet…", "");
+  smrImportBtn.disabled = true;
+  try {
+    const r = await apiImportSmr(file);
+    setMessage(
+      importMessage,
+      `SMR import: ${r.created} created, ${r.restored} restored, ${r.opened} opened, ${r.skipped} skipped.`,
+      "success",
+    );
+  } catch (err) {
+    setMessage(importMessage, friendlyError(err, "Could not import the SMR sheet."), "error");
+  } finally {
+    smrImportBtn.disabled = false;
+    smrImportFile.value = "";
+  }
+}
+
+if (smrImportBtn) smrImportBtn.addEventListener("click", (event) => {
+  if (event.target.closest(".tip-btn")) return;
+  if (smrImportFile) smrImportFile.click();
+});
+if (smrImportFile) smrImportFile.addEventListener("change", handleSmrImport);
 
 // --- CSV export (Admin+) --------------------------------------------------
 
