@@ -60,6 +60,7 @@ from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_capped
 from app.schemas.work_orders import (
     LegacyWorkOrderArchivePreview,
     LegacyWorkOrderArchiveResult,
+    SmrTargetOut,
     WorkOrderCard,
     WorkOrderDetail,
     WorkOrderFilterOptions,
@@ -526,6 +527,12 @@ def _detail(
         if db is not None
         else None
     )
+    materials_total = _materials_total(work_order)
+    gap = smr.target_gap(
+        getattr(work_order, "smr_target", None),
+        billed_minutes=split.real_billed + split.skilled_billed,
+        materials_total=materials_total,
+    )
     return WorkOrderDetail(
         **_card(work_order).model_dump(),
         notes=work_order.notes,
@@ -542,7 +549,7 @@ def _detail(
             else None
         ),
         tracking_technician_ids=[session.technician_id for session in running],
-        materials_total=_materials_total(work_order) if include_price else None,
+        materials_total=materials_total if include_price else None,
         labor_minutes=labor_minutes,
         labor_billed_minutes=split.real_billed,
         skilled_labor_minutes=split.skilled_minutes,
@@ -550,6 +557,7 @@ def _detail(
         labor_rate=wo.LABOR_RATE if include_price else None,
         labor_total=split.labor_total if include_price else None,
         signature=_signature_out(work_order),
+        smr_target=SmrTargetOut.from_gap(gap, include_price=include_price) if gap else None,
     )
 
 

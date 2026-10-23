@@ -92,3 +92,27 @@ def test_work_order_totals_split_rounding(db):
     totals = wos.work_order_totals(wos.get_work_order(db, order.id, user=admin))
     assert totals.labor_minutes == 30
     assert totals.labor_total == wo.labor_charge(30) * 2
+
+
+# --- target match (spec 2026-10-23-smr-target-match) ----------------------
+
+def test_detail_target_redacts_money_below_techfm_oa(db):
+    admin = _user(db, "admin")
+    order = _order(db, admin)
+    order.smr_target = {"imported_at": None, "hours": "1", "labor_total": "62.50", "materials_total": "9.38", "total": "71.88", "source_row": {}}
+    db.flush()
+    wos.add_work_order_labor(db, order.id, user=admin, technician_id=None, minutes=30)
+
+    full = _detail(wos.get_work_order(db, order.id, user=admin), include_price=True)
+    assert full.smr_target.remaining_hours == Decimal("0.5") and full.smr_target.materials_total == Decimal("9.38")
+    assert full.smr_target.current_materials_total == Decimal(0) and full.smr_target.matched is True
+
+    redacted = _detail(wos.get_work_order(db, order.id, user=admin), include_price=False)
+    assert redacted.smr_target.remaining_hours == Decimal("0.5")
+    assert redacted.smr_target.materials_total is None and redacted.smr_target.remaining_materials_total is None
+
+
+def test_detail_target_absent_without_target(db):
+    admin = _user(db, "admin")
+    order = _order(db, admin)
+    assert _detail(wos.get_work_order(db, order.id, user=admin), include_price=True).smr_target is None

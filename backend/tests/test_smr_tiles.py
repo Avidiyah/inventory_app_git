@@ -136,3 +136,29 @@ def test_smr_tiles_filter_options_cover_smr_rows(db):
     assert "Emergency" in options.priorities
     assert sup.id in [s.id for s in options.supervisors]
     assert {c.value for c in options.communities} >= {"scholars", "young_hall"}
+
+
+# --- target match (spec 2026-10-23-smr-target-match) ----------------------
+
+def _breakdown(rows):
+    head = "WO#,Unit#,Closed Date,Labor Type,BELFOR HRS,Add HRS,Duplicate HRS,Hours,Labor $,OT Hours,OT $,Total Material Cost,Total L&M,\r\n"
+    body = "".join(f'{n},Young Hall 108,05/21/26,SL,,,,{h},$0.00,,$0.00,"{m}",$0.00,\r\n' for n, h, m in rows)
+    return (head + body).encode()
+
+
+def test_smr_tiles_carry_target_and_match_counts(db):
+    owner = _user(db)
+    short, matched, none = [f"SMR-{uuid.uuid4().hex[:8]}" for _ in range(3)]
+    smr_service.import_smr(db, csv_bytes=_sheet([short, matched, none]), user=owner)
+    smr_service.import_smr_targets(db, csv_bytes=_breakdown([(short, "2", "$67.16"), (matched, "0.5", "$0.00")]), user=owner)
+    wos.add_work_order_labor(db, wos.find_by_number(db, matched).id, user=owner, technician_id=None, minutes=30)
+
+    page = smr_service.list_smr_tiles(db)
+
+    mine = {t.number: t for t in page.tiles if t.number in (short, matched, none)}
+    assert mine[none].target is None
+    assert mine[short].target.matched is False and mine[short].target.remaining_hours == Decimal(2)
+    assert mine[short].target.remaining_materials_total == Decimal("67.16")
+    assert mine[matched].target.matched is True and mine[matched].target.current_hours == Decimal("0.5")
+    assert page.counts.matched >= 1 and page.counts.short >= 1 and page.counts.no_target >= 1
+    assert page.remaining.hours >= Decimal(2) and page.remaining.materials_total >= Decimal("67.16")

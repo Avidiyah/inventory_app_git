@@ -9,7 +9,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.schemas.work_orders import WorkOrderFilterChoice, WorkOrderSupervisorFilterChoice
+from app.schemas.work_orders import (  # noqa: F401  (SmrTargetOut re-exported)
+    SmrTargetOut,
+    WorkOrderFilterChoice,
+    WorkOrderSupervisorFilterChoice,
+)
 
 
 class SmrImportResult(BaseModel):
@@ -61,6 +65,8 @@ class SmrTile(BaseModel):
     after: SmrTotals
     delta: SmrTotals
     after_line_count: int
+    # None when the order has no Breakdown row.
+    target: Optional[SmrTargetOut] = None
 
 
 class SmrCounts(BaseModel):
@@ -68,6 +74,17 @@ class SmrCounts(BaseModel):
     edited: int
     untouched: int
     archived: int
+    # `short` = has a target and is not matched; `no_target` has no row.
+    matched: int = 0
+    short: int = 0
+    no_target: int = 0
+
+
+class SmrRemaining(BaseModel):
+    """Shortfall summed over every SMR order with a target."""
+
+    hours: Decimal = Decimal(0)
+    materials_total: Decimal = Decimal(0)
 
 
 class SmrDelta(BaseModel):
@@ -93,6 +110,7 @@ class SmrTilesResponse(BaseModel):
     imported_at: Optional[datetime] = None
     counts: SmrCounts
     delta: SmrDelta
+    remaining: SmrRemaining = Field(default_factory=SmrRemaining)
     matched: int = 0
     filter_options: SmrFilterOptions = Field(default_factory=SmrFilterOptions)
     tiles: list[SmrTile] = Field(default_factory=list)

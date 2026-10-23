@@ -25,7 +25,9 @@ from app.schemas.work_orders_smr import (
     SmrDelta,
     SmrFilterOptions,
     SmrImportResult,
+    SmrRemaining,
     SmrTargetImportResult,
+    SmrTargetOut,
     SmrTile,
     SmrTilesResponse,
     SmrTotals,
@@ -260,6 +262,18 @@ def current_snapshot(work_order: WorkOrder, *, now: Optional[datetime] = None) -
     return smr.snapshot(work_order, taken_at=now or datetime.now(timezone.utc), source_row=None)
 
 
+def target_for(work_order: WorkOrder, current: dict) -> Optional[SmrTargetOut]:
+    """The gap to the client's target from a current snapshot; None without one.
+    Tiles and the export are Admin+/Owner, so money is never redacted here."""
+    totals = current["totals"]
+    gap = smr.target_gap(
+        work_order.smr_target,
+        billed_minutes=totals["real_billed_minutes"] + totals["skilled_billed_minutes"],
+        materials_total=Decimal(totals["materials_total"]),
+    )
+    return SmrTargetOut.from_gap(gap, include_price=True) if gap else None
+
+
 def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTile:
     baseline = work_order.smr_baseline or current_snapshot(work_order, now=now)
     current = current_snapshot(work_order, now=now)
@@ -284,6 +298,7 @@ def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTil
             total=d["total"],
         ),
         after_line_count=len(current["material_lines"]),
+        target=target_for(work_order, current),
     )
 
 
@@ -294,6 +309,8 @@ def list_smr_tiles(db: Session, **filters) -> SmrTilesResponse:
     population = smr_orders(db)
     all_tiles = [tile_for(order) for order in population]
     edited = sum(1 for t in all_tiles if t.edited)
+    targeted = [t.target for t in all_tiles if t.target is not None]
+    matched = sum(1 for t in targeted if t.matched)
     shown = [tile_for(o) for o in filtered_smr_orders(db, **filters)]
     return SmrTilesResponse(
         imported_at=max((o.smr_imported_at for o in population), default=None),
@@ -302,6 +319,13 @@ def list_smr_tiles(db: Session, **filters) -> SmrTilesResponse:
             edited=edited,
             untouched=len(all_tiles) - edited,
             archived=sum(1 for t in all_tiles if t.archived_at is not None),
+            matched=matched,
+            short=len(targeted) - matched,
+            no_target=len(all_tiles) - len(targeted),
+        ),
+        remaining=SmrRemaining(
+            hours=sum((t.remaining_hours for t in targeted), Decimal(0)),
+            materials_total=sum((t.remaining_materials_total for t in targeted), Decimal(0)),
         ),
         delta=SmrDelta(
             labor_total=sum((t.delta.labor_total for t in all_tiles), Decimal(0)),

@@ -382,6 +382,40 @@ class WorkOrderStartTracking(BaseModel):
     notes_acknowledged: bool = False
 
 
+# The SmrTargetOut fields redacted below TechFM OA.
+_SMR_TARGET_MONEY_KEYS = (
+    "labor_total", "total", "materials_total", "current_materials_total",
+    "gap_materials_total", "remaining_materials_total",
+)
+
+
+class SmrTargetOut(BaseModel):
+    """The client's target for an SMR order and how far the live order is from
+    it (spec 2026-10-23-smr-target-match). Hours are always visible; the money
+    fields are None below TechFM OA, like `materials_total`. `gap` is current
+    minus target (negative = still short); `remaining` is the shortfall, 0 when
+    at or above target; `matched` is the undershoot-only band rule."""
+
+    hours: Decimal
+    current_hours: Decimal
+    gap_hours: Decimal
+    remaining_hours: Decimal
+    matched: bool
+    labor_total: Optional[Decimal] = None
+    total: Optional[Decimal] = None
+    materials_total: Optional[Decimal] = None
+    current_materials_total: Optional[Decimal] = None
+    gap_materials_total: Optional[Decimal] = None
+    remaining_materials_total: Optional[Decimal] = None
+
+    @classmethod
+    def from_gap(cls, gap: dict, *, include_price: bool) -> "SmrTargetOut":
+        return cls(**{
+            key: (value if include_price or key not in _SMR_TARGET_MONEY_KEYS else None)
+            for key, value in gap.items()
+        })
+
+
 class WorkOrderDetail(WorkOrderCard):
     """A work-order card plus notes, logged materials, labor, and sign-off.
 
@@ -414,3 +448,5 @@ class WorkOrderDetail(WorkOrderCard):
     labor_total: Optional[Decimal] = None
     # None until a witness signs; one per work order, locked after save (S1).
     signature: Optional[WorkOrderSignatureOut] = None
+    # The client's target and the gap to it; SMR orders with a target only.
+    smr_target: Optional[SmrTargetOut] = None
