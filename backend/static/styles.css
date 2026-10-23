@@ -5754,3 +5754,99 @@ details[open] > .wo-summary::before { content: "\25BE"; }
         scroll-behavior: auto !important;
     }
 }
+
+
+/* =====================================================================
+   SMR27 audit page (views/smr.js, pages/smr.html)
+   A deliberate departure from the frosted-panel system: white on black,
+   monospace, 1px rules, nothing rounded, no accent colour. Scoped under
+   #smr-page so nothing leaks. See docs/design-system.md.
+   ===================================================================== */
+#smr-page {
+    background: #000;
+    color: #fff;
+    font-family: ui-monospace, "Courier New", monospace;
+    font-size: 13px;
+    padding: 16px;
+    margin: 0 -16px;
+    min-height: 100vh;
+}
+#smr-page .smr-title {
+    color: #fff;
+    font-weight: 400;
+    font-size: 16px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    margin: 0 0 12px;
+}
+#smr-page .smr-bar {
+    display: flex;
+    flex-wrap: wrap;
+    border: 1px solid #fff;
+    margin-bottom: 12px;
+}
+#smr-page .smr-bar-cell {
+    padding: 8px 14px;
+    border-right: 1px solid #fff;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    white-space: nowrap;
+}
+#smr-page .smr-bar-cell:last-child { border-right: 0; }
+#smr-page .smr-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+#smr-page .smr-btn {
+    background: #000;
+    color: #fff;
+    border: 1px solid #fff;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 6px 14px;
+    font: inherit;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    cursor: pointer;
+}
+#smr-page .smr-btn--on,
+#smr-page .smr-btn:hover { background: #fff; color: #000; }
+#smr-page .smr-btn--export { margin-left: auto; }
+#smr-page .smr-btn[disabled] { opacity: .5; cursor: wait; }
+#smr-page .smr-message { min-height: 1.2em; margin: 0 0 8px; text-transform: uppercase; }
+#smr-page .smr-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+}
+#smr-page .smr-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    background: #000;
+    color: #fff;
+    border: 1px solid #fff;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 10px;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+#smr-page .smr-tile:hover { background: #fff; color: #000; }
+#smr-page .smr-tile--untouched { opacity: .5; }
+#smr-page .smr-tile--archived { border-style: dashed; }
+#smr-page .smr-tile-number { font-size: 20px; font-weight: 700; }
+#smr-page .smr-tile-where { letter-spacing: .04em; }
+#smr-page .smr-tile-delta { font-size: 26px; margin: 6px 0; }
+#smr-page .smr-tile-meta { letter-spacing: .06em; }
+#smr-page .smr-empty {
+    grid-column: 1 / -1;
+    border: 1px solid #fff;
+    padding: 24px;
+    text-align: center;
+    letter-spacing: .1em;
+}

@@ -13,6 +13,7 @@ import { loadUsers } from "./users.js";
 import { loadStages } from "./massStage.js";
 import { loadWorkOrders, loadIntegrationsPage } from "./workOrders.js";
 import { loadUserHub } from "./userHub.js";
+import { loadSmr } from "./smr.js";
 import { loadAdminReview } from "./adminReview.js";
 import { loadUserRequests } from "./userRequests.js";
 import { loadLowStock } from "./lowStock.js";
@@ -72,6 +73,7 @@ const PAGE_LOADERS = {
   "admin-review": () => loadAdminReview(),
   "tools": () => loadTools(),
   "integrations": () => loadIntegrationsPage(),
+  "smr": () => loadSmr(),
 };
 
 let activePage = null;
@@ -130,6 +132,9 @@ export const PAGE_ACCESS = {
   // NetFacilities/Langston University work-order import-export. Same gate as
   // the card it replaces (workOrders.js::isAdminPlus).
   "integrations": ["owner", "admin", "techfm_oa"],
+  // SMR27 audit tiles (spec 2026-10-23 D7): Admin+ edit the orders; the
+  // import and export inside are Owner-only server-side.
+  "smr": ["owner", "admin"],
 };
 
 export function canAccessPage(role, pageName) {

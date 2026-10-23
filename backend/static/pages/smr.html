@@ -1,0 +1,22 @@
+    <!-- =================== SMR27 AUDIT PAGE =================== -->
+    <!-- Admin+ (views/nav.js PAGE_ACCESS). A deliberate departure from the
+         frosted-panel chrome: white on black, monospace, 1px rules, nothing
+         rounded (spec docs/superpowers/specs/2026-10-23-smr-audit-workflow-design.md,
+         docs/design-system.md). Wiring lives in views/smr.js; only the markup
+         lives here. Every style is a class in styles.css -- CSP drops inline
+         style attributes. -->
+    <div class="page smr" id="smr-page">
+        <section aria-labelledby="smr-heading">
+            <h2 id="smr-heading" class="smr-title">SMR27 — BELFOR</h2>
+            <div id="smr-bar" class="smr-bar" aria-live="polite"></div>
+            <div class="smr-controls">
+                <button type="button" id="smr-filter-all" class="smr-btn smr-btn--on" data-filter="all">All</button>
+                <button type="button" id="smr-filter-edited" class="smr-btn" data-filter="edited">Edited</button>
+                <button type="button" id="smr-filter-untouched" class="smr-btn" data-filter="untouched">Untouched</button>
+                <button type="button" id="smr-filter-archived" class="smr-btn" data-filter="archived">Archived</button>
+                <button type="button" id="smr-export-btn" class="smr-btn smr-btn--export" hidden>Export XLSX</button>
+            </div>
+            <p id="smr-message" class="smr-message"></p>
+            <div id="smr-tiles" class="smr-grid"></div>
+        </section>
+    </div>

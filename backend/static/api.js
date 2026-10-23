@@ -995,4 +995,10 @@ async function xlsxDownload(url, method) {
 }
 
 export const apiCreateDispenseExport = () => xlsxDownload("/items/dispense-exports", "POST");
+
+// SMR27 audit (Owner export, Admin+ tiles; spec 2026-10-23).
+export const apiExportSmrXlsx = () => xlsxDownload("/work-orders/smr/export.xlsx", "GET");
+export async function apiListSmrTiles() {
+  return jsonRequest("/work-orders/smr", "GET");
+}
 export const apiReprintDispenseExport = () => xlsxDownload("/items/dispense-exports/latest", "GET");

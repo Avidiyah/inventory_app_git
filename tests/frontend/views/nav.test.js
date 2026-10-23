@@ -20,7 +20,7 @@ const ROLES = ["technician", "supervisor", "techfm_oa", "admin", "owner"];
 const PAGES = [
   "user-hub", "create-item", "saved-items", "create-user", "saved-users",
   "transaction", "mass-stage", "work-orders", "user-requests", "low-stock",
-  "admin-review", "tools", "history", "integrations",
+  "admin-review", "tools", "history", "integrations", "smr",
 ];
 
 // Who may see what, written out per role rather than computed. This is the
@@ -32,7 +32,7 @@ const VISIBLE_BY_ROLE = {
     "user-hub", "saved-items", "create-user", "saved-users", "transaction",
     "mass-stage", "work-orders", "tools", "history",
   ],
-  techfm_oa: PAGES,
+  techfm_oa: PAGES.filter((page) => page !== "smr"),
   admin: PAGES,
   owner: PAGES,
 };
@@ -42,7 +42,7 @@ const VISIBLE_BY_ROLE = {
 // `#auth-bar`, outside `#main-nav`.
 const GROUPS = {
   inventory: ["create-item", "saved-items", "tools"],
-  field: ["transaction", "work-orders", "mass-stage"],
+  field: ["transaction", "work-orders", "mass-stage", "smr"],
   people: ["create-user", "saved-users"],
   review: ["low-stock", "user-requests", "admin-review", "history"],
   integration: ["integrations"],

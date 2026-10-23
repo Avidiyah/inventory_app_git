@@ -381,6 +381,7 @@ SHELL_PARTS = (
     "pages/tools.html",
     "pages/history.html",
     "pages/integrations.html",
+    "pages/smr.html",
     "shell-tail.html",          # </main>, scan-confirm overlay, scripts, </body></html>
 )
 
