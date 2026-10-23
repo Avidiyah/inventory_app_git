@@ -131,7 +131,7 @@ export const TIPS = {
   },
   "wo.routing": {
     label: "Assigned technicians",
-    text: "The routed Team Lead oversees the order. More than one person can be assigned, and a Team Lead or higher assigns them here. Anyone but the Owner can also tap Begin Charging on any order, which adds them to the crew. Only an Admin or the Owner can add or change hours by hand.",
+    text: "The routed Team Lead oversees the order. More than one person can be assigned, and a Team Lead or higher assigns them here. Anyone but the Owner can also tap Begin Charging on any order, which adds them to the crew. Only a Team Lead or higher can add or change someone else's hours by hand.",
   },
   "wo.entry-mode": {
     label: "New material entry mode",

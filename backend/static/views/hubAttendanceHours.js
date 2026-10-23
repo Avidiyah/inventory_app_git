@@ -12,7 +12,8 @@
 // P3 added editing: `[Edit]` / `[Looks right]` per punch row and
 // `[+ Add punch]` per day, all inside the drill-down and all withheld unless
 // the caller passes the matching callback -- which `hubTimesheetsTab.js` does
-// only for an Admin. A `carried` punch never gets one: spec §9 gives a
+// for a Team Lead+ (edit, add, delete) and only for an Admin ("Looks right",
+// lunch). A `carried` punch never gets one: spec §9 gives a
 // cross-midnight punch to the day it started, and it is editable only there.
 // The editor itself is `hubAttendancePunchEditor.js`; this module stays a
 // pure view and hands values back through callbacks.
@@ -76,7 +77,7 @@ function cellFlagLabels(day) {
   return labels.join(", ");
 }
 
-function punchRowHtml(punch, { canEdit } = {}) {
+function punchRowHtml(punch, { canEdit, canReview } = {}) {
   const ended = punch.open ? "running" : timeLabel(punch.ended_at);
   const notes = [];
   // Why the row is here rather than on its own day -- without this a two-hour
@@ -93,7 +94,7 @@ function punchRowHtml(punch, { canEdit } = {}) {
   // editable there and nowhere else.
   const controls = !canEdit || punch.carried ? "" : `<span class="hub-hours-row-actions">
       <button type="button" class="hub-link-btn hub-hours-edit" data-punch="${escapeHtml(punch.id)}">Edit</button>
-      ${punch.needs_review ? `<button type="button" class="hub-link-btn hub-hours-clear-review" data-punch="${escapeHtml(punch.id)}">Looks right</button>` : ""}
+      ${punch.needs_review && canReview ? `<button type="button" class="hub-link-btn hub-hours-clear-review" data-punch="${escapeHtml(punch.id)}">Looks right</button>` : ""}
     </span>`;
   return `<div class="hub-hours-drilldown-row">
     <span>${escapeHtml(timeLabel(punch.started_at))} – ${escapeHtml(ended)}${suffix}</span>
@@ -124,8 +125,12 @@ function lunchLineHtml(day, canEdit) {
 
 // Shared with the day page (hubAttendanceDay.js), which stacks one of these
 // per person for a single date and so needs `userId` on the add button.
-export function drilldownHtml(day, name, { canEdit, userId = "" } = {}) {
-  const rows = day.punches.map((punch) => punchRowHtml(punch, { canEdit })).join("");
+// `canReview` and `canLunch` are the Admin-only extras ("Looks right", the
+// lunch waiver); both default to `canEdit` so existing callers are unchanged.
+export function drilldownHtml(day, name, {
+  canEdit, canReview = canEdit, canLunch = canEdit, userId = "",
+} = {}) {
+  const rows = day.punches.map((punch) => punchRowHtml(punch, { canEdit, canReview })).join("");
   const empty = day.punches.length
     ? ""
     : `<p class="hint hub-hours-no-detail">No punches recorded.</p>`;
@@ -137,7 +142,7 @@ export function drilldownHtml(day, name, { canEdit, userId = "" } = {}) {
       <strong>${escapeHtml(name)} · ${escapeHtml(longDateLabel(day.date))}</strong>
       <strong>${formatHm(day.paid_minutes)} paid</strong>
     </div>
-    ${rows}${lunchLineHtml(day, canEdit)}${empty}${add}
+    ${rows}${lunchLineHtml(day, canLunch)}${empty}${add}
     <div class="hub-hours-editor" data-date="${escapeHtml(day.date)}" data-user="${escapeHtml(userId)}"></div>
   </div>`;
 }
@@ -200,7 +205,7 @@ export function mountHubAttendanceHours(container, payload, {
         if (expanded?.rowIndex !== rowIndex) return mainRow;
         const day = byDate.get(expanded.date);
         if (!day) return mainRow;
-        return `${mainRow}<tr class="hub-hours-detail-row"><td colspan="${payload.days.length + 2}" id="hub-hours-detail-${rowIndex}">${drilldownHtml(day, name, { canEdit })}</td></tr>`;
+        return `${mainRow}<tr class="hub-hours-detail-row"><td colspan="${payload.days.length + 2}" id="hub-hours-detail-${rowIndex}">${drilldownHtml(day, name, { canEdit, canReview: Boolean(onClearReview), canLunch: Boolean(onToggleLunch) })}</td></tr>`;
       })
       .join("");
     const totals = payload.totals_by_day

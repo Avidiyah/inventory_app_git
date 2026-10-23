@@ -531,10 +531,9 @@ def test_no_route_gate_is_left_at_the_admin_floor():
     # one-line change in the gate plus removing this exemption; nothing else in
     # the design depends on it.
     #
-    # The attendance week joins it for a different reason: it is the payroll
-    # record (2026-09-21-attendance-timesheet-design.md D1), and TechFM OA
-    # holding the operational toolkit is not a reason to hand them everyone's
-    # paid hours.
+    # The attendance week, live roster, person week and clock-out left the set
+    # on 2026-10-22: Team Leads edit anyone's hours, so they read and write
+    # them. The CSV export and bulk review (pay-record money and flags) stay.
     #
     # P3's three audited punch writes left the set on 2026-10-16: a worker
     # edits their own open-week punches, so the route is session-only and
@@ -548,13 +547,8 @@ def test_no_route_gate_is_left_at_the_admin_floor():
     assert offenders == {
         "get_hub_report",
         "export_hub_report",
-        "get_hub_attendance_week",
-        "get_hub_attendance_live",
-        "clock_out_hub_attendance_user",
         "export_hub_attendance",
         "review_hub_attendance_week",
-        # The per-person profile is the pay record read one name at a time.
-        "get_hub_person_week",
     }
 
 
@@ -565,29 +559,25 @@ def test_the_admin_daily_report_sits_above_techfm_oa():
     assert _min_role_for(hub_router, "export_hub_report") == roles.ROLE_ADMIN
 
 
-def test_the_attendance_week_sits_above_techfm_oa():
-    # The pay record is Admin-only (D1). Pinned separately from the set above
-    # so a floor lowered by accident names itself in the failure.
-    assert _min_role_for(hub_router, "get_hub_attendance_week") == roles.ROLE_ADMIN
-
-
-def test_the_live_roster_sits_above_techfm_oa():
-    # Pinned separately from the set above so a floor lowered by accident
-    # names itself in the failure.
-    assert _min_role_for(hub_router, "get_hub_attendance_live") == roles.ROLE_ADMIN
-
-
-def test_the_person_week_sits_above_techfm_oa():
-    # One person's clocked and charged week is the pay record (D1).
-    assert _min_role_for(hub_router, "get_hub_person_week") == roles.ROLE_ADMIN
-
-
 @pytest.mark.parametrize(
-    "endpoint_name", ["clock_out_hub_attendance_user", "review_hub_attendance_week"],
+    "endpoint_name",
+    [
+        "get_hub_attendance_week",
+        "get_hub_attendance_live",
+        "get_hub_person_week",
+        "clock_out_hub_attendance_user",
+    ],
 )
-def test_the_punch_writes_sit_above_techfm_oa(endpoint_name):
-    # Writing somebody's paid hours is the narrowest capability in the app.
-    assert _min_role_for(hub_router, endpoint_name) == roles.ROLE_ADMIN
+def test_the_hours_routes_open_at_team_lead(endpoint_name):
+    # 2026-10-22: Team Leads edit anyone's hours, so they read the week,
+    # roster and person week and clock people out. Pinned so a floor changed
+    # by accident names itself in the failure.
+    assert _min_role_for(hub_router, endpoint_name) == roles.ROLE_SUPERVISOR
+
+
+def test_bulk_review_sits_above_techfm_oa():
+    # Clearing the week's review flags stays Admin-only.
+    assert _min_role_for(hub_router, "review_hub_attendance_week") == roles.ROLE_ADMIN
 
 
 @pytest.mark.parametrize(

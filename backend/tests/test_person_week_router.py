@@ -64,11 +64,13 @@ def test_week_omitted_is_the_current_week(db):
     assert datetime.fromisoformat(body["week_start"]).weekday() == 0
 
 
-def test_techfm_oa_viewer_is_refused(db):
-    oa = _seed_user(db, role="techfm_oa")
+def test_technician_viewer_is_refused_and_team_lead_reads(db):
+    viewer = _seed_user(db, role="technician", first="Vi", last="Ewer")
+    lead = _seed_user(db, role="supervisor", first="Le", last="Ad")
     tech = _seed_user(db)
     db.commit()
-    assert _get(db, oa, tech.id, week="2026-09-14").status_code == 403
+    assert _get(db, viewer, tech.id, week="2026-09-14").status_code == 403
+    assert _get(db, lead, tech.id, week="2026-09-14").status_code == 200
 
 
 def test_admin_target_is_200(db):

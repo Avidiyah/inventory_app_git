@@ -170,7 +170,7 @@ export function mountUserProfile(container, user, { onBack, week: initialWeek = 
   let requestId = 0;
   let payload = null;
   let editing = null;          // punch id, or "add:<date>"
-  const canEdit = roleAtLeast(getRole(), "admin");
+  const canEdit = roleAtLeast(getRole(), "supervisor");
 
   container.innerHTML = `<section class="user-profile" aria-labelledby="user-profile-heading">
     <div class="user-profile-header">

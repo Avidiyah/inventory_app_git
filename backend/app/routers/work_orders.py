@@ -10,7 +10,7 @@ dispenses unlock once Begin Charging (`/tracking/start`) adds them to the crew,
 which it does for every role except the Owner (who cannot track time). The
 assigned-worker start/complete/hold/resume walkthrough stays crew-only. Team Lead+
 owns operational routing, crew edits, general status, entry mode and material
-corrections. Hand-entered labor (add, edit, remove) is Admin and Owner only.
+corrections. Hand-entered labor (add, edit, remove) is Team Lead and above.
 Sending Completed work to Review is Admin+
 only and requires a second person: an assigned worker is excluded.
 TechFM OA+ additionally owns imported and legacy metadata edits.
@@ -1422,11 +1422,11 @@ def add_work_order_labor(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Record actual labor by hand (Admin and Owner only; 403 otherwise).
+    """Record actual labor by hand (Team Lead and above, or a crew member for themselves).
 
     The correction route now that tracked sessions are authoritative: a dead
     battery, a forgotten Begin Charging, a paper sheet. The technician credited
-    must be on the work order's crew, or be the Admin or Owner recording
+    must be on the work order's crew, or be the Team Lead or above recording
     themselves. Changes no status -- a backfilled duration says nothing about
     whether the job is running. Billing rounds the combined work-order duration
     upward to the next 30 minutes.
@@ -1456,7 +1456,7 @@ def update_work_order_labor(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Replace a labor entry's actual duration (Admin and Owner only)."""
+    """Replace a labor entry's actual duration (Team Lead and above, or the worker on their own)."""
     try:
         return _labor_detail(
             wo_service.update_work_order_labor(
@@ -1478,7 +1478,7 @@ def delete_work_order_labor(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Remove labor (Admin and Owner only) without rolling lifecycle status back."""
+    """Remove labor (Team Lead and above, or the worker on their own) without rolling lifecycle status back."""
     try:
         wo_service.delete_work_order_labor(
             db, work_order_id, labor_id, user=user

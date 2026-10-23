@@ -357,11 +357,11 @@ SELF_EDIT_REFUSAL = "You can only change your own time in the current week."
 
 def _require_punch_editor(actor: User, *, owner_id: uuid.UUID,
                           starts: Iterable[datetime], now: datetime) -> bool:
-    """Admin+ may change anyone's punch; anyone else only their own, and only
-    while every start involved sits in the open Central week (spec U1/U4).
-    Returns whether the actor is the punch's owner."""
+    """Team Lead+ may change anyone's punch; anyone else only their own, and
+    only while every start involved sits in the open Central week (spec
+    U1/U4). Returns whether the actor is the punch's owner."""
     is_self = actor.id == owner_id
-    if _is_admin(actor):
+    if actor.role is not None and roles.role_at_least(actor.role, roles.ROLE_SUPERVISOR):
         return is_self
     if not is_self or not all(labor_day.week_is_open(s, now) for s in starts):
         raise TimeEditForbiddenError(SELF_EDIT_REFUSAL)
@@ -432,8 +432,9 @@ def admin_edit_punch(db: Session, *, actor: User, punch_id,
     `lunch_waived` removes or restores the day's flat lunch (L2). It never
     clears `needs_review` (L4): a midnight close is still an estimate.
 
-    A worker may correct their own open-week punch's times (spec U1); "Looks
-    right" alone and the lunch waiver stay Admin-only.
+    A Team Lead may correct anyone's times, a worker their own open-week
+    punch's (spec U1); "Looks right" alone and the lunch waiver stay
+    Admin-only.
     """
     now = now or datetime.now(timezone.utc)
     punch = _live_punch(db, punch_id)

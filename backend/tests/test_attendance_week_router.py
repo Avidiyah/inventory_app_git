@@ -57,17 +57,19 @@ def test_an_admin_reads_the_week(db):
     assert row["days"][0]["punches"][0]["minutes"] == 480
 
 
-def test_techfm_oa_is_refused(db):
-    # D1: this is the pay record, and it sits above the rest of the admin
-    # toolkit that TechFM OA holds.
-    oa = _seed_user(db, role="techfm_oa", first="Oa", last="Person")
-    db.commit()
-    try:
-        with _as(db, oa) as client:
-            response = client.get("/hub/attendance/week", params={"week": "2026-09-14"})
-    finally:
-        del app.dependency_overrides[get_db]
-    assert response.status_code == 403
+def test_a_technician_is_refused_and_a_team_lead_reads(db):
+    # 2026-10-22: Team Leads edit anyone's hours, so they read the week.
+    codes = {}
+    for role in ("technician", "supervisor"):
+        person = _seed_user(db, role=role, first="Oa", last="Person")
+        db.commit()
+        try:
+            with _as(db, person) as client:
+                codes[role] = client.get(
+                    "/hub/attendance/week", params={"week": "2026-09-14"}).status_code
+        finally:
+            del app.dependency_overrides[get_db]
+    assert codes == {"technician": 403, "supervisor": 200}
 
 
 def test_a_technician_is_refused(db):

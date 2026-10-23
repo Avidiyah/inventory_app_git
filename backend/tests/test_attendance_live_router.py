@@ -39,16 +39,15 @@ def _get(db, user):
         del app.dependency_overrides[get_db]
 
 
-def test_the_roster_is_admin_only(db):
-    # D1: the roster is the pay record's live face, so it sits above the
-    # rest of the admin toolkit TechFM OA holds.
-    for role in ("technician", "supervisor", "techfm_oa"):
-        person = _seed_user(db, role=role)
-        db.commit()
-        assert _get(db, person).status_code == 403, role
-    admin = _seed_user(db, role="admin", first="Dee", last="Ops")
+def test_the_roster_is_team_lead_and_above(db):
+    # 2026-10-22: Team Leads edit anyone's hours, so they read the roster.
+    person = _seed_user(db, role="technician")
     db.commit()
-    assert _get(db, admin).status_code == 200
+    assert _get(db, person).status_code == 403
+    for role in ("supervisor", "techfm_oa", "admin"):
+        person = _seed_user(db, role=role, first="Dee", last="Ops")
+        db.commit()
+        assert _get(db, person).status_code == 200, role
 
 
 def test_the_roster_serialises_both_lists_and_the_three_counts(db):

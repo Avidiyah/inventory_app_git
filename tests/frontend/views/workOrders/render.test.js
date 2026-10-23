@@ -484,11 +484,11 @@ describe("the labor section", () => {
   });
 
   it.each(["supervisor", "techfm_oa"])(
-    "shows a %s the hours read-only too", async (role) => {
+    "lets a %s edit and add hours", async (role) => {
       const { cardEl } = await renderBody({ labor: [workOrderLabor({ minutes: 60 })] }, { role });
       expect(cardEl.querySelectorAll(".wo-labor-entry")).toHaveLength(1);
-      expect(cardEl.querySelector(".wo-labor-actions")).toBeNull();
-      expect(cardEl.querySelector(".wo-add-labor")).toBeNull();
+      expect(cardEl.querySelector(".wo-labor-actions")).not.toBeNull();
+      expect(cardEl.querySelector(".wo-add-labor")).not.toBeNull();
     });
 
   it.each(["admin", "owner"])(

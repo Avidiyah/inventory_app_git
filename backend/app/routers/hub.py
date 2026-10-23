@@ -163,15 +163,14 @@ def get_hub_graphs(
 
 @router.get("/attendance/live", response_model=AttendanceLiveResponse)
 def get_hub_attendance_live(
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
     """The roster strip: who is on shift, who is charging, who is idle and
     for how long, plus everybody with no open punch behind the footer.
 
-    **Admin, not TechFM OA.** Same grounds as the week read beside it: this
-    says where each person is right now, which is the pay record's live face
-    (D1). `tests/test_route_role_gates.py` carries the matching exemption.
+    **Team Lead+** (2026-10-22): Team Leads edit anyone's hours, so they read
+    the same week and roster the edits are made from.
 
     No `week` and no parameters at all -- "now" is the only question it
     answers. Side-effect-free (spec §4): a clock nobody stopped is decided by
@@ -184,7 +183,7 @@ def get_hub_attendance_live(
 @router.get("/attendance/week", response_model=AttendanceWeekResponse)
 def get_hub_attendance_week(
     week: Optional[date] = Query(None),
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
     """One Central week of attendance, per person per day, serving **both**
@@ -192,10 +191,9 @@ def get_hub_attendance_week(
     punch rows behind every cell, the leaderboard ranks charged and
     uncharged time priced at `labor_rate`.
 
-    **Admin, not TechFM OA.** This is the pay record (D1), so it sits above
-    the rest of the admin toolkit -- `tests/test_route_role_gates.py` carries
-    the matching exemption, and changing this floor means changing that test
-    deliberately.
+    **Team Lead+** (2026-10-22), because Team Leads edit anyone's punches
+    from this grid. The money half (Leaderboards tab, export, review) stays
+    Admin+ in the UI and on its own routes.
 
     `week` is a Monday; absent means the week in progress. Resolved by
     `work_order_report.resolve_week`, so a non-Monday is 422 here for exactly
@@ -218,12 +216,12 @@ def get_hub_attendance_week(
 def get_hub_person_week(
     user_id: uuid.UUID,
     week: Optional[date] = Query(None),
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
     """One crew member's Central week, one row per day: completed, charged,
-    clocked. **Admin, not TechFM OA** -- same grounds as the attendance week
-    it is built from. Target must be Technician, Team Lead, TechFM OA, or
+    clocked. **Team Lead+** -- same grounds as the attendance week it is
+    built from. Target must be Technician, Team Lead, TechFM OA, or
     Admin (Owner is 403, raised in the service); archived targets are allowed.
     Same `week` contract as `GET /hub/attendance/week`. Side-effect-free."""
     now = datetime.now(timezone.utc)
@@ -237,7 +235,7 @@ def get_hub_person_week(
 
 
 # The audited writes behind the Hours drill-down (D2, §1). Open to any
-# signed-in user: the service lets Admin+ change anyone's punch and a worker
+# signed-in user: the service lets Team Lead+ change anyone's punch and a worker
 # only their own in the open week (2026-10-16 self-edit). Every one of them writes
 # `attendance_punch_edits` in the same transaction as the change, and each
 # emits `attendance.changed` after its commit, so an Admin correcting a punch
@@ -286,7 +284,7 @@ def edit_hub_attendance_punch(
 @router.post("/attendance/clock-out/{user_id}", response_model=AttendancePunchResponse)
 def clock_out_hub_attendance_user(
     user_id: uuid.UUID,
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
     """The roster's "Clock out": close this person's open punch at the

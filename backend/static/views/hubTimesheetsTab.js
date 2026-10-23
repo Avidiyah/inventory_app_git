@@ -1,7 +1,8 @@
 // View: the User Hub's Timesheets tabpanel -- one page, no sub-tabs.
 //
 // Layer: views. Owns the panel's shell and both payloads' lazy loads,
-// caches and request counters. Admin+, because this is the pay record (D1).
+// caches and request counters. Team Lead+, who edit anyone's hours; the
+// export, bulk review and lunch waiver inside it stay Admin+.
 //
 // Top to bottom:
 //   roster      -- who is on the clock now, from `GET /hub/attendance/live`
@@ -160,9 +161,13 @@ function renderActions(panelEl, isAdmin) {
     ? `<button type="button" class="secondary-btn hub-timesheets-review-all">Mark all reviewed (${reviewable})</button>`
     : "";
   const mount = mountFor(panelEl, "actions");
+  // The export carries the pay record, so it stays Admin with the review.
+  const exportButton = isAdmin
+    ? `<button type="button" class="secondary-btn hub-timesheets-export">Export CSV</button>`
+    : "";
   mount.innerHTML = `<div class="hub-timesheets-action-row">
       ${reviewButton}
-      <button type="button" class="secondary-btn hub-timesheets-export">Export CSV</button>
+      ${exportButton}
     </div>
     <p class="hub-timesheets-message" aria-live="polite"></p>`;
   if (weekNotice) setActionStatus(panelEl, weekNotice, "success");
@@ -172,7 +177,7 @@ function renderActions(panelEl, isAdmin) {
     setActionStatus(panelEl, "Marking reviewed…");
     void write(panelEl, () => reviewWeek());
   });
-  mount.querySelector(".hub-timesheets-export").addEventListener("click", (event) => {
+  mount.querySelector(".hub-timesheets-export")?.addEventListener("click", (event) => {
     void downloadCsv(panelEl, event.currentTarget);
   });
 }
@@ -206,18 +211,19 @@ function renderDay(panelEl, isAdmin) {
   // The write callbacks are passed only to an Admin, and the grid
   // renders an affordance only for a callback it was given -- so the floor
   // is expressed once, here, rather than re-derived inside the view.
-  const writes = isAdmin
-    ? {
-      onSavePunch: (id, values) => write(panelEl, () => apiEditAttendancePunch(id, values)),
-      onAddPunch: (userId, values) => write(panelEl, () => apiAddAttendancePunch({ userId, ...values })),
-      onDeletePunch: (id, reason) => write(panelEl, () => apiDeleteAttendancePunch(id, reason)),
+  // Team Lead+ edit times; "Looks right" and the lunch waiver stay Admin.
+  const writes = {
+    onSavePunch: (id, values) => write(panelEl, () => apiEditAttendancePunch(id, values)),
+    onAddPunch: (userId, values) => write(panelEl, () => apiAddAttendancePunch({ userId, ...values })),
+    onDeletePunch: (id, reason) => write(panelEl, () => apiDeleteAttendancePunch(id, reason)),
+    ...(isAdmin ? {
       onClearReview: (id) => write(panelEl, () => apiEditAttendancePunch(id, { needsReview: false })),
       onToggleLunch: (id, waived) => write(panelEl, () => apiEditAttendancePunch(id, {
         lunchWaived: waived,
         reason: waived ? "Lunch removed by an Admin" : "Lunch restored by an Admin",
       })),
-    }
-    : {};
+    } : {}),
+  };
   mountHubAttendanceDayPage(area.firstElementChild, weekPayload, dayOpen, {
     ...writes,
     onBack: () => { dayOpen = null; renderWeek(panelEl); },
@@ -226,7 +232,7 @@ function renderDay(panelEl, isAdmin) {
       if (weekPayload.days.includes(date)) renderWeek(panelEl);
       else changeWeek(panelEl)(mondayOf(date));
     },
-    onOpenProfile: isAdmin ? (user) => openProfile(panelEl, user, week) : undefined,
+    onOpenProfile: (user) => openProfile(panelEl, user, week),
   });
 }
 
@@ -246,7 +252,7 @@ function changeWeek(panelEl) {
 function renderLive(panelEl) {
   const mount = mountFor(panelEl, "roster");
   if (!mount || !livePayload) return;
-  const onClockOut = roleAtLeast(viewerRole, "admin")
+  const onClockOut = roleAtLeast(viewerRole, "supervisor")
     ? (userId) => clockOut(panelEl, userId)
     : null;
   mountHubAttendanceRoster(mount, livePayload, { onClockOut });

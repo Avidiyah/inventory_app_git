@@ -452,8 +452,9 @@ def test_unassigned_routed_supervisor_cannot_send_completed_work_to_review(db):
 def test_labor_tracks_technician_without_advancing_status(db):
     """Hand-keyed labor is the correction route, so it leaves the lifecycle
     alone: an Admin backfilling a paper sheet must not push an Assigned row to
-    In-Progress. Material activity and Begin Charging still advance it. Only
-    an Admin or the Owner may key hours; Team Lead and TechFM OA may not."""
+    In-Progress. Material activity and Begin Charging still advance it. Team
+    Lead and above may key anyone's hours; a Technician may not key a
+    crewmate's."""
     admin = _seed_user(db, "admin")
     sup = _seed_user(db, "supervisor")
     oa = _seed_user(db, "techfm_oa")
@@ -467,11 +468,17 @@ def test_labor_tracks_technician_without_advancing_status(db):
         fields={"assigned_to_ids": [tech1.id, tech2.id]},
     )
 
-    for blocked in (tech1, sup, oa):
-        with pytest.raises(RoleManagementError):
-            wos.add_work_order_labor(
-                db, w.id, user=blocked, technician_id=tech2.id, minutes=35
-            )
+    with pytest.raises(RoleManagementError):
+        wos.add_work_order_labor(
+            db, w.id, user=tech1, technician_id=tech2.id, minutes=35
+        )
+
+    # A Team Lead (and TechFM OA) keys, revises and removes anyone's hours.
+    lead_entry = wos.add_work_order_labor(
+        db, w.id, user=sup, technician_id=tech2.id, minutes=10
+    )
+    wos.update_work_order_labor(db, w.id, lead_entry.id, user=oa, minutes=20)
+    wos.delete_work_order_labor(db, w.id, lead_entry.id, user=sup)
 
     first = wos.add_work_order_labor(
         db, w.id, user=admin, technician_id=tech1.id, minutes=35
@@ -514,7 +521,7 @@ def test_worker_keys_and_revises_own_labor_on_their_crew(db):
 def test_worker_off_the_crew_cannot_key_own_labor(db):
     sup = _seed_user(db, "supervisor")
     crew = _seed_user(db, "technician")
-    stranger = _seed_user(db, "supervisor")
+    stranger = _seed_user(db, "technician")
     w = _wo(db, created_by=sup, assigned_to=crew)
 
     with pytest.raises(RoleManagementError):
@@ -526,17 +533,15 @@ def test_worker_off_the_crew_cannot_key_own_labor(db):
 
 def test_worker_cannot_edit_another_persons_labor(db):
     admin = _seed_user(db, "admin")
-    oa = _seed_user(db, "techfm_oa")
-    sup = _seed_user(db, "supervisor")
     tech = _seed_user(db, "technician")
+    crewmate = _seed_user(db, "technician")
     w = _wo(db, created_by=admin, assigned_to=tech)
     entry = wos.add_work_order_labor(db, w.id, user=admin, technician_id=tech.id, minutes=45)
 
-    for blocked in (sup, oa):
-        with pytest.raises(RoleManagementError):
-            wos.update_work_order_labor(db, w.id, entry.id, user=blocked, minutes=5)
-        with pytest.raises(RoleManagementError):
-            wos.delete_work_order_labor(db, w.id, entry.id, user=blocked)
+    with pytest.raises(RoleManagementError):
+        wos.update_work_order_labor(db, w.id, entry.id, user=crewmate, minutes=5)
+    with pytest.raises(RoleManagementError):
+        wos.delete_work_order_labor(db, w.id, entry.id, user=crewmate)
     detail = wos.get_work_order(db, w.id, user=admin)
     assert [(e.id, e.minutes) for e in detail.labor_entries] == [(entry.id, 45)]
 

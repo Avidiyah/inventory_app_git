@@ -2120,15 +2120,15 @@ def _require_labor_editor(
 ) -> None:
     """Hand-entering labor -- adding, revising, or removing.
 
-    Admin and Owner may key anyone's. Anyone else only their own (2026-10-16
-    self-edit): an add needs them on the crew; a revise or remove needs a
-    hand-entered row (no session behind it) keyed in the open Central week.
-    Every keyed row is marked Self or Admin on the profile, which is the
+    Team Lead and above may key anyone's. Anyone else only their own
+    (2026-10-16 self-edit): an add needs them on the crew; a revise or remove
+    needs a hand-entered row (no session behind it) keyed in the open Central
+    week. Every keyed row is marked Self or Admin on the profile, which is the
     safeguard. A deliberate service check rather than a route gate: the
     routes stay open to any session and the row-level rule lives here beside
     the data, like the Review handoff floor.
     """
-    if user is None or roles.role_at_least(user.role, roles.ROLE_ADMIN):
+    if user is None or roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
         return
     now = now or datetime.now(timezone.utc)
     allowed = technician_id == user.id
@@ -2151,14 +2151,14 @@ def add_work_order_labor(
     technician_id: uuid.UUID,
     minutes: int,
 ) -> WorkOrderLabor:
-    """Record actual labor by hand -- Admin and Owner, or a crew member for themselves.
+    """Record actual labor by hand -- Team Lead and above, or a crew member for themselves.
 
     This is the *correction* route: a dead battery, a forgotten Begin
     Charging, a paper sheet. Hours normally come from stopping a session
     (`stop_labor_session`).
 
-    The technician being credited must be on the crew **or** be the Admin or
-    Owner recording it, so an Admin who did the work can attach their own
+    The technician being credited must be on the crew **or** be the person
+    recording it, so a Team Lead or Admin who did the work can attach their own
     billable labor without being listed. It is bounded by `_get_visible` and
     attributed by name; the labor card lists every row regardless of crew.
 
@@ -2179,7 +2179,7 @@ def add_work_order_labor(
     ):
         raise InvalidAssigneeError(
             "Labor can only be recorded for a technician assigned to this "
-            "work order, or for the Admin or Owner recording it."
+            "work order, or for the person recording it."
         )
 
     entry = WorkOrderLabor(
@@ -2203,7 +2203,7 @@ def update_work_order_labor(
     minutes: int,
 ) -> WorkOrderLabor:
     """Replace one labor entry's actual duration without re-rounding it --
-    Admin and Owner, or the worker on their own open-week hand-keyed row."""
+    Team Lead and above, or the worker on their own open-week hand-keyed row."""
     work_order = _get_visible(db, work_order_id, user)
     entry = _get_labor_entry(db, work_order, labor_id)
     wo.validate_labor_minutes(minutes)

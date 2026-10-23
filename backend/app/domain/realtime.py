@@ -96,9 +96,9 @@ EVENT_USER_REQUEST_CHANGED = "user_request.changed"
 # board rather than one row's fields, so `id` is always `None` and the
 # recipient refetches the roster and the week rather than targeting a card.
 #
-# Audience **Admin**, narrower than its sibling: the only consumer is the
-# Charged vs clocked sub-tab, and nothing below Admin can open it. Not a
-# security boundary -- P2 keeps row data out of the envelope -- but a lower
+# Audience **Team Lead**, the same rank as its sibling: the only consumer is
+# the Timesheets tab, which Team Leads open to edit hours (2026-10-22). Not
+# a security boundary -- P2 keeps row data out of the envelope -- but a lower
 # audience here would be pure noise.
 EVENT_ATTENDANCE_CHANGED = "attendance.changed"
 
@@ -117,8 +117,8 @@ _AUDIENCE_MIN_ROLE = {
     # Technicians file, cancel, and add from the stocked line, so the whole
     # hierarchy subscribes. Not a security boundary (P2).
     EVENT_USER_REQUEST_CHANGED: roles.ROLE_TECHNICIAN,
-    # The pay record's live face (D1). See the note on the constant.
-    EVENT_ATTENDANCE_CHANGED: roles.ROLE_ADMIN,
+    # The Timesheets tab's refresh. See the note on the constant.
+    EVENT_ATTENDANCE_CHANGED: roles.ROLE_SUPERVISOR,
 }
 
 # --- thresholds --------------------------------------------------------

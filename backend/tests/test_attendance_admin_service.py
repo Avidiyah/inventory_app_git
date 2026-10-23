@@ -213,6 +213,32 @@ def test_worker_cannot_touch_another_persons_punch(db):
             ended_at=_TUE_9 + timedelta(hours=5), now=_NOW)
 
 
+def test_team_lead_edits_anyones_punch_but_not_look_right_or_lunch(db):
+    from app.domain.errors import TimeEditForbiddenError
+    lead, peer = _seed_user(db, "supervisor"), _seed_user(db)
+    punch = _punch_at(db, peer, _LAST_FRI_9, _LAST_FRI_9 + timedelta(hours=2)); db.commit()
+
+    # Any week, anyone's punch: edit, add, delete.
+    edited = attendance_service.admin_edit_punch(
+        db, actor=lead, punch_id=punch.id,
+        ended_at=_LAST_FRI_9 + timedelta(hours=3), now=_NOW)
+    assert edited.end_source == "admin_edit"
+    attendance_service.admin_add_punch(
+        db, actor=lead, user_id=peer.id, started_at=_LAST_FRI_9 + timedelta(hours=4),
+        ended_at=_LAST_FRI_9 + timedelta(hours=5), now=_NOW)
+    attendance_service.admin_delete_punch(db, actor=lead, punch_id=punch.id, now=_NOW)
+
+    # The Admin-only extras stay Admin-only.
+    other = _punch_at(db, peer, _TUE_9, _TUE_9 + timedelta(hours=8), needs_review=True)
+    db.commit()
+    with pytest.raises(TimeEditForbiddenError):
+        attendance_service.admin_edit_punch(
+            db, actor=lead, punch_id=other.id, needs_review=False, now=_NOW)
+    with pytest.raises(TimeEditForbiddenError):
+        attendance_service.admin_edit_punch(
+            db, actor=lead, punch_id=other.id, lunch_waived=True, now=_NOW)
+
+
 def test_self_edit_cannot_touch_a_closed_week(db):
     from app.domain.errors import TimeEditForbiddenError
     tech = _seed_user(db)

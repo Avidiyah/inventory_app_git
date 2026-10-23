@@ -120,7 +120,9 @@ export function mountHubAttendanceDayPage(container, payload, date, {
         : escapeHtml(name);
       return `<article class="hub-day-person" data-user="${escapeHtml(row.user?.id ?? "")}">
         <h4 class="hub-day-person-name">${link}</h4>
-        ${drilldownHtml(day, name, { canEdit, userId: row.user?.id ?? "" })}
+        ${drilldownHtml(day, name, {
+    canEdit, canReview: Boolean(onClearReview), canLunch: Boolean(onToggleLunch), userId: row.user?.id ?? "",
+  })}
       </article>`;
     }).join("");
     container.innerHTML = `<section class="hub-day-page" aria-labelledby="hub-day-heading">

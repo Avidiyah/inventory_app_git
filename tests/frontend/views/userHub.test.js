@@ -32,13 +32,12 @@ describe("mountHub", () => {
 });
 
 describe("loadUserHub by role", () => {
-  // D6: Timesheets is the pay record now, so it moved up to Admin+ with the
-  // routes behind it. A Supervisor keeps the Dashboard crew board, which
-  // shows live crew status at their own scope.
+  // Team Leads edit anyone's hours, so Timesheets opens at Team Lead; the
+  // money tabs (Leaderboards, Report) stay Admin+.
   it.each([
     ["technician", { timesheets: false, leaderboards: false, graphs: false, report: false }, ["/hub", "/attendance/me"], "My Work Orders (0)"],
-    ["supervisor", { timesheets: false, leaderboards: false, graphs: false, report: false }, ["/hub", "/attendance/me", "/hub/crew"], "My Work Orders (0)"],
-    ["techfm_oa", { timesheets: false, leaderboards: false, graphs: true, report: false }, ["/hub", "/attendance/me", "/hub/crew", "/hub/admin"], "Work Orders"],
+    ["supervisor", { timesheets: true, leaderboards: false, graphs: false, report: false }, ["/hub", "/attendance/me", "/hub/crew"], "My Work Orders (0)"],
+    ["techfm_oa", { timesheets: true, leaderboards: false, graphs: true, report: false }, ["/hub", "/attendance/me", "/hub/crew", "/hub/admin"], "Work Orders"],
     ["admin", { timesheets: true, leaderboards: true, graphs: true, report: true }, ["/hub", "/attendance/me", "/hub/crew", "/hub/admin"], "Work Orders"],
     ["owner", { timesheets: true, leaderboards: true, graphs: true, report: true }, ["/hub", "/attendance/me", "/hub/crew", "/hub/admin"], "Work Orders"],
   ])("%s: tabs %j, requests %j, label %s", async (role, tabs, expected, label) => {

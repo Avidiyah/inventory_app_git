@@ -378,12 +378,12 @@ describe("canCurrentUserSendToReview", () => {
 
 describe("labor entry controls (edit-labor / remove-labor)", () => {
   it.each([
-    // Hand-keyed hours are Admin and Owner only. Nobody else may edit or remove
-    // an entry, not even a Technician on the row they are credited for.
+    // Team Lead and above edit or remove anyone's entry. A Technician may not,
+    // not even on the row they are credited for (unless they hand-keyed it).
     ["technician", false, false],
     ["technician", true, false],
-    ["supervisor", false, false],
-    ["techfm_oa", false, false],
+    ["supervisor", false, true],
+    ["techfm_oa", false, true],
     ["admin", false, true],
     ["owner", false, true],
   ])("%s, owns the entry: %s -> can edit/remove: %s", async (role, ownsEntry, canEdit) => {
@@ -409,12 +409,12 @@ describe("labor entry controls (edit-labor / remove-labor)", () => {
 
 describe("add-labor visibility", () => {
   it.each([
-    // An Admin or the Owner may add hours by hand, crediting themselves when
-    // unassigned. Anyone else only for themselves, while on the crew.
+    // Team Lead and above may add hours by hand, crediting themselves when
+    // unassigned. A Technician only for themselves, while on the crew.
     ["technician", false, false],
     ["technician", true, true],
-    ["supervisor", false, false],
-    ["techfm_oa", false, false],
+    ["supervisor", false, true],
+    ["techfm_oa", false, true],
     ["admin", false, true],
     ["owner", false, true],
   ])("%s, assigned: %s -> can add labor: %s", async (role, assigned, canAdd) => {

@@ -154,6 +154,21 @@ describe("the Admin punch writes", () => {
     await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
   });
 
+  it("lets a Team Lead edit a punch but hides Export CSV and Mark all reviewed", async () => {
+    await openTimesheets({
+      role: "supervisor",
+      attendanceWeek: attendanceWeek({ reviewable_count: 2 }),
+      handlers: [http.patch("/hub/attendance/punches/:id", () => HttpResponse.json(edited))],
+    });
+    await openEditor();
+    expect(panel().querySelector(".hub-timesheets-export")).toBeNull();
+    expect(panel().querySelector(".hub-timesheets-review-all")).toBeNull();
+
+    await user().click(panel().querySelector(".punch-editor-save"));
+
+    await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
+  });
+
   it("marks the week reviewed, refetches it, and says how many", async () => {
     await openTimesheets({
       role: "admin",
@@ -240,11 +255,11 @@ describe("the profile", () => {
     expect(panel().querySelector("#hub-timesheets-profile .user-profile")).not.toBeNull();
   });
 
-  it("does not offer the link to a Team Lead viewer", async () => {
+  it("offers the link to a Team Lead viewer", async () => {
     await openTimesheets({ role: "supervisor" });
     await vi.waitFor(() => expect(panel().querySelector(".hub-day-card")).not.toBeNull());
     await user().click(panel().querySelector(".hub-day-card"));
-    expect(panel().querySelector(".hub-hours-person")).toBeNull();
+    expect(panel().querySelector(".hub-hours-person")).not.toBeNull();
   });
 
   it("openTimesheetsProfile mounts after the hub loads", async () => {

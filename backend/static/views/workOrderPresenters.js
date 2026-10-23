@@ -102,11 +102,11 @@ export function laborSummaryHtml(detail) {
   return `<div class="wo-labor-summary"><span>Actual: <strong>${escapeHtml(actual)}</strong></span><span>Billed: <strong>${escapeHtml(billed)}</strong></span>${charge}</div>`;
 }
 
-// Hand-keying, editing and removing hours is Admin and Owner only (mirrors the
-// server's `_require_labor_editor`). Everyone else's hours come from Begin and
-// Stop Charging.
+// Hand-keying, editing and removing anyone's hours is Team Lead and above
+// (mirrors the server's `_require_labor_editor`). Everyone else's hours come
+// from Begin and Stop Charging.
 export function canKeyLabor() {
-  return roleAtLeast(getRole(), "admin");
+  return roleAtLeast(getRole(), "supervisor");
 }
 
 // 2026-10-16 self-edit, mirroring `_require_labor_editor`: anyone else may

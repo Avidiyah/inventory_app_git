@@ -368,7 +368,7 @@ describe("the profile hand-off", () => {
   const PROFILE_ROLES = ["technician", "supervisor", "techfm_oa", "admin"];
   const crew = () => ROLES.map((role) => userFactory({ role }));
 
-  it.each(["owner", "admin"])("renders a name button only on crew rows for an %s", async (role) => {
+  it.each(["owner", "admin", "techfm_oa", "supervisor"])("renders a name button only on crew rows for an %s", async (role) => {
     const users = crew();
     await openUsers({ role, users });
     for (const target of users) {
@@ -377,7 +377,7 @@ describe("the profile hand-off", () => {
     }
   });
 
-  it.each(["techfm_oa", "supervisor", "technician"])("renders no name button for a %s viewer", async (role) => {
+  it.each(["technician"])("renders no name button for a %s viewer", async (role) => {
     await openUsers({ role, users: crew() });
     expect(document.querySelectorAll(PROFILE_BTN)).toHaveLength(0);
   });

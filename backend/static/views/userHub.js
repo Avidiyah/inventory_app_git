@@ -253,9 +253,10 @@ function renderGraphs() {
   });
 }
 
-// Leaderboards shares the Timesheets gate (Admin+).
-function setTimesheetsTabVisible(visible) {
-  for (const button of [timesheetsTabButton, leaderboardsTabButton]) {
+// Timesheets is Team Lead+ (they edit hours); Leaderboards, which prices
+// them, stays Admin+.
+function setTimesheetsTabVisible(timesheets, leaderboards) {
+  for (const [button, visible] of [[timesheetsTabButton, timesheets], [leaderboardsTabButton, leaderboards]]) {
     if (!button) continue;
     button.hidden = !visible;
     button.classList.toggle("hidden", !visible);
@@ -467,10 +468,10 @@ export async function loadUserHub() {
   const nextUserId = String(payload.user.id);
   const userChanged = loadedUserId !== nextUserId;
   const canViewSupervisorTabs = roleAtLeast(payload.user.role, "supervisor");
-  // D6: Timesheets is the pay record, so it sits with the report rather than
-  // with the crew board. `canViewSupervisorTabs` still governs the crew
-  // fetch, which a Supervisor keeps.
-  const canViewTimesheets = roleAtLeast(payload.user.role, "admin");
+  // Team Leads edit anyone's hours, so they get Timesheets; the money tabs
+  // (Leaderboards, Report) stay Admin+.
+  const canViewTimesheets = canViewSupervisorTabs;
+  const canViewLeaderboards = roleAtLeast(payload.user.role, "admin");
   const canViewAdminTiles = roleAtLeast(payload.user.role, "techfm_oa");
   const canViewReport = roleAtLeast(payload.user.role, "admin");
   if (userChanged || !canViewSupervisorTabs) {
@@ -478,10 +479,8 @@ export async function loadUserHub() {
     crewError = null;
     crewRequestId += 1;
   }
-  if (userChanged || !canViewTimesheets) {
-    resetTimesheetsTab(tabPanels.timesheets);
-    resetLeaderboardsTab(tabPanels.leaderboards);
-  }
+  if (userChanged || !canViewTimesheets) resetTimesheetsTab(tabPanels.timesheets);
+  if (userChanged || !canViewLeaderboards) resetLeaderboardsTab(tabPanels.leaderboards);
   if (userChanged || !canViewAdminTiles) {
     latestAdminPayload = null;
     adminError = null;
@@ -505,12 +504,13 @@ export async function loadUserHub() {
     activeTab = "home";
     latestAttendance = null;
   }
-  if (!canViewTimesheets && ["timesheets", "leaderboards"].includes(activeTab)) activeTab = "home";
+  if (!canViewTimesheets && activeTab === "timesheets") activeTab = "home";
+  if (!canViewLeaderboards && activeTab === "leaderboards") activeTab = "home";
   if (!canViewAdminTiles && activeTab === "graphs") activeTab = "home";
   if (!canViewReport && activeTab === "report") activeTab = "home";
   loadedUserId = nextUserId;
   latestPayload = payload;
-  setTimesheetsTabVisible(canViewTimesheets);
+  setTimesheetsTabVisible(canViewTimesheets, canViewLeaderboards);
   setGraphsTabVisible(canViewAdminTiles);
   setReportTabVisible(canViewReport);
   renderWorkOrdersTabLabel();

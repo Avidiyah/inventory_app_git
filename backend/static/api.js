@@ -535,8 +535,8 @@ export async function apiReuseStage(stageId) {
 // open to any authenticated user, and every role sees every live work order
 // (`mine` / `assignedToId` narrow it). Notes/add-item are Technician+, but a
 // Technician must be on the crew (Begin Charging adds them); operations and
-// material corrections are Team Lead+; hand-keyed labor is Admin and Owner
-// only; imported metadata and close/archive are TechFM OA+.
+// material corrections are Team Lead+; hand-keyed labor is Team Lead+;
+// imported metadata and close/archive are TechFM OA+.
 //
 // There is no create call: work orders are import-only, so apiImportWorkOrders
 // is the only thing that brings one into existence. Every other surface looks an
@@ -671,7 +671,7 @@ export async function apiExportHubAttendance({ week = null } = {}) {
   return { blob: await response.blob(), filename: match ? match[1] : "attendance.csv" };
 }
 
-// The Admin punch writes (Admin only). Each one is audited server-side, so
+// The punch writes (Team Lead+ for anyone's, a worker for their own). Each one is audited server-side, so
 // the UI never has to prove anything about who changed what.
 //
 // An omitted key means **unchanged** -- the PATCH body carries only what the

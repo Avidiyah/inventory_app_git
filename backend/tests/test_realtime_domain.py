@@ -201,24 +201,21 @@ def test_user_request_changed_is_its_own_event_type():
     assert realtime.EVENT_USER_REQUEST_CHANGED != realtime.EVENT_ITEM_LOW_STOCK_CHANGED
 
 
-def test_attendance_events_reach_admin_and_above():
-    for role in ("admin", "owner"):
+def test_attendance_events_reach_team_lead_and_above():
+    for role in ("supervisor", "techfm_oa", "admin", "owner"):
         assert (
             realtime.audience_allows(realtime.EVENT_ATTENDANCE_CHANGED, role)
             is True
         ), role
 
 
-def test_attendance_events_do_not_reach_techfm_oa_or_below():
-    """Narrower than `labor.session.changed`, which is Supervisor+ because a
-    crew board exists at that rank. The only consumer of this one is the
-    Charged vs clocked sub-tab, which is Admin-only (D1), so anything lower
-    is pure noise."""
-    for role in ("techfm_oa", "supervisor", "technician"):
-        assert (
-            realtime.audience_allows(realtime.EVENT_ATTENDANCE_CHANGED, role)
-            is False
-        ), role
+def test_attendance_events_do_not_reach_technicians():
+    """The only consumer is the Timesheets tab, which opens at Team Lead, so
+    a Technician would receive pure noise."""
+    assert (
+        realtime.audience_allows(realtime.EVENT_ATTENDANCE_CHANGED, "technician")
+        is False
+    )
 
 
 def test_attendance_changed_is_its_own_event_type():

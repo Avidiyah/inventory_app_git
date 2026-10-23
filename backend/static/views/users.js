@@ -144,7 +144,7 @@ function renderUsersTable() {
     const actions = editNameAction || editRoleAction || lifecycleActions
       ? `<div class="row-actions">${editNameAction}${editRoleAction}${lifecycleActions}</div>`
       : `<span class="empty">—</span>`;
-    const canProfile = roleAtLeast(actorRole, "admin") && PROFILE_ROLES.includes(user.role);
+    const canProfile = roleAtLeast(actorRole, "supervisor") && PROFILE_ROLES.includes(user.role);
     const firstName = escapeHtml(user.first_name || "Name unavailable");
     const firstNameCell = canProfile
       ? `<button type="button" class="user-profile-btn hub-link-btn" data-id="${user.id}">${firstName}</button>`
