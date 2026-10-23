@@ -99,7 +99,12 @@ export function laborSummaryHtml(detail) {
   const charge = detail.labor_total === null || detail.labor_total === undefined
     ? ""
     : `<span class="wo-labor-charge">${escapeHtml(formatMoney(detail.labor_total))} at ${escapeHtml(formatMoney(detail.labor_rate))}/hr</span>`;
-  return `<div class="wo-labor-summary"><span>Actual: <strong>${escapeHtml(actual)}</strong></span><span>Billed: <strong>${escapeHtml(billed)}</strong></span>${charge}</div>`;
+  // Skilled Technician minutes round on their own, so they get their own line
+  // rather than being folded into Actual/Billed (spec 2026-10-23).
+  const skilled = Number(detail.skilled_labor_minutes) > 0
+    ? `<span>Skilled: <strong>${escapeHtml(formatMinutes(detail.skilled_labor_minutes))}</strong> (billed ${escapeHtml(formatMinutes(detail.skilled_labor_billed_minutes || 0))})</span>`
+    : "";
+  return `<div class="wo-labor-summary"><span>Actual: <strong>${escapeHtml(actual)}</strong></span><span>Billed: <strong>${escapeHtml(billed)}</strong></span>${skilled}${charge}</div>`;
 }
 
 // Hand-keying, editing and removing anyone's hours is Team Lead and above
@@ -119,6 +124,13 @@ export function canEditLaborEntry(entry) {
 // ...and add labor only for themselves, while on the crew.
 export function canAddLabor(detail) {
   return canKeyLabor() || isAssignedToCurrentUser(detail);
+}
+
+// Anonymous Skilled Technician hours (spec 2026-10-23): SMR orders only,
+// Admin or Owner only. Mirrors the server's `_require_labor_editor` branch
+// for a null technician.
+export function canKeySkilledLabor(detail) {
+  return Boolean(detail?.smr) && roleAtLeast(getRole(), "admin");
 }
 
 // A Technician who is not on a work order's crew can read it but not write to

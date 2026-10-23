@@ -922,9 +922,11 @@ export async function apiDeleteWorkOrderItem(workOrderId, woItemId) {
 
 // Labor is stored in whole minutes and billed from the combined work-order
 // duration at $62.50/hour, rounded upward once to the next 30 minutes.
+// `technicianId: null` is an anonymous Skilled Technician line (SMR orders,
+// Admin+; spec 2026-10-23) -- sent as an explicit null, never omitted.
 export async function apiAddWorkOrderLabor(workOrderId, { technicianId, minutes }) {
   return jsonRequest(`/work-orders/${workOrderId}/labor`, "POST", {
-    technician_id: technicianId,
+    technician_id: technicianId ?? null,
     minutes,
   });
 }

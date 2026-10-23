@@ -441,6 +441,38 @@ describe("the labor section", () => {
       .toContain("Labor is billed at $62.50/hour.");
   });
 
+  // SMR27 audit (spec 2026-10-23): the anonymous Skilled Technician line.
+  it("offers Add Skilled Technician above the technician picker on an SMR order for Admin+", async () => {
+    const { cardEl } = await renderBody({ smr: true, assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] }, { role: "admin" });
+    const skilled = cardEl.querySelector("[data-action=\"add-skilled-labor\"]");
+    expect(skilled.textContent).toBe("Add Skilled Technician");
+    expect(cardEl.querySelector(".wo-new-skilled-hours")).not.toBeNull();
+    const picker = cardEl.querySelector(".wo-labor-technician");
+    expect(skilled.compareDocumentPosition(picker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it.each([
+    ["supervisor", true, "hidden"], ["admin", true, "shown"], ["owner", true, "shown"],
+    ["admin", false, "hidden"], ["owner", false, "hidden"],
+  ])("Add Skilled Technician for %s with smr=%s is %s", async (role, smr, visibility) => {
+    const { cardEl } = await renderBody({ smr, assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] }, { role });
+    expect(cardEl.querySelector("[data-action=\"add-skilled-labor\"]") === null).toBe(visibility === "hidden");
+  });
+
+  it("renders a Skilled Technician entry by its label with the usual controls, and the skilled summary line", async () => {
+    const { cardEl } = await renderBody({
+      smr: true,
+      labor: [workOrderLabor({ technician_id: null, technician_name: "Skilled Technician", minutes: 30, hand_entered: true })],
+      labor_minutes: 0, labor_billed_minutes: 0, skilled_labor_minutes: 30, skilled_labor_billed_minutes: 30,
+      labor_total: "31.25", labor_rate: "62.50",
+    }, { role: "admin" });
+    const entry = cardEl.querySelector(".wo-labor-entry");
+    expect(entry.querySelector("strong").textContent).toBe("Skilled Technician");
+    expect(entry.querySelector("[data-action=\"edit-labor\"]")).not.toBeNull();
+    expect(entry.querySelector("[data-action=\"remove-labor\"]")).not.toBeNull();
+    expect(cardEl.querySelector(".wo-labor-summary").textContent).toContain("Skilled: 30 min");
+  });
+
   it("drops the charge and softens the rate line when cost is redacted", async () => {
     const { cardEl } = await renderBody({
       labor_total: null, labor_rate: null,

@@ -30,6 +30,7 @@ import {
   isCrewLocked,
   isSupervisorPlus,
   laborSummaryHtml,
+  canKeySkilledLabor,
   lineChargeHtml,
   materialsTotalHtml,
   modeLabel,
@@ -122,6 +123,9 @@ function laborSectionHtml(detail) {
               <p class="hint">${escapeHtml(trackedHint)}</p>
               <div class="wo-labor-list">${entries}</div>
               ${laborSummaryHtml(detail)}
+              ${canKeySkilledLabor(detail) ? `<div class="wo-add-labor wo-add-skilled-labor">
+                <label><span>Skilled Technician hours</span><input type="number" class="wo-new-skilled-hours" min="0.01" step="0.01" placeholder="e.g. 0.5"></label><button type="button" data-action="add-skilled-labor">Add Skilled Technician</button>
+              </div>` : ""}
               ${canAdd ? `<div class="wo-add-labor">
                 ${technicianControl}
                 <label><span>Actual hours</span><input type="number" class="wo-new-labor-hours" min="0.01" step="0.01" placeholder="e.g. 1.25"></label><button type="button" data-action="add-labor">Add labor</button>

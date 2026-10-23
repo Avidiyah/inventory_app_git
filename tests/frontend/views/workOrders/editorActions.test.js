@@ -173,6 +173,29 @@ describe("save-notes", () => {
   });
 });
 
+describe("add-skilled-labor", () => {
+  it("posts a null technician with the skilled hours and reopens the section", async () => {
+    const detail = await open({ role: "admin", smr: true, assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
+    respond("post", "/work-orders/:id/labor", { ok: true });
+    card().querySelector(".wo-new-skilled-hours").value = "0.5";
+    click("add-skilled-labor");
+    await vi.waitFor(() => expect(requestFor("/labor", "POST")).not.toBeNull());
+    expect(requestFor("/labor", "POST").body).toEqual({ technician_id: null, minutes: 30 });
+    await refreshed(detail.id);
+    await vi.waitFor(() =>
+      expect(card().querySelector(".wo-labor-section").open).toBe(true));
+  });
+
+  it("refuses blank skilled hours before anything is sent", async () => {
+    await open({ role: "admin", smr: true, assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
+    card().querySelector(".wo-new-skilled-hours").value = "";
+    click("add-skilled-labor");
+    await vi.waitFor(() =>
+      expect(message().textContent).toBe("Enter Skilled Technician hours greater than zero."));
+    expect(requestFor("/labor", "POST")).toBeNull();
+  });
+});
+
 describe("add-labor", () => {
   it("needs a technician before anything is sent", async () => {
     // No assignment and no current user in the picker means the control

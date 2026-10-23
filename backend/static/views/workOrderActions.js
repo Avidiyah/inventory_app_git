@@ -345,6 +345,17 @@ listEl.addEventListener("click", async (event) => {
       setMessage(notesMessage, "Note saved.", "success");
       const notesSection = cardEl.querySelector(".wo-notes-section");
       if (notesSection) notesSection.open = false;
+    } else if (action === "add-skilled-labor") {
+      const section = btn.closest(".wo-labor-section");
+      const minutes = hoursToMinutes(section.querySelector(".wo-new-skilled-hours")?.value);
+      if (!minutes) {
+        setMessage(msg, "Enter Skilled Technician hours greater than zero.", "error");
+        return;
+      }
+      saveDraft(workOrderId, "labor", { number: cardEl.dataset.number, action: "add-labor", payload: { technicianId: null, minutes } });
+      await apiAddWorkOrderLabor(workOrderId, { technicianId: null, minutes });
+      clearDraft(workOrderId, "labor");
+      await refreshCard(cardEl, ".wo-labor-section");
     } else if (action === "add-labor") {
       const section = btn.closest(".wo-labor-section");
       // Only an Admin or the Owner is ever shown this form, and always with the
