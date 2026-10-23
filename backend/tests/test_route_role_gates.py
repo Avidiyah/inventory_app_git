@@ -545,11 +545,17 @@ def test_no_route_gate_is_left_at_the_admin_floor():
     # holding the operational toolkit is not a reason to hand them it.
     # The bulk week review joins with the punch writes: it clears pay-record
     # review flags.
+    #
+    # The SMR27 audit tiles (2026-10-23) are Admin+ by the user's explicit
+    # choice: the audit is an Admin/Owner re-billing exercise, and TechFM OA
+    # never works those orders. Its import and export sit higher still, at
+    # Owner (spec docs/superpowers/specs/2026-10-23-smr-audit-workflow-design.md D2/D6/D7).
     assert offenders == {
         "get_hub_report",
         "export_hub_report",
         "export_hub_attendance",
         "review_hub_attendance_week",
+        "list_smr_tiles",
     }
 
 

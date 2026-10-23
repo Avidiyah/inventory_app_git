@@ -33,8 +33,17 @@ SMR_REQUIRED_HEADERS: tuple[str, ...] = (
     "SCHEDULE DATE",
 )
 
-# Snapshot keys that do not describe the order's billable state.
-_NON_COMPARABLE_KEYS = frozenset({"taken_at", "source_row"})
+# The snapshot keys that describe billable state. Status, archive time and
+# notes change when an order is finished or worked, not when it is re-charged,
+# so they are frozen for the record but never make an order "edited".
+_COMPARABLE_KEYS = ("totals", "material_lines", "labor_entries", "labor_sessions")
+
+# The vendor sheet's own column order. JSONB does not keep key order, so the
+# export re-sorts `source_row` keys by this list, unknown columns after.
+SMR_SHEET_COLUMNS: tuple[str, ...] = (
+    "WORK ORDER", "CREATOR", "SERVICE TYPE", "SCHEDULE DATE", "COMPLETION DATE",
+    "ASSIGNED TO", "FILED STATUS", "LOCATION",
+)
 
 
 def _cell(row: dict, header: str) -> Optional[str]:
@@ -179,7 +188,13 @@ def snapshot(work_order, *, taken_at: datetime, source_row: Optional[dict]) -> d
 
 
 def _comparable(snap: dict) -> dict:
-    return {key: value for key, value in snap.items() if key not in _NON_COMPARABLE_KEYS}
+    return {key: snap.get(key) for key in _COMPARABLE_KEYS}
+
+
+def sheet_column_order(columns) -> list[str]:
+    """Known sheet columns in sheet order, then any others alphabetically."""
+    known = [c for c in SMR_SHEET_COLUMNS if c in columns]
+    return known + sorted(c for c in columns if c not in SMR_SHEET_COLUMNS)
 
 
 def is_edited(work_order) -> bool:

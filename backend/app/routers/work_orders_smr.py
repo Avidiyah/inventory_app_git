@@ -6,7 +6,7 @@ export are Owner-only; the tile list is Admin+."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from app.auth_deps import require_min_role
@@ -18,6 +18,7 @@ from app.routers._errors import to_http
 from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_capped
 from app.schemas.work_orders_smr import SmrImportResult, SmrTilesResponse
 from app.services import work_orders_smr as smr_service
+from app.services import work_orders_smr_xlsx as smr_xlsx
 
 router = APIRouter(prefix="/work-orders/smr", tags=["work-orders-smr"])
 
@@ -54,3 +55,16 @@ def list_smr_tiles(
     """Every SMR order as a tile with before / after / delta totals (Admin+).
     Unpaginated: the audit is a few hundred rows."""
     return smr_service.list_smr_tiles(db)
+
+
+@router.get("/export.xlsx", responses=_forbidden(roles.ROLE_OWNER))
+def export_smr_xlsx(
+    user: User = Depends(require_min_role(roles.ROLE_OWNER)),
+    db: Session = Depends(get_db),
+) -> Response:
+    """The before / after / delta audit workbook, every SMR order (Owner)."""
+    return Response(
+        content=smr_xlsx.smr_workbook(db),
+        media_type=smr_xlsx.XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{smr_xlsx.SMR_XLSX_FILENAME}"'},
+    )
