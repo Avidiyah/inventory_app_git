@@ -21,6 +21,7 @@ def test_smr_columns_round_trip(db):
         created_by_id=user.id,
         smr_imported_at=now,
         smr_baseline={"a": 1},
+        smr_target={"hours": "1.5"},
     )
     db.add(order)
     db.flush()
@@ -31,5 +32,6 @@ def test_smr_columns_round_trip(db):
     reloaded = db.query(WorkOrder).filter(WorkOrder.id == order.id).one()
     assert reloaded.smr_imported_at == now
     assert reloaded.smr_baseline == {"a": 1}
+    assert reloaded.smr_target == {"hours": "1.5"}
     assert [e.technician_id for e in reloaded.labor_entries] == [None]
     assert reloaded.labor_entries[0].technician is None

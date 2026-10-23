@@ -425,6 +425,11 @@ class WorkOrder(Base):
     # never overwritten, read by the edited check and the audit export.
     smr_imported_at = Column(DateTime(timezone=True), nullable=True)
     smr_baseline = Column(JSONB, nullable=True)
+    # `smr_target` is the client's own number for the order (hours, labor $,
+    # material $) from the Breakdown sheet, overwritten on every target import
+    # (spec 2026-10-23-smr-target-match). `domain.work_orders_smr.target_gap`
+    # compares the live order against it.
+    smr_target = Column(JSONB, nullable=True)
     # The account a work order is routed to. Set by name-match at import
     # or manually by Supervisor+; drives Supervisor visibility alongside worker
     # assignment membership.
