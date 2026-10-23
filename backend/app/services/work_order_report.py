@@ -122,6 +122,7 @@ def _closed_rows(db: Session, *, start: datetime, end: datetime) -> list[HubRepo
     eager loads, because the six columns are all on the row (W10)."""
     records = (
         db.query(*_report_columns())
+        .filter(WorkOrder.smr_imported_at.is_(None))
         .filter(WorkOrder.archived_at >= start, WorkOrder.archived_at < end)
         .all()
     )
@@ -137,6 +138,7 @@ def _new_work_order_rows(
     request so completed records remain schema-version 1 (W14)."""
     records = (
         db.query(*_report_columns())
+        .filter(WorkOrder.smr_imported_at.is_(None))
         .filter(WorkOrder.created_at >= start, WorkOrder.created_at < end)
         .all()
     )

@@ -187,7 +187,7 @@ def create_catalogue_request(
             db.query(WorkOrder)
             .filter(
                 WorkOrder.id == payload.work_order_id,
-                WorkOrder.archived_at.is_(None),
+                wo_service.live_work_orders(),
             )
             .first()
         )

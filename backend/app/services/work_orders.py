@@ -41,7 +41,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional, Sequence
 
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -940,6 +940,21 @@ def import_work_orders(db: Session, *, csv_bytes: bytes, user: User) -> dict:
 
 # --- list + detail -------------------------------------------------------
 
+# --- live predicate -------------------------------------------------------
+
+def not_smr():
+    """Rows the SMR27 audit import never touched. Every surface that lists or
+    counts work orders for people applies this beside its own archive filter;
+    the editor and the NetFacilities enrichment pass deliberately do not
+    (spec 2026-10-23 D1): SMR orders live only on the SMR page."""
+    return WorkOrder.smr_imported_at.is_(None)
+
+
+def live_work_orders():
+    """Unarchived AND not SMR -- what "live" means to every user-facing list."""
+    return and_(WorkOrder.archived_at.is_(None), not_smr())
+
+
 def mine_predicate(user_id: uuid.UUID):
     """"Work with my name on it" -- routed to this person or assigned to them.
 
@@ -1148,7 +1163,7 @@ def list_work_orders(
     """
     def scoped(*entities):
         """Live work orders matching every filter, projected to `entities`."""
-        query = db.query(*entities).filter(WorkOrder.archived_at.is_(None))
+        query = db.query(*entities).filter(live_work_orders())
         query = _apply_work_order_filters(
             query,
             status=status,
@@ -1250,7 +1265,7 @@ def get_work_order_filter_options(
     This keeps technicians from needing access to the full Users endpoint and
     avoids deriving options from the page's intentionally capped card list.
     """
-    live = WorkOrder.archived_at.is_(None)
+    live = live_work_orders()
     service_types = _distinct_filter_values(
         _scoped_to_user(db.query(WorkOrder.service_type).filter(live), user).all()
     )
@@ -1325,6 +1340,7 @@ def list_work_orders_for_export(
         selectinload(WorkOrder.labor_entries),
     )
 
+    query = query.filter(not_smr())
     if scope == wo.EXPORT_SCOPE_ARCHIVED:
         query = query.filter(WorkOrder.archived_at.is_not(None))
         status = None
@@ -2021,7 +2037,7 @@ def count_live_legacy_work_orders(
         db.query(WorkOrder)
         .filter(
             WorkOrder.legacy.is_(True),
-            WorkOrder.archived_at.is_(None),
+            live_work_orders(),
         )
         .count()
     )
@@ -2045,7 +2061,7 @@ def archive_live_legacy_work_orders(
         db.query(WorkOrder)
         .filter(
             WorkOrder.legacy.is_(True),
-            WorkOrder.archived_at.is_(None),
+            live_work_orders(),
         )
         .update(
             {WorkOrder.archived_at: datetime.now(timezone.utc)},

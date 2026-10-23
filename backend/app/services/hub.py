@@ -172,7 +172,7 @@ def _assigned_work_orders(db: Session, user_id: uuid.UUID) -> list[WorkOrder]:
     return (
         db.query(WorkOrder)
         .filter(
-            WorkOrder.archived_at.is_(None),
+            work_orders_service.live_work_orders(),
             or_(
                 WorkOrder.assigned_to_id == user_id,
                 WorkOrder.technician_assignments.any(
@@ -204,7 +204,7 @@ def _mine_total(db: Session, user_id: uuid.UUID) -> int:
     return (
         db.query(func.count(WorkOrder.id))
         .filter(
-            WorkOrder.archived_at.is_(None),
+            work_orders_service.live_work_orders(),
             work_orders_service.mine_predicate(user_id),
         )
         .scalar()
@@ -410,7 +410,7 @@ def _led_work_orders(db: Session, supervisor_id: uuid.UUID) -> list[WorkOrder]:
         db.query(WorkOrder)
         .options(joinedload(WorkOrder.technicians))
         .filter(
-            WorkOrder.archived_at.is_(None),
+            work_orders_service.live_work_orders(),
             WorkOrder.supervisor_id == supervisor_id,
         )
         .all()
@@ -597,7 +597,7 @@ class AdminPipelineCounts:
 def _pipeline_counts(db: Session) -> AdminPipelineCounts:
     rows = (
         db.query(WorkOrder.status, func.count(WorkOrder.id))
-        .filter(WorkOrder.archived_at.is_(None))
+        .filter(work_orders_service.live_work_orders())
         .group_by(WorkOrder.status)
         .all()
     )
@@ -624,7 +624,7 @@ def _company_wide_priority_counts(db: Session) -> PriorityCounts:
     """
     rows = (
         db.query(WorkOrder.id, WorkOrder.priority, WorkOrder.assigned_to_id)
-        .filter(WorkOrder.archived_at.is_(None))
+        .filter(work_orders_service.live_work_orders())
         .all()
     )
     high_ids = {row.id for row in rows if wo.priority_bucket(row.priority) == wo.PRIORITY_HIGH}
@@ -677,7 +677,7 @@ def _exception_counts(
     stale_eligible = (
         db.query(WorkOrder.id)
         .filter(
-            WorkOrder.archived_at.is_(None),
+            work_orders_service.live_work_orders(),
             WorkOrder.status.in_(_STALE_ELIGIBLE_STATUSES),
         )
         .all()
@@ -1124,7 +1124,7 @@ def graphs_hub(
             WorkOrder.service_type,
             WorkOrder.priority,
         )
-        .filter(WorkOrder.archived_at.is_(None))
+        .filter(work_orders_service.live_work_orders())
         .all()
     )
     for status, community, location, service_type, priority in live_rows:
@@ -1176,6 +1176,7 @@ def graphs_hub(
         for created_at, archived_at, schedule_date in (
             db.query(WorkOrder.created_at, WorkOrder.archived_at, WorkOrder.schedule_date)
             .filter(WorkOrder.created_at.is_not(None))
+            .filter(work_orders_service.not_smr())
             .filter(WorkOrder.created_at < last_end_at)
             .filter(or_(WorkOrder.archived_at.is_(None), WorkOrder.archived_at >= first_start_at))
             .all()
