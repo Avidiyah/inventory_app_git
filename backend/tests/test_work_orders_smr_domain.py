@@ -10,7 +10,10 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace as NS
 
+import pytest
+
 from app.domain import work_orders as wo
+from app.domain.errors import WorkOrderStateError
 from app.domain import work_orders_smr as smr
 
 
@@ -119,3 +122,76 @@ def test_deltas_subtract_baseline():
     assert d["labor_total"] == wo.labor_charge(15)
     assert d["material_lines"] == -1
     assert d["total"] == wo.labor_charge(15) - Decimal("3.00")
+
+
+# --- target match (spec 2026-10-23-smr-target-match) ----------------------
+
+BREAKDOWN = ["WO#", "Unit#", "Closed Date", "Labor Type", "BELFOR HRS", "Add HRS",
+             "Duplicate HRS", "Hours", "Labor $", "OT Hours", "OT $", "Total Material Cost", "Total L&M", ""]
+
+
+def _brow(**o):
+    row = dict(zip(BREAKDOWN, ["23281585", "Young Hall 108", "05/21/26", "SL", "", "", "", "1", "$62.50", "", "$0.00", "$9.38", "$71.88", ""]))
+    row.update(o)
+    return row
+
+
+def test_parse_target_row_reads_hours_and_money():
+    p = smr.parse_target_row(_brow(**{"Labor $": "$1,656.25", "Hours": "26.5"}))
+    assert (p["number"], p["hours"], p["labor_total"], p["materials_total"], p["total"]) == (
+        "23281585", Decimal("26.5"), Decimal("1656.25"), Decimal("9.38"), Decimal("71.88"))
+    assert p["source_row"]["Unit#"] == "Young Hall 108"
+
+
+def test_parse_target_row_blank_number_is_none_and_blank_money_is_zero():
+    assert smr.parse_target_row(_brow(**{"WO#": ""})) is None
+    parsed = smr.parse_target_row(_brow(**{"Total Material Cost": "", "Hours": ""}))
+    assert parsed["materials_total"] == Decimal(0) and parsed["hours"] == Decimal(0)
+
+
+def test_parse_target_row_rejects_non_numeric():
+    with pytest.raises(WorkOrderStateError, match="23281585: Hours"):
+        smr.parse_target_row(_brow(Hours="abc"))
+
+
+def test_target_record_is_json_safe():
+    rec = smr.target_record(smr.parse_target_row(_brow()), imported_at=datetime(2026, 10, 23, tzinfo=timezone.utc))
+    assert rec["hours"] == "1" and rec["materials_total"] == "9.38" and rec["imported_at"].startswith("2026-10-23")
+    assert rec["source_row"]["Unit#"] == "Young Hall 108"
+    json.dumps(rec)
+
+
+def _target(hours="2", material="67.16"):
+    return {"hours": hours, "labor_total": "0.00", "materials_total": material, "total": "0.00", "source_row": {}}
+
+
+def test_target_gap_short_order():
+    g = smr.target_gap(_target(), billed_minutes=60, materials_total=Decimal("40.00"))
+    assert g["current_hours"] == Decimal(1) and g["current_materials_total"] == Decimal("46.00")
+    assert g["remaining_hours"] == Decimal(1) and g["remaining_materials_total"] == Decimal("21.16")
+    assert g["gap_hours"] == Decimal(-1) and g["matched"] is False
+    assert g["hours"] == Decimal(2) and g["materials_total"] == Decimal("67.16")
+
+
+def test_target_gap_within_band_is_matched():
+    g = smr.target_gap(_target(), billed_minutes=90, materials_total=Decimal("50.00"))  # 57.50 marked, 9.66 short
+    assert g["matched"] is True and g["remaining_hours"] == Decimal("0.5")
+
+
+def test_target_gap_just_outside_band_is_short():
+    assert smr.target_gap(_target(), billed_minutes=60, materials_total=Decimal("58.40"))["matched"] is False
+    assert smr.target_gap(_target(), billed_minutes=120, materials_total=Decimal("49.00"))["matched"] is False  # 56.35, 10.81 short
+
+
+def test_target_gap_overshoot_is_matched():
+    g = smr.target_gap(_target(), billed_minutes=240, materials_total=Decimal("100.00"))
+    assert g["matched"] is True and g["remaining_hours"] == 0 and g["remaining_materials_total"] == 0
+    assert g["gap_hours"] == Decimal(2)
+
+
+def test_target_gap_zero_target_is_matched():
+    assert smr.target_gap(_target("0", "0.00"), billed_minutes=0, materials_total=Decimal(0))["matched"] is True
+
+
+def test_target_gap_none_without_target():
+    assert smr.target_gap(None, billed_minutes=30, materials_total=Decimal(1)) is None

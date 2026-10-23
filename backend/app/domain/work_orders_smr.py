@@ -5,16 +5,22 @@ work order, how a work order is frozen into a JSON snapshot (the baseline,
 the edited check and the audit export all read this one serializer so the
 BEFORE and AFTER phases are column-identical), and how labor splits into
 real-technician minutes and anonymous Skilled Technician minutes that round
-apart from each other."""
+apart from each other.
+
+The target rule (spec 2026-10-23-smr-target-match) lives at the bottom: the
+client's Breakdown sheet row becomes a per-order target, and `target_gap`
+says how far the live order still is from it, undershoot only."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Optional
 
+from app.domain import receipt
 from app.domain import work_orders as wo
+from app.domain.errors import WorkOrderStateError
 
 SMR_SERVICE_TYPE = "SMR27 - Belfor"
 SKILLED_TECHNICIAN_LABEL = "Skilled Technician"
@@ -220,3 +226,99 @@ def deltas(baseline: dict, current: dict) -> dict:
     out.update({key: after[key] - before[key] for key in _DELTA_INT})
     out["material_lines"] = len(current["material_lines"]) - len(baseline["material_lines"])
     return out
+
+
+# --- target match (spec 2026-10-23-smr-target-match) ----------------------
+
+# The Breakdown sheet's headers the import reads by name; the rest ride along
+# in the target's `source_row`.
+TARGET_REQUIRED_HEADERS: tuple[str, ...] = ("WO#", "Hours", "Total Material Cost")
+
+# The sheet's own column order, for the export (the blank trailing header is
+# dropped on read).
+TARGET_SHEET_COLUMNS: tuple[str, ...] = (
+    "WO#", "Unit#", "Closed Date", "Labor Type", "BELFOR HRS", "Add HRS", "Duplicate HRS",
+    "Hours", "Labor $", "OT Hours", "OT $", "Total Material Cost", "Total L&M",
+)
+
+# Matched = within the band below the target, or anywhere above it. The client
+# knows they were under-charged, so overshoot is never a failure (user, D3).
+TARGET_HOURS_BAND = Decimal("0.5")
+TARGET_MATERIAL_BAND = Decimal("10")
+
+_CENT = Decimal("0.01")
+
+
+def parse_money(text: Optional[str], *, number: str, column: str) -> Decimal:
+    """`$1,656.25` -> Decimal; blank -> 0; anything else names the row and column."""
+    cleaned = (text or "").replace("$", "").replace(",", "").strip()
+    if not cleaned:
+        return Decimal(0)
+    try:
+        return Decimal(cleaned)
+    except InvalidOperation as exc:
+        raise WorkOrderStateError(f"Row {number}: {column} is not a number.") from exc
+
+
+def parse_target_row(row: dict) -> Optional[dict]:
+    """Map one Breakdown row to a target. `None` for a blank WO# (the footer)."""
+    number = _cell(row, "WO#")
+    if number is None:
+        return None
+
+    def money(column: str) -> Decimal:
+        return parse_money(row.get(column), number=number, column=column)
+
+    return {
+        "number": number,
+        "hours": money("Hours"),
+        "labor_total": money("Labor $"),
+        "materials_total": money("Total Material Cost"),
+        "total": money("Total L&M"),
+        "source_row": {
+            key: (value.strip() if isinstance(value, str) else value)
+            for key, value in row.items()
+            if key
+        },
+    }
+
+
+def target_record(parsed: dict, *, imported_at: datetime) -> dict:
+    """The JSONB value: Decimals as strings, the stamp ISO, the raw row kept."""
+    return {
+        "imported_at": _iso(imported_at),
+        "hours": str(parsed["hours"]),
+        "labor_total": _money(parsed["labor_total"]),
+        "materials_total": _money(parsed["materials_total"]),
+        "total": _money(parsed["total"]),
+        "source_row": parsed["source_row"],
+    }
+
+
+def target_gap(target: Optional[dict], *, billed_minutes: int, materials_total: Decimal) -> Optional[dict]:
+    """How far the live order is from the client's target. Hours are what the
+    client is billed (real + skilled, each already rounded); material is the
+    receipt figure, base total with the mark-up. `None` without a target."""
+    if not target:
+        return None
+    hours = Decimal(target["hours"])
+    material = Decimal(target["materials_total"])
+    current_hours = Decimal(billed_minutes) / Decimal(60)
+    current_material = (materials_total * receipt.MARKUP_RATE).quantize(_CENT, rounding=ROUND_HALF_UP)
+    gap_hours = current_hours - hours
+    gap_material = current_material - material
+    remaining_hours = max(Decimal(0), -gap_hours)
+    remaining_material = max(Decimal(0), -gap_material)
+    return {
+        "hours": hours,
+        "labor_total": Decimal(target["labor_total"]),
+        "materials_total": material,
+        "total": Decimal(target["total"]),
+        "current_hours": current_hours,
+        "current_materials_total": current_material,
+        "gap_hours": gap_hours,
+        "gap_materials_total": gap_material,
+        "remaining_hours": remaining_hours,
+        "remaining_materials_total": remaining_material,
+        "matched": remaining_hours <= TARGET_HOURS_BAND and remaining_material <= TARGET_MATERIAL_BAND,
+    }
