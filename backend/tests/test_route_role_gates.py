@@ -37,6 +37,7 @@ from app.routers import users as users_router
 from app.routers import transactions as transactions_router
 from app.routers import user_requests as user_requests_router
 from app.routers import work_orders as work_orders_router
+from app.routers import work_orders_smr as smr_router
 from app.routers._errors import to_http
 from app.schemas.work_orders import WorkOrderUpdate
 
@@ -644,3 +645,18 @@ def test_filing_and_cancelling_a_material_request_have_no_static_min_role(endpoi
     # ownership (the filer), both decided inside the service -- same shape as
     # the catalogue-request filing route.
     assert _min_role_for(user_requests_router, endpoint_name) is None
+
+
+# --- SMR27 audit routes (spec 2026-10-23): import/export Owner, tiles Admin+ ---
+
+@pytest.mark.parametrize(
+    "endpoint_name,expected",
+    [
+        ("import_smr", roles.ROLE_OWNER),
+        ("export_smr_xlsx", roles.ROLE_OWNER),
+        ("list_smr_tiles", roles.ROLE_ADMIN),
+    ],
+)
+def test_smr_route_gates_are_declarative_and_document_403(endpoint_name, expected):
+    assert _min_role_for(smr_router, endpoint_name) == expected
+    assert 403 in _route(smr_router, endpoint_name).responses

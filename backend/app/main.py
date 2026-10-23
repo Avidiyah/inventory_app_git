@@ -62,6 +62,7 @@ from app.routers import (
     user_requests,
     users,
     work_orders,
+    work_orders_smr,
 )
 
 class NoCacheStaticFiles(StaticFiles):
@@ -344,6 +345,7 @@ app.include_router(tools.router)
 app.include_router(transactions.router)
 app.include_router(user_requests.router)
 app.include_router(users.router)
+app.include_router(work_orders_smr.router)
 app.include_router(work_orders.router)
 
 # The frontend is a static SPA served from `backend/static/`.
