@@ -117,3 +117,32 @@ def test_smr_export_includes_archived_orders(db):
     _, orders = _rows(_book(db)["Orders"])
     row = next(r for r in orders if r["WORK ORDER"] == number)
     assert row["ARCHIVED AT"] is not None and row["EDITED"] == "NO"
+
+
+# --- target match (spec 2026-10-23-smr-target-match) ----------------------
+
+def _breakdown(rows):
+    head = "WO#,Unit#,Closed Date,Labor Type,BELFOR HRS,Add HRS,Duplicate HRS,Hours,Labor $,OT Hours,OT $,Total Material Cost,Total L&M,\r\n"
+    body = "".join(f'{n},Young Hall 108,05/21/26,SL,,,,{h},$0.00,,$0.00,"{m}",$0.00,\r\n' for n, h, m in rows)
+    return (head + body).encode()
+
+
+def test_smr_export_target_and_gap_columns(db):
+    owner = _user(db)
+    number, bare = [f"SMR-{uuid.uuid4().hex[:8]}" for _ in range(2)]
+    smr_service.import_smr(db, csv_bytes=_sheet([number, bare]), user=owner)
+    smr_service.import_smr_targets(db, csv_bytes=_breakdown([(number, "2", "$67.16")]), user=owner)
+    order = wos.find_by_number(db, number)
+    _line(db, order, owner, qty="2", price="20.00")  # 40.00 base, 46.00 marked
+    wos.add_work_order_labor(db, order.id, user=owner, technician_id=None, minutes=60)
+
+    header, rows = _rows(_book(db)["Orders"])
+
+    assert header[-6:] == ["EDITED", "SMR IMPORTED AT", "BASELINE AT", "LAST EDITED AT", "LAST EDITED BY", "ARCHIVED AT"]
+    assert header.index("TARGET HOURS") > header.index("TOTAL DELTA")
+    row = next(r for r in rows if r["WORK ORDER"] == number)
+    assert (row["TARGET HOURS"], row["TARGET MATERIAL $"], row["MATERIALS +15% AFTER"]) == (2.0, 67.16, 46.0)
+    assert (row["GAP HOURS"], row["GAP MATERIAL $"], row["MATCHED"]) == (-1.0, -21.16, "NO")
+    assert row["BREAKDOWN Unit#"] == "Young Hall 108" and row["TARGET IMPORTED AT"] is not None
+    empty = next(r for r in rows if r["WORK ORDER"] == bare)
+    assert empty["TARGET HOURS"] is None and empty["MATCHED"] is None

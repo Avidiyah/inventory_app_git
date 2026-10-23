@@ -45,6 +45,13 @@ _NUMERIC = (
     ("LABOR TOTAL", "labor_total"),
     ("TOTAL", "total"),
 )
+# The client's target and the gap to it (spec 2026-10-23-smr-target-match);
+# all blank for an order without a Breakdown row.
+_TARGET = (
+    "MATERIALS +15% AFTER", "TARGET HOURS", "TARGET LABOR $", "TARGET MATERIAL $", "TARGET TOTAL",
+    "GAP HOURS", "GAP MATERIAL $", "MATCHED", "TARGET IMPORTED AT",
+)
+_BREAKDOWN_PREFIX = "BREAKDOWN "
 _TRAIL = ("EDITED", "SMR IMPORTED AT", "BASELINE AT", "LAST EDITED AT", "LAST EDITED BY", "ARCHIVED AT")
 
 MATERIAL_HEADERS = ("WORK ORDER", "PHASE", "ITEM", "BARCODE", "QUANTITY", "BILLABLE QUANTITY", "UNIT PRICE", "LINE TOTAL", "CREATED AT")
@@ -75,6 +82,33 @@ def _source_columns(orders: Iterable[WorkOrder]) -> list[str]:
     return smr.sheet_column_order(seen)
 
 
+def _target_columns(orders: Iterable[WorkOrder]) -> list[str]:
+    """The Breakdown sheet's headers across every target, in its own order."""
+    seen: set[str] = set()
+    for order in orders:
+        seen.update(((order.smr_target or {}).get("source_row") or {}).keys())
+    known = [c for c in smr.TARGET_SHEET_COLUMNS if c in seen]
+    return known + sorted(c for c in seen if c not in smr.TARGET_SHEET_COLUMNS)
+
+
+def _target_values(order: WorkOrder, current: dict) -> list:
+    """`_TARGET` values for one order; a row of None without a target."""
+    target = smr_service.target_for(order, current)
+    if target is None:
+        return [None] * len(_TARGET)
+    return [
+        _num(target.current_materials_total),
+        _num(target.hours),
+        _num(target.labor_total),
+        _num(target.materials_total),
+        _num(target.total),
+        _num(target.gap_hours),
+        _num(target.gap_materials_total),
+        "YES" if target.matched else "NO",
+        _when((order.smr_target or {}).get("imported_at")),
+    ]
+
+
 # Operational-export columns the sheet already supplies by the same name.
 _SHEET_OWNED = {"WORK ORDER", "LOCATION", "ASSIGNED TO", "SERVICE TYPE", "SCHEDULE DATE"}
 _APP_HEADERS = [h for h in wo.EXPORT_HEADERS if h not in _SHEET_OWNED]
@@ -101,10 +135,13 @@ def _last_edit(order: WorkOrder, baseline_at: Optional[datetime], names: dict) -
 
 def _orders_sheet(sheet: Worksheet, orders: list[WorkOrder], names: dict) -> None:
     source_columns = _source_columns(orders)
+    target_columns = _target_columns(orders)
     headers = (
         source_columns
         + _APP_HEADERS
         + [f"{label} {phase}" for label, _ in _NUMERIC for phase in (BEFORE, AFTER, "DELTA")]
+        + list(_TARGET)
+        + [f"{_BREAKDOWN_PREFIX}{column}" for column in target_columns]
         + list(_TRAIL)
     )
     theme.setup_sheet(sheet, tab_color=TAB_COLOR, freeze="B2")
@@ -120,10 +157,13 @@ def _orders_sheet(sheet: Worksheet, orders: list[WorkOrder], names: dict) -> Non
         for _, key in _NUMERIC:
             b, a = _num(_number_value(baseline, key)), _num(_number_value(current, key))
             numbers += [b, a, a - b]
+        breakdown = (order.smr_target or {}).get("source_row") or {}
         rows.append(
             [source.get(column) for column in source_columns]
             + [value for header, value in zip(wo.EXPORT_HEADERS, wos.export_row(order)) if header not in _SHEET_OWNED]
             + numbers
+            + _target_values(order, current)
+            + [breakdown.get(column) for column in target_columns]
             + [
                 "YES" if smr.is_edited(order) else "NO",
                 _when(order.smr_imported_at),
