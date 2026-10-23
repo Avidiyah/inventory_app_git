@@ -740,7 +740,12 @@ def _materials_and_labor(work_orders: list[WorkOrder]) -> tuple[Decimal, Decimal
             )
             if charge is not None:
                 materials_total += charge
-        labor_minutes = sum(entry.minutes for entry in work_order.labor_entries)
+        # Skilled Technician lines (no technician) are SMR-only and never
+        # reach the Hub (spec 2026-10-23): count real people's minutes only.
+        labor_minutes = sum(
+            entry.minutes for entry in work_order.labor_entries
+            if entry.technician_id is not None
+        )
         labor_total += wo.labor_charge(labor_minutes)
     return materials_total, labor_total
 

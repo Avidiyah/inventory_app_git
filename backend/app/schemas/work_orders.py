@@ -154,9 +154,11 @@ class WorkOrderItemBilling(BaseModel):
 
 class WorkOrderLaborCreate(BaseModel):
     """Payload for `POST /work-orders/{id}/labor`. Durations are whole minutes;
-    billing rounds the combined work-order total to the next half hour."""
+    billing rounds the combined work-order total to the next half hour.
+    `technician_id` is `None` for an anonymous Skilled Technician line, which
+    the service accepts only on an SMR order from Admin+ (spec 2026-10-23)."""
 
-    technician_id: UUID
+    technician_id: Optional[UUID] = None
     minutes: int
 
     @field_validator("minutes")
@@ -209,7 +211,8 @@ class WorkOrderLaborDetail(BaseModel):
     error."""
 
     id: UUID
-    technician_id: UUID
+    # None = Skilled Technician line (`technician_name` carries the label).
+    technician_id: Optional[UUID] = None
     technician_name: str
     minutes: int
     # Pre-rendered by the server in the note log's Central timezone (e.g.
@@ -265,6 +268,9 @@ class WorkOrderCard(BaseModel):
     supervisor_id: Optional[UUID] = None
     supervisor_name: Optional[str] = None
     legacy: bool = False
+    # SMR27 audit order (spec 2026-10-23): lives on the SMR page, may carry
+    # Skilled Technician labor.
+    smr: bool = False
     # True when any logged material's item has no price or a $0.00 price -- the
     # same rule that opens a missing-price request. Admin Review paints these red.
     has_unpriced_items: bool = False
@@ -398,6 +404,10 @@ class WorkOrderDetail(WorkOrderCard):
     materials_total: Optional[Decimal] = None
     labor_minutes: int = 0
     labor_billed_minutes: int = 0
+    # Anonymous Skilled Technician minutes (SMR orders), rounded on their own;
+    # `labor_total` below already includes their charge.
+    skilled_labor_minutes: int = 0
+    skilled_labor_billed_minutes: int = 0
     # Labor bills at the fixed domain rate after total-duration rounding. Both
     # cost fields are TechFM OA and above only (None when redacted).
     labor_rate: Optional[Decimal] = None

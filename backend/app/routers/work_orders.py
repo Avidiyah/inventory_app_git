@@ -49,6 +49,7 @@ from app.domain import realtime as realtime_policy
 from app.domain import receipt
 from app.domain import roles
 from app.domain import work_orders as wo
+from app.domain import work_orders_smr as smr
 from app.domain.errors import DomainError
 from app.domain.list_limits import MAX_LIST_ROWS
 from app.logging_config import current_request_id
@@ -413,6 +414,7 @@ def _card(work_order: WorkOrder) -> WorkOrderCard:
         supervisor_id=work_order.supervisor_id,
         supervisor_name=work_order.supervisor.full_name if work_order.supervisor else None,
         legacy=work_order.legacy,
+        smr=getattr(work_order, "smr_imported_at", None) is not None,
         has_unpriced_items=any(
             not receipt.is_priced(line.item.price) for line in work_order.items
         ),
@@ -457,7 +459,10 @@ def _labor_detail(entry: WorkOrderLabor) -> WorkOrderLaborDetail:
     return WorkOrderLaborDetail(
         id=entry.id,
         technician_id=entry.technician_id,
-        technician_name=entry.technician.full_name,
+        technician_name=(
+            smr.SKILLED_TECHNICIAN_LABEL if entry.technician_id is None
+            else entry.technician.full_name
+        ),
         minutes=entry.minutes,
         session_window=_session_window(session),
         auto_closed=session is not None and session.auto_closed_at is not None,
@@ -500,7 +505,8 @@ def _detail(
     `active_labor_session`, which is the honest answer for it.
     """
     labor_entries = list(getattr(work_order, "labor_entries", None) or ())
-    labor_minutes = sum(entry.minutes for entry in labor_entries)
+    split = smr.labor_split(labor_entries)
+    labor_minutes = split.real_minutes
     # An open session has produced no labor row, so it is absent from the sums
     # above by construction -- the property that keeps every billing read path
     # as correct for a job in progress as it was before tracking existed.
@@ -538,9 +544,11 @@ def _detail(
         tracking_technician_ids=[session.technician_id for session in running],
         materials_total=_materials_total(work_order) if include_price else None,
         labor_minutes=labor_minutes,
-        labor_billed_minutes=wo.billed_labor_minutes(labor_minutes),
+        labor_billed_minutes=split.real_billed,
+        skilled_labor_minutes=split.skilled_minutes,
+        skilled_labor_billed_minutes=split.skilled_billed,
         labor_rate=wo.LABOR_RATE if include_price else None,
-        labor_total=wo.labor_charge(labor_minutes) if include_price else None,
+        labor_total=split.labor_total if include_price else None,
         signature=_signature_out(work_order),
     )
 

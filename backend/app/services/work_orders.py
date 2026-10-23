@@ -48,6 +48,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from app.domain import receipt
 from app.domain import roles
 from app.domain import work_orders as wo
+from app.domain import work_orders_smr as smr
 from app.domain.errors import (
     InvalidAssigneeError,
     InvalidSupervisorError,
@@ -1396,8 +1397,9 @@ def work_order_totals(work_order: WorkOrder) -> WorkOrderTotals:
         materials_total += price * wo.effective_billable(
             line.quantity, line.billable_quantity
         )
-    labor_minutes = sum(entry.minutes for entry in work_order.labor_entries)
-    labor_total = wo.labor_charge(labor_minutes)
+    split = smr.labor_split(work_order.labor_entries)
+    labor_minutes = split.real_minutes + split.skilled_minutes
+    labor_total = split.labor_total
     return WorkOrderTotals(
         materials_total=materials_total,
         labor_minutes=labor_minutes,
@@ -2144,6 +2146,13 @@ def _require_labor_editor(
     routes stay open to any session and the row-level rule lives here beside
     the data, like the Review handoff floor.
     """
+    if technician_id is None:
+        # A Skilled Technician line belongs to nobody: Admin+ only.
+        if user is None or not roles.role_at_least(user.role, roles.ROLE_ADMIN):
+            raise RoleManagementError(
+                "Only an Admin or Owner can key Skilled Technician hours."
+            )
+        return
     if user is None or roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
         return
     now = now or datetime.now(timezone.utc)
@@ -2164,10 +2173,13 @@ def add_work_order_labor(
     work_order_id: uuid.UUID,
     *,
     user: Optional[User],
-    technician_id: uuid.UUID,
+    technician_id: Optional[uuid.UUID],
     minutes: int,
 ) -> WorkOrderLabor:
     """Record actual labor by hand -- Team Lead and above, or a crew member for themselves.
+
+    `technician_id=None` records an anonymous Skilled Technician line: SMR
+    orders only (spec 2026-10-23), Admin+ only, no crew check.
 
     This is the *correction* route: a dead battery, a forgotten Begin
     Charging, a paper sheet. Hours normally come from stopping a session
@@ -2189,8 +2201,12 @@ def add_work_order_labor(
     """
     work_order = _get_visible(db, work_order_id, user)
     wo.validate_labor_minutes(minutes)
+    if technician_id is None and work_order.smr_imported_at is None:
+        raise InvalidAssigneeError(
+            "Skilled Technician hours can only be recorded on an SMR work order."
+        )
     _require_labor_editor(user, technician_id=technician_id, work_order=work_order)
-    if technician_id not in _assigned_technician_ids(work_order) and not (
+    if technician_id is not None and technician_id not in _assigned_technician_ids(work_order) and not (
         user is not None and technician_id == user.id
     ):
         raise InvalidAssigneeError(
