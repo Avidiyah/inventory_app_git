@@ -107,7 +107,9 @@ describe("the SMR page", () => {
     document.body.innerHTML = "";
     const { requestsFor } = await openSmr("owner");
     expect(byId("smr-export-btn").hidden).toBe(false);
-    server.use(http.get("/work-orders/smr/export.xlsx", () => new HttpResponse(new Blob(["x"]), {
+    // A string body, as the other download tests use: CI's Node rejects a
+    // Blob body inside MSW's Response ("object.stream is not a function").
+    server.use(http.get("/work-orders/smr/export.xlsx", () => new HttpResponse("x", {
       headers: { "Content-Disposition": 'attachment; filename="smr27-audit-export.xlsx"' },
     })));
     const { createObjectURL } = stubObjectUrl();

@@ -40,6 +40,9 @@ PAGE_LANDMARKS = {
     "tools": "#tool-custody-section",
     "history": "#history-section",
     "integrations": "#integrations-import-section",
+    # The SMR27 audit page (Admin+): the heading is always rendered; the bar
+    # and tiles paint only after GET /work-orders/smr answers.
+    "smr": "#smr-heading",
 }
 
 PAGE_NAMES = [
