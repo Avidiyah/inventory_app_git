@@ -26,6 +26,7 @@ function tile(overrides = {}) {
     building_number: "Young Hall", unit_number: "108A", location: "Young Hall:1st Floor,108A", vendor_assignee: "Chris Coburn",
     status: "completed", archived_at: null, edited: false,
     before: totals(), after: totals(), delta: totals(), after_line_count: 0,
+    target: null,
     ...overrides,
   };
 }
@@ -33,8 +34,9 @@ function tile(overrides = {}) {
 function page(overrides = {}) {
   return {
     imported_at: "2026-10-23T14:14:00Z",
-    counts: { orders: 3, edited: 1, untouched: 2, archived: 1 },
+    counts: { orders: 3, edited: 1, untouched: 2, archived: 1, matched: 0, short: 0, no_target: 3 },
     delta: { labor_total: "58.40", materials_total: "18.40", total: "76.80" },
+    remaining: { hours: "0", materials_total: "0.00" },
     matched: 3,
     filter_options: {
       priorities: ["Emergency", "Normal"],
@@ -98,6 +100,47 @@ describe("the SMR page", () => {
     expect(tiles().filter((t) => !t.hidden).map((t) => t.dataset.number)).toEqual(["23282567"]);
     byId("smr-filter-all").click();
     expect(tiles().filter((t) => !t.hidden)).toHaveLength(3);
+  });
+
+  // The client's target (spec 2026-10-23-smr-target-match): bar counts, the
+  // remaining totals, a line per tile, and the Short / Matched filters.
+  function target(overrides = {}) {
+    return {
+      hours: "2", current_hours: "0", gap_hours: "-2", remaining_hours: "2", matched: false,
+      labor_total: "125.00", total: "192.16", materials_total: "67.16", current_materials_total: "0.00",
+      gap_materials_total: "-67.16", remaining_materials_total: "67.16",
+      ...overrides,
+    };
+  }
+
+  it("bar shows match counts and remaining; Short and Matched filters select by target", async () => {
+    await openSmr("admin", page({
+      counts: { orders: 3, edited: 1, untouched: 2, archived: 0, matched: 1, short: 1, no_target: 1 },
+      remaining: { hours: "2.5", materials_total: "134.32" },
+      tiles: [
+        tile({ number: "A", target: target() }),
+        tile({ id: "22222222-2222-2222-2222-222222222222", number: "B", edited: true,
+          target: target({ current_hours: "2", gap_hours: "0", remaining_hours: "0", matched: true,
+            current_materials_total: "70.00", gap_materials_total: "2.84", remaining_materials_total: "0.00" }) }),
+        tile({ id: "33333333-3333-3333-3333-333333333333", number: "C" }),
+      ],
+    }));
+    const bar = byId("smr-bar").textContent;
+    expect(bar).toContain("1 MATCHED");
+    expect(bar).toContain("1 SHORT");
+    expect(bar).toContain("1 NO TARGET");
+    expect(bar).toContain("REMAINING 2.5 H");
+    expect(bar).toContain("REMAINING $134.32");
+    expect(tiles()[0].querySelector(".smr-tile-target").textContent).toBe("2.0 H · $67.16 TO GO");
+    expect(tiles()[1].querySelector(".smr-tile-target").textContent).toBe("MATCHED");
+    expect(tiles()[1].classList.contains("smr-tile--matched")).toBe(true);
+    expect(tiles()[2].querySelector(".smr-tile-target").textContent).toBe("NO TARGET");
+    byId("smr-filter-short").click();
+    expect(tiles().filter((t) => !t.hidden).map((t) => t.dataset.number)).toEqual(["A"]);
+    byId("smr-filter-matched").click();
+    expect(tiles().filter((t) => !t.hidden).map((t) => t.dataset.number)).toEqual(["B"]);
+    expect(Array.from(document.querySelectorAll(".smr-controls .smr-btn[data-filter]")).map((b) => b.dataset.filter))
+      .toEqual(["untouched", "short", "edited", "archived", "matched", "all"]);
   });
 
   it("hides the export for an Admin and shows it for an Owner, who downloads the workbook", async () => {

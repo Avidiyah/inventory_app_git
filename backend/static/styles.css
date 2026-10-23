@@ -5853,6 +5853,10 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 #smr-page .smr-tile-where { letter-spacing: .04em; }
 #smr-page .smr-tile-delta { font-size: 26px; margin: 6px 0; }
 #smr-page .smr-tile-meta { letter-spacing: .06em; }
+/* The client's target (spec 2026-10-23-smr-target-match): what is left to go,
+   and a heavier border once the order is matched. */
+#smr-page .smr-tile--matched { border-width: 3px; }
+#smr-page .smr-tile-target { letter-spacing: .06em; font-weight: 700; }
 #smr-page .smr-empty {
     grid-column: 1 / -1;
     border: 1px solid #fff;

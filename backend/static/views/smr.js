@@ -48,20 +48,41 @@ function tileState(tile) {
   return tile.edited ? "edited" : "untouched";
 }
 
+// Short = has a client target and is not yet matched; Matched = has one and is
+// (spec 2026-10-23-smr-target-match). Orders without a Breakdown row are neither.
 function matches(tile, filter) {
   if (filter === "all") return true;
   if (filter === "archived") return Boolean(tile.archived_at);
+  if (filter === "short") return Boolean(tile.target) && !tile.target.matched;
+  if (filter === "matched") return tile.target?.matched === true;
   return (filter === "edited") === Boolean(tile.edited);
+}
+
+const hoursText = (value) => `${(Number(value) || 0).toFixed(1)} H`;
+
+// "2.0 H · $67.16 TO GO" / "MATCHED" / "NO TARGET": what is left to reach the
+// client's number, both sides, so the Admin sees which one still needs work.
+export function targetLine(tile) {
+  const t = tile.target;
+  if (!t) return "NO TARGET";
+  if (t.matched) return "MATCHED";
+  return `${hoursText(t.remaining_hours)} · ${formatMoney(t.remaining_materials_total || 0)} TO GO`;
 }
 
 function barHtml(payload) {
   const c = payload.counts || {};
   const d = payload.delta || {};
+  const r = payload.remaining || {};
   const cells = [
     `${c.orders || 0} ORDERS`,
     `${c.edited || 0} EDITED`,
     `${c.untouched || 0} UNTOUCHED`,
     `${c.archived || 0} ARCHIVED`,
+    `${c.matched || 0} MATCHED`,
+    `${c.short || 0} SHORT`,
+    `${c.no_target || 0} NO TARGET`,
+    `REMAINING ${hoursText(r.hours)}`,
+    `REMAINING ${formatMoney(r.materials_total || 0)}`,
     `Δ LABOR ${signedMoney(d.labor_total)}`,
     `Δ MATERIAL ${signedMoney(d.materials_total)}`,
     `Δ TOTAL ${signedMoney(d.total)}`,
@@ -75,10 +96,12 @@ function tileHtml(tile) {
   const where = [tile.building_number, tile.unit_number].filter(Boolean).join(" ") || tile.location || "";
   const who = tile.vendor_assignee ? ` · ${tile.vendor_assignee}` : "";
   const minutes = (tile.after?.real_minutes || 0) + (tile.after?.skilled_minutes || 0);
-  return `<button type="button" class="smr-tile smr-tile--${state}" data-number="${escapeHtml(tile.number)}" data-id="${escapeHtml(tile.id)}">
+  const matched = tile.target?.matched ? " smr-tile--matched" : "";
+  return `<button type="button" class="smr-tile smr-tile--${state}${matched}" data-number="${escapeHtml(tile.number)}" data-id="${escapeHtml(tile.id)}">
     <span class="smr-tile-number">${escapeHtml(tile.number)}</span>
     <span class="smr-tile-where">${escapeHtml(`${where}${who}`.toUpperCase())}</span>
     <span class="smr-tile-delta">${escapeHtml(signedMoney(tile.delta?.total))}</span>
+    <span class="smr-tile-target">${escapeHtml(targetLine(tile))}</span>
     <span class="smr-tile-meta">${escapeHtml(`${minutes} MIN · ${tile.after_line_count || 0} LINES · ${state.toUpperCase()}`)}</span>
   </button>`;
 }
