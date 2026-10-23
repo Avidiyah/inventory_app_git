@@ -5,7 +5,7 @@ edited ones first."""
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from app.domain import roles
@@ -63,3 +63,76 @@ def test_smr_tiles_include_archived(db):
     tile = next(t for t in page.tiles if t.number == number)
     assert tile.archived_at is not None
     assert page.counts.archived >= 1
+
+
+# --- search and filters (same server rules as the Work Orders list) --------
+
+def _sheet_rows(rows):
+    head = "WORK ORDER,CREATOR,SERVICE TYPE,SCHEDULE DATE,COMPLETION DATE,ASSIGNED TO,FILED STATUS,LOCATION\r\n"
+    body = "".join(
+        f"{n},c,SMR27 - Belfor,{sched},05/21/2026,{assignee},Closed,\"{loc}\"\r\n"
+        for n, sched, assignee, loc in rows
+    )
+    return (head + body).encode()
+
+
+def _seed_filterable(db, owner):
+    tag = uuid.uuid4().hex[:6]
+    a, b = f"SMR-{tag}-A", f"SMR-{tag}-B"
+    smr_service.import_smr(db, csv_bytes=_sheet_rows([
+        (a, "05/15/2026", "Chris Coburn", "Young Hall:1st Floor,108A,drawer"),
+        (b, "07/20/2026", "Hayden Hurst", "Scholars Inn Apartments:2nd Floor,9G,blinds"),
+    ]), user=owner)
+    first = wos.find_by_number(db, a)
+    first.description = "Repair sticking drawer"
+    first.priority = "Emergency"
+    db.flush()
+    return a, b, tag
+
+
+def _numbers(page):
+    return [t.number for t in page.tiles]
+
+
+def test_smr_tiles_filter_by_number_task_and_location(db):
+    owner = _user(db)
+    a, b, tag = _seed_filterable(db, owner)
+    assert _numbers(smr_service.list_smr_tiles(db, search=f"{tag}-A")) == [a]
+    assert _numbers(smr_service.list_smr_tiles(db, task_search="sticking")) == [a]
+    assert _numbers(smr_service.list_smr_tiles(db, search=tag, location_search="Scholars")) == [b]
+
+
+def test_smr_tiles_filter_by_community_priority_status_and_date(db):
+    owner = _user(db)
+    a, b, tag = _seed_filterable(db, owner)
+    assert _numbers(smr_service.list_smr_tiles(db, search=tag, community="scholars")) == [b]
+    assert _numbers(smr_service.list_smr_tiles(db, search=tag, priority="Emergency")) == [a]
+    assert sorted(_numbers(smr_service.list_smr_tiles(db, search=tag, status="created"))) == [a, b]
+    assert _numbers(smr_service.list_smr_tiles(db, search=tag, scheduled_date=date(2026, 7, 20))) == [b]
+
+
+def test_smr_tiles_sort_follows_schedule_date(db):
+    owner = _user(db)
+    a, b, tag = _seed_filterable(db, owner)
+    assert _numbers(smr_service.list_smr_tiles(db, search=tag, descending=True)) == [b, a]
+    assert _numbers(smr_service.list_smr_tiles(db, search=tag, descending=False)) == [a, b]
+
+
+def test_smr_tiles_counts_are_whole_population_and_matched_is_filtered(db):
+    owner = _user(db)
+    a, b, tag = _seed_filterable(db, owner)
+    page = smr_service.list_smr_tiles(db, search=f"{tag}-A")
+    assert page.matched == 1
+    assert page.counts.orders >= 2
+
+
+def test_smr_tiles_filter_options_cover_smr_rows(db):
+    owner = _user(db)
+    a, b, tag = _seed_filterable(db, owner)
+    sup = _user(db, roles.ROLE_SUPERVISOR)
+    wos.find_by_number(db, b).supervisor_id = sup.id
+    db.flush()
+    options = smr_service.list_smr_tiles(db).filter_options
+    assert "Emergency" in options.priorities
+    assert sup.id in [s.id for s in options.supervisors]
+    assert {c.value for c in options.communities} >= {"scholars", "young_hall"}

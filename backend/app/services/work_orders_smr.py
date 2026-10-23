@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import datetime, timezone
+import uuid
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -18,10 +19,11 @@ from sqlalchemy.orm import Session, selectinload
 from app.domain import work_orders as wo
 from app.domain import work_orders_smr as smr
 from app.domain.errors import WorkOrderStateError
-from app.models import User, WorkOrder, WorkOrderItem, WorkOrderLabor, WorkOrderLaborSession
+from app.models import User, WorkOrder, WorkOrderItem, WorkOrderLabor, WorkOrderLaborSession, WorkOrderTechnician
 from app.schemas.work_orders_smr import (
     SmrCounts,
     SmrDelta,
+    SmrFilterOptions,
     SmrImportResult,
     SmrTile,
     SmrTilesResponse,
@@ -123,20 +125,86 @@ def import_smr(db: Session, *, csv_bytes: bytes, user: User) -> SmrImportResult:
 
 # --- tiles ---------------------------------------------------------------
 
+def _smr_query(db: Session):
+    return db.query(WorkOrder).filter(WorkOrder.smr_imported_at.is_not(None))
+
+
+def _with_lines(query):
+    return query.options(
+        selectinload(WorkOrder.items).selectinload(WorkOrderItem.item),
+        selectinload(WorkOrder.labor_entries).selectinload(WorkOrderLabor.technician),
+        selectinload(WorkOrder.labor_entries).selectinload(WorkOrderLabor.recorded_by),
+        selectinload(WorkOrder.labor_sessions).selectinload(WorkOrderLaborSession.technician),
+        selectinload(WorkOrder.labor_sessions).selectinload(WorkOrderLaborSession.labor),
+    )
+
+
 def smr_orders(db: Session) -> list[WorkOrder]:
     """Every SMR order, archived or not, with lines and labor loaded."""
-    return (
-        db.query(WorkOrder)
-        .filter(WorkOrder.smr_imported_at.is_not(None))
-        .options(
-            selectinload(WorkOrder.items).selectinload(WorkOrderItem.item),
-            selectinload(WorkOrder.labor_entries).selectinload(WorkOrderLabor.technician),
-            selectinload(WorkOrder.labor_entries).selectinload(WorkOrderLabor.recorded_by),
-            selectinload(WorkOrder.labor_sessions).selectinload(WorkOrderLaborSession.technician),
-            selectinload(WorkOrder.labor_sessions).selectinload(WorkOrderLaborSession.labor),
+    return _with_lines(_smr_query(db)).order_by(WorkOrder.number).all()
+
+
+def filtered_smr_orders(
+    db: Session,
+    *,
+    status: Optional[str] = None,
+    supervisor_id: Optional[uuid.UUID] = None,
+    assigned_to_id: Optional[uuid.UUID] = None,
+    community: Optional[str] = None,
+    priority: Optional[str] = None,
+    scheduled_date: Optional[date] = None,
+    search: Optional[str] = None,
+    location_search: Optional[str] = None,
+    task_search: Optional[str] = None,
+    descending: bool = True,
+) -> list[WorkOrder]:
+    """SMR orders through the Work Orders list's own predicates and sort, so
+    the SMR page's search and filters cannot drift from the live list's."""
+    query = wos._apply_work_order_filters(
+        _with_lines(_smr_query(db)),
+        status=status,
+        supervisor_id=supervisor_id,
+        assigned_to_id=assigned_to_id,
+        community=community,
+        priority=priority,
+        search=search,
+        location_search=location_search,
+        task_search=task_search,
+    )
+    return wos._filter_and_sort_by_schedule(query.all(), scheduled_date, descending=descending)
+
+
+def smr_filter_options(db: Session) -> SmrFilterOptions:
+    """Dropdown values over every SMR order: the live list's shaping helpers,
+    applied to the SMR population instead of the live one."""
+    priorities = wos._distinct_filter_values(
+        db.query(WorkOrder.priority).filter(WorkOrder.smr_imported_at.is_not(None)).all()
+    )
+    supervisors = (
+        db.query(User).join(WorkOrder, WorkOrder.supervisor_id == User.id)
+        .filter(WorkOrder.smr_imported_at.is_not(None)).distinct().all()
+    )
+    technicians = (
+        db.query(User)
+        .join(WorkOrderTechnician, WorkOrderTechnician.technician_id == User.id)
+        .join(WorkOrder, WorkOrder.id == WorkOrderTechnician.work_order_id)
+        .filter(WorkOrder.smr_imported_at.is_not(None)).distinct().all()
+    )
+
+    def people(rows):
+        return sorted(
+            ({"id": row.id, "name": row.full_name} for row in rows),
+            key=lambda option: (option["name"].casefold(), str(option["id"])),
         )
-        .order_by(WorkOrder.number)
-        .all()
+
+    return SmrFilterOptions(
+        priorities=priorities,
+        supervisors=people(supervisors),
+        technicians=people(technicians),
+        communities=[
+            {"value": value, "label": wo.COMMUNITY_LABELS[value]}
+            for value in wo.ALL_COMMUNITY_FILTERS
+        ],
     )
 
 
@@ -183,24 +251,28 @@ def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTil
     )
 
 
-def list_smr_tiles(db: Session) -> SmrTilesResponse:
-    """Every SMR order as a tile, edited ones first, then by number."""
-    orders = smr_orders(db)
-    tiles = [tile_for(order) for order in orders]
-    tiles.sort(key=lambda t: (not t.edited, t.number))
-    edited = sum(1 for t in tiles if t.edited)
+def list_smr_tiles(db: Session, **filters) -> SmrTilesResponse:
+    """The SMR page payload. `counts`, `delta` and `filter_options` always
+    describe every SMR order; `tiles` (schedule-date order, see
+    `filtered_smr_orders`) and `matched` honour `filters`."""
+    population = smr_orders(db)
+    all_tiles = [tile_for(order) for order in population]
+    edited = sum(1 for t in all_tiles if t.edited)
+    shown = [tile_for(o) for o in filtered_smr_orders(db, **filters)]
     return SmrTilesResponse(
-        imported_at=max((o.smr_imported_at for o in orders), default=None),
+        imported_at=max((o.smr_imported_at for o in population), default=None),
         counts=SmrCounts(
-            orders=len(tiles),
+            orders=len(all_tiles),
             edited=edited,
-            untouched=len(tiles) - edited,
-            archived=sum(1 for t in tiles if t.archived_at is not None),
+            untouched=len(all_tiles) - edited,
+            archived=sum(1 for t in all_tiles if t.archived_at is not None),
         ),
         delta=SmrDelta(
-            labor_total=sum((t.delta.labor_total for t in tiles), Decimal(0)),
-            materials_total=sum((t.delta.materials_total for t in tiles), Decimal(0)),
-            total=sum((t.delta.total for t in tiles), Decimal(0)),
+            labor_total=sum((t.delta.labor_total for t in all_tiles), Decimal(0)),
+            materials_total=sum((t.delta.materials_total for t in all_tiles), Decimal(0)),
+            total=sum((t.delta.total for t in all_tiles), Decimal(0)),
         ),
-        tiles=tiles,
+        matched=len(shown),
+        filter_options=smr_filter_options(db),
+        tiles=shown,
     )

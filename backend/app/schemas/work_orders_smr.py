@@ -9,6 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.schemas.work_orders import WorkOrderFilterChoice, WorkOrderSupervisorFilterChoice
+
 
 class SmrImportResult(BaseModel):
     """Summary of `POST /work-orders/smr/import`. `created` are new numbers,
@@ -61,8 +63,23 @@ class SmrDelta(BaseModel):
     total: Decimal
 
 
+class SmrFilterOptions(BaseModel):
+    """Dropdown values drawn from every SMR order (not the live list): the
+    Work Orders page's shape minus service type, plus the technicians."""
+
+    priorities: list[str] = Field(default_factory=list)
+    supervisors: list[WorkOrderSupervisorFilterChoice] = Field(default_factory=list)
+    technicians: list[WorkOrderSupervisorFilterChoice] = Field(default_factory=list)
+    communities: list[WorkOrderFilterChoice] = Field(default_factory=list)
+
+
 class SmrTilesResponse(BaseModel):
+    """`counts` and `delta` describe the whole SMR population; `tiles` and
+    `matched` reflect the request's filters."""
+
     imported_at: Optional[datetime] = None
     counts: SmrCounts
     delta: SmrDelta
+    matched: int = 0
+    filter_options: SmrFilterOptions = Field(default_factory=SmrFilterOptions)
     tiles: list[SmrTile] = Field(default_factory=list)

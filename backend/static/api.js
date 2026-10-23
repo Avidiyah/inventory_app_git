@@ -1010,7 +1010,23 @@ export async function apiImportSmr(file) {
   });
   return parseResponse(response);
 }
-export async function apiListSmrTiles() {
-  return jsonRequest("/work-orders/smr", "GET");
+export async function apiListSmrTiles({
+  status = null, supervisorId = null, assignedToId = null, community = null,
+  priority = null, scheduledDate = null, q = null, locationQ = null, taskQ = null, sort = null,
+} = {}) {
+  // The Work Orders list's params (minus service type, mine, limit), same names.
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (supervisorId) params.set("supervisor_id", supervisorId);
+  if (assignedToId) params.set("assigned_to_id", assignedToId);
+  if (community) params.set("community", community);
+  if (priority) params.set("priority", priority);
+  if (scheduledDate) params.set("scheduled_date", scheduledDate);
+  if (q) params.set("q", q);
+  if (locationQ) params.set("location_q", locationQ);
+  if (taskQ) params.set("task_q", taskQ);
+  if (sort) params.set("sort", sort);
+  const qs = params.toString();
+  return jsonRequest(`/work-orders/smr${qs ? `?${qs}` : ""}`, "GET");
 }
 export const apiReprintDispenseExport = () => xlsxDownload("/items/dispense-exports/latest", "GET");

@@ -9,6 +9,60 @@
         <section aria-labelledby="smr-heading">
             <h2 id="smr-heading" class="smr-title">SMR27 — BELFOR</h2>
             <div id="smr-bar" class="smr-bar" aria-live="polite"></div>
+            <!-- Search + filters: the Work Orders row (pages/work-orders.html)
+                 minus service type, same server predicates (views/smrFilters.js). -->
+            <div class="smr-filter-grid">
+                <div class="smr-filter-field">
+                    <label for="smr-status-filter">Status</label>
+                    <select id="smr-status-filter">
+                        <option value="">All statuses</option>
+                        <option value="created">Created</option>
+                        <option value="assigned">Assigned</option>
+                        <option value="in_progress">In-Progress</option>
+                        <option value="on_hold">On-Hold</option>
+                        <option value="ready_to_complete">Ready to Complete</option>
+                        <option value="completed">Completed</option>
+                        <option value="review">Review</option>
+                    </select>
+                </div>
+                <div class="smr-filter-field">
+                    <label for="smr-priority-filter">Priority</label>
+                    <select id="smr-priority-filter"><option value="">All priorities</option></select>
+                </div>
+                <div class="smr-filter-field">
+                    <label for="smr-supervisor-filter">Assigned Team Lead</label>
+                    <select id="smr-supervisor-filter"><option value="">All Team Leads</option></select>
+                </div>
+                <div class="smr-filter-field">
+                    <label for="smr-technician-filter">Assigned Technician</label>
+                    <select id="smr-technician-filter"><option value="">All technicians</option></select>
+                </div>
+                <div class="smr-filter-field">
+                    <label for="smr-community-filter">Community</label>
+                    <select id="smr-community-filter"><option value="">All communities</option></select>
+                </div>
+                <div class="smr-filter-field">
+                    <label for="smr-date-filter">Scheduled date</label>
+                    <input id="smr-date-filter" type="date">
+                </div>
+            </div>
+            <div class="smr-search-row">
+                <label for="smr-search">Work order #</label>
+                <input type="text" id="smr-search" placeholder="Search work order #">
+                <button type="button" id="smr-search-btn" class="smr-btn">Search</button>
+                <button type="button" id="smr-clear-filters" class="smr-btn">Clear filters</button>
+                <div id="smr-sort" class="smr-sort" role="group" aria-label="Sort by scheduled date">
+                    <button type="button" class="smr-btn" data-sort="scheduled_desc" aria-pressed="true">Newest first</button>
+                    <button type="button" class="smr-btn" data-sort="scheduled_asc" aria-pressed="false">Oldest first</button>
+                </div>
+            </div>
+            <div class="smr-search-row">
+                <label for="smr-location-search">Location</label>
+                <input type="text" id="smr-location-search" placeholder="Search location">
+                <label for="smr-task-search">Task / symptom</label>
+                <input type="text" id="smr-task-search" placeholder="Search task keywords">
+            </div>
+            <p id="smr-result-count" class="smr-result-count" aria-live="polite"></p>
             <div class="smr-controls">
                 <button type="button" id="smr-filter-all" class="smr-btn smr-btn--on" data-filter="all">All</button>
                 <button type="button" id="smr-filter-edited" class="smr-btn" data-filter="edited">Edited</button>

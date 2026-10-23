@@ -36,6 +36,7 @@ export const ENDPOINTS = [
   { fn: "apiReprintDispenseExport", args: [], url: "/items/dispense-exports/latest", method: "GET", cache: "no-store" },
   { fn: "apiExportSmrXlsx", args: [], url: "/work-orders/smr/export.xlsx", method: "GET", cache: "no-store" },
   { fn: "apiListSmrTiles", args: [], url: "/work-orders/smr" },
+  { fn: "apiListSmrTiles", args: [{ q: "7", taskQ: "blinds", sort: "scheduled_asc" }], url: "/work-orders/smr?q=7&task_q=blinds&sort=scheduled_asc" },
   { fn: "apiImportSmr", args: [uploadFile()], method: "POST", url: "/work-orders/smr/import", multipart: true },
   { fn: "apiSetLowStockThreshold", args: [3, 5], method: "PATCH", url: "/items/3/low-stock-threshold",
     body: { low_stock_threshold: 5 } },

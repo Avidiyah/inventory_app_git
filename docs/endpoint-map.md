@@ -151,7 +151,7 @@ writes (w).
 | P3 | POST | `/push/unsubscribe` | any authenticated | `push.py` → subscription store | push_subscriptions (w, delete caller's device row) | `apiPushUnsubscribe` | `push.js`, `auth.js` (logout, this device only) |
 | P4 | POST | `/push/test` | **owner** | `push.py` → `services/push` fan-out | push_subscriptions (r; w on 404/410 prune), users (r, Admin+ audience) | `apiPushTest` | `push.js` (Owner test trigger) |
 | S1 | POST | `/work-orders/smr/import` | **owner** | `work_orders_smr.py` → `work_orders_smr.import_smr` | work_orders (r/w: create, fill-blanks, **restores archived**, sets `smr_imported_at` + `smr_baseline` once), users (r, Team Lead name-match) | `apiImportSmr` | `workOrderIntegrations.js` |
-| S2 | GET | `/work-orders/smr` | admin+ | `work_orders_smr.py` → `work_orders_smr.list_smr_tiles` | work_orders (r, `smr_imported_at IS NOT NULL`, archived included), work_order_items, items, work_order_labor, work_order_labor_sessions (r) | `apiListSmrTiles` | `smr.js` |
+| S2 | GET | `/work-orders/smr` | admin+ | `work_orders_smr.py` → `work_orders_smr.list_smr_tiles` (accepts row 54's query params minus `service_type`/`mine`/`limit`, through the same `_apply_work_order_filters` + schedule sort; `counts`/`delta`/`filter_options` are whole-population, `tiles`/`matched` filtered) | work_orders (r, `smr_imported_at IS NOT NULL`, archived included), work_order_items, items, work_order_labor, work_order_labor_sessions, work_order_technicians, users (r) | `apiListSmrTiles` | `smr.js`, `smrFilters.js` |
 | S3 | GET | `/work-orders/smr/export.xlsx` | **owner** | `work_orders_smr.py` → `work_orders_smr_xlsx.smr_workbook` | same reads as S2 plus users (r, line creators) | `apiExportSmrXlsx` | `smr.js` |
 
 (Numbering is append-only and stable — other docs cite it. Gaps (NF1, NF1a–c,
@@ -726,7 +726,9 @@ marks an SMR order. **`SmrImportResult`** (`schemas/work_orders_smr.py`): `total
 materials_total, total}`, `tiles: list[SmrTile]` where `SmrTile` = `id`, `number`,
 `building_number?`, `unit_number?`, `location?`, `vendor_assignee?`, `status`,
 `archived_at?`, `edited`, `before` / `after` / `delta` (`SmrTotals`: `materials_total`,
-`real_minutes`, `skilled_minutes`, `labor_total`, `total`), `after_line_count`.
+`real_minutes`, `skilled_minutes`, `labor_total`, `total`), `after_line_count`; plus
+`matched` (int) and `filter_options` (`SmrFilterOptions`: `priorities`, `supervisors`,
+`technicians`, `communities`, drawn from every SMR order).
 **`WorkOrderDetail`** = `WorkOrderCard` + `notes: str?` +
 `items: list[WorkOrderItemDetail]` + `labor: list[WorkOrderLaborDetail]` +
 `labor_minutes` + `labor_billed_minutes` (real technicians) + `skilled_labor_minutes` +

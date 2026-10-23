@@ -196,6 +196,7 @@ backend/static/views/workOrderFilterChips.js applied-filter chips + result count
 backend/static/views/workOrderActions.js the six listeners delegated off #work-orders-list
 backend/static/views/workOrderIntegrations.js CSV import/export, SMR Import (Owner), NetFacilities enrichment + cloud auth
 backend/static/views/smr.js   SMR27 audit tiles page (white-on-black), filters, Owner export, editor hand-off
+backend/static/views/smrFilters.js SMR search/filter controls (Work Orders row minus service type), sort memory `smr.sort`
 backend/static/views/workOrderRouting.js card-page mode, /workorder_card/ URL, list scroll restore
 backend/static/views/workOrderPresenters.js status/priority/money/place formatting + role predicates
 backend/static/views/workOrderFilters.js filter reads, filter options, sort direction, RECENT_LIMIT

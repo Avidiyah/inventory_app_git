@@ -35,6 +35,13 @@ function page(overrides = {}) {
     imported_at: "2026-10-23T14:14:00Z",
     counts: { orders: 3, edited: 1, untouched: 2, archived: 1 },
     delta: { labor_total: "58.40", materials_total: "18.40", total: "76.80" },
+    matched: 3,
+    filter_options: {
+      priorities: ["Emergency", "Normal"],
+      supervisors: [{ id: "s1", name: "Chris Coburn" }],
+      technicians: [{ id: "t1", name: "Hayden Hurst" }],
+      communities: [{ value: "young_hall", label: "Young Hall" }, { value: "scholars", label: "Scholars Inn" }],
+    },
     tiles: [
       tile({ edited: true, after: totals({ skilled_minutes: 30, labor_total: "31.25", total: "49.65" }), delta: totals({ skilled_minutes: 30, labor_total: "31.25", materials_total: "18.40", total: "49.65" }), after_line_count: 2 }),
       tile({ id: "22222222-2222-2222-2222-222222222222", number: "23282567", archived_at: "2026-10-22T10:00:00Z" }),
@@ -131,5 +138,81 @@ describe("the SMR page", () => {
     server.use(http.get("/work-orders/smr", () => HttpResponse.json(page({ tiles: [], counts: { orders: 0, edited: 0, untouched: 0, archived: 0 } }))));
     await bootApp({ role: "admin", page: "smr" });
     await vi.waitFor(() => expect(byId("smr-tiles").textContent).toContain("NO SMR ORDERS. OWNER: IMPORT FROM INTEGRATIONS."));
+  });
+
+  // --- search and filters: the Work Orders row minus service type ----------
+
+  it("fills the dropdowns from filter_options and shows the result count", async () => {
+    await openSmr();
+    const text = (id) => Array.from(byId(id).options).map((o) => o.textContent);
+    expect(text("smr-priority-filter")).toEqual(["All priorities", "Emergency", "Normal"]);
+    expect(text("smr-supervisor-filter")).toEqual(["All Team Leads", "Chris Coburn"]);
+    expect(text("smr-technician-filter")).toEqual(["All technicians", "Hayden Hurst"]);
+    expect(text("smr-community-filter")).toEqual(["All communities", "Young Hall", "Scholars Inn"]);
+    expect(byId("smr-result-count").textContent).toBe("3 OF 3 ORDERS");
+    expect(byId("smr-service-filter")).toBeNull();
+  });
+
+  it("sends every control as the Work Orders list's query params on Search", async () => {
+    const { requests, clearRequests } = await openSmr();
+    byId("smr-status-filter").value = "completed";
+    byId("smr-priority-filter").value = "Emergency";
+    byId("smr-supervisor-filter").value = "s1";
+    byId("smr-technician-filter").value = "t1";
+    byId("smr-community-filter").value = "scholars";
+    byId("smr-date-filter").value = "2026-07-20";
+    byId("smr-search").value = " 2328 ";
+    byId("smr-location-search").value = "Young";
+    byId("smr-task-search").value = "blinds";
+    clearRequests();
+    byId("smr-search-btn").click();
+    const smrCalls = () => requests().filter((r) => r.url.startsWith("/work-orders/smr?"));
+    await vi.waitFor(() => expect(smrCalls()).toHaveLength(1));
+    const url = new URL(smrCalls()[0].url, "http://t");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      status: "completed", priority: "Emergency", supervisor_id: "s1", assigned_to_id: "t1",
+      community: "scholars", scheduled_date: "2026-07-20", q: "2328", location_q: "Young",
+      task_q: "blinds", sort: "scheduled_desc",
+    });
+  });
+
+  it("reloads on a dropdown change and on Enter in a search box", async () => {
+    const { requests, clearRequests } = await openSmr();
+    const withQuery = (fragment) => requests().filter((r) => r.url.includes(fragment));
+    clearRequests();
+    byId("smr-community-filter").value = "young_hall";
+    byId("smr-community-filter").dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() => expect(withQuery("community=young_hall")).toHaveLength(1));
+    byId("smr-task-search").value = "drawer";
+    byId("smr-task-search").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await vi.waitFor(() => expect(withQuery("task_q=drawer")).toHaveLength(1));
+  });
+
+  it("Clear filters empties every control and reloads unfiltered", async () => {
+    const { requests, requestsFor, clearRequests } = await openSmr();
+    byId("smr-status-filter").value = "completed";
+    byId("smr-search").value = "2328";
+    byId("smr-date-filter").value = "2026-07-20";
+    clearRequests();
+    byId("smr-clear-filters").click();
+    await vi.waitFor(() => expect(requestsFor("/work-orders/smr")).toHaveLength(1));
+    expect(requests()[0].url).toBe("/work-orders/smr?sort=scheduled_desc");
+    expect(byId("smr-status-filter").value).toBe("");
+    expect(byId("smr-search").value).toBe("");
+    expect(byId("smr-date-filter").value).toBe("");
+  });
+
+  it("the sort toggle flips the sort param and remembers it", async () => {
+    const { requests, clearRequests } = await openSmr();
+    clearRequests();
+    byId("smr-sort").querySelector("[data-sort=\"scheduled_asc\"]").click();
+    await vi.waitFor(() => expect(requests().filter((r) => r.url.includes("sort=scheduled_asc"))).toHaveLength(1));
+    expect(byId("smr-sort").querySelector("[data-sort=\"scheduled_asc\"]").getAttribute("aria-pressed")).toBe("true");
+    expect(localStorage.getItem("smr.sort")).toBe("scheduled_asc");
+  });
+
+  it("the result count reflects matched over the whole population", async () => {
+    await openSmr("admin", page({ matched: 1, tiles: [tile()] }));
+    expect(byId("smr-result-count").textContent).toBe("1 OF 3 ORDERS");
   });
 });

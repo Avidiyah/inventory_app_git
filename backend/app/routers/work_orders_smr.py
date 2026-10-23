@@ -6,7 +6,11 @@ export are Owner-only; the tile list is Admin+."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Response, UploadFile
+import uuid
+from datetime import date
+from typing import Literal, Optional
+
+from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from app.auth_deps import require_min_role
@@ -49,12 +53,39 @@ def import_smr(
 
 @router.get("", response_model=SmrTilesResponse, responses=_forbidden(roles.ROLE_ADMIN))
 def list_smr_tiles(
+    status: Optional[str] = Query(None),
+    supervisor_id: Optional[uuid.UUID] = Query(None),
+    assigned_to_id: Optional[uuid.UUID] = Query(None),
+    community: Optional[str] = Query(None),
+    priority: Optional[str] = Query(None),
+    scheduled_date: Optional[date] = Query(None),
+    q: Optional[str] = Query(None),
+    location_q: Optional[str] = Query(None),
+    task_q: Optional[str] = Query(None),
+    sort: Literal["scheduled_desc", "scheduled_asc"] = Query("scheduled_desc"),
     user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ) -> SmrTilesResponse:
     """Every SMR order as a tile with before / after / delta totals (Admin+).
-    Unpaginated: the audit is a few hundred rows."""
-    return smr_service.list_smr_tiles(db)
+    The query params are the Work Orders list's (minus `service_type`, `mine`
+    and `limit`) and run through the same server predicates. Unpaginated: the
+    audit is a few hundred rows."""
+    try:
+        return smr_service.list_smr_tiles(
+            db,
+            status=status,
+            supervisor_id=supervisor_id,
+            assigned_to_id=assigned_to_id,
+            community=community,
+            priority=priority,
+            scheduled_date=scheduled_date,
+            search=q,
+            location_search=location_q,
+            task_search=task_q,
+            descending=sort != "scheduled_asc",
+        )
+    except DomainError as exc:
+        raise to_http(exc)
 
 
 @router.get("/export.xlsx", responses=_forbidden(roles.ROLE_OWNER))

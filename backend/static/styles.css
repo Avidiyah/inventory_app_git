@@ -5850,3 +5850,37 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     text-align: center;
     letter-spacing: .1em;
 }
+
+#smr-page .smr-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 8px;
+    margin-bottom: 8px;
+}
+#smr-page .smr-filter-field { display: flex; flex-direction: column; gap: 4px; }
+#smr-page .smr-filter-field label,
+#smr-page .smr-search-row label { text-transform: uppercase; letter-spacing: .08em; font-size: 11px; }
+#smr-page .smr-search-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+#smr-page .smr-search-row input[type="text"] { flex: 1 1 160px; }
+#smr-page select,
+#smr-page input[type="text"],
+#smr-page input[type="date"] {
+    background: #000;
+    color: #fff;
+    border: 1px solid #fff;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 6px 8px;
+    font: inherit;
+    color-scheme: dark;
+}
+#smr-page select option { background: #000; color: #fff; }
+#smr-page .smr-sort { display: inline-flex; margin-left: auto; }
+#smr-page .smr-sort .smr-btn[aria-pressed="true"] { background: #fff; color: #000; }
+#smr-page .smr-result-count { margin: 0 0 12px; letter-spacing: .08em; text-transform: uppercase; }

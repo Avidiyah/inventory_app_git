@@ -12,10 +12,12 @@ import { getCurrentUser } from "../state.js";
 import { roleAtLeast } from "../roles.js";
 import { focusWorkOrderNumber } from "./workOrders.js";
 import { showPage } from "./nav.js";
+import { applyFilterOptions, currentParams, installFilterControls } from "./smrFilters.js";
 
 const bar = document.getElementById("smr-bar");
 const grid = document.getElementById("smr-tiles");
 const message = document.getElementById("smr-message");
+const resultCount = document.getElementById("smr-result-count");
 const exportBtn = document.getElementById("smr-export-btn");
 const filterButtons = Array.from(document.querySelectorAll(".smr-btn[data-filter]"));
 
@@ -92,6 +94,11 @@ function applyFilter() {
 function render(payload) {
   lastPayload = payload;
   bar.innerHTML = barHtml(payload);
+  applyFilterOptions(payload.filter_options);
+  if (resultCount) {
+    const matched = payload.matched ?? (payload.tiles || []).length;
+    resultCount.textContent = `${matched} OF ${payload.counts?.orders || 0} ORDERS`;
+  }
   const tiles = payload.tiles || [];
   grid.innerHTML = tiles.length
     ? tiles.map(tileHtml).join("")
@@ -104,7 +111,7 @@ export async function loadSmr() {
   if (exportBtn) exportBtn.hidden = !(user && roleAtLeast(user.role, "owner"));
   setMessage(message, "", "");
   try {
-    render(await apiListSmrTiles());
+    render(await apiListSmrTiles(currentParams()));
   } catch (err) {
     setMessage(message, friendlyError(err, "Could not load SMR orders."), "error");
   }
@@ -116,6 +123,10 @@ filterButtons.forEach((btn) => {
     applyFilter();
   });
 });
+
+// Search, dropdowns, Clear filters and the sort toggle all refetch with the
+// current controls; the Edited/Untouched/Archived buttons above stay local.
+installFilterControls(() => { void loadSmr(); });
 
 if (grid) {
   grid.addEventListener("click", (event) => {
