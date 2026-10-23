@@ -7,16 +7,17 @@ Spec `docs/superpowers/specs/2026-10-23-smr-audit-workflow-design.md` · plan
 
 | Item | Value |
 |---|---|
-| Local `main` | `323870e`, 14 commits ahead of `origin/main`, **not pushed** (push deploys) |
+| `main` | `b78f7e7` **pushed to origin 2026-10-23** (17 commits: workflow, blank-page fix, Work Orders search/filters on the SMR page, Untouched default); production deploy follows CI |
 | Container | `inventory-local` on port 8124 rebuilt from `323870e`; env copy at Git-Bash `/tmp/inventory.docker.env` |
 | Dev DB | SMR migration `5b7c9d1e2f30` applied; **0 SMR rows** (the real sheet was dry-run and rolled back) |
-| Suites | backend 2,132 passed; frontend 2,483 passed (incl. the new `staticImports` guard) |
+| Suites | backend 2,137 passed; frontend 2,490 passed (incl. the `staticImports` guard) |
 
 ## What shipped
 
 Owner-only SMR Import (NetFacilities card) → closed-but-unarchived SMR orders
-with a frozen baseline; SMR27 page (Admin+, white-on-black tiles, four
-filters, Owner export); Skilled Technician labor (SMR orders, Admin+, separate
+with a frozen baseline; SMR27 page (Admin+, white-on-black tiles, Untouched
+default, the Work Orders search/filters minus service type via the same
+server predicates, Owner export); Skilled Technician labor (SMR orders, Admin+, separate
 rounding); four-sheet before/after/delta workbook; SMR rows excluded from
 every live surface via `services.work_orders.live_work_orders()`.
 
@@ -35,8 +36,12 @@ recipe lives in memory (`vitest-misses-missing-named-exports`).
    Dry run predicts 643 created / 38 opened / 0 restored / 7 skipped on the
    dev DB (production will show restores). Then SMR27 page → tile → card →
    Add Skilled Technician → Export XLSX.
-2. **Push decision (user):** pushing `main` deploys. Production run of the
-   import restores archived orders — that is the intended behaviour (D3).
+2. **Production import (user):** run SMR Import in production; it restores
+   archived orders — that is the intended behaviour (D3). The sheet carries no
+   pricing or quantities, so every order starts at its app-held baseline
+   (zero unless the summer's normal imports already logged lines). The 43
+   annotated rows' prose is kept verbatim in the baseline / Orders sheet, not
+   parsed into priced lines — a separate options pass if wanted.
 3. Deferred minors: `#smr-page` negative side margins on phone width;
    `data-technician-id="null"` on skilled entries (unread); `current-state`
    / `endpoint-map` over word budget (pre-existing).
