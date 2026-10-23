@@ -1,7 +1,8 @@
 """SMR27 audit services (spec docs/superpowers/specs/2026-10-23-smr-audit-workflow-design.md).
 
 The Owner-only sheet import that turns every Closed row into a
-closed-but-unarchived SMR order with a baseline frozen once. Lives beside `services.work_orders` rather
+closed-but-unarchived SMR order with a baseline frozen once, and the tile
+projection the SMR page reads (before / after / delta per order). Lives beside `services.work_orders` rather
 than inside it because that module is already past three thousand lines."""
 
 from __future__ import annotations
@@ -9,13 +10,23 @@ from __future__ import annotations
 import csv
 import io
 from datetime import datetime, timezone
-from sqlalchemy.orm import Session
+from decimal import Decimal
+from typing import Optional
+
+from sqlalchemy.orm import Session, selectinload
 
 from app.domain import work_orders as wo
 from app.domain import work_orders_smr as smr
 from app.domain.errors import WorkOrderStateError
-from app.models import User
-from app.schemas.work_orders_smr import SmrImportResult
+from app.models import User, WorkOrder, WorkOrderItem, WorkOrderLabor, WorkOrderLaborSession
+from app.schemas.work_orders_smr import (
+    SmrCounts,
+    SmrDelta,
+    SmrImportResult,
+    SmrTile,
+    SmrTilesResponse,
+    SmrTotals,
+)
 from app.services import work_orders as wos
 
 
@@ -107,4 +118,89 @@ def import_smr(db: Session, *, csv_bytes: bytes, user: User) -> SmrImportResult:
         restored=restored,
         skipped=skipped,
         baselined=baselined,
+    )
+
+
+# --- tiles ---------------------------------------------------------------
+
+def smr_orders(db: Session) -> list[WorkOrder]:
+    """Every SMR order, archived or not, with lines and labor loaded."""
+    return (
+        db.query(WorkOrder)
+        .filter(WorkOrder.smr_imported_at.is_not(None))
+        .options(
+            selectinload(WorkOrder.items).selectinload(WorkOrderItem.item),
+            selectinload(WorkOrder.labor_entries).selectinload(WorkOrderLabor.technician),
+            selectinload(WorkOrder.labor_entries).selectinload(WorkOrderLabor.recorded_by),
+            selectinload(WorkOrder.labor_sessions).selectinload(WorkOrderLaborSession.technician),
+            selectinload(WorkOrder.labor_sessions).selectinload(WorkOrderLaborSession.labor),
+        )
+        .order_by(WorkOrder.number)
+        .all()
+    )
+
+
+def _totals(snap: dict) -> SmrTotals:
+    t = snap["totals"]
+    return SmrTotals(
+        materials_total=Decimal(t["materials_total"]),
+        real_minutes=t["real_minutes"],
+        skilled_minutes=t["skilled_minutes"],
+        labor_total=Decimal(t["labor_total"]),
+        total=Decimal(t["total"]),
+    )
+
+
+def current_snapshot(work_order: WorkOrder, *, now: Optional[datetime] = None) -> dict:
+    """The AFTER phase: the live order through the baseline's own serializer."""
+    return smr.snapshot(work_order, taken_at=now or datetime.now(timezone.utc), source_row=None)
+
+
+def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTile:
+    baseline = work_order.smr_baseline or current_snapshot(work_order, now=now)
+    current = current_snapshot(work_order, now=now)
+    d = smr.deltas(baseline, current)
+    return SmrTile(
+        id=work_order.id,
+        number=work_order.number,
+        building_number=work_order.building_number,
+        unit_number=work_order.unit_number,
+        location=work_order.location,
+        vendor_assignee=work_order.vendor_assignee,
+        status=work_order.status,
+        archived_at=work_order.archived_at,
+        edited=smr.is_edited(work_order),
+        before=_totals(baseline),
+        after=_totals(current),
+        delta=SmrTotals(
+            materials_total=d["materials_total"],
+            real_minutes=d["real_minutes"],
+            skilled_minutes=d["skilled_minutes"],
+            labor_total=d["labor_total"],
+            total=d["total"],
+        ),
+        after_line_count=len(current["material_lines"]),
+    )
+
+
+def list_smr_tiles(db: Session) -> SmrTilesResponse:
+    """Every SMR order as a tile, edited ones first, then by number."""
+    orders = smr_orders(db)
+    tiles = [tile_for(order) for order in orders]
+    tiles.sort(key=lambda t: (not t.edited, t.number))
+    edited = sum(1 for t in tiles if t.edited)
+    return SmrTilesResponse(
+        imported_at=max((o.smr_imported_at for o in orders), default=None),
+        counts=SmrCounts(
+            orders=len(tiles),
+            edited=edited,
+            untouched=len(tiles) - edited,
+            archived=sum(1 for t in tiles if t.archived_at is not None),
+        ),
+        delta=SmrDelta(
+            labor_total=sum((t.delta.labor_total for t in tiles), Decimal(0)),
+            materials_total=sum((t.delta.materials_total for t in tiles), Decimal(0)),
+            total=sum((t.delta.total for t in tiles), Decimal(0)),
+        ),
+        tiles=tiles,
     )

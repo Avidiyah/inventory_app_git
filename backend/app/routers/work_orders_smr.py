@@ -16,7 +16,7 @@ from app.domain.errors import DomainError
 from app.models import User
 from app.routers._errors import to_http
 from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_capped
-from app.schemas.work_orders_smr import SmrImportResult
+from app.schemas.work_orders_smr import SmrImportResult, SmrTilesResponse
 from app.services import work_orders_smr as smr_service
 
 router = APIRouter(prefix="/work-orders/smr", tags=["work-orders-smr"])
@@ -44,3 +44,13 @@ def import_smr(
         return smr_service.import_smr(db, csv_bytes=data, user=user)
     except DomainError as exc:
         raise to_http(exc)
+
+
+@router.get("", response_model=SmrTilesResponse, responses=_forbidden(roles.ROLE_ADMIN))
+def list_smr_tiles(
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+) -> SmrTilesResponse:
+    """Every SMR order as a tile with before / after / delta totals (Admin+).
+    Unpaginated: the audit is a few hundred rows."""
+    return smr_service.list_smr_tiles(db)
