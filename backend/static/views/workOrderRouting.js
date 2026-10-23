@@ -36,6 +36,14 @@ export function takePendingSoloNumber() {
   pendingSoloNumber = null;
   return number;
 }
+// The id that rode along with the pending number, if the caller had one.
+// One-shot like the number. An SMR tile passes it because the live list the
+// number path searches excludes SMR rows (spec 2026-10-23 D1).
+export function takePendingSoloId() {
+  const id = pendingSoloId;
+  pendingSoloId = null;
+  return id;
+}
 export function clearPendingListScrollY() { pendingListScrollY = null; }
 
 // --- card page ("solo") mode ----------------------------------------------
@@ -65,6 +73,7 @@ const SOLO_PATH_PREFIX = "/workorder_card/";
 // focusWorkOrderNumber / focusWorkOrder). loadWorkOrders consumes it instead of
 // rendering the list, which is what keeps the two renders from racing.
 let pendingSoloNumber = null;
+let pendingSoloId = null;
 
 // --- list scroll restoration ----------------------------------------------
 //
@@ -236,8 +245,9 @@ export async function openWorkOrderPageByNumber(number) {
 // Queue a card page to open the next time the Work Orders page loads. Used by
 // the post-login boot: nav.js's `showPage` triggers `loadWorkOrders`, which
 // consumes this instead of rendering the list, so the two cannot race.
-export function focusWorkOrderNumber(number) {
+export function focusWorkOrderNumber(number, { id = null } = {}) {
   pendingSoloNumber = number;
+  pendingSoloId = id;
 }
 
 // Render `detail` as the only card in the list, expanded, with a Back control

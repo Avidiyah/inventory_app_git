@@ -43,6 +43,7 @@ import {
   openWorkOrderPageByNumber,
   renderSoloError,
   restoreListScrollY,
+  takePendingSoloId,
   takePendingSoloNumber,
 } from "./workOrderRouting.js";
 import {
@@ -205,13 +206,17 @@ export async function loadWorkOrders({
   // win. nav.js calls this on page entry, so consuming the request here is the
   // one place both orderings can be serialized.
   const pendingSolo = takePendingSoloNumber();
+  const pendingSoloId = takePendingSoloId();
   if (pendingSolo !== null) {
     const number = pendingSolo;
     // No list will be rendered on this path, so a remembered offset would sit
     // armed and fire on some later, unrelated render.
     clearPendingListScrollY();
     await ensureReferenceData({ refresh: refreshReferenceData });
-    await openWorkOrderPageByNumber(number);
+    // With an id in hand the card is fetched directly: the number path
+    // resolves through the live list, which never lists an SMR order.
+    if (pendingSoloId) await openWorkOrderPage({ id: pendingSoloId, number });
+    else await openWorkOrderPageByNumber(number);
     return;
   }
 

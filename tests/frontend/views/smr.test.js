@@ -8,7 +8,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../helpers/handlers.js";
 import { bootApp } from "../helpers/app.js";
 import { restoreBrowserStubs, stubObjectUrl, stubScroll } from "../helpers/browserStubs.js";
-import { filterOptions } from "../helpers/factories.js";
+import { filterOptions, workOrderDetail } from "../helpers/factories.js";
 
 beforeEach(() => { stubScroll(); });
 afterEach(() => { restoreBrowserStubs(); });
@@ -109,11 +109,22 @@ describe("the SMR page", () => {
     await vi.waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
   });
 
-  it("opens the Work Orders editor for a clicked tile", async () => {
-    const { nav } = await openSmr();
+  it("opens the Work Orders card page for a clicked tile by id, not through the live list", async () => {
+    // The live list excludes SMR rows (spec D1), so a number search would
+    // find nothing; the card page must be fetched by id.
+    const { nav, requestsFor } = await openSmr();
+    const detail = workOrderDetail({ id: "11111111-1111-1111-1111-111111111111", number: "23281563", smr: true });
+    server.use(
+      http.get("/work-orders/11111111-1111-1111-1111-111111111111", () => HttpResponse.json(detail)),
+      http.get("/work-orders/11111111-1111-1111-1111-111111111111/requests", () => HttpResponse.json([])),
+    );
     tiles()[0].click();
     await vi.waitFor(() => expect(nav.getActivePage()).toBe("work-orders"));
-    expect(byId("work-orders-search").value).toBe("23281563");
+    await vi.waitFor(() => expect(requestsFor("/work-orders/11111111-1111-1111-1111-111111111111")).toHaveLength(1));
+    await vi.waitFor(() => expect(window.location.pathname).toBe("/workorder_card/23281563"));
+    expect(document.querySelector("#work-orders-list details.wo-card").dataset.number).toBe("23281563");
+    expect(requestsFor("/work-orders/?q=23281563")).toHaveLength(0);
+    window.history.replaceState({}, "", "/");
   });
 
   it("shows the empty copy when nothing has been imported", async () => {

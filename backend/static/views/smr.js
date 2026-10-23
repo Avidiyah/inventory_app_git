@@ -10,7 +10,7 @@ import { setMessage } from "../dom.js";
 import { escapeHtml, formatMoney } from "../format.js";
 import { getCurrentUser } from "../state.js";
 import { roleAtLeast } from "../roles.js";
-import { openWorkOrdersByNumberSearch } from "./workOrderList.js";
+import { focusWorkOrderNumber } from "./workOrders.js";
 import { showPage } from "./nav.js";
 
 const bar = document.getElementById("smr-bar");
@@ -121,7 +121,10 @@ if (grid) {
   grid.addEventListener("click", (event) => {
     const tile = event.target.closest(".smr-tile");
     if (!tile) return;
-    openWorkOrdersByNumberSearch(tile.dataset.number);
+    // By id: the Work Orders list never shows an SMR order (spec D1), so a
+    // number search would come back empty. The card page fetches the detail
+    // directly, and the editor route accepts SMR orders.
+    focusWorkOrderNumber(tile.dataset.number, { id: tile.dataset.id });
     showPage("work-orders");
   });
 }
