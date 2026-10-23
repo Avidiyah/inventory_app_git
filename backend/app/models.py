@@ -416,6 +416,15 @@ class WorkOrder(Base):
     vendor_assignee = Column(Text, nullable=True)
     service_type = Column(Text, nullable=True)
     schedule_date = Column(Text, nullable=True)
+    # --- SMR27 audit (spec 2026-10-23) ------------------------------------
+    # `smr_imported_at` set once by the Owner-only SMR import marks the row as
+    # an SMR order: closed-but-unarchived, shown only on the SMR page, excluded
+    # from every live surface by `services.work_orders.live_work_orders`.
+    # `smr_baseline` is the frozen pre-audit snapshot
+    # (`domain.work_orders_smr.snapshot`) plus the raw sheet row; written once,
+    # never overwritten, read by the edited check and the audit export.
+    smr_imported_at = Column(DateTime(timezone=True), nullable=True)
+    smr_baseline = Column(JSONB, nullable=True)
     # The account a work order is routed to. Set by name-match at import
     # or manually by Supervisor+; drives Supervisor visibility alongside worker
     # assignment membership.
@@ -525,7 +534,10 @@ class WorkOrderLabor(Base):
         ForeignKey("work_orders.id", ondelete="CASCADE"),
         nullable=False,
     )
-    technician_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    # NULL technician = an anonymous "Skilled Technician" line (SMR orders
+    # only, Admin+): billed at the same rate but rounded apart from the real
+    # technicians' pooled minutes, and invisible to every per-person surface.
+    technician_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     minutes = Column(Integer, nullable=False)
     recorded_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
