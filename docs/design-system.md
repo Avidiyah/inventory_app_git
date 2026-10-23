@@ -52,6 +52,11 @@ which is the device class that can least afford it.
 
 ## Two surface types
 
+One page stands outside both: the SMR27 audit page (`pages/smr.html`,
+`#smr-page` in `styles.css`) is deliberately white-on-black, monospace, 1px
+rules, nothing rounded — an audit ledger, not a TechFM surface
+(spec `docs/superpowers/specs/2026-10-23-smr-audit-workflow-design.md`).
+
 The app has exactly two ways to present a panel of content. Both are dark and
 translucent; they differ in what they sit on, which changes the arithmetic.
 

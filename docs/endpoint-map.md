@@ -1,6 +1,6 @@
 # Endpoint Map: Database ↔ User View
 
-Last reviewed: 2026-08-31 · Soft word budget: 11,000 (CLAUDE.md → Documentation
+Last reviewed: 2026-10-23 · Soft word budget: 11,000 (CLAUDE.md → Documentation
 conventions)
 
 Endpoint wiring, contracts, rules, and error behavior — answers "what does this
@@ -150,6 +150,9 @@ writes (w).
 | P2 | POST | `/push/subscribe` | any authenticated | `push.py` → subscription store | push_subscriptions (w — upsert; **reassigns** the endpoint row to the caller) | `apiPushSubscribe` | `push.js` |
 | P3 | POST | `/push/unsubscribe` | any authenticated | `push.py` → subscription store | push_subscriptions (w, delete caller's device row) | `apiPushUnsubscribe` | `push.js`, `auth.js` (logout, this device only) |
 | P4 | POST | `/push/test` | **owner** | `push.py` → `services/push` fan-out | push_subscriptions (r; w on 404/410 prune), users (r, Admin+ audience) | `apiPushTest` | `push.js` (Owner test trigger) |
+| S1 | POST | `/work-orders/smr/import` | **owner** | `work_orders_smr.py` → `work_orders_smr.import_smr` | work_orders (r/w: create, fill-blanks, **restores archived**, sets `smr_imported_at` + `smr_baseline` once), users (r, Team Lead name-match) | `apiImportSmr` | `workOrderIntegrations.js` |
+| S2 | GET | `/work-orders/smr` | admin+ | `work_orders_smr.py` → `work_orders_smr.list_smr_tiles` | work_orders (r, `smr_imported_at IS NOT NULL`, archived included), work_order_items, items, work_order_labor, work_order_labor_sessions (r) | `apiListSmrTiles` | `smr.js` |
+| S3 | GET | `/work-orders/smr/export.xlsx` | **owner** | `work_orders_smr.py` → `work_orders_smr_xlsx.smr_workbook` | same reads as S2 plus users (r, line creators) | `apiExportSmrXlsx` | `smr.js` |
 
 (Numbering is append-only and stable — other docs cite it. Gaps (NF1, NF1a–c,
 NF4) are removed endpoints; WS1 and the H*/NF* rows are numbered apart from the
@@ -266,6 +269,19 @@ endpoint or form exists; every other surface resolves an existing number and
   reroute wins. A person-archived match counts as closed and is ignored.
   Each matched Team Lead gets one bulk push
   (`work_order.supervisor_assigned_bulk`, created rows only).
+- SMR27 audit (S1–S3, spec `docs/superpowers/specs/2026-10-23-smr-audit-workflow-design.md`):
+  the Owner imports the vendor sheet; every `Closed` row is created, fill-blanks
+  merged, or **restored from archive**, marked `smr_imported_at` once and
+  frozen into `smr_baseline` once (`domain.work_orders_smr.snapshot`).
+  `Canceled` rows are skipped. SMR rows are excluded from every live list,
+  Hub, report and legacy-archive query by `services.work_orders.live_work_orders()`
+  / `not_smr()`; the editor and the enrichment candidate query still see
+  them. A null `technician_id` on `POST .../labor` is an anonymous Skilled
+  Technician line (SMR orders, Admin+; minutes rounded apart from real
+  technicians). Edited = current snapshot's billable keys differ from the
+  baseline. The workbook has `Orders` (sheet columns, export columns,
+  BEFORE/AFTER/DELTA triples, audit trail) plus `Material Lines`, `Labor
+  Entries`, `Labor Sessions` tagged by `PHASE`.
 - Cloud auth (Steel): `POST .../cloud/auth/start` opens a cloud browser and
   returns its live-view URL; credentials/CAPTCHA/MFA are completed there; the
   coordinator auto-confirms once a page leaves the login screen and encrypts
@@ -701,9 +717,20 @@ CSV file upload (`UploadFile`), no JSON body, capped at **25 MB** by
 before the form body is read, so an unauthorised oversized upload is 403). **`WorkOrderItemDetail`**:
 `id`, `item_id`, `item_name`, `item_barcode`, `item_quantity` (live on-hand),
 `quantity`, `mode`, `unit_price?`, `billable_quantity?` (last two TechFM OA and above-only).
+**`WorkOrderLaborCreate.technician_id`** is `Optional`: `null` = Skilled Technician
+(SMR only, Admin+, else 422/403); `WorkOrderLaborDetail.technician_id` is then
+`null` with `technician_name = "Skilled Technician"`. `WorkOrderCard.smr` (bool)
+marks an SMR order. **`SmrImportResult`** (`schemas/work_orders_smr.py`): `total`,
+`created`, `opened`, `restored`, `skipped`, `baselined`. **`SmrTilesResponse`**:
+`imported_at?`, `counts {orders, edited, untouched, archived}`, `delta {labor_total,
+materials_total, total}`, `tiles: list[SmrTile]` where `SmrTile` = `id`, `number`,
+`building_number?`, `unit_number?`, `location?`, `vendor_assignee?`, `status`,
+`archived_at?`, `edited`, `before` / `after` / `delta` (`SmrTotals`: `materials_total`,
+`real_minutes`, `skilled_minutes`, `labor_total`, `total`), `after_line_count`.
 **`WorkOrderDetail`** = `WorkOrderCard` + `notes: str?` +
 `items: list[WorkOrderItemDetail]` + `labor: list[WorkOrderLaborDetail]` +
-`labor_minutes` + `labor_billed_minutes` + `materials_total?` (TechFM OA and above; Σ
+`labor_minutes` + `labor_billed_minutes` (real technicians) + `skilled_labor_minutes` +
+`skilled_labor_billed_minutes` + `smr` + `materials_total?` (TechFM OA and above; Σ
 `effective_billable × unit_price`) + `labor_rate?` / `labor_total?`
 (TechFM OA and above; fixed rate after combined-duration rounding) +
 `signature: WorkOrderSignatureOut?`. **`WorkOrderSignatureCreate`** — `POST
