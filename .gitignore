@@ -31,3 +31,6 @@ playwright-storage-state.json
 # Frontend test harness (root-level npm project; nothing here ships)
 node_modules/
 coverage/
+
+# brainstorm/sdd scratch (superpowers skills)
+.superpowers/
