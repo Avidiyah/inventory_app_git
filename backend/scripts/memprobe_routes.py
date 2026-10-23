@@ -344,6 +344,8 @@ CATALOGUE: dict[str, Entry] = {k: Entry(exclude="see EXCLUDED") for k in EXCLUDE
     "POST /work-orders/smr/import": Entry(file=("smr.csv",
         "WORK ORDER,FILED STATUS,LOCATION,ASSIGNED TO,SERVICE TYPE,SCHEDULE DATE\r\n"
         "{prefix}-SMR{seq},Closed,Commons,,SMR27 - Belfor,\r\n")),
+    "POST /work-orders/smr/import-targets": Entry(file=("breakdown.csv",
+        "WO#,Hours,Total Material Cost\r\n{prefix}-SMR{seq},0.5,$31.25\r\n")),
     "PATCH /work-orders/{work_order_id}": Entry(body=J({"status": "assigned", "assigned_to_ids": ["{user_id}"]}), cycle=WO_LIFECYCLE),
     "POST /work-orders/{work_order_id}/start": Entry(as_user=T),
     "POST /work-orders/{work_order_id}/hold": Entry(as_user=T),

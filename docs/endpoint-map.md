@@ -281,8 +281,18 @@ endpoint or form exists; every other surface resolves an existing number and
   Technician line (SMR orders, Admin+; minutes rounded apart from real
   technicians). Edited = current snapshot's billable keys differ from the
   baseline. The workbook has `Orders` (sheet columns, export columns,
-  BEFORE/AFTER/DELTA triples, audit trail) plus `Material Lines`, `Labor
-  Entries`, `Labor Sessions` tagged by `PHASE`.
+  BEFORE/AFTER/DELTA triples, target + gap columns, `BREAKDOWN *` columns,
+  audit trail) plus `Material Lines`, `Labor Entries`, `Labor Sessions`
+  tagged by `PHASE`.
+- SMR27 target match (S4, spec `docs/superpowers/specs/2026-10-23-smr-target-match-design.md`):
+  the Owner imports the client's Breakdown sheet; each `WO#` already an SMR
+  order gets `smr_target` (hours, labor $, material $, raw row; overwritten
+  on re-import, last duplicate wins; unknown WO#s counted, never created).
+  `domain.work_orders_smr.target_gap` compares billed hours (real + skilled)
+  and `materials_total × 1.15` against it: matched when each shortfall is
+  within its band (0.5 h, $10) or the order is at/above target. The detail
+  (`smr_target`, money redacted below TechFM OA), the tiles (`target`,
+  `counts.matched/short/no_target`, `remaining`) and the workbook all read it.
 - Cloud auth (Steel): `POST .../cloud/auth/start` opens a cloud browser and
   returns its live-view URL; credentials/CAPTCHA/MFA are completed there; the
   coordinator auto-confirms once a page leaves the login screen and encrypts
