@@ -5,9 +5,9 @@
 // Work Orders editor. Reads `GET /work-orders/smr`; owns no state beyond the
 // last payload and the active filter.
 
-import { apiExportSmrXlsx, apiListSmrTiles, friendlyError } from "../api.js";
+import { apiExportSmrXlsx, apiListSmrTiles } from "../api.js";
 import { setMessage } from "../dom.js";
-import { escapeHtml, formatMoney } from "../format.js";
+import { escapeHtml, formatMoney, friendlyError } from "../format.js";
 import { getCurrentUser } from "../state.js";
 import { roleAtLeast } from "../roles.js";
 import { focusWorkOrderNumber } from "./workOrders.js";
