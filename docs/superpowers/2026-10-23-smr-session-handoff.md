@@ -9,8 +9,8 @@ Specs `docs/superpowers/specs/2026-10-23-smr-audit-workflow-design.md` and
 
 | Item | Value |
 |---|---|
-| `main` | audit workflow pushed 2026-10-23 (`b78f7e7`); **target match committed locally, not pushed** (10 commits on top of `acf333d`); push = production deploy, ask first |
-| Container | `inventory-local` on port 8124 built from `323870e` (pre-target); rebuild before an in-app check |
+| `main` | target match **pushed 2026-10-23** (`b78f7e7..1f58090`, 12 commits); production deploy follows CI; the user's in-app check in production is the real gate |
+| Container | `inventory-local` on port 8124 rebuilt from `1f58090` |
 | Dev DB | migrations `5b7c9d1e2f30` and `6c8d0e2f3a41` applied; 0 SMR rows |
 | Suites | backend 2,156 passed (`-m "not e2e"`); frontend 2,499 passed |
 
@@ -39,7 +39,7 @@ per tile, and Short + Matched filters; the Orders sheet gains target, gap and
    Breakdown.csv` (expect about 668 orders set, 22 unknown WO#s skipped, 1
    footer row skipped). SMR27 → Short → tile → add Skilled hours and material
    lines → watch the two target lines → Export XLSX.
-2. **Push (user decides):** `git push` deploys to production.
+2. **Production:** run both imports there once the deploy is live; the main-sheet import restores archived orders by design.
 3. Deferred minors: `#smr-page` side margins on phone width; the three
    Breakdown rows whose Labor $ is not hours × $62.50 show their sheet Labor $
    in the export only; `current-state` / `endpoint-map` over word budget
