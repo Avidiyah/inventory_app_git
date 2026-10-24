@@ -52,16 +52,40 @@ def test_skilled_labor_added_on_smr_order_by_admin(db):
     assert detail.labor_total == wo.labor_charge(30) * 2
 
 
-def test_skilled_labor_rejected_off_smr_and_below_admin(db):
+def test_skilled_labor_rejected_off_smr_orders(db):
     admin = _user(db, "admin")
     plain = _order(db, admin, smr=False)
     with pytest.raises(InvalidAssigneeError):
         wos.add_work_order_labor(db, plain.id, user=admin, technician_id=None, minutes=10)
-    sup = _user(db, "supervisor")
-    smr_order = _order(db, sup)
+    tech = _user(db, "technician")
+    with pytest.raises(InvalidAssigneeError):
+        wos.add_work_order_labor(db, plain.id, user=tech, technician_id=None, minutes=10)
+
+
+# All hands (2026-10-23): every role keys Skilled Technician hours on an SMR
+# order, and a Technician edits an SMR order without being on its crew.
+@pytest.mark.parametrize("role", ["technician", "supervisor", "techfm_oa"])
+def test_skilled_labor_open_to_every_role_on_smr_orders(db, role):
+    admin = _user(db, "admin")
+    smr_order = _order(db, admin)
+    worker = _user(db, role)
+    entry = wos.add_work_order_labor(db, smr_order.id, user=worker, technician_id=None, minutes=30)
+    assert entry.technician_id is None
+    updated = wos.update_work_order_labor(db, smr_order.id, entry.id, user=worker, minutes=60)
+    assert updated.minutes == 60
+    wos.delete_work_order_labor(db, smr_order.id, entry.id, user=worker)
+    assert wos.get_work_order(db, smr_order.id, user=worker).labor_entries == []
+
+
+def test_technician_off_crew_edits_smr_order_but_not_a_plain_one(db):
+    admin = _user(db, "admin")
+    tech = _user(db, "technician")
+    smr_order = _order(db, admin)
+    plain = _order(db, admin, smr=False)
+    edited = wos.update_work_order(db, smr_order.id, user=tech, fields={"notes": "resecured blind"})
+    assert "resecured blind" in (edited.notes or "")
     with pytest.raises(RoleManagementError):
-        wos.add_work_order_labor(db, smr_order.id, user=sup, technician_id=None, minutes=10)
-    assert wos.get_work_order(db, smr_order.id, user=sup).labor_entries == []
+        wos.update_work_order(db, plain.id, user=tech, fields={"notes": "nope"})
 
 
 def test_update_and_delete_skilled_entry(db):
@@ -69,9 +93,9 @@ def test_update_and_delete_skilled_entry(db):
     order = _order(db, admin)
     entry = wos.add_work_order_labor(db, order.id, user=admin, technician_id=None, minutes=10)
     assert wos.update_work_order_labor(db, order.id, entry.id, user=admin, minutes=45).minutes == 45
+    # Any role may revise a Skilled Technician line (all hands, 2026-10-23).
     sup = _user(db, "supervisor")
-    with pytest.raises(RoleManagementError):
-        wos.update_work_order_labor(db, order.id, entry.id, user=sup, minutes=5)
+    assert wos.update_work_order_labor(db, order.id, entry.id, user=sup, minutes=5).minutes == 5
     wos.delete_work_order_labor(db, order.id, entry.id, user=admin)
     assert wos.get_work_order(db, order.id, user=admin).labor_entries == []
 

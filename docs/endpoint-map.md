@@ -152,7 +152,7 @@ writes (w).
 | P4 | POST | `/push/test` | **owner** | `push.py` → `services/push` fan-out | push_subscriptions (r; w on 404/410 prune), users (r, Admin+ audience) | `apiPushTest` | `push.js` (Owner test trigger) |
 | S1 | POST | `/work-orders/smr/import` | **owner** | `work_orders_smr.py` → `work_orders_smr.import_smr` | work_orders (r/w: create, fill-blanks, **restores archived**, sets `smr_imported_at` + `smr_baseline` once), users (r, Team Lead name-match) | `apiImportSmr` | `workOrderIntegrations.js` |
 | S4 | POST | `/work-orders/smr/import-targets` | **owner** | `work_orders_smr.py` → `work_orders_smr.import_smr_targets` | work_orders (r/w: sets `smr_target` on SMR orders only; blank WO#s skipped, unknown WO#s counted, last duplicate wins) | `apiImportSmrTargets` | `workOrderIntegrations.js` |
-| S2 | GET | `/work-orders/smr` | admin+ | `work_orders_smr.py` → `work_orders_smr.list_smr_tiles` (accepts row 54's query params minus `service_type`/`mine`/`limit`, through the same `_apply_work_order_filters` + schedule sort; `counts`/`delta`/`filter_options` are whole-population, `tiles`/`matched` filtered) | work_orders (r, `smr_imported_at IS NOT NULL`, archived included), work_order_items, items, work_order_labor, work_order_labor_sessions, work_order_technicians, users (r) | `apiListSmrTiles` | `smr.js`, `smrFilters.js` |
+| S2 | GET | `/work-orders/smr` | technician+ (every role, all hands 2026-10-23) | `work_orders_smr.py` → `work_orders_smr.list_smr_tiles` (accepts row 54's query params minus `service_type`/`mine`/`limit`, through the same `_apply_work_order_filters` + schedule sort; `counts`/`delta`/`filter_options` are whole-population, `tiles`/`matched` filtered) | work_orders (r, `smr_imported_at IS NOT NULL`, archived included), work_order_items, items, work_order_labor, work_order_labor_sessions, work_order_technicians, users (r) | `apiListSmrTiles` | `smr.js`, `smrFilters.js` |
 | S3 | GET | `/work-orders/smr/export.xlsx` | **owner** | `work_orders_smr.py` → `work_orders_smr_xlsx.smr_workbook` | same reads as S2 plus users (r, line creators) | `apiExportSmrXlsx` | `smr.js` |
 
 (Numbering is append-only and stable — other docs cite it. Gaps (NF1, NF1a–c,
@@ -278,7 +278,7 @@ endpoint or form exists; every other surface resolves an existing number and
   Hub, report and legacy-archive query by `services.work_orders.live_work_orders()`
   / `not_smr()`; the editor and the enrichment candidate query still see
   them. A null `technician_id` on `POST .../labor` is an anonymous Skilled
-  Technician line (SMR orders, Admin+; minutes rounded apart from real
+  Technician line (SMR orders, any role since 2026-10-23; minutes rounded apart from real
   technicians). Edited = current snapshot's billable keys differ from the
   baseline. The workbook has `Orders` (sheet columns, export columns,
   BEFORE/AFTER/DELTA triples, target + gap columns, `BREAKDOWN *` columns,
@@ -729,7 +729,7 @@ before the form body is read, so an unauthorised oversized upload is 403). **`Wo
 `id`, `item_id`, `item_name`, `item_barcode`, `item_quantity` (live on-hand),
 `quantity`, `mode`, `unit_price?`, `billable_quantity?` (last two TechFM OA and above-only).
 **`WorkOrderLaborCreate.technician_id`** is `Optional`: `null` = Skilled Technician
-(SMR only, Admin+, else 422/403); `WorkOrderLaborDetail.technician_id` is then
+(SMR only, any signed-in role, else 422); `WorkOrderLaborDetail.technician_id` is then
 `null` with `technician_name = "Skilled Technician"`. `WorkOrderCard.smr` (bool)
 marks an SMR order. **`SmrImportResult`** (`schemas/work_orders_smr.py`): `total`,
 `created`, `opened`, `restored`, `skipped`, `baselined`. **`SmrTilesResponse`**:

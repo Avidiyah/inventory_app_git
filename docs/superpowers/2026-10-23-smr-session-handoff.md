@@ -31,6 +31,10 @@ adds Matched / Short / No Target counts, remaining hours and dollars, a line
 per tile, and Short + Matched filters; the Orders sheet gains target, gap and
 `BREAKDOWN *` columns.
 
+All hands (2026-10-23, user decision): the SMR27 page is open to every role,
+an SMR order is never crew-locked for a Technician, and any role keys Skilled
+Technician hours on one. Import and export stay Owner.
+
 ## Next
 
 1. **In-app check (user):** rebuild `inventory-local`; Owner → Integrations →

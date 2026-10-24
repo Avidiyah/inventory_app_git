@@ -171,11 +171,11 @@ export function canAddLabor(detail) {
   return canKeyLabor() || isAssignedToCurrentUser(detail);
 }
 
-// Anonymous Skilled Technician hours (spec 2026-10-23): SMR orders only,
-// Admin or Owner only. Mirrors the server's `_require_labor_editor` branch
-// for a null technician.
+// Anonymous Skilled Technician hours (spec 2026-10-23): SMR orders only, any
+// role (all hands on the re-charge since 2026-10-23). Mirrors the server's
+// `_require_labor_editor` branch for a null technician.
 export function canKeySkilledLabor(detail) {
-  return Boolean(detail?.smr) && roleAtLeast(getRole(), "admin");
+  return Boolean(detail?.smr);
 }
 
 // A Technician who is not on a work order's crew can read it but not write to
@@ -183,7 +183,8 @@ export function canKeySkilledLabor(detail) {
 // Every other role is never locked. Mirrors the server's
 // `require_crew_for_technician`.
 export function isCrewLocked(detail) {
-  return getRole() === "technician" && !isAssignedToCurrentUser(detail);
+  // An SMR order is never locked (mirrors `require_crew_for_technician`).
+  return getRole() === "technician" && !detail?.smr && !isAssignedToCurrentUser(detail);
 }
 
 // The one hint a locked card shows in place of its input controls. Begin

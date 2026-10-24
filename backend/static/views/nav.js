@@ -132,9 +132,9 @@ export const PAGE_ACCESS = {
   // NetFacilities/Langston University work-order import-export. Same gate as
   // the card it replaces (workOrders.js::isAdminPlus).
   "integrations": ["owner", "admin", "techfm_oa"],
-  // SMR27 audit tiles (spec 2026-10-23 D7): Admin+ edit the orders; the
-  // import and export inside are Owner-only server-side.
-  "smr": ["owner", "admin"],
+  // SMR27 audit tiles: every role since 2026-10-23 (all hands on the
+  // re-charge); the import and export inside are Owner-only server-side.
+  "smr": ["owner", "admin", "techfm_oa", "supervisor", "technician"],
 };
 
 export function canAccessPage(role, pageName) {

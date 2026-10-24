@@ -27,12 +27,12 @@ const PAGES = [
 // backend's route gate mirrored in the UI, so it is exactly the thing a test
 // must state independently.
 const VISIBLE_BY_ROLE = {
-  technician: ["user-hub", "saved-items", "transaction", "work-orders", "tools"],
+  technician: ["user-hub", "saved-items", "transaction", "work-orders", "tools", "smr"],
   supervisor: [
     "user-hub", "saved-items", "create-user", "saved-users", "transaction",
-    "mass-stage", "work-orders", "tools", "history",
+    "mass-stage", "work-orders", "tools", "history", "smr",
   ],
-  techfm_oa: PAGES.filter((page) => page !== "smr"),
+  techfm_oa: PAGES,
   admin: PAGES,
   owner: PAGES,
 };

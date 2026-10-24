@@ -546,16 +546,14 @@ def test_no_route_gate_is_left_at_the_admin_floor():
     # The bulk week review joins with the punch writes: it clears pay-record
     # review flags.
     #
-    # The SMR27 audit tiles (2026-10-23) are Admin+ by the user's explicit
-    # choice: the audit is an Admin/Owner re-billing exercise, and TechFM OA
-    # never works those orders. Its import and export sit higher still, at
-    # Owner (spec docs/superpowers/specs/2026-10-23-smr-audit-workflow-design.md D2/D6/D7).
+    # The SMR27 audit tiles opened to every role on 2026-10-23 (all hands on the
+    # re-charge); the import and export stay at Owner
+    # (spec docs/superpowers/specs/2026-10-23-smr-audit-workflow-design.md D2/D6).
     assert offenders == {
         "get_hub_report",
         "export_hub_report",
         "export_hub_attendance",
         "review_hub_attendance_week",
-        "list_smr_tiles",
     }
 
 
@@ -661,7 +659,7 @@ def test_filing_and_cancelling_a_material_request_have_no_static_min_role(endpoi
         ("import_smr", roles.ROLE_OWNER),
         ("import_smr_targets", roles.ROLE_OWNER),
         ("export_smr_xlsx", roles.ROLE_OWNER),
-        ("list_smr_tiles", roles.ROLE_ADMIN),
+        ("list_smr_tiles", roles.ROLE_TECHNICIAN),
     ],
 )
 def test_smr_route_gates_are_declarative_and_document_403(endpoint_name, expected):

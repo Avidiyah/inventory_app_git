@@ -144,7 +144,7 @@ backend/app/services/work_order_signature.py witness sign-off save/clear/PNG (si
 backend/app/domain/work_orders_smr.py SMR27 sheet parsing, snapshot serializer, edited check, split labor
 backend/app/services/work_orders_smr.py Owner SMR import (restore + baseline once) + tile projection
 backend/app/services/work_orders_smr_xlsx.py SMR before/after/delta workbook (4 sheets)
-backend/app/routers/work_orders_smr.py `/work-orders/smr` import (Owner), tiles (Admin+), export (Owner)
+backend/app/routers/work_orders_smr.py `/work-orders/smr` import (Owner), tiles (every role), export (Owner)
 backend/app/services/tools.py    Tool CRUD + checkout/return + custody aggregate
 backend/app/services/user_requests.py durable operational exception queue
 backend/app/integrations/netfacilities/*.py NetFacilities config/contracts/validation, Steel cloud adapter + concrete read-only boundary
@@ -208,7 +208,7 @@ backend/static/views/toolReturn.js Tool return sub-flow (any role)
 backend/static/views/userRequests.js TechFM OA and above request queue
 backend/static/pages/*.html      SPA page fragments
 backend/static/pages/work-orders.html Work Orders page fragment
-backend/static/pages/smr.html    SMR27 audit page fragment (Admin+)
+backend/static/pages/smr.html    SMR27 audit page fragment (every role; all hands 2026-10-23)
 backend/static/pages/tools.html  Tools page fragment
 backend/static/shell-*.html      shell fragments
 backend/static/styles.css        global styles

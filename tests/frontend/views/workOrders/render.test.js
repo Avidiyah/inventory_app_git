@@ -451,9 +451,11 @@ describe("the labor section", () => {
     expect(skilled.compareDocumentPosition(picker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  // All hands (2026-10-23): every role keys Skilled Technician hours on an
+  // SMR order; the control never appears off one.
   it.each([
-    ["supervisor", true, "hidden"], ["admin", true, "shown"], ["owner", true, "shown"],
-    ["admin", false, "hidden"], ["owner", false, "hidden"],
+    ["technician", true, "shown"], ["supervisor", true, "shown"], ["admin", true, "shown"], ["owner", true, "shown"],
+    ["technician", false, "hidden"], ["admin", false, "hidden"], ["owner", false, "hidden"],
   ])("Add Skilled Technician for %s with smr=%s is %s", async (role, smr, visibility) => {
     const { cardEl } = await renderBody({ smr, assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] }, { role });
     expect(cardEl.querySelector("[data-action=\"add-skilled-labor\"]") === null).toBe(visibility === "hidden");
@@ -648,6 +650,21 @@ describe("the materials section", () => {
     await openCard(0);
     expect(card().querySelector(".wo-line-qty")).toBeNull();
     expect(card().querySelector(".wo-item .hint").textContent).toBe("Quantity: 3");
+  });
+
+  // All hands (2026-10-23): an SMR order is never crew-locked, so a technician
+  // who is not assigned still gets the add-material and note controls.
+  it("lets a technician off the crew add materials and notes on an SMR order", async () => {
+    const { cardEl } = await renderBody({ smr: true, status: "completed", assigned_to_ids: [], assigned_to_names: [] }, { role: "technician" });
+    expect(cardEl.querySelector(".wo-crew-lock")).toBeNull();
+    expect(cardEl.querySelector(".wo-add-item")).not.toBeNull();
+    expect(cardEl.querySelector(".wo-notes-input")).not.toBeNull();
+  });
+
+  it("keeps the crew lock for a technician off the crew of a plain order", async () => {
+    const { cardEl } = await renderBody({ smr: false, status: "completed", assigned_to_ids: [], assigned_to_names: [] }, { role: "technician" });
+    expect(cardEl.querySelector(".wo-crew-lock")).not.toBeNull();
+    expect(cardEl.querySelector(".wo-add-item")).toBeNull();
   });
 });
 

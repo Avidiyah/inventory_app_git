@@ -542,7 +542,9 @@ export function renderBody(detail, bodyEl) {
        <summary class="wo-section-summary">Request</summary>
        <div class="wo-section-content"></div>
      </details>` +
-    (sup || assignedToCurrentUser ? laborSectionHtml(detail) : "") +
+    // An SMR order shows Labor to everyone: any role keys its Skilled
+    // Technician hours (all hands, 2026-10-23).
+    (sup || assignedToCurrentUser || detail.smr ? laborSectionHtml(detail) : "") +
     // Last (S15), for every viewer (S3, S4).
     signatureSectionHtml(detail) +
     `<p class="wo-message"></p>`;

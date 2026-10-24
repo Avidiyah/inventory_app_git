@@ -293,11 +293,14 @@ def require_crew_for_technician(
     Notes, materials, requests, the witness sign-off and Scan / Stock dispenses
     all call this. Begin Charging puts the caller on the crew, so the way to
     unlock a work order is the same tap that starts the work. Team Lead and
-    above, and the `None` internal caller, are never locked.
+    above, and the `None` internal caller, are never locked. Neither is an
+    SMR order (all hands on the re-charge, 2026-10-23): it is already
+    completed, so Begin Charging is not on offer to join its crew.
     """
     if (
         user is not None
         and user.role == roles.ROLE_TECHNICIAN
+        and work_order.smr_imported_at is None
         and user.id not in _assigned_technician_ids(work_order)
     ):
         raise RoleManagementError("Begin Charging on this work order first.")
@@ -2147,11 +2150,11 @@ def _require_labor_editor(
     the data, like the Review handoff floor.
     """
     if technician_id is None:
-        # A Skilled Technician line belongs to nobody: Admin+ only.
-        if user is None or not roles.role_at_least(user.role, roles.ROLE_ADMIN):
-            raise RoleManagementError(
-                "Only an Admin or Owner can key Skilled Technician hours."
-            )
+        # A Skilled Technician line belongs to nobody. Any signed-in role may
+        # key one (all hands on the SMR re-charge, 2026-10-23); the caller has
+        # already confirmed the order is SMR.
+        if user is None:
+            raise RoleManagementError("Sign in to key Skilled Technician hours.")
         return
     if user is None or roles.role_at_least(user.role, roles.ROLE_SUPERVISOR):
         return
