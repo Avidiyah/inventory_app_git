@@ -195,8 +195,8 @@ backend/static/views/workOrderGlyphs.js status/priority/overdue/clock inline-SVG
 backend/static/views/workOrderFilterChips.js applied-filter chips + result count line
 backend/static/views/workOrderActions.js the six listeners delegated off #work-orders-list
 backend/static/views/workOrderIntegrations.js CSV import/export, SMR Import (Owner), NetFacilities enrichment + cloud auth
-backend/static/views/smr.js   SMR27 audit tiles page (white-on-black), filters, Owner export, editor hand-off
-backend/static/views/smrFilters.js SMR search/filter controls (Work Orders row minus service type), sort memory `smr.sort`
+backend/static/views/smr.js   SMR27 audit tiles page (white-on-black), filters, Owner export, editor hand-off, return-to-SMR (`returnToSmr`)
+backend/static/views/smrFilters.js SMR search/filter controls (Work Orders row minus service type), sort memory `smr.sort`, filters + state chip `smr.filters` (sessionStorage: survive a reload, not a new tab)
 backend/static/views/workOrderRouting.js card-page mode, /workorder_card/ URL, list scroll restore
 backend/static/views/workOrderPresenters.js status/priority/money/place formatting + role predicates
 backend/static/views/workOrderFilters.js filter reads, filter options, sort direction, RECENT_LIMIT
@@ -634,6 +634,10 @@ Work orders:
   at `popstate` rather than reading `history.state` at the render site is what
   keeps nav entry, filter changes, and the realtime background refresh from
   jumping the page. Cold deep links have no stamp and land at the top.
+  A card opened from an SMR tile carries an SMR origin (`profileOrigin.js`,
+  `{ page: "smr", scrollY }`): its "‹ Back to SMR" button and browser Back
+  both return to the SMR page at that offset, filters and chip intact; a nav
+  click clears the origin.
 - Work Orders list filters are server-side and joinable: status, exact normalized
   service type, routed Team Lead, derived community, exact scheduled date, and
   number substring all combine with AND before the caller's normal visibility
