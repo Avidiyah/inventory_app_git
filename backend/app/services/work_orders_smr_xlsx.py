@@ -51,6 +51,8 @@ _TARGET = (
     "MATERIALS +15% AFTER", "TARGET HOURS", "TARGET LABOR $", "TARGET MATERIAL $", "TARGET TOTAL",
     "GAP HOURS", "GAP MATERIAL $", "MATCHED", "TARGET IMPORTED AT",
 )
+# Keyed from paper (spec 2026-10-27-smr-paper-check); independent of a target.
+_PAPER = ("PAPER CHECKED", "PAPER CHECKED AT", "PAPER CHECKED BY")
 _BREAKDOWN_PREFIX = "BREAKDOWN "
 _TRAIL = ("EDITED", "SMR IMPORTED AT", "BASELINE AT", "LAST EDITED AT", "LAST EDITED BY", "ARCHIVED AT")
 
@@ -109,6 +111,13 @@ def _target_values(order: WorkOrder, current: dict) -> list:
     ]
 
 
+def _paper_values(order: WorkOrder) -> list:
+    if order.smr_paper_checked_at is None:
+        return [None] * len(_PAPER)
+    who = order.smr_paper_checked_by
+    return ["YES", _when(order.smr_paper_checked_at), who.full_name if who else None]
+
+
 # Operational-export columns the sheet already supplies by the same name.
 _SHEET_OWNED = {"WORK ORDER", "LOCATION", "ASSIGNED TO", "SERVICE TYPE", "SCHEDULE DATE"}
 _APP_HEADERS = [h for h in wo.EXPORT_HEADERS if h not in _SHEET_OWNED]
@@ -141,6 +150,7 @@ def _orders_sheet(sheet: Worksheet, orders: list[WorkOrder], names: dict) -> Non
         + _APP_HEADERS
         + [f"{label} {phase}" for label, _ in _NUMERIC for phase in (BEFORE, AFTER, "DELTA")]
         + list(_TARGET)
+        + list(_PAPER)
         + [f"{_BREAKDOWN_PREFIX}{column}" for column in target_columns]
         + list(_TRAIL)
     )
@@ -163,6 +173,7 @@ def _orders_sheet(sheet: Worksheet, orders: list[WorkOrder], names: dict) -> Non
             + [value for header, value in zip(wo.EXPORT_HEADERS, wos.export_row(order)) if header not in _SHEET_OWNED]
             + numbers
             + _target_values(order, current)
+            + _paper_values(order)
             + [breakdown.get(column) for column in target_columns]
             + [
                 "YES" if smr.is_edited(order) else "NO",

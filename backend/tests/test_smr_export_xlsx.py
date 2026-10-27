@@ -146,3 +146,22 @@ def test_smr_export_target_and_gap_columns(db):
     assert row["BREAKDOWN Unit#"] == "Young Hall 108" and row["TARGET IMPORTED AT"] is not None
     empty = next(r for r in rows if r["WORK ORDER"] == bare)
     assert empty["TARGET HOURS"] is None and empty["MATCHED"] is None
+
+
+def test_smr_export_paper_check_columns(db):
+    """Spec 2026-10-27-smr-paper-check: filled even without a target."""
+    owner = _user(db)
+    checked, open_ = [f"SMR-{uuid.uuid4().hex[:8]}" for _ in range(2)]
+    smr_service.import_smr(db, csv_bytes=_sheet([checked, open_]), user=owner)
+    smr_service.set_paper_check(db, work_order_id=wos.find_by_number(db, checked).id, checked=True, user=owner)
+
+    header, rows = _rows(_book(db)["Orders"])
+
+    at = header.index("PAPER CHECKED")
+    assert header[at - 1] == "TARGET IMPORTED AT"
+    assert header[at:at + 3] == ["PAPER CHECKED", "PAPER CHECKED AT", "PAPER CHECKED BY"]
+    row = next(r for r in rows if r["WORK ORDER"] == checked)
+    assert (row["PAPER CHECKED"], row["PAPER CHECKED BY"]) == ("YES", "Ola Owner")
+    assert row["PAPER CHECKED AT"] is not None and row["TARGET HOURS"] is None
+    blank = next(r for r in rows if r["WORK ORDER"] == open_)
+    assert (blank["PAPER CHECKED"], blank["PAPER CHECKED AT"], blank["PAPER CHECKED BY"]) == (None, None, None)
