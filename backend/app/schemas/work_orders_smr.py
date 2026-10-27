@@ -72,6 +72,8 @@ class SmrTile(BaseModel):
     after_line_count: int
     # None when the order has no Breakdown row.
     target: Optional[SmrTargetOut] = None
+    # None until someone marks the order keyed from paper.
+    paper_check: Optional[SmrPaperCheckOut] = None
 
 
 class SmrCounts(BaseModel):
@@ -83,6 +85,9 @@ class SmrCounts(BaseModel):
     matched: int = 0
     short: int = 0
     no_target: int = 0
+    # Marked keyed from paper; `short_checked` = short and marked.
+    paper_checked: int = 0
+    short_checked: int = 0
 
 
 class SmrRemaining(BaseModel):

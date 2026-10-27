@@ -60,6 +60,7 @@ from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_capped
 from app.schemas.work_orders import (
     LegacyWorkOrderArchivePreview,
     LegacyWorkOrderArchiveResult,
+    SmrPaperCheckOut,
     SmrTargetOut,
     WorkOrderCard,
     WorkOrderDetail,
@@ -558,6 +559,7 @@ def _detail(
         labor_total=split.labor_total if include_price else None,
         signature=_signature_out(work_order),
         smr_target=SmrTargetOut.from_gap(gap, include_price=include_price) if gap else None,
+        smr_paper_check=SmrPaperCheckOut.from_order(work_order) if getattr(work_order, "smr_imported_at", None) else None,
     )
 
 

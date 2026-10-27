@@ -198,6 +198,7 @@ def _with_lines(query):
         selectinload(WorkOrder.labor_entries).selectinload(WorkOrderLabor.recorded_by),
         selectinload(WorkOrder.labor_sessions).selectinload(WorkOrderLaborSession.technician),
         selectinload(WorkOrder.labor_sessions).selectinload(WorkOrderLaborSession.labor),
+        selectinload(WorkOrder.smr_paper_checked_by),
     )
 
 
@@ -323,6 +324,7 @@ def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTil
         ),
         after_line_count=len(current["material_lines"]),
         target=target_for(work_order, current),
+        paper_check=SmrPaperCheckOut.from_order(work_order),
     )
 
 
@@ -346,6 +348,8 @@ def list_smr_tiles(db: Session, **filters) -> SmrTilesResponse:
             matched=matched,
             short=len(targeted) - matched,
             no_target=len(all_tiles) - len(targeted),
+            paper_checked=sum(1 for t in all_tiles if t.paper_check),
+            short_checked=sum(1 for t in all_tiles if t.paper_check and t.target and not t.target.matched),
         ),
         remaining=SmrRemaining(
             hours=sum((t.remaining_hours for t in targeted), Decimal(0)),

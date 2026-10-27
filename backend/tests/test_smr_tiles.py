@@ -162,3 +162,30 @@ def test_smr_tiles_carry_target_and_match_counts(db):
     assert mine[matched].target.matched is True and mine[matched].target.current_hours == Decimal("0.5")
     assert page.counts.matched >= 1 and page.counts.short >= 1 and page.counts.no_target >= 1
     assert page.remaining.hours >= Decimal(2) and page.remaining.materials_total >= Decimal("67.16")
+
+
+# --- paper check (spec 2026-10-27-smr-paper-check) --------------------------
+
+def test_smr_tiles_carry_paper_check_and_counts(db):
+    owner = _user(db)
+    short_checked, matched_checked, short_open, none_checked = [f"SMR-{uuid.uuid4().hex[:8]}" for _ in range(4)]
+    numbers = [short_checked, matched_checked, short_open, none_checked]
+    smr_service.import_smr(db, csv_bytes=_sheet(numbers), user=owner)
+    smr_service.import_smr_targets(
+        db,
+        csv_bytes=_breakdown([(short_checked, "2", "$0.00"), (matched_checked, "0", "$0.00"), (short_open, "2", "$0.00")]),
+        user=owner,
+    )
+    before = smr_service.list_smr_tiles(db).counts
+    for number in (short_checked, matched_checked, none_checked):
+        smr_service.set_paper_check(db, work_order_id=wos.find_by_number(db, number).id, checked=True, user=owner)
+
+    page = smr_service.list_smr_tiles(db)
+
+    mine = {t.number: t for t in page.tiles if t.number in numbers}
+    assert mine[short_open].paper_check is None
+    assert mine[short_checked].paper_check.checked_by_name == owner.full_name
+    assert mine[none_checked].paper_check is not None
+    assert page.counts.paper_checked - before.paper_checked == 3
+    assert page.counts.short_checked - before.short_checked == 1
+    assert page.counts.short == before.short  # Short keeps its meaning (D3)

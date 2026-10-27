@@ -90,3 +90,19 @@ def test_signed_out_is_401(db):
     owner = _user(db, "owner")
     order = _smr_order(db, owner)
     assert _put(db, None, order.id, True).status_code == 401
+
+
+def test_the_editor_detail_carries_the_mark(db):
+    owner, tech = _user(db, "owner"), _user(db)
+    order = _smr_order(db, owner)
+    _put(db, tech, order.id, True)
+
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        with TestClient(app) as client:
+            client.cookies.set("session", auth_service.create_session(db, tech))
+            detail = client.get(f"/work-orders/{order.id}").json()
+    finally:
+        del app.dependency_overrides[get_db]
+
+    assert detail["smr_paper_check"]["checked_by_name"] == "Pat Keyer"
