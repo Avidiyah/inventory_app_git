@@ -206,6 +206,28 @@ describe("the SMR page", () => {
     window.history.replaceState({}, "", "/");
   });
 
+  it("Back from a tile's card returns to SMR with its filters, not the Work Orders list", async () => {
+    const { nav } = await openSmr();
+    const detail = workOrderDetail({ id: "11111111-1111-1111-1111-111111111111", number: "23281563", smr: true });
+    server.use(
+      http.get("/work-orders/11111111-1111-1111-1111-111111111111", () => HttpResponse.json(detail)),
+      http.get("/work-orders/11111111-1111-1111-1111-111111111111/requests", () => HttpResponse.json([])),
+    );
+    byId("smr-filter-all").click();
+    byId("smr-search").value = "Young";
+    tiles()[0].click();
+    const back = await vi.waitFor(() => {
+      const btn = document.querySelector('[data-action="back-to-work-orders"]');
+      expect(btn.textContent).toContain("Back to SMR");
+      return btn;
+    });
+    back.click();
+    await vi.waitFor(() => expect(nav.getActivePage()).toBe("smr"));
+    expect(window.location.pathname).toBe("/");
+    expect(byId("smr-search").value).toBe("Young");
+    await vi.waitFor(() => expect(tiles().filter((t) => !t.hidden)).toHaveLength(3));
+  });
+
   it("shows the empty copy when nothing has been imported", async () => {
     server.use(http.get("/work-orders/smr", () => HttpResponse.json(page({ tiles: [], counts: { orders: 0, edited: 0, untouched: 0, archived: 0 } }))));
     await bootApp({ role: "admin", page: "smr" });

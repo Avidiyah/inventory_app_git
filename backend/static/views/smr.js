@@ -12,6 +12,7 @@ import { getCurrentUser } from "../state.js";
 import { roleAtLeast } from "../roles.js";
 import { focusWorkOrderNumber } from "./workOrders.js";
 import { showPage } from "./nav.js";
+import { setProfileOrigin } from "./profileOrigin.js";
 import { applyFilterOptions, currentParams, installFilterControls } from "./smrFilters.js";
 
 const bar = document.getElementById("smr-bar");
@@ -26,6 +27,8 @@ export const EMPTY_COPY = "NO SMR ORDERS. OWNER: IMPORT FROM INTEGRATIONS.";
 // Untouched is the working view: the orders still to be re-charged.
 let activeFilter = "untouched";
 let lastPayload = null;
+// Where the page stood when a tile opened a card; consumed by the next render.
+let pendingScrollY = null;
 
 // "+$58.40" / "-$3.00" / "$0.00": the sign is the whole point of a delta.
 export function signedMoney(value) {
@@ -135,6 +138,19 @@ function render(payload) {
     ? tiles.map(tileHtml).join("")
     : `<p class="smr-empty">${escapeHtml(EMPTY_COPY)}</p>`;
   applyFilter();
+  if (pendingScrollY !== null) {
+    const y = pendingScrollY;
+    pendingScrollY = null;
+    window.requestAnimationFrame(() => window.scrollTo(0, y));
+  }
+}
+
+// The card page's way back (button or browser Back). The filter controls and
+// state chips are page DOM / module state, so they are still set; only the
+// scroll needs carrying across the refetch.
+export function returnToSmr(scrollY) {
+  pendingScrollY = typeof scrollY === "number" ? scrollY : null;
+  showPage("smr");
 }
 
 export async function loadSmr() {
@@ -167,6 +183,7 @@ if (grid) {
     // By id: the Work Orders list never shows an SMR order (spec D1), so a
     // number search would come back empty. The card page fetches the detail
     // directly, and the editor route accepts SMR orders.
+    setProfileOrigin({ page: "smr", scrollY: window.scrollY });
     focusWorkOrderNumber(tile.dataset.number, { id: tile.dataset.id });
     showPage("work-orders");
   });

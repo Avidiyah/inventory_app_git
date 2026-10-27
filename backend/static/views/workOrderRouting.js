@@ -16,7 +16,7 @@ import { skeletonCard } from "../skeleton.js";
 import { SECTION_SELECTOR, readDraft, takePendingResume } from "../workOrderDrafts.js";
 import { ensureReferenceData, getAllItems } from "./workOrderReferenceData.js";
 import { hoursInputValue } from "./workOrderPresenters.js";
-import { peekProfileOrigin } from "./profileOrigin.js";
+import { peekProfileOrigin, takeProfileOrigin } from "./profileOrigin.js";
 
 const listEl = document.getElementById("work-orders-list");
 const listMessage = document.getElementById("work-orders-list-message");
@@ -169,7 +169,9 @@ export function exitSolo() {
 function soloBackControl() {
   const wrap = document.createElement("div");
   wrap.className = "wo-solo-back";
-  const label = peekProfileOrigin() ? "‹ Back to profile" : "&larr; Back to work orders";
+  const origin = peekProfileOrigin();
+  const label = origin?.page === "smr" ? "‹ Back to SMR"
+    : origin ? "‹ Back to profile" : "&larr; Back to work orders";
   wrap.innerHTML =
     `<button type="button" class="secondary-btn" data-action="back-to-work-orders">${label}</button>`;
   return wrap;
@@ -367,6 +369,14 @@ window.addEventListener("popstate", () => {
   const number = soloNumberFromPath();
   if (number === null) {
     if (!soloActive) return;
+    if (peekProfileOrigin()?.page === "smr") {
+      // Opened from an SMR tile: Back returns there, not to a list that never
+      // shows SMR orders. Dynamic import: smr.js imports this module.
+      const { scrollY } = takeProfileOrigin();
+      exitSolo();
+      void import("./smr.js").then(({ returnToSmr }) => returnToSmr(scrollY));
+      return;
+    }
     // Read off the entry being restored -- the list entry `openWorkOrderPage`
     // stamped on the way out. Arming it here rather than inside the render is
     // what keeps every other caller of `loadWorkOrders` from jumping the page.

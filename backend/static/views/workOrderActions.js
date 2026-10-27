@@ -49,7 +49,7 @@ import {
 } from "./workOrderCardHtml.js";
 import { getAllItems } from "./workOrderReferenceData.js";
 import { exitSolo } from "./workOrderRouting.js";
-import { takeProfileOrigin } from "./profileOrigin.js";
+import { peekProfileOrigin, takeProfileOrigin } from "./profileOrigin.js";
 import { openSignatureFlow } from "./workOrderSignature.js";
 import { loadWorkOrders, refreshCard } from "./workOrderList.js";
 
@@ -150,6 +150,18 @@ listEl.addEventListener("click", async (event) => {
   if (action === "back-to-work-orders") {
     // Above the `.wo-card` lookup below: this control lives in the list but
     // outside any card, so the `if (!cardEl) return` guard would swallow it.
+    if (peekProfileOrigin()?.page === "smr") {
+      // Same route as browser Back: unwind our entry and let `popstate`
+      // return to SMR; a cold entry has nothing to unwind.
+      if (window.history.state?.solo) {
+        window.history.back();
+      } else {
+        const { scrollY } = takeProfileOrigin();
+        exitSolo();
+        void import("./smr.js").then(({ returnToSmr }) => returnToSmr(scrollY));
+      }
+      return;
+    }
     const origin = takeProfileOrigin();
     if (origin) {
       // E8: leave the card the way a nav click would (no history unwind; the
