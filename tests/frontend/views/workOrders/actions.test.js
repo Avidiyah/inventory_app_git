@@ -343,3 +343,37 @@ describe("the mode select", () => {
     expect(message().className).toBe("error");
   });
 });
+
+// Paper check (spec 2026-10-27-smr-paper-check): every role, SMR orders only,
+// one button under the materials target line; clearing is the undo.
+describe("smr-paper-check", () => {
+  const paperCheck = () => card().querySelector(".wo-paper-check");
+
+  it("offers Mark on an unchecked SMR order and sends checked=true", async () => {
+    const detail = await open({ role: "technician", detail: { smr: true } });
+    expect(paperCheck().textContent).toContain("Mark paper checked");
+    respond("put", "/work-orders/smr/:id/paper-check", { checked_at: "2026-10-27T14:14:00Z", checked_by_name: "Me" });
+    click("smr-paper-check");
+    await vi.waitFor(() => expect(requestFor("/paper-check", "PUT")).not.toBeNull());
+    expect(requestFor("/paper-check", "PUT").url).toBe(`/work-orders/smr/${detail.id}/paper-check`);
+    expect(requestFor("/paper-check", "PUT").body).toEqual({ checked: true });
+    await vi.waitFor(() => expect(detailGets(detail.id)).toBe(1));
+  });
+
+  it("shows who and Clear on a checked order and sends checked=false", async () => {
+    await open({ role: "technician", detail: {
+      smr: true, smr_paper_check: { checked_at: "2026-10-27T14:14:00Z", checked_by_name: "Pat Keyer" },
+    } });
+    expect(paperCheck().textContent).toContain("Paper checked by Pat Keyer");
+    expect(paperCheck().textContent).toContain("Clear paper check");
+    respond("put", "/work-orders/smr/:id/paper-check", null);
+    click("smr-paper-check");
+    await vi.waitFor(() => expect(requestFor("/paper-check", "PUT")).not.toBeNull());
+    expect(requestFor("/paper-check", "PUT").body).toEqual({ checked: false });
+  });
+
+  it("is absent on a live order", async () => {
+    await open({ role: "admin", detail: { smr: false } });
+    expect(paperCheck()).toBeNull();
+  });
+});

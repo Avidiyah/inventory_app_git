@@ -22,6 +22,7 @@ import {
   apiHoldWorkOrder,
   apiResumeWorkOrder,
   apiSaveWorkOrderSignature,
+  apiSetSmrPaperCheck,
   apiSetWorkOrderItemBilling,
   apiStartWorkOrderTracking,
   apiStopWorkOrderTracking,
@@ -345,6 +346,9 @@ listEl.addEventListener("click", async (event) => {
       setMessage(notesMessage, "Note saved.", "success");
       const notesSection = cardEl.querySelector(".wo-notes-section");
       if (notesSection) notesSection.open = false;
+    } else if (action === "smr-paper-check") {
+      await apiSetSmrPaperCheck(workOrderId, btn.dataset.checked === "true");
+      await refreshCard(cardEl, ".wo-materials-section");
     } else if (action === "add-skilled-labor") {
       const section = btn.closest(".wo-labor-section");
       const minutes = hoursToMinutes(section.querySelector(".wo-new-skilled-hours")?.value);

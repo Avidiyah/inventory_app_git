@@ -1021,6 +1021,9 @@ export async function apiImportSmrTargets(file) {
   });
   return parseResponse(response);
 }
+// Mark or clear "keyed from paper" on an SMR order (every role); null once cleared.
+export const apiSetSmrPaperCheck = (workOrderId, checked) =>
+  jsonRequest(`/work-orders/smr/${workOrderId}/paper-check`, "PUT", { checked });
 export async function apiListSmrTiles({
   status = null, supervisorId = null, assignedToId = null, community = null,
   priority = null, scheduledDate = null, q = null, locationQ = null, taskQ = null, sort = null,

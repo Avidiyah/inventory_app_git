@@ -112,6 +112,20 @@ export function targetMaterialsHtml(detail) {
   return targetLineHtml(parts, remaining, TARGET_MATERIAL_BAND, `Within ${formatMoney(TARGET_MATERIAL_BAND)}`, `Short by ${formatMoney(remaining)}`);
 }
 
+// Paper check (spec 2026-10-27-smr-paper-check): one button under the
+// materials target line, every role. Clearing is the undo; no confirm.
+export function paperCheckHtml(detail) {
+  if (!detail?.smr) return "";
+  const check = detail.smr_paper_check;
+  if (!check) {
+    return `<div class="wo-paper-check"><button type="button" class="secondary-btn" data-action="smr-paper-check" data-checked="true">Mark paper checked</button></div>`;
+  }
+  const when = new Date(check.checked_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const who = check.checked_by_name ? ` by ${check.checked_by_name}` : "";
+  return `<div class="wo-paper-check wo-paper-check--done"><span>${escapeHtml(`Paper checked${who} · ${when}`)}</span> ` +
+    `<button type="button" class="secondary-btn" data-action="smr-paper-check" data-checked="false">Clear paper check</button></div>`;
+}
+
 export function notesLogContentsHtml(notes) {
   const log = String(notes || "").trim();
   return log

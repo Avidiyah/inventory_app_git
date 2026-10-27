@@ -47,7 +47,7 @@ const ACTIONS = [
   "open-netfacilities-wo", "pick-item", "pick-technician",
   "remove-item", "remove-labor", "remove-technician", "reopen-wo",
   "resume-assigned-wo", "review-wo", "save-details", "save-notes",
-  "send-back-wo", "start-tracking-wo", "stop-tracking-wo",
+  "send-back-wo", "smr-paper-check", "start-tracking-wo", "stop-tracking-wo",
 ];
 
 // The thirteen exports other views import. P4 must re-export every one.

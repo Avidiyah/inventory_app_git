@@ -35,6 +35,7 @@ import {
   materialsTotalHtml,
   modeLabel,
   targetLaborHtml,
+  paperCheckHtml,
   targetMaterialsHtml,
   notesLogContentsHtml,
   placeMeta,
@@ -527,6 +528,7 @@ export function renderBody(detail, bodyEl) {
          <div class="wo-items">${items}</div>
          ${materialsTotalHtml(detail)}
          ${targetMaterialsHtml(detail)}
+         ${paperCheckHtml(detail)}
          <div class="wo-requested-lines"></div>
          ${locked ? "" : `<div class="wo-add-item">
            <div class="wo-add-item-row">

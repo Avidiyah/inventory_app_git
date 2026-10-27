@@ -39,6 +39,7 @@ export const ENDPOINTS = [
   { fn: "apiListSmrTiles", args: [{ q: "7", taskQ: "blinds", sort: "scheduled_asc" }], url: "/work-orders/smr?q=7&task_q=blinds&sort=scheduled_asc" },
   { fn: "apiImportSmr", args: [uploadFile()], method: "POST", url: "/work-orders/smr/import", multipart: true },
   { fn: "apiImportSmrTargets", args: [uploadFile()], method: "POST", url: "/work-orders/smr/import-targets", multipart: true },
+  { fn: "apiSetSmrPaperCheck", args: ["w1", true], method: "PUT", url: "/work-orders/smr/w1/paper-check", body: { checked: true } },
   { fn: "apiSetLowStockThreshold", args: [3, 5], method: "PATCH", url: "/items/3/low-stock-threshold",
     body: { low_stock_threshold: 5 } },
   { fn: "apiGetItemByBarcode", args: ["abc"], url: "/items/abc" },

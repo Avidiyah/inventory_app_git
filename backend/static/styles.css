@@ -5243,6 +5243,17 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 }
 .wo-target--matched { color: var(--color-success); }
 .wo-target--short { color: var(--color-brand); font-weight: var(--fw-bold); }
+/* Paper check under the target line (SMR, spec 2026-10-27-smr-paper-check). */
+.wo-paper-check {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-3);
+    font-size: var(--fs-sm);
+}
+.wo-paper-check--done span { color: var(--color-success); font-weight: var(--fw-bold); }
 
 .wo-add-item-row {
     display: flex;
@@ -5857,6 +5868,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
    and a heavier border once the order is matched. */
 #smr-page .smr-tile--matched { border-width: 3px; }
 #smr-page .smr-tile-target { letter-spacing: .06em; font-weight: 700; }
+#smr-page .smr-tile-paper { display: inline-block; margin-top: 6px; padding: 1px 6px; border: 2px solid currentColor; font-weight: 700; letter-spacing: .06em; }
 #smr-page .smr-empty {
     grid-column: 1 / -1;
     border: 1px solid #fff;
