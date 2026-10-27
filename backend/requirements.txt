@@ -44,7 +44,7 @@ pyzbar==0.1.9
 # (routers/barcodes.py -> services/barcodes.py) before pyzbar sees it, so its
 # advisories were the most exposed of the pip-audit baseline. 12.2.0 carried
 # the bulk of the 23 CVEs; 12.3.0 is both the fix and the current release.
-pillow==12.3.0
+pillow==13.0.0
 # NetFacilities enrichment parses server-rendered HTML. Render uses bundled headless
 # Chromium with operator-provisioned saved authentication because the vendor omits
 # Priority from standalone APIRequestContext responses. JavaScript and service workers
