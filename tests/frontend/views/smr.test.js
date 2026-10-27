@@ -140,7 +140,34 @@ describe("the SMR page", () => {
     byId("smr-filter-matched").click();
     expect(tiles().filter((t) => !t.hidden).map((t) => t.dataset.number)).toEqual(["B"]);
     expect(Array.from(document.querySelectorAll(".smr-controls .smr-btn[data-filter]")).map((b) => b.dataset.filter))
-      .toEqual(["untouched", "short", "edited", "archived", "matched", "all"]);
+      .toEqual(["untouched", "short", "short_checked", "checked", "edited", "archived", "matched", "all"]);
+  });
+
+  it("paper check: badge, bar counts, and the Checked-still-short / Paper checked filters (Short unchanged)", async () => {
+    const check = { checked_at: "2026-10-27T14:14:00Z", checked_by_name: "Pat Keyer" };
+    const matchedTarget = target({ current_hours: "2", gap_hours: "0", remaining_hours: "0", matched: true,
+      current_materials_total: "70.00", gap_materials_total: "2.84", remaining_materials_total: "0.00" });
+    await openSmr("admin", page({
+      counts: { orders: 4, edited: 0, untouched: 4, archived: 0, matched: 1, short: 2, no_target: 1, paper_checked: 2, short_checked: 1 },
+      tiles: [
+        tile({ number: "SC", target: target(), paper_check: check }),
+        tile({ id: "22222222-2222-2222-2222-222222222222", number: "MC", target: matchedTarget, paper_check: check }),
+        tile({ id: "33333333-3333-3333-3333-333333333333", number: "SO", target: target() }),
+        tile({ id: "44444444-4444-4444-4444-444444444444", number: "NT" }),
+      ],
+    }));
+    const shown = () => tiles().filter((t) => !t.hidden).map((t) => t.dataset.number);
+    const bar = byId("smr-bar").textContent;
+    expect(bar).toContain("2 PAPER CHECKED");
+    expect(bar).toContain("1 CHECKED, STILL SHORT");
+    expect(tiles().map((t) => Boolean(t.querySelector(".smr-tile-paper")))).toEqual([true, true, false, false]);
+    expect(tiles()[0].classList.contains("smr-tile--checked")).toBe(true);
+    byId("smr-filter-checked").click();
+    expect(shown()).toEqual(["SC", "MC"]);
+    byId("smr-filter-short-checked").click();
+    expect(shown()).toEqual(["SC"]);
+    byId("smr-filter-short").click();
+    expect(shown()).toEqual(["SC", "SO"]);
   });
 
   it("hides the export for an Admin and shows it for an Owner, who downloads the workbook", async () => {

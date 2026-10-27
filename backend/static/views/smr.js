@@ -55,6 +55,9 @@ function matches(tile, filter) {
   if (filter === "archived") return Boolean(tile.archived_at);
   if (filter === "short") return Boolean(tile.target) && !tile.target.matched;
   if (filter === "matched") return tile.target?.matched === true;
+  // Paper check (spec 2026-10-27-smr-paper-check): Short keeps its meaning.
+  if (filter === "checked") return Boolean(tile.paper_check);
+  if (filter === "short_checked") return Boolean(tile.paper_check) && Boolean(tile.target) && !tile.target.matched;
   return (filter === "edited") === Boolean(tile.edited);
 }
 
@@ -81,6 +84,8 @@ function barHtml(payload) {
     `${c.matched || 0} MATCHED`,
     `${c.short || 0} SHORT`,
     `${c.no_target || 0} NO TARGET`,
+    `${c.paper_checked || 0} PAPER CHECKED`,
+    `${c.short_checked || 0} CHECKED, STILL SHORT`,
     `REMAINING ${hoursText(r.hours)}`,
     `REMAINING ${formatMoney(r.materials_total || 0)}`,
     `Δ LABOR ${signedMoney(d.labor_total)}`,
@@ -97,12 +102,14 @@ function tileHtml(tile) {
   const who = tile.vendor_assignee ? ` · ${tile.vendor_assignee}` : "";
   const minutes = (tile.after?.real_minutes || 0) + (tile.after?.skilled_minutes || 0);
   const matched = tile.target?.matched ? " smr-tile--matched" : "";
-  return `<button type="button" class="smr-tile smr-tile--${state}${matched}" data-number="${escapeHtml(tile.number)}" data-id="${escapeHtml(tile.id)}">
+  const checked = tile.paper_check ? " smr-tile--checked" : "";
+  return `<button type="button" class="smr-tile smr-tile--${state}${matched}${checked}" data-number="${escapeHtml(tile.number)}" data-id="${escapeHtml(tile.id)}">
     <span class="smr-tile-number">${escapeHtml(tile.number)}</span>
     <span class="smr-tile-where">${escapeHtml(`${where}${who}`.toUpperCase())}</span>
     <span class="smr-tile-delta">${escapeHtml(signedMoney(tile.delta?.total))}</span>
     <span class="smr-tile-target">${escapeHtml(targetLine(tile))}</span>
     <span class="smr-tile-meta">${escapeHtml(`${minutes} MIN · ${tile.after_line_count || 0} LINES · ${state.toUpperCase()}`)}</span>
+    ${tile.paper_check ? `<span class="smr-tile-paper">PAPER ✓</span>` : ""}
   </button>`;
 }
 
@@ -149,7 +156,8 @@ filterButtons.forEach((btn) => {
 });
 
 // Search, dropdowns, Clear filters and the sort toggle all refetch with the
-// current controls; the Edited/Untouched/Archived buttons above stay local.
+// current controls; the state buttons above (Untouched, Short, Paper checked
+// and the rest) stay local.
 installFilterControls(() => { void loadSmr(); });
 
 if (grid) {
