@@ -13,7 +13,7 @@ import { roleAtLeast } from "../roles.js";
 import { focusWorkOrderNumber } from "./workOrders.js";
 import { showPage } from "./nav.js";
 import { setProfileOrigin } from "./profileOrigin.js";
-import { applyFilterOptions, currentParams, installFilterControls } from "./smrFilters.js";
+import { applyFilterOptions, currentParams, installFilterControls, saveFilters, savedChip } from "./smrFilters.js";
 
 const bar = document.getElementById("smr-bar");
 const grid = document.getElementById("smr-tiles");
@@ -25,7 +25,9 @@ const filterButtons = Array.from(document.querySelectorAll(".smr-btn[data-filter
 export const EMPTY_COPY = "NO SMR ORDERS. OWNER: IMPORT FROM INTEGRATIONS.";
 
 // Untouched is the working view: the orders still to be re-charged.
-let activeFilter = "untouched";
+// A reload of this tab keeps the chip the user left on (smrFilters.js).
+let activeFilter = filterButtons.some((btn) => btn.dataset.filter === savedChip())
+  ? savedChip() : "untouched";
 let lastPayload = null;
 // Where the page stood when a tile opened a card; consumed by the next render.
 let pendingScrollY = null;
@@ -167,6 +169,7 @@ export async function loadSmr() {
 filterButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
     activeFilter = btn.dataset.filter;
+    saveFilters(activeFilter);
     applyFilter();
   });
 });

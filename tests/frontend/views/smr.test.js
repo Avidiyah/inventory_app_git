@@ -305,6 +305,29 @@ describe("the SMR page", () => {
     expect(localStorage.getItem("smr.sort")).toBe("scheduled_asc");
   });
 
+  it("a reload of the tab restores the filters and chip from sessionStorage", async () => {
+    sessionStorage.setItem("smr.filters", JSON.stringify({
+      q: "2328", assignedToId: "t1", community: "scholars", chip: "all",
+    }));
+    const { requests } = await openSmr();
+    const first = requests().find((r) => r.url.startsWith("/work-orders/smr?"));
+    expect(Object.fromEntries(new URL(first.url, "http://t").searchParams)).toEqual({
+      assigned_to_id: "t1", community: "scholars", q: "2328", sort: "scheduled_desc",
+    });
+    expect(byId("smr-search").value).toBe("2328");
+    expect(byId("smr-technician-filter").value).toBe("t1");
+    expect(byId("smr-community-filter").value).toBe("scholars");
+    expect(tiles().filter((t) => !t.hidden)).toHaveLength(3);
+  });
+
+  it("filter and chip changes are saved for a reload", async () => {
+    await openSmr();
+    byId("smr-filter-short").click();
+    byId("smr-search").value = "Young";
+    byId("smr-search-btn").click();
+    await vi.waitFor(() => expect(JSON.parse(sessionStorage.getItem("smr.filters"))).toMatchObject({ q: "Young", chip: "short" }));
+  });
+
   it("the result count reflects matched over the whole population", async () => {
     await openSmr("admin", page({ matched: 1, tiles: [tile()] }));
     expect(byId("smr-result-count").textContent).toBe("1 OF 3 ORDERS");
