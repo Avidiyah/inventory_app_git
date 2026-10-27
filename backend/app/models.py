@@ -430,6 +430,13 @@ class WorkOrder(Base):
     # (spec 2026-10-23-smr-target-match). `domain.work_orders_smr.target_gap`
     # compares the live order against it.
     smr_target = Column(JSONB, nullable=True)
+    # Paper check (spec 2026-10-27-smr-paper-check): someone keyed this order
+    # from its paper work order. Independent of Edited / Matched / archive;
+    # cleared by setting both back to NULL.
+    smr_paper_checked_at = Column(DateTime(timezone=True), nullable=True)
+    smr_paper_checked_by_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     # The account a work order is routed to. Set by name-match at import
     # or manually by Supervisor+; drives Supervisor visibility alongside worker
     # assignment membership.
@@ -480,6 +487,7 @@ class WorkOrder(Base):
     creator = relationship("User", foreign_keys=[created_by_id], viewonly=True)
     assignee = relationship("User", foreign_keys=[assigned_to_id], viewonly=True)
     supervisor = relationship("User", foreign_keys=[supervisor_id], viewonly=True)
+    smr_paper_checked_by = relationship("User", foreign_keys=[smr_paper_checked_by_id], viewonly=True)
 
     __table_args__ = (
         # Case-insensitive + trimmed uniqueness: "WO-1", " wo-1 " collide.
