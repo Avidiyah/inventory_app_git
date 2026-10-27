@@ -204,19 +204,19 @@ describe("C6 applied-filter chips and result count", () => {
   const listLoads = () => requests().filter((r) => r.url.startsWith("/work-orders/?") || r.url === "/work-orders/");
 
   it("shows no chips and a plain count on an unfiltered browse", async () => {
-    await mountWorkOrders({ role: "admin", cards: [workOrderCard(), workOrderCard(), workOrderCard()] });
+    await mountWorkOrders({ role: "admin", cards: [workOrderCard(), workOrderCard(), workOrderCard()], mine: false });
     expect(el("work-orders-filter-chips").hidden).toBe(true);
     expect(count().textContent).toBe("Showing 3 work orders");
   });
 
   it("says 'the N most recent' when the browse is capped", async () => {
     const cards = Array.from({ length: 10 }, () => workOrderCard());
-    await mountWorkOrders({ role: "admin", cards });
+    await mountWorkOrders({ role: "admin", cards, mine: false });
     expect(count().textContent).toBe("Showing the 10 most recent");
   });
 
   it("renders a chip per filter, with the status glyph swatch and an aria-label", async () => {
-    await mountWorkOrders({ role: "admin", cards: [workOrderCard()] });
+    await mountWorkOrders({ role: "admin", cards: [workOrderCard()], mine: false });
     change(el("work-orders-status-filter"), "on_hold");
     await vi.waitFor(() => expect(chips()).toHaveLength(1));
     const [chip] = chips();
@@ -231,6 +231,7 @@ describe("C6 applied-filter chips and result count", () => {
       role: "admin",
       cards: [workOrderCard()],
       filterOptions: filterOptions({ supervisors: [{ id: "s1", name: "Sue S" }] }),
+      mine: false,
     });
     el("work-orders-location-search").value = "bldg 4";
     change(el("work-orders-supervisor-filter"), "s1");
@@ -241,7 +242,7 @@ describe("C6 applied-filter chips and result count", () => {
   });
 
   it("x resets only that filter and reloads", async () => {
-    await mountWorkOrders({ role: "admin", cards: [workOrderCard()] });
+    await mountWorkOrders({ role: "admin", cards: [workOrderCard()], mine: false });
     el("work-orders-search").value = "1234";
     change(el("work-orders-status-filter"), "on_hold");
     await vi.waitFor(() => expect(chips()).toHaveLength(3));
@@ -256,7 +257,7 @@ describe("C6 applied-filter chips and result count", () => {
   });
 
   it("Clear all clears every filter", async () => {
-    await mountWorkOrders({ role: "admin", cards: [workOrderCard()] });
+    await mountWorkOrders({ role: "admin", cards: [workOrderCard()], mine: false });
     el("work-orders-task-search").value = "leak";
     change(el("work-orders-status-filter"), "created");
     await vi.waitFor(() => expect(chips()).toHaveLength(3));

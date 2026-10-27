@@ -10,6 +10,7 @@ import { escapeHtml, formatUserName } from "../format.js";
 import { apiGetWorkOrderFilterOptions } from "../api.js";
 import { getAllTechnicians } from "./workOrderReferenceData.js";
 
+const mineFilter = document.getElementById("work-orders-mine-filter");
 const statusFilter = document.getElementById("work-orders-status-filter");
 const serviceTypeFilter = document.getElementById("work-orders-service-filter");
 const priorityFilter = document.getElementById("work-orders-priority-filter");
@@ -26,7 +27,8 @@ let filterOptionsLoaded = false;
 
 // The default browse shows only the RECENT_LIMIT highest scheduled dates to keep
 // the page fast as the archive grows; `showAll` drops the cap. Any active filter
-// queries the full set. See loadWorkOrders / renderMoreControl.
+// queries the full set -- and My Work Orders is on by default, so the cap only
+// applies once that is cleared. See loadWorkOrders / renderMoreControl.
 export const RECENT_LIMIT = 10;
 let showAll = false;
 
@@ -96,7 +98,7 @@ export async function loadFilterOptions() {
 // filters leaves it alone since it is a view preference, not a filter.
 export const SORT_STORAGE_KEY = "workOrders.sort";
 export const SORT_VALUES = new Set(["scheduled_desc", "scheduled_asc"]);
-let sortDir = "scheduled_asc";
+let sortDir = "scheduled_desc";
 try {
   const saved = localStorage.getItem(SORT_STORAGE_KEY);
   if (SORT_VALUES.has(saved)) sortDir = saved;
@@ -113,6 +115,9 @@ export function renderSortControl() {
 
 export function currentFilters() {
   return {
+    // "true" rather than a boolean so every filter value is a string and ""
+    // means off, like the rest.
+    mine: mineFilter?.checked ? "true" : "",
     status: statusFilter ? statusFilter.value : "",
     serviceType: serviceTypeFilter ? serviceTypeFilter.value : "",
     supervisorId: supervisorFilter ? supervisorFilter.value : "",
@@ -129,6 +134,7 @@ export function currentFilters() {
 // Filter key (as `currentFilters` names it) -> its control, for the applied-
 // filter chips in workOrderFilterChips.js, in the order the chips render.
 const FILTER_CONTROLS = {
+  mine: mineFilter,
   status: statusFilter,
   serviceType: serviceTypeFilter,
   priority: priorityFilter,
@@ -160,6 +166,7 @@ export function listParams() {
 }
 
 export function resetFilterControls() {
+  if (mineFilter) mineFilter.checked = false;
   [statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, technicianFilter, communityFilter, scheduledDateFilter].forEach((control) => {
     if (control) control.value = "";
   });

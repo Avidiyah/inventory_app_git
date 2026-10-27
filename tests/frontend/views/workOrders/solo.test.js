@@ -336,7 +336,7 @@ describe("the list-entry exports", () => {
     expect(document.getElementById("work-orders-status-filter").value).toBe("");
     const urls = requests().filter((r) => r.url.startsWith("/work-orders/?")).map((r) => r.url);
     expect(urls[0]).toContain("status=completed");
-    expect(urls[1]).toBe("/work-orders/?sort=scheduled_asc");
+    expect(urls[1]).toBe("/work-orders/?sort=scheduled_desc");
   });
 
   it("focusWorkOrderNumber opens by number on the next load", async () => {
@@ -384,7 +384,7 @@ describe("the list-entry exports", () => {
     mod.openWorkOrdersFilteredByStatus("review");
     expect(document.getElementById("work-orders-search").value).toBe("");
     await mod.loadWorkOrders();
-    expect(requestFor("/work-orders/?").url).toBe("/work-orders/?status=review&sort=scheduled_asc");
+    expect(requestFor("/work-orders/?").url).toBe("/work-orders/?status=review&sort=scheduled_desc");
   });
 
   it("openWorkOrdersFilteredByDistribution sets only what it was given", async () => {

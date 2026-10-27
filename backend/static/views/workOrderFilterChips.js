@@ -16,6 +16,7 @@ const chipsEl = document.getElementById("work-orders-filter-chips");
 const countEl = document.getElementById("work-orders-result-count");
 
 const CHIP_PREFIX = {
+  mine: "My Work Orders",
   status: "Status",
   serviceType: "Service type",
   priority: "Priority",
@@ -42,6 +43,12 @@ function chipValueText(key, value) {
   return QUOTED.has(key) ? `"${value}"` : value;
 }
 
+// A checkbox filter (My Work Orders) is on or off: its chip is the prefix alone.
+function chipLabel(key, value) {
+  if (filterControl(key)?.type === "checkbox") return CHIP_PREFIX[key];
+  return `${CHIP_PREFIX[key]}: ${chipValueText(key, value)}`;
+}
+
 export function activeFilterChips() {
   const filters = currentFilters();
   return filterKeys()
@@ -49,7 +56,7 @@ export function activeFilterChips() {
     .map((key) => ({
       key,
       value: filters[key],
-      label: `${CHIP_PREFIX[key]}: ${chipValueText(key, filters[key])}`,
+      label: chipLabel(key, filters[key]),
     }));
 }
 
@@ -105,7 +112,8 @@ export function installFilterChips({ onRemove, onClearAll }) {
     }
     const control = filterControl(chip.dataset.filterKey);
     if (!control) return;
-    control.value = "";
+    if (control.type === "checkbox") control.checked = false;
+    else control.value = "";
     onRemove(chip.dataset.filterKey);
   });
 }

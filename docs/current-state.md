@@ -638,10 +638,12 @@ Work orders:
   `{ page: "smr", scrollY }`): its "‹ Back to SMR" button and browser Back
   both return to the SMR page at that offset, filters and chip intact; a nav
   click clears the origin.
-- Work Orders list filters are server-side and joinable: status, exact normalized
-  service type, routed Team Lead, derived community, exact scheduled date, and
-  number substring all combine with AND before the caller's normal visibility
-  scope is applied.
+- Work Orders list filters are server-side and joinable: My Work Orders (`mine`:
+  routed to me as Team Lead or assigned to me as technician; **on by default for
+  every role**, so the RECENT_LIMIT cap applies only once it is cleared), status,
+  exact normalized service type, routed Team Lead, derived community, exact
+  scheduled date, and number substring all combine with AND before the caller's
+  normal visibility scope is applied. Default sort is newest scheduled date first.
   Community membership checks both `community` and raw CSV `location` for
   Scholars, Centennial, Commons (`commons`/`cimarron`/`cimmarron`), or Young
   Hall. A multi-location row may match several named communities; Academics is

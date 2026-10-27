@@ -1232,6 +1232,19 @@ tr:last-child td {
     min-width: 0;
 }
 
+/* My Work Orders is a checkbox in a grid of selects: native size, sat on the
+   selects' row rather than the labels' row. */
+.wo-filter-check label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: auto;
+}
+
+.wo-filter-check input[type="checkbox"] {
+    width: auto;
+}
+
 .wo-number-search-row input {
     flex: 1 1 260px;
 }

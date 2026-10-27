@@ -14,6 +14,12 @@
         <section id="work-orders-controls-section">
             <h2>Work Orders</h2>
             <div class="wo-filter-grid" aria-label="Work order filters">
+                <!-- On by default for every role: work routed to me as Team Lead
+                     or assigned to me as a technician (the server's `mine`).
+                     Clear filters or the chip's x widens to every work order. -->
+                <div class="wo-filter-field wo-filter-check">
+                    <label for="work-orders-mine-filter"><input type="checkbox" id="work-orders-mine-filter" checked>My Work Orders</label>
+                </div>
                 <div class="wo-filter-field">
                     <!-- Field-help `?`: inside the label as an inline child,
                          never as a sibling -- see docs/superpowers/specs/
@@ -75,8 +81,8 @@
                 <button id="work-orders-clear-filters" type="button" class="secondary-btn">Clear filters</button>
                 <button id="wo-export-btn" type="button" class="secondary-btn" hidden>Export filtered CSV…</button>
                 <div id="work-orders-sort" class="segmented wo-sort-seg" role="group" aria-label="Sort by scheduled date">
-                    <button type="button" class="seg-btn" data-sort="scheduled_desc" aria-pressed="false">Newest first</button>
-                    <button type="button" class="seg-btn" data-sort="scheduled_asc" aria-pressed="true">Oldest first</button>
+                    <button type="button" class="seg-btn" data-sort="scheduled_desc" aria-pressed="true">Newest first</button>
+                    <button type="button" class="seg-btn" data-sort="scheduled_asc" aria-pressed="false">Oldest first</button>
                 </div>
             </div>
             <div class="filter-row wo-keyword-search-row">

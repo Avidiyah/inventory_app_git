@@ -125,7 +125,8 @@ export function respond(method, path, body, { status = 200 } = {}) {
 // `cards` seeds the list; `details` seeds `GET /work-orders/{id}` (a detail is
 // keyed by its own id, so pass detail objects, not pairs). `load: false`
 // imports the module without fetching, for the tests that drive the first
-// load themselves.
+// load themselves. `mine: false` clears the default-on My Work Orders filter
+// before that first load, for the tests that need the capped, company-wide browse.
 export async function mountWorkOrders({
   role = "admin",
   cards = [],
@@ -136,6 +137,7 @@ export async function mountWorkOrders({
   requests: workOrderRequests = [],
   lookup = { found: false },
   load = true,
+  mine = true,
 } = {}) {
   state.cards = cards;
   state.details = new Map(details.map((detail) => [String(detail.id), detail]));
@@ -150,6 +152,7 @@ export async function mountWorkOrders({
   installHandlers();
   startRecording();
   const mod = await mountView("views/workOrders.js");
+  if (!mine) document.getElementById("work-orders-mine-filter").checked = false;
   if (load) await mod.loadWorkOrders();
   clearRequests();
   return { mod, cards, currentUser };

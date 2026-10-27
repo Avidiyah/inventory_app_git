@@ -90,6 +90,7 @@ import {
 
 const listEl = document.getElementById("work-orders-list");
 const listMessage = document.getElementById("work-orders-list-message");
+const mineFilter = document.getElementById("work-orders-mine-filter");
 const statusFilter = document.getElementById("work-orders-status-filter");
 const serviceTypeFilter = document.getElementById("work-orders-service-filter");
 const priorityFilter = document.getElementById("work-orders-priority-filter");
@@ -684,7 +685,7 @@ function wireKeywordSearch(input) {
 }
 const cancelLocationSearchDebounce = wireKeywordSearch(locationSearchInput);
 const cancelTaskSearchDebounce = wireKeywordSearch(taskSearchInput);
-[statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, technicianFilter, communityFilter, scheduledDateFilter].forEach((control) => {
+[mineFilter, statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, technicianFilter, communityFilter, scheduledDateFilter].forEach((control) => {
   if (!control) return;
   control.addEventListener("change", () => {
     setShowAll(false);
