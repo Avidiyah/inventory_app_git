@@ -174,6 +174,7 @@ export function workOrderDetail(overrides = {}) {
     labor_total: "0.00",
     signature: null,
     smr_target: null,
+    smr_paper_check: null,
     ...overrides,
   };
 }

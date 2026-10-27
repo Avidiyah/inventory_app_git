@@ -1,6 +1,6 @@
 # SMR27 paper check — design
 
-Date: 2026-10-27. Status: approved decisions, awaiting go-ahead. Extends
+Date: 2026-10-27. Status: shipped locally 2026-10-27 (unpushed). Extends
 `2026-10-23-smr-target-match-design.md` (targets, Short / Matched, the
 editor's target lines all exist; this adds "I checked this order against
 its paper").
@@ -56,7 +56,7 @@ delete (cascade test `test_cascade_deletes_with_user` stays green).
 `PUT /work-orders/smr/{work_order_id}/paper-check`, body `{ "checked": bool }`
 → `SmrPaperCheckOut { checked_at, checked_by_name }`.
 
-- 404 when the order doesn't exist; 422 when it has no `smr_imported_at`.
+- 404 when the order doesn't exist; 400 (`WorkOrderStateError`) when it has no `smr_imported_at`.
 - Idempotent: `checked: true` on a checked order keeps the original who/when.
 - Any signed-in role (D2). One line in `docs/endpoint-map.md` (S5).
 
@@ -100,7 +100,7 @@ Orders sheet appends after `TARGET IMPORTED AT`: `PAPER CHECKED`
 
 - No new dependencies, no new tables. Files under 500 lines (`smr.js` 188,
   `work_orders_smr.py` service 338, router 120).
-- Targeted tests only: toggle on / off / idempotent, 422 on non-SMR, role
+- Targeted tests only: toggle on / off / idempotent, 400 on non-SMR, role
   gate, user delete nulls the FK, tile + detail carry the mark, counts,
   export columns, Vitest for the presenter and the new filter,
   `staticImports` guard green.

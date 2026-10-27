@@ -660,6 +660,7 @@ def test_filing_and_cancelling_a_material_request_have_no_static_min_role(endpoi
         ("import_smr_targets", roles.ROLE_OWNER),
         ("export_smr_xlsx", roles.ROLE_OWNER),
         ("list_smr_tiles", roles.ROLE_TECHNICIAN),
+        ("set_paper_check", roles.ROLE_TECHNICIAN),
     ],
 )
 def test_smr_route_gates_are_declarative_and_document_403(endpoint_name, expected):
