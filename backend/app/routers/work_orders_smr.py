@@ -2,7 +2,8 @@
 
 Mounted under `/work-orders/smr`, declared on its own router so the
 `/work-orders/{work_order_id}` catch-all never swallows `smr`. Import and
-export are Owner-only; the tile list is open to every role (all hands)."""
+export are Owner-only; the tile list and the paper check are open to every
+role (all hands)."""
 
 from __future__ import annotations
 
@@ -20,7 +21,13 @@ from app.domain.errors import DomainError
 from app.models import User
 from app.routers._errors import to_http
 from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_capped
-from app.schemas.work_orders_smr import SmrImportResult, SmrTargetImportResult, SmrTilesResponse
+from app.schemas.work_orders_smr import (
+    SmrImportResult,
+    SmrPaperCheckIn,
+    SmrPaperCheckOut,
+    SmrTargetImportResult,
+    SmrTilesResponse,
+)
 from app.services import work_orders_smr as smr_service
 from app.services import work_orders_smr_xlsx as smr_xlsx
 
@@ -103,6 +110,25 @@ def list_smr_tiles(
             task_search=task_q,
             descending=sort != "scheduled_asc",
         )
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.put(
+    "/{work_order_id}/paper-check",
+    response_model=Optional[SmrPaperCheckOut],
+    responses=_forbidden(roles.ROLE_TECHNICIAN),
+)
+def set_paper_check(
+    work_order_id: uuid.UUID,
+    body: SmrPaperCheckIn,
+    user: User = Depends(require_min_role(roles.ROLE_TECHNICIAN)),
+    db: Session = Depends(get_db),
+) -> Optional[SmrPaperCheckOut]:
+    """Mark or clear "keyed from paper" on an SMR order (every role). Returns
+    the mark, or null once cleared."""
+    try:
+        return smr_service.set_paper_check(db, work_order_id=work_order_id, checked=body.checked, user=user)
     except DomainError as exc:
         raise to_http(exc)
 

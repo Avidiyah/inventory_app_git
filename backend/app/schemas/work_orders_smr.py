@@ -9,7 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.schemas.work_orders import (  # noqa: F401  (SmrTargetOut re-exported)
+from app.schemas.work_orders import (  # noqa: F401  (SmrTargetOut, SmrPaperCheckOut re-exported)
+    SmrPaperCheckOut,
     SmrTargetOut,
     WorkOrderFilterChoice,
     WorkOrderSupervisorFilterChoice,
@@ -41,6 +42,10 @@ class SmrTargetImportResult(BaseModel):
     skipped: int
     unknown: int
     unknown_numbers: list[str] = Field(default_factory=list)
+
+
+class SmrPaperCheckIn(BaseModel):
+    checked: bool
 
 
 class SmrTotals(BaseModel):

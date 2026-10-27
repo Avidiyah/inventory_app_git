@@ -416,6 +416,22 @@ class SmrTargetOut(BaseModel):
         })
 
 
+class SmrPaperCheckOut(BaseModel):
+    """Who keyed an SMR order from its paper work order, and when (spec
+    2026-10-27-smr-paper-check). `checked_by_name` is None once that user is
+    deleted."""
+
+    checked_at: datetime
+    checked_by_name: Optional[str] = None
+
+    @classmethod
+    def from_order(cls, work_order) -> Optional["SmrPaperCheckOut"]:
+        if work_order.smr_paper_checked_at is None:
+            return None
+        who = work_order.smr_paper_checked_by
+        return cls(checked_at=work_order.smr_paper_checked_at, checked_by_name=who.full_name if who else None)
+
+
 class WorkOrderDetail(WorkOrderCard):
     """A work-order card plus notes, logged materials, labor, and sign-off.
 
@@ -450,3 +466,5 @@ class WorkOrderDetail(WorkOrderCard):
     signature: Optional[WorkOrderSignatureOut] = None
     # The client's target and the gap to it; SMR orders with a target only.
     smr_target: Optional[SmrTargetOut] = None
+    # Paper check mark; SMR orders only, None until someone sets it.
+    smr_paper_check: Optional[SmrPaperCheckOut] = None

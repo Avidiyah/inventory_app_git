@@ -18,13 +18,14 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.domain import work_orders as wo
 from app.domain import work_orders_smr as smr
-from app.domain.errors import WorkOrderStateError
+from app.domain.errors import WorkOrderNotFoundError, WorkOrderStateError
 from app.models import User, WorkOrder, WorkOrderItem, WorkOrderLabor, WorkOrderLaborSession, WorkOrderTechnician
 from app.schemas.work_orders_smr import (
     SmrCounts,
     SmrDelta,
     SmrFilterOptions,
     SmrImportResult,
+    SmrPaperCheckOut,
     SmrRemaining,
     SmrTargetImportResult,
     SmrTargetOut,
@@ -159,6 +160,29 @@ def import_smr_targets(db: Session, *, csv_bytes: bytes, user: User) -> SmrTarge
         unknown=unknown,
         unknown_numbers=unknown_numbers[:50],
     )
+
+
+# --- paper check ---------------------------------------------------------
+
+def set_paper_check(db: Session, *, work_order_id: uuid.UUID, checked: bool, user: User) -> Optional[SmrPaperCheckOut]:
+    """Mark or clear "keyed from paper" on an SMR order (any role, spec
+    2026-10-27-smr-paper-check). Marking an already-marked order keeps the
+    original who / when; clearing wipes both. Touches nothing billable, so
+    Edited, Matched and the baseline are unaffected."""
+    order = db.get(WorkOrder, work_order_id)
+    if order is None:
+        raise WorkOrderNotFoundError("Work order not found.")
+    if order.smr_imported_at is None:
+        raise WorkOrderStateError("Only SMR orders carry a paper check.")
+    if not checked:
+        order.smr_paper_checked_at = None
+        order.smr_paper_checked_by_id = None
+    elif order.smr_paper_checked_at is None:
+        order.smr_paper_checked_at = datetime.now(timezone.utc)
+        order.smr_paper_checked_by_id = user.id
+    db.commit()
+    db.refresh(order)
+    return SmrPaperCheckOut.from_order(order)
 
 
 # --- tiles ---------------------------------------------------------------

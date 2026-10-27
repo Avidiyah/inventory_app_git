@@ -152,6 +152,7 @@ writes (w).
 | P4 | POST | `/push/test` | **owner** | `push.py` → `services/push` fan-out | push_subscriptions (r; w on 404/410 prune), users (r, Admin+ audience) | `apiPushTest` | `push.js` (Owner test trigger) |
 | S1 | POST | `/work-orders/smr/import` | **owner** | `work_orders_smr.py` → `work_orders_smr.import_smr` | work_orders (r/w: create, fill-blanks, **restores archived**, sets `smr_imported_at` + `smr_baseline` once), users (r, Team Lead name-match) | `apiImportSmr` | `workOrderIntegrations.js` |
 | S4 | POST | `/work-orders/smr/import-targets` | **owner** | `work_orders_smr.py` → `work_orders_smr.import_smr_targets` | work_orders (r/w: sets `smr_target` on SMR orders only; blank WO#s skipped, unknown WO#s counted, last duplicate wins) | `apiImportSmrTargets` | `workOrderIntegrations.js` |
+| S5 | PUT | `/work-orders/smr/{id}/paper-check` | technician+ (every role) | `work_orders_smr.py` → `work_orders_smr.set_paper_check` (`{checked}`; re-marking keeps the first who/when; non-SMR → 400) | work_orders (r/w: `smr_paper_checked_at`, `smr_paper_checked_by_id`), users (r) | `apiSetSmrPaperCheck` | `workOrderActions.js` |
 | S2 | GET | `/work-orders/smr` | technician+ (every role, all hands 2026-10-23) | `work_orders_smr.py` → `work_orders_smr.list_smr_tiles` (accepts row 54's query params minus `service_type`/`mine`/`limit`, through the same `_apply_work_order_filters` + schedule sort; `counts`/`delta`/`filter_options` are whole-population, `tiles`/`matched` filtered) | work_orders (r, `smr_imported_at IS NOT NULL`, archived included), work_order_items, items, work_order_labor, work_order_labor_sessions, work_order_technicians, users (r) | `apiListSmrTiles` | `smr.js`, `smrFilters.js` |
 | S3 | GET | `/work-orders/smr/export.xlsx` | **owner** | `work_orders_smr.py` → `work_orders_smr_xlsx.smr_workbook` | same reads as S2 plus users (r, line creators) | `apiExportSmrXlsx` | `smr.js` |
 
@@ -293,6 +294,10 @@ endpoint or form exists; every other surface resolves an existing number and
   within its band (0.5 h, $10) or the order is at/above target. The detail
   (`smr_target`, money redacted below TechFM OA), the tiles (`target`,
   `counts.matched/short/no_target`, `remaining`) and the workbook all read it.
+- SMR27 paper check (S5, spec `docs/superpowers/specs/2026-10-27-smr-paper-check-design.md`):
+  any role marks an SMR order as keyed from its paper work order; independent
+  of Edited, Matched and archive. Detail `smr_paper_check`, tile `paper_check`,
+  `counts.paper_checked/short_checked`, three workbook columns.
 - Cloud auth (Steel): `POST .../cloud/auth/start` opens a cloud browser and
   returns its live-view URL; credentials/CAPTCHA/MFA are completed there; the
   coordinator auto-confirms once a page leaves the login screen and encrypts
