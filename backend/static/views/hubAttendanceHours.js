@@ -6,7 +6,7 @@
 //
 // **Clocked time only** (spec §8): what this prints is time on shift, the pay
 // number, never rounded to 30 minutes the way a billed number is. Charged
-// time and its money live in the leaderboard above (hubTimesheetLeaderboard.js),
+// time and its money live in the leaderboard above (the Leaderboards tab, hubPerformanceBoard.js),
 // which also owns the tab's week picker -- so the tab passes `weekNav: false`.
 //
 // P3 added editing: `[Edit]` / `[Looks right]` per punch row and

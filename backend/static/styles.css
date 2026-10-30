@@ -3237,18 +3237,6 @@ tr.archived-user {
     margin-bottom: var(--space-4);
 }
 
-/* Leaderboards tab: the two boards side by side on a wide screen. */
-.hub-leaderboards-grid {
-    display: grid;
-    gap: var(--space-4);
-}
-
-@media (min-width: 900px) {
-    .hub-leaderboards-grid {
-        grid-template-columns: 1fr 1fr;
-    }
-}
-
 /* Timesheets payroll actions: Mark all reviewed and Export CSV. */
 .hub-timesheets-action-row {
     display: flex;
@@ -3329,17 +3317,35 @@ tr.archived-user {
     font-variant-numeric: tabular-nums;
 }
 
-.hub-leaderboard-made {
-    color: var(--color-success);
-    font-weight: 600;
+.hub-performance-score {
+    font-weight: 700;
+    font-size: var(--fs-lg);
 }
 
-.hub-leaderboard-lost {
-    color: var(--color-error);
+/* People under the clocked-hours floor: listed, greyed, never ranked. */
+.hub-performance-divider td {
+    text-align: left;
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.7;
+    background: var(--panel-well);
 }
 
-.hub-leaderboard-pct {
-    font-weight: 600;
+.hub-performance-unranked {
+    opacity: 0.6;
+}
+
+/* Week / Month switch on the Leaderboards toolbar. */
+.hub-leaderboards-switch {
+    display: inline-flex;
+    gap: var(--space-1);
+}
+
+.hub-leaderboards-switch [aria-pressed="true"] {
+    background-color: var(--color-brand);
+    border-color: var(--color-brand);
+    color: var(--color-white);
 }
 
 .hub-leaderboard-empty {

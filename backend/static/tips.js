@@ -233,15 +233,7 @@ export const TIPS = {
   },
   "hub.leaderboard": {
     label: "Leaderboards",
-    text: "Money made is charged hours times the billing labor rate; money lost is hours clocked in but not on a work order, at the same rate. It is an estimate, not the invoice, which rounds each work order up to the next 30 minutes. Days pending review are left out until an Admin reviews them, and a day with more hours on work orders than on the clock is left out with its hours, so no percentage can pass 100.",
-  },
-  "hub.leaderboard-accuracy": {
-    label: "Accuracy",
-    text: "Ranks the share of clocked time charged on a live work-order clock. Hand-entered labor is not counted.",
-  },
-  "hub.leaderboard-efficiency": {
-    label: "Efficiency",
-    text: "Ranks the share of clocked time charged, counting live clocks and hand-entered labor. Above 100% means more labor was keyed than clocked.",
+    text: "One score per person, from trusted time only. Billed $ (40%) is each completed work order's labor charge split by labor share; Efficiency (25%) is time charged, live or keyed, over time clocked; Accuracy (20%) is live job-clock time over time clocked; Clean days (15%) is the share of worked days that counted. Each is scaled so the best ranked person scores 100. Under 16 hours clocked in a week (60 in a month) you are listed but not ranked. A day with a forgotten clock-out, an auto-closed or 12-hour-plus job clock, more than 5 minutes charged off shift, or more charged than clocked is left out whole; so is any work order with a flawed job clock, for everyone on it. Reviewing an estimate clears its warning but never counts it: key the real time.",
   },
   "hub.attention": {
     label: "Needs attention",
