@@ -107,6 +107,32 @@ describe("loadUsers", () => {
     expect(rowFor("bruiz").querySelector(".users-fix-count")).toBeNull();
   });
 
+  it("the 'Needs a fix' cell counts flagged active people and narrows the list to them", async () => {
+    const flagged = userFactory({ full_name: "Ann Lee", username: "alee" });
+    const clean = userFactory({ full_name: "Bo Ruiz", username: "bruiz" });
+    const gone = userFactory({ full_name: "Cy Nolan", username: "cnolan", archived_at: "2026-01-01T00:00:00Z" });
+    const week = attendanceWeek();
+    week.rows[0].user.id = flagged.id;
+    week.rows[0].days[1] = { ...week.rows[0].days[1], needs_review: true };
+    // An archived person's flags never count: nobody can fix a week they cannot open.
+    week.rows.push({ ...week.rows[0], user: { ...week.rows[0].user, id: gone.id } });
+    await openUsers({ users: [flagged, clean, gone], week });
+    expect(scopeBtn("fix").textContent).toBe("Needs a fix (1)");
+
+    showScope("fix");
+    expect(rows()).toHaveLength(1);
+    expect(rowFor("alee")).not.toBeNull();
+    showScope("active");
+    expect(rows()).toHaveLength(2);
+  });
+
+  it("the 'Needs a fix' scope with nobody flagged says so", async () => {
+    await openUsers({ users: [userFactory({ username: "bruiz" })] });
+    expect(scopeBtn("fix").textContent).toBe("Needs a fix");
+    showScope("fix");
+    expect(rows()[0].querySelector("td.empty").textContent).toBe("Nobody needs a fix this week.");
+  });
+
   it("a failed week fetch still paints the list, just without counts", async () => {
     const flagged = userFactory({ full_name: "Ann Lee", username: "alee" });
     const { mod } = await mountUsers({

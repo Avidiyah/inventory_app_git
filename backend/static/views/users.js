@@ -133,9 +133,11 @@ function renderUsersTable() {
   const actorId = getCurrentUser()?.id;
   usersTbody.innerHTML = "";
 
+  paintFixChip();
   const shown = visibleUsers();
   if (!shown.length) {
-    usersTbody.innerHTML = `<tr><td colspan="4" class="empty">No ${scope()} users match.</td></tr>`;
+    const none = scope() === "fix" ? "Nobody needs a fix this week." : `No ${scope()} users match.`;
+    usersTbody.innerHTML = `<tr><td colspan="4" class="empty">${none}</td></tr>`;
     return;
   }
   shown.forEach(user => {
@@ -185,16 +187,28 @@ function renderUsersTable() {
   });
 }
 
-// "active" or "archived": the pressed cell of the scope toggle.
+// "active", "archived" or "fix": the pressed cell of the scope toggle.
 function scope() {
   return usersScope?.querySelector('[aria-pressed="true"]')?.dataset.scope || "active";
+}
+
+const needsFix = (user) => !user.archived_at && (fixCounts.get(user.id) || 0) > 0;
+
+// The "Needs a fix" cell carries how many active people it would show.
+function paintFixChip() {
+  const chip = usersScope?.querySelector(".users-scope-fix");
+  if (!chip) return;
+  const n = getUsers().filter(needsFix).length;
+  chip.textContent = n ? `Needs a fix (${n})` : "Needs a fix";
 }
 
 // The cached list narrowed by the scope toggle and the search box (name or
 // username, ranked by filterRanked like the Tools search).
 function visibleUsers() {
-  const archived = scope() === "archived";
-  const inScope = getUsers().filter((user) => Boolean(user.archived_at) === archived);
+  const current = scope();
+  const inScope = current === "fix"
+    ? getUsers().filter(needsFix)
+    : getUsers().filter((user) => Boolean(user.archived_at) === (current === "archived"));
   const term = usersSearch?.value.trim() || "";
   return term
     ? filterRanked(inScope, (user) => [formatUserName(user), user.username], term)
