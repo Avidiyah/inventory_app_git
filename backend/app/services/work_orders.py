@@ -2259,10 +2259,19 @@ def delete_work_order_labor(
     user: Optional[User],
 ) -> None:
     """Remove one labor entry -- see `_require_labor_editor`. Lifecycle status is not
-    rolled backward."""
+    rolled backward.
+
+    The session that produced the entry goes with it. The FK only nulls
+    `labor_id`, and a session row is what every clocked total and the
+    needs-review flag read, so an orphaned one would keep charging the
+    minutes the editor just removed (and, if the cap stopped it, keep the
+    day pending with nothing left on screen to accept)."""
     work_order = _get_visible(db, work_order_id, user)
     entry = _get_labor_entry(db, work_order, labor_id)
     _require_labor_editor(user, technician_id=entry.technician_id, entry=entry)
+    db.query(WorkOrderLaborSession).filter(
+        WorkOrderLaborSession.labor_id == entry.id
+    ).delete(synchronize_session=False)
     db.delete(entry)
     db.commit()
 

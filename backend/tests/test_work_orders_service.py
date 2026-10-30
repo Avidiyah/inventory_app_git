@@ -560,6 +560,24 @@ def test_worker_cannot_edit_a_session_labor_row(db):
         wos.delete_work_order_labor(db, w.id, entry.id, user=tech)
 
 
+def test_deleting_a_session_labor_row_deletes_its_session_too(db):
+    """Yonick, 2026-10-28: a cap-stopped clock's labor row was deleted but the
+    session stayed (FK SET NULL), so the day kept charging 12 h and stayed
+    pending with nothing left to accept."""
+    sup = _seed_user(db, "supervisor")
+    tech = _seed_user(db, "technician")
+    w = _wo(db, created_by=sup, assigned_to=tech)
+    wos.start_labor_session(db, w.id, user=tech)
+    wos.stop_labor_session(db, w.id, user=tech)
+    entry = _labor(db, w)[0]
+    assert _sessions(db, w)[0].labor_id == entry.id
+
+    wos.delete_work_order_labor(db, w.id, entry.id, user=sup)
+
+    assert _labor(db, w) == []
+    assert _sessions(db, w) == []
+
+
 def test_worker_cannot_edit_labor_from_a_closed_week(db):
     sup = _seed_user(db, "supervisor")
     tech = _seed_user(db, "technician")
