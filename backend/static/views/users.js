@@ -1,5 +1,5 @@
-// View: users list, create-user form, and the History "by user"
-// dropdown.
+// View: users list, the Add user panel above it, and the History "by
+// user" dropdown.
 //
 // Layer: views. `loadUsers()` refreshes the cache, repaints the users
 // table (with a Role column and role-gated row actions), and
@@ -53,6 +53,7 @@ const userRoleHelp = document.getElementById("user-role-help");
 const historyUserSelect = document.getElementById("history-user-select");
 const usersSearch = document.getElementById("users-search");
 const usersScope = document.getElementById("users-scope");
+const usersAdd = document.getElementById("users-add");
 
 // Plain-language role descriptions shown under the Role select so the
 // person creating an account understands what each role can do.
@@ -277,11 +278,12 @@ createUserBtn.addEventListener("click", async () => {
 
   try {
     const data = await apiCreateUser({ username, firstName, lastName, password, role });
-    setMessage(createUserMessage, `${formatUserName(data)} created as ${data.role}.`, "success");
     firstNameInput.value = "";
     lastNameInput.value = "";
     usernameInput.value = "";
     userPasswordInput.value = "";
+    if (usersAdd) usersAdd.open = false;
+    setMessage(usersMessage, `${formatUserName(data)} created as ${roleLabel(data.role)}.`, "success");
     loadUsers();
   } catch (err) {
     setMessage(createUserMessage, friendlyError(err, "Could not create the user. Try again."), "error");

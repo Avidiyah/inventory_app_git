@@ -18,7 +18,8 @@ const byId = (id) => () => document.getElementById(id);
 
 export const el = {
   tbody: byId("users-tbody"), message: byId("users-message"),
-  // The create form lives on its own page; users.js wires it at import.
+  // The Add user panel sits above the table; users.js wires it at import.
+  addPanel: byId("users-add"),
   firstName: byId("user-first-name"), lastName: byId("user-last-name"),
   username: byId("username"), roleSelect: byId("user-role"),
   roleHelp: byId("user-role-help"), password: byId("user-password"),

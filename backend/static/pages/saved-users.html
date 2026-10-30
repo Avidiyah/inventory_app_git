@@ -3,6 +3,32 @@
 
         <section id="users-section">
             <h2>Users<button type="button" class="tip-btn" data-tip="user.lifecycle">?</button></h2>
+            <details class="users-add" id="users-add">
+                <summary class="users-add-summary">+ Add user</summary>
+                <div class="form-stack">
+                    <label for="user-first-name">First Name</label>
+                    <input type="text" id="user-first-name" autocomplete="given-name" placeholder="Enter first name">
+
+                    <label for="user-last-name">Last Name</label>
+                    <input type="text" id="user-last-name" autocomplete="family-name" placeholder="Enter last name">
+
+                    <label for="username">Username</label>
+                    <input type="text" id="username" autocomplete="username" placeholder="Enter username">
+
+                    <label for="user-role">Role<button type="button" class="tip-btn" data-tip="user.role">?</button></label>
+                    <select id="user-role">
+                        <!-- Options populated by views/users.js from the
+                             current user's assignable roles. -->
+                    </select>
+                    <p class="hint" id="user-role-help"></p>
+
+                    <label for="user-password">Password</label>
+                    <input type="password" id="user-password" autocomplete="new-password" placeholder="At least 4 characters">
+
+                    <button id="create-user-btn">Add User</button>
+                    <p id="create-user-message"></p>
+                </div>
+            </details>
             <div class="filter-row users-filter">
                 <input type="search" id="users-search" placeholder="Search by name or username" aria-label="Search users" autocomplete="off">
                 <div id="users-scope" class="segmented users-scope" role="group" aria-label="Show">

@@ -334,9 +334,11 @@ describe("creating a user", () => {
     el.roleSelect().value = "technician";
     el.createBtn().click();
 
-    await vi.waitFor(() => expect(el.createMessage().className).toBe("success"));
+    // The panel closes itself, so the success line lands under the table.
     // Not "New Person created as technician." -- the copy reads the response.
-    expect(el.createMessage().textContent).toBe("Server Says created as supervisor.");
+    await vi.waitFor(() => expect(el.message().className).toBe("success"));
+    expect(el.message().textContent).toBe("Server Says created as Team Lead.");
+    expect(el.addPanel().open).toBe(false);
     expect(requestFor("/users/", "POST").body).toEqual({
       username: "nperson", first_name: "New", last_name: "Person",
       password: "hunter2", role: "technician",
@@ -357,7 +359,7 @@ describe("creating a user", () => {
     fill({ first: "  New  ", last: "  Person  ", username: "  nperson  " });
     el.createBtn().click();
 
-    await vi.waitFor(() => expect(el.createMessage().className).toBe("success"));
+    await vi.waitFor(() => expect(el.message().className).toBe("success"));
     const body = requestFor("/users/", "POST").body;
     expect([body.first_name, body.last_name, body.username]).toEqual(["New", "Person", "nperson"]);
     // `loadUsers()` is fired without an await, so settle it inside the test

@@ -370,7 +370,6 @@ SHELL_PARTS = (
     "pages/user-hub.html",
     "pages/create-item.html",
     "pages/saved-items.html",
-    "pages/create-user.html",
     "pages/saved-users.html",
     "pages/transaction.html",
     "pages/mass-stage.html",

@@ -31,7 +31,7 @@ export const server = setupServer(...defaultHandlers);
 // rather than on its assertion.
 //
 // Kept in `PAGE_LOADERS` order, with the page each row serves named. A page
-// absent from that map (`create-item`, `create-user`) renders from state it
+// absent from that map (`create-item`) renders from state it
 // already holds and fires nothing; `saved-items` is in the map but its loader
 // deliberately makes no request (see `views/items.js::loadItems`).
 export function pageHandlers() {

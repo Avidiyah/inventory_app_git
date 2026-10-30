@@ -18,7 +18,7 @@ const ROLES = ["technician", "supervisor", "techfm_oa", "admin", "owner"];
 // the table below a tautology; it is written out so a page added, removed or
 // renamed lands here deliberately.
 const PAGES = [
-  "user-hub", "create-item", "saved-items", "create-user", "saved-users",
+  "user-hub", "create-item", "saved-items", "saved-users",
   "transaction", "mass-stage", "work-orders", "user-requests", "low-stock",
   "admin-review", "tools", "history", "integrations", "smr",
 ];
@@ -29,7 +29,7 @@ const PAGES = [
 const VISIBLE_BY_ROLE = {
   technician: ["user-hub", "saved-items", "transaction", "work-orders", "tools", "smr"],
   supervisor: [
-    "user-hub", "saved-items", "create-user", "saved-users", "transaction",
+    "user-hub", "saved-items", "saved-users", "transaction",
     "mass-stage", "work-orders", "tools", "history", "smr",
   ],
   techfm_oa: PAGES,
@@ -43,7 +43,7 @@ const VISIBLE_BY_ROLE = {
 const GROUPS = {
   inventory: ["create-item", "saved-items", "tools"],
   field: ["transaction", "work-orders", "mass-stage", "smr"],
-  people: ["create-user", "saved-users"],
+  people: ["saved-users"],
   review: ["low-stock", "user-requests", "admin-review", "history"],
   integration: ["integrations"],
 };

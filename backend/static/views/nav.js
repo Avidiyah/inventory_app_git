@@ -107,7 +107,6 @@ export const PAGE_ACCESS = {
   "user-hub": ["owner", "admin", "techfm_oa", "supervisor", "technician"],
   "create-item": ["owner", "admin", "techfm_oa"],
   "saved-items": ["owner", "admin", "techfm_oa", "supervisor", "technician"],
-  "create-user": ["owner", "admin", "techfm_oa", "supervisor"],
   "saved-users": ["owner", "admin", "techfm_oa", "supervisor"],
   // Technicians get scan-and-go too, but dispense-only (enforced server-side
   // in roles.can_transact; the UI hides the Stock toggle for them).
