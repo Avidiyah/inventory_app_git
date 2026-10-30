@@ -43,10 +43,16 @@ export const scopeBtn = (scope) => document.querySelector(`#users-scope [data-sc
 export const showScope = (scope) => scopeBtn(scope).click();
 export const search = () => document.getElementById("users-search");
 
-export const buttonsIn = (row) =>
-  Array.from(row.querySelectorAll(".row-actions button")).map((b) => b.className.split(" ")[0]);
+// The row's action menu (menus.js): its option values, in order.
+export const menuIn = (row) => row.querySelector(".action-menu");
+export const actionsIn = (row) =>
+  Array.from(row.querySelectorAll(".action-menu .menu-option")).map((o) => o.dataset.value);
 
-export const buttonIn = (row, className) => row.querySelector(`.${className}`);
+// Open the row's menu and pick one action, through real clicks.
+export async function pickAction(user, row, value) {
+  await user.click(row.querySelector(".menu-trigger"));
+  await user.click(row.querySelector(`.menu-option[data-value="${value}"]`));
+}
 
 export const roleOptions = () =>
   Array.from(el.roleSelect().options).map((option) => option.value);

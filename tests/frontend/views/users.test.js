@@ -11,7 +11,7 @@ import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
 import { server } from "../helpers/handlers.js";
 import {
-  buttonsIn, cells, el, historyOptions, mountUsers, openUsers, requestFor,
+  actionsIn, cells, el, historyOptions, mountUsers, openUsers, requestFor,
   requests, restoreUsers, roleOptions, rowFor, rows, search, scopeBtn, showScope,
 } from "../helpers/users.js";
 import { personWeek, user as userFactory } from "../helpers/factories.js";
@@ -21,9 +21,9 @@ afterEach(() => restoreUsers());
 const ROLES = ["owner", "admin", "techfm_oa", "supervisor", "technician"];
 
 // The frozen row-action matrix, read off the running code. Rows are the actor;
-// columns the target; each cell the buttons that render, IN ORDER (Edit
+// columns the target; each cell the menu options that render, IN ORDER (Edit
 // Details, Edit Role, then the lifecycle pair). An empty list renders the
-// `<span class="empty">—</span>` placeholder instead of a `.row-actions` div.
+// `<span class="empty">—</span>` placeholder instead of an action menu.
 //
 // The shape worth reading twice: a Supervisor acting on a Technician gets Edit
 // Details, Reset Password and Archive but NOT Edit Role -- role changes are
@@ -31,31 +31,31 @@ const ROLES = ["owner", "admin", "techfm_oa", "supervisor", "technician"];
 const MATRIX = {
   owner: {
     owner: { active: [], archived: [] },
-    admin: { active: ["edit-user-name-btn", "edit-user-role-btn", "reset-pw-btn", "archive-user-btn"], archived: ["edit-user-name-btn", "restore-user-btn"] },
-    techfm_oa: { active: ["edit-user-name-btn", "edit-user-role-btn", "reset-pw-btn", "archive-user-btn"], archived: ["edit-user-name-btn", "restore-user-btn"] },
-    supervisor: { active: ["edit-user-name-btn", "edit-user-role-btn", "reset-pw-btn", "archive-user-btn"], archived: ["edit-user-name-btn", "restore-user-btn"] },
-    technician: { active: ["edit-user-name-btn", "edit-user-role-btn", "reset-pw-btn", "archive-user-btn"], archived: ["edit-user-name-btn", "restore-user-btn"] },
+    admin: { active: ["edit-details", "edit-role", "reset-password", "archive"], archived: ["edit-details", "restore"] },
+    techfm_oa: { active: ["edit-details", "edit-role", "reset-password", "archive"], archived: ["edit-details", "restore"] },
+    supervisor: { active: ["edit-details", "edit-role", "reset-password", "archive"], archived: ["edit-details", "restore"] },
+    technician: { active: ["edit-details", "edit-role", "reset-password", "archive"], archived: ["edit-details", "restore"] },
   },
   admin: {
     owner: { active: [], archived: [] },
     admin: { active: [], archived: [] },
-    techfm_oa: { active: ["edit-user-name-btn", "edit-user-role-btn", "reset-pw-btn", "archive-user-btn"], archived: ["edit-user-name-btn", "restore-user-btn"] },
-    supervisor: { active: ["edit-user-name-btn", "edit-user-role-btn", "reset-pw-btn", "archive-user-btn"], archived: ["edit-user-name-btn", "restore-user-btn"] },
-    technician: { active: ["edit-user-name-btn", "edit-user-role-btn", "reset-pw-btn", "archive-user-btn"], archived: ["edit-user-name-btn", "restore-user-btn"] },
+    techfm_oa: { active: ["edit-details", "edit-role", "reset-password", "archive"], archived: ["edit-details", "restore"] },
+    supervisor: { active: ["edit-details", "edit-role", "reset-password", "archive"], archived: ["edit-details", "restore"] },
+    technician: { active: ["edit-details", "edit-role", "reset-password", "archive"], archived: ["edit-details", "restore"] },
   },
   techfm_oa: {
     owner: { active: [], archived: [] },
     admin: { active: [], archived: [] },
     techfm_oa: { active: [], archived: [] },
-    supervisor: { active: ["edit-user-name-btn", "edit-user-role-btn", "reset-pw-btn", "archive-user-btn"], archived: ["edit-user-name-btn", "restore-user-btn"] },
-    technician: { active: ["edit-user-name-btn", "edit-user-role-btn", "reset-pw-btn", "archive-user-btn"], archived: ["edit-user-name-btn", "restore-user-btn"] },
+    supervisor: { active: ["edit-details", "edit-role", "reset-password", "archive"], archived: ["edit-details", "restore"] },
+    technician: { active: ["edit-details", "edit-role", "reset-password", "archive"], archived: ["edit-details", "restore"] },
   },
   supervisor: {
     owner: { active: [], archived: [] },
     admin: { active: [], archived: [] },
     techfm_oa: { active: [], archived: [] },
     supervisor: { active: [], archived: [] },
-    technician: { active: ["edit-user-name-btn", "reset-pw-btn", "archive-user-btn"], archived: ["edit-user-name-btn", "restore-user-btn"] },
+    technician: { active: ["edit-details", "reset-password", "archive"], archived: ["edit-details", "restore"] },
   },
   technician: {
     owner: { active: [], archived: [] },
@@ -108,11 +108,9 @@ describe("the table", () => {
       first_name: "Ann", last_name: "Holder", full_name: "Ann Holder", username: "aholder", role: "techfm_oa",
     });
     await openUsers({ users: [u] });
-    expect(cells(rowFor("aholder"))).toEqual([
-      "Ann Holder", "aholder", "TechFM OA",
-      // Owner over a TechFM OA: the full four-button set.
-      "Edit DetailsEdit RoleReset Password🗑️",
-    ]);
+    expect(cells(rowFor("aholder")).slice(0, 3)).toEqual(["Ann Holder", "aholder", "TechFM OA"]);
+    // Owner over a TechFM OA: the full four-option menu.
+    expect(actionsIn(rowFor("aholder"))).toEqual(["edit-details", "edit-role", "reset-password", "archive"]);
     // The Name cell leads the phone card.
     expect(rowFor("aholder").querySelector("td").hasAttribute("data-primary")).toBe(true);
   });
@@ -193,10 +191,10 @@ describe("the row-action matrix, frozen", () => {
       ROLES.forEach((target) => {
         const row = rowFor(`${target}-${state}`);
         const expected = MATRIX[actor][target][state];
-        expect(buttonsIn(row), `${actor} → ${target} (${state})`).toEqual(expected);
+        expect(actionsIn(row), `${actor} → ${target} (${state})`).toEqual(expected);
         if (expected.length === 0) {
           expect(row.querySelector(".empty").textContent).toBe("—");
-          expect(row.querySelector(".row-actions")).toBeNull();
+          expect(row.querySelector(".action-menu")).toBeNull();
         }
       });
     });
@@ -207,17 +205,16 @@ describe("the row-action matrix, frozen", () => {
     await openUsers({ role, currentUser: { id: me.id }, users: [me] });
     // canManage(role, role) is false at every rank, so the self row is reached
     // only by the `actorId === user.id` half of canEditName.
-    expect(buttonsIn(rowFor("me"))).toEqual(["edit-user-name-btn"]);
+    expect(actionsIn(rowFor("me"))).toEqual(["edit-details"]);
   });
 
-  it("labels the archive button for assistive tech", async () => {
+  it("labels the menu for assistive tech and marks Archive as the danger item", async () => {
     const target = userFactory({ username: "tech", role: "technician" });
     await openUsers({ users: [target] });
-    const archive = rowFor("tech").querySelector(".archive-user-btn");
-    expect(archive.getAttribute("aria-label")).toBe("Archive user tech");
-    expect(archive.getAttribute("title")).toBe("Archive user");
-    expect(archive.dataset.name).toBe("tech");
-    expect(archive.dataset.id).toBe(target.id);
+    const menu = rowFor("tech").querySelector(".action-menu");
+    expect(menu.querySelector(".menu-trigger").getAttribute("aria-label")).toBe("Actions for tech");
+    expect(menu.dataset.id).toBe(target.id);
+    expect(menu.querySelector('.menu-option[data-value="archive"]').classList.contains("menu-option-danger")).toBe(true);
   });
 });
 

@@ -12,7 +12,7 @@ import { userEvent } from "@testing-library/user-event";
 import { server } from "../helpers/handlers.js";
 import {
   answerPasswordReset, answerUserName, answerUserRole, el, openUsers,
-  requestFor, requests, restoreUsers, rowFor, showScope,
+  pickAction, requestFor, requests, restoreUsers, rowFor, showScope,
 } from "../helpers/users.js";
 import { confirmOverlay, confirmTitle } from "../helpers/dialogs.js";
 import { user as userFactory } from "../helpers/factories.js";
@@ -33,7 +33,7 @@ async function withTarget(overrides = {}) {
   return { ...mounted, target, user, row: () => rowFor(target.username) };
 }
 
-const click = (ctx, className) => ctx.user.click(ctx.row().querySelector(`.${className}`));
+const click = (ctx, action) => pickAction(ctx.user, ctx.row(), action);
 
 // Read the confirm title before answering — `answerConfirm` closes the overlay.
 async function confirmTitled(expected, yes = true) {
@@ -58,7 +58,7 @@ describe("Edit Details", () => {
     server.use(http.patch(`/users/${ctx.target.id}/name`, () =>
       HttpResponse.json(userFactory({ username: "trenamed", full_name: "Tess Renamed" }))));
 
-    const clicking = click(ctx, "edit-user-name-btn");
+    const clicking = click(ctx, "edit-details");
     await opened("user-name-overlay");
     expect(document.getElementById("user-name-title").textContent).toBe('Edit "ttech"');
     // allowUsername: true — the login-name field is shown, not hidden.
@@ -76,7 +76,7 @@ describe("Edit Details", () => {
 
   it("Cancel writes nothing", async () => {
     const ctx = await withTarget();
-    const clicking = click(ctx, "edit-user-name-btn");
+    const clicking = click(ctx, "edit-details");
     await answerUserName(null);
     await clicking;
     expect(requests()).toHaveLength(0);
@@ -89,7 +89,7 @@ describe("Edit Details", () => {
     const heard = vi.fn();
     document.addEventListener("user-names-updated", heard);
     try {
-      const clicking = click(ctx, "edit-user-name-btn");
+      const clicking = click(ctx, "edit-details");
       await answerUserName({ first: "A", last: "B" });
       await clicking;
       await vi.waitFor(() => expect(heard).toHaveBeenCalledTimes(1));
@@ -111,7 +111,7 @@ describe("Edit Details", () => {
     });
     server.use(http.patch(`/users/${me.id}/name`, () => HttpResponse.json(updated)));
 
-    const clicking = user.click(rowFor("oowner").querySelector(".edit-user-name-btn"));
+    const clicking = pickAction(user, rowFor("oowner"), "edit-details");
     await answerUserName({ first: "Olive", last: "Renamed", username: "orenamed" });
     await clicking;
 
@@ -128,7 +128,7 @@ describe("Edit Details", () => {
     const ctx = await withTarget();
     server.use(http.patch(`/users/${ctx.target.id}/name`, () =>
       HttpResponse.json({ detail: null }, { status: 500 })));
-    const clicking = click(ctx, "edit-user-name-btn");
+    const clicking = click(ctx, "edit-details");
     await answerUserName({ first: "A", last: "B" });
     await clicking;
 
@@ -144,16 +144,14 @@ describe("Edit Role", () => {
     server.use(http.patch(`/users/${ctx.target.id}/role`, () =>
       HttpResponse.json(userFactory({ username: "ttech", role: "supervisor" }))));
 
-    const clicking = click(ctx, "edit-user-role-btn");
+    const clicking = click(ctx, "edit-role");
     await opened("user-role-overlay");
     const select = document.getElementById("user-role-select");
     expect(document.getElementById("user-role-title").textContent).toBe('Change role for "ttech"');
     expect(Array.from(select.options).map((o) => o.value))
       .toEqual(["admin", "techfm_oa", "supervisor", "technician"]);
-    // N-P6-CHARACTERIZED: the modal labels roles by capitalising the slug
-    // rather than through `roleLabel`, so TechFM OA reads "Techfm_oa".
     expect(Array.from(select.options).map((o) => o.textContent))
-      .toEqual(["Admin", "Techfm_oa", "Supervisor", "Technician"]);
+      .toEqual(["Admin", "TechFM OA", "Team Lead", "Technician"]);
     // It opens on the role the user already holds, so Save is deliberate.
     expect(select.value).toBe("technician");
     expect(document.getElementById("user-role-modal-help").textContent)
@@ -164,14 +162,14 @@ describe("Edit Role", () => {
     await vi.waitFor(() => expect(el.message().className).toBe("success"));
     // The copy uses the raw slug, not roleLabel — same family as the labels.
     expect(el.message().textContent)
-      .toBe('"ttech" is now supervisor. They will need to sign in again.');
+      .toBe('"ttech" is now Team Lead. They will need to sign in again.');
     expect(requestFor(`/users/${ctx.target.id}/role`, "PATCH").body).toEqual({ role: "supervisor" });
     await vi.waitFor(() => expect(reloaded()).toBe(true));
   });
 
   it("Cancel writes nothing", async () => {
     const ctx = await withTarget();
-    const clicking = click(ctx, "edit-user-role-btn");
+    const clicking = click(ctx, "edit-role");
     await answerUserRole(null);
     await clicking;
     expect(requests()).toHaveLength(0);
@@ -179,7 +177,7 @@ describe("Edit Role", () => {
 
   it("re-saving the role the user already holds is a cancel, not a no-op write", async () => {
     const ctx = await withTarget();
-    const clicking = click(ctx, "edit-user-role-btn");
+    const clicking = click(ctx, "edit-role");
     await answerUserRole("technician");
     await clicking;
     expect(requests()).toHaveLength(0);
@@ -190,7 +188,7 @@ describe("Edit Role", () => {
     const ctx = await withTarget();
     server.use(http.patch(`/users/${ctx.target.id}/role`, () =>
       HttpResponse.json({ detail: null }, { status: 500 })));
-    const clicking = click(ctx, "edit-user-role-btn");
+    const clicking = click(ctx, "edit-role");
     await answerUserRole("supervisor");
     await clicking;
 
@@ -204,7 +202,7 @@ describe("Reset Password", () => {
     const ctx = await withTarget();
     server.use(http.post(`/users/${ctx.target.id}/reset-password`, () => HttpResponse.json({ ok: true })));
 
-    const clicking = click(ctx, "reset-pw-btn");
+    const clicking = click(ctx, "reset-password");
     await opened("pw-reset-overlay");
     expect(document.getElementById("pw-reset-title").textContent).toBe('New password for "ttech"');
     await answerPasswordReset("hunter2");
@@ -219,7 +217,7 @@ describe("Reset Password", () => {
 
   it("Cancel writes nothing", async () => {
     const ctx = await withTarget();
-    const clicking = click(ctx, "reset-pw-btn");
+    const clicking = click(ctx, "reset-password");
     await answerPasswordReset(null);
     await clicking;
     expect(requests()).toHaveLength(0);
@@ -229,7 +227,7 @@ describe("Reset Password", () => {
     const ctx = await withTarget();
     server.use(http.post(`/users/${ctx.target.id}/reset-password`, () =>
       HttpResponse.json({ detail: null }, { status: 500 })));
-    const clicking = click(ctx, "reset-pw-btn");
+    const clicking = click(ctx, "reset-password");
     await answerPasswordReset("hunter2");
     await clicking;
 
@@ -245,7 +243,7 @@ describe("Restore", () => {
     const ctx = await withTarget(archived());
     server.use(http.post(`/users/${ctx.target.id}/restore`, () => HttpResponse.json({ ok: true })));
 
-    await click(ctx, "restore-user-btn");
+    await click(ctx, "restore");
     await vi.waitFor(() => expect(el.message().textContent).toBe('Restored "ttech".'));
     expect(el.message().className).toBe("success");
     expect(requestFor(`/users/${ctx.target.id}/restore`, "POST")).not.toBeNull();
@@ -258,7 +256,7 @@ describe("Restore", () => {
     server.use(http.post(`/users/${ctx.target.id}/restore`, () =>
       HttpResponse.json({ detail: null }, { status: 500 })));
 
-    await click(ctx, "restore-user-btn");
+    await click(ctx, "restore");
     await vi.waitFor(() => expect(el.message().className).toBe("error"));
     expect(el.message().textContent).toBe("Could not restore the user. Try again.");
   });
@@ -280,7 +278,7 @@ describe("Archive", () => {
 
   it("No on the first prompt writes nothing", async () => {
     const ctx = await withTarget();
-    const clicking = click(ctx, "archive-user-btn");
+    const clicking = click(ctx, "archive");
     await confirmTitled(ARCHIVE_COPY, false);
     await clicking;
     expect(requests()).toHaveLength(0);
@@ -290,7 +288,7 @@ describe("Archive", () => {
   it("Yes archives on the first try when the user holds nothing", async () => {
     const ctx = await withTarget();
     answerArchive(ctx.target.id, { force: false });
-    const clicking = click(ctx, "archive-user-btn");
+    const clicking = click(ctx, "archive");
     await confirmTitled(ARCHIVE_COPY);
     await clicking;
 
@@ -304,7 +302,7 @@ describe("Archive", () => {
   it("a 409 asks a second time, and Yes retries with force_return_tools", async () => {
     const ctx = await withTarget();
     answerArchive(ctx.target.id);
-    const clicking = click(ctx, "archive-user-btn");
+    const clicking = click(ctx, "archive");
     await confirmTitled(ARCHIVE_COPY);
     await confirmTitled(TOOLS_COPY);
     await clicking;
@@ -320,7 +318,7 @@ describe("Archive", () => {
   it("No on the tools prompt leaves the slot BLANK, not an error", async () => {
     const ctx = await withTarget();
     answerArchive(ctx.target.id);
-    const clicking = click(ctx, "archive-user-btn");
+    const clicking = click(ctx, "archive");
     await confirmTitled(ARCHIVE_COPY);
     await confirmTitled(TOOLS_COPY, false);
     await clicking;
@@ -334,7 +332,7 @@ describe("Archive", () => {
   it("a non-409 failure skips the second prompt entirely", async () => {
     const ctx = await withTarget();
     answerArchive(ctx.target.id, { status: 500 });
-    const clicking = click(ctx, "archive-user-btn");
+    const clicking = click(ctx, "archive");
     await confirmTitled(ARCHIVE_COPY);
     await clicking;
 
@@ -345,35 +343,30 @@ describe("Archive", () => {
 });
 
 describe("what the delegation ignores", () => {
-  it("a click on the row-actions container itself", async () => {
+  it("opening the menu alone sends nothing and opens no prompt", async () => {
     const ctx = await withTarget();
-    await ctx.user.click(ctx.row().querySelector(".row-actions"));
+    await ctx.user.click(ctx.row().querySelector(".menu-trigger"));
+    expect(ctx.row().querySelector(".menu-list").hidden).toBe(false);
     expect(requests()).toHaveLength(0);
     expect(document.getElementById("user-name-overlay").hidden).toBe(true);
     expect(confirmOverlay().hidden).toBe(true);
   });
 
-  it.each([["edit-user-name-btn"], ["edit-user-role-btn"]])(
-    "%s on a row whose user has left the cache — no prompt", async (className) => {
+  it.each([["edit-details"], ["edit-role"], ["reset-password"], ["archive"]])(
+    "%s on a row whose user has left the cache — no prompt, no request", async (action) => {
       const ctx = await withTarget();
-      ctx.row().querySelector(`.${className}`).dataset.id = "no-such-user";
-      await click(ctx, className);
+      ctx.row().querySelector(".action-menu").dataset.id = "no-such-user";
+      await click(ctx, action);
       expect(requests()).toHaveLength(0);
       expect(document.getElementById("user-name-overlay").hidden).toBe(true);
       expect(document.getElementById("user-role-overlay").hidden).toBe(true);
+      expect(confirmOverlay().hidden).toBe(true);
     });
 
-  it("but Reset Password, Restore and Archive never look the user up at all", async () => {
-    // They read `data-id` and `data-name` straight off the button, so a stale
-    // row still sends a request for whatever id the markup carries.
-    const ctx = await withTarget();
-    ctx.row().querySelector(".reset-pw-btn").dataset.id = "no-such-user";
-    server.use(http.post("/users/no-such-user/reset-password", () => HttpResponse.json({ ok: true })));
-
-    const clicking = click(ctx, "reset-pw-btn");
-    await answerPasswordReset("hunter2");
-    await clicking;
-    await vi.waitFor(() =>
-      expect(requestFor("/users/no-such-user/reset-password", "POST")).not.toBeNull());
+  it("restore on a stale row sends nothing either", async () => {
+    const ctx = await withTarget({ archived_at: "2026-01-01T00:00:00Z" });
+    ctx.row().querySelector(".action-menu").dataset.id = "no-such-user";
+    await click(ctx, "restore");
+    expect(requests()).toHaveLength(0);
   });
 });
