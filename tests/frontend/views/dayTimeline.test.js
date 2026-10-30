@@ -76,10 +76,33 @@ describe("dayTimelineHtml", () => {
     expect(runs(host).at(-1)).toBe("times not recordedWO-20:45");
   });
 
-  it("pending day is greyed and labelled Not counted", () => {
+  it("pending day is greyed and labelled Not counted, with a fallback reason", () => {
     const host = render(day({ pending_review: true }));
     expect(host.querySelector(".day-tl.day-tl-pending")).not.toBeNull();
     expect(host.textContent).toContain("Not counted in the week — needs review");
+  });
+
+  it("the Not counted note says why and names the fix", () => {
+    const base = day();
+    const punch = base.punches[0];
+    const note = (d) => render(day({ pending_review: true, ...d })).querySelector(".day-tl-pending-note").textContent;
+
+    expect(note({ punches: [{ ...punch, needs_review: true, end_source: "auto_clock_out" }] }))
+      .toContain("a punch was auto-closed at midnight: set its real end time");
+    expect(note({ punches: [{ ...punch, crosses_midnight: true }] }))
+      .toContain("a punch ends on the next day: fix its end time");
+    expect(note({ punches: [{ ...punch, needs_review: true, end_source: "manual" }] }))
+      .toContain("a punch is marked for review: edit it, or Looks right on Timesheets");
+    expect(note({ charged: [{ ...base.charged[0], auto_closed: true }] }))
+      .toContain("WO-1 clock was auto-stopped: accept it with Mark all reviewed on Timesheets");
+    // A carried punch belongs to the day before; it never explains this one.
+    expect(note({ punches: [{ ...punch, carried: true, needs_review: true, end_source: "auto_clock_out" }] }))
+      .toBe("⚠ Not counted in the week — needs review");
+    // Two causes read as one sentence.
+    expect(note({
+      punches: [{ ...punch, needs_review: true, end_source: "auto_clock_out" }],
+      charged: [{ ...base.charged[0], auto_closed: true }],
+    })).toContain("midnight: set its real end time; WO-1 clock was auto-stopped");
   });
 
   it("an empty day renders nothing", () => {

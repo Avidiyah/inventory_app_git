@@ -56,6 +56,28 @@ function rowHtml(row, now) {
   return `<li class="day-run day-run-${row.number ? "charged" : "gap"}"><span class="day-run-time">${escapeHtml(times)}</span><span class="day-run-what">${what}</span><span class="day-run-minutes">${minutes}</span></li>`;
 }
 
+// Why a day is left out of the week, in words that name the fix. Mirrors
+// day_pending_review (domain/attendance.py): a flagged or past-midnight
+// punch, or a work-order clock the cap stopped that no Admin has accepted.
+export function pendingReasons(day) {
+  const reasons = [];
+  const own = (day.punches || []).filter((p) => !p.carried);
+  if (own.some((p) => p.end_source === "auto_clock_out")) {
+    reasons.push("a punch was auto-closed at midnight: set its real end time");
+  }
+  if (own.some((p) => p.crosses_midnight)) {
+    reasons.push("a punch ends on the next day: fix its end time");
+  }
+  if (own.some((p) => p.needs_review && p.end_source !== "auto_clock_out")) {
+    reasons.push("a punch is marked for review: edit it, or Looks right on Timesheets");
+  }
+  const capped = (day.charged || []).filter((c) => c.auto_closed).map((c) => c.number);
+  if (capped.length) {
+    reasons.push(`${capped.join(", ")} clock was auto-stopped: accept it with Mark all reviewed on Timesheets`);
+  }
+  return reasons.length ? reasons.join("; ") : "needs review";
+}
+
 export function dayTimelineHtml(day, { now = new Date().toISOString() } = {}) {
   const punches = day.punches || [];
   const charged = day.charged || [];
@@ -80,7 +102,7 @@ export function dayTimelineHtml(day, { now = new Date().toISOString() } = {}) {
   const clock = punches.length ? `On the clock ${escapeHtml(spanList(punches))}` : "Not on the clock";
   const lunch = day.lunch_minutes ? ` · lunch −${formatHm(day.lunch_minutes)}` : "";
   const pending = day.pending_review
-    ? `<p class="day-tl-pending-note"><span aria-hidden="true">&#9888;</span> Not counted in the week — needs review</p>`
+    ? `<p class="day-tl-pending-note"><span aria-hidden="true">&#9888;</span> Not counted in the week — ${pendingReasons(day)}</p>`
     : "";
   return `<div class="day-tl${day.pending_review ? " day-tl-pending" : ""}">
     ${pending}
