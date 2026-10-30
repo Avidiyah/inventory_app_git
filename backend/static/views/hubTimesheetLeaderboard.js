@@ -3,13 +3,16 @@
 // Layer: views. Pure: no fetch, no state, no buttons. `hubLeaderboardsTab.js`
 // owns the week and mounts one board per kind from the same payload.
 //
-// One rule per column:
-//   clocked   = the row's total_minutes (the server already left out
-//               pending-review days, so nothing is subtracted here)
+// One rule per column, summed over the person's COUNTED days:
+//   counted   = a day that is not pending review and whose charged time does
+//               not exceed its clocked time (2026-10-29: a day with more on
+//               work orders than on the clock is a keying error, so the whole
+//               day and its hours are left off the board rather than letting
+//               a % pass 100)
+//   clocked   = the day's clocked_minutes
 //   charged   = live work-order clock time; Efficiency adds hand-entered labor
 //   uncharged = clocked - charged, never below zero
-//   %         = charged / clocked, uncapped -- Efficiency can pass 100% when
-//               more labor was keyed than clocked
+//   %         = charged / clocked, so never above 100
 //   made/lost = charged / uncharged x the billing labor rate
 // Ranked by %, then money made, then name. This is an estimate at the hourly
 // rate, not the invoice: billing rounds a work order's labor up to 30 minutes.
@@ -35,14 +38,20 @@ function ordinal(n) {
 export function computeLeaderboard(payload, { kind = "accuracy" } = {}) {
   const rate = Number(payload.labor_rate) || 0;
   const price = (minutes) => (minutes * rate) / 60;
+  const dayCharged = (day) =>
+    (day.tracked_minutes || 0) + (kind === "efficiency" ? day.adjustment_minutes || 0 : 0);
   const entries = payload.rows.map((row) => {
-    const clocked = row.total_minutes || 0;
-    const charged = (row.tracked_minutes || 0) + (kind === "efficiency" ? row.adjustment_minutes || 0 : 0);
+    const live = row.days.filter((day) => !day.pending_review);
+    const over = live.filter((day) => dayCharged(day) > (day.clocked_minutes || 0));
+    const counted = live.filter((day) => !over.includes(day));
+    const clocked = counted.reduce((sum, day) => sum + (day.clocked_minutes || 0), 0);
+    const charged = counted.reduce((sum, day) => sum + dayCharged(day), 0);
     const uncharged = Math.max(0, clocked - charged);
     return {
       user: row.user,
       name: userName(row.user),
       pendingDays: row.days.filter((day) => day.pending_review).length,
+      overDays: over.length,
       clocked,
       charged,
       uncharged,
@@ -50,8 +59,10 @@ export function computeLeaderboard(payload, { kind = "accuracy" } = {}) {
       made: price(charged),
       lost: price(uncharged),
     };
-  // Nobody with no time on this board: an idle week is not a 0% to rank.
-  }).filter((entry) => entry.clocked || entry.charged);
+  // Nobody with no time on this board: an idle week is not a 0% to rank. A
+  // person whose only days were left out stays, at 0%, so the note beside
+  // their name says where the week went.
+  }).filter((entry) => entry.clocked || entry.charged || entry.overDays || entry.pendingDays);
   entries.sort((a, b) => b.pct - a.pct || b.made - a.made || a.name.localeCompare(b.name));
   entries.forEach((entry, index) => { entry.rank = index + 1; });
   const total = entries.reduce((sum, entry) => ({
@@ -71,10 +82,13 @@ function rankHtml(rank) {
     : escapeHtml(String(rank));
 }
 
+const dayWord = (n) => (n === 1 ? "1 day" : `${n} days`);
+
 function pendingHtml(entry) {
-  if (!entry.pendingDays) return "";
-  const days = entry.pendingDays === 1 ? "1 day" : `${entry.pendingDays} days`;
-  return `<span class="hub-leaderboard-pending">⚠ ${days} pending review</span>`;
+  const notes = [];
+  if (entry.pendingDays) notes.push(`⚠ ${dayWord(entry.pendingDays)} pending review`);
+  if (entry.overDays) notes.push(`⚠ ${dayWord(entry.overDays)} charged more than clocked, left out`);
+  return notes.map((text) => `<span class="hub-leaderboard-pending">${text}</span>`).join("");
 }
 
 function moneyCells(row) {

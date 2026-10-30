@@ -23,15 +23,17 @@ function mount(payload = attendanceWeek(), kind = "accuracy") {
 }
 
 // Ann clocks 8:00 and charges 7:00 live (88%). Bo clocks 10:00, charges 9:00
-// live (90%) plus 2:00 keyed by hand.
+// live (90%) plus 1:00 keyed by hand, all on Monday. The board sums days,
+// so a test that changes a person's week sets Monday's figures.
 function twoPeople() {
   const payload = attendanceWeek();
   const ann = payload.rows[0];
   const bo = structuredClone(ann);
   bo.user = { id: "user-2", first_name: "Bo", last_name: "Diaz", role: "technician" };
+  bo.days[0] = { ...bo.days[0], clocked_minutes: 600, paid_minutes: 570, tracked_minutes: 540, adjustment_minutes: 60 };
   bo.total_minutes = 600;
   bo.tracked_minutes = 540;
-  bo.adjustment_minutes = 120;
+  bo.adjustment_minutes = 60;
   payload.rows = [ann, bo];
   return payload;
 }
@@ -40,12 +42,23 @@ const entryFor = (payload, name, kind) =>
   computeLeaderboard(payload, { kind }).entries.find((e) => e.name === name);
 
 describe("computeLeaderboard", () => {
-  it("uses server row totals as-is", () => {
-    // The server already left the pending day out of total_minutes.
+  it("sums the counted days and leaves a pending day out", () => {
     const payload = attendanceWeek();
-    payload.rows[0].days[1] = { ...payload.rows[0].days[1], clocked_minutes: 600, pending_review: true };
+    payload.rows[0].days[1] = { ...payload.rows[0].days[1], clocked_minutes: 600, tracked_minutes: 500, pending_review: true };
     const entry = computeLeaderboard(payload, { kind: "accuracy" }).entries[0];
-    expect(entry).toMatchObject({ clocked: 480, charged: 420, uncharged: 60, pendingDays: 1 });
+    expect(entry).toMatchObject({ clocked: 480, charged: 420, uncharged: 60, pendingDays: 1, overDays: 0 });
+  });
+
+  it("a day charged past its clocked time is left out whole, hours and all, so % never passes 100", () => {
+    const payload = twoPeople();
+    const bo = payload.rows[1];
+    // Bo: Mon 600 clocked / 540 live + 60 by hand; Tue 300 clocked but 19 h keyed by hand.
+    bo.days[1] = { ...bo.days[1], clocked_minutes: 300, tracked_minutes: 0, adjustment_minutes: 1140 };
+    const eff = entryFor(payload, "Bo Diaz", "efficiency");
+    expect(eff).toMatchObject({ clocked: 600, charged: 600, pct: 100, overDays: 1 });
+    // Accuracy ignores hand-entered labor, so the same Tuesday counts there.
+    const acc = entryFor(payload, "Bo Diaz", "accuracy");
+    expect(acc).toMatchObject({ clocked: 900, charged: 540, overDays: 0 });
   });
 
   it("accuracy ranks by live % and ignores hand-entered", () => {
@@ -55,24 +68,21 @@ describe("computeLeaderboard", () => {
     expect(entries[0].made).toBeCloseTo(562.5);
   });
 
-  it("efficiency adds adjustment_minutes and may exceed 100", () => {
-    const bo = entryFor(twoPeople(), "Bo Diaz", "efficiency");
-    expect(bo).toMatchObject({ charged: 660, uncharged: 0, pct: 110, lost: 0 });
+  it("efficiency adds a day's hand-entered labor while it fits in the clocked time", () => {
+    expect(entryFor(twoPeople(), "Bo Diaz", "efficiency")).toMatchObject({ clocked: 600, charged: 600, uncharged: 0, pct: 100, lost: 0 });
   });
 
-  it("zero clocked with charge is 100%; no time at all is left off", () => {
+  it("no time at all is left off; a charge with no clock is an over-charged day, kept at 0% with its note", () => {
     const payload = twoPeople();
-    payload.rows[0].total_minutes = 0;
-    payload.rows[0].tracked_minutes = 0;
-    payload.rows[1].total_minutes = 0;
+    payload.rows[0].days[0] = { ...payload.rows[0].days[0], clocked_minutes: 0, tracked_minutes: 0 };
+    payload.rows[1].days[0] = { ...payload.rows[1].days[0], clocked_minutes: 0, adjustment_minutes: 0 };
     expect(entryFor(payload, "Ann Lee", "accuracy")).toBeUndefined();
-    expect(entryFor(payload, "Bo Diaz", "accuracy").pct).toBe(100);
+    expect(entryFor(payload, "Bo Diaz", "accuracy")).toMatchObject({ clocked: 0, charged: 0, pct: 0, overDays: 1 });
   });
 
   it("breaks a % tie on money made, then name", () => {
     const payload = twoPeople();
-    payload.rows[1].total_minutes = 960;
-    payload.rows[1].tracked_minutes = 840; // 88%, more money than Ann
+    payload.rows[1].days[0] = { ...payload.rows[1].days[0], clocked_minutes: 960, tracked_minutes: 840 }; // 88%, more money than Ann
     const { entries, total } = computeLeaderboard(payload, { kind: "accuracy" });
     expect(entries.map((e) => e.name)).toEqual(["Bo Diaz", "Ann Lee"]);
     expect(total.made).toBeCloseTo(437.5 + 875);
@@ -110,8 +120,18 @@ describe("the board", () => {
   it("flags a person's pending days in words beside their name", () => {
     const payload = attendanceWeek();
     payload.rows[0].days[0].pending_review = true;
+    payload.rows[0].days[1] = { ...payload.rows[0].days[1], clocked_minutes: 480, tracked_minutes: 400 };
     mount(payload);
     expect(host.querySelector(".hub-leaderboard-pending").textContent).toBe("⚠ 1 day pending review");
+  });
+
+  it("names the days left out for charging more than clocked", () => {
+    const payload = attendanceWeek();
+    payload.rows[0].days[0] = { ...payload.rows[0].days[0], adjustment_minutes: 1140 };
+    payload.rows[0].days[1] = { ...payload.rows[0].days[1], clocked_minutes: 480, tracked_minutes: 400 };
+    mount(payload, "efficiency");
+    expect(host.querySelector(".hub-leaderboard-pending").textContent)
+      .toBe("⚠ 1 day charged more than clocked, left out");
   });
 
   it("says nobody clocked in rather than drawing an empty table", () => {

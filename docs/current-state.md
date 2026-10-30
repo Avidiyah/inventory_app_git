@@ -463,7 +463,10 @@ Attendance:
   day page's Remove/Restore lunch, audited); it never clears `needs_review`.
 - Leaderboards tab (Admin+, own week picker): **Accuracy** = live
   work-order clock ÷ clocked; **Efficiency** adds hand-entered labor
-  (`adjustment_minutes`) and may pass 100%. Ranked by %, then money made;
+  (`adjustment_minutes`). Both sum the person's counted days client-side:
+  a pending-review day, or a day whose charged time exceeds its clocked
+  time, is left out whole with its hours (named beside the person), so no
+  % passes 100. Ranked by %, then money made;
   uncharged floored at zero; made/lost × `labor_rate`. An hourly estimate,
   not the invoice (billing rounds a *work order's* combined labor).
 - A day with `pending_review` (`domain.attendance.day_pending_review`: a

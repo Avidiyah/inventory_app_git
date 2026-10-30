@@ -233,7 +233,7 @@ export const TIPS = {
   },
   "hub.leaderboard": {
     label: "Leaderboards",
-    text: "Money made is charged hours times the billing labor rate; money lost is hours clocked in but not on a work order, at the same rate. It is an estimate, not the invoice, which rounds each work order up to the next 30 minutes. Days pending review are left out until an Admin reviews them.",
+    text: "Money made is charged hours times the billing labor rate; money lost is hours clocked in but not on a work order, at the same rate. It is an estimate, not the invoice, which rounds each work order up to the next 30 minutes. Days pending review are left out until an Admin reviews them, and a day with more hours on work orders than on the clock is left out with its hours, so no percentage can pass 100.",
   },
   "hub.leaderboard-accuracy": {
     label: "Accuracy",
