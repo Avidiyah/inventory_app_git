@@ -308,7 +308,7 @@ export function mountUserProfile(container, user, { onBack, week: initialWeek = 
       open.forEach((date) => { if (!dates.has(date)) open.delete(date); });
       if (!open.size) {
         const today = todayOf(fresh.server_now);
-        fresh.days.forEach((d) => { if (d.date === today || d.pending_review) open.add(d.date); });
+        fresh.days.forEach((d) => { if (d.date === today || d.needs_review || d.pending_review) open.add(d.date); });
       }
       payload = fresh;
       week = payload.week_start;

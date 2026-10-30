@@ -11,6 +11,7 @@ import { server } from "./handlers.js";
 import { startRecording, stopRecording, requests, requestFor, clearRequests } from "./requests.js";
 import { mountView } from "./shell.js";
 import { setTestUser } from "./session.js";
+import { attendanceWeek } from "./factories.js";
 
 // Getters, not nodes: every mount replaces `document.documentElement`, so a
 // captured node would be a corpse from the previous test.
@@ -75,7 +76,7 @@ export {
 // `currentUser` overrides go onto the signed-in user; a self-edit test needs
 // the actor to BE one of the rows, so it passes the row's own id here.
 export async function mountUsers({
-  role = "owner", users = [], handlers = [], currentUser = {},
+  role = "owner", users = [], handlers = [], currentUser = {}, week = attendanceWeek({ rows: [] }),
 } = {}) {
   // `handlers` go FIRST: MSW takes the first matching handler within one
   // `use()` call, so a test's own `/users/` override must precede the default.
@@ -83,6 +84,7 @@ export async function mountUsers({
   server.use(
     ...handlers,
     http.get("/users/", () => HttpResponse.json(users)),
+    http.get("/hub/attendance/week", () => HttpResponse.json(week)),
   );
   const me = await setTestUser({ role, ...currentUser });
   startRecording();

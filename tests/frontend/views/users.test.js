@@ -14,7 +14,7 @@ import {
   actionsIn, cells, el, historyOptions, mountUsers, openUsers, requestFor,
   requests, restoreUsers, roleOptions, rowFor, rows, search, scopeBtn, showScope,
 } from "../helpers/users.js";
-import { personWeek, user as userFactory } from "../helpers/factories.js";
+import { attendanceWeek, personWeek, user as userFactory } from "../helpers/factories.js";
 
 afterEach(() => restoreUsers());
 
@@ -81,6 +81,41 @@ describe("loadUsers", () => {
     expect(rows()[0].className).toBe("skel-row");
     expect(rows()[0].querySelectorAll("td")).toHaveLength(4);
     await loading;
+  });
+
+  it("a Team Lead+ also fetches the Timesheets week for the to-fix counts", async () => {
+    const { mod } = await mountUsers({ users: [] });
+    await mod.loadUsers();
+    expect(requestFor("/hub/attendance/week", "GET")).not.toBeNull();
+  });
+
+  it("a Technician's boot load never asks for the week", async () => {
+    const { mod } = await mountUsers({ role: "technician", users: [] });
+    await mod.loadUsers();
+    expect(requestFor("/hub/attendance/week", "GET")).toBeNull();
+  });
+
+  it("prints 'N days to fix' beside a name whose week has flagged days", async () => {
+    const flagged = userFactory({ full_name: "Ann Lee", username: "alee" });
+    const clean = userFactory({ full_name: "Bo Ruiz", username: "bruiz" });
+    const week = attendanceWeek();
+    week.rows[0].user.id = flagged.id;
+    week.rows[0].days[1] = { ...week.rows[0].days[1], needs_review: true };
+    week.rows[0].days[3] = { ...week.rows[0].days[3], pending_review: true };
+    await openUsers({ users: [flagged, clean], week });
+    expect(rowFor("alee").querySelector(".users-fix-count").textContent.trim()).toBe("⚠ 2 days to fix");
+    expect(rowFor("bruiz").querySelector(".users-fix-count")).toBeNull();
+  });
+
+  it("a failed week fetch still paints the list, just without counts", async () => {
+    const flagged = userFactory({ full_name: "Ann Lee", username: "alee" });
+    const { mod } = await mountUsers({
+      users: [flagged],
+      handlers: [http.get("/hub/attendance/week", () => HttpResponse.json({ detail: "down" }, { status: 500 }))],
+    });
+    await mod.loadUsers();
+    expect(rowFor("alee")).not.toBeNull();
+    expect(rowFor("alee").querySelector(".users-fix-count")).toBeNull();
   });
 
   it("asks for archived users too — the History filter still needs them", async () => {

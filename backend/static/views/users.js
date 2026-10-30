@@ -22,6 +22,7 @@ import {
   apiResetPassword,
   apiUpdateUserName,
   apiUpdateUserRole,
+  apiGetHubAttendanceWeek,
 } from "../api.js";
 import { escapeHtml, filterRanked, friendlyError, formatUserName } from "../format.js";
 import {
@@ -54,6 +55,10 @@ const historyUserSelect = document.getElementById("history-user-select");
 const usersSearch = document.getElementById("users-search");
 const usersScope = document.getElementById("users-scope");
 const usersAdd = document.getElementById("users-add");
+// user id -> days this week flagged for review, from the Timesheets week
+// payload (Team Lead+). Empty when the fetch is skipped or fails: the list
+// still paints, just without the counts.
+let fixCounts = new Map();
 
 // Plain-language role descriptions shown under the Role select so the
 // person creating an account understands what each role can do.
@@ -94,8 +99,16 @@ async function loadUsersNow() {
     // Include archived users so the History "by user" filter can still
     // select a departed user; the Saved Users table marks archived rows
     // and offers Restore instead of the active-user actions.
-    const users = await apiListUsers({ includeArchived: true });
+    const [users, week] = await Promise.all([
+      apiListUsers({ includeArchived: true }),
+      roleAtLeast(getRole(), "supervisor")
+        ? apiGetHubAttendanceWeek().catch(() => null)
+        : null,
+    ]);
     setUsers(users);
+    fixCounts = new Map((week?.rows ?? []).map((row) => [
+      row.user.id, row.days.filter((d) => d.needs_review || d.pending_review).length,
+    ]));
     renderUsersTable();
     populateRoleSelect();
     populateUserSelects();
@@ -158,8 +171,12 @@ function renderUsersTable() {
       ? `<button type="button" class="user-profile-btn hub-link-btn" data-id="${user.id}">${name}</button>`
       : name;
     const archivedTag = isArchived ? ` <span class="muted">(archived)</span>` : "";
+    const toFix = fixCounts.get(user.id) || 0;
+    const fixTag = toFix
+      ? ` <span class="hub-hours-flag hub-hours-flag-review users-fix-count"><span aria-hidden="true">&#9888;</span> ${toFix} day${toFix === 1 ? "" : "s"} to fix</span>`
+      : "";
     row.innerHTML = `
-      <td data-label="Name" data-primary>${nameCell}${archivedTag}</td>
+      <td data-label="Name" data-primary>${nameCell}${fixTag}${archivedTag}</td>
       <td data-label="Username">${escapeHtml(user.username)}</td>
       <td data-label="Role">${escapeHtml(roleLabel(user.role))}</td>
       <td data-label="Actions">${actions}</td>

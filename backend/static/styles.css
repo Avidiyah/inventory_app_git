@@ -1269,6 +1269,9 @@ tr:last-child td {
     color: var(--color-white);
 }
 
+/* Users page: "N days to fix" beside a name, in the Timesheets flag colour. */
+.users-fix-count { font-weight: var(--fw-normal, 400); white-space: nowrap; }
+
 /* Users page: the Add user panel is a native <details>; its summary reads as
    a secondary button, the open form sits on a nested panel. */
 .users-add { margin-bottom: var(--space-3); }
