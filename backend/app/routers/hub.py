@@ -34,6 +34,7 @@ writes nothing at all.
 
 import uuid
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -55,9 +56,17 @@ from app.schemas.attendance import (
     WeekReviewResponse,
 )
 from app.schemas.attendance import PersonWeekResponse
+from app.schemas.performance import (
+    PerformanceExcludedOrder,
+    PerformanceReason,
+    PerformanceResponse,
+    PerformanceRow,
+)
 from app.schemas.hub import HubAdminResponse, HubClock, HubCrewResponse, HubGraphsResponse, HubReportResponse, HubResponse
 from app.services import attendance as attendance_service
 from app.services import attendance_compare
+from app.services import performance_score
+from app.domain import performance as performance_rules
 from app.services import attendance_live
 from app.services import hub as hub_service
 from app.services import person_week
@@ -210,6 +219,52 @@ def get_hub_attendance_week(
     except DomainError as exc:
         raise to_http(exc) from exc
     return attendance_compare.week_payload(db, week_start=week_start, now=now)
+
+
+@router.get("/performance", response_model=PerformanceResponse)
+def get_hub_performance(
+    window: str = Query("week"),
+    start: Optional[date] = Query(None),
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """The Leaderboards board: one week or one month to date, every person
+    scored from trusted time only (spec 2026-10-29).
+
+    **Admin only**, like the report: it prices labor. `window` is `week`
+    (then `start` is a Monday, as on `GET /hub/attendance/week`) or `month`
+    (`start` is the first of a month, absent means the month in progress);
+    anything else is 422. `window` is a plain `str` checked by hand because
+    `Literal` query params misbehave in this pinned FastAPI.
+
+    Side-effect-free: no sweep, no row locks. Reviewing an estimate never
+    counts it here; only keying the real time does.
+    """
+    if window not in ("week", "month"):
+        raise HTTPException(status_code=422, detail="window must be 'week' or 'month'.")
+    now = datetime.now(timezone.utc)
+    try:
+        payload = performance_score.window_payload(db, window=window, start=start, now=now)
+    except DomainError as exc:
+        raise to_http(exc) from exc
+    labels = performance_rules.REASON_LABELS
+    return PerformanceResponse(
+        window=payload.window, start=payload.start, end=payload.end, to_date=payload.to_date,
+        server_now=payload.server_now, weights=payload.weights, floor_minutes=payload.floor_minutes,
+        rows=[
+            PerformanceRow(
+                user=row.user, rank=row.rank, below_floor=row.below_floor, score=row.score,
+                billed_dollars=row.raw["billed"].quantize(Decimal("0.01")), efficiency_pct=row.raw["efficiency"],
+                accuracy_pct=row.raw["accuracy"], counted_days=row.counted_days,
+                active_days=row.active_days, clocked_minutes=row.clocked_minutes, scaled=row.scaled,
+                day_reasons=[PerformanceReason(code=code, label=labels[code], days=days)
+                             for code, days in row.day_reasons.items()],
+                excluded_orders=[PerformanceExcludedOrder(number=number, reason=code, label=labels[code])
+                                 for number, code in row.excluded_orders],
+            )
+            for row in payload.rows
+        ],
+    )
 
 
 @router.get("/people/{user_id}/week", response_model=PersonWeekResponse)

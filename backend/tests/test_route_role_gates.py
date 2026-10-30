@@ -554,6 +554,7 @@ def test_no_route_gate_is_left_at_the_admin_floor():
         "export_hub_report",
         "export_hub_attendance",
         "review_hub_attendance_week",
+        "get_hub_performance",  # 2026-10-29: the scored board prices labor
     }
 
 
@@ -562,6 +563,11 @@ def test_the_admin_daily_report_sits_above_techfm_oa():
     # rest of the admin toolkit but does not see this report.
     assert _min_role_for(hub_router, "get_hub_report") == roles.ROLE_ADMIN
     assert _min_role_for(hub_router, "export_hub_report") == roles.ROLE_ADMIN
+
+
+def test_the_performance_board_is_admin_only():
+    # 2026-10-29: the scored board prices labor, like the report above it.
+    assert _min_role_for(hub_router, "get_hub_performance") == roles.ROLE_ADMIN
 
 
 @pytest.mark.parametrize(
