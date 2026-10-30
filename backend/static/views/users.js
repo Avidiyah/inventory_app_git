@@ -23,7 +23,7 @@ import {
   apiUpdateUserName,
   apiUpdateUserRole,
 } from "../api.js";
-import { escapeHtml, friendlyError, formatUserName } from "../format.js";
+import { escapeHtml, filterRanked, friendlyError, formatUserName } from "../format.js";
 import {
   setMessage,
   confirmDialog,
@@ -50,6 +50,8 @@ const userRoleSelect = document.getElementById("user-role");
 const userPasswordInput = document.getElementById("user-password");
 const userRoleHelp = document.getElementById("user-role-help");
 const historyUserSelect = document.getElementById("history-user-select");
+const usersSearch = document.getElementById("users-search");
+const usersScope = document.getElementById("users-scope");
 
 // Plain-language role descriptions shown under the Role select so the
 // person creating an account understands what each role can do.
@@ -83,8 +85,8 @@ async function loadUsersNow() {
   // #9: in-progress placeholder (see loadItems for why this lives in the
   // table body rather than the #users-message slot, which carries
   // archive/restore/reset success text set just before a reload).
-  usersTbody.innerHTML = skeletonTableRows(6, 5, {
-    widths: ["55%", "60%", "70%", "40%", "75%", "50%"],
+  usersTbody.innerHTML = skeletonTableRows(4, 5, {
+    widths: ["60%", "70%", "40%", "50%"],
   });
   try {
     // Include archived users so the History "by user" filter can still
@@ -100,7 +102,7 @@ async function loadUsersNow() {
     // user sees. This also runs on the post-login boot load (Users page
     // hidden) -- harmless, and the page refreshes on activation.
     usersTbody.innerHTML =
-      `<tr><td colspan="6" class="error">${escapeHtml(friendlyError(error, "Could not load users. Try again."))}</td></tr>`;
+      `<tr><td colspan="4" class="error">${escapeHtml(friendlyError(error, "Could not load users. Try again."))}</td></tr>`;
   }
 }
 
@@ -116,9 +118,13 @@ function renderUsersTable() {
   const actorId = getCurrentUser()?.id;
   usersTbody.innerHTML = "";
 
-  getUsers().forEach(user => {
+  const shown = visibleUsers();
+  if (!shown.length) {
+    usersTbody.innerHTML = `<tr><td colspan="4" class="empty">No ${scope()} users match.</td></tr>`;
+    return;
+  }
+  shown.forEach(user => {
     const row = document.createElement("tr");
-    const createdAt = new Date(user.created_at).toLocaleString();
     const isArchived = Boolean(user.archived_at);
     if (isArchived) row.classList.add("archived-user");
     const canManageUser = canManage(actorRole, user.role);
@@ -145,22 +151,44 @@ function renderUsersTable() {
       ? `<div class="row-actions">${editNameAction}${editRoleAction}${lifecycleActions}</div>`
       : `<span class="empty">—</span>`;
     const canProfile = roleAtLeast(actorRole, "supervisor") && PROFILE_ROLES.includes(user.role);
-    const firstName = escapeHtml(user.first_name || "Name unavailable");
-    const firstNameCell = canProfile
-      ? `<button type="button" class="user-profile-btn hub-link-btn" data-id="${user.id}">${firstName}</button>`
-      : firstName;
+    const name = escapeHtml(formatUserName(user));
+    const nameCell = canProfile
+      ? `<button type="button" class="user-profile-btn hub-link-btn" data-id="${user.id}">${name}</button>`
+      : name;
     const archivedTag = isArchived ? ` <span class="muted">(archived)</span>` : "";
     row.innerHTML = `
-      <td data-label="First Name">${firstNameCell}${archivedTag}</td>
-      <td data-label="Last Name">${escapeHtml(user.last_name || "Name unavailable")}</td>
+      <td data-label="Name" data-primary>${nameCell}${archivedTag}</td>
       <td data-label="Username">${escapeHtml(user.username)}</td>
       <td data-label="Role">${escapeHtml(roleLabel(user.role))}</td>
-      <td data-label="Created At">${escapeHtml(createdAt)}</td>
       <td data-label="Actions">${actions}</td>
     `;
     usersTbody.appendChild(row);
   });
 }
+
+// "active" or "archived": the pressed cell of the scope toggle.
+function scope() {
+  return usersScope?.querySelector('[aria-pressed="true"]')?.dataset.scope || "active";
+}
+
+// The cached list narrowed by the scope toggle and the search box (name or
+// username, ranked by filterRanked like the Tools search).
+function visibleUsers() {
+  const archived = scope() === "archived";
+  const inScope = getUsers().filter((user) => Boolean(user.archived_at) === archived);
+  const term = usersSearch?.value.trim() || "";
+  return term
+    ? filterRanked(inScope, (user) => [formatUserName(user), user.username], term)
+    : inScope;
+}
+
+usersSearch?.addEventListener("input", () => { if (!usersTable.hidden) renderUsersTable(); });
+usersScope?.addEventListener("click", (event) => {
+  const btn = event.target.closest(".seg-btn");
+  if (!btn) return;
+  usersScope.querySelectorAll(".seg-btn").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+  if (!usersTable.hidden) renderUsersTable();
+});
 
 // Fill the create-user role dropdown with the roles the current user is
 // allowed to assign (those ranked strictly below them).

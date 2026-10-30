@@ -33,9 +33,15 @@ export const rows = () => Array.from(el.tbody().querySelectorAll("tr"));
 export const cells = (row) => Array.from(row.querySelectorAll("td")).map((td) => td.textContent);
 
 // Rows are keyed by the Username column, which is the one cell guaranteed
-// present and unique -- the two name columns can both read "Name unavailable".
+// present and unique -- the Name column can read "Name unavailable".
 export const rowFor = (username) =>
-  rows().find((row) => row.querySelectorAll("td")[2]?.textContent === username) ?? null;
+  rows().find((row) => row.querySelectorAll("td")[1]?.textContent === username) ?? null;
+
+// The Active / Archived toggle above the table. Archived rows paint only
+// under the Archived scope.
+export const scopeBtn = (scope) => document.querySelector(`#users-scope [data-scope="${scope}"]`);
+export const showScope = (scope) => scopeBtn(scope).click();
+export const search = () => document.getElementById("users-search");
 
 export const buttonsIn = (row) =>
   Array.from(row.querySelectorAll(".row-actions button")).map((b) => b.className.split(" ")[0]);

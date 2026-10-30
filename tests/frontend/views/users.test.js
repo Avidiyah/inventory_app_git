@@ -12,7 +12,7 @@ import { userEvent } from "@testing-library/user-event";
 import { server } from "../helpers/handlers.js";
 import {
   buttonsIn, cells, el, historyOptions, mountUsers, openUsers, requestFor,
-  requests, restoreUsers, roleOptions, rowFor, rows,
+  requests, restoreUsers, roleOptions, rowFor, rows, search, scopeBtn, showScope,
 } from "../helpers/users.js";
 import { personWeek, user as userFactory } from "../helpers/factories.js";
 
@@ -74,12 +74,12 @@ const matrixRoster = () => ROLES.flatMap((role) => [
 ]);
 
 describe("loadUsers", () => {
-  it("paints a six-column skeleton while the fetch is in flight", async () => {
+  it("paints a four-column skeleton while the fetch is in flight", async () => {
     const { mod } = await mountUsers({ users: [] });
     const loading = mod.loadUsers();
     expect(rows()).toHaveLength(5);
     expect(rows()[0].className).toBe("skel-row");
-    expect(rows()[0].querySelectorAll("td")).toHaveLength(6);
+    expect(rows()[0].querySelectorAll("td")).toHaveLength(4);
     await loading;
   });
 
@@ -96,73 +96,91 @@ describe("loadUsers", () => {
     await mod.loadUsers();
     const cell = rows()[0].querySelector("td");
     expect(rows()).toHaveLength(1);
-    expect(cell.getAttribute("colspan")).toBe("6");
+    expect(cell.getAttribute("colspan")).toBe("4");
     expect(cell.className).toBe("error");
     expect(cell.textContent).toBe("Users are down");
   });
 });
 
 describe("the table", () => {
-  it("renders the six cells in order", async () => {
-    const created = "2026-03-04T15:30:00Z";
+  it("renders the four cells in order", async () => {
     const u = userFactory({
-      first_name: "Ann", last_name: "Holder", username: "aholder",
-      role: "techfm_oa", created_at: created,
+      first_name: "Ann", last_name: "Holder", full_name: "Ann Holder", username: "aholder", role: "techfm_oa",
     });
     await openUsers({ users: [u] });
     expect(cells(rowFor("aholder"))).toEqual([
-      "Ann", "Holder", "aholder", "TechFM OA", new Date(created).toLocaleString(),
+      "Ann Holder", "aholder", "TechFM OA",
       // Owner over a TechFM OA: the full four-button set.
       "Edit DetailsEdit RoleReset Password🗑️",
     ]);
+    // The Name cell leads the phone card.
+    expect(rowFor("aholder").querySelector("td").hasAttribute("data-primary")).toBe(true);
   });
 
-  it("falls back to 'Name unavailable' per name column, independently", async () => {
+  it("falls back to 'Name unavailable' only when both names are missing", async () => {
     await openUsers({
       users: [
-        userFactory({ first_name: null, last_name: "Holder", username: "nofirst" }),
-        userFactory({ first_name: "Ann", last_name: null, username: "nolast" }),
-        userFactory({ first_name: null, last_name: null, username: "neither" }),
+        // No full_name from the server: the cell is built from the parts.
+        userFactory({ first_name: null, last_name: "Holder", full_name: null, username: "nofirst" }),
+        userFactory({ first_name: "Ann", last_name: null, full_name: null, username: "nolast" }),
+        userFactory({ first_name: null, last_name: null, full_name: null, username: "neither" }),
       ],
     });
-    expect(cells(rowFor("nofirst")).slice(0, 2)).toEqual(["Name unavailable", "Holder"]);
-    expect(cells(rowFor("nolast")).slice(0, 2)).toEqual(["Ann", "Name unavailable"]);
-    expect(cells(rowFor("neither")).slice(0, 2)).toEqual(["Name unavailable", "Name unavailable"]);
+    expect(cells(rowFor("nofirst"))[0]).toBe("Holder");
+    expect(cells(rowFor("nolast"))[0]).toBe("Ann");
+    expect(cells(rowFor("neither"))[0]).toBe("Name unavailable");
   });
 
-  it("tags an archived row on the First Name cell and marks the tr", async () => {
+  it("shows active users by default and archived ones under the Archived scope", async () => {
     await openUsers({
       users: [
-        userFactory({ first_name: "Gone", last_name: "Away", username: "gone", archived_at: "2026-01-01T00:00:00Z" }),
+        userFactory({ first_name: "Gone", last_name: "Away", full_name: "Gone Away", username: "gone", archived_at: "2026-01-01T00:00:00Z" }),
         userFactory({ first_name: "Still", last_name: "Here", username: "here" }),
       ],
     });
+    expect(scopeBtn("active").getAttribute("aria-pressed")).toBe("true");
+    expect(rowFor("gone")).toBeNull();
+    expect(rowFor("here").classList.contains("archived-user")).toBe(false);
+
+    showScope("archived");
+    expect(scopeBtn("archived").getAttribute("aria-pressed")).toBe("true");
+    expect(scopeBtn("active").getAttribute("aria-pressed")).toBe("false");
+    expect(rowFor("here")).toBeNull();
     const archived = rowFor("gone");
     expect(archived.classList.contains("archived-user")).toBe(true);
-    expect(cells(archived)[0]).toBe("Gone (archived)");
+    expect(cells(archived)[0]).toBe("Gone Away (archived)");
     expect(archived.querySelector(".muted").textContent).toBe("(archived)");
-    // The tag rides the First Name cell only.
-    expect(cells(archived)[1]).toBe("Away");
-    expect(rowFor("here").classList.contains("archived-user")).toBe(false);
+  });
+
+  it("the search box narrows by name or username, with an empty line when nothing matches", async () => {
+    const user = userEvent.setup();
+    await openUsers({
+      users: [
+        userFactory({ first_name: "Ann", last_name: "Holder", username: "aholder" }),
+        userFactory({ first_name: "Bob", last_name: "Smith", username: "bsmith" }),
+      ],
+    });
+    await user.type(search(), "hold");
+    expect(rows()).toHaveLength(1);
+    expect(rowFor("aholder")).not.toBeNull();
+
+    await user.clear(search());
+    await user.type(search(), "bsm");
+    expect(rowFor("bsmith")).not.toBeNull();
+    expect(rowFor("aholder")).toBeNull();
+
+    await user.clear(search());
+    await user.type(search(), "zzz");
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0].querySelector("td.empty").textContent).toBe("No active users match.");
   });
 
   it("escapes a name carrying markup", async () => {
     await openUsers({
-      users: [userFactory({ first_name: '<img src=x onerror="boom">', username: "nasty" })],
+      users: [userFactory({ full_name: '<img src=x onerror="boom">', username: "nasty" })],
     });
     expect(el.tbody().querySelector("img")).toBeNull();
     expect(cells(rowFor("nasty"))[0]).toBe('<img src=x onerror="boom">');
-  });
-
-  it.each([
-    // N-P6-CHARACTERIZED: `new Date(null)` is the epoch, not Invalid Date, so a
-    // user with no creation date reads as a 1970 account rather than as
-    // missing. Junk reads "Invalid Date". The Items finding's twin.
-    ["a null created_at", null, new Date(0).toLocaleString()],
-    ["an unparseable created_at", "not-a-date", "Invalid Date"],
-  ])("%s renders as %s", async (_label, created, expected) => {
-    await openUsers({ users: [userFactory({ username: "odd", created_at: created })] });
-    expect(cells(rowFor("odd"))[4]).toBe(expected);
   });
 });
 
@@ -170,8 +188,9 @@ describe("the row-action matrix, frozen", () => {
   it.each(ROLES)("%s sees the right actions on every role, active and archived", async (actor) => {
     await openUsers({ role: actor, users: matrixRoster() });
 
-    ROLES.forEach((target) => {
-      ["active", "archived"].forEach((state) => {
+    ["active", "archived"].forEach((state) => {
+      showScope(state);
+      ROLES.forEach((target) => {
         const row = rowFor(`${target}-${state}`);
         const expected = MATRIX[actor][target][state];
         expect(buttonsIn(row), `${actor} → ${target} (${state})`).toEqual(expected);

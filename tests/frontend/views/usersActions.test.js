@@ -12,7 +12,7 @@ import { userEvent } from "@testing-library/user-event";
 import { server } from "../helpers/handlers.js";
 import {
   answerPasswordReset, answerUserName, answerUserRole, el, openUsers,
-  requestFor, requests, restoreUsers, rowFor,
+  requestFor, requests, restoreUsers, rowFor, showScope,
 } from "../helpers/users.js";
 import { confirmOverlay, confirmTitle } from "../helpers/dialogs.js";
 import { user as userFactory } from "../helpers/factories.js";
@@ -28,6 +28,8 @@ async function withTarget(overrides = {}) {
     username: "ttech", role: "technician", ...overrides,
   });
   const mounted = await openUsers({ role: "owner", users: [target] });
+  // An archived target paints only under the Archived scope.
+  if (target.archived_at) showScope("archived");
   return { ...mounted, target, user, row: () => rowFor(target.username) };
 }
 

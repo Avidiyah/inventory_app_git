@@ -60,6 +60,14 @@ afterEach(() => stopRecording());
 const rows = () => Array.from(host.querySelectorAll("details.user-profile-day"));
 
 describe("the panel", () => {
+  it("a fresh week opens today and every day that needs review, nothing else", async () => {
+    const week = personWeek();            // server_now is Wed 2026-09-16 15:00Z
+    week.days[4] = { ...week.days[4], pending_review: true };
+    serve(week);
+    await mount();
+    expect(rows().map((d) => d.open)).toEqual([false, false, true, false, true, false, false]);
+  });
+
   it("renders the header, seven day rows and the week totals", async () => {
     serve(personWeek());
     await mount();

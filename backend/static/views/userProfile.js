@@ -285,13 +285,31 @@ export function mountUserProfile(container, user, { onBack, week: initialWeek = 
     wire(payload);
   }
 
+  // The day the server considers "now" in Central time, as the days' ISO date.
+  function todayOf(serverNow) {
+    const d = new Date(serverNow);
+    return Number.isNaN(d.getTime())
+      ? ""
+      : d.toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  }
+
   async function load(requested) {
     const id = ++requestId;
+    // Read the open days BEFORE the skeleton replaces them, so a save or a
+    // retry lands back on the day being edited.
+    const open = new Set(Array.from(body.querySelectorAll("details[open]")).map((d) => d.dataset.date));
     body.innerHTML = `<table class="stack-table"><tbody>${skeletonTableRows(4, 7)}</tbody></table>`;
     try {
       const fresh = await apiGetPersonWeek(user.id, { week: requested });
       if (id !== requestId) return;
-      const open = new Set(Array.from(body.querySelectorAll("details[open]")).map((d) => d.dataset.date));
+      // A fresh week opens today and every day that needs review, so the
+      // punch to fix is on screen without a hunt.
+      const dates = new Set(fresh.days.map((d) => d.date));
+      open.forEach((date) => { if (!dates.has(date)) open.delete(date); });
+      if (!open.size) {
+        const today = todayOf(fresh.server_now);
+        fresh.days.forEach((d) => { if (d.date === today || d.pending_review) open.add(d.date); });
+      }
       payload = fresh;
       week = payload.week_start;
       paintHeading(payload);

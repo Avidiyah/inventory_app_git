@@ -1262,10 +1262,25 @@ tr:last-child td {
     font-size: var(--fs-sm, 0.875rem);
 }
 
-.wo-sort-seg .seg-btn[aria-pressed="true"] {
+.wo-sort-seg .seg-btn[aria-pressed="true"],
+.users-scope .seg-btn[aria-pressed="true"] {
     background-color: var(--color-brand);
     border-color: var(--color-brand);
     color: var(--color-white);
+}
+
+/* Users page: search box plus the Active / Archived toggle, sized like the
+   work-orders sort toggle. */
+.users-filter input[type="search"] {
+    flex: 1 1 240px;
+    max-width: 480px;
+}
+
+.users-scope .seg-btn {
+    flex: 0 0 auto;
+    min-height: var(--btn-h-sm);
+    padding: 0 var(--space-3);
+    font-size: var(--fs-sm, 0.875rem);
 }
 
 /* The keyword search row beneath it: both inputs stretch to share the
