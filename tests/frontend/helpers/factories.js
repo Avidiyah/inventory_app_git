@@ -685,6 +685,46 @@ export function attendanceWeek(overrides = {}) {
   };
 }
 
+// One scored window from `GET /hub/performance`: Ann leads, Bo second, Cy
+// listed under the floor with a day and an order left out.
+export function performanceWindow(overrides = {}) {
+  const scaled = (billed, efficiency, accuracy, clean_days) => ({ billed, efficiency, accuracy, clean_days });
+  const row = (user, extra) => ({
+    user, rank: null, below_floor: false, score: 0, billed_dollars: "0.00",
+    efficiency_pct: 0, accuracy_pct: 0, counted_days: 0, active_days: 0, clocked_minutes: 0,
+    scaled: scaled(0, 0, 0, 0), day_reasons: [], excluded_orders: [], ...extra,
+  });
+  return {
+    window: "week",
+    start: "2026-09-14",
+    end: "2026-09-20",
+    to_date: false,
+    server_now: "2026-09-16T15:00:00Z",
+    weights: { billed: 40, efficiency: 25, accuracy: 20, clean_days: 15 },
+    floor_minutes: 960,
+    rows: [
+      row({ id: "user-1", first_name: "Ann", last_name: "Lee", role: "technician" }, {
+        rank: 1, score: 94, billed_dollars: "1000.00", efficiency_pct: 90, accuracy_pct: 80,
+        counted_days: 5, active_days: 5, clocked_minutes: 2400, scaled: scaled(100, 90, 80, 100),
+      }),
+      row({ id: "user-2", first_name: "Bo", last_name: "Diaz", role: "technician" }, {
+        rank: 2, score: 72, billed_dollars: "500.00", efficiency_pct: 100, accuracy_pct: 100,
+        counted_days: 2, active_days: 4, clocked_minutes: 1200, scaled: scaled(50, 100, 100, 50),
+        day_reasons: [
+          { code: "punch_estimated", label: "forgotten clock-out", days: 1 },
+          { code: "charged_off_shift", label: "charged off shift", days: 1 },
+        ],
+      }),
+      row({ id: "user-3", first_name: "Cy", last_name: "Park", role: "technician" }, {
+        rank: null, below_floor: true, score: 40, billed_dollars: "120.00", efficiency_pct: 75,
+        accuracy_pct: 75, counted_days: 1, active_days: 1, clocked_minutes: 300, scaled: scaled(12, 75, 94, 100),
+        excluded_orders: [{ number: "WO-4471", reason: "session_auto_closed", label: "job clock auto-closed" }],
+      }),
+    ],
+    ...overrides,
+  };
+}
+
 export function personWeek(overrides = {}) {
   const days = ["2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17",
                 "2026-09-18", "2026-09-19", "2026-09-20"];

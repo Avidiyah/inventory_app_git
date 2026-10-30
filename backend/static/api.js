@@ -637,6 +637,14 @@ export async function apiGetHubAttendanceWeek({ week = null } = {}) {
   return liveGet(query ? `/hub/attendance/week?${query}` : "/hub/attendance/week");
 }
 
+// The Leaderboards board: `window` is "week" (start = a Monday) or "month"
+// (start = the first of a month); no start means the one in progress.
+export async function apiGetHubPerformance({ window = "week", start = null } = {}) {
+  const params = new URLSearchParams({ window });
+  if (start) params.set("start", start);
+  return liveGet(`/hub/performance?${params}`);
+}
+
 // One crew member's week for the Users-page profile. `week` is a Monday;
 // absent means the week in progress. Admin only.
 export async function apiGetPersonWeek(userId, { week = null } = {}) {

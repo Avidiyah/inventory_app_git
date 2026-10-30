@@ -144,6 +144,8 @@ export const ENDPOINTS = [
   { fn: "apiPunchIn", args: [], method: "POST", url: "/attendance/punch-in", body: {} },
   { fn: "apiPunchOut", args: [], method: "POST", url: "/attendance/punch-out", body: {} },
   { fn: "apiGetHubAttendanceWeek", args: [{}], url: "/hub/attendance/week", cache: "no-store" },
+  { fn: "apiGetHubPerformance", args: [{ window: "month", start: "2026-10-01" }],
+    url: "/hub/performance?window=month&start=2026-10-01", cache: "no-store" },
   { fn: "apiGetPersonWeek", args: ["u1", {}], url: "/hub/people/u1/week", cache: "no-store" },
   { fn: "apiGetHubAttendanceLive", args: [], url: "/hub/attendance/live", cache: "no-store" },
   { fn: "apiExportHubAttendance", args: [{}], url: "/hub/attendance/export", cache: "no-store" },
