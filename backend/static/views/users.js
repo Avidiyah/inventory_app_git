@@ -106,9 +106,7 @@ async function loadUsersNow() {
         : null,
     ]);
     setUsers(users);
-    fixCounts = new Map((week?.rows ?? []).map((row) => [
-      row.user.id, row.days.filter((d) => d.needs_review || d.pending_review).length,
-    ]));
+    fixCounts = countsFrom(week);
     renderUsersTable();
     populateRoleSelect();
     populateUserSelects();
@@ -119,6 +117,24 @@ async function loadUsersNow() {
     usersTbody.innerHTML =
       `<tr><td colspan="4" class="error">${escapeHtml(friendlyError(error, "Could not load users. Try again."))}</td></tr>`;
   }
+}
+
+function countsFrom(week) {
+  return new Map((week?.rows ?? []).map((row) => [
+    row.user.id, row.days.filter((d) => d.needs_review || d.pending_review).length,
+  ]));
+}
+
+// Back from a profile where a punch may just have been fixed: refetch only
+// the week, so the counts are current without repainting the list twice.
+async function refreshFixCounts() {
+  if (!roleAtLeast(getRole(), "supervisor")) return;
+  try {
+    fixCounts = countsFrom(await apiGetHubAttendanceWeek());
+  } catch {
+    return;
+  }
+  if (!usersTable.hidden) renderUsersTable();
 }
 
 function renderUsersTable() {
@@ -245,7 +261,9 @@ async function showProfile(user, { week = null } = {}) {
   const { mountUserProfile } = await import("./userProfile.js");
   usersTable.hidden = true;
   userProfile.hidden = false;
-  mountUserProfile(userProfile, user, { onBack: hideProfile, week, page: "users" });
+  mountUserProfile(userProfile, user, {
+    onBack: () => { hideProfile(); void refreshFixCounts(); }, week, page: "users",
+  });
 }
 
 // The Back path from a work order (E8): re-open a profile without a click.

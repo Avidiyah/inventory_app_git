@@ -11,7 +11,7 @@ import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
 import { server } from "../helpers/handlers.js";
 import {
-  actionsIn, cells, el, historyOptions, mountUsers, openUsers, requestFor,
+  actionsIn, cells, clearRequests, el, historyOptions, mountUsers, openUsers, requestFor,
   requests, restoreUsers, roleOptions, rowFor, rows, search, scopeBtn, showScope,
 } from "../helpers/users.js";
 import { attendanceWeek, personWeek, user as userFactory } from "../helpers/factories.js";
@@ -461,7 +461,7 @@ describe("the profile hand-off", () => {
     expect(document.querySelectorAll(PROFILE_BTN)).toHaveLength(0);
   });
 
-  it("swaps the table for the profile and Back restores it without refetching", async () => {
+  it("swaps the table for the profile; Back restores it and refetches only the week for the to-fix counts", async () => {
     const users = crew();
     const tech = users.find((u) => u.role === "technician");
     server.use(http.get("/hub/people/:id/week", () => HttpResponse.json({
@@ -474,10 +474,19 @@ describe("the profile hand-off", () => {
     await vi.waitFor(() => expect(document.querySelector(".user-profile-header")).not.toBeNull());
     expect(document.getElementById("users-table").hidden).toBe(true);
     expect(document.querySelector(".user-profile-header").textContent).toContain(tech.last_name);
+    const week = attendanceWeek();
+    week.rows[0].user.id = tech.id;
+    week.rows[0].days[1] = { ...week.rows[0].days[1], needs_review: true };
+    server.use(http.get("/hub/attendance/week", () => HttpResponse.json(week)));
+    clearRequests();
     document.querySelector(".user-profile-back").click();
     expect(document.getElementById("users-table").hidden).toBe(false);
     expect(document.getElementById("user-profile").hidden).toBe(true);
     expect(rows().length).toBe(users.length);
+    // The punch just fixed (or newly flagged) shows on the list at once.
+    await vi.waitFor(() => expect(rowFor(tech.username).querySelector(".users-fix-count")).not.toBeNull());
+    expect(scopeBtn("fix").textContent).toBe("Needs a fix (1)");
+    expect(requestFor("/users/", "GET")).toBeNull();
   });
 });
 
