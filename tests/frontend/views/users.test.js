@@ -133,6 +133,27 @@ describe("loadUsers", () => {
     expect(rows()[0].querySelector("td.empty").textContent).toBe("Nobody needs a fix this week.");
   });
 
+  it("polls the week every minute while the Users page is on screen, and not otherwise", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const { mod } = await mountUsers({ users: [userFactory({ username: "alee" })] });
+      await mod.loadUsers();
+      clearRequests();
+      const page = document.getElementById("saved-users-page");
+
+      page.classList.remove("active");
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(requestFor("/hub/attendance/week", "GET")).toBeNull();
+
+      page.classList.add("active");
+      await vi.advanceTimersByTimeAsync(60000);
+      await vi.waitFor(() => expect(requestFor("/hub/attendance/week", "GET")).not.toBeNull());
+      expect(requestFor("/users/", "GET")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a failed week fetch still paints the list, just without counts", async () => {
     const flagged = userFactory({ full_name: "Ann Lee", username: "alee" });
     const { mod } = await mountUsers({

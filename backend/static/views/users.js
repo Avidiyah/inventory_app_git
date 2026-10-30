@@ -85,7 +85,23 @@ let pendingProfile = null;
 
 export function loadUsers() {
   lastLoad = loadUsersNow();
+  startFixPolling();
   return lastLoad;
+}
+
+// The to-fix counts refetch every minute while the Users page is the one on
+// screen; a tick on a hidden tab or another page costs nothing, so the one
+// timer simply stays armed. Same cadence as the hub's safety refresh.
+const FIX_POLL_MS = 60000;
+let fixPollTimer = null;
+const usersPage = document.getElementById("saved-users-page");
+
+function startFixPolling() {
+  if (fixPollTimer !== null) return;
+  fixPollTimer = setInterval(() => {
+    if (document.hidden || !usersPage?.classList.contains("active")) return;
+    void refreshFixCounts();
+  }, FIX_POLL_MS);
 }
 
 async function loadUsersNow() {
@@ -125,8 +141,9 @@ function countsFrom(week) {
   ]));
 }
 
-// Back from a profile where a punch may just have been fixed: refetch only
-// the week, so the counts are current without repainting the list twice.
+// Back from a profile where a punch may just have been fixed, and every poll
+// tick: refetch only the week, so the counts are current without repainting
+// the list twice.
 async function refreshFixCounts() {
   if (!roleAtLeast(getRole(), "supervisor")) return;
   try {
