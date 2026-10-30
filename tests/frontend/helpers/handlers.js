@@ -4,7 +4,7 @@
 
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { attendanceMe, filterOptions, hubPayload } from "./factories.js";
+import { attendanceMe, attendanceWeek, filterOptions, hubPayload } from "./factories.js";
 
 // Handler paths are RELATIVE ("/work-orders/:id") and match as-is: jsdom's
 // default document URL supplies the origin, and api.js issues relative
@@ -49,6 +49,8 @@ export function pageHandlers() {
     http.get("/items/low-stock", () => HttpResponse.json([])),
     http.get("/items/", () => HttpResponse.json([])),
     http.get("/users/", () => HttpResponse.json([])),
+    // saved-users -> loadUsers also fetches weekly attendance for fix counts.
+    http.get("/hub/attendance/week", () => HttpResponse.json(attendanceWeek({ rows: [] }))),
     http.get("/mass-stages/", () => HttpResponse.json([])),
     http.get("/tools/", () => HttpResponse.json([])),
 

@@ -65,6 +65,8 @@ describe("bootApp", () => {
     expect(document.getElementById("login-screen").hidden).toBe(true);
     // The owner's landing page is the hub, and its loader really ran.
     expect(requestsFor("/hub")).toHaveLength(1);
+    // initAuth primes Users too, including the weekly needs-fix counts.
+    expect(requestsFor("/hub/attendance/week", "GET")).toHaveLength(1);
     expect(errors).toEqual([]);
     spy.mockRestore();
   });

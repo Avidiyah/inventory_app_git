@@ -2016,7 +2016,9 @@ Frontend layers:
   (Users on class names). `helpers/realtime.js` wires the fake socket.
 - E2E (`pytest -m e2e` from `backend/`): real Chromium over the real app --
   every `SHELL_PARTS` page renders its landmark with an empty console, plus two
-  work-order journeys. The only layer that sees CSP violations and the service
+  work-order journeys and account creation inside Users. The Users journey
+  verifies the refreshed row, automatic Add user panel closure, and cleared
+  form fields on reopen. The only layer that sees CSP violations and the service
   worker. Needs Postgres and `python -m playwright install chromium`; missing
   either skips locally and fails under `CI=true`. Deselected by default
   (`backend/pytest.ini`) because it COMMITS `E2E-`-prefixed rows to
