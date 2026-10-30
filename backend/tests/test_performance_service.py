@@ -86,6 +86,16 @@ def test_week_counts_a_clean_day(db):
     assert row.clocked_minutes == 480
 
 
+def test_idle_crew_members_are_not_listed(db):
+    # The week read carries every live crew member at zero hours; an idle week
+    # is not a row to rank or to grey out.
+    idle = make_technician(db, "Idle")
+    busy = make_technician(db, "Busy")
+    make_punch(db, busy, "2026-09-14T13:00Z", "2026-09-14T21:00Z")
+    ids = {r.user.id for r in week(db).rows}
+    assert busy.id in ids and idle.id not in ids
+
+
 def test_reviewed_estimate_stays_out(db):
     tech = make_technician(db)
     make_punch(db, tech, "2026-09-14T13:00Z", "2026-09-15T05:00Z",

@@ -187,6 +187,10 @@ def window_payload(db: Session, *, window: str, start: Optional[date], now: date
             clocked += day_clocked
             sessions += day_sessions
             adjustments += day_adjust
+        # An idle window is not a row: the week read lists every live crew
+        # member at zero hours, and nobody is ranked, or greyed, for absence.
+        if not (active or user_id in dollars or user_id in excluded_orders):
+            continue
         inputs.append(performance.PersonInput(
             user_id=user_id, clocked_minutes=clocked, session_minutes=sessions,
             adjustment_minutes=adjustments, billed_dollars=dollars.get(user_id, Decimal(0)),
