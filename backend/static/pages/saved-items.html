@@ -1,12 +1,13 @@
     <!-- =================== SAVED ITEMS PAGE =================== -->
     <div class="page" id="saved-items-page">
 
-        <!-- TechFM OA+ (views/items.js unhides them; the /items export routes enforce). -->
+        <!-- TechFM OA+; the items CSV is Admin+ (views/items.js unhides them; the /items export routes enforce). -->
         <div class="page-actions">
             <a id="items-export-link" class="secondary-btn" href="/items/export" hidden>Export inventory</a>
             <a id="items-labels-link" class="secondary-btn" href="/items/labels" target="_blank" rel="noopener" hidden>Export labels</a>
             <button id="dispense-export-btn" class="secondary-btn" type="button" hidden>Export weekly</button>
             <button id="dispense-reprint-btn" class="secondary-btn" type="button" hidden>Reprint weekly</button>
+            <button id="items-csv-btn" class="secondary-btn" type="button" hidden>Export items CSV</button>
         </div>
         <p id="dispense-export-message"></p>
 

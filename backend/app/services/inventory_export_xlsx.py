@@ -12,6 +12,7 @@ omitted -- only open and stocked ones need a real-world check.
 
 from __future__ import annotations
 
+import csv
 import io
 from datetime import datetime
 from typing import Optional
@@ -23,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.domain.labor_day import CENTRAL
 from app.domain.material_requests import STATUS_RESOLVED
-from app.models import Item, UserRequest
+from app.models import Item, ItemBarcode, UserRequest
 from app.services import _xlsx_theme as theme
 from app.services import items as items_service
 from app.services import user_requests as request_service
@@ -94,6 +95,42 @@ def export_filename(now: datetime) -> str:
     return f"inventory-export_{now.astimezone(CENTRAL).date().isoformat()}.xlsx"
 
 
+ITEMS_CSV_HEADERS = (
+    "Barcode", "Name", "Quantity", "Low stock threshold", "Location", "Price",
+    "Product link", "Additional barcodes", "Notes", "Created at",
+)
+
+
+def items_csv(db: Session) -> str:
+    """Every live item, every field, as CSV: one header row, no title line
+    (a spreadsheet import gets a title line wrong). Ignores any search."""
+    extra: dict = {}
+    for code in db.query(ItemBarcode).order_by(ItemBarcode.created_at, ItemBarcode.code):
+        extra.setdefault(code.item_id, []).append(code.code)
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\r\n")
+    writer.writerow(ITEMS_CSV_HEADERS)
+    for item in sorted(items_service.list_items(db), key=lambda item: item.name.casefold()):
+        writer.writerow([_csv_text(cell) for cell in (
+            item.barcode, item.name, _number(item.quantity), item.low_stock_threshold,
+            item.location, _number(item.price), item.product_link,
+            "; ".join(extra.get(item.id, ())), _notes_text(item), _when(item.created_at),
+        )])
+    return buffer.getvalue()
+
+
+def items_csv_filename(now: datetime) -> str:
+    return f"items_{now.astimezone(CENTRAL).date().isoformat()}.csv"
+
+
+def _csv_text(value):
+    """Neutralise spreadsheet formulas: a text cell opening with = + - @ is
+    run as a formula by Excel, and item names are typed by technicians."""
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@"):
+        return "'" + value
+    return "" if value is None else value
+
+
 def _sheet(
     sheet: Worksheet,
     title: str,
@@ -123,15 +160,18 @@ def _sheet(
         theme.empty_state(sheet, HEADER_ROW + 1, empty_text)
 
 
+def _notes_text(item: Item) -> str:
+    return "; ".join(f"{key}: {value}" for key, value in (item.notes or {}).items())
+
+
 def _item_cells(item: Item, low: bool) -> list:
-    notes = "; ".join(f"{key}: {value}" for key, value in (item.notes or {}).items())
     return [
         item.name,
         item.barcode,
         _number(item.quantity),
         "LOW" if low else None,
         item.location,
-        notes or None,
+        _notes_text(item) or None,
     ]
 
 

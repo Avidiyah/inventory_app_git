@@ -33,6 +33,7 @@ export const ENDPOINTS = [
     body: { barcodes: ["x"], override_archived: false } },
   { fn: "apiListLowStock", args: [], url: "/items/low-stock", cache: "no-store" },
   { fn: "apiCreateDispenseExport", args: [], url: "/items/dispense-exports", method: "POST", cache: "no-store" },
+  { fn: "apiExportItemsCsv", args: [], url: "/items/export.csv", method: "GET", cache: "no-store" },
   { fn: "apiReprintDispenseExport", args: [], url: "/items/dispense-exports/latest", method: "GET", cache: "no-store" },
   { fn: "apiExportSmrXlsx", args: [], url: "/work-orders/smr/export.xlsx", method: "GET", cache: "no-store" },
   { fn: "apiListSmrTiles", args: [], url: "/work-orders/smr" },

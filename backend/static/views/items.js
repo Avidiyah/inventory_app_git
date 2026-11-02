@@ -93,7 +93,7 @@ export function loadItems() {
   resultRequestId += 1;
   const canExport = roleAtLeast(getRole(), "techfm_oa");
   itemsExportLink.hidden = itemsLabelsLink.hidden = !canExport;
-  showDispenseExport(canExport);
+  showDispenseExport(canExport, roleAtLeast(getRole(), "admin"));
   resultMode = "none";
   resultQuery = "";
   syncLabelsLink(0);

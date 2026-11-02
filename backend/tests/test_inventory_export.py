@@ -2,6 +2,7 @@
 
 import io
 import os
+import re
 import sys
 import uuid
 from decimal import Decimal
@@ -74,6 +75,40 @@ def test_export_holds_items_and_every_request_tab(db):
     low_rows = [r for r in book["Items"].iter_rows(min_row=5) if r[3].value == "LOW"]
     assert name in [r[0].value for r in low_rows]
     assert all(r[0].font.color.rgb.endswith("C8102E") for r in low_rows)
+
+
+def test_items_csv_is_admin_floor_and_holds_every_field(db):
+    import csv
+
+    from app.models import ItemBarcode
+
+    tag = uuid.uuid4().hex[:8]
+    item = Item(barcode=f"CSV-{tag}", name=f"=Widget {tag}", quantity=Decimal("3"),
+                low_stock_threshold=4, location="Bay 1", price=Decimal("2.50"),
+                product_link="https://example.com/w", notes={"color": "red"})
+    db.add(item)
+    db.flush()
+    db.add(ItemBarcode(item_id=item.id, code=f"ALT-{tag}"))
+    db.add(Item(barcode=f"CSV-gone-{tag}", name="Archived one", quantity=Decimal("1"),
+                location="Bay 1", archived_at=item.created_at))
+    db.commit()
+
+    assert _export(db, "techfm_oa", "/items/export.csv").status_code == 403
+    response = _export(db, "admin", "/items/export.csv")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert re.search(r'filename="items_\d{4}-\d{2}-\d{2}\.csv"', response.headers["content-disposition"])
+    rows = list(csv.DictReader(io.StringIO(response.text)))
+    mine = next(r for r in rows if r["Barcode"] == f"CSV-{tag}")
+    assert mine == {
+        "Barcode": f"CSV-{tag}", "Name": f"'=Widget {tag}", "Quantity": "3.0",
+        "Low stock threshold": "4", "Location": "Bay 1", "Price": "2.5",
+        "Product link": "https://example.com/w", "Additional barcodes": f"ALT-{tag}",
+        "Notes": "color: red", "Created at": mine["Created at"],
+    }
+    assert mine["Created at"]
+    assert f"CSV-gone-{tag}" not in response.text
 
 
 def test_labels_page_draws_svg_barcodes_and_escapes_names(db):

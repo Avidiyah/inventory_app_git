@@ -183,6 +183,26 @@ def export_inventory(
     )
 
 
+@router.get(
+    "/export.csv",
+    responses={403: {"description": "Requires the Admin role or above."}},
+)
+def export_items_csv(
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """Every live item, all fields, as CSV. Registered above
+    `GET /items/{barcode}` for the same shadowing reason as `/export`."""
+    return Response(
+        content=inventory_export_xlsx.items_csv(db),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="'
+            f'{inventory_export_xlsx.items_csv_filename(datetime.now(timezone.utc))}"'
+        },
+    )
+
+
 def _xlsx_download(content: bytes, filename: str) -> Response:
     return Response(
         content=content,

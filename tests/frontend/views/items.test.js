@@ -653,4 +653,23 @@ describe("weekly export", () => {
     await vi.waitFor(() => expect(btn("dispense-export-message").className).toBe("error"));
     expect(btn("dispense-export-message").textContent).toContain("No weekly export");
   });
+
+  it("hides the items CSV button below Admin", async () => {
+    const { mod } = await mountItems({ role: "techfm_oa" });
+    mod.loadItems();
+    expect(btn("dispense-export-btn").hidden).toBe(false);
+    expect(btn("items-csv-btn").hidden).toBe(true);
+  });
+
+  it("shows the items CSV button to Admin and downloads it", async () => {
+    server.use(http.get("/items/export.csv", () => new HttpResponse("Barcode\r\n", {
+      headers: { "Content-Disposition": 'attachment; filename="items_2026-11-02.csv"' },
+    })));
+    const { mod } = await mountItems({ role: "admin" });
+    mod.loadItems();
+    expect(btn("items-csv-btn").hidden).toBe(false);
+    await userEvent.setup().click(btn("items-csv-btn"));
+    await vi.waitFor(() => expect(btn("dispense-export-message").textContent)
+      .toBe("Downloaded items_2026-11-02.csv."));
+  });
 });
