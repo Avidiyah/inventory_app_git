@@ -125,8 +125,9 @@ describe("Clear filters", () => {
     el("work-orders-clear-filters").click();
     await flush();
     expect(listUrls()).toHaveLength(1);
-    expect(listUrls()[0]).toBe("/work-orders/?limit=10&sort=scheduled_desc");
-    expect(el("work-orders-mine-filter").checked).toBe(false);
+    // The pop-up's Clear filters leaves the My Work Orders scope alone.
+    expect(listUrls()[0]).toBe("/work-orders/?mine=true&sort=scheduled_desc");
+    expect(el("work-orders-mine-filter").checked).toBe(true);
     for (const id of [
       "work-orders-status-filter", "work-orders-service-filter", "work-orders-priority-filter",
       "work-orders-supervisor-filter", "work-orders-technician-filter", "work-orders-community-filter",
@@ -217,6 +218,23 @@ describe("My Work Orders", () => {
     await flush();
     expect(el("work-orders-mine-filter").checked).toBe(false);
     expect(listUrls().at(-1)).toBe("/work-orders/?limit=10&sort=scheduled_desc");
+  });
+
+  it("the big toggle and the pop-up checkbox are one setting", async () => {
+    await mountWorkOrders({ role: "admin" });
+    const pressed = () => [...el("work-orders-scope").querySelectorAll("[data-scope]")]
+      .map((b) => b.getAttribute("aria-pressed"));
+    expect(pressed()).toEqual(["true", "false"]);
+    el("work-orders-scope").querySelector('[data-scope="all"]').click();
+    await flush();
+    expect(el("work-orders-mine-filter").checked).toBe(false);
+    expect(listUrls()).toHaveLength(1);
+    expect(listUrls()[0]).not.toContain("mine=");
+    expect(pressed()).toEqual(["false", "true"]);
+    el("work-orders-mine-filter").checked = true;
+    el("work-orders-mine-filter").dispatchEvent(new Event("change", { bubbles: true }));
+    await flush();
+    expect(pressed()).toEqual(["true", "false"]);
   });
 
   it("unticking the box reloads without it", async () => {

@@ -13,10 +13,30 @@
 
         <section id="work-orders-controls-section">
             <h2>Work Orders</h2>
-            <div class="wo-filter-grid" aria-label="Work order filters">
-                <!-- On by default for every role: work routed to me as Team Lead
-                     or assigned to me as a technician (the server's `mine`).
-                     Clear filters or the chip's x widens to every work order. -->
+            <!-- Scope: first thing on the page. Drives the same state as the
+                 My Work Orders checkbox in the Filters pop-up (the server's
+                 `mine`); workOrderList.js keeps the two in step. -->
+            <div id="work-orders-scope" class="segmented wo-scope-seg" role="group" aria-label="Which work orders">
+                <button type="button" class="seg-btn" data-scope="mine" aria-pressed="true">My Work Orders</button>
+                <button type="button" class="seg-btn" data-scope="all" aria-pressed="false">All Work Orders</button>
+            </div>
+            <div class="filter-row wo-number-search-row">
+                <label for="work-orders-search">Work order #</label>
+                <input type="text" id="work-orders-search" placeholder="Search work order #">
+                <button id="work-orders-search-btn" type="button">Search</button>
+                <button id="work-orders-filters-open" type="button" class="secondary-btn">Filters<span id="work-orders-filters-count" class="wo-filters-count" hidden></span></button>
+                <button id="wo-export-btn" type="button" class="secondary-btn" hidden>Export filtered CSV…</button>
+                <div id="work-orders-sort" class="segmented wo-sort-seg" role="group" aria-label="Sort by scheduled date">
+                    <button type="button" class="seg-btn" data-sort="scheduled_desc" aria-pressed="true">Newest first</button>
+                    <button type="button" class="seg-btn" data-sort="scheduled_asc" aria-pressed="false">Oldest first</button>
+                </div>
+            </div>
+            <!-- Native <dialog>: Esc, focus trap and backdrop come free. The
+                 controls keep their ids, so the list wiring is unchanged. Changes
+                 apply live; Done just closes. -->
+            <dialog id="work-orders-filters-dialog" class="wo-filters-dialog" aria-labelledby="work-orders-filters-title">
+                <h3 id="work-orders-filters-title">Filters</h3>
+                <div class="wo-filter-grid" aria-label="Work order filters">
                 <div class="wo-filter-field wo-filter-check">
                     <label for="work-orders-mine-filter"><input type="checkbox" id="work-orders-mine-filter" checked>My Work Orders</label>
                 </div>
@@ -74,23 +94,17 @@
                     <input id="work-orders-date-filter" type="date">
                 </div>
             </div>
-            <div class="filter-row wo-number-search-row">
-                <label for="work-orders-search">Work order #</label>
-                <input type="text" id="work-orders-search" placeholder="Search work order #">
-                <button id="work-orders-search-btn" type="button">Search</button>
-                <button id="work-orders-clear-filters" type="button" class="secondary-btn">Clear filters</button>
-                <button id="wo-export-btn" type="button" class="secondary-btn" hidden>Export filtered CSV…</button>
-                <div id="work-orders-sort" class="segmented wo-sort-seg" role="group" aria-label="Sort by scheduled date">
-                    <button type="button" class="seg-btn" data-sort="scheduled_desc" aria-pressed="true">Newest first</button>
-                    <button type="button" class="seg-btn" data-sort="scheduled_asc" aria-pressed="false">Oldest first</button>
+                <div class="filter-row wo-keyword-search-row">
+                    <label for="work-orders-location-search">Location</label>
+                    <input type="text" id="work-orders-location-search" placeholder="Search location">
+                    <label for="work-orders-task-search">Task / symptom</label>
+                    <input type="text" id="work-orders-task-search" placeholder="Search task keywords">
                 </div>
-            </div>
-            <div class="filter-row wo-keyword-search-row">
-                <label for="work-orders-location-search">Location</label>
-                <input type="text" id="work-orders-location-search" placeholder="Search location">
-                <label for="work-orders-task-search">Task / symptom</label>
-                <input type="text" id="work-orders-task-search" placeholder="Search task keywords">
-            </div>
+                <div class="wo-filters-actions">
+                    <button id="work-orders-clear-filters" type="button" class="secondary-btn">Clear filters</button>
+                    <button id="work-orders-filters-done" type="button">Done</button>
+                </div>
+            </dialog>
             <p id="work-orders-export-message"></p>
             <!-- Applied-filter chips + result count, filled after each list
                  load by views/workOrderFilterChips.js. -->

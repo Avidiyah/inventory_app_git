@@ -104,6 +104,11 @@ const searchBtn = document.getElementById("work-orders-search-btn");
 const locationSearchInput = document.getElementById("work-orders-location-search");
 const taskSearchInput = document.getElementById("work-orders-task-search");
 const clearFiltersBtn = document.getElementById("work-orders-clear-filters");
+const scopeSeg = document.getElementById("work-orders-scope");
+const filtersDialog = document.getElementById("work-orders-filters-dialog");
+const filtersOpenBtn = document.getElementById("work-orders-filters-open");
+const filtersDoneBtn = document.getElementById("work-orders-filters-done");
+const filtersCountEl = document.getElementById("work-orders-filters-count");
 const sortSeg = document.getElementById("work-orders-sort");
 const moreEl = document.getElementById("work-orders-more");
 // The filters/search block. Hidden in solo mode ("card page"), where the list
@@ -256,6 +261,7 @@ export async function loadWorkOrders({
     renderCards(cards);
     renderMoreControl(capped, cards.length);
     renderFilterChips();
+    renderScope();
     renderResultCount({ count: cards.length, capped });
     setMessage(listMessage, "", "");
     // The list is on screen and final: the only point at which a remembered
@@ -290,6 +296,7 @@ export async function loadWorkOrders({
     if (background) return;
     listEl.innerHTML = "";
     renderFilterChips();
+    renderScope();
     hideResultCount();
     if (moreEl) {
       moreEl.hidden = true;
@@ -715,14 +722,55 @@ function cancelSearchDebounces() {
   cancelTaskSearchDebounce();
 }
 
-function clearFilters() {
+function clearFilters(keepScope = false) {
+  const mine = mineFilter?.checked;
   cancelSearchDebounces();
   resetFilterControls();
+  if (keepScope && mineFilter) mineFilter.checked = mine;
   setShowAll(false);
   loadWorkOrders();
 }
 
-if (clearFiltersBtn) clearFiltersBtn.addEventListener("click", clearFilters);
+// The pop-up's Clear filters resets its fields and the WO# search but leaves the
+// My Work Orders / All scope where the user put it. The chips' Clear all (below)
+// still widens everything.
+if (clearFiltersBtn) clearFiltersBtn.addEventListener("click", () => clearFilters(true));
+
+// Scope toggle (My Work Orders | All) and the Filters pop-up. The toggle and the
+// pop-up's checkbox are one setting: `mineFilter` stays the source of truth and
+// renderScope() mirrors it after every load.
+function renderScope() {
+  if (scopeSeg) {
+    scopeSeg.querySelectorAll("[data-scope]").forEach((btn) => {
+      btn.setAttribute("aria-pressed", String((btn.dataset.scope === "mine") === Boolean(mineFilter?.checked)));
+    });
+  }
+  if (filtersCountEl) {
+    // Everything the pop-up holds, bar the scope checkbox (WO# search is on the page).
+    const { mine, q, ...inPopup } = currentFilters();
+    const count = Object.values(inPopup).filter(Boolean).length;
+    filtersCountEl.textContent = ` (${count})`;
+    filtersCountEl.hidden = count === 0;
+  }
+}
+
+if (scopeSeg && mineFilter) {
+  mineFilter.addEventListener("change", renderScope);
+  scopeSeg.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-scope]");
+    if (!btn || (btn.dataset.scope === "mine") === mineFilter.checked) return;
+    mineFilter.checked = btn.dataset.scope === "mine";
+    renderScope();
+    mineFilter.dispatchEvent(new Event("change"));
+  });
+}
+if (filtersOpenBtn && filtersDialog) {
+  filtersOpenBtn.addEventListener("click", () => {
+    if (!filtersDialog.open) filtersDialog.showModal();
+  });
+}
+if (filtersDoneBtn && filtersDialog) filtersDoneBtn.addEventListener("click", () => filtersDialog.close());
+renderScope();
 
 // A chip's x has already reset its one control; reload the way a filter
 // change does. A pending keyword debounce would otherwise fire a second,
@@ -733,7 +781,7 @@ installFilterChips({
     setShowAll(false);
     loadWorkOrders();
   },
-  onClearAll: clearFilters,
+  onClearAll: () => clearFilters(),
 });
 
 // Status invalidations for the card list. Like Admin Review, this refreshes only
