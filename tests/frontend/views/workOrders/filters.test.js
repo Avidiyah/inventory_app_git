@@ -220,7 +220,25 @@ describe("My Work Orders", () => {
     expect(listUrls().at(-1)).toBe("/work-orders/?limit=10&sort=scheduled_desc");
   });
 
-  it("the big toggle and the pop-up checkbox are one setting", async () => {
+  it("Advanced search is a folded panel whose button counts the active filters", async () => {
+    await mountWorkOrders({ role: "admin" });
+    const panel = el("work-orders-advanced");
+    expect(panel.tagName).toBe("DETAILS");
+    expect(panel.open).toBe(false);
+    expect(panel.querySelector("summary").textContent).toContain("Advanced search");
+    expect(panel.contains(el("work-orders-status-filter"))).toBe(true);
+    expect(el("work-orders-filters-count").hidden).toBe(true);
+    change(el("work-orders-status-filter"), "completed");
+    // The count is redrawn once the filtered list has landed, not on the change.
+    await vi.waitFor(() => expect(el("work-orders-filters-count").hidden).toBe(false));
+    expect(el("work-orders-filters-count").textContent).toBe(" (1)");
+    // The scope is not an "advanced" filter: switching it leaves the count alone.
+    el("work-orders-scope").querySelector('[data-scope="all"]').click();
+    await flush();
+    expect(el("work-orders-filters-count").textContent).toBe(" (1)");
+  });
+
+  it("the big toggle and the panel's checkbox are one setting", async () => {
     await mountWorkOrders({ role: "admin" });
     const pressed = () => [...el("work-orders-scope").querySelectorAll("[data-scope]")]
       .map((b) => b.getAttribute("aria-pressed"));

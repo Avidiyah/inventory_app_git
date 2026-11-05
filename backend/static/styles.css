@@ -1255,27 +1255,36 @@ tr:last-child td {
     font-size: var(--fs-lg);
 }
 
-/* Filters pop-up: native <dialog>. Full screen on a phone, a panel above 640px. */
-.wo-filters-dialog {
-    width: 100%;
-    max-width: 100%;
-    height: 100%;
-    max-height: 100%;
-    margin: 0;
-    padding: var(--space-4);
+/* Advanced search: native <details>, folded by default. Its summary is a big
+   full-width button sized like the scope toggle (the Users page "+ Add user"
+   pattern, scaled up); the open grid sits straight under it on the page. */
+.wo-advanced {
+    margin-bottom: var(--space-3);
+}
+
+.wo-advanced-summary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    min-height: 56px;
+    padding: 0 var(--space-3);
     border: 1px solid var(--panel-border);
-    background-color: var(--panel-bg);
+    border-radius: var(--radius-md);
     color: var(--text-panel);
-    overflow-y: auto;
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-bold);
+    cursor: pointer;
+    list-style: none;
 }
 
-.wo-filters-dialog::backdrop {
-    background-color: rgba(20, 20, 20, .55);
-}
-
-.wo-filters-dialog[open] {
-    display: block;
-}
+.wo-advanced-summary::-webkit-details-marker { display: none; }
+.wo-advanced-summary::before { content: "\25B8"; }
+.wo-advanced[open] > .wo-advanced-summary::before { content: "\25BE"; }
+.wo-advanced-summary:hover { background-color: var(--panel-hover); }
+.wo-advanced-summary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.wo-advanced[open] > .wo-advanced-summary { border-color: var(--color-brand); color: var(--color-brand); }
+.wo-advanced > .wo-filter-grid { margin-top: var(--space-3); }
 
 .wo-filters-actions {
     display: flex;
@@ -1285,17 +1294,6 @@ tr:last-child td {
 
 .wo-filters-count {
     margin-left: var(--space-1);
-}
-
-@media (min-width: 640px) {
-    .wo-filters-dialog {
-        width: min(720px, 92vw);
-        height: auto;
-        max-height: 90vh;
-        margin: auto;
-        border-radius: var(--radius-md);
-        box-shadow: var(--shadow-panel);
-    }
 }
 
 .wo-number-search-row input {

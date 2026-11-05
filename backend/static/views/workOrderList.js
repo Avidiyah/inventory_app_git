@@ -105,9 +105,6 @@ const locationSearchInput = document.getElementById("work-orders-location-search
 const taskSearchInput = document.getElementById("work-orders-task-search");
 const clearFiltersBtn = document.getElementById("work-orders-clear-filters");
 const scopeSeg = document.getElementById("work-orders-scope");
-const filtersDialog = document.getElementById("work-orders-filters-dialog");
-const filtersOpenBtn = document.getElementById("work-orders-filters-open");
-const filtersDoneBtn = document.getElementById("work-orders-filters-done");
 const filtersCountEl = document.getElementById("work-orders-filters-count");
 const sortSeg = document.getElementById("work-orders-sort");
 const moreEl = document.getElementById("work-orders-more");
@@ -731,14 +728,15 @@ function clearFilters(keepScope = false) {
   loadWorkOrders();
 }
 
-// The pop-up's Clear filters resets its fields and the WO# search but leaves the
+// The panel's Clear filters resets its fields and the WO# search but leaves the
 // My Work Orders / All scope where the user put it. The chips' Clear all (below)
 // still widens everything.
 if (clearFiltersBtn) clearFiltersBtn.addEventListener("click", () => clearFilters(true));
 
-// Scope toggle (My Work Orders | All) and the Filters pop-up. The toggle and the
-// pop-up's checkbox are one setting: `mineFilter` stays the source of truth and
-// renderScope() mirrors it after every load.
+// Scope toggle (My Work Orders | All) and the Advanced search panel (a native
+// <details>; the browser owns open/closed). The toggle and the panel's checkbox
+// are one setting: `mineFilter` stays the source of truth and renderScope()
+// mirrors it after every load.
 function renderScope() {
   if (scopeSeg) {
     scopeSeg.querySelectorAll("[data-scope]").forEach((btn) => {
@@ -746,9 +744,9 @@ function renderScope() {
     });
   }
   if (filtersCountEl) {
-    // Everything the pop-up holds, bar the scope checkbox (WO# search is on the page).
-    const { mine, q, ...inPopup } = currentFilters();
-    const count = Object.values(inPopup).filter(Boolean).length;
+    // Everything the panel holds, bar the scope checkbox (WO# search is on the page).
+    const { mine, q, ...inPanel } = currentFilters();
+    const count = Object.values(inPanel).filter(Boolean).length;
     filtersCountEl.textContent = ` (${count})`;
     filtersCountEl.hidden = count === 0;
   }
@@ -764,12 +762,6 @@ if (scopeSeg && mineFilter) {
     mineFilter.dispatchEvent(new Event("change"));
   });
 }
-if (filtersOpenBtn && filtersDialog) {
-  filtersOpenBtn.addEventListener("click", () => {
-    if (!filtersDialog.open) filtersDialog.showModal();
-  });
-}
-if (filtersDoneBtn && filtersDialog) filtersDoneBtn.addEventListener("click", () => filtersDialog.close());
 renderScope();
 
 // A chip's x has already reset its one control; reload the way a filter
