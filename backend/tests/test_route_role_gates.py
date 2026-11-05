@@ -555,6 +555,9 @@ def test_no_route_gate_is_left_at_the_admin_floor():
         "export_hub_attendance",
         "review_hub_attendance_week",
         "get_hub_performance",  # 2026-10-29: the scored board prices labor
+        # 2026-11-02: the whole catalogue with prices as CSV, by design above
+        # the OA-level xlsx export (test_inventory_export.py holds the 403).
+        "export_items_csv",
     }
 
 
