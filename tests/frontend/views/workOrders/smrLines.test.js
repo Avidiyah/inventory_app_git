@@ -50,7 +50,7 @@ describe("who sees what", () => {
   it("is read-only below Admin: readings, lines and block status, no buttons", async () => {
     await open({ role: "supervisor" });
     expect(section().textContent).toContain("Printing 1");
-    expect(section().textContent).toContain("2× unnamed");
+    expect(section().textContent).toContain("2× Skilled Technician");
     expect(section().textContent).toContain("v3 · not yet pasted");
     expect(section().querySelector("[data-action]")).toBeNull();
   });
@@ -162,7 +162,7 @@ describe("readings", () => {
 });
 
 describe("lines", () => {
-  it("reads like a labor entry: a named hand, an unnamed one and a crew", async () => {
+  it("reads like a labor entry: a named hand, a Skilled Technician and a crew", async () => {
     await open({ detail: { smr_lines: [
       { ...LINE, id: "a", headcount: 1, alias_on_paper: "Pat Doe", work_date: "2026-06-20", status: "charged" },
       { ...LINE, id: "b", headcount: 1, alias_on_paper: null, work_date: null, week: null, status: "excluded", exclusion_ground: "undated" },
@@ -170,7 +170,7 @@ describe("lines", () => {
     ] } });
     const rows = [...section().querySelectorAll(".wo-smr-line")].map((r) => r.textContent.replace(/\s+/g, " ").trim());
     expect(rows[0]).toContain("Pat Doe3.0 h · 06/20/26 · BT Restoration");
-    expect(rows[1]).toContain("unnamed3.0 h · undated · BT Restoration");
+    expect(rows[1]).toContain("Skilled Technician3.0 h · undated · BT Restoration");
     expect(rows[1]).toContain("excluded: undated");
     expect(rows[2]).toContain("3× BT crew3.0 h each · 06/20/26");
     expect(section().querySelector("table")).toBeNull();

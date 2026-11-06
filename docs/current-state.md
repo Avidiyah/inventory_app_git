@@ -1742,12 +1742,12 @@ order, that it is read-only). Nested collapsed cards: Edit details
 metadata; `number` never), Notes (append-only log; save clears and closes),
 Materials (Technicians add-only, read-only quantities), Paper corrections
 (SMR orders only, Admin+ edits; `workOrderSmrLines.js` / `workOrderSmrActions.js`:
-each line reads like a Labor entry — keyed name or `unnamed`, `N×` for a
+each line reads like a Labor entry — keyed name or `Skilled Technician`, `N×` for a
 crew, hours each, date, vendor; the add row keys name / headcount / hours /
 date / vendor and posts a charged `as_read` field line, an undated one
 waiting as excluded: undated; the server links a keyed name to a live
 worker or alias of that vendor silently, else leaves it unlinked, and the
-Hours tab groups by worker name, else keyed name, else `unnamed`; Edit
+Hours tab groups by worker name, else keyed name, else `Skilled Technician`; Edit
 opens the full form), Labor (read-only below Admin; the Admin/Owner
 picker includes themselves "(not assigned)"; entries show their session
 window, capped ones tagged "auto-stopped"; a Technician off the crew gets no

@@ -49,7 +49,7 @@ function readingHtml(reading) {
 }
 
 function workerLabel(line) {
-  const name = line.worker_name || line.alias_on_paper || "unnamed";
+  const name = line.worker_name || line.alias_on_paper || "Skilled Technician";
   return line.headcount > 1 ? `${line.headcount}× ${name}` : name;
 }
 
@@ -71,13 +71,13 @@ function lineRowHtml(line, editable) {
           </div>`;
 }
 
-// The add row, shaped like Labor's: a keyed name (blank = unnamed), a
+// The add row, shaped like Labor's: a keyed name (blank = Skilled Technician), a
 // headcount for a crew, hours each and the date. Everything else takes the
 // line's defaults; Edit opens the full form.
 function addLineRowHtml(detail) {
   const last = (detail.smr_lines || []).at(-1);
   return `<div class="wo-add-labor wo-smr-add">
-    <label><span>Name on paper</span><input type="text" class="wo-smr-a-name" placeholder="blank = unnamed"></label>
+    <label><span>Name on paper</span><input type="text" class="wo-smr-a-name" placeholder="blank = Skilled Technician"></label>
     <label><span>Headcount</span><input type="number" class="wo-smr-a-headcount" min="1" step="1" value="1"></label>
     <label><span>Hours each</span><input type="number" class="wo-smr-a-hours" min="0.5" step="0.5" placeholder="e.g. 2"></label>
     <label><span>Date</span><input type="date" class="wo-smr-a-date"></label>
@@ -117,7 +117,7 @@ function lineFormHtml(detail) {
     <label><span>Date</span><input type="date" class="wo-smr-f-date"></label>
     <label><span>Date basis</span><select class="wo-smr-f-basis">${options(SMR_DATE_BASES, "paper")}</select></label>
     <label><span>Vendor</span><select class="wo-smr-f-vendor">${options(SMR_VENDORS, "Belfor")}</select></label>
-    <label><span>Name on paper</span><input type="text" class="wo-smr-f-alias" placeholder="blank = unnamed"></label>
+    <label><span>Name on paper</span><input type="text" class="wo-smr-f-alias" placeholder="blank = Skilled Technician"></label>
     <label><span>Headcount</span><input type="number" class="wo-smr-f-headcount" min="1" step="1" value="1"></label>
     <label><span>Hours each</span><input type="number" class="wo-smr-f-hours" min="0.5" step="0.5"></label>
     <label><span>Kind</span><select class="wo-smr-f-kind">${options(SMR_KINDS, "field")}</select></label>

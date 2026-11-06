@@ -281,7 +281,7 @@ def test_hours_table_groups_worker_and_vendor_by_week_from_lines_only(db):
     cells = {(r.group, r.name, r.vendor, r.week): (r.charged_hours, r.excluded_hours, r.lines) for r in table.rows}
     assert cells[("worker", name, "XXL Construction", 4)] == (Decimal("2.0"), Decimal(0), 1)
     assert cells[("worker", name, "XXL Construction", 5)] == (Decimal("3.0"), Decimal(0), 1)
-    assert cells[("worker", "unnamed", "Green Choice", None)][1] >= Decimal("6.0")
+    assert cells[("worker", "Skilled Technician", "Green Choice", None)][1] >= Decimal("6.0")
     assert cells[("vendor", "XXL Construction", "XXL Construction", 5)][0] >= Decimal("3.0")
     assert {4, 5, None} <= set(table.weeks) and table.weeks[-1] is None
     assert next(r for r in table.rows if r.week == 5).week_label == "Week 5"

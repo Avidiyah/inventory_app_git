@@ -191,4 +191,4 @@ three rows push it past 500 lines (the filter rows belong in `smrFilters.js`).
   with a free-text name (named hand / blank = unnamed / crew name + headcount),
   the worker picker is gone, and the server links a keyed name to a live worker
   or alias of the line's vendor, else leaves it unlinked; Hours groups by worker
-  name, else keyed name, else `unnamed`.
+  name, else keyed name, else `Skilled Technician`.

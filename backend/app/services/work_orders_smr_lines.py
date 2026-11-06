@@ -48,7 +48,7 @@ LINE_FIELDS: tuple[str, ...] = (
     "reading_id", "work_date", "date_basis", "vendor", "worker_id", "alias_on_paper", "headcount",
     "hours_each", "kind", "reason_code", "status", "exclusion_ground", "note",
 )
-UNNAMED = "unnamed"
+UNNAMED = "Skilled Technician"
 
 
 def _now() -> datetime:
