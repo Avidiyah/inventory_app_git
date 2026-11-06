@@ -165,3 +165,31 @@ def test_smr_export_paper_check_columns(db):
     assert row["PAPER CHECKED AT"] is not None and row["TARGET HOURS"] is None
     blank = next(r for r in rows if r["WORK ORDER"] == open_)
     assert (blank["PAPER CHECKED"], blank["PAPER CHECKED AT"], blank["PAPER CHECKED BY"]) == (None, None, None)
+
+
+def test_smr_export_stage_columns(db):
+    """Spec 2026-11-06-smr-paper-stage: STAGE, READY AT, READY BY, BELFOR ONLY
+    close the paper-correction group."""
+    from datetime import date
+    from app.schemas.work_orders_smr_lines import SmrLineIn, SmrReadingIn
+    from app.services import work_orders_smr_lines as lines_service
+
+    owner = _user(db)
+    stamped, fresh = [f"SMR-{uuid.uuid4().hex[:8]}" for _ in range(2)]
+    smr_service.import_smr(db, csv_bytes=_sheet([stamped, fresh]), user=owner)
+    order = wos.find_by_number(db, stamped)
+    lines_service.add_reading(db, work_order_id=order.id, payload=SmrReadingIn(printing_no=1), user=owner)
+    lines_service.add_line(db, work_order_id=order.id, user=owner, payload=SmrLineIn(
+        vendor="Belfor", hours_each=Decimal("2.0"), reason_code="accurate", work_date=date(2026, 6, 2), reason="paper"))
+    smr_service.set_ready(db, work_order_id=order.id, ready=True, user=owner)
+
+    header, rows = _rows(_book(db)["Orders"])
+
+    at = header.index("STAGE")
+    assert header[at - 1] == "BLOCK PASTED AT"
+    assert header[at:at + 4] == ["STAGE", "READY AT", "READY BY", "BELFOR ONLY"]
+    row = next(r for r in rows if r["WORK ORDER"] == stamped)
+    assert (row["STAGE"], row["READY BY"], row["BELFOR ONLY"]) == ("ready", owner.full_name, "TRUE")
+    assert isinstance(row["READY AT"], datetime)
+    blank = next(r for r in rows if r["WORK ORDER"] == fresh)
+    assert (blank["STAGE"], blank["READY AT"], blank["READY BY"], blank["BELFOR ONLY"]) == ("not_reviewed", None, None, "FALSE")

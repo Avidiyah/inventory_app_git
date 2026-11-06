@@ -66,6 +66,9 @@ _LINES = (
     "CORRECTED HOURS", "CORRECTED LABOR $", "CHANGE HOURS", "CHANGE $", "EXCLUDED HOURS",
     "LINES", "READINGS", "BLOCK VERSION", "BLOCK PASTED AT",
 )
+# Paper stage (spec 2026-11-06): where the paper stands, the Ready stamp,
+# and whether every line is Belfor's.
+_STAGE = ("STAGE", "READY AT", "READY BY", "BELFOR ONLY")
 _BREAKDOWN_PREFIX = "BREAKDOWN "
 _TRAIL = ("EDITED", "SMR IMPORTED AT", "BASELINE AT", "LAST EDITED AT", "LAST EDITED BY", "ARCHIVED AT")
 
@@ -142,6 +145,16 @@ def _paper_values(order: WorkOrder) -> list:
     return ["YES", _when(order.smr_paper_checked_at), who.full_name if who else None]
 
 
+def _stage_values(order: WorkOrder) -> list:
+    tile = smr_service.tile_for(order)
+    return [
+        tile.stage,
+        _when(tile.ready.at) if tile.ready else None,
+        tile.ready.by_name if tile.ready else None,
+        "TRUE" if tile.belfor_only else "FALSE",
+    ]
+
+
 def _lines_values(order: WorkOrder, baseline: dict) -> list:
     """`_LINES` values for one order; the five figures blank without lines."""
     lines = smr.correction_lines(order)
@@ -194,6 +207,7 @@ def _orders_sheet(sheet: Worksheet, orders: list[WorkOrder], names: dict) -> Non
         + list(_TARGET)
         + list(_PAPER)
         + list(_LINES)
+        + list(_STAGE)
         + [f"{_BREAKDOWN_PREFIX}{column}" for column in target_columns]
         + list(_TRAIL)
     )
@@ -218,6 +232,7 @@ def _orders_sheet(sheet: Worksheet, orders: list[WorkOrder], names: dict) -> Non
             + _target_values(order, current)
             + _paper_values(order)
             + _lines_values(order, baseline)
+            + _stage_values(order)
             + [breakdown.get(column) for column in target_columns]
             + [
                 "YES" if smr.is_edited(order) else "NO",

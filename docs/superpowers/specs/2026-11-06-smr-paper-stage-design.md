@@ -176,4 +176,13 @@ three rows push it past 500 lines (the filter rows belong in `smrFilters.js`).
 
 ## Deviations
 
-(log here, dated, as the build departs from the above)
+- 2026-11-06: the Ready endpoint is `PUT /work-orders/smr/{id}/ready`, not POST — the
+  paper-check route's verb; same body and semantics.
+- 2026-11-06: `closed_week` reads the sheet's `COMPLETION DATE` from
+  `smr_baseline.source_row` (falling back to `completed_at`): the import never sets
+  `completed_at`, so the column as written would always be blank.
+- 2026-11-06: the 409 is `SmrNotDatedError` (new, mapped in `routers/_errors.py`);
+  `WorkOrderStateError` maps to 400.
+- 2026-11-06: the bar keeps `N orders` and `N archived` after the five stage cells.
+- 2026-11-06: each chip row carries a small Stage / Pile / Flags label.
+- 2026-11-06: a dated order below Admin reads "Not yet ready for invoice" on the card.

@@ -42,6 +42,7 @@ export const ENDPOINTS = [
   { fn: "apiImportSmrTargets", args: [uploadFile()], method: "POST", url: "/work-orders/smr/import-targets", multipart: true },
   { fn: "apiImportSmrPaper", args: [uploadFile(), uploadFile()], method: "POST", url: "/work-orders/smr/import-paper", multipart: true },
   { fn: "apiSetSmrPaperCheck", args: ["w1", true], method: "PUT", url: "/work-orders/smr/w1/paper-check", body: { checked: true } },
+  { fn: "apiSetSmrReady", args: ["w1", true], method: "PUT", url: "/work-orders/smr/w1/ready", body: { ready: true } },
   { fn: "apiSmrAddReading", args: ["w1", { printing_no: 2 }], method: "POST", url: "/work-orders/smr/w1/readings", body: { printing_no: 2 } },
   { fn: "apiSmrAddLine", args: ["w1", { vendor: "Belfor" }], method: "POST", url: "/work-orders/smr/w1/lines", body: { vendor: "Belfor" } },
   { fn: "apiSmrEditLine", args: ["l1", { reason: "x" }], method: "PATCH", url: "/work-orders/smr/lines/l1", body: { reason: "x" } },
