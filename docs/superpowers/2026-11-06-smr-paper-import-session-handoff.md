@@ -1,59 +1,30 @@
-# SMR27 paper import — session handoff (2026-11-06, after Task 5)
+# SMR27 paper import — session handoff (2026-11-06, after the push; Tasks 6–9 next)
 
-Paste this into the next chat. The task is
-`C:\Users\mcclu\Desktop\SMR27 Reconciliation\PROMPT - inventory_app prep for SMR27 paper import.md`;
-the design of record is `docs/superpowers/specs/2026-11-04-smr-paper-import-design.md`, whose
-`## Deviations` tail is the running log (append every departure, dated). Memory
-`smr-paper-import-workstream` holds the settled answers.
+Paste this into the next chat. Task: `C:\Users\mcclu\Desktop\SMR27 Reconciliation\PROMPT - inventory_app prep for SMR27 paper import.md`. Design of record: `docs/superpowers/specs/2026-11-04-smr-paper-import-design.md` (`## Deviations` tail is the running log, 19 entries). Memory `smr-paper-import-workstream` holds the settled answers.
 
-## State of main (local, 8 commits ahead of origin, unpushed; Alembic head `8e0f2a4b5c63`)
+## Goal
 
-| Commit | Content |
-|---|---|
-| `4f46ef8` | Task 1: spec copied + Deviations, current-state.md, endpoint-map rows S6–S16 |
-| `d805b90` | Tasks 2–3: migration, `models_smr.py`, `domain/work_orders_smr_lines.py`, `domain/work_orders_smr_block.py` |
-| `0ba8e95` | Task 4 WIP: schemas, import service, `work_order_totals` branch, detail/tile fields |
-| `ffe69ef` | Task 4: `services/work_orders_smr_lines.py`, tiles/counts/switches, `_detail` charges the lines, `as_read` |
-| `1b230b8` | Task 5: routes S6–S16 on `routers/work_orders_smr.py`, S2 switches, gates, `test_smr_lines_routes.py` |
-| `f28e8b7` | Fix: an order created from the Breakdown commits with its SMR mark (rerun-safe) |
+Prepare the app for the SMR27 paper-correction import: Tasks 1–5 (schema, domain, services, routes) are built; Tasks 6–9 (editor section, SMR page + Hours tab, export sheets, targeted run) are the go-ahead the user gave on 2026-11-06 ("Accept all of those, start with the push"). Nothing is imported until the CSVs regenerate, FIX settles Centennial 631, and a Postgres snapshot is filed.
 
-Tasks 1–5 are done and reported per the prompt's §8. 261 tests pass across the SMR family
-(`test_smr_*.py`, `test_work_orders_smr_domain.py`, `test_models_smr.py`,
-`test_work_order_skilled_labor.py`, `test_route_role_gates.py`, `test_receipt.py`); `app.openapi()`
-builds. Nothing has been imported.
+## Done this session
 
-## Settled with the user on 2026-11-06 (do not re-ask)
+- Pushed main `10ced0d` (Tasks 1–5). CI run 42234010324 was in progress; confirm it went green and that Render shows Alembic `451c56c5643a` after the next push.
+- `ddd28c5` (local, unpushed): decision 13 generalised. Basis `week placement (weekly reports)` charges with a blank day and a CSV `week` (1–7); migration `451c56c5643a` widens `ck_smr_labor_lines_charged_dated` (applied locally, down/up round-tripped); the block prints `week of <Monday>` from `line.week` and never prints a `removed` line; the import compares `week` on rerun. 242 SMR-family tests green from `backend\`.
+- Peer `smr27-reconciliation-ba` was sent the CSV contract: clean-up + no-name hours as charged week-placement lines on a dedicated per-order reading with blank `hours_as_read`; XXL audit/staging and own-week printings excluded `read, not charged (user)`; Young Hall Belfor charged; 631 settled in FIX; Isaiah Smith 0 h → `note only`; Cimarron J6 waits for its number. No reply yet; dry-run the regenerated files with `_parse` + `_cross_check` when they arrive.
 
-- Decision 13 holds; `date_basis` NOT NULL default `paper`; `week` column; `kind` stored as a
-  comma list; `vendor unknown` ground; third upload `breakdown`; shapes in
-  `schemas/work_orders_smr_lines.py`.
-- Blank `reason_code` in `paper_lines.csv` → the parser fills the seed code `as_read`; the CSV is
-  not regenerated. Blank `date_basis` on an excluded line → `paper`.
-- Work continues on local main. The Breakdown for the third upload is
-  `Deliverable Batch\breakdown.csv`, exported from
-  `C:\Users\mcclu\Desktop\SMR27 Work Order Breakdown & Labor Hours.xlsx` (sheet `Work Order
-  Breakdown`, 690 rows → 683 unique numbers, all eight missing orders present).
+## Next: Task 6 (editor), designed, not started
 
-## Open with the user
+- New `static/views/workOrderSmrLines.js` (builders/presenters: readings, lines table, add/edit forms, block box, totals line) and `workOrderSmrActions.js` (`handleSmrAction`, branching literally on `action === "smr-…"` so `actionCoverage.test.js` sees it; worker search on `.wo-smr-worker-search`). `renderBody` inserts the section above Labor for `detail.smr`; `laborSectionHtml` goes read-only under "NetFacilities Record Before Correction" when `smr_lines` exist.
+- Ten actions: `smr-add-reading`, `smr-add-line`, `smr-edit-line`, `smr-exclude-line`, `smr-save-line`, `smr-cancel-line`, `smr-generate-block`, `smr-mark-pasted`, `smr-pick-worker`, `smr-add-worker`. Add them to the frozen `ACTIONS` list and quote each in a test under `tests/frontend/views/workOrders/`.
+- `api.js`: `apiSmrAddReading`, `apiSmrAddLine`, `apiSmrEditLine`, `apiSmrSearchWorkers(q)`, `apiSmrAddWorker`, `apiSmrGenerateBlock`, `apiSmrMarkPasted`, `apiSmrHours`, `apiSmrHoursCsv`; a row each in `tests/frontend/helpers/endpointTable.js`; name each in `docs/endpoint-map.md` rows S7–S16 (the doc test requires it).
+- Gate is Admin+: `roleAtLeast(getRole(), "admin")` (TechFM OA ranks below Admin; `isAdminPlus()` is the OA floor, wrong here). Factories: add `smr_readings: []`, `smr_lines: []`, `smr_block: null`, `smr_legacy_labor_minutes: 0` to `workOrderDetail`. CSS: `.wo-smr-*` beside `.wo-labor-*`; block textarea reuses `pricing-output`.
 
-- Approve the pinned block (`tests/test_smr_block.py::test_one_full_block_verbatim`) before the
-  frontend shows it. Question raised: lines removed in the app (ground `removed`) print under
-  `Not charged:`; the design prints every excluded line, but a mistaken keying may not belong in
-  the pasted text.
-- Cimarron J6 still needs an order number (prompt §6).
-- Push: ask first (deploy is production). Tasks 6–9 (editor section, SMR page + Hours tab,
-  export sheets, targeted run) only when told.
+## Then
 
-## Dry run of the real files (read-only, 2026-11-06)
-
-`_parse` + `_cross_check` over the three Deliverable Batch files: 567 readings, 1,774 lines, 683
-Breakdown numbers, all ties pass; 1,185 charged lines / 2,878.5 h, 3,344.0 h excluded,
-$179,906.25; 78 Week 1 placement lines; `as_read` on 1,736 lines. App run id for these bytes:
-`import 8db27dbf3dfc` (readings + lines only). The reconciliation session
-(`smr27-reconciliation-ba`) owns the CSVs and got the same figures.
+- Task 7: bar cells from `counts.with_lines/charged_hours/excluded_hours/blocks_not_pasted`; chips Has lines / Block stale or not pasted as local `matches()` over `tile.lines`; tile third line `+82.0 H · V2 PASTED`; Hours tab = `smrHours.js` toggling `#smr-tiles` with a table from `apiSmrHours` + CSV download; Vitest in `tests/frontend/views/smr.test.js`.
+- Task 8: `services/work_orders_smr_xlsx.py` (orders already eager-load readings, lines, blocks): nine Orders columns + sheets Paper Readings, Labor Lines, Line History, Correction Blocks, Workers; `test_smr_export_xlsx.py`.
+- Task 9: SMR family + `test_smr_exclusion.py` + Vitest; ask before pushing. Update `docs/current-state.md` row 115 and the module table, memory, this handoff.
 
 ## Rules
 
-Ask before pushing `main`. Targeted tests only, from `backend\` (the app mounts `static` relative
-to the cwd): `backend\venv\Scripts\python.exe -m pytest tests\<file>.py`. Stage explicit paths;
-peer sessions share this checkout. No subagents.
+Ask before pushing `main`. Targeted tests from `backend\`: `backend\venv\Scripts\python.exe -m pytest tests\<file>.py`. Vitest: `npm test` at the repo root. Stage explicit paths; peer sessions share this checkout. No subagents. CSP: no inline styles.
