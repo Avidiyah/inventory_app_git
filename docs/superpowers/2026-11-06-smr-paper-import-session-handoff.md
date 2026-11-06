@@ -15,10 +15,33 @@ settled answers.
   `vendor unknown` added to the ground tuple.
 - Breakdown rows for the 8 missing orders: optional third upload `breakdown` on `import-paper`.
 - New shapes live in `schemas/work_orders_smr_lines.py` (imported by both schema siblings).
-- One sub-agent was authorized: verify the import sheet
+- One sub-agent was authorized and ran: it verified the import sheet
   `C:\Users\mcclu\Desktop\SMR27 Reconciliation\Deliverable Batch\SMR27 Paper Import Sheet.xlsx`
-  against the contract. It was spawned; its report had not arrived at handoff. Re-run it
-  (brief at the bottom). No other agents.
+  against the contract (findings below). No other agents.
+
+## Verification result (sub-agent, 2026-11-06, read-only) — one decision open
+
+- The import input is the two CSVs beside the workbook, `Deliverable Batch\paper_readings.csv`
+  (567 rows) and `paper_lines.csv` (1,774 rows); headers match the contract exactly and the
+  workbook is cell-for-cell the same data. Readings: 567/567 parse, 539/539 ties pass, ids and
+  `(wo, printing_no)` unique, 21 note-only readings parse with 0 lines. Lines: ids unique, no
+  orphans, every vendor / kind (34 comma lists) / ground / basis / 0.5 h step valid; decision 13
+  holds exactly (78 placement lines, 26 orders, 187.5 h, no other charged line undated). Totals
+  1,185 charged lines / 2,878.5 h, 589 excluded / 3,344.0 h; the eight missing WO#s are present.
+- **Blocker (user's call):** `reason_code` is blank on 1,736 of 1,774 lines (only 38 carry a
+  code), and `parse_line_row` rejects a blank, so the import would abort on the first line.
+  Either Step 0 (`paper_lines.py`) emits a code on every line (its order-level `reason_codes`
+  covers 441 of 703 orders; 45 orders with lines have none, so a default is still needed), or
+  the contract lets `reason_code` be blank (the design's anti-goal "a charged hour with no
+  reason" argues against). Ask; do not pick.
+- Breakdown rows: the workbook has no Breakdown sheet. `C:\Users\mcclu\Desktop\SMR27
+  Reconciliation\breakdown.xlsx`, sheet `Work Order Breakdown`, carries all eight missing orders
+  under the headers `parse_target_row` reads; it needs a CSV export for the third upload.
+- Smaller facts: 567 readings, not the 566 the design and prompt state; `date_basis` is blank
+  on 575 excluded lines and the parser stores `paper` for them (say so to the user); the app's
+  spec copy lags the reconciliation copy, whose Step 0 closing paragraph was rewritten on
+  2026-11-06 after the copy was made (refresh that paragraph; keep the Deviations tail; the
+  source is CRLF, the copy LF).
 
 ## State of main (local, unpushed; head `8e0f2a4b5c63 (head)`)
 
@@ -87,11 +110,10 @@ reachable). Stage explicit paths; peer sessions share this checkout.
 +        smr_block=smr_lines_service.latest_block(work_order, include_price=include_price) if is_smr else None,
 ```
 
-## Sub-agent brief (re-run; general-purpose, read-only, scratch files in the scratchpad)
+## Re-checking the CSVs after Step 0 changes
 
-Map the xlsx sheets to `paper_readings.csv` / `paper_lines.csv` (+ any Breakdown sheet for the
-8 missing WO#s); convert rows to string dicts and run `parse_reading_row`, `parse_line_row`,
-`check_tie` from `backend/app/domain/work_orders_smr_lines.py` over every row; cross-check
-reading ids, `line_id` uniqueness, `(wo, printing_no)` uniqueness; count decision-13 placement
-lines (expect ~78 lines / 26 orders / 187.5 h); totals (566 readings, 517 orders); confirm the
-Task 1 docs and `alembic heads`. Report facts only.
+Run `parse_reading_row`, `parse_line_row` and `check_tie` from
+`backend/app/domain/work_orders_smr_lines.py` over every CSV row (string dicts, as a CSV reader
+gives them) and count failures by message. The sub-agent's script did exactly that and lived in
+the session scratchpad (`...\scratchpad\verify_import_sheet.py`); it may be gone, and it is a
+dozen lines to rewrite.
