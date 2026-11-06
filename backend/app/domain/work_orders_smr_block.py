@@ -151,7 +151,7 @@ def _materials_rows(materials: Sequence[receipt.ReceiptLine], target: Optional[d
     estimated = Decimal(target["materials_total"]) if target and target.get("materials_total") is not None else None
     head = []
     if estimated is not None and receipt.format_money(estimated) != receipt.format_money(total):
-        head = [_fit("MATERIAL CORRECTION"), _row("NetFacilities estimated total", receipt.format_money(estimated))]
+        head = [_fit("MATERIAL CORRECTION"), _row("Original estimated total", receipt.format_money(estimated))]
     body = rows or [_fit("  (no materials keyed)")]
     return head + [_fit("ITEMIZED RECEIPT")] + body + [_row("Materials", receipt.format_money(total))], total
 

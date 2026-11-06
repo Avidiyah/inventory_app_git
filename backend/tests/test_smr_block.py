@@ -175,7 +175,7 @@ def test_materials_print_as_the_itemized_receipt_and_join_the_total():
     rendered = block.render_correction_block("23281563", target, [_line()], 2, date(2026, 11, 10), materials=_materials()).split("\n")
     assert rendered[3:9] == [
         "MATERIAL CORRECTION",
-        "NetFacilities estimated total      $21.57",
+        "Original estimated total           $21.57",
         "ITEMIZED RECEIPT",
         "2 Duct tape 2in                    $12.31",
         "1 Ceiling tile                   NO PRICE",
@@ -188,7 +188,7 @@ def test_matching_material_totals_print_no_correction_header():
     target = dict(TARGET, materials_total="12.31")
     rendered = block.render_correction_block("23281563", target, [_line()], 2, date(2026, 11, 10), materials=_materials()[:1]).split("\n")
     assert rendered[3] == "ITEMIZED RECEIPT" and "MATERIAL CORRECTION" not in rendered
-    assert "NetFacilities estimated total" not in "\n".join(rendered)
+    assert "Original estimated total" not in "\n".join(rendered)
 
 
 def test_a_line_removed_in_the_app_does_not_print():
