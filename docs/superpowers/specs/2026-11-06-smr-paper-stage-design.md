@@ -194,5 +194,6 @@ three rows push it past 500 lines (the filter rows belong in `smrFilters.js`).
   name, else keyed name, else `Skilled Technician`.
 - 2026-11-06 (follow-up, user): kinds gain `material preparation` and `clean-up`; the add
   row exposes the kind as "Reason" (Labor default); readings are editable
-  (`PATCH /work-orders/smr/readings/{id}`, S7b); the section carries color — charged /
+  (`PATCH /work-orders/smr/readings/{id}`, S7b; a date cascades to the printing's
+  `undated` lines, which charge themselves — placement-basis lines keep their week); the section carries color — charged /
   excluded left rules, kind chips in status hues, a red printing pill, stat tiles.

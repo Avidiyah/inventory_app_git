@@ -1747,7 +1747,7 @@ crew, hours each, date, vendor; the add row keys name / headcount / hours /
 date / vendor / Reason (Labor = `field`, Assessment, Audit, Staging, Material
 Preparation, Clean-up) and posts a charged `as_read` line, an undated one
 waiting as excluded: undated; each printing has Edit (the reading form
-serves add and edit, S7b); lines carry a green / red left rule for charged /
+serves add and edit, S7b; dating a printing dates and charges its `undated` lines); lines carry a green / red left rule for charged /
 excluded and a kind chip in the status hues; the totals are four stat tiles; the server links a keyed name to a live
 worker or alias of that vendor silently, else leaves it unlinked, and the
 Hours tab groups by worker name, else keyed name, else `Skilled Technician`; Edit

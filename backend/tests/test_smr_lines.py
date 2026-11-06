@@ -14,7 +14,7 @@ import pytest
 
 from app.domain import work_orders as wo
 from app.domain.errors import WorkOrderNotFoundError, WorkOrderStateError
-from app.models import SmrLineEdit, User
+from app.models import SmrLaborLine, SmrLineEdit, User
 from app.schemas.work_orders_smr_lines import SmrLineEditIn, SmrLineIn, SmrReadingEditIn, SmrReadingIn, SmrWorkerIn
 from app.services import auth
 from app.services import work_orders as wos
@@ -83,6 +83,28 @@ def test_edit_reading_changes_fields_refuses_a_taken_printing_and_a_no_op(db):
         svc.edit_reading(db, reading_id=first.id, user=admin, payload=SmrReadingEditIn(raw_note="Pat 2.5 h"))
     with pytest.raises(WorkOrderNotFoundError):
         svc.edit_reading(db, reading_id=uuid.uuid4(), user=admin, payload=SmrReadingEditIn(raw_note="y"))
+
+
+def test_dating_a_reading_dates_and_charges_its_undated_lines_only(db):
+    admin = _user(db)
+    order = _smr_order(db, admin)
+    reading = svc.add_reading(db, work_order_id=order.id, payload=SmrReadingIn(printing_no=1), user=admin)
+    other = svc.add_reading(db, work_order_id=order.id, payload=SmrReadingIn(printing_no=2), user=admin)
+    waiting = svc.add_line(db, work_order_id=order.id, user=admin, payload=_line_in(
+        reading_id=reading.id, work_date=None, status="excluded", exclusion_ground="undated"))
+    placed = svc.add_line(db, work_order_id=order.id, user=admin, payload=_line_in(
+        reading_id=reading.id, work_date=None, date_basis="Week 1 placement (crew sheets, Supplement)"))
+    elsewhere = svc.add_line(db, work_order_id=order.id, user=admin, payload=_line_in(
+        reading_id=other.id, work_date=None, status="excluded", exclusion_ground="undated"))
+
+    svc.edit_reading(db, reading_id=reading.id, user=admin, payload=SmrReadingEditIn(work_date=date(2026, 6, 27)))
+
+    db.expire_all()
+    dated = db.get(SmrLaborLine, waiting.id)
+    assert (dated.work_date, dated.week, dated.status, dated.exclusion_ground) == (date(2026, 6, 27), 5, "charged", None)
+    assert _edits(db, waiting.id)[-1].reason == "dated with printing 1"
+    assert db.get(SmrLaborLine, placed.id).work_date is None and db.get(SmrLaborLine, placed.id).week == 1
+    assert db.get(SmrLaborLine, elsewhere.id).work_date is None
 
 
 def test_writes_refuse_a_live_order_and_an_unknown_one(db):

@@ -140,6 +140,14 @@ def edit_reading(db: Session, *, reading_id: uuid.UUID, payload: SmrReadingEditI
     if stamp not in (reading.source or ""):
         reading.source = f"{reading.source}; {stamp}" if reading.source else stamp
     db.commit()
+    # Dating the paper dates its undated lines (user, 2026-11-06): each takes
+    # the day, lands in its week and charges itself (D10), with history.
+    if changes.get("work_date") is not None:
+        undated = [line for line in reading.lines
+                   if line.work_date is None and line.exclusion_ground == rules.GROUND_UNDATED]
+        for line in undated:
+            edit_line(db, line_id=line.id, user=user, payload=SmrLineEditIn(
+                work_date=changes["work_date"], reason=f"dated with printing {reading.printing_no}"))
     return SmrReadingOut.from_row(reading)
 
 
