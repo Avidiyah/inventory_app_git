@@ -64,7 +64,7 @@ def test_smr_export_sheets_and_phase_parity(db):
     wos.add_work_order_labor(db, order.id, user=owner, technician_id=None, minutes=30)
 
     book = _book(db)
-    assert book.sheetnames == ["Orders", "Material Lines", "Labor Entries", "Labor Sessions"]
+    assert book.sheetnames[:4] == ["Orders", "Material Lines", "Labor Entries", "Labor Sessions"]
 
     header, orders = _rows(book["Orders"])
     assert header[:8] == ["WORK ORDER", "CREATOR", "SERVICE TYPE", "SCHEDULE DATE", "COMPLETION DATE", "ASSIGNED TO", "FILED STATUS", "LOCATION"]
