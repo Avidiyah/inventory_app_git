@@ -90,7 +90,9 @@ def _line(order, **overrides):
 def test_weekly_cell_arithmetic(db):
     """Deltas against whatever the dev DB already holds for the cell. An order
     with a 10 h Breakdown target, 4 h charged in week 3 and 6 h undated: the
-    target follows the lines pro rata (4 h to week 3, 6 h to Undated)."""
+    paper (10 h) covers the target exactly, so it is all original and nothing
+    is found; original follows the lines pro rata (4 h to week 3, 6 h to
+    Undated), the undated hours not counted twice."""
     owner = _user(db)
     tag = uuid.uuid4().hex[:6]
     before = _cell(weekly.weekly_hours(db), 3, "Green Choice")
@@ -111,9 +113,19 @@ def test_weekly_cell_arithmetic(db):
     out = weekly.weekly_hours(db)
     assert out.vendors == ["Green Choice", "XXL Construction", "BT Restoration"]
     after = _cell(out, 3, "Green Choice")
-    assert tuple(a - b for a, b in zip(after, before)) == (Decimal(4), Decimal(4), Decimal(0), Decimal(30))
+    assert tuple(a - b for a, b in zip(after, before)) == (Decimal(4), Decimal(0), Decimal(0), Decimal(30))
     cell = next(c for c in out.cells if c.week == 3 and c.vendor == "Green Choice")
     assert cell.missing == max(cell.invoiced - cell.original - cell.found, Decimal(0)) and cell.week_label == "Week 3"
     undated = _cell(out, None, "Green Choice")
-    assert tuple(a - b for a, b in zip(undated, before_undated)) == (Decimal(6), Decimal(0), Decimal(6), Decimal(0))
+    assert tuple(a - b for a, b in zip(undated, before_undated)) == (Decimal(6), Decimal(0), Decimal(0), Decimal(0))
+    # A second order whose paper (3 h) exceeds its 1 h target: 1 h original, 2 h found.
+    over = WorkOrder(number=f"WO-{tag}-o", created_by_id=owner.id, smr_imported_at=datetime.now(timezone.utc),
+                     smr_target={"hours": "1", "total": "0", "source_row": {}})
+    db.add(over)
+    db.flush()
+    db.add(_line(over, vendor="BT Restoration", hours_each=Decimal(3)))
+    db.flush()
+    before_bt = _cell(out, 3, "BT Restoration")
+    after_bt = _cell(weekly.weekly_hours(db), 3, "BT Restoration")
+    assert tuple(a - b for a, b in zip(after_bt, before_bt)) == (Decimal(1), Decimal(2), Decimal(0), Decimal(0))
     assert out.weeks[-1] is None and not any(c.vendor == "Belfor" for c in out.cells)

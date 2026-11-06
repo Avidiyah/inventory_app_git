@@ -3,9 +3,10 @@ docs/superpowers/specs/2026-11-06-smr-weekly-hours-chart-design.md, bars
 redefined by the user 2026-11-06).
 
 One bar per vendor (Green Choice, XXL, BT) per Mon-Sun week: the hours the
-vendor invoiced, split into `original` (the Breakdown sheet's billed hours,
-i.e. the NetFacilities charge before any audit), `found` (charged paper
-hours worked that week) and `missing` (the rest of the invoice). Undated
+vendor invoiced, split into `original` (billed hours the paper supports: the
+Breakdown target up to the order's paper hours), `found` (paper hours above
+the target) and `missing` (the rest of the invoice), as the final report
+counts them. Undated
 paper hours have no week; they sit in a trailing Undated column
 (`week = None`) with the original hours of the orders they belong to.
 An order's original hours follow its paper lines, pro rata by hours.
@@ -95,11 +96,18 @@ def weekly_hours(db: Session) -> SmrWeeklyHoursOut:
         placed = [(slot, rules.line_hours(line)) for line in order.smr_lines if (slot := _slot(line)) is not None]
         for (slot, hours) in placed:
             cell(slot)["found" if slot[0] is not None else "undated"] += hours
-        original = Decimal((order.smr_target or {}).get("hours") or 0)
+        # The paper restates the billed hours: the order's target up to its
+        # paper hours is `original` (already billed, now supported), paper
+        # above the target is what the review `found`. Both follow the
+        # lines pro rata, so original + found + undated = the paper.
+        target = Decimal((order.smr_target or {}).get("hours") or 0)
         total = sum((hours for _, hours in placed), Decimal(0))
-        if original and total > 0:
+        if total > 0:
+            original = min(target, total)
             for (slot, hours) in placed:
-                cell(slot)["original"] += original * hours / total
+                share = hours / total
+                cell(slot)["original"] += original * share
+                cell(slot)["found" if slot[0] is not None else "undated"] -= original * share
     for row in db.query(SmrVendorInvoice).filter(SmrVendorInvoice.vendor.in_(CHART_VENDORS)).all():
         cell((row.week, row.vendor))["invoiced"] += Decimal(row.hours)
 
