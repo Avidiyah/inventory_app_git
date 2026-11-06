@@ -167,10 +167,11 @@ def _create_order(db: Session, *, number: str, target: dict, user: User, now: da
         unit_number=source.get("Unit#") or None,
         description=wo.work_order_task_fallback(number),
     )
-    # ponytail: get_or_create_work_order commits on its own, so a shell
-    # created here outlives a failure later in this run; a rerun finds it as
-    # an SMR order and carries on. Hand-rolling the insert is the fix if
-    # that ever matters.
+    # `get_or_create_work_order` commits on its own, so the shell outlives a
+    # failure later in this run. Its SMR mark, baseline and target commit
+    # with it: a rerun then finds an SMR order and carries on, instead of
+    # refusing the number as a live non-SMR one. "One commit or nothing"
+    # holds for the readings, lines, workers and history (Deviations).
     order.smr_imported_at = now
     db.flush()
     db.refresh(order)
@@ -179,6 +180,7 @@ def _create_order(db: Session, *, number: str, target: dict, user: User, now: da
         source_row={"WORK ORDER": number, "CREATOR": CREATED_BY_IMPORT, "SERVICE TYPE": smr.SMR_SERVICE_TYPE},
     )
     order.smr_target = smr.target_record(target, imported_at=now)
+    db.commit()
     return order
 
 

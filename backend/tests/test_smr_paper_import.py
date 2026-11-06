@@ -19,6 +19,7 @@ from app.models import SmrLaborLine, SmrLineEdit, SmrPaperReading, SmrWorker, Us
 from app.services import auth
 from app.services import work_orders as wos
 from app.services import work_orders_smr as smr_service
+from app.services import work_orders_smr_import as smr_import
 from app.services.work_orders_smr_import import import_paper
 
 READING_COLUMNS = ["reading_id", "wo", "printing_no", "work_date", "hours_as_read", "raw_note", "reviewer", "csv_row"]
@@ -194,6 +195,32 @@ def test_reviewed_orders_the_app_never_had_are_created_from_the_breakdown(db):
             db, readings_bytes=_csv(READING_COLUMNS, [_reading("R9", ghost, hours="")]),
             lines_bytes=_csv(LINE_COLUMNS, []), breakdown_bytes=breakdown, user=owner,
         )
+
+
+def test_a_failure_after_creating_a_missing_order_leaves_it_importable(db, monkeypatch):
+    # `get_or_create_work_order` commits on its own, so the created shell
+    # outlives a failure later in the run. It must carry its SMR mark, or
+    # every rerun refuses the number as a live non-SMR order.
+    owner = _user(db)
+    missing = f"SMR-{uuid.uuid4().hex[:8]}"
+    readings = _csv(READING_COLUMNS, [_reading("R2", missing, hours="2.0")])
+    lines = _csv(LINE_COLUMNS, [_line("L2", "R2", missing, hours="2.0", vendor="Belfor", worker="")])
+    breakdown = _csv(BREAKDOWN_COLUMNS, [{"WO#": missing, "Unit#": "Young Hall 108", "Hours": "1.5", "Labor $": "$93.75",
+                                          "Total Material Cost": "$9.38", "Total L&M": "$103.13"}])
+
+    def hiccup(*args, **kwargs):
+        raise RuntimeError("database hiccup after the orders were created")
+
+    monkeypatch.setattr(smr_import, "history", hiccup)
+    with pytest.raises(RuntimeError):
+        import_paper(db, readings_bytes=readings, lines_bytes=lines, breakdown_bytes=breakdown, user=owner)
+    db.rollback()  # what the request's session does on an error
+    monkeypatch.undo()
+
+    created = wos.find_by_number(db, missing)
+    assert created is not None and created.smr_imported_at is not None and created.smr_target["hours"] == "1.5"
+    result = import_paper(db, readings_bytes=readings, lines_bytes=lines, breakdown_bytes=breakdown, user=owner)
+    assert (result.orders, result.readings, result.lines, result.created_orders) == (1, 1, 1, [])
 
 
 def test_a_live_non_smr_order_and_an_orphan_line_abort(db):
