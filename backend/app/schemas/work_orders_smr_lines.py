@@ -138,6 +138,7 @@ class SmrLineEditIn(BaseModel):
     reason_code: Optional[str] = None
     status: Optional[str] = None
     exclusion_ground: Optional[str] = None
+    week: Optional[int] = None  # the week a week placement names; ignored by every other basis
     note: Optional[str] = None
     reason: str
 

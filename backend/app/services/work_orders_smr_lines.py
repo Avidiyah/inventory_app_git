@@ -154,14 +154,14 @@ def edit_reading(db: Session, *, reading_id: uuid.UUID, payload: SmrReadingEditI
 
 # --- lines ---------------------------------------------------------------
 
-def _check_state(db: Session, order: WorkOrder, state: dict) -> None:
+def _check_state(db: Session, order: WorkOrder, state: dict, *, week: Optional[int] = None) -> None:
     """The status rules, then the two foreign keys the DB cannot judge:
     the worker must be live and of the line's vendor, the reading this
     order's."""
     rules.validate_line_state(
         status=state["status"], work_date=state["work_date"], date_basis=state["date_basis"],
         exclusion_ground=state["exclusion_ground"], headcount=state["headcount"], hours_each=state["hours_each"],
-        vendor=state["vendor"], kind=state["kind"], reason_code=state["reason_code"],
+        vendor=state["vendor"], kind=state["kind"], reason_code=state["reason_code"], week=week,
     )
     if state["worker_id"] is not None:
         worker = db.get(SmrWorker, state["worker_id"])
@@ -219,7 +219,9 @@ def edit_line(db: Session, *, line_id: uuid.UUID, payload: SmrLineEditIn, user: 
     order = _require_smr(line.work_order)
     changes = payload.model_dump(exclude_unset=True)
     reason = _reason(changes.pop("reason", None))
-    if not changes:
+    week_given = "week" in changes
+    week = changes.pop("week", line.week)
+    if not changes and week == line.week:
         raise WorkOrderStateError("Nothing to change.")
     if changes.get("work_date") is not None and "status" not in changes:
         status, ground = rules.apply_date(line.status, line.exclusion_ground, changes["work_date"])
@@ -231,9 +233,10 @@ def edit_line(db: Session, *, line_id: uuid.UUID, payload: SmrLineEditIn, user: 
     state.update(changes)
     if "worker_id" not in changes and ("alias_on_paper" in changes or "vendor" in changes):
         changes["worker_id"] = state["worker_id"] = match_worker(db, name=state["alias_on_paper"], vendor=state["vendor"])
-    _check_state(db, order, state)
+    _check_state(db, order, state, week=week)
     diffs = {field: value for field, value in changes.items() if getattr(line, field) != value}
-    if not diffs:
+    new_week = rules.week_for(state["work_date"], state["date_basis"], week)
+    if not diffs and new_week == line.week:
         raise WorkOrderStateError("Nothing changed.")
 
     now = _now()
@@ -246,7 +249,9 @@ def edit_line(db: Session, *, line_id: uuid.UUID, payload: SmrLineEditIn, user: 
         setattr(line, field, value)
     if removing:
         history(db, line=line, actor=user, field="deleted", old=before, new=None, reason=reason, now=now)
-    line.week = rules.week_for(line.work_date, line.date_basis)
+    elif week_given and new_week != line.week:
+        history(db, line=line, actor=user, field="week", old=_text(line.week), new=_text(new_week), reason=reason, now=now)
+    line.week = new_week
     line.updated_at, line.updated_by_id = now, user.id
     db.commit()
     return SmrLineOut.from_row(line)

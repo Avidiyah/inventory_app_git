@@ -334,3 +334,20 @@ def test_hours_table_groups_worker_and_vendor_by_week_from_lines_only(db):
     csv_text = svc.hours_csv(db).decode("utf-8")
     assert csv_text.splitlines()[0] == "group,name,vendor,week,week_label,charged_hours,excluded_hours,lines"
     assert f"worker,{name},XXL Construction,5,Week 5,3.0,0,1" in csv_text
+
+
+def test_a_week_placement_charges_an_undated_line_to_that_week(db):
+    """A bulk 'charge to the likely week' edit (scripts/smr_charge_undated_likely.py):
+    status + basis + week in one edit; the week alone is a real change."""
+    admin = _user(db)
+    order = _smr_order(db, admin)
+    line = svc.add_line(db, work_order_id=order.id, payload=_line_in(
+        work_date=None, status="excluded", exclusion_ground="undated"), user=admin)
+    edited = svc.edit_line(db, line_id=line.id, user=admin, payload=SmrLineEditIn(
+        status="charged", exclusion_ground=None, date_basis="week placement (weekly reports)", week=3, reason="likely week"))
+    assert (edited.status, edited.week, edited.work_date) == ("charged", 3, None)
+    assert ("week", None, "3") in [(e.field, e.old_value, e.new_value) for e in _edits(db, line.id)]
+    moved = svc.edit_line(db, line_id=line.id, user=admin, payload=SmrLineEditIn(week=4, reason="moved"))
+    assert moved.week == 4
+    with pytest.raises(WorkOrderStateError, match="othing"):
+        svc.edit_line(db, line_id=line.id, user=admin, payload=SmrLineEditIn(week=4, reason="same"))
