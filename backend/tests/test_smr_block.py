@@ -37,36 +37,41 @@ def _sample_lines():
     ]
 
 
-def _render(lines, target=Decimal("10.0"), version=2):
+TARGET = {"hours": "10.0", "labor_total": "625.00", "source_row": {"Labor Type": "SL"}}
+
+
+def _target(hours, money):
+    return {"hours": hours, "labor_total": money, "source_row": {"Labor Type": "SL"}}
+
+
+def _render(lines, target=TARGET, version=2):
     return block.render_correction_block("23281563", target, lines, version, date(2026, 11, 10))
 
 
 def test_one_full_block_verbatim():
-    # Dated charges in date order, a Week 1 placement first (decision 13:
-    # "week of 05/25"), each reason on the line below, then what was left out
-    # and why. The width is the destination's: it wraps at 42.
+    # The TechFM correction memo (user 2026-11-06): what NetFacilities has,
+    # what the paper shows, what to add; the corrected record in date order
+    # with a Week 1 placement first ("week of 05/25"); one reason block;
+    # excluded lines left out. The width is the destination's: it wraps at 42.
     assert _render(_sample_lines()) == "\n".join([
         "SMR27 LABOR CORRECTION v2        11/10/26",
         "WO 23281563",
-        "Billed in NetFacilities            10.0 h",
-        "Corrected                          16.5 h",
-        "Change                             +6.5 h",
+        "NetFacilities has      10.0 h SL  $625.00",
+        "Paper shows                        16.5 h",
+        "Add to WO                          +6.5 h",
         "                                  $406.25",
         "",
+        "Corrected labor record:",
         "week of 05/25 Belfor x3        2.0 h each",
-        "  billed accurately; who and when",
         "06/20 BT Restoration x2        3.0 h each",
-        "  crew billed as one person",
         "06/20 Belfor assessment             0.5 h",
-        "  overhead added, label only",
         "06/22 Trinton Smith (XXL)           4.0 h",
-        "  crew billed as one person",
         "",
-        "Not charged:",
-        "  after 07/12  Green Choice x4     96.0 h",
-        "  undated  Rye (GC)                 7.0 h",
-        "",
-        "Paper on file. Reasons under each line.",
+        "Reason: billed accurately; who and when,",
+        "  crew billed as one person,",
+        "  overhead added, label only,",
+        "replacing the 10.0 h SL on the WO.",
+        "Paper on file.",
     ])
 
 
@@ -84,38 +89,39 @@ def test_lines_never_exceed_the_destination_width():
     rendered = _render(lines).split("\n")
     assert all(len(row) <= receipt.PRICING_LINE_WIDTH for row in rendered)
     truncated = [row for row in rendered if "..." in row]
-    assert len(truncated) >= 3
+    assert len(truncated) >= 2  # the long name row and the long reason; the excluded row no longer prints
     assert any(row.endswith(" 12.5 h") and len(row) == receipt.PRICING_LINE_WIDTH for row in truncated)
-    assert any(row.endswith(" 120.0 h") for row in truncated)
-    assert "  a code nobody has seen before that r..." in rendered
+    assert any(row.startswith("Reason: a code nobody has seen before") and row.endswith("...") for row in rendered)
 
 
 def test_a_decrease_prints_with_a_minus_and_lowers_the_total():
     lines = [_line(hours_each=Decimal("3.0")), _line(hours_each=Decimal("-2.0"), reason_code="over_billed")]
-    rendered = _render(lines, target=Decimal("3.0")).split("\n")
+    rendered = _render(lines, target=_target("3.0", "187.50")).split("\n")
     assert "06/20 Belfor                       -2.0 h" in rendered
-    assert "  paper supports less than billed" in rendered
-    assert "Corrected                           1.0 h" in rendered
-    assert "Change                             -2.0 h" in rendered
+    assert "  paper supports less than billed," in rendered
+    assert "Paper shows                         1.0 h" in rendered
+    assert "Add to WO                          -2.0 h" in rendered
     assert "                                 -$125.00" in rendered
 
 
 def test_an_order_without_a_sheet_row_says_so():
     rendered = _render([_line()], target=None).split("\n")
-    assert "Billed (no sheet row)               0.0 h" in rendered
-    assert "Change                             +1.0 h" in rendered
-    assert "Not charged:" not in rendered
+    assert "NetFacilities has (no sheet row)    0.0 h" in rendered
+    assert "Add to WO                          +1.0 h" in rendered
+    assert "no labor on the WO." in rendered
 
 
-def test_excluded_lines_print_under_not_charged_with_their_ground():
-    rendered = _render(_sample_lines()).split("\n")
-    not_charged = rendered[rendered.index("Not charged:") + 1:]
-    assert [row.split()[0] for row in not_charged if row.startswith("  ")] == ["after", "undated"]
-    assert all("week of" in row or "/" in row or "undated" in row for row in not_charged if row.startswith("  "))
+def test_one_paper_day_names_itself_in_the_heading():
+    assert "Corrected labor record (paper 06/20):" in _render([_line(), _line(hours_each=Decimal("2.0"))]).split("\n")
+    assert "Corrected labor record:" in _render(_sample_lines()).split("\n")
 
-    dropped = _line(status="excluded", exclusion_ground="read, not charged (weekly reports)", headcount=2)
-    rows = _render([dropped]).split("\n")
-    assert any(row.startswith("  not charged (reports)  Belfor x2") and row.endswith(" 2.0 h") for row in rows)
+
+def test_excluded_lines_do_not_print():
+    # Only what is added to a work order needs a justification (user
+    # 2026-11-06): the auditor reads excluded lines in the app, not here.
+    rendered = _render(_sample_lines())
+    assert "Not charged" not in rendered and "Rye" not in rendered and "96.0" not in rendered
+    assert "  (nothing charged)" in _render([_line(status="excluded")]).split("\n")
 
 
 def test_a_changed_line_changes_the_digest_and_order_does_not():
@@ -143,8 +149,8 @@ def test_a_week_placement_prints_the_monday_of_its_week_and_sorts_into_it():
     # placed print as "week of" that week's Monday, ahead of the week's days.
     lines = [_line(), _line(work_date=None, date_basis=WEEK_PLACEMENT_BASIS, week=3, hours_each=Decimal("0.5"))]
     rendered = _render(lines).split("\n")
-    assert rendered[7].startswith("week of 06/08 Belfor") and rendered[7].endswith(" 0.5 h")
-    assert len(rendered[7]) == receipt.PRICING_LINE_WIDTH
+    assert rendered[8].startswith("week of 06/08 Belfor") and rendered[8].endswith(" 0.5 h")
+    assert len(rendered[8]) == receipt.PRICING_LINE_WIDTH
     assert rendered[9].startswith("06/20 Belfor")
 
 

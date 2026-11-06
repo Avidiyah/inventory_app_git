@@ -9,13 +9,13 @@ Every row goes through the receipt's own `pricing_amount_line` / `sanitise`,
 which right-align the amount and truncate an over-long label with `...`.
 `tests/test_smr_block.py` pins the output.
 
-Shape: the version and date, the order, billed / corrected / change in hours
-and the change in dollars; then each charged line with its reason on the
-line below (the user wants the reason beside each charge; the width forbids
-one line); then every excluded line with its ground under `Not charged:`,
-because the auditor must see what was left out and why. A line removed in
-the app is a keying mistake, not paper: history keeps it, the block does not
-print it (user 2026-11-06).
+Shape (user 2026-11-06, the TechFM correction memo): the version and date,
+the order; what NetFacilities has (the Breakdown hours, labor type and
+labor $), what the paper shows, and what to add to the WO in hours and
+dollars; then the corrected labor record -- every charged line, name, day,
+hours, kind; then one reason block naming the distinct reasons and what the
+record replaces. Excluded lines do not print: only what is added to a work
+order needs a justification, and the auditor reads the lines in the app.
 """
 
 from __future__ import annotations
@@ -32,7 +32,6 @@ from app.domain.work_orders_smr_lines import (
     GROUND_REMOVED,
     STATUS_CHARGED,
     WEEK1_START,
-    line_hours,
     lines_charge,
 )
 
@@ -63,15 +62,7 @@ REASON_TEXT: dict[str, str] = {
 VENDOR_SHORT: dict[str, str] = {
     "Green Choice": "GC", "XXL Construction": "XXL", "BT Restoration": "BT",
 }
-# Long grounds in the width they have under `Not charged:`.
-GROUND_SHORT: dict[str, str] = {
-    "after 07/12 (no invoices)": "after 07/12",
-    "awaiting invoice (GC, Week 7)": "awaiting invoice",
-    "reprint (no hours added)": "reprint",
-    "read, not charged (user)": "not charged (user)",
-    "read, not charged (weekly reports)": "not charged (reports)",
-}
-FOOTER = "Paper on file. Reasons under each line."
+FOOTER = "Paper on file."
 
 
 def reason_text(code: str) -> str:
@@ -126,42 +117,55 @@ def _sort_key(line):
     return (day, _who(line))
 
 
-def _charged_rows(line) -> list[str]:
+def _charged_row(line) -> str:
     amount = _hours(line.hours_each) + (" each" if line.headcount > 1 else "")
-    return [_row(f"{_day(line)} {_who(line)}", amount), _fit("  " + reason_text(line.reason_code))]
+    return _row(f"{_day(line)} {_who(line)}", amount)
 
 
-def _excluded_row(line) -> str:
-    ground = GROUND_SHORT.get(line.exclusion_ground or "", line.exclusion_ground or "")
-    return _row(f"  {ground}  {_who(line)}", _hours(line_hours(line)))
+def _has(target: Optional[dict]) -> tuple[Decimal, str]:
+    """What NetFacilities has: the Breakdown hours, and the amount text with
+    the labor type and labor dollars when the sheet row carries them."""
+    if not target:
+        return Decimal(0), _hours(Decimal(0))
+    hours = Decimal(target["hours"])
+    source = target.get("source_row") or {}
+    kind = (source.get("Labor Type") or "").strip()
+    money = target.get("labor_total")
+    text = _hours(hours) + (f" {kind}" if kind else "") + (f"  ${Decimal(money):,.2f}" if money else "")
+    return hours, text
 
 
-def render_correction_block(order_number: str, target_hours: Optional[Decimal], lines, version: int,
+def _paper_days(charged) -> str:
+    days = sorted({l.work_date for l in charged if l.work_date is not None})
+    return f" (paper {days[0].strftime('%m/%d')})" if len(days) == 1 else ""
+
+
+def render_correction_block(order_number: str, target: Optional[dict], lines, version: int,
                             generated_on: date) -> str:
-    """The block for one order from its current lines. `target_hours` is the
-    Breakdown figure NetFacilities billed (D6); None when the order has no
-    sheet row, which the block says."""
+    """The block for one order from its current lines. `target` is the order's
+    `smr_target` (the Breakdown row NetFacilities billed, D6); None when the
+    order has no sheet row, which the block says."""
     lines = list(lines)
     charge = lines_charge(lines)
-    billed = Decimal(target_hours) if target_hours is not None else Decimal(0)
+    billed, has = _has(target)
     change = charge.charged_hours - billed
+    charged = sorted((l for l in lines if l.status == STATUS_CHARGED and l.exclusion_ground != GROUND_REMOVED),
+                     key=_sort_key)
     out = [
         _row(f"SMR27 LABOR CORRECTION v{version}", generated_on.strftime("%m/%d/%y")),
         _fit(f"WO {order_number}"),
-        _row("Billed in NetFacilities" if target_hours is not None else "Billed (no sheet row)", _hours(billed)),
-        _row("Corrected", _hours(charge.charged_hours)),
-        _row("Change", _hours(change, signed=True)),
+        _row("NetFacilities has" if target else "NetFacilities has (no sheet row)", has),
+        _row("Paper shows", _hours(charge.charged_hours)),
+        _row("Add to WO", _hours(change, signed=True)),
         _row("", receipt.format_money(change * wo.LABOR_RATE)),
         "",
+        _fit(f"Corrected labor record{_paper_days(charged)}:"),
     ]
-    shown = [l for l in lines if l.exclusion_ground != GROUND_REMOVED]
-    charged = sorted((l for l in shown if l.status == STATUS_CHARGED), key=_sort_key)
-    excluded = sorted((l for l in shown if l.status != STATUS_CHARGED), key=_sort_key)
-    for line in charged:
-        out += _charged_rows(line)
-    if excluded:
-        out += ["", "Not charged:"] + [_excluded_row(line) for line in excluded]
-    out += ["", _fit(FOOTER)]
+    out += [_charged_row(line) for line in charged] or [_fit("  (nothing charged)")]
+    reasons = sorted({reason_text(l.reason_code) for l in charged}) or ["paper review"]
+    out += ["", _fit("Reason: " + reasons[0] + ",")] + [_fit("  " + r + ",") for r in reasons[1:]]
+    out += [_fit(f"replacing the {_hours(billed)}{' ' + (target.get('source_row') or {}).get('Labor Type', '').strip() if target else ''} on the WO."
+                 if target else "no labor on the WO."), _fit(FOOTER)]
     return "\n".join(out)
 
 

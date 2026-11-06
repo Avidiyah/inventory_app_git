@@ -197,5 +197,9 @@ three rows push it past 500 lines (the filter rows belong in `smrFilters.js`).
   (`PATCH /work-orders/smr/readings/{id}`, S7b; a date cascades to the printing's
   `undated` lines, which charge themselves — placement-basis lines keep their week);
   an excluded line needs no ground (migration `3e5a7c9b1d2f`); Exclude / Charge are one
-  tap on the card with a fixed history reason. the section carries color — charged /
+  tap on the card with a fixed history reason.
+- 2026-11-06 (follow-up, user): the correction block is the TechFM add-to-WO memo —
+  `NetFacilities has <hours> <labor type> $<labor>`, `Paper shows`, `Add to WO`; the
+  charged lines as "Corrected labor record"; one Reason block (distinct reasons, then
+  "replacing the N h SL on the WO"); excluded lines and per-line reasons dropped. the section carries color — charged /
   excluded left rules, kind chips in status hues, a red printing pill, stat tiles.

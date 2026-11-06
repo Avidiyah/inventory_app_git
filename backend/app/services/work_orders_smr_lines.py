@@ -338,8 +338,7 @@ def generate_block(db: Session, *, work_order_id: uuid.UUID, user: User) -> SmrB
     now = _now()
     target = order.smr_target
     text = block_rules.render_correction_block(
-        order.number, Decimal(target["hours"]) if target else None, lines, version,
-        now.astimezone(wo.NOTE_TIMEZONE).date(),
+        order.number, target, lines, version, now.astimezone(wo.NOTE_TIMEZONE).date(),
     )
     row = SmrCorrectionBlock(
         id=uuid.uuid4(), work_order_id=order.id, version=version, text=text, generated_at=now,
