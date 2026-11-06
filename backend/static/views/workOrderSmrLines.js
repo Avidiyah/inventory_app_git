@@ -13,7 +13,11 @@ import { getRole } from "../state.js";
 // The vocabulary of domain/work_orders_smr_lines.py; smrLines.test.js checks
 // every entry here is still in that file.
 export const SMR_VENDORS = ["Belfor", "Green Choice", "XXL Construction", "BT Restoration", "Unknown", "Admin"];
-export const SMR_KINDS = ["field", "assessment", "audit", "staging"];
+export const SMR_KINDS = ["field", "assessment", "audit", "staging", "material preparation", "clean-up"];
+// What the add row calls a kind: plain field work is just "Labor" (user, 2026-11-06).
+const KIND_LABELS = { field: "Labor" };
+const kindLabel = (kind) => KIND_LABELS[kind] || kind.replace(/(^|\s)\S/g, (c) => c.toUpperCase());
+const kindSlug = (kind) => kind.replace(/[^a-z]+/g, "-");
 export const SMR_DATE_BASES = [
   "paper", "paper (date in note)", "closed date (Young Hall rule)",
   "Week 1 placement (crew sheets, Supplement)", "week placement (weekly reports)",
@@ -38,14 +42,33 @@ const stamp = (iso) => new Date(iso).toLocaleDateString([], { month: "2-digit", 
 const options = (values, selected) =>
   values.map((v) => `<option value="${escapeHtml(v)}"${v === selected ? " selected" : ""}>${escapeHtml(v)}</option>`).join("");
 
-function readingHtml(reading) {
+function readingHtml(reading, editable) {
   const note = reading.raw_note
     ? `<details class="wo-smr-note"><summary>Note</summary><p>${escapeHtml(reading.raw_note)}</p></details>`
     : "";
   const read = reading.hours_as_read === null || reading.hours_as_read === undefined ? "no hours" : hours(reading.hours_as_read);
-  return `<div class="wo-smr-reading" data-reading-id="${escapeHtml(reading.id)}">
-            <span><strong>Printing ${escapeHtml(reading.printing_no)}</strong> · ${escapeHtml(shortDate(reading.work_date) || "undated")} · ${escapeHtml(read)} as read</span>${note}
+  const edit = editable
+    ? `<button type="button" class="secondary-btn" data-action="smr-edit-reading">Edit</button>`
+    : "";
+  return `<div class="wo-smr-reading" data-reading-id="${escapeHtml(reading.id)}" data-reading="${escapeHtml(JSON.stringify(reading))}">
+            <div>
+              <span class="wo-smr-reading-head"><span class="wo-smr-printing">Printing ${escapeHtml(reading.printing_no)}</span><strong>${escapeHtml(read)}</strong><span class="hint">as read</span></span>
+              <span class="hint">${escapeHtml(shortDate(reading.work_date) || "undated")}</span>${note}
+            </div>
+            ${edit}
           </div>`;
+}
+
+// The one reading form serves add and edit; `dataset.readingId` says which.
+export function fillReadingForm(form, reading) {
+  const set = (cls, value) => { form.querySelector(`.${cls}`).value = value ?? ""; };
+  form.dataset.readingId = reading?.id || "";
+  set("wo-smr-r-printing", reading?.printing_no);
+  set("wo-smr-r-date", reading?.work_date);
+  set("wo-smr-r-hours", reading?.hours_as_read);
+  set("wo-smr-r-note", reading?.raw_note);
+  form.querySelector('[data-action="smr-add-reading"]').textContent = reading ? "Save reading" : "Add reading";
+  form.querySelector('[data-action="smr-cancel-reading"]').hidden = !reading;
 }
 
 function workerLabel(line) {
@@ -59,7 +82,7 @@ function workerLabel(line) {
 function lineRowHtml(line, editable) {
   const when = line.work_date ? shortDate(line.work_date) : (line.week ? `Week ${line.week}` : "undated");
   const status = line.status === "charged" ? "" : `<span class="wo-smr-line-status">excluded: ${escapeHtml(line.exclusion_ground || "")}</span>`;
-  const kind = line.kind === "field" ? "" : `<span class="wo-smr-line-kind">${escapeHtml(line.kind)}</span>`;
+  const kind = line.kind === "field" ? "" : `<span class="wo-smr-line-kind wo-smr-line-kind--${escapeHtml(kindSlug(line.kind))}">${escapeHtml(kindLabel(line.kind))}</span>`;
   const note = line.note
     ? `<details class="wo-smr-line-note"><summary>note</summary><p>${escapeHtml(line.note)}</p></details>`
     : "";
@@ -93,6 +116,7 @@ function addLineRowHtml(detail) {
     <label><span>Hours each</span><input type="number" class="wo-smr-a-hours" min="0.5" step="0.5" placeholder="e.g. 2"></label>
     <label><span>Date</span><input type="date" class="wo-smr-a-date"></label>
     <label><span>Vendor</span><select class="wo-smr-a-vendor">${options(SMR_VENDORS, last?.vendor || "Belfor")}</select></label>
+    <label><span>Reason</span><select class="wo-smr-a-kind">${SMR_KINDS.map((k) => `<option value="${escapeHtml(k)}">${escapeHtml(kindLabel(k))}</option>`).join("")}</select></label>
     <button type="button" data-action="smr-add-line">Add line</button>
   </div>`;
 }
@@ -109,7 +133,7 @@ export function readAddLineRow(section) {
     alias_on_paper: v("wo-smr-a-name") || null,
     headcount: Number(v("wo-smr-a-headcount")) || 1,
     hours_each: v("wo-smr-a-hours"),
-    kind: "field",
+    kind: v("wo-smr-a-kind") || "field",
     reason_code: "as_read",
     // An undated line cannot charge (D10): it waits, excluded as undated,
     // and charges itself the moment a date lands on it.
@@ -208,14 +232,34 @@ function blockHtml(detail, editable) {
   return `<div class="wo-smr-block"><p class="hint wo-smr-block-status">${escapeHtml(blockStatusText(block))}</p>${text}<div class="wo-smr-form-actions">${buttons}</div></div>`;
 }
 
-export function totalsText(detail) {
+function totals(detail) {
   const charged = (detail.smr_lines || [])
     .filter((l) => l.status === "charged")
     .reduce((sum, l) => sum + Number(l.hours), 0);
   const billed = (detail.smr_legacy_labor_minutes || 0) / 60;
-  const change = charged - billed;
+  return { charged, billed, change: charged - billed };
+}
+
+export function totalsText(detail) {
+  const { charged, billed, change } = totals(detail);
   const money = detail.labor_total === null || detail.labor_total === undefined ? "" : ` · ${formatMoney(detail.labor_total)}`;
   return `Billed (NetFacilities) ${hours(billed)} · Corrected ${hours(charged)} · Change ${change >= 0 ? "+" : "-"}${hours(Math.abs(change))}${money}`;
+}
+
+// Four tiles: what NetFacilities billed, what the paper corrects it to, the
+// difference (signed, colored), and the charge.
+export function totalsHtml(detail) {
+  const { charged, billed, change } = totals(detail);
+  const tile = (label, value, cls = "") =>
+    `<div class="wo-smr-stat${cls}"><span class="wo-smr-stat-label">${label}</span><span class="wo-smr-stat-value">${escapeHtml(value)}</span></div>`;
+  const sign = change > 0 ? " wo-smr-stat--up" : change < 0 ? " wo-smr-stat--down" : "";
+  const money = detail.labor_total === null || detail.labor_total === undefined ? "" : tile("Charge", formatMoney(detail.labor_total));
+  return `<div class="wo-smr-totals" aria-label="${escapeHtml(totalsText(detail))}">
+            ${tile("Billed (NetFacilities)", hours(billed))}
+            ${tile("Corrected", hours(charged))}
+            ${tile("Change", `${change >= 0 ? "+" : "-"}${hours(Math.abs(change))}`, sign)}
+            ${money}
+          </div>`;
 }
 
 // Ready for invoice (spec 2026-11-06): a person's stamp, offered only while
@@ -240,7 +284,7 @@ export function readyRowHtml(detail, editable) {
 export function smrSectionHtml(detail) {
   if (!detail?.smr) return "";
   const editable = canEditSmrLines();
-  const readings = (detail.smr_readings || []).map(readingHtml).join("") || `<p class="hint">No paper read yet.</p>`;
+  const readings = (detail.smr_readings || []).map((r) => readingHtml(r, editable)).join("") || `<p class="hint">No paper read yet.</p>`;
   const rows = (detail.smr_lines || []).map((line) => lineRowHtml(line, editable)).join("");
   const table = `<div class="wo-labor-list wo-smr-lines">${rows || `<p class="hint">No correction lines.</p>`}</div>`;
   const readingForm = editable
@@ -250,6 +294,7 @@ export function smrSectionHtml(detail) {
          <label><span>Hours as read</span><input type="number" class="wo-smr-r-hours" min="0" step="0.5"></label>
          <label class="wo-smr-wide"><span>Note from the paper</span><input type="text" class="wo-smr-r-note"></label>
          <button type="button" class="secondary-btn" data-action="smr-add-reading">Add reading</button>
+         <button type="button" class="secondary-btn" data-action="smr-cancel-reading" hidden>Cancel</button>
        </div>`
     : "";
   const addLine = editable ? addLineRowHtml(detail) : "";
@@ -261,7 +306,7 @@ export function smrSectionHtml(detail) {
               ${table}
               ${addLine}
               ${editable ? lineFormHtml(detail) : ""}
-              <p class="wo-smr-totals">${escapeHtml(totalsText(detail))}</p>
+              ${totalsHtml(detail)}
               ${readyRowHtml(detail, editable)}
               ${blockHtml(detail, editable)}
             </div>

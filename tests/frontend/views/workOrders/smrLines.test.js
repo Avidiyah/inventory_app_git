@@ -127,7 +127,10 @@ describe("ready for invoice", () => {
 describe("totals and block status", () => {
   it("prints billed, corrected, change and the charge", async () => {
     await open({ detail: { smr_legacy_labor_minutes: 120, labor_total: "375.00" } });
-    expect(section().querySelector(".wo-smr-totals").textContent)
+    const tiles = [...section().querySelectorAll(".wo-smr-stat")].map((t) => t.textContent.replace(/\s+/g, " ").trim());
+    expect(tiles).toEqual(["Billed (NetFacilities)2.0 h", "Corrected6.0 h", "Change+4.0 h", "Charge$375.00"]);
+    expect(section().querySelector(".wo-smr-stat--up")).not.toBeNull();
+    expect(section().querySelector(".wo-smr-totals").getAttribute("aria-label"))
       .toBe("Billed (NetFacilities) 2.0 h · Corrected 6.0 h · Change +4.0 h · $375.00");
   });
 
@@ -153,6 +156,35 @@ describe("readings", () => {
     await expectRefresh(detail.id);
   });
 
+  it("\"smr-edit-reading\" fills the reading form and saving PATCHes that reading", async () => {
+    const detail = await open();
+    respond("patch", "/work-orders/smr/readings/:id", { ...READING, hours_as_read: "4.0" });
+    click("smr-edit-reading");
+    const f = section().querySelector(".wo-smr-reading-form");
+    expect(f.dataset.readingId).toBe("r1");
+    expect(f.querySelector(".wo-smr-r-printing").value).toBe("1");
+    expect(f.querySelector(".wo-smr-r-hours").value).toBe("6.0");
+    expect(f.querySelector('[data-action="smr-add-reading"]').textContent).toBe("Save reading");
+    expect(f.querySelector('[data-action="smr-cancel-reading"]').hidden).toBe(false);
+    set("wo-smr-r-hours", "4");
+    click("smr-add-reading");
+    await sent("/readings/r1", "PATCH");
+    expect(requestFor("/readings/r1", "PATCH").body).toEqual({ printing_no: 1, work_date: "2026-06-20", hours_as_read: "4", raw_note: "BT x2 3h" });
+    expect(requestFor("/readings", "POST")).toBeNull();
+    await expectRefresh(detail.id);
+  });
+
+  it("\"smr-cancel-reading\" blanks the form back to add", async () => {
+    await open();
+    click("smr-edit-reading");
+    click("smr-cancel-reading");
+    const f = section().querySelector(".wo-smr-reading-form");
+    expect(f.dataset.readingId).toBe("");
+    expect(f.querySelector(".wo-smr-r-printing").value).toBe("");
+    expect(f.querySelector('[data-action="smr-add-reading"]').textContent).toBe("Add reading");
+    expect(f.querySelector('[data-action="smr-cancel-reading"]').hidden).toBe(true);
+  });
+
   it("refuses a blank printing number without a request", async () => {
     await open();
     click("smr-add-reading");
@@ -175,14 +207,15 @@ describe("lines", () => {
     expect(hours(rows[0])).toBe("3.0 h");
     expect(text(rows[1])).toContain("Skilled Technician undated · BT Restoration");
     expect(text(rows[1])).toContain("excluded: undated");
-    expect(text(rows[2])).toContain("BT crew ×3staging 06/20/26");
+    expect(text(rows[2])).toContain("BT crew ×3Staging 06/20/26");
     expect(hours(rows[2])).toBe("3 × 3.0 h");
     // The note sits behind a closed toggle; audit/staging show as a chip, field does not.
     const note = rows[0].querySelector("details.wo-smr-line-note");
     expect(note.open).toBe(false);
     expect(note.querySelector("p").textContent).toBe("crew billed as one person");
     expect(rows[0].querySelector(".wo-smr-line-kind")).toBeNull();
-    expect(rows[2].querySelector(".wo-smr-line-kind").textContent).toBe("staging");
+    expect(rows[2].querySelector(".wo-smr-line-kind").textContent).toBe("Staging");
+    expect(rows[2].querySelector(".wo-smr-line-kind").classList.contains("wo-smr-line-kind--staging")).toBe(true);
     expect(section().querySelector("table")).toBeNull();
   });
 
@@ -196,11 +229,14 @@ describe("lines", () => {
     set("wo-smr-a-hours", "4");
     set("wo-smr-a-date", "2026-06-22");
     set("wo-smr-a-vendor", "XXL Construction");
+    expect([...section().querySelector(".wo-smr-a-kind").options].map((o) => o.textContent))
+      .toEqual(["Labor", "Assessment", "Audit", "Staging", "Material Preparation", "Clean-up"]);
+    set("wo-smr-a-kind", "clean-up");
     click("smr-add-line");
     await sent("/lines", "POST");
     expect(requestFor("/lines", "POST").body).toEqual({
       reading_id: null, work_date: "2026-06-22", date_basis: "paper", vendor: "XXL Construction", worker_id: null,
-      alias_on_paper: "Jesus", headcount: 2, hours_each: "4", kind: "field", reason_code: "as_read",
+      alias_on_paper: "Jesus", headcount: 2, hours_each: "4", kind: "clean-up", reason_code: "as_read",
       status: "charged", exclusion_ground: null, note: null, reason: "keyed from the paper",
     });
     await expectRefresh(detail.id);

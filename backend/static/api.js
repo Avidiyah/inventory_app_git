@@ -1055,6 +1055,8 @@ export const apiSetSmrReady = (workOrderId, ready) =>
 // correction block and the Hours table.
 export const apiSmrAddReading = (workOrderId, payload) =>
   jsonRequest(`/work-orders/smr/${workOrderId}/readings`, "POST", payload);
+export const apiSmrEditReading = (readingId, payload) =>
+  jsonRequest(`/work-orders/smr/readings/${readingId}`, "PATCH", payload);
 export const apiSmrAddLine = (workOrderId, payload) =>
   jsonRequest(`/work-orders/smr/${workOrderId}/lines`, "POST", payload);
 export const apiSmrEditLine = (lineId, payload) =>

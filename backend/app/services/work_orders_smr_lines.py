@@ -37,6 +37,7 @@ from app.schemas.work_orders_smr_lines import (
     SmrLineEditIn,
     SmrLineIn,
     SmrLineOut,
+    SmrReadingEditIn,
     SmrReadingIn,
     SmrReadingOut,
     SmrWorkerIn,
@@ -113,6 +114,33 @@ def add_reading(db: Session, *, work_order_id: uuid.UUID, payload: SmrReadingIn,
     db.add(row)
     db.commit()
     return SmrReadingOut.from_row(row)
+
+
+def edit_reading(db: Session, *, reading_id: uuid.UUID, payload: SmrReadingEditIn, user: User) -> SmrReadingOut:
+    """Only the fields in the body change. A printing number already read on
+    the order is refused; `printing_no` cannot be cleared. The edit is noted
+    on `source` (readings carry no history table)."""
+    reading = db.get(SmrPaperReading, reading_id)
+    if reading is None:
+        raise WorkOrderNotFoundError("Reading not found.")
+    order = _require_smr(reading.work_order)
+    changes = payload.model_dump(exclude_unset=True)
+    if changes.get("printing_no", 1) is None:
+        raise WorkOrderStateError("A reading keeps its printing number.")
+    if "raw_note" in changes:
+        changes["raw_note"] = (changes["raw_note"] or "").strip()
+    changes = {field: value for field, value in changes.items() if getattr(reading, field) != value}
+    if not changes:
+        raise WorkOrderStateError("Nothing changed.")
+    if "printing_no" in changes and any(r.printing_no == changes["printing_no"] for r in order.smr_readings):
+        raise WorkOrderStateError(f"Printing {changes['printing_no']} is already read on this order.")
+    for field, value in changes.items():
+        setattr(reading, field, value)
+    stamp = f"edited in the app by {user.full_name}"
+    if stamp not in (reading.source or ""):
+        reading.source = f"{reading.source}; {stamp}" if reading.source else stamp
+    db.commit()
+    return SmrReadingOut.from_row(reading)
 
 
 # --- lines ---------------------------------------------------------------

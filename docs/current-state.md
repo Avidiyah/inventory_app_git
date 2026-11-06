@@ -1744,8 +1744,11 @@ Materials (Technicians add-only, read-only quantities), Paper corrections
 (SMR orders only, Admin+ edits; `workOrderSmrLines.js` / `workOrderSmrActions.js`:
 each line reads like a Labor entry — keyed name or `Skilled Technician`, `N×` for a
 crew, hours each, date, vendor; the add row keys name / headcount / hours /
-date / vendor and posts a charged `as_read` field line, an undated one
-waiting as excluded: undated; the server links a keyed name to a live
+date / vendor / Reason (Labor = `field`, Assessment, Audit, Staging, Material
+Preparation, Clean-up) and posts a charged `as_read` line, an undated one
+waiting as excluded: undated; each printing has Edit (the reading form
+serves add and edit, S7b); lines carry a green / red left rule for charged /
+excluded and a kind chip in the status hues; the totals are four stat tiles; the server links a keyed name to a live
 worker or alias of that vendor silently, else leaves it unlinked, and the
 Hours tab groups by worker name, else keyed name, else `Skilled Technician`; Edit
 opens the full form), Labor (read-only below Admin; the Admin/Owner

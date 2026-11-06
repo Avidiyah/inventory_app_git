@@ -81,6 +81,11 @@ def test_admin_adds_a_reading_and_a_line_and_the_detail_carries_them(db):
         assert line.status_code == 200, line.text
         assert line.json()["hours"] == "2.0" and line.json()["history"][0]["field"] == "created"
 
+        edited = client.patch(f"/work-orders/smr/readings/{reading.json()['id']}", json={"hours_as_read": "3.0", "raw_note": "Pat 3 h"})
+        assert edited.status_code == 200 and edited.json()["hours_as_read"] == "3.0" and edited.json()["raw_note"] == "Pat 3 h"
+        assert client.patch(f"/work-orders/smr/readings/{reading.json()['id']}", json={"raw_note": "Pat 3 h"}).status_code == 400
+        assert client.patch(f"/work-orders/smr/readings/{uuid.uuid4()}", json={"raw_note": "x"}).status_code == 404
+
         detail = client.get(f"/work-orders/{order.id}").json()
         assert detail["labor_total"] == "125.00" and detail["smr_legacy_labor_minutes"] == 30
         assert [l["id"] for l in detail["smr_lines"]] == [line.json()["id"]]

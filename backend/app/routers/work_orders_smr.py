@@ -37,6 +37,7 @@ from app.schemas.work_orders_smr_lines import (
     SmrLineIn,
     SmrLineOut,
     SmrPaperImportResult,
+    SmrReadingEditIn,
     SmrReadingIn,
     SmrReadingOut,
     SmrWorkerIn,
@@ -239,6 +240,21 @@ def add_line(
     needs a ground."""
     try:
         return lines_service.add_line(db, work_order_id=work_order_id, payload=body, user=user)
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.patch("/readings/{reading_id}", response_model=SmrReadingOut, responses=_forbidden(roles.ROLE_ADMIN))
+def edit_reading(
+    reading_id: uuid.UUID,
+    body: SmrReadingEditIn,
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+) -> SmrReadingOut:
+    """Any subset of a reading's fields (Admin+); a duplicate printing
+    number or a no-op is refused (400), an unknown reading 404."""
+    try:
+        return lines_service.edit_reading(db, reading_id=reading_id, payload=body, user=user)
     except DomainError as exc:
         raise to_http(exc)
 

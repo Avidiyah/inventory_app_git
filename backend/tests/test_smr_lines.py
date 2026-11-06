@@ -15,7 +15,7 @@ import pytest
 from app.domain import work_orders as wo
 from app.domain.errors import WorkOrderNotFoundError, WorkOrderStateError
 from app.models import SmrLineEdit, User
-from app.schemas.work_orders_smr_lines import SmrLineEditIn, SmrLineIn, SmrReadingIn, SmrWorkerIn
+from app.schemas.work_orders_smr_lines import SmrLineEditIn, SmrLineIn, SmrReadingEditIn, SmrReadingIn, SmrWorkerIn
 from app.services import auth
 from app.services import work_orders as wos
 from app.services import work_orders_smr as smr_service
@@ -61,6 +61,28 @@ def test_add_reading_and_refuse_a_second_of_the_same_printing(db):
     assert "app" in reading.source
     with pytest.raises(WorkOrderStateError, match="rinting 1"):
         svc.add_reading(db, work_order_id=order.id, payload=SmrReadingIn(printing_no=1), user=admin)
+
+
+def test_edit_reading_changes_fields_refuses_a_taken_printing_and_a_no_op(db):
+    admin = _user(db)
+    order = _smr_order(db, admin)
+    first = svc.add_reading(db, work_order_id=order.id, payload=SmrReadingIn(printing_no=1, raw_note="x"), user=admin)
+    second = svc.add_reading(db, work_order_id=order.id, payload=SmrReadingIn(printing_no=2), user=admin)
+
+    out = svc.edit_reading(db, reading_id=first.id, user=admin, payload=SmrReadingEditIn(
+        work_date=date(2026, 6, 20), hours_as_read=Decimal("2.5"), raw_note="  Pat 2.5 h  "))
+    assert (out.work_date, out.hours_as_read, out.raw_note) == (date(2026, 6, 20), Decimal("2.5"), "Pat 2.5 h")
+    assert out.source.endswith("edited in the app by " + admin.full_name)
+    assert out.printing_no == 1
+
+    with pytest.raises(WorkOrderStateError):
+        svc.edit_reading(db, reading_id=first.id, user=admin, payload=SmrReadingEditIn(printing_no=2))
+    with pytest.raises(WorkOrderStateError):
+        svc.edit_reading(db, reading_id=second.id, user=admin, payload=SmrReadingEditIn(printing_no=None))
+    with pytest.raises(WorkOrderStateError):  # no-op
+        svc.edit_reading(db, reading_id=first.id, user=admin, payload=SmrReadingEditIn(raw_note="Pat 2.5 h"))
+    with pytest.raises(WorkOrderNotFoundError):
+        svc.edit_reading(db, reading_id=uuid.uuid4(), user=admin, payload=SmrReadingEditIn(raw_note="y"))
 
 
 def test_writes_refuse_a_live_order_and_an_unknown_one(db):

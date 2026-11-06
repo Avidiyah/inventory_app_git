@@ -192,3 +192,7 @@ three rows push it past 500 lines (the filter rows belong in `smrFilters.js`).
   the worker picker is gone, and the server links a keyed name to a live worker
   or alias of the line's vendor, else leaves it unlinked; Hours groups by worker
   name, else keyed name, else `Skilled Technician`.
+- 2026-11-06 (follow-up, user): kinds gain `material preparation` and `clean-up`; the add
+  row exposes the kind as "Reason" (Labor default); readings are editable
+  (`PATCH /work-orders/smr/readings/{id}`, S7b); the section carries color — charged /
+  excluded left rules, kind chips in status hues, a red printing pill, stat tiles.

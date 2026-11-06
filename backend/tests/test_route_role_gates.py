@@ -564,6 +564,7 @@ def test_no_route_gate_is_left_at_the_admin_floor():
         # the OA-level xlsx export (test_inventory_export.py holds the 403).
         "export_items_csv",
         "add_reading",
+        "edit_reading",
         "add_line",
         "edit_line",
         "search_workers",
@@ -692,6 +693,7 @@ def test_filing_and_cancelling_a_material_request_have_no_static_min_role(endpoi
         ("import_paper", roles.ROLE_OWNER),
         ("merge_workers", roles.ROLE_OWNER),
         ("add_reading", roles.ROLE_ADMIN),
+        ("edit_reading", roles.ROLE_ADMIN),
         ("add_line", roles.ROLE_ADMIN),
         ("edit_line", roles.ROLE_ADMIN),
         ("search_workers", roles.ROLE_ADMIN),

@@ -6,13 +6,14 @@ import {
   apiSmrAddLine,
   apiSmrAddReading,
   apiSmrEditLine,
+  apiSmrEditReading,
   apiSmrGenerateBlock,
   apiSmrMarkPasted,
   apiSetSmrReady,
 } from "../api.js";
 import { setMessage } from "../dom.js";
 import { refreshCard } from "./workOrderList.js";
-import { fillLineForm, readAddLineRow, readLineForm } from "./workOrderSmrLines.js";
+import { fillLineForm, fillReadingForm, readAddLineRow, readLineForm } from "./workOrderSmrLines.js";
 
 const SECTION = ".wo-smr-section";
 
@@ -25,19 +26,28 @@ export async function handleSmrAction(action, btn, cardEl, msg) {
   const lineOf = () => JSON.parse(btn.closest(".wo-smr-line").dataset.line);
 
   if (action === "smr-add-reading") {
+    const readingForm = section.querySelector(".wo-smr-reading-form");
     const v = (cls) => section.querySelector(`.${cls}`).value.trim();
     const printing = Number(v("wo-smr-r-printing"));
     if (!printing) {
       setMessage(msg, "Enter the printing number from the paper.", "error");
       return;
     }
-    await apiSmrAddReading(workOrderId, {
+    const payload = {
       printing_no: printing,
       work_date: v("wo-smr-r-date") || null,
       hours_as_read: v("wo-smr-r-hours") || null,
       raw_note: v("wo-smr-r-note"),
-    });
+    };
+    if (readingForm.dataset.readingId) await apiSmrEditReading(readingForm.dataset.readingId, payload);
+    else await apiSmrAddReading(workOrderId, payload);
     await refreshCard(cardEl, SECTION);
+  } else if (action === "smr-edit-reading") {
+    const readingForm = section.querySelector(".wo-smr-reading-form");
+    fillReadingForm(readingForm, JSON.parse(btn.closest(".wo-smr-reading").dataset.reading));
+    readingForm.querySelector(".wo-smr-r-printing").focus();
+  } else if (action === "smr-cancel-reading") {
+    fillReadingForm(section.querySelector(".wo-smr-reading-form"), null);
   } else if (action === "smr-add-line") {
     const payload = readAddLineRow(section);
     if (!payload.hours_each) {

@@ -44,6 +44,7 @@ export const ENDPOINTS = [
   { fn: "apiSetSmrPaperCheck", args: ["w1", true], method: "PUT", url: "/work-orders/smr/w1/paper-check", body: { checked: true } },
   { fn: "apiSetSmrReady", args: ["w1", true], method: "PUT", url: "/work-orders/smr/w1/ready", body: { ready: true } },
   { fn: "apiSmrAddReading", args: ["w1", { printing_no: 2 }], method: "POST", url: "/work-orders/smr/w1/readings", body: { printing_no: 2 } },
+  { fn: "apiSmrEditReading", args: ["r1", { raw_note: "x" }], method: "PATCH", url: "/work-orders/smr/readings/r1", body: { raw_note: "x" } },
   { fn: "apiSmrAddLine", args: ["w1", { vendor: "Belfor" }], method: "POST", url: "/work-orders/smr/w1/lines", body: { vendor: "Belfor" } },
   { fn: "apiSmrEditLine", args: ["l1", { reason: "x" }], method: "PATCH", url: "/work-orders/smr/lines/l1", body: { reason: "x" } },
   { fn: "apiSmrSearchWorkers", args: ["pat s"], url: "/work-orders/smr/workers?q=pat%20s" },

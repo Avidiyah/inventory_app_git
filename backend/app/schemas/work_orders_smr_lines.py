@@ -70,6 +70,15 @@ class SmrReadingIn(BaseModel):
     reviewer: Optional[str] = None
 
 
+class SmrReadingEditIn(BaseModel):
+    """Any subset of a reading's fields; an explicit null clears a date or hours."""
+    printing_no: Optional[int] = None
+    work_date: Optional[date] = None
+    hours_as_read: Optional[Decimal] = None
+    raw_note: Optional[str] = None
+    reviewer: Optional[str] = None
+
+
 class SmrReadingOut(BaseModel):
     id: UUID
     work_order_id: UUID

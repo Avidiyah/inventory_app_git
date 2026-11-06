@@ -27,7 +27,7 @@ STATUSES: tuple[str, ...] = (STATUS_CHARGED, STATUS_EXCLUDED)
 VENDORS: tuple[str, ...] = (
     "Belfor", "Green Choice", "XXL Construction", "BT Restoration", "Unknown", "Admin",
 )
-KINDS: tuple[str, ...] = ("field", "assessment", "audit", "staging")
+KINDS: tuple[str, ...] = ("field", "assessment", "audit", "staging", "material preparation", "clean-up")
 
 DATE_BASIS_PAPER = "paper"
 # Decision 13, generalised by the user on 2026-11-06: the two bases allowed
