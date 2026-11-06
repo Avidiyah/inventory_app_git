@@ -54,7 +54,7 @@ def test_one_full_block_verbatim():
     # with a Week 1 placement first ("week of 05/25"); one reason block;
     # excluded lines left out. The width is the destination's: it wraps at 42.
     assert _render(_sample_lines()) == "\n".join([
-        "SMR27 LABOR CORRECTION v2        11/10/26",
+        "SMR27 LABOR CORRECTION           11/10/26",
         "WO 23281563",
         "NetFacilities has      10.0 h SL  $625.00",
         "Paper shows                        16.5 h",

@@ -152,7 +152,7 @@ def render_correction_block(order_number: str, target: Optional[dict], lines, ve
     charged = sorted((l for l in lines if l.status == STATUS_CHARGED and l.exclusion_ground != GROUND_REMOVED),
                      key=_sort_key)
     out = [
-        _row(f"SMR27 LABOR CORRECTION v{version}", generated_on.strftime("%m/%d/%y")),
+        _row("SMR27 LABOR CORRECTION", generated_on.strftime("%m/%d/%y")),
         _fit(f"WO {order_number}"),
         _row("NetFacilities has" if target else "NetFacilities has (no sheet row)", has),
         _row("Paper shows", _hours(charge.charged_hours)),
