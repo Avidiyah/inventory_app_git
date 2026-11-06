@@ -1066,12 +1066,11 @@ export const apiSmrMarkPasted = (blockId) =>
 export const apiSmrHours = () => jsonRequest("/work-orders/smr/hours", "GET");
 export const apiSmrHoursCsv = () => xlsxDownload("/work-orders/smr/hours.csv", "GET");
 export async function apiListSmrTiles({
-  status = null, supervisorId = null, assignedToId = null, community = null,
+  supervisorId = null, assignedToId = null, community = null,
   priority = null, scheduledDate = null, q = null, locationQ = null, taskQ = null, sort = null,
 } = {}) {
-  // The Work Orders list's params (minus service type, mine, limit), same names.
+  // The Work Orders list's params (minus status, service type, mine, limit), same names.
   const params = new URLSearchParams();
-  if (status) params.set("status", status);
   if (supervisorId) params.set("supervisor_id", supervisorId);
   if (assignedToId) params.set("assigned_to_id", assignedToId);
   if (community) params.set("community", community);

@@ -95,7 +95,6 @@ def import_smr_targets(
 
 @router.get("", response_model=SmrTilesResponse, responses=_forbidden(roles.ROLE_TECHNICIAN))
 def list_smr_tiles(
-    status: Optional[str] = Query(None),
     supervisor_id: Optional[uuid.UUID] = Query(None),
     assigned_to_id: Optional[uuid.UUID] = Query(None),
     community: Optional[str] = Query(None),
@@ -112,13 +111,12 @@ def list_smr_tiles(
 ) -> SmrTilesResponse:
     """Every SMR order as a tile with before / after / delta totals (every
     role since 2026-10-23: the re-charge is all hands).
-    The query params are the Work Orders list's (minus `service_type`, `mine`
-    and `limit`) and run through the same server predicates. Unpaginated: the
+    The query params are the Work Orders list's (minus `status`, `service_type`,
+    `mine` and `limit`) and run through the same server predicates. Unpaginated: the
     audit is a few hundred rows."""
     try:
         return smr_service.list_smr_tiles(
             db,
-            status=status,
             supervisor_id=supervisor_id,
             assigned_to_id=assigned_to_id,
             community=community,

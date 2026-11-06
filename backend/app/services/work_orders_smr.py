@@ -247,7 +247,6 @@ def smr_orders(db: Session) -> list[WorkOrder]:
 def filtered_smr_orders(
     db: Session,
     *,
-    status: Optional[str] = None,
     supervisor_id: Optional[uuid.UUID] = None,
     assigned_to_id: Optional[uuid.UUID] = None,
     community: Optional[str] = None,
@@ -262,7 +261,6 @@ def filtered_smr_orders(
     the SMR page's search and filters cannot drift from the live list's."""
     query = wos._apply_work_order_filters(
         _with_lines(_smr_query(db)),
-        status=status,
         supervisor_id=supervisor_id,
         assigned_to_id=assigned_to_id,
         community=community,

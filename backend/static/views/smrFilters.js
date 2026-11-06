@@ -10,7 +10,6 @@
 export const SMR_SORT_STORAGE_KEY = "smr.sort";
 const SORT_VALUES = new Set(["scheduled_desc", "scheduled_asc"]);
 
-const statusFilter = document.getElementById("smr-status-filter");
 const priorityFilter = document.getElementById("smr-priority-filter");
 const supervisorFilter = document.getElementById("smr-supervisor-filter");
 const technicianFilter = document.getElementById("smr-technician-filter");
@@ -21,13 +20,13 @@ const locationSearch = document.getElementById("smr-location-search");
 const taskSearch = document.getElementById("smr-task-search");
 const sortControl = document.getElementById("smr-sort");
 
-const SELECTS = [statusFilter, priorityFilter, supervisorFilter, technicianFilter, communityFilter];
+const SELECTS = [priorityFilter, supervisorFilter, technicianFilter, communityFilter];
 const TEXTS = [searchInput, locationSearch, taskSearch];
 
 // Keys are `currentParams` names; the state chip rides along as `chip`.
 export const SMR_FILTERS_STORAGE_KEY = "smr.filters";
 const CONTROLS = {
-  status: statusFilter, priority: priorityFilter, supervisorId: supervisorFilter,
+  priority: priorityFilter, supervisorId: supervisorFilter,
   assignedToId: technicianFilter, community: communityFilter, scheduledDate: dateFilter,
   q: searchInput, locationQ: locationSearch, taskQ: taskSearch,
 };

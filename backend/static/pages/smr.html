@@ -9,21 +9,8 @@
             <h2 id="smr-heading" class="smr-title">SMR27 — Belfor</h2>
             <div id="smr-bar" class="smr-bar" aria-live="polite"></div>
             <!-- Search + filters: the Work Orders row (pages/work-orders.html)
-                 minus service type, same server predicates (views/smrFilters.js). -->
+                 minus service type and NetFacilities status, same server predicates (views/smrFilters.js). -->
             <div class="smr-filter-grid">
-                <div class="smr-filter-field">
-                    <label for="smr-status-filter">Status</label>
-                    <select id="smr-status-filter">
-                        <option value="">All statuses</option>
-                        <option value="created">Created</option>
-                        <option value="assigned">Assigned</option>
-                        <option value="in_progress">In-Progress</option>
-                        <option value="on_hold">On-Hold</option>
-                        <option value="ready_to_complete">Ready to Complete</option>
-                        <option value="completed">Completed</option>
-                        <option value="review">Review</option>
-                    </select>
-                </div>
                 <div class="smr-filter-field">
                     <label for="smr-priority-filter">Priority</label>
                     <select id="smr-priority-filter"><option value="">All priorities</option></select>

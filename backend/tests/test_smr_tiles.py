@@ -105,12 +105,11 @@ def test_smr_tiles_filter_by_number_task_and_location(db):
     assert _numbers(smr_service.list_smr_tiles(db, search=tag, location_search="Scholars")) == [b]
 
 
-def test_smr_tiles_filter_by_community_priority_status_and_date(db):
+def test_smr_tiles_filter_by_community_priority_and_date(db):
     owner = _user(db)
     a, b, tag = _seed_filterable(db, owner)
     assert _numbers(smr_service.list_smr_tiles(db, search=tag, community="scholars")) == [b]
     assert _numbers(smr_service.list_smr_tiles(db, search=tag, priority="Emergency")) == [a]
-    assert sorted(_numbers(smr_service.list_smr_tiles(db, search=tag, status="created"))) == [a, b]
     assert _numbers(smr_service.list_smr_tiles(db, search=tag, scheduled_date=date(2026, 7, 20))) == [b]
 
 

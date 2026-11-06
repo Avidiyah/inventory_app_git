@@ -251,11 +251,12 @@ describe("the SMR page", () => {
     expect(text("smr-community-filter")).toEqual(["All communities", "Young Hall", "Scholars Inn"]);
     expect(byId("smr-result-count").textContent).toBe("3 of 3 orders");
     expect(byId("smr-service-filter")).toBeNull();
+    // The NetFacilities lifecycle status is gone: the paper stage is the status now.
+    expect(byId("smr-status-filter")).toBeNull();
   });
 
   it("sends every control as the Work Orders list's query params on Search", async () => {
     const { requests, clearRequests } = await openSmr();
-    byId("smr-status-filter").value = "completed";
     byId("smr-priority-filter").value = "Emergency";
     byId("smr-supervisor-filter").value = "s1";
     byId("smr-technician-filter").value = "t1";
@@ -270,7 +271,7 @@ describe("the SMR page", () => {
     await vi.waitFor(() => expect(smrCalls()).toHaveLength(1));
     const url = new URL(smrCalls()[0].url, "http://t");
     expect(Object.fromEntries(url.searchParams)).toEqual({
-      status: "completed", priority: "Emergency", supervisor_id: "s1", assigned_to_id: "t1",
+      priority: "Emergency", supervisor_id: "s1", assigned_to_id: "t1",
       community: "scholars", scheduled_date: "2026-07-20", q: "2328", location_q: "Young",
       task_q: "blinds", sort: "scheduled_desc",
     });
@@ -290,14 +291,14 @@ describe("the SMR page", () => {
 
   it("Clear filters empties every control and reloads unfiltered", async () => {
     const { requests, requestsFor, clearRequests } = await openSmr();
-    byId("smr-status-filter").value = "completed";
+    byId("smr-priority-filter").value = "Emergency";
     byId("smr-search").value = "2328";
     byId("smr-date-filter").value = "2026-07-20";
     clearRequests();
     byId("smr-clear-filters").click();
     await vi.waitFor(() => expect(requestsFor("/work-orders/smr")).toHaveLength(1));
     expect(requests()[0].url).toBe("/work-orders/smr?sort=scheduled_desc");
-    expect(byId("smr-status-filter").value).toBe("");
+    expect(byId("smr-priority-filter").value).toBe("");
     expect(byId("smr-search").value).toBe("");
     expect(byId("smr-date-filter").value).toBe("");
   });
