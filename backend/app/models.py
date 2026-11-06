@@ -488,6 +488,22 @@ class WorkOrder(Base):
     assignee = relationship("User", foreign_keys=[assigned_to_id], viewonly=True)
     supervisor = relationship("User", foreign_keys=[supervisor_id], viewonly=True)
     smr_paper_checked_by = relationship("User", foreign_keys=[smr_paper_checked_by_id], viewonly=True)
+    # SMR27 paper corrections (spec 2026-11-04), tables in `models_smr.py`.
+    # Lazy by default: only SMR orders ever have rows, and the readers that
+    # walk many orders (`work_order_totals`, the tile list) consult them only
+    # when `smr_imported_at` is set, so live surfaces pay nothing.
+    smr_readings = relationship(
+        "SmrPaperReading", back_populates="work_order", cascade="all, delete-orphan",
+        passive_deletes=True, order_by="SmrPaperReading.printing_no",
+    )
+    smr_lines = relationship(
+        "SmrLaborLine", back_populates="work_order", cascade="all, delete-orphan",
+        passive_deletes=True, order_by="SmrLaborLine.created_at",
+    )
+    smr_blocks = relationship(
+        "SmrCorrectionBlock", back_populates="work_order", cascade="all, delete-orphan",
+        passive_deletes=True, order_by="SmrCorrectionBlock.version",
+    )
 
     __table_args__ = (
         # Case-insensitive + trimmed uniqueness: "WO-1", " wo-1 " collide.
@@ -1232,3 +1248,15 @@ class DispenseExport(Base):
     created_by_id = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+
+
+# The SMR27 paper-correction tables live in their own module (this file is
+# past 1,200 lines); importing them here registers them on `Base.metadata`
+# and keeps `from app.models import SmrLaborLine` working.
+from app.models_smr import (  # noqa: E402,F401
+    SmrCorrectionBlock,
+    SmrLaborLine,
+    SmrLineEdit,
+    SmrPaperReading,
+    SmrWorker,
+)

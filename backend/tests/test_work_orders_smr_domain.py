@@ -195,3 +195,188 @@ def test_target_gap_zero_target_is_matched():
 
 def test_target_gap_none_without_target():
     assert smr.target_gap(None, billed_minutes=30, materials_total=Decimal(1)) is None
+
+
+# --- paper-correction lines (spec 2026-11-04) -----------------------------
+
+from datetime import date  # noqa: E402
+
+from app.domain import work_orders_smr_lines as lines_rules  # noqa: E402
+
+
+def _cline(**overrides):
+    fields = dict(work_date=date(2026, 6, 20), date_basis="paper", vendor="Belfor", worker=None, headcount=1,
+                  hours_each=Decimal("1.5"), kind="field", reason_code="accurate", status="charged",
+                  exclusion_ground=None)
+    fields.update(overrides)
+    return NS(**fields)
+
+
+def test_lines_charge_sums_charged_lines_at_the_rate_without_rounding():
+    charge = lines_rules.lines_charge([
+        _cline(headcount=2, hours_each=Decimal("3.0")),
+        _cline(hours_each=Decimal("0.5")),
+        _cline(hours_each=Decimal("-1.0")),
+        _cline(status="excluded", exclusion_ground="undated", hours_each=Decimal("7.0")),
+    ])
+    assert (charge.charged_hours, charge.excluded_hours, charge.count) == (Decimal("5.5"), Decimal("7.0"), 4)
+    assert charge.labor_total == Decimal("5.5") * wo.LABOR_RATE == Decimal("343.75")
+
+
+def test_labor_figures_without_lines_is_the_legacy_split():
+    figures = smr.labor_figures([_entry(20), _entry(10, None)], [])
+    split = smr.labor_split([_entry(20), _entry(10, None)])
+    assert (figures.labor_total, figures.billed_minutes, figures.legacy_minutes) == (split.labor_total, 60, 0)
+    assert figures.lines is None
+
+
+def test_labor_figures_with_lines_charges_lines_only_and_reports_legacy_minutes():
+    figures = smr.labor_figures([_entry(20), _entry(10, None)], [_cline(hours_each=Decimal("2.5"))])
+    assert figures.labor_total == Decimal("2.5") * wo.LABOR_RATE
+    assert figures.billed_minutes == 150
+    assert figures.legacy_minutes == 30
+    assert figures.lines.charged_hours == Decimal("2.5")
+
+
+def test_snapshot_labor_follows_the_lines_and_keeps_the_legacy_minute_keys():
+    order = _order(entries=[_entry(45)])
+    order.smr_imported_at = datetime.now(timezone.utc)
+    order.smr_lines = []
+    base = smr.snapshot(order, taken_at=datetime.now(timezone.utc), source_row=None)
+    order.smr_baseline = base
+    assert smr.is_edited(order) is False
+
+    order.smr_lines = [_cline(hours_each=Decimal("4.0"))]
+    cur = smr.snapshot(order, taken_at=datetime.now(timezone.utc), source_row=None)
+    assert cur["totals"]["labor_total"] == "250.00"
+    assert cur["totals"]["real_minutes"] == 45 and cur["totals"]["real_billed_minutes"] == 60
+    assert set(cur["totals"]) == set(base["totals"])
+    assert smr.is_edited(order) is True
+    assert smr.deltas(base, cur)["labor_total"] == Decimal("250.00") - wo.labor_charge(45)
+
+
+def test_correction_lines_are_only_read_on_smr_orders():
+    live = _order()
+    live.smr_lines = [_cline()]
+    assert smr.correction_lines(live) == ()
+    assert smr.labor_figures([], smr.correction_lines(live)).lines is None
+
+
+def test_week_of_counts_mon_sun_weeks_from_may_25():
+    assert lines_rules.week_of(date(2026, 5, 25)) == 1 and lines_rules.week_of(date(2026, 5, 31)) == 1
+    assert lines_rules.week_of(date(2026, 6, 1)) == 2
+    assert lines_rules.week_of(date(2026, 7, 6)) == 7 and lines_rules.week_of(date(2026, 7, 12)) == 7
+    assert lines_rules.week_of(date(2026, 5, 24)) == 0 and lines_rules.week_of(date(2026, 7, 13)) == 8
+    assert [lines_rules.week_label(w) for w in (0, 3, 8, None)] == ["Before W1", "Week 3", "After W7", ""]
+    assert lines_rules.week_for(None, lines_rules.WEEK1_PLACEMENT_BASIS) == 1
+    assert lines_rules.week_for(None, "paper") is None
+    assert lines_rules.week_for(date(2026, 6, 10), "paper") == 3
+
+
+def _state(**overrides):
+    fields = dict(status="charged", work_date=date(2026, 6, 20), date_basis="paper", exclusion_ground=None,
+                  headcount=1, hours_each=Decimal("1.5"), vendor="Belfor", kind="field", reason_code="accurate")
+    fields.update(overrides)
+    return fields
+
+
+def test_status_rules_in_words():
+    lines_rules.validate_line_state(**_state())
+    lines_rules.validate_line_state(**_state(work_date=None, date_basis=lines_rules.WEEK1_PLACEMENT_BASIS))
+    lines_rules.validate_line_state(**_state(status="excluded", exclusion_ground="vendor unknown"))
+    lines_rules.validate_line_state(**_state(kind="assessment, audit", hours_each=Decimal("-0.5")))
+    for bad in (
+        dict(work_date=None), dict(status="excluded"), dict(status="pending"), dict(headcount=0),
+        dict(hours_each=Decimal("1.3")), dict(vendor="Acme"), dict(kind="assessment, lunch"),
+        dict(reason_code="vibes"), dict(exclusion_ground="removed"), dict(date_basis="guess"),
+        dict(status="excluded", exclusion_ground="because"),
+    ):
+        with pytest.raises(WorkOrderStateError):
+            lines_rules.validate_line_state(**_state(**bad))
+
+
+def test_dating_an_undated_line_charges_it_and_nothing_else_moves():
+    assert lines_rules.apply_date("excluded", "undated", date(2026, 6, 1)) == ("charged", None)
+    assert lines_rules.apply_date("excluded", "undated", None) == ("excluded", "undated")
+    assert lines_rules.apply_date("excluded", "note only", date(2026, 6, 1)) == ("excluded", "note only")
+    assert lines_rules.apply_date("charged", None, date(2026, 6, 1)) == ("charged", None)
+
+
+def _reading(hours="6.0", work_date=date(2026, 6, 20)):
+    return {"reading_id": "R1", "wo": "23281563", "printing_no": 1, "work_date": work_date,
+            "hours_as_read": None if hours is None else Decimal(hours)}
+
+
+def _tline(hours="3.0", headcount=1, status="charged", ground=None, work_date=date(2026, 6, 20)):
+    return {"status": status, "exclusion_ground": ground, "work_date": work_date,
+            "headcount": headcount, "hours_each": Decimal(hours)}
+
+
+def test_tie_passes_exactly_and_within_half_an_hour():
+    assert lines_rules.check_tie(_reading("6.0"), [_tline("3.0", 2)]) is None
+    assert lines_rules.check_tie(_reading("6.5"), [_tline("3.0", 2)]) is None
+    assert lines_rules.check_tie(_reading("5.5"), [_tline("3.0", 2)]) is None
+    assert lines_rules.check_tie(_reading(None), [_tline("99.0")]) is None
+
+
+def test_tie_counts_undated_before_and_after_grounds_but_not_the_rest():
+    counted = [_tline("2.0", ground="undated", status="excluded"),
+               _tline("2.0", ground="before Week 1", status="excluded"),
+               _tline("2.0", ground="after 07/12 (no invoices)", status="excluded")]
+    skipped = [_tline("10.0", ground="awaiting invoice (GC, Week 7)", status="excluded"),
+               _tline("10.0", ground="reprint (no hours added)", status="excluded"),
+               _tline("10.0", ground="read, not charged (user)", status="excluded"),
+               _tline("10.0", ground="admin, never charged", status="excluded"),
+               _tline("10.0", ground="note only", status="excluded")]
+    assert lines_rules.tie_hours(_reading(), counted + skipped) == Decimal("6.0")
+    assert lines_rules.check_tie(_reading("6.0"), counted + skipped) is None
+
+
+def test_tie_leaves_out_a_line_the_note_dated_into_another_week():
+    other_week = _tline("4.0", work_date=date(2026, 6, 6))
+    assert lines_rules.check_tie(_reading("3.0"), [_tline("3.0"), other_week]) is None
+    # A reading with no date has no week, so the exception does not apply.
+    failure = lines_rules.check_tie(_reading("3.0", work_date=None), [_tline("3.0"), other_week])
+    assert failure is not None and failure.found == Decimal("7.0")
+
+
+def test_tie_failure_names_the_reading():
+    failure = lines_rules.check_tie(_reading("6.0"), [_tline("2.0", 2)])
+    assert (failure.reading_id, failure.wo, failure.printing_no) == ("R1", "23281563", 1)
+    assert (failure.expected, failure.found) == (Decimal("6.0"), Decimal("4.0"))
+    assert str(failure) == "Reading R1 (WO 23281563, printing 1): lines total 4.0 h, paper read 6.0 h."
+
+
+def test_parse_rows_accept_the_draft_columns_and_name_bad_cells():
+    reading = lines_rules.parse_reading_row({
+        "reading_id": "R7", "wo": " 23281563 ", "printing_no": "2", "work_date": "06/20/2026",
+        "hours_as_read": "3.5", "raw_note": " note ", "reviewer": "JM", "csv_row": "212", "extra": "ignored",
+    })
+    assert (reading["wo"], reading["printing_no"], reading["work_date"]) == ("23281563", 2, date(2026, 6, 20))
+    assert (reading["hours_as_read"], reading["raw_note"], reading["csv_row"]) == (Decimal("3.5"), "note", "212")
+
+    line = lines_rules.parse_line_row({
+        "line_id": "L9", "reading_id": "R7", "wo": "23281563", "work_date": "2026-06-20", "date_basis": "",
+        "week": "4", "vendor": "XXL Construction", "worker": "Trinton Smith", "alias_on_paper": "Trint",
+        "headcount": "2", "hours_each": "1.5", "kind": "assessment,audit", "status": "Charged",
+        "exclusion_ground": "", "reason_code": "crew_as_one", "note": "crew as one", "surprise": "x",
+    })
+    assert line["date_basis"] == "paper" and line["week"] == 4 and line["status"] == "charged"
+    assert line["kind"] == "assessment, audit" and line["headcount"] == 2 and line["hours_each"] == Decimal("1.5")
+
+    placement = lines_rules.parse_line_row({
+        "line_id": "L10", "reading_id": "R7", "wo": "23281563", "work_date": "", "vendor": "Belfor",
+        "worker": "", "headcount": "3", "hours_each": "2", "kind": "field", "status": "charged",
+        "exclusion_ground": "", "reason_code": "accurate", "date_basis": lines_rules.WEEK1_PLACEMENT_BASIS,
+    })
+    assert placement["work_date"] is None and placement["week"] == 1
+
+    with pytest.raises(WorkOrderStateError, match="Line L11.*work date"):
+        lines_rules.parse_line_row({
+            "line_id": "L11", "reading_id": "R7", "wo": "23281563", "work_date": "", "vendor": "Belfor",
+            "worker": "", "headcount": "1", "hours_each": "2", "kind": "field", "status": "charged",
+            "exclusion_ground": "", "reason_code": "accurate",
+        })
+    with pytest.raises(WorkOrderStateError, match="Reading R8.*not a date"):
+        lines_rules.parse_reading_row({"reading_id": "R8", "wo": "1", "printing_no": "1", "work_date": "June",
+                                       "hours_as_read": "", "raw_note": ""})

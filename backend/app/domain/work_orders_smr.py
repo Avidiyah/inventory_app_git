@@ -21,6 +21,7 @@ from typing import Optional
 from app.domain import receipt
 from app.domain import work_orders as wo
 from app.domain.errors import WorkOrderStateError
+from app.domain.work_orders_smr_lines import LinesCharge, lines_charge
 
 SMR_SERVICE_TYPE = "SMR27 - Belfor"
 SKILLED_TECHNICIAN_LABEL = "Skilled Technician"
@@ -111,6 +112,51 @@ def labor_split(entries) -> LaborSplit:
     )
 
 
+@dataclass(frozen=True)
+class LaborFigures:
+    """What the client is charged for labor on one order, from whichever
+    record governs (spec 2026-11-04 D9): the legacy entries with their split
+    rounding when the order has no correction lines, the charged lines at
+    the labor rate with no rounding when it has any. The editor detail,
+    `work_order_totals`, the snapshot (tiles, export) and `target_gap` all
+    read this one figure, so they cannot disagree."""
+
+    labor_total: Decimal
+    # Minutes the client pays for: the rounded legacy minutes, or the charged
+    # line hours as minutes (already in 0.5 h steps).
+    billed_minutes: int
+    # Legacy entries kept apart and not charged once lines exist; 0 otherwise.
+    legacy_minutes: int
+    lines: Optional[LinesCharge]
+
+
+def correction_lines(work_order):
+    """An SMR order's paper-correction lines, `()` for any other order so the
+    relationship is never loaded on a live surface."""
+    if getattr(work_order, "smr_imported_at", None) is None:
+        return ()
+    return tuple(getattr(work_order, "smr_lines", None) or ())
+
+
+def labor_figures(entries, lines) -> LaborFigures:
+    split = labor_split(entries)
+    lines = tuple(lines)
+    if not lines:
+        return LaborFigures(
+            labor_total=split.labor_total,
+            billed_minutes=split.real_billed + split.skilled_billed,
+            legacy_minutes=0,
+            lines=None,
+        )
+    charge = lines_charge(lines)
+    return LaborFigures(
+        labor_total=charge.labor_total,
+        billed_minutes=int(charge.charged_hours * 60),
+        legacy_minutes=split.real_minutes + split.skilled_minutes,
+        lines=charge,
+    )
+
+
 def _money(value: Decimal) -> str:
     return f"{value:.2f}"
 
@@ -149,6 +195,10 @@ def snapshot(work_order, *, taken_at: datetime, source_row: Optional[dict]) -> d
         for line in work_order.items
     ]
     split = labor_split(work_order.labor_entries)
+    # Labor money follows the governing record (legacy entries or correction
+    # lines); the minute keys always describe the legacy entries, so a
+    # baseline frozen before any line existed still compares key for key.
+    figures = labor_figures(work_order.labor_entries, correction_lines(work_order))
     materials_total = sum((line_total(line) for line in work_order.items), Decimal(0))
     return {
         "taken_at": _iso(taken_at),
@@ -162,8 +212,8 @@ def snapshot(work_order, *, taken_at: datetime, source_row: Optional[dict]) -> d
             "skilled_minutes": split.skilled_minutes,
             "real_billed_minutes": split.real_billed,
             "skilled_billed_minutes": split.skilled_billed,
-            "labor_total": _money(split.labor_total),
-            "total": _money(materials_total + split.labor_total),
+            "labor_total": _money(figures.labor_total),
+            "total": _money(materials_total + figures.labor_total),
         },
         "material_lines": lines,
         "labor_entries": [
