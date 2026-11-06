@@ -14,12 +14,16 @@ import { focusWorkOrderNumber } from "./workOrders.js";
 import { showPage } from "./nav.js";
 import { setProfileOrigin } from "./profileOrigin.js";
 import { applyFilterOptions, currentParams, installFilterControls, saveFilters, savedChip } from "./smrFilters.js";
+import { loadSmrHours } from "./smrHours.js";
 
 const bar = document.getElementById("smr-bar");
 const grid = document.getElementById("smr-tiles");
 const message = document.getElementById("smr-message");
 const resultCount = document.getElementById("smr-result-count");
 const exportBtn = document.getElementById("smr-export-btn");
+const hoursBtn = document.getElementById("smr-hours-btn");
+const hoursCsvBtn = document.getElementById("smr-hours-csv-btn");
+const hoursPanel = document.getElementById("smr-hours");
 const filterButtons = Array.from(document.querySelectorAll(".smr-btn[data-filter]"));
 
 export const EMPTY_COPY = "NO SMR ORDERS. OWNER: IMPORT FROM INTEGRATIONS.";
@@ -63,7 +67,20 @@ function matches(tile, filter) {
   // Paper check (spec 2026-10-27-smr-paper-check): Short keeps its meaning.
   if (filter === "checked") return Boolean(tile.paper_check);
   if (filter === "short_checked") return Boolean(tile.paper_check) && Boolean(tile.target) && !tile.target.matched;
+  // Paper corrections (spec 2026-11-04): orders with lines, and those whose
+  // block still needs work (none yet, not pasted, or stale since the paste).
+  if (filter === "has_lines") return Boolean(tile.lines);
+  if (filter === "block_pending") return Boolean(tile.lines) && blockPending(tile.lines);
   return (filter === "edited") === Boolean(tile.edited);
+}
+
+const blockPending = (lines) => !lines.block_version || !lines.block_pasted_at || lines.block_stale;
+
+function blockText(lines) {
+  if (!lines.block_version) return "NO BLOCK";
+  const v = `V${lines.block_version}`;
+  if (lines.block_stale) return `${v} STALE`;
+  return lines.block_pasted_at ? `${v} PASTED` : `${v} NOT PASTED`;
 }
 
 const hoursText = (value) => `${(Number(value) || 0).toFixed(1)} H`;
@@ -72,6 +89,15 @@ const hoursText = (value) => `${(Number(value) || 0).toFixed(1)} H`;
 // client's number, both sides, so the Admin sees which one still needs work.
 export function targetLine(tile) {
   const t = tile.target;
+  // With lines the third line is the correction itself: "+82.0 H · V2 PASTED"
+  // (change against the target when there is one, else the charged hours).
+  if (tile.lines) {
+    const change = Number(tile.lines.change_hours);
+    const figure = t && Number.isFinite(change)
+      ? `${change > 0 ? "+" : ""}${change.toFixed(1)} H`
+      : `${hoursText(tile.lines.charged_hours)} CHARGED`;
+    return `${figure} · ${blockText(tile.lines)}`;
+  }
   if (!t) return "NO TARGET";
   if (t.matched) return "MATCHED";
   return `${hoursText(t.remaining_hours)} · ${formatMoney(t.remaining_materials_total || 0)} TO GO`;
@@ -91,6 +117,10 @@ function barHtml(payload) {
     `${c.no_target || 0} NO TARGET`,
     `${c.paper_checked || 0} PAPER CHECKED`,
     `${c.short_checked || 0} CHECKED, STILL SHORT`,
+    `${c.with_lines || 0} WITH LINES`,
+    `CHARGED ${hoursText(c.charged_hours)}`,
+    `EXCLUDED ${hoursText(c.excluded_hours)}`,
+    `${c.blocks_not_pasted || 0} BLOCKS NOT PASTED`,
     `REMAINING ${hoursText(r.hours)}`,
     `REMAINING ${formatMoney(r.materials_total || 0)}`,
     `Δ LABOR ${signedMoney(d.labor_total)}`,
@@ -155,9 +185,24 @@ export function returnToSmr(scrollY) {
   showPage("smr");
 }
 
+// Hours is a toggle on the same page: the tiles hide, the table shows, and
+// the state chips stay where they were for the way back.
+let hoursOpen = false;
+
+function showHours(open) {
+  hoursOpen = open;
+  if (grid) grid.hidden = open;
+  if (hoursPanel) hoursPanel.hidden = !open;
+  if (hoursBtn) hoursBtn.setAttribute("aria-pressed", String(open));
+  if (hoursCsvBtn) hoursCsvBtn.hidden = !open;
+  if (open) void loadSmrHours();
+}
+
 export async function loadSmr() {
   const user = getCurrentUser();
   if (exportBtn) exportBtn.hidden = !(user && roleAtLeast(user.role, "owner"));
+  if (hoursBtn) hoursBtn.hidden = !(user && roleAtLeast(user.role, "admin"));
+  if (hoursOpen) void loadSmrHours();
   setMessage(message, "", "");
   try {
     render(await apiListSmrTiles(currentParams()));
@@ -178,6 +223,8 @@ filterButtons.forEach((btn) => {
 // current controls; the state buttons above (Untouched, Short, Paper checked
 // and the rest) stay local.
 installFilterControls(() => { void loadSmr(); });
+
+hoursBtn?.addEventListener("click", () => showHours(!hoursOpen));
 
 if (grid) {
   grid.addEventListener("click", (event) => {

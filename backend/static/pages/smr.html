@@ -71,10 +71,17 @@
                 <button type="button" id="smr-filter-edited" class="smr-btn" data-filter="edited">Edited</button>
                 <button type="button" id="smr-filter-archived" class="smr-btn" data-filter="archived">Archived</button>
                 <button type="button" id="smr-filter-matched" class="smr-btn" data-filter="matched">Matched</button>
+                <button type="button" id="smr-filter-has-lines" class="smr-btn" data-filter="has_lines">Has lines</button>
+                <button type="button" id="smr-filter-block-pending" class="smr-btn" data-filter="block_pending">Block stale / not pasted</button>
                 <button type="button" id="smr-filter-all" class="smr-btn" data-filter="all">All</button>
+                <!-- Hours (spec 2026-11-04 D3): Admin+, swaps the tiles for the
+                     worker x week / vendor x week table (views/smrHours.js). -->
+                <button type="button" id="smr-hours-btn" class="smr-btn smr-btn--hours" aria-pressed="false" hidden>Hours</button>
+                <button type="button" id="smr-hours-csv-btn" class="smr-btn" hidden>Download CSV</button>
                 <button type="button" id="smr-export-btn" class="smr-btn smr-btn--export" hidden>Export XLSX</button>
             </div>
             <p id="smr-message" class="smr-message"></p>
             <div id="smr-tiles" class="smr-grid"></div>
+            <div id="smr-hours" class="smr-hours" hidden></div>
         </section>
     </div>

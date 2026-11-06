@@ -5969,6 +5969,18 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 #smr-page .smr-btn--on,
 #smr-page .smr-btn:hover { background: #fff; color: #000; }
 #smr-page .smr-btn--export { margin-left: auto; }
+#smr-page .smr-btn--hours[aria-pressed="true"] { background: #fff; color: #000; }
+/* Hours tab (spec 2026-11-04 D3): the same 1px rules, cells "charged / excluded". */
+#smr-page .smr-hours { overflow-x: auto; }
+#smr-page .smr-hours-note,
+#smr-page .smr-hours-title { text-transform: uppercase; letter-spacing: .06em; margin: 12px 0 6px; font-size: 13px; font-weight: 700; }
+#smr-page .smr-hours-table { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
+#smr-page .smr-hours-table th,
+#smr-page .smr-hours-table td { border: 1px solid #fff; padding: 4px 10px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+#smr-page .smr-hours-table th { text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+#smr-page .smr-hours-table th:nth-child(-n+2),
+#smr-page .smr-hours-table td:nth-child(-n+2) { text-align: left; }
+#smr-page .smr-hours-table tfoot td { font-weight: 700; }
 #smr-page .smr-btn[disabled] { opacity: .5; cursor: wait; }
 #smr-page .smr-message { min-height: 1.2em; margin: 0 0 8px; text-transform: uppercase; }
 #smr-page .smr-grid {

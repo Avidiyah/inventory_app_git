@@ -140,7 +140,7 @@ describe("the SMR page", () => {
     byId("smr-filter-matched").click();
     expect(tiles().filter((t) => !t.hidden).map((t) => t.dataset.number)).toEqual(["B"]);
     expect(Array.from(document.querySelectorAll(".smr-controls .smr-btn[data-filter]")).map((b) => b.dataset.filter))
-      .toEqual(["untouched", "short", "short_checked", "checked", "edited", "archived", "matched", "all"]);
+      .toEqual(["untouched", "short", "short_checked", "checked", "edited", "archived", "matched", "has_lines", "block_pending", "all"]);
   });
 
   it("paper check: badge, bar counts, and the Checked-still-short / Paper checked filters (Short unchanged)", async () => {
@@ -331,5 +331,78 @@ describe("the SMR page", () => {
   it("the result count reflects matched over the whole population", async () => {
     await openSmr("admin", page({ matched: 1, tiles: [tile()] }));
     expect(byId("smr-result-count").textContent).toBe("1 OF 3 ORDERS");
+  });
+
+  it("paper lines: bar cells, the third line, and the Has lines / Block pending chips", async () => {
+    const lines = (overrides = {}) => ({
+      count: 3, charged_hours: "82.0", excluded_hours: "1.0", change_hours: "82.0",
+      block_version: 2, block_pasted_at: "2026-11-06T10:00:00Z", block_stale: false, ...overrides,
+    });
+    await openSmr("admin", page({
+      counts: { orders: 4, edited: 0, untouched: 4, archived: 0, with_lines: 3, charged_hours: "2938.0", excluded_hours: "3011.0", blocks_not_pasted: 2 },
+      tiles: [
+        tile({ number: "PASTED", target: target(), lines: lines() }),
+        tile({ id: "22222222-2222-2222-2222-222222222222", number: "STALE", target: target(), lines: lines({ change_hours: "-2.5", block_stale: true }) }),
+        tile({ id: "33333333-3333-3333-3333-333333333333", number: "NOBLOCK", lines: lines({ change_hours: null, block_version: null, block_pasted_at: null }) }),
+        tile({ id: "44444444-4444-4444-4444-444444444444", number: "NONE", target: target() }),
+      ],
+    }));
+    const bar = byId("smr-bar").textContent;
+    expect(bar).toContain("3 WITH LINES");
+    expect(bar).toContain("CHARGED 2938.0 H");
+    expect(bar).toContain("EXCLUDED 3011.0 H");
+    expect(bar).toContain("2 BLOCKS NOT PASTED");
+    const third = () => tiles().map((t) => t.querySelector(".smr-tile-target").textContent);
+    expect(third()).toEqual(["+82.0 H · V2 PASTED", "-2.5 H · V2 STALE", "82.0 H CHARGED · NO BLOCK", "2.0 H · $67.16 TO GO"]);
+    const shown = () => tiles().filter((t) => !t.hidden).map((t) => t.dataset.number);
+    byId("smr-filter-has-lines").click();
+    expect(shown()).toEqual(["PASTED", "STALE", "NOBLOCK"]);
+    byId("smr-filter-block-pending").click();
+    expect(shown()).toEqual(["STALE", "NOBLOCK"]);
+  });
+
+  it("Hours: Admin+ toggles the worker x week / vendor x week table over the tiles and downloads the CSV", async () => {
+    await openSmr("technician");
+    expect(byId("smr-hours-btn").hidden).toBe(true);
+
+    document.body.innerHTML = "";
+    const row = (group, name, vendor, week, charged, excluded) => ({
+      group, name, vendor, week, week_label: week === null ? "" : `Week ${week}`, charged_hours: charged, excluded_hours: excluded, lines: 1,
+    });
+    server.use(http.get("/work-orders/smr/hours", () => HttpResponse.json({
+      weeks: [1, 2, null], charged_hours: "6.0", excluded_hours: "1.0",
+      rows: [
+        row("worker", "Ana Ruiz", "Belfor", 1, "2.0", "0"), row("worker", "Ana Ruiz", "Belfor", 2, "3.5", "0"),
+        row("worker", "(unnamed)", "BT Restoration", null, "0.5", "1.0"),
+        row("vendor", "Belfor", "Belfor", 1, "2.0", "0"), row("vendor", "Belfor", "Belfor", 2, "3.5", "0"),
+        row("vendor", "BT Restoration", "BT Restoration", null, "0.5", "1.0"),
+      ],
+    })));
+    const { requestsFor } = await openSmr("admin");
+    expect(byId("smr-hours-btn").hidden).toBe(false);
+    expect(byId("smr-hours").hidden).toBe(true);
+    byId("smr-hours-btn").click();
+    await vi.waitFor(() => expect(requestsFor("/work-orders/smr/hours")).toHaveLength(1));
+    await vi.waitFor(() => expect(byId("smr-hours").querySelectorAll("table")).toHaveLength(2));
+    expect(byId("smr-tiles").hidden).toBe(true);
+    expect(byId("smr-hours-csv-btn").hidden).toBe(false);
+    const cells = (table, rowIndex) => Array.from(table.tBodies[0].rows[rowIndex].cells).map((c) => c.textContent);
+    const [workers, vendors] = byId("smr-hours").querySelectorAll("table");
+    expect(Array.from(workers.tHead.rows[0].cells).map((c) => c.textContent)).toEqual(["NAME", "VENDOR", "WEEK 1", "WEEK 2", "NO WEEK", "TOTAL"]);
+    expect(cells(workers, 0)).toEqual(["Ana Ruiz", "Belfor", "2.0 / 0.0", "3.5 / 0.0", "", "5.5 / 0.0"]);
+    expect(cells(workers, 1)).toEqual(["(unnamed)", "BT Restoration", "", "", "0.5 / 1.0", "0.5 / 1.0"]);
+    expect(Array.from(workers.tFoot.rows[0].cells).map((c) => c.textContent)).toEqual(["TOTAL", "", "2.0 / 0.0", "3.5 / 0.0", "0.5 / 1.0", "6.0 / 1.0"]);
+    expect(vendors.tBodies[0].rows).toHaveLength(2);
+
+    server.use(http.get("/work-orders/smr/hours.csv", () => new HttpResponse("x", {
+      headers: { "Content-Disposition": 'attachment; filename="smr27-hours.csv"' },
+    })));
+    const { createObjectURL } = stubObjectUrl();
+    byId("smr-hours-csv-btn").click();
+    await vi.waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+
+    byId("smr-hours-btn").click();
+    expect(byId("smr-hours").hidden).toBe(true);
+    expect(byId("smr-tiles").hidden).toBe(false);
   });
 });
