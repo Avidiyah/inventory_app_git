@@ -21,9 +21,10 @@ const VIEWS = join(REPO_ROOT, "backend", "static", "views");
 // up automatically; a renamed one shows up as a missing action, loudly.
 // workOrderRequests.js shares the prefix but is a different view with its own
 // delegation (`action === "pick"`, `"send"`), so it is not part of this set.
+// workOrderSignature.js is no longer mounted on the card (2026-11-06).
 const SOURCE_FILES = readdirSync(VIEWS)
   .filter((n) => (n === "workOrders.js" || /^workOrder[A-Z]/.test(n))
-    && n !== "workOrderRequests.js")
+    && n !== "workOrderRequests.js" && n !== "workOrderSignature.js")
   .map((n) => join(VIEWS, n));
 
 const source = SOURCE_FILES.map((p) => readFileSync(p, "utf8")).join("\n");
@@ -42,7 +43,7 @@ const declaredNames = (text) => [
 // silently widening what the audit calls "covered".
 const ACTIONS = [
   "ack-notes-wo", "add-item", "add-labor", "add-skilled-labor", "archive-wo", "back-to-work-orders", "cancel-edit",
-  "capture-signature", "clear-signature", "complete-wo", "edit-item",
+  "complete-wo", "edit-item",
   "edit-labor", "hold-assigned-wo", "notify-supervisor-wo",
   "open-netfacilities-wo", "pick-item", "pick-technician",
   "remove-item", "remove-labor", "remove-technician", "reopen-wo",

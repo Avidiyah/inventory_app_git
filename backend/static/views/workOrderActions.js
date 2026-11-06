@@ -15,13 +15,11 @@ import {
   apiAddWorkOrderItem,
   apiAddWorkOrderLabor,
   apiArchiveWorkOrder,
-  apiClearWorkOrderSignature,
   apiCompleteWorkOrder,
   apiDeleteWorkOrderItem,
   apiDeleteWorkOrderLabor,
   apiHoldWorkOrder,
   apiResumeWorkOrder,
-  apiSaveWorkOrderSignature,
   apiSetSmrPaperCheck,
   apiSetWorkOrderItemBilling,
   apiStartWorkOrderTracking,
@@ -32,7 +30,7 @@ import {
 } from "../api.js";
 import { confirmDialog, messageDialog, setMessage } from "../dom.js";
 import { escapeHtml, filterRanked, friendlyError, netfacilitiesWorkOrderUrl } from "../format.js";
-import { clearDraft, markDraftError, saveDraft } from "../workOrderDrafts.js";
+import { clearDraft, saveDraft } from "../workOrderDrafts.js";
 import { openBillingEditor } from "./billingEditor.js";
 import { catalogueRequestPromptHtml } from "./catalogueRequest.js";
 import {
@@ -50,7 +48,6 @@ import {
 import { getAllItems } from "./workOrderReferenceData.js";
 import { exitSolo } from "./workOrderRouting.js";
 import { peekProfileOrigin, takeProfileOrigin } from "./profileOrigin.js";
-import { openSignatureFlow } from "./workOrderSignature.js";
 import { handleSmrAction, renderSmrWorkerSearch } from "./workOrderSmrActions.js";
 import { loadWorkOrders, refreshCard } from "./workOrderList.js";
 
@@ -465,44 +462,6 @@ listEl.addEventListener("click", async (event) => {
       if (!(await confirmDialog("Remove this material from the work order?"))) return;
       await apiDeleteWorkOrderItem(workOrderId, row.dataset.woItemId);
       await refreshCard(cardEl, ".wo-materials-section");
-    } else if (action === "capture-signature") {
-      const number = cardEl.dataset.number;
-      openSignatureFlow({
-        number,
-        // Resolving closes the flow; throwing keeps it open with the reason.
-        onSave: async (payload) => {
-          saveDraft(workOrderId, "signature", { number, action: "save-signature", payload });
-          try {
-            await apiSaveWorkOrderSignature(workOrderId, payload);
-          } catch (err) {
-            // The server refused this payload: the operator fixes it in place.
-            if (err?.status !== undefined && err.status !== 401 && err.status !== 409) throw err;
-            if (err?.status === 409) {
-              // Someone else signed first: show the winner, keep the draft marked.
-              markDraftError(workOrderId, "signature", err);
-              await refreshCard(cardEl, ".wo-signature-section");
-              // Not setMessage: it replaces className and would drop the aria-live hook.
-              const note = cardEl.querySelector(".wo-signature-message");
-              note.textContent = friendlyError(err, "Already signed.");
-              note.classList.add("error");
-            } else if (msg) {
-              // Offline or signed out: the draft replays on reconnect (workOrderRetry.js).
-              setMessage(msg, friendlyError(err, "That action did not work."), "error");
-            }
-            return;
-          }
-          clearDraft(workOrderId, "signature");
-          await refreshCard(cardEl, ".wo-signature-section");
-        },
-      });
-    } else if (action === "clear-signature") {
-      const sure = await confirmDialog(
-        `Clear the saved witness sign-off from ${btn.dataset.witness}? The clear is recorded under your name in the notes.`,
-        { confirmText: "Clear signature", cancelText: "Keep" },
-      );
-      if (!sure) return;
-      await apiClearWorkOrderSignature(workOrderId);
-      await refreshCard(cardEl, ".wo-signature-section");
     }
   } catch (err) {
     if (

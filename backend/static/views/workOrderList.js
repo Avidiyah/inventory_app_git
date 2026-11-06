@@ -30,7 +30,6 @@ import {
 } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
 
-import { mountWorkOrderRequests } from "./workOrderRequests.js";
 
 import { subscribe } from "../realtime.js";
 import { skeletonCard } from "../skeleton.js";
@@ -405,7 +404,7 @@ async function refreshCardSummary(cardEl) {
 // half-drawn signature in progress. The technician combobox needs no entry --
 // it renders inside `.wo-edit-card`.
 const EDITOR_SECTIONS =
-  ".wo-edit-card, .wo-notes-section, .wo-materials-section, .wo-labor-section, .wo-request-section, .wo-signature-section";
+  ".wo-edit-card, .wo-notes-section, .wo-materials-section, .wo-labor-section";
 
 function isHeld(cardEl) {
   return Array.from(cardEl.querySelectorAll(EDITOR_SECTIONS)).some((s) => s.open);
@@ -603,7 +602,6 @@ export function mountWorkOrderList({ container, lockedFilter = null, onOpen } = 
 // collapsing and re-expanding would not retry.
 function paintDetail(detail, bodyEl, cardEl) {
   renderBody(detail, bodyEl);
-  if (cardEl) void mountWorkOrderRequests(cardEl, detail, { items: getAllItems() });
   if (!cardEl) return;
 
   cardEl.dataset.loaded = "1";

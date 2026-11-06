@@ -467,8 +467,8 @@ describe("material line controls", () => {
 
 describe("the crew-lock hint", () => {
   it.each([
-    ["created", "Begin Charging to add notes, materials, requests, or a signature."],
-    ["on_hold", "Begin Charging to add notes, materials, requests, or a signature."],
+    ["created", "Begin Charging to add notes or materials."],
+    ["on_hold", "Begin Charging to add notes or materials."],
     ["completed", "You are not on this work order's crew, so it is read-only for you."],
   ])("an unassigned Technician on a %s work order reads: %s", async (status, text) => {
     const cardEl = await renderCell({ role: "technician", status, assigned: false });
@@ -484,19 +484,10 @@ describe("the crew-lock hint", () => {
     expect(cardEl.querySelector(".wo-notes-input")).not.toBeNull();
   });
 
-  it("hides the request form and the signature button too, but leaves the lists readable", async () => {
-    const cardEl = await renderCell({ role: "technician", status: "in_progress", assigned: false });
-    expect(cardEl.querySelector(".wo-request-section")).not.toBeNull();
-    expect(cardEl.querySelector(".wo-request-form")).toBeNull();
-    expect(cardEl.querySelector('[data-action="capture-signature"]')).toBeNull();
-    expect(cardEl.querySelector(".wo-signature-section")).not.toBeNull();
-  });
-
   it("unlocks once the Technician is on the crew", async () => {
     const cardEl = await renderCell({ role: "technician", status: "in_progress", assigned: true });
     expect(cardEl.querySelector(".wo-crew-lock")).toBeNull();
-    expect(cardEl.querySelector(".wo-request-form")).not.toBeNull();
-    expect(cardEl.querySelector('[data-action="capture-signature"]')).not.toBeNull();
+    expect(cardEl.querySelector(".wo-notes-input")).not.toBeNull();
   });
 });
 

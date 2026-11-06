@@ -208,7 +208,7 @@ const BEGIN_CHARGING_STATUSES = ["created", "assigned", "in_progress", "on_hold"
 export function crewLockHtml(detail) {
   if (!isCrewLocked(detail)) return "";
   const text = BEGIN_CHARGING_STATUSES.includes(detail.status)
-    ? "Begin Charging to add notes, materials, requests, or a signature."
+    ? "Begin Charging to add notes or materials."
     : "You are not on this work order's crew, so it is read-only for you.";
   return `<p class="hint wo-crew-lock">${escapeHtml(text)}</p>`;
 }

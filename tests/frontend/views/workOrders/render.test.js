@@ -700,7 +700,7 @@ describe("the whole card body", () => {
     const { cardEl } = await renderBody({}, { role: "supervisor" });
     for (const selector of [
       ".wo-controls", ".wo-details", ".wo-edit-card", ".wo-notes-section",
-      ".wo-materials-section", ".wo-request-section", ".wo-labor-section", ".wo-message",
+      ".wo-materials-section", ".wo-labor-section", ".wo-message",
     ]) {
       expect(cardEl.querySelectorAll(selector), selector).toHaveLength(1);
     }

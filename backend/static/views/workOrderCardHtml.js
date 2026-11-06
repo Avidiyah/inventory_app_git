@@ -48,7 +48,6 @@ import {
 import { chargingStripHtml, statusActionsHtml } from "./workOrderStatusActions.js";
 import { getAllSupervisors, getAllTechnicians } from "./workOrderReferenceData.js";
 import { livePriorityValues } from "./workOrderFilters.js";
-import { signatureSectionHtml } from "./workOrderSignature.js";
 import { smrSectionHtml } from "./workOrderSmrLines.js";
 import { comboHtml } from "../menus.js";
 
@@ -496,7 +495,7 @@ export function renderBody(detail, bodyEl) {
   const sup = isSupervisorPlus();
   const assignedToCurrentUser = isAssignedToCurrentUser(detail);
   // A Technician off the crew reads the card but writes nothing: the notes box,
-  // add-material row, remove buttons, request form and signature button are not
+  // add-material row and remove buttons are not
   // rendered, and one hint says how to unlock them (Begin Charging).
   const locked = isCrewLocked(detail);
   // Someone else worked this order and there are notes to read first.
@@ -545,7 +544,6 @@ export function renderBody(detail, bodyEl) {
          ${materialsTotalHtml(detail)}
          ${targetMaterialsHtml(detail)}
          ${paperCheckHtml(detail)}
-         <div class="wo-requested-lines"></div>
          ${locked ? "" : `<div class="wo-add-item">
            <div class="wo-add-item-row">
              <input type="text" class="ms-item-search" placeholder="Search item by name or barcode">
@@ -556,17 +554,11 @@ export function renderBody(detail, bodyEl) {
          </div>`}
        </div>
      </details>` +
-    `<details class="wo-section-card wo-request-section">
-       <summary class="wo-section-summary">Request</summary>
-       <div class="wo-section-content"></div>
-     </details>` +
     // Paper corrections above Labor, SMR orders only (spec 2026-11-04).
     smrSectionHtml(detail) +
     // An SMR order shows Labor to everyone: any role keys its Skilled
     // Technician hours (all hands, 2026-10-23).
     (sup || assignedToCurrentUser || detail.smr ? laborSectionHtml(detail) : "") +
-    // Last (S15), for every viewer (S3, S4).
-    signatureSectionHtml(detail) +
     `<p class="wo-message"></p>`;
 }
 
