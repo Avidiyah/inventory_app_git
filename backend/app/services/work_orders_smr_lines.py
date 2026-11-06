@@ -138,11 +138,26 @@ def _check_state(db: Session, order: WorkOrder, state: dict) -> None:
             raise WorkOrderStateError("That reading is not on this order.")
 
 
+def match_worker(db: Session, *, name: Optional[str], vendor: str) -> Optional[uuid.UUID]:
+    """The live worker of `vendor` whose display name or an alias equals the
+    keyed `name` (case-insensitive); None when nothing matches. The editor
+    has no roster picker: a keyed name links silently or stays unlinked."""
+    needle = (name or "").strip().casefold()
+    if not needle:
+        return None
+    for worker in db.query(SmrWorker).filter(SmrWorker.vendor == vendor, SmrWorker.archived_at.is_(None)).all():
+        if needle in {n.casefold() for n in [worker.display_name, *(worker.aliases or [])]}:
+            return worker.id
+    return None
+
+
 def add_line(db: Session, *, work_order_id: uuid.UUID, payload: SmrLineIn, user: User) -> SmrLineOut:
     order = smr_order(db, work_order_id)
     reason = _reason(payload.reason)
     state = {field: getattr(payload, field) for field in LINE_FIELDS}
     state["kind"] = ", ".join(rules.kinds_of(state["kind"])) or "field"
+    if state["worker_id"] is None:
+        state["worker_id"] = match_worker(db, name=state["alias_on_paper"], vendor=state["vendor"])
     _check_state(db, order, state)
     now = _now()
     row = SmrLaborLine(
@@ -177,6 +192,8 @@ def edit_line(db: Session, *, line_id: uuid.UUID, payload: SmrLineEditIn, user: 
         changes["kind"] = ", ".join(rules.kinds_of(changes["kind"])) or "field"
     state = {field: getattr(line, field) for field in LINE_FIELDS}
     state.update(changes)
+    if "worker_id" not in changes and ("alias_on_paper" in changes or "vendor" in changes):
+        changes["worker_id"] = state["worker_id"] = match_worker(db, name=state["alias_on_paper"], vendor=state["vendor"])
     _check_state(db, order, state)
     diffs = {field: value for field, value in changes.items() if getattr(line, field) != value}
     if not diffs:
@@ -318,7 +335,7 @@ def hours_table(db: Session) -> SmrHoursOut:
     working hours view). Legacy labor entries never enter it."""
     cells: dict[tuple, list] = {}
     for line in db.query(SmrLaborLine).options(selectinload(SmrLaborLine.worker)).all():
-        name = line.worker.display_name if line.worker is not None else UNNAMED
+        name = line.worker.display_name if line.worker is not None else (line.alias_on_paper or UNNAMED)
         hours = rules.line_hours(line)
         for key in (("worker", name, line.vendor, line.week), ("vendor", line.vendor, line.vendor, line.week)):
             cell = cells.setdefault(key, [Decimal(0), Decimal(0), 0])

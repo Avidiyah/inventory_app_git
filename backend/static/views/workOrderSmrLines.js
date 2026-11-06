@@ -53,18 +53,60 @@ function workerLabel(line) {
   return line.headcount > 1 ? `${line.headcount}× ${name}` : name;
 }
 
+// One line reads like a Labor entry: who, how long, when, for which vendor.
 function lineRowHtml(line, editable) {
   const when = line.work_date ? shortDate(line.work_date) : (line.week ? `week ${line.week}` : "undated");
-  const status = line.status === "charged" ? "charged" : `excluded: ${line.exclusion_ground || ""}`;
+  const status = line.status === "charged" ? "" : `<span class="wo-smr-line-status">excluded: ${escapeHtml(line.exclusion_ground || "")}</span>`;
+  const kind = line.kind === "field" ? "" : `<span class="hint">${escapeHtml(line.kind)}</span>`;
+  const note = line.note ? `<span class="hint">${escapeHtml(line.note)}</span>` : "";
   const buttons = editable && line.exclusion_ground !== "removed"
-    ? `<button type="button" class="secondary-btn" data-action="smr-edit-line">Edit</button>` +
-      (line.status === "charged" ? `<button type="button" class="btn-danger" data-action="smr-exclude-line">Exclude</button>` : "")
+    ? `<div class="wo-labor-actions wo-smr-line-actions">
+         <button type="button" class="secondary-btn" data-action="smr-edit-line">Edit</button>
+         ${line.status === "charged" ? `<button type="button" class="btn-danger" data-action="smr-exclude-line">Exclude</button>` : ""}
+       </div>`
     : "";
-  return `<tr class="wo-smr-line wo-smr-line--${escapeHtml(line.status)}" data-line-id="${escapeHtml(line.id)}" data-line="${escapeHtml(JSON.stringify(line))}">
-            <td>${escapeHtml(when)}</td><td>${escapeHtml(line.vendor)}</td><td>${escapeHtml(workerLabel(line))}</td>
-            <td>${escapeHtml(line.kind)}</td><td>${escapeHtml(hours(line.hours_each))}</td><td>${escapeHtml(status)}</td>
-            <td>${escapeHtml(line.reason_code)}</td><td>${escapeHtml(line.note || "")}</td><td class="wo-smr-line-actions">${buttons}</td>
-          </tr>`;
+  return `<div class="wo-labor-entry wo-smr-line wo-smr-line--${escapeHtml(line.status)}" data-line-id="${escapeHtml(line.id)}" data-line="${escapeHtml(JSON.stringify(line))}">
+            <div><strong>${escapeHtml(workerLabel(line))}</strong><span class="hint">${escapeHtml(hours(line.hours_each))}${line.headcount > 1 ? " each" : ""} · ${escapeHtml(when)} · ${escapeHtml(line.vendor)}</span>${kind}${note}${status}</div>
+            ${buttons}
+          </div>`;
+}
+
+// The add row, shaped like Labor's: a keyed name (blank = unnamed), a
+// headcount for a crew, hours each and the date. Everything else takes the
+// line's defaults; Edit opens the full form.
+function addLineRowHtml(detail) {
+  const last = (detail.smr_lines || []).at(-1);
+  return `<div class="wo-add-labor wo-smr-add">
+    <label><span>Name on paper</span><input type="text" class="wo-smr-a-name" placeholder="blank = unnamed"></label>
+    <label><span>Headcount</span><input type="number" class="wo-smr-a-headcount" min="1" step="1" value="1"></label>
+    <label><span>Hours each</span><input type="number" class="wo-smr-a-hours" min="0.5" step="0.5" placeholder="e.g. 2"></label>
+    <label><span>Date</span><input type="date" class="wo-smr-a-date"></label>
+    <label><span>Vendor</span><select class="wo-smr-a-vendor">${options(SMR_VENDORS, last?.vendor || "Belfor")}</select></label>
+    <button type="button" data-action="smr-add-line">Add line</button>
+  </div>`;
+}
+
+export function readAddLineRow(section) {
+  const v = (cls) => section.querySelector(`.${cls}`).value.trim();
+  const work_date = v("wo-smr-a-date") || null;
+  return {
+    reading_id: null,
+    work_date,
+    date_basis: "paper",
+    vendor: v("wo-smr-a-vendor"),
+    worker_id: null,
+    alias_on_paper: v("wo-smr-a-name") || null,
+    headcount: Number(v("wo-smr-a-headcount")) || 1,
+    hours_each: v("wo-smr-a-hours"),
+    kind: "field",
+    reason_code: "as_read",
+    // An undated line cannot charge (D10): it waits, excluded as undated,
+    // and charges itself the moment a date lands on it.
+    status: work_date ? "charged" : "excluded",
+    exclusion_ground: work_date ? null : "undated",
+    note: null,
+    reason: "keyed from the paper",
+  };
 }
 
 function lineFormHtml(detail) {
@@ -75,12 +117,7 @@ function lineFormHtml(detail) {
     <label><span>Date</span><input type="date" class="wo-smr-f-date"></label>
     <label><span>Date basis</span><select class="wo-smr-f-basis">${options(SMR_DATE_BASES, "paper")}</select></label>
     <label><span>Vendor</span><select class="wo-smr-f-vendor">${options(SMR_VENDORS, "Belfor")}</select></label>
-    <label class="wo-smr-worker"><span>Worker</span>
-      <input type="text" class="wo-smr-worker-search" placeholder="Search by name or alias" autocomplete="off">
-      <input type="hidden" class="wo-smr-f-worker-id">
-      <div class="wo-smr-worker-results" hidden></div>
-    </label>
-    <label><span>Name on paper</span><input type="text" class="wo-smr-f-alias"></label>
+    <label><span>Name on paper</span><input type="text" class="wo-smr-f-alias" placeholder="blank = unnamed"></label>
     <label><span>Headcount</span><input type="number" class="wo-smr-f-headcount" min="1" step="1" value="1"></label>
     <label><span>Hours each</span><input type="number" class="wo-smr-f-hours" min="0.5" step="0.5"></label>
     <label><span>Kind</span><select class="wo-smr-f-kind">${options(SMR_KINDS, "field")}</select></label>
@@ -106,9 +143,7 @@ export function fillLineForm(form, line) {
   set("wo-smr-f-date", line?.work_date);
   set("wo-smr-f-basis", line?.date_basis || "paper");
   set("wo-smr-f-vendor", line?.vendor || "Belfor");
-  set("wo-smr-f-worker-id", line?.worker_id);
-  form.querySelector(".wo-smr-worker-search").value = line?.worker_name || "";
-  set("wo-smr-f-alias", line?.alias_on_paper);
+  set("wo-smr-f-alias", line?.alias_on_paper || line?.worker_name);
   set("wo-smr-f-headcount", line?.headcount ?? 1);
   set("wo-smr-f-hours", line?.hours_each);
   const kind = form.querySelector(".wo-smr-f-kind");
@@ -128,7 +163,6 @@ export function readLineForm(form) {
     work_date: v("wo-smr-f-date") || null,
     date_basis: v("wo-smr-f-basis"),
     vendor: v("wo-smr-f-vendor"),
-    worker_id: v("wo-smr-f-worker-id") || null,
     alias_on_paper: v("wo-smr-f-alias") || null,
     headcount: Number(v("wo-smr-f-headcount")) || 1,
     hours_each: v("wo-smr-f-hours"),
@@ -197,9 +231,7 @@ export function smrSectionHtml(detail) {
   const editable = canEditSmrLines();
   const readings = (detail.smr_readings || []).map(readingHtml).join("") || `<p class="hint">No paper read yet.</p>`;
   const rows = (detail.smr_lines || []).map((line) => lineRowHtml(line, editable)).join("");
-  const table = rows
-    ? `<table class="wo-smr-lines"><thead><tr><th>Date</th><th>Vendor</th><th>Worker</th><th>Kind</th><th>Each</th><th>Status</th><th>Reason</th><th>Note</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
-    : `<p class="hint">No correction lines.</p>`;
+  const table = `<div class="wo-labor-list wo-smr-lines">${rows || `<p class="hint">No correction lines.</p>`}</div>`;
   const readingForm = editable
     ? `<div class="wo-smr-reading-form">
          <label><span>Printing</span><input type="number" class="wo-smr-r-printing" min="1" step="1"></label>
@@ -209,7 +241,7 @@ export function smrSectionHtml(detail) {
          <button type="button" class="secondary-btn" data-action="smr-add-reading">Add reading</button>
        </div>`
     : "";
-  const addLine = editable ? `<button type="button" class="secondary-btn" data-action="smr-add-line">Add line</button>` : "";
+  const addLine = editable ? addLineRowHtml(detail) : "";
   return `<details class="wo-section-card wo-smr-section" open>
             <summary class="wo-section-summary">Paper corrections</summary>
             <div class="wo-section-content">

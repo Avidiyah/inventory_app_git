@@ -232,6 +232,36 @@ def test_mark_pasted_stamps_once(db):
 
 # --- hours ---------------------------------------------------------------
 
+def test_a_keyed_name_links_a_known_worker_or_alias_and_stays_unlinked_otherwise(db):
+    admin = _user(db)
+    order = _smr_order(db, admin)
+    name = f"Trinton {uuid.uuid4().hex[:6]}"
+    worker = svc.add_worker(db, payload=SmrWorkerIn(display_name=name, vendor="XXL Construction"))
+    svc.add_worker(db, payload=SmrWorkerIn(display_name=name, vendor="XXL Construction", alias="T. Smith"))
+
+    by_name = svc.add_line(db, work_order_id=order.id,
+                           payload=_line_in(vendor="XXL Construction", alias_on_paper=name.upper()), user=admin)
+    by_alias = svc.add_line(db, work_order_id=order.id,
+                            payload=_line_in(vendor="XXL Construction", alias_on_paper="t. smith"), user=admin)
+    other_vendor = svc.add_line(db, work_order_id=order.id,
+                                payload=_line_in(vendor="Belfor", alias_on_paper=name), user=admin)
+    unknown = svc.add_line(db, work_order_id=order.id,
+                           payload=_line_in(vendor="XXL Construction", alias_on_paper="Nobody Known"), user=admin)
+    assert (by_name.worker_id, by_alias.worker_id) == (worker.id, worker.id)
+    assert other_vendor.worker_id is None and unknown.worker_id is None
+
+    # Re-keying the name on an edit re-links; a name that matches nothing unlinks.
+    edited = svc.edit_line(db, line_id=unknown.id, payload=SmrLineEditIn(alias_on_paper="T. Smith", reason="misread"), user=admin)
+    assert edited.worker_id == worker.id
+    edited = svc.edit_line(db, line_id=edited.id, payload=SmrLineEditIn(alias_on_paper="Nobody", reason="misread"), user=admin)
+    assert edited.worker_id is None
+
+    # The hours table groups an unlinked keyed name under that name.
+    cells = {(r.group, r.name, r.vendor) for r in svc.hours_table(db).rows}
+    assert ("worker", "Nobody", "XXL Construction") in cells
+    assert ("worker", name, "XXL Construction") in cells
+
+
 def test_hours_table_groups_worker_and_vendor_by_week_from_lines_only(db):
     admin = _user(db)
     order = _smr_order(db, admin)

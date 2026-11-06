@@ -48,7 +48,7 @@ import {
 import { getAllItems } from "./workOrderReferenceData.js";
 import { exitSolo } from "./workOrderRouting.js";
 import { peekProfileOrigin, takeProfileOrigin } from "./profileOrigin.js";
-import { handleSmrAction, renderSmrWorkerSearch } from "./workOrderSmrActions.js";
+import { handleSmrAction } from "./workOrderSmrActions.js";
 import { loadWorkOrders, refreshCard } from "./workOrderList.js";
 
 const listEl = document.getElementById("work-orders-list");
@@ -59,10 +59,6 @@ listEl.addEventListener("input", (event) => {
   const input = event.target;
   if (input.classList.contains("wo-tech-search")) {
     renderTechnicianSearch(input);
-    return;
-  }
-  if (input.classList.contains("wo-smr-worker-search")) {
-    void renderSmrWorkerSearch(input).catch(() => {});
     return;
   }
   if (!input.classList.contains("ms-item-search")) return;

@@ -186,3 +186,9 @@ three rows push it past 500 lines (the filter rows belong in `smrFilters.js`).
 - 2026-11-06: the bar keeps `N orders` and `N archived` after the five stage cells.
 - 2026-11-06: each chip row carries a small Stage / Pile / Flags label.
 - 2026-11-06: a dated order below Admin reads "Not yet ready for invoice" on the card.
+- 2026-11-06 (follow-up, user): the card dropped its Request and Signature sections
+  (modules and routes kept, unmounted); paper lines render as Labor-style entries
+  with a free-text name (named hand / blank = unnamed / crew name + headcount),
+  the worker picker is gone, and the server links a keyed name to a live worker
+  or alias of the line's vendor, else leaves it unlinked; Hours groups by worker
+  name, else keyed name, else `unnamed`.

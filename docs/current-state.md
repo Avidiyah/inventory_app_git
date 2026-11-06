@@ -1735,31 +1735,25 @@ Team Lead+ **Approve — Mark Completed** and **Send Back**, and a technician a
 hint with no actions; the Edit-details status dropdown never offers
 `ready_to_complete` or Review. Buttons that need the crew server-side are
 gated on it client-side too. **A Technician off the crew gets a read-only
-card:** the notes box, add-material row, Remove buttons, Request form, stocked
-"Add requested material" line and Capture-signature button are not rendered,
+card:** the notes box, add-material row and Remove buttons are not rendered,
 and one `.wo-crew-lock` hint says to Begin Charging (or, on a finished work
 order, that it is read-only). Nested collapsed cards: Edit details
 (Team Lead sees routing/assignment/status; TechFM OA+ also imported
 metadata; `number` never), Notes (append-only log; save clears and closes),
-Materials (Technicians add-only, read-only quantities; a green one-tap
-**Add requested material** line per stocked material request prefills the
-add row and resolves the request on Add), Request (after Materials:
-`workOrderRequests.js` files a material request for a catalogue item the
-shelf lacks — an empty search offers the catalogue-request prompt — and
-lists this work order's material/catalogue requests, with Cancel on the
-filer's own open ones), Labor (read-only below Admin; the Admin/Owner
+Materials (Technicians add-only, read-only quantities), Paper corrections
+(SMR orders only, Admin+ edits; `workOrderSmrLines.js` / `workOrderSmrActions.js`:
+each line reads like a Labor entry — keyed name or `unnamed`, `N×` for a
+crew, hours each, date, vendor; the add row keys name / headcount / hours /
+date / vendor and posts a charged `as_read` field line, an undated one
+waiting as excluded: undated; the server links a keyed name to a live
+worker or alias of that vendor silently, else leaves it unlinked, and the
+Hours tab groups by worker name, else keyed name, else `unnamed`; Edit
+opens the full form), Labor (read-only below Admin; the Admin/Owner
 picker includes themselves "(not assigned)"; entries show their session
 window, capped ones tagged "auto-stopped"; a Technician off the crew gets no
-Labor section), Signature (last, every viewer:
-**Capture witness signature** opens a four-step pop-up mounted on the page,
-not in the list `<section>`, whose backdrop-filter traps fixed overlays —
-guidance → printed name + phone → pad with Clear / Undo stroke / Submit →
-confirmation showing the signature, then **Save and lock**; each step names
-what it still needs; a phone signs full screen and a portrait one sideways,
-standing back up on Submit; the pad keeps strokes, so every resize redraws
-and the saved PNG is always 1000×400; one per work order, locked after save
-with a "Captured by … on …" line; Team Lead+ Clear behind a confirm; an
-open section holds the card like the other editors). TechFM OA+ get import (with summary counts), filtered/
+Labor section). The Request and Signature sections left the card 2026-11-06;
+`workOrderRequests.js`, `workOrderSignature.js` and routes 72a–72d / S10–S12
+remain, unmounted. TechFM OA+ get import (with summary counts), filtered/
 client CSV export, Archive on any live card, and the exact-archived-number
 restore prompt; the Owner additionally the hidden legacy re-archive button
 (preview count → confirm → actual count). The list shows the newest 10 by

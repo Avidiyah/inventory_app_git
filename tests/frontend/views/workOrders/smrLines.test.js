@@ -1,4 +1,4 @@
-// The Paper corrections section (spec 2026-11-04, Editor): its ten `smr-*`
+// The Paper corrections section (spec 2026-11-04, Editor): its `smr-*`
 // actions in workOrderSmrActions.js, the read-only view below Admin, the
 // totals and block status lines, and the vocabulary mirror of the domain.
 
@@ -162,31 +162,63 @@ describe("readings", () => {
 });
 
 describe("lines", () => {
-  it("\"smr-add-line\" opens a blank form and \"smr-cancel-line\" hides it", async () => {
-    await open();
-    expect(form().hidden).toBe(true);
-    click("smr-add-line");
-    expect(form().hidden).toBe(false);
-    expect(form().dataset.lineId).toBe("");
-    click("smr-cancel-line");
-    expect(form().hidden).toBe(true);
+  it("reads like a labor entry: a named hand, an unnamed one and a crew", async () => {
+    await open({ detail: { smr_lines: [
+      { ...LINE, id: "a", headcount: 1, alias_on_paper: "Pat Doe", work_date: "2026-06-20", status: "charged" },
+      { ...LINE, id: "b", headcount: 1, alias_on_paper: null, work_date: null, week: null, status: "excluded", exclusion_ground: "undated" },
+      { ...LINE, id: "c", headcount: 3, alias_on_paper: "BT crew", worker_name: null },
+    ] } });
+    const rows = [...section().querySelectorAll(".wo-smr-line")].map((r) => r.textContent.replace(/\s+/g, " ").trim());
+    expect(rows[0]).toContain("Pat Doe3.0 h · 06/20/26 · BT Restoration");
+    expect(rows[1]).toContain("unnamed3.0 h · undated · BT Restoration");
+    expect(rows[1]).toContain("excluded: undated");
+    expect(rows[2]).toContain("3× BT crew3.0 h each · 06/20/26");
+    expect(section().querySelector("table")).toBeNull();
   });
 
-  it("\"smr-save-line\" on a new line posts the form and refreshes", async () => {
+  it("\"smr-add-line\" posts the add row as a charged field line and refreshes", async () => {
     const detail = await open();
     respond("post", "/work-orders/smr/:id/lines", { ...LINE, id: "l2" });
+    // The vendor select defaults to the last line's vendor.
+    expect(section().querySelector(".wo-smr-a-vendor").value).toBe("BT Restoration");
+    set("wo-smr-a-name", "Jesus");
+    set("wo-smr-a-headcount", "2");
+    set("wo-smr-a-hours", "4");
+    set("wo-smr-a-date", "2026-06-22");
+    set("wo-smr-a-vendor", "XXL Construction");
     click("smr-add-line");
-    set("wo-smr-f-date", "2026-06-22");
-    set("wo-smr-f-vendor", "XXL Construction");
-    set("wo-smr-f-hours", "4");
-    set("wo-smr-f-reason", "paper shows a second man");
-    click("smr-save-line");
     await sent("/lines", "POST");
-    expect(requestFor("/lines", "POST").body).toMatchObject({
-      work_date: "2026-06-22", vendor: "XXL Construction", hours_each: "4", headcount: 1, kind: "field",
-      reason_code: "as_read", status: "charged", exclusion_ground: null, reason: "paper shows a second man",
+    expect(requestFor("/lines", "POST").body).toEqual({
+      reading_id: null, work_date: "2026-06-22", date_basis: "paper", vendor: "XXL Construction", worker_id: null,
+      alias_on_paper: "Jesus", headcount: 2, hours_each: "4", kind: "field", reason_code: "as_read",
+      status: "charged", exclusion_ground: null, note: null, reason: "keyed from the paper",
     });
     await expectRefresh(detail.id);
+  });
+
+  it("an undated add waits as excluded: undated", async () => {
+    await open();
+    respond("post", "/work-orders/smr/:id/lines", { ...LINE, id: "l2" });
+    set("wo-smr-a-hours", "1.5");
+    click("smr-add-line");
+    await sent("/lines", "POST");
+    expect(requestFor("/lines", "POST").body).toMatchObject({ alias_on_paper: null, status: "excluded", exclusion_ground: "undated" });
+  });
+
+  it("refuses an add without hours", async () => {
+    await open();
+    click("smr-add-line");
+    await vi.waitFor(() => expect(message().textContent).toBe("Enter the hours each person worked."));
+    expect(requestFor("/lines", "POST")).toBeNull();
+  });
+
+  it("\"smr-cancel-line\" hides the edit form", async () => {
+    await open();
+    expect(form().hidden).toBe(true);
+    click("smr-edit-line");
+    expect(form().hidden).toBe(false);
+    click("smr-cancel-line");
+    expect(form().hidden).toBe(true);
   });
 
   it("\"smr-edit-line\" fills the form from the row and saving PATCHes that line", async () => {
@@ -200,7 +232,9 @@ describe("lines", () => {
     set("wo-smr-f-reason", "misread");
     click("smr-save-line");
     await sent(`/lines/${LINE.id}`, "PATCH");
-    expect(requestFor(`/lines/${LINE.id}`, "PATCH").body).toMatchObject({ hours_each: "3.5", reason: "misread" });
+    const body = requestFor(`/lines/${LINE.id}`, "PATCH").body;
+    expect(body).toMatchObject({ hours_each: "3.5", reason: "misread" });
+    expect(body).not.toHaveProperty("worker_id"); // the server links the keyed name
   });
 
   it("\"smr-exclude-line\" opens the row with status excluded", async () => {
@@ -213,47 +247,11 @@ describe("lines", () => {
 
   it("refuses to save without a reason", async () => {
     await open();
-    click("smr-add-line");
+    click("smr-edit-line");
     set("wo-smr-f-hours", "1");
     click("smr-save-line");
     await vi.waitFor(() => expect(message().textContent).toBe("Say why: the reason is kept with the line."));
     expect(requestFor("/lines", "POST")).toBeNull();
-  });
-});
-
-describe("workers", () => {
-  const type = (value) => {
-    const input = form().querySelector(".wo-smr-worker-search");
-    input.value = value;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  };
-
-  it("searches as you type, \"smr-pick-worker\" fills the hidden id", async () => {
-    await open();
-    respond("get", "/work-orders/smr/workers", [{ id: "wk1", display_name: "Trinton Smith", vendor: "XXL Construction", aliases: [] }]);
-    click("smr-add-line");
-    type("trin");
-    await sent("/workers?q=trin", "GET");
-    await vi.waitFor(() => expect(form().querySelector('[data-action="smr-pick-worker"]')).not.toBeNull());
-    expect(form().querySelector('[data-action="smr-add-worker"]')).not.toBeNull();
-    click("smr-pick-worker");
-    expect(form().querySelector(".wo-smr-f-worker-id").value).toBe("wk1");
-    expect(form().querySelector(".wo-smr-worker-search").value).toBe("Trinton Smith");
-    expect(form().querySelector(".wo-smr-worker-results").hidden).toBe(true);
-  });
-
-  it("\"smr-add-worker\" posts the typed name with the form's vendor and picks it", async () => {
-    await open();
-    respond("get", "/work-orders/smr/workers", []);
-    respond("post", "/work-orders/smr/workers", { id: "wk9", display_name: "New Hand", vendor: "Belfor", aliases: [] });
-    click("smr-add-line");
-    type("New Hand");
-    await vi.waitFor(() => expect(form().querySelector('[data-action="smr-add-worker"]')).not.toBeNull());
-    expect(form().querySelector('[data-action="smr-pick-worker"]')).toBeNull();
-    click("smr-add-worker");
-    await sent("/workers", "POST");
-    expect(requestFor("/workers", "POST").body).toEqual({ display_name: "New Hand", vendor: "Belfor" });
-    await vi.waitFor(() => expect(form().querySelector(".wo-smr-f-worker-id").value).toBe("wk9"));
   });
 });
 

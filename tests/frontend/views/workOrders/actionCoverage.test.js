@@ -51,7 +51,7 @@ const ACTIONS = [
   "send-back-wo", "smr-paper-check", "start-tracking-wo", "stop-tracking-wo",
   // Paper corrections editor (workOrderSmrLines.js / workOrderSmrActions.js).
   "smr-add-reading", "smr-add-line", "smr-edit-line", "smr-exclude-line", "smr-save-line",
-  "smr-cancel-line", "smr-generate-block", "smr-mark-pasted", "smr-pick-worker", "smr-add-worker",
+  "smr-cancel-line", "smr-generate-block", "smr-mark-pasted",
   "smr-ready", "smr-not-ready",
 ];
 
