@@ -56,6 +56,21 @@ class SmrTotals(BaseModel):
     total: Decimal
 
 
+class SmrTileLines(BaseModel):
+    """Paper-correction lines on a tile (spec 2026-11-04): what the order now
+    charges, how far that is from the Breakdown, and the latest block's state.
+    `block_stale` means the lines changed after that block was generated."""
+
+    count: int
+    charged_hours: Decimal
+    excluded_hours: Decimal
+    # charged hours minus the Breakdown target; None without a target.
+    change_hours: Optional[Decimal] = None
+    block_version: Optional[int] = None
+    block_pasted_at: Optional[datetime] = None
+    block_stale: bool = False
+
+
 class SmrTile(BaseModel):
     id: UUID
     number: str
@@ -74,6 +89,8 @@ class SmrTile(BaseModel):
     target: Optional[SmrTargetOut] = None
     # None until someone marks the order keyed from paper.
     paper_check: Optional[SmrPaperCheckOut] = None
+    # None until the order carries a paper-correction line.
+    lines: Optional[SmrTileLines] = None
 
 
 class SmrCounts(BaseModel):
@@ -88,6 +105,12 @@ class SmrCounts(BaseModel):
     # Marked keyed from paper; `short_checked` = short and marked.
     paper_checked: int = 0
     short_checked: int = 0
+    # Paper corrections: orders with any line, their hours, and orders with
+    # lines whose latest block is missing, not yet pasted or stale.
+    with_lines: int = 0
+    charged_hours: Decimal = Decimal(0)
+    excluded_hours: Decimal = Decimal(0)
+    blocks_not_pasted: int = 0
 
 
 class SmrRemaining(BaseModel):

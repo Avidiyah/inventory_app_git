@@ -13,6 +13,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.schemas.work_orders_smr_lines import SmrBlockOut, SmrLineOut, SmrReadingOut
+
 
 def _stripped_nonblank(v: str, label: str) -> str:
     v = v.strip()
@@ -468,3 +470,11 @@ class WorkOrderDetail(WorkOrderCard):
     smr_target: Optional[SmrTargetOut] = None
     # Paper check mark; SMR orders only, None until someone sets it.
     smr_paper_check: Optional[SmrPaperCheckOut] = None
+    # Paper corrections (spec 2026-11-04), SMR orders only. When `smr_lines`
+    # is non-empty, `labor_total` above is the charged lines at the labor
+    # rate and the legacy entries in `labor` are reported here as minutes
+    # under "NetFacilities Record Before Correction", not charged.
+    smr_readings: list[SmrReadingOut] = Field(default_factory=list)
+    smr_lines: list[SmrLineOut] = Field(default_factory=list)
+    smr_legacy_labor_minutes: int = 0
+    smr_block: Optional[SmrBlockOut] = None

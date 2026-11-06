@@ -1391,6 +1391,9 @@ class WorkOrderTotals:
     labor_minutes: int
     labor_total: Decimal
     total: Decimal
+    # Legacy labor entries on an SMR order that has paper-correction lines
+    # (spec 2026-11-04 D9): reported apart and never charged; 0 otherwise.
+    legacy_labor_minutes: int = 0
 
 
 def work_order_totals(work_order: WorkOrder) -> WorkOrderTotals:
@@ -1400,14 +1403,17 @@ def work_order_totals(work_order: WorkOrder) -> WorkOrderTotals:
         materials_total += price * wo.effective_billable(
             line.quantity, line.billable_quantity
         )
-    split = smr.labor_split(work_order.labor_entries)
-    labor_minutes = split.real_minutes + split.skilled_minutes
-    labor_total = split.labor_total
+    entries = work_order.labor_entries
+    # One labor figure for every surface: the legacy entries' split rounding
+    # unless the order carries correction lines, then the charged lines.
+    figures = smr.labor_figures(entries, smr.correction_lines(work_order))
+    labor_minutes = figures.billed_minutes if figures.lines is not None else sum(e.minutes for e in entries)
     return WorkOrderTotals(
         materials_total=materials_total,
         labor_minutes=labor_minutes,
-        labor_total=labor_total,
-        total=materials_total + labor_total,
+        labor_total=figures.labor_total,
+        total=materials_total + figures.labor_total,
+        legacy_labor_minutes=figures.legacy_minutes,
     )
 
 
