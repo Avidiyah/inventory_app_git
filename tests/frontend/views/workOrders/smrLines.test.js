@@ -50,7 +50,7 @@ describe("who sees what", () => {
   it("is read-only below Admin: readings, lines and block status, no buttons", async () => {
     await open({ role: "supervisor" });
     expect(section().textContent).toContain("Printing 1");
-    expect(section().textContent).toContain("2× Skilled Technician");
+    expect(section().textContent).toContain("Skilled Technician ×2");
     expect(section().textContent).toContain("v3 · not yet pasted");
     expect(section().querySelector("[data-action]")).toBeNull();
   });
@@ -166,13 +166,23 @@ describe("lines", () => {
     await open({ detail: { smr_lines: [
       { ...LINE, id: "a", headcount: 1, alias_on_paper: "Pat Doe", work_date: "2026-06-20", status: "charged" },
       { ...LINE, id: "b", headcount: 1, alias_on_paper: null, work_date: null, week: null, status: "excluded", exclusion_ground: "undated" },
-      { ...LINE, id: "c", headcount: 3, alias_on_paper: "BT crew", worker_name: null },
+      { ...LINE, id: "c", headcount: 3, alias_on_paper: "BT crew", worker_name: null, kind: "staging" },
     ] } });
-    const rows = [...section().querySelectorAll(".wo-smr-line")].map((r) => r.textContent.replace(/\s+/g, " ").trim());
-    expect(rows[0]).toContain("Pat Doe3.0 h · 06/20/26 · BT Restoration");
-    expect(rows[1]).toContain("Skilled Technician3.0 h · undated · BT Restoration");
-    expect(rows[1]).toContain("excluded: undated");
-    expect(rows[2]).toContain("3× BT crew3.0 h each · 06/20/26");
+    const rows = [...section().querySelectorAll(".wo-smr-line")];
+    const text = (el) => el.textContent.replace(/\s+/g, " ").trim();
+    const hours = (el) => el.querySelector(".wo-smr-line-hours").textContent;
+    expect(text(rows[0])).toContain("Pat Doe 06/20/26 · BT Restoration");
+    expect(hours(rows[0])).toBe("3.0 h");
+    expect(text(rows[1])).toContain("Skilled Technician undated · BT Restoration");
+    expect(text(rows[1])).toContain("excluded: undated");
+    expect(text(rows[2])).toContain("BT crew ×3staging 06/20/26");
+    expect(hours(rows[2])).toBe("3 × 3.0 h");
+    // The note sits behind a closed toggle; audit/staging show as a chip, field does not.
+    const note = rows[0].querySelector("details.wo-smr-line-note");
+    expect(note.open).toBe(false);
+    expect(note.querySelector("p").textContent).toBe("crew billed as one person");
+    expect(rows[0].querySelector(".wo-smr-line-kind")).toBeNull();
+    expect(rows[2].querySelector(".wo-smr-line-kind").textContent).toBe("staging");
     expect(section().querySelector("table")).toBeNull();
   });
 

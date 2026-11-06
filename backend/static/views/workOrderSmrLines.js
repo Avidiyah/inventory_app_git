@@ -50,15 +50,20 @@ function readingHtml(reading) {
 
 function workerLabel(line) {
   const name = line.worker_name || line.alias_on_paper || "Skilled Technician";
-  return line.headcount > 1 ? `${line.headcount}× ${name}` : name;
+  return line.headcount > 1 ? `${name} ×${line.headcount}` : name;
 }
 
-// One line reads like a Labor entry: who, how long, when, for which vendor.
+// One line reads like a Labor entry: who and what kind on the left, the
+// hours on the right, the day and vendor under the name. The note is the
+// reviewer's working narrative: kept one tap away, never in the way.
 function lineRowHtml(line, editable) {
-  const when = line.work_date ? shortDate(line.work_date) : (line.week ? `week ${line.week}` : "undated");
+  const when = line.work_date ? shortDate(line.work_date) : (line.week ? `Week ${line.week}` : "undated");
   const status = line.status === "charged" ? "" : `<span class="wo-smr-line-status">excluded: ${escapeHtml(line.exclusion_ground || "")}</span>`;
-  const kind = line.kind === "field" ? "" : `<span class="hint">${escapeHtml(line.kind)}</span>`;
-  const note = line.note ? `<span class="hint">${escapeHtml(line.note)}</span>` : "";
+  const kind = line.kind === "field" ? "" : `<span class="wo-smr-line-kind">${escapeHtml(line.kind)}</span>`;
+  const note = line.note
+    ? `<details class="wo-smr-line-note"><summary>note</summary><p>${escapeHtml(line.note)}</p></details>`
+    : "";
+  const total = line.headcount > 1 ? `${line.headcount} × ${hours(line.hours_each)}` : hours(line.hours_each);
   const buttons = editable && line.exclusion_ground !== "removed"
     ? `<div class="wo-labor-actions wo-smr-line-actions">
          <button type="button" class="secondary-btn" data-action="smr-edit-line">Edit</button>
@@ -66,8 +71,14 @@ function lineRowHtml(line, editable) {
        </div>`
     : "";
   return `<div class="wo-labor-entry wo-smr-line wo-smr-line--${escapeHtml(line.status)}" data-line-id="${escapeHtml(line.id)}" data-line="${escapeHtml(JSON.stringify(line))}">
-            <div><strong>${escapeHtml(workerLabel(line))}</strong><span class="hint">${escapeHtml(hours(line.hours_each))}${line.headcount > 1 ? " each" : ""} · ${escapeHtml(when)} · ${escapeHtml(line.vendor)}</span>${kind}${note}${status}</div>
-            ${buttons}
+            <div>
+              <span class="wo-smr-line-head"><strong>${escapeHtml(workerLabel(line))}</strong>${kind}</span>
+              <span class="hint">${escapeHtml(when)} · ${escapeHtml(line.vendor)}</span>${status}${note}
+            </div>
+            <div class="wo-smr-line-side">
+              <span class="wo-smr-line-hours">${escapeHtml(total)}</span>
+              ${buttons}
+            </div>
           </div>`;
 }
 
