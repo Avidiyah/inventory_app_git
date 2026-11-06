@@ -24,7 +24,7 @@ Known: `test_models_smr::test_paper_correction_tables_round_trip` fails on a lef
 ## Next (user, 2026-11-06) — spec/options first, then build
 
 1. **In-app check** of the two commits above (not done yet): card without Request / Signature; Paper corrections add row keys a named hand, an unnamed one and a crew (`3× BT crew`); Edit still opens the full form; Hours tab groups an unlinked keyed name under that name.
-2. **Vendor invoices → weekly hours-to-fill graph.** Import the vendor invoices (per vendor, per Mon–Sun week) and show a persistent chart: hours invoiced vs hours placed per week, so the remaining gap per week is always visible; use it to place undated orders into dated piles. Needs: an invoice model + import (shape of the invoice files unknown — ask), a `GET` for the week series, a chart on the SMR page (dataviz skill; CSP: no inline styles). The Hours tab (`S15`) already gives placed hours per week.
+2. **Vendor invoices → weekly hours chart**: shipped 2026-11-06 (`docs/superpowers/plans/2026-11-06-smr-weekly-hours-chart.md`); load the invoice CSV after deploy.
 
 ## Notes for the next session
 

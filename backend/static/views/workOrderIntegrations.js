@@ -14,6 +14,7 @@ import {
   apiImportNetFacilitiesCloudDownload,
   apiImportSmr,
   apiImportSmrPaper,
+  apiImportSmrInvoices,
   apiImportSmrTargets,
   apiImportWorkOrders,
   apiStartNetFacilitiesCloudAuthentication,
@@ -36,6 +37,8 @@ const smrImportFile = document.getElementById("wo-smr-import-file");
 const smrImportBtn = document.getElementById("wo-smr-import-btn");
 const smrTargetsFile = document.getElementById("wo-smr-targets-file");
 const smrTargetsBtn = document.getElementById("wo-smr-targets-btn");
+const smrInvoicesFile = document.getElementById("wo-smr-invoices-file");
+const smrInvoicesBtn = document.getElementById("wo-smr-invoices-btn");
 const smrPaperFile = document.getElementById("wo-smr-paper-file");
 const smrPaperBtn = document.getElementById("wo-smr-paper-btn");
 const netFacilitiesStatus = document.getElementById("wo-netfacilities-status");
@@ -59,6 +62,7 @@ export async function loadIntegrationsPage() {
   // SMR Import is the Owner's: it restores archived orders (spec 2026-10-23 D2).
   if (smrImportBtn) smrImportBtn.hidden = !roleAtLeast(getRole(), "owner");
   if (smrTargetsBtn) smrTargetsBtn.hidden = !roleAtLeast(getRole(), "owner");
+  if (smrInvoicesBtn) smrInvoicesBtn.hidden = !roleAtLeast(getRole(), "owner");
   if (smrPaperBtn) smrPaperBtn.hidden = !roleAtLeast(getRole(), "owner");
   if (!isAdminPlus()) return;
   void refreshNetFacilitiesCloudSession();
@@ -460,6 +464,30 @@ if (smrTargetsBtn) smrTargetsBtn.addEventListener("click", (event) => {
   if (smrTargetsFile) smrTargetsFile.click();
 });
 if (smrTargetsFile) smrTargetsFile.addEventListener("change", handleSmrTargetsImport);
+
+// Vendor invoice labor lines (Owner, spec 2026-11-06-smr-weekly-hours-chart):
+// the weekly chart's invoiced hours. Re-uploading an invoice replaces its rows.
+async function handleSmrInvoicesImport() {
+  const file = smrInvoicesFile.files && smrInvoicesFile.files[0];
+  if (!file) return;
+  setMessage(importMessage, "Importing SMR vendor invoices…", "");
+  smrInvoicesBtn.disabled = true;
+  try {
+    const r = await apiImportSmrInvoices(file);
+    setMessage(importMessage, `SMR invoices: ${r.invoices.length} invoices, ${r.total} rows, ${Number(r.hours).toFixed(1)} h.`, "success");
+  } catch (err) {
+    setMessage(importMessage, friendlyError(err, "Could not import the SMR vendor invoices."), "error");
+  } finally {
+    smrInvoicesBtn.disabled = false;
+    smrInvoicesFile.value = "";
+  }
+}
+
+if (smrInvoicesBtn) smrInvoicesBtn.addEventListener("click", (event) => {
+  if (event.target.closest(".tip-btn")) return;
+  if (smrInvoicesFile) smrInvoicesFile.click();
+});
+if (smrInvoicesFile) smrInvoicesFile.addEventListener("change", handleSmrInvoicesImport);
 
 // The reviewed paper record (Owner, spec 2026-11-04): pick the two or three
 // CSVs in one go; they are told apart by name. The server parses and

@@ -19,6 +19,7 @@ from app.models import (
     SmrLaborLine,
     SmrLineEdit,
     SmrPaperReading,
+    SmrVendorInvoice,
     SmrWorker,
     User,
     WorkOrder,
@@ -212,3 +213,12 @@ def test_an_editor_with_history_cannot_be_deleted(db):
     with pytest.raises(IntegrityError):
         db.flush()
     db.rollback()
+
+
+def test_vendor_invoice_round_trip(db):
+    row = SmrVendorInvoice(invoice="GC 5903", vendor="Green Choice", work_date=date(2026, 6, 10),
+                           week=rules.week_of(date(2026, 6, 10)), hours=Decimal("8.5"))
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    assert row.week == 3 and row.hours == Decimal("8.50") and row.uploaded_at is not None

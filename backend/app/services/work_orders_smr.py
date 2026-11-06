@@ -370,10 +370,10 @@ def _tile_weeks(lines) -> list[str]:
     return labels
 
 
-def closed_week(work_order: WorkOrder) -> Optional[str]:
-    """Week label of the NetFacilities close date: the sheet's COMPLETION DATE
-    kept in the baseline's source row (the import never sets `completed_at`);
-    None without one."""
+def closed_week_number(work_order: WorkOrder) -> Optional[int]:
+    """Week number of the NetFacilities close date: the sheet's COMPLETION
+    DATE kept in the baseline's source row (the import never sets
+    `completed_at`); None without one."""
     row = (work_order.smr_baseline or {}).get("source_row") or {}
     try:
         day = rules.parse_date(row.get("COMPLETION DATE") or None, where="close date")
@@ -381,7 +381,12 @@ def closed_week(work_order: WorkOrder) -> Optional[str]:
         day = None
     if day is None and work_order.completed_at:
         day = work_order.completed_at.date()
-    return rules.week_label(rules.week_of(day)) if day else None
+    return rules.week_of(day) if day else None
+
+
+def closed_week(work_order: WorkOrder) -> Optional[str]:
+    week = closed_week_number(work_order)
+    return rules.week_label(week) if week is not None else None
 
 
 def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTile:

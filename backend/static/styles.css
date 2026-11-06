@@ -6091,6 +6091,30 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     color: var(--text-panel-mute);
 }
 
+/* Weekly hours chart (spec 2026-11-06-smr-weekly-hours-chart): three stacked
+   bars per week, one fill class per vendor shared by rects and swatches. */
+#smr-page .smr-weekly { margin: 0 0 var(--space-4); }
+#smr-page .smr-weekly > summary { cursor: pointer; font-weight: 600; margin-bottom: var(--space-2); }
+#smr-page .smr-weekly-body { overflow-x: auto; }
+#smr-page .smr-weekly-svg { display: block; width: 100%; max-width: 1100px; height: auto; font-size: 11px; }
+#smr-page .smr-weekly-grid { stroke: var(--panel-rule-soft); stroke-width: 1; }
+#smr-page .smr-weekly-axis,
+#smr-page .smr-weekly-bar-label,
+#smr-page .smr-weekly-week { fill: var(--text-panel-mute); }
+#smr-page .smr-weekly-week { font-weight: 600; }
+#smr-page .smr-weekly-legend { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); list-style: none; margin: var(--space-2) 0; padding: 0; font-size: var(--fs-sm); }
+#smr-page .smr-weekly-legend li { display: inline-flex; align-items: center; gap: var(--space-1); }
+#smr-page .smr-weekly-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; }
+#smr-page .smr-weekly-table { margin-top: var(--space-2); }
+#smr-page .smr-weekly-table th:first-child,
+#smr-page .smr-weekly-table td:first-child { text-align: left; }
+#smr-page .smr-vendor--belfor { fill: var(--color-brand); background: var(--color-brand); }
+#smr-page .smr-vendor--green-choice { fill: #2E8B57; background: #2E8B57; }
+#smr-page .smr-vendor--xxl-construction { fill: #2F6DB5; background: #2F6DB5; }
+#smr-page .smr-vendor--bt-restoration { fill: #D98E04; background: #D98E04; }
+#smr-page .smr-vendor--unknown { fill: #8A8F98; background: #8A8F98; }
+#smr-page .smr-vendor--admin { fill: #4B5059; background: #4B5059; }
+
 /* Hours tab (spec 2026-11-04 D3): standard table, cells "charged / excluded". */
 #smr-page .smr-hours { overflow-x: auto; }
 #smr-page .smr-hours-note { margin: 0 0 var(--space-3); font-size: var(--fs-sm); color: var(--text-panel-mute); }

@@ -1070,6 +1070,14 @@ export const apiSmrMarkPasted = (blockId) =>
   jsonRequest(`/work-orders/smr/blocks/${blockId}/pasted`, "POST", {});
 export const apiSmrHours = () => jsonRequest("/work-orders/smr/hours", "GET");
 export const apiSmrHoursCsv = () => xlsxDownload("/work-orders/smr/hours.csv", "GET");
+export const apiSmrWeeklyHours = () => jsonRequest("/work-orders/smr/weekly-hours", "GET");
+// Vendor invoice labor lines (Owner, spec 2026-11-06-smr-weekly-hours-chart).
+export async function apiImportSmrInvoices(file) {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await rawFetch("/work-orders/smr/invoices", { method: "POST", body: form, credentials: "include" });
+  return parseResponse(response);
+}
 export async function apiListSmrTiles({
   supervisorId = null, assignedToId = null, community = null,
   priority = null, scheduledDate = null, q = null, locationQ = null, taskQ = null, sort = null,

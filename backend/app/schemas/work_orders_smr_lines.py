@@ -271,3 +271,35 @@ class SmrHoursOut(BaseModel):
     rows: list[SmrHoursRow] = Field(default_factory=list)
     charged_hours: Decimal = Decimal(0)
     excluded_hours: Decimal = Decimal(0)
+
+
+# --- invoices + weekly chart (spec 2026-11-06-smr-weekly-hours-chart) ------
+
+class SmrInvoiceImportResult(BaseModel):
+    """`POST /work-orders/smr/invoices`: rows loaded, the invoice numbers the
+    file named (each one's earlier rows replaced), and their hours."""
+
+    total: int
+    invoices: list[str] = Field(default_factory=list)
+    hours: Decimal = Decimal(0)
+
+
+class SmrWeeklyCell(BaseModel):
+    """One (week, vendor) cell: `original` is the NetFacilities baseline
+    billed hours of orders closed that week, `added` the charged paper hours
+    worked that week, `invoiced` the vendor's invoiced hours, `missing` =
+    max(invoiced - added, 0)."""
+
+    week: Optional[int] = None
+    week_label: str = ""
+    vendor: str
+    original: Decimal = Decimal(0)
+    added: Decimal = Decimal(0)
+    invoiced: Decimal = Decimal(0)
+    missing: Decimal = Decimal(0)
+
+
+class SmrWeeklyHoursOut(BaseModel):
+    weeks: list[Optional[int]] = Field(default_factory=list)
+    vendors: list[str] = Field(default_factory=list)
+    cells: list[SmrWeeklyCell] = Field(default_factory=list)

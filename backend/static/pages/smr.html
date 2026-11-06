@@ -8,6 +8,12 @@
         <section aria-labelledby="smr-heading">
             <h2 id="smr-heading" class="smr-title">SMR27 — Belfor</h2>
             <div id="smr-bar" class="smr-bar" aria-live="polite"></div>
+            <!-- Weekly hours chart (spec 2026-11-06-smr-weekly-hours-chart): Admin+,
+                 three stacked bars per week by vendor (views/smrWeeklyHours.js). -->
+            <details id="smr-weekly" class="smr-weekly" open hidden>
+                <summary>Weekly hours</summary>
+                <div id="smr-weekly-body" class="smr-weekly-body"></div>
+            </details>
             <!-- Search + filters: the Work Orders row (pages/work-orders.html)
                  minus service type and NetFacilities status, same server predicates (views/smrFilters.js). -->
             <div class="smr-filter-grid">

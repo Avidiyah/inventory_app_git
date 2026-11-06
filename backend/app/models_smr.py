@@ -205,3 +205,23 @@ class SmrCorrectionBlock(Base):
         UniqueConstraint("work_order_id", "version", name="uq_smr_correction_blocks_order_version"),
         Index("ix_smr_correction_blocks_work_order_id", "work_order_id"),
     )
+
+
+class SmrVendorInvoice(Base):
+    """One invoiced labor line from a vendor invoice (spec
+    2026-11-06-smr-weekly-hours-chart): the hours a vendor billed on a day,
+    kept so the weekly chart can show invoiced minus placed. A re-upload
+    replaces every row of the invoices it names."""
+
+    __tablename__ = "smr_vendor_invoices"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    invoice = Column(Text, nullable=False)
+    vendor = Column(Text, nullable=False)
+    work_date = Column(Date, nullable=False)
+    week = Column(Integer, nullable=False)
+    hours = Column(Numeric(8, 2), nullable=False)
+    uploaded_at = Column(DateTime(timezone=True), nullable=False, default=_now)
+    uploaded_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    __table_args__ = (Index("ix_smr_vendor_invoices_invoice", "invoice"),)

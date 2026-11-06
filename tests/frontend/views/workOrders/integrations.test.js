@@ -202,6 +202,29 @@ describe("the SMR Labor Import (spec 2026-10-23-smr-target-match)", () => {
   });
 });
 
+describe("the SMR Invoice Import (spec 2026-11-06-smr-weekly-hours-chart)", () => {
+  function chooseInvoicesFile(file) {
+    const input = el("wo-smr-invoices-file");
+    Object.defineProperty(input, "files", { configurable: true, value: file ? [file] : [] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  it("is hidden for an Admin", async () => {
+    await mountIntegrations({ role: "admin" });
+    expect(el("wo-smr-invoices-btn").hidden).toBe(true);
+  });
+
+  it("posts the CSV as Owner and reports invoices, rows and hours", async () => {
+    await mountIntegrations({ role: "owner" });
+    expect(el("wo-smr-invoices-btn").hidden).toBe(false);
+    respond("post", "/work-orders/smr/invoices", { total: 12, invoices: ["GC 5903", "BT 1077"], hours: "412.5" });
+    chooseInvoicesFile(new File(["Invoice,Date,Vendor,Worker,Rate,Hours\nGC 5903,2026-05-26,Green Choice,,40,8"], "invoices.csv", { type: "text/csv" }));
+    await vi.waitFor(() => expect(importLine().textContent).toBe("SMR invoices: 2 invoices, 12 rows, 412.5 h."));
+    expect(requestFor("/work-orders/smr/invoices", "POST")).not.toBeNull();
+    expect(el("wo-smr-invoices-btn").disabled).toBe(false);
+  });
+});
+
 describe("the SMR Paper Import (spec 2026-11-04)", () => {
   const csvFile = (name) => new File(["a,b\n1,2"], name, { type: "text/csv" });
 

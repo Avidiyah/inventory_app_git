@@ -55,8 +55,18 @@ function page(overrides = {}) {
   };
 }
 
+
+const WEEKLY = {
+  weeks: [3, null],
+  vendors: ["Green Choice", "Unknown"],
+  cells: [
+    { week: 3, week_label: "Week 3", vendor: "Green Choice", original: "10.0", added: "4.0", invoiced: "30.0", missing: "26.0" },
+    { week: null, week_label: "", vendor: "Unknown", original: "0.5", added: "0", invoiced: "0", missing: "0" },
+  ],
+};
 async function openSmr(role = "admin", payload = page()) {
   server.use(
+    http.get("/work-orders/smr/weekly-hours", () => HttpResponse.json(WEEKLY)),
     http.get("/work-orders/smr", () => HttpResponse.json(payload)),
     http.get("/work-orders/filter-options", () => HttpResponse.json(filterOptions())),
     http.get("/work-orders/lookup", () => HttpResponse.json({ found: false, archived: false, id: null })),
@@ -421,5 +431,21 @@ describe("the SMR page", () => {
     byId("smr-hours-btn").click();
     expect(byId("smr-hours").hidden).toBe(true);
     expect(byId("smr-tiles").hidden).toBe(false);
+  });
+
+  it("Weekly hours: Admin+ sees the chart panel above the search, filled from GET /weekly-hours; a Technician does not", async () => {
+    await openSmr("technician");
+    expect(byId("smr-weekly").hidden).toBe(true);
+    document.body.innerHTML = "";
+    const { requestsFor } = await openSmr("admin");
+    expect(byId("smr-weekly").hidden).toBe(false);
+    await vi.waitFor(() => expect(requestsFor("/work-orders/smr/weekly-hours")).toHaveLength(1));
+    await vi.waitFor(() => expect(byId("smr-weekly-body").querySelectorAll("svg g[data-week]")).toHaveLength(2));
+    expect(byId("smr-weekly").compareDocumentPosition(byId("smr-search")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(byId("smr-weekly-body").querySelectorAll("rect.smr-vendor--green-choice")).toHaveLength(3);
+    expect(byId("smr-weekly-body").querySelectorAll(".smr-weekly-legend li")).toHaveLength(2);
+    const table = byId("smr-weekly-body").querySelector("table");
+    expect(Array.from(table.tBodies[0].rows[0].cells).map((c) => c.textContent)).toEqual(["Week 3", "10.0", "4.0", "26.0", "30.0"]);
+    expect(Array.from(table.tBodies[0].rows[1].cells).map((c) => c.textContent)).toEqual(["Undated", "0.5", "0.0", "0.0", "0.0"]);
   });
 });

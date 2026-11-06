@@ -261,6 +261,10 @@ export const TIPS = {
     label: "SMR Labor Import (Owner)",
     text: "Imports the client's Breakdown sheet. Each WO#'s hours and material dollars become that SMR order's target; the SMR27 page and the editor show how far each order is from it. Rows for unknown WO#s are skipped.",
   },
+  "integrations.smr-invoices": {
+    label: "SMR Invoice Import (Owner)",
+    text: "Loads vendor invoice labor lines (columns Invoice, Date, Vendor, Hours) for the weekly hours chart on the SMR27 page. Uploading an invoice number again replaces its earlier rows.",
+  },
   "integrations.smr-paper": {
     label: "SMR Paper Import (Owner)",
     text: "Loads the reviewed paper record: pick paper_readings.csv and paper_lines.csv together, plus breakdown.csv when reviewed numbers must be created from it. Every row is checked before anything is written; a problem row is named and nothing changes. Running the same files again writes nothing. Read the counts against the reconciliation's line before moving on.",

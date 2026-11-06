@@ -1265,5 +1265,6 @@ from app.models_smr import (  # noqa: E402,F401
     SmrLaborLine,
     SmrLineEdit,
     SmrPaperReading,
+    SmrVendorInvoice,
     SmrWorker,
 )

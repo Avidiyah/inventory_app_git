@@ -33,6 +33,7 @@ from app.schemas.work_orders_smr import (
 from app.schemas.work_orders_smr_lines import (
     SmrBlockOut,
     SmrHoursOut,
+    SmrInvoiceImportResult,
     SmrLineEditIn,
     SmrLineIn,
     SmrLineOut,
@@ -43,10 +44,12 @@ from app.schemas.work_orders_smr_lines import (
     SmrWorkerIn,
     SmrWorkerMergeIn,
     SmrWorkerOut,
+    SmrWeeklyHoursOut,
 )
 from app.services import work_orders_smr as smr_service
 from app.services import work_orders_smr_import as smr_import
 from app.services import work_orders_smr_lines as lines_service
+from app.services import work_orders_smr_weekly as weekly_service
 from app.services import work_orders_smr_xlsx as smr_xlsx
 
 router = APIRouter(prefix="/work-orders/smr", tags=["work-orders-smr"])
@@ -361,3 +364,30 @@ def hours_csv(
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="smr27-hours.csv"'},
     )
+
+
+@router.post(
+    "/invoices",
+    response_model=SmrInvoiceImportResult,
+    responses={**_forbidden(roles.ROLE_OWNER), 413: {"description": "CSV exceeds the upload size cap."}},
+)
+def import_invoices(
+    file: UploadFile = File(...),
+    user: User = Depends(require_min_role(roles.ROLE_OWNER)),
+    db: Session = Depends(get_db),
+) -> SmrInvoiceImportResult:
+    """Load vendor invoice labor lines (Owner); re-upload replaces by invoice number."""
+    data = read_capped(file, limit=MAX_CSV_UPLOAD_BYTES, what="CSV file")
+    try:
+        return weekly_service.import_invoices(db, csv_bytes=data, user=user)
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.get("/weekly-hours", response_model=SmrWeeklyHoursOut, responses=_forbidden(roles.ROLE_ADMIN))
+def weekly_hours(
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+) -> SmrWeeklyHoursOut:
+    """Original / added / invoiced / missing hours per week and vendor (Admin+)."""
+    return weekly_service.weekly_hours(db)

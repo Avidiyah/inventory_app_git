@@ -16,6 +16,7 @@ import { showPage } from "./nav.js";
 import { setProfileOrigin } from "./profileOrigin.js";
 import { applyFilterOptions, currentParams, installFilterControls, saveFilters, savedChips } from "./smrFilters.js";
 import { loadSmrHours } from "./smrHours.js";
+import { loadWeeklyHours } from "./smrWeeklyHours.js";
 
 const bar = document.getElementById("smr-bar");
 const grid = document.getElementById("smr-tiles");
@@ -25,6 +26,8 @@ const exportBtn = document.getElementById("smr-export-btn");
 const hoursBtn = document.getElementById("smr-hours-btn");
 const hoursCsvBtn = document.getElementById("smr-hours-csv-btn");
 const hoursPanel = document.getElementById("smr-hours");
+const weeklyPanel = document.getElementById("smr-weekly");
+const WEEKLY_OPEN_KEY = "smr.weeklyOpen";
 const chipButtons = Array.from(document.querySelectorAll(".smr-btn[data-row][data-filter]"));
 
 export const EMPTY_COPY = "No SMR orders yet. Owner: import from Integrations.";
@@ -227,10 +230,15 @@ export async function loadSmr() {
   const user = getCurrentUser();
   if (exportBtn) exportBtn.hidden = !(user && roleAtLeast(user.role, "owner"));
   if (hoursBtn) hoursBtn.hidden = !(user && roleAtLeast(user.role, "admin"));
+  if (weeklyPanel) weeklyPanel.hidden = !(user && roleAtLeast(user.role, "admin"));
   if (hoursOpen) void loadSmrHours();
   setMessage(message, "", "");
   try {
-    render(await apiListSmrTiles(currentParams()));
+    // The tiles request goes first (callers read it as the page's load);
+    // the chart fetches alongside it rather than after it.
+    const tiles = apiListSmrTiles(currentParams());
+    if (weeklyPanel && !weeklyPanel.hidden) void loadWeeklyHours();
+    render(await tiles);
   } catch (err) {
     setMessage(message, friendlyError(err, "Could not load SMR orders."), "error");
   }
@@ -249,6 +257,14 @@ chipButtons.forEach((btn) => {
 installFilterControls(() => { void loadSmr(); });
 
 hoursBtn?.addEventListener("click", () => showHours(!hoursOpen));
+
+// The chart panel remembers whether it was folded (per browser, like the chips).
+if (weeklyPanel) {
+  try { weeklyPanel.open = localStorage.getItem(WEEKLY_OPEN_KEY) !== "0"; } catch { /* storage unavailable */ }
+  weeklyPanel.addEventListener("toggle", () => {
+    try { localStorage.setItem(WEEKLY_OPEN_KEY, weeklyPanel.open ? "1" : "0"); } catch { /* storage unavailable */ }
+  });
+}
 
 if (grid) {
   grid.addEventListener("click", (event) => {
