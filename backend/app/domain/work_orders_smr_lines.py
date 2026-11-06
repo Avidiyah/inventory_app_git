@@ -78,6 +78,7 @@ WEEK1_START = date(2026, 5, 25)
 LAST_WEEK = 7
 TIE_TOLERANCE = Decimal("0.5")
 HALF_HOUR = Decimal("0.5")
+CENT = Decimal("0.01")  # 0.5 h steps at 62.50 are exact cents; this only drops the trailing zero
 
 
 # --- weeks --------------------------------------------------------------
@@ -133,7 +134,7 @@ def lines_charge(lines) -> LinesCharge:
     return LinesCharge(
         charged_hours=charged,
         excluded_hours=excluded,
-        labor_total=charged * wo.LABOR_RATE,
+        labor_total=(charged * wo.LABOR_RATE).quantize(CENT),
         count=count,
     )
 

@@ -549,6 +549,11 @@ def test_no_route_gate_is_left_at_the_admin_floor():
     # The SMR27 audit tiles opened to every role on 2026-10-23 (all hands on the
     # re-charge); the import and export stay at Owner
     # (spec docs/superpowers/specs/2026-10-23-smr-audit-workflow-design.md D2/D6).
+    #
+    # The SMR27 paper corrections (spec 2026-11-04 D12, user 2026-11-04) are
+    # the record a Langston audit reads: every line, reading, worker and
+    # pasted block is evidence with money behind it, so writing them and the
+    # Hours view sit at Admin+, with the import and the worker merge at Owner.
     assert offenders == {
         "get_hub_report",
         "export_hub_report",
@@ -558,6 +563,15 @@ def test_no_route_gate_is_left_at_the_admin_floor():
         # 2026-11-02: the whole catalogue with prices as CSV, by design above
         # the OA-level xlsx export (test_inventory_export.py holds the 403).
         "export_items_csv",
+        "add_reading",
+        "add_line",
+        "edit_line",
+        "search_workers",
+        "add_worker",
+        "generate_block",
+        "mark_pasted",
+        "hours_table",
+        "hours_csv",
     }
 
 
@@ -670,6 +684,19 @@ def test_filing_and_cancelling_a_material_request_have_no_static_min_role(endpoi
         ("export_smr_xlsx", roles.ROLE_OWNER),
         ("list_smr_tiles", roles.ROLE_TECHNICIAN),
         ("set_paper_check", roles.ROLE_TECHNICIAN),
+        # Paper corrections (spec 2026-11-04 D12): Owner runs the import and
+        # merges workers; Admin+ does everything else.
+        ("import_paper", roles.ROLE_OWNER),
+        ("merge_workers", roles.ROLE_OWNER),
+        ("add_reading", roles.ROLE_ADMIN),
+        ("add_line", roles.ROLE_ADMIN),
+        ("edit_line", roles.ROLE_ADMIN),
+        ("search_workers", roles.ROLE_ADMIN),
+        ("add_worker", roles.ROLE_ADMIN),
+        ("generate_block", roles.ROLE_ADMIN),
+        ("mark_pasted", roles.ROLE_ADMIN),
+        ("hours_table", roles.ROLE_ADMIN),
+        ("hours_csv", roles.ROLE_ADMIN),
     ],
 )
 def test_smr_route_gates_are_declarative_and_document_403(endpoint_name, expected):
