@@ -15,7 +15,7 @@ known gaps change. For review/debugging: `Data Model` + `Known Gaps` identify
 the contract and the intentional limitations.
 
 If this file conflicts with code, trust the code and update this file as part
-of the change. Alembic head is **`8e0f2a4b5c63`** (50 revisions). Operation
+of the change. Alembic head is **`451c56c5643a`** (51 revisions). Operation
 and test counts are volatile — verify via `app.openapi()` and
 `pytest --collect-only` rather than trusting any quoted number.
 
@@ -1836,7 +1836,7 @@ operational surface renders the derived full name.
 
 ## Migration History
 
-Alembic head: `8e0f2a4b5c63`.
+Alembic head: `451c56c5643a`.
 
 | Revision | Meaning |
 | --- | --- |
@@ -1888,6 +1888,7 @@ Alembic head: `8e0f2a4b5c63`.
 | `6c8d0e2f3a41` | `work_orders.smr_target` (JSONB, the client's Breakdown-sheet target: hours, labor $, material $, raw row; overwritten per target import); no backfill |
 | `7d9e1f3a4b52` | `work_orders.smr_paper_checked_at` + `smr_paper_checked_by_id` (FK users, `ON DELETE SET NULL`): SMR paper check, independent of Edited / Matched / archive; no backfill |
 | `8e0f2a4b5c63` | SMR27 paper corrections (spec 2026-11-04): `smr_workers` (vendor people, no app user; `user_id` `ON DELETE SET NULL`), `smr_paper_readings` (one per printing read), `smr_labor_lines` (the unit of charge; checks: headcount ≥ 1, 0.5 h steps, status ∈ charged/excluded, charged needs a date or the Week 1 placement basis, excluded needs a ground), `smr_line_edits` (append-only history, the `attendance_punch_edits` shape), `smr_correction_blocks` (versioned pasted text + lines digest); no backfill, existing `smr_*` columns untouched |
+| `451c56c5643a` | `ck_smr_labor_lines_charged_dated` widened: a charged line with a blank day needs a placement basis (`Week 1 placement (crew sheets, Supplement)` or `week placement (weekly reports)`) and its `week`; no data change |
 
 ## Test Map
 

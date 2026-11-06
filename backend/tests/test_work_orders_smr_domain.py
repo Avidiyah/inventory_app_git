@@ -392,3 +392,27 @@ def test_a_blank_reason_code_is_taken_as_read():
     })
     assert line["reason_code"] == lines_rules.REASON_AS_READ == "as_read"
     assert lines_rules.REASON_AS_READ in lines_rules.REASON_CODES
+
+
+def test_a_week_placement_charges_with_its_week_and_no_date():
+    # User 2026-11-06: decision 13 generalised to weeks 2-7 for the hours the
+    # weekly reports placed (the 0.5 h clean-up, the no-name lines). The week
+    # is read from the CSV for this basis only; a date always wins.
+    basis = lines_rules.WEEK_PLACEMENT_BASIS
+    assert basis in lines_rules.DATE_BASES and basis in lines_rules.PLACEMENT_BASES
+    assert lines_rules.week_for(None, basis, 3) == 3
+    assert lines_rules.week_for(date(2026, 6, 20), basis, 3) == 4
+    assert lines_rules.week_for(None, "paper", 3) is None
+    lines_rules.validate_line_state(**_state(work_date=None, date_basis=basis, week=3))
+    with pytest.raises(WorkOrderStateError, match="week"):
+        lines_rules.validate_line_state(**_state(work_date=None, date_basis=basis))
+
+    row = {"line_id": "L13", "reading_id": "R9", "wo": "23281563", "work_date": "", "date_basis": basis,
+           "vendor": "Belfor", "worker": "", "headcount": "1", "hours_each": "0.5", "kind": "field",
+           "status": "charged", "exclusion_ground": "", "reason_code": "", "week": "3"}
+    assert lines_rules.parse_line_row(row)["week"] == 3
+    for bad in ("", "8", "two"):
+        with pytest.raises(WorkOrderStateError, match="Line L13.*week"):
+            lines_rules.parse_line_row({**row, "week": bad})
+    with pytest.raises(WorkOrderStateError, match="Line L13.*work date"):
+        lines_rules.parse_line_row({**row, "date_basis": "paper"})

@@ -36,7 +36,7 @@ from app.services.work_orders_smr_lines import history, line_json
 CREATED_BY_IMPORT = "created by paper import"
 _LINE_FIELDS = (
     "work_date", "date_basis", "vendor", "alias_on_paper", "headcount", "hours_each",
-    "kind", "reason_code", "status", "exclusion_ground", "note",
+    "week", "kind", "reason_code", "status", "exclusion_ground", "note",
 )
 
 

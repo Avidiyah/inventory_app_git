@@ -30,14 +30,18 @@ VENDORS: tuple[str, ...] = (
 KINDS: tuple[str, ...] = ("field", "assessment", "audit", "staging")
 
 DATE_BASIS_PAPER = "paper"
-# Decision 13: the one basis allowed to charge with a blank day. The line
-# carries `week = 1` and the block prints "week of 05/25".
+# Decision 13, generalised by the user on 2026-11-06: the two bases allowed
+# to charge with a blank day. A Week 1 placement carries `week = 1` (crew
+# sheets); a week placement carries the week the weekly reports put the
+# hours in, read from the CSV. The block prints "week of <that Monday>".
 WEEK1_PLACEMENT_BASIS = "Week 1 placement (crew sheets, Supplement)"
+WEEK_PLACEMENT_BASIS = "week placement (weekly reports)"
+PLACEMENT_BASES: tuple[str, ...] = (WEEK1_PLACEMENT_BASIS, WEEK_PLACEMENT_BASIS)
 DATE_BASES: tuple[str, ...] = (
     DATE_BASIS_PAPER,
     "paper (date in note)",
     "closed date (Young Hall rule)",
-    WEEK1_PLACEMENT_BASIS,
+    *PLACEMENT_BASES,
 )
 
 GROUND_UNDATED = "undated"
@@ -99,11 +103,14 @@ def week_label(week: Optional[int]) -> str:
     return f"Week {week}"
 
 
-def week_for(work_date: Optional[date], date_basis: str) -> Optional[int]:
-    """The `week` a line stores: from its date, or 1 for a Week 1 placement."""
+def week_for(work_date: Optional[date], date_basis: str, week: Optional[int] = None) -> Optional[int]:
+    """The `week` a line stores: from its date; 1 for a Week 1 placement;
+    the given week for a week placement; otherwise none."""
     if work_date is not None:
         return week_of(work_date)
-    return 1 if date_basis == WEEK1_PLACEMENT_BASIS else None
+    if date_basis == WEEK1_PLACEMENT_BASIS:
+        return 1
+    return week if date_basis == WEEK_PLACEMENT_BASIS else None
 
 
 # --- worth ---------------------------------------------------------------
@@ -148,14 +155,18 @@ def is_half_hours(value: Decimal) -> bool:
 def validate_line_state(
     *, status: str, work_date: Optional[date], date_basis: str, exclusion_ground: Optional[str],
     headcount: int, hours_each: Decimal, vendor: str, kind: str, reason_code: str,
+    week: Optional[int] = None,
 ) -> None:
-    """The DB checks, as words, before the row is flushed."""
+    """The DB checks, as words, before the row is flushed. `week` is the
+    week a week placement names; every other basis derives its own."""
     if status not in STATUSES:
         raise WorkOrderStateError(f"Line status must be one of: {', '.join(STATUSES)}.")
     if date_basis not in DATE_BASES:
         raise WorkOrderStateError(f"Unknown date basis: {date_basis}.")
-    if status == STATUS_CHARGED and work_date is None and date_basis != WEEK1_PLACEMENT_BASIS:
-        raise WorkOrderStateError("A charged line needs a work date (or the Week 1 placement basis).")
+    if date_basis == WEEK_PLACEMENT_BASIS and work_date is None and week not in range(1, LAST_WEEK + 1):
+        raise WorkOrderStateError(f"A week placement needs its week (1 to {LAST_WEEK}).")
+    if status == STATUS_CHARGED and work_date is None and date_basis not in PLACEMENT_BASES:
+        raise WorkOrderStateError("A charged line needs a work date (or a placement basis).")
     if status == STATUS_EXCLUDED and not exclusion_ground:
         raise WorkOrderStateError("An excluded line needs an exclusion ground.")
     if exclusion_ground is not None and exclusion_ground not in GROUNDS:
@@ -299,7 +310,7 @@ def parse_reading_row(row: dict) -> dict:
 def parse_line_row(row: dict) -> dict:
     """One `paper_lines.csv` row, validated against the vocabulary above.
     `date_basis` defaults to `paper`, `reason_code` to `as_read`; `week` is
-    derived, never read."""
+    read for a week placement only, otherwise derived (a date always wins)."""
     line_id = _text(row, "line_id")
     if line_id is None:
         raise WorkOrderStateError("A line row has no line_id.")
@@ -313,6 +324,10 @@ def parse_line_row(row: dict) -> dict:
     hours_each = _decimal(_text(row, "hours_each"), where=where, column="hours_each")
     if hours_each is None:
         raise WorkOrderStateError(f"{where}: hours_each is required.")
+    week_text = _text(row, "week")
+    if week_text is not None and not week_text.isdigit():
+        raise WorkOrderStateError(f"{where}: week {week_text!r} is not a whole number.")
+    week = int(week_text) if week_text is not None else None
     parsed = {
         "line_id": line_id,
         "reading_id": reading_id,
@@ -335,9 +350,9 @@ def parse_line_row(row: dict) -> dict:
             status=parsed["status"], work_date=parsed["work_date"], date_basis=parsed["date_basis"],
             exclusion_ground=parsed["exclusion_ground"], headcount=parsed["headcount"],
             hours_each=parsed["hours_each"], vendor=parsed["vendor"], kind=parsed["kind"],
-            reason_code=parsed["reason_code"],
+            reason_code=parsed["reason_code"], week=week,
         )
     except WorkOrderStateError as exc:
         raise WorkOrderStateError(f"{where}: {exc}") from exc
-    parsed["week"] = week_for(parsed["work_date"], parsed["date_basis"])
+    parsed["week"] = week_for(parsed["work_date"], parsed["date_basis"], week)
     return parsed

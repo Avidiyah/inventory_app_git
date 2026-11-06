@@ -10,13 +10,15 @@ from types import SimpleNamespace as NS
 
 from app.domain import receipt
 from app.domain import work_orders_smr_block as block
-from app.domain.work_orders_smr_lines import WEEK1_PLACEMENT_BASIS
+from app.domain.work_orders_smr_lines import WEEK1_PLACEMENT_BASIS, WEEK_PLACEMENT_BASIS
 
 
 def _line(**overrides):
-    fields = dict(work_date=date(2026, 6, 20), date_basis="paper", vendor="Belfor", worker=None, headcount=1,
+    fields = dict(work_date=date(2026, 6, 20), date_basis="paper", week=4, vendor="Belfor", worker=None, headcount=1,
                   hours_each=Decimal("1.0"), kind="field", reason_code="accurate", status="charged",
                   exclusion_ground=None)
+    if overrides.get("work_date", fields["work_date"]) is None:
+        fields["week"] = None
     fields.update(overrides)
     return NS(**fields)
 
@@ -27,7 +29,7 @@ def _sample_lines():
         _line(hours_each=Decimal("0.5"), kind="assessment", reason_code="overhead_added"),
         _line(work_date=date(2026, 6, 22), vendor="XXL Construction", worker=NS(display_name="Trinton Smith"),
               hours_each=Decimal("4.0"), reason_code="crew_as_one"),
-        _line(work_date=None, date_basis=WEEK1_PLACEMENT_BASIS, headcount=3, hours_each=Decimal("2.0")),
+        _line(work_date=None, date_basis=WEEK1_PLACEMENT_BASIS, week=1, headcount=3, hours_each=Decimal("2.0")),
         _line(work_date=None, vendor="Green Choice", worker=NS(display_name="Rye"), hours_each=Decimal("7.0"),
               status="excluded", exclusion_ground="undated", reason_code="not_on_paper"),
         _line(work_date=date(2026, 7, 15), vendor="Green Choice", headcount=4, hours_each=Decimal("24.0"),
@@ -125,6 +127,28 @@ def test_a_changed_line_changes_the_digest_and_order_does_not():
     assert block.lines_digest(lines) == before
     lines[0].status, lines[0].exclusion_ground = "excluded", "removed"
     assert block.lines_digest(lines) != before
+
+    lines[0].status, lines[0].exclusion_ground = "charged", None
+    assert block.lines_digest(lines) == before
+    lines[3].week = 2  # a placement moved to another week prints differently
+    assert block.lines_digest(lines) != before
+
+
+def test_a_week_placement_prints_the_monday_of_its_week_and_sorts_into_it():
+    # Decision 13 generalised (user 2026-11-06): hours the weekly reports
+    # placed print as "week of" that week's Monday, ahead of the week's days.
+    lines = [_line(), _line(work_date=None, date_basis=WEEK_PLACEMENT_BASIS, week=3, hours_each=Decimal("0.5"))]
+    rendered = _render(lines).split("\n")
+    assert rendered[7].startswith("week of 06/08 Belfor") and rendered[7].endswith(" 0.5 h")
+    assert len(rendered[7]) == receipt.PRICING_LINE_WIDTH
+    assert rendered[9].startswith("06/20 Belfor")
+
+
+def test_a_line_removed_in_the_app_does_not_print():
+    # User 2026-11-06: a removed line is a keying mistake, not paper. History
+    # keeps it; the pasted text does not show it.
+    removed = _line(status="excluded", exclusion_ground="removed", hours_each=Decimal("9.0"))
+    assert _render(_sample_lines() + [removed]) == _render(_sample_lines())
 
 
 def test_reason_text_falls_back_to_the_code_in_words():

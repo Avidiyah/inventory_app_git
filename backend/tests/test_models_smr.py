@@ -12,6 +12,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from app.domain import work_orders_smr_lines as rules
 from app.domain.work_orders_smr_lines import WEEK1_PLACEMENT_BASIS
 from app.models import (
     SmrCorrectionBlock,
@@ -149,6 +150,18 @@ def test_a_charged_line_needs_a_date_unless_it_is_a_week1_placement(db):
     db.add(_line(order, work_date=None, date_basis=WEEK1_PLACEMENT_BASIS, week=1))
     db.flush()
     assert db.query(SmrLaborLine).filter(SmrLaborLine.work_order_id == order.id).one().week == 1
+
+
+def test_a_week_placement_charges_with_its_week_and_no_date(db):
+    # Decision 13 generalised (user 2026-11-06): the weekly-report basis
+    # charges with a blank day as long as the line carries its week.
+    order = _smr_order(db, _user(db))
+    _refused(db, _line(order, work_date=None, date_basis=rules.WEEK_PLACEMENT_BASIS, week=None))
+
+    order = _smr_order(db, _user(db))
+    db.add(_line(order, work_date=None, date_basis=rules.WEEK_PLACEMENT_BASIS, week=3, hours_each=Decimal("0.5")))
+    db.flush()
+    assert db.query(SmrLaborLine).filter(SmrLaborLine.work_order_id == order.id).one().week == 3
 
 
 def test_hours_off_the_half_hour_step_are_refused(db):

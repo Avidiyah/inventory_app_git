@@ -32,7 +32,9 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from app.database import Base
-from app.domain.work_orders_smr_lines import WEEK1_PLACEMENT_BASIS
+from app.domain.work_orders_smr_lines import PLACEMENT_BASES
+
+_PLACEMENT_SQL = ", ".join(f"'{basis}'" for basis in PLACEMENT_BASES)
 
 
 def _now() -> datetime:
@@ -99,8 +101,8 @@ class SmrLaborLine(Base):
 
     `import_key` is the CSV's `line_id`, the import's idempotence key; null
     for a line added in the app. `date_basis` says where the day came from;
-    `Week 1 placement (crew sheets, Supplement)` is the one basis allowed to
-    charge with a blank day (D13), carrying `week = 1`. `status` is
+    the two placement bases (D13, generalised 2026-11-06) are the only ones
+    allowed to charge with a blank day, and then carry their `week`. `status` is
     `charged` or `excluded`; an excluded line always names its ground, and a
     removed line is an excluded line with ground `removed` (nothing is ever
     hard-deleted). `kind` may be a comma list (`assessment, audit`), stored
@@ -144,7 +146,7 @@ class SmrLaborLine(Base):
         CheckConstraint("mod(hours_each * 2, 1) = 0", name="ck_smr_labor_lines_half_hours"),
         CheckConstraint("status in ('charged', 'excluded')", name="ck_smr_labor_lines_status"),
         CheckConstraint(
-            f"status <> 'charged' OR work_date IS NOT NULL OR date_basis = '{WEEK1_PLACEMENT_BASIS}'",
+            f"status <> 'charged' OR work_date IS NOT NULL OR (date_basis IN ({_PLACEMENT_SQL}) AND week IS NOT NULL)",
             name="ck_smr_labor_lines_charged_dated",
         ),
         CheckConstraint(

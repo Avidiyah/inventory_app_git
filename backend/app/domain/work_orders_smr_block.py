@@ -13,22 +13,24 @@ Shape: the version and date, the order, billed / corrected / change in hours
 and the change in dollars; then each charged line with its reason on the
 line below (the user wants the reason beside each charge; the width forbids
 one line); then every excluded line with its ground under `Not charged:`,
-because the auditor must see what was left out and why.
+because the auditor must see what was left out and why. A line removed in
+the app is a keying mistake, not paper: history keeps it, the block does not
+print it (user 2026-11-06).
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
 
 from app.domain import receipt
 from app.domain import work_orders as wo
 from app.domain.work_orders_smr_lines import (
+    GROUND_REMOVED,
     STATUS_CHARGED,
-    WEEK1_PLACEMENT_BASIS,
     WEEK1_START,
     line_hours,
     lines_charge,
@@ -90,11 +92,16 @@ def _hours(value: Decimal, *, signed: bool = False) -> str:
     return f"{value:+.1f} h" if signed else f"{value:.1f} h"
 
 
+def _monday(week: int) -> date:
+    return WEEK1_START + timedelta(weeks=week - 1)
+
+
 def _day(line) -> str:
+    """The day, or "week of <Monday>" for a placement (decision 13), or undated."""
     if line.work_date is not None:
         return line.work_date.strftime("%m/%d")
-    if line.date_basis == WEEK1_PLACEMENT_BASIS:
-        return "week of " + WEEK1_START.strftime("%m/%d")
+    if line.week:
+        return "week of " + _monday(line.week).strftime("%m/%d")
     return "undated"
 
 
@@ -114,7 +121,7 @@ def _who(line) -> str:
 
 
 def _sort_key(line):
-    day = line.work_date or (WEEK1_START if line.date_basis == WEEK1_PLACEMENT_BASIS else date.max)
+    day = line.work_date or (_monday(line.week) if line.week else date.max)
     return (day, _who(line))
 
 
@@ -146,8 +153,9 @@ def render_correction_block(order_number: str, target_hours: Optional[Decimal], 
         _row("", receipt.format_money(change * wo.LABOR_RATE)),
         "",
     ]
-    charged = sorted((l for l in lines if l.status == STATUS_CHARGED), key=_sort_key)
-    excluded = sorted((l for l in lines if l.status != STATUS_CHARGED), key=_sort_key)
+    shown = [l for l in lines if l.exclusion_ground != GROUND_REMOVED]
+    charged = sorted((l for l in shown if l.status == STATUS_CHARGED), key=_sort_key)
+    excluded = sorted((l for l in shown if l.status != STATUS_CHARGED), key=_sort_key)
     for line in charged:
         out += _charged_rows(line)
     if excluded:
@@ -158,7 +166,7 @@ def render_correction_block(order_number: str, target_hours: Optional[Decimal], 
 
 def _digest_row(line) -> list:
     return [
-        str(line.work_date or ""), line.date_basis, line.vendor, worker_name(line) or "",
+        str(line.work_date or ""), line.date_basis, str(line.week or ""), line.vendor, worker_name(line) or "",
         int(line.headcount), str(Decimal(line.hours_each)), line.kind, line.reason_code,
         line.status, line.exclusion_ground or "",
     ]

@@ -15,6 +15,7 @@ import pytest
 
 from app.domain import roles
 from app.domain.errors import WorkOrderStateError
+from app.domain import work_orders_smr_lines as lines_rules
 from app.models import SmrLaborLine, SmrLineEdit, SmrPaperReading, SmrWorker, User
 from app.services import auth
 from app.services import work_orders as wos
@@ -160,6 +161,31 @@ def test_a_changed_row_for_an_imported_key_is_refused_and_named(db):
         import_paper(db, readings_bytes=readings, lines_bytes=changed_lines, user=owner)
 
     assert _state(db, numbers) == (3, 4)
+
+
+def test_a_week_placement_line_imports_with_its_week_and_a_moved_week_is_refused(db):
+    # Decision 13 generalised (user 2026-11-06): the weekly-report hours hang
+    # on a reading with no hours (the tie check skips it) and carry `week`.
+    owner = _user(db)
+    a = _smr_numbers(db, owner, 1)[0]
+    readings = _csv(READING_COLUMNS, [
+        _reading("R1", a),
+        _reading("R9", a, printing=9, work_date="", hours="", note="weekly reports: 0.5 h clean-up"),
+    ])
+    columns = LINE_COLUMNS + ["week"]
+    placed = _line("L7", "R9", a, hours="0.5", vendor="Belfor", worker="", alias_on_paper="", work_date="",
+                   date_basis=lines_rules.WEEK_PLACEMENT_BASIS, week="3")
+    lines = _csv(columns, [_line("L1", "R1", a), placed])
+
+    result = import_paper(db, readings_bytes=readings, lines_bytes=lines, user=owner)
+
+    assert (result.readings, result.lines, result.charged_hours) == (2, 2, Decimal("6.5"))
+    stored = db.query(SmrLaborLine).filter(SmrLaborLine.import_key == "L7").one()
+    assert (stored.work_date, stored.week, stored.status) == (None, 3, "charged")
+
+    moved = _csv(columns, [_line("L1", "R1", a), {**placed, "week": "4"}])
+    with pytest.raises(WorkOrderStateError, match="Already imported with different values.*line L7"):
+        import_paper(db, readings_bytes=readings, lines_bytes=moved, user=owner)
 
 
 def test_reviewed_orders_the_app_never_had_are_created_from_the_breakdown(db):
