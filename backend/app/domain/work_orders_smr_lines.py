@@ -371,6 +371,11 @@ def parse_line_row(row: dict) -> dict:
         "exclusion_ground": _text(row, "exclusion_ground"),
         "note": _text(row, "note"),
     }
+    # User 2026-11-06: paper hours bill where read. A row the review held
+    # out because its week's report never carried the order lands charged;
+    # the ground is retired, and the load needs no second pass.
+    if parsed["exclusion_ground"] == GROUND_NOT_CHARGED_REPORTS:
+        parsed["status"], parsed["exclusion_ground"] = STATUS_CHARGED, None
     try:
         validate_line_state(
             status=parsed["status"], work_date=parsed["work_date"], date_basis=parsed["date_basis"],

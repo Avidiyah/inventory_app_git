@@ -424,3 +424,14 @@ def test_a_week_placement_charges_with_its_week_and_no_date():
     ignored = lines_rules.parse_line_row({**row, "date_basis": "paper", "status": "excluded",
                                           "exclusion_ground": "before Week 1", "week": "Before W1"})
     assert ignored["week"] is None
+
+
+def test_a_weekly_reports_hold_out_lands_charged():
+    # User 2026-11-06: paper hours bill where read, so the load needs no
+    # second pass; the retired ground maps to charged at parse time.
+    line = lines_rules.parse_line_row({
+        "line_id": "L13", "reading_id": "R7", "wo": "23281563", "work_date": "2026-06-07", "vendor": "XXL Construction",
+        "worker": "Chris Bryan", "headcount": "1", "hours_each": "4", "kind": "field", "status": "excluded",
+        "exclusion_ground": lines_rules.GROUND_NOT_CHARGED_REPORTS, "reason_code": "",
+    })
+    assert (line["status"], line["exclusion_ground"]) == ("charged", None)

@@ -207,5 +207,9 @@ three rows push it past 500 lines (the filter rows belong in `smrFilters.js`).
   Breakdown material total when the totals differ; the block ends on one Total =
   materials + corrected labor. No SMR order had materials keyed on 2026-11-06.
 - 2026-11-06 (follow-up, user): block lines name the SMR week (`Week N`), never the day,
-  so a reader points at that week's vendor invoice; lines sort by week. the section carries color — charged /
+  so a reader points at that week's vendor invoice; lines sort by week.
+- 2026-11-06 (follow-up, user): a `paper_lines.csv` row held out as `read, not charged
+  (weekly reports)` imports charged with no ground (`parse_line_row`), so the production
+  load needs no re-charge pass; `scripts/smr_recharge_weekly_reports.py` stays for a DB
+  loaded before this. the section carries color — charged /
   excluded left rules, kind chips in status hues, a red printing pill, stat tiles.
