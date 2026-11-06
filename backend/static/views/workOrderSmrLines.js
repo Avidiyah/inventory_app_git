@@ -90,7 +90,9 @@ function lineRowHtml(line, editable) {
   const buttons = editable && line.exclusion_ground !== "removed"
     ? `<div class="wo-labor-actions wo-smr-line-actions">
          <button type="button" class="secondary-btn" data-action="smr-edit-line">Edit</button>
-         ${line.status === "charged" ? `<button type="button" class="btn-danger" data-action="smr-exclude-line">Exclude</button>` : ""}
+         ${line.status === "charged"
+           ? `<button type="button" class="btn-danger" data-action="smr-exclude-line">Exclude</button>`
+           : `<button type="button" class="secondary-btn" data-action="smr-charge-line">Charge</button>`}
        </div>`
     : "";
   return `<div class="wo-labor-entry wo-smr-line wo-smr-line--${escapeHtml(line.status)}" data-line-id="${escapeHtml(line.id)}" data-line="${escapeHtml(JSON.stringify(line))}">
@@ -158,7 +160,7 @@ function lineFormHtml(detail) {
     <label><span>Kind</span><select class="wo-smr-f-kind">${options(SMR_KINDS, "field")}</select></label>
     <label><span>Reason code</span><select class="wo-smr-f-code">${options(SMR_REASON_CODES, "as_read")}</select></label>
     <label><span>Status</span><select class="wo-smr-f-status"><option value="charged">charged</option><option value="excluded">excluded</option></select></label>
-    <label><span>Exclusion ground</span><select class="wo-smr-f-ground"><option value="">none</option>${options(SMR_GROUNDS)}</select></label>
+    <label><span>Exclusion ground (optional)</span><select class="wo-smr-f-ground"><option value="">none</option>${options(SMR_GROUNDS)}</select></label>
     <label class="wo-smr-wide"><span>Note (prints under the line)</span><input type="text" class="wo-smr-f-note"></label>
     <label class="wo-smr-wide"><span>Why (kept in the line's history)</span><input type="text" class="wo-smr-f-reason" required></label>
     <div class="wo-smr-form-actions">

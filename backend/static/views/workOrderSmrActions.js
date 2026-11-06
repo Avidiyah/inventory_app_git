@@ -59,11 +59,14 @@ export async function handleSmrAction(action, btn, cardEl, msg) {
   } else if (action === "smr-edit-line") {
     fillLineForm(form, lineOf());
     form.hidden = false;
-  } else if (action === "smr-exclude-line") {
-    fillLineForm(form, lineOf());
-    form.querySelector(".wo-smr-f-status").value = "excluded";
-    form.hidden = false;
-    form.querySelector(".wo-smr-f-ground").focus();
+  } else if (action === "smr-exclude-line" || action === "smr-charge-line") {
+    // One tap each way, no ground and no confirm: Charge undoes Exclude and
+    // the history row names the tap (user, 2026-11-06).
+    const charge = action === "smr-charge-line";
+    await apiSmrEditLine(lineOf().id, charge
+      ? { status: "charged", exclusion_ground: null, reason: "charged on the card" }
+      : { status: "excluded", reason: "excluded on the card" });
+    await refreshCard(cardEl, SECTION);
   } else if (action === "smr-cancel-line") {
     form.hidden = true;
   } else if (action === "smr-save-line") {

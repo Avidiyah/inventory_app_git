@@ -283,12 +283,23 @@ describe("lines", () => {
     expect(body).not.toHaveProperty("worker_id"); // the server links the keyed name
   });
 
-  it("\"smr-exclude-line\" opens the row with status excluded", async () => {
-    await open();
+  it("\"smr-exclude-line\" PATCHes the line excluded in one tap, no ground", async () => {
+    const detail = await open();
+    respond("patch", "/work-orders/smr/lines/:id", { ...LINE, status: "excluded" });
     click("smr-exclude-line");
-    expect(form().hidden).toBe(false);
-    expect(form().querySelector(".wo-smr-f-status").value).toBe("excluded");
-    expect(form().dataset.lineId).toBe(LINE.id);
+    await sent(`/lines/${LINE.id}`, "PATCH");
+    expect(requestFor(`/lines/${LINE.id}`, "PATCH").body).toEqual({ status: "excluded", reason: "excluded on the card" });
+    expect(form().hidden).toBe(true);
+    await expectRefresh(detail.id);
+  });
+
+  it("\"smr-charge-line\" on an excluded line PATCHes it charged and clears the ground", async () => {
+    await open({ detail: { smr_lines: [{ ...LINE, status: "excluded", exclusion_ground: "undated" }] } });
+    respond("patch", "/work-orders/smr/lines/:id", LINE);
+    expect(section().querySelector('[data-action="smr-exclude-line"]')).toBeNull();
+    click("smr-charge-line");
+    await sent(`/lines/${LINE.id}`, "PATCH");
+    expect(requestFor(`/lines/${LINE.id}`, "PATCH").body).toEqual({ status: "charged", exclusion_ground: null, reason: "charged on the card" });
   });
 
   it("refuses to save without a reason", async () => {

@@ -195,5 +195,7 @@ three rows push it past 500 lines (the filter rows belong in `smrFilters.js`).
 - 2026-11-06 (follow-up, user): kinds gain `material preparation` and `clean-up`; the add
   row exposes the kind as "Reason" (Labor default); readings are editable
   (`PATCH /work-orders/smr/readings/{id}`, S7b; a date cascades to the printing's
-  `undated` lines, which charge themselves — placement-basis lines keep their week); the section carries color — charged /
+  `undated` lines, which charge themselves — placement-basis lines keep their week);
+  an excluded line needs no ground (migration `3e5a7c9b1d2f`); Exclude / Charge are one
+  tap on the card with a fixed history reason. the section carries color — charged /
   excluded left rules, kind chips in status hues, a red printing pill, stat tiles.

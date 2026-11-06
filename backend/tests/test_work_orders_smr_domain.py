@@ -284,9 +284,10 @@ def test_status_rules_in_words():
     lines_rules.validate_line_state(**_state())
     lines_rules.validate_line_state(**_state(work_date=None, date_basis=lines_rules.WEEK1_PLACEMENT_BASIS))
     lines_rules.validate_line_state(**_state(status="excluded", exclusion_ground="vendor unknown"))
+    lines_rules.validate_line_state(**_state(status="excluded"))  # no ground needed
     lines_rules.validate_line_state(**_state(kind="assessment, audit", hours_each=Decimal("-0.5")))
     for bad in (
-        dict(work_date=None), dict(status="excluded"), dict(status="pending"), dict(headcount=0),
+        dict(work_date=None), dict(status="pending"), dict(headcount=0),
         dict(hours_each=Decimal("1.3")), dict(vendor="Acme"), dict(kind="assessment, lunch"),
         dict(reason_code="vibes"), dict(exclusion_ground="removed"), dict(date_basis="guess"),
         dict(status="excluded", exclusion_ground="because"),

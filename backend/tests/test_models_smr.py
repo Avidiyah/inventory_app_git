@@ -168,8 +168,12 @@ def test_hours_off_the_half_hour_step_are_refused(db):
     _refused(db, _line(_smr_order(db, _user(db)), hours_each=Decimal("1.3")))
 
 
-def test_an_excluded_line_needs_a_ground(db):
-    _refused(db, _line(_smr_order(db, _user(db)), status="excluded", exclusion_ground=None))
+def test_an_excluded_line_may_carry_no_ground(db):
+    # Only what is added to a work order needs a justification (user, 2026-11-06).
+    line = _line(_smr_order(db, _user(db)), status="excluded", exclusion_ground=None)
+    db.add(line)
+    db.commit()
+    assert line.exclusion_ground is None
 
 
 def test_headcount_below_one_and_unknown_status_are_refused(db):

@@ -192,8 +192,6 @@ def validate_line_state(
         raise WorkOrderStateError(f"A week placement needs its week (1 to {LAST_WEEK}).")
     if status == STATUS_CHARGED and work_date is None and date_basis not in PLACEMENT_BASES:
         raise WorkOrderStateError("A charged line needs a work date (or a placement basis).")
-    if status == STATUS_EXCLUDED and not exclusion_ground:
-        raise WorkOrderStateError("An excluded line needs an exclusion ground.")
     if exclusion_ground is not None and exclusion_ground not in GROUNDS:
         raise WorkOrderStateError(f"Unknown exclusion ground: {exclusion_ground}.")
     if status == STATUS_CHARGED and exclusion_ground is not None:

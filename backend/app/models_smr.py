@@ -149,10 +149,6 @@ class SmrLaborLine(Base):
             f"status <> 'charged' OR work_date IS NOT NULL OR (date_basis IN ({_PLACEMENT_SQL}) AND week IS NOT NULL)",
             name="ck_smr_labor_lines_charged_dated",
         ),
-        CheckConstraint(
-            "status <> 'excluded' OR exclusion_ground IS NOT NULL",
-            name="ck_smr_labor_lines_excluded_ground",
-        ),
         Index("ix_smr_labor_lines_work_order_id", "work_order_id"),
         Index("ix_smr_labor_lines_worker_date", "worker_id", "work_date"),
         Index("ix_smr_labor_lines_work_date", "work_date"),

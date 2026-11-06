@@ -1748,7 +1748,8 @@ date / vendor / Reason (Labor = `field`, Assessment, Audit, Staging, Material
 Preparation, Clean-up) and posts a charged `as_read` line, an undated one
 waiting as excluded: undated; each printing has Edit (the reading form
 serves add and edit, S7b; dating a printing dates and charges its `undated` lines); lines carry a green / red left rule for charged /
-excluded and a kind chip in the status hues; the totals are four stat tiles; the server links a keyed name to a live
+excluded and a kind chip in the status hues; Exclude and Charge are one tap
+each way with no ground (the ground select on Edit is optional); the totals are four stat tiles; the server links a keyed name to a live
 worker or alias of that vendor silently, else leaves it unlinked, and the
 Hours tab groups by worker name, else keyed name, else `Skilled Technician`; Edit
 opens the full form), Labor (read-only below Admin; the Admin/Owner
@@ -1885,6 +1886,7 @@ Alembic head: `9b2c4d6e8f10`.
 | `5b7c9d1e2f30` | `work_orders.smr_imported_at` + `smr_baseline` (JSONB, frozen pre-audit snapshot); `work_order_labor.technician_id` nullable (NULL = Skilled Technician line); no backfill |
 | `6c8d0e2f3a41` | `work_orders.smr_target` (JSONB, the client's Breakdown-sheet target: hours, labor $, material $, raw row; overwritten per target import); no backfill |
 | `7d9e1f3a4b52` | `work_orders.smr_paper_checked_at` + `smr_paper_checked_by_id` (FK users, `ON DELETE SET NULL`): SMR paper check, independent of Edited / Matched / archive; no backfill |
+| `3e5a7c9b1d2f` | `ck_smr_labor_lines_excluded_ground` dropped: an excluded line needs no ground (user 2026-11-06) |
 | `8e0f2a4b5c63` | SMR27 paper corrections (spec 2026-11-04): `smr_workers` (vendor people, no app user; `user_id` `ON DELETE SET NULL`), `smr_paper_readings` (one per printing read), `smr_labor_lines` (the unit of charge; checks: headcount ≥ 1, 0.5 h steps, status ∈ charged/excluded, charged needs a date or the Week 1 placement basis, excluded needs a ground), `smr_line_edits` (append-only history, the `attendance_punch_edits` shape), `smr_correction_blocks` (versioned pasted text + lines digest); no backfill, existing `smr_*` columns untouched |
 | `451c56c5643a` | `ck_smr_labor_lines_charged_dated` widened: a charged line with a blank day needs a placement basis (`Week 1 placement (crew sheets, Supplement)` or `week placement (weekly reports)`) and its `week`; no data change |
 | `9b2c4d6e8f10` | `work_orders.smr_ready_at` + `smr_ready_by_id` (FK users, `ON DELETE SET NULL`): Ready for invoice stamp (spec 2026-11-06-smr-paper-stage); no backfill |
