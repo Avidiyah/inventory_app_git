@@ -13,6 +13,7 @@ import {
   apiGetNetFacilitiesEnrichment,
   apiImportNetFacilitiesCloudDownload,
   apiImportSmr,
+  apiImportSmrPaper,
   apiImportSmrTargets,
   apiImportWorkOrders,
   apiStartNetFacilitiesCloudAuthentication,
@@ -35,6 +36,8 @@ const smrImportFile = document.getElementById("wo-smr-import-file");
 const smrImportBtn = document.getElementById("wo-smr-import-btn");
 const smrTargetsFile = document.getElementById("wo-smr-targets-file");
 const smrTargetsBtn = document.getElementById("wo-smr-targets-btn");
+const smrPaperFile = document.getElementById("wo-smr-paper-file");
+const smrPaperBtn = document.getElementById("wo-smr-paper-btn");
 const netFacilitiesStatus = document.getElementById("wo-netfacilities-status");
 const netFacilitiesEnrichBtn = document.getElementById("wo-netfacilities-enrich-btn");
 const netFacilitiesCloudSignInBtn = document.getElementById("wo-netfacilities-cloud-sign-in-btn");
@@ -56,6 +59,7 @@ export async function loadIntegrationsPage() {
   // SMR Import is the Owner's: it restores archived orders (spec 2026-10-23 D2).
   if (smrImportBtn) smrImportBtn.hidden = !roleAtLeast(getRole(), "owner");
   if (smrTargetsBtn) smrTargetsBtn.hidden = !roleAtLeast(getRole(), "owner");
+  if (smrPaperBtn) smrPaperBtn.hidden = !roleAtLeast(getRole(), "owner");
   if (!isAdminPlus()) return;
   void refreshNetFacilitiesCloudSession();
 }
@@ -456,6 +460,48 @@ if (smrTargetsBtn) smrTargetsBtn.addEventListener("click", (event) => {
   if (smrTargetsFile) smrTargetsFile.click();
 });
 if (smrTargetsFile) smrTargetsFile.addEventListener("change", handleSmrTargetsImport);
+
+// The reviewed paper record (Owner, spec 2026-11-04): pick the two or three
+// CSVs in one go; they are told apart by name. The server parses and
+// tie-checks every row before the first write, so a refusal writes nothing.
+export function pickPaperFiles(files) {
+  const byName = (word) => Array.from(files || []).find((f) => f.name.toLowerCase().includes(word)) || null;
+  return { readings: byName("reading"), lines: byName("line"), breakdown: byName("breakdown") };
+}
+
+async function handleSmrPaperImport() {
+  const { readings, lines, breakdown } = pickPaperFiles(smrPaperFile.files);
+  if (!smrPaperFile.files?.length) return;
+  smrPaperFile.value = "";
+  if (!readings || !lines) {
+    setMessage(importMessage, "Select paper_readings.csv and paper_lines.csv together (breakdown.csv optional).", "error");
+    return;
+  }
+  setMessage(importMessage, "Importing the paper record…", "");
+  smrPaperBtn.disabled = true;
+  try {
+    const r = await apiImportSmrPaper(readings, lines, breakdown);
+    const hours = (v) => Number(v).toFixed(1);
+    const created = r.created_orders?.length ? ` ${r.created_orders.length} orders created from the Breakdown.` : "";
+    const skipped = r.skipped_readings || r.skipped_lines ? ` Already loaded: ${r.skipped_readings} readings, ${r.skipped_lines} lines.` : "";
+    setMessage(
+      importMessage,
+      `Paper import: ${r.orders} orders, ${r.readings} readings, ${r.lines} lines, ${hours(r.charged_hours)} h charged, `
+        + `${hours(r.excluded_hours)} h excluded, ${r.workers_created} workers created. Run ${r.run_id}.${created}${skipped}`,
+      "success",
+    );
+  } catch (err) {
+    setMessage(importMessage, friendlyError(err, "Could not import the paper record."), "error");
+  } finally {
+    smrPaperBtn.disabled = false;
+  }
+}
+
+if (smrPaperBtn) smrPaperBtn.addEventListener("click", (event) => {
+  if (event.target.closest(".tip-btn")) return;
+  if (smrPaperFile) smrPaperFile.click();
+});
+if (smrPaperFile) smrPaperFile.addEventListener("change", handleSmrPaperImport);
 
 // --- CSV export (Admin+) --------------------------------------------------
 

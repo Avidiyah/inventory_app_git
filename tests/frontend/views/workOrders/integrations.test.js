@@ -202,6 +202,49 @@ describe("the SMR Labor Import (spec 2026-10-23-smr-target-match)", () => {
   });
 });
 
+describe("the SMR Paper Import (spec 2026-11-04)", () => {
+  const csvFile = (name) => new File(["a,b\n1,2"], name, { type: "text/csv" });
+
+  function choosePaperFiles(files) {
+    const input = el("wo-smr-paper-file");
+    Object.defineProperty(input, "files", { configurable: true, value: files });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  it("is hidden for an Admin", async () => {
+    await mountIntegrations({ role: "admin" });
+    expect(el("wo-smr-paper-btn").hidden).toBe(true);
+  });
+
+  it("is shown for an Owner", async () => {
+    await mountIntegrations({ role: "owner" });
+    expect(el("wo-smr-paper-btn").hidden).toBe(false);
+  });
+
+  it("refuses a pick without both paper CSVs and sends nothing", async () => {
+    await mountIntegrations({ role: "owner" });
+    choosePaperFiles([csvFile("paper_readings.csv")]);
+    await vi.waitFor(() => expect(importLine().className).toBe("error"));
+    expect(requests().some((call) => call.url.endsWith("/work-orders/smr/import-paper"))).toBe(false);
+  });
+
+  it("posts readings, lines and the Breakdown and reports the run", async () => {
+    await mountIntegrations({ role: "owner" });
+    respond("post", "/work-orders/smr/import-paper", {
+      orders: 337, readings: 566, lines: 1447, workers_created: 41, charged_hours: "2948.0", excluded_hours: "3011.5",
+      unknown_numbers: [], created_orders: ["1", "2"], skipped_readings: 0, skipped_lines: 0, run_id: "import 0dc2a170e862",
+    });
+    choosePaperFiles([csvFile("breakdown.csv"), csvFile("paper_lines.csv"), csvFile("paper_readings.csv")]);
+    await vi.waitFor(() => expect(importLine().className).toBe("success"));
+    expect(importLine().textContent).toBe(
+      "Paper import: 337 orders, 566 readings, 1447 lines, 2948.0 h charged, 3011.5 h excluded, 41 workers created. "
+      + "Run import 0dc2a170e862. 2 orders created from the Breakdown.",
+    );
+    expect(requestFor("/work-orders/smr/import-paper", "POST")).not.toBeNull();
+    expect(el("wo-smr-paper-btn").disabled).toBe(false);
+  });
+});
+
 describe("the SMR import (spec 2026-10-23 D2)", () => {
   const sheet = () => new File(["WORK ORDER,FILED STATUS\n1,Closed"], "smr.csv", { type: "text/csv" });
 

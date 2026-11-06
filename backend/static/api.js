@@ -1031,6 +1031,20 @@ export async function apiImportSmrTargets(file) {
   });
   return parseResponse(response);
 }
+// The reviewed paper record (Owner, spec 2026-11-04): readings + lines CSVs,
+// the Breakdown sheet when reviewed numbers must be created from it.
+export async function apiImportSmrPaper(readings, lines, breakdown = null) {
+  const form = new FormData();
+  form.append("readings", readings);
+  form.append("lines", lines);
+  if (breakdown) form.append("breakdown", breakdown);
+  const response = await rawFetch("/work-orders/smr/import-paper", {
+    method: "POST",
+    body: form,
+    credentials: "include",
+  });
+  return parseResponse(response);
+}
 // Mark or clear "keyed from paper" on an SMR order (every role); null once cleared.
 export const apiSetSmrPaperCheck = (workOrderId, checked) =>
   jsonRequest(`/work-orders/smr/${workOrderId}/paper-check`, "PUT", { checked });
