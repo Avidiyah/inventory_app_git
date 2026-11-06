@@ -5913,146 +5913,160 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 
 /* =====================================================================
    SMR27 audit page (views/smr.js, pages/smr.html)
-   A deliberate departure from the frosted-panel system: white on black,
-   monospace, 1px rules, nothing rounded, no accent colour. Scoped under
-   #smr-page so nothing leaks. See docs/design-system.md.
+   Standard TechFM surface: the section is the frosted panel, buttons are
+   the secondary ghost with a brand-red "on" state, and each tile is a
+   keycap card (the Work Orders status-card treatment) whose outline says
+   edited (green) or untouched (red). Week bubbles sit across the top of a
+   tile; "Undated" is the undated pile. Scoped under #smr-page.
    ===================================================================== */
-#smr-page {
-    background: #000;
-    color: #fff;
-    font-family: ui-monospace, "Courier New", monospace;
-    font-size: 13px;
-    padding: 16px;
-    margin: 0 -16px;
-    min-height: 100vh;
-}
-#smr-page .smr-title {
-    color: #fff;
-    font-weight: 400;
-    font-size: 16px;
-    letter-spacing: .1em;
-    text-transform: uppercase;
-    margin: 0 0 12px;
-}
+#smr-page .smr-title { margin-bottom: var(--space-4); }
+
+/* Count bar: one small stat chip per figure. */
 #smr-page .smr-bar {
     display: flex;
     flex-wrap: wrap;
-    border: 1px solid #fff;
-    margin-bottom: 12px;
+    gap: var(--space-2);
+    margin-bottom: var(--space-4);
 }
 #smr-page .smr-bar-cell {
-    padding: 8px 14px;
-    border-right: 1px solid #fff;
-    text-transform: uppercase;
-    letter-spacing: .06em;
+    padding: var(--space-1) var(--space-3);
+    background-color: var(--panel-well);
+    border: 1px solid var(--panel-rule);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-sm);
+    color: var(--text-panel);
     white-space: nowrap;
 }
-#smr-page .smr-bar-cell:last-child { border-right: 0; }
+
+/* Filters: the Work Orders grid and row. */
+#smr-page .smr-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+#smr-page .smr-filter-field { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+#smr-page .smr-filter-field label,
+#smr-page .smr-search-row label { margin: 0; font-size: var(--fs-sm); color: var(--text-panel-mute); }
+#smr-page .smr-filter-field select,
+#smr-page .smr-filter-field input { margin-top: 0; }
+#smr-page .smr-search-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+}
+#smr-page .smr-search-row input[type="text"] { flex: 1 1 160px; margin-top: 0; }
+#smr-page .smr-result-count { margin: 0 0 var(--space-3); font-size: var(--fs-sm); color: var(--text-panel-mute); }
+
+/* Buttons: ghost by default, brand red when on / pressed. */
 #smr-page .smr-controls {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 12px;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
 }
 #smr-page .smr-btn {
-    background: #000;
-    color: #fff;
-    border: 1px solid #fff;
-    border-radius: 0;
-    box-shadow: none;
-    padding: 6px 14px;
-    font: inherit;
-    text-transform: uppercase;
-    letter-spacing: .08em;
-    cursor: pointer;
+    min-height: var(--btn-h-sm);
+    margin-top: 0;
+    padding: 0 var(--space-3);
+    background-color: var(--panel-well);
+    color: var(--text-panel);
+    border: 1px solid var(--panel-border);
+    font-size: var(--fs-sm);
 }
+#smr-page .smr-btn:hover { background-color: var(--panel-hover); }
 #smr-page .smr-btn--on,
-#smr-page .smr-btn:hover { background: #fff; color: #000; }
-#smr-page .smr-btn--export { margin-left: auto; }
-#smr-page .smr-btn--hours[aria-pressed="true"] { background: #fff; color: #000; }
-/* Hours tab (spec 2026-11-04 D3): the same 1px rules, cells "charged / excluded". */
-#smr-page .smr-hours { overflow-x: auto; }
-#smr-page .smr-hours-note,
-#smr-page .smr-hours-title { text-transform: uppercase; letter-spacing: .06em; margin: 12px 0 6px; font-size: 13px; font-weight: 700; }
-#smr-page .smr-hours-table { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
-#smr-page .smr-hours-table th,
-#smr-page .smr-hours-table td { border: 1px solid #fff; padding: 4px 10px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-#smr-page .smr-hours-table th { text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
-#smr-page .smr-hours-table th:nth-child(-n+2),
-#smr-page .smr-hours-table td:nth-child(-n+2) { text-align: left; }
-#smr-page .smr-hours-table tfoot td { font-weight: 700; }
+#smr-page .smr-btn[aria-pressed="true"] {
+    background-color: var(--color-brand);
+    border-color: var(--color-brand);
+    color: var(--color-white);
+}
 #smr-page .smr-btn[disabled] { opacity: .5; cursor: wait; }
-#smr-page .smr-message { min-height: 1.2em; margin: 0 0 8px; text-transform: uppercase; }
+#smr-page .smr-btn--export { margin-left: auto; }
+#smr-page .smr-sort { display: inline-flex; gap: var(--space-2); margin-left: auto; }
+#smr-page #smr-message { min-height: 1.2em; margin: 0 0 var(--space-2); font-size: var(--fs-sm); }
+
+/* Tiles. */
 #smr-page .smr-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: var(--space-3);
 }
 #smr-page .smr-tile {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 4px;
-    background: #000;
-    color: #fff;
-    border: 1px solid #fff;
-    border-radius: 0;
-    box-shadow: none;
-    padding: 10px;
+    gap: var(--space-1);
+    min-height: 0;
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    background-color: rgba(0, 0, 0, .55);
+    color: var(--text-panel);
+    border: 2px solid var(--panel-border);
+    border-radius: 10px;
     font: inherit;
+    font-size: var(--fs-sm);
     text-align: left;
     cursor: pointer;
+    transition: transform .08s ease, box-shadow .08s ease;
 }
-#smr-page .smr-tile:hover { background: #fff; color: #000; }
-#smr-page .smr-tile--untouched { opacity: .5; }
-#smr-page .smr-tile--archived { border-style: dashed; }
-#smr-page .smr-tile-number { font-size: 20px; font-weight: 700; }
-#smr-page .smr-tile-where { letter-spacing: .04em; }
-#smr-page .smr-tile-delta { font-size: 26px; margin: 6px 0; }
-#smr-page .smr-tile-meta { letter-spacing: .06em; }
-/* The client's target (spec 2026-10-23-smr-target-match): what is left to go,
-   and a heavier border once the order is matched. */
-#smr-page .smr-tile--matched { border-width: 3px; }
-#smr-page .smr-tile-target { letter-spacing: .06em; font-weight: 700; }
-#smr-page .smr-tile-paper { display: inline-block; margin-top: 6px; padding: 1px 6px; border: 2px solid currentColor; font-weight: 700; letter-spacing: .06em; }
+#smr-page .smr-tile:active { transform: translateY(3px); }
+/* Untouched = red (still to do), edited = green (done); the same keycap
+   wall + glow as .wo-card-status-assigned / -review. */
+#smr-page .smr-tile--untouched {
+    border-color: #B91C1C;
+    box-shadow: 0 4px 0 0 #991B1B, 0 6px 16px -6px rgba(185, 28, 28, .45), var(--shadow-card);
+}
+#smr-page .smr-tile--untouched:active { box-shadow: 0 1px 0 0 #991B1B, 0 2px 6px -2px rgba(185, 28, 28, .35), var(--shadow-card); }
+#smr-page .smr-tile--edited {
+    border-color: #15803D;
+    box-shadow: 0 4px 0 0 #166534, 0 6px 16px -6px rgba(21, 128, 61, .45), var(--shadow-card);
+}
+#smr-page .smr-tile--edited:active { box-shadow: 0 1px 0 0 #166534, 0 2px 6px -2px rgba(21, 128, 61, .35), var(--shadow-card); }
+#smr-page .smr-tile--archived { border-style: dashed; opacity: .7; box-shadow: var(--shadow-card); }
+#smr-page .smr-tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); width: 100%; margin-bottom: var(--space-1); }
+#smr-page .smr-tile-weeks { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+#smr-page .smr-week,
+#smr-page .smr-tile-state,
+#smr-page .smr-tile-paper {
+    display: inline-block;
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-pill);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    line-height: 1.5;
+    white-space: nowrap;
+}
+#smr-page .smr-week { background-color: var(--panel-hover); border: 1px solid var(--panel-border); color: var(--text-panel); }
+#smr-page .smr-week--undated { background-color: transparent; border-style: dashed; color: var(--text-panel-mute); }
+#smr-page .smr-tile-state { color: var(--color-white); background-color: var(--gray-500); }
+#smr-page .smr-tile--untouched .smr-tile-state { background-color: #B91C1C; }
+#smr-page .smr-tile--edited .smr-tile-state { background-color: #15803D; }
+#smr-page .smr-tile-number { font-size: var(--fs-lg); font-weight: var(--fw-bold); }
+#smr-page .smr-tile-where { color: var(--text-panel-mute); }
+#smr-page .smr-tile-delta { font-size: var(--fs-xl); font-weight: var(--fw-bold); margin: var(--space-1) 0; }
+#smr-page .smr-tile-target { font-weight: var(--fw-semibold); }
+#smr-page .smr-tile--matched .smr-tile-target { color: var(--color-success); }
+#smr-page .smr-tile-meta { font-size: var(--fs-xs); color: var(--text-panel-mute); }
+#smr-page .smr-tile-paper { margin-top: var(--space-1); border: 1px solid var(--panel-border); color: var(--text-panel); }
 #smr-page .smr-empty {
     grid-column: 1 / -1;
-    border: 1px solid #fff;
-    padding: 24px;
+    padding: var(--space-6);
+    border: 1px dashed var(--panel-border);
+    border-radius: var(--radius-md);
     text-align: center;
-    letter-spacing: .1em;
+    color: var(--text-panel-mute);
 }
 
-#smr-page .smr-filter-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 8px;
-    margin-bottom: 8px;
-}
-#smr-page .smr-filter-field { display: flex; flex-direction: column; gap: 4px; }
-#smr-page .smr-filter-field label,
-#smr-page .smr-search-row label { text-transform: uppercase; letter-spacing: .08em; font-size: 11px; }
-#smr-page .smr-search-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
-}
-#smr-page .smr-search-row input[type="text"] { flex: 1 1 160px; }
-#smr-page select,
-#smr-page input[type="text"],
-#smr-page input[type="date"] {
-    background: #000;
-    color: #fff;
-    border: 1px solid #fff;
-    border-radius: 0;
-    box-shadow: none;
-    padding: 6px 8px;
-    font: inherit;
-    color-scheme: dark;
-}
-#smr-page select option { background: #000; color: #fff; }
-#smr-page .smr-sort { display: inline-flex; margin-left: auto; }
-#smr-page .smr-sort .smr-btn[aria-pressed="true"] { background: #fff; color: #000; }
-#smr-page .smr-result-count { margin: 0 0 12px; letter-spacing: .08em; text-transform: uppercase; }
+/* Hours tab (spec 2026-11-04 D3): standard table, cells "charged / excluded". */
+#smr-page .smr-hours { overflow-x: auto; }
+#smr-page .smr-hours-note { margin: 0 0 var(--space-3); font-size: var(--fs-sm); color: var(--text-panel-mute); }
+#smr-page .smr-hours-title { margin: var(--space-4) 0 var(--space-2); font-size: var(--fs-base); }
+#smr-page .smr-hours-table { margin-bottom: var(--space-4); }
+#smr-page .smr-hours-table th,
+#smr-page .smr-hours-table td { padding: var(--space-1) var(--space-3); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; border-bottom: 1px solid var(--panel-rule-soft); }
+#smr-page .smr-hours-table th:nth-child(-n+2),
+#smr-page .smr-hours-table td:nth-child(-n+2) { text-align: left; }
+#smr-page .smr-hours-table tfoot td { font-weight: var(--fw-bold); }

@@ -26,7 +26,7 @@ const hoursCsvBtn = document.getElementById("smr-hours-csv-btn");
 const hoursPanel = document.getElementById("smr-hours");
 const filterButtons = Array.from(document.querySelectorAll(".smr-btn[data-filter]"));
 
-export const EMPTY_COPY = "NO SMR ORDERS. OWNER: IMPORT FROM INTEGRATIONS.";
+export const EMPTY_COPY = "No SMR orders yet. Owner: import from Integrations.";
 
 // Untouched is the working view: the orders still to be re-charged.
 // A reload of this tab keeps the chip the user left on (smrFilters.js).
@@ -77,30 +77,30 @@ function matches(tile, filter) {
 const blockPending = (lines) => !lines.block_version || !lines.block_pasted_at || lines.block_stale;
 
 function blockText(lines) {
-  if (!lines.block_version) return "NO BLOCK";
-  const v = `V${lines.block_version}`;
-  if (lines.block_stale) return `${v} STALE`;
-  return lines.block_pasted_at ? `${v} PASTED` : `${v} NOT PASTED`;
+  if (!lines.block_version) return "no block";
+  const v = `v${lines.block_version}`;
+  if (lines.block_stale) return `${v} stale`;
+  return lines.block_pasted_at ? `${v} pasted` : `${v} not pasted`;
 }
 
-const hoursText = (value) => `${(Number(value) || 0).toFixed(1)} H`;
+const hoursText = (value) => `${(Number(value) || 0).toFixed(1)} h`;
 
-// "2.0 H · $67.16 TO GO" / "MATCHED" / "NO TARGET": what is left to reach the
+// "2.0 h · $67.16 to go" / "Matched" / "No target": what is left to reach the
 // client's number, both sides, so the Admin sees which one still needs work.
 export function targetLine(tile) {
   const t = tile.target;
-  // With lines the third line is the correction itself: "+82.0 H · V2 PASTED"
+  // With lines the third line is the correction itself: "+82.0 h · v2 pasted"
   // (change against the target when there is one, else the charged hours).
   if (tile.lines) {
     const change = Number(tile.lines.change_hours);
     const figure = t && Number.isFinite(change)
-      ? `${change > 0 ? "+" : ""}${change.toFixed(1)} H`
-      : `${hoursText(tile.lines.charged_hours)} CHARGED`;
+      ? `${change > 0 ? "+" : ""}${change.toFixed(1)} h`
+      : `${hoursText(tile.lines.charged_hours)} charged`;
     return `${figure} · ${blockText(tile.lines)}`;
   }
-  if (!t) return "NO TARGET";
-  if (t.matched) return "MATCHED";
-  return `${hoursText(t.remaining_hours)} · ${formatMoney(t.remaining_materials_total || 0)} TO GO`;
+  if (!t) return "No target";
+  if (t.matched) return "Matched";
+  return `${hoursText(t.remaining_hours)} · ${formatMoney(t.remaining_materials_total || 0)} to go`;
 }
 
 function barHtml(payload) {
@@ -108,27 +108,36 @@ function barHtml(payload) {
   const d = payload.delta || {};
   const r = payload.remaining || {};
   const cells = [
-    `${c.orders || 0} ORDERS`,
-    `${c.edited || 0} EDITED`,
-    `${c.untouched || 0} UNTOUCHED`,
-    `${c.archived || 0} ARCHIVED`,
-    `${c.matched || 0} MATCHED`,
-    `${c.short || 0} SHORT`,
-    `${c.no_target || 0} NO TARGET`,
-    `${c.paper_checked || 0} PAPER CHECKED`,
-    `${c.short_checked || 0} CHECKED, STILL SHORT`,
-    `${c.with_lines || 0} WITH LINES`,
-    `CHARGED ${hoursText(c.charged_hours)}`,
-    `EXCLUDED ${hoursText(c.excluded_hours)}`,
-    `${c.blocks_not_pasted || 0} BLOCKS NOT PASTED`,
-    `REMAINING ${hoursText(r.hours)}`,
-    `REMAINING ${formatMoney(r.materials_total || 0)}`,
-    `Δ LABOR ${signedMoney(d.labor_total)}`,
-    `Δ MATERIAL ${signedMoney(d.materials_total)}`,
-    `Δ TOTAL ${signedMoney(d.total)}`,
-    payload.imported_at ? `IMPORTED ${stamp(payload.imported_at)}` : "NOT IMPORTED",
+    `${c.orders || 0} orders`,
+    `${c.edited || 0} edited`,
+    `${c.untouched || 0} untouched`,
+    `${c.archived || 0} archived`,
+    `${c.matched || 0} matched`,
+    `${c.short || 0} short`,
+    `${c.no_target || 0} no target`,
+    `${c.paper_checked || 0} paper checked`,
+    `${c.short_checked || 0} checked, still short`,
+    `${c.with_lines || 0} with lines`,
+    `Charged ${hoursText(c.charged_hours)}`,
+    `Excluded ${hoursText(c.excluded_hours)}`,
+    `${c.blocks_not_pasted || 0} blocks not pasted`,
+    `Remaining ${hoursText(r.hours)}`,
+    `Remaining ${formatMoney(r.materials_total || 0)}`,
+    `Δ labor ${signedMoney(d.labor_total)}`,
+    `Δ material ${signedMoney(d.materials_total)}`,
+    `Δ total ${signedMoney(d.total)}`,
+    payload.imported_at ? `Imported ${stamp(payload.imported_at)}` : "Not imported",
   ];
   return cells.map((text) => `<div class="smr-bar-cell">${escapeHtml(text)}</div>`).join("");
+}
+
+const STATE_LABEL = { edited: "Edited", untouched: "Untouched", archived: "Archived" };
+
+// Week bubbles across the top (user 2026-11-06): the invoice weeks the paper
+// lines fall in, "Undated" for the undated pile or when nothing is keyed yet.
+function weeksHtml(tile) {
+  const weeks = tile.weeks?.length ? tile.weeks : ["Undated"];
+  return weeks.map((w) => `<span class="smr-week${w === "Undated" ? " smr-week--undated" : ""}">${escapeHtml(w)}</span>`).join("");
 }
 
 function tileHtml(tile) {
@@ -139,12 +148,16 @@ function tileHtml(tile) {
   const matched = tile.target?.matched ? " smr-tile--matched" : "";
   const checked = tile.paper_check ? " smr-tile--checked" : "";
   return `<button type="button" class="smr-tile smr-tile--${state}${matched}${checked}" data-number="${escapeHtml(tile.number)}" data-id="${escapeHtml(tile.id)}">
+    <span class="smr-tile-top">
+      <span class="smr-tile-weeks">${weeksHtml(tile)}</span>
+      <span class="smr-tile-state">${STATE_LABEL[state]}</span>
+    </span>
     <span class="smr-tile-number">${escapeHtml(tile.number)}</span>
-    <span class="smr-tile-where">${escapeHtml(`${where}${who}`.toUpperCase())}</span>
+    <span class="smr-tile-where">${escapeHtml(`${where}${who}`)}</span>
     <span class="smr-tile-delta">${escapeHtml(signedMoney(tile.delta?.total))}</span>
     <span class="smr-tile-target">${escapeHtml(targetLine(tile))}</span>
-    <span class="smr-tile-meta">${escapeHtml(`${minutes} MIN · ${tile.after_line_count || 0} LINES · ${state.toUpperCase()}`)}</span>
-    ${tile.paper_check ? `<span class="smr-tile-paper">PAPER ✓</span>` : ""}
+    <span class="smr-tile-meta">${escapeHtml(`${minutes} min · ${tile.after_line_count || 0} lines`)}</span>
+    ${tile.paper_check ? `<span class="smr-tile-paper">Paper ✓</span>` : ""}
   </button>`;
 }
 
@@ -163,7 +176,7 @@ function render(payload) {
   applyFilterOptions(payload.filter_options);
   if (resultCount) {
     const matched = payload.matched ?? (payload.tiles || []).length;
-    resultCount.textContent = `${matched} OF ${payload.counts?.orders || 0} ORDERS`;
+    resultCount.textContent = `${matched} of ${payload.counts?.orders || 0} orders`;
   }
   const tiles = payload.tiles || [];
   grid.innerHTML = tiles.length
@@ -242,7 +255,7 @@ if (grid) {
 if (exportBtn) {
   exportBtn.addEventListener("click", async () => {
     exportBtn.disabled = true;
-    setMessage(message, "PREPARING WORKBOOK…", "");
+    setMessage(message, "Preparing workbook…", "");
     try {
       const { blob, filename } = await apiExportSmrXlsx();
       const url = URL.createObjectURL(blob);
@@ -253,7 +266,7 @@ if (exportBtn) {
       link.click();
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 0);
-      setMessage(message, `DOWNLOADED ${filename}`, "success");
+      setMessage(message, `Downloaded ${filename}`, "success");
     } catch (err) {
       setMessage(message, friendlyError(err, "Could not export the SMR workbook."), "error");
     } finally {

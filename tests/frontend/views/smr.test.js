@@ -45,7 +45,7 @@ function page(overrides = {}) {
       communities: [{ value: "young_hall", label: "Young Hall" }, { value: "scholars", label: "Scholars Inn" }],
     },
     tiles: [
-      tile({ edited: true, after: totals({ skilled_minutes: 30, labor_total: "31.25", total: "49.65" }), delta: totals({ skilled_minutes: 30, labor_total: "31.25", materials_total: "18.40", total: "49.65" }), after_line_count: 2 }),
+      tile({ edited: true, weeks: ["Week 1", "Week 3", "Undated"], after: totals({ skilled_minutes: 30, labor_total: "31.25", total: "49.65" }), delta: totals({ skilled_minutes: 30, labor_total: "31.25", materials_total: "18.40", total: "49.65" }), after_line_count: 2 }),
       tile({ id: "22222222-2222-2222-2222-222222222222", number: "23282567", archived_at: "2026-10-22T10:00:00Z" }),
       tile({ id: "33333333-3333-3333-3333-333333333333", number: "23296828", unit_number: "208W", building_number: "Sanford" }),
     ],
@@ -69,25 +69,31 @@ describe("the SMR page", () => {
     await openSmr();
     expect(byId("smr-heading").textContent).toContain("SMR27");
     const bar = byId("smr-bar").textContent;
-    expect(bar).toContain("3 ORDERS");
-    expect(bar).toContain("1 EDITED");
-    expect(bar).toContain("2 UNTOUCHED");
+    expect(bar).toContain("3 orders");
+    expect(bar).toContain("1 edited");
+    expect(bar).toContain("2 untouched");
     expect(bar).toContain("+$58.40");
     expect(bar).toContain("+$18.40");
     expect(bar).toContain("+$76.80");
   });
 
-  it("renders one tile per order, untouched ones dimmed and archived ones marked", async () => {
+  it("renders one tile per order: green edited, red untouched, archived marked, week bubbles on top", async () => {
     await openSmr();
     expect(tiles().map((t) => t.dataset.number)).toEqual(["23281563", "23282567", "23296828"]);
     const [edited, archived, untouched] = tiles();
-    expect(edited.classList.contains("smr-tile--untouched")).toBe(false);
+    expect(edited.classList.contains("smr-tile--edited")).toBe(true);
     expect(edited.textContent).toContain("+$49.65");
-    expect(edited.textContent).toContain("EDITED");
+    expect(edited.querySelector(".smr-tile-state").textContent).toBe("Edited");
     expect(archived.classList.contains("smr-tile--archived")).toBe(true);
-    expect(archived.textContent).toContain("ARCHIVED");
+    expect(archived.querySelector(".smr-tile-state").textContent).toBe("Archived");
     expect(untouched.classList.contains("smr-tile--untouched")).toBe(true);
-    expect(untouched.textContent).toContain("UNTOUCHED");
+    expect(untouched.querySelector(".smr-tile-state").textContent).toBe("Untouched");
+    // Week bubbles come from the payload, in order; "Undated" is its own look,
+    // and a tile without weeks still shows it.
+    const weeks = (t) => Array.from(t.querySelectorAll(".smr-week")).map((w) => w.textContent);
+    expect(weeks(edited)).toEqual(["Week 1", "Week 3", "Undated"]);
+    expect(edited.querySelector(".smr-week--undated").textContent).toBe("Undated");
+    expect(weeks(untouched)).toEqual(["Undated"]);
   });
 
   it("filters tiles by edited, untouched and archived", async () => {
@@ -126,15 +132,15 @@ describe("the SMR page", () => {
       ],
     }));
     const bar = byId("smr-bar").textContent;
-    expect(bar).toContain("1 MATCHED");
-    expect(bar).toContain("1 SHORT");
-    expect(bar).toContain("1 NO TARGET");
-    expect(bar).toContain("REMAINING 2.5 H");
-    expect(bar).toContain("REMAINING $134.32");
-    expect(tiles()[0].querySelector(".smr-tile-target").textContent).toBe("2.0 H · $67.16 TO GO");
-    expect(tiles()[1].querySelector(".smr-tile-target").textContent).toBe("MATCHED");
+    expect(bar).toContain("1 matched");
+    expect(bar).toContain("1 short");
+    expect(bar).toContain("1 no target");
+    expect(bar).toContain("Remaining 2.5 h");
+    expect(bar).toContain("Remaining $134.32");
+    expect(tiles()[0].querySelector(".smr-tile-target").textContent).toBe("2.0 h · $67.16 to go");
+    expect(tiles()[1].querySelector(".smr-tile-target").textContent).toBe("Matched");
     expect(tiles()[1].classList.contains("smr-tile--matched")).toBe(true);
-    expect(tiles()[2].querySelector(".smr-tile-target").textContent).toBe("NO TARGET");
+    expect(tiles()[2].querySelector(".smr-tile-target").textContent).toBe("No target");
     byId("smr-filter-short").click();
     expect(tiles().filter((t) => !t.hidden).map((t) => t.dataset.number)).toEqual(["A"]);
     byId("smr-filter-matched").click();
@@ -158,8 +164,8 @@ describe("the SMR page", () => {
     }));
     const shown = () => tiles().filter((t) => !t.hidden).map((t) => t.dataset.number);
     const bar = byId("smr-bar").textContent;
-    expect(bar).toContain("2 PAPER CHECKED");
-    expect(bar).toContain("1 CHECKED, STILL SHORT");
+    expect(bar).toContain("2 paper checked");
+    expect(bar).toContain("1 checked, still short");
     expect(tiles().map((t) => Boolean(t.querySelector(".smr-tile-paper")))).toEqual([true, true, false, false]);
     expect(tiles()[0].classList.contains("smr-tile--checked")).toBe(true);
     byId("smr-filter-checked").click();
@@ -231,7 +237,7 @@ describe("the SMR page", () => {
   it("shows the empty copy when nothing has been imported", async () => {
     server.use(http.get("/work-orders/smr", () => HttpResponse.json(page({ tiles: [], counts: { orders: 0, edited: 0, untouched: 0, archived: 0 } }))));
     await bootApp({ role: "admin", page: "smr" });
-    await vi.waitFor(() => expect(byId("smr-tiles").textContent).toContain("NO SMR ORDERS. OWNER: IMPORT FROM INTEGRATIONS."));
+    await vi.waitFor(() => expect(byId("smr-tiles").textContent).toContain("No SMR orders yet. Owner: import from Integrations."));
   });
 
   // --- search and filters: the Work Orders row minus service type ----------
@@ -243,7 +249,7 @@ describe("the SMR page", () => {
     expect(text("smr-supervisor-filter")).toEqual(["All Team Leads", "Chris Coburn"]);
     expect(text("smr-technician-filter")).toEqual(["All technicians", "Hayden Hurst"]);
     expect(text("smr-community-filter")).toEqual(["All communities", "Young Hall", "Scholars Inn"]);
-    expect(byId("smr-result-count").textContent).toBe("3 OF 3 ORDERS");
+    expect(byId("smr-result-count").textContent).toBe("3 of 3 orders");
     expect(byId("smr-service-filter")).toBeNull();
   });
 
@@ -330,7 +336,7 @@ describe("the SMR page", () => {
 
   it("the result count reflects matched over the whole population", async () => {
     await openSmr("admin", page({ matched: 1, tiles: [tile()] }));
-    expect(byId("smr-result-count").textContent).toBe("1 OF 3 ORDERS");
+    expect(byId("smr-result-count").textContent).toBe("1 of 3 orders");
   });
 
   it("paper lines: bar cells, the third line, and the Has lines / Block pending chips", async () => {
@@ -348,12 +354,12 @@ describe("the SMR page", () => {
       ],
     }));
     const bar = byId("smr-bar").textContent;
-    expect(bar).toContain("3 WITH LINES");
-    expect(bar).toContain("CHARGED 2938.0 H");
-    expect(bar).toContain("EXCLUDED 3011.0 H");
-    expect(bar).toContain("2 BLOCKS NOT PASTED");
+    expect(bar).toContain("3 with lines");
+    expect(bar).toContain("Charged 2938.0 h");
+    expect(bar).toContain("Excluded 3011.0 h");
+    expect(bar).toContain("2 blocks not pasted");
     const third = () => tiles().map((t) => t.querySelector(".smr-tile-target").textContent);
-    expect(third()).toEqual(["+82.0 H · V2 PASTED", "-2.5 H · V2 STALE", "82.0 H CHARGED · NO BLOCK", "2.0 H · $67.16 TO GO"]);
+    expect(third()).toEqual(["+82.0 h · v2 pasted", "-2.5 h · v2 stale", "82.0 h charged · no block", "2.0 h · $67.16 to go"]);
     const shown = () => tiles().filter((t) => !t.hidden).map((t) => t.dataset.number);
     byId("smr-filter-has-lines").click();
     expect(shown()).toEqual(["PASTED", "STALE", "NOBLOCK"]);
@@ -388,10 +394,10 @@ describe("the SMR page", () => {
     expect(byId("smr-hours-csv-btn").hidden).toBe(false);
     const cells = (table, rowIndex) => Array.from(table.tBodies[0].rows[rowIndex].cells).map((c) => c.textContent);
     const [workers, vendors] = byId("smr-hours").querySelectorAll("table");
-    expect(Array.from(workers.tHead.rows[0].cells).map((c) => c.textContent)).toEqual(["NAME", "VENDOR", "WEEK 1", "WEEK 2", "NO WEEK", "TOTAL"]);
+    expect(Array.from(workers.tHead.rows[0].cells).map((c) => c.textContent)).toEqual(["Name", "Vendor", "Week 1", "Week 2", "No week", "Total"]);
     expect(cells(workers, 0)).toEqual(["Ana Ruiz", "Belfor", "2.0 / 0.0", "3.5 / 0.0", "", "5.5 / 0.0"]);
     expect(cells(workers, 1)).toEqual(["(unnamed)", "BT Restoration", "", "", "0.5 / 1.0", "0.5 / 1.0"]);
-    expect(Array.from(workers.tFoot.rows[0].cells).map((c) => c.textContent)).toEqual(["TOTAL", "", "2.0 / 0.0", "3.5 / 0.0", "0.5 / 1.0", "6.0 / 1.0"]);
+    expect(Array.from(workers.tFoot.rows[0].cells).map((c) => c.textContent)).toEqual(["Total", "", "2.0 / 0.0", "3.5 / 0.0", "0.5 / 1.0", "6.0 / 1.0"]);
     expect(vendors.tBodies[0].rows).toHaveLength(2);
 
     server.use(http.get("/work-orders/smr/hours.csv", () => new HttpResponse("x", {

@@ -339,10 +339,21 @@ def _tile_lines(work_order: WorkOrder) -> Optional[SmrTileLines]:
     )
 
 
+def _tile_weeks(lines) -> list[str]:
+    """Week labels of the order's lines (removed ones aside), dated weeks in
+    order and "Undated" last; "Undated" alone when nothing is keyed."""
+    weeks = {line.week for line in lines if line.exclusion_ground != rules.GROUND_REMOVED}
+    labels = [rules.week_label(w) for w in sorted(w for w in weeks if w is not None)]
+    if None in weeks or not labels:
+        labels.append("Undated")
+    return labels
+
+
 def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTile:
     baseline = work_order.smr_baseline or current_snapshot(work_order, now=now)
     current = current_snapshot(work_order, now=now)
     d = smr.deltas(baseline, current)
+    lines = smr.correction_lines(work_order)
     return SmrTile(
         id=work_order.id,
         number=work_order.number,
@@ -352,7 +363,8 @@ def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTil
         vendor_assignee=work_order.vendor_assignee,
         status=work_order.status,
         archived_at=work_order.archived_at,
-        edited=smr.is_edited(work_order),
+        edited=smr.is_edited(work_order) or bool(lines),
+        weeks=_tile_weeks(lines),
         before=_totals(baseline),
         after=_totals(current),
         delta=SmrTotals(

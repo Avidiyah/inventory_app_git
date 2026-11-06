@@ -80,7 +80,12 @@ class SmrTile(BaseModel):
     vendor_assignee: Optional[str] = None
     status: str
     archived_at: Optional[datetime] = None
+    # Anything billable changed since the import, or a paper-correction line
+    # exists (user 2026-11-06: paper review counts as edited).
     edited: bool
+    # Invoice weeks the order's paper lines fall in ("Before W1", "Week 3",
+    # "After W7"), in order, "Undated" last; `["Undated"]` with no lines.
+    weeks: list[str] = Field(default_factory=list)
     before: SmrTotals
     after: SmrTotals
     delta: SmrTotals

@@ -217,7 +217,12 @@ def test_smr_tiles_carry_lines_and_the_counts_and_filters_follow(db):
 
     mine = {t.number: t for t in page.tiles if t.number in (with_lines, without)}
     assert mine[without].lines is None
+    # No lines: nothing to place, so "Undated" and still untouched.
+    assert (mine[without].weeks, mine[without].edited) == (["Undated"], False)
     tile = mine[with_lines]
+    # 06/20 is week 4 from 05/25; the undated excluded line adds "Undated" last.
+    # Paper lines alone make the order edited (no catalogue change here).
+    assert (tile.weeks, tile.edited) == (["Week 4", "Undated"], True)
     assert (tile.lines.count, tile.lines.charged_hours, tile.lines.excluded_hours) == (2, Decimal("2.0"), Decimal("1.0"))
     assert tile.lines.change_hours == Decimal("1.0") and tile.lines.block_version is None and tile.lines.block_stale is False
     assert tile.after.labor_total == Decimal("125.00") and tile.after.skilled_minutes == 600

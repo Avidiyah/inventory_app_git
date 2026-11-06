@@ -16,9 +16,8 @@ const csvBtn = document.getElementById("smr-hours-csv-btn");
 const hours = (value) => (Number(value) || 0).toFixed(1);
 
 function weekHeader(week, rows) {
-  if (week === null) return "NO WEEK";
-  const label = rows.find((r) => r.week === week)?.week_label || `Week ${week}`;
-  return label.toUpperCase();
+  if (week === null) return "No week";
+  return rows.find((r) => r.week === week)?.week_label || `Week ${week}`;
 }
 
 // One table: a row per name, a column per week, cells "charged / excluded",
@@ -27,7 +26,7 @@ function tableHtml(title, rows, weeks) {
   const names = [...new Map(rows.map((r) => [`${r.vendor}\u0000${r.name}`, r])).values()];
   const cell = (r) => (r ? `${hours(r.charged_hours)} / ${hours(r.excluded_hours)}` : "");
   const sum = (list, key) => list.reduce((acc, r) => acc + (Number(r[key]) || 0), 0);
-  const head = ["NAME", "VENDOR", ...weeks.map((w) => weekHeader(w, rows)), "TOTAL"];
+  const head = ["Name", "Vendor", ...weeks.map((w) => weekHeader(w, rows)), "Total"];
   const body = names.map((who) => {
     const mine = rows.filter((r) => r.vendor === who.vendor && r.name === who.name);
     return [
@@ -37,7 +36,7 @@ function tableHtml(title, rows, weeks) {
     ];
   });
   const foot = [
-    "TOTAL", "",
+    "Total", "",
     ...weeks.map((w) => cell({ charged_hours: sum(rows.filter((r) => r.week === w), "charged_hours"), excluded_hours: sum(rows.filter((r) => r.week === w), "excluded_hours") })),
     `${hours(sum(rows, "charged_hours"))} / ${hours(sum(rows, "excluded_hours"))}`,
   ];
@@ -49,15 +48,15 @@ function tableHtml(title, rows, weeks) {
 export function hoursHtml(data) {
   const rows = data.rows || [];
   const weeks = data.weeks || [];
-  if (!rows.length) return `<p class="smr-empty">NO LINES YET. HOURS APPEAR ONCE PAPER LINES ARE KEYED.</p>`;
-  return `<p class="smr-hours-note">CHARGED / EXCLUDED HOURS PER MON–SUN WEEK, FROM PAPER LINES ONLY · TOTAL ${hours(data.charged_hours)} / ${hours(data.excluded_hours)}</p>`
-    + tableHtml("BY WORKER", rows.filter((r) => r.group === "worker"), weeks)
-    + tableHtml("BY VENDOR", rows.filter((r) => r.group === "vendor"), weeks);
+  if (!rows.length) return `<p class="smr-empty">No lines yet. Hours appear once paper lines are keyed.</p>`;
+  return `<p class="smr-hours-note">Charged / excluded hours per Mon–Sun week, from paper lines only · total ${hours(data.charged_hours)} / ${hours(data.excluded_hours)}</p>`
+    + tableHtml("By worker", rows.filter((r) => r.group === "worker"), weeks)
+    + tableHtml("By vendor", rows.filter((r) => r.group === "vendor"), weeks);
 }
 
 export async function loadSmrHours() {
   if (!panel) return;
-  panel.innerHTML = `<p class="smr-empty">LOADING…</p>`;
+  panel.innerHTML = `<p class="smr-empty">Loading…</p>`;
   try {
     panel.innerHTML = hoursHtml(await apiSmrHours());
   } catch (err) {
@@ -79,7 +78,7 @@ if (csvBtn) {
       link.click();
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 0);
-      setMessage(message, `DOWNLOADED ${filename}`, "success");
+      setMessage(message, `Downloaded ${filename}`, "success");
     } catch (err) {
       setMessage(message, friendlyError(err, "Could not download the Hours CSV."), "error");
     } finally {

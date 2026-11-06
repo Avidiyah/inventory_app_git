@@ -1,13 +1,12 @@
     <!-- =================== SMR27 AUDIT PAGE =================== -->
-    <!-- Admin+ (views/nav.js PAGE_ACCESS). A deliberate departure from the
-         frosted-panel chrome: white on black, monospace, 1px rules, nothing
-         rounded (spec docs/superpowers/specs/2026-10-23-smr-audit-workflow-design.md,
-         docs/design-system.md). Wiring lives in views/smr.js; only the markup
-         lives here. Every style is a class in styles.css -- CSP drops inline
-         style attributes. -->
+    <!-- Admin+ (views/nav.js PAGE_ACCESS). Standard TechFM frosted panel
+         (docs/design-system.md); tiles are keycap cards with a green (edited)
+         or red (untouched) outline and week bubbles across the top. Wiring
+         lives in views/smr.js; only the markup lives here. Every style is a
+         class in styles.css -- CSP drops inline style attributes. -->
     <div class="page smr" id="smr-page">
         <section aria-labelledby="smr-heading">
-            <h2 id="smr-heading" class="smr-title">SMR27 — BELFOR</h2>
+            <h2 id="smr-heading" class="smr-title">SMR27 — Belfor</h2>
             <div id="smr-bar" class="smr-bar" aria-live="polite"></div>
             <!-- Search + filters: the Work Orders row (pages/work-orders.html)
                  minus service type, same server predicates (views/smrFilters.js). -->

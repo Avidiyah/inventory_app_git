@@ -200,7 +200,7 @@ backend/static/views/workOrderGlyphs.js status/priority/overdue/clock inline-SVG
 backend/static/views/workOrderFilterChips.js applied-filter chips + result count line
 backend/static/views/workOrderActions.js the six listeners delegated off #work-orders-list
 backend/static/views/workOrderIntegrations.js CSV import/export, SMR Import (Owner), NetFacilities enrichment + cloud auth
-backend/static/views/smr.js   SMR27 audit tiles page (white-on-black), filters (paper chips Has lines / Block stale-not pasted are client-side over `tile.lines`), Owner export, Admin+ Hours toggle, editor hand-off, return-to-SMR (`returnToSmr`)
+backend/static/views/smr.js   SMR27 audit tiles page (TechFM panel; red untouched / green edited keycap tiles, week bubbles from `tile.weeks`), filters (paper chips Has lines / Block stale-not pasted are client-side over `tile.lines`), Owner export, Admin+ Hours toggle, editor hand-off, return-to-SMR (`returnToSmr`)
 backend/static/views/smrHours.js SMR Hours tab: worker × week and vendor × week tables (`charged / excluded`) from `GET /work-orders/smr/hours`, CSV download
 backend/static/views/smrFilters.js SMR search/filter controls (Work Orders row minus service type), sort memory `smr.sort`, filters + state chip `smr.filters` (sessionStorage: survive a reload, not a new tab)
 backend/static/views/workOrderRouting.js card-page mode, /workorder_card/ URL, list scroll restore
