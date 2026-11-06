@@ -108,13 +108,13 @@ function laborTechnicianControl(detail) {
 }
 
 function laborSectionHtml(detail) {
-  // An SMR order with correction lines bills those lines (D9): the entries
-  // keyed before the paper review stay visible, read-only, under the user's
-  // label, and nothing more is keyed here.
-  if ((detail.smr_lines || []).length) {
+  // An SMR order whose paper is read bills its correction lines (D9): the
+  // entries keyed before the paper review stay visible, read-only and
+  // collapsed under the user's label, and nothing more is keyed here.
+  if ((detail.smr_readings || []).length || (detail.smr_lines || []).length) {
     const legacy = (detail.labor || []).map((entry) => renderLaborEntryHtml(entry, true)).join("") ||
       `<p class="hint">Nothing was keyed before the correction.</p>`;
-    return `<details class="wo-section-card wo-labor-section">
+    return `<details class="wo-section-card wo-labor-section wo-labor-section--before">
               <summary class="wo-section-summary">NetFacilities Record Before Correction</summary>
               <div class="wo-section-content">
                 <p class="hint">Keyed before the paper review and not charged: the corrected lines above bill instead.</p>

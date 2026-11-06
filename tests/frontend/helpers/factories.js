@@ -175,6 +175,8 @@ export function workOrderDetail(overrides = {}) {
     signature: null,
     smr_target: null,
     smr_paper_check: null,
+    smr_stage: null,
+    smr_ready: null,
     smr_readings: [],
     smr_lines: [],
     smr_legacy_labor_minutes: 0,

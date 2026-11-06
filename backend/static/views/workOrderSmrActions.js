@@ -11,6 +11,7 @@ import {
   apiSmrGenerateBlock,
   apiSmrMarkPasted,
   apiSmrSearchWorkers,
+  apiSetSmrReady,
 } from "../api.js";
 import { escapeHtml } from "../format.js";
 import { setMessage } from "../dom.js";
@@ -104,6 +105,10 @@ export async function handleSmrAction(action, btn, cardEl, msg) {
     await refreshCard(cardEl, SECTION);
   } else if (action === "smr-mark-pasted") {
     await apiSmrMarkPasted(btn.dataset.blockId);
+    await refreshCard(cardEl, SECTION);
+  } else if (action === "smr-ready" || action === "smr-not-ready") {
+    // Reversible, so no confirm: Not ready clears the stamp the same way.
+    await apiSetSmrReady(workOrderId, action === "smr-ready");
     await refreshCard(cardEl, SECTION);
   }
 }

@@ -173,6 +173,25 @@ export function totalsText(detail) {
   return `Billed (NetFacilities) ${hours(billed)} · Corrected ${hours(charged)} · Change ${change >= 0 ? "+" : "-"}${hours(Math.abs(change))}${money}`;
 }
 
+// Ready for invoice (spec 2026-11-06): a person's stamp, offered only while
+// the order has a dated line; a stamp on an order that lost its date is held.
+export function readyRowHtml(detail, editable) {
+  const stamp_ = detail.smr_ready;
+  if (detail.smr_stage === "ready") {
+    const who = stamp_?.by_name ? ` by ${stamp_.by_name}` : "";
+    const text = `Ready for invoice · ${stamp(stamp_?.at)}${who}`;
+    const btn = editable ? ` <button type="button" class="secondary-btn" data-action="smr-not-ready">Not ready</button>` : "";
+    return `<p class="wo-smr-ready wo-smr-ready--ready">${escapeHtml(text)}${btn}</p>`;
+  }
+  if (detail.smr_stage === "dated") {
+    return editable
+      ? `<p class="wo-smr-ready"><button type="button" class="secondary-btn" data-action="smr-ready">Ready for invoice</button></p>`
+      : `<p class="wo-smr-ready hint">Not yet ready for invoice</p>`;
+  }
+  const text = stamp_ ? "Ready stamp held until a line is dated" : "Date a line to mark ready";
+  return `<p class="wo-smr-ready hint">${text}</p>`;
+}
+
 export function smrSectionHtml(detail) {
   if (!detail?.smr) return "";
   const editable = canEditSmrLines();
@@ -200,6 +219,7 @@ export function smrSectionHtml(detail) {
               ${addLine}
               ${editable ? lineFormHtml(detail) : ""}
               <p class="wo-smr-totals">${escapeHtml(totalsText(detail))}</p>
+              ${readyRowHtml(detail, editable)}
               ${blockHtml(detail, editable)}
             </div>
           </details>`;

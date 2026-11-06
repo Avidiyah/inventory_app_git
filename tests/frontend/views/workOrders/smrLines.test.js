@@ -64,6 +64,66 @@ describe("who sees what", () => {
   });
 });
 
+// Ready for invoice (spec 2026-11-06-smr-paper-stage): a person's stamp,
+// offered only once a line is dated.
+describe("ready for invoice", () => {
+  const row = () => section().querySelector(".wo-smr-ready");
+
+  it("a dated order offers the Ready button, and pressing it PUTs ready and refreshes", async () => {
+    const detail = await open({ detail: { smr_stage: "dated" } });
+    const btn = row().querySelector('[data-action="smr-ready"]');
+    expect(btn.textContent).toBe("Ready for invoice");
+    expect(row().querySelector('[data-action="smr-not-ready"]')).toBeNull();
+    respond("put", "/work-orders/smr/:id/ready", {});
+    click("smr-ready");
+    await sent("/ready", "PUT");
+    expect(requestFor("/ready", "PUT").body).toEqual({ ready: true });
+    await expectRefresh(detail.id);
+  });
+
+  it("a ready order shows the stamp and a Not ready button that PUTs ready false", async () => {
+    await open({ detail: { smr_stage: "ready", smr_ready: { at: "2026-11-08T15:00:00Z", by_name: "JM" } } });
+    expect(row().textContent).toMatch(/Ready for invoice · \d\d\/\d\d\/\d\d by JM/);
+    expect(row().querySelector('[data-action="smr-not-ready"]').textContent).toBe("Not ready");
+    respond("put", "/work-orders/smr/:id/ready", {});
+    click("smr-not-ready");
+    await sent("/ready", "PUT");
+    expect(requestFor("/ready", "PUT").body).toEqual({ ready: false });
+  });
+
+  it("an undated order says to date a line first, with no button", async () => {
+    await open({ detail: { smr_stage: "undated" } });
+    expect(row().textContent).toBe("Date a line to mark ready");
+    expect(row().querySelector("[data-action]")).toBeNull();
+    expect(row().classList.contains("hint")).toBe(true);
+  });
+
+  it("a ready stamp on an order that lost its date is held, not shown as ready", async () => {
+    await open({ detail: { smr_stage: "undated", smr_ready: { at: "2026-11-08T15:00:00Z", by_name: "JM" } } });
+    expect(row().textContent).toBe("Ready stamp held until a line is dated");
+    expect(row().querySelector("[data-action]")).toBeNull();
+  });
+
+  it("below Admin a ready order shows the stamp with no button", async () => {
+    await open({ role: "supervisor", detail: { smr_stage: "ready", smr_ready: { at: "2026-11-08T15:00:00Z", by_name: "JM" } } });
+    expect(row().textContent).toContain("Ready for invoice");
+    expect(row().querySelector("[data-action]")).toBeNull();
+  });
+
+  it("below Admin a dated order says not yet ready, with no button", async () => {
+    await open({ role: "supervisor", detail: { smr_stage: "dated" } });
+    expect(row().textContent).toBe("Not yet ready for invoice");
+    expect(row().querySelector("[data-action]")).toBeNull();
+  });
+
+  it("the NetFacilities record renders collapsed once the paper is read", async () => {
+    await open({ detail: { smr_lines: [], labor: [{ id: "e1", technician_id: "t", technician_name: "Pat", minutes: 90 }] } });
+    const labor = card().querySelector(".wo-labor-section");
+    expect(labor.textContent).toContain("NetFacilities Record Before Correction");
+    expect(labor.open).toBe(false);
+  });
+});
+
 describe("totals and block status", () => {
   it("prints billed, corrected, change and the charge", async () => {
     await open({ detail: { smr_legacy_labor_minutes: 120, labor_total: "375.00" } });

@@ -1048,6 +1048,9 @@ export async function apiImportSmrPaper(readings, lines, breakdown = null) {
 // Mark or clear "keyed from paper" on an SMR order (every role); null once cleared.
 export const apiSetSmrPaperCheck = (workOrderId, checked) =>
   jsonRequest(`/work-orders/smr/${workOrderId}/paper-check`, "PUT", { checked });
+// Ready for invoice (spec 2026-11-06), Admin+: 409 until a line is dated.
+export const apiSetSmrReady = (workOrderId, ready) =>
+  jsonRequest(`/work-orders/smr/${workOrderId}/ready`, "PUT", { ready });
 // Paper corrections (spec 2026-11-04), Admin+: readings, lines, workers, the
 // correction block and the Hours table.
 export const apiSmrAddReading = (workOrderId, payload) =>
