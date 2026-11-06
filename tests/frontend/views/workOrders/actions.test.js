@@ -297,13 +297,10 @@ describe("the shared error paths", () => {
       .toBe("Your account can't do that. Ask a Team Lead if this seems wrong."));
   });
 
-  it("swallows the SECOND error on a card, because setMessage stripped the class", async () => {
-    // Observed, and it is a defect: `setMessage` assigns `className`, so the
-    // first message turns `<p class="wo-message">` into `<p class="error">`.
-    // The click handler then re-queries `.wo-message`, gets null, and both
-    // its "clear the previous message" call and its catch-all error report
-    // are skipped -- the user clicks a failing button again and sees the
-    // stale text. Filed in docs/open-work.md; not fixed here.
+  it("reports the SECOND error on a card although setMessage stripped the class", async () => {
+    // `setMessage` assigns `className`, so the first message turns
+    // `<p class="wo-message">` into `<p class="error">`. The delegation falls
+    // back to the body's last `<p>` (fixed 2026-11-06 with the SMR editor).
     await open({ role: "technician", status: "assigned" });
     respond("post", "/work-orders/:id/tracking/start", { detail: "First failure" }, { status: 500 });
     click("start-tracking-wo");
@@ -314,7 +311,7 @@ describe("the shared error paths", () => {
     click("start-tracking-wo");
     await vi.waitFor(() =>
       expect(requests().filter((r) => r.url.endsWith("/tracking/start")).length).toBe(2));
-    expect(message().textContent).toBe("First failure");
+    await vi.waitFor(() => expect(message().textContent).toBe("Second failure"));
   });
 });
 

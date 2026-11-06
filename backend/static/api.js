@@ -1034,6 +1034,23 @@ export async function apiImportSmrTargets(file) {
 // Mark or clear "keyed from paper" on an SMR order (every role); null once cleared.
 export const apiSetSmrPaperCheck = (workOrderId, checked) =>
   jsonRequest(`/work-orders/smr/${workOrderId}/paper-check`, "PUT", { checked });
+// Paper corrections (spec 2026-11-04), Admin+: readings, lines, workers, the
+// correction block and the Hours table.
+export const apiSmrAddReading = (workOrderId, payload) =>
+  jsonRequest(`/work-orders/smr/${workOrderId}/readings`, "POST", payload);
+export const apiSmrAddLine = (workOrderId, payload) =>
+  jsonRequest(`/work-orders/smr/${workOrderId}/lines`, "POST", payload);
+export const apiSmrEditLine = (lineId, payload) =>
+  jsonRequest(`/work-orders/smr/lines/${lineId}`, "PATCH", payload);
+export const apiSmrSearchWorkers = (q) =>
+  jsonRequest(`/work-orders/smr/workers${q ? `?q=${encodeURIComponent(q)}` : ""}`, "GET");
+export const apiSmrAddWorker = (payload) => jsonRequest("/work-orders/smr/workers", "POST", payload);
+export const apiSmrGenerateBlock = (workOrderId) =>
+  jsonRequest(`/work-orders/smr/${workOrderId}/block`, "POST", {});
+export const apiSmrMarkPasted = (blockId) =>
+  jsonRequest(`/work-orders/smr/blocks/${blockId}/pasted`, "POST", {});
+export const apiSmrHours = () => jsonRequest("/work-orders/smr/hours", "GET");
+export const apiSmrHoursCsv = () => xlsxDownload("/work-orders/smr/hours.csv", "GET");
 export async function apiListSmrTiles({
   status = null, supervisorId = null, assignedToId = null, community = null,
   priority = null, scheduledDate = null, q = null, locationQ = null, taskQ = null, sort = null,

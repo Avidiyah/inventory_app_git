@@ -51,6 +51,7 @@ import { getAllItems } from "./workOrderReferenceData.js";
 import { exitSolo } from "./workOrderRouting.js";
 import { peekProfileOrigin, takeProfileOrigin } from "./profileOrigin.js";
 import { openSignatureFlow } from "./workOrderSignature.js";
+import { handleSmrAction, renderSmrWorkerSearch } from "./workOrderSmrActions.js";
 import { loadWorkOrders, refreshCard } from "./workOrderList.js";
 
 const listEl = document.getElementById("work-orders-list");
@@ -61,6 +62,10 @@ listEl.addEventListener("input", (event) => {
   const input = event.target;
   if (input.classList.contains("wo-tech-search")) {
     renderTechnicianSearch(input);
+    return;
+  }
+  if (input.classList.contains("wo-smr-worker-search")) {
+    void renderSmrWorkerSearch(input).catch(() => {});
     return;
   }
   if (!input.classList.contains("ms-item-search")) return;
@@ -207,11 +212,17 @@ listEl.addEventListener("click", async (event) => {
   const cardEl = btn.closest(".wo-card");
   if (!cardEl) return;
   const workOrderId = cardEl.dataset.id;
-  const msg = cardEl.querySelector(".wo-message");
+  // setMessage replaces the element's class, so after the first message the
+  // `<p>` is only findable as the body's last child (the test helper's rule).
+  const msg = cardEl.querySelector(".wo-message") ?? cardEl.querySelector(".wo-body > p:last-child");
   if (msg) setMessage(msg, "", "");
 
   try {
-    if (action === "ack-notes-wo") {
+    if (action.startsWith("smr-") && action !== "smr-paper-check") {
+      // The paper-corrections editor (workOrderSmrActions.js); its ten
+      // branches share this catch.
+      await handleSmrAction(action, btn, cardEl, msg);
+    } else if (action === "ack-notes-wo") {
       // The notes are open (the button lives inside them): the read is the
       // unlock. Held in the DOM, which the open section keeps from repainting.
       cardEl.dataset.notesAck = "1";

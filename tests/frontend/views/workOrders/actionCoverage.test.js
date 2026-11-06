@@ -48,6 +48,9 @@ const ACTIONS = [
   "remove-item", "remove-labor", "remove-technician", "reopen-wo",
   "resume-assigned-wo", "review-wo", "save-details", "save-notes",
   "send-back-wo", "smr-paper-check", "start-tracking-wo", "stop-tracking-wo",
+  // Paper corrections editor (workOrderSmrLines.js / workOrderSmrActions.js).
+  "smr-add-reading", "smr-add-line", "smr-edit-line", "smr-exclude-line", "smr-save-line",
+  "smr-cancel-line", "smr-generate-block", "smr-mark-pasted", "smr-pick-worker", "smr-add-worker",
 ];
 
 // The thirteen exports other views import. P4 must re-export every one.

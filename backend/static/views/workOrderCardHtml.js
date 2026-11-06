@@ -49,10 +49,11 @@ import { chargingStripHtml, statusActionsHtml } from "./workOrderStatusActions.j
 import { getAllSupervisors, getAllTechnicians } from "./workOrderReferenceData.js";
 import { livePriorityValues } from "./workOrderFilters.js";
 import { signatureSectionHtml } from "./workOrderSignature.js";
+import { smrSectionHtml } from "./workOrderSmrLines.js";
 import { comboHtml } from "../menus.js";
 
-function renderLaborEntryHtml(entry) {
-  const actions = canEditLaborEntry(entry)
+function renderLaborEntryHtml(entry, readOnly = false) {
+  const actions = !readOnly && canEditLaborEntry(entry)
     ? `<div class="wo-labor-actions">
          <input type="number" class="wo-labor-hours" value="${escapeHtml(hoursInputValue(entry.minutes))}" min="0.01" step="0.01" aria-label="Actual labor hours">
          <button type="button" class="secondary-btn" data-action="edit-labor">Update</button>
@@ -107,7 +108,22 @@ function laborTechnicianControl(detail) {
 }
 
 function laborSectionHtml(detail) {
-  const entries = (detail.labor || []).map(renderLaborEntryHtml).join("") ||
+  // An SMR order with correction lines bills those lines (D9): the entries
+  // keyed before the paper review stay visible, read-only, under the user's
+  // label, and nothing more is keyed here.
+  if ((detail.smr_lines || []).length) {
+    const legacy = (detail.labor || []).map((entry) => renderLaborEntryHtml(entry, true)).join("") ||
+      `<p class="hint">Nothing was keyed before the correction.</p>`;
+    return `<details class="wo-section-card wo-labor-section">
+              <summary class="wo-section-summary">NetFacilities Record Before Correction</summary>
+              <div class="wo-section-content">
+                <p class="hint">Keyed before the paper review and not charged: the corrected lines above bill instead.</p>
+                <div class="wo-labor-list">${legacy}</div>
+                ${targetLaborHtml(detail)}
+              </div>
+            </details>`;
+  }
+  const entries = (detail.labor || []).map((entry) => renderLaborEntryHtml(entry)).join("") ||
     `<p class="hint">No labor recorded yet.</p>`;
   // Charged time is authoritative: entries come from tracked sessions. An
   // Admin or the Owner keys any figure by hand; a worker only their own.
@@ -544,6 +560,8 @@ export function renderBody(detail, bodyEl) {
        <summary class="wo-section-summary">Request</summary>
        <div class="wo-section-content"></div>
      </details>` +
+    // Paper corrections above Labor, SMR orders only (spec 2026-11-04).
+    smrSectionHtml(detail) +
     // An SMR order shows Labor to everyone: any role keys its Skilled
     // Technician hours (all hands, 2026-10-23).
     (sup || assignedToCurrentUser || detail.smr ? laborSectionHtml(detail) : "") +
