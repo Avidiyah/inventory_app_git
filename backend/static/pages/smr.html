@@ -1,7 +1,7 @@
     <!-- =================== SMR27 AUDIT PAGE =================== -->
     <!-- Admin+ (views/nav.js PAGE_ACCESS). Standard TechFM frosted panel
-         (docs/design-system.md); tiles are keycap cards with a green (edited)
-         or red (untouched) outline and week bubbles across the top. Wiring
+         (docs/design-system.md); tiles are keycap cards outlined by paper
+         stage (red / amber / neutral / green) with week bubbles across the top. Wiring
          lives in views/smr.js; only the markup lives here. Every style is a
          class in styles.css -- CSP drops inline style attributes. -->
     <div class="page smr" id="smr-page">
@@ -49,17 +49,40 @@
                 <input type="text" id="smr-task-search" placeholder="Search task keywords">
             </div>
             <p id="smr-result-count" class="smr-result-count" aria-live="polite"></p>
-            <div class="smr-controls">
-                <button type="button" id="smr-filter-untouched" class="smr-btn smr-btn--on" data-filter="untouched">Untouched</button>
-                <button type="button" id="smr-filter-short" class="smr-btn" data-filter="short">Short</button>
-                <button type="button" id="smr-filter-short-checked" class="smr-btn" data-filter="short_checked">Checked, still short</button>
-                <button type="button" id="smr-filter-checked" class="smr-btn" data-filter="checked">Paper checked</button>
-                <button type="button" id="smr-filter-edited" class="smr-btn" data-filter="edited">Edited</button>
-                <button type="button" id="smr-filter-archived" class="smr-btn" data-filter="archived">Archived</button>
-                <button type="button" id="smr-filter-matched" class="smr-btn" data-filter="matched">Matched</button>
-                <button type="button" id="smr-filter-has-lines" class="smr-btn" data-filter="has_lines">Has lines</button>
-                <button type="button" id="smr-filter-block-pending" class="smr-btn" data-filter="block_pending">Block stale / not pasted</button>
-                <button type="button" id="smr-filter-all" class="smr-btn" data-filter="all">All</button>
+            <!-- Three single-select chip rows that combine (spec
+                 2026-11-06-smr-paper-stage): where the paper stands, which
+                 pile it sits in, and the target / block / archive flags.
+                 Client-side over the loaded tiles; views/smr.js. -->
+            <div class="smr-controls" data-row="stage">
+                <span class="smr-controls-label">Stage</span>
+                <button type="button" id="smr-filter-not-reviewed" class="smr-btn" data-row="stage" data-filter="not_reviewed">Not reviewed</button>
+                <button type="button" id="smr-filter-undated" class="smr-btn" data-row="stage" data-filter="undated">Reviewed, undated</button>
+                <button type="button" id="smr-filter-dated" class="smr-btn" data-row="stage" data-filter="dated">Reviewed, dated</button>
+                <button type="button" id="smr-filter-ready" class="smr-btn" data-row="stage" data-filter="ready">Ready for invoice</button>
+                <button type="button" id="smr-filter-all" class="smr-btn" data-row="stage" data-filter="all">All</button>
+            </div>
+            <div class="smr-controls" data-row="pile">
+                <span class="smr-controls-label">Pile</span>
+                <button type="button" id="smr-filter-before-w1" class="smr-btn" data-row="pile" data-filter="Before W1">Before W1</button>
+                <button type="button" id="smr-filter-week-1" class="smr-btn" data-row="pile" data-filter="Week 1">Week 1</button>
+                <button type="button" id="smr-filter-week-2" class="smr-btn" data-row="pile" data-filter="Week 2">Week 2</button>
+                <button type="button" id="smr-filter-week-3" class="smr-btn" data-row="pile" data-filter="Week 3">Week 3</button>
+                <button type="button" id="smr-filter-week-4" class="smr-btn" data-row="pile" data-filter="Week 4">Week 4</button>
+                <button type="button" id="smr-filter-week-5" class="smr-btn" data-row="pile" data-filter="Week 5">Week 5</button>
+                <button type="button" id="smr-filter-week-6" class="smr-btn" data-row="pile" data-filter="Week 6">Week 6</button>
+                <button type="button" id="smr-filter-week-7" class="smr-btn" data-row="pile" data-filter="Week 7">Week 7</button>
+                <button type="button" id="smr-filter-after-w7" class="smr-btn" data-row="pile" data-filter="After W7">After W7</button>
+                <button type="button" id="smr-filter-pile-undated" class="smr-btn" data-row="pile" data-filter="Undated">Undated</button>
+                <button type="button" id="smr-filter-belfor" class="smr-btn" data-row="pile" data-filter="belfor">Belfor only</button>
+                <button type="button" id="smr-filter-pile-all" class="smr-btn" data-row="pile" data-filter="all">All</button>
+            </div>
+            <div class="smr-controls" data-row="flags">
+                <span class="smr-controls-label">Flags</span>
+                <button type="button" id="smr-filter-short" class="smr-btn" data-row="flags" data-filter="short">Short</button>
+                <button type="button" id="smr-filter-matched" class="smr-btn" data-row="flags" data-filter="matched">Matched</button>
+                <button type="button" id="smr-filter-block-pending" class="smr-btn" data-row="flags" data-filter="block_pending">Block stale / not pasted</button>
+                <button type="button" id="smr-filter-archived" class="smr-btn" data-row="flags" data-filter="archived">Archived</button>
+                <button type="button" id="smr-filter-flags-all" class="smr-btn" data-row="flags" data-filter="all">All</button>
                 <!-- Hours (spec 2026-11-04 D3): Admin+, swaps the tiles for the
                      worker x week / vendor x week table (views/smrHours.js). -->
                 <button type="button" id="smr-hours-btn" class="smr-btn smr-btn--hours" aria-pressed="false" hidden>Hours</button>

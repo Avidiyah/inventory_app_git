@@ -1,7 +1,8 @@
 // Characterization of views/smr.js -- the SMR27 audit tiles page (spec
 // docs/superpowers/specs/2026-10-23-smr-audit-workflow-design.md D1/D7/D8):
-// the count bar, the four filters, the Owner-only export, the untouched
-// dimming and the tile hand-off to the Work Orders editor.
+// the count bar, the stage / pile / flags chip rows (spec
+// 2026-11-06-smr-paper-stage), the Owner-only export, stage-colored tiles
+// and the tile hand-off to the Work Orders editor.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
@@ -25,6 +26,7 @@ function tile(overrides = {}) {
     id: "11111111-1111-1111-1111-111111111111", number: "23281563",
     building_number: "Young Hall", unit_number: "108A", location: "Young Hall:1st Floor,108A", vendor_assignee: "Chris Coburn",
     status: "completed", archived_at: null, edited: false,
+    stage: "not_reviewed", closed_week: "Before W1", belfor_only: false, ready: null, weeks: ["Undated"],
     before: totals(), after: totals(), delta: totals(), after_line_count: 0,
     target: null,
     ...overrides,
@@ -34,7 +36,7 @@ function tile(overrides = {}) {
 function page(overrides = {}) {
   return {
     imported_at: "2026-10-23T14:14:00Z",
-    counts: { orders: 3, edited: 1, untouched: 2, archived: 1, matched: 0, short: 0, no_target: 3 },
+    counts: { orders: 3, not_reviewed: 3, undated: 1, dated: 0, ready: 0, belfor_only: 1, archived: 1, charged_hours: "0", excluded_hours: "0", blocks_not_pasted: 0 },
     delta: { labor_total: "58.40", materials_total: "18.40", total: "76.80" },
     remaining: { hours: "0", materials_total: "0.00" },
     matched: 3,
@@ -45,7 +47,7 @@ function page(overrides = {}) {
       communities: [{ value: "young_hall", label: "Young Hall" }, { value: "scholars", label: "Scholars Inn" }],
     },
     tiles: [
-      tile({ edited: true, weeks: ["Week 1", "Week 3", "Undated"], after: totals({ skilled_minutes: 30, labor_total: "31.25", total: "49.65" }), delta: totals({ skilled_minutes: 30, labor_total: "31.25", materials_total: "18.40", total: "49.65" }), after_line_count: 2 }),
+      tile({ edited: true, after: totals({ skilled_minutes: 30, labor_total: "31.25", total: "49.65" }), delta: totals({ skilled_minutes: 30, labor_total: "31.25", materials_total: "18.40", total: "49.65" }), after_line_count: 2 }),
       tile({ id: "22222222-2222-2222-2222-222222222222", number: "23282567", archived_at: "2026-10-22T10:00:00Z" }),
       tile({ id: "33333333-3333-3333-3333-333333333333", number: "23296828", unit_number: "208W", building_number: "Sanford" }),
     ],
@@ -70,42 +72,81 @@ describe("the SMR page", () => {
     expect(byId("smr-heading").textContent).toContain("SMR27");
     const bar = byId("smr-bar").textContent;
     expect(bar).toContain("3 orders");
-    expect(bar).toContain("1 edited");
-    expect(bar).toContain("2 untouched");
     expect(bar).toContain("+$58.40");
     expect(bar).toContain("+$18.40");
     expect(bar).toContain("+$76.80");
   });
 
-  it("renders one tile per order: green edited, red untouched, archived marked, week bubbles on top", async () => {
+  it("renders stage counts first in the bar", async () => {
     await openSmr();
-    expect(tiles().map((t) => t.dataset.number)).toEqual(["23281563", "23282567", "23296828"]);
-    const [edited, archived, untouched] = tiles();
-    expect(edited.classList.contains("smr-tile--edited")).toBe(true);
-    expect(edited.textContent).toContain("+$49.65");
-    expect(edited.querySelector(".smr-tile-state").textContent).toBe("Edited");
-    expect(archived.classList.contains("smr-tile--archived")).toBe(true);
-    expect(archived.querySelector(".smr-tile-state").textContent).toBe("Archived");
-    expect(untouched.classList.contains("smr-tile--untouched")).toBe(true);
-    expect(untouched.querySelector(".smr-tile-state").textContent).toBe("Untouched");
-    // Week bubbles come from the payload, in order; "Undated" is its own look,
-    // and a tile without weeks still shows it.
-    const weeks = (t) => Array.from(t.querySelectorAll(".smr-week")).map((w) => w.textContent);
-    expect(weeks(edited)).toEqual(["Week 1", "Week 3", "Undated"]);
-    expect(edited.querySelector(".smr-week--undated").textContent).toBe("Undated");
-    expect(weeks(untouched)).toEqual(["Undated"]);
+    const cells = Array.from(document.querySelectorAll("#smr-bar .smr-bar-cell")).map((c) => c.textContent);
+    expect(cells.slice(0, 5)).toEqual(["3 not reviewed", "1 undated", "0 dated", "0 ready", "1 Belfor only"]);
+    expect(cells.some((c) => /edited|untouched|with lines|paper checked/.test(c))).toBe(false);
   });
 
-  it("filters tiles by edited, untouched and archived", async () => {
-    await openSmr();
-    byId("smr-filter-edited").click();
-    expect(tiles().filter((t) => !t.hidden).map((t) => t.dataset.number)).toEqual(["23281563"]);
-    byId("smr-filter-untouched").click();
-    expect(tiles().filter((t) => !t.hidden).map((t) => t.dataset.number)).toEqual(["23282567", "23296828"]);
-    byId("smr-filter-archived").click();
-    expect(tiles().filter((t) => !t.hidden).map((t) => t.dataset.number)).toEqual(["23282567"]);
+  it("tiles carry the stage pill text, color class, closed-week bubble and Belfor tag", async () => {
+    await openSmr("admin", page({ tiles: [
+      tile({ number: "NR" }),
+      tile({ id: "22222222-2222-2222-2222-222222222222", number: "UD", stage: "undated", closed_week: "Week 3", belfor_only: true }),
+      tile({ id: "33333333-3333-3333-3333-333333333333", number: "DT", stage: "dated", closed_week: null, weeks: ["Week 2", "Week 3"] }),
+      tile({ id: "44444444-4444-4444-4444-444444444444", number: "RD", stage: "ready", closed_week: null, weeks: ["Week 2"],
+        ready: { at: "2026-11-08T15:00:00Z", by_name: "JM" }, archived_at: "2026-10-22T10:00:00Z" }),
+    ] }));
+    const [nr, ud, dt, rd] = tiles();
+    const pill = (t) => t.querySelector(".smr-tile-stage").textContent;
+    expect(nr.classList.contains("smr-tile--not_reviewed")).toBe(true);
+    expect(pill(nr)).toBe("Not reviewed");
+    expect(nr.querySelector(".smr-week--undated").textContent).toBe("Undated · closed Before W1");
+    expect(ud.classList.contains("smr-tile--undated")).toBe(true);
+    expect(document.querySelector(".smr-tile--undated .smr-tile-stage").textContent).toBe("Reviewed · undated");
+    expect(ud.querySelector(".smr-week--undated").textContent).toBe("Undated · closed Week 3");
+    expect(ud.querySelector(".smr-tile-belfor").textContent).toBe("Belfor");
+    expect(nr.querySelector(".smr-tile-belfor")).toBeNull();
+    expect(dt.classList.contains("smr-tile--dated")).toBe(true);
+    expect(pill(dt)).toBe("Reviewed · dated");
+    expect(Array.from(dt.querySelectorAll(".smr-week")).map((w) => w.textContent)).toEqual(["Week 2", "Week 3"]);
+    expect(rd.classList.contains("smr-tile--ready")).toBe(true);
+    expect(rd.classList.contains("smr-tile--archived")).toBe(true);
+    expect(pill(rd)).toBe("Ready for invoice");
+    // No Edited / Untouched classes or Paper badge anywhere.
+    expect(document.querySelector(".smr-tile--edited, .smr-tile--untouched, .smr-tile-paper")).toBeNull();
+  });
+
+  it("the three chip rows combine", async () => {
+    await openSmr("admin", page({ tiles: [
+      tile({ number: "NR" }),
+      tile({ id: "22222222-2222-2222-2222-222222222222", number: "NRB", belfor_only: true }),
+      tile({ id: "33333333-3333-3333-3333-333333333333", number: "D3", stage: "dated", weeks: ["Week 3"] }),
+      tile({ id: "44444444-4444-4444-4444-444444444444", number: "D3B", stage: "dated", weeks: ["Week 2", "Week 3"], belfor_only: true }),
+      tile({ id: "55555555-5555-5555-5555-555555555555", number: "U3", stage: "undated", weeks: ["Week 3"] }),
+    ] }));
+    const shown = () => tiles().filter((t) => !t.hidden).map((t) => t.dataset.number);
+    expect(shown()).toEqual(["NR", "NRB"]);  // default: Not reviewed / All / All
+    expect(byId("smr-filter-not-reviewed").classList.contains("smr-btn--on")).toBe(true);
+    byId("smr-filter-week-3").click();
+    expect(shown()).toEqual([]);
+    byId("smr-filter-dated").click();
+    expect(shown()).toEqual(["D3", "D3B"]);
+    byId("smr-filter-belfor").click();
+    expect(shown()).toEqual(["D3B"]);
     byId("smr-filter-all").click();
-    expect(tiles().filter((t) => !t.hidden)).toHaveLength(3);
+    expect(shown()).toEqual(["NRB", "D3B"]);  // Belfor cuts across stages
+    byId("smr-filter-pile-all").click();
+    byId("smr-filter-flags-all").click();
+    expect(shown()).toEqual(["NR", "NRB", "D3", "D3B", "U3"]);
+    byId("smr-filter-archived").click();
+    expect(shown()).toEqual([]);
+  });
+
+  it("dropped chips are absent", async () => {
+    await openSmr();
+    for (const value of ["untouched", "edited", "checked", "short_checked", "has_lines"]) {
+      expect(document.querySelector(`.smr-btn[data-filter="${value}"]`)).toBeNull();
+    }
+    const row = (name) => Array.from(document.querySelectorAll(`.smr-controls[data-row="${name}"] .smr-btn[data-filter]`)).map((b) => b.dataset.filter);
+    expect(row("stage")).toEqual(["not_reviewed", "undated", "dated", "ready", "all"]);
+    expect(row("pile")).toEqual(["Before W1", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6", "Week 7", "After W7", "Undated", "belfor", "all"]);
+    expect(row("flags")).toEqual(["short", "matched", "block_pending", "archived", "all"]);
   });
 
   // The client's target (spec 2026-10-23-smr-target-match): bar counts, the
@@ -121,7 +162,6 @@ describe("the SMR page", () => {
 
   it("bar shows match counts and remaining; Short and Matched filters select by target", async () => {
     await openSmr("admin", page({
-      counts: { orders: 3, edited: 1, untouched: 2, archived: 0, matched: 1, short: 1, no_target: 1 },
       remaining: { hours: "2.5", materials_total: "134.32" },
       tiles: [
         tile({ number: "A", target: target() }),
@@ -132,9 +172,6 @@ describe("the SMR page", () => {
       ],
     }));
     const bar = byId("smr-bar").textContent;
-    expect(bar).toContain("1 matched");
-    expect(bar).toContain("1 short");
-    expect(bar).toContain("1 no target");
     expect(bar).toContain("Remaining 2.5 h");
     expect(bar).toContain("Remaining $134.32");
     expect(tiles()[0].querySelector(".smr-tile-target").textContent).toBe("2.0 h · $67.16 to go");
@@ -145,35 +182,6 @@ describe("the SMR page", () => {
     expect(tiles().filter((t) => !t.hidden).map((t) => t.dataset.number)).toEqual(["A"]);
     byId("smr-filter-matched").click();
     expect(tiles().filter((t) => !t.hidden).map((t) => t.dataset.number)).toEqual(["B"]);
-    expect(Array.from(document.querySelectorAll(".smr-controls .smr-btn[data-filter]")).map((b) => b.dataset.filter))
-      .toEqual(["untouched", "short", "short_checked", "checked", "edited", "archived", "matched", "has_lines", "block_pending", "all"]);
-  });
-
-  it("paper check: badge, bar counts, and the Checked-still-short / Paper checked filters (Short unchanged)", async () => {
-    const check = { checked_at: "2026-10-27T14:14:00Z", checked_by_name: "Pat Keyer" };
-    const matchedTarget = target({ current_hours: "2", gap_hours: "0", remaining_hours: "0", matched: true,
-      current_materials_total: "70.00", gap_materials_total: "2.84", remaining_materials_total: "0.00" });
-    await openSmr("admin", page({
-      counts: { orders: 4, edited: 0, untouched: 4, archived: 0, matched: 1, short: 2, no_target: 1, paper_checked: 2, short_checked: 1 },
-      tiles: [
-        tile({ number: "SC", target: target(), paper_check: check }),
-        tile({ id: "22222222-2222-2222-2222-222222222222", number: "MC", target: matchedTarget, paper_check: check }),
-        tile({ id: "33333333-3333-3333-3333-333333333333", number: "SO", target: target() }),
-        tile({ id: "44444444-4444-4444-4444-444444444444", number: "NT" }),
-      ],
-    }));
-    const shown = () => tiles().filter((t) => !t.hidden).map((t) => t.dataset.number);
-    const bar = byId("smr-bar").textContent;
-    expect(bar).toContain("2 paper checked");
-    expect(bar).toContain("1 checked, still short");
-    expect(tiles().map((t) => Boolean(t.querySelector(".smr-tile-paper")))).toEqual([true, true, false, false]);
-    expect(tiles()[0].classList.contains("smr-tile--checked")).toBe(true);
-    byId("smr-filter-checked").click();
-    expect(shown()).toEqual(["SC", "MC"]);
-    byId("smr-filter-short-checked").click();
-    expect(shown()).toEqual(["SC"]);
-    byId("smr-filter-short").click();
-    expect(shown()).toEqual(["SC", "SO"]);
   });
 
   it("hides the export for an Admin and shows it for an Owner, who downloads the workbook", async () => {
@@ -235,7 +243,7 @@ describe("the SMR page", () => {
   });
 
   it("shows the empty copy when nothing has been imported", async () => {
-    server.use(http.get("/work-orders/smr", () => HttpResponse.json(page({ tiles: [], counts: { orders: 0, edited: 0, untouched: 0, archived: 0 } }))));
+    server.use(http.get("/work-orders/smr", () => HttpResponse.json(page({ tiles: [], counts: { orders: 0, archived: 0 } }))));
     await bootApp({ role: "admin", page: "smr" });
     await vi.waitFor(() => expect(byId("smr-tiles").textContent).toContain("No SMR orders yet. Owner: import from Integrations."));
   });
@@ -314,7 +322,7 @@ describe("the SMR page", () => {
 
   it("a reload of the tab restores the filters and chip from sessionStorage", async () => {
     sessionStorage.setItem("smr.filters", JSON.stringify({
-      q: "2328", assignedToId: "t1", community: "scholars", chip: "all",
+      q: "2328", assignedToId: "t1", community: "scholars", stage: "all", pile: "Undated",
     }));
     const { requests } = await openSmr();
     const first = requests().find((r) => r.url.startsWith("/work-orders/smr?"));
@@ -325,14 +333,19 @@ describe("the SMR page", () => {
     expect(byId("smr-technician-filter").value).toBe("t1");
     expect(byId("smr-community-filter").value).toBe("scholars");
     expect(tiles().filter((t) => !t.hidden)).toHaveLength(3);
+    expect(byId("smr-filter-pile-undated").classList.contains("smr-btn--on")).toBe(true);
   });
 
-  it("filter and chip changes are saved for a reload", async () => {
+  it("chip memory saves three keys and ignores an unknown saved chip", async () => {
+    sessionStorage.setItem("smr.filters", JSON.stringify({ chip: "untouched", stage: "edited" }));
     await openSmr();
+    expect(byId("smr-filter-not-reviewed").classList.contains("smr-btn--on")).toBe(true);
+    byId("smr-filter-week-2").click();
     byId("smr-filter-short").click();
     byId("smr-search").value = "Young";
     byId("smr-search-btn").click();
-    await vi.waitFor(() => expect(JSON.parse(sessionStorage.getItem("smr.filters"))).toMatchObject({ q: "Young", chip: "short" }));
+    await vi.waitFor(() => expect(JSON.parse(sessionStorage.getItem("smr.filters")))
+      .toMatchObject({ q: "Young", stage: "not_reviewed", pile: "Week 2", flags: "short" }));
   });
 
   it("the result count reflects matched over the whole population", async () => {
@@ -340,13 +353,13 @@ describe("the SMR page", () => {
     expect(byId("smr-result-count").textContent).toBe("1 of 3 orders");
   });
 
-  it("paper lines: bar cells, the third line, and the Has lines / Block pending chips", async () => {
+  it("paper lines: bar cells, the third line, and the Block pending chip", async () => {
     const lines = (overrides = {}) => ({
       count: 3, charged_hours: "82.0", excluded_hours: "1.0", change_hours: "82.0",
       block_version: 2, block_pasted_at: "2026-11-06T10:00:00Z", block_stale: false, ...overrides,
     });
     await openSmr("admin", page({
-      counts: { orders: 4, edited: 0, untouched: 4, archived: 0, with_lines: 3, charged_hours: "2938.0", excluded_hours: "3011.0", blocks_not_pasted: 2 },
+      counts: { orders: 4, archived: 0, charged_hours: "2938.0", excluded_hours: "3011.0", blocks_not_pasted: 2 },
       tiles: [
         tile({ number: "PASTED", target: target(), lines: lines() }),
         tile({ id: "22222222-2222-2222-2222-222222222222", number: "STALE", target: target(), lines: lines({ change_hours: "-2.5", block_stale: true }) }),
@@ -355,15 +368,12 @@ describe("the SMR page", () => {
       ],
     }));
     const bar = byId("smr-bar").textContent;
-    expect(bar).toContain("3 with lines");
     expect(bar).toContain("Charged 2938.0 h");
     expect(bar).toContain("Excluded 3011.0 h");
     expect(bar).toContain("2 blocks not pasted");
     const third = () => tiles().map((t) => t.querySelector(".smr-tile-target").textContent);
     expect(third()).toEqual(["+82.0 h · v2 pasted", "-2.5 h · v2 stale", "82.0 h charged · no block", "2.0 h · $67.16 to go"]);
     const shown = () => tiles().filter((t) => !t.hidden).map((t) => t.dataset.number);
-    byId("smr-filter-has-lines").click();
-    expect(shown()).toEqual(["PASTED", "STALE", "NOBLOCK"]);
     byId("smr-filter-block-pending").click();
     expect(shown()).toEqual(["STALE", "NOBLOCK"]);
   });

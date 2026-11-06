@@ -1,9 +1,10 @@
 // View: the SMR27 audit page (spec docs/superpowers/specs/2026-10-23-smr-audit-workflow-design.md).
 //
-// Layer: views. One tile per SMR order with its before / after delta, four
-// filters, the Owner-only workbook export, and a click-through to the normal
-// Work Orders editor. Reads `GET /work-orders/smr`; owns no state beyond the
-// last payload and the active filter.
+// Layer: views. One tile per SMR order with its before / after delta and
+// paper stage, three chip rows (stage / pile / flags, spec
+// 2026-11-06-smr-paper-stage), the Owner-only workbook export, and a
+// click-through to the normal Work Orders editor. Reads `GET /work-orders/smr`;
+// owns no state beyond the last payload and the active chips.
 
 import { apiExportSmrXlsx, apiListSmrTiles } from "../api.js";
 import { setMessage } from "../dom.js";
@@ -13,7 +14,7 @@ import { roleAtLeast } from "../roles.js";
 import { focusWorkOrderNumber } from "./workOrders.js";
 import { showPage } from "./nav.js";
 import { setProfileOrigin } from "./profileOrigin.js";
-import { applyFilterOptions, currentParams, installFilterControls, saveFilters, savedChip } from "./smrFilters.js";
+import { applyFilterOptions, currentParams, installFilterControls, saveFilters, savedChips } from "./smrFilters.js";
 import { loadSmrHours } from "./smrHours.js";
 
 const bar = document.getElementById("smr-bar");
@@ -24,14 +25,19 @@ const exportBtn = document.getElementById("smr-export-btn");
 const hoursBtn = document.getElementById("smr-hours-btn");
 const hoursCsvBtn = document.getElementById("smr-hours-csv-btn");
 const hoursPanel = document.getElementById("smr-hours");
-const filterButtons = Array.from(document.querySelectorAll(".smr-btn[data-filter]"));
+const chipButtons = Array.from(document.querySelectorAll(".smr-btn[data-row][data-filter]"));
 
 export const EMPTY_COPY = "No SMR orders yet. Owner: import from Integrations.";
 
-// Untouched is the working view: the orders still to be re-charged.
-// A reload of this tab keeps the chip the user left on (smrFilters.js).
-let activeFilter = filterButtons.some((btn) => btn.dataset.filter === savedChip())
-  ? savedChip() : "untouched";
+// Not reviewed is the working view: the next pile to work. A reload of this
+// tab keeps the chips the user left on (smrFilters.js); a saved value its row
+// does not offer (an older chip name) falls back to the row's default.
+const DEFAULT_CHIPS = { stage: "not_reviewed", pile: "all", flags: "all" };
+const rowHas = (row, value) => chipButtons.some((btn) => btn.dataset.row === row && btn.dataset.filter === value);
+const chips = { ...DEFAULT_CHIPS };
+for (const [row, value] of Object.entries(savedChips())) {
+  if (rowHas(row, value)) chips[row] = value;
+}
 let lastPayload = null;
 // Where the page stood when a tile opened a card; consumed by the next render.
 let pendingScrollY = null;
@@ -52,27 +58,27 @@ function stamp(iso) {
   });
 }
 
-function tileState(tile) {
-  if (tile.archived_at) return "archived";
-  return tile.edited ? "edited" : "untouched";
+// Short = has a client target and is not yet matched; Matched = has one and is
+// (spec 2026-10-23-smr-target-match). Block pending = lines whose block still
+// needs work (none yet, not pasted, or stale since the paste).
+function flagMatches(tile, flag) {
+  if (flag === "all") return true;
+  if (flag === "archived") return Boolean(tile.archived_at);
+  if (flag === "short") return Boolean(tile.target) && !tile.target.matched;
+  if (flag === "matched") return tile.target?.matched === true;
+  if (flag === "block_pending") return Boolean(tile.lines) && blockPending(tile.lines);
+  return true;
 }
 
-// Short = has a client target and is not yet matched; Matched = has one and is
-// (spec 2026-10-23-smr-target-match). Orders without a Breakdown row are neither.
-function matches(tile, filter) {
-  if (filter === "all") return true;
-  if (filter === "archived") return Boolean(tile.archived_at);
-  if (filter === "short") return Boolean(tile.target) && !tile.target.matched;
-  if (filter === "matched") return tile.target?.matched === true;
-  // Paper check (spec 2026-10-27-smr-paper-check): Short keeps its meaning.
-  if (filter === "checked") return Boolean(tile.paper_check);
-  if (filter === "short_checked") return Boolean(tile.paper_check) && Boolean(tile.target) && !tile.target.matched;
-  // Paper corrections (spec 2026-11-04): orders with lines, and those whose
-  // block still needs work (none yet, not pasted, or stale since the paste).
-  if (filter === "has_lines") return Boolean(tile.lines);
-  if (filter === "block_pending") return Boolean(tile.lines) && blockPending(tile.lines);
-  return (filter === "edited") === Boolean(tile.edited);
+// The three rows AND together: stage is the tile's stage; pile is a week label
+// the tile's lines fall in (or Belfor only); flags as above.
+function matches(tile, { stage, pile, flags }) {
+  if (stage !== "all" && tile.stage !== stage) return false;
+  if (pile === "belfor" ? !tile.belfor_only : pile !== "all" && !tileWeeks(tile).includes(pile)) return false;
+  return flagMatches(tile, flags);
 }
+
+const tileWeeks = (tile) => (tile.weeks?.length ? tile.weeks : ["Undated"]);
 
 const blockPending = (lines) => !lines.block_version || !lines.block_pasted_at || lines.block_stale;
 
@@ -107,17 +113,15 @@ function barHtml(payload) {
   const c = payload.counts || {};
   const d = payload.delta || {};
   const r = payload.remaining || {};
+  // Stage counts lead (spec 2026-11-06); Short / Matched live on as chips.
   const cells = [
+    `${c.not_reviewed || 0} not reviewed`,
+    `${c.undated || 0} undated`,
+    `${c.dated || 0} dated`,
+    `${c.ready || 0} ready`,
+    `${c.belfor_only || 0} Belfor only`,
     `${c.orders || 0} orders`,
-    `${c.edited || 0} edited`,
-    `${c.untouched || 0} untouched`,
     `${c.archived || 0} archived`,
-    `${c.matched || 0} matched`,
-    `${c.short || 0} short`,
-    `${c.no_target || 0} no target`,
-    `${c.paper_checked || 0} paper checked`,
-    `${c.short_checked || 0} checked, still short`,
-    `${c.with_lines || 0} with lines`,
     `Charged ${hoursText(c.charged_hours)}`,
     `Excluded ${hoursText(c.excluded_hours)}`,
     `${c.blocks_not_pasted || 0} blocks not pasted`,
@@ -131,42 +135,50 @@ function barHtml(payload) {
   return cells.map((text) => `<div class="smr-bar-cell">${escapeHtml(text)}</div>`).join("");
 }
 
-const STATE_LABEL = { edited: "Edited", untouched: "Untouched", archived: "Archived" };
+// The stage's words always ride with its color (spec 2026-11-06).
+const STAGE_LABEL = {
+  not_reviewed: "Not reviewed", undated: "Reviewed · undated", dated: "Reviewed · dated", ready: "Ready for invoice",
+};
 
-// Week bubbles across the top (user 2026-11-06): the invoice weeks the paper
-// lines fall in, "Undated" for the undated pile or when nothing is keyed yet.
+// Week bubbles across the top: the invoice weeks the paper lines fall in;
+// "Undated" carries the NetFacilities close week, the undated pile's own sort key.
 function weeksHtml(tile) {
-  const weeks = tile.weeks?.length ? tile.weeks : ["Undated"];
-  return weeks.map((w) => `<span class="smr-week${w === "Undated" ? " smr-week--undated" : ""}">${escapeHtml(w)}</span>`).join("");
+  return tileWeeks(tile).map((w) => {
+    if (w !== "Undated") return `<span class="smr-week">${escapeHtml(w)}</span>`;
+    const closed = tile.closed_week ? ` · closed ${tile.closed_week}` : "";
+    return `<span class="smr-week smr-week--undated">${escapeHtml(`Undated${closed}`)}</span>`;
+  }).join("");
 }
 
 function tileHtml(tile) {
-  const state = tileState(tile);
+  const stage = STAGE_LABEL[tile.stage] ? tile.stage : "not_reviewed";
   const where = [tile.building_number, tile.unit_number].filter(Boolean).join(" ") || tile.location || "";
   const who = tile.vendor_assignee ? ` · ${tile.vendor_assignee}` : "";
   const minutes = (tile.after?.real_minutes || 0) + (tile.after?.skilled_minutes || 0);
   const matched = tile.target?.matched ? " smr-tile--matched" : "";
-  const checked = tile.paper_check ? " smr-tile--checked" : "";
-  return `<button type="button" class="smr-tile smr-tile--${state}${matched}${checked}" data-number="${escapeHtml(tile.number)}" data-id="${escapeHtml(tile.id)}">
+  const archived = tile.archived_at ? " smr-tile--archived" : "";
+  return `<button type="button" class="smr-tile smr-tile--${stage}${matched}${archived}" data-number="${escapeHtml(tile.number)}" data-id="${escapeHtml(tile.id)}">
     <span class="smr-tile-top">
       <span class="smr-tile-weeks">${weeksHtml(tile)}</span>
-      <span class="smr-tile-state">${STATE_LABEL[state]}</span>
+      <span class="smr-tile-stage">${STAGE_LABEL[stage]}</span>
     </span>
     <span class="smr-tile-number">${escapeHtml(tile.number)}</span>
     <span class="smr-tile-where">${escapeHtml(`${where}${who}`)}</span>
     <span class="smr-tile-delta">${escapeHtml(signedMoney(tile.delta?.total))}</span>
     <span class="smr-tile-target">${escapeHtml(targetLine(tile))}</span>
-    <span class="smr-tile-meta">${escapeHtml(`${minutes} min · ${tile.after_line_count || 0} lines`)}</span>
-    ${tile.paper_check ? `<span class="smr-tile-paper">Paper ✓</span>` : ""}
+    <span class="smr-tile-bottom">
+      <span class="smr-tile-meta">${escapeHtml(`${minutes} min · ${tile.after_line_count || 0} lines`)}</span>
+      ${tile.belfor_only ? `<span class="smr-tile-belfor">Belfor</span>` : ""}
+    </span>
   </button>`;
 }
 
 function applyFilter() {
-  filterButtons.forEach((btn) => btn.classList.toggle("smr-btn--on", btn.dataset.filter === activeFilter));
+  chipButtons.forEach((btn) => btn.classList.toggle("smr-btn--on", chips[btn.dataset.row] === btn.dataset.filter));
   const byNumber = new Map((lastPayload?.tiles || []).map((tile) => [tile.number, tile]));
   grid.querySelectorAll(".smr-tile").forEach((el) => {
     const tile = byNumber.get(el.dataset.number);
-    el.hidden = !(tile && matches(tile, activeFilter));
+    el.hidden = !(tile && matches(tile, chips));
   });
 }
 
@@ -224,17 +236,16 @@ export async function loadSmr() {
   }
 }
 
-filterButtons.forEach((btn) => {
+chipButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
-    activeFilter = btn.dataset.filter;
-    saveFilters(activeFilter);
+    chips[btn.dataset.row] = btn.dataset.filter;
+    saveFilters(chips);
     applyFilter();
   });
 });
 
 // Search, dropdowns, Clear filters and the sort toggle all refetch with the
-// current controls; the state buttons above (Untouched, Short, Paper checked
-// and the rest) stay local.
+// current controls; the chip rows above stay local.
 installFilterControls(() => { void loadSmr(); });
 
 hoursBtn?.addEventListener("click", () => showHours(!hoursOpen));

@@ -23,7 +23,8 @@ const sortControl = document.getElementById("smr-sort");
 const SELECTS = [priorityFilter, supervisorFilter, technicianFilter, communityFilter];
 const TEXTS = [searchInput, locationSearch, taskSearch];
 
-// Keys are `currentParams` names; the state chip rides along as `chip`.
+// Keys are `currentParams` names; the three chip rows ride along as
+// `stage` / `pile` / `flags` (views/smr.js validates them against its rows).
 export const SMR_FILTERS_STORAGE_KEY = "smr.filters";
 const CONTROLS = {
   priority: priorityFilter, supervisorId: supervisorFilter,
@@ -44,11 +45,15 @@ for (const [key, control] of Object.entries(CONTROLS)) {
   if (control.value !== value) pendingSelect.set(control, value);
 }
 
-export function savedChip() { return typeof saved.chip === "string" ? saved.chip : null; }
+const CHIP_ROWS = ["stage", "pile", "flags"];
 
-export function saveFilters(chip = saved.chip) {
+export function savedChips() {
+  return Object.fromEntries(CHIP_ROWS.map((row) => [row, typeof saved[row] === "string" ? saved[row] : null]));
+}
+
+export function saveFilters(chips = savedChips()) {
   const { sort, ...filters } = currentParams();
-  saved = { ...filters, chip };
+  saved = { ...filters, ...chips };
   try { sessionStorage.setItem(SMR_FILTERS_STORAGE_KEY, JSON.stringify(saved)); } catch { /* ignore */ }
 }
 

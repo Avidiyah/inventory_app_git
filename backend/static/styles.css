@@ -5985,6 +5985,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 }
 #smr-page .smr-btn[disabled] { opacity: .5; cursor: wait; }
 #smr-page .smr-btn--export { margin-left: auto; }
+#smr-page .smr-controls-label { align-self: center; min-width: 3em; font-size: var(--fs-xs); font-weight: var(--fw-bold); color: var(--text-panel-mute); text-transform: uppercase; letter-spacing: .04em; }
 #smr-page .smr-sort { display: inline-flex; gap: var(--space-2); margin-left: auto; }
 #smr-page #smr-message { min-height: 1.2em; margin: 0 0 var(--space-2); font-size: var(--fs-sm); }
 
@@ -6013,24 +6014,29 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     transition: transform .08s ease, box-shadow .08s ease;
 }
 #smr-page .smr-tile:active { transform: translateY(3px); }
-/* Untouched = red (still to do), edited = green (done); the same keycap
-   wall + glow as .wo-card-status-assigned / -review. */
-#smr-page .smr-tile--untouched {
+/* Outline by paper stage, always with the pill's words (spec 2026-11-06):
+   not reviewed = red, reviewed undated = amber, reviewed dated = neutral,
+   ready for invoice = green. Red and green keep the keycap wall + glow of
+   .wo-card-status-assigned / -review; amber is the second status-accent
+   exception on a surface (docs/design-system.md). */
+#smr-page .smr-tile--not_reviewed {
     border-color: #B91C1C;
     box-shadow: 0 4px 0 0 #991B1B, 0 6px 16px -6px rgba(185, 28, 28, .45), var(--shadow-card);
 }
-#smr-page .smr-tile--untouched:active { box-shadow: 0 1px 0 0 #991B1B, 0 2px 6px -2px rgba(185, 28, 28, .35), var(--shadow-card); }
-#smr-page .smr-tile--edited {
+#smr-page .smr-tile--not_reviewed:active { box-shadow: 0 1px 0 0 #991B1B, 0 2px 6px -2px rgba(185, 28, 28, .35), var(--shadow-card); }
+#smr-page .smr-tile--undated { border-color: var(--status-dispense-text); box-shadow: var(--shadow-card); }
+#smr-page .smr-tile--dated { border-color: var(--panel-border); box-shadow: var(--shadow-card); }
+#smr-page .smr-tile--ready {
     border-color: #15803D;
     box-shadow: 0 4px 0 0 #166534, 0 6px 16px -6px rgba(21, 128, 61, .45), var(--shadow-card);
 }
-#smr-page .smr-tile--edited:active { box-shadow: 0 1px 0 0 #166534, 0 2px 6px -2px rgba(21, 128, 61, .35), var(--shadow-card); }
-#smr-page .smr-tile--archived { border-style: dashed; opacity: .7; box-shadow: var(--shadow-card); }
+#smr-page .smr-tile--ready:active { box-shadow: 0 1px 0 0 #166534, 0 2px 6px -2px rgba(21, 128, 61, .35), var(--shadow-card); }
+#smr-page .smr-tile--archived { border-style: dashed; opacity: .7; }
 #smr-page .smr-tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); width: 100%; margin-bottom: var(--space-1); }
 #smr-page .smr-tile-weeks { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 #smr-page .smr-week,
-#smr-page .smr-tile-state,
-#smr-page .smr-tile-paper {
+#smr-page .smr-tile-stage,
+#smr-page .smr-tile-belfor {
     display: inline-block;
     padding: 1px var(--space-2);
     border-radius: var(--radius-pill);
@@ -6041,16 +6047,18 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 }
 #smr-page .smr-week { background-color: var(--panel-hover); border: 1px solid var(--panel-border); color: var(--text-panel); }
 #smr-page .smr-week--undated { background-color: transparent; border-style: dashed; color: var(--text-panel-mute); }
-#smr-page .smr-tile-state { color: var(--color-white); background-color: var(--gray-500); }
-#smr-page .smr-tile--untouched .smr-tile-state { background-color: #B91C1C; }
-#smr-page .smr-tile--edited .smr-tile-state { background-color: #15803D; }
+#smr-page .smr-tile-stage { color: var(--color-white); background-color: var(--gray-500); }
+#smr-page .smr-tile--not_reviewed .smr-tile-stage { background-color: #B91C1C; }
+#smr-page .smr-tile--undated .smr-tile-stage { background-color: var(--status-dispense); }
+#smr-page .smr-tile--ready .smr-tile-stage { background-color: #15803D; }
 #smr-page .smr-tile-number { font-size: var(--fs-lg); font-weight: var(--fw-bold); }
 #smr-page .smr-tile-where { color: var(--text-panel-mute); }
 #smr-page .smr-tile-delta { font-size: var(--fs-xl); font-weight: var(--fw-bold); margin: var(--space-1) 0; }
 #smr-page .smr-tile-target { font-weight: var(--fw-semibold); }
 #smr-page .smr-tile--matched .smr-tile-target { color: var(--color-success); }
 #smr-page .smr-tile-meta { font-size: var(--fs-xs); color: var(--text-panel-mute); }
-#smr-page .smr-tile-paper { margin-top: var(--space-1); border: 1px solid var(--panel-border); color: var(--text-panel); }
+#smr-page .smr-tile-bottom { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); width: 100%; margin-top: var(--space-1); }
+#smr-page .smr-tile-belfor { border: 1px solid var(--panel-border); color: var(--text-panel); }
 #smr-page .smr-empty {
     grid-column: 1 / -1;
     padding: var(--space-6);
