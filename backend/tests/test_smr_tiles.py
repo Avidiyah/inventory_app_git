@@ -14,7 +14,8 @@ from app.models import Item, User
 from app.services import auth
 from app.services import work_orders as wos
 from app.services import work_orders_smr as smr_service
-from app.schemas.work_orders_smr_lines import SmrLineIn
+from app.domain import work_orders_smr_lines as rules
+from app.schemas.work_orders_smr_lines import SmrLineEditIn, SmrLineIn, SmrReadingIn
 from app.services import work_orders_smr_lines as lines_service
 
 
@@ -48,7 +49,7 @@ def test_smr_tiles_before_after_delta(db):
     assert mine[numbers[1]].before.total == Decimal("0.00")
     assert mine[numbers[0]].delta.total == Decimal(0)
     assert page.tiles.index(mine[numbers[1]]) < page.tiles.index(mine[numbers[0]])
-    assert page.counts.orders >= 2 and page.counts.edited >= 1
+    assert page.counts.orders >= 2
     assert page.delta.labor_total >= wo.labor_charge(45)
     assert page.imported_at is not None
 
@@ -162,7 +163,6 @@ def test_smr_tiles_carry_target_and_match_counts(db):
     assert mine[short].target.matched is False and mine[short].target.remaining_hours == Decimal(2)
     assert mine[short].target.remaining_materials_total == Decimal("67.16")
     assert mine[matched].target.matched is True and mine[matched].target.current_hours == Decimal("0.5")
-    assert page.counts.matched >= 1 and page.counts.short >= 1 and page.counts.no_target >= 1
     assert page.remaining.hours >= Decimal(2) and page.remaining.materials_total >= Decimal("67.16")
 
 
@@ -188,9 +188,7 @@ def test_smr_tiles_carry_paper_check_and_counts(db):
     assert mine[short_open].paper_check is None
     assert mine[short_checked].paper_check.checked_by_name == owner.full_name
     assert mine[none_checked].paper_check is not None
-    assert page.counts.paper_checked - before.paper_checked == 3
-    assert page.counts.short_checked - before.short_checked == 1
-    assert page.counts.short == before.short  # Short keeps its meaning (D3)
+    assert page.counts.orders == before.orders  # the check moves no count (spec 2026-11-06)
 
 
 # --- paper-correction lines (spec 2026-11-04 D9) ----------------------------
@@ -227,7 +225,7 @@ def test_smr_tiles_carry_lines_and_the_counts_and_filters_follow(db):
     assert tile.lines.change_hours == Decimal("1.0") and tile.lines.block_version is None and tile.lines.block_stale is False
     assert tile.after.labor_total == Decimal("125.00") and tile.after.skilled_minutes == 600
     assert tile.target.current_hours == Decimal("2.0") and tile.target.matched is True
-    assert page.counts.with_lines >= 1 and page.counts.blocks_not_pasted >= 1
+    assert page.counts.blocks_not_pasted >= 1
     assert page.counts.charged_hours >= Decimal("2.0") and page.counts.excluded_hours >= Decimal("1.0")
 
     block = lines_service.generate_block(db, work_order_id=order.id, user=owner)
@@ -239,3 +237,93 @@ def test_smr_tiles_carry_lines_and_the_counts_and_filters_follow(db):
     pasted = next(t for t in smr_service.list_smr_tiles(db).tiles if t.number == with_lines)
     assert (pasted.lines.block_version, pasted.lines.block_stale) == (1, False) and pasted.lines.block_pasted_at is not None
     assert with_lines not in _numbers(smr_service.list_smr_tiles(db, block_stale_or_unpasted=True))
+
+
+# --- paper stage (spec 2026-11-06-smr-paper-stage) ---------------------------
+
+def _staged(db, owner, *, reading=True):
+    number = f"SMR-{uuid.uuid4().hex[:8]}"
+    smr_service.import_smr(db, csv_bytes=_sheet([number]), user=owner)
+    order = wos.find_by_number(db, number)
+    if reading:
+        lines_service.add_reading(db, work_order_id=order.id, payload=SmrReadingIn(printing_no=1), user=owner)
+    return order
+
+
+def _tile(db, order):
+    return next(t for t in smr_service.list_smr_tiles(db).tiles if t.number == order.number)
+
+
+def test_stage_not_reviewed_without_readings(db):
+    owner = _user(db)
+    order = _staged(db, owner, reading=False)
+    page = smr_service.list_smr_tiles(db)
+    tile = next(t for t in page.tiles if t.number == order.number)
+    assert tile.stage == "not_reviewed"
+    assert tile.closed_week == "Before W1"  # the fixture closes 05/21
+    assert tile.belfor_only is False and tile.ready is None
+    assert page.counts.not_reviewed >= 1
+
+
+def test_stage_undated_with_a_reading_and_no_dated_line(db):
+    owner = _user(db)
+    order = _staged(db, owner)
+    assert _tile(db, order).stage == "undated"  # the reading alone
+    lines_service.add_line(db, work_order_id=order.id,
+                           payload=_line_in(work_date=None, status="excluded", exclusion_ground="undated"), user=owner)
+    tile = _tile(db, order)
+    assert tile.stage == "undated" and tile.closed_week == "Before W1"
+
+
+def test_stage_dated_by_any_week_charged_or_excluded(db):
+    owner = _user(db)
+    order = _staged(db, owner)
+    lines_service.add_line(db, work_order_id=order.id,
+                           payload=_line_in(work_date=date(2026, 6, 2), status="excluded", exclusion_ground="note only"), user=owner)
+    tile = _tile(db, order)
+    assert tile.stage == "dated" and "Week 2" in tile.weeks and tile.closed_week is None
+
+    placed = _staged(db, owner)
+    lines_service.add_line(db, work_order_id=placed.id,
+                           payload=_line_in(work_date=None, date_basis=rules.WEEK1_PLACEMENT_BASIS), user=owner)
+    assert _tile(db, placed).stage == "dated"
+
+
+def test_removed_lines_do_not_count(db):
+    owner = _user(db)
+    order = _staged(db, owner)
+    line = lines_service.add_line(db, work_order_id=order.id, payload=_line_in(), user=owner)
+    assert _tile(db, order).stage == "dated"
+    lines_service.edit_line(db, line_id=line.id,
+                            payload=SmrLineEditIn(status="excluded", exclusion_ground="removed", reason="x"), user=owner)
+    tile = _tile(db, order)
+    assert tile.stage == "undated" and tile.belfor_only is False
+
+
+def test_belfor_only(db):
+    owner = _user(db)
+    order = _staged(db, owner)
+    assert _tile(db, order).belfor_only is False  # no lines
+    lines_service.add_line(db, work_order_id=order.id, payload=_line_in(), user=owner)
+    lines_service.add_line(db, work_order_id=order.id, payload=_line_in(hours_each=Decimal("0.5")), user=owner)
+    page = smr_service.list_smr_tiles(db)
+    assert next(t for t in page.tiles if t.number == order.number).belfor_only is True
+    assert page.counts.belfor_only >= 1
+    lines_service.add_line(db, work_order_id=order.id,
+                           payload=_line_in(vendor="Unknown", status="excluded", exclusion_ground="vendor unknown"), user=owner)
+    assert _tile(db, order).belfor_only is False
+
+
+def test_ready_stage_needs_a_dated_line(db):
+    owner = _user(db)
+    order = _staged(db, owner)
+    line = lines_service.add_line(db, work_order_id=order.id, payload=_line_in(), user=owner)
+    order.smr_ready_at = datetime(2026, 11, 8, 12, tzinfo=timezone.utc)
+    order.smr_ready_by_id = owner.id
+    db.commit()
+    tile = _tile(db, order)
+    assert tile.stage == "ready" and tile.ready.by_name == owner.full_name
+    lines_service.edit_line(db, line_id=line.id,
+                            payload=SmrLineEditIn(status="excluded", exclusion_ground="removed", reason="x"), user=owner)
+    tile = _tile(db, order)
+    assert tile.stage == "undated" and tile.ready is not None

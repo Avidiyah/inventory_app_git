@@ -437,6 +437,12 @@ class WorkOrder(Base):
     smr_paper_checked_by_id = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # Ready for invoice (spec 2026-11-06-smr-paper-stage): a person's stamp,
+    # never derived; shown only while the order has a dated line.
+    smr_ready_at = Column(DateTime(timezone=True), nullable=True)
+    smr_ready_by_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     # The account a work order is routed to. Set by name-match at import
     # or manually by Supervisor+; drives Supervisor visibility alongside worker
     # assignment membership.
@@ -488,6 +494,7 @@ class WorkOrder(Base):
     assignee = relationship("User", foreign_keys=[assigned_to_id], viewonly=True)
     supervisor = relationship("User", foreign_keys=[supervisor_id], viewonly=True)
     smr_paper_checked_by = relationship("User", foreign_keys=[smr_paper_checked_by_id], viewonly=True)
+    smr_ready_by = relationship("User", foreign_keys=[smr_ready_by_id], viewonly=True)
     # SMR27 paper corrections (spec 2026-11-04), tables in `models_smr.py`.
     # Lazy by default: only SMR orders ever have rows, and the readers that
     # walk many orders (`work_order_totals`, the tile list) consult them only

@@ -35,6 +35,7 @@ from app.schemas.work_orders_smr import (
     SmrFilterOptions,
     SmrImportResult,
     SmrPaperCheckOut,
+    SmrReadyOut,
     SmrRemaining,
     SmrTargetImportResult,
     SmrTargetOut,
@@ -340,20 +341,36 @@ def _tile_lines(work_order: WorkOrder) -> Optional[SmrTileLines]:
 
 
 def _tile_weeks(lines) -> list[str]:
-    """Week labels of the order's lines (removed ones aside), dated weeks in
-    order and "Undated" last; "Undated" alone when nothing is keyed."""
-    weeks = {line.week for line in lines if line.exclusion_ground != rules.GROUND_REMOVED}
+    """Week labels of the order's lines (already without removed ones), dated
+    weeks in order and "Undated" last; "Undated" alone when nothing is keyed."""
+    weeks = {line.week for line in lines}
     labels = [rules.week_label(w) for w in sorted(w for w in weeks if w is not None)]
     if None in weeks or not labels:
         labels.append("Undated")
     return labels
 
 
+def closed_week(work_order: WorkOrder) -> Optional[str]:
+    """Week label of the NetFacilities close date: the sheet's COMPLETION DATE
+    kept in the baseline's source row (the import never sets `completed_at`);
+    None without one."""
+    row = (work_order.smr_baseline or {}).get("source_row") or {}
+    try:
+        day = rules.parse_date(row.get("COMPLETION DATE") or None, where="close date")
+    except WorkOrderStateError:
+        day = None
+    if day is None and work_order.completed_at:
+        day = work_order.completed_at.date()
+    return rules.week_label(rules.week_of(day)) if day else None
+
+
 def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTile:
     baseline = work_order.smr_baseline or current_snapshot(work_order, now=now)
     current = current_snapshot(work_order, now=now)
     d = smr.deltas(baseline, current)
-    lines = smr.correction_lines(work_order)
+    lines = [l for l in smr.correction_lines(work_order) if l.exclusion_ground != rules.GROUND_REMOVED]
+    stage = rules.stage_for(work_order.smr_readings, lines, work_order.smr_ready_at)
+    undated = stage in (rules.STAGE_UNDATED, rules.STAGE_NOT_REVIEWED)
     return SmrTile(
         id=work_order.id,
         number=work_order.number,
@@ -365,6 +382,10 @@ def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTil
         archived_at=work_order.archived_at,
         edited=smr.is_edited(work_order) or bool(lines),
         weeks=_tile_weeks(lines),
+        stage=stage,
+        closed_week=closed_week(work_order) if undated else None,
+        belfor_only=rules.belfor_only(lines),
+        ready=SmrReadyOut.from_order(work_order),
         before=_totals(baseline),
         after=_totals(current),
         delta=SmrTotals(
@@ -390,9 +411,7 @@ def list_smr_tiles(
     paper-correction switches."""
     population = smr_orders(db)
     all_tiles = [tile_for(order) for order in population]
-    edited = sum(1 for t in all_tiles if t.edited)
     targeted = [t.target for t in all_tiles if t.target is not None]
-    matched = sum(1 for t in targeted if t.matched)
     with_lines = [t.lines for t in all_tiles if t.lines is not None]
     shown = [tile_for(o) for o in filtered_smr_orders(db, **filters)]
     if has_lines:
@@ -403,15 +422,9 @@ def list_smr_tiles(
         imported_at=max((o.smr_imported_at for o in population), default=None),
         counts=SmrCounts(
             orders=len(all_tiles),
-            edited=edited,
-            untouched=len(all_tiles) - edited,
             archived=sum(1 for t in all_tiles if t.archived_at is not None),
-            matched=matched,
-            short=len(targeted) - matched,
-            no_target=len(all_tiles) - len(targeted),
-            paper_checked=sum(1 for t in all_tiles if t.paper_check),
-            short_checked=sum(1 for t in all_tiles if t.paper_check and t.target and not t.target.matched),
-            with_lines=len(with_lines),
+            **{stage: sum(1 for t in all_tiles if t.stage == stage) for stage in rules.STAGES},
+            belfor_only=sum(1 for t in all_tiles if t.belfor_only),
             charged_hours=sum((l.charged_hours for l in with_lines), Decimal(0)),
             excluded_hours=sum((l.excluded_hours for l in with_lines), Decimal(0)),
             blocks_not_pasted=sum(1 for l in with_lines if _block_pending(l)),

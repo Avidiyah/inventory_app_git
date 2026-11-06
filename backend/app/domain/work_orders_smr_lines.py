@@ -118,6 +118,26 @@ def week_for(work_date: Optional[date], date_basis: str, week: Optional[int] = N
     return week if date_basis == WEEK_PLACEMENT_BASIS else None
 
 
+# --- paper stage (spec 2026-11-06) -----------------------------------------
+
+STAGE_READY, STAGE_DATED, STAGE_UNDATED, STAGE_NOT_REVIEWED = "ready", "dated", "undated", "not_reviewed"
+STAGES: tuple[str, ...] = (STAGE_NOT_REVIEWED, STAGE_UNDATED, STAGE_DATED, STAGE_READY)
+
+
+def stage_for(readings, lines, ready_at) -> str:
+    """Where the order's paper stands; `lines` already without removed ones.
+    A Ready stamp only shows while a line still carries a week."""
+    if any(line.week is not None for line in lines):
+        return STAGE_READY if ready_at is not None else STAGE_DATED
+    return STAGE_UNDATED if readings else STAGE_NOT_REVIEWED
+
+
+def belfor_only(lines) -> bool:
+    """At least one line and every one is Belfor's."""
+    lines = list(lines)
+    return bool(lines) and all(line.vendor == "Belfor" for line in lines)
+
+
 # --- worth ---------------------------------------------------------------
 
 def line_hours(line) -> Decimal:

@@ -48,6 +48,20 @@ class SmrPaperCheckIn(BaseModel):
     checked: bool
 
 
+class SmrReadyOut(BaseModel):
+    """Who marked an SMR order ready for invoice, and when (spec 2026-11-06)."""
+
+    at: datetime
+    by_name: Optional[str] = None
+
+    @classmethod
+    def from_order(cls, work_order) -> Optional["SmrReadyOut"]:
+        if work_order.smr_ready_at is None:
+            return None
+        who = work_order.smr_ready_by
+        return cls(at=work_order.smr_ready_at, by_name=who.full_name if who else None)
+
+
 class SmrTotals(BaseModel):
     materials_total: Decimal
     real_minutes: int
@@ -86,6 +100,14 @@ class SmrTile(BaseModel):
     # Invoice weeks the order's paper lines fall in ("Before W1", "Week 3",
     # "After W7"), in order, "Undated" last; `["Undated"]` with no lines.
     weeks: list[str] = Field(default_factory=list)
+    # Paper stage: not_reviewed | undated | dated | ready (rules.stage_for).
+    stage: str
+    # Week label of the NetFacilities close date, for undated stages only.
+    closed_week: Optional[str] = None
+    # Every non-removed line is Belfor's (and there is at least one).
+    belfor_only: bool = False
+    # The Ready stamp, kept even while the stage has fallen back to undated.
+    ready: Optional[SmrReadyOut] = None
     before: SmrTotals
     after: SmrTotals
     delta: SmrTotals
@@ -100,19 +122,15 @@ class SmrTile(BaseModel):
 
 class SmrCounts(BaseModel):
     orders: int
-    edited: int
-    untouched: int
     archived: int
-    # `short` = has a target and is not matched; `no_target` has no row.
-    matched: int = 0
-    short: int = 0
-    no_target: int = 0
-    # Marked keyed from paper; `short_checked` = short and marked.
-    paper_checked: int = 0
-    short_checked: int = 0
-    # Paper corrections: orders with any line, their hours, and orders with
-    # lines whose latest block is missing, not yet pasted or stale.
-    with_lines: int = 0
+    # Paper stage counts over every SMR order (spec 2026-11-06).
+    not_reviewed: int = 0
+    undated: int = 0
+    dated: int = 0
+    ready: int = 0
+    belfor_only: int = 0
+    # Paper corrections: line hours, and orders with lines whose latest block
+    # is missing, not yet pasted or stale.
     charged_hours: Decimal = Decimal(0)
     excluded_hours: Decimal = Decimal(0)
     blocks_not_pasted: int = 0
