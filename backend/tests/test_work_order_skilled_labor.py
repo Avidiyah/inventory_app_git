@@ -6,7 +6,7 @@ Hub's per-person billing."""
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -15,8 +15,10 @@ from app.domain import work_orders as wo
 from app.domain.errors import InvalidAssigneeError, RoleManagementError
 from app.models import User
 from app.routers.work_orders import _detail, _labor_detail
+from app.schemas.work_orders_smr_lines import SmrLineIn, SmrReadingIn
 from app.services import auth, hub
 from app.services import work_orders as wos
+from app.services import work_orders_smr_lines as lines_service
 
 
 def _user(db, role):
@@ -140,3 +142,37 @@ def test_detail_target_absent_without_target(db):
     admin = _user(db, "admin")
     order = _order(db, admin)
     assert _detail(wos.get_work_order(db, order.id, user=admin), include_price=True).smr_target is None
+
+
+# --- paper-correction lines (spec 2026-11-04 D9) ----------------------------
+
+def test_detail_and_totals_charge_lines_only_and_report_legacy_minutes_apart(db):
+    admin = _user(db, "admin")
+    order = _order(db, admin)
+    order.smr_target = {"imported_at": None, "hours": "1", "labor_total": "62.50", "materials_total": "0.00", "total": "62.50", "source_row": {}}
+    db.flush()
+    wos.add_work_order_labor(db, order.id, user=admin, technician_id=admin.id, minutes=20)
+    wos.add_work_order_labor(db, order.id, user=admin, technician_id=None, minutes=10)
+    untouched = _detail(wos.get_work_order(db, order.id, user=admin), include_price=True)
+    assert untouched.labor_total == wo.labor_charge(30) * 2 and untouched.smr_legacy_labor_minutes == 0
+    assert (untouched.smr_lines, untouched.smr_readings, untouched.smr_block) == ([], [], None)
+    assert untouched.smr_target.current_hours == Decimal("1.0")
+
+    reading = lines_service.add_reading(db, work_order_id=order.id, payload=SmrReadingIn(printing_no=1, hours_as_read=Decimal("2.0")), user=admin)
+    lines_service.add_line(db, work_order_id=order.id, payload=SmrLineIn(
+        reading_id=reading.id, vendor="Belfor", hours_each=Decimal("2.0"), reason_code="accurate", work_date=date(2026, 6, 20), reason="paper",
+    ), user=admin)
+    lines_service.generate_block(db, work_order_id=order.id, user=admin)
+
+    detail = _detail(wos.get_work_order(db, order.id, user=admin), include_price=True)
+    assert detail.labor_total == Decimal("125.00") and detail.smr_legacy_labor_minutes == 30
+    assert (detail.labor_minutes, detail.skilled_labor_minutes) == (20, 10)  # the legacy record, still listed
+    assert [line.hours for line in detail.smr_lines] == [Decimal("2.0")] and detail.smr_readings[0].id == reading.id
+    assert detail.smr_block.version == 1 and detail.smr_block.text.startswith("SMR27 LABOR CORRECTION v1")
+    assert detail.smr_target.current_hours == Decimal("2.0") and detail.smr_target.matched is True
+    totals = wos.work_order_totals(wos.get_work_order(db, order.id, user=admin))
+    assert (totals.labor_total, totals.labor_minutes, totals.legacy_labor_minutes) == (Decimal("125.00"), 120, 30)
+
+    redacted = _detail(wos.get_work_order(db, order.id, user=admin), include_price=False)
+    assert redacted.labor_total is None and redacted.smr_block.text is None and redacted.smr_block.version == 1
+    assert redacted.smr_legacy_labor_minutes == 30

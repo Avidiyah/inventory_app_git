@@ -57,6 +57,7 @@ from app.models import User, WorkOrder, WorkOrderItem, WorkOrderLabor
 from app.routers._errors import to_http
 from app.routers._stock_events import emit_user_request_changed, flush_stock_events
 from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_capped
+from app.schemas.work_orders_smr_lines import SmrLineOut, SmrReadingOut
 from app.schemas.work_orders import (
     LegacyWorkOrderArchivePreview,
     LegacyWorkOrderArchiveResult,
@@ -88,6 +89,7 @@ from app.services import notifications as notifications_service
 from app.services import realtime as realtime_service
 from app.services import work_order_signature as signature_service
 from app.services import work_orders as wo_service
+from app.services import work_orders_smr_lines as smr_lines_service
 
 logger = logging.getLogger(__name__)
 
@@ -529,11 +531,17 @@ def _detail(
         else None
     )
     materials_total = _materials_total(work_order)
+    # Labor money follows the governing record: the legacy split, or the
+    # paper-correction lines once an SMR order has any (spec 2026-11-04 D9);
+    # the legacy minutes are then reported apart, not charged.
+    corrections = smr.correction_lines(work_order)
+    figures = smr.labor_figures(labor_entries, corrections)
     gap = smr.target_gap(
         getattr(work_order, "smr_target", None),
-        billed_minutes=split.real_billed + split.skilled_billed,
+        billed_minutes=figures.billed_minutes,
         materials_total=materials_total,
     )
+    is_smr = getattr(work_order, "smr_imported_at", None) is not None
     return WorkOrderDetail(
         **_card(work_order).model_dump(),
         notes=work_order.notes,
@@ -556,10 +564,14 @@ def _detail(
         skilled_labor_minutes=split.skilled_minutes,
         skilled_labor_billed_minutes=split.skilled_billed,
         labor_rate=wo.LABOR_RATE if include_price else None,
-        labor_total=split.labor_total if include_price else None,
+        labor_total=figures.labor_total if include_price else None,
         signature=_signature_out(work_order),
         smr_target=SmrTargetOut.from_gap(gap, include_price=include_price) if gap else None,
-        smr_paper_check=SmrPaperCheckOut.from_order(work_order) if getattr(work_order, "smr_imported_at", None) else None,
+        smr_paper_check=SmrPaperCheckOut.from_order(work_order) if is_smr else None,
+        smr_readings=[SmrReadingOut.from_row(r) for r in work_order.smr_readings] if is_smr else [],
+        smr_lines=[SmrLineOut.from_row(line) for line in corrections],
+        smr_legacy_labor_minutes=figures.legacy_minutes,
+        smr_block=smr_lines_service.latest_block(work_order, include_price=include_price) if is_smr else None,
     )
 
 

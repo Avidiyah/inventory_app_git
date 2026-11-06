@@ -64,8 +64,11 @@ TIE_COUNTED_GROUNDS: tuple[str, ...] = (
     GROUND_UNDATED, "before Week 1", "after 07/12 (no invoices)",
 )
 
+# `as_read`: the line records what the paper says, no finding behind it. The
+# import fills it where paper_lines.csv left the code blank (user 2026-11-06).
+REASON_AS_READ = "as_read"
 REASON_CODES: tuple[str, ...] = (
-    "crew_as_one", "crew_as_individuals", "arithmetic", "overhead_added", "overhead_twice",
+    REASON_AS_READ, "crew_as_one", "crew_as_individuals", "arithmetic", "overhead_added", "overhead_twice",
     "accurate", "over_billed", "not_on_paper", "unit_mismatch", "date_found",
     "manual_check", "awaiting_invoice", "belfor_only", "time_gap", "held_out",
     "hours_on_paper_above_billed",
@@ -294,7 +297,8 @@ def parse_reading_row(row: dict) -> dict:
 
 def parse_line_row(row: dict) -> dict:
     """One `paper_lines.csv` row, validated against the vocabulary above.
-    `date_basis` defaults to `paper`; `week` is derived, never read."""
+    `date_basis` defaults to `paper`, `reason_code` to `as_read`; `week` is
+    derived, never read."""
     line_id = _text(row, "line_id")
     if line_id is None:
         raise WorkOrderStateError("A line row has no line_id.")
@@ -320,7 +324,7 @@ def parse_line_row(row: dict) -> dict:
         "headcount": int(headcount_text),
         "hours_each": hours_each,
         "kind": ", ".join(kinds_of(row.get("kind") or "")) or "field",
-        "reason_code": _text(row, "reason_code") or "",
+        "reason_code": _text(row, "reason_code") or REASON_AS_READ,
         "status": (_text(row, "status") or "").casefold(),
         "exclusion_ground": _text(row, "exclusion_ground"),
         "note": _text(row, "note"),

@@ -380,3 +380,15 @@ def test_parse_rows_accept_the_draft_columns_and_name_bad_cells():
     with pytest.raises(WorkOrderStateError, match="Reading R8.*not a date"):
         lines_rules.parse_reading_row({"reading_id": "R8", "wo": "1", "printing_no": "1", "work_date": "June",
                                        "hours_as_read": "", "raw_note": ""})
+
+
+def test_a_blank_reason_code_is_taken_as_read():
+    # User 2026-11-06: paper_lines.csv carries no code on most lines; the
+    # import fills `as_read` rather than refusing or storing a blank.
+    line = lines_rules.parse_line_row({
+        "line_id": "L12", "reading_id": "R7", "wo": "23281563", "work_date": "2026-06-20", "vendor": "Belfor",
+        "worker": "", "headcount": "1", "hours_each": "2", "kind": "field", "status": "charged",
+        "exclusion_ground": "", "reason_code": "  ",
+    })
+    assert line["reason_code"] == lines_rules.REASON_AS_READ == "as_read"
+    assert lines_rules.REASON_AS_READ in lines_rules.REASON_CODES

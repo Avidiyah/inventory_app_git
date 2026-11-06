@@ -377,9 +377,12 @@ that needs a human read. Rules the notes forced, which Step 0 and the import mus
   feeds the total (decision 14, user 2026-11-05).
 
 Sheet layout (one row per charge line, order columns repeated, `First line` flag, SUMIFS totals on row 1;
-Orders tab = one row per order; Readings tab = the verdict rows verbatim with the parse result): the spike
-workbook is in the session scratchpad; promoting its script to `paper_lines.py` in this folder is the Step 0
-build once the user approves the layout.
+Orders tab = one row per order; Readings tab = the verdict rows verbatim with the parse result). **Built 2026-11-06**
+(user approved the layout): `paper_lines.py` + `smr_people.py` write `Deliverable Batch\paper_readings.csv` and
+`paper_lines.csv`; `paper_import_sheet.py` writes `Deliverable Batch\SMR27 Paper Import Sheet.xlsx`. Readings the
+parser cannot tie are settled by the user in `paper_lines.FIX`, keyed `(wo, printing_no)`. Still open before the
+load: Centennial 631, and the per-week differences against the delivered Week Reports (see the Workflow doc,
+2026-11-06).
 
 ## Builder check (2026-11-04, read inline; no subagent)
 
@@ -404,3 +407,9 @@ not blocking: Cimarron J6 needs an order number before its crew-sheet rows can b
 - 2026-11-06 · Line vocabulary (vendors, kinds, grounds, reason codes, date bases), the status rules, `week_of`, the tie check and the CSV row parsers live in `domain/work_orders_smr_lines.py`, a module the design does not name: `domain/work_orders_smr.py` (324 lines) has no room and `domain/work_orders_smr_block.py` is the renderer.
 - 2026-11-06 · `vendor unknown` added to the exclusion-ground tuple (user; decision 10 names it, the draft list lacked it). `kind` is stored as given, a comma list validated token by token (user).
 - 2026-11-06 · User FKs the design leaves unspecified (`created_by_id`, `updated_by_id`, `generated_by_id`, `pasted_by_id`, and `smr_labor_lines.reading_id`) are `ON DELETE SET NULL`; `smr_line_edits.edited_by_id` is a plain not-null FK like `attendance_punch_edits`.
+- 2026-11-06 · `as_read` added to the seed reason codes ("hours as read on the paper"); the import fills it where `paper_lines.csv` leaves `reason_code` blank (1,736 of 1,774 lines; user 2026-11-06, over regenerating the CSV or allowing a blank). The seed list is builder-extendable by design.
+- 2026-11-06 · Blank `date_basis` on an excluded line is stored as `paper` (user 2026-11-06; 575 such lines in the current CSV).
+- 2026-11-06 · A line's worker must be live (not merged away) and of the line's vendor, checked in `add_line` / `edit_line`; the design is silent, and the Hours tab's vendor × week would otherwise disagree with the worker's own vendor.
+- 2026-11-06 · A worker merge writes one `worker_id` history row per re-pointed line (old and new ids as text); the design asks for a row per line without naming the field.
+- 2026-11-06 · The SMR page's "Has lines" and "Block stale / not pasted" filters are `has_lines` and `block_stale_or_unpasted` boolean query params on `GET /work-orders/smr`, applied after the list's own predicates.
+- 2026-11-06 · The Breakdown rows for the third upload come from `C:\Users\mcclu\Desktop\SMR27 Work Order Breakdown & Labor Hours.xlsx` (sheet `Work Order Breakdown`, 690 rows, 4,455.5 h), exported to `Deliverable Batch\breakdown.csv` (user 2026-11-06); the Paper Import Sheet workbook has no Breakdown sheet.

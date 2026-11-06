@@ -129,4 +129,5 @@ def test_a_changed_line_changes_the_digest_and_order_does_not():
 
 def test_reason_text_falls_back_to_the_code_in_words():
     assert block.reason_text("crew_as_one") == "crew billed as one person"
+    assert block.reason_text("as_read") == "hours as read on the paper"
     assert block.reason_text("some_new_code") == "some new code"

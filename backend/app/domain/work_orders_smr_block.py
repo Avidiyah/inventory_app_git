@@ -39,6 +39,7 @@ WIDTH = receipt.PRICING_LINE_WIDTH
 # The reason printed under a charge, by reason code. An unknown code prints
 # as its own words with the underscores dropped.
 REASON_TEXT: dict[str, str] = {
+    "as_read": "hours as read on the paper",
     "crew_as_one": "crew billed as one person",
     "crew_as_individuals": "crew members added up, over-counted",
     "arithmetic": "paper total was wrong; lines as read",

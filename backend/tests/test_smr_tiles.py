@@ -14,6 +14,8 @@ from app.models import Item, User
 from app.services import auth
 from app.services import work_orders as wos
 from app.services import work_orders_smr as smr_service
+from app.schemas.work_orders_smr_lines import SmrLineIn
+from app.services import work_orders_smr_lines as lines_service
 
 
 def _user(db, role=roles.ROLE_OWNER):
@@ -189,3 +191,46 @@ def test_smr_tiles_carry_paper_check_and_counts(db):
     assert page.counts.paper_checked - before.paper_checked == 3
     assert page.counts.short_checked - before.short_checked == 1
     assert page.counts.short == before.short  # Short keeps its meaning (D3)
+
+
+# --- paper-correction lines (spec 2026-11-04 D9) ----------------------------
+
+def _line_in(**overrides):
+    fields = dict(vendor="Belfor", hours_each=Decimal("2.0"), reason_code="accurate", work_date=date(2026, 6, 20), reason="paper")
+    fields.update(overrides)
+    return SmrLineIn(**fields)
+
+
+def test_smr_tiles_carry_lines_and_the_counts_and_filters_follow(db):
+    owner = _user(db)
+    with_lines, without = [f"SMR-{uuid.uuid4().hex[:8]}" for _ in range(2)]
+    smr_service.import_smr(db, csv_bytes=_sheet([with_lines, without]), user=owner)
+    smr_service.import_smr_targets(db, csv_bytes=_breakdown([(with_lines, "1", "$0.00")]), user=owner)
+    order = wos.find_by_number(db, with_lines)
+    wos.add_work_order_labor(db, order.id, user=owner, technician_id=None, minutes=600)  # legacy: listed, never charged
+    lines_service.add_line(db, work_order_id=order.id, payload=_line_in(), user=owner)
+    lines_service.add_line(db, work_order_id=order.id,
+                           payload=_line_in(work_date=None, hours_each=Decimal("1.0"), status="excluded", exclusion_ground="undated"),
+                           user=owner)
+
+    page = smr_service.list_smr_tiles(db)
+
+    mine = {t.number: t for t in page.tiles if t.number in (with_lines, without)}
+    assert mine[without].lines is None
+    tile = mine[with_lines]
+    assert (tile.lines.count, tile.lines.charged_hours, tile.lines.excluded_hours) == (2, Decimal("2.0"), Decimal("1.0"))
+    assert tile.lines.change_hours == Decimal("1.0") and tile.lines.block_version is None and tile.lines.block_stale is False
+    assert tile.after.labor_total == Decimal("125.00") and tile.after.skilled_minutes == 600
+    assert tile.target.current_hours == Decimal("2.0") and tile.target.matched is True
+    assert page.counts.with_lines >= 1 and page.counts.blocks_not_pasted >= 1
+    assert page.counts.charged_hours >= Decimal("2.0") and page.counts.excluded_hours >= Decimal("1.0")
+
+    block = lines_service.generate_block(db, work_order_id=order.id, user=owner)
+    only = _numbers(smr_service.list_smr_tiles(db, has_lines=True))
+    assert with_lines in only and without not in only
+    assert with_lines in _numbers(smr_service.list_smr_tiles(db, block_stale_or_unpasted=True))
+
+    lines_service.mark_pasted(db, block_id=block.id, user=owner)
+    pasted = next(t for t in smr_service.list_smr_tiles(db).tiles if t.number == with_lines)
+    assert (pasted.lines.block_version, pasted.lines.block_stale) == (1, False) and pasted.lines.block_pasted_at is not None
+    assert with_lines not in _numbers(smr_service.list_smr_tiles(db, block_stale_or_unpasted=True))

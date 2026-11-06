@@ -18,8 +18,17 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.domain import work_orders as wo
 from app.domain import work_orders_smr as smr
+from app.domain import work_orders_smr_lines as rules
 from app.domain.errors import WorkOrderNotFoundError, WorkOrderStateError
-from app.models import User, WorkOrder, WorkOrderItem, WorkOrderLabor, WorkOrderLaborSession, WorkOrderTechnician
+from app.models import (
+    SmrLaborLine,
+    User,
+    WorkOrder,
+    WorkOrderItem,
+    WorkOrderLabor,
+    WorkOrderLaborSession,
+    WorkOrderTechnician,
+)
 from app.schemas.work_orders_smr import (
     SmrCounts,
     SmrDelta,
@@ -30,10 +39,12 @@ from app.schemas.work_orders_smr import (
     SmrTargetImportResult,
     SmrTargetOut,
     SmrTile,
+    SmrTileLines,
     SmrTilesResponse,
     SmrTotals,
 )
 from app.services import work_orders as wos
+from app.services import work_orders_smr_lines as lines_service
 
 
 # --- import --------------------------------------------------------------
@@ -199,6 +210,9 @@ def _with_lines(query):
         selectinload(WorkOrder.labor_sessions).selectinload(WorkOrderLaborSession.technician),
         selectinload(WorkOrder.labor_sessions).selectinload(WorkOrderLaborSession.labor),
         selectinload(WorkOrder.smr_paper_checked_by),
+        selectinload(WorkOrder.smr_readings),
+        selectinload(WorkOrder.smr_lines).selectinload(SmrLaborLine.worker),
+        selectinload(WorkOrder.smr_blocks),
     )
 
 
@@ -291,12 +305,38 @@ def target_for(work_order: WorkOrder, current: dict) -> Optional[SmrTargetOut]:
     """The gap to the client's target from a current snapshot; None without one.
     Tiles and the export are Admin+/Owner, so money is never redacted here."""
     totals = current["totals"]
+    # The same labor figure the editor and `work_order_totals` use: the
+    # legacy split, or the charged lines once the order has any (D9).
+    figures = smr.labor_figures(work_order.labor_entries, smr.correction_lines(work_order))
     gap = smr.target_gap(
         work_order.smr_target,
-        billed_minutes=totals["real_billed_minutes"] + totals["skilled_billed_minutes"],
+        billed_minutes=figures.billed_minutes,
         materials_total=Decimal(totals["materials_total"]),
     )
     return SmrTargetOut.from_gap(gap, include_price=True) if gap else None
+
+
+def _block_pending(lines: SmrTileLines) -> bool:
+    """No block yet, not pasted, or the lines moved since: work left (spec 2026-11-04)."""
+    return lines.block_version is None or lines.block_pasted_at is None or lines.block_stale
+
+
+def _tile_lines(work_order: WorkOrder) -> Optional[SmrTileLines]:
+    lines = smr.correction_lines(work_order)
+    if not lines:
+        return None
+    charge = rules.lines_charge(lines)
+    block = lines_service.latest_block(work_order)
+    target = work_order.smr_target
+    return SmrTileLines(
+        count=charge.count,
+        charged_hours=charge.charged_hours,
+        excluded_hours=charge.excluded_hours,
+        change_hours=charge.charged_hours - Decimal(target["hours"]) if target else None,
+        block_version=block.version if block else None,
+        block_pasted_at=block.pasted_at if block else None,
+        block_stale=block.stale if block else False,
+    )
 
 
 def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTile:
@@ -325,19 +365,28 @@ def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTil
         after_line_count=len(current["material_lines"]),
         target=target_for(work_order, current),
         paper_check=SmrPaperCheckOut.from_order(work_order),
+        lines=_tile_lines(work_order),
     )
 
 
-def list_smr_tiles(db: Session, **filters) -> SmrTilesResponse:
+def list_smr_tiles(
+    db: Session, *, has_lines: bool = False, block_stale_or_unpasted: bool = False, **filters,
+) -> SmrTilesResponse:
     """The SMR page payload. `counts`, `delta` and `filter_options` always
     describe every SMR order; `tiles` (schedule-date order, see
-    `filtered_smr_orders`) and `matched` honour `filters`."""
+    `filtered_smr_orders`) and `matched` honour `filters`, then the two
+    paper-correction switches."""
     population = smr_orders(db)
     all_tiles = [tile_for(order) for order in population]
     edited = sum(1 for t in all_tiles if t.edited)
     targeted = [t.target for t in all_tiles if t.target is not None]
     matched = sum(1 for t in targeted if t.matched)
+    with_lines = [t.lines for t in all_tiles if t.lines is not None]
     shown = [tile_for(o) for o in filtered_smr_orders(db, **filters)]
+    if has_lines:
+        shown = [t for t in shown if t.lines is not None]
+    if block_stale_or_unpasted:
+        shown = [t for t in shown if t.lines is not None and _block_pending(t.lines)]
     return SmrTilesResponse(
         imported_at=max((o.smr_imported_at for o in population), default=None),
         counts=SmrCounts(
@@ -350,6 +399,10 @@ def list_smr_tiles(db: Session, **filters) -> SmrTilesResponse:
             no_target=len(all_tiles) - len(targeted),
             paper_checked=sum(1 for t in all_tiles if t.paper_check),
             short_checked=sum(1 for t in all_tiles if t.paper_check and t.target and not t.target.matched),
+            with_lines=len(with_lines),
+            charged_hours=sum((l.charged_hours for l in with_lines), Decimal(0)),
+            excluded_hours=sum((l.excluded_hours for l in with_lines), Decimal(0)),
+            blocks_not_pasted=sum(1 for l in with_lines if _block_pending(l)),
         ),
         remaining=SmrRemaining(
             hours=sum((t.remaining_hours for t in targeted), Decimal(0)),
