@@ -248,7 +248,7 @@ def test_generate_block_versions_and_goes_stale_when_lines_change(db):
     today = datetime.now(timezone.utc).astimezone(wo.NOTE_TIMEZONE).strftime("%m/%d/%y")
     assert first.version == 1 and first.stale is False and first.generated_by_name == "Pat Admin"
     assert first.text.startswith("SMR27 LABOR CORRECTION ") and today in first.text.split("\n")[0]
-    assert "06/20 Belfor" in first.text and "2.0 h" in first.text
+    assert "Week 4 Belfor" in first.text and "2.0 h" in first.text
     assert svc.latest_block(wos.find_by_number(db, order.number)).stale is False
 
     svc.edit_line(db, line_id=line.id, payload=SmrLineEditIn(hours_each=Decimal("1.0"), reason="re-read"), user=admin)

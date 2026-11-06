@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from typing import Optional, Sequence
 
@@ -34,7 +34,6 @@ from app.domain import work_orders as wo
 from app.domain.work_orders_smr_lines import (
     GROUND_REMOVED,
     STATUS_CHARGED,
-    WEEK1_START,
     lines_charge,
 )
 
@@ -87,17 +86,10 @@ def _hours(value: Decimal, *, signed: bool = False) -> str:
     return f"{value:+.1f} h" if signed else f"{value:.1f} h"
 
 
-def _monday(week: int) -> date:
-    return WEEK1_START + timedelta(weeks=week - 1)
-
-
 def _day(line) -> str:
-    """The day, or "week of <Monday>" for a placement (decision 13), or undated."""
-    if line.work_date is not None:
-        return line.work_date.strftime("%m/%d")
-    if line.week:
-        return "week of " + _monday(line.week).strftime("%m/%d")
-    return "undated"
+    """The SMR week the line bills in (user 2026-11-06: the memo points at
+    the week's vendor invoice, not a day), or undated."""
+    return f"Week {line.week}" if line.week else "undated"
 
 
 def worker_name(line) -> Optional[str]:
@@ -116,8 +108,7 @@ def _who(line) -> str:
 
 
 def _sort_key(line):
-    day = line.work_date or (_monday(line.week) if line.week else date.max)
-    return (day, _who(line))
+    return (line.week or 99, line.work_date or date.max, _who(line))
 
 
 def _charged_row(line) -> str:
@@ -139,8 +130,8 @@ def _has(target: Optional[dict]) -> tuple[Decimal, str]:
 
 
 def _paper_days(charged) -> str:
-    days = sorted({l.work_date for l in charged if l.work_date is not None})
-    return f" (paper {days[0].strftime('%m/%d')})" if len(days) == 1 else ""
+    weeks = sorted({l.week for l in charged if l.week})
+    return f" (SMR Week {weeks[0]})" if len(weeks) == 1 else ""
 
 
 def _materials_rows(materials: Sequence[receipt.ReceiptLine], target: Optional[dict]) -> tuple[list[str], Decimal]:

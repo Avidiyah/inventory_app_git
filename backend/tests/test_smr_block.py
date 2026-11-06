@@ -67,10 +67,10 @@ def test_one_full_block_verbatim():
         "                                  $406.25",
         "",
         "Corrected labor record:",
-        "week of 05/25 Belfor x3        2.0 h each",
-        "06/20 BT Restoration x2        3.0 h each",
-        "06/20 Belfor assessment             0.5 h",
-        "06/22 Trinton Smith (XXL)           4.0 h",
+        "Week 1 Belfor x3               2.0 h each",
+        "Week 4 BT Restoration x2       3.0 h each",
+        "Week 4 Belfor assessment            0.5 h",
+        "Week 4 Trinton Smith (XXL)          4.0 h",
         "",
         "Reason: billed accurately; who and when,",
         "  crew billed as one person,",
@@ -104,7 +104,7 @@ def test_lines_never_exceed_the_destination_width():
 def test_a_decrease_prints_with_a_minus_and_lowers_the_total():
     lines = [_line(hours_each=Decimal("3.0")), _line(hours_each=Decimal("-2.0"), reason_code="over_billed")]
     rendered = _render(lines, target=_target("3.0", "187.50")).split("\n")
-    assert "06/20 Belfor                       -2.0 h" in rendered
+    assert "Week 4 Belfor                      -2.0 h" in rendered
     assert "  paper supports less than billed," in rendered
     assert "Paper shows                         1.0 h" in rendered
     assert "Add to WO                          -2.0 h" in rendered
@@ -118,8 +118,8 @@ def test_an_order_without_a_sheet_row_says_so():
     assert "no labor on the WO." in rendered
 
 
-def test_one_paper_day_names_itself_in_the_heading():
-    assert "Corrected labor record (paper 06/20):" in _render([_line(), _line(hours_each=Decimal("2.0"))]).split("\n")
+def test_one_week_names_itself_in_the_heading():
+    assert "Corrected labor record (SMR Week 4):" in _render([_line(), _line(hours_each=Decimal("2.0"))]).split("\n")
     assert "Corrected labor record:" in _render(_sample_lines()).split("\n")
 
 
@@ -151,14 +151,14 @@ def test_a_changed_line_changes_the_digest_and_order_does_not():
     assert block.lines_digest(lines) != before
 
 
-def test_a_week_placement_prints_the_monday_of_its_week_and_sorts_into_it():
-    # Decision 13 generalised (user 2026-11-06): hours the weekly reports
-    # placed print as "week of" that week's Monday, ahead of the week's days.
+def test_lines_print_their_smr_week_and_sort_by_it():
+    # User 2026-11-06: the memo names the SMR week, so a reader can point at
+    # that week's vendor invoice; a placement and a dated line read alike.
     lines = [_line(), _line(work_date=None, date_basis=WEEK_PLACEMENT_BASIS, week=3, hours_each=Decimal("0.5"))]
     rendered = _render(lines).split("\n")
-    assert rendered[13].startswith("week of 06/08 Belfor") and rendered[13].endswith(" 0.5 h")
+    assert rendered[13].startswith("Week 3 Belfor") and rendered[13].endswith(" 0.5 h")
     assert len(rendered[13]) == receipt.PRICING_LINE_WIDTH
-    assert rendered[14].startswith("06/20 Belfor")
+    assert rendered[14].startswith("Week 4 Belfor")
 
 
 def _materials():

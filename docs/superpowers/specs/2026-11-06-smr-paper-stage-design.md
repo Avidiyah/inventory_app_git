@@ -205,5 +205,7 @@ three rows push it past 500 lines (the filter rows belong in `smrFilters.js`).
   version on the first line. Materials: the card's items print above the labor as
   ITEMIZED RECEIPT (marked-up charge, NO PRICE kept), headed MATERIAL CORRECTION with the
   Breakdown material total when the totals differ; the block ends on one Total =
-  materials + corrected labor. No SMR order had materials keyed on 2026-11-06. the section carries color — charged /
+  materials + corrected labor. No SMR order had materials keyed on 2026-11-06.
+- 2026-11-06 (follow-up, user): block lines name the SMR week (`Week N`), never the day,
+  so a reader points at that week's vendor invoice; lines sort by week. the section carries color — charged /
   excluded left rules, kind chips in status hues, a red printing pill, stat tiles.
