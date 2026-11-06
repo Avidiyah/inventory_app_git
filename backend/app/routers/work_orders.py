@@ -50,6 +50,7 @@ from app.domain import receipt
 from app.domain import roles
 from app.domain import work_orders as wo
 from app.domain import work_orders_smr as smr
+from app.domain import work_orders_smr_lines as smr_rules
 from app.domain.errors import DomainError
 from app.domain.list_limits import MAX_LIST_ROWS
 from app.logging_config import current_request_id
@@ -62,6 +63,7 @@ from app.schemas.work_orders import (
     LegacyWorkOrderArchivePreview,
     LegacyWorkOrderArchiveResult,
     SmrPaperCheckOut,
+    SmrReadyOut,
     SmrTargetOut,
     WorkOrderCard,
     WorkOrderDetail,
@@ -568,6 +570,11 @@ def _detail(
         signature=_signature_out(work_order),
         smr_target=SmrTargetOut.from_gap(gap, include_price=include_price) if gap else None,
         smr_paper_check=SmrPaperCheckOut.from_order(work_order) if is_smr else None,
+        smr_stage=smr_rules.stage_for(
+            work_order.smr_readings, [l for l in corrections if l.exclusion_ground != smr_rules.GROUND_REMOVED],
+            work_order.smr_ready_at,
+        ) if is_smr else None,
+        smr_ready=SmrReadyOut.from_order(work_order) if is_smr else None,
         smr_readings=[SmrReadingOut.from_row(r) for r in work_order.smr_readings] if is_smr else [],
         smr_lines=[SmrLineOut.from_row(line) for line in corrections],
         smr_legacy_labor_minutes=figures.legacy_minutes,

@@ -25,6 +25,8 @@ from app.schemas.work_orders_smr import (
     SmrImportResult,
     SmrPaperCheckIn,
     SmrPaperCheckOut,
+    SmrReadyIn,
+    SmrTile,
     SmrTargetImportResult,
     SmrTilesResponse,
 )
@@ -148,6 +150,21 @@ def set_paper_check(
     the mark, or null once cleared."""
     try:
         return smr_service.set_paper_check(db, work_order_id=work_order_id, checked=body.checked, user=user)
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.put("/{work_order_id}/ready", response_model=SmrTile, responses=_forbidden(roles.ROLE_ADMIN))
+def set_ready(
+    work_order_id: uuid.UUID,
+    body: SmrReadyIn,
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+) -> SmrTile:
+    """Stamp or clear Ready for invoice (Admin+). 409 "Date a line first."
+    when the order has no dated line. Returns the tile."""
+    try:
+        return smr_service.set_ready(db, work_order_id=work_order_id, ready=body.ready, user=user)
     except DomainError as exc:
         raise to_http(exc)
 

@@ -9,8 +9,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.schemas.work_orders import (  # noqa: F401  (SmrTargetOut, SmrPaperCheckOut re-exported)
+from app.schemas.work_orders import (  # noqa: F401  (SmrTargetOut, SmrPaperCheckOut, SmrReadyOut re-exported)
     SmrPaperCheckOut,
+    SmrReadyOut,
     SmrTargetOut,
     WorkOrderFilterChoice,
     WorkOrderSupervisorFilterChoice,
@@ -48,18 +49,8 @@ class SmrPaperCheckIn(BaseModel):
     checked: bool
 
 
-class SmrReadyOut(BaseModel):
-    """Who marked an SMR order ready for invoice, and when (spec 2026-11-06)."""
-
-    at: datetime
-    by_name: Optional[str] = None
-
-    @classmethod
-    def from_order(cls, work_order) -> Optional["SmrReadyOut"]:
-        if work_order.smr_ready_at is None:
-            return None
-        who = work_order.smr_ready_by
-        return cls(at=work_order.smr_ready_at, by_name=who.full_name if who else None)
+class SmrReadyIn(BaseModel):
+    ready: bool
 
 
 class SmrTotals(BaseModel):

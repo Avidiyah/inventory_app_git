@@ -434,6 +434,20 @@ class SmrPaperCheckOut(BaseModel):
         return cls(checked_at=work_order.smr_paper_checked_at, checked_by_name=who.full_name if who else None)
 
 
+class SmrReadyOut(BaseModel):
+    """Who marked an SMR order ready for invoice, and when (spec 2026-11-06)."""
+
+    at: datetime
+    by_name: Optional[str] = None
+
+    @classmethod
+    def from_order(cls, work_order) -> Optional["SmrReadyOut"]:
+        if work_order.smr_ready_at is None:
+            return None
+        who = work_order.smr_ready_by
+        return cls(at=work_order.smr_ready_at, by_name=who.full_name if who else None)
+
+
 class WorkOrderDetail(WorkOrderCard):
     """A work-order card plus notes, logged materials, labor, and sign-off.
 
@@ -470,6 +484,9 @@ class WorkOrderDetail(WorkOrderCard):
     smr_target: Optional[SmrTargetOut] = None
     # Paper check mark; SMR orders only, None until someone sets it.
     smr_paper_check: Optional[SmrPaperCheckOut] = None
+    # Paper stage and the Ready stamp (spec 2026-11-06); SMR orders only.
+    smr_stage: Optional[str] = None
+    smr_ready: Optional[SmrReadyOut] = None
     # Paper corrections (spec 2026-11-04), SMR orders only. When `smr_lines`
     # is non-empty, `labor_total` above is the charged lines at the labor
     # rate and the legacy entries in `labor` are reported here as minutes

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.domain import work_orders as wo
 from app.domain import work_orders_smr as smr
 from app.domain import work_orders_smr_lines as rules
-from app.domain.errors import WorkOrderNotFoundError, WorkOrderStateError
+from app.domain.errors import SmrNotDatedError, WorkOrderNotFoundError, WorkOrderStateError
 from app.models import (
     SmrLaborLine,
     User,
@@ -195,6 +195,28 @@ def set_paper_check(db: Session, *, work_order_id: uuid.UUID, checked: bool, use
     db.commit()
     db.refresh(order)
     return SmrPaperCheckOut.from_order(order)
+
+
+def set_ready(db: Session, *, work_order_id: uuid.UUID, ready: bool, user: User) -> SmrTile:
+    """Stamp or clear Ready for invoice (Admin+, spec 2026-11-06). A stamp
+    needs a dated line (409 otherwise); a second stamp keeps the first who /
+    when; clearing a never-stamped order is a no-op. Returns the tile."""
+    order = db.get(WorkOrder, work_order_id)
+    if order is None:
+        raise WorkOrderNotFoundError("Work order not found.")
+    if order.smr_imported_at is None:
+        raise WorkOrderStateError("Only SMR orders can be marked ready.")
+    if not ready:
+        order.smr_ready_at = None
+        order.smr_ready_by_id = None
+    elif order.smr_ready_at is None:
+        if tile_for(order).stage != rules.STAGE_DATED:
+            raise SmrNotDatedError("Date a line first.")
+        order.smr_ready_at = datetime.now(timezone.utc)
+        order.smr_ready_by_id = user.id
+    db.commit()
+    db.refresh(order)
+    return tile_for(order)
 
 
 # --- tiles ---------------------------------------------------------------
