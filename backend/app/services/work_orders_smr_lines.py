@@ -25,6 +25,7 @@ from typing import Optional
 from sqlalchemy.orm import Session, selectinload
 
 from app.domain import work_orders as wo
+from app.domain import receipt
 from app.domain import work_orders_smr as smr
 from app.domain import work_orders_smr_block as block_rules
 from app.domain import work_orders_smr_lines as rules
@@ -337,8 +338,13 @@ def generate_block(db: Session, *, work_order_id: uuid.UUID, user: User) -> SmrB
     version = max((block.version for block in order.smr_blocks), default=0) + 1
     now = _now()
     target = order.smr_target
+    materials = [
+        receipt.ReceiptLine(name=line.item.name, quantity=line.quantity, billable_quantity=line.billable_quantity,
+                            unit_price=line.item.price)
+        for line in order.items
+    ]
     text = block_rules.render_correction_block(
-        order.number, target, lines, version, now.astimezone(wo.NOTE_TIMEZONE).date(),
+        order.number, target, lines, version, now.astimezone(wo.NOTE_TIMEZONE).date(), materials=materials,
     )
     row = SmrCorrectionBlock(
         id=uuid.uuid4(), work_order_id=order.id, version=version, text=text, generated_at=now,

@@ -56,6 +56,11 @@ def test_one_full_block_verbatim():
     assert _render(_sample_lines()) == "\n".join([
         "SMR27 LABOR CORRECTION           11/10/26",
         "WO 23281563",
+        "",
+        "ITEMIZED RECEIPT",
+        "  (no materials keyed)",
+        "Materials                           $0.00",
+        "",
         "NetFacilities has      10.0 h SL  $625.00",
         "Paper shows                        16.5 h",
         "Add to WO                          +6.5 h",
@@ -71,6 +76,8 @@ def test_one_full_block_verbatim():
         "  crew billed as one person,",
         "  overhead added, label only,",
         "replacing the 10.0 h SL on the WO.",
+        "",
+        "Total                           $1,031.25",
         "Paper on file.",
     ])
 
@@ -149,9 +156,39 @@ def test_a_week_placement_prints_the_monday_of_its_week_and_sorts_into_it():
     # placed print as "week of" that week's Monday, ahead of the week's days.
     lines = [_line(), _line(work_date=None, date_basis=WEEK_PLACEMENT_BASIS, week=3, hours_each=Decimal("0.5"))]
     rendered = _render(lines).split("\n")
-    assert rendered[8].startswith("week of 06/08 Belfor") and rendered[8].endswith(" 0.5 h")
-    assert len(rendered[8]) == receipt.PRICING_LINE_WIDTH
-    assert rendered[9].startswith("06/20 Belfor")
+    assert rendered[13].startswith("week of 06/08 Belfor") and rendered[13].endswith(" 0.5 h")
+    assert len(rendered[13]) == receipt.PRICING_LINE_WIDTH
+    assert rendered[14].startswith("06/20 Belfor")
+
+
+def _materials():
+    return [
+        receipt.ReceiptLine(name="Duct tape 2in", quantity=Decimal("2"), billable_quantity=None, unit_price=Decimal("5.35")),
+        receipt.ReceiptLine(name="Ceiling tile", quantity=Decimal("1"), billable_quantity=None, unit_price=None),
+    ]
+
+
+def test_materials_print_as_the_itemized_receipt_and_join_the_total():
+    # User 2026-11-06: the receipt sits above the labor; the Total is the
+    # corrected WO total, materials at the marked-up charge plus labor.
+    target = dict(TARGET, materials_total="21.57")
+    rendered = block.render_correction_block("23281563", target, [_line()], 2, date(2026, 11, 10), materials=_materials()).split("\n")
+    assert rendered[3:9] == [
+        "MATERIAL CORRECTION",
+        "NetFacilities estimated total      $21.57",
+        "ITEMIZED RECEIPT",
+        "2 Duct tape 2in                    $12.31",
+        "1 Ceiling tile                   NO PRICE",
+        "Materials                          $12.31",
+    ]
+    assert "Total                              $74.81" in rendered  # 12.31 + 1.0 h x $62.50
+
+
+def test_matching_material_totals_print_no_correction_header():
+    target = dict(TARGET, materials_total="12.31")
+    rendered = block.render_correction_block("23281563", target, [_line()], 2, date(2026, 11, 10), materials=_materials()[:1]).split("\n")
+    assert rendered[3] == "ITEMIZED RECEIPT" and "MATERIAL CORRECTION" not in rendered
+    assert "NetFacilities estimated total" not in "\n".join(rendered)
 
 
 def test_a_line_removed_in_the_app_does_not_print():

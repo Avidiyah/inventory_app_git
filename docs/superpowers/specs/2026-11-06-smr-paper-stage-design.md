@@ -201,5 +201,9 @@ three rows push it past 500 lines (the filter rows belong in `smrFilters.js`).
 - 2026-11-06 (follow-up, user): the correction block is the TechFM add-to-WO memo —
   `NetFacilities has <hours> <labor type> $<labor>`, `Paper shows`, `Add to WO`; the
   charged lines as "Corrected labor record"; one Reason block (distinct reasons, then
-  "replacing the N h SL on the WO"); excluded lines and per-line reasons dropped. the section carries color — charged /
+  "replacing the N h SL on the WO"); excluded lines and per-line reasons dropped; no
+  version on the first line. Materials: the card's items print above the labor as
+  ITEMIZED RECEIPT (marked-up charge, NO PRICE kept), headed MATERIAL CORRECTION with the
+  Breakdown material total when the totals differ; the block ends on one Total =
+  materials + corrected labor. No SMR order had materials keyed on 2026-11-06. the section carries color — charged /
   excluded left rules, kind chips in status hues, a red printing pill, stat tiles.

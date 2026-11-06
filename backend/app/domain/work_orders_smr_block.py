@@ -9,12 +9,15 @@ Every row goes through the receipt's own `pricing_amount_line` / `sanitise`,
 which right-align the amount and truncate an over-long label with `...`.
 `tests/test_smr_block.py` pins the output.
 
-Shape (user 2026-11-06, the TechFM correction memo): the version and date,
-the order; what NetFacilities has (the Breakdown hours, labor type and
+Shape (user 2026-11-06, the TechFM correction memo): the date and the
+order; the itemized receipt of the materials keyed on the card (headed
+MATERIAL CORRECTION with the NetFacilities estimate when the totals
+differ); what NetFacilities has (the Breakdown hours, labor type and
 labor $), what the paper shows, and what to add to the WO in hours and
 dollars; then the corrected labor record -- every charged line, name, day,
 hours, kind; then one reason block naming the distinct reasons and what the
-record replaces. Excluded lines do not print: only what is added to a work
+record replaces; the corrected WO total (materials at the marked-up charge
+plus the corrected labor). Excluded lines do not print: only what is added to a work
 order needs a justification, and the auditor reads the lines in the app.
 """
 
@@ -24,7 +27,7 @@ import hashlib
 import json
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Sequence
 
 from app.domain import receipt
 from app.domain import work_orders as wo
@@ -140,20 +143,46 @@ def _paper_days(charged) -> str:
     return f" (paper {days[0].strftime('%m/%d')})" if len(days) == 1 else ""
 
 
+def _materials_rows(materials: Sequence[receipt.ReceiptLine], target: Optional[dict]) -> tuple[list[str], Decimal]:
+    """The itemized receipt above the labor (user 2026-11-06): each material
+    at the marked-up charge, like the work-order receipt, and its total.
+    When that total differs from what NetFacilities estimated, the section
+    opens as a MATERIAL CORRECTION naming the NetFacilities figure."""
+    rows, total = [], Decimal(0)
+    for line in materials:
+        quantity = receipt.effective_billable(line)
+        charge = receipt.marked_material_charge(line)
+        if charge is None:
+            rows.append(receipt.pricing_line(receipt.format_quantity(quantity), line.name, "NO PRICE"))
+            continue
+        total += charge
+        rows.append(receipt.pricing_line(receipt.format_quantity(quantity), line.name, receipt.format_money(charge)))
+    estimated = Decimal(target["materials_total"]) if target and target.get("materials_total") is not None else None
+    head = []
+    if estimated is not None and receipt.format_money(estimated) != receipt.format_money(total):
+        head = [_fit("MATERIAL CORRECTION"), _row("NetFacilities estimated total", receipt.format_money(estimated))]
+    body = rows or [_fit("  (no materials keyed)")]
+    return head + [_fit("ITEMIZED RECEIPT")] + body + [_row("Materials", receipt.format_money(total))], total
+
+
 def render_correction_block(order_number: str, target: Optional[dict], lines, version: int,
-                            generated_on: date) -> str:
-    """The block for one order from its current lines. `target` is the order's
-    `smr_target` (the Breakdown row NetFacilities billed, D6); None when the
-    order has no sheet row, which the block says."""
+                            generated_on: date, materials: Sequence[receipt.ReceiptLine] = ()) -> str:
+    """The block for one order from its current lines and materials.
+    `target` is the order's `smr_target` (the Breakdown row NetFacilities
+    billed, D6); None when the order has no sheet row, which the block says."""
     lines = list(lines)
     charge = lines_charge(lines)
     billed, has = _has(target)
     change = charge.charged_hours - billed
     charged = sorted((l for l in lines if l.status == STATUS_CHARGED and l.exclusion_ground != GROUND_REMOVED),
                      key=_sort_key)
+    material_rows, materials_total = _materials_rows(materials, target)
     out = [
         _row("SMR27 LABOR CORRECTION", generated_on.strftime("%m/%d/%y")),
         _fit(f"WO {order_number}"),
+        "",
+        *material_rows,
+        "",
         _row("NetFacilities has" if target else "NetFacilities has (no sheet row)", has),
         _row("Paper shows", _hours(charge.charged_hours)),
         _row("Add to WO", _hours(change, signed=True)),
@@ -165,7 +194,8 @@ def render_correction_block(order_number: str, target: Optional[dict], lines, ve
     reasons = sorted({reason_text(l.reason_code) for l in charged}) or ["paper review"]
     out += ["", _fit("Reason: " + reasons[0] + ",")] + [_fit("  " + r + ",") for r in reasons[1:]]
     out += [_fit(f"replacing the {_hours(billed)}{' ' + (target.get('source_row') or {}).get('Labor Type', '').strip() if target else ''} on the WO."
-                 if target else "no labor on the WO."), _fit(FOOTER)]
+                 if target else "no labor on the WO.")]
+    out += ["", _row("Total", receipt.format_money(materials_total + charge.labor_total)), _fit(FOOTER)]
     return "\n".join(out)
 
 
