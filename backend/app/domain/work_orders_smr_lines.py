@@ -46,6 +46,10 @@ DATE_BASES: tuple[str, ...] = (
 
 GROUND_UNDATED = "undated"
 GROUND_REMOVED = "removed"
+# Hours the paper shows and the review counted, which the Week Reports then
+# dropped (audit/staging on accurately billed orders, printings dated into a
+# week no report carries): kept as lines, excluded, inside the tie (2026-11-06).
+GROUND_NOT_CHARGED_REPORTS = "read, not charged (weekly reports)"
 # The draft CSV's spellings. If the final files use the design's snake_case
 # names this tuple changes, nothing else does.
 GROUNDS: tuple[str, ...] = (
@@ -57,6 +61,7 @@ GROUNDS: tuple[str, ...] = (
     "note only",
     "paper not found",
     "read, not charged (user)",
+    GROUND_NOT_CHARGED_REPORTS,
     "admin, never charged",
     "vendor unknown",
     GROUND_REMOVED,
@@ -65,7 +70,7 @@ GROUNDS: tuple[str, ...] = (
 # review read them and did not charge them. Every other ground was never in
 # `hours_as_read`.
 TIE_COUNTED_GROUNDS: tuple[str, ...] = (
-    GROUND_UNDATED, "before Week 1", "after 07/12 (no invoices)",
+    GROUND_UNDATED, "before Week 1", "after 07/12 (no invoices)", GROUND_NOT_CHARGED_REPORTS,
 )
 
 # `as_read`: the line records what the paper says, no finding behind it. The
@@ -324,16 +329,19 @@ def parse_line_row(row: dict) -> dict:
     hours_each = _decimal(_text(row, "hours_each"), where=where, column="hours_each")
     if hours_each is None:
         raise WorkOrderStateError(f"{where}: hours_each is required.")
-    week_text = _text(row, "week")
-    if week_text is not None and not week_text.isdigit():
-        raise WorkOrderStateError(f"{where}: week {week_text!r} is not a whole number.")
-    week = int(week_text) if week_text is not None else None
+    date_basis = _text(row, "date_basis") or DATE_BASIS_PAPER
+    week = None
+    if date_basis == WEEK_PLACEMENT_BASIS:  # the one basis that reads the column
+        week_text = _text(row, "week")
+        if week_text is not None and not week_text.isdigit():
+            raise WorkOrderStateError(f"{where}: week {week_text!r} is not a whole number.")
+        week = int(week_text) if week_text is not None else None
     parsed = {
         "line_id": line_id,
         "reading_id": reading_id,
         "wo": wo_number,
         "work_date": parse_date(_text(row, "work_date"), where=where),
-        "date_basis": _text(row, "date_basis") or DATE_BASIS_PAPER,
+        "date_basis": date_basis,
         "vendor": _text(row, "vendor") or "",
         "worker": _text(row, "worker"),
         "alias_on_paper": _text(row, "alias_on_paper"),

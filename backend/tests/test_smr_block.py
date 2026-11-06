@@ -113,6 +113,10 @@ def test_excluded_lines_print_under_not_charged_with_their_ground():
     assert [row.split()[0] for row in not_charged if row.startswith("  ")] == ["after", "undated"]
     assert all("week of" in row or "/" in row or "undated" in row for row in not_charged if row.startswith("  "))
 
+    dropped = _line(status="excluded", exclusion_ground="read, not charged (weekly reports)", headcount=2)
+    rows = _render([dropped]).split("\n")
+    assert any(row.startswith("  not charged (reports)  Belfor x2") and row.endswith(" 2.0 h") for row in rows)
+
 
 def test_a_changed_line_changes_the_digest_and_order_does_not():
     lines = _sample_lines()

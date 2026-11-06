@@ -4,13 +4,13 @@ Paste this into the next chat. Task: `C:\Users\mcclu\Desktop\SMR27 Reconciliatio
 
 ## Goal
 
-Prepare the app for the SMR27 paper-correction import: Tasks 1–5 (schema, domain, services, routes) are built; Tasks 6–9 (editor section, SMR page + Hours tab, export sheets, targeted run) are the go-ahead the user gave on 2026-11-06 ("Accept all of those, start with the push"). Nothing is imported until the CSVs regenerate, FIX settles Centennial 631, and a Postgres snapshot is filed.
+Prepare the app for the SMR27 paper-correction import: Tasks 1–5 (schema, domain, services, routes) are built; Tasks 6–9 (editor section, SMR page + Hours tab, export sheets, targeted run) are the go-ahead the user gave on 2026-11-06 ("Accept all of those, start with the push"). Nothing is imported until the user approves the regenerated figures and a Postgres snapshot is filed with the three CSVs and their run id.
 
 ## Done this session
 
 - Pushed main `10ced0d` (Tasks 1–5). CI run 42234010324 was in progress; confirm it went green and that Render shows Alembic `451c56c5643a` after the next push.
 - `ddd28c5` (local, unpushed): decision 13 generalised. Basis `week placement (weekly reports)` charges with a blank day and a CSV `week` (1–7); migration `451c56c5643a` widens `ck_smr_labor_lines_charged_dated` (applied locally, down/up round-tripped); the block prints `week of <Monday>` from `line.week` and never prints a `removed` line; the import compares `week` on rerun. 242 SMR-family tests green from `backend\`.
-- Peer `smr27-reconciliation-ba` was sent the CSV contract: clean-up + no-name hours as charged week-placement lines on a dedicated per-order reading with blank `hours_as_read`; XXL audit/staging and own-week printings excluded `read, not charged (user)`; Young Hall Belfor charged; 631 settled in FIX; Isaiah Smith 0 h → `note only`; Cimarron J6 waits for its number. No reply yet; dry-run the regenerated files with `_parse` + `_cross_check` when they arrive.
+- Peer `smr27-reconciliation-ba` regenerated Step 0 on the six rulings (`Deliverable Batch`: `paper_readings.csv` 913 rows = 567 paper + 346 clean-up readings, `paper_lines.csv` 2,118, `breakdown.csv` 683). Its one contract change is built and committed: ground `read, not charged (weekly reports)`, tie-counted (82 lines: the audit/staging add and the own-week printings, which sit inside `hours_as_read`); the parser reads `week` only on the placement basis. Read-only dry run (`_parse` + `_cross_check` + `_resolve_orders`) matches the peer on every count: 1,447 charged lines / 2,948.0 h / $184,250.00; 3,476.5 h excluded; by week 437 / 314 / 337.5 / 603 / 562.5 / 530 / 164; 349 placement lines; no charged line without a week; 8 orders to create from the Breakdown. Run id for the bytes as they stand: `import 0dc2a170e862`. 631 is settled in FIX; Isaiah Smith is `note only`; Cimarron J6 has no row.
 
 ## Next: Task 6 (editor), designed, not started
 

@@ -69,6 +69,7 @@ GROUND_SHORT: dict[str, str] = {
     "awaiting invoice (GC, Week 7)": "awaiting invoice",
     "reprint (no hours added)": "reprint",
     "read, not charged (user)": "not charged (user)",
+    "read, not charged (weekly reports)": "not charged (reports)",
 }
 FOOTER = "Paper on file. Reasons under each line."
 

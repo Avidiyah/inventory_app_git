@@ -322,14 +322,17 @@ def test_tie_passes_exactly_and_within_half_an_hour():
 def test_tie_counts_undated_before_and_after_grounds_but_not_the_rest():
     counted = [_tline("2.0", ground="undated", status="excluded"),
                _tline("2.0", ground="before Week 1", status="excluded"),
-               _tline("2.0", ground="after 07/12 (no invoices)", status="excluded")]
+               _tline("2.0", ground="after 07/12 (no invoices)", status="excluded"),
+               # Inside the paper's figure, dropped by the Week Reports (2026-11-06).
+               _tline("2.0", ground="read, not charged (weekly reports)", status="excluded")]
     skipped = [_tline("10.0", ground="awaiting invoice (GC, Week 7)", status="excluded"),
                _tline("10.0", ground="reprint (no hours added)", status="excluded"),
                _tline("10.0", ground="read, not charged (user)", status="excluded"),
                _tline("10.0", ground="admin, never charged", status="excluded"),
                _tline("10.0", ground="note only", status="excluded")]
-    assert lines_rules.tie_hours(_reading(), counted + skipped) == Decimal("6.0")
-    assert lines_rules.check_tie(_reading("6.0"), counted + skipped) is None
+    assert lines_rules.tie_hours(_reading(), counted + skipped) == Decimal("8.0")
+    assert lines_rules.check_tie(_reading("8.0"), counted + skipped) is None
+    assert "read, not charged (weekly reports)" in lines_rules.GROUNDS
 
 
 def test_tie_leaves_out_a_line_the_note_dated_into_another_week():
@@ -416,3 +419,7 @@ def test_a_week_placement_charges_with_its_week_and_no_date():
             lines_rules.parse_line_row({**row, "week": bad})
     with pytest.raises(WorkOrderStateError, match="Line L13.*work date"):
         lines_rules.parse_line_row({**row, "date_basis": "paper"})
+    # Outside the placement basis the column is not read at all, whatever it holds.
+    ignored = lines_rules.parse_line_row({**row, "date_basis": "paper", "status": "excluded",
+                                          "exclusion_ground": "before Week 1", "week": "Before W1"})
+    assert ignored["week"] is None
