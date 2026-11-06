@@ -58,10 +58,11 @@ function page(overrides = {}) {
 
 const WEEKLY = {
   weeks: [3, null],
-  vendors: ["Green Choice", "Unknown"],
+  vendors: ["Green Choice", "XXL Construction", "BT Restoration"],
   cells: [
-    { week: 3, week_label: "Week 3", vendor: "Green Choice", original: "10.0", added: "4.0", invoiced: "30.0", missing: "26.0" },
-    { week: null, week_label: "", vendor: "Unknown", original: "0.5", added: "0", invoiced: "0", missing: "0" },
+    { week: 3, week_label: "Week 3", vendor: "Green Choice", original: "10.0", found: "4.0", undated: "0.0", invoiced: "30.0", missing: "16.0" },
+    { week: 3, week_label: "Week 3", vendor: "BT Restoration", original: "0.0", found: "0.0", undated: "0.0", invoiced: "8.0", missing: "8.0" },
+    { week: null, week_label: "", vendor: "Green Choice", original: "6.0", found: "0.0", undated: "6.0", invoiced: "0.0", missing: "0.0" },
   ],
 };
 async function openSmr(role = "admin", payload = page()) {
@@ -442,10 +443,16 @@ describe("the SMR page", () => {
     await vi.waitFor(() => expect(requestsFor("/work-orders/smr/weekly-hours")).toHaveLength(1));
     await vi.waitFor(() => expect(byId("smr-weekly-body").querySelectorAll("svg g[data-week]")).toHaveLength(2));
     expect(byId("smr-weekly").compareDocumentPosition(byId("smr-search")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(byId("smr-weekly-body").querySelectorAll("rect.smr-vendor--green-choice")).toHaveLength(3);
-    expect(byId("smr-weekly-body").querySelectorAll(".smr-weekly-legend li")).toHaveLength(2);
-    const table = byId("smr-weekly-body").querySelector("table");
-    expect(Array.from(table.tBodies[0].rows[0].cells).map((c) => c.textContent)).toEqual(["Week 3", "10.0", "4.0", "26.0", "30.0"]);
-    expect(Array.from(table.tBodies[0].rows[1].cells).map((c) => c.textContent)).toEqual(["Undated", "0.5", "0.0", "0.0", "0.0"]);
+    const body = byId("smr-weekly-body");
+    expect(body.querySelectorAll("rect.smr-seg--original")).toHaveLength(2);
+    expect(body.querySelectorAll("rect.smr-seg--missing")).toHaveLength(2);
+    expect(body.querySelectorAll("rect.smr-seg--undated")).toHaveLength(1);
+    expect(body.querySelectorAll(".smr-weekly-legend li")).toHaveLength(4);
+    expect(Array.from(body.querySelectorAll(".smr-weekly-bar-label")).map((t) => t.textContent)).toEqual(["GC", "XXL", "BT", "GC", "XXL", "BT"]);
+    const table = body.querySelector("table");
+    const row = (i) => Array.from(table.tBodies[0].rows[i].cells).map((c) => c.textContent);
+    expect(row(0)).toEqual(["Week 3", "GC", "30.0", "10.0", "4.0", "0.0", "16.0"]);
+    expect(row(1)).toEqual(["Week 3", "BT", "8.0", "0.0", "0.0", "0.0", "8.0"]);
+    expect(row(2)).toEqual(["Undated", "GC", "0.0", "6.0", "0.0", "6.0", "0.0"]);
   });
 });

@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from app.database import get_db
 from app.domain.errors import WorkOrderStateError
 from app.main import app
-from app.models import SmrLaborLine, SmrVendorInvoice, SmrWorker, User, WorkOrder
+from app.models import SmrLaborLine, SmrVendorInvoice, User, WorkOrder
 from app.services import auth as auth_service
 from app.services import work_orders_smr_weekly as weekly
 
@@ -77,34 +77,43 @@ def test_upload_route_is_owner_only(db):
 
 def _cell(out, week, vendor):
     found = next((c for c in out.cells if c.week == week and c.vendor == vendor), None)
-    return tuple(getattr(found, k) if found else Decimal(0) for k in ("original", "added", "invoiced"))
+    return tuple(getattr(found, k) if found else Decimal(0) for k in ("original", "found", "undated", "invoiced"))
+
+
+def _line(order, **overrides):
+    fields = dict(work_order_id=order.id, work_date=date(2026, 6, 9), vendor="Green Choice", headcount=1,
+                  hours_each=Decimal(2), kind="field", reason_code="accurate", status="charged", week=3)
+    fields.update(overrides)
+    return SmrLaborLine(**fields)
 
 
 def test_weekly_cell_arithmetic(db):
-    """Deltas against whatever the dev DB already holds for the cell."""
+    """Deltas against whatever the dev DB already holds for the cell. An order
+    with a 10 h Breakdown target, 4 h charged in week 3 and 6 h undated: the
+    target follows the lines pro rata (4 h to week 3, 6 h to Undated)."""
     owner = _user(db)
     tag = uuid.uuid4().hex[:6]
     before = _cell(weekly.weekly_hours(db), 3, "Green Choice")
-    before_unknown = _cell(weekly.weekly_hours(db), None, "Unknown")
-    db.add(SmrWorker(display_name=f"Cris {tag}", vendor="Green Choice", aliases=[f"C. {tag}"]))
-    closed = WorkOrder(number=f"WO-{tag}-a", created_by_id=owner.id, smr_imported_at=datetime.now(timezone.utc),
-                       smr_baseline={"source_row": {"COMPLETION DATE": "06/10/2026", "ASSIGNED TO": f"c. {tag}"},
-                                     "totals": {"real_billed_minutes": 540, "skilled_billed_minutes": 60}})
-    undated = WorkOrder(number=f"WO-{tag}-b", created_by_id=owner.id, smr_imported_at=datetime.now(timezone.utc),
-                        smr_baseline={"source_row": {"ASSIGNED TO": "nobody"}, "totals": {"real_billed_minutes": 30}})
-    db.add_all([closed, undated])
+    before_undated = _cell(weekly.weekly_hours(db), None, "Green Choice")
+    order = WorkOrder(number=f"WO-{tag}", created_by_id=owner.id, smr_imported_at=datetime.now(timezone.utc),
+                      smr_target={"hours": "10", "total": "0", "source_row": {}})
+    db.add(order)
     db.flush()
-    db.add(SmrLaborLine(work_order_id=closed.id, work_date=date(2026, 6, 9), vendor="Green Choice", headcount=2,
-                        hours_each=Decimal(2), kind="field", reason_code="accurate", status="charged", week=3))
-    db.add(SmrLaborLine(work_order_id=closed.id, work_date=date(2026, 6, 9), vendor="Green Choice", headcount=1,
-                        hours_each=Decimal(9), kind="field", reason_code="accurate", status="excluded", week=3))
+    db.add_all([
+        _line(order, headcount=2),
+        _line(order, work_date=None, week=None, hours_each=Decimal(6), status="excluded", exclusion_ground="undated"),
+        _line(order, hours_each=Decimal(9), status="excluded", exclusion_ground="reprint (no hours added)"),
+        _line(order, vendor="Belfor", hours_each=Decimal(5)),
+    ])
     db.flush()
     weekly.import_invoices(db, csv_bytes=_csv(f"GC {tag},06/08/2026,Green Choice,,40,30"), user=owner)
 
     out = weekly.weekly_hours(db)
+    assert out.vendors == ["Green Choice", "XXL Construction", "BT Restoration"]
     after = _cell(out, 3, "Green Choice")
-    assert tuple(a - b for a, b in zip(after, before)) == (Decimal(10), Decimal(4), Decimal(30))
+    assert tuple(a - b for a, b in zip(after, before)) == (Decimal(4), Decimal(4), Decimal(0), Decimal(30))
     cell = next(c for c in out.cells if c.week == 3 and c.vendor == "Green Choice")
-    assert cell.missing == max(cell.invoiced - cell.added, Decimal(0)) and cell.week_label == "Week 3"
-    assert _cell(out, None, "Unknown")[0] - before_unknown[0] == Decimal("0.5")
-    assert out.weeks[-1] is None and "Green Choice" in out.vendors
+    assert cell.missing == max(cell.invoiced - cell.original - cell.found, Decimal(0)) and cell.week_label == "Week 3"
+    undated = _cell(out, None, "Green Choice")
+    assert tuple(a - b for a, b in zip(undated, before_undated)) == (Decimal(6), Decimal(0), Decimal(6), Decimal(0))
+    assert out.weeks[-1] is None and not any(c.vendor == "Belfor" for c in out.cells)

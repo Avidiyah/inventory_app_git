@@ -285,16 +285,18 @@ class SmrInvoiceImportResult(BaseModel):
 
 
 class SmrWeeklyCell(BaseModel):
-    """One (week, vendor) cell: `original` is the NetFacilities baseline
-    billed hours of orders closed that week, `added` the charged paper hours
-    worked that week, `invoiced` the vendor's invoiced hours, `missing` =
-    max(invoiced - added, 0)."""
+    """One (week, vendor) bar: `invoiced` is the vendor's invoiced hours that
+    week, split into `original` (Breakdown billed hours of the orders whose
+    paper lines fall there, pro rata), `found` (charged paper hours) and
+    `missing` = max(invoiced - original - found, 0). `undated` is the paper
+    hours with no date, only in the trailing Undated column (week None)."""
 
     week: Optional[int] = None
     week_label: str = ""
     vendor: str
     original: Decimal = Decimal(0)
-    added: Decimal = Decimal(0)
+    found: Decimal = Decimal(0)
+    undated: Decimal = Decimal(0)
     invoiced: Decimal = Decimal(0)
     missing: Decimal = Decimal(0)
 
