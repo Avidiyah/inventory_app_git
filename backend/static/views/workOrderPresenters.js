@@ -342,7 +342,9 @@ export function overdueTag(card) {
 // and the detail paint -- so a rewritten card cannot silently lose its fire.
 export function workOrderCardClass(card) {
   const urgent = urgentFireActive(card) ? " wo-card-urgent" : "";
-  return `wo-card wo-card-status-${card.status}${urgent}`;
+  // SMR cards wear their paper stage, not the live status (user 2026-11-07).
+  const smr = card.smr && card.smr_stage ? ` wo-card-smr wo-card-smr-${card.smr_stage}` : "";
+  return `wo-card wo-card-status-${card.status}${urgent}${smr}`;
 }
 
 export function modeLabel(mode) {

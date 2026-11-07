@@ -6126,3 +6126,10 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 #smr-page .smr-hours-table th:nth-child(-n+2),
 #smr-page .smr-hours-table td:nth-child(-n+2) { text-align: left; }
 #smr-page .smr-hours-table tfoot td { font-weight: var(--fw-bold); }
+
+/* SMR cards: the border is the paper stage, same colors as the SMR page
+   tiles (user 2026-11-07); beats the status outline, hover included. */
+.wo-card.wo-card-smr-not_reviewed, .wo-card.wo-card-smr-not_reviewed:hover { --card-accent: #B91C1C; --card-accent-rgb: 185, 28, 28; border-color: #B91C1C; }
+.wo-card.wo-card-smr-undated, .wo-card.wo-card-smr-undated:hover { --card-accent: var(--status-dispense-text); border-color: var(--status-dispense-text); }
+.wo-card.wo-card-smr-dated, .wo-card.wo-card-smr-dated:hover { --card-accent: var(--panel-border); border-color: var(--panel-border); }
+.wo-card.wo-card-smr-ready, .wo-card.wo-card-smr-ready:hover { --card-accent: #15803D; --card-accent-rgb: 21, 128, 61; border-color: #15803D; }

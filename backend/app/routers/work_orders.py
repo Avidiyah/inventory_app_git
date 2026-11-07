@@ -421,6 +421,12 @@ def _card(work_order: WorkOrder) -> WorkOrderCard:
         supervisor_name=work_order.supervisor.full_name if work_order.supervisor else None,
         legacy=work_order.legacy,
         smr=getattr(work_order, "smr_imported_at", None) is not None,
+        # ponytail: lazy-loads readings + lines per SMR card on the list; eager-load if lists of SMR orders get slow.
+        smr_stage=smr_rules.stage_for(
+            work_order.smr_readings,
+            [l for l in smr.correction_lines(work_order) if l.exclusion_ground != smr_rules.GROUND_REMOVED],
+            work_order.smr_ready_at,
+        ) if getattr(work_order, "smr_imported_at", None) is not None else None,
         has_unpriced_items=any(
             not receipt.is_priced(line.item.price) for line in work_order.items
         ),
@@ -570,10 +576,6 @@ def _detail(
         signature=_signature_out(work_order),
         smr_target=SmrTargetOut.from_gap(gap, include_price=include_price) if gap else None,
         smr_paper_check=SmrPaperCheckOut.from_order(work_order) if is_smr else None,
-        smr_stage=smr_rules.stage_for(
-            work_order.smr_readings, [l for l in corrections if l.exclusion_ground != smr_rules.GROUND_REMOVED],
-            work_order.smr_ready_at,
-        ) if is_smr else None,
         smr_ready=SmrReadyOut.from_order(work_order) if is_smr else None,
         smr_readings=[SmrReadingOut.from_row(r) for r in work_order.smr_readings] if is_smr else [],
         smr_lines=[SmrLineOut.from_row(line) for line in corrections],

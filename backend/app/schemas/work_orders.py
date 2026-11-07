@@ -273,6 +273,9 @@ class WorkOrderCard(BaseModel):
     # SMR27 audit order (spec 2026-10-23): lives on the SMR page, may carry
     # Skilled Technician labor.
     smr: bool = False
+    # Paper stage (spec 2026-11-06); SMR orders only. On the card so the list
+    # paints the stage border before a card opens (user 2026-11-07).
+    smr_stage: Optional[str] = None
     # True when any logged material's item has no price or a $0.00 price -- the
     # same rule that opens a missing-price request. Admin Review paints these red.
     has_unpriced_items: bool = False
@@ -484,8 +487,7 @@ class WorkOrderDetail(WorkOrderCard):
     smr_target: Optional[SmrTargetOut] = None
     # Paper check mark; SMR orders only, None until someone sets it.
     smr_paper_check: Optional[SmrPaperCheckOut] = None
-    # Paper stage and the Ready stamp (spec 2026-11-06); SMR orders only.
-    smr_stage: Optional[str] = None
+    # The Ready stamp (spec 2026-11-06); SMR orders only.
     smr_ready: Optional[SmrReadyOut] = None
     # Paper corrections (spec 2026-11-04), SMR orders only. When `smr_lines`
     # is non-empty, `labor_total` above is the charged lines at the labor
