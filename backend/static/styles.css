@@ -6112,6 +6112,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 #smr-page .smr-weekly-table td:nth-child(2) { text-align: left; }
 #smr-page .smr-seg--original { fill: #6B7079; background: #6B7079; }
 #smr-page .smr-seg--found { fill: #2E8B57; background: #2E8B57; }
+#smr-page .smr-seg--carried { fill: #7FB3A5; background: #7FB3A5; }
 #smr-page .smr-seg--undated { fill: #D98E04; background: #D98E04; }
 #smr-page .smr-seg--missing { fill: var(--color-brand); background: var(--color-brand); }
 

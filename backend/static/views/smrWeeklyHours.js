@@ -16,7 +16,7 @@ import { escapeHtml, friendlyError } from "../format.js";
 const panel = document.getElementById("smr-weekly-body");
 const message = document.getElementById("smr-message");
 
-export const SEGMENTS = [["original", "Original charge"], ["found", "Found hours"], ["undated", "Undated hours"], ["missing", "Missing hours"]];
+export const SEGMENTS = [["original", "Original charge"], ["found", "Found hours"], ["carried", "Carried from earlier week"], ["undated", "Undated hours"], ["missing", "Missing hours"]];
 const SHORT = { "Green Choice": "GC", "XXL Construction": "XXL", "BT Restoration": "BT" };
 
 const hours = (value) => (Number(value) || 0).toFixed(1);
@@ -77,7 +77,7 @@ function legendHtml(vendors) {
   const swatches = SEGMENTS.map(([key, name]) => `<li><span class="smr-weekly-swatch smr-seg--${key}"></span>${escapeHtml(name)}</li>`);
   const names = vendors.map((v) => `${SHORT[v] || v} = ${v}`).join(", ");
   return `<ul class="smr-weekly-legend">${swatches.join("")}</ul>`
-    + `<p class="smr-hours-note">${escapeHtml(`One bar per vendor (${names}) per Mon–Sun week: the hours the vendor invoiced, split into the original NetFacilities charge, the hours the paper review has found and dated, and what is still missing. The Undated column is paper hours with no date yet, with the original charge of their orders.`)}</p>`;
+    + `<p class="smr-hours-note">${escapeHtml(`One bar per vendor (${names}) per Mon–Sun week: the hours the vendor invoiced, split into the original NetFacilities charge, the hours the paper review has found and dated, and what is still missing. A week never explains more than its invoice: paper above it rolls into the vendor's next week as "carried". The Undated column is paper hours with no date yet, with the original charge of their orders.`)}</p>`;
 }
 
 function tableHtml({ weeks, vendors, cells }) {

@@ -299,6 +299,7 @@ class SmrWeeklyCell(BaseModel):
     found: Decimal = Decimal(0)
     undated: Decimal = Decimal(0)
     invoiced: Decimal = Decimal(0)
+    carried: Decimal = Decimal(0)  # paper rolled in from the vendor's earlier week
     missing: Decimal = Decimal(0)
 
 

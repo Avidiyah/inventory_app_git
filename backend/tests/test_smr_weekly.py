@@ -75,9 +75,9 @@ def test_upload_route_is_owner_only(db):
         del app.dependency_overrides[get_db]
 
 
-def _cell(out, week, vendor):
-    found = next((c for c in out.cells if c.week == week and c.vendor == vendor), None)
-    return tuple(getattr(found, k) if found else Decimal(0) for k in ("original", "found", "undated", "invoiced"))
+def _cell(cells, week, vendor):
+    figures = cells.get((week, vendor)) or {}
+    return tuple(figures.get(k, Decimal(0)) for k in ("original", "found", "undated", "invoiced"))
 
 
 def _line(order, **overrides):
@@ -95,8 +95,8 @@ def test_weekly_cell_arithmetic(db):
     Undated), the undated hours not counted twice."""
     owner = _user(db)
     tag = uuid.uuid4().hex[:6]
-    before = _cell(weekly.weekly_hours(db), 3, "Green Choice")
-    before_undated = _cell(weekly.weekly_hours(db), None, "Green Choice")
+    before = _cell(weekly.raw_cells(db), 3, "Green Choice")
+    before_undated = _cell(weekly.raw_cells(db), None, "Green Choice")
     order = WorkOrder(number=f"WO-{tag}", created_by_id=owner.id, smr_imported_at=datetime.now(timezone.utc),
                       smr_target={"hours": "10", "total": "0", "source_row": {}})
     db.add(order)
@@ -112,11 +112,13 @@ def test_weekly_cell_arithmetic(db):
 
     out = weekly.weekly_hours(db)
     assert out.vendors == ["Green Choice", "XXL Construction", "BT Restoration"]
-    after = _cell(out, 3, "Green Choice")
-    assert tuple(a - b for a, b in zip(after, before)) == (Decimal(4), Decimal(0), Decimal(0), Decimal(30))
+    assert not any(c.vendor == "Belfor" for c in out.cells)
     cell = next(c for c in out.cells if c.week == 3 and c.vendor == "Green Choice")
-    assert cell.missing == max(cell.invoiced - cell.original - cell.found, Decimal(0)) and cell.week_label == "Week 3"
-    undated = _cell(out, None, "Green Choice")
+    assert cell.missing == max(cell.invoiced - cell.original - cell.found - cell.carried, Decimal(0)) and cell.week_label == "Week 3"
+    raw = weekly.raw_cells(db)
+    after = _cell(raw, 3, "Green Choice")
+    assert tuple(a - b for a, b in zip(after, before)) == (Decimal(4), Decimal(0), Decimal(0), Decimal(30))
+    undated = _cell(raw, None, "Green Choice")
     assert tuple(a - b for a, b in zip(undated, before_undated)) == (Decimal(6), Decimal(0), Decimal(0), Decimal(0))
     # A second order whose paper (3 h) exceeds its 1 h target: 1 h original, 2 h found.
     over = WorkOrder(number=f"WO-{tag}-o", created_by_id=owner.id, smr_imported_at=datetime.now(timezone.utc),
@@ -125,7 +127,30 @@ def test_weekly_cell_arithmetic(db):
     db.flush()
     db.add(_line(over, vendor="BT Restoration", hours_each=Decimal(3)))
     db.flush()
-    before_bt = _cell(out, 3, "BT Restoration")
-    after_bt = _cell(weekly.weekly_hours(db), 3, "BT Restoration")
+    before_bt = _cell(raw, 3, "BT Restoration")
+    after_bt = _cell(weekly.raw_cells(db), 3, "BT Restoration")
     assert tuple(a - b for a, b in zip(after_bt, before_bt)) == (Decimal(1), Decimal(2), Decimal(0), Decimal(0))
-    assert out.weeks[-1] is None and not any(c.vendor == "Belfor" for c in out.cells)
+
+
+def _figures(**kw):
+    return {k: Decimal(kw.get(k, 0)) for k in weekly.FIGURES}
+
+
+def test_paper_above_a_week_invoice_is_carried_into_the_next_week():
+    """Roll-forward (user 2026-11-06). XXL: week 1 invoiced 1 h with 4 h of paper
+    (1 original + 3 found) -> 3 h carries (found first) into week 2 (invoiced 10 h,
+    2 h found) which then uses 5 h; week 2 overflows nothing. A vendor's last
+    week keeps its overflow on the bar. Belfor-less weeks get a cell only to
+    carry."""
+    cells = {
+        (1, "XXL Construction"): _figures(original=1, found=3, invoiced=1),
+        (2, "XXL Construction"): _figures(found=2, invoiced=10),
+        (7, "Green Choice"): _figures(found=5, invoiced=0),
+    }
+    weekly.roll_forward(cells)
+    w1, w2 = cells[(1, "XXL Construction")], cells[(2, "XXL Construction")]
+    assert (w1["original"], w1["found"], w1["carried"]) == (Decimal(1), Decimal(0), Decimal(0))
+    assert (w2["found"], w2["carried"], w2["invoiced"]) == (Decimal(2), Decimal(3), Decimal(10))
+    assert (3, "XXL Construction") not in cells
+    assert cells[(7, "Green Choice")]["found"] == Decimal(5)
+    assert cells[(6, "Green Choice")]["carried"] == Decimal(0) if (6, "Green Choice") in cells else True

@@ -28,7 +28,7 @@ from app.services import work_orders_smr as smr_service
 
 INVOICE_HEADERS: tuple[str, ...] = ("Invoice", "Date", "Vendor", "Hours")
 CHART_VENDORS: tuple[str, ...] = ("Green Choice", "XXL Construction", "BT Restoration")
-FIGURES: tuple[str, ...] = ("original", "found", "undated", "invoiced")
+FIGURES: tuple[str, ...] = ("original", "found", "undated", "invoiced", "carried")
 
 
 def _parse_invoice_row(index: int, row: dict) -> dict:
@@ -82,11 +82,15 @@ def _slot(line: SmrLaborLine) -> Optional[tuple[Optional[int], str]]:
     return None
 
 
-def weekly_hours(db: Session) -> SmrWeeklyHoursOut:
-    cells: dict[tuple[Optional[int], str], dict[str, Decimal]] = {}
+def _cell(cells: dict[tuple[Optional[int], str], dict[str, Decimal]], key: tuple[Optional[int], str]) -> dict[str, Decimal]:
+    return cells.setdefault(key, {figure: Decimal(0) for figure in FIGURES})
 
-    def cell(key: tuple[Optional[int], str]) -> dict[str, Decimal]:
-        return cells.setdefault(key, {figure: Decimal(0) for figure in FIGURES})
+
+def raw_cells(db: Session) -> dict[tuple[Optional[int], str], dict[str, Decimal]]:
+    """Per (week, vendor) before the roll-forward: original / found / undated
+    from the lines and targets, invoiced from the invoices."""
+    cells: dict[tuple[Optional[int], str], dict[str, Decimal]] = {}
+    cell = lambda key: _cell(cells, key)  # noqa: E731
 
     orders = (
         db.query(WorkOrder).filter(WorkOrder.smr_imported_at.isnot(None))
@@ -110,11 +114,40 @@ def weekly_hours(db: Session) -> SmrWeeklyHoursOut:
                 cell(slot)["found" if slot[0] is not None else "undated"] -= original * share
     for row in db.query(SmrVendorInvoice).filter(SmrVendorInvoice.vendor.in_(CHART_VENDORS)).all():
         cell((row.week, row.vendor))["invoiced"] += Decimal(row.hours)
+    return cells
 
+
+def roll_forward(cells: dict[tuple[Optional[int], str], dict[str, Decimal]]) -> None:
+    """User 2026-11-06: a week never explains more than its invoice. Paper
+    above it is carried into the vendor's next week (found hours first, then
+    original); what is left after the last week stays on that bar as
+    `carried`, above its invoice. In place."""
+    for vendor in CHART_VENDORS:
+        carry = Decimal(0)
+        for week in range(1, rules.LAST_WEEK + 1):
+            figures = cells.get((week, vendor))
+            if figures is None:
+                if not carry:
+                    continue
+                figures = _cell(cells, (week, vendor))
+            figures["carried"] = carry
+            over = figures["original"] + figures["found"] + carry - figures["invoiced"]
+            carry = Decimal(0)
+            if over > 0 and week < rules.LAST_WEEK:
+                carry = over
+                for key in ("found", "original", "carried"):
+                    take = min(figures[key], over)
+                    figures[key] -= take
+                    over -= take
+
+
+def weekly_hours(db: Session) -> SmrWeeklyHoursOut:
+    cells = raw_cells(db)
+    roll_forward(cells)
     out = [
         SmrWeeklyCell(
             week=week, week_label=rules.week_label(week), vendor=vendor,
-            missing=max(figures["invoiced"] - figures["original"] - figures["found"], Decimal(0)),
+            missing=max(figures["invoiced"] - figures["original"] - figures["found"] - figures["carried"], Decimal(0)),
             **{figure: value.quantize(Decimal("0.1")) for figure, value in figures.items()},
         )
         for (week, vendor), figures in cells.items()

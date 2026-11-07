@@ -447,12 +447,12 @@ describe("the SMR page", () => {
     expect(body.querySelectorAll("rect.smr-seg--original")).toHaveLength(2);
     expect(body.querySelectorAll("rect.smr-seg--missing")).toHaveLength(2);
     expect(body.querySelectorAll("rect.smr-seg--undated")).toHaveLength(1);
-    expect(body.querySelectorAll(".smr-weekly-legend li")).toHaveLength(4);
+    expect(body.querySelectorAll(".smr-weekly-legend li")).toHaveLength(5);
     expect(Array.from(body.querySelectorAll(".smr-weekly-bar-label")).map((t) => t.textContent)).toEqual(["GC", "XXL", "BT", "GC", "XXL", "BT"]);
     const table = body.querySelector("table");
     const row = (i) => Array.from(table.tBodies[0].rows[i].cells).map((c) => c.textContent);
-    expect(row(0)).toEqual(["Week 3", "GC", "30.0", "10.0", "4.0", "0.0", "16.0"]);
-    expect(row(1)).toEqual(["Week 3", "BT", "8.0", "0.0", "0.0", "0.0", "8.0"]);
-    expect(row(2)).toEqual(["Undated", "GC", "0.0", "6.0", "0.0", "6.0", "0.0"]);
+    expect(row(0)).toEqual(["Week 3", "GC", "30.0", "10.0", "4.0", "0.0", "0.0", "16.0"]);
+    expect(row(1)).toEqual(["Week 3", "BT", "8.0", "0.0", "0.0", "0.0", "0.0", "8.0"]);
+    expect(row(2)).toEqual(["Undated", "GC", "0.0", "6.0", "0.0", "0.0", "6.0", "0.0"]);
   });
 });
