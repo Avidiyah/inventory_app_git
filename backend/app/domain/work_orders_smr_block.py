@@ -173,12 +173,12 @@ def render_correction_block(order_number: str, target: Optional[dict], lines, ve
         "",
         *material_rows,
         "",
-        # User 2026-11-07: no estimate line; the block shows what was keyed.
-        _row("Paper shows", _hours(charge.charged_hours)),
-        _row("Add to WO", _hours(change, signed=True)),
-        _row("", receipt.format_money(change * wo.LABOR_RATE)),
+        # User 2026-11-07: estimate, finalized total, then the diff only when there is one.
+        _row("Original Estimate", has),
+        _row("Finalized Total", _hours(charge.charged_hours)),
+        *([_row("Add to WO", _hours(change, signed=True)), _row("", receipt.format_money(change * wo.LABOR_RATE))] if change else []),
         "",
-        _fit(f"Corrected labor record{_paper_days(charged)}:"),
+        _fit(f"Finalized labor record{_paper_days(charged)}:"),
     ]
     out += [_charged_row(line) for line in charged] or [_fit("  (nothing charged)")]
     # User 2026-11-06: no Reason lines; a change is justified if asked.

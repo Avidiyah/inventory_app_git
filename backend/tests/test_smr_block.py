@@ -61,11 +61,12 @@ def test_one_full_block_verbatim():
         "  (no materials keyed)",
         "Materials                           $0.00",
         "",
-        "Paper shows                        16.5 h",
+        "Original Estimate      10.0 h SL  $625.00",
+        "Finalized Total                    16.5 h",
         "Add to WO                          +6.5 h",
         "                                  $406.25",
         "",
-        "Corrected labor record:",
+        "Finalized labor record:",
         "Week 1 Belfor x3               2.0 h each",
         "Week 4 BT Restoration x2       3.0 h each",
         "Week 4 Belfor assessment            0.5 h",
@@ -100,21 +101,21 @@ def test_a_decrease_prints_with_a_minus_and_lowers_the_total():
     lines = [_line(hours_each=Decimal("3.0")), _line(hours_each=Decimal("-2.0"), reason_code="over_billed")]
     rendered = _render(lines, target=_target("3.0", "187.50")).split("\n")
     assert "Week 4 Belfor                      -2.0 h" in rendered
-    assert "Paper shows                         1.0 h" in rendered
+    assert "Finalized Total                     1.0 h" in rendered
     assert "Add to WO                          -2.0 h" in rendered
     assert "                                 -$125.00" in rendered
 
 
 def test_an_order_without_a_sheet_row_says_so():
     rendered = _render([_line()], target=None).split("\n")
-    assert not any(row.startswith("Original Estimate") for row in rendered)
+    assert "Original Estimate                   0.0 h" in rendered
     assert "Add to WO                          +1.0 h" in rendered
     assert not any("on the WO." in row for row in rendered)
 
 
 def test_one_week_names_itself_in_the_heading():
-    assert "Corrected labor record (SMR Week 4):" in _render([_line(), _line(hours_each=Decimal("2.0"))]).split("\n")
-    assert "Corrected labor record:" in _render(_sample_lines()).split("\n")
+    assert "Finalized labor record (SMR Week 4):" in _render([_line(), _line(hours_each=Decimal("2.0"))]).split("\n")
+    assert "Finalized labor record:" in _render(_sample_lines()).split("\n")
 
 
 def test_excluded_lines_do_not_print():
@@ -150,9 +151,9 @@ def test_lines_print_their_smr_week_and_sort_by_it():
     # that week's vendor invoice; a placement and a dated line read alike.
     lines = [_line(), _line(work_date=None, date_basis=WEEK_PLACEMENT_BASIS, week=3, hours_each=Decimal("0.5"))]
     rendered = _render(lines).split("\n")
-    assert rendered[12].startswith("Week 3 Belfor") and rendered[12].endswith(" 0.5 h")
-    assert len(rendered[12]) == receipt.PRICING_LINE_WIDTH
-    assert rendered[13].startswith("Week 4 Belfor")
+    assert rendered[13].startswith("Week 3 Belfor") and rendered[13].endswith(" 0.5 h")
+    assert len(rendered[13]) == receipt.PRICING_LINE_WIDTH
+    assert rendered[14].startswith("Week 4 Belfor")
 
 
 def _materials():
@@ -196,3 +197,9 @@ def test_reason_text_falls_back_to_the_code_in_words():
     assert block.reason_text("crew_as_one") == "crew billed as one person"
     assert block.reason_text("as_read") == "hours as read on the paper"
     assert block.reason_text("some_new_code") == "some new code"
+
+
+def test_no_diff_line_when_the_paper_matches_the_estimate():
+    rendered = _render([_line(hours_each=Decimal("1.0"))], target={**TARGET, "hours": "1.0"}).split("\n")
+    assert "Finalized Total                     1.0 h" in rendered
+    assert not any(row.startswith("Add to WO") for row in rendered)
