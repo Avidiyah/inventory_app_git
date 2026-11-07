@@ -71,12 +71,8 @@ export async function handleSmrAction(action, btn, cardEl, msg) {
     form.hidden = true;
   } else if (action === "smr-save-line") {
     const payload = readLineForm(form);
-    if (!payload.reason) {
-      setMessage(msg, "Say why: the reason is kept with the line.", "error");
-      // The card message sits above a long form, off-screen: flag the field too.
-      form.querySelector(".wo-smr-f-reason").reportValidity();
-      return;
-    }
+    // Why is optional (user 2026-11-07); history still needs a reason.
+    if (!payload.reason) payload.reason = "edited on the card";
     if (form.dataset.lineId) await apiSmrEditLine(form.dataset.lineId, payload);
     else await apiSmrAddLine(workOrderId, payload);
     await refreshCard(cardEl, SECTION);

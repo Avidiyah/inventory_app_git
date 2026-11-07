@@ -61,7 +61,6 @@ def test_one_full_block_verbatim():
         "  (no materials keyed)",
         "Materials                           $0.00",
         "",
-        "Original Estimate has: 10.0 h SL  $625.00",
         "Paper shows                        16.5 h",
         "Add to WO                          +6.5 h",
         "                                  $406.25",
@@ -108,7 +107,7 @@ def test_a_decrease_prints_with_a_minus_and_lowers_the_total():
 
 def test_an_order_without_a_sheet_row_says_so():
     rendered = _render([_line()], target=None).split("\n")
-    assert "Original Estimate (no sheet row)    0.0 h" in rendered
+    assert not any(row.startswith("Original Estimate") for row in rendered)
     assert "Add to WO                          +1.0 h" in rendered
     assert not any("on the WO." in row for row in rendered)
 
@@ -151,9 +150,9 @@ def test_lines_print_their_smr_week_and_sort_by_it():
     # that week's vendor invoice; a placement and a dated line read alike.
     lines = [_line(), _line(work_date=None, date_basis=WEEK_PLACEMENT_BASIS, week=3, hours_each=Decimal("0.5"))]
     rendered = _render(lines).split("\n")
-    assert rendered[13].startswith("Week 3 Belfor") and rendered[13].endswith(" 0.5 h")
-    assert len(rendered[13]) == receipt.PRICING_LINE_WIDTH
-    assert rendered[14].startswith("Week 4 Belfor")
+    assert rendered[12].startswith("Week 3 Belfor") and rendered[12].endswith(" 0.5 h")
+    assert len(rendered[12]) == receipt.PRICING_LINE_WIDTH
+    assert rendered[13].startswith("Week 4 Belfor")
 
 
 def _materials():

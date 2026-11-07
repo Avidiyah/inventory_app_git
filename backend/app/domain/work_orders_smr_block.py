@@ -173,7 +173,7 @@ def render_correction_block(order_number: str, target: Optional[dict], lines, ve
         "",
         *material_rows,
         "",
-        _row("Original Estimate has:" if target else "Original Estimate (no sheet row)", has),
+        # User 2026-11-07: no estimate line; the block shows what was keyed.
         _row("Paper shows", _hours(charge.charged_hours)),
         _row("Add to WO", _hours(change, signed=True)),
         _row("", receipt.format_money(change * wo.LABOR_RATE)),

@@ -162,7 +162,7 @@ function lineFormHtml(detail) {
     <label><span>Status</span><select class="wo-smr-f-status"><option value="charged">charged</option><option value="excluded">excluded</option></select></label>
     <label><span>Exclusion ground (optional)</span><select class="wo-smr-f-ground"><option value="">none</option>${options(SMR_GROUNDS)}</select></label>
     <label class="wo-smr-wide"><span>Note (prints under the line)</span><input type="text" class="wo-smr-f-note"></label>
-    <label class="wo-smr-wide"><span>Why (kept in the line's history)</span><input type="text" class="wo-smr-f-reason" required></label>
+    <label class="wo-smr-wide"><span>Why (optional, kept in the line's history)</span><input type="text" class="wo-smr-f-reason"></label>
     <div class="wo-smr-form-actions">
       <button type="button" data-action="smr-save-line">Save line</button>
       <button type="button" class="secondary-btn" data-action="smr-cancel-line">Cancel</button>

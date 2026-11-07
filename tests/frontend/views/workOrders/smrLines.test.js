@@ -302,13 +302,13 @@ describe("lines", () => {
     expect(requestFor(`/lines/${LINE.id}`, "PATCH").body).toEqual({ status: "charged", exclusion_ground: null, reason: "charged on the card" });
   });
 
-  it("refuses to save without a reason", async () => {
+  it("saves without a reason, filling a default", async () => {
     await open();
     click("smr-edit-line");
     set("wo-smr-f-hours", "1");
     click("smr-save-line");
-    await vi.waitFor(() => expect(message().textContent).toBe("Say why: the reason is kept with the line."));
-    expect(requestFor("/lines", "POST")).toBeNull();
+    await sent(`/lines/${LINE.id}`, "PATCH");
+    expect(requestFor(`/lines/${LINE.id}`, "PATCH").body.reason).toBe("edited on the card");
   });
 });
 

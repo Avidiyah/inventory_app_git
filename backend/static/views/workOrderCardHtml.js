@@ -304,7 +304,7 @@ function detailsViewHtml(detail) {
     ["Output to", detail.output_to],
     ["Vendor contact", detail.vendor_assignee],
     ["Symptom / task", detail.description],
-    ["Priority", detail.priority || "Not imported"],
+    ...(detail.smr ? [] : [["Priority", detail.priority || "Not imported"]]),
     ["Team Lead", detail.supervisor_name],
     ["Technicians", assignedNames(detail).join(", ")],
   ];
@@ -430,7 +430,7 @@ function detailsEditorHtml(detail) {
       editField("schedule-date", "Schedule date", detail.schedule_date) +
       editField("output-to", "Output to", detail.output_to) +
       editField("vendor", "Vendor contact", detail.vendor_assignee) +
-      priorityEditField(detail) +
+      (detail.smr ? "" : priorityEditField(detail)) +
       `<label class="wo-edit-field wo-edit-wide">
          <span>Symptom / task</span>
          <textarea class="wo-edit-description" rows="2">${escapeHtml(detail.description || "")}</textarea>
@@ -460,7 +460,7 @@ function detailsEditorHtml(detail) {
                   <legend>Assigned technicians${tipHtml("wo.routing")}</legend>
                   ${technicianPickerHtml(detail)}
                 </fieldset>
-                ${statusEditorHtml(detail)}
+                ${detail.smr ? "" : statusEditorHtml(detail)}
               </div>
               <div class="wo-edit-actions">
                 <button type="button" data-action="save-details">Save details</button>
@@ -483,9 +483,8 @@ export function summaryHtml(card) {
   const legacyTag = card.legacy ? `<span class="wo-legacy-tag">Legacy</span>` : "";
   return (
     `<span class="wo-title">WO ${escapeHtml(card.number)}</span>` +
-    statusBadge(card.status) +
-    priorityBadge(card) +
-    overdueTag(card) +
+    // SMR27 is an audit of past work: no live status, priority or due date (user 2026-11-07).
+    (card.smr ? "" : statusBadge(card.status) + priorityBadge(card) + overdueTag(card)) +
     legacyTag +
     `<span class="wo-meta">${place ? escapeHtml(place) + " · " : ""}${card.item_count} items${assignee}</span>`
   );
@@ -506,9 +505,9 @@ export function renderBody(detail, bodyEl) {
 
   const { primary, secondary, tools } = statusActionsHtml(detail);
   const statusActions =
-    primary + secondary + (tools ? `<div class="wo-controls-tools">${tools}</div>` : "");
+    (detail.smr ? "" : primary + secondary) + (tools ? `<div class="wo-controls-tools">${tools}</div>` : "");
 
-  const modeControl = sup
+  const modeControl = sup && !detail.smr
     ? `<div class="wo-mode-row">
        <label>New entries:${tipHtml("wo.entry-mode")}</label>
        <select class="wo-mode-select">
