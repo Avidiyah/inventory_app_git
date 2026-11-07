@@ -64,7 +64,6 @@ REASON_TEXT: dict[str, str] = {
 VENDOR_SHORT: dict[str, str] = {
     "Green Choice": "GC", "XXL Construction": "XXL", "BT Restoration": "BT",
 }
-FOOTER = "Paper on file."
 
 
 def reason_text(code: str) -> str:
@@ -174,7 +173,7 @@ def render_correction_block(order_number: str, target: Optional[dict], lines, ve
         "",
         *material_rows,
         "",
-        _row("NetFacilities has" if target else "NetFacilities has (no sheet row)", has),
+        _row("Original Estimate has:" if target else "Original Estimate (no sheet row)", has),
         _row("Paper shows", _hours(charge.charged_hours)),
         _row("Add to WO", _hours(change, signed=True)),
         _row("", receipt.format_money(change * wo.LABOR_RATE)),
@@ -188,7 +187,6 @@ def render_correction_block(order_number: str, target: Optional[dict], lines, ve
         _row("Labor total", receipt.format_money(charge.labor_total)),
         _row("Materials total", receipt.format_money(materials_total)),
         _row("Total", receipt.format_money(materials_total + charge.labor_total)),
-        _fit(FOOTER),
     ]
     return "\n".join(out)
 

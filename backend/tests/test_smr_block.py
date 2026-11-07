@@ -61,7 +61,7 @@ def test_one_full_block_verbatim():
         "  (no materials keyed)",
         "Materials                           $0.00",
         "",
-        "NetFacilities has      10.0 h SL  $625.00",
+        "Original Estimate has: 10.0 h SL  $625.00",
         "Paper shows                        16.5 h",
         "Add to WO                          +6.5 h",
         "                                  $406.25",
@@ -75,7 +75,6 @@ def test_one_full_block_verbatim():
         "Labor total                     $1,031.25",
         "Materials total                     $0.00",
         "Total                           $1,031.25",
-        "Paper on file.",
     ])
 
 
@@ -109,7 +108,7 @@ def test_a_decrease_prints_with_a_minus_and_lowers_the_total():
 
 def test_an_order_without_a_sheet_row_says_so():
     rendered = _render([_line()], target=None).split("\n")
-    assert "NetFacilities has (no sheet row)    0.0 h" in rendered
+    assert "Original Estimate (no sheet row)    0.0 h" in rendered
     assert "Add to WO                          +1.0 h" in rendered
     assert not any("on the WO." in row for row in rendered)
 

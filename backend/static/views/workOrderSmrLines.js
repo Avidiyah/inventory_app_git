@@ -266,6 +266,7 @@ export function totalsHtml(detail) {
 
 // Ready for invoice (spec 2026-11-06): a person's stamp, offered only while
 // the order has a dated line; a stamp on an order that lost its date is held.
+// Rendered at the top of the card, under the controls (user, 2026-11-06).
 export function readyRowHtml(detail, editable) {
   const stamp_ = detail.smr_ready;
   if (detail.smr_stage === "ready") {
@@ -309,7 +310,6 @@ export function smrSectionHtml(detail) {
               ${addLine}
               ${editable ? lineFormHtml(detail) : ""}
               ${totalsHtml(detail)}
-              ${readyRowHtml(detail, editable)}
               ${blockHtml(detail, editable)}
             </div>
           </details>`;

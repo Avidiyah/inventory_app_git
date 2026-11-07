@@ -73,6 +73,8 @@ export async function handleSmrAction(action, btn, cardEl, msg) {
     const payload = readLineForm(form);
     if (!payload.reason) {
       setMessage(msg, "Say why: the reason is kept with the line.", "error");
+      // The card message sits above a long form, off-screen: flag the field too.
+      form.querySelector(".wo-smr-f-reason").reportValidity();
       return;
     }
     if (form.dataset.lineId) await apiSmrEditLine(form.dataset.lineId, payload);

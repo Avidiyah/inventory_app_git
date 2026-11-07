@@ -67,7 +67,7 @@ describe("who sees what", () => {
 // Ready for invoice (spec 2026-11-06-smr-paper-stage): a person's stamp,
 // offered only once a line is dated.
 describe("ready for invoice", () => {
-  const row = () => section().querySelector(".wo-smr-ready");
+  const row = () => card().querySelector(".wo-smr-ready");
 
   it("a dated order offers the Ready button, and pressing it PUTs ready and refreshes", async () => {
     const detail = await open({ detail: { smr_stage: "dated" } });

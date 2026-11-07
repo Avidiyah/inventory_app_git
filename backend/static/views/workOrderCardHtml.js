@@ -48,7 +48,7 @@ import {
 import { chargingStripHtml, statusActionsHtml } from "./workOrderStatusActions.js";
 import { getAllSupervisors, getAllTechnicians } from "./workOrderReferenceData.js";
 import { livePriorityValues } from "./workOrderFilters.js";
-import { smrSectionHtml } from "./workOrderSmrLines.js";
+import { canEditSmrLines, readyRowHtml, smrSectionHtml } from "./workOrderSmrLines.js";
 import { comboHtml } from "../menus.js";
 
 function renderLaborEntryHtml(entry, readOnly = false) {
@@ -521,6 +521,7 @@ export function renderBody(detail, bodyEl) {
   bodyEl.innerHTML =
     chargingStripHtml(detail) +
     ((modeControl || statusActions) ? `<div class="wo-controls">${modeControl}${statusActions}</div>` : "") +
+    (detail.smr ? readyRowHtml(detail, canEditSmrLines()) : "") +
     crewLockHtml(detail) +
     priorWorkBannerHtml(detail) +
     `<div class="wo-details">${detailsViewHtml(detail)}</div>` +
