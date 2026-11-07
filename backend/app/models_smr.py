@@ -218,6 +218,7 @@ class SmrVendorInvoice(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     invoice = Column(Text, nullable=False)
     vendor = Column(Text, nullable=False)
+    worker = Column(Text, nullable=True)  # the invoice's name for the person; BT invoices carry classes, so None
     work_date = Column(Date, nullable=False)
     week = Column(Integer, nullable=False)
     hours = Column(Numeric(8, 2), nullable=False)

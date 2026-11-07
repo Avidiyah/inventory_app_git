@@ -148,7 +148,7 @@ backend/app/routers/work_orders_smr.py `/work-orders/smr` import (Owner), tiles 
 backend/app/models_smr.py     SMR27 paper-correction tables: smr_workers, smr_paper_readings, smr_labor_lines, smr_line_edits, smr_correction_blocks
 backend/app/domain/work_orders_smr_block.py 41-char correction block renderer + lines digest
 backend/app/services/work_orders_smr_lines.py SMR readings / lines / workers / blocks writes (history row per change) + Hours data
-backend/app/services/work_orders_smr_weekly.py SMR vendor invoice import (`smr_vendor_invoices`, replace by invoice number) + weekly chart series
+backend/app/services/work_orders_smr_weekly.py SMR vendor invoice import (`smr_vendor_invoices` incl. the invoice's worker name, replace by invoice number), weekly chart series (raw cells + roll-forward), `fill_invoice_names` / `undo_invoice_names` (generic GC / XXL crew lines take the invoiced name with the most unused hours in the week, as new single lines; run from `scripts/smr_fill_invoice_names.py`, undo by tag; `scripts/smr_charge_undated_likely.py` charges undated lines to the reconciliation's likely week the same way)
 backend/app/services/work_orders_smr_import.py Owner paper import (readings + lines CSVs, optional Breakdown; tie check; one commit)
 backend/app/schemas/work_orders_smr_lines.py SMR reading / line / worker / block / import / hours shapes (shared by WorkOrderDetail)
 backend/app/services/tools.py    Tool CRUD + checkout/return + custody aggregate

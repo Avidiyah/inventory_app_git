@@ -48,7 +48,8 @@ def _parse_invoice_row(index: int, row: dict) -> dict:
         raise WorkOrderStateError(f"{where}: Hours {row.get('Hours')!r} is not a number.") from exc
     if hours <= 0:
         raise WorkOrderStateError(f"{where}: Hours must be above zero.")
-    return {"invoice": invoice, "vendor": vendor, "work_date": day, "week": rules.week_of(day), "hours": hours}
+    worker = (row.get("Worker") or "").strip() or None
+    return {"invoice": invoice, "vendor": vendor, "worker": worker, "work_date": day, "week": rules.week_of(day), "hours": hours}
 
 
 def import_invoices(db: Session, *, csv_bytes: bytes, user: User) -> SmrInvoiceImportResult:
@@ -159,3 +160,122 @@ def weekly_hours(db: Session) -> SmrWeeklyHoursOut:
     if any(c.week is None for c in out):
         weeks.append(None)
     return SmrWeeklyHoursOut(weeks=weeks, vendors=list(CHART_VENDORS), cells=out)
+
+
+# --- names from the invoices (user 2026-11-06) -------------------------------
+
+NAMED_VENDORS: tuple[str, ...] = ("Green Choice", "XXL Construction")  # BT invoices carry classes, not names
+
+
+def _invoice_name(worker: Optional[str]) -> Optional[str]:
+    """`Chris Bryan (REG)` -> `Chris Bryan`; None stays None."""
+    if not worker:
+        return None
+    return worker.split(" (")[0].strip() or None
+
+
+def fill_invoice_names(db: Session, *, user: User, tag: str, dry_run: bool = False) -> dict:
+    """Give each generic vendor-crew line (no worker) the invoiced name with
+    the most unused hours in that week. Room = the name's invoiced hours in
+    the week minus hours already on lines naming that person there. A line
+    of headcount N is N units; a unit is named only when a name has room for
+    its whole hours_each, as a new single line; the original keeps the
+    unnamed units or is removed when none are left. Every write carries
+    `tag` in its history so the run can be undone."""
+    from app.models import SmrWorker
+    from app.services.work_orders_smr_lines import _text, history, match_worker
+
+    room: dict[tuple[int, str, str], Decimal] = {}
+    for row in db.query(SmrVendorInvoice).filter(SmrVendorInvoice.vendor.in_(NAMED_VENDORS)).all():
+        name = _invoice_name(row.worker)
+        if name:
+            key = (row.week, row.vendor, name)
+            room[key] = room.get(key, Decimal(0)) + Decimal(row.hours)
+    workers: dict[tuple[str, str], Optional[SmrWorker]] = {}
+    for (week, vendor, name) in list(room):
+        if (vendor, name) not in workers:
+            wid = match_worker(db, name=name, vendor=vendor)
+            workers[(vendor, name)] = db.get(SmrWorker, wid) if wid else None
+    lines = (
+        db.query(SmrLaborLine).filter(SmrLaborLine.status == rules.STATUS_CHARGED, SmrLaborLine.vendor.in_(NAMED_VENDORS),
+                                      SmrLaborLine.week.isnot(None)).all()
+    )
+    by_worker = {w.id: (v, n) for (v, n), w in workers.items() if w is not None}
+    for line in lines:
+        if line.worker_id in by_worker:
+            vendor, name = by_worker[line.worker_id]
+            key = (line.week, vendor, name)
+            room[key] = room.get(key, Decimal(0)) - rules.line_hours(line)
+
+    now = datetime.now(timezone.utc)
+    named: list[tuple[str, int, str, Decimal]] = []
+    left: list[tuple[str, int, str, Decimal]] = []
+    for line in sorted((l for l in lines if l.worker_id is None), key=lambda l: (l.week, -l.hours_each)):
+        units = 0
+        for _ in range(line.headcount):
+            choices = [(h, key) for key, h in room.items() if key[0] == line.week and key[1] == line.vendor and h >= line.hours_each]
+            if not choices:
+                break
+            hours, key = max(choices, key=lambda c: (c[0], c[1][2]))
+            room[key] = hours - line.hours_each
+            name = key[2]
+            named.append((line.work_order.number, line.week, name, line.hours_each))
+            units += 1
+            if dry_run:
+                continue
+            worker = workers.get((line.vendor, name))
+            if worker is None:
+                worker = SmrWorker(display_name=name, vendor=line.vendor)
+                db.add(worker)
+                db.flush()
+                workers[(line.vendor, name)] = worker
+            new = SmrLaborLine(
+                work_order_id=line.work_order_id, reading_id=line.reading_id, work_date=line.work_date, date_basis=line.date_basis,
+                week=line.week, vendor=line.vendor, worker_id=worker.id, alias_on_paper=name, headcount=1, hours_each=line.hours_each,
+                kind=line.kind, reason_code=line.reason_code, status=rules.STATUS_CHARGED, note=line.note,
+                created_by_id=user.id, updated_by_id=user.id,
+            )
+            db.add(new)
+            db.flush()
+            history(db, line=new, actor=user, field="created", old=None, new=f"from line {line.id}", reason=tag, now=now)
+        if units < line.headcount:
+            left.append((line.work_order.number, line.week, line.vendor, rules.line_hours(line) - units * line.hours_each))
+        if units and not dry_run:
+            if units == line.headcount:
+                history(db, line=line, actor=user, field="status", old=line.status, new=rules.STATUS_EXCLUDED, reason=tag, now=now)
+                history(db, line=line, actor=user, field="exclusion_ground", old=None, new=rules.GROUND_REMOVED, reason=tag, now=now)
+                line.status, line.exclusion_ground = rules.STATUS_EXCLUDED, rules.GROUND_REMOVED
+            else:
+                history(db, line=line, actor=user, field="headcount", old=_text(line.headcount), new=_text(line.headcount - units), reason=tag, now=now)
+                line.headcount -= units
+            line.updated_at, line.updated_by_id = now, user.id
+    if not dry_run:
+        db.commit()
+    return {"named": named, "left": left}
+
+
+def undo_invoice_names(db: Session, *, user: User, tag: str) -> int:
+    """Put a `fill_invoice_names` run back: created lines are removed, the
+    originals get their headcount / status back."""
+    from app.models import SmrLineEdit
+    from app.services.work_orders_smr_lines import history
+    now = datetime.now(timezone.utc)
+    edits = db.query(SmrLineEdit).filter(SmrLineEdit.reason == tag).all()
+    touched = 0
+    for edit in edits:
+        line = db.get(SmrLaborLine, edit.line_id)
+        if line is None:
+            continue
+        touched += 1
+        if edit.field == "created":
+            line.status, line.exclusion_ground = rules.STATUS_EXCLUDED, rules.GROUND_REMOVED
+            history(db, line=line, actor=user, field="deleted", old=None, new=None, reason=f"undo {tag}", now=now)
+        elif edit.field == "headcount":
+            line.headcount = int(edit.old_value)
+            history(db, line=line, actor=user, field="headcount", old=edit.new_value, new=edit.old_value, reason=f"undo {tag}", now=now)
+        elif edit.field == "status":
+            line.status, line.exclusion_ground = rules.STATUS_CHARGED, None
+            history(db, line=line, actor=user, field="status", old=rules.STATUS_EXCLUDED, new=rules.STATUS_CHARGED, reason=f"undo {tag}", now=now)
+        line.updated_at, line.updated_by_id = now, user.id
+    db.commit()
+    return touched

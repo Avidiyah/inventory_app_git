@@ -182,11 +182,14 @@ def render_correction_block(order_number: str, target: Optional[dict], lines, ve
         _fit(f"Corrected labor record{_paper_days(charged)}:"),
     ]
     out += [_charged_row(line) for line in charged] or [_fit("  (nothing charged)")]
-    reasons = sorted({reason_text(l.reason_code) for l in charged}) or ["paper review"]
-    out += ["", _fit("Reason: " + reasons[0] + ",")] + [_fit("  " + r + ",") for r in reasons[1:]]
-    out += [_fit(f"replacing the {_hours(billed)}{' ' + (target.get('source_row') or {}).get('Labor Type', '').strip() if target else ''} on the WO."
-                 if target else "no labor on the WO.")]
-    out += ["", _row("Total", receipt.format_money(materials_total + charge.labor_total)), _fit(FOOTER)]
+    # User 2026-11-06: no Reason lines; a change is justified if asked.
+    out += [
+        "",
+        _row("Labor total", receipt.format_money(charge.labor_total)),
+        _row("Materials total", receipt.format_money(materials_total)),
+        _row("Total", receipt.format_money(materials_total + charge.labor_total)),
+        _fit(FOOTER),
+    ]
     return "\n".join(out)
 
 

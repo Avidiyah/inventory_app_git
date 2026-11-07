@@ -154,3 +154,42 @@ def test_paper_above_a_week_invoice_is_carried_into_the_next_week():
     assert (3, "XXL Construction") not in cells
     assert cells[(7, "Green Choice")]["found"] == Decimal(5)
     assert cells[(6, "Green Choice")]["carried"] == Decimal(0) if (6, "Green Choice") in cells else True
+
+
+def test_fill_invoice_names_names_units_with_room_and_undoes(db):
+    """XXL week 3: Pat invoiced 100 h, Sam 1 h. A 2-unit crew line of 2 h each:
+    both units go to Pat (room), none to Sam (1 < 2); the original is removed.
+    Undo removes the named lines and restores the original. Other dev-DB
+    lines may take some of Pat's room too, so assertions stay on this order."""
+    owner = _user(db)
+    tag = uuid.uuid4().hex[:6]
+    pat, sam = f"Pat {tag}", f"Sam {tag}"
+    weekly.import_invoices(db, csv_bytes=_csv(f"XXL {tag},06/09/2026,XXL Construction,{pat} (REG),0,100",
+                                              f"XXL {tag},06/09/2026,XXL Construction,{sam},0,1"), user=owner)
+    order = WorkOrder(number=f"WO-{tag}", created_by_id=owner.id, smr_imported_at=datetime.now(timezone.utc))
+    db.add(order)
+    db.flush()
+    crew = _line(order, vendor="XXL Construction", headcount=2, hours_each=Decimal(2))
+    db.add(crew)
+    db.flush()
+    run = f"name test {tag}"
+    mine = lambda result: sorted((n, h) for wo, _, n, h in result["named"] if wo == f"WO-{tag}")  # noqa: E731
+    dry = weekly.fill_invoice_names(db, user=owner, tag=run, dry_run=True)
+    assert mine(dry) == [(pat, Decimal(2)), (pat, Decimal(2))]
+    db.refresh(crew)
+    assert crew.headcount == 2 and crew.status == "charged"  # dry run wrote nothing
+
+    result = weekly.fill_invoice_names(db, user=owner, tag=run)
+    assert mine(result) == [(pat, Decimal(2)), (pat, Decimal(2))]
+    assert not any(wo == f"WO-{tag}" for wo, *_ in result["left"])
+    db.refresh(crew)
+    db.refresh(order)
+    named = [l for l in order.smr_lines if l.worker is not None and l.worker.display_name == pat]
+    assert (crew.status, crew.exclusion_ground) == ("excluded", "removed")
+    assert len(named) == 2 and all(l.hours_each == Decimal(2) and l.week == 3 and l.headcount == 1 for l in named)
+
+    weekly.undo_invoice_names(db, user=owner, tag=run)
+    db.refresh(crew)
+    for l in named:
+        db.refresh(l)
+    assert (crew.status, crew.headcount) == ("charged", 2) and all(l.exclusion_ground == "removed" for l in named)

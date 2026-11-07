@@ -72,11 +72,8 @@ def test_one_full_block_verbatim():
         "Week 4 Belfor assessment            0.5 h",
         "Week 4 Trinton Smith (XXL)          4.0 h",
         "",
-        "Reason: billed accurately; who and when,",
-        "  crew billed as one person,",
-        "  overhead added, label only,",
-        "replacing the 10.0 h SL on the WO.",
-        "",
+        "Labor total                     $1,031.25",
+        "Materials total                     $0.00",
         "Total                           $1,031.25",
         "Paper on file.",
     ])
@@ -96,16 +93,15 @@ def test_lines_never_exceed_the_destination_width():
     rendered = _render(lines).split("\n")
     assert all(len(row) <= receipt.PRICING_LINE_WIDTH for row in rendered)
     truncated = [row for row in rendered if "..." in row]
-    assert len(truncated) >= 2  # the long name row and the long reason; the excluded row no longer prints
+    assert len(truncated) >= 1  # the long name row; the excluded row no longer prints
     assert any(row.endswith(" 12.5 h") and len(row) == receipt.PRICING_LINE_WIDTH for row in truncated)
-    assert any(row.startswith("Reason: a code nobody has seen before") and row.endswith("...") for row in rendered)
+    assert not any(row.startswith("Reason") for row in rendered)  # user 2026-11-06: no Reason lines
 
 
 def test_a_decrease_prints_with_a_minus_and_lowers_the_total():
     lines = [_line(hours_each=Decimal("3.0")), _line(hours_each=Decimal("-2.0"), reason_code="over_billed")]
     rendered = _render(lines, target=_target("3.0", "187.50")).split("\n")
     assert "Week 4 Belfor                      -2.0 h" in rendered
-    assert "  paper supports less than billed," in rendered
     assert "Paper shows                         1.0 h" in rendered
     assert "Add to WO                          -2.0 h" in rendered
     assert "                                 -$125.00" in rendered
@@ -115,7 +111,7 @@ def test_an_order_without_a_sheet_row_says_so():
     rendered = _render([_line()], target=None).split("\n")
     assert "NetFacilities has (no sheet row)    0.0 h" in rendered
     assert "Add to WO                          +1.0 h" in rendered
-    assert "no labor on the WO." in rendered
+    assert not any("on the WO." in row for row in rendered)
 
 
 def test_one_week_names_itself_in_the_heading():
