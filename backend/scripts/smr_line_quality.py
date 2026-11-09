@@ -206,6 +206,10 @@ def main():
                     continue
                 change(line, {"kind": ", ".join(kinds), "hours_each": keep}, tag)
                 if excess:
+                    if "on the clock" in (line.note or ""):
+                        # User 2026-11-09 (23278441): clock time keyed under an overhead label is field work.
+                        create(line, {"kind": "field", "hours_each": excess, "reason_code": "as_read"}, tag)
+                        continue
                     create(line, {"kind": ", ".join(gone or kinds), "hours_each": excess, "status": "excluded",
                                   "exclusion_ground": GROUND_OVERHEAD_ONCE}, tag)
                     out += excess
