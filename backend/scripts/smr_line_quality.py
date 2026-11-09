@@ -9,6 +9,10 @@
              reason crew_size_not_given (the block prints "<vendor> crew")
   cleanup    the 0.5 h per-order clean-up lines: kind clean-up, reason cleanup_spread,
              vendor Green Choice in Weeks 1-2, BT Restoration from Week 3
+  allocate   <csv>: SMR27 post-audit allocation lines (import_allocations.csv), one charged
+             line per row, basis "week placement (post-audit allocation)"; reruns skip known keys
+  changes    <csv>: the post-audit line changes (import_line_changes.csv): un-exclude,
+             set vendor, move week (shrink the line, twin in the new week)
   selfcheck  asserts on the overhead rule, no database writes
 
 Each fix is a dry run unless --apply is given. Writes carry history rows with
@@ -31,7 +35,9 @@ from app.domain.work_orders_smr_lines import (
 DAY_LIMIT = Decimal(12)  # user 2026-11-09: more than this on one date for one person is "impossible"
 HALF = Decimal("0.5")
 DEFAULT_VENDOR = {"assessment": "Belfor", "audit": "XXL Construction", "staging": "XXL Construction"}
-FIELDS = ("reading_id", "work_date", "date_basis", "week", "vendor", "worker_id", "alias_on_paper", "headcount",
+# sha256 prefixes of the frozen post-audit files (peer session, 2026-11-09); a rebuild changes these.
+FROZEN = {"import_allocations.csv": "c54caa3c0775c479", "import_line_changes.csv": "e6a9ec75ac325ac5"}
+FIELDS = ("reading_id","work_date", "date_basis", "week", "vendor", "worker_id", "alias_on_paper", "headcount",
           "hours_each", "kind", "reason_code", "status", "exclusion_ground", "note")
 
 
@@ -117,10 +123,10 @@ def main():
                 setattr(line, field, value)
         line.updated_at, line.updated_by_id = now, owner.id
 
-    def create(like, changes, tag):
+    def create(like, changes, tag, import_key=None):
         state = {f: getattr(like, f) for f in FIELDS} | changes
         validate(state)
-        row = SmrLaborLine(id=uuid.uuid4(), work_order_id=like.work_order_id, import_key=None, created_at=now,
+        row = SmrLaborLine(id=uuid.uuid4(), work_order_id=like.work_order_id, import_key=import_key, created_at=now,
                            created_by_id=owner.id, updated_at=now, updated_by_id=owner.id, **state)
         db.add(row)
         db.flush()
@@ -154,6 +160,7 @@ def main():
             line = by_line[line_id]
             if "created" in fields:
                 change(line, {"status": "excluded", "exclusion_ground": GROUND_REMOVED}, undo)
+                line.import_key = None  # frees an allocation key so a rerun can recreate the line
                 continue
             change(line, {f: (parse.get(f, str)(v) if v is not None else None) for f, v in fields.items()}, undo)
         apply_ = True
@@ -350,6 +357,65 @@ def main():
                 d = min(later)
         return finish(tag, f"spill: {len(moved)} moves, {sum(t for *_, t in moved)} h; "
                            f"week changes on {sum(week_of(a) != week_of(b) for a, b, _ in moved)}")
+
+    if fix in ("allocate", "changes"):
+        import csv, hashlib
+        path = args[1]
+        name, digest = os.path.basename(path), hashlib.sha256(open(path, "rb").read()).hexdigest()[:16]
+        if FROZEN.get(name) != digest:
+            sys.exit(f"{name}: sha256 {digest}, expected {FROZEN.get(name)} (frozen file changed?); nothing written")
+        rows = list(csv.DictReader(open(path, newline="", encoding="utf-8-sig")))
+
+    if fix == "allocate":
+        from app.domain.work_orders_smr_lines import ALLOCATION_BASIS
+        from app.services import work_orders as wos
+        tag = tag_for(f"post-audit allocation {FROZEN[name]}")
+        orders = {n: wos.find_by_number(db, n) for n in sorted({r["wo"] for r in rows})}
+        bad = [n for n, o in orders.items() if o is None or o.smr_imported_at is None]
+        if bad:
+            sys.exit(f"not SMR orders in the app: {', '.join(bad)}; nothing written")
+        known = {k for (k,) in db.query(SmrLaborLine.import_key).filter(SmrLaborLine.import_key.like("alloc %"))}
+        made, skipped = [], 0
+        for r in rows:
+            key = f"alloc {r['wo']} W{r['week']} {r['vendor']} {r['source']}"
+            if key in known:
+                skipped += 1
+                continue
+            state = dict.fromkeys(FIELDS) | {
+                "date_basis": ALLOCATION_BASIS, "week": int(r["week"]), "vendor": r["vendor"], "headcount": 1,
+                "hours_each": Decimal(r["hours"]), "kind": r["kind"], "reason_code": r["reason_code"],
+                "status": "charged", "note": f"{r['source']} ({r['evidence_class']}): {r['note']}"}
+            made.append(create(NS(work_order_id=orders[r["wo"]].id, **state), {}, tag, import_key=key))
+        return finish(tag, f"allocate: {len(made)} lines / {h(made)} h on {len({l.work_order_id for l in made})} orders; "
+                           f"{skipped} already in")
+
+    if fix == "changes":
+        from app.domain.work_orders_smr_lines import WEEK_BASES
+        tag, by_id, done = tag_for(f"post-audit line changes {FROZEN[name]}"), {str(l.id): l for l in live}, defaultdict(Decimal)
+        for r in rows:
+            line, what, x = by_id.get(r["line_id"]), r["change"], Decimal(r["hours"])
+            if line is None or line.work_order.number != r["wo"]:
+                sys.exit(f"line {r['line_id']} (WO {r['wo']}) not found; nothing written")
+            if what == "un-exclude":
+                assert line.exclusion_ground == "awaiting invoice (GC, Week 7)" and h([line]) == x, r
+                change(line, {"status": "charged", "exclusion_ground": None}, tag)
+            elif what == "set vendor":
+                assert line.vendor == "Unknown" and line.status == "charged" and h([line]) == x, r
+                change(line, {"vendor": r["vendor"]}, tag)
+            elif what == "move week":
+                assert (line.headcount == 1 and line.work_date is None and line.date_basis in WEEK_BASES
+                        and line.week == int(r["week"]) and line.worker and line.worker.display_name == r["worker"]
+                        and x <= Decimal(line.hours_each)), r
+                note = f"{line.note or ''} | {x} h moved Week {r['week']} -> {r['to_week']}: {r['why']}".lstrip(" |")
+                if x == Decimal(line.hours_each):
+                    change(line, {"week": int(r["to_week"]), "note": note}, tag)
+                else:
+                    change(line, {"hours_each": Decimal(line.hours_each) - x}, tag)
+                    create(line, {"hours_each": x, "week": int(r["to_week"]), "note": note}, tag)
+            else:
+                sys.exit(f"unknown change {what!r}; nothing written")
+            done[what] += x
+        return finish(tag, "changes: " + ", ".join(f"{k} {v} h" for k, v in done.items()))
 
     if fix == "cleanup":
         tag, rows = tag_for("clean-up labelled"), []

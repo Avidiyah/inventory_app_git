@@ -164,6 +164,14 @@ def test_a_week_placement_charges_with_its_week_and_no_date(db):
     db.flush()
     assert db.query(SmrLaborLine).filter(SmrLaborLine.work_order_id == order.id).one().week == 3
 
+    # User 2026-11-09: the post-audit allocation basis follows the same rule.
+    order = _smr_order(db, _user(db))
+    _refused(db, _line(order, work_date=None, date_basis=rules.ALLOCATION_BASIS, week=None))
+    order = _smr_order(db, _user(db))
+    db.add(_line(order, work_date=None, date_basis=rules.ALLOCATION_BASIS, week=5))
+    db.flush()
+    assert rules.week_for(None, rules.ALLOCATION_BASIS, 5) == 5
+
 
 def test_hours_off_the_half_hour_step_are_refused(db):
     _refused(db, _line(_smr_order(db, _user(db)), hours_each=Decimal("1.3")))

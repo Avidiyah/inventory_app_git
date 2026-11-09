@@ -36,7 +36,11 @@ DATE_BASIS_PAPER = "paper"
 # hours in, read from the CSV. The block prints "week of <that Monday>".
 WEEK1_PLACEMENT_BASIS = "Week 1 placement (crew sheets, Supplement)"
 WEEK_PLACEMENT_BASIS = "week placement (weekly reports)"
-PLACEMENT_BASES: tuple[str, ...] = (WEEK1_PLACEMENT_BASIS, WEEK_PLACEMENT_BASIS)
+# User 2026-11-09: the SMR27 post-audit allocations (invoice, crew-sheet and
+# same-crew evidence, estimates) carry a week and no day, like a week placement.
+ALLOCATION_BASIS = "week placement (post-audit allocation)"
+WEEK_BASES: tuple[str, ...] = (WEEK_PLACEMENT_BASIS, ALLOCATION_BASIS)  # the bases that read `week`
+PLACEMENT_BASES: tuple[str, ...] = (WEEK1_PLACEMENT_BASIS, *WEEK_BASES)
 DATE_BASES: tuple[str, ...] = (
     DATE_BASIS_PAPER,
     "paper (date in note)",
@@ -85,6 +89,8 @@ REASON_CODES: tuple[str, ...] = (
     "accurate", "over_billed", "not_on_paper", "unit_mismatch", "date_found",
     "manual_check", "awaiting_invoice", "belfor_only", "time_gap", "held_out",
     "hours_on_paper_above_billed", "crew_size_not_given", "cleanup_spread",
+    # Post-audit allocation classes (user 2026-11-09).
+    "invoice_backed", "crew_sheet_location", "same_crew_week", "estimated_add", "estimated_rule",
 )
 
 WEEK1_START = date(2026, 5, 25)
@@ -119,7 +125,7 @@ def week_for(work_date: Optional[date], date_basis: str, week: Optional[int] = N
         return week_of(work_date)
     if date_basis == WEEK1_PLACEMENT_BASIS:
         return 1
-    return week if date_basis == WEEK_PLACEMENT_BASIS else None
+    return week if date_basis in WEEK_BASES else None
 
 
 # --- paper stage (spec 2026-11-06) -----------------------------------------
@@ -192,7 +198,7 @@ def validate_line_state(
         raise WorkOrderStateError(f"Line status must be one of: {', '.join(STATUSES)}.")
     if date_basis not in DATE_BASES:
         raise WorkOrderStateError(f"Unknown date basis: {date_basis}.")
-    if date_basis == WEEK_PLACEMENT_BASIS and work_date is None and week not in range(1, LAST_WEEK + 1):
+    if date_basis in WEEK_BASES and work_date is None and week not in range(1, LAST_WEEK + 1):
         raise WorkOrderStateError(f"A week placement needs its week (1 to {LAST_WEEK}).")
     if status == STATUS_CHARGED and work_date is None and date_basis not in PLACEMENT_BASES:
         raise WorkOrderStateError("A charged line needs a work date (or a placement basis).")
@@ -353,7 +359,7 @@ def parse_line_row(row: dict) -> dict:
         raise WorkOrderStateError(f"{where}: hours_each is required.")
     date_basis = _text(row, "date_basis") or DATE_BASIS_PAPER
     week = None
-    if date_basis == WEEK_PLACEMENT_BASIS:  # the one basis that reads the column
+    if date_basis in WEEK_BASES:  # the bases that read the column
         week_text = _text(row, "week")
         if week_text is not None and not week_text.isdigit():
             raise WorkOrderStateError(f"{where}: week {week_text!r} is not a whole number.")

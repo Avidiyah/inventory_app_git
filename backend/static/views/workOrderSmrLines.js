@@ -21,6 +21,7 @@ const kindSlug = (kind) => kind.replace(/[^a-z]+/g, "-");
 export const SMR_DATE_BASES = [
   "paper", "paper (date in note)", "closed date (Young Hall rule)",
   "Week 1 placement (crew sheets, Supplement)", "week placement (weekly reports)",
+  "week placement (post-audit allocation)",
 ];
 export const SMR_GROUNDS = [
   "undated", "before Week 1", "after 07/12 (no invoices)", "awaiting invoice (GC, Week 7)",
@@ -33,6 +34,7 @@ export const SMR_REASON_CODES = [
   "accurate", "over_billed", "not_on_paper", "unit_mismatch", "date_found", "manual_check",
   "awaiting_invoice", "belfor_only", "time_gap", "held_out", "hours_on_paper_above_billed",
   "crew_size_not_given", "cleanup_spread",
+  "invoice_backed", "crew_sheet_location", "same_crew_week", "estimated_add", "estimated_rule",
 ];
 
 export const canEditSmrLines = () => roleAtLeast(getRole(), "admin");

@@ -61,6 +61,11 @@ REASON_TEXT: dict[str, str] = {
     "hours_on_paper_above_billed": "paper hours above billed",
     "crew_size_not_given": "crew hours, crew size not on paper",
     "cleanup_spread": "week's clean-up spread per order",
+    "invoice_backed": "invoiced crew on no paper, spread",
+    "crew_sheet_location": "crew sheet names this location",
+    "same_crew_week": "same crew's paper, same week",
+    "estimated_add": "estimated: below similar orders",
+    "estimated_rule": "estimated: 3 h prep per unit",
 }
 # A nameless line whose paper gives a crew's hours but not its size prints
 # as "<vendor> crew", not as one person (user 2026-11-09).
