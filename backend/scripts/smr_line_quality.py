@@ -125,6 +125,7 @@ def main():
         db.add(row)
         db.flush()
         history(db, line=row, actor=owner, field="created", old=None, new=line_json(row), reason=tag, now=now)
+        return row
 
     def finish(tag, summary):
         print(summary)
@@ -307,6 +308,44 @@ def main():
             counts[r["field_reason"]] += 1
         print("orders by field reason:", dict(counts), f"\ndraft: {path}")
         return finish(tag, f"reasons: {n} lines on {len(out)} orders")
+
+    if fix == "spill":
+        # User 2026-11-09: a named person's hours past 12 on one date spill into the next day,
+        # and on again if that day fills. The last lines of the day move (higher order number,
+        # later printing); a line straddling the limit splits. The note records the move.
+        from datetime import timedelta
+        tag, moved = tag_for("spilled past the 12 h day"), []
+        days = defaultdict(list)
+        for l in live:
+            if l.status == "charged" and l.worker_id and l.work_date:
+                days[(l.worker_id, l.work_date)].append(l)
+        for worker_id in sorted({k[0] for k in days if h(days[k]) > DAY_LIMIT}, key=str):
+            d = min(k[1] for k in days if k[0] == worker_id and h(days[k]) > DAY_LIMIT)
+            while True:  # each day settles before the next, so spilled-in hours are counted where they land
+                while h(days[(worker_id, d)]) > DAY_LIMIT:
+                    excess = h(days[(worker_id, d)]) - DAY_LIMIT
+                    nxt = d + timedelta(days=1)
+                    line = max(days[(worker_id, d)], key=lambda l: (l.work_order.number, _printing(l), str(l.id)))
+                    take = min(excess, Decimal(line.hours_each))
+                    note = f"{line.note or ''} | {take} h spilled from {d:%m/%d} (12 h day)".lstrip(" |")
+                    print(f"  {line.worker.display_name:26} {line.work_order.number} {d:%m/%d} -> {nxt:%m/%d} {take} h"
+                          + ("  WEEK CHANGES" if week_of(nxt) != week_of(d) else ""))
+                    days[(worker_id, d)].remove(line)
+                    if take == Decimal(line.hours_each):
+                        change(line, {"work_date": nxt, "week": week_of(nxt), "note": note}, tag)
+                        days[(worker_id, nxt)].append(line)
+                    else:
+                        change(line, {"hours_each": Decimal(line.hours_each) - take}, tag)
+                        days[(worker_id, d)].append(line)
+                        days[(worker_id, nxt)].append(
+                            create(line, {"hours_each": take, "work_date": nxt, "week": week_of(nxt), "note": note}, tag))
+                    moved.append((d, nxt, take))
+                later = [k[1] for k in days if k[0] == worker_id and k[1] > d and h(days[k]) > DAY_LIMIT]
+                if not later:
+                    break
+                d = min(later)
+        return finish(tag, f"spill: {len(moved)} moves, {sum(t for *_, t in moved)} h; "
+                           f"week changes on {sum(week_of(a) != week_of(b) for a, b, _ in moved)}")
 
     if fix == "cleanup":
         tag, rows = tag_for("clean-up labelled"), []
