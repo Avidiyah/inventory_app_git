@@ -17,7 +17,7 @@ the run tag, all in one transaction (smr_charge_undated_likely.py pattern);
 
 Run from backend/:  venv\\Scripts\\python.exe scripts\\smr_line_quality.py <fix> [--apply]
 """
-import re, sys, uuid
+import os, re, sys, uuid
 sys.path.insert(0, ".")
 from collections import defaultdict
 from datetime import date, datetime, timezone
@@ -299,7 +299,7 @@ def main():
                         "lines_set": len(todo), "evidence": evidence, "notes": notes[:600]})
         out.sort(key=lambda r: -(r["ratio"] or 0))
         import csv
-        path = r"C:\Users\mcclu\Desktop\SMR27 Reconciliation\reason_draft.csv"
+        path = os.environ.get("REASON_CSV", r"C:\Users\mcclu\Desktop\SMR27 Reconciliation\reason_draft.csv")
         try:
             with open(path, "w", newline="", encoding="utf-8-sig") as f:
                 w = csv.DictWriter(f, fieldnames=list(out[0]))
