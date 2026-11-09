@@ -203,3 +203,9 @@ def test_no_diff_line_when_the_paper_matches_the_estimate():
     rendered = _render([_line(hours_each=Decimal("1.0"))], target={**TARGET, "hours": "1.0"}).split("\n")
     assert "Finalized Total                     1.0 h" in rendered
     assert not any(row.startswith("Add to WO") for row in rendered)
+
+
+def test_a_crew_of_unknown_size_prints_as_a_crew_not_one_person():
+    crew = _line(vendor="BT Restoration", hours_each=Decimal("60.0"), reason_code="crew_size_not_given")
+    assert block._charged_row(crew).startswith("Week 4 BT Restoration crew")
+    assert "x1" not in block._charged_row(crew)

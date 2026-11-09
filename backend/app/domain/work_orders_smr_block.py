@@ -59,7 +59,12 @@ REASON_TEXT: dict[str, str] = {
     "time_gap": "time gap on the paper",
     "held_out": "held out of the week",
     "hours_on_paper_above_billed": "paper hours above billed",
+    "crew_size_not_given": "crew hours, crew size not on paper",
+    "cleanup_spread": "week's clean-up spread per order",
 }
+# A nameless line whose paper gives a crew's hours but not its size prints
+# as "<vendor> crew", not as one person (user 2026-11-09).
+CREW_SIZE_NOT_GIVEN = "crew_size_not_given"
 # Named workers carry their vendor in short form after the name.
 VENDOR_SHORT: dict[str, str] = {
     "Green Choice": "GC", "XXL Construction": "XXL", "BT Restoration": "BT",
@@ -99,7 +104,9 @@ def worker_name(line) -> Optional[str]:
 def _who(line) -> str:
     name = worker_name(line)
     who = f"{name} ({VENDOR_SHORT.get(line.vendor, line.vendor)})" if name else line.vendor
-    if line.headcount > 1:
+    if not name and line.reason_code == CREW_SIZE_NOT_GIVEN:
+        who += " crew"
+    elif line.headcount > 1:
         who += f" x{line.headcount}"
     if line.kind and line.kind != "field":
         who += f" {line.kind}"

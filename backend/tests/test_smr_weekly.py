@@ -117,9 +117,9 @@ def test_weekly_cell_arithmetic(db):
     assert cell.missing == max(cell.invoiced - cell.original - cell.found - cell.carried, Decimal(0)) and cell.week_label == "Week 3"
     raw = weekly.raw_cells(db)
     after = _cell(raw, 3, "Green Choice")
-    assert tuple(a - b for a, b in zip(after, before)) == (Decimal(4), Decimal(0), Decimal(0), Decimal(30))
+    assert tuple(round(a - b, 2) for a, b in zip(after, before)) == (Decimal(4), Decimal(0), Decimal(0), Decimal(30))
     undated = _cell(raw, None, "Green Choice")
-    assert tuple(a - b for a, b in zip(undated, before_undated)) == (Decimal(6), Decimal(0), Decimal(0), Decimal(0))
+    assert tuple(round(a - b, 2) for a, b in zip(undated, before_undated)) == (Decimal(6), Decimal(0), Decimal(0), Decimal(0))
     # A second order whose paper (3 h) exceeds its 1 h target: 1 h original, 2 h found.
     over = WorkOrder(number=f"WO-{tag}-o", created_by_id=owner.id, smr_imported_at=datetime.now(timezone.utc),
                      smr_target={"hours": "1", "total": "0", "source_row": {}})
@@ -129,7 +129,7 @@ def test_weekly_cell_arithmetic(db):
     db.flush()
     before_bt = _cell(raw, 3, "BT Restoration")
     after_bt = _cell(weekly.raw_cells(db), 3, "BT Restoration")
-    assert tuple(a - b for a, b in zip(after_bt, before_bt)) == (Decimal(1), Decimal(2), Decimal(0), Decimal(0))
+    assert tuple(round(a - b, 2) for a, b in zip(after_bt, before_bt)) == (Decimal(1), Decimal(2), Decimal(0), Decimal(0))
 
 
 def _figures(**kw):

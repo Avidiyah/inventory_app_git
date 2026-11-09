@@ -50,6 +50,9 @@ GROUND_REMOVED = "removed"
 # dropped (audit/staging on accurately billed orders, printings dated into a
 # week no report carries): kept as lines, excluded, inside the tie (2026-11-06).
 GROUND_NOT_CHARGED_REPORTS = "read, not charged (weekly reports)"
+# User 2026-11-09: an order carries at most 0.5 h each of assessment, audit
+# and staging, whatever the paper shows; the extra stays as a line, excluded.
+GROUND_OVERHEAD_ONCE = "overhead counted once"
 # The draft CSV's spellings. If the final files use the design's snake_case
 # names this tuple changes, nothing else does.
 GROUNDS: tuple[str, ...] = (
@@ -65,12 +68,13 @@ GROUNDS: tuple[str, ...] = (
     "admin, never charged",
     "vendor unknown",
     GROUND_REMOVED,
+    GROUND_OVERHEAD_ONCE,
 )
 # Excluded lines whose hours the paper's own figure still counted: the
 # review read them and did not charge them. Every other ground was never in
 # `hours_as_read`.
 TIE_COUNTED_GROUNDS: tuple[str, ...] = (
-    GROUND_UNDATED, "before Week 1", "after 07/12 (no invoices)", GROUND_NOT_CHARGED_REPORTS,
+    GROUND_UNDATED, "before Week 1", "after 07/12 (no invoices)", GROUND_NOT_CHARGED_REPORTS, GROUND_OVERHEAD_ONCE,
 )
 
 # `as_read`: the line records what the paper says, no finding behind it. The
@@ -80,7 +84,7 @@ REASON_CODES: tuple[str, ...] = (
     REASON_AS_READ, "crew_as_one", "crew_as_individuals", "arithmetic", "overhead_added", "overhead_twice",
     "accurate", "over_billed", "not_on_paper", "unit_mismatch", "date_found",
     "manual_check", "awaiting_invoice", "belfor_only", "time_gap", "held_out",
-    "hours_on_paper_above_billed",
+    "hours_on_paper_above_billed", "crew_size_not_given", "cleanup_spread",
 )
 
 WEEK1_START = date(2026, 5, 25)

@@ -26,11 +26,13 @@ export const SMR_GROUNDS = [
   "undated", "before Week 1", "after 07/12 (no invoices)", "awaiting invoice (GC, Week 7)",
   "reprint (no hours added)", "note only", "paper not found", "read, not charged (user)",
   "read, not charged (weekly reports)", "admin, never charged", "vendor unknown", "removed",
+  "overhead counted once",
 ];
 export const SMR_REASON_CODES = [
   "as_read", "crew_as_one", "crew_as_individuals", "arithmetic", "overhead_added", "overhead_twice",
   "accurate", "over_billed", "not_on_paper", "unit_mismatch", "date_found", "manual_check",
   "awaiting_invoice", "belfor_only", "time_gap", "held_out", "hours_on_paper_above_billed",
+  "crew_size_not_given", "cleanup_spread",
 ];
 
 export const canEditSmrLines = () => roleAtLeast(getRole(), "admin");
