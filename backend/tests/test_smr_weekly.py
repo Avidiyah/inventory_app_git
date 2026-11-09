@@ -136,6 +136,27 @@ def _figures(**kw):
     return {k: Decimal(kw.get(k, 0)) for k in weekly.FIGURES}
 
 
+def test_excess_goes_to_the_next_vendor_that_week_before_the_next_week():
+    """Ruling 12 (user 2026-11-09): BT 4 h over in week 1 -> Green Choice (room 1)
+    then XXL (room 2); the last 1 h carries into week 2 from Green Choice. In the
+    last week what no vendor takes stays on its own bar."""
+    cells = {
+        (1, "Green Choice"): _figures(found=9, invoiced=10),
+        (1, "XXL Construction"): _figures(found=8, invoiced=10),
+        (1, "BT Restoration"): _figures(original=2, found=2, invoiced=0),
+        (2, "Green Choice"): _figures(found=0, invoiced=5),
+        (7, "XXL Construction"): _figures(original=4, found=3, invoiced=5),
+    }
+    weekly.roll_forward(cells)
+    bt = cells[(1, "BT Restoration")]
+    assert (bt["original"], bt["found"], bt["carried"]) == (Decimal(0), Decimal(0), Decimal(0))
+    assert cells[(1, "Green Choice")]["carried"] == Decimal(1)
+    assert cells[(1, "XXL Construction")]["carried"] == Decimal(2)
+    assert cells[(2, "Green Choice")]["carried"] == Decimal(1)
+    w7 = cells[(7, "XXL Construction")]
+    assert (w7["original"], w7["found"], w7["carried"]) == (Decimal(4), Decimal(3), Decimal(0))
+
+
 def test_paper_above_a_week_invoice_is_carried_into_the_next_week():
     """Roll-forward (user 2026-11-06). XXL: week 1 invoiced 1 h with 4 h of paper
     (1 original + 3 found) -> 3 h carries (found first) into week 2 (invoiced 10 h,

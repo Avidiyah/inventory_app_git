@@ -119,27 +119,54 @@ def raw_cells(db: Session) -> dict[tuple[Optional[int], str], dict[str, Decimal]
 
 
 def roll_forward(cells: dict[tuple[Optional[int], str], dict[str, Decimal]]) -> None:
-    """User 2026-11-06: a week never explains more than its invoice. Paper
-    above it is carried into the vendor's next week (found hours first, then
-    original); what is left after the last week stays on that bar as
-    `carried`, above its invoice. In place."""
-    for vendor in CHART_VENDORS:
-        carry = Decimal(0)
-        for week in range(1, rules.LAST_WEEK + 1):
+    """A week never explains more than its invoice (user 2026-11-06). Hours
+    above a vendor's invoice go to the next vendor that week (Green Choice ->
+    XXL -> BT -> Green Choice); what no vendor absorbs carries into the next
+    week, offered from Green Choice (ruling 12, user 2026-11-09). Hours land
+    as `carried` (found leaves first, then original). Last-week excess no
+    vendor absorbs stays on its own bar, above its invoice. In place."""
+    vendors = CHART_VENDORS
+    n = len(vendors)
+
+    def room(figures) -> Decimal:
+        return figures["invoiced"] - figures["original"] - figures["found"] - figures["carried"]
+
+    def place(hours: Decimal, order) -> Decimal:
+        for vendor in order:
             figures = cells.get((week, vendor))
-            if figures is None:
-                if not carry:
-                    continue
-                figures = _cell(cells, (week, vendor))
-            figures["carried"] = carry
-            over = figures["original"] + figures["found"] + carry - figures["invoiced"]
-            carry = Decimal(0)
-            if over > 0 and week < rules.LAST_WEEK:
-                carry = over
-                for key in ("found", "original", "carried"):
-                    take = min(figures[key], over)
+            if figures is not None and hours > 0 and room(figures) > 0:
+                give = min(hours, room(figures))
+                figures["carried"] += give
+                hours -= give
+        return hours
+
+    carry = Decimal(0)
+    for week in range(1, rules.LAST_WEEK + 1):
+        carry = place(carry, vendors)  # last week's leftover, offered from Green Choice
+        excess: dict[str, Decimal] = {}
+        taken: dict[str, dict[str, Decimal]] = {}
+        for vendor in vendors:
+            figures = cells.get((week, vendor))
+            over = figures["original"] + figures["found"] - figures["invoiced"] if figures else Decimal(0)
+            if over > 0:
+                excess[vendor], taken[vendor] = over, {}
+                for key in ("found", "original"):
+                    taken[vendor][key] = take = min(figures[key], over)
                     figures[key] -= take
                     over -= take
+        for i, vendor in enumerate(vendors):
+            if vendor in excess:
+                excess[vendor] = place(excess[vendor], [vendors[(i + j) % n] for j in range(1, n)])
+        if week < rules.LAST_WEEK:
+            carry += sum(excess.values(), Decimal(0))
+            continue
+        for vendor, hours in excess.items():  # nowhere left: back on its own bar, original first
+            for key in ("original", "found"):
+                back = min(hours, taken[vendor][key])
+                cells[(week, vendor)][key] += back
+                hours -= back
+        if carry:  # earlier weeks' leftover sits on Green Choice's last bar
+            _cell(cells, (week, vendors[0]))["carried"] += carry
 
 
 def weekly_hours(db: Session) -> SmrWeeklyHoursOut:
