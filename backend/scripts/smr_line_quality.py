@@ -36,7 +36,7 @@ DAY_LIMIT = Decimal(12)  # user 2026-11-09: more than this on one date for one p
 HALF = Decimal("0.5")
 DEFAULT_VENDOR = {"assessment": "Belfor", "audit": "XXL Construction", "staging": "XXL Construction"}
 # sha256 prefixes of the frozen post-audit files (levelling rebuild 2026-11-10); a rebuild changes these.
-FROZEN = {"import_allocations.csv": "681d2a585b7ed977", "import_line_changes.csv": "e6a9ec75ac325ac5"}
+FROZEN = {"import_allocations.csv": "cc0d80dba55cbf74", "import_line_changes.csv": "e6a9ec75ac325ac5"}
 FIELDS = ("reading_id","work_date", "date_basis", "week", "vendor", "worker_id", "alias_on_paper", "headcount",
           "hours_each", "kind", "reason_code", "status", "exclusion_ground", "note")
 
