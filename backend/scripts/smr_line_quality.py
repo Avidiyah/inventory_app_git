@@ -13,7 +13,10 @@
              line per row, basis "week placement (post-audit allocation)"; reruns skip known keys
   changes    <csv>: the post-audit line changes (import_line_changes.csv): un-exclude,
              set vendor, move week (shrink the line, twin in the new week)
-  selfcheck  asserts on the overhead rule, no database writes
+  unname     named Green Choice / XXL paper beyond that person's own invoice in a week loses the
+             name (excess only; the last line splits, unnamed twin); Gabriel's BT Week 1 line
+             (no BT invoice that week) moves to Week 2 unnamed (user 2026-11-10)
+  selfcheck  asserts on the overhead and unname rules, no database writes
 
 Each fix is a dry run unless --apply is given. Writes carry history rows with
 the run tag, all in one transaction (smr_charge_undated_likely.py pattern);
@@ -67,6 +70,26 @@ def overhead_plan(lines):
     return plan
 
 
+INVOICE_NAME = {"Marco Blanco": "Marcos Blanco"}  # GC invoice spelling; Rubio / Rendon stay apart (user 2026-11-10)
+PAPER_NAME = {"Michael": "Maikel Sanz"}  # SMR27 methodology §4 step 4
+
+
+def unname_plan(rows, invoiced):
+    """One person's named headcount-1 lines in one (week, vendor) against their invoiced
+    hours: [(line, hours to unname)], excess rounded up to 0.5 h. Week placements go
+    before dated paper, then the bigger line."""
+    excess = sum((Decimal(l.hours_each) for l in rows), Decimal(0)) - invoiced
+    excess = max(Decimal(0), (excess * 2).to_integral_value(rounding="ROUND_CEILING") / 2)
+    plan = []
+    for l in sorted(rows, key=lambda l: (l.work_date is not None, -Decimal(l.hours_each), str(l.id))):
+        if excess <= 0:
+            break
+        x = min(excess, Decimal(l.hours_each))
+        plan.append((l, x))
+        excess -= x
+    return plan
+
+
 def selfcheck():
     def L(kind, h, vendor="Belfor", day=date(2026, 7, 1), printing=1, i=0):
         return NS(id=i, kind=kind, hours_each=Decimal(h), vendor=vendor, work_date=day, headcount=1,
@@ -83,6 +106,12 @@ def selfcheck():
     assert overhead_plan([L("assessment, staging", "1.0")]) == []
     # A combined line whose assessment is already covered keeps only its audit.
     assert [(p[0].id, p[1], p[2]) for p in overhead_plan([a, L("assessment, audit", "0.5", i=5)])] == [(5, ["audit"], HALF)]
+    # unname: the week placement goes first and splits; nothing over the invoice -> no change.
+    d, w = L("field", "11.5", i=30), L("field", "3.0", day=None, i=31)
+    assert [(p[0].id, p[1]) for p in unname_plan([d, w], Decimal("2"))] == [(31, Decimal(3)), (30, Decimal("9.5"))]
+    assert unname_plan([d], Decimal(12)) == []
+    assert [(p[0].id, p[1]) for p in unname_plan([d], Decimal(0))] == [(30, Decimal("11.5"))]
+    assert unname_plan([w], Decimal("2.6"))[0][1] == HALF  # 0.4 over rounds up to 0.5
     print("selfcheck ok")
 
 
@@ -416,6 +445,42 @@ def main():
                 sys.exit(f"unknown change {what!r}; nothing written")
             done[what] += x
         return finish(tag, "changes: " + ", ".join(f"{k} {v} h" for k, v in done.items()))
+
+    if fix == "unname":
+        from app.domain.work_orders_smr_lines import ALLOCATION_BASIS
+        from app.models_smr import SmrVendorInvoice
+        tag, done = f"unname paper over own invoice (user 2026-11-10) run {uuid.uuid4().hex[:12]}", []
+        vendors = ("Green Choice", "XXL Construction")  # BT invoices carry classes, not names
+        inv = defaultdict(Decimal)
+        for v in db.query(SmrVendorInvoice).filter(SmrVendorInvoice.vendor.in_(vendors)):
+            name = re.sub(r"\s*\((?:REG|OT)\)$", "", v.worker or "").strip()
+            inv[(v.week, v.vendor, INVOICE_NAME.get(name, name))] += Decimal(v.hours)
+        named = defaultdict(list)
+        for l in live:
+            if (l.status == "charged" and l.worker and l.headcount == 1 and l.vendor in vendors
+                    and l.week in range(1, 8)):
+                named[(l.week, l.vendor, PAPER_NAME.get(l.worker.display_name, l.worker.display_name))].append(l)
+
+        def unname(line, x, why, extra=None):
+            note = f"{line.note or ''} | {x} h unnamed: paper named {line.worker.display_name}, {why}".lstrip(" |")
+            blank = {"worker_id": None, "alias_on_paper": None, "note": note} | (extra or {})
+            print(f"  W{line.week} {line.vendor[:5]} {line.worker.display_name:20} {line.work_order.number} "
+                  f"{line.work_date or '-'} {x} of {line.hours_each} h")
+            if x == Decimal(line.hours_each):
+                change(line, blank, tag)
+            else:
+                change(line, {"hours_each": Decimal(line.hours_each) - x}, tag)
+                create(line, {"hours_each": x} | blank, tag)
+            done.append(x)
+
+        for (week, vendor, person), rows in sorted(named.items()):
+            for line, x in unname_plan(rows, inv[(week, vendor, person)]):
+                unname(line, x, f"{person} invoiced {inv[(week, vendor, person)]} h in Week {week}")
+        for l in live:
+            if l.status == "charged" and l.worker and l.worker.display_name == "Gabriel" and l.week == 1:
+                unname(l, Decimal(l.hours_each), f"paper {l.work_date:%m/%d}, BT not invoiced Week 1, moved to Week 2",
+                       {"work_date": None, "date_basis": ALLOCATION_BASIS, "week": 2})
+        return finish(tag, f"unname: {len(done)} lines / {sum(done)} h")
 
     if fix == "cleanup":
         tag, rows = tag_for("clean-up labelled"), []
