@@ -35,8 +35,8 @@ from app.domain.work_orders_smr_lines import (
 DAY_LIMIT = Decimal(12)  # user 2026-11-09: more than this on one date for one person is "impossible"
 HALF = Decimal("0.5")
 DEFAULT_VENDOR = {"assessment": "Belfor", "audit": "XXL Construction", "staging": "XXL Construction"}
-# sha256 prefixes of the frozen post-audit files (peer session, 2026-11-09); a rebuild changes these.
-FROZEN = {"import_allocations.csv": "978927a61c0299f6", "import_line_changes.csv": "e6a9ec75ac325ac5"}
+# sha256 prefixes of the frozen post-audit files (levelling rebuild 2026-11-10); a rebuild changes these.
+FROZEN = {"import_allocations.csv": "3f3cc1e52cd95465", "import_line_changes.csv": "e6a9ec75ac325ac5"}
 FIELDS = ("reading_id","work_date", "date_basis", "week", "vendor", "worker_id", "alias_on_paper", "headcount",
           "hours_each", "kind", "reason_code", "status", "exclusion_ground", "note")
 
