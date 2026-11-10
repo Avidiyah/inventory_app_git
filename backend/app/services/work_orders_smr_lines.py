@@ -335,10 +335,14 @@ def latest_block(order: WorkOrder, *, include_price: bool = True) -> Optional[Sm
     return SmrBlockOut.from_row(latest, stale=stale, include_price=include_price)
 
 
-def generate_block(db: Session, *, work_order_id: uuid.UUID, user: User) -> SmrBlockOut:
+def generate_block(db: Session, *, work_order_id: uuid.UUID, user: User,
+                   description: Optional[str] = None) -> SmrBlockOut:
     """Render the next version from the current lines and keep it, text and
-    digest; the date is the note-log timezone's today."""
+    digest; the date is the note-log timezone's today. A `description`
+    replaces the order's work description first (None keeps it)."""
     order = smr_order(db, work_order_id)
+    if description is not None:
+        order.smr_description = description.strip() or None
     lines = list(order.smr_lines)
     version = max((block.version for block in order.smr_blocks), default=0) + 1
     now = _now()
@@ -350,6 +354,7 @@ def generate_block(db: Session, *, work_order_id: uuid.UUID, user: User) -> SmrB
     ]
     text = block_rules.render_correction_block(
         order.number, target, lines, version, now.astimezone(wo.NOTE_TIMEZONE).date(), materials=materials,
+        description=order.smr_description,
     )
     row = SmrCorrectionBlock(
         id=uuid.uuid4(), work_order_id=order.id, version=version, text=text, generated_at=now,

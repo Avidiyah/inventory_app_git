@@ -209,3 +209,19 @@ def test_a_crew_of_unknown_size_prints_as_a_crew_not_one_person():
     crew = _line(vendor="BT Restoration", hours_each=Decimal("60.0"), reason_code="crew_size_not_given")
     assert block._charged_row(crew).startswith("Week 4 BT Restoration crew")
     assert "x1" not in block._charged_row(crew)
+
+
+def test_the_work_description_wraps_to_the_width_under_its_heading():
+    text = "Replaced the vanity top and patched drywall behind it; hauled debris.\n\nCrew of two, one full day."
+    rows = block.render_correction_block("23281563", TARGET, [_line()], 1, date(2026, 11, 10),
+                                         description=text).split("\n")
+    start = rows.index("WORK DESCRIPTION")
+    assert rows[start + 1:rows.index("ITEMIZED RECEIPT")] == [
+        "Replaced the vanity top and patched",
+        "drywall behind it; hauled debris.",
+        "",
+        "Crew of two, one full day.",
+        "",
+    ]
+    assert all(len(row) <= receipt.PRICING_LINE_WIDTH for row in rows)
+    assert "WORK DESCRIPTION" not in _render([_line()])

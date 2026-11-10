@@ -229,13 +229,19 @@ function blockHtml(detail, editable) {
   const text = block?.text
     ? `<textarea class="pricing-output wo-smr-block-text" readonly rows="${block.text.split("\n").length}">${escapeHtml(block.text)}</textarea>`
     : "";
+  // Work description (user 2026-11-10): typed by a person, saved and printed
+  // in the block by Generate.
+  const description = editable
+    ? `<label class="wo-smr-description"><span>Work description (prints in the block)</span><textarea class="wo-smr-description-text" rows="4" maxlength="4000" placeholder="Tasks done, including any not on the request, and why the hours are what they are.">${escapeHtml(detail.smr_description || "")}</textarea></label>`
+    : "";
+  const print = editable && block?.text ? `<button type="button" class="secondary-btn" data-action="smr-print-block">Print receipt</button>` : "";
   const buttons = editable
     ? `<button type="button" data-action="smr-generate-block">Generate correction block</button>` +
       (block && !block.pasted_at
         ? `<button type="button" class="secondary-btn" data-action="smr-mark-pasted" data-block-id="${escapeHtml(block.id)}">Mark pasted to NetFacilities</button>`
         : "")
     : "";
-  return `<div class="wo-smr-block"><p class="hint wo-smr-block-status">${escapeHtml(blockStatusText(block))}</p>${text}<div class="wo-smr-form-actions">${buttons}</div></div>`;
+  return `<div class="wo-smr-block">${description}<p class="hint wo-smr-block-status">${escapeHtml(blockStatusText(block))}</p>${text}<div class="wo-smr-form-actions">${buttons}${print}</div></div>`;
 }
 
 function totals(detail) {

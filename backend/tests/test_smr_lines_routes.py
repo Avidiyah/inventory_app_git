@@ -101,6 +101,11 @@ def test_admin_adds_a_reading_and_a_line_and_the_detail_carries_them(db):
         assert order.number not in [t["number"] for t in tiles["tiles"]]
         assert order.number in [t["number"] for t in client.get("/work-orders/smr", params={"has_lines": "true"}).json()["tiles"]]
 
+        # The work description (user 2026-11-10) is saved by Generate and printed in the block.
+        described = client.post(f"/work-orders/smr/{order.id}/block", json={"description": " Patched drywall. "})
+        assert "WORK DESCRIPTION\nPatched drywall.\n" in described.json()["text"]
+        assert client.get(f"/work-orders/{order.id}").json()["smr_description"] == "Patched drywall."
+
 
 def test_patch_edits_dates_and_soft_removes_with_domain_errors_as_400_and_404(db):
     admin = _user(db)

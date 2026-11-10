@@ -5491,6 +5491,14 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-smr-ready--ready { font-weight: var(--fw-bold); color: var(--color-success); }
 .wo-smr-ready .secondary-btn { margin-top: 0; }
 .wo-smr-block-text { white-space: pre; overflow-x: auto; }
+.wo-smr-description { display: grid; gap: var(--space-1); max-width: 46ch; margin-bottom: var(--space-3); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+.wo-smr-description textarea { width: 100%; font-weight: normal; }
+/* Print receipt: the block's text on its own, at paste width. */
+.smr-print-sheet { display: none; }
+@media print {
+    body.smr-printing > :not(.smr-print-sheet) { display: none !important; }
+    body.smr-printing > .smr-print-sheet { display: block; margin: 0; font: 11pt/1.35 "Cascadia Mono", Consolas, "Courier New", monospace; white-space: pre; }
+}
 /* A Technician records only their own hours, so the picker is replaced by
    their name. It sits where the select would and must read as the value, not
    as a second field label -- which is what `label > span` above would make it. */

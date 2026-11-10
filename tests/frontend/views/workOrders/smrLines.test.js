@@ -317,10 +317,22 @@ describe("the correction block", () => {
     const detail = await open();
     expect(section().querySelector(".wo-smr-block-text").value).toBe(BLOCK.text);
     respond("post", "/work-orders/smr/:id/block", { ...BLOCK, version: 4 });
+    set("wo-smr-description-text", "Patched drywall.");
     click("smr-generate-block");
     await sent("/block", "POST");
     expect(requestFor("/block", "POST").url).toBe(`/work-orders/smr/${detail.id}/block`);
+    expect(requestFor("/block", "POST").body).toEqual({ description: "Patched drywall." });
     await expectRefresh(detail.id);
+  });
+
+  it("\"smr-print-block\" prints the block text alone and cleans up", async () => {
+    await open();
+    let seen = null;
+    window.print = () => { seen = [document.body.classList.contains("smr-printing"), document.querySelector(".smr-print-sheet").textContent]; };
+    click("smr-print-block");
+    expect(seen).toEqual([true, BLOCK.text]);
+    expect(document.body.classList.contains("smr-printing")).toBe(false);
+    expect(document.querySelector(".smr-print-sheet")).toBeNull();
   });
 
   it("\"smr-mark-pasted\" posts the block id and refreshes", async () => {

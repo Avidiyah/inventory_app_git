@@ -581,6 +581,7 @@ def _detail(
         smr_lines=[SmrLineOut.from_row(line) for line in corrections],
         smr_legacy_labor_minutes=figures.legacy_minutes,
         smr_block=smr_lines_service.latest_block(work_order, include_price=include_price) if is_smr else None,
+        smr_description=work_order.smr_description if is_smr else None,
     )
 
 

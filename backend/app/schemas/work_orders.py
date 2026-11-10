@@ -497,3 +497,4 @@ class WorkOrderDetail(WorkOrderCard):
     smr_lines: list[SmrLineOut] = Field(default_factory=list)
     smr_legacy_labor_minutes: int = 0
     smr_block: Optional[SmrBlockOut] = None
+    smr_description: Optional[str] = None

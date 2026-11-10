@@ -77,8 +77,21 @@ export async function handleSmrAction(action, btn, cardEl, msg) {
     else await apiSmrAddLine(workOrderId, payload);
     await refreshCard(cardEl, SECTION);
   } else if (action === "smr-generate-block") {
-    await apiSmrGenerateBlock(workOrderId);
+    await apiSmrGenerateBlock(workOrderId, section.querySelector(".wo-smr-description-text")?.value ?? null);
     await refreshCard(cardEl, SECTION);
+  } else if (action === "smr-print-block") {
+    // Print only the block: a sheet as the body's sole visible child (print CSS).
+    const sheet = document.createElement("pre");
+    sheet.className = "smr-print-sheet";
+    sheet.textContent = section.querySelector(".wo-smr-block-text").value;
+    document.body.append(sheet);
+    document.body.classList.add("smr-printing");
+    try {
+      window.print();
+    } finally {
+      document.body.classList.remove("smr-printing");
+      sheet.remove();
+    }
   } else if (action === "smr-mark-pasted") {
     await apiSmrMarkPasted(btn.dataset.blockId);
     await refreshCard(cardEl, SECTION);

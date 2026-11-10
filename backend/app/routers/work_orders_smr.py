@@ -31,6 +31,7 @@ from app.schemas.work_orders_smr import (
     SmrTilesResponse,
 )
 from app.schemas.work_orders_smr_lines import (
+    SmrBlockIn,
     SmrBlockOut,
     SmrHoursOut,
     SmrInvoiceImportResult,
@@ -320,13 +321,17 @@ def merge_workers(
 @router.post("/{work_order_id}/block", response_model=SmrBlockOut, responses=_forbidden(roles.ROLE_ADMIN))
 def generate_block(
     work_order_id: uuid.UUID,
+    body: Optional[SmrBlockIn] = None,
     user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ) -> SmrBlockOut:
     """The next version of the order's correction block from its current
-    lines (Admin+), 41 characters wide, kept with its lines digest."""
+    lines (Admin+), 41 characters wide, kept with its lines digest. A body
+    `description` saves the work description first and prints it."""
     try:
-        return lines_service.generate_block(db, work_order_id=work_order_id, user=user)
+        return lines_service.generate_block(
+            db, work_order_id=work_order_id, user=user, description=body.description if body else None,
+        )
     except DomainError as exc:
         raise to_http(exc)
 

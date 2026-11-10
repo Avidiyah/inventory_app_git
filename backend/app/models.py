@@ -443,6 +443,9 @@ class WorkOrder(Base):
     smr_ready_by_id = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # Human-written work description (user 2026-11-10); saved by Generate
+    # block and printed in it under WORK DESCRIPTION.
+    smr_description = Column(Text, nullable=True)
     # The account a work order is routed to. Set by name-match at import
     # or manually by Supervisor+; drives Supervisor visibility alongside worker
     # assignment membership.

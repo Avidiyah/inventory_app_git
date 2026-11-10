@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import textwrap
 from datetime import date
 from decimal import Decimal
 from typing import Optional, Sequence
@@ -167,8 +168,21 @@ def _materials_rows(materials: Sequence[receipt.ReceiptLine], target: Optional[d
     return head + [_fit("ITEMIZED RECEIPT")] + body + [_row("Materials", receipt.format_money(total))], total
 
 
+def _description_rows(description: Optional[str]) -> list[str]:
+    """The human-written work description (user 2026-11-10), word-wrapped to
+    the width; paragraphs keep their breaks. Nothing when it is blank."""
+    paragraphs = (description or "").strip().splitlines()
+    if not paragraphs:
+        return []
+    rows = [_fit("WORK DESCRIPTION")]
+    for paragraph in paragraphs:
+        rows += textwrap.wrap(receipt.sanitise(paragraph), WIDTH) or [""]
+    return rows + [""]
+
+
 def render_correction_block(order_number: str, target: Optional[dict], lines, version: int,
-                            generated_on: date, materials: Sequence[receipt.ReceiptLine] = ()) -> str:
+                            generated_on: date, materials: Sequence[receipt.ReceiptLine] = (),
+                            description: Optional[str] = None) -> str:
     """The block for one order from its current lines and materials.
     `target` is the order's `smr_target` (the Breakdown row NetFacilities
     billed, D6); None when the order has no sheet row, which the block says."""
@@ -183,6 +197,7 @@ def render_correction_block(order_number: str, target: Optional[dict], lines, ve
         _row("SMR27 LABOR CORRECTION", generated_on.strftime("%m/%d/%y")),
         _fit(f"WO {order_number}"),
         "",
+        *_description_rows(description),
         *material_rows,
         "",
         # User 2026-11-07: estimate, finalized total, then the diff only when there is one.

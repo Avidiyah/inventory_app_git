@@ -203,6 +203,11 @@ class SmrLineOut(BaseModel):
 
 # --- blocks --------------------------------------------------------------
 
+class SmrBlockIn(BaseModel):
+    """Generate block body: the work description to save first; omitted keeps it."""
+    description: Optional[str] = Field(None, max_length=4000)
+
+
 class SmrBlockOut(BaseModel):
     """The latest (or just generated) correction block. `stale` means the
     order's lines no longer match the digest the block was built from.

@@ -1064,8 +1064,8 @@ export const apiSmrEditLine = (lineId, payload) =>
 export const apiSmrSearchWorkers = (q) =>
   jsonRequest(`/work-orders/smr/workers${q ? `?q=${encodeURIComponent(q)}` : ""}`, "GET");
 export const apiSmrAddWorker = (payload) => jsonRequest("/work-orders/smr/workers", "POST", payload);
-export const apiSmrGenerateBlock = (workOrderId) =>
-  jsonRequest(`/work-orders/smr/${workOrderId}/block`, "POST", {});
+export const apiSmrGenerateBlock = (workOrderId, description) =>
+  jsonRequest(`/work-orders/smr/${workOrderId}/block`, "POST", { description });
 export const apiSmrMarkPasted = (blockId) =>
   jsonRequest(`/work-orders/smr/blocks/${blockId}/pasted`, "POST", {});
 export const apiSmrHours = () => jsonRequest("/work-orders/smr/hours", "GET");
