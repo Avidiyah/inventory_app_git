@@ -94,9 +94,18 @@ def main():
     ts, ss = stems(T), stems(S)
     for stem in sorted(set(ts) - set(ss)):
         overwrites.append(f"line edits on the target only: {ts[stem]} x '{stem[:90]}'")
-    pasted = T.execute("select count(*) n from smr_correction_blocks where pasted_at is not null").fetchone()["n"]
-    if pasted:
-        overwrites.append(f"{pasted} correction block(s) marked pasted on the target (the copy carries the source's marks)")
+    # hand edits (no run tag) the target holds and the source does not: a stem match alone misses a reused reason
+    sids = [r["id"] for r in S.execute("select id from smr_line_edits")]
+    for r in T.execute("""select o.number, e.field, e.new_value, e.reason, e.edited_at from smr_line_edits e
+                          join smr_labor_lines l on l.id = e.line_id join work_orders o on o.id = l.work_order_id
+                          where e.id <> all(%s) and coalesce(e.reason, '') !~ ' run [0-9a-f]{12}$' order by e.edited_at""", (sids,)):
+        overwrites.append(f"hand edit on the target only: {r['number']} {r['field']} -> {r['new_value']!r} "
+                          f"({r['reason']}, {r['edited_at']:%m/%d %H:%M})")
+    lost = T.execute("""select count(*) n from smr_correction_blocks t where pasted_at is not null and not exists
+                        (select 1 from unnest(%s::uuid[]) s(id) where s.id = t.id)""",
+                     ([r["id"] for r in S.execute("select id from smr_correction_blocks where pasted_at is not null")],)).fetchone()["n"]
+    if lost:
+        overwrites.append(f"{lost} correction block(s) marked pasted on the target only")
     tw = {(r["display_name"], r["vendor"]) for r in T.execute("select display_name, vendor from smr_workers")}
     sw = {(r["display_name"], r["vendor"]) for r in S.execute("select display_name, vendor from smr_workers")}
     if tw - sw:
