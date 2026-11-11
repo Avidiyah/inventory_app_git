@@ -111,6 +111,33 @@ def test_items_csv_is_admin_floor_and_holds_every_field(db):
     assert f"CSV-gone-{tag}" not in response.text
 
 
+def test_pricing_export_is_admin_floor_blanks_zero_and_names_the_site(db):
+    from app.services.inventory_export_xlsx import vendor_site
+
+    assert vendor_site("https://www.homedepot.com/p/pipe/1?x=2") == "homedepot.com"
+    assert vendor_site("grainger.com/item/9") == "grainger.com"
+    assert vendor_site("  ") is None and vendor_site(None) is None
+
+    tag = uuid.uuid4().hex[:8]
+    db.add(Item(barcode=f"PR-{tag}", name=f"Priced {tag}", quantity=Decimal("3"), location="Bay 1",
+                price=Decimal("2.50"), product_link="https://www.example.com/w"))
+    db.add(Item(barcode=f"PZ-{tag}", name=f"Zero {tag}", quantity=Decimal("3"), location="Bay 1",
+                price=Decimal("0")))
+    db.commit()
+
+    assert _export(db, "techfm_oa", "/items/pricing-export.xlsx").status_code == 403
+    response = _export(db, "admin", "/items/pricing-export.xlsx")
+
+    assert response.status_code == 200
+    assert re.search(r'filename="catalogue-pricing_\d{4}-\d{2}-\d{2}\.xlsx"',
+                     response.headers["content-disposition"])
+    sheet = load_workbook(io.BytesIO(response.content))["Pricing"]
+    assert [c.value for c in sheet[4]] == ["ITEM", "PRICE", "VENDOR"]
+    rows = {r[0]: r[1:] for r in sheet.iter_rows(min_row=5, values_only=True)}
+    assert rows[f"Priced {tag}"] == (2.5, "example.com")
+    assert rows[f"Zero {tag}"] == (None, None)
+
+
 def test_labels_page_draws_svg_barcodes_and_escapes_names(db):
     barcode = f"LBL-{uuid.uuid4().hex[:8].upper()}"
     db.add(Item(barcode=barcode, name="Pipe <1in> & cap", quantity=Decimal("1"), location="Bay 1"))

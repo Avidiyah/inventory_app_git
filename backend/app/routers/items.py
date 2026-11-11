@@ -203,6 +203,24 @@ def export_items_csv(
     )
 
 
+@router.get(
+    "/pricing-export.xlsx",
+    responses={403: {"description": "Requires the Admin role or above."}},
+)
+def export_pricing_xlsx(
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+):
+    """Item / price / vendor site for every live item, to hand a material
+    distributor. Registered above `GET /items/{barcode}` (shadowing, as
+    `/export.csv`)."""
+    now = datetime.now(timezone.utc)
+    return _xlsx_download(
+        inventory_export_xlsx.pricing_xlsx(db, now=now),
+        inventory_export_xlsx.pricing_filename(now),
+    )
+
+
 def _xlsx_download(content: bytes, filename: str) -> Response:
     return Response(
         content=content,

@@ -1007,6 +1007,8 @@ async function xlsxDownload(url, method) {
 export const apiCreateDispenseExport = () => xlsxDownload("/items/dispense-exports", "POST");
 // Every live item as CSV (Admin+). Same blob contract; the server names the file.
 export const apiExportItemsCsv = () => xlsxDownload("/items/export.csv", "GET");
+// Item / price / vendor site for a material distributor (Admin+).
+export const apiExportPricing = () => xlsxDownload("/items/pricing-export.xlsx", "GET");
 
 // SMR27 audit (Owner export, Admin+ tiles; spec 2026-10-23).
 export const apiExportSmrXlsx = () => xlsxDownload("/work-orders/smr/export.xlsx", "GET");

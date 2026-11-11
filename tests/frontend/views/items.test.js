@@ -661,6 +661,24 @@ describe("weekly export", () => {
     expect(btn("items-csv-btn").hidden).toBe(true);
   });
 
+  it("shows the pricing export to Admin and downloads it", async () => {
+    server.use(http.get("/items/pricing-export.xlsx", () => new HttpResponse("x", {
+      headers: { "Content-Disposition": 'attachment; filename="catalogue-pricing_2026-11-11.xlsx"' },
+    })));
+    const { mod } = await mountItems({ role: "admin" });
+    mod.loadItems();
+    expect(btn("items-pricing-btn").hidden).toBe(false);
+    await userEvent.setup().click(btn("items-pricing-btn"));
+    await vi.waitFor(() => expect(btn("dispense-export-message").textContent)
+      .toBe("Downloaded catalogue-pricing_2026-11-11.xlsx."));
+  });
+
+  it("hides the pricing export from TechFM OA", async () => {
+    const { mod } = await mountItems({ role: "techfm_oa" });
+    mod.loadItems();
+    expect(btn("items-pricing-btn").hidden).toBe(true);
+  });
+
   it("shows the items CSV button to Admin and downloads it", async () => {
     server.use(http.get("/items/export.csv", () => new HttpResponse("Barcode\r\n", {
       headers: { "Content-Disposition": 'attachment; filename="items_2026-11-02.csv"' },

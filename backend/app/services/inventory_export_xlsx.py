@@ -16,6 +16,7 @@ import csv
 import io
 from datetime import datetime
 from typing import Optional
+from urllib.parse import urlparse
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, PatternFill, Side
@@ -121,6 +122,48 @@ def items_csv(db: Session) -> str:
 
 def items_csv_filename(now: datetime) -> str:
     return f"items_{now.astimezone(CENTRAL).date().isoformat()}.csv"
+
+
+PRICING_HEADERS = ("ITEM", "PRICE", "VENDOR")
+PRICING_WIDTHS = {"A": 60, "B": 12, "C": 28}
+
+
+def vendor_site(link: Optional[str]) -> Optional[str]:
+    """The site a product link points at: `https://www.homedepot.com/p/1` ->
+    `homedepot.com`. Blank for no link or one that has no host."""
+    text = (link or "").strip()
+    if not text:
+        return None
+    host = urlparse(text if "//" in text else f"//{text}").hostname
+    return (host[4:] if host and host.startswith("www.") else host) or None
+
+
+def pricing_xlsx(db: Session, *, now: datetime) -> bytes:
+    """Item, our price, and the vendor site we buy it from -- for a material
+    distributor to quote against. Every live item; a zero or unset price is
+    left blank. Nothing internal (barcode, stock, location, notes)."""
+    items = sorted(items_service.list_items(db), key=lambda item: item.name.casefold())
+    rows = [[item.name, _number(item.price) or None, vendor_site(item.product_link)] for item in items]
+    sheet = Workbook().active
+    sheet.title = "Pricing"
+    theme.setup_sheet(sheet, tab_color=theme.BRAND_RED, freeze=f"A{HEADER_ROW + 1}")
+    theme.set_widths(sheet, PRICING_WIDTHS)
+    theme.title_block(sheet, "Catalogue pricing", [f"Exported {_when(now)}  ·  {len(rows)} items", ""])
+    theme.header_row(sheet, HEADER_ROW, PRICING_HEADERS)
+    sheet.print_title_rows = f"{HEADER_ROW}:{HEADER_ROW}"
+    if rows:
+        last = theme.write_rows(sheet, HEADER_ROW + 1, rows)
+        for row in range(HEADER_ROW + 1, last + 1):
+            sheet.cell(row=row, column=2).number_format = "$#,##0.00"
+    else:
+        theme.empty_state(sheet, HEADER_ROW + 1, "No items.")
+    buffer = io.BytesIO()
+    sheet.parent.save(buffer)
+    return buffer.getvalue()
+
+
+def pricing_filename(now: datetime) -> str:
+    return f"catalogue-pricing_{now.astimezone(CENTRAL).date().isoformat()}.xlsx"
 
 
 def _csv_text(value):
