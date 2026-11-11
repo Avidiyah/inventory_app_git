@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
-  card, message, mountWorkOrders, openCard, requestFor, requests, respond,
+  answerConfirm, card, message, mountWorkOrders, openCard, requestFor, requests, respond,
 } from "../../helpers/workOrders.js";
 import { workOrderCard, workOrderDetail } from "../../helpers/factories.js";
 import { importView } from "../../helpers/shell.js";
@@ -300,6 +300,25 @@ describe("lines", () => {
     click("smr-charge-line");
     await sent(`/lines/${LINE.id}`, "PATCH");
     expect(requestFor(`/lines/${LINE.id}`, "PATCH").body).toEqual({ status: "charged", exclusion_ground: null, reason: "charged on the card" });
+  });
+
+  it("\"smr-delete-line\" asks first; No sends nothing, Yes PATCHes the line removed", async () => {
+    const detail = await open();
+    click("smr-delete-line");
+    await answerConfirm(false);
+    expect(requestFor(`/lines/${LINE.id}`, "PATCH")).toBeNull();
+    respond("patch", "/work-orders/smr/lines/:id", { ...LINE, status: "excluded", exclusion_ground: "removed" });
+    click("smr-delete-line");
+    await answerConfirm(true);
+    await sent(`/lines/${LINE.id}`, "PATCH");
+    expect(requestFor(`/lines/${LINE.id}`, "PATCH").body).toEqual(
+      { status: "excluded", exclusion_ground: "removed", reason: "deleted on the card" });
+    await expectRefresh(detail.id);
+  });
+
+  it("offers Delete on an excluded line too, and on none below Admin", async () => {
+    await open({ detail: { smr_lines: [{ ...LINE, status: "excluded", exclusion_ground: "undated" }] } });
+    expect(section().querySelector('[data-action="smr-delete-line"]')).not.toBeNull();
   });
 
   it("saves without a reason, filling a default", async () => {

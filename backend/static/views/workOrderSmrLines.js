@@ -97,6 +97,7 @@ function lineRowHtml(line, editable) {
          ${line.status === "charged"
            ? `<button type="button" class="btn-danger" data-action="smr-exclude-line">Exclude</button>`
            : `<button type="button" class="secondary-btn" data-action="smr-charge-line">Charge</button>`}
+         <button type="button" class="btn-danger" data-action="smr-delete-line">Delete</button>
        </div>`
     : "";
   return `<div class="wo-labor-entry wo-smr-line wo-smr-line--${escapeHtml(line.status)}" data-line-id="${escapeHtml(line.id)}" data-line="${escapeHtml(JSON.stringify(line))}">

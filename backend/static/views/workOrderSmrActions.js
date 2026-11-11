@@ -11,7 +11,7 @@ import {
   apiSmrMarkPasted,
   apiSetSmrReady,
 } from "../api.js";
-import { setMessage } from "../dom.js";
+import { confirmDialog, setMessage } from "../dom.js";
 import { refreshCard } from "./workOrderList.js";
 import { fillLineForm, fillReadingForm, readAddLineRow, readLineForm } from "./workOrderSmrLines.js";
 
@@ -66,6 +66,15 @@ export async function handleSmrAction(action, btn, cardEl, msg) {
     await apiSmrEditLine(lineOf().id, charge
       ? { status: "charged", exclusion_ground: null, reason: "charged on the card" }
       : { status: "excluded", reason: "excluded on the card" });
+    await refreshCard(cardEl, SECTION);
+  } else if (action === "smr-delete-line") {
+    // The soft remove the service already records as one `deleted` history row (user 2026-11-11).
+    const ok = await confirmDialog(
+      "Delete this labor line? It leaves the card, the block and the totals. The change stays in history.",
+      { confirmText: "Delete" },
+    );
+    if (!ok) return;
+    await apiSmrEditLine(lineOf().id, { status: "excluded", exclusion_ground: "removed", reason: "deleted on the card" });
     await refreshCard(cardEl, SECTION);
   } else if (action === "smr-cancel-line") {
     form.hidden = true;
