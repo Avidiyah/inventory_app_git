@@ -107,6 +107,27 @@ def test_admin_adds_a_reading_and_a_line_and_the_detail_carries_them(db):
         assert client.get(f"/work-orders/{order.id}").json()["smr_description"] == "Patched drywall."
 
 
+def test_regenerate_all_and_its_undo_over_http(db):
+    # User 2026-11-11: one button re-prices every block; Undo takes the run back.
+    admin = _user(db)
+    first, second = _smr_order(db, admin), _smr_order(db, admin)
+    with _Client(db, admin) as client:
+        for order in (first, second):
+            assert client.post(f"/work-orders/smr/{order.id}/lines", json=LINE).status_code == 200
+        run = client.post("/work-orders/smr/blocks/regenerate")
+        assert run.status_code == 200 and run.json()["count"] >= 2, run.text
+        assert client.get("/work-orders/smr").json()["regenerated_at"] is not None
+        block = client.get(f"/work-orders/{first.id}").json()["smr_block"]
+        assert block["version"] == 1 and block["pasted_at"] is None and "\nBelfor ST " in block["text"]
+
+        undone = client.delete("/work-orders/smr/blocks/regenerate")
+        assert undone.status_code == 200 and undone.json()["count"] == run.json()["count"]
+        assert client.get(f"/work-orders/{first.id}").json()["smr_block"] is None
+    with _Client(db, _user(db, "supervisor")) as client:
+        assert client.post("/work-orders/smr/blocks/regenerate").status_code == 403
+        assert client.delete("/work-orders/smr/blocks/regenerate").status_code == 403
+
+
 def test_patch_edits_dates_and_soft_removes_with_domain_errors_as_400_and_404(db):
     admin = _user(db)
     order = _smr_order(db, admin)

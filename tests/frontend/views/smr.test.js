@@ -389,6 +389,63 @@ describe("the SMR page", () => {
     expect(shown()).toEqual(["STALE", "NOBLOCK"]);
   });
 
+  // User 2026-11-11: after the two-rate change every block is re-priced with
+  // one button; Undo (red, no confirm) shows while the run can be taken back.
+  it("Regenerate all: Admin+ re-prices every block and the red Undo takes the run back", async () => {
+    await openSmr("supervisor");
+    expect(byId("smr-regenerate-btn").hidden).toBe(true);
+    expect(byId("smr-regenerate-undo-btn").hidden).toBe(true);
+
+    document.body.innerHTML = "";
+    const { requests, clearRequests } = await openSmr("admin");
+    expect(byId("smr-regenerate-btn").hidden).toBe(false);
+    expect(byId("smr-regenerate-undo-btn").hidden).toBe(true);  // no run to undo yet
+
+    const calls = (method) => requests().filter((r) => r.method === method && r.url === "/work-orders/smr/blocks/regenerate");
+    const stamp = "2026-11-11T18:00:00Z";
+    server.use(
+      http.post("/work-orders/smr/blocks/regenerate", () => HttpResponse.json({ count: 412, generated_at: stamp })),
+      http.delete("/work-orders/smr/blocks/regenerate", () => HttpResponse.json({ count: 412, generated_at: stamp })),
+      http.get("/work-orders/smr", () => HttpResponse.json(page({ regenerated_at: stamp }))),
+    );
+    clearRequests();
+    byId("smr-regenerate-btn").click();
+    await vi.waitFor(() => expect(calls("POST")).toHaveLength(1));
+    await vi.waitFor(() => expect(byId("smr-regenerate-undo-btn").hidden).toBe(false));
+    expect(byId("smr-message").textContent).toContain("412 blocks regenerated");
+    expect(byId("smr-regenerate-undo-btn").classList.contains("btn-danger")).toBe(true);
+
+    server.use(http.get("/work-orders/smr", () => HttpResponse.json(page())));
+    byId("smr-regenerate-undo-btn").click();
+    await vi.waitFor(() => expect(calls("DELETE")).toHaveLength(1));
+    await vi.waitFor(() => expect(byId("smr-regenerate-undo-btn").hidden).toBe(true));
+    expect(byId("smr-message").textContent).toContain("412 blocks removed");
+  });
+
+  it("an archived tile offers Restore instead of opening a card that cannot load", async () => {
+    const { nav, requests } = await openSmr();
+    byId("smr-filter-all").click();
+    server.use(http.post("/work-orders/22222222-2222-2222-2222-222222222222/restore", () => HttpResponse.json(
+      workOrderDetail({ id: "22222222-2222-2222-2222-222222222222", number: "23282567", smr: true }),
+    )));
+    const restores = () => requests().filter((r) => r.method === "POST" && r.url.endsWith("/restore"));
+
+    tiles()[1].click();
+    await vi.waitFor(() => expect(byId("scan-confirm-overlay").hidden).toBe(false));
+    expect(byId("scan-confirm-title").textContent).toBe("Work Order has been closed.");
+    expect(byId("scan-confirm-yes").textContent).toBe("Restore");
+    byId("scan-confirm-no").click();
+    await vi.waitFor(() => expect(byId("scan-confirm-overlay").hidden).toBe(true));
+    expect(restores()).toHaveLength(0);
+    expect(nav.getActivePage()).toBe("smr");
+
+    tiles()[1].click();
+    await vi.waitFor(() => expect(byId("scan-confirm-overlay").hidden).toBe(false));
+    byId("scan-confirm-yes").click();
+    await vi.waitFor(() => expect(restores()).toHaveLength(1));
+    expect(nav.getActivePage()).toBe("smr");
+  });
+
   it("Hours: Admin+ toggles the worker x week / vendor x week table over the tiles and downloads the CSV", async () => {
     await openSmr("technician");
     expect(byId("smr-hours-btn").hidden).toBe(true);

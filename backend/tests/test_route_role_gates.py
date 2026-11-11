@@ -577,6 +577,11 @@ def test_no_route_gate_is_left_at_the_admin_floor():
         # 2026-11-06: Ready for invoice is the same gate as the line editor
         # (spec 2026-11-06-smr-paper-stage D9): a person says the money is right.
         "set_ready",
+        # 2026-11-11: Regenerate all and its undo write blocks, the same gate as generate_block.
+        "regenerate_all_blocks",
+        "undo_regenerate",
+        # The Hours view named above (spec 2026-11-04 D12); missed here when e54d60b added the route.
+        "weekly_hours",
     }
 
 

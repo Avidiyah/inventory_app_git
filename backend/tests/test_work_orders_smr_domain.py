@@ -223,6 +223,29 @@ def test_lines_charge_sums_charged_lines_at_the_rate_without_rounding():
     assert charge.labor_total == Decimal("5.5") * wo.LABOR_RATE == Decimal("343.75")
 
 
+def test_general_labor_kinds_charge_at_43_50_and_everything_else_at_62_50():
+    # User 2026-11-11: audit, staging, material preparation and clean-up are
+    # GL; field, assessment and a leftover mixed line stay ST.
+    charge = lines_rules.lines_charge([
+        _cline(hours_each=Decimal("2.0")),
+        _cline(kind="assessment", hours_each=Decimal("0.5")),
+        _cline(kind="audit, staging", hours_each=Decimal("0.5")),
+        _cline(kind="audit", hours_each=Decimal("0.5")),
+        _cline(kind="staging", hours_each=Decimal("0.5")),
+        _cline(kind="material preparation", headcount=2, hours_each=Decimal("1.5")),
+        _cline(kind="clean-up", hours_each=Decimal("0.5")),
+    ])
+    assert charge.charged_hours == Decimal("7.5")
+    assert charge.labor_total == Decimal("3.0") * Decimal("62.50") + Decimal("4.5") * Decimal("43.50") == Decimal("383.25")
+
+
+def test_a_new_line_carries_one_kind():
+    lines_rules.require_one_kind("audit")
+    for bad in ("assessment, audit", "audit, staging", ""):
+        with pytest.raises(WorkOrderStateError):
+            lines_rules.require_one_kind(bad)
+
+
 def test_labor_figures_without_lines_is_the_legacy_split():
     figures = smr.labor_figures([_entry(20), _entry(10, None)], [])
     split = smr.labor_split([_entry(20), _entry(10, None)])
@@ -362,11 +385,18 @@ def test_parse_rows_accept_the_draft_columns_and_name_bad_cells():
     line = lines_rules.parse_line_row({
         "line_id": "L9", "reading_id": "R7", "wo": "23281563", "work_date": "2026-06-20", "date_basis": "",
         "week": "4", "vendor": "XXL Construction", "worker": "Trinton Smith", "alias_on_paper": "Trint",
-        "headcount": "2", "hours_each": "1.5", "kind": "assessment,audit", "status": "Charged",
+        "headcount": "2", "hours_each": "1.5", "kind": " audit ", "status": "Charged",
         "exclusion_ground": "", "reason_code": "crew_as_one", "note": "crew as one", "surprise": "x",
     })
     assert line["date_basis"] == "paper" and line["week"] == 4 and line["status"] == "charged"
-    assert line["kind"] == "assessment, audit" and line["headcount"] == 2 and line["hours_each"] == Decimal("1.5")
+    assert line["kind"] == "audit" and line["headcount"] == 2 and line["hours_each"] == Decimal("1.5")
+
+    with pytest.raises(WorkOrderStateError, match="Line L9b.*one kind"):  # user 2026-11-11
+        lines_rules.parse_line_row({
+            "line_id": "L9b", "reading_id": "R7", "wo": "23281563", "work_date": "2026-06-20", "vendor": "Belfor",
+            "headcount": "1", "hours_each": "1.0", "kind": "assessment,audit", "status": "charged",
+            "exclusion_ground": "", "reason_code": "as_read",
+        })
 
     placement = lines_rules.parse_line_row({
         "line_id": "L10", "reading_id": "R7", "wo": "23281563", "work_date": "", "vendor": "Belfor",

@@ -10,7 +10,7 @@ from types import SimpleNamespace as NS
 
 from app.domain import receipt
 from app.domain import work_orders_smr_block as block
-from app.domain.work_orders_smr_lines import WEEK1_PLACEMENT_BASIS, WEEK_PLACEMENT_BASIS
+from app.domain.work_orders_smr_lines import WEEK1_PLACEMENT_BASIS
 
 
 def _line(**overrides):
@@ -67,10 +67,11 @@ def test_one_full_block_verbatim():
         "                                  $406.25",
         "",
         "Finalized labor record:",
-        "Week 1 Belfor x3               2.0 h each",
-        "Week 4 BT Restoration x2       3.0 h each",
-        "Week 4 Belfor assessment            0.5 h",
-        "Week 4 Trinton Smith (XXL)          4.0 h",
+        "ST $62.50/h  GL $43.50/h",
+        "Belfor ST                           6.0 h",
+        "Belfor Assessment ST                0.5 h",
+        "XXL Construction ST                 4.0 h",
+        "BT Restoration ST                   6.0 h",
         "",
         "Labor total                     $1,031.25",
         "Materials total                     $0.00",
@@ -79,28 +80,69 @@ def test_one_full_block_verbatim():
 
 
 def test_lines_never_exceed_the_destination_width():
-    # An over-long name, kind list, ground and reason all truncate with `...`
-    # and the amount stays flush right, like `receipt.pricing_line`.
+    # Names no longer print (user 2026-11-11), so the longest row is a
+    # vendor, a kind and the labor type; it still fits the destination.
     long_name = NS(display_name="Bartholomew Montgomery-Fitzwilliam the Third")
     lines = _sample_lines() + [
         _line(worker=long_name, vendor="XXL Construction", kind="assessment, audit, staging",
               reason_code="hours_on_paper_above_billed", hours_each=Decimal("12.5")),
-        _line(worker=long_name, vendor="BT Restoration", headcount=12, hours_each=Decimal("10.0"),
-              status="excluded", exclusion_ground="awaiting invoice (GC, Week 7)"),
+        _line(vendor="XXL Construction", kind="material preparation", headcount=40, hours_each=Decimal("30.0")),
         _line(reason_code="a_code_nobody_has_seen_before_that_runs_well_past_the_width_of_the_box"),
     ]
     rendered = _render(lines).split("\n")
     assert all(len(row) <= receipt.PRICING_LINE_WIDTH for row in rendered)
-    truncated = [row for row in rendered if "..." in row]
-    assert len(truncated) >= 1  # the long name row; the excluded row no longer prints
-    assert any(row.endswith(" 12.5 h") and len(row) == receipt.PRICING_LINE_WIDTH for row in truncated)
+    assert _r("XXL Construction Prep GL", "1200.0 h") in rendered
+    assert "Bartholomew" not in "\n".join(rendered)
     assert not any(row.startswith("Reason") for row in rendered)  # user 2026-11-06: no Reason lines
+
+
+def _r(label, amount):
+    return label.ljust(receipt.PRICING_LINE_WIDTH - len(amount)) + amount
+
+
+def test_labor_rows_are_one_line_per_vendor_and_kind_with_the_labor_type():
+    # User 2026-11-11: no names; "{vendor} {Audit/Prep/Stage/Assessment/Clean
+    # or blank} {GL/ST} {total hours}", one line each, the two rates named
+    # once above them. A leftover mixed line is plain ST.
+    lines = [
+        _line(vendor="Green Choice", worker=NS(display_name="Rye"), hours_each=Decimal("4.0")),
+        _line(vendor="XXL Construction", hours_each=Decimal("2.0")),
+        _line(kind="audit, staging", hours_each=Decimal("0.5")),
+        _line(kind="staging", hours_each=Decimal("0.5")),
+        _line(kind="audit", hours_each=Decimal("0.5")),
+        _line(kind="assessment", hours_each=Decimal("0.5")),
+        _line(vendor="Green Choice", kind="clean-up", hours_each=Decimal("0.5")),
+        _line(vendor="Green Choice", kind="material preparation", hours_each=Decimal("1.0")),
+        _line(vendor="Green Choice", kind="material preparation", headcount=2, hours_each=Decimal("1.0")),
+    ]
+    rendered = _render(lines, target=_target("3.0", "187.50")).split("\n")
+    start = rendered.index("Finalized labor record (SMR Week 4):")
+    assert rendered[start + 1:start + 10] == [
+        "ST $62.50/h  GL $43.50/h",
+        _r("Belfor ST", "0.5 h"),
+        _r("Belfor Assessment ST", "0.5 h"),
+        _r("Belfor Audit GL", "0.5 h"),
+        _r("Belfor Stage GL", "0.5 h"),
+        _r("Green Choice ST", "4.0 h"),
+        _r("Green Choice Prep GL", "3.0 h"),
+        _r("Green Choice Clean GL", "0.5 h"),
+        _r("XXL Construction ST", "2.0 h"),
+    ]
+    assert "Rye" not in "\n".join(rendered)
+    # 7.0 h x 62.50 + 4.5 h x 43.50 = 633.25; the add is that less the 187.50 NetFacilities has.
+    assert _r("Labor total", "$633.25") in rendered
+    assert rendered[rendered.index(_r("Add to WO", "+8.5 h")) + 1] == _r("", "$445.75")
+
+
+def test_the_same_hours_at_a_lower_rate_still_print_the_dollar_difference():
+    rendered = _render([_line(kind="audit")], target=_target("1.0", "62.50")).split("\n")
+    assert rendered[rendered.index(_r("Add to WO", "+0.0 h")) + 1] == _r("", "-$19.00")
 
 
 def test_a_decrease_prints_with_a_minus_and_lowers_the_total():
     lines = [_line(hours_each=Decimal("3.0")), _line(hours_each=Decimal("-2.0"), reason_code="over_billed")]
     rendered = _render(lines, target=_target("3.0", "187.50")).split("\n")
-    assert "Week 4 Belfor                      -2.0 h" in rendered
+    assert _r("Belfor ST", "1.0 h") in rendered
     assert "Finalized Total                     1.0 h" in rendered
     assert "Add to WO                          -2.0 h" in rendered
     assert "                                 -$125.00" in rendered
@@ -144,16 +186,6 @@ def test_a_changed_line_changes_the_digest_and_order_does_not():
     assert block.lines_digest(lines) == before
     lines[3].week = 2  # a placement moved to another week prints differently
     assert block.lines_digest(lines) != before
-
-
-def test_lines_print_their_smr_week_and_sort_by_it():
-    # User 2026-11-06: the memo names the SMR week, so a reader can point at
-    # that week's vendor invoice; a placement and a dated line read alike.
-    lines = [_line(), _line(work_date=None, date_basis=WEEK_PLACEMENT_BASIS, week=3, hours_each=Decimal("0.5"))]
-    rendered = _render(lines).split("\n")
-    assert rendered[13].startswith("Week 3 Belfor") and rendered[13].endswith(" 0.5 h")
-    assert len(rendered[13]) == receipt.PRICING_LINE_WIDTH
-    assert rendered[14].startswith("Week 4 Belfor")
 
 
 def _materials():
@@ -200,15 +232,9 @@ def test_reason_text_falls_back_to_the_code_in_words():
 
 
 def test_no_diff_line_when_the_paper_matches_the_estimate():
-    rendered = _render([_line(hours_each=Decimal("1.0"))], target={**TARGET, "hours": "1.0"}).split("\n")
+    rendered = _render([_line(hours_each=Decimal("1.0"))], target=_target("1.0", "62.50")).split("\n")
     assert "Finalized Total                     1.0 h" in rendered
     assert not any(row.startswith("Add to WO") for row in rendered)
-
-
-def test_a_crew_of_unknown_size_prints_as_a_crew_not_one_person():
-    crew = _line(vendor="BT Restoration", hours_each=Decimal("60.0"), reason_code="crew_size_not_given")
-    assert block._charged_row(crew).startswith("Week 4 BT Restoration crew")
-    assert "x1" not in block._charged_row(crew)
 
 
 def test_the_work_description_wraps_to_the_width_under_its_heading():

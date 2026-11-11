@@ -28,6 +28,11 @@ VENDORS: tuple[str, ...] = (
     "Belfor", "Green Choice", "XXL Construction", "BT Restoration", "Unknown", "Admin",
 )
 KINDS: tuple[str, ...] = ("field", "assessment", "audit", "staging", "material preparation", "clean-up")
+# User 2026-11-11: these four are general labor (GL) at 43.50; every other
+# line, a leftover mixed-kind one included, is skilled trade (ST) at
+# `wo.LABOR_RATE`. SMR only: the work-order card keeps its one rate.
+GL_KINDS: tuple[str, ...] = ("audit", "staging", "material preparation", "clean-up")
+GL_RATE = Decimal("43.50")
 
 DATE_BASIS_PAPER = "paper"
 # Decision 13, generalised by the user on 2026-11-06: the two bases allowed
@@ -97,7 +102,7 @@ WEEK1_START = date(2026, 5, 25)
 LAST_WEEK = 7
 TIE_TOLERANCE = Decimal("0.5")
 HALF_HOUR = Decimal("0.5")
-CENT = Decimal("0.01")  # 0.5 h steps at 62.50 are exact cents; this only drops the trailing zero
+CENT = Decimal("0.01")  # 0.5 h steps at either rate are exact cents; this only drops the trailing zero
 
 
 # --- weeks --------------------------------------------------------------
@@ -162,21 +167,30 @@ class LinesCharge:
     count: int
 
 
+def is_gl(line) -> bool:
+    return line.kind in GL_KINDS
+
+
+def line_rate(line) -> Decimal:
+    return GL_RATE if is_gl(line) else wo.LABOR_RATE
+
+
 def lines_charge(lines) -> LinesCharge:
-    """Charged lines at the labor rate, no pooled rounding: the lines are
-    already in 0.5 h steps (D9). Excluded hours ride along for the tiles."""
-    charged = excluded = Decimal(0)
+    """Charged lines each at their own rate, no pooled rounding: the lines
+    are already in 0.5 h steps (D9). Excluded hours ride along for the tiles."""
+    charged = excluded = total = Decimal(0)
     count = 0
     for line in lines:
         count += 1
         if line.status == STATUS_CHARGED:
             charged += line_hours(line)
+            total += line_hours(line) * line_rate(line)
         else:
             excluded += line_hours(line)
     return LinesCharge(
         charged_hours=charged,
         excluded_hours=excluded,
-        labor_total=(charged * wo.LABOR_RATE).quantize(CENT),
+        labor_total=total.quantize(CENT),
         count=count,
     )
 
@@ -222,6 +236,14 @@ def validate_line_state(
 def kinds_of(kind: str) -> list[str]:
     """`assessment, audit` -> ['assessment', 'audit']; stored as given (user)."""
     return [token.strip() for token in (kind or "").split(",") if token.strip()]
+
+
+def require_one_kind(kind: str) -> None:
+    """A new or re-kinded line carries one kind (user 2026-11-11): the kind
+    sets the rate, so a second charge type is a second line. Mixed lines
+    already stored stay editable; this is not part of `validate_line_state`."""
+    if len(kinds_of(kind)) != 1:
+        raise WorkOrderStateError("A line carries one kind. Add a line for each kind.")
 
 
 def apply_date(status: str, exclusion_ground: Optional[str], work_date: Optional[date]) -> tuple[str, Optional[str]]:
@@ -387,6 +409,7 @@ def parse_line_row(row: dict) -> dict:
     if parsed["exclusion_ground"] == GROUND_NOT_CHARGED_REPORTS:
         parsed["status"], parsed["exclusion_ground"] = STATUS_CHARGED, None
     try:
+        require_one_kind(parsed["kind"])
         validate_line_state(
             status=parsed["status"], work_date=parsed["work_date"], date_basis=parsed["date_basis"],
             exclusion_ground=parsed["exclusion_ground"], headcount=parsed["headcount"],

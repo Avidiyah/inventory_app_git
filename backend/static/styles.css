@@ -6016,6 +6016,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 }
 #smr-page .smr-btn[disabled] { opacity: .5; cursor: wait; }
 #smr-page .smr-btn--export { margin-left: auto; }
+#smr-page .smr-btn.btn-danger { background-color: transparent; color: var(--color-brand-light); border-color: var(--color-brand-light); }
 #smr-page .smr-controls-label { align-self: center; min-width: 3em; font-size: var(--fs-xs); font-weight: var(--fw-bold); color: var(--text-panel-mute); text-transform: uppercase; letter-spacing: .04em; }
 #smr-page .smr-sort { display: inline-flex; gap: var(--space-2); margin-left: auto; }
 #smr-page #smr-message { min-height: 1.2em; margin: 0 0 var(--space-2); font-size: var(--fs-sm); }

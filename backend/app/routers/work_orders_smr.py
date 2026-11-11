@@ -42,6 +42,7 @@ from app.schemas.work_orders_smr_lines import (
     SmrReadingEditIn,
     SmrReadingIn,
     SmrReadingOut,
+    SmrRegenerateOut,
     SmrWorkerIn,
     SmrWorkerMergeIn,
     SmrWorkerOut,
@@ -332,6 +333,28 @@ def generate_block(
         return lines_service.generate_block(
             db, work_order_id=work_order_id, user=user, description=body.description if body else None,
         )
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.post("/blocks/regenerate", response_model=SmrRegenerateOut, responses=_forbidden(roles.ROLE_ADMIN))
+def regenerate_all_blocks(
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+) -> SmrRegenerateOut:
+    """A new, unpasted block version for every SMR order with paper lines
+    (Admin+). Sync `def`: one long transaction belongs in the threadpool."""
+    return lines_service.regenerate_all_blocks(db, user=user)
+
+
+@router.delete("/blocks/regenerate", response_model=SmrRegenerateOut, responses=_forbidden(roles.ROLE_ADMIN))
+def undo_regenerate(
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+) -> SmrRegenerateOut:
+    """Remove the newest Regenerate all run's still-unpasted blocks (Admin+); 400 when there is none."""
+    try:
+        return lines_service.undo_regenerate(db)
     except DomainError as exc:
         raise to_http(exc)
 

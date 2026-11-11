@@ -22,6 +22,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.domain import work_orders as wo
@@ -30,9 +31,12 @@ from app.domain import work_orders_smr as smr
 from app.domain import work_orders_smr_block as block_rules
 from app.domain import work_orders_smr_lines as rules
 from app.domain.errors import WorkOrderNotFoundError, WorkOrderStateError
-from app.models import SmrCorrectionBlock, SmrLaborLine, SmrLineEdit, SmrPaperReading, SmrWorker, User, WorkOrder
+from app.models import (
+    SmrCorrectionBlock, SmrLaborLine, SmrLineEdit, SmrPaperReading, SmrWorker, User, WorkOrder, WorkOrderItem,
+)
 from app.schemas.work_orders_smr_lines import (
     SmrBlockOut,
+    SmrRegenerateOut,
     SmrHoursOut,
     SmrHoursRow,
     SmrLineEditIn,
@@ -193,6 +197,7 @@ def add_line(db: Session, *, work_order_id: uuid.UUID, payload: SmrLineIn, user:
     reason = _reason(payload.reason)
     state = {field: getattr(payload, field) for field in LINE_FIELDS}
     state["kind"] = ", ".join(rules.kinds_of(state["kind"])) or "field"
+    rules.require_one_kind(state["kind"])
     if state["worker_id"] is None:
         state["worker_id"] = match_worker(db, name=state["alias_on_paper"], vendor=state["vendor"])
     _check_state(db, order, state)
@@ -229,7 +234,9 @@ def edit_line(db: Session, *, line_id: uuid.UUID, payload: SmrLineEditIn, user: 
             changes["status"], changes["exclusion_ground"] = status, ground
     if "kind" in changes:
         changes["kind"] = ", ".join(rules.kinds_of(changes["kind"])) or "field"
-    state = {field: getattr(line, field) for field in LINE_FIELDS}
+        if changes["kind"] != line.kind:  # a stored mixed line may be re-saved as it is
+            rules.require_one_kind(changes["kind"])
+    state ={field: getattr(line, field) for field in LINE_FIELDS}
     state.update(changes)
     if "worker_id" not in changes and ("alias_on_paper" in changes or "vendor" in changes):
         changes["worker_id"] = state["worker_id"] = match_worker(db, name=state["alias_on_paper"], vendor=state["vendor"])
@@ -335,6 +342,25 @@ def latest_block(order: WorkOrder, *, include_price: bool = True) -> Optional[Sm
     return SmrBlockOut.from_row(latest, stale=stale, include_price=include_price)
 
 
+def _next_block(order: WorkOrder, *, user: User, now: datetime) -> SmrCorrectionBlock:
+    """The order's next block version from its current lines, not yet added."""
+    lines = list(order.smr_lines)
+    version = max((block.version for block in order.smr_blocks), default=0) + 1
+    materials = [
+        receipt.ReceiptLine(name=line.item.name, quantity=line.quantity, billable_quantity=line.billable_quantity,
+                            unit_price=line.item.price)
+        for line in order.items
+    ]
+    text = block_rules.render_correction_block(
+        order.number, order.smr_target, lines, version, now.astimezone(wo.NOTE_TIMEZONE).date(),
+        materials=materials, description=order.smr_description,
+    )
+    return SmrCorrectionBlock(
+        id=uuid.uuid4(), work_order_id=order.id, version=version, text=text, generated_at=now,
+        generated_by_id=user.id, lines_digest=block_rules.lines_digest(lines),
+    )
+
+
 def generate_block(db: Session, *, work_order_id: uuid.UUID, user: User,
                    description: Optional[str] = None) -> SmrBlockOut:
     """Render the next version from the current lines and keep it, text and
@@ -343,26 +369,54 @@ def generate_block(db: Session, *, work_order_id: uuid.UUID, user: User,
     order = smr_order(db, work_order_id)
     if description is not None:
         order.smr_description = description.strip() or None
-    lines = list(order.smr_lines)
-    version = max((block.version for block in order.smr_blocks), default=0) + 1
-    now = _now()
-    target = order.smr_target
-    materials = [
-        receipt.ReceiptLine(name=line.item.name, quantity=line.quantity, billable_quantity=line.billable_quantity,
-                            unit_price=line.item.price)
-        for line in order.items
-    ]
-    text = block_rules.render_correction_block(
-        order.number, target, lines, version, now.astimezone(wo.NOTE_TIMEZONE).date(), materials=materials,
-        description=order.smr_description,
-    )
-    row = SmrCorrectionBlock(
-        id=uuid.uuid4(), work_order_id=order.id, version=version, text=text, generated_at=now,
-        generated_by_id=user.id, lines_digest=block_rules.lines_digest(lines),
-    )
+    row = _next_block(order, user=user, now=_now())
     db.add(row)
     db.commit()
     return SmrBlockOut.from_row(row, stale=False)
+
+
+def regenerate_all_blocks(db: Session, *, user: User) -> SmrRegenerateOut:
+    """A new block version for every SMR order that carries paper lines,
+    archived ones included (user 2026-11-11, after the two-rate change). The
+    run's blocks share one `generated_at`, which is how the undo finds them;
+    each starts unpasted, so the order returns to the re-paste list."""
+    now = _now()
+    orders = (
+        db.query(WorkOrder).filter(WorkOrder.smr_imported_at.is_not(None))
+        .options(selectinload(WorkOrder.smr_lines).selectinload(SmrLaborLine.worker),
+                 selectinload(WorkOrder.smr_blocks), selectinload(WorkOrder.items).selectinload(WorkOrderItem.item))
+        .all()
+    )
+    rows = [_next_block(order, user=user, now=now) for order in orders if order.smr_lines]
+    db.add_all(rows)
+    db.commit()
+    return SmrRegenerateOut(count=len(rows), generated_at=now)
+
+
+def last_regenerate_at(db: Session) -> Optional[datetime]:
+    """The newest Regenerate all run that can still be undone, else None."""
+    # ponytail: a run is "two or more unpasted blocks sharing a generated_at"; a run over a
+    # single order cannot be undone. Add a run id column if that ever matters.
+    return (
+        db.query(SmrCorrectionBlock.generated_at).filter(SmrCorrectionBlock.pasted_at.is_(None))
+        .group_by(SmrCorrectionBlock.generated_at).having(func.count() > 1)
+        .order_by(SmrCorrectionBlock.generated_at.desc()).limit(1).scalar()
+    )
+
+
+def undo_regenerate(db: Session) -> SmrRegenerateOut:
+    """Delete the newest run's blocks that are still unpasted, so each
+    order's previous version is its latest again. A block pasted since the
+    run stays: its paste is a fact."""
+    stamp = last_regenerate_at(db)
+    if stamp is None:
+        raise WorkOrderStateError("No Regenerate all run to undo.")
+    rows = (db.query(SmrCorrectionBlock)
+            .filter(SmrCorrectionBlock.generated_at == stamp, SmrCorrectionBlock.pasted_at.is_(None)).all())
+    for row in rows:
+        db.delete(row)
+    db.commit()
+    return SmrRegenerateOut(count=len(rows), generated_at=stamp)
 
 
 def mark_pasted(db: Session, *, block_id: uuid.UUID, user: User) -> SmrBlockOut:

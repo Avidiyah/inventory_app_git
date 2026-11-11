@@ -234,6 +234,14 @@ class SmrBlockOut(BaseModel):
         )
 
 
+class SmrRegenerateOut(BaseModel):
+    """One Regenerate all run, or its undo: how many blocks, and the
+    `generated_at` every block of the run shares."""
+
+    count: int
+    generated_at: datetime
+
+
 # --- import --------------------------------------------------------------
 
 class SmrPaperImportResult(BaseModel):

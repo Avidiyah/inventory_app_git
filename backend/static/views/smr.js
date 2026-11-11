@@ -6,8 +6,8 @@
 // click-through to the normal Work Orders editor. Reads `GET /work-orders/smr`;
 // owns no state beyond the last payload and the active chips.
 
-import { apiExportSmrXlsx, apiListSmrTiles } from "../api.js";
-import { setMessage } from "../dom.js";
+import { apiExportSmrXlsx, apiListSmrTiles, apiRestoreWorkOrder, apiSmrRegenerateAll, apiSmrUndoRegenerate } from "../api.js";
+import { confirmDialog, setMessage } from "../dom.js";
 import { escapeHtml, formatMoney, friendlyError } from "../format.js";
 import { getCurrentUser } from "../state.js";
 import { roleAtLeast } from "../roles.js";
@@ -25,6 +25,8 @@ const resultCount = document.getElementById("smr-result-count");
 const exportBtn = document.getElementById("smr-export-btn");
 const hoursBtn = document.getElementById("smr-hours-btn");
 const hoursCsvBtn = document.getElementById("smr-hours-csv-btn");
+const regenerateBtn = document.getElementById("smr-regenerate-btn");
+const regenerateUndoBtn = document.getElementById("smr-regenerate-undo-btn");
 const hoursPanel = document.getElementById("smr-hours");
 const weeklyPanel = document.getElementById("smr-weekly");
 const WEEKLY_OPEN_KEY = "smr.weeklyOpen";
@@ -187,6 +189,7 @@ function applyFilter() {
 
 function render(payload) {
   lastPayload = payload;
+  if (regenerateUndoBtn) regenerateUndoBtn.hidden = !(isAdmin() && payload.regenerated_at);
   bar.innerHTML = barHtml(payload);
   applyFilterOptions(payload.filter_options);
   if (resultCount) {
@@ -226,10 +229,15 @@ function showHours(open) {
   if (open) void loadSmrHours();
 }
 
+const atLeast = (role) => { const user = getCurrentUser(); return Boolean(user && roleAtLeast(user.role, role)); };
+const isAdmin = () => atLeast("admin");
+
 export async function loadSmr() {
   const user = getCurrentUser();
   if (exportBtn) exportBtn.hidden = !(user && roleAtLeast(user.role, "owner"));
   if (hoursBtn) hoursBtn.hidden = !(user && roleAtLeast(user.role, "admin"));
+  if (regenerateBtn) regenerateBtn.hidden = !isAdmin();
+  if (regenerateUndoBtn && !isAdmin()) regenerateUndoBtn.hidden = true;
   if (weeklyPanel) weeklyPanel.hidden = !(user && roleAtLeast(user.role, "admin"));
   if (hoursOpen) void loadSmrHours();
   setMessage(message, "", "");
@@ -266,10 +274,50 @@ if (weeklyPanel) {
   });
 }
 
+// Regenerate all and its undo share one shape: call, reload, say how many.
+// No confirm on either (the undo is the guard); the reload shows or hides Undo.
+async function runBlocks(btn, call, done, failed) {
+  btn.disabled = true;
+  try {
+    const { count } = await call();
+    await loadSmr();
+    setMessage(message, `${count} blocks ${done}`, "success");
+  } catch (err) {
+    setMessage(message, friendlyError(err, failed), "error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+regenerateBtn?.addEventListener("click", () => runBlocks(
+  regenerateBtn, apiSmrRegenerateAll, "regenerated. Each one needs pasting again.", "Could not regenerate the blocks.",
+));
+regenerateUndoBtn?.addEventListener("click", () => runBlocks(
+  regenerateUndoBtn, apiSmrUndoRegenerate, "removed. The earlier blocks are current again.", "Could not undo the regenerate.",
+));
+
+// An archived order's card cannot load (the detail route hides archived
+// rows), so its tile offers the restore the Work Orders search offers.
+async function offerRestore(tile) {
+  const restore = await confirmDialog("Work Order has been closed.", { confirmText: "Restore", cancelText: "Close" });
+  if (!restore) return;
+  try {
+    await apiRestoreWorkOrder(tile.dataset.id);
+    await loadSmr();
+    setMessage(message, `Work order ${tile.dataset.number} restored.`, "success");
+  } catch (err) {
+    setMessage(message, friendlyError(err, "Could not restore that work order."), "error");
+  }
+}
+
 if (grid) {
   grid.addEventListener("click", (event) => {
     const tile = event.target.closest(".smr-tile");
     if (!tile) return;
+    if (tile.classList.contains("smr-tile--archived") && atLeast("supervisor")) {
+      void offerRestore(tile);
+      return;
+    }
     // By id: the Work Orders list never shows an SMR order (spec D1), so a
     // number search would come back empty. The card page fetches the detail
     // directly, and the editor route accepts SMR orders.

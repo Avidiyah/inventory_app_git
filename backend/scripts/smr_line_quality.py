@@ -16,7 +16,9 @@
   unname     named Green Choice / XXL paper beyond that person's own invoice in a week loses the
              name (excess only; the last line splits, unnamed twin); Gabriel's BT Week 1 line
              (no BT invoice that week) moves to Week 2 unnamed (user 2026-11-10)
-  selfcheck  asserts on the overhead and unname rules, no database writes
+  kinds      one kind per line (user 2026-11-11, the kind sets the rate): a mixed line worth
+             0.5 h per kind becomes one 0.5 h line per kind; any other mixed line stays, at 62.50
+  selfcheck  asserts on the overhead, unname and kinds rules, no database writes
 
 Each fix is a dry run unless --apply is given. Writes carry history rows with
 the run tag, all in one transaction (smr_charge_undated_likely.py pattern);
@@ -90,7 +92,17 @@ def unname_plan(rows, invoiced):
     return plan
 
 
+def splits_per_kind(line):
+    """True for a mixed-kind line worth exactly 0.5 h per (distinct) kind."""
+    toks = kinds_of(line.kind)
+    return len(toks) > 1 and len(set(toks)) == len(toks) and Decimal(line.hours_each) == HALF * len(toks)
+
+
 def selfcheck():
+    K = lambda kind, h: NS(kind=kind, hours_each=Decimal(h))
+    assert splits_per_kind(K("assessment, audit", "1.0")) and splits_per_kind(K("assessment, audit, staging", "1.5"))
+    assert not splits_per_kind(K("audit, staging", "0.5")) and not splits_per_kind(K("audit", "0.5"))
+    assert not splits_per_kind(K("assessment, staging", "2.0"))
     def L(kind, h, vendor="Belfor", day=date(2026, 7, 1), printing=1, i=0):
         return NS(id=i, kind=kind, hours_each=Decimal(h), vendor=vendor, work_date=day, headcount=1,
                   status="charged", reading=NS(printing_no=printing))
@@ -271,6 +283,24 @@ def main():
                 create(line, {"hours_each": x, "work_date": d, "week": week_of(d)}, tag)
             n += 1
         return finish(tag, f"days: {n} lines split")
+
+    if fix == "kinds":
+        tag, n, left = f"one kind per line (user 2026-11-11) run {uuid.uuid4().hex[:12]}", 0, []
+        for line in live:
+            toks = kinds_of(line.kind)
+            if len(toks) < 2:
+                continue
+            if not splits_per_kind(line):
+                left.append(line)
+                continue
+            print(f"  {line.work_order.number} {line.vendor:16} {line.kind:28} {line.hours_each} h -> 0.5 h each")
+            change(line, {"kind": toks[0], "hours_each": HALF}, tag)
+            for tok in toks[1:]:
+                create(line, {"kind": tok}, tag)  # copies the line as just changed: 0.5 h, same reading
+            n += 1
+        for line in left:
+            print(f"  left mixed, stays 62.50: {line.work_order.number} {line.kind} x{line.headcount} {line.hours_each} h")
+        return finish(tag, f"kinds: {n} lines split, {len(left)} left mixed")
 
     if fix == "crew":
         tag, rows = tag_for("crew size not on paper"), []

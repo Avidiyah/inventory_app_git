@@ -445,6 +445,7 @@ def list_smr_tiles(
         shown = [t for t in shown if t.lines is not None and _block_pending(t.lines)]
     return SmrTilesResponse(
         imported_at=max((o.smr_imported_at for o in population), default=None),
+        regenerated_at=lines_service.last_regenerate_at(db),
         counts=SmrCounts(
             orders=len(all_tiles),
             archived=sum(1 for t in all_tiles if t.archived_at is not None),

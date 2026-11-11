@@ -14,9 +14,9 @@ order; the itemized receipt of the materials keyed on the card (headed
 MATERIAL CORRECTION with the NetFacilities estimate when the totals
 differ); what NetFacilities has (the Breakdown hours, labor type and
 labor $), what the paper shows, and what to add to the WO in hours and
-dollars; then the corrected labor record -- every charged line, name, day,
-hours, kind; then one reason block naming the distinct reasons and what the
-record replaces; the corrected WO total (materials at the marked-up charge
+dollars; then the corrected labor record -- the two rates, then one line
+per vendor and kind with its labor type (ST or GL) and total hours, no
+names (user 2026-11-11); the corrected WO total (materials at the marked-up charge
 plus the corrected labor). Excluded lines do not print: only what is added to a work
 order needs a justification, and the auditor reads the lines in the app.
 """
@@ -33,8 +33,13 @@ from typing import Optional, Sequence
 from app.domain import receipt
 from app.domain import work_orders as wo
 from app.domain.work_orders_smr_lines import (
+    GL_RATE,
     GROUND_REMOVED,
+    KINDS,
     STATUS_CHARGED,
+    VENDORS,
+    is_gl,
+    line_hours,
     lines_charge,
 )
 
@@ -68,12 +73,10 @@ REASON_TEXT: dict[str, str] = {
     "estimated_add": "estimated: below similar orders",
     "estimated_rule": "estimated: 3 h prep per unit",
 }
-# A nameless line whose paper gives a crew's hours but not its size prints
-# as "<vendor> crew", not as one person (user 2026-11-09).
-CREW_SIZE_NOT_GIVEN = "crew_size_not_given"
-# Named workers carry their vendor in short form after the name.
-VENDOR_SHORT: dict[str, str] = {
-    "Green Choice": "GC", "XXL Construction": "XXL", "BT Restoration": "BT",
+# The kind word a labor row prints (user 2026-11-11); field work prints none.
+KIND_LABEL: dict[str, str] = {
+    "field": "", "assessment": "Assessment", "audit": "Audit", "staging": "Stage",
+    "material preparation": "Prep", "clean-up": "Clean",
 }
 
 
@@ -96,36 +99,25 @@ def _hours(value: Decimal, *, signed: bool = False) -> str:
     return f"{value:+.1f} h" if signed else f"{value:.1f} h"
 
 
-def _day(line) -> str:
-    """The SMR week the line bills in (user 2026-11-06: the memo points at
-    the week's vendor invoice, not a day), or undated."""
-    return f"Week {line.week}" if line.week else "undated"
-
-
 def worker_name(line) -> Optional[str]:
     worker = getattr(line, "worker", None)
     return getattr(worker, "display_name", None) if worker is not None else None
 
 
-def _who(line) -> str:
-    name = worker_name(line)
-    who = f"{name} ({VENDOR_SHORT.get(line.vendor, line.vendor)})" if name else line.vendor
-    if not name and line.reason_code == CREW_SIZE_NOT_GIVEN:
-        who += " crew"
-    elif line.headcount > 1:
-        who += f" x{line.headcount}"
-    if line.kind and line.kind != "field":
-        who += f" {line.kind}"
-    return who
-
-
-def _sort_key(line):
-    return (line.week or 99, line.work_date or date.max, _who(line))
-
-
-def _charged_row(line) -> str:
-    amount = _hours(line.hours_each) + (" each" if line.headcount > 1 else "")
-    return _row(f"{_day(line)} {_who(line)}", amount)
+def _labor_rows(charged) -> list[str]:
+    """The labor record (user 2026-11-11): no names, no weeks, one line per
+    vendor and kind -- "<vendor> <kind> <ST|GL>   <total hours>" -- under
+    one line naming the two rates. Field work and a leftover mixed-kind line
+    carry no kind word. Vendors and kinds print in the vocabulary's order."""
+    hours: dict[tuple, Decimal] = {}
+    for line in charged:
+        kind = line.kind if line.kind in KIND_LABEL else "field"
+        key = (VENDORS.index(line.vendor) if line.vendor in VENDORS else len(VENDORS), line.vendor,
+               KINDS.index(kind), KIND_LABEL[kind], "GL" if is_gl(line) else "ST")
+        hours[key] = hours.get(key, Decimal(0)) + line_hours(line)
+    rows = [_row(" ".join(filter(None, [vendor, label, labor_type])), _hours(total))
+            for (_, vendor, _, label, labor_type), total in sorted(hours.items())]
+    return [_fit(f"ST ${wo.LABOR_RATE}/h  GL ${GL_RATE}/h"), *rows] if rows else []
 
 
 def _has(target: Optional[dict]) -> tuple[Decimal, str]:
@@ -190,8 +182,11 @@ def render_correction_block(order_number: str, target: Optional[dict], lines, ve
     charge = lines_charge(lines)
     billed, has = _has(target)
     change = charge.charged_hours - billed
-    charged = sorted((l for l in lines if l.status == STATUS_CHARGED and l.exclusion_ground != GROUND_REMOVED),
-                     key=_sort_key)
+    # Two rates (user 2026-11-11): the dollars to add are the corrected labor
+    # less what NetFacilities has, not the hours difference at one rate.
+    billed_money = Decimal(target["labor_total"]) if target and target.get("labor_total") else billed * wo.LABOR_RATE
+    money_change = charge.labor_total - billed_money
+    charged = [l for l in lines if l.status == STATUS_CHARGED and l.exclusion_ground != GROUND_REMOVED]
     material_rows, materials_total = _materials_rows(materials, target)
     out = [
         _row("SMR27 LABOR CORRECTION", generated_on.strftime("%m/%d/%y")),
@@ -203,11 +198,12 @@ def render_correction_block(order_number: str, target: Optional[dict], lines, ve
         # User 2026-11-07: estimate, finalized total, then the diff only when there is one.
         _row("Original Estimate", has),
         _row("Finalized Total", _hours(charge.charged_hours)),
-        *([_row("Add to WO", _hours(change, signed=True)), _row("", receipt.format_money(change * wo.LABOR_RATE))] if change else []),
+        *([_row("Add to WO", _hours(change, signed=True)), _row("", receipt.format_money(money_change))]
+          if change or money_change else []),
         "",
         _fit(f"Finalized labor record{_paper_days(charged)}:"),
     ]
-    out += [_charged_row(line) for line in charged] or [_fit("  (nothing charged)")]
+    out += _labor_rows(charged) or [_fit("  (nothing charged)")]
     # User 2026-11-06: no Reason lines; a change is justified if asked.
     out += [
         "",

@@ -93,6 +93,11 @@
                      worker x week / vendor x week table (views/smrHours.js). -->
                 <button type="button" id="smr-hours-btn" class="smr-btn smr-btn--hours" aria-pressed="false" hidden>Hours</button>
                 <button type="button" id="smr-hours-csv-btn" class="smr-btn" hidden>Download CSV</button>
+                <!-- Regenerate all (user 2026-11-11): Admin+, a new unpasted block for
+                     every order with paper lines. Undo is red and unconfirmed, shown
+                     while the newest run can still be taken back (views/smr.js). -->
+                <button type="button" id="smr-regenerate-btn" class="smr-btn" title="Make a new receipt block for every order at the current rates" hidden>Regenerate all</button>
+                <button type="button" id="smr-regenerate-undo-btn" class="smr-btn btn-danger" title="Remove the blocks the last Regenerate all made" hidden>Undo regenerate</button>
                 <button type="button" id="smr-export-btn" class="smr-btn smr-btn--export" hidden>Export XLSX</button>
             </div>
             <p id="smr-message" class="smr-message"></p>

@@ -1070,6 +1070,10 @@ export const apiSmrGenerateBlock = (workOrderId, description) =>
   jsonRequest(`/work-orders/smr/${workOrderId}/block`, "POST", { description });
 export const apiSmrMarkPasted = (blockId) =>
   jsonRequest(`/work-orders/smr/blocks/${blockId}/pasted`, "POST", {});
+// Regenerate all (user 2026-11-11), Admin+: a new unpasted block for every
+// order with paper lines; DELETE takes the newest run back.
+export const apiSmrRegenerateAll = () => jsonRequest("/work-orders/smr/blocks/regenerate", "POST", {});
+export const apiSmrUndoRegenerate = () => jsonRequest("/work-orders/smr/blocks/regenerate", "DELETE", {});
 export const apiSmrHours = () => jsonRequest("/work-orders/smr/hours", "GET");
 export const apiSmrHoursCsv = () => xlsxDownload("/work-orders/smr/hours.csv", "GET");
 export const apiSmrWeeklyHours = () => jsonRequest("/work-orders/smr/weekly-hours", "GET");

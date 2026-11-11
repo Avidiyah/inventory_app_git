@@ -155,6 +155,8 @@ class SmrTilesResponse(BaseModel):
     `matched` reflect the request's filters."""
 
     imported_at: Optional[datetime] = None
+    # The newest Regenerate all run that can still be undone; the page shows Undo while set.
+    regenerated_at: Optional[datetime] = None
     counts: SmrCounts
     delta: SmrDelta
     remaining: SmrRemaining = Field(default_factory=SmrRemaining)

@@ -123,8 +123,8 @@ def test_writes_refuse_a_live_order_and_an_unknown_one(db):
 def test_add_line_writes_the_line_and_one_created_row_carrying_the_reason(db):
     admin = _user(db)
     order = _smr_order(db, admin)
-    line = svc.add_line(db, work_order_id=order.id, payload=_line_in(headcount=2, kind="assessment,audit"), user=admin)
-    assert (line.hours, line.week, line.kind, line.status) == (Decimal("4.0"), 4, "assessment, audit", "charged")
+    line = svc.add_line(db, work_order_id=order.id, payload=_line_in(headcount=2, kind=" audit "), user=admin)
+    assert (line.hours, line.week, line.kind, line.status) == (Decimal("4.0"), 4, "audit", "charged")
     edits = _edits(db, line.id)
     assert [(e.field, e.reason, e.edited_by_id) for e in edits] == [("created", "keyed from the paper", admin.id)]
     assert json.loads(edits[0].new_value)["vendor"] == "Belfor" and edits[0].old_value is None
@@ -248,7 +248,7 @@ def test_generate_block_versions_and_goes_stale_when_lines_change(db):
     today = datetime.now(timezone.utc).astimezone(wo.NOTE_TIMEZONE).strftime("%m/%d/%y")
     assert first.version == 1 and first.stale is False and first.generated_by_name == "Pat Admin"
     assert first.text.startswith("SMR27 LABOR CORRECTION ") and today in first.text.split("\n")[0]
-    assert "Week 4 Belfor" in first.text and "2.0 h" in first.text
+    assert "\nBelfor ST " in first.text and "2.0 h" in first.text
     assert svc.latest_block(wos.find_by_number(db, order.number)).stale is False
 
     svc.edit_line(db, line_id=line.id, payload=SmrLineEditIn(hours_each=Decimal("1.0"), reason="re-read"), user=admin)
@@ -257,6 +257,42 @@ def test_generate_block_versions_and_goes_stale_when_lines_change(db):
     second = svc.generate_block(db, work_order_id=order.id, user=admin)
     assert second.version == 2 and second.stale is False
     assert svc.latest_block(wos.find_by_number(db, order.number), include_price=False).text is None
+
+
+def test_regenerate_all_gives_every_smr_order_a_new_unpasted_version_and_undo_takes_the_run_back(db):
+    # User 2026-11-11: after the rate change every block is regenerated; a
+    # new version starts unpasted, so the pasted order lands on the re-paste list.
+    admin = _user(db)
+    pasted_order, bare_order, no_lines = _smr_order(db, admin), _smr_order(db, admin), _smr_order(db, admin)
+    svc.add_line(db, work_order_id=pasted_order.id, payload=_line_in(), user=admin)
+    svc.add_line(db, work_order_id=bare_order.id, payload=_line_in(), user=admin)
+    first = svc.generate_block(db, work_order_id=pasted_order.id, user=admin)
+    svc.mark_pasted(db, block_id=first.id, user=admin)
+
+    run = svc.regenerate_all_blocks(db, user=admin)
+
+    assert run.count >= 2 and svc.last_regenerate_at(db) == run.generated_at
+    latest = svc.latest_block(wos.find_by_number(db, pasted_order.number))
+    assert (latest.version, latest.pasted_at, latest.stale) == (2, None, False)
+    assert svc.latest_block(wos.find_by_number(db, bare_order.number)).version == 1
+    assert svc.latest_block(wos.find_by_number(db, no_lines.number)) is None  # nothing keyed, nothing to print
+
+    undone = svc.undo_regenerate(db)
+
+    assert undone.count == run.count
+    latest = svc.latest_block(wos.find_by_number(db, pasted_order.number))
+    assert latest.version == 1 and latest.pasted_at is not None
+    assert svc.latest_block(wos.find_by_number(db, bare_order.number)) is None
+
+
+def test_a_new_or_re_kinded_line_carries_one_kind(db):
+    admin = _user(db)
+    order = _smr_order(db, admin)
+    with pytest.raises(WorkOrderStateError):
+        svc.add_line(db, work_order_id=order.id, payload=_line_in(kind="assessment, audit"), user=admin)
+    line = svc.add_line(db, work_order_id=order.id, payload=_line_in(kind="audit"), user=admin)
+    with pytest.raises(WorkOrderStateError):
+        svc.edit_line(db, line_id=line.id, payload=SmrLineEditIn(kind="audit, staging", reason="re-read"), user=admin)
 
 
 def test_mark_pasted_stamps_once(db):
