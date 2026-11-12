@@ -79,7 +79,7 @@ def test_admin_adds_a_reading_and_a_line_and_the_detail_carries_them(db):
         assert reading.status_code == 200, reading.text
         line = client.post(f"/work-orders/smr/{order.id}/lines", json={**LINE, "reading_id": reading.json()["id"]})
         assert line.status_code == 200, line.text
-        assert line.json()["hours"] == "2.0" and line.json()["history"] == []
+        assert line.json()["hours"] == "2.0"
 
         edited = client.patch(f"/work-orders/smr/readings/{reading.json()['id']}", json={"hours_as_read": "3.0", "raw_note": "Pat 3 h"})
         assert edited.status_code == 200 and edited.json()["hours_as_read"] == "3.0" and edited.json()["raw_note"] == "Pat 3 h"

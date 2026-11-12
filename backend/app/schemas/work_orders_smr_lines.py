@@ -142,23 +142,6 @@ class SmrLineEditIn(BaseModel):
     reason: Optional[str] = None
 
 
-class SmrLineEditOut(BaseModel):
-    id: UUID
-    field: str
-    old_value: Optional[str] = None
-    new_value: Optional[str] = None
-    reason: Optional[str] = None
-    edited_at: datetime
-    edited_by_name: Optional[str] = None
-
-    @classmethod
-    def from_row(cls, edit) -> "SmrLineEditOut":
-        return cls(
-            id=edit.id, field=edit.field, old_value=edit.old_value, new_value=edit.new_value,
-            reason=edit.reason, edited_at=edit.edited_at, edited_by_name=_name(getattr(edit, "edited_by", None)),
-        )
-
-
 class SmrLineOut(BaseModel):
     id: UUID
     work_order_id: UUID
@@ -182,7 +165,6 @@ class SmrLineOut(BaseModel):
     note: Optional[str] = None
     created_at: datetime
     updated_at: datetime
-    history: list[SmrLineEditOut] = Field(default_factory=list)
 
     @classmethod
     def from_row(cls, line) -> "SmrLineOut":
@@ -196,7 +178,6 @@ class SmrLineOut(BaseModel):
             hours=Decimal(line.headcount) * Decimal(line.hours_each), kind=line.kind,
             reason_code=line.reason_code, status=line.status, exclusion_ground=line.exclusion_ground,
             note=line.note, created_at=line.created_at, updated_at=line.updated_at,
-            history=[SmrLineEditOut.from_row(edit) for edit in (getattr(line, "edits", None) or ())],
         )
 
 

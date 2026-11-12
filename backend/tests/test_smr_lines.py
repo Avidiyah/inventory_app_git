@@ -123,7 +123,7 @@ def test_add_line_writes_the_line_and_no_history_with_or_without_a_reason(db):
     order = _smr_order(db, admin)
     line = svc.add_line(db, work_order_id=order.id, payload=_line_in(headcount=2, kind=" audit ", reason=None), user=admin)
     assert (line.hours, line.week, line.kind, line.status) == (Decimal("4.0"), 4, "audit", "charged")
-    assert _edits(db, line.id) == [] and line.history == []
+    assert _edits(db, line.id) == []
 
 
 def test_add_line_refuses_a_bad_state_and_a_foreign_reading(db):

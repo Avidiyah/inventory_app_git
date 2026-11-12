@@ -41,7 +41,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional, Sequence
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, or_, select, union_all
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -71,8 +71,10 @@ from app.models import (
     WorkOrderItem,
     WorkOrderLabor,
     WorkOrderLaborSession,
+    WorkOrderSignature,
     WorkOrderTechnician,
 )
+from app.models_smr import SmrCorrectionBlock, SmrLaborLine
 from app.services import _list_cap
 from app.services._like import like_pattern
 from app.services import low_stock
@@ -541,21 +543,29 @@ def _get_locked(db: Session, work_order_id: uuid.UUID) -> Optional[WorkOrder]:
 
 
 def _get_visible(
-    db: Session, work_order_id: uuid.UUID, user: Optional[User]
+    db: Session, work_order_id: uuid.UUID, user: Optional[User], *, detail: bool = False
 ) -> WorkOrder:
     """Load a live (non-archived) work order for the Work Orders page. Raises
     `WorkOrderNotFoundError` if unknown, archived, or not visible to `user` --
-    visibility failures surface as not-found so existence is not leaked."""
+    visibility failures surface as not-found so existence is not leaked.
+    `detail` also eager-loads what the full card reads (sessions, signature)."""
+    options = [
+        joinedload(WorkOrder.assignee),
+        joinedload(WorkOrder.supervisor),
+        selectinload(WorkOrder.technician_assignments),
+        selectinload(WorkOrder.technicians),
+        selectinload(WorkOrder.labor_entries).joinedload(WorkOrderLabor.technician),
+        selectinload(WorkOrder.items).joinedload(WorkOrderItem.item),
+    ]
+    if detail:
+        options += [
+            selectinload(WorkOrder.labor_sessions),
+            selectinload(WorkOrder.labor_entries).selectinload(WorkOrderLabor.session),
+            joinedload(WorkOrder.signature).joinedload(WorkOrderSignature.captured_by),
+        ]
     work_order = (
         db.query(WorkOrder)
-        .options(
-            joinedload(WorkOrder.assignee),
-            joinedload(WorkOrder.supervisor),
-            selectinload(WorkOrder.technician_assignments),
-            selectinload(WorkOrder.technicians),
-            selectinload(WorkOrder.labor_entries).joinedload(WorkOrderLabor.technician),
-            selectinload(WorkOrder.items).joinedload(WorkOrderItem.item),
-        )
+        .options(*options)
         .filter(WorkOrder.id == work_order_id)
         .first()
     )
@@ -1597,9 +1607,14 @@ def get_work_order(
     materials lines, and any tracking session that has outrun the 12-hour cap
     is closed at its capped time (`_apply_session_cap`).
     """
-    work_order = _get_visible(db, work_order_id, user)
+    work_order = _get_visible(db, work_order_id, user, detail=True)
     changed = _heal_orphan_lines(db, work_order)
-    if _stale_running_sessions(db, work_order):
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=wo.LABOR_SESSION_MAX_MINUTES)
+    # The loaded sessions are only a hint; `_apply_session_cap` re-queries under the lock.
+    if any(
+        s.ended_at is None and s.started_at is not None and s.started_at < cutoff
+        for s in work_order.labor_sessions
+    ):
         # Take the row lock before this one. `_heal_orphan_lines` is
         # stock-neutral and tolerates two readers racing; the session cap
         # produces a *labor* row, and billing the same overnight session twice
@@ -1610,7 +1625,18 @@ def get_work_order(
             changed = _apply_session_cap(db, locked) or changed
     if changed:
         db.commit()
-        work_order = _get_visible(db, work_order_id, user)
+        work_order = _get_visible(db, work_order_id, user, detail=True)
+    if work_order.smr_imported_at is not None:
+        # SMR orders only: fills the card's SMR relationships on the same
+        # object, so non-SMR orders pay no extra query.
+        db.query(WorkOrder).options(
+            joinedload(WorkOrder.smr_paper_checked_by),
+            joinedload(WorkOrder.smr_ready_by),
+            selectinload(WorkOrder.smr_lines).joinedload(SmrLaborLine.worker),
+            selectinload(WorkOrder.smr_readings),
+            selectinload(WorkOrder.smr_blocks).joinedload(SmrCorrectionBlock.generated_by),
+            selectinload(WorkOrder.smr_blocks).joinedload(SmrCorrectionBlock.pasted_by),
+        ).filter(WorkOrder.id == work_order.id).one()
     return work_order
 
 
@@ -2317,45 +2343,41 @@ _SESSION_STOPPING_STATUSES = (
 
 
 def _last_activity_by_user(
-    db: Session,
-    work_order: WorkOrder,
-    viewer_id: Optional[uuid.UUID],
-    *,
-    mine: bool,
+    db: Session, work_order: WorkOrder
 ) -> dict[uuid.UUID, datetime]:
-    """Latest work timestamp per user: everyone but the viewer, or only them.
+    """Latest work timestamp per user, in one query.
 
     "Worked" is a labor session, a labor entry credited to someone, or a
     material line -- not a note and not crew membership, both of which exist
-    without any work done.
+    without any work done. Queried, not read off loaded collections: rows
+    added by `work_order_id` after load would not be there.
     """
-    last_by_user: dict[uuid.UUID, datetime] = {}
-    for model, actor, stamp in (
-        (
-            WorkOrderLaborSession,
-            WorkOrderLaborSession.technician_id,
-            WorkOrderLaborSession.started_at,
-        ),
-        (WorkOrderLabor, WorkOrderLabor.technician_id, WorkOrderLabor.created_at),
-        (WorkOrderItem, WorkOrderItem.created_by_id, WorkOrderItem.created_at),
-    ):
-        query = db.query(actor, func.max(stamp)).filter(
-            model.work_order_id == work_order.id, actor.isnot(None)
+    activity = union_all(*(
+        select(actor.label("user_id"), stamp.label("at")).where(
+            model.work_order_id == work_order.id, actor.isnot(None), stamp.isnot(None)
         )
-        if viewer_id is not None:
-            query = query.filter(actor == viewer_id if mine else actor != viewer_id)
-        elif mine:
-            continue
-        for user_id, last_at in query.group_by(actor).all():
-            if last_at is not None and (
-                user_id not in last_by_user or last_at > last_by_user[user_id]
-            ):
-                last_by_user[user_id] = last_at
-    return last_by_user
+        for model, actor, stamp in (
+            (
+                WorkOrderLaborSession,
+                WorkOrderLaborSession.technician_id,
+                WorkOrderLaborSession.started_at,
+            ),
+            (WorkOrderLabor, WorkOrderLabor.technician_id, WorkOrderLabor.created_at),
+            (WorkOrderItem, WorkOrderItem.created_by_id, WorkOrderItem.created_at),
+        )
+    )).subquery()
+    return dict(
+        db.execute(
+            select(activity.c.user_id, func.max(activity.c.at)).group_by(activity.c.user_id)
+        ).all()
+    )
 
 
 def prior_work(
-    db: Session, work_order: WorkOrder, viewer_id: Optional[uuid.UUID]
+    db: Session,
+    work_order: WorkOrder,
+    viewer_id: Optional[uuid.UUID],
+    last_by_user: Optional[dict[uuid.UUID, datetime]] = None,
 ) -> Optional[dict]:
     """Who *other than the viewer* has already worked this order, or None.
 
@@ -2363,7 +2385,9 @@ def prior_work(
     auto-hold is not "someone has been here". Returns
     `{"by": [full_name, ...], "last_at": datetime}`, most recent worker first.
     """
-    last_by_user = _last_activity_by_user(db, work_order, viewer_id, mine=False)
+    if last_by_user is None:
+        last_by_user = _last_activity_by_user(db, work_order)
+    last_by_user = {k: v for k, v in last_by_user.items() if k != viewer_id}
     if not last_by_user:
         return None
     names = {
@@ -2400,10 +2424,10 @@ def unseen_prior_work(
 
     This is what the card shows: the "someone has been here" banner is for the
     person arriving, not for someone who was already on the job."""
-    prior = prior_work(db, work_order, viewer_id)
-    if prior is None or _last_activity_by_user(db, work_order, viewer_id, mine=True):
+    last_by_user = _last_activity_by_user(db, work_order)
+    if viewer_id in last_by_user:
         return None
-    return prior
+    return prior_work(db, work_order, viewer_id, last_by_user)
 
 
 def _running_sessions(

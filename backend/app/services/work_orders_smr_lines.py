@@ -83,7 +83,7 @@ def _text(value) -> Optional[str]:
 
 def line_json(line: SmrLaborLine) -> str:
     """The whole line as JSON for a `created` / `deleted` history row."""
-    return json.dumps(SmrLineOut.from_row(line).model_dump(mode="json", exclude={"history"}), sort_keys=True)
+    return json.dumps(SmrLineOut.from_row(line).model_dump(mode="json"), sort_keys=True)
 
 
 def history(db: Session, *, line: SmrLaborLine, actor: User, field: str, old: Optional[str],
