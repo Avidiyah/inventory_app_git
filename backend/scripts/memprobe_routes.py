@@ -238,12 +238,18 @@ EXCLUDED = (
     "POST /integrations/netfacilities/cloud/downloads/import",
     "POST /hub/attendance/week/review",       # marks real dev-DB punches reviewed
     "POST /work-orders/legacy/archive",       # archives real dev-DB rows
+    "POST /work-orders/smr/import-paper",     # two uploads; the driver posts one file part
+    "POST /work-orders/smr/workers",          # adds a vendor worker no route deletes
+    "POST /work-orders/smr/blocks/regenerate",    # rewrites the block of every real SMR order
+    "DELETE /work-orders/smr/blocks/regenerate",  # and its undo deletes them
 )
 WO_LIFECYCLE = ["PATCH /work-orders/{work_order_id}", "POST /work-orders/{work_order_id}/start",
                 "POST /work-orders/{work_order_id}/hold", "POST /work-orders/{work_order_id}/resume",
                 "POST /work-orders/{work_order_id}/complete"]
-ATTENDANCE = ["POST /attendance/punch-in", "POST /attendance/punch-out",
+ATTENDANCE = ["POST /attendance/punch-in", "POST /attendance/switch", "POST /attendance/punch-out",
               "POST /attendance/punch-in", "POST /hub/attendance/clock-out/{user_id}"]
+# No seeded id exists for an SMR reading, line, block or worker: those routes take the 404 / 400 path.
+NIL = "00000000-0000-4000-8000-000000000000"
 MATERIAL = ["POST /user-requests/material-request", "POST /user-requests/{request_id}/cancel",
             "POST /user-requests/material-request", "POST /user-requests/{request_id}/mark-stocked",
             "PATCH /user-requests/{request_id}"]
@@ -262,6 +268,7 @@ CATALOGUE: dict[str, Entry] = {k: Entry(exclude="see EXCLUDED") for k in EXCLUDE
     # --- attendance (technician punches; owner clocks them out) ---
     "POST /attendance/punch-in": Entry(cycle=ATTENDANCE, as_user=T),
     "POST /attendance/punch-out": Entry(as_user=T),
+    "POST /attendance/switch": Entry(path="/attendance/switch?shop=true", as_user=T),
     "POST /hub/attendance/punches": Entry(
         body=J({"user_id": "{user_id}", "started_at": "{days_ago:3}T08:00:00Z", "ended_at": "{days_ago:3}T09:00:00Z"}),
         cycle=["POST /hub/attendance/punches", "PATCH /hub/attendance/punches/{punch_id}",
@@ -348,6 +355,20 @@ CATALOGUE: dict[str, Entry] = {k: Entry(exclude="see EXCLUDED") for k in EXCLUDE
         "WO#,Hours,Total Material Cost\r\n{prefix}-SMR{seq},0.5,$31.25\r\n")),
     # The seeded work order is not an SMR order, so the cheap refusal path.
     "PUT /work-orders/smr/{work_order_id}/paper-check": Entry(body=J({"checked": True}), as_user=T, expect=400),
+    "PUT /work-orders/smr/{work_order_id}/ready": Entry(body=J({"ready": True}), expect=400),
+    "POST /work-orders/smr/{work_order_id}/readings": Entry(body=J({"printing_no": 1}), expect=400),
+    "POST /work-orders/smr/{work_order_id}/lines": Entry(
+        body=J({"vendor": "Belfor", "hours_each": "1.0", "reason_code": "as_read", "work_date": "2026-06-20"}), expect=400),
+    "POST /work-orders/smr/{work_order_id}/block": Entry(expect=400),
+    "PATCH /work-orders/smr/readings/{reading_id}": Entry(token={"reading_id": NIL}, body=J({"raw_note": "memprobe"}), expect=404),
+    "PATCH /work-orders/smr/lines/{line_id}": Entry(token={"line_id": NIL}, body=J({"note": "memprobe"}), expect=404),
+    "DELETE /work-orders/smr/lines/{line_id}": Entry(token={"line_id": NIL}, expect=404),
+    "POST /work-orders/smr/blocks/{block_id}/pasted": Entry(token={"block_id": NIL}, expect=404),
+    # The same worker twice: refused before anything is looked up.
+    "POST /work-orders/smr/workers/{worker_id}/merge": Entry(
+        token={"worker_id": NIL}, body=J({"into_id": NIL, "reason": "memprobe"}), expect=400),
+    # Not the invoice headers, so the preflight refuses it and nothing is stored.
+    "POST /work-orders/smr/invoices": Entry(file=("invoices.csv", "NOT,THE,HEADERS\r\nx,y,z\r\n"), expect=400),
     "PATCH /work-orders/{work_order_id}": Entry(body=J({"status": "assigned", "assigned_to_ids": ["{user_id}"]}), cycle=WO_LIFECYCLE),
     "POST /work-orders/{work_order_id}/start": Entry(as_user=T),
     "POST /work-orders/{work_order_id}/hold": Entry(as_user=T),

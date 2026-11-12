@@ -83,6 +83,12 @@ def test_punch_out_without_a_punch_is_a_404(db):
 
 
 
+# ponytail: the backdated shift is counted in five-minute steps, not hours, so it
+# stays inside one Central day (a punch may not cross midnight, M4) at any hour
+# but the first fifteen minutes after midnight.
+_STEP = timedelta(minutes=5)
+
+
 def _charging(db):
     """A technician on shift and charging a work order, the clock backdated
     so a stated end time can land inside it."""
@@ -91,8 +97,8 @@ def _charging(db):
     attendance_service.punch_in(db, user=tech)
     wo_service.start_labor_session(db, order.id, user=tech)
     now = datetime.now(timezone.utc)
-    attendance_service.open_punch_for(db, tech.id).started_at = now - timedelta(hours=3)
-    wo_service.running_labor_session_for(db, tech.id).started_at = now - timedelta(hours=2)
+    attendance_service.open_punch_for(db, tech.id).started_at = now - 3 * _STEP
+    wo_service.running_labor_session_for(db, tech.id).started_at = now - 2 * _STEP
     db.commit()
     return admin, tech, now
 
@@ -116,7 +122,7 @@ def test_admin_clock_out_of_someone_not_clocked_in_is_a_404(db):
 def test_admin_edit_closing_an_open_punch_stops_the_clock_at_that_time(db):
     admin, tech, now = _charging(db)
     punch = attendance_service.open_punch_for(db, tech.id)
-    end = now - timedelta(hours=1)
+    end = now - _STEP
     attendance_service.admin_edit_punch(db, actor=admin, punch_id=punch.id, ended_at=end)
     assert wo_service.running_labor_session_for(db, tech.id) is None
     stopped = (db.query(WorkOrderLaborSession)
@@ -129,7 +135,7 @@ def test_an_end_before_the_clock_started_is_refused_not_zeroed(db):
     punch = attendance_service.open_punch_for(db, tech.id)
     with pytest.raises(PunchTimeInvalidError):
         attendance_service.admin_edit_punch(
-            db, actor=admin, punch_id=punch.id, ended_at=now - timedelta(hours=2, minutes=30))
+            db, actor=admin, punch_id=punch.id, ended_at=now - 2.5 * _STEP)
     db.rollback()
     assert wo_service.running_labor_session_for(db, tech.id) is not None
     assert attendance_service.open_punch_for(db, tech.id) is not None

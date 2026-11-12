@@ -8,6 +8,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
+import { vi } from "vitest";
 
 // `fileURLToPath(new URL(...))` does not work here: under the jsdom
 // environment the global `URL` is jsdom's, and node rejects that object as
@@ -91,6 +92,11 @@ export function mountDocument(html) {
     document.importNode(parsed.documentElement, true),
     document.documentElement,
   );
+  // jsdom announces an open <details> with a zero-delay `toggle` task, once
+  // for the parsed copy and once for the imported one. A test on fake timers
+  // would be left holding those as timers nothing ever runs (the hub suites
+  // assert none remain), so they are run here, before the view is imported.
+  if (vi.isFakeTimers()) vi.advanceTimersByTime(0);
 }
 
 export function mountShell() {

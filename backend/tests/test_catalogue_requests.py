@@ -447,12 +447,12 @@ def test_the_material_card_offers_the_manual_fire_and_the_stocked_status():
     assert '"requests.stocked"' in tips
 
 
-def test_the_work_order_card_mounts_the_request_section_and_stocked_lines():
+def test_the_request_section_is_off_the_work_order_card_and_its_module_stays_loaded():
+    # The Request section left the card on 2026-11-06; `workOrderRequests.js`
+    # stays imported and unmounted, with the card's request id still read.
     wo = work_orders_source()
-    assert "wo-request-section" in wo
-    assert '".wo-edit-card, .wo-notes-section, .wo-materials-section, .wo-labor-section, .wo-request-section, .wo-signature-section"' in wo
-    assert 'class="wo-requested-lines"' in wo
-    assert "mountWorkOrderRequests(" in wo
+    assert "wo-request-section" not in wo
+    assert "mountWorkOrderRequests(" not in wo
     assert "materialRequestId: container.dataset.materialRequestId || null" in wo
     module = _src("views/workOrderRequests.js")
     assert "apiListWorkOrderRequests" in module

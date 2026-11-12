@@ -58,7 +58,7 @@ def _punch(db, user, *, start_h, end_h, now, needs_review=False):
 
 def test_add_writes_the_punch_and_one_created_audit_row(db):
     admin, tech = _seed_user(db, "admin"), _seed_user(db)
-    now = datetime.now(timezone.utc)
+    now = _NOW  # pinned mid-afternoon Central: "four hours ago" must not cross midnight (M4)
     db.commit()
 
     punch = attendance_service.admin_add_punch(

@@ -10,13 +10,18 @@ it.
 is its own surface with its own `data-request-action` namespace and its own
 `statusLabel`; folding it in would make the walkthrough-action parity test
 compare two vocabularies.
+
+`workOrderSignature.js` is excluded too: the Signature section left the
+card on 2026-11-06 and the module stays unmounted, so its two actions
+(`capture-signature`, `clear-signature`) are rendered by nothing and
+handled by nothing.
 """
 
 from pathlib import Path
 
 VIEWS = Path(__file__).resolve().parents[1] / "static" / "views"
 
-EXCLUDED = {"workOrderRequests.js"}
+EXCLUDED = {"workOrderRequests.js", "workOrderSignature.js"}
 
 
 def work_orders_family() -> list[Path]:

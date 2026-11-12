@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 
 from app.database import get_db
+from app.domain import labor_day
 from app.main import app
 from app.models import AttendancePunch, User
 from app.services import auth as auth_service
@@ -30,8 +31,19 @@ def _as(db, user):
     return client
 
 
-def _punch(db, user, *, hours_ago, length_hours=3):
+def _base(room_hours=9):
+    """The moment the punches here count back from: now, or 23:00 Central
+    yesterday while today is younger than `room_hours`. A punch may not cross
+    Central midnight (M4), so "N hours ago" needs N hours of one day behind it."""
     now = datetime.now(timezone.utc)
+    day_start, _ = labor_day.day_bounds(labor_day.central_date_of(now))
+    if now - day_start >= timedelta(hours=room_hours):
+        return now
+    return day_start - timedelta(hours=1)
+
+
+def _punch(db, user, *, hours_ago, length_hours=3, room_hours=9):
+    now = _base(room_hours)
     punch = AttendancePunch(
         id=uuid.uuid4(), user_id=user.id,
         started_at=now - timedelta(hours=hours_ago),
@@ -43,7 +55,7 @@ def _punch(db, user, *, hours_ago, length_hours=3):
 
 def test_an_admin_adds_a_punch(db):
     admin, tech = _seed_user(db, "admin"), _seed_user(db); db.commit()
-    now = datetime.now(timezone.utc)
+    now = _base()
     body = {"user_id": str(tech.id),
             "started_at": (now - timedelta(hours=5)).isoformat(),
             "ended_at": (now - timedelta(hours=2)).isoformat(),
@@ -146,7 +158,7 @@ def test_technician_patches_own_punch_200(db):
     # ponytail: 2-hour-old punch; would cross into last week only in the first
     # two hours of a Central Monday.
     tech = _seed_user(db)
-    punch = _punch(db, tech, hours_ago=2, length_hours=1); db.commit()
+    punch = _punch(db, tech, hours_ago=2, length_hours=1, room_hours=2); db.commit()
     new_end = (punch.ended_at + timedelta(minutes=30)).isoformat()
     try:
         with _as(db, tech) as client:
