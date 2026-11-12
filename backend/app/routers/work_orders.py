@@ -421,11 +421,12 @@ def _card(work_order: WorkOrder) -> WorkOrderCard:
         supervisor_name=work_order.supervisor.full_name if work_order.supervisor else None,
         legacy=work_order.legacy,
         smr=getattr(work_order, "smr_imported_at", None) is not None,
-        # ponytail: lazy-loads readings + lines per SMR card on the list; eager-load if lists of SMR orders get slow.
+        # ponytail: lazy-loads lines per SMR card on the list; eager-load if lists of SMR orders get slow.
         smr_stage=smr_rules.stage_for(
-            work_order.smr_readings,
             [l for l in smr.correction_lines(work_order) if l.exclusion_ground != smr_rules.GROUND_REMOVED],
             work_order.smr_ready_at,
+            has_materials=bool(work_order.items),
+            billed=work_order.smr_target is not None,
         ) if getattr(work_order, "smr_imported_at", None) is not None else None,
         has_unpriced_items=any(
             not receipt.is_priced(line.item.price) for line in work_order.items

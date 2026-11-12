@@ -91,13 +91,13 @@ class SmrTile(BaseModel):
     # Invoice weeks the order's paper lines fall in ("Before W1", "Week 3",
     # "After W7"), in order, "Undated" last; `["Undated"]` with no lines.
     weeks: list[str] = Field(default_factory=list)
-    # Paper stage: not_reviewed | undated | dated | ready (rules.stage_for).
+    # no_material | paper_review | needs_review | ready | other (rules.stage_for).
     stage: str
-    # Week label of the NetFacilities close date, for undated stages only.
+    # Week label of the NetFacilities close date, while `weeks` has "Undated".
     closed_week: Optional[str] = None
     # Every non-removed line is Belfor's (and there is at least one).
     belfor_only: bool = False
-    # The Ready stamp, kept even while the stage has fallen back to undated.
+    # The Ready stamp, kept even while the stage has fallen back from ready.
     ready: Optional[SmrReadyOut] = None
     before: SmrTotals
     after: SmrTotals
@@ -115,10 +115,11 @@ class SmrCounts(BaseModel):
     orders: int
     archived: int
     # Paper stage counts over every SMR order (spec 2026-11-06).
-    not_reviewed: int = 0
-    undated: int = 0
-    dated: int = 0
+    no_material: int = 0
+    paper_review: int = 0
+    needs_review: int = 0
     ready: int = 0
+    other: int = 0
     belfor_only: int = 0
     # Paper corrections: line hours, and orders with lines whose latest block
     # is missing, not yet pasted or stale.

@@ -377,6 +377,7 @@ SHELL_PARTS = (
     "pages/user-requests.html",
     "pages/low-stock.html",
     "pages/admin-review.html",
+    "pages/smr-admin-review.html",
     "pages/tools.html",
     "pages/history.html",
     "pages/integrations.html",

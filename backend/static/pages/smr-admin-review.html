@@ -1,0 +1,31 @@
+    <!-- =================== SMR ADMIN REVIEW PAGE =================== -->
+    <!-- Admin Review for SMR27 orders in the Ready to invoice stage: the full
+         correction block instead of the receipt, then Print / Mark pasted /
+         Not ready / Archive. Reuses the Admin Review classes. -->
+    <div class="page" id="smr-admin-review-page">
+
+        <section id="smr-admin-review-queue-section">
+            <h2>SMR Admin Review</h2>
+            <p class="hint">Select an SMR order that is ready to invoice to see its
+               correction block. Print it, paste it to NetFacilities, then archive
+               the order, or send it back if it is not ready.</p>
+            <div id="smr-admin-review-list" class="admin-review-grid"></div>
+            <p id="smr-admin-review-list-message" aria-live="polite"></p>
+        </section>
+
+        <section id="smr-admin-review-block-section" hidden>
+            <h3 id="smr-admin-review-block-title">Correction Block</h3>
+            <p id="smr-admin-review-block-status" class="hint"></p>
+            <textarea id="smr-admin-review-block-output" class="pricing-output admin-review-receipt-output" rows="14" wrap="off" readonly aria-label="Selected SMR order correction block"></textarea>
+            <button id="smr-admin-review-netfacilities-btn" type="button" class="secondary-btn wo-netfacilities-btn">Open Netfacilities</button>
+            <p id="smr-admin-review-block-message" aria-live="polite"></p>
+            <div class="admin-review-actions">
+                <button id="smr-admin-review-regenerate-btn" type="button" hidden>Regenerate block</button>
+                <button id="smr-admin-review-print-btn" type="button" class="secondary-btn">Print block</button>
+                <button id="smr-admin-review-pasted-btn" type="button" class="secondary-btn">Mark pasted to NetFacilities</button>
+                <button id="smr-admin-review-not-ready-btn" type="button" class="secondary-btn">Not ready (send back)</button>
+                <button id="smr-admin-review-archive-btn" type="button" class="btn-danger">Archive (Close)</button>
+            </div>
+        </section>
+
+    </div>

@@ -177,22 +177,25 @@ export function smrInvoiceSectionHtml(detail) {
           </details>`;
 }
 
-// Ready for invoice (spec 2026-11-06): a person's stamp, offered only while
-// the order has a dated line; a stamp on an order that lost its date is held.
-// Rendered at the top of the card, under the controls (user, 2026-11-06).
+// Ready to invoice: a person's stamp, offered while the order has a line in
+// invoice Weeks 1–7 — the backend's gate, so a labor-only (no material) order
+// can be stamped too; a stamp on an order that lost that line is held.
+// Rendered at the top of the card, under the controls.
+const inInvoicePeriod = (line) => line.exclusion_ground !== "removed" && line.week >= 1 && line.week <= 7;
+
 export function readyRowHtml(detail, editable) {
   const stamp_ = detail.smr_ready;
   if (detail.smr_stage === "ready") {
     const who = stamp_?.by_name ? ` by ${stamp_.by_name}` : "";
-    const text = `Ready for invoice · ${stamp(stamp_?.at)}${who}`;
+    const text = `Ready to invoice · ${stamp(stamp_?.at)}${who}`;
     const btn = editable ? ` <button type="button" class="secondary-btn" data-action="smr-not-ready">Not ready</button>` : "";
     return `<p class="wo-smr-ready wo-smr-ready--ready">${escapeHtml(text)}${btn}</p>`;
   }
-  if (detail.smr_stage === "dated") {
+  if ((detail.smr_lines || []).some(inInvoicePeriod)) {
     return editable
-      ? `<p class="wo-smr-ready"><button type="button" class="secondary-btn" data-action="smr-ready">Ready for invoice</button></p>`
-      : `<p class="wo-smr-ready hint">Not yet ready for invoice</p>`;
+      ? `<p class="wo-smr-ready"><button type="button" class="secondary-btn" data-action="smr-ready">Ready to invoice</button></p>`
+      : `<p class="wo-smr-ready hint">Not yet ready to invoice</p>`;
   }
-  const text = stamp_ ? "Ready stamp held until a line is dated" : "Date a line to mark ready";
+  const text = stamp_ ? "Ready stamp held until a line is in Weeks 1–7" : "Date a line in Weeks 1–7 to mark ready";
   return `<p class="wo-smr-ready hint">${text}</p>`;
 }

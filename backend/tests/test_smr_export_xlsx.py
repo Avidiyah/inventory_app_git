@@ -192,4 +192,4 @@ def test_smr_export_stage_columns(db):
     assert (row["STAGE"], row["READY BY"], row["BELFOR ONLY"]) == ("ready", owner.full_name, "TRUE")
     assert isinstance(row["READY AT"], datetime)
     blank = next(r for r in rows if r["WORK ORDER"] == fresh)
-    assert (blank["STAGE"], blank["READY AT"], blank["READY BY"], blank["BELFOR ONLY"]) == ("not_reviewed", None, None, "FALSE")
+    assert (blank["STAGE"], blank["READY AT"], blank["READY BY"], blank["BELFOR ONLY"]) == ("no_material", None, None, "FALSE")

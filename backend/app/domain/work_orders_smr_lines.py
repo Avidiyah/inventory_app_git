@@ -135,16 +135,26 @@ def week_for(work_date: Optional[date], date_basis: str, week: Optional[int] = N
 
 # --- paper stage (spec 2026-11-06) -----------------------------------------
 
-STAGE_READY, STAGE_DATED, STAGE_UNDATED, STAGE_NOT_REVIEWED = "ready", "dated", "undated", "not_reviewed"
-STAGES: tuple[str, ...] = (STAGE_NOT_REVIEWED, STAGE_UNDATED, STAGE_DATED, STAGE_READY)
+STAGES: tuple[str, ...] = ("no_material", "paper_review", "needs_review", "ready", "other")
 
 
-def stage_for(readings, lines, ready_at) -> str:
-    """Where the order's paper stands; `lines` already without removed ones.
-    A Ready stamp only shows while a line still carries a week."""
-    if any(line.week is not None for line in lines):
-        return STAGE_READY if ready_at is not None else STAGE_DATED
-    return STAGE_UNDATED if readings else STAGE_NOT_REVIEWED
+def has_invoice_period_line(lines) -> bool:
+    """A line dated in Weeks 1-7, the invoice period."""
+    return any(line.week is not None and 1 <= line.week <= LAST_WEEK for line in lines)
+
+
+def stage_for(lines, ready_at, *, has_materials: bool, billed: bool) -> str:
+    """Where the order stands, first match wins; `lines` already without
+    removed ones. A Ready stamp only shows while an invoice-period line does;
+    `billed` = on the NetFacilities Breakdown sheet (`smr_target`)."""
+    dated = has_invoice_period_line(lines)
+    if dated and ready_at is not None:
+        return "ready"
+    if not has_materials:
+        return "no_material"
+    if dated:
+        return "needs_review"
+    return "paper_review" if billed else "other"
 
 
 def belfor_only(lines) -> bool:

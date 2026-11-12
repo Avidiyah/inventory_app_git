@@ -26,7 +26,7 @@ function tile(overrides = {}) {
     id: "11111111-1111-1111-1111-111111111111", number: "23281563",
     building_number: "Young Hall", unit_number: "108A", location: "Young Hall:1st Floor,108A", vendor_assignee: "Chris Coburn",
     status: "completed", archived_at: null, edited: false,
-    stage: "not_reviewed", closed_week: "Before W1", belfor_only: false, ready: null, weeks: ["Undated"],
+    stage: "no_material", closed_week: "Before W1", belfor_only: false, ready: null, weeks: ["Undated"],
     before: totals(), after: totals(), delta: totals(), after_line_count: 0,
     target: null,
     ...overrides,
@@ -36,7 +36,7 @@ function tile(overrides = {}) {
 function page(overrides = {}) {
   return {
     imported_at: "2026-10-23T14:14:00Z",
-    counts: { orders: 3, not_reviewed: 3, undated: 1, dated: 0, ready: 0, belfor_only: 1, archived: 1, charged_hours: "0", excluded_hours: "0", blocks_not_pasted: 0 },
+    counts: { orders: 3, no_material: 3, paper_review: 1, needs_review: 0, ready: 0, other: 0, belfor_only: 1, archived: 1, charged_hours: "0", excluded_hours: "0", blocks_not_pasted: 0 },
     delta: { labor_total: "58.40", materials_total: "18.40", total: "76.80" },
     remaining: { hours: "0", materials_total: "0.00" },
     matched: 3,
@@ -91,34 +91,37 @@ describe("the SMR page", () => {
   it("renders stage counts first in the bar", async () => {
     await openSmr();
     const cells = Array.from(document.querySelectorAll("#smr-bar .smr-bar-cell")).map((c) => c.textContent);
-    expect(cells.slice(0, 5)).toEqual(["3 not reviewed", "1 undated", "0 dated", "0 ready", "1 Belfor only"]);
+    expect(cells.slice(0, 6)).toEqual(["3 material not keyed", "1 needs paper review", "0 needs review", "0 ready to invoice", "0 not billed", "1 Belfor only"]);
     expect(cells.some((c) => /edited|untouched|with lines|paper checked/.test(c))).toBe(false);
   });
 
   it("tiles carry the stage pill text, color class, closed-week bubble and Belfor tag", async () => {
     await openSmr("admin", page({ tiles: [
       tile({ number: "NR" }),
-      tile({ id: "22222222-2222-2222-2222-222222222222", number: "UD", stage: "undated", closed_week: "Week 3", belfor_only: true }),
-      tile({ id: "33333333-3333-3333-3333-333333333333", number: "DT", stage: "dated", closed_week: null, weeks: ["Week 2", "Week 3"] }),
+      tile({ id: "22222222-2222-2222-2222-222222222222", number: "UD", stage: "paper_review", closed_week: "Week 3", belfor_only: true }),
+      tile({ id: "33333333-3333-3333-3333-333333333333", number: "DT", stage: "needs_review", closed_week: null, weeks: ["Week 2", "Week 3"] }),
       tile({ id: "44444444-4444-4444-4444-444444444444", number: "RD", stage: "ready", closed_week: null, weeks: ["Week 2"],
         ready: { at: "2026-11-08T15:00:00Z", by_name: "JM" }, archived_at: "2026-10-22T10:00:00Z" }),
+      tile({ id: "55555555-5555-5555-5555-555555555555", number: "OT", stage: "retired_stage" }),
     ] }));
-    const [nr, ud, dt, rd] = tiles();
+    const [nr, ud, dt, rd, ot] = tiles();
     const pill = (t) => t.querySelector(".smr-tile-stage").textContent;
-    expect(nr.classList.contains("smr-tile--not_reviewed")).toBe(true);
-    expect(pill(nr)).toBe("Not reviewed");
+    expect(nr.classList.contains("smr-tile--no_material")).toBe(true);
+    expect(pill(nr)).toBe("Material not keyed");
     expect(nr.querySelector(".smr-week--undated").textContent).toBe("Undated · closed Before W1");
-    expect(ud.classList.contains("smr-tile--undated")).toBe(true);
-    expect(document.querySelector(".smr-tile--undated .smr-tile-stage").textContent).toBe("Reviewed · undated");
+    expect(ud.classList.contains("smr-tile--paper_review")).toBe(true);
+    expect(document.querySelector(".smr-tile--paper_review .smr-tile-stage").textContent).toBe("Needs paper review");
     expect(ud.querySelector(".smr-week--undated").textContent).toBe("Undated · closed Week 3");
     expect(ud.querySelector(".smr-tile-belfor").textContent).toBe("Belfor");
     expect(nr.querySelector(".smr-tile-belfor")).toBeNull();
-    expect(dt.classList.contains("smr-tile--dated")).toBe(true);
-    expect(pill(dt)).toBe("Reviewed · dated");
+    expect(dt.classList.contains("smr-tile--needs_review")).toBe(true);
+    expect(pill(dt)).toBe("Needs review");
     expect(Array.from(dt.querySelectorAll(".smr-week")).map((w) => w.textContent)).toEqual(["Week 2", "Week 3"]);
     expect(rd.classList.contains("smr-tile--ready")).toBe(true);
     expect(rd.classList.contains("smr-tile--archived")).toBe(true);
-    expect(pill(rd)).toBe("Ready for invoice");
+    expect(pill(rd)).toBe("Ready to invoice");
+    expect(ot.classList.contains("smr-tile--other")).toBe(true);  // unknown stage falls back
+    expect(pill(ot)).toBe("Not billed");
     // No Edited / Untouched classes or Paper badge anywhere.
     expect(document.querySelector(".smr-tile--edited, .smr-tile--untouched, .smr-tile-paper")).toBeNull();
   });
@@ -127,16 +130,18 @@ describe("the SMR page", () => {
     await openSmr("admin", page({ tiles: [
       tile({ number: "NR" }),
       tile({ id: "22222222-2222-2222-2222-222222222222", number: "NRB", belfor_only: true }),
-      tile({ id: "33333333-3333-3333-3333-333333333333", number: "D3", stage: "dated", weeks: ["Week 3"] }),
-      tile({ id: "44444444-4444-4444-4444-444444444444", number: "D3B", stage: "dated", weeks: ["Week 2", "Week 3"], belfor_only: true }),
-      tile({ id: "55555555-5555-5555-5555-555555555555", number: "U3", stage: "undated", weeks: ["Week 3"] }),
+      tile({ id: "33333333-3333-3333-3333-333333333333", number: "D3", stage: "needs_review", weeks: ["Week 3"] }),
+      tile({ id: "44444444-4444-4444-4444-444444444444", number: "D3B", stage: "needs_review", weeks: ["Week 2", "Week 3"], belfor_only: true }),
+      tile({ id: "55555555-5555-5555-5555-555555555555", number: "U3", stage: "paper_review", weeks: ["Week 3"] }),
     ] }));
     const shown = () => tiles().filter((t) => !t.hidden).map((t) => t.dataset.number);
-    expect(shown()).toEqual(["NR", "NRB"]);  // default: Not reviewed / All / All
-    expect(byId("smr-filter-not-reviewed").classList.contains("smr-btn--on")).toBe(true);
+    expect(shown()).toEqual(["NR", "NRB"]);  // default: Material not keyed / All / All
+    expect(byId("smr-filter-no-material").classList.contains("smr-btn--on")).toBe(true);
     byId("smr-filter-week-3").click();
     expect(shown()).toEqual([]);
-    byId("smr-filter-dated").click();
+    byId("smr-filter-paper-review").click();
+    expect(shown()).toEqual(["U3"]);
+    byId("smr-filter-needs-review").click();
     expect(shown()).toEqual(["D3", "D3B"]);
     byId("smr-filter-belfor").click();
     expect(shown()).toEqual(["D3B"]);
@@ -155,7 +160,7 @@ describe("the SMR page", () => {
       expect(document.querySelector(`.smr-btn[data-filter="${value}"]`)).toBeNull();
     }
     const row = (name) => Array.from(document.querySelectorAll(`.smr-controls[data-row="${name}"] .smr-btn[data-filter]`)).map((b) => b.dataset.filter);
-    expect(row("stage")).toEqual(["not_reviewed", "undated", "dated", "ready", "all"]);
+    expect(row("stage")).toEqual(["no_material", "paper_review", "needs_review", "ready", "all"]);
     expect(row("pile")).toEqual(["Before W1", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6", "Week 7", "After W7", "Undated", "belfor", "all"]);
     expect(row("flags")).toEqual(["short", "matched", "block_pending", "archived", "all"]);
   });
@@ -350,13 +355,13 @@ describe("the SMR page", () => {
   it("chip memory saves three keys and ignores an unknown saved chip", async () => {
     sessionStorage.setItem("smr.filters", JSON.stringify({ chip: "untouched", stage: "edited" }));
     await openSmr();
-    expect(byId("smr-filter-not-reviewed").classList.contains("smr-btn--on")).toBe(true);
+    expect(byId("smr-filter-no-material").classList.contains("smr-btn--on")).toBe(true);
     byId("smr-filter-week-2").click();
     byId("smr-filter-short").click();
     byId("smr-search").value = "Young";
     byId("smr-search-btn").click();
     await vi.waitFor(() => expect(JSON.parse(sessionStorage.getItem("smr.filters")))
-      .toMatchObject({ q: "Young", stage: "not_reviewed", pile: "Week 2", flags: "short" }));
+      .toMatchObject({ q: "Young", stage: "no_material", pile: "Week 2", flags: "short" }));
   });
 
   it("the result count reflects matched over the whole population", async () => {

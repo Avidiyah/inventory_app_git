@@ -54,8 +54,8 @@ which is the device class that can least afford it.
 
 The SMR27 audit page (`#smr-page`) is a standard frosted panel; its tiles reuse
 the status-card keycap outline, colored by paper stage with the stage's words on
-the pill: red = not reviewed, amber = reviewed undated, neutral = reviewed dated,
-green = ready for invoice. The amber outline is the second status-accent
+the pill: red = material not keyed, amber = needs paper review, neutral = needs
+review, green = ready to invoice, muted = not billed. The amber outline is the second status-accent
 exception to "badge-only" (the SMR outlines already carry red / green).
 
 The app has exactly two ways to present a panel of content. Both are dark and

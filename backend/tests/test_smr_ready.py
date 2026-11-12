@@ -67,7 +67,16 @@ def test_an_undated_order_refuses_the_stamp(db):
     order = _smr_order(db, owner)
     refused = _put(db, admin, order.id, True)
     assert refused.status_code == 409
-    assert "Date a line first." in refused.json()["detail"]
+    assert "Date a line in Weeks 1–7 first." in refused.json()["detail"]
+
+
+def test_a_line_after_week_7_refuses_the_stamp(db):
+    owner, admin = _user(db, "owner"), _user(db, "admin")
+    order = _smr_order(db, owner)
+    lines_service.add_line(db, work_order_id=order.id, user=owner, payload=SmrLineIn(
+        vendor="Belfor", hours_each=Decimal("2.0"), reason_code="accurate", work_date=date(2026, 7, 20),
+        reason="paper", status="excluded", exclusion_ground="after 07/12 (no invoices)"))
+    assert _put(db, admin, order.id, True).status_code == 409
 
 
 def test_stamp_is_idempotent_and_clears(db):
@@ -84,7 +93,8 @@ def test_stamp_is_idempotent_and_clears(db):
 
     cleared = _put(db, admin, order.id, False)
     assert cleared.status_code == 200
-    assert cleared.json()["stage"] == "dated" and cleared.json()["ready"] is None
+    # Labor-only order: stamped above without materials, so clearing lands on no_material.
+    assert cleared.json()["stage"] == "no_material" and cleared.json()["ready"] is None
 
 
 def test_clearing_a_never_stamped_order_is_a_no_op(db):

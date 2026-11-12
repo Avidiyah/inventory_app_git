@@ -37,6 +37,7 @@ PAGE_LANDMARKS = {
     "user-requests": "#user-requests-section",
     "low-stock": "#low-stock-section",
     "admin-review": "#admin-review-queue-section",
+    "smr-admin-review": "#smr-admin-review-queue-section",
     "tools": "#tool-custody-section",
     "history": "#history-section",
     "integrations": "#integrations-import-section",

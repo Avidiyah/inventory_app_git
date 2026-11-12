@@ -199,7 +199,7 @@ def set_paper_check(db: Session, *, work_order_id: uuid.UUID, checked: bool, use
 
 def set_ready(db: Session, *, work_order_id: uuid.UUID, ready: bool, user: User) -> SmrTile:
     """Stamp or clear Ready for invoice (Admin+, spec 2026-11-06). A stamp
-    needs a dated line (409 otherwise); a second stamp keeps the first who /
+    needs a line dated in Weeks 1-7 (409 otherwise); a second stamp keeps the first who /
     when; clearing a never-stamped order is a no-op. Returns the tile."""
     order = db.get(WorkOrder, work_order_id)
     if order is None:
@@ -210,8 +210,9 @@ def set_ready(db: Session, *, work_order_id: uuid.UUID, ready: bool, user: User)
         order.smr_ready_at = None
         order.smr_ready_by_id = None
     elif order.smr_ready_at is None:
-        if tile_for(order).stage != rules.STAGE_DATED:
-            raise SmrNotDatedError("Date a line first.")
+        lines = [l for l in smr.correction_lines(order) if l.exclusion_ground != rules.GROUND_REMOVED]
+        if not rules.has_invoice_period_line(lines):
+            raise SmrNotDatedError("Date a line in Weeks 1–7 first.")
         order.smr_ready_at = datetime.now(timezone.utc)
         order.smr_ready_by_id = user.id
     db.commit()
@@ -394,8 +395,7 @@ def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTil
     current = current_snapshot(work_order, now=now)
     d = smr.deltas(baseline, current)
     lines = [l for l in smr.correction_lines(work_order) if l.exclusion_ground != rules.GROUND_REMOVED]
-    stage = rules.stage_for(work_order.smr_readings, lines, work_order.smr_ready_at)
-    undated = stage in (rules.STAGE_UNDATED, rules.STAGE_NOT_REVIEWED)
+    weeks = _tile_weeks(lines)
     return SmrTile(
         id=work_order.id,
         number=work_order.number,
@@ -406,9 +406,12 @@ def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTil
         status=work_order.status,
         archived_at=work_order.archived_at,
         edited=smr.is_edited(work_order) or bool(lines),
-        weeks=_tile_weeks(lines),
-        stage=stage,
-        closed_week=closed_week(work_order) if undated else None,
+        weeks=weeks,
+        stage=rules.stage_for(
+            lines, work_order.smr_ready_at,
+            has_materials=bool(work_order.items), billed=work_order.smr_target is not None,
+        ),
+        closed_week=closed_week(work_order) if "Undated" in weeks else None,
         belfor_only=rules.belfor_only(lines),
         ready=SmrReadyOut.from_order(work_order),
         before=_totals(baseline),

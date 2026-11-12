@@ -6061,17 +6061,18 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 }
 #smr-page .smr-tile:active { transform: translateY(3px); }
 /* Outline by paper stage, always with the pill's words (spec 2026-11-06):
-   not reviewed = red, reviewed undated = amber, reviewed dated = neutral,
-   ready for invoice = green. Red and green keep the keycap wall + glow of
+   material not keyed = red, needs paper review = amber, needs review =
+   neutral, ready to invoice = green, not billed = muted. Red and green keep the keycap wall + glow of
    .wo-card-status-assigned / -review; amber is the second status-accent
    exception on a surface (docs/design-system.md). */
-#smr-page .smr-tile--not_reviewed {
+#smr-page .smr-tile--no_material {
     border-color: #B91C1C;
     box-shadow: 0 4px 0 0 #991B1B, 0 6px 16px -6px rgba(185, 28, 28, .45), var(--shadow-card);
 }
-#smr-page .smr-tile--not_reviewed:active { box-shadow: 0 1px 0 0 #991B1B, 0 2px 6px -2px rgba(185, 28, 28, .35), var(--shadow-card); }
-#smr-page .smr-tile--undated { border-color: var(--status-dispense-text); box-shadow: var(--shadow-card); }
-#smr-page .smr-tile--dated { border-color: var(--panel-border); box-shadow: var(--shadow-card); }
+#smr-page .smr-tile--no_material:active { box-shadow: 0 1px 0 0 #991B1B, 0 2px 6px -2px rgba(185, 28, 28, .35), var(--shadow-card); }
+#smr-page .smr-tile--paper_review { border-color: var(--status-dispense-text); box-shadow: var(--shadow-card); }
+#smr-page .smr-tile--needs_review { border-color: var(--panel-border); box-shadow: var(--shadow-card); }
+#smr-page .smr-tile--other { border-color: var(--panel-border); box-shadow: var(--shadow-card); opacity: .7; }
 #smr-page .smr-tile--ready {
     border-color: #15803D;
     box-shadow: 0 4px 0 0 #166534, 0 6px 16px -6px rgba(21, 128, 61, .45), var(--shadow-card);
@@ -6094,8 +6095,8 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 #smr-page .smr-week { background-color: var(--panel-hover); border: 1px solid var(--panel-border); color: var(--text-panel); }
 #smr-page .smr-week--undated { background-color: transparent; border-style: dashed; color: var(--text-panel-mute); }
 #smr-page .smr-tile-stage { color: var(--color-white); background-color: var(--gray-500); }
-#smr-page .smr-tile--not_reviewed .smr-tile-stage { background-color: #B91C1C; }
-#smr-page .smr-tile--undated .smr-tile-stage { background-color: var(--status-dispense); }
+#smr-page .smr-tile--no_material .smr-tile-stage { background-color: #B91C1C; }
+#smr-page .smr-tile--paper_review .smr-tile-stage { background-color: var(--status-dispense); }
 #smr-page .smr-tile--ready .smr-tile-stage { background-color: #15803D; }
 #smr-page .smr-tile-number { font-size: var(--fs-lg); font-weight: var(--fw-bold); }
 #smr-page .smr-tile-where { color: var(--text-panel-mute); }
@@ -6152,7 +6153,8 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 
 /* SMR cards: the border is the paper stage, same colors as the SMR page
    tiles (user 2026-11-07); beats the status outline, hover included. */
-.wo-card.wo-card-smr-not_reviewed, .wo-card.wo-card-smr-not_reviewed:hover { --card-accent: #B91C1C; --card-accent-rgb: 185, 28, 28; border-color: #B91C1C; }
-.wo-card.wo-card-smr-undated, .wo-card.wo-card-smr-undated:hover { --card-accent: var(--status-dispense-text); border-color: var(--status-dispense-text); }
-.wo-card.wo-card-smr-dated, .wo-card.wo-card-smr-dated:hover { --card-accent: var(--panel-border); border-color: var(--panel-border); }
+.wo-card.wo-card-smr-no_material, .wo-card.wo-card-smr-no_material:hover { --card-accent: #B91C1C; --card-accent-rgb: 185, 28, 28; border-color: #B91C1C; }
+.wo-card.wo-card-smr-paper_review, .wo-card.wo-card-smr-paper_review:hover { --card-accent: var(--status-dispense-text); border-color: var(--status-dispense-text); }
+.wo-card.wo-card-smr-needs_review, .wo-card.wo-card-smr-needs_review:hover { --card-accent: var(--panel-border); border-color: var(--panel-border); }
+.wo-card.wo-card-smr-other, .wo-card.wo-card-smr-other:hover { --card-accent: var(--gray-500); border-color: var(--panel-border); }
 .wo-card.wo-card-smr-ready, .wo-card.wo-card-smr-ready:hover { --card-accent: #15803D; --card-accent-rgb: 21, 128, 61; border-color: #15803D; }

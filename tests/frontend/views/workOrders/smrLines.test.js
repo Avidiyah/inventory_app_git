@@ -96,15 +96,17 @@ describe("who sees what", () => {
   });
 });
 
-// Ready for invoice (spec 2026-11-06-smr-paper-stage): a person's stamp,
-// offered only once a line is dated.
-describe("ready for invoice", () => {
+// Ready to invoice: a person's stamp, offered while a line is in invoice
+// Weeks 1–7 (the backend's gate), whatever the stage says about materials.
+describe("ready to invoice", () => {
   const row = () => card().querySelector(".wo-smr-ready");
+  // Week 9 = After W7: outside the invoice period, so no Ready button.
+  const AFTER_W7 = { ...LINE, week: 9, work_date: "2026-07-25" };
 
-  it("a dated order offers the Ready button, and pressing it PUTs ready and refreshes", async () => {
-    const detail = await open({ detail: { smr_stage: "dated" } });
+  it("a needs-review order offers the Ready button, and pressing it PUTs ready and refreshes", async () => {
+    const detail = await open({ detail: { smr_stage: "needs_review" } });
     const btn = row().querySelector('[data-action="smr-ready"]');
-    expect(btn.textContent).toBe("Ready for invoice");
+    expect(btn.textContent).toBe("Ready to invoice");
     expect(row().querySelector('[data-action="smr-not-ready"]')).toBeNull();
     respond("put", "/work-orders/smr/:id/ready", {});
     click("smr-ready");
@@ -115,7 +117,7 @@ describe("ready for invoice", () => {
 
   it("a ready order shows the stamp and a Not ready button that PUTs ready false", async () => {
     await open({ detail: { smr_stage: "ready", smr_ready: { at: "2026-11-08T15:00:00Z", by_name: "JM" } } });
-    expect(row().textContent).toMatch(/Ready for invoice · \d\d\/\d\d\/\d\d by JM/);
+    expect(row().textContent).toMatch(/Ready to invoice · \d\d\/\d\d\/\d\d by JM/);
     expect(row().querySelector('[data-action="smr-not-ready"]').textContent).toBe("Not ready");
     respond("put", "/work-orders/smr/:id/ready", {});
     click("smr-not-ready");
@@ -123,28 +125,38 @@ describe("ready for invoice", () => {
     expect(requestFor("/ready", "PUT").body).toEqual({ ready: false });
   });
 
-  it("an undated order says to date a line first, with no button", async () => {
-    await open({ detail: { smr_stage: "undated" } });
-    expect(row().textContent).toBe("Date a line to mark ready");
+  it("a paper-review order says to date a line in Weeks 1–7 first, with no button", async () => {
+    await open({ detail: { smr_stage: "paper_review", smr_lines: [AFTER_W7] } });
+    expect(row().textContent).toBe("Date a line in Weeks 1–7 to mark ready");
     expect(row().querySelector("[data-action]")).toBeNull();
     expect(row().classList.contains("hint")).toBe(true);
   });
 
-  it("a ready stamp on an order that lost its date is held, not shown as ready", async () => {
-    await open({ detail: { smr_stage: "undated", smr_ready: { at: "2026-11-08T15:00:00Z", by_name: "JM" } } });
-    expect(row().textContent).toBe("Ready stamp held until a line is dated");
+  it("a labor-only (material not keyed) order with a Weeks 1–7 line still offers the Ready button", async () => {
+    await open({ detail: { smr_stage: "no_material" } });
+    expect(row().querySelector('[data-action="smr-ready"]').textContent).toBe("Ready to invoice");
+  });
+
+  it("a material-not-keyed order with no Weeks 1–7 line offers no button", async () => {
+    await open({ detail: { smr_stage: "no_material", smr_lines: [AFTER_W7] } });
+    expect(row().querySelector("[data-action]")).toBeNull();
+  });
+
+  it("a ready stamp on an order that lost its Weeks 1–7 line is held, not shown as ready", async () => {
+    await open({ detail: { smr_stage: "paper_review", smr_lines: [AFTER_W7], smr_ready: { at: "2026-11-08T15:00:00Z", by_name: "JM" } } });
+    expect(row().textContent).toBe("Ready stamp held until a line is in Weeks 1–7");
     expect(row().querySelector("[data-action]")).toBeNull();
   });
 
   it("below Admin a ready order shows the stamp with no button", async () => {
     await open({ role: "supervisor", detail: { smr_stage: "ready", smr_ready: { at: "2026-11-08T15:00:00Z", by_name: "JM" } } });
-    expect(row().textContent).toContain("Ready for invoice");
+    expect(row().textContent).toContain("Ready to invoice");
     expect(row().querySelector("[data-action]")).toBeNull();
   });
 
-  it("below Admin a dated order says not yet ready, with no button", async () => {
-    await open({ role: "supervisor", detail: { smr_stage: "dated" } });
-    expect(row().textContent).toBe("Not yet ready for invoice");
+  it("below Admin a needs-review order says not yet ready, with no button", async () => {
+    await open({ role: "supervisor", detail: { smr_stage: "needs_review" } });
+    expect(row().textContent).toBe("Not yet ready to invoice");
     expect(row().querySelector("[data-action]")).toBeNull();
   });
 });

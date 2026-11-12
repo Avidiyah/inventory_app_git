@@ -34,10 +34,10 @@ const chipButtons = Array.from(document.querySelectorAll(".smr-btn[data-row][dat
 
 export const EMPTY_COPY = "No SMR orders yet. Owner: import from Integrations.";
 
-// Not reviewed is the working view: the next pile to work. A reload of this
-// tab keeps the chips the user left on (smrFilters.js); a saved value its row
-// does not offer (an older chip name) falls back to the row's default.
-const DEFAULT_CHIPS = { stage: "not_reviewed", pile: "all", flags: "all" };
+// Material not keyed is the working view: the next pile to work. A reload of
+// this tab keeps the chips the user left on (smrFilters.js); a saved value its
+// row does not offer (an older chip name) falls back to the row's default.
+const DEFAULT_CHIPS = { stage: "no_material", pile: "all", flags: "all" };
 const rowHas = (row, value) => chipButtons.some((btn) => btn.dataset.row === row && btn.dataset.filter === value);
 const chips = { ...DEFAULT_CHIPS };
 for (const [row, value] of Object.entries(savedChips())) {
@@ -120,10 +120,11 @@ function barHtml(payload) {
   const r = payload.remaining || {};
   // Stage counts lead (spec 2026-11-06); Short / Matched live on as chips.
   const cells = [
-    `${c.not_reviewed || 0} not reviewed`,
-    `${c.undated || 0} undated`,
-    `${c.dated || 0} dated`,
-    `${c.ready || 0} ready`,
+    `${c.no_material || 0} material not keyed`,
+    `${c.paper_review || 0} needs paper review`,
+    `${c.needs_review || 0} needs review`,
+    `${c.ready || 0} ready to invoice`,
+    `${c.other || 0} not billed`,
     `${c.belfor_only || 0} Belfor only`,
     `${c.orders || 0} orders`,
     `${c.archived || 0} archived`,
@@ -142,7 +143,8 @@ function barHtml(payload) {
 
 // The stage's words always ride with its color (spec 2026-11-06).
 const STAGE_LABEL = {
-  not_reviewed: "Not reviewed", undated: "Reviewed · undated", dated: "Reviewed · dated", ready: "Ready for invoice",
+  no_material: "Material not keyed", paper_review: "Needs paper review", needs_review: "Needs review",
+  ready: "Ready to invoice", other: "Not billed",
 };
 
 // Week bubbles across the top: the invoice weeks the paper lines fall in;
@@ -156,7 +158,7 @@ function weeksHtml(tile) {
 }
 
 function tileHtml(tile) {
-  const stage = STAGE_LABEL[tile.stage] ? tile.stage : "not_reviewed";
+  const stage = STAGE_LABEL[tile.stage] ? tile.stage : "other";
   const where = [tile.building_number, tile.unit_number].filter(Boolean).join(" ") || tile.location || "";
   const who = tile.vendor_assignee ? ` · ${tile.vendor_assignee}` : "";
   const minutes = (tile.after?.real_minutes || 0) + (tile.after?.skilled_minutes || 0);

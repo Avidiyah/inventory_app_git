@@ -18,6 +18,22 @@ import { fillEntryRow, readEntryRow } from "./workOrderSmrLines.js";
 const LABOR = ".wo-smr-section";
 const INVOICE = ".wo-smr-invoice";
 
+// Print only the block: a sheet as the body's sole visible child (print CSS).
+// Also used by SMR Admin Review.
+export function printSmrBlock(text) {
+  const sheet = document.createElement("pre");
+  sheet.className = "smr-print-sheet";
+  sheet.textContent = text;
+  document.body.append(sheet);
+  document.body.classList.add("smr-printing");
+  try {
+    window.print();
+  } finally {
+    document.body.classList.remove("smr-printing");
+    sheet.remove();
+  }
+}
+
 // `msg` comes from the caller: setMessage clears the element's class, so it
 // cannot be found by `.wo-message` once the delegation has reset it.
 export async function handleSmrAction(action, btn, cardEl, msg) {
@@ -67,18 +83,7 @@ export async function handleSmrAction(action, btn, cardEl, msg) {
     await apiSmrGenerateBlock(workOrderId, cardEl.querySelector(".wo-smr-description-text")?.value ?? null);
     await refreshCard(cardEl, INVOICE);
   } else if (action === "smr-print-block") {
-    // Print only the block: a sheet as the body's sole visible child (print CSS).
-    const sheet = document.createElement("pre");
-    sheet.className = "smr-print-sheet";
-    sheet.textContent = cardEl.querySelector(".wo-smr-block-text").value;
-    document.body.append(sheet);
-    document.body.classList.add("smr-printing");
-    try {
-      window.print();
-    } finally {
-      document.body.classList.remove("smr-printing");
-      sheet.remove();
-    }
+    printSmrBlock(cardEl.querySelector(".wo-smr-block-text").value);
   } else if (action === "smr-mark-pasted") {
     await apiSmrMarkPasted(btn.dataset.blockId);
     await refreshCard(cardEl, INVOICE);

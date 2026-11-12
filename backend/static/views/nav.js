@@ -15,6 +15,7 @@ import { loadWorkOrders, loadIntegrationsPage } from "./workOrders.js";
 import { loadUserHub } from "./userHub.js";
 import { loadSmr } from "./smr.js";
 import { loadAdminReview } from "./adminReview.js";
+import { loadSmrAdminReview } from "./smrAdminReview.js";
 import { loadUserRequests } from "./userRequests.js";
 import { loadLowStock } from "./lowStock.js";
 import { loadTools, toolsScanner, toolScanWidget } from "./tools.js";
@@ -71,6 +72,7 @@ const PAGE_LOADERS = {
   "user-requests": () => loadUserRequests(),
   "low-stock": () => loadLowStock(),
   "admin-review": () => loadAdminReview(),
+  "smr-admin-review": () => loadSmrAdminReview(),
   "tools": () => loadTools(),
   "integrations": () => loadIntegrationsPage(),
   "smr": () => loadSmr(),
@@ -123,6 +125,8 @@ export const PAGE_ACCESS = {
   // Final billing/close queue. Cost detail and archive are TechFM OA+. A
   // TechFM OA works this queue; they just cannot put a work order into it.
   "admin-review": ["owner", "admin", "techfm_oa"],
+  // SMR orders in Ready to invoice; same gate as Admin Review.
+  "smr-admin-review": ["owner", "admin", "techfm_oa"],
   // Tools: every role sees its user-first custody card and can check in;
   // TechFM OA+ can search active users and check out tools. The server retains
   // the existing checkout gate and authenticated-user return gate.

@@ -20,7 +20,7 @@ const ROLES = ["technician", "supervisor", "techfm_oa", "admin", "owner"];
 const PAGES = [
   "user-hub", "create-item", "saved-items", "saved-users",
   "transaction", "mass-stage", "work-orders", "user-requests", "low-stock",
-  "admin-review", "tools", "history", "integrations", "smr",
+  "admin-review", "smr-admin-review", "tools", "history", "integrations", "smr",
 ];
 
 // Who may see what, written out per role rather than computed. This is the
@@ -44,7 +44,7 @@ const GROUPS = {
   inventory: ["create-item", "saved-items", "tools"],
   field: ["transaction", "work-orders", "mass-stage", "smr"],
   people: ["saved-users"],
-  review: ["low-stock", "user-requests", "admin-review", "history"],
+  review: ["low-stock", "user-requests", "admin-review", "smr-admin-review", "history"],
   integration: ["integrations"],
 };
 

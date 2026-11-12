@@ -10,12 +10,12 @@ from decimal import Decimal
 
 from app.domain import roles
 from app.domain import work_orders as wo
-from app.models import Item, User
+from app.models import Item, User, WorkOrderItem
 from app.services import auth
 from app.services import work_orders as wos
 from app.services import work_orders_smr as smr_service
 from app.domain import work_orders_smr_lines as rules
-from app.schemas.work_orders_smr_lines import SmrLineEditIn, SmrLineIn, SmrReadingIn
+from app.schemas.work_orders_smr_lines import SmrLineEditIn, SmrLineIn
 from app.services import work_orders_smr_lines as lines_service
 
 
@@ -238,14 +238,21 @@ def test_smr_tiles_carry_lines_and_the_counts_and_filters_follow(db):
     assert with_lines not in _numbers(smr_service.list_smr_tiles(db, block_stale_or_unpasted=True))
 
 
-# --- paper stage (spec 2026-11-06-smr-paper-stage) ---------------------------
+# --- stage (user 2026-11-12: five stages, first match wins) ----------------
 
-def _staged(db, owner, *, reading=True):
+def _staged(db, owner, *, materials=True, billed=False):
     number = f"SMR-{uuid.uuid4().hex[:8]}"
     smr_service.import_smr(db, csv_bytes=_sheet([number]), user=owner)
+    if billed:
+        smr_service.import_smr_targets(db, csv_bytes=_breakdown([(number, "1", "$0.00")]), user=owner)
     order = wos.find_by_number(db, number)
-    if reading:
-        lines_service.add_reading(db, work_order_id=order.id, payload=SmrReadingIn(printing_no=1), user=owner)
+    if materials:
+        item = Item(barcode=f"BC-{uuid.uuid4().hex[:8]}", name="Rags", quantity=Decimal(100), location="Bay", price=Decimal("1.50"))
+        db.add(item)
+        db.flush()
+        db.add(WorkOrderItem(work_order_id=order.id, item_id=item.id, quantity=Decimal(1), mode="retroactive", created_by_id=owner.id))
+        db.flush()
+        db.refresh(order)
     return order
 
 
@@ -253,50 +260,64 @@ def _tile(db, order):
     return next(t for t in smr_service.list_smr_tiles(db).tiles if t.number == order.number)
 
 
-def test_stage_not_reviewed_without_readings(db):
+def test_stage_other_when_not_billed_and_nothing_dated(db):
     owner = _user(db)
-    order = _staged(db, owner, reading=False)
+    order = _staged(db, owner)
     page = smr_service.list_smr_tiles(db)
     tile = next(t for t in page.tiles if t.number == order.number)
-    assert tile.stage == "not_reviewed"
-    assert tile.closed_week == "Before W1"  # the fixture closes 05/21
+    assert tile.stage == "other"
+    assert tile.closed_week == "Before W1"  # the fixture closes 05/21; weeks == ["Undated"]
     assert tile.belfor_only is False and tile.ready is None
-    assert page.counts.not_reviewed >= 1
+    assert page.counts.other >= 1
 
 
-def test_stage_undated_with_a_reading_and_no_dated_line(db):
+def test_stage_no_material_beats_billed_and_dated(db):
     owner = _user(db)
-    order = _staged(db, owner)
-    assert _tile(db, order).stage == "undated"  # the reading alone
-    lines_service.add_line(db, work_order_id=order.id,
-                           payload=_line_in(work_date=None, status="excluded", exclusion_ground="undated"), user=owner)
+    order = _staged(db, owner, materials=False, billed=True)
+    lines_service.add_line(db, work_order_id=order.id, payload=_line_in(), user=owner)
+    page = smr_service.list_smr_tiles(db)
+    assert next(t for t in page.tiles if t.number == order.number).stage == "no_material"
+    assert page.counts.no_material >= 1
+
+
+def test_stage_paper_review_when_billed_without_an_invoice_period_line(db):
+    owner = _user(db)
+    order = _staged(db, owner, billed=True)
+    page = smr_service.list_smr_tiles(db)
+    assert next(t for t in page.tiles if t.number == order.number).stage == "paper_review"
+    assert page.counts.paper_review >= 1
+    # A line after Week 7 is not an invoice-period line.
+    lines_service.add_line(db, work_order_id=order.id, user=owner, payload=_line_in(
+        work_date=date(2026, 7, 20), status="excluded", exclusion_ground="after 07/12 (no invoices)"))
     tile = _tile(db, order)
-    assert tile.stage == "undated" and tile.closed_week == "Before W1"
+    assert tile.stage == "paper_review" and tile.closed_week is None
 
 
-def test_stage_dated_by_any_week_charged_or_excluded(db):
+def test_stage_needs_review_by_any_week_1_to_7_line(db):
     owner = _user(db)
-    order = _staged(db, owner)
+    order = _staged(db, owner, billed=True)
     lines_service.add_line(db, work_order_id=order.id,
                            payload=_line_in(work_date=date(2026, 6, 2), status="excluded", exclusion_ground="note only"), user=owner)
-    tile = _tile(db, order)
-    assert tile.stage == "dated" and "Week 2" in tile.weeks and tile.closed_week is None
+    page = smr_service.list_smr_tiles(db)
+    tile = next(t for t in page.tiles if t.number == order.number)
+    assert tile.stage == "needs_review" and "Week 2" in tile.weeks and tile.closed_week is None
+    assert page.counts.needs_review >= 1
 
-    placed = _staged(db, owner)
+    placed = _staged(db, owner)  # not billed: the dated line still wins
     lines_service.add_line(db, work_order_id=placed.id,
                            payload=_line_in(work_date=None, date_basis=rules.WEEK1_PLACEMENT_BASIS), user=owner)
-    assert _tile(db, placed).stage == "dated"
+    assert _tile(db, placed).stage == "needs_review"
 
 
 def test_removed_lines_do_not_count(db):
     owner = _user(db)
     order = _staged(db, owner)
     line = lines_service.add_line(db, work_order_id=order.id, payload=_line_in(), user=owner)
-    assert _tile(db, order).stage == "dated"
+    assert _tile(db, order).stage == "needs_review"
     lines_service.edit_line(db, line_id=line.id,
                             payload=SmrLineEditIn(status="excluded", exclusion_ground="removed", reason="x"), user=owner)
     tile = _tile(db, order)
-    assert tile.stage == "undated" and tile.belfor_only is False
+    assert tile.stage == "other" and tile.belfor_only is False
 
 
 def test_belfor_only(db):
@@ -313,16 +334,18 @@ def test_belfor_only(db):
     assert _tile(db, order).belfor_only is False
 
 
-def test_ready_stage_needs_a_dated_line(db):
+def test_ready_beats_no_material_and_needs_an_invoice_period_line(db):
     owner = _user(db)
-    order = _staged(db, owner)
+    order = _staged(db, owner, materials=False)
     line = lines_service.add_line(db, work_order_id=order.id, payload=_line_in(), user=owner)
     order.smr_ready_at = datetime(2026, 11, 8, 12, tzinfo=timezone.utc)
     order.smr_ready_by_id = owner.id
     db.commit()
-    tile = _tile(db, order)
+    page = smr_service.list_smr_tiles(db)
+    tile = next(t for t in page.tiles if t.number == order.number)
     assert tile.stage == "ready" and tile.ready.by_name == owner.full_name
+    assert page.counts.ready >= 1
     lines_service.edit_line(db, line_id=line.id,
                             payload=SmrLineEditIn(status="excluded", exclusion_ground="removed", reason="x"), user=owner)
     tile = _tile(db, order)
-    assert tile.stage == "undated" and tile.ready is not None
+    assert tile.stage == "no_material" and tile.ready is not None
