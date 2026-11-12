@@ -42,6 +42,7 @@ class OpenPunch:
     id: uuid.UUID
     started_at: datetime
     start_source: str
+    shop: bool = False
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ class MyPunch:
     ended_at: Optional[datetime]
     needs_review: bool
     tags: list[str]
+    shop: bool = False
 
 
 @dataclass(frozen=True)
@@ -175,8 +177,9 @@ def punch_in(
     user: User,
     now: Optional[datetime] = None,
     source: str = attendance.START_SOURCE_MANUAL,
+    shop: bool = False,
 ) -> AttendancePunch:
-    """Open a punch. Refuses when one is open today; yesterday's is swept
+    """Open a punch (`shop=True`: shop hours). Refuses when one is open today; yesterday's is swept
     to its midnight first (M2), so it never blocks.
 
     The `IntegrityError` arm is the race the partial unique index exists to
@@ -190,7 +193,8 @@ def punch_in(
         raise _already_open(existing)
 
     punch = AttendancePunch(
-        id=uuid.uuid4(), user_id=user.id, started_at=now, start_source=source
+        id=uuid.uuid4(), user_id=user.id, started_at=now, start_source=source,
+        shop=shop,
     )
     db.add(punch)
     try:
@@ -243,6 +247,40 @@ def _stop_labor(db: Session, *, user_id: uuid.UUID, actor: User,
     wo_service.stop_running_session_for(db, user_id, actor=actor, ended_at=end)
 
 
+def switch_punch(
+    db: Session, *, user: User, shop: bool, now: Optional[datetime] = None
+) -> AttendancePunch:
+    """Shop <-> field time in one tap: the open punch closes and one of the
+    other kind opens at the same instant (half-open, so no overlap), one
+    commit. Going into the shop stops a running work-order clock, as a
+    punch-out does: shop time is never charged."""
+    now = now or datetime.now(timezone.utc)
+    sweep_open_punches(db, now=now, user_id=user.id)
+    current = open_punch_for(db, user.id)
+    if current is None:
+        raise PunchNotFoundError("You are not punched in.")
+    if bool(current.shop) == shop:
+        raise NoChangeError("You are already in the shop." if shop
+                            else "You are already on work-order time.")
+    return _swap(db, user=user, current=current, shop=shop, now=now,
+                 source=attendance.START_SOURCE_MANUAL)
+
+
+def _swap(db: Session, *, user: User, current: AttendancePunch, shop: bool,
+          now: datetime, source: str) -> AttendancePunch:
+    if shop:
+        _stop_labor(db, user_id=user.id, actor=user, ended_at=now)
+    current.ended_at = now
+    current.end_source = attendance.END_SOURCE_MANUAL
+    db.flush()   # the partial unique index allows one open punch
+    punch = AttendancePunch(id=uuid.uuid4(), user_id=user.id, started_at=now,
+                            start_source=source, shop=shop)
+    db.add(punch)
+    db.commit()
+    db.refresh(punch)
+    return punch
+
+
 def ensure_punch_for_labor_start(
     db: Session, *, user: User, now: Optional[datetime] = None
 ) -> AttendancePunch:
@@ -251,11 +289,15 @@ def ensure_punch_for_labor_start(
     A technician who ignores the punch button still produces a correct
     timesheet: starting a clock off-shift opens a punch tagged
     `auto_work_order`. Yesterday's forgotten punch is swept to its midnight
-    first (M2), so it never blocks today's job.
+    first (M2), so it never blocks today's job. Starting one from the shop
+    switches to field time: the job clock is the way out of the shop.
     """
     now = now or datetime.now(timezone.utc)
     sweep_open_punches(db, now=now, user_id=user.id)
     existing = open_punch_for(db, user.id)
+    if existing is not None and existing.shop:
+        return _swap(db, user=user, current=existing, shop=False, now=now,
+                     source=attendance.START_SOURCE_AUTO_WORK_ORDER)
     if existing is not None:
         return existing
     return punch_in(db, user=user, now=now,
@@ -306,13 +348,15 @@ def me_payload(
             id=open_row.id,
             started_at=open_row.started_at,
             start_source=open_row.start_source,
+            shop=bool(open_row.shop),
         ),
         clocked_minutes_today=minutes,
         week_punches=[
             MyPunch(id=p.id, started_at=p.started_at,
                     ended_at=attendance.capped_end(p.started_at, p.ended_at, now=now),
                     needs_review=bool(p.needs_review),
-                    tags=marks[p.id].tags if p.id in marks else [])
+                    tags=marks[p.id].tags if p.id in marks else [],
+                    shop=bool(p.shop))
             for p in week_rows
         ],
     )

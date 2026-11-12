@@ -738,6 +738,9 @@ class AttendancePunch(Base):
     needs_review = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     # L2: an Admin removed this day's flat lunch (set on the day's first punch).
     lunch_waived = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # Shop hours: paid and on the timesheet, left out of the leaderboard
+    # score. A switch closes one punch and opens the other kind (2026-11-11).
+    shop = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     # Soft delete (P3). `attendance_punch_edits.punch_id` is ON DELETE
     # CASCADE, so a hard delete would erase the audit trail of the very

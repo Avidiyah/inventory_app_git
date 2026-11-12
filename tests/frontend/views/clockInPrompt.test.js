@@ -33,6 +33,20 @@ describe("the clock-in prompt", () => {
     expect(prompt()).toBeNull();
   });
 
+  it("Clock in to the shop punches in as shop time and closes", async () => {
+    let url = null;
+    server.use(http.post("/attendance/punch-in", ({ request }) => {
+      url = new URL(request.url);
+      return HttpResponse.json({ id: "00000000-0000-0000-0000-000000000001", started_at: "2026-09-10T12:00:00Z", start_source: "manual", needs_review: false, shop: true });
+    }));
+    await bootApp({ role: "technician" });
+    await settle();
+    document.querySelector('[data-action="clock-in-shop"]').click();
+    await settle();
+    expect(url.searchParams.get("shop")).toBe("true");
+    expect(prompt()).toBeNull();
+  });
+
   it("stays away when already clocked in", async () => {
     const clockedIn = attendanceMe({ open_punch: { started_at: "2026-09-10T08:00:00Z" } });
     await bootApp({ role: "technician", handlers: [http.get("/attendance/me", () => HttpResponse.json(clockedIn))] });

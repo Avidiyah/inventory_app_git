@@ -12,6 +12,7 @@
 
 import {
   apiAddAttendancePunch, apiDeleteAttendancePunch, apiEditAttendancePunch, apiPunchIn, apiPunchOut,
+  apiSwitchPunch,
 } from "../api.js";
 import { escapeHtml, formatHm, friendlyError } from "../format.js";
 import { setMessage } from "../dom.js";
@@ -46,18 +47,28 @@ function errorPunchHtml() {
     </section>`;
 }
 
+const SHOP_HINT = "Shop time is paid but does not count on the Leaderboards.";
+
+// Shop hours (2026-11-11): one open punch is either shop or work-order time,
+// and the switch button flips it in one tap (starting a job clock also
+// switches out of the shop, server-side).
 function onShiftHtml() {
   const punch = attendance.open_punch;
+  const shop = Boolean(punch.shop);
   return `
-    <section class="hub-punch hub-punch-on">
-      <p class="hub-punch-status"><span class="hub-punch-dot"></span> ON SHIFT</p>
+    <section class="hub-punch hub-punch-on${shop ? " hub-punch-shop" : ""}">
+      <p class="hub-punch-status"><span class="hub-punch-dot"></span> ${shop ? "IN THE SHOP" : "ON SHIFT"}</p>
       <div class="hub-punch-row">
         <div>
           <p class="hub-punch-hero">${escapeHtml(formatHm(punchElapsedMinutes()))}</p>
-          <p class="hub-punch-started">punched in ${escapeHtml(shortTime(punch.started_at))}</p>
+          <p class="hub-punch-started">${shop ? "in the shop" : "on shift"} since ${escapeHtml(shortTime(punch.started_at))}</p>
         </div>
-        <button type="button" class="hub-punch-btn" data-action="hub-punch-out">Punch out</button>
+        <div class="hub-punch-actions">
+          <button type="button" class="secondary-btn hub-punch-btn" data-action="hub-punch-switch" data-shop="${!shop}">${shop ? "Switch to work orders" : "Switch to shop"}</button>
+          <button type="button" class="hub-punch-btn" data-action="hub-punch-out">Punch out</button>
+        </div>
       </div>
+      ${shop ? `<p class="hub-punch-note">${SHOP_HINT}</p>` : ""}
       <p class="hub-punch-message" id="hub-punch-message"></p>
     </section>`;
 }
@@ -68,8 +79,12 @@ function offShiftHtml() {
       <p class="hub-punch-status">&#9675; Not punched in</p>
       <div class="hub-punch-row">
         <p class="hub-punch-today">Today <strong>${escapeHtml(formatHm(attendance.clocked_minutes_today))}</strong></p>
-        <button type="button" class="hub-punch-btn" data-action="hub-punch-in">Punch in</button>
+        <div class="hub-punch-actions">
+          <button type="button" class="secondary-btn hub-punch-btn" data-action="hub-punch-in-shop">Punch in to the shop</button>
+          <button type="button" class="hub-punch-btn" data-action="hub-punch-in">Punch in</button>
+        </div>
       </div>
+      <p class="hub-punch-note">${SHOP_HINT}</p>
       <p class="hub-punch-message" id="hub-punch-message"></p>
     </section>`;
 }
@@ -91,8 +106,9 @@ function weekPunchRowHtml(p) {
   const tags = (p.tags || []).map((t) =>
     ` <span class="day-tl-tag day-tl-tag-${t}">${t === "self" ? "Self" : "Admin"}-edited</span>`).join("");
   const flag = p.needs_review ? ` <span class="hub-home-punch-flag">⚠ needs review</span>` : "";
+  const shop = p.shop ? ` <span class="day-tl-tag hub-shop-tag">Shop</span>` : "";
   return `<li class="hub-home-punch-row">
-      <span>${escapeHtml(day)}</span> <span>${escapeHtml(span)}</span> <span>${escapeHtml(minutes)}</span>${tags}${flag}
+      <span>${escapeHtml(day)}</span> <span>${escapeHtml(span)}</span> <span>${escapeHtml(minutes)}</span>${shop}${tags}${flag}
       <button type="button" class="secondary-btn" data-action="hub-home-edit-punch" data-punch="${escapeHtml(p.id)}">Edit</button>
     </li>`;
 }
@@ -174,8 +190,11 @@ export function mountHubHome(mountEl, hubPayload, attendancePayload, { onChanged
   if (!container.dataset.wired) {
     container.dataset.wired = "1";
     container.addEventListener("click", (event) => {
-      const action = event.target.closest("[data-action]")?.dataset.action;
+      const target = event.target.closest("[data-action]");
+      const action = target?.dataset.action;
       if (action === "hub-punch-in") void run(apiPunchIn, "Could not punch in.");
+      else if (action === "hub-punch-in-shop") void run(() => apiPunchIn({ shop: true }), "Could not punch in.");
+      else if (action === "hub-punch-switch") void run(() => apiSwitchPunch(target.dataset.shop === "true"), "Could not switch.");
       else if (action === "hub-punch-out") void run(apiPunchOut, "Could not punch out.");
       else if (action === "hub-punch-retry" && refreshCallback) void refreshCallback();
       else if (action === "hub-home-edit-punch") openPunchEditor(event.target.closest("[data-punch]").dataset.punch);

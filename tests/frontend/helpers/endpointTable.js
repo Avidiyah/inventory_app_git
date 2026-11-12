@@ -156,7 +156,9 @@ export const ENDPOINTS = [
   // --- Attendance ---
   { fn: "apiGetAttendanceMe", args: [], url: "/attendance/me", cache: "no-store" },
   { fn: "apiPunchIn", args: [], method: "POST", url: "/attendance/punch-in", body: {} },
+  { fn: "apiPunchIn", args: [{ shop: true }], method: "POST", url: "/attendance/punch-in?shop=true", body: {} },
   { fn: "apiPunchOut", args: [], method: "POST", url: "/attendance/punch-out", body: {} },
+  { fn: "apiSwitchPunch", args: [true], method: "POST", url: "/attendance/switch?shop=true", body: {} },
   { fn: "apiGetHubAttendanceWeek", args: [{}], url: "/hub/attendance/week", cache: "no-store" },
   { fn: "apiGetHubPerformance", args: [{ window: "month", start: "2026-10-01" }],
     url: "/hub/performance?window=month&start=2026-10-01", cache: "no-store" },

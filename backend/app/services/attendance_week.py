@@ -52,6 +52,7 @@ class WeekPunch:
     carried: bool
     open: bool
     lunch_waived: bool
+    shop: bool = False
     # Legacy row stored past its start's midnight; flags the day (not the
     # punch, so "Looks right" can't hide it) until an Admin fixes the end.
     crosses_midnight: bool = False
@@ -70,6 +71,8 @@ class WeekDay:
     needs_review: bool
     has_open: bool
     punches: list[WeekPunch]
+    # Gross shop time inside `clocked_minutes`; the score leaves it out.
+    shop_minutes: int = 0
 
 
 @dataclass(frozen=True)
@@ -225,6 +228,7 @@ def week_payload(
                         carried=labor_day.central_date_of(punch.started_at) < day,
                         open=end is None,
                         lunch_waived=bool(punch.lunch_waived),
+                        shop=bool(punch.shop),
                         crosses_midnight=end is not None
                         and end > attendance.midnight_after(punch.started_at),
                     )
@@ -248,6 +252,7 @@ def week_payload(
                                      for entry in day_punches),
                     has_open=any(entry.open for entry in day_punches),
                     punches=day_punches,
+                    shop_minutes=sum(e.minutes for e in day_punches if e.shop),
                 )
             )
         rows.append(WeekRow(user=person, days=week_days, total_minutes=row_total,

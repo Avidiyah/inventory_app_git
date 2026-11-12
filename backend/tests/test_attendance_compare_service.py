@@ -329,3 +329,18 @@ def test_row_adjustment_minutes_counts_unflagged_days_only(db):
     db.flush()
     week = attendance_compare.week_payload(db, week_start=MONDAY, now=NOW)
     assert _row_for(week, tech).adjustment_minutes == 40
+
+
+def test_shop_time_is_its_own_number_and_not_off_job(db):
+    tech = make_technician(db)
+    make_punch(db, tech, "2026-09-14T13:00Z", "2026-09-14T15:00Z").shop = True   # 2h shop
+    make_punch(db, tech, "2026-09-14T15:00Z", "2026-09-14T21:00Z")              # 6h field
+    make_session(db, tech, "2026-09-14T15:00Z", "2026-09-14T20:00Z")            # 5h job
+    db.flush()
+    week = attendance_compare.week_payload(db, week_start=MONDAY, now=NOW)
+
+    row = _row_for(week, tech)
+    monday = row.days[0]
+    assert (monday.clocked_minutes, monday.shop_minutes, monday.delta_minutes) == (480, 120, 60)
+    assert [p.shop for p in monday.punches] == [True, False]
+    assert row.shop_minutes == 120

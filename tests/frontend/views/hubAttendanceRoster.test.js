@@ -38,6 +38,20 @@ describe("the roster strip", () => {
     expect(text[2]).toContain("WO-1042");
   });
 
+  it("reads a shop card in words and counts it apart from idle", () => {
+    const shopper = {
+      user: { id: "user-9", first_name: "Sam", last_name: "Shop", role: "technician" },
+      state: "shop", punch_started_at: "2026-09-16T13:00:00Z", idle_since: null,
+      idle_minutes: 0, charging_since: null, work_order_number: null,
+    };
+    const base = attendanceLive();
+    view.mountHubAttendanceRoster(host, { ...base, on_shift: [...base.on_shift, shopper], shop_count: 1 });
+    const card = cards().at(-1);
+    expect(card.dataset.state).toBe("shop");
+    expect(card.textContent).toContain("in the shop");
+    expect(host.querySelector(".hub-roster-counts").textContent).toContain("1 in the shop");
+  });
+
   it("prints the three counts", () => {
     view.mountHubAttendanceRoster(host, attendanceLive());
     const counts = host.querySelector(".hub-roster-counts").textContent;

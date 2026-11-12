@@ -163,9 +163,10 @@ def window_payload(db: Session, *, window: str, start: Optional[date], now: date
         for day in days:
             punch_day = punch_days.get(user_id, {}).get(day)
             summary = by_day.get(day)
-            punches = punch_day.punches if punch_day else []
+            # Shop hours are paid but never scored (2026-11-11).
+            punches = [p for p in punch_day.punches if not p.shop] if punch_day else []
             timeline = summary.timeline if summary else []
-            day_clocked = punch_day.clocked_minutes if punch_day else 0
+            day_clocked = sum(p.minutes for p in punches)
             day_sessions = (summary.closed_minutes + summary.running_minutes) if summary else 0
             day_adjust = summary.adjustment_minutes if summary else 0
             if not (day_clocked or day_sessions or day_adjust):

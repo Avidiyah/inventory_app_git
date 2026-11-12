@@ -64,6 +64,7 @@ class CompareDay:
     has_open: bool
     pending_review: bool
     punches: list[attendance_week.WeekPunch]
+    shop_minutes: int = 0
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,7 @@ class CompareRow:
     tracked_minutes: int
     delta_minutes: int
     adjustment_minutes: int = 0
+    shop_minutes: int = 0
 
 
 @dataclass(frozen=True)
@@ -146,7 +148,8 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
                 window=bounds[day.date],
                 now=now,
             )
-            delta = max(0, day.clocked_minutes - tracked)
+            # Shop time is accounted for, not "on shift, not on a job".
+            delta = max(0, day.clocked_minutes - day.shop_minutes - tracked)
             flagged_punches = {p.id for p in day.punches if p.needs_review}
             flagged_sessions = {
                 (row.user.id, entry.work_order_id, entry.started_at)
@@ -173,6 +176,7 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
                     has_open=day.has_open,
                     pending_review=pending,
                     punches=day.punches,
+                    shop_minutes=day.shop_minutes,
                 )
             )
         # The totals rule (spec U9): a pending day is shown, never added.
@@ -186,6 +190,7 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
                 tracked_minutes=sum(d.tracked_minutes for d in counted),
                 delta_minutes=sum(d.delta_minutes for d in counted),
                 adjustment_minutes=sum(d.adjustment_minutes for d in counted),
+                shop_minutes=sum(d.shop_minutes for d in counted),
             )
         )
         for day in counted:
@@ -219,7 +224,7 @@ def _hm(total_minutes: int) -> str:
     return f"{hours}:{minutes:02d}"
 
 
-# Seven metric rows per person, always, in this order, then "Pending review".
+# Eight metric rows per person, always, in this order, then "Pending review".
 # A fixed block is what makes the
 # file parseable: a metric that appears only when non-zero turns every reader
 # into a state machine.
@@ -227,6 +232,7 @@ _METRICS: tuple[tuple[str, str], ...] = (
     ("Clocked", "clocked_minutes"),
     ("Lunch", "lunch_minutes"),
     ("Paid", "paid_minutes"),
+    ("Shop", "shop_minutes"),
     ("Charged", "tracked_minutes"),
     ("Off job", "delta_minutes"),
     ("Charged outside shift", "outside_shift_minutes"),
@@ -236,7 +242,7 @@ PENDING_LABEL = "Pending review"
 
 
 def week_csv(payload: CompareWeek) -> str:
-    """The comparison as payroll-friendly CSV: eight rows per person,
+    """The comparison as payroll-friendly CSV: nine rows per person,
     seven day columns, a week column, then the same block for the company.
 
     One header row and nothing above it -- a title line is the first thing a

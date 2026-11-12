@@ -72,6 +72,35 @@ describe("on shift", () => {
   });
 });
 
+describe("shop hours", () => {
+  const shopPunch = { id: "p1", started_at: "2026-09-10T10:00:00Z", start_source: "manual", shop: true };
+
+  it("off shift offers Punch in to the shop", async () => {
+    await openHub({ role: "technician", attendance: attendanceMe() });
+    clearRequests();
+    await user().click(punch().querySelector('[data-action="hub-punch-in-shop"]'));
+    expect(requestFor("/attendance/punch-in?shop=true").method).toBe("POST");
+  });
+
+  it("in the shop reads IN THE SHOP and switches to work orders", async () => {
+    await openHub({ role: "technician", attendance: attendanceMe({ open_punch: shopPunch }) });
+    expect(punch().classList.contains("hub-punch-shop")).toBe(true);
+    expect(punch().querySelector(".hub-punch-status").textContent).toContain("IN THE SHOP");
+    clearRequests();
+    await user().click(punch().querySelector('[data-action="hub-punch-switch"]'));
+    expect(requestFor("/attendance/switch?shop=false").method).toBe("POST");
+  });
+
+  it("on work-order time switches to the shop", async () => {
+    await openHub({ role: "technician",
+      attendance: attendanceMe({ open_punch: { ...shopPunch, shop: false } }) });
+    expect(punch().querySelector(".hub-punch-status").textContent).toContain("ON SHIFT");
+    clearRequests();
+    await user().click(punch().querySelector('[data-action="hub-punch-switch"]'));
+    expect(requestFor("/attendance/switch?shop=true").method).toBe("POST");
+  });
+});
+
 describe("no self-close prompt (M5)", () => {
   it("renders any open punch as on shift, never Close it", async () => {
     await openHub({ role: "technician",

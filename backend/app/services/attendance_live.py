@@ -62,6 +62,7 @@ class LiveRoster:
     on_shift_count: int
     charging_count: int
     idle_count: int
+    shop_count: int = 0
 
 
 # Red first: the strip is read top-down by somebody looking for a problem.
@@ -69,6 +70,7 @@ _STATE_ORDER = {
     attendance.STATE_RED: 0,
     attendance.STATE_YELLOW: 1,
     attendance.STATE_GREEN: 2,
+    attendance.STATE_SHOP: 3,
 }
 
 
@@ -95,7 +97,7 @@ def roster(db: Session, *, now: Optional[datetime] = None) -> LiveRoster:
         return LiveRoster(
             server_now=now, idle_red_minutes=attendance.IDLE_RED_MINUTES,
             on_shift=[], absent=[], on_shift_count=0, charging_count=0,
-            idle_count=0,
+            idle_count=0, shop_count=0,
         )
 
     punches = {
@@ -156,6 +158,13 @@ def roster(db: Session, *, now: Optional[datetime] = None) -> LiveRoster:
                 work_order_number=None,
             ))
             continue
+        if punch.shop:
+            on_shift.append(RosterEntry(
+                user=person, state=attendance.STATE_SHOP,
+                punch_started_at=punch.started_at, idle_since=None,
+                idle_minutes=0, charging_since=None, work_order_number=None,
+            ))
+            continue
 
         session = running.get(person.id)
         charging = False
@@ -205,6 +214,7 @@ def roster(db: Session, *, now: Optional[datetime] = None) -> LiveRoster:
     charging_count = sum(
         1 for entry in on_shift if entry.state == attendance.STATE_GREEN
     )
+    shop_count = sum(1 for entry in on_shift if entry.state == attendance.STATE_SHOP)
     return LiveRoster(
         server_now=now,
         idle_red_minutes=attendance.IDLE_RED_MINUTES,
@@ -212,5 +222,6 @@ def roster(db: Session, *, now: Optional[datetime] = None) -> LiveRoster:
         absent=absent,
         on_shift_count=len(on_shift),
         charging_count=charging_count,
-        idle_count=len(on_shift) - charging_count,
+        idle_count=len(on_shift) - charging_count - shop_count,
+        shop_count=shop_count,
     )

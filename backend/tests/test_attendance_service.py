@@ -7,7 +7,8 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from app.domain import attendance as attendance_domain
-from app.domain.errors import PunchAlreadyOpenError, PunchNotFoundError, PunchTimeInvalidError
+from app.domain.errors import (
+    NoChangeError, PunchAlreadyOpenError, PunchNotFoundError, PunchTimeInvalidError)
 from app.models import AttendancePunch, AttendancePunchEdit, User, WorkOrderLaborSession
 from app.services import attendance as attendance_service
 from app.services import auth as auth_service
@@ -364,3 +365,63 @@ def test_me_payload_lists_this_weeks_punches_only(db):
 
     assert [p.id for p in me.week_punches] == [first.id, second.id]
     assert me.week_punches[0].tags == [] and me.week_punches[1].tags == ["self"]
+
+
+# --- Shop hours (2026-11-11) ------------------------------------------------
+
+_SWITCH_AT = datetime(2026, 9, 15, 16, tzinfo=timezone.utc)
+
+
+def test_punch_in_to_the_shop_opens_a_shop_punch(db):
+    punch = attendance_service.punch_in(db, user=_seed_user(db), shop=True)
+    assert punch.shop is True and punch.ended_at is None
+
+
+def test_switch_closes_the_shop_punch_and_opens_field_time_at_the_same_instant(db):
+    tech = _seed_user(db)
+    shop = attendance_service.punch_in(db, user=tech, shop=True,
+                                       now=_SWITCH_AT - timedelta(hours=2))
+    field = attendance_service.switch_punch(db, user=tech, shop=False, now=_SWITCH_AT)
+    db.refresh(shop)
+    assert (shop.ended_at, shop.end_source) == (_SWITCH_AT, attendance_domain.END_SOURCE_MANUAL)
+    assert (field.started_at, field.shop, field.ended_at) == (_SWITCH_AT, False, None)
+    assert attendance_service.open_punch_for(db, tech.id).id == field.id
+
+
+def test_switching_into_the_shop_stops_the_work_order_clock(db):
+    admin, tech = _seed_user(db, "admin"), _seed_user(db)
+    order = _seed_work_order(db, admin, tech)
+    attendance_service.punch_in(db, user=tech)
+    wo_service.start_labor_session(db, order.id, user=tech)
+    attendance_service.switch_punch(db, user=tech, shop=True)
+    assert wo_service.running_labor_session_for(db, tech.id) is None
+    assert attendance_service.open_punch_for(db, tech.id).shop is True
+
+
+def test_switch_to_the_side_you_are_on_changes_nothing(db):
+    tech = _seed_user(db)
+    attendance_service.punch_in(db, user=tech, shop=True)
+    with pytest.raises(NoChangeError):
+        attendance_service.switch_punch(db, user=tech, shop=True)
+
+
+def test_switch_without_a_punch_is_a_404(db):
+    with pytest.raises(PunchNotFoundError):
+        attendance_service.switch_punch(db, user=_seed_user(db), shop=True)
+
+
+def test_starting_a_work_order_clock_from_the_shop_switches_to_field_time(db):
+    tech = _seed_user(db)
+    shop = attendance_service.punch_in(db, user=tech, shop=True)
+    punch = attendance_service.ensure_punch_for_labor_start(db, user=tech)
+    db.refresh(shop)
+    assert shop.ended_at is not None
+    assert punch.id != shop.id and punch.shop is False
+    assert punch.start_source == attendance_domain.START_SOURCE_AUTO_WORK_ORDER
+
+
+def test_me_payload_says_whether_the_open_punch_is_shop(db):
+    tech = _seed_user(db)
+    attendance_service.punch_in(db, user=tech, shop=True)
+    me = attendance_service.me_payload(db, user=tech)
+    assert me.open_punch.shop is True and me.week_punches[-1].shop is True

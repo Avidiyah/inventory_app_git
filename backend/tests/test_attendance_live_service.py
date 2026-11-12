@@ -162,3 +162,14 @@ def test_a_punch_past_midnight_is_absent_not_red(db):
     payload = attendance_live.roster(db, now=NOW)
     assert _entry_for(payload.absent, tech) is not None
     assert _entry_for(payload.on_shift, tech) is None
+
+
+def test_a_shop_punch_reads_in_the_shop_never_idle(db):
+    tech = make_technician(db)
+    open_punch(db, tech, started_at=NOW - timedelta(hours=3)).shop = True
+    db.flush()
+    payload = attendance_live.roster(db, now=NOW)
+    entry = _entry_for(payload.on_shift, tech)
+    assert entry.state == attendance_domain.STATE_SHOP
+    assert (entry.idle_since, entry.idle_minutes, entry.charging_since) == (None, 0, None)
+    assert (payload.shop_count, payload.idle_count, payload.charging_count) == (1, 0, 0)

@@ -50,13 +50,13 @@ def test_the_roster_is_team_lead_and_above(db):
         assert _get(db, person).status_code == 200, role
 
 
-def test_the_roster_serialises_both_lists_and_the_three_counts(db):
+def test_the_roster_serialises_both_lists_and_the_four_counts(db):
     admin = _seed_user(db, role="admin", first="Dee", last="Ops")
     db.commit()
     body = _get(db, admin).json()
     assert set(body) == {
         "server_now", "idle_red_minutes", "on_shift", "absent",
-        "on_shift_count", "charging_count", "idle_count",
+        "on_shift_count", "charging_count", "idle_count", "shop_count",
     }
     assert body["idle_red_minutes"] == 10
     assert isinstance(body["on_shift"], list)

@@ -96,8 +96,9 @@ function punchRowHtml(punch, { canEdit, canReview } = {}) {
       <button type="button" class="hub-link-btn hub-hours-edit" data-punch="${escapeHtml(punch.id)}">Edit</button>
       ${punch.needs_review && canReview ? `<button type="button" class="hub-link-btn hub-hours-clear-review" data-punch="${escapeHtml(punch.id)}">Looks right</button>` : ""}
     </span>`;
+  const shop = punch.shop ? ` <span class="day-tl-tag hub-shop-tag">Shop</span>` : "";
   return `<div class="hub-hours-drilldown-row">
-    <span>${escapeHtml(timeLabel(punch.started_at))} – ${escapeHtml(ended)}${suffix}</span>
+    <span>${escapeHtml(timeLabel(punch.started_at))} – ${escapeHtml(ended)}${shop}${suffix}</span>
     <span>${formatHm(punch.minutes)}${controls}</span>
   </div>`;
 }
@@ -140,7 +141,7 @@ export function drilldownHtml(day, name, {
   return `<div class="hub-hours-drilldown">
     <div class="hub-hours-drilldown-heading">
       <strong>${escapeHtml(name)} · ${escapeHtml(longDateLabel(day.date))}</strong>
-      <strong>${formatHm(day.paid_minutes)} paid</strong>
+      <strong>${formatHm(day.paid_minutes)} paid${day.shop_minutes ? ` · ${formatHm(day.shop_minutes)} shop` : ""}</strong>
     </div>
     ${rows}${lunchLineHtml(day, canLunch)}${empty}${add}
     <div class="hub-hours-editor" data-date="${escapeHtml(day.date)}" data-user="${escapeHtml(userId)}"></div>
@@ -192,7 +193,8 @@ export function mountHubAttendanceHours(container, payload, {
             };
             const isExpanded = expanded?.rowIndex === rowIndex && expanded?.date === dateValue;
             const flags = cellFlagLabels(day);
-            const label = `${name}, ${longDateLabel(dateValue)}, ${formatHm(day.paid_minutes)} paid${flags ? `, ${flags}` : ""}`;
+            const shop = day.shop_minutes ? `, ${formatHm(day.shop_minutes)} in the shop` : "";
+            const label = `${name}, ${longDateLabel(dateValue)}, ${formatHm(day.paid_minutes)} paid${shop}${flags ? `, ${flags}` : ""}`;
             // A pending day is printed but left out of every total (U9).
             const pending = day.pending_review ? " hub-hours-cell-pending" : "";
             return `<td><button type="button" class="hub-hours-cell${pending}" data-row="${rowIndex}" data-date="${escapeHtml(dateValue)}" aria-label="${escapeHtml(label)}" aria-expanded="${isExpanded}" aria-controls="hub-hours-detail-${rowIndex}">${formatHm(day.paid_minutes)}${cellFlagsHtml(day)}</button></td>`;
@@ -201,7 +203,11 @@ export function mountHubAttendanceHours(container, payload, {
         const nameCell = onOpenProfile && PROFILABLE_ROLES.includes(row.user?.role)
           ? `<button type="button" class="hub-link-btn hub-hours-person" data-row="${rowIndex}">${escapeHtml(name)}</button>`
           : escapeHtml(name);
-        const mainRow = `<tr><th scope="row">${nameCell}</th>${cells}<td class="hub-hours-row-total">${formatHm(row.paid_minutes)}</td></tr>`;
+        // Shop hours are inside the paid total; the sub-line says how many.
+        const shopLine = row.shop_minutes
+          ? `<span class="hub-hours-shop-total">${formatHm(row.shop_minutes)} shop</span>`
+          : "";
+        const mainRow = `<tr><th scope="row">${nameCell}</th>${cells}<td class="hub-hours-row-total">${formatHm(row.paid_minutes)}${shopLine}</td></tr>`;
         if (expanded?.rowIndex !== rowIndex) return mainRow;
         const day = byDate.get(expanded.date);
         if (!day) return mainRow;

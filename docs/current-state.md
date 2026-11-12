@@ -469,6 +469,13 @@ Attendance:
   profile and CSV print; delta, the boards and the Home tab stay gross.
   The waiver is `lunch_waived` on the day's first non-carried punch (the
   day page's Remove/Restore lunch, audited); it never clears `needs_review`.
+- Shop hours: `attendance_punches.shop`. Clock in to the shop from the
+  sign-in prompt or Home; Home's switch button closes the open punch and opens
+  the other kind at the same instant (`POST /attendance/switch`). Into the
+  shop stops a running job clock; starting a job clock from the shop switches
+  to work-order time. Shop is paid and on the timesheet (blue `Shop` tag, day
+  and week `shop` totals, CSV `Shop` row, roster `in the shop`, never idle),
+  not "Off job", and left out of the performance score (clocked = non-shop).
 - Leaderboards tab (Admin+, Week | Month switch, ◀ ▶ within the window):
   one **performance score** per person from `GET /hub/performance`, scored
   server-side in `domain/performance.py`. Components: Billed $ (40%, each
@@ -1435,7 +1442,7 @@ Rules:
 ### `attendance_punches`, `attendance_punch_edits`
 
 Fields: `id`, `user_id`, `started_at`, `ended_at`, `start_source`,
-`end_source`, `needs_review`, `lunch_waived`, `created_at`, `deleted_at`. Audit rows:
+`end_source`, `needs_review`, `lunch_waived`, `shop`, `created_at`, `deleted_at`. Audit rows:
 `id`, `punch_id`, `edited_by_id`, `edited_at`, `field`, `old_value`,
 `new_value`, `reason` (CASCADE on the punch). Added by migrations
 `b7d9f1a3c5e8` and `c4a6e8b0d2f5`.

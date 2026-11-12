@@ -5835,6 +5835,49 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     display: none;
 }
 
+/* Shop hours: one accent everywhere -- the readable blue text token, so shop
+   never reads as charging (green), idle (yellow/red) or brand red. */
+.clock-in-prompt-shop {
+    margin-top: 0;
+    background: transparent;
+    border: 2px solid var(--status-adjust-text);
+    color: var(--status-adjust-text);
+}
+
+.clock-in-prompt-hint {
+    margin-top: 0;
+}
+
+.hub-punch-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+
+.hub-punch-shop .hub-punch-status {
+    color: var(--status-adjust-text);
+}
+
+.hub-punch-shop .hub-punch-dot {
+    background-color: var(--status-adjust-text);
+}
+
+.day-tl-tag.hub-shop-tag {   /* beats .day-tl-tag, declared later */
+    border-color: var(--status-adjust-text);
+    color: var(--status-adjust-text);
+}
+
+.hub-hours-shop-total {
+    display: block;
+    font-size: var(--fs-xs);
+    color: var(--status-adjust-text);
+}
+
+.hub-roster-shop {
+    border-left-color: var(--status-adjust-text);
+}
+
 /* --- Users page: per-person weekly profile ------------------------------ */
 /* Same type and chrome as the hub Timesheets grid (.hub-hours-*): h2 title,
    th-style column heads, tabular numbers, nested-panel wrap, zebra rows. */

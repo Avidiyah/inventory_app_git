@@ -46,6 +46,8 @@ STATE_GREEN = "green"
 STATE_YELLOW = "yellow"
 STATE_RED = "red"
 STATE_GRAY = "gray"
+# On a shop punch: at work, deliberately not charging, never idle.
+STATE_SHOP = "shop"
 
 
 def idle_anchor(

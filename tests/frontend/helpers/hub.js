@@ -60,6 +60,7 @@ export async function mountHub({
     http.get("/attendance/me", () => answer(attendance ?? attendanceMe())),
     http.post("/attendance/punch-in", () => HttpResponse.json({})),
     http.post("/attendance/punch-out", () => HttpResponse.json({})),
+    http.post("/attendance/switch", () => HttpResponse.json({})),
     http.get("/hub/crew", () => answer(crew ?? hubCrew())),
     http.get("/hub/admin", () => answer(admin ?? hubAdmin())),
     http.get("/hub/attendance/week", () => answer(week ?? attendanceWeek())),

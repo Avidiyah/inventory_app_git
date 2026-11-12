@@ -46,13 +46,15 @@ def get_attendance_me(
 
 @router.post("/punch-in", response_model=AttendancePunchResponse)
 def punch_in(
+    shop: bool = False,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Start a shift. 409 when today's punch is already open; yesterday's
-    is swept to its midnight first (M2), so it never blocks."""
+    """Start a shift (`?shop=true`: in the shop). 409 when today's punch is
+    already open; yesterday's is swept to its midnight first (M2), so it
+    never blocks."""
     try:
-        punch = attendance_service.punch_in(db, user=user)
+        punch = attendance_service.punch_in(db, user=user, shop=shop)
     except DomainError as exc:
         raise to_http(exc) from exc
     emit_attendance_changed()
@@ -67,6 +69,23 @@ def punch_out(
     """End the shift, force-stopping any running work-order clock (D3)."""
     try:
         punch = attendance_service.punch_out(db, user=user)
+    except DomainError as exc:
+        raise to_http(exc) from exc
+    emit_attendance_changed()
+    return punch
+
+
+@router.post("/switch", response_model=AttendancePunchResponse)
+def switch(
+    shop: bool,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Shop <-> work-order time: close the open punch, open the other kind
+    at the same instant. Into the shop stops a running work-order clock.
+    404 off shift, 400 when already on that side."""
+    try:
+        punch = attendance_service.switch_punch(db, user=user, shop=shop)
     except DomainError as exc:
         raise to_http(exc) from exc
     emit_attendance_changed()

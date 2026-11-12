@@ -22,6 +22,7 @@ class AttendanceOpenPunch(BaseModel):
     id: uuid.UUID
     started_at: datetime
     start_source: str
+    shop: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -35,6 +36,7 @@ class AttendanceMyPunch(BaseModel):
     ended_at: Optional[datetime] = None
     needs_review: bool
     tags: list[str] = Field(default_factory=list)
+    shop: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -59,6 +61,7 @@ class AttendancePunchResponse(BaseModel):
     start_source: str
     end_source: Optional[str] = None
     needs_review: bool
+    shop: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -80,6 +83,7 @@ class AttendanceWeekPunch(BaseModel):
     open: bool
     lunch_waived: bool
     crosses_midnight: bool = False
+    shop: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -107,6 +111,8 @@ class AttendanceWeekDay(BaseModel):
     # The day rests on a forgotten clock; the leaderboard sets it aside.
     pending_review: bool
     punches: list[AttendanceWeekPunch]
+    # Shop time inside `clocked_minutes`: paid, never scored, not "off job".
+    shop_minutes: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -120,6 +126,7 @@ class AttendanceWeekRow(BaseModel):
     delta_minutes: int
     # Hand-entered labor on unflagged days; the Efficiency board adds it.
     adjustment_minutes: int = 0
+    shop_minutes: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -199,6 +206,7 @@ class AttendanceLiveResponse(BaseModel):
     on_shift_count: int
     charging_count: int
     idle_count: int
+    shop_count: int = 0
 
     model_config = {"from_attributes": True}
 

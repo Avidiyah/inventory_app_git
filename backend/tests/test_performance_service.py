@@ -203,3 +203,23 @@ def test_read_is_side_effect_free(db):
     assert not db.dirty
     assert db.get(AttendancePunch, punch.id).needs_review is True
     assert db.get(WorkOrderLaborSession, session.id).reviewed_at is None
+
+
+def test_shop_hours_stay_out_of_the_score(db):
+    # 2 h in the shop, then 6 h field with 5 h charged: scored on the 6 h only.
+    tech = make_technician(db)
+    make_punch(db, tech, "2026-09-14T13:00Z", "2026-09-14T15:00Z").shop = True
+    make_punch(db, tech, "2026-09-14T15:00Z", "2026-09-14T21:00Z")
+    make_session(db, tech, "2026-09-14T15:00Z", "2026-09-14T20:00Z")
+    db.flush()
+    row = row_for(week(db), tech)
+    assert row.clocked_minutes == 360
+    assert row.raw["efficiency"] == 83
+    assert (row.counted_days, row.active_days) == (1, 1)
+
+
+def test_a_shop_only_day_is_not_an_active_day(db):
+    tech = make_technician(db)
+    make_punch(db, tech, "2026-09-14T13:00Z", "2026-09-14T21:00Z").shop = True
+    db.flush()
+    assert tech.id not in {r.user.id for r in week(db).rows}

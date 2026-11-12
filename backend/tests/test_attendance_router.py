@@ -140,3 +140,18 @@ def test_starting_a_work_order_clock_off_shift_opens_a_punch(db):
     finally:
         del app.dependency_overrides[get_db]
     assert body["open_punch"]["start_source"] == "auto_work_order"
+
+
+def test_shop_punch_in_and_switch_over_http(db):
+    user = _seed_user(db); db.commit()
+    try:
+        with _as(db, user) as client:
+            assert client.post("/attendance/punch-in?shop=true").json()["shop"] is True
+            assert client.get("/attendance/me").json()["open_punch"]["shop"] is True
+            assert client.post("/attendance/switch?shop=true").status_code == 400
+            assert client.post("/attendance/switch?shop=false").json()["shop"] is False
+            body = client.get("/attendance/me").json()
+    finally:
+        del app.dependency_overrides[get_db]
+    assert body["open_punch"]["shop"] is False
+    assert [p["shop"] for p in body["week_punches"]] == [True, False]

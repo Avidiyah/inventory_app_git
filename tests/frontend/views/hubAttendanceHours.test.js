@@ -264,3 +264,23 @@ describe("a needs-review day (2026-10-16 totals rule)", () => {
     expect(cells()[1].classList.contains("hub-hours-cell-pending")).toBe(false);
   });
 });
+
+describe("shop hours", () => {
+  it("tags shop punches and states the shop time in the drill-down", () => {
+    const day = {
+      date: "2026-09-14", clocked_minutes: 480, lunch_minutes: 30, lunch_waived: false,
+      paid_minutes: 450, shop_minutes: 120, needs_review: false, has_open: false, punches: [
+        { id: "a", started_at: "2026-09-14T13:00:00Z", ended_at: "2026-09-14T15:00:00Z",
+          start_source: "manual", end_source: "manual", needs_review: false, minutes: 120,
+          carried: false, open: false, lunch_waived: false, shop: true },
+        { id: "b", started_at: "2026-09-14T15:00:00Z", ended_at: "2026-09-14T21:00:00Z",
+          start_source: "manual", end_source: "manual", needs_review: false, minutes: 360,
+          carried: false, open: false, lunch_waived: false, shop: false },
+      ],
+    };
+    const html = document.createElement("div");
+    html.innerHTML = drilldownHtml(day, "Ann Lee");
+    expect(html.querySelectorAll(".hub-shop-tag")).toHaveLength(1);
+    expect(html.querySelector(".hub-hours-drilldown-heading").textContent).toContain("2:00 shop");
+  });
+});

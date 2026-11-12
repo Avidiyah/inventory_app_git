@@ -570,6 +570,7 @@ def test_the_attendance_emitter_set_is_exactly_the_punch_writes():
     assert emitters == {
         "punch_in",
         "punch_out",
+        "switch",
         "add_hub_attendance_punch",
         "edit_hub_attendance_punch",
         "clock_out_hub_attendance_user",
@@ -583,7 +584,7 @@ def test_a_punch_in_emits_an_attendance_changed_envelope(monkeypatch):
     envelopes = _capture_emits(monkeypatch)
     monkeypatch.setattr(
         attendance_router.attendance_service, "punch_in",
-        lambda db, *, user: SimpleNamespace(id=uuid.uuid4()),
+        lambda db, *, user, shop=False: SimpleNamespace(id=uuid.uuid4()),
     )
 
     attendance_router.punch_in(user=user, db=None)
@@ -600,7 +601,7 @@ def test_a_failed_punch_in_emits_nothing(monkeypatch):
     user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_TECHNICIAN)
     envelopes = _capture_emits(monkeypatch)
 
-    def _refuse(db, *, user):
+    def _refuse(db, *, user, shop=False):
         raise PunchAlreadyOpenError(
             "already on shift", punch_id=uuid.uuid4(),
             started_at=datetime(2026, 9, 21, 13, 0, tzinfo=timezone.utc))

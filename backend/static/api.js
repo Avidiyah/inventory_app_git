@@ -619,8 +619,13 @@ export async function apiGetAttendanceMe() {
   return liveGet("/attendance/me");
 }
 
-export async function apiPunchIn() {
-  return jsonRequest("/attendance/punch-in", "POST", {});
+export async function apiPunchIn({ shop = false } = {}) {
+  return jsonRequest(shop ? "/attendance/punch-in?shop=true" : "/attendance/punch-in", "POST", {});
+}
+
+// Shop <-> work-order time in one tap (the open punch closes, the other kind opens).
+export async function apiSwitchPunch(shop) {
+  return jsonRequest(`/attendance/switch?shop=${shop ? "true" : "false"}`, "POST", {});
 }
 
 export async function apiPunchOut() {

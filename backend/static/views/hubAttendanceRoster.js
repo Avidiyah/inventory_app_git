@@ -74,6 +74,7 @@ function stateOf(entry) {
 // Plain text, set with textContent on every tick -- which is also why it is
 // not built as HTML.
 function detailText(entry, state) {
+  if (state === "shop") return `in the shop · ${formatElapsed(minutesSince(entry.punch_started_at))}`;
   if (state === "green") {
     const job = entry.work_order_number || "a job";
     return `charging ${job} · ${formatElapsed(minutesSince(entry.charging_since))}`;
@@ -112,7 +113,8 @@ function absentHtml(entries) {
 function render() {
   if (!container || !payload) return;
   const onShift = payload.on_shift || [];
-  const counts = `${payload.on_shift_count} on shift · ${payload.charging_count} charging · ${payload.idle_count} idle`;
+  const shop = payload.shop_count ? ` · ${payload.shop_count} in the shop` : "";
+  const counts = `${payload.on_shift_count} on shift · ${payload.charging_count} charging · ${payload.idle_count} idle${shop}`;
   const strip = onShift.length
     ? `<ul class="hub-roster-strip">${onShift.map(cardHtml).join("")}</ul>`
     : `<p class="hint hub-roster-empty">Nobody is clocked in right now.</p>`;
