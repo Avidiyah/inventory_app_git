@@ -484,6 +484,9 @@ describe("the SMR page", () => {
     })));
     const { createObjectURL } = stubObjectUrl();
     byId("smr-hours-csv-btn").click();
+    // Two waits, as the export test above does: the request, then the blob.
+    // One one-second wait for both timed out once on a loaded CI runner.
+    await vi.waitFor(() => expect(requestsFor("/work-orders/smr/hours.csv")).toHaveLength(1));
     await vi.waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
 
     byId("smr-hours-btn").click();

@@ -1772,7 +1772,10 @@ only labor was keyed in the app (no vendor line) keeps the ordinary Labor
 card and Add Skilled Technician, with no vendor entry row: a vendor line
 there would stop those hours billing. The Request and Signature sections left the card 2026-11-06;
 `workOrderRequests.js`, `workOrderSignature.js` and routes 72a–72d / S10–S12
-remain, unmounted. TechFM OA+ get import (with summary counts), filtered/
+remain, unmounted, and stay tested so the coverage gate holds
+(`workOrders/requests*.test.js` re-attach the section with
+`helpers/detachedSections.js`; `signature.test.js` drives the module
+directly). TechFM OA+ get import (with summary counts), filtered/
 client CSV export, Archive on any live card, and the exact-archived-number
 restore prompt; the Owner additionally the hidden legacy re-archive button
 (preview count → confirm → actual count). The list shows the newest 10 by
