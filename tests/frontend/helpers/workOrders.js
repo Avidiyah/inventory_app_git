@@ -193,8 +193,10 @@ export async function openCard(target = 0, detail = null) {
   }
   cardEl.querySelector("summary.wo-summary").click();
   await vi.waitFor(() => {
+    // `?? null`: while the skeleton is up there is no body, and `undefined`
+    // would pass `not.toBeNull()` before the card has painted.
     const body = listEl().querySelector("details.wo-card .wo-body");
-    expect(body?.querySelector(".wo-details")).not.toBeNull();
+    expect(body?.querySelector(".wo-details") ?? null).not.toBeNull();
   });
   // The open's own detail fetch is setup, not evidence: leaving it recorded
   // makes "the action refreshed the card" satisfiable by the open itself.

@@ -250,14 +250,16 @@ describe("by role", () => {
 });
 
 describe("My Work Orders tab", () => {
-  it("a card click focuses the number and swaps to Work Orders", async () => {
-    await openHub({ role: "technician", workOrders: [workOrderCard({ number: "7001" })], handlers: handOff() });
+  it("a card click opens that card by id and swaps to Work Orders, with no number search", async () => {
+    const wo = workOrderCard({ number: "7001" });
+    await openHub({ role: "technician", workOrders: [wo], handlers: handOff() });
     await user().click(el.tab("work-orders"));
     await vi.waitFor(() => expect(el.panel("work-orders").querySelector("summary.wo-summary")).not.toBeNull());
     clearRequests();
     await user().click(el.panel("work-orders").querySelector("summary.wo-summary"));
     await vi.waitFor(() => expect(workOrdersPage().classList.contains("active")).toBe(true));
-    await vi.waitFor(() => expect(requestFor("/work-orders/?q=7001")).not.toBeNull());
+    await vi.waitFor(() => expect(requestFor(`/work-orders/${wo.id}`)).not.toBeNull());
+    expect(requestFor("/work-orders/?q=7001")).toBeNull();
   });
 
   it("View all swaps to Work Orders and loads the page's own list, with no number search", async () => {

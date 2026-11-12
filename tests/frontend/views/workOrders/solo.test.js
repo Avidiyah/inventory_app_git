@@ -7,9 +7,10 @@ import {
   card, cardEls, listEl, mountWorkOrders, openCard, requestFor, requests,
   respond, seedList, state,
 } from "../../helpers/workOrders.js";
-import { HttpResponse } from "msw";
+import { HttpResponse, http } from "msw";
 import { restoreBrowserStubs, stubScroll } from "../../helpers/browserStubs.js";
-import { workOrderCard, workOrderDetail } from "../../helpers/factories.js";
+import { user, workOrderCard, workOrderDetail } from "../../helpers/factories.js";
+import { server } from "../../helpers/handlers.js";
 import { importView } from "../../helpers/shell.js";
 
 // Loaded per test, the way the fixture loads views (a file URL), so it is
@@ -353,6 +354,31 @@ describe("the list-entry exports", () => {
     // Resolved through the ordinary list search, not /lookup.
     expect(requestFor("/work-orders/lookup")).toBeNull();
     expect(requestFor("/work-orders/?q=909")).not.toBeNull();
+  });
+
+  it("paints the skeleton and fetches the card at once, waits for users, never for items", async () => {
+    const lead = user({ id: "u-lead", username: "lead", role: "supervisor" });
+    const detail = workOrderDetail({ number: "910" });
+    const { mod } = await mountWorkOrders({
+      role: "admin", details: [detail], users: [lead], load: false,
+    });
+    let releaseItems;
+    const itemsHeld = new Promise((resolve) => { releaseItems = resolve; });
+    server.use(http.get("/items/", async () => { await itemsHeld; return HttpResponse.json([]); }));
+
+    mod.focusWorkOrderNumber("910", { id: detail.id });
+    const pending = mod.loadWorkOrders({ refreshReferenceData: true });
+    // Before any response has landed.
+    expect(listEl().querySelector(".skel-card")).not.toBeNull();
+
+    // The card paints while /items/ is still held, with the refreshed users in
+    // its Team Lead picker (an empty one would save the order as Unassigned).
+    await pending;
+    expect(card().dataset.id).toBe(String(detail.id));
+    expect(card().querySelector(".wo-edit-supervisor option[value='u-lead']")).not.toBeNull();
+    expect(requests().filter((r) => r.url === "/users/")).toHaveLength(1);
+    expect(requests().filter((r) => r.url === "/items/")).toHaveLength(1);
+    releaseItems();
   });
 
   it("focusWorkOrderNumber matches case-insensitively when the exact number misses", async () => {

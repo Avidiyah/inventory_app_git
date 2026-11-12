@@ -14,7 +14,7 @@ import { setMessage } from "../dom.js";
 import { friendlyError } from "../format.js";
 import { skeletonCard } from "../skeleton.js";
 import { SECTION_SELECTOR, readDraft, takePendingResume } from "../workOrderDrafts.js";
-import { ensureReferenceData, getAllItems } from "./workOrderReferenceData.js";
+import { ensureReferenceData, ensureUsers, getAllItems, itemsLoading } from "./workOrderReferenceData.js";
 import { hoursInputValue } from "./workOrderPresenters.js";
 import { peekProfileOrigin, takeProfileOrigin } from "./profileOrigin.js";
 
@@ -189,16 +189,19 @@ export async function openWorkOrderPage({ id, number = null }) {
   // document's height -- once the list is gone, `window.scrollY` has already
   // been clamped to 0 and the offset is unrecoverable.
   stampListScrollY();
-  await ensureReferenceData();
   soloActive = true;
   soloNumber = number;
   setSoloChrome(true);
   if (listMessage) setMessage(listMessage, "", "");
   listEl.innerHTML = skeletonCard({ lines: 6 });
+  // Items load behind the paint (the add-material search copes, see
+  // itemsLoading); users must land first, or the Team Lead picker paints empty
+  // and Save Details clears it. Shares a page-entry refresh already in flight.
+  void ensureReferenceData();
 
   let detail;
   try {
-    detail = await apiGetWorkOrder(id);
+    [detail] = await Promise.all([apiGetWorkOrder(id), ensureUsers()]);
   } catch (err) {
     renderSoloError(friendlyError(err, "Could not open this work order."));
     return;
@@ -216,12 +219,13 @@ export async function openWorkOrderPage({ id, number = null }) {
 // answers "may this caller see it" as a side effect of answering "does it
 // exist". It partial-matches, so the exact number is chosen here.
 export async function openWorkOrderPageByNumber(number) {
-  await ensureReferenceData();
   soloActive = true;
   soloNumber = number;
   setSoloChrome(true);
   if (listMessage) setMessage(listMessage, "", "");
   listEl.innerHTML = skeletonCard({ lines: 6 });
+  // Runs alongside the search; openWorkOrderPage waits for users.
+  void ensureReferenceData();
 
   let matches;
   try {
@@ -321,9 +325,14 @@ function fillDraftFields(section, draft) {
     const container = section.querySelector(".wo-add-item");
     if (!container) return;
     container.dataset.itemId = payload.itemId;
-    const name = getAllItems().find((it) => it.id === payload.itemId)?.name;
     const search = container.querySelector(".ms-item-search");
-    if (search && name) search.value = name;
+    // Items may still be loading behind the card paint: fill once they land.
+    const fillName = () => {
+      const name = getAllItems().find((it) => it.id === payload.itemId)?.name;
+      if (search && name && !search.value) search.value = name;
+    };
+    fillName();
+    itemsLoading()?.then(fillName);
     const qty = container.querySelector(".wo-item-qty");
     if (qty) qty.value = payload.quantity;
   } else if (action === "edit-item") {

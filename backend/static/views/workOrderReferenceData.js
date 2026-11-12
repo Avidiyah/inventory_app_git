@@ -17,12 +17,16 @@ let itemsLoaded = false;
 let allTechs = [];
 let allSupers = [];
 let usersLoaded = false;
+// In-flight loads, shared by concurrent callers (see ensureReferenceData).
+let itemsRequest = null;
+let usersRequest = null;
 // The reference half of the reset. workOrderFilters.js listens for the same
 // event and resets only the filter-options flag it owns.
 document.addEventListener("user-names-updated", () => {
   allTechs = [];
   allSupers = [];
   usersLoaded = false;
+  usersRequest = null;
 });
 
 export function getAllItems() { return allItems; }
@@ -30,7 +34,7 @@ export function getAllTechnicians() { return allTechs; }
 export function getAllSupervisors() { return allSupers; }
 // Import and enrichment both invalidate the user lists so a re-import reflects
 // fresh data. The flag, not the arrays: the next ensureReferenceData refetches.
-export function invalidateUsers() { usersLoaded = false; }
+export function invalidateUsers() { usersLoaded = false; usersRequest = null; }
 
 // Item and user reference lists that the card *body* needs: the add-material
 // search reads `allItems`, the technician picker reads `allTechs`/`allSupers`.
@@ -39,24 +43,39 @@ export function invalidateUsers() { usersLoaded = false; }
 // card body without ever rendering the list, and empty lists there are a
 // picker that silently matches nothing rather than an error the user can act
 // on. Failures stay swallowed, as before: the card is still worth showing.
-export async function ensureReferenceData({ refresh = false } = {}) {
-  if (refresh || !itemsLoaded) {
-    try {
-      allItems = await apiListItems();
-      itemsLoaded = true;
-    } catch {
-      allItems = [];
-    }
+//
+// Items and users load in parallel, and a call made while a load is in flight
+// shares it rather than starting a second one. That is how a card page opened
+// right after a page-entry refresh paints with the refreshed users list: it
+// awaits `ensureUsers()`, which hands back the refresh's request.
+export function ensureReferenceData({ refresh = false } = {}) {
+  if (!itemsRequest && (refresh || !itemsLoaded)) {
+    const req = apiListItems().then(
+      (items) => { allItems = items; itemsLoaded = true; },
+      () => { allItems = []; },
+    ).finally(() => { if (itemsRequest === req) itemsRequest = null; });
+    itemsRequest = req;
   }
-  if ((refresh || !usersLoaded) && isSupervisorPlus()) {
-    try {
-      const users = await apiListUsers();
-      allTechs = users.filter((u) => canBeWorkOrderAssignee(u.role));
-      allSupers = users.filter((u) => canBeWorkOrderSupervisor(u.role));
-      usersLoaded = true;
-    } catch {
-      allTechs = [];
-      allSupers = [];
-    }
-  }
+  return Promise.all([itemsRequest, ensureUsers({ refresh })]).then(() => {});
 }
+
+// The card's Team Lead picker reads the supervisor list at paint time, so a
+// card must not paint before this settles (an empty list saves as Unassigned).
+export function ensureUsers({ refresh = false } = {}) {
+  if (!usersRequest && (refresh || !usersLoaded) && isSupervisorPlus()) {
+    const req = apiListUsers().then(
+      (users) => {
+        allTechs = users.filter((u) => canBeWorkOrderAssignee(u.role));
+        allSupers = users.filter((u) => canBeWorkOrderSupervisor(u.role));
+        usersLoaded = true;
+      },
+      () => { allTechs = []; allSupers = []; },
+    ).finally(() => { if (usersRequest === req) usersRequest = null; });
+    usersRequest = req;
+  }
+  return usersRequest || Promise.resolve();
+}
+
+// The in-flight items load, or null once settled. Lets a reader of
+// `getAllItems()` tell "not loaded yet" from "no such item".
+export function itemsLoading() { return itemsRequest; }

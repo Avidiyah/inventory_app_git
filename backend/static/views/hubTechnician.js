@@ -220,7 +220,7 @@ export function mountHubWorkOrders(container, payload) {
     container: listContainer,
     lockedFilter,
     onOpen: (card) => {
-      focusWorkOrderNumber(card.number);
+      focusWorkOrderNumber(card.number, { id: card.id });
       showPage("work-orders");
     },
   });

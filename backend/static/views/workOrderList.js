@@ -214,7 +214,9 @@ export async function loadWorkOrders({
     // No list will be rendered on this path, so a remembered offset would sit
     // armed and fire on some later, unrelated render.
     clearPendingListScrollY();
-    await ensureReferenceData({ refresh: refreshReferenceData });
+    // Not awaited: the open below paints its skeleton at once and waits for
+    // this refresh's users list (shared in flight) together with the card.
+    void ensureReferenceData({ refresh: refreshReferenceData });
     // With an id in hand the card is fetched directly: the number path
     // resolves through the live list, which never lists an SMR order.
     if (pendingSoloId) await openWorkOrderPage({ id: pendingSoloId, number });

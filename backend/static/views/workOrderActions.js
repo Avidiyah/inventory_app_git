@@ -45,7 +45,7 @@ import {
   renderTechnicianSearch,
   technicianSelectionHtml,
 } from "./workOrderCardHtml.js";
-import { getAllItems } from "./workOrderReferenceData.js";
+import { getAllItems, itemsLoading } from "./workOrderReferenceData.js";
 import { exitSolo } from "./workOrderRouting.js";
 import { peekProfileOrigin, takeProfileOrigin } from "./profileOrigin.js";
 import { handleSmrAction } from "./workOrderSmrActions.js";
@@ -70,6 +70,14 @@ listEl.addEventListener("input", (event) => {
   if (!q) {
     results.hidden = true;
     results.innerHTML = "";
+    return;
+  }
+  // Items still loading behind a card paint: not yet known is not "no match".
+  const loading = itemsLoading();
+  if (loading) {
+    results.innerHTML = `<p class="hint">Loading items…</p>`;
+    results.hidden = false;
+    loading.then(() => { if (input.isConnected) input.dispatchEvent(new Event("input", { bubbles: true })); });
     return;
   }
   const matches = filterRanked(
