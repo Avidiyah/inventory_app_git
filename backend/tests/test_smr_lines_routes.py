@@ -79,7 +79,7 @@ def test_admin_adds_a_reading_and_a_line_and_the_detail_carries_them(db):
         assert reading.status_code == 200, reading.text
         line = client.post(f"/work-orders/smr/{order.id}/lines", json={**LINE, "reading_id": reading.json()["id"]})
         assert line.status_code == 200, line.text
-        assert line.json()["hours"] == "2.0" and line.json()["history"][0]["field"] == "created"
+        assert line.json()["hours"] == "2.0" and line.json()["history"] == []
 
         edited = client.patch(f"/work-orders/smr/readings/{reading.json()['id']}", json={"hours_as_read": "3.0", "raw_note": "Pat 3 h"})
         assert edited.status_code == 200 and edited.json()["hours_as_read"] == "3.0" and edited.json()["raw_note"] == "Pat 3 h"
@@ -128,24 +128,28 @@ def test_regenerate_all_and_its_undo_over_http(db):
         assert client.delete("/work-orders/smr/blocks/regenerate").status_code == 403
 
 
-def test_patch_edits_dates_and_soft_removes_with_domain_errors_as_400_and_404(db):
+def test_patch_edits_and_dates_delete_removes_and_the_card_lists_charged_lines_only(db):
     admin = _user(db)
     order = _smr_order(db, admin)
     with _Client(db, admin) as client:
         line = client.post(f"/work-orders/smr/{order.id}/lines",
-                           json={**LINE, "work_date": None, "status": "excluded", "exclusion_ground": "undated"}).json()
-        dated = client.patch(f"/work-orders/smr/lines/{line['id']}", json={"work_date": "2026-06-03", "reason": "date found"})
+                           json={**LINE, "reason": None, "work_date": None, "status": "excluded", "exclusion_ground": "undated"}).json()
+        # An excluded line is not sent to the card (user 2026-11-12).
+        assert client.get(f"/work-orders/{order.id}").json()["smr_lines"] == []
+        dated = client.patch(f"/work-orders/smr/lines/{line['id']}", json={"work_date": "2026-06-03"})
         assert dated.status_code == 200 and (dated.json()["status"], dated.json()["week"]) == ("charged", 2)
+        assert [l["id"] for l in client.get(f"/work-orders/{order.id}").json()["smr_lines"]] == [line["id"]]
 
-        blank = client.patch(f"/work-orders/smr/lines/{line['id']}", json={"note": "x", "reason": ""})
-        assert blank.status_code == 400 and "reason" in blank.json()["detail"]
-        missing = client.patch(f"/work-orders/smr/lines/{uuid.uuid4()}", json={"note": "x", "reason": "y"})
+        same = client.patch(f"/work-orders/smr/lines/{line['id']}", json={"work_date": "2026-06-03"})
+        assert same.status_code == 400 and "othing" in same.json()["detail"]
+        missing = client.patch(f"/work-orders/smr/lines/{uuid.uuid4()}", json={"note": "x"})
         assert missing.status_code == 404
 
-        removed = client.patch(f"/work-orders/smr/lines/{line['id']}",
-                               json={"status": "excluded", "exclusion_ground": "removed", "reason": "double keyed"})
-        assert removed.status_code == 200 and removed.json()["exclusion_ground"] == "removed"
-        assert [h["field"] for h in removed.json()["history"]][-1] == "deleted"
+        assert client.delete(f"/work-orders/smr/lines/{line['id']}").status_code == 204
+        assert client.get(f"/work-orders/{order.id}").json()["smr_lines"] == []
+        assert client.delete(f"/work-orders/smr/lines/{line['id']}").status_code == 404
+    with _Client(db, _user(db, "supervisor")) as client:
+        assert client.delete(f"/work-orders/smr/lines/{uuid.uuid4()}").status_code == 403
 
 
 def test_workers_search_add_and_owner_only_merge(db):

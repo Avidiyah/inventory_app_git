@@ -212,8 +212,8 @@ listEl.addEventListener("click", async (event) => {
 
   try {
     if (action.startsWith("smr-") && action !== "smr-paper-check") {
-      // The paper-corrections editor (workOrderSmrActions.js); its ten
-      // branches share this catch.
+      // An SMR order's Labor and Invoice actions (workOrderSmrActions.js);
+      // its branches share this catch.
       await handleSmrAction(action, btn, cardEl, msg);
     } else if (action === "ack-notes-wo") {
       // The notes are open (the button lives inside them): the read is the

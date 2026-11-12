@@ -48,11 +48,11 @@ import {
 import { chargingStripHtml, statusActionsHtml } from "./workOrderStatusActions.js";
 import { getAllSupervisors, getAllTechnicians } from "./workOrderReferenceData.js";
 import { livePriorityValues } from "./workOrderFilters.js";
-import { canEditSmrLines, readyRowHtml, smrSectionHtml } from "./workOrderSmrLines.js";
+import { canEditSmrLines, readyRowHtml, smrInvoiceSectionHtml, smrLaborSectionHtml } from "./workOrderSmrLines.js";
 import { comboHtml } from "../menus.js";
 
-function renderLaborEntryHtml(entry, readOnly = false) {
-  const actions = !readOnly && canEditLaborEntry(entry)
+function renderLaborEntryHtml(entry) {
+  const actions = canEditLaborEntry(entry)
     ? `<div class="wo-labor-actions">
          <input type="number" class="wo-labor-hours" value="${escapeHtml(hoursInputValue(entry.minutes))}" min="0.01" step="0.01" aria-label="Actual labor hours">
          <button type="button" class="secondary-btn" data-action="edit-labor">Update</button>
@@ -107,20 +107,11 @@ function laborTechnicianControl(detail) {
 }
 
 function laborSectionHtml(detail) {
-  // An SMR order whose paper is read bills its correction lines (D9): the
-  // entries keyed before the paper review stay visible, read-only and
-  // collapsed under the user's label, and nothing more is keyed here.
-  if ((detail.smr_readings || []).length || (detail.smr_lines || []).length) {
-    const legacy = (detail.labor || []).map((entry) => renderLaborEntryHtml(entry, true)).join("") ||
-      `<p class="hint">Nothing was keyed before the correction.</p>`;
-    return `<details class="wo-section-card wo-labor-section wo-labor-section--before">
-              <summary class="wo-section-summary">NetFacilities Record Before Correction</summary>
-              <div class="wo-section-content">
-                <p class="hint">Keyed before the paper review and not charged: the corrected lines above bill instead.</p>
-                <div class="wo-labor-list">${legacy}</div>
-                ${targetLaborHtml(detail)}
-              </div>
-            </details>`;
+  // An SMR order bills its vendor lines (D9), so its Labor card lists those
+  // (user 2026-11-12). The few orders whose only labor was keyed in the app
+  // keep the card below: a vendor line there would stop those hours billing.
+  if (detail.smr && ((detail.smr_lines || []).length || !(detail.labor || []).length)) {
+    return smrLaborSectionHtml(detail);
   }
   const entries = (detail.labor || []).map((entry) => renderLaborEntryHtml(entry)).join("") ||
     `<p class="hint">No labor recorded yet.</p>`;
@@ -554,11 +545,9 @@ export function renderBody(detail, bodyEl) {
          </div>`}
        </div>
      </details>` +
-    // Paper corrections above Labor, SMR orders only (spec 2026-11-04).
-    smrSectionHtml(detail) +
-    // An SMR order shows Labor to everyone: any role keys its Skilled
-    // Technician hours (all hands, 2026-10-23).
+    // An SMR order shows Labor to everyone, then its Invoice section.
     (sup || assignedToCurrentUser || detail.smr ? laborSectionHtml(detail) : "") +
+    smrInvoiceSectionHtml(detail) +
     `<p class="wo-message"></p>`;
 }
 

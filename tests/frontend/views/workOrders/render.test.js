@@ -441,9 +441,10 @@ describe("the labor section", () => {
       .toContain("Labor is billed at $62.50/hour.");
   });
 
-  // SMR27 audit (spec 2026-10-23): the anonymous Skilled Technician line.
-  it("offers Add Skilled Technician above the technician picker on an SMR order for Admin+", async () => {
-    const { cardEl } = await renderBody({ smr: true, assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] }, { role: "admin" });
+  // SMR27 audit (spec 2026-10-23): the anonymous Skilled Technician line, on
+  // an SMR order whose labor was keyed in the app (the rest list vendor lines).
+  it("offers Add Skilled Technician above the technician picker on an app-keyed SMR order for Admin+", async () => {
+    const { cardEl } = await renderBody({ smr: true, assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"], labor: [{ id: "e1", technician_id: "t1", technician_name: "Ada L", minutes: 30 }] }, { role: "admin" });
     const skilled = cardEl.querySelector("[data-action=\"add-skilled-labor\"]");
     expect(skilled.textContent).toBe("Add Skilled Technician");
     expect(cardEl.querySelector(".wo-new-skilled-hours")).not.toBeNull();
@@ -452,12 +453,12 @@ describe("the labor section", () => {
   });
 
   // All hands (2026-10-23): every role keys Skilled Technician hours on an
-  // SMR order; the control never appears off one.
+  // app-keyed SMR order; the control never appears off one.
   it.each([
     ["technician", true, "shown"], ["supervisor", true, "shown"], ["admin", true, "shown"], ["owner", true, "shown"],
     ["technician", false, "hidden"], ["admin", false, "hidden"], ["owner", false, "hidden"],
   ])("Add Skilled Technician for %s with smr=%s is %s", async (role, smr, visibility) => {
-    const { cardEl } = await renderBody({ smr, assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] }, { role });
+    const { cardEl } = await renderBody({ smr, assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"], labor: [{ id: "e1", technician_id: "t1", technician_name: "Ada L", minutes: 30 }] }, { role });
     expect(cardEl.querySelector("[data-action=\"add-skilled-labor\"]") === null).toBe(visibility === "hidden");
   });
 

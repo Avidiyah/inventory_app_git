@@ -4,95 +4,73 @@
 
 import {
   apiSmrAddLine,
-  apiSmrAddReading,
+  apiSmrDeleteLine,
   apiSmrEditLine,
-  apiSmrEditReading,
   apiSmrGenerateBlock,
   apiSmrMarkPasted,
   apiSetSmrReady,
 } from "../api.js";
 import { confirmDialog, setMessage } from "../dom.js";
 import { refreshCard } from "./workOrderList.js";
-import { fillLineForm, fillReadingForm, readAddLineRow, readLineForm } from "./workOrderSmrLines.js";
+import { fillEntryRow, readEntryRow } from "./workOrderSmrLines.js";
 
-const SECTION = ".wo-smr-section";
+// The section an action sits in is opened again after the card re-renders.
+const LABOR = ".wo-smr-section";
+const INVOICE = ".wo-smr-invoice";
 
 // `msg` comes from the caller: setMessage clears the element's class, so it
 // cannot be found by `.wo-message` once the delegation has reset it.
 export async function handleSmrAction(action, btn, cardEl, msg) {
   const workOrderId = cardEl.dataset.id;
-  const section = cardEl.querySelector(SECTION);
-  const form = section.querySelector(".wo-smr-line-form");
-  const lineOf = () => JSON.parse(btn.closest(".wo-smr-line").dataset.line);
+  const row = cardEl.querySelector(".wo-smr-add");
+  const lineEl = btn.closest(".wo-smr-line");
+  const lineOf = () => JSON.parse(lineEl.dataset.line);
 
-  if (action === "smr-add-reading") {
-    const readingForm = section.querySelector(".wo-smr-reading-form");
-    const v = (cls) => section.querySelector(`.${cls}`).value.trim();
-    const printing = Number(v("wo-smr-r-printing"));
-    if (!printing) {
-      setMessage(msg, "Enter the printing number from the paper.", "error");
-      return;
-    }
-    const payload = {
-      printing_no: printing,
-      work_date: v("wo-smr-r-date") || null,
-      hours_as_read: v("wo-smr-r-hours") || null,
-      raw_note: v("wo-smr-r-note"),
-    };
-    if (readingForm.dataset.readingId) await apiSmrEditReading(readingForm.dataset.readingId, payload);
-    else await apiSmrAddReading(workOrderId, payload);
-    await refreshCard(cardEl, SECTION);
-  } else if (action === "smr-edit-reading") {
-    const readingForm = section.querySelector(".wo-smr-reading-form");
-    fillReadingForm(readingForm, JSON.parse(btn.closest(".wo-smr-reading").dataset.reading));
-    readingForm.querySelector(".wo-smr-r-printing").focus();
-  } else if (action === "smr-cancel-reading") {
-    fillReadingForm(section.querySelector(".wo-smr-reading-form"), null);
-  } else if (action === "smr-add-line") {
-    const payload = readAddLineRow(section);
+  if (action === "smr-add-line") {
+    // The one entry row adds, or saves the line Edit loaded into it.
+    const payload = readEntryRow(row);
+    const lineId = row.dataset.lineId;
     if (!payload.hours_each) {
       setMessage(msg, "Enter the hours each person worked.", "error");
       return;
     }
-    await apiSmrAddLine(workOrderId, payload);
-    await refreshCard(cardEl, SECTION);
+    if (!lineId && !payload.work_date) {
+      setMessage(msg, "Enter the date the work was done.", "error");
+      return;
+    }
+    if (lineId) await apiSmrEditLine(lineId, payload);
+    else await apiSmrAddLine(workOrderId, { ...payload, reason_code: "as_read" });
+    await refreshCard(cardEl, LABOR);
   } else if (action === "smr-edit-line") {
-    fillLineForm(form, lineOf());
-    form.hidden = false;
-  } else if (action === "smr-exclude-line" || action === "smr-charge-line") {
-    // One tap each way, no ground and no confirm: Charge undoes Exclude and
-    // the history row names the tap (user, 2026-11-06).
-    const charge = action === "smr-charge-line";
-    await apiSmrEditLine(lineOf().id, charge
-      ? { status: "charged", exclusion_ground: null, reason: "charged on the card" }
-      : { status: "excluded", reason: "excluded on the card" });
-    await refreshCard(cardEl, SECTION);
+    fillEntryRow(row, lineOf());
+    row.querySelector(".wo-smr-a-name").focus();
+  } else if (action === "smr-cancel-line") {
+    fillEntryRow(row, null);
+  } else if (action === "smr-update-line") {
+    const hoursEach = lineEl.querySelector(".wo-smr-l-hours").value.trim();
+    if (!hoursEach) {
+      setMessage(msg, "Enter the hours.", "error");
+      return;
+    }
+    await apiSmrEditLine(lineOf().id, { hours_each: hoursEach });
+    await refreshCard(cardEl, LABOR);
   } else if (action === "smr-delete-line") {
-    // The soft remove the service already records as one `deleted` history row (user 2026-11-11).
+    // A real delete (user 2026-11-12): the row is gone, nothing keeps a copy.
     const ok = await confirmDialog(
-      "Delete this labor line? It leaves the card, the block and the totals. The change stays in history.",
-      { confirmText: "Delete" },
+      "Remove this labor line? It is deleted for good and cannot be brought back.",
+      { confirmText: "Remove" },
     );
     if (!ok) return;
-    await apiSmrEditLine(lineOf().id, { status: "excluded", exclusion_ground: "removed", reason: "deleted on the card" });
-    await refreshCard(cardEl, SECTION);
-  } else if (action === "smr-cancel-line") {
-    form.hidden = true;
-  } else if (action === "smr-save-line") {
-    const payload = readLineForm(form);
-    // Why is optional (user 2026-11-07); history still needs a reason.
-    if (!payload.reason) payload.reason = "edited on the card";
-    if (form.dataset.lineId) await apiSmrEditLine(form.dataset.lineId, payload);
-    else await apiSmrAddLine(workOrderId, payload);
-    await refreshCard(cardEl, SECTION);
+    await apiSmrDeleteLine(lineOf().id);
+    await refreshCard(cardEl, LABOR);
   } else if (action === "smr-generate-block") {
-    await apiSmrGenerateBlock(workOrderId, section.querySelector(".wo-smr-description-text")?.value ?? null);
-    await refreshCard(cardEl, SECTION);
+    await apiSmrGenerateBlock(workOrderId, cardEl.querySelector(".wo-smr-description-text")?.value ?? null);
+    await refreshCard(cardEl, INVOICE);
   } else if (action === "smr-print-block") {
     // Print only the block: a sheet as the body's sole visible child (print CSS).
     const sheet = document.createElement("pre");
     sheet.className = "smr-print-sheet";
-    sheet.textContent = section.querySelector(".wo-smr-block-text").value;
+    sheet.textContent = cardEl.querySelector(".wo-smr-block-text").value;
     document.body.append(sheet);
     document.body.classList.add("smr-printing");
     try {
@@ -103,10 +81,10 @@ export async function handleSmrAction(action, btn, cardEl, msg) {
     }
   } else if (action === "smr-mark-pasted") {
     await apiSmrMarkPasted(btn.dataset.blockId);
-    await refreshCard(cardEl, SECTION);
+    await refreshCard(cardEl, INVOICE);
   } else if (action === "smr-ready" || action === "smr-not-ready") {
     // Reversible, so no confirm: Not ready clears the stamp the same way.
     await apiSetSmrReady(workOrderId, action === "smr-ready");
-    await refreshCard(cardEl, SECTION);
+    await refreshCard(cardEl);
   }
 }

@@ -147,7 +147,7 @@ backend/app/services/work_orders_smr_xlsx.py SMR before/after/delta workbook + p
 backend/app/routers/work_orders_smr.py `/work-orders/smr` import (Owner), tiles (every role), export (Owner), paper import (Owner), readings / lines / workers / blocks / Hours (Admin+; worker merge Owner)
 backend/app/models_smr.py     SMR27 paper-correction tables: smr_workers, smr_paper_readings, smr_labor_lines, smr_line_edits, smr_correction_blocks
 backend/app/domain/work_orders_smr_block.py 41-char correction block renderer + lines digest
-backend/app/services/work_orders_smr_lines.py SMR readings / lines / workers / blocks writes (history row per change) + Hours data
+backend/app/services/work_orders_smr_lines.py SMR readings / lines / workers / blocks writes + Hours data; a line keeps no history and Remove deletes the row (user 2026-11-12); `scripts/smr_purge_dead_lines.py` deletes every non-charged line and all `smr_line_edits` rows and re-stamps the block digests (dry run by default)
 backend/app/services/work_orders_smr_weekly.py SMR vendor invoice import (`smr_vendor_invoices` incl. the invoice's worker name, replace by invoice number), weekly chart series (raw cells + roll-forward), `fill_invoice_names` / `undo_invoice_names` (generic GC / XXL crew lines take the invoiced name with the most unused hours in the week, as new single lines; run from `scripts/smr_fill_invoice_names.py`, undo by tag; `scripts/smr_charge_undated_likely.py` charges undated lines to the reconciliation's likely week the same way)
 backend/app/services/work_orders_smr_import.py Owner paper import (readings + lines CSVs, optional Breakdown; tie check; one commit)
 backend/app/schemas/work_orders_smr_lines.py SMR reading / line / worker / block / import / hours shapes (shared by WorkOrderDetail)
@@ -1749,22 +1749,28 @@ and one `.wo-crew-lock` hint says to Begin Charging (or, on a finished work
 order, that it is read-only). Nested collapsed cards: Edit details
 (Team Lead sees routing/assignment/status; TechFM OA+ also imported
 metadata; `number` never), Notes (append-only log; save clears and closes),
-Materials (Technicians add-only, read-only quantities), Paper corrections
-(SMR orders only, Admin+ edits; `workOrderSmrLines.js` / `workOrderSmrActions.js`:
-each line reads like a Labor entry — keyed name or `Skilled Technician`, `N×` for a
-crew, hours each, date, vendor; the add row keys name / headcount / hours /
-date / vendor / Reason (Labor = `field`, Assessment, Audit, Staging, Material
-Preparation, Clean-up) and posts a charged `as_read` line, an undated one
-waiting as excluded: undated; each printing has Edit (the reading form
-serves add and edit, S7b; dating a printing dates and charges its `undated` lines); lines carry a green / red left rule for charged /
-excluded and a kind chip in the status hues; Exclude and Charge are one tap
-each way with no ground (the ground select on Edit is optional); the totals are four stat tiles; the server links a keyed name to a live
-worker or alias of that vendor silently, else leaves it unlinked, and the
-Hours tab groups by worker name, else keyed name, else `Skilled Technician`; Edit
-opens the full form), Labor (read-only below Admin; the Admin/Owner
-picker includes themselves "(not assigned)"; entries show their session
-window, capped ones tagged "auto-stopped"; a Technician off the crew gets no
-Labor section). The Request and Signature sections left the card 2026-11-06;
+Materials (Technicians add-only, read-only quantities), Labor (read-only
+below Admin; the Admin/Owner picker includes themselves "(not assigned)";
+entries show their session window, capped ones tagged "auto-stopped"; a
+Technician off the crew gets no Labor section), and on SMR orders Invoice
+(under Labor, open for Admin+: work description, Generate correction block,
+Print receipt, Mark pasted). **SMR Labor card** (user 2026-11-12;
+`workOrderSmrLines.js` / `workOrderSmrActions.js`, Admin+ edits, open by
+default): an SMR order's Labor card lists its charged vendor lines, nothing
+else (`GET /work-orders/{id}` sends charged lines only; readings, excluded
+lines, line notes and history are off the card). Each row: keyed name or
+`Skilled Technician`, `×N` for a crew, date or week, vendor, a kind chip, an
+hours-each box with Update / Edit / Remove. Remove hard-deletes after one
+confirm (S9b). One entry row adds and, after Edit, saves: name / headcount /
+hours each / date (required to add) / vendor (defaults to the last line's) /
+Reason (Labor = `field`, Assessment, Audit, Staging, Material Preparation,
+Clean-up), with `?` tips `smr.crew` / `smr.vendor` / `smr.reason` /
+`smr.remove`. One total line (hours, charge). The server links a keyed name
+to a live worker or alias of that vendor silently; the Hours tab groups by
+worker name, else keyed name, else `Skilled Technician`. An SMR order whose
+only labor was keyed in the app (no vendor line) keeps the ordinary Labor
+card and Add Skilled Technician, with no vendor entry row: a vendor line
+there would stop those hours billing. The Request and Signature sections left the card 2026-11-06;
 `workOrderRequests.js`, `workOrderSignature.js` and routes 72a–72d / S10–S12
 remain, unmounted. TechFM OA+ get import (with summary counts), filtered/
 client CSV export, Archive on any live card, and the exact-archived-number
@@ -1955,7 +1961,7 @@ Coverage map:
 | `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin; history row exposes `work_order_id` |
 | `test_smr_weekly.py` | SMR weekly chart (spec 2026-11-06-smr-weekly-hours-chart): invoice re-upload replaces / other invoices add, bad row names itself, Owner-only upload + Admin-only series, one order's target following its lines pro rata (week cell + Undated cell) as deltas against the dev DB; Belfor off the chart |
 | `test_work_orders_smr_domain.py`, `test_smr_import.py`, `test_smr_tiles.py`, `test_smr_export_xlsx.py`, `test_smr_export_lines_xlsx.py`, `test_smr_exclusion.py`, `test_work_order_skilled_labor.py`, `test_models_smr.py` | SMR27 audit: sheet parsing, snapshot JSON/edited/deltas, split labor rounding; Owner import create/restore/baseline-once/rerun/Canceled-skip/header preflight; tiles before/after/delta with archived included; workbook sheets, phase parity, removed-line BEFORE-only, archived included; SMR rows off list/filter options/Hub/report but still enrichment candidates and editable; Skilled Technician add/update/delete gates and Hub exclusion; schema round-trip; target match (spec 2026-10-23-smr-target-match): Breakdown row parsing, undershoot-only gap rule, target import last-row-wins / unknown skipped / rerun overwrites, target on detail (money redacted below TechFM OA) and tiles, target + gap export columns; paper check (spec 2026-10-27-smr-paper-check): any-role mark/clear, re-mark keeps first who/when, non-SMR 400, detail/tile/export carry it, checker delete nulls the who; paper stage (spec 2026-11-06-smr-paper-stage): `stage_for` per rule (removed lines ignored, reading alone = undated, placement week = dated, Ready held but not shown without a dated line), `closed_week` from the sheet's COMPLETION DATE, `belfor_only`, stage counts replace the Edited/Untouched/Matched/Short/No-target/Paper-checked/With-lines cells; `test_smr_ready.py`: PUT ready Admin+ 403 / 409 `Date a line first.` / idempotent stamp / clear / detail `smr_stage` + `smr_ready`; export `STAGE`, `READY AT`, `READY BY`, `BELFOR ONLY`. Gates in `test_route_role_gates.py` |
-| `test_smr_block.py`, `test_smr_paper_import.py`, `test_smr_lines.py`, `test_smr_lines_routes.py` (+ `test_models_smr.py`, `test_work_orders_smr_domain.py`, `test_smr_tiles.py`, `test_work_order_skilled_labor.py` extensions) | SMR27 paper corrections (spec 2026-11-04): five-table round-trips and the DB check refusals, worker `user_id` nulls on user delete; lines charge (each charged line at its kind's rate, GL kinds $43.50 and the rest $62.50, no pooled rounding; legacy entries reported apart and not charged when lines exist; no lines = unchanged), status rules, tie check (0.5 h band, other-week and excluded-ground exceptions, named failure), `week_of`; block renderer pinned at 41 chars with one verbatim block, ST-by-vendor / GL-by-kind rows, decrease, excluded line, digest change; Regenerate all + undo; paper import ties / aborts with nothing written / idempotent rerun / changed-row rejection / missing orders created from the Breakdown upload with `smr_imported_at` + baseline + target / unknown number aborts / paper-check set once; every lines write leaves a history row with a reason, soft removal, dating flips to charged, worker FK + merge, block version / stale / pasted; routes S6–S16 over HTTP (reading + line + block + pasted round trip, PATCH dating / soft remove with 400 / 404, workers search / add / Owner-only merge 403, import-paper multipart with the Breakdown upload, Hours JSON + CSV, the two tile switches); detail carries lines, readings, legacy minutes, block. Gates in `test_route_role_gates.py` |
+| `test_smr_block.py`, `test_smr_paper_import.py`, `test_smr_lines.py`, `test_smr_lines_routes.py` (+ `test_models_smr.py`, `test_work_orders_smr_domain.py`, `test_smr_tiles.py`, `test_work_order_skilled_labor.py` extensions) | SMR27 paper corrections (spec 2026-11-04): five-table round-trips and the DB check refusals, worker `user_id` nulls on user delete; lines charge (each charged line at its kind's rate, GL kinds $43.50 and the rest $62.50, no pooled rounding; legacy entries reported apart and not charged when lines exist; no lines = unchanged), status rules, tie check (0.5 h band, other-week and excluded-ground exceptions, named failure), `week_of`; block renderer pinned at 41 chars with one verbatim block, ST-by-vendor / GL-by-kind rows, decrease, excluded line, digest change; Regenerate all + undo; paper import ties / aborts with nothing written / idempotent rerun / changed-row rejection / missing orders created from the Breakdown upload with `smr_imported_at` + baseline + target / unknown number aborts / paper-check set once; lines add / edit / hard delete with no history row, dating flips to charged, worker FK + merge, block version / stale / pasted; routes S6–S16 over HTTP (reading + line + block + pasted round trip, PATCH dating with 400 / 404, DELETE 204 / 404 / 403, the detail lists charged lines only, workers search / add / Owner-only merge 403, import-paper multipart with the Breakdown upload, Hours JSON + CSV, the two tile switches); detail carries lines, readings, legacy minutes, block. Gates in `test_route_role_gates.py` |
 | `test_work_order_export.py` | TechFM OA+ scoped full/client CSV exports, joined operational filters (including date), unchanged client scope behavior, import-header compatibility including generated-task round-trip, billing totals, and receipt cells |
 | `test_netfacilities_parser.py` | sanitized server-rendered HTML parsing, identifier/status fail-closed checks, login-document detection, required fields, input validation, and safe Priority body-vs-script structure classification |
 | `test_netfacilities_client.py` | one allowlisted authenticated GET, refusal to run without an injected browser context, rendered document routing with only same-origin `GET` subresources allowed, one-read diagnostic reuse, response metadata/size boundaries, auth redirect detection, and runtime browser placement |

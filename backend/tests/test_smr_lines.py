@@ -1,11 +1,10 @@
-"""`services.work_orders_smr_lines` (spec 2026-11-04): every write on a
-paper-correction line leaves a history row with a reason, removal is soft,
-dating an undated line charges it, workers merge with history, blocks
-version and go stale, and the Hours table reads lines only."""
+"""`services.work_orders_smr_lines` (spec 2026-11-04): a line is added,
+edited and deleted outright with no history (user 2026-11-12), dating an
+undated line charges it, workers merge with history, blocks version and go
+stale, and the Hours table reads lines only."""
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -102,7 +101,6 @@ def test_dating_a_reading_dates_and_charges_its_undated_lines_only(db):
     db.expire_all()
     dated = db.get(SmrLaborLine, waiting.id)
     assert (dated.work_date, dated.week, dated.status, dated.exclusion_ground) == (date(2026, 6, 27), 5, "charged", None)
-    assert _edits(db, waiting.id)[-1].reason == "dated with printing 1"
     assert db.get(SmrLaborLine, placed.id).work_date is None and db.get(SmrLaborLine, placed.id).week == 1
     assert db.get(SmrLaborLine, elsewhere.id).work_date is None
 
@@ -120,22 +118,17 @@ def test_writes_refuse_a_live_order_and_an_unknown_one(db):
 
 # --- lines ---------------------------------------------------------------
 
-def test_add_line_writes_the_line_and_one_created_row_carrying_the_reason(db):
+def test_add_line_writes_the_line_and_no_history_with_or_without_a_reason(db):
     admin = _user(db)
     order = _smr_order(db, admin)
-    line = svc.add_line(db, work_order_id=order.id, payload=_line_in(headcount=2, kind=" audit "), user=admin)
+    line = svc.add_line(db, work_order_id=order.id, payload=_line_in(headcount=2, kind=" audit ", reason=None), user=admin)
     assert (line.hours, line.week, line.kind, line.status) == (Decimal("4.0"), 4, "audit", "charged")
-    edits = _edits(db, line.id)
-    assert [(e.field, e.reason, e.edited_by_id) for e in edits] == [("created", "keyed from the paper", admin.id)]
-    assert json.loads(edits[0].new_value)["vendor"] == "Belfor" and edits[0].old_value is None
-    assert line.history[0].field == "created"
+    assert _edits(db, line.id) == [] and line.history == []
 
 
-def test_add_line_refuses_a_blank_reason_a_bad_state_and_a_foreign_reading(db):
+def test_add_line_refuses_a_bad_state_and_a_foreign_reading(db):
     admin = _user(db)
     order, other = _smr_order(db, admin), _smr_order(db, admin)
-    with pytest.raises(WorkOrderStateError, match="reason"):
-        svc.add_line(db, work_order_id=order.id, payload=_line_in(reason="  "), user=admin)
     with pytest.raises(WorkOrderStateError, match="work date"):
         svc.add_line(db, work_order_id=order.id, payload=_line_in(work_date=None), user=admin)
     foreign = svc.add_reading(db, work_order_id=other.id, payload=SmrReadingIn(printing_no=1), user=admin)
@@ -144,32 +137,27 @@ def test_add_line_refuses_a_blank_reason_a_bad_state_and_a_foreign_reading(db):
     assert wos.find_by_number(db, order.number).smr_lines == []
 
 
-def test_edit_line_writes_one_history_row_per_changed_field(db):
+def test_edit_line_changes_the_fields_and_keeps_no_history(db):
     admin, editor = _user(db), _user(db, "owner")
     order = _smr_order(db, admin)
     line = svc.add_line(db, work_order_id=order.id, payload=_line_in(), user=admin)
-    edited = svc.edit_line(db, line_id=line.id, payload=SmrLineEditIn(hours_each=Decimal("3.5"), note="re-read", reason="re-read the paper"),
-                           user=editor)
+    edited = svc.edit_line(db, line_id=line.id, payload=SmrLineEditIn(hours_each=Decimal("3.5"), note="re-read"), user=editor)
     assert (edited.hours_each, edited.note, edited.hours) == (Decimal("3.5"), "re-read", Decimal("3.5"))
-    rows = [(e.field, e.old_value, e.new_value, e.reason) for e in _edits(db, line.id)[1:]]
-    assert sorted(rows) == [("hours_each", "2.0", "3.5", "re-read the paper"), ("note", None, "re-read", "re-read the paper")]
-    assert edited.history[-1].edited_by_name == "Pat Owner"
+    assert db.get(SmrLaborLine, line.id).updated_by_id == editor.id
+    assert _edits(db, line.id) == []
 
 
-def test_edit_line_refuses_a_no_op_and_a_blank_reason(db):
+def test_edit_line_refuses_a_no_op(db):
     admin = _user(db)
     order = _smr_order(db, admin)
     line = svc.add_line(db, work_order_id=order.id, payload=_line_in(), user=admin)
-    with pytest.raises(WorkOrderStateError, match="reason"):
-        svc.edit_line(db, line_id=line.id, payload=SmrLineEditIn(note="x", reason=""), user=admin)
     with pytest.raises(WorkOrderStateError, match="othing"):
         svc.edit_line(db, line_id=line.id, payload=SmrLineEditIn(reason="why"), user=admin)
     with pytest.raises(WorkOrderStateError, match="othing"):
-        svc.edit_line(db, line_id=line.id, payload=SmrLineEditIn(hours_each=Decimal("2.0"), reason="same"), user=admin)
-    assert len(_edits(db, line.id)) == 1
+        svc.edit_line(db, line_id=line.id, payload=SmrLineEditIn(hours_each=Decimal("2.0")), user=admin)
 
 
-def test_dating_an_undated_line_charges_it_with_history(db):
+def test_dating_an_undated_line_charges_it(db):
     admin = _user(db)
     order = _smr_order(db, admin)
     undated = svc.add_line(db, work_order_id=order.id,
@@ -177,20 +165,26 @@ def test_dating_an_undated_line_charges_it_with_history(db):
     dated = svc.edit_line(db, line_id=undated.id, payload=SmrLineEditIn(work_date=date(2026, 6, 3), reason="date found on the sheet"),
                           user=admin)
     assert (dated.status, dated.exclusion_ground, dated.week) == ("charged", None, 2)
-    assert {e.field for e in _edits(db, undated.id)[1:]} == {"work_date", "status", "exclusion_ground"}
 
 
-def test_removing_a_line_is_soft_and_writes_one_deleted_row(db):
+def test_deleting_a_line_removes_the_row_and_its_history_and_stales_the_block(db):
     admin = _user(db)
     order = _smr_order(db, admin)
-    line = svc.add_line(db, work_order_id=order.id, payload=_line_in(), user=admin)
-    removed = svc.edit_line(db, line_id=line.id, payload=SmrLineEditIn(status="excluded", exclusion_ground="removed", reason="double keyed"),
-                            user=admin)
-    assert (removed.status, removed.exclusion_ground) == ("excluded", "removed")
-    rows = _edits(db, line.id)[1:]
-    assert [(e.field, e.new_value, e.reason) for e in rows] == [("deleted", None, "double keyed")]
-    assert json.loads(rows[0].old_value)["status"] == "charged"
-    assert [l.id for l in wos.find_by_number(db, order.number).smr_lines] == [line.id]
+    keep = svc.add_line(db, work_order_id=order.id, payload=_line_in(), user=admin)
+    line = svc.add_line(db, work_order_id=order.id, payload=_line_in(hours_each=Decimal("1.0")), user=admin)
+    # A line an older run left history on: the rows go with it (ON DELETE CASCADE).
+    svc.history(db, line=db.get(SmrLaborLine, line.id), actor=admin, field="created", old=None, new="x", reason="run", now=svc._now())
+    svc.generate_block(db, work_order_id=order.id, user=admin)
+
+    svc.delete_line(db, line_id=line.id)
+
+    db.expire_all()
+    assert db.get(SmrLaborLine, line.id) is None and _edits(db, line.id) == []
+    reloaded = wos.find_by_number(db, order.number)
+    assert [l.id for l in reloaded.smr_lines] == [keep.id]
+    assert svc.latest_block(reloaded).stale is True
+    with pytest.raises(WorkOrderNotFoundError):
+        svc.delete_line(db, line_id=line.id)
 
 
 # --- workers -------------------------------------------------------------
@@ -215,7 +209,7 @@ def test_add_worker_appends_an_alias_to_the_existing_name_and_vendor(db):
         svc.add_worker(db, payload=SmrWorkerIn(display_name="X", vendor="Acme"))
 
 
-def test_merge_workers_repoints_lines_with_history_and_archives_the_duplicate(db):
+def test_merge_workers_repoints_lines_and_archives_the_duplicate(db):
     admin, owner = _user(db), _user(db, "owner")
     order = _smr_order(db, admin)
     keep = svc.add_worker(db, payload=SmrWorkerIn(display_name=f"Chris Romero {uuid.uuid4().hex[:4]}", vendor="XXL Construction"))
@@ -227,7 +221,7 @@ def test_merge_workers_repoints_lines_with_history_and_archives_the_duplicate(db
     assert merged.id == keep.id and dup.display_name in merged.aliases and "C.R." in merged.aliases
     reloaded = wos.find_by_number(db, order.number).smr_lines[0]
     assert reloaded.worker_id == keep.id
-    assert [(e.field, e.old_value, e.new_value) for e in _edits(db, line.id)[1:]] == [("worker_id", str(dup.id), str(keep.id))]
+    assert _edits(db, line.id) == []
     found = {w.id for w in svc.search_workers(db, dup.display_name)}  # the folded alias still finds the keeper
     assert keep.id in found and dup.id not in found
     with pytest.raises(WorkOrderStateError, match="orker"):
@@ -382,7 +376,6 @@ def test_a_week_placement_charges_an_undated_line_to_that_week(db):
     edited = svc.edit_line(db, line_id=line.id, user=admin, payload=SmrLineEditIn(
         status="charged", exclusion_ground=None, date_basis="week placement (weekly reports)", week=3, reason="likely week"))
     assert (edited.status, edited.week, edited.work_date) == ("charged", 3, None)
-    assert ("week", None, "3") in [(e.field, e.old_value, e.new_value) for e in _edits(db, line.id)]
     moved = svc.edit_line(db, line_id=line.id, user=admin, payload=SmrLineEditIn(week=4, reason="moved"))
     assert moved.week == 4
     with pytest.raises(WorkOrderStateError, match="othing"):

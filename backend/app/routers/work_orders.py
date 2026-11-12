@@ -578,7 +578,8 @@ def _detail(
         smr_paper_check=SmrPaperCheckOut.from_order(work_order) if is_smr else None,
         smr_ready=SmrReadyOut.from_order(work_order) if is_smr else None,
         smr_readings=[SmrReadingOut.from_row(r) for r in work_order.smr_readings] if is_smr else [],
-        smr_lines=[SmrLineOut.from_row(line) for line in corrections],
+        # The card lists what bills (user 2026-11-12): excluded and removed lines are not sent.
+        smr_lines=[SmrLineOut.from_row(line) for line in corrections if line.status == smr_rules.STATUS_CHARGED],
         smr_legacy_labor_minutes=figures.legacy_minutes,
         smr_block=smr_lines_service.latest_block(work_order, include_price=include_price) if is_smr else None,
         smr_description=work_order.smr_description if is_smr else None,

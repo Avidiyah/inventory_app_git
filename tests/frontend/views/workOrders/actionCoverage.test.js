@@ -49,8 +49,8 @@ const ACTIONS = [
   "remove-item", "remove-labor", "remove-technician", "reopen-wo",
   "resume-assigned-wo", "review-wo", "save-details", "save-notes",
   "send-back-wo", "smr-paper-check", "start-tracking-wo", "stop-tracking-wo",
-  // Paper corrections editor (workOrderSmrLines.js / workOrderSmrActions.js).
-  "smr-add-reading", "smr-edit-reading", "smr-cancel-reading", "smr-add-line", "smr-edit-line", "smr-exclude-line", "smr-charge-line", "smr-delete-line", "smr-save-line",
+  // SMR Labor card and Invoice section (workOrderSmrLines.js / workOrderSmrActions.js).
+  "smr-add-line", "smr-edit-line", "smr-update-line", "smr-delete-line",
   "smr-cancel-line", "smr-generate-block", "smr-mark-pasted", "smr-print-block",
   "smr-ready", "smr-not-ready",
 ];

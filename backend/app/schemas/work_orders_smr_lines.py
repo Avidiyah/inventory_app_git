@@ -102,7 +102,7 @@ class SmrReadingOut(BaseModel):
 # --- lines ---------------------------------------------------------------
 
 class SmrLineIn(BaseModel):
-    """`POST /{id}/lines`. `reason` is the free text the history row keeps."""
+    """`POST /{id}/lines`. `reason` is accepted for older callers and ignored."""
 
     reading_id: Optional[UUID] = None
     work_date: Optional[date] = None
@@ -117,14 +117,13 @@ class SmrLineIn(BaseModel):
     status: str = "charged"
     exclusion_ground: Optional[str] = None
     note: Optional[str] = None
-    reason: str
+    reason: Optional[str] = None
 
 
 class SmrLineEditIn(BaseModel):
-    """`PATCH /lines/{line_id}`: any subset of the line's fields plus the
-    required `reason`. Only fields present in the body change, so an explicit
-    `null` clears a nullable field. `status=excluded, exclusion_ground=removed`
-    is the soft remove."""
+    """`PATCH /lines/{line_id}`: any subset of the line's fields. Only fields
+    present in the body change, so an explicit `null` clears a nullable
+    field. `reason` is accepted for older callers and ignored."""
 
     reading_id: Optional[UUID] = None
     work_date: Optional[date] = None
@@ -140,7 +139,7 @@ class SmrLineEditIn(BaseModel):
     exclusion_ground: Optional[str] = None
     week: Optional[int] = None  # the week a week placement names; ignored by every other basis
     note: Optional[str] = None
-    reason: str
+    reason: Optional[str] = None
 
 
 class SmrLineEditOut(BaseModel):

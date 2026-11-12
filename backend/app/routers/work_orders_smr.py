@@ -240,9 +240,8 @@ def add_line(
     user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ) -> SmrLineOut:
-    """One labor line with a free-text `reason` for its `created` history row
-    (Admin+). Charged needs a date or the Week 1 placement basis; excluded
-    needs a ground."""
+    """One labor line (Admin+). Charged needs a date or the Week 1 placement
+    basis; excluded needs a ground."""
     try:
         return lines_service.add_line(db, work_order_id=work_order_id, payload=body, user=user)
     except DomainError as exc:
@@ -271,12 +270,24 @@ def edit_line(
     user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ) -> SmrLineOut:
-    """Any subset of a line's fields plus the required `reason` (Admin+): one
-    history row per changed field; a date on an `undated` line charges it;
-    `status=excluded, exclusion_ground=removed` is the soft remove (one
-    `deleted` row). Nothing is hard-deleted."""
+    """Any subset of a line's fields (Admin+); a date on an `undated` line
+    charges it. No history is kept."""
     try:
         return lines_service.edit_line(db, line_id=line_id, payload=body, user=user)
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.delete("/lines/{line_id}", status_code=204, responses=_forbidden(roles.ROLE_ADMIN))
+def delete_line(
+    line_id: uuid.UUID,
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+) -> None:
+    """Delete one labor line for good (Admin+, user 2026-11-12): the row
+    goes, nothing keeps a copy; an unknown line 404."""
+    try:
+        lines_service.delete_line(db, line_id=line_id)
     except DomainError as exc:
         raise to_http(exc)
 
@@ -311,8 +322,8 @@ def merge_workers(
     user: User = Depends(require_min_role(roles.ROLE_OWNER)),
     db: Session = Depends(get_db),
 ) -> SmrWorkerOut:
-    """Fold `worker_id` into `into_id` (Owner): lines re-pointed with a
-    history row each, aliases kept, the duplicate archived."""
+    """Fold `worker_id` into `into_id` (Owner): lines re-pointed,
+    aliases kept, the duplicate archived."""
     try:
         return lines_service.merge_workers(db, worker_id=worker_id, into_id=body.into_id, reason=body.reason, user=user)
     except DomainError as exc:

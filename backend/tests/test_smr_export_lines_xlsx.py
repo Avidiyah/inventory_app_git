@@ -134,10 +134,8 @@ def test_smr_export_paper_sheets(db):
 
     _, history = _rows(book["Line History"], number)
     mine = [h for h in history if h["LINE ID"] == str(charged_id)]
-    assert [h["FIELD"] for h in mine] == ["created", "hours_each", "created", "hours_each"]
-    assert (mine[1]["OLD VALUE"], mine[1]["NEW VALUE"], mine[1]["REASON"], mine[1]["RUN ID"], mine[1]["EDITED BY"]) == \
-        ("2.0", "2.5", "paper re-read", None, "Ola Owner")
-    assert mine[2]["RUN ID"] == "import 0dc2a170e862"
+    # Card edits keep no history (user 2026-11-12): the sheet lists only what a bulk run left.
+    assert [(h["FIELD"], h["RUN ID"], h["EDITED BY"]) for h in mine] == [("created", "import 0dc2a170e862", "Ola Owner")]
 
     _, blocks = _rows(book["Correction Blocks"], number)
     assert [(b["VERSION"], b["LATEST"], b["STALE"]) for b in blocks] == [(1, "NO", None), (2, "YES", "NO")]

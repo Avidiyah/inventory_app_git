@@ -2,14 +2,12 @@
 docs/superpowers/specs/2026-11-04-smr-paper-import-design.md, Editor and
 Workflow stages 4–5).
 
-Readings and lines are added, lines are edited or soft-removed, vendor
-workers are searched, added and merged, correction blocks are generated and
-marked pasted, and the Hours tab is read. Every write checks that the order
-carries `smr_imported_at` (400 otherwise, as `set_paper_check` does), writes
-its history rows in the same transaction (`attendance._audit` pattern: one
-row per field changed, values as text) and commits once. Nothing here
-hard-deletes: removal is `status = excluded`, ground `removed`, plus a
-`deleted` history row.
+Readings and lines are added, lines are edited or deleted, vendor workers
+are searched, added and merged, correction blocks are generated and marked
+pasted, and the Hours tab is read. Every write checks that the order carries
+`smr_imported_at` (400 otherwise, as `set_paper_check` does) and commits
+once. A line keeps no history and a deleted line is gone (user 2026-11-12);
+`history()` stays for the bulk scripts, whose undo reads their run tag.
 """
 
 from __future__ import annotations
@@ -71,13 +69,6 @@ def _require_smr(order: Optional[WorkOrder]) -> WorkOrder:
 
 def smr_order(db: Session, work_order_id: uuid.UUID) -> WorkOrder:
     return _require_smr(db.get(WorkOrder, work_order_id))
-
-
-def _reason(text: Optional[str]) -> str:
-    cleaned = (text or "").strip()
-    if not cleaned:
-        raise WorkOrderStateError("A reason is required on every change.")
-    return cleaned
 
 
 # --- history -------------------------------------------------------------
@@ -194,7 +185,6 @@ def match_worker(db: Session, *, name: Optional[str], vendor: str) -> Optional[u
 
 def add_line(db: Session, *, work_order_id: uuid.UUID, payload: SmrLineIn, user: User) -> SmrLineOut:
     order = smr_order(db, work_order_id)
-    reason = _reason(payload.reason)
     state = {field: getattr(payload, field) for field in LINE_FIELDS}
     state["kind"] = ", ".join(rules.kinds_of(state["kind"])) or "field"
     rules.require_one_kind(state["kind"])
@@ -207,8 +197,6 @@ def add_line(db: Session, *, work_order_id: uuid.UUID, payload: SmrLineIn, user:
         created_at=now, created_by_id=user.id, updated_at=now, updated_by_id=user.id, **state,
     )
     db.add(row)
-    db.flush()
-    history(db, line=row, actor=user, field="created", old=None, new=line_json(row), reason=reason, now=now)
     db.commit()
     return SmrLineOut.from_row(row)
 
@@ -216,15 +204,13 @@ def add_line(db: Session, *, work_order_id: uuid.UUID, payload: SmrLineIn, user:
 def edit_line(db: Session, *, line_id: uuid.UUID, payload: SmrLineEditIn, user: User) -> SmrLineOut:
     """Only the fields in the body change (an explicit null clears one).
     A date landing on an `undated` line charges it unless the body sets
-    `status` itself (D10). `status=excluded, exclusion_ground=removed` is
-    the soft remove: one `deleted` row instead of one per field."""
+    `status` itself (D10). `reason` is accepted and ignored: nothing keeps it."""
     line = db.get(SmrLaborLine, line_id)
     if line is None:
         raise WorkOrderNotFoundError("Line not found.")
     order = _require_smr(line.work_order)
     changes = payload.model_dump(exclude_unset=True)
-    reason = _reason(changes.pop("reason", None))
-    week_given = "week" in changes
+    changes.pop("reason", None)
     week = changes.pop("week", line.week)
     if not changes and week == line.week:
         raise WorkOrderStateError("Nothing to change.")
@@ -246,22 +232,23 @@ def edit_line(db: Session, *, line_id: uuid.UUID, payload: SmrLineEditIn, user: 
     if not diffs and new_week == line.week:
         raise WorkOrderStateError("Nothing changed.")
 
-    now = _now()
-    removing = changes.get("status") == rules.STATUS_EXCLUDED and changes.get("exclusion_ground") == rules.GROUND_REMOVED
-    before = line_json(line) if removing else None
     for field, value in diffs.items():
-        if not removing:
-            history(db, line=line, actor=user, field=field, old=_text(getattr(line, field)), new=_text(value),
-                    reason=reason, now=now)
         setattr(line, field, value)
-    if removing:
-        history(db, line=line, actor=user, field="deleted", old=before, new=None, reason=reason, now=now)
-    elif week_given and new_week != line.week:
-        history(db, line=line, actor=user, field="week", old=_text(line.week), new=_text(new_week), reason=reason, now=now)
     line.week = new_week
-    line.updated_at, line.updated_by_id = now, user.id
+    line.updated_at, line.updated_by_id = _now(), user.id
     db.commit()
     return SmrLineOut.from_row(line)
+
+
+def delete_line(db: Session, *, line_id: uuid.UUID) -> None:
+    """The row is deleted outright (user 2026-11-12): no soft remove, no
+    history. The order's block reads as changed until it is generated again."""
+    line = db.get(SmrLaborLine, line_id)
+    if line is None:
+        raise WorkOrderNotFoundError("Line not found.")
+    _require_smr(line.work_order)
+    db.delete(line)
+    db.commit()
 
 
 # --- workers -------------------------------------------------------------
@@ -306,8 +293,8 @@ def add_worker(db: Session, *, payload: SmrWorkerIn) -> SmrWorkerOut:
 
 
 def merge_workers(db: Session, *, worker_id: uuid.UUID, into_id: uuid.UUID, reason: str, user: User) -> SmrWorkerOut:
-    """Fold `worker_id` into `into_id` (Owner): its lines re-pointed with a
-    history row each, its name and aliases kept as aliases, the row archived."""
+    """Fold `worker_id` into `into_id` (Owner): its lines re-pointed, its name
+    and aliases kept as aliases, the row archived. `reason` is not kept."""
     if worker_id == into_id:
         raise WorkOrderStateError("Pick two different workers to merge.")
     duplicate, keep = db.get(SmrWorker, worker_id), db.get(SmrWorker, into_id)
@@ -315,11 +302,8 @@ def merge_workers(db: Session, *, worker_id: uuid.UUID, into_id: uuid.UUID, reas
         raise WorkOrderNotFoundError("Worker not found.")
     if keep.archived_at is not None:
         raise WorkOrderStateError(f"{keep.display_name} is archived; merge the other way.")
-    reason = _reason(reason)
     now = _now()
     for line in db.query(SmrLaborLine).filter(SmrLaborLine.worker_id == duplicate.id).all():
-        history(db, line=line, actor=user, field="worker_id", old=str(duplicate.id), new=str(keep.id),
-                reason=reason, now=now)
         line.worker_id, line.updated_at, line.updated_by_id = keep.id, now, user.id
     known = [keep.display_name] + list(keep.aliases or [])
     folded = [name for name in [duplicate.display_name] + list(duplicate.aliases or []) if name not in known]

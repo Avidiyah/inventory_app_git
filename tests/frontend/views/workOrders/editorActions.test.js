@@ -175,7 +175,7 @@ describe("save-notes", () => {
 
 describe("add-skilled-labor", () => {
   it("posts a null technician with the skilled hours and reopens the section", async () => {
-    const detail = await open({ role: "admin", smr: true, assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
+    const detail = await open({ role: "admin", smr: true, assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"], labor: [{ id: "e1", technician_id: "t1", technician_name: "Ada L", minutes: 30 }] });
     respond("post", "/work-orders/:id/labor", { ok: true });
     card().querySelector(".wo-new-skilled-hours").value = "0.5";
     click("add-skilled-labor");
@@ -187,7 +187,7 @@ describe("add-skilled-labor", () => {
   });
 
   it("refuses blank skilled hours before anything is sent", async () => {
-    await open({ role: "admin", smr: true, assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"] });
+    await open({ role: "admin", smr: true, assigned_to_ids: ["t1"], assigned_to_names: ["Ada L"], labor: [{ id: "e1", technician_id: "t1", technician_name: "Ada L", minutes: 30 }] });
     card().querySelector(".wo-new-skilled-hours").value = "";
     click("add-skilled-labor");
     await vi.waitFor(() =>

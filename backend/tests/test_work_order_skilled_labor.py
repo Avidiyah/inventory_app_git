@@ -168,7 +168,7 @@ def test_detail_and_totals_charge_lines_only_and_report_legacy_minutes_apart(db)
     assert detail.labor_total == Decimal("125.00") and detail.smr_legacy_labor_minutes == 30
     assert (detail.labor_minutes, detail.skilled_labor_minutes) == (20, 10)  # the legacy record, still listed
     assert [line.hours for line in detail.smr_lines] == [Decimal("2.0")] and detail.smr_readings[0].id == reading.id
-    assert detail.smr_block.version == 1 and detail.smr_block.text.startswith("SMR27 LABOR CORRECTION v1")
+    assert detail.smr_block.version == 1 and detail.smr_block.text.startswith("SMR27 LABOR CORRECTION ")
     assert detail.smr_target.current_hours == Decimal("2.0") and detail.smr_target.matched is True
     totals = wos.work_order_totals(wos.get_work_order(db, order.id, user=admin))
     assert (totals.labor_total, totals.labor_minutes, totals.legacy_labor_minutes) == (Decimal("125.00"), 120, 30)

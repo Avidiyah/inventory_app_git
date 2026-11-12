@@ -141,6 +141,23 @@ export const TIPS = {
     label: "Auto-stopped labor",
     text: "A clock found running past 12 hours is closed at the 12-hour cap and marked as an estimate. Review the entry before billing it.",
   },
+  // SMR orders: the Labor card's entry row (workOrderSmrLines.js).
+  "smr.crew": {
+    label: "Headcount and hours each",
+    text: "For a crew, enter how many people and the hours each one worked. Three people at 2 hours each is one line worth 6 hours. One person is a headcount of 1.",
+  },
+  "smr.vendor": {
+    label: "Vendor",
+    text: "The company whose paper or invoice these hours come from. It stays on the vendor of the last line, so a run of lines from one sheet only needs it set once.",
+  },
+  "smr.reason": {
+    label: "Reason for the hours",
+    text: "What the hours were for. Labor and Assessment bill at the skilled rate. Audit, Staging, Material Preparation and Clean-up bill at the lower general labor rate.",
+  },
+  "smr.remove": {
+    label: "Removing a labor line",
+    text: "Remove deletes the line and its hours come off the total. Nothing keeps a copy, so a line removed by mistake has to be added again.",
+  },
 
   // --- Billing (shared History / Work Orders editor) --------------------
   "billing.quantity": {

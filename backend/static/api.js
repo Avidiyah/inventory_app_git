@@ -1058,16 +1058,14 @@ export const apiSetSmrPaperCheck = (workOrderId, checked) =>
 // Ready for invoice (spec 2026-11-06), Admin+: 409 until a line is dated.
 export const apiSetSmrReady = (workOrderId, ready) =>
   jsonRequest(`/work-orders/smr/${workOrderId}/ready`, "PUT", { ready });
-// Paper corrections (spec 2026-11-04), Admin+: readings, lines, workers, the
-// correction block and the Hours table.
-export const apiSmrAddReading = (workOrderId, payload) =>
-  jsonRequest(`/work-orders/smr/${workOrderId}/readings`, "POST", payload);
-export const apiSmrEditReading = (readingId, payload) =>
-  jsonRequest(`/work-orders/smr/readings/${readingId}`, "PATCH", payload);
+// SMR labor lines (spec 2026-11-04), Admin+: lines, workers, the correction
+// block and the Hours table.
 export const apiSmrAddLine = (workOrderId, payload) =>
   jsonRequest(`/work-orders/smr/${workOrderId}/lines`, "POST", payload);
 export const apiSmrEditLine = (lineId, payload) =>
   jsonRequest(`/work-orders/smr/lines/${lineId}`, "PATCH", payload);
+export const apiSmrDeleteLine = async (lineId) =>
+  parseResponse(await rawFetch(`/work-orders/smr/lines/${lineId}`, { method: "DELETE", credentials: "include" }));
 export const apiSmrSearchWorkers = (q) =>
   jsonRequest(`/work-orders/smr/workers${q ? `?q=${encodeURIComponent(q)}` : ""}`, "GET");
 export const apiSmrAddWorker = (payload) => jsonRequest("/work-orders/smr/workers", "POST", payload);
