@@ -11,7 +11,7 @@ import uuid
 from datetime import date
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from app.auth_deps import require_min_role
@@ -112,7 +112,7 @@ def list_smr_tiles(
     sort: Literal["scheduled_desc", "scheduled_asc"] = Query("scheduled_desc"),
     has_lines: bool = Query(False),
     block_stale_or_unpasted: bool = Query(False),
-    summary: bool = Query(True),
+    ids_only: bool = Query(False),
     user: User = Depends(require_min_role(roles.ROLE_TECHNICIAN)),
     db: Session = Depends(get_db),
 ) -> SmrTilesResponse:
@@ -120,8 +120,12 @@ def list_smr_tiles(
     role since 2026-10-23: the re-charge is all hands).
     The query params are the Work Orders list's (minus `status`, `service_type`,
     `mine` and `limit`) and run through the same server predicates. Unpaginated: the
-    audit is a few hundred rows. `summary=false` returns only `tiles` and
-    `matched` (`counts` and `delta` null) for a page that keeps its last summary."""
+    audit is a few hundred rows. `tiles` is every SMR order; `order` and
+    `matched` are the ones the filters match. `ids_only=true` returns `order`
+    and `matched` alone, for a page that already holds the tiles; the two
+    paper-correction switches read the lines, so they are refused with it."""
+    if ids_only and (has_lines or block_stale_or_unpasted):
+        raise HTTPException(status_code=422, detail="ids_only cannot be combined with has_lines or block_stale_or_unpasted.")
     try:
         return smr_service.list_smr_tiles(
             db,
@@ -136,7 +140,7 @@ def list_smr_tiles(
             descending=sort != "scheduled_asc",
             has_lines=has_lines,
             block_stale_or_unpasted=block_stale_or_unpasted,
-            summary=summary,
+            ids_only=ids_only,
         )
     except DomainError as exc:
         raise to_http(exc)

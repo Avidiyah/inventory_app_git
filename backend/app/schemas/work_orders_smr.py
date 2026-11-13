@@ -152,10 +152,10 @@ class SmrFilterOptions(BaseModel):
 
 
 class SmrTilesResponse(BaseModel):
-    """`counts` and `delta` describe the whole SMR population; `tiles` and
-    `matched` reflect the request's filters. `counts` and `delta` are null
-    on a `summary=false` request, and the other summary fields stay at
-    their defaults."""
+    """`tiles` is every SMR order and `counts` / `delta` describe them all;
+    `order` (tile ids, display order) and `matched` reflect the request's
+    filters. An `ids_only` request fills `order` and `matched` alone:
+    `counts` and `delta` null, `tiles` empty."""
 
     imported_at: Optional[datetime] = None
     # The newest Regenerate all run that can still be undone; the page shows Undo while set.
@@ -164,5 +164,6 @@ class SmrTilesResponse(BaseModel):
     delta: Optional[SmrDelta] = None
     remaining: SmrRemaining = Field(default_factory=SmrRemaining)
     matched: int = 0
+    order: list[UUID] = Field(default_factory=list)
     filter_options: SmrFilterOptions = Field(default_factory=SmrFilterOptions)
     tiles: list[SmrTile] = Field(default_factory=list)

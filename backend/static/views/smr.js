@@ -43,12 +43,16 @@ const chips = { ...DEFAULT_CHIPS };
 for (const [row, value] of Object.entries(savedChips())) {
   if (rowHas(row, value)) chips[row] = value;
 }
-let lastPayload = null;
-// The last full response (counts non-null): bar, filter options, Undo, the M
-// in "N of M". A tiles-only refetch keeps it. loadSeq numbers each request so
-// only the latest draws tiles; summarySeq keeps an older full response from
-// overwriting a newer summary.
+// The last full response (counts non-null): every SMR order's tile, plus the
+// bar, filter options, Undo, the M in "N of M". A filter change asks for ids
+// only and keeps it. `order` / `matched` come from the latest answer of either
+// kind (null until the first grid is drawn). loadSeq numbers each request so
+// only the latest changes the order; summarySeq keeps an older full response
+// from overwriting a newer summary.
 let summary = null;
+let tileById = new Map();
+let order = null;
+let matched = 0;
 let loadSeq = 0;
 let summarySeq = 0;
 // Where the page stood when a tile opened a card; consumed by the next render.
@@ -189,33 +193,51 @@ function tileHtml(tile) {
 
 function applyFilter() {
   chipButtons.forEach((btn) => btn.classList.toggle("smr-btn--on", chips[btn.dataset.row] === btn.dataset.filter));
-  const byNumber = new Map((lastPayload?.tiles || []).map((tile) => [tile.number, tile]));
+  // Shown = the server's filters (in `order`) AND the chips.
+  const listed = new Set(order);
   grid.querySelectorAll(".smr-tile").forEach((el) => {
-    const tile = byNumber.get(el.dataset.number);
-    el.hidden = !(tile && matches(tile, chips));
+    const tile = tileById.get(el.dataset.id);
+    el.hidden = !(tile && listed.has(el.dataset.id) && matches(tile, chips));
   });
+}
+
+// Move the tiles already on the page into `order`; the rest follow. An id with
+// no element is skipped (an order imported after the page loaded).
+function reorderTiles() {
+  const els = new Map(Array.from(grid.querySelectorAll(".smr-tile")).map((el) => [el.dataset.id, el]));
+  for (const id of [...order, ...els.keys()]) {
+    const el = els.get(id);
+    if (!el) continue;
+    grid.appendChild(el);
+    els.delete(id);
+  }
 }
 
 function render(payload, seq) {
   const latest = seq === loadSeq;
   const full = Boolean(payload.counts) && seq > summarySeq;
+  if (!latest && !full) return;
   if (full) {
     summary = payload;
     summarySeq = seq;
+    tileById = new Map((payload.tiles || []).map((tile) => [tile.id, tile]));
     if (regenerateUndoBtn) regenerateUndoBtn.hidden = !(isAdmin() && payload.regenerated_at);
     bar.innerHTML = barHtml(payload);
     applyFilterOptions(payload.filter_options);
   }
-  if (latest) lastPayload = payload;
-  if (resultCount && lastPayload) {
-    const matched = lastPayload.matched ?? (lastPayload.tiles || []).length;
-    resultCount.textContent = `${matched} of ${summary?.counts?.orders || 0} orders`;
+  // A slow full answer never overrides a newer order; it redraws with that one.
+  if (latest || !order) {
+    order = payload.order || [];
+    matched = payload.matched ?? order.length;
   }
-  if (!latest) return;
-  const tiles = payload.tiles || [];
-  grid.innerHTML = tiles.length
-    ? tiles.map(tileHtml).join("")
-    : `<p class="smr-empty">${escapeHtml(EMPTY_COPY)}</p>`;
+  if (resultCount) resultCount.textContent = `${matched} of ${summary?.counts?.orders || 0} orders`;
+  if (full) {
+    const tiles = payload.tiles || [];
+    grid.innerHTML = tiles.length
+      ? tiles.map(tileHtml).join("")
+      : `<p class="smr-empty">${escapeHtml(EMPTY_COPY)}</p>`;
+  }
+  reorderTiles();
   applyFilter();
   if (pendingScrollY !== null) {
     const y = pendingScrollY;
@@ -232,9 +254,9 @@ function render(payload, seq) {
 // for the first render.
 export function returnToSmr(scrollY) {
   const y = typeof scrollY === "number" ? scrollY : null;
-  pendingScrollY = lastPayload ? null : y;
+  pendingScrollY = order ? null : y;
   showPage("smr");
-  if (lastPayload && y !== null) window.scrollTo(0, y);
+  if (order && y !== null) window.scrollTo(0, y);
 }
 
 // Hours is a toggle on the same page: the tiles hide, the table shows, and
@@ -253,8 +275,8 @@ function showHours(open) {
 const atLeast = (role) => { const user = getCurrentUser(); return Boolean(user && roleAtLeast(user.role, role)); };
 const isAdmin = () => atLeast("admin");
 
-// tilesOnly (the filter controls): ask for the tiles alone and keep the stored
-// summary and the chart, unless no full response has arrived yet. Every other
+// tilesOnly (the filter controls): ask for the matching ids alone and keep the
+// stored tiles, summary and chart, unless no full response has arrived yet. Every other
 // caller (page entry, return from a card, Regenerate / Undo / Restore) does a
 // full load including the chart.
 export async function loadSmr({ tilesOnly = false } = {}) {
@@ -270,7 +292,7 @@ export async function loadSmr({ tilesOnly = false } = {}) {
   try {
     // The tiles request goes first (callers read it as the page's load);
     // the chart fetches alongside it rather than after it.
-    const tiles = apiListSmrTiles({ ...currentParams(), summary: !tilesOnly || !summary });
+    const tiles = apiListSmrTiles({ ...currentParams(), idsOnly: tilesOnly && Boolean(summary) });
     if (!tilesOnly && weeklyPanel && !weeklyPanel.hidden) void loadWeeklyHours();
     render(await tiles, seq);
   } catch (err) {
@@ -286,8 +308,8 @@ chipButtons.forEach((btn) => {
   });
 });
 
-// Search, dropdowns, Clear filters and the sort toggle refetch the tiles with
-// the current controls (summary and chart kept); the chip rows above stay local.
+// Search, dropdowns, Clear filters and the sort toggle ask for the matching ids
+// with the current controls (tiles, summary and chart kept); the chip rows stay local.
 installFilterControls(() => { void loadSmr({ tilesOnly: true }); });
 
 hoursBtn?.addEventListener("click", () => showHours(!hoursOpen));

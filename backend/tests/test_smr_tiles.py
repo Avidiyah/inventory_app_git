@@ -94,7 +94,9 @@ def _seed_filterable(db, owner):
 
 
 def _numbers(page):
-    return [t.number for t in page.tiles]
+    """Numbers the filters match, in display order (`order`; `tiles` is every order)."""
+    by_id = {t.id: t.number for t in page.tiles}
+    return [by_id[i] for i in page.order]
 
 
 def test_smr_tiles_filter_by_number_task_and_location(db):
@@ -351,23 +353,27 @@ def test_ready_beats_no_material_and_needs_an_invoice_period_line(db):
     assert tile.stage == "no_material" and tile.ready is not None
 
 
-# --- summary=false: a filter change skips the whole-population pass ---------
+# --- ids_only: a filter change builds no tile (spec 2026-11-13-smr-filter-ids) ---
 
-# Measured 2026-11-12 for a one-order search; the old code (summary ignored,
-# every SMR order loaded and tiled) cost 28 on the same seed.
-SEARCH_BUDGET = 8
+def test_full_request_returns_every_tile_and_the_filtered_order(db):
+    owner = _user(db)
+    a, b, tag = _seed_filterable(db, owner)
+    page = smr_service.list_smr_tiles(db, search=f"{tag}-A")
+    numbers = [t.number for t in page.tiles]
+    assert a in numbers and b in numbers and numbers[0] == a
+    assert _numbers(page) == [a] and page.matched == 1
 
 
-def test_summary_false_returns_the_filtered_tiles_without_the_population_pass(db):
+def test_ids_only_returns_the_same_order_without_loading_lines_or_blocks(db):
     from sqlalchemy import event
 
     from app.database import engine
     from tests.test_work_order_open_queries import _TX_CONTROL, _client
 
     owner = _user(db)
-    a, _, tag = _seed_filterable(db, owner)
-    smr_service.import_smr(db, csv_bytes=_sheet([f"SMR-{uuid.uuid4().hex[:8]}" for _ in range(10)]), user=owner)
+    _, _, tag = _seed_filterable(db, owner)
     db.commit()
+    full = smr_service.list_smr_tiles(db, search=tag)
     statements = []
 
     def listener(conn, cursor, statement, params, context, executemany):
@@ -378,11 +384,13 @@ def test_summary_false_returns_the_filtered_tiles_without_the_population_pass(db
         db.expunge_all()
         event.listen(engine, "before_cursor_execute", listener)
         try:
-            response = client.get("/work-orders/smr", params={"q": f"{tag}-A", "summary": "false"})
+            response = client.get("/work-orders/smr", params={"q": tag, "ids_only": "true"})
         finally:
             event.remove(engine, "before_cursor_execute", listener)
+        refused = client.get("/work-orders/smr", params={"ids_only": "true", "has_lines": "true"})
     assert response.status_code == 200, response.text
     body = response.json()
-    assert [t["number"] for t in body["tiles"]] == [a] and body["matched"] == 1
-    assert body["counts"] is None and body["delta"] is None
-    assert len(statements) <= SEARCH_BUDGET, f"{len(statements)} statements (budget {SEARCH_BUDGET})"
+    assert body["order"] == [str(i) for i in full.order] and body["matched"] == 2
+    assert body["tiles"] == [] and body["counts"] is None and body["delta"] is None
+    assert not [s for s in statements if "smr_labor_lines" in s or "smr_correction_blocks" in s]
+    assert refused.status_code == 422

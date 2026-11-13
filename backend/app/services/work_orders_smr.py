@@ -257,7 +257,7 @@ def smr_orders(db: Session) -> list[WorkOrder]:
     )
 
 
-def filtered_smr_orders(
+def filtered_smr_ids(
     db: Session,
     *,
     supervisor_id: Optional[uuid.UUID] = None,
@@ -269,16 +269,14 @@ def filtered_smr_orders(
     location_search: Optional[str] = None,
     task_search: Optional[str] = None,
     descending: bool = True,
-    ids_only: bool = False,
-) -> list:
-    """SMR orders through the Work Orders list's own predicates and sort, so
-    the SMR page's search and filters cannot drift from the live list's.
-    `ids_only=True` returns `(id, schedule_date, created_at)` rows in that
-    order, for a caller that already holds the orders."""
-    smr_only = WorkOrder.smr_imported_at.is_not(None)
+) -> list[uuid.UUID]:
+    """Ids of the SMR orders the Work Orders list's own predicates match, in
+    its sort order, so the SMR page's search and filters cannot drift from
+    the live list's. Three columns, no lines: cheap enough for every filter
+    change."""
     query = wos._apply_work_order_filters(
-        db.query(WorkOrder.id, WorkOrder.schedule_date, WorkOrder.created_at).filter(smr_only)
-        if ids_only else _with_lines(_smr_query(db), block_text=False),
+        db.query(WorkOrder.id, WorkOrder.schedule_date, WorkOrder.created_at)
+        .filter(WorkOrder.smr_imported_at.is_not(None)),
         supervisor_id=supervisor_id,
         assigned_to_id=assigned_to_id,
         community=community,
@@ -287,7 +285,8 @@ def filtered_smr_orders(
         location_search=location_search,
         task_search=task_search,
     )
-    return wos._filter_and_sort_by_schedule(query.all(), scheduled_date, descending=descending)
+    rows = wos._filter_and_sort_by_schedule(query.all(), scheduled_date, descending=descending)
+    return [row.id for row in rows]
 
 
 def smr_filter_options(db: Session) -> SmrFilterOptions:
@@ -454,27 +453,27 @@ def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTil
 
 def list_smr_tiles(
     db: Session, *, has_lines: bool = False, block_stale_or_unpasted: bool = False,
-    summary: bool = True, **filters,
+    ids_only: bool = False, **filters,
 ) -> SmrTilesResponse:
-    """The SMR page payload. `counts`, `delta` and `filter_options` always
-    describe every SMR order; `tiles` (schedule-date order, see
-    `filtered_smr_orders`) and `matched` honour `filters`, then the two
-    paper-correction switches. `summary=False` skips the whole-population
-    pass: tiles and `matched` only, `counts` and `delta` null."""
-    if summary:
-        population = _with_lines(_smr_query(db), block_text=False).all()
-        by_id = {order.id: tile_for(order) for order in population}
-        all_tiles = list(by_id.values())
-        # The orders are loaded above: the filter query only says which, in what order.
-        shown = [by_id[row.id] for row in filtered_smr_orders(db, ids_only=True, **filters)]
-    else:
-        shown = [tile_for(o) for o in filtered_smr_orders(db, **filters)]
+    """The SMR page payload. `tiles` is every SMR order, and `counts`, `delta`
+    and `filter_options` describe them all; `order` (the ids `filters` match,
+    schedule-date order, see `filtered_smr_ids`) and `matched` say which the
+    page shows, after the two paper-correction switches. The matching tiles
+    lead `tiles` in that order. `ids_only=True` answers a filter change
+    without building a tile: `order` and `matched` alone (spec
+    2026-11-13-smr-filter-ids)."""
+    order = filtered_smr_ids(db, **filters)
+    if ids_only:
+        return SmrTilesResponse(matched=len(order), order=order)
+    population = _with_lines(_smr_query(db), block_text=False).all()
+    by_id = {o.id: tile_for(o) for o in population}
+    all_tiles = list(by_id.values())
+    shown = [by_id[i] for i in order if i in by_id]
     if has_lines:
         shown = [t for t in shown if t.lines is not None]
     if block_stale_or_unpasted:
         shown = [t for t in shown if t.lines is not None and _block_pending(t.lines)]
-    if not summary:
-        return SmrTilesResponse(matched=len(shown), tiles=shown)
+    listed = {t.id for t in shown}
     targeted = [t.target for t in all_tiles if t.target is not None]
     with_lines = [t.lines for t in all_tiles if t.lines is not None]
     return SmrTilesResponse(
@@ -499,6 +498,7 @@ def list_smr_tiles(
             total=sum((t.delta.total for t in all_tiles), Decimal(0)),
         ),
         matched=len(shown),
+        order=[t.id for t in shown],
         filter_options=smr_filter_options(db),
-        tiles=shown,
+        tiles=shown + [t for t in all_tiles if t.id not in listed],
     )

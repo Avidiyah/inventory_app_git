@@ -97,9 +97,10 @@ def test_admin_adds_a_reading_and_a_line_and_the_detail_carries_them(db):
         assert pasted.status_code == 200 and pasted.json()["pasted_by_name"] == "Pat Admin"
         assert client.get(f"/work-orders/{order.id}").json()["smr_block"]["pasted_at"] is not None
 
-        tiles = client.get("/work-orders/smr", params={"has_lines": "true", "block_stale_or_unpasted": "true"}).json()
-        assert order.number not in [t["number"] for t in tiles["tiles"]]
-        assert order.number in [t["number"] for t in client.get("/work-orders/smr", params={"has_lines": "true"}).json()["tiles"]]
+        # `order` is what the switches narrow; `tiles` is every SMR order.
+        pending = client.get("/work-orders/smr", params={"has_lines": "true", "block_stale_or_unpasted": "true"}).json()
+        assert str(order.id) not in pending["order"]
+        assert str(order.id) in client.get("/work-orders/smr", params={"has_lines": "true"}).json()["order"]
 
         # The work description (user 2026-11-10) is saved by Generate and printed in the block.
         described = client.post(f"/work-orders/smr/{order.id}/block", json={"description": " Patched drywall. "})

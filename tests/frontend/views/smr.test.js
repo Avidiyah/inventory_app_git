@@ -34,7 +34,7 @@ function tile(overrides = {}) {
 }
 
 function page(overrides = {}) {
-  return {
+  const payload = {
     imported_at: "2026-10-23T14:14:00Z",
     counts: { orders: 3, no_material: 3, paper_review: 1, needs_review: 0, ready: 0, other: 0, belfor_only: 1, archived: 1, charged_hours: "0", excluded_hours: "0", blocks_not_pasted: 0 },
     delta: { labor_total: "58.40", materials_total: "18.40", total: "76.80" },
@@ -53,6 +53,8 @@ function page(overrides = {}) {
     ],
     ...overrides,
   };
+  // A full payload's `order` is the matching ids; by default every tile matches.
+  return { order: payload.tiles.map((t) => t.id), ...payload };
 }
 
 
@@ -258,30 +260,62 @@ describe("the SMR page", () => {
     await vi.waitFor(() => expect(tiles().filter((t) => !t.hidden)).toHaveLength(3));
   });
 
-  // --- what each refetch asks for (summary=false, chart, races) -------------
+  // --- what each refetch asks for (ids_only, chart, races) -------------------
 
-  // A summary=false response: tiles and matched; every other field a default.
-  const tilesOnly = (tileList) => ({
-    tiles: tileList, matched: tileList.length, counts: null, delta: null, imported_at: null,
+  const ID1 = "11111111-1111-1111-1111-111111111111";
+  const ID2 = "22222222-2222-2222-2222-222222222222";
+  const ID3 = "33333333-3333-3333-3333-333333333333";
+  const shown = () => tiles().filter((t) => !t.hidden);
+  const shownNumbers = () => shown().map((t) => t.dataset.number);
+
+  // An ids_only response: matched and order; tiles empty, every other field a default.
+  const idsOnly = (ids) => ({
+    tiles: [], order: ids, matched: ids.length, counts: null, delta: null, imported_at: null,
     regenerated_at: null, remaining: { hours: "0", materials_total: "0.00" },
     filter_options: { priorities: [], supervisors: [], technicians: [], communities: [] },
   });
   const gated = () => { let release; const gate = new Promise((r) => { release = r; }); return { gate, release }; };
 
-  it("a filter change asks for the tiles alone, skips the chart, and keeps the bar, counts and options", async () => {
+  it("a filter change asks for the ids alone, skips the chart, and keeps the bar, counts and options", async () => {
     const { requests, requestsFor, clearRequests } = await openSmr();
     await vi.waitFor(() => expect(requestsFor("/work-orders/smr/weekly-hours")).toHaveLength(1));
-    server.use(http.get("/work-orders/smr", () => HttpResponse.json(tilesOnly([tile()]))));
+    server.use(http.get("/work-orders/smr", () => HttpResponse.json(idsOnly([ID1]))));
     clearRequests();
     byId("smr-search").value = "2328";
     byId("smr-search-btn").click();
-    await vi.waitFor(() => expect(tiles()).toHaveLength(1));
+    await vi.waitFor(() => expect(shown()).toHaveLength(1));
     expect(requests().filter((r) => r.url.startsWith("/work-orders/smr")).map((r) => r.url))
-      .toEqual(["/work-orders/smr?q=2328&sort=scheduled_desc&summary=false"]);
+      .toEqual(["/work-orders/smr?q=2328&sort=scheduled_desc&ids_only=true"]);
     expect(byId("smr-bar").textContent).toContain("3 orders");
     expect(byId("smr-bar").textContent).toContain("+$76.80");
     expect(byId("smr-result-count").textContent).toBe("1 of 3 orders");
     expect(Array.from(byId("smr-priority-filter").options).map((o) => o.textContent)).toEqual(["All priorities", "Emergency", "Normal"]);
+  });
+
+  it("a filter change reorders and hides the tiles already on the page without rebuilding them", async () => {
+    await openSmr();
+    const before = tiles();
+    expect(before.map((t) => t.dataset.number)).toEqual(["23281563", "23282567", "23296828"]);
+    server.use(http.get("/work-orders/smr", () => HttpResponse.json(idsOnly([ID3, "99999999-9999-9999-9999-999999999999", ID1]))));
+    byId("smr-search-btn").click();
+    await vi.waitFor(() => expect(shown()).toHaveLength(2));
+    const after = tiles();
+    expect(after).toHaveLength(3);
+    after.forEach((el) => expect(before).toContain(el));  // the same DOM nodes, moved
+    expect(after.map((t) => t.dataset.number)).toEqual(["23296828", "23281563", "23282567"]);
+    expect(shownNumbers()).toEqual(["23296828", "23281563"]);
+    expect(byId("smr-result-count").textContent).toBe("3 of 3 orders");  // matched counts the id with no tile
+  });
+
+  it("the chips and the server's filters combine: a tile outside order stays hidden when its chip matches", async () => {
+    await openSmr();
+    server.use(http.get("/work-orders/smr", () => HttpResponse.json(idsOnly([ID1]))));
+    byId("smr-search-btn").click();
+    await vi.waitFor(() => expect(shownNumbers()).toEqual(["23281563"]));
+    byId("smr-filter-all").click();  // every tile's stage chip matches now
+    expect(shownNumbers()).toEqual(["23281563"]);
+    byId("smr-filter-paper-review").click();  // and a chip that matches none hides the listed one too
+    expect(shownNumbers()).toEqual([]);
   });
 
   it("Back from a card shows the old tiles and restores the scroll before the full refresh lands, then swaps without scrolling", async () => {
@@ -323,17 +357,17 @@ describe("the SMR page", () => {
     const { nav } = await openSmr();
     const { gate, release } = gated();
     server.use(http.get("/work-orders/smr", async ({ request }) => {
-      if (new URL(request.url).searchParams.get("summary") === "false") return HttpResponse.json(tilesOnly([tile()]));
+      if (new URL(request.url).searchParams.get("ids_only") === "true") return HttpResponse.json(idsOnly([ID1]));
       await gate;
       return HttpResponse.json(page({ counts: { ...page().counts, orders: 9 } }));
     }));
     nav.showPage("smr");  // full load, held at the gate
     byId("smr-search").value = "2328";
     byId("smr-search-btn").click();
-    await vi.waitFor(() => expect(tiles()).toHaveLength(1));
+    await vi.waitFor(() => expect(shown()).toHaveLength(1));
     release();
     await vi.waitFor(() => expect(byId("smr-bar").textContent).toContain("9 orders"));
-    expect(tiles()).toHaveLength(1);
+    expect(shown()).toHaveLength(1);  // the late full payload redraws the tiles but keeps the newer order
     expect(byId("smr-result-count").textContent).toBe("1 of 9 orders");
   });
 
@@ -376,7 +410,7 @@ describe("the SMR page", () => {
     expect(Object.fromEntries(url.searchParams)).toEqual({
       priority: "Emergency", supervisor_id: "s1", assigned_to_id: "t1",
       community: "scholars", scheduled_date: "2026-07-20", q: "2328", location_q: "Young",
-      task_q: "blinds", sort: "scheduled_desc", summary: "false",
+      task_q: "blinds", sort: "scheduled_desc", ids_only: "true",
     });
   });
 
@@ -400,7 +434,7 @@ describe("the SMR page", () => {
     clearRequests();
     byId("smr-clear-filters").click();
     await vi.waitFor(() => expect(requestsFor("/work-orders/smr")).toHaveLength(1));
-    expect(requests()[0].url).toBe("/work-orders/smr?sort=scheduled_desc&summary=false");
+    expect(requests()[0].url).toBe("/work-orders/smr?sort=scheduled_desc&ids_only=true");
     expect(byId("smr-priority-filter").value).toBe("");
     expect(byId("smr-search").value).toBe("");
     expect(byId("smr-date-filter").value).toBe("");
