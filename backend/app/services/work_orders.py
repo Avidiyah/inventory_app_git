@@ -1122,7 +1122,7 @@ _LIST_EAGER_LOADS = (
     joinedload(WorkOrder.supervisor),
     selectinload(WorkOrder.technician_assignments),
     selectinload(WorkOrder.technicians),
-    selectinload(WorkOrder.items),
+    selectinload(WorkOrder.items).joinedload(WorkOrderItem.item),
 )
 
 

@@ -40,6 +40,8 @@ export const state = {
 // `request:start` event would hand back a body only after an await.
 let recorded = [];
 let originalFetch = null;
+// Reference-data fetches the page now starts beside the list; mount waits on them.
+let referenceFetches = [];
 
 function startRecording() {
   if (originalFetch) return;
@@ -50,7 +52,10 @@ function startRecording() {
       method: (init.method || "GET").toUpperCase(),
       body: parseBody(init.body),
     });
-    return originalFetch(input, init);
+    const response = originalFetch(input, init);
+    const url = typeof input === "string" ? input : input.url;
+    if (url === "/items/" || url === "/users/") referenceFetches.push(response);
+    return response;
   });
 }
 
@@ -153,7 +158,19 @@ export async function mountWorkOrders({
   startRecording();
   const mod = await mountView("views/workOrders.js");
   if (!mine) document.getElementById("work-orders-mine-filter").checked = false;
-  if (load) await mod.loadWorkOrders();
+  if (load) {
+    await mod.loadWorkOrders();
+    // The dropdown options now load beside the list, not before it. The
+    // priority select always gains its "Not imported" entry, so a second
+    // option means the options landed (and the recorded requests below are
+    // not polluted by the options request still being in flight).
+    await vi.waitFor(() => expect(
+      document.getElementById("work-orders-priority-filter").options.length,
+    ).toBeGreaterThan(1));
+    // Same for the catalogue and roster: the card's material search needs them.
+    await Promise.allSettled(referenceFetches);
+    for (let i = 0; i < 20; i += 1) await Promise.resolve();
+  }
   clearRequests();
   return { mod, cards, currentUser };
 }
@@ -267,6 +284,7 @@ afterEach(() => {
     originalFetch = null;
   }
   recorded = [];
+  referenceFetches = [];
   state.cards = [];
   state.details = new Map();
   state.requests = [];

@@ -37,8 +37,9 @@ let showAll = false;
 // "Not imported". A sentinel rather than "" because "" already means no filter.
 export const PRIORITY_NOT_IMPORTED = "__none__";
 
+// Returns true when the select held a choice the new options no longer carry.
 function populateFilterSelect(select, emptyLabel, options) {
-  if (!select) return;
+  if (!select) return false;
   const selected = select.value;
   select.innerHTML =
     `<option value="">${escapeHtml(emptyLabel)}</option>` +
@@ -46,50 +47,57 @@ function populateFilterSelect(select, emptyLabel, options) {
       .map(({ value, label }) =>
         `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`)
       .join("");
-  if (options.some((option) => option.value === selected)) select.value = selected;
+  if (options.some((option) => option.value === selected)) {
+    select.value = selected;
+    return false;
+  }
+  return selected !== "";
 }
 
+// Resolves true when any dropdown lost its selection in the repopulate.
 export async function loadFilterOptions() {
-  if (filterOptionsLoaded) return;
+  if (filterOptionsLoaded) return false;
   const options = await apiGetWorkOrderFilterOptions();
-  populateFilterSelect(
+  let dropped = false;
+  dropped = populateFilterSelect(
     serviceTypeFilter,
     "All service types",
     (options.service_types || []).map((value) => ({ value, label: value }))
-  );
+  ) || dropped;
   // Priority is raw vendor text, so the choices are whatever the live work
   // orders actually carry, plus the rows NetFacilities never reached.
-  populateFilterSelect(
+  dropped = populateFilterSelect(
     priorityFilter,
     "All priorities",
     (options.priorities || [])
       .map((value) => ({ value, label: value }))
       .concat([{ value: PRIORITY_NOT_IMPORTED, label: "Not imported" }])
-  );
-  populateFilterSelect(
+  ) || dropped;
+  dropped = populateFilterSelect(
     supervisorFilter,
     "All Team Leads",
     (options.supervisors || []).map((option) => ({
       value: option.id,
       label: option.name,
     }))
-  );
+  ) || dropped;
   // Sourced from workOrderReferenceData.js's own roster fetch (Supervisor+
   // only), not from filter-options -- it's the same list the technician
   // assignment picker uses, already loaded by the time this runs.
-  populateFilterSelect(
+  dropped = populateFilterSelect(
     technicianFilter,
     "All technicians",
     getAllTechnicians()
       .map((technician) => ({ value: technician.id, label: formatUserName(technician) }))
       .sort((a, b) => a.label.localeCompare(b.label))
-  );
-  populateFilterSelect(
+  ) || dropped;
+  dropped = populateFilterSelect(
     communityFilter,
     "All communities",
     options.communities || []
-  );
+  ) || dropped;
   filterOptionsLoaded = true;
+  return dropped;
 }
 
 // Scheduled-date sort direction. Server-side (`sort` query param) because the

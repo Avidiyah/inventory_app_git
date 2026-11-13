@@ -74,6 +74,7 @@ import {
 } from "./workOrderFilterChips.js";
 import {
   ensureReferenceData,
+  ensureUsers,
   getAllItems,
 } from "./workOrderReferenceData.js";
 import {
@@ -230,16 +231,25 @@ export async function loadWorkOrders({
   exitSolo();
 
   const archivedLookupToken = ++archivedSearchToken;
-  await ensureReferenceData({ refresh: refreshReferenceData });
+  // The cards need neither the catalogue nor the dropdown choices, so the list
+  // is requested at once and both load beside it. ensureUsers() below shares
+  // the users request ensureReferenceData just started; the technician
+  // dropdown reads that roster, so it must land before the options fill in.
+  void ensureReferenceData({ refresh: refreshReferenceData });
   if (refreshReferenceData) invalidateFilterOptions();
   if (!isFilterOptionsLoaded()) {
-    try {
-      await loadFilterOptions();
-    } catch {
-      // The card list is still useful if the small options request fails. Keep
-      // the existing selections/placeholders and retry on the next page entry.
-      invalidateFilterOptions();
-    }
+    ensureUsers().then(loadFilterOptions).then(
+      (dropped) => {
+        // A repopulate emptied a selection the list above was sent with: ask
+        // again so the dropdowns and the cards agree. Not over a card page.
+        if (dropped && !isSoloActive()) loadWorkOrders();
+      },
+      () => {
+        // The card list is still useful if the small options request fails. Keep
+        // the existing selections/placeholders and retry on the next page entry.
+        invalidateFilterOptions();
+      },
+    );
   }
   if (exportBtn) exportBtn.hidden = !isAdminPlus();
   if (technicianFilterField) technicianFilterField.hidden = !isSupervisorPlus();
@@ -251,10 +261,13 @@ export async function loadWorkOrders({
   const limit = capped ? RECENT_LIMIT : null;
   try {
     let cards = await apiListWorkOrders({ ...listParams(), limit });
+    // Latest request wins: a newer load owns the screen.
+    if (archivedLookupToken !== archivedSearchToken) return;
     if (pendingFocusId && !cards.some((c) => c.id === pendingFocusId)) {
       resetFilterControls();
       setShowAll(false);
       cards = await apiListWorkOrders({ limit: null, sort: getSortDir() });
+      if (archivedLookupToken !== archivedSearchToken) return;
     }
     renderCards(cards);
     renderMoreControl(capped, cards.length);
@@ -286,6 +299,7 @@ export async function loadWorkOrders({
       await offerRestoreForExactArchivedSearch(filters.q, archivedLookupToken);
     }
   } catch (err) {
+    if (archivedLookupToken !== archivedSearchToken) return;
     // A socket-driven refresh must stay silent on failure (spec section 6):
     // leave the existing list exactly as it was rather than wipe it out from
     // under a user who never asked for this reload. The user-initiated path
@@ -644,7 +658,7 @@ export async function refreshCard(cardEl, reopenSelector = null) {
 
 // --- filter / search controls --------------------------------------------
 
-// #16: search live-updates as you type (250 ms debounce), matching the
+// #16: search live-updates as you type (100 ms debounce, user 2026-11-13), like the
 // History work-order filter so the two sibling pages behave the same way.
 // The Search button and Enter stay as redundant explicit triggers -- nothing
 // is removed, so no one loses the click-to-search workflow.
@@ -657,7 +671,7 @@ if (searchBtn) searchBtn.addEventListener("click", runWorkOrderNumberSearch);
 if (searchInput) {
   searchInput.addEventListener("input", () => {
     clearTimeout(woSearchDebounce);
-    woSearchDebounce = setTimeout(runWorkOrderNumberSearch, 250);
+    woSearchDebounce = setTimeout(runWorkOrderNumberSearch, 100);
   });
   searchInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -668,7 +682,7 @@ if (searchInput) {
 }
 
 // The Location and Task/symptom keyword searches reuse the number bar's
-// 250 ms debounce + immediate Enter, but run plain loadWorkOrders():
+// 100 ms debounce + immediate Enter, but run plain loadWorkOrders():
 // checkArchivedSearch stays a number-search-only behavior, because only an
 // exact number can name an archived work order.
 function wireKeywordSearch(input) {
@@ -677,7 +691,7 @@ function wireKeywordSearch(input) {
   const run = () => loadWorkOrders();
   input.addEventListener("input", () => {
     clearTimeout(debounce);
-    debounce = setTimeout(run, 250);
+    debounce = setTimeout(run, 100);
   });
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {

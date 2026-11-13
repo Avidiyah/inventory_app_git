@@ -147,18 +147,18 @@ describe("the keyword searches", () => {
   it.each([
     ["work-orders-location-search", "location_q=hall"],
     ["work-orders-task-search", "task_q=leak"],
-  ])("%s coalesces typing into one load after 250 ms", async (id, param) => {
+  ])("%s coalesces typing into one load after 100 ms", async (id, param) => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await mountWorkOrders({ role: "admin" });
     const input = el(id);
     typeIn(input, "h");
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(50);
     typeIn(input, "ha");
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(50);
     typeIn(input, id.includes("location") ? "hall" : "leak");
     await flush();
     expect(listUrls()).toHaveLength(0);
-    vi.advanceTimersByTime(249);
+    vi.advanceTimersByTime(99);
     await flush();
     expect(listUrls()).toHaveLength(0);
     vi.advanceTimersByTime(1);
@@ -396,7 +396,9 @@ describe("ensureReferenceData", () => {
     await mod.loadWorkOrders({ refreshReferenceData: true });
     expect(requests().filter((r) => r.url === "/items/")).toHaveLength(1);
     expect(requests().filter((r) => r.url === "/users/")).toHaveLength(1);
-    expect(requests().filter((r) => r.url === "/work-orders/filter-options")).toHaveLength(1);
+    // The options load beside the list now, so they may land after it.
+    await vi.waitFor(() => expect(
+      requests().filter((r) => r.url === "/work-orders/filter-options")).toHaveLength(1));
   });
 
   it("invalidates users and filter options on user-names-updated", async () => {
@@ -404,13 +406,13 @@ describe("ensureReferenceData", () => {
     document.dispatchEvent(new Event("user-names-updated"));
     await mod.loadWorkOrders();
     expect(requests().filter((r) => r.url === "/users/")).toHaveLength(1);
-    expect(requests().filter((r) => r.url === "/work-orders/filter-options")).toHaveLength(1);
+    await vi.waitFor(() => expect(
+      requests().filter((r) => r.url === "/work-orders/filter-options")).toHaveLength(1));
     // Items are not part of that invalidation.
     expect(requests().filter((r) => r.url === "/items/")).toHaveLength(0);
   });
 
   it("never asks for users below Supervisor", async () => {
-    await mountWorkOrders({ role: "technician", load: false });
     const { mod } = await mountWorkOrders({ role: "technician" });
     expect(mod).toBeTruthy();
   });
@@ -588,5 +590,68 @@ describe("mountWorkOrderList", () => {
     state.listResponder = () => HttpResponse.json({ detail: "Server down" }, { status: 500 });
     await list.refresh();
     expect(container.querySelector(".error").textContent).toBe("Server down");
+  });
+});
+
+describe("the list is requested first", () => {
+  const titles = () => cardEls().map((c) => c.querySelector(".wo-title").textContent);
+
+  it("sends the list and renders cards while /items/ is still held open", async () => {
+    const { mod } = await mountWorkOrders({
+      role: "admin", cards: [workOrderCard({ number: "7001" })], load: false,
+    });
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    server.use(http.get("/items/", async () => {
+      await gate;
+      return HttpResponse.json([]);
+    }));
+    try {
+      await mod.loadWorkOrders();
+      expect(requests().some((r) => r.url === "/items/")).toBe(true);
+      expect(listUrls()).toHaveLength(1);
+      expect(titles()).toEqual(["WO 7001"]);
+    } finally {
+      release();
+    }
+  });
+
+  it("reloads once without a Team Lead the refreshed options no longer carry", async () => {
+    const { mod } = await mountWorkOrders({
+      role: "admin",
+      filterOptions: filterOptions({ supervisors: [{ id: "s1", name: "Sue S" }] }),
+    });
+    change(el("work-orders-supervisor-filter"), "s1");
+    await flush();
+    state.filterOptions = filterOptions({ supervisors: [] });
+    document.dispatchEvent(new Event("user-names-updated"));
+    await mod.loadWorkOrders();
+    await vi.waitFor(() => expect(el("work-orders-supervisor-filter").value).toBe(""));
+    await vi.waitFor(() => expect(listUrls().filter((u) => !u.includes("supervisor_id"))).toHaveLength(1));
+    await flush();
+    // The change's own load, the refresh load (still carrying s1), then one more.
+    expect(listUrls().map((u) => u.includes("supervisor_id=s1"))).toEqual([true, true, false]);
+  });
+
+  it("leaves the newer result on screen when the older response lands last", async () => {
+    const { mod } = await mountWorkOrders({ role: "admin" });
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    let calls = 0;
+    state.listResponder = async () => {
+      calls += 1;
+      if (calls === 1) {
+        await gate;
+        return HttpResponse.json([workOrderCard({ number: "OLD" })]);
+      }
+      return HttpResponse.json([workOrderCard({ number: "NEW" })]);
+    };
+    const older = mod.loadWorkOrders();
+    const newer = mod.loadWorkOrders();
+    await newer;
+    expect(titles()).toEqual(["WO NEW"]);
+    release();
+    await older;
+    expect(titles()).toEqual(["WO NEW"]);
   });
 });
