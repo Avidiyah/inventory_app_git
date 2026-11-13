@@ -349,3 +349,40 @@ def test_ready_beats_no_material_and_needs_an_invoice_period_line(db):
                             payload=SmrLineEditIn(status="excluded", exclusion_ground="removed", reason="x"), user=owner)
     tile = _tile(db, order)
     assert tile.stage == "no_material" and tile.ready is not None
+
+
+# --- summary=false: a filter change skips the whole-population pass ---------
+
+# Measured 2026-11-12 for a one-order search; the old code (summary ignored,
+# every SMR order loaded and tiled) cost 28 on the same seed.
+SEARCH_BUDGET = 8
+
+
+def test_summary_false_returns_the_filtered_tiles_without_the_population_pass(db):
+    from sqlalchemy import event
+
+    from app.database import engine
+    from tests.test_work_order_open_queries import _TX_CONTROL, _client
+
+    owner = _user(db)
+    a, _, tag = _seed_filterable(db, owner)
+    smr_service.import_smr(db, csv_bytes=_sheet([f"SMR-{uuid.uuid4().hex[:8]}" for _ in range(10)]), user=owner)
+    db.commit()
+    statements = []
+
+    def listener(conn, cursor, statement, params, context, executemany):
+        if not statement.lstrip().upper().startswith(_TX_CONTROL):
+            statements.append(statement)
+
+    with _client(db, owner) as client:
+        db.expunge_all()
+        event.listen(engine, "before_cursor_execute", listener)
+        try:
+            response = client.get("/work-orders/smr", params={"q": f"{tag}-A", "summary": "false"})
+        finally:
+            event.remove(engine, "before_cursor_execute", listener)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [t["number"] for t in body["tiles"]] == [a] and body["matched"] == 1
+    assert body["counts"] is None and body["delta"] is None
+    assert len(statements) <= SEARCH_BUDGET, f"{len(statements)} statements (budget {SEARCH_BUDGET})"

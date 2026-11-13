@@ -258,6 +258,85 @@ describe("the SMR page", () => {
     await vi.waitFor(() => expect(tiles().filter((t) => !t.hidden)).toHaveLength(3));
   });
 
+  // --- what each refetch asks for (summary=false, chart, races) -------------
+
+  // A summary=false response: tiles and matched; every other field a default.
+  const tilesOnly = (tileList) => ({
+    tiles: tileList, matched: tileList.length, counts: null, delta: null, imported_at: null,
+    regenerated_at: null, remaining: { hours: "0", materials_total: "0.00" },
+    filter_options: { priorities: [], supervisors: [], technicians: [], communities: [] },
+  });
+  const gated = () => { let release; const gate = new Promise((r) => { release = r; }); return { gate, release }; };
+
+  it("a filter change asks for the tiles alone, skips the chart, and keeps the bar, counts and options", async () => {
+    const { requests, requestsFor, clearRequests } = await openSmr();
+    await vi.waitFor(() => expect(requestsFor("/work-orders/smr/weekly-hours")).toHaveLength(1));
+    server.use(http.get("/work-orders/smr", () => HttpResponse.json(tilesOnly([tile()]))));
+    clearRequests();
+    byId("smr-search").value = "2328";
+    byId("smr-search-btn").click();
+    await vi.waitFor(() => expect(tiles()).toHaveLength(1));
+    expect(requests().filter((r) => r.url.startsWith("/work-orders/smr")).map((r) => r.url))
+      .toEqual(["/work-orders/smr?q=2328&sort=scheduled_desc&summary=false"]);
+    expect(byId("smr-bar").textContent).toContain("3 orders");
+    expect(byId("smr-bar").textContent).toContain("+$76.80");
+    expect(byId("smr-result-count").textContent).toBe("1 of 3 orders");
+    expect(Array.from(byId("smr-priority-filter").options).map((o) => o.textContent)).toEqual(["All priorities", "Emergency", "Normal"]);
+  });
+
+  it("Back from a card shows the old tiles and restores the scroll before the full refresh lands, then swaps without scrolling", async () => {
+    const { nav, requestsFor, clearRequests } = await openSmr();
+    const detail = workOrderDetail({ id: "11111111-1111-1111-1111-111111111111", number: "23281563", smr: true });
+    const { gate, release } = gated();
+    server.use(
+      http.get("/work-orders/11111111-1111-1111-1111-111111111111", () => HttpResponse.json(detail)),
+      http.get("/work-orders/11111111-1111-1111-1111-111111111111/requests", () => HttpResponse.json([])),
+      http.get("/work-orders/smr", async () => { await gate; return HttpResponse.json(page({ matched: 1, tiles: [tile()] })); }),
+    );
+    const scrollY = Object.getOwnPropertyDescriptor(window, "scrollY");
+    Object.defineProperty(window, "scrollY", { value: 640, configurable: true });
+    try {
+      tiles()[0].click();
+      const back = await vi.waitFor(() => {
+        const btn = document.querySelector('[data-action="back-to-work-orders"]');
+        expect(btn.textContent).toContain("Back to SMR");
+        return btn;
+      });
+      window.scrollTo.mockClear();
+      clearRequests();
+      back.click();
+      await vi.waitFor(() => expect(nav.getActivePage()).toBe("smr"));
+      await vi.waitFor(() => expect(window.scrollTo).toHaveBeenCalledWith(0, 640));
+      expect(byId("smr-page").classList.contains("active")).toBe(true);
+      expect(tiles()).toHaveLength(3);
+      expect(requestsFor("/work-orders/smr")).toHaveLength(1);
+      release();
+      await vi.waitFor(() => expect(tiles()).toHaveLength(1));
+      await new Promise((r) => window.requestAnimationFrame(r));
+      expect(window.scrollTo.mock.calls).toEqual([[0, 640]]);
+    } finally {
+      if (scrollY) Object.defineProperty(window, "scrollY", scrollY); else delete window.scrollY;
+    }
+  });
+
+  it("a slow full refresh never overwrites the tiles of a later search, but still updates the summary", async () => {
+    const { nav } = await openSmr();
+    const { gate, release } = gated();
+    server.use(http.get("/work-orders/smr", async ({ request }) => {
+      if (new URL(request.url).searchParams.get("summary") === "false") return HttpResponse.json(tilesOnly([tile()]));
+      await gate;
+      return HttpResponse.json(page({ counts: { ...page().counts, orders: 9 } }));
+    }));
+    nav.showPage("smr");  // full load, held at the gate
+    byId("smr-search").value = "2328";
+    byId("smr-search-btn").click();
+    await vi.waitFor(() => expect(tiles()).toHaveLength(1));
+    release();
+    await vi.waitFor(() => expect(byId("smr-bar").textContent).toContain("9 orders"));
+    expect(tiles()).toHaveLength(1);
+    expect(byId("smr-result-count").textContent).toBe("1 of 9 orders");
+  });
+
   it("shows the empty copy when nothing has been imported", async () => {
     server.use(http.get("/work-orders/smr", () => HttpResponse.json(page({ tiles: [], counts: { orders: 0, archived: 0 } }))));
     await bootApp({ role: "admin", page: "smr" });
@@ -297,7 +376,7 @@ describe("the SMR page", () => {
     expect(Object.fromEntries(url.searchParams)).toEqual({
       priority: "Emergency", supervisor_id: "s1", assigned_to_id: "t1",
       community: "scholars", scheduled_date: "2026-07-20", q: "2328", location_q: "Young",
-      task_q: "blinds", sort: "scheduled_desc",
+      task_q: "blinds", sort: "scheduled_desc", summary: "false",
     });
   });
 
@@ -321,7 +400,7 @@ describe("the SMR page", () => {
     clearRequests();
     byId("smr-clear-filters").click();
     await vi.waitFor(() => expect(requestsFor("/work-orders/smr")).toHaveLength(1));
-    expect(requests()[0].url).toBe("/work-orders/smr?sort=scheduled_desc");
+    expect(requests()[0].url).toBe("/work-orders/smr?sort=scheduled_desc&summary=false");
     expect(byId("smr-priority-filter").value).toBe("");
     expect(byId("smr-search").value).toBe("");
     expect(byId("smr-date-filter").value).toBe("");

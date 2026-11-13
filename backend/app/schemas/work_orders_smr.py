@@ -153,13 +153,15 @@ class SmrFilterOptions(BaseModel):
 
 class SmrTilesResponse(BaseModel):
     """`counts` and `delta` describe the whole SMR population; `tiles` and
-    `matched` reflect the request's filters."""
+    `matched` reflect the request's filters. `counts` and `delta` are null
+    on a `summary=false` request, and the other summary fields stay at
+    their defaults."""
 
     imported_at: Optional[datetime] = None
     # The newest Regenerate all run that can still be undone; the page shows Undo while set.
     regenerated_at: Optional[datetime] = None
-    counts: SmrCounts
-    delta: SmrDelta
+    counts: Optional[SmrCounts] = None
+    delta: Optional[SmrDelta] = None
     remaining: SmrRemaining = Field(default_factory=SmrRemaining)
     matched: int = 0
     filter_options: SmrFilterOptions = Field(default_factory=SmrFilterOptions)

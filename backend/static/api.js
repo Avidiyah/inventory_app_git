@@ -1089,7 +1089,7 @@ export async function apiImportSmrInvoices(file) {
 }
 export async function apiListSmrTiles({
   supervisorId = null, assignedToId = null, community = null,
-  priority = null, scheduledDate = null, q = null, locationQ = null, taskQ = null, sort = null,
+  priority = null, scheduledDate = null, q = null, locationQ = null, taskQ = null, sort = null, summary = true,
 } = {}) {
   // The Work Orders list's params (minus status, service type, mine, limit), same names.
   const params = new URLSearchParams();
@@ -1102,6 +1102,8 @@ export async function apiListSmrTiles({
   if (locationQ) params.set("location_q", locationQ);
   if (taskQ) params.set("task_q", taskQ);
   if (sort) params.set("sort", sort);
+  // summary=false: tiles + matched only; counts/delta come back null.
+  if (!summary) params.set("summary", "false");
   const qs = params.toString();
   return jsonRequest(`/work-orders/smr${qs ? `?${qs}` : ""}`, "GET");
 }

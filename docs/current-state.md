@@ -201,7 +201,7 @@ backend/static/views/workOrderGlyphs.js status/priority/overdue/clock inline-SVG
 backend/static/views/workOrderFilterChips.js applied-filter chips + result count line
 backend/static/views/workOrderActions.js the six listeners delegated off #work-orders-list
 backend/static/views/workOrderIntegrations.js CSV import/export, SMR Import (Owner), NetFacilities enrichment + cloud auth
-backend/static/views/smr.js   SMR27 audit tiles page (TechFM panel; keycap tiles outlined by stage: red material not keyed / amber needs paper review / neutral needs review / green ready to invoice / muted not billed, week bubbles from `tile.weeks`, `Undated · closed <week>` from `closed_week`, Belfor tag), three client-side chip rows Stage / Pile / Flags that AND together (default Material not keyed / All / All), stage-count bar, Owner export, Admin+ Hours toggle, editor hand-off, return-to-SMR (`returnToSmr`)
+backend/static/views/smr.js   SMR27 audit tiles page (TechFM panel; keycap tiles outlined by stage: red material not keyed / amber needs paper review / neutral needs review / green ready to invoice / muted not billed, week bubbles from `tile.weeks`, `Undated · closed <week>` from `closed_week`, Belfor tag), three client-side chip rows Stage / Pile / Flags that AND together (default Material not keyed / All / All), stage-count bar, Owner export, Admin+ Hours toggle, editor hand-off, return-to-SMR (`returnToSmr`), filter controls refetch tiles only (`summary=false`; summary and chart kept), latest request wins
 backend/static/views/smrWeeklyHours.js SMR weekly hours chart (spec 2026-11-06-smr-weekly-hours-chart): dependency-free SVG, per week one bar per vendor (GC / XXL / BT) = invoiced hours split Original charge / Found / Missing (`.smr-seg--<key>` fill classes), trailing Undated column, legend + figures table, from `GET /work-orders/smr/weekly-hours`; `<details>` panel above the search, Admin+, fold state in localStorage `smr.weeklyOpen`
 backend/static/views/smrHours.js SMR Hours tab: worker × week and vendor × week tables (`charged / excluded`) from `GET /work-orders/smr/hours`, CSV download
 backend/static/views/smrFilters.js SMR search/filter controls (Work Orders row minus service type and NetFacilities status), sort memory `smr.sort`, filters + the three chips `stage` / `pile` / `flags` in `smr.filters` (sessionStorage: survive a reload, not a new tab; a chip its row no longer offers falls back to the row default)
@@ -661,7 +661,8 @@ Work orders:
   jumping the page. Cold deep links have no stamp and land at the top.
   A card opened from an SMR tile carries an SMR origin (`profileOrigin.js`,
   `{ page: "smr", scrollY }`): its "‹ Back to SMR" button and browser Back
-  both return to the SMR page at that offset, filters and chip intact; a nav
+  both return to the SMR page at that offset at once, filters and chip intact,
+  the old tiles showing while a full refresh replaces them behind; a nav
   click clears the origin.
 - Work Orders list filters are server-side and joinable: My Work Orders (`mine`:
   routed to me as Team Lead or assigned to me as technician; **on by default for
@@ -1964,6 +1965,7 @@ Coverage map:
 | `test_work_order_signature.py` | migration round-trip; service save/second-save 409/unique-constraint race/invisible 404/bad payload writes nothing/clear + notes/archive-restore keep/WO delete cascades/PNG read; every route over a real `TestClient` incl. the 422 body cap and the `no-store` PNG |
 | `test_work_order_import.py` | CSV parsing/import, required-number-header and UTF-8 preflight, blank/missing-task NetFacilities fallback, generated-to-real replacement, duplicate-row precedence, manual-task preservation, full-name Admin/Team Lead routing independent of Created status, unmatched/ambiguous/archived/ineligible-role fallback, idempotence, closed-row count/no-mutation, and Admin gate |
 | `test_work_order_name_responses.py` | work-order response exposes plural operational names, rounded labor detail/totals, and the note-log text while omitting login usernames |
+| `test_work_order_open_queries.py`, `test_item_list_queries.py`, `test_work_order_list_queries.py` | query-count guards: the Work Orders list costs the same for one item or many; one card open stays within its statement budget and does not grow with SMR lines; `/items/` and `/items/low-stock` cost the same for 2 and 12 items |
 | `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
 | `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin; history row exposes `work_order_id` |
 | `test_smr_weekly.py` | SMR weekly chart (spec 2026-11-06-smr-weekly-hours-chart): invoice re-upload replaces / other invoices add, bad row names itself, Owner-only upload + Admin-only series, one order's target following its lines pro rata (week cell + Undated cell) as deltas against the dev DB; Belfor off the chart |

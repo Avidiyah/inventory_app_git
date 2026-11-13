@@ -234,15 +234,19 @@ def _with_lines(query):
         selectinload(WorkOrder.labor_sessions).selectinload(WorkOrderLaborSession.technician),
         selectinload(WorkOrder.labor_sessions).selectinload(WorkOrderLaborSession.labor),
         selectinload(WorkOrder.smr_paper_checked_by),
-        selectinload(WorkOrder.smr_readings),
+        # The worker feeds the block digest (`latest_block` -> stale).
         selectinload(WorkOrder.smr_lines).selectinload(SmrLaborLine.worker),
         selectinload(WorkOrder.smr_blocks),
     )
 
 
 def smr_orders(db: Session) -> list[WorkOrder]:
-    """Every SMR order, archived or not, with lines and labor loaded."""
-    return _with_lines(_smr_query(db)).order_by(WorkOrder.number).all()
+    """Every SMR order, archived or not, with lines and labor loaded, plus
+    the readings the export's sheets read (tiles never do)."""
+    return (
+        _with_lines(_smr_query(db)).options(selectinload(WorkOrder.smr_readings))
+        .order_by(WorkOrder.number).all()
+    )
 
 
 def filtered_smr_orders(
@@ -257,11 +261,14 @@ def filtered_smr_orders(
     location_search: Optional[str] = None,
     task_search: Optional[str] = None,
     descending: bool = True,
+    with_lines: bool = True,
 ) -> list[WorkOrder]:
     """SMR orders through the Work Orders list's own predicates and sort, so
-    the SMR page's search and filters cannot drift from the live list's."""
+    the SMR page's search and filters cannot drift from the live list's.
+    `with_lines=False` when the session already holds them loaded."""
+    query = _smr_query(db)
     query = wos._apply_work_order_filters(
-        _with_lines(_smr_query(db)),
+        _with_lines(query) if with_lines else query,
         supervisor_id=supervisor_id,
         assigned_to_id=assigned_to_id,
         community=community,
@@ -405,7 +412,7 @@ def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTil
         vendor_assignee=work_order.vendor_assignee,
         status=work_order.status,
         archived_at=work_order.archived_at,
-        edited=smr.is_edited(work_order) or bool(lines),
+        edited=smr.is_edited(work_order, current) or bool(lines),
         weeks=weeks,
         stage=rules.stage_for(
             lines, work_order.smr_ready_at,
@@ -431,21 +438,30 @@ def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTil
 
 
 def list_smr_tiles(
-    db: Session, *, has_lines: bool = False, block_stale_or_unpasted: bool = False, **filters,
+    db: Session, *, has_lines: bool = False, block_stale_or_unpasted: bool = False,
+    summary: bool = True, **filters,
 ) -> SmrTilesResponse:
     """The SMR page payload. `counts`, `delta` and `filter_options` always
     describe every SMR order; `tiles` (schedule-date order, see
     `filtered_smr_orders`) and `matched` honour `filters`, then the two
-    paper-correction switches."""
-    population = smr_orders(db)
-    all_tiles = [tile_for(order) for order in population]
-    targeted = [t.target for t in all_tiles if t.target is not None]
-    with_lines = [t.lines for t in all_tiles if t.lines is not None]
-    shown = [tile_for(o) for o in filtered_smr_orders(db, **filters)]
+    paper-correction switches. `summary=False` skips the whole-population
+    pass: tiles and `matched` only, `counts` and `delta` null."""
+    if summary:
+        population = _with_lines(_smr_query(db)).all()
+        by_id = {order.id: tile_for(order) for order in population}
+        all_tiles = list(by_id.values())
+        # Same session: the filter query hands back the orders loaded above.
+        shown = [by_id[o.id] for o in filtered_smr_orders(db, with_lines=False, **filters)]
+    else:
+        shown = [tile_for(o) for o in filtered_smr_orders(db, **filters)]
     if has_lines:
         shown = [t for t in shown if t.lines is not None]
     if block_stale_or_unpasted:
         shown = [t for t in shown if t.lines is not None and _block_pending(t.lines)]
+    if not summary:
+        return SmrTilesResponse(matched=len(shown), tiles=shown)
+    targeted = [t.target for t in all_tiles if t.target is not None]
+    with_lines = [t.lines for t in all_tiles if t.lines is not None]
     return SmrTilesResponse(
         imported_at=max((o.smr_imported_at for o in population), default=None),
         regenerated_at=lines_service.last_regenerate_at(db),

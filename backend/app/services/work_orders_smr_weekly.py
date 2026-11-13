@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.domain import work_orders_smr_lines as rules
 from app.domain.errors import WorkOrderStateError
@@ -93,19 +93,27 @@ def raw_cells(db: Session) -> dict[tuple[Optional[int], str], dict[str, Decimal]
     cells: dict[tuple[Optional[int], str], dict[str, Decimal]] = {}
     cell = lambda key: _cell(cells, key)  # noqa: E731
 
-    orders = (
-        db.query(WorkOrder).filter(WorkOrder.smr_imported_at.isnot(None))
-        .options(selectinload(WorkOrder.smr_lines)).all()
-    )
-    for order in orders:
-        placed = [(slot, rules.line_hours(line)) for line in order.smr_lines if (slot := _slot(line)) is not None]
+    # Column rows, not entities: building ~5k line objects was most of the
+    # route's time. `_slot` and `line_hours` read the same named columns.
+    is_smr = WorkOrder.smr_imported_at.isnot(None)
+    lines_by_order: dict = {}
+    for line in (
+        db.query(SmrLaborLine.work_order_id, SmrLaborLine.vendor, SmrLaborLine.status, SmrLaborLine.week,
+                 SmrLaborLine.exclusion_ground, SmrLaborLine.headcount, SmrLaborLine.hours_each)
+        .join(WorkOrder, WorkOrder.id == SmrLaborLine.work_order_id).filter(is_smr)
+        .order_by(SmrLaborLine.created_at)
+    ):
+        lines_by_order.setdefault(line.work_order_id, []).append(line)
+    for order_id, smr_target in db.query(WorkOrder.id, WorkOrder.smr_target).filter(is_smr):
+        lines = lines_by_order.get(order_id, ())
+        placed = [(slot, rules.line_hours(line)) for line in lines if (slot := _slot(line)) is not None]
         for (slot, hours) in placed:
             cell(slot)["found" if slot[0] is not None else "undated"] += hours
         # The paper restates the billed hours: the order's target up to its
         # paper hours is `original` (already billed, now supported), paper
         # above the target is what the review `found`. Both follow the
         # lines pro rata, so original + found + undated = the paper.
-        target = Decimal((order.smr_target or {}).get("hours") or 0)
+        target = Decimal((smr_target or {}).get("hours") or 0)
         total = sum((hours for _, hours in placed), Decimal(0))
         if total > 0:
             original = min(target, total)

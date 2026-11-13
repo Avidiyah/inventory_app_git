@@ -112,6 +112,7 @@ def list_smr_tiles(
     sort: Literal["scheduled_desc", "scheduled_asc"] = Query("scheduled_desc"),
     has_lines: bool = Query(False),
     block_stale_or_unpasted: bool = Query(False),
+    summary: bool = Query(True),
     user: User = Depends(require_min_role(roles.ROLE_TECHNICIAN)),
     db: Session = Depends(get_db),
 ) -> SmrTilesResponse:
@@ -119,7 +120,8 @@ def list_smr_tiles(
     role since 2026-10-23: the re-charge is all hands).
     The query params are the Work Orders list's (minus `status`, `service_type`,
     `mine` and `limit`) and run through the same server predicates. Unpaginated: the
-    audit is a few hundred rows."""
+    audit is a few hundred rows. `summary=false` returns only `tiles` and
+    `matched` (`counts` and `delta` null) for a page that keeps its last summary."""
     try:
         return smr_service.list_smr_tiles(
             db,
@@ -134,6 +136,7 @@ def list_smr_tiles(
             descending=sort != "scheduled_asc",
             has_lines=has_lines,
             block_stale_or_unpasted=block_stale_or_unpasted,
+            summary=summary,
         )
     except DomainError as exc:
         raise to_http(exc)

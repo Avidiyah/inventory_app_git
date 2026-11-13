@@ -44,6 +44,13 @@ for (const [row, value] of Object.entries(savedChips())) {
   if (rowHas(row, value)) chips[row] = value;
 }
 let lastPayload = null;
+// The last full response (counts non-null): bar, filter options, Undo, the M
+// in "N of M". A tiles-only refetch keeps it. loadSeq numbers each request so
+// only the latest draws tiles; summarySeq keeps an older full response from
+// overwriting a newer summary.
+let summary = null;
+let loadSeq = 0;
+let summarySeq = 0;
 // Where the page stood when a tile opened a card; consumed by the next render.
 let pendingScrollY = null;
 
@@ -189,15 +196,22 @@ function applyFilter() {
   });
 }
 
-function render(payload) {
-  lastPayload = payload;
-  if (regenerateUndoBtn) regenerateUndoBtn.hidden = !(isAdmin() && payload.regenerated_at);
-  bar.innerHTML = barHtml(payload);
-  applyFilterOptions(payload.filter_options);
-  if (resultCount) {
-    const matched = payload.matched ?? (payload.tiles || []).length;
-    resultCount.textContent = `${matched} of ${payload.counts?.orders || 0} orders`;
+function render(payload, seq) {
+  const latest = seq === loadSeq;
+  const full = Boolean(payload.counts) && seq > summarySeq;
+  if (full) {
+    summary = payload;
+    summarySeq = seq;
+    if (regenerateUndoBtn) regenerateUndoBtn.hidden = !(isAdmin() && payload.regenerated_at);
+    bar.innerHTML = barHtml(payload);
+    applyFilterOptions(payload.filter_options);
   }
+  if (latest) lastPayload = payload;
+  if (resultCount && lastPayload) {
+    const matched = lastPayload.matched ?? (lastPayload.tiles || []).length;
+    resultCount.textContent = `${matched} of ${summary?.counts?.orders || 0} orders`;
+  }
+  if (!latest) return;
   const tiles = payload.tiles || [];
   grid.innerHTML = tiles.length
     ? tiles.map(tileHtml).join("")
@@ -211,11 +225,16 @@ function render(payload) {
 }
 
 // The card page's way back (button or browser Back). The filter controls and
-// state chips are page DOM / module state, so they are still set; only the
-// scroll needs carrying across the refetch.
+// state chips are page DOM / module state, so they are still set, and so is
+// the last grid: it shows at once and the scroll goes back now, while the
+// page loader's full refresh replaces it in the background (the tile just
+// edited may show old values until then). With no grid yet, the scroll waits
+// for the first render.
 export function returnToSmr(scrollY) {
-  pendingScrollY = typeof scrollY === "number" ? scrollY : null;
+  const y = typeof scrollY === "number" ? scrollY : null;
+  pendingScrollY = lastPayload ? null : y;
   showPage("smr");
+  if (lastPayload && y !== null) window.scrollTo(0, y);
 }
 
 // Hours is a toggle on the same page: the tiles hide, the table shows, and
@@ -234,7 +253,11 @@ function showHours(open) {
 const atLeast = (role) => { const user = getCurrentUser(); return Boolean(user && roleAtLeast(user.role, role)); };
 const isAdmin = () => atLeast("admin");
 
-export async function loadSmr() {
+// tilesOnly (the filter controls): ask for the tiles alone and keep the stored
+// summary and the chart, unless no full response has arrived yet. Every other
+// caller (page entry, return from a card, Regenerate / Undo / Restore) does a
+// full load including the chart.
+export async function loadSmr({ tilesOnly = false } = {}) {
   const user = getCurrentUser();
   if (exportBtn) exportBtn.hidden = !(user && roleAtLeast(user.role, "owner"));
   if (hoursBtn) hoursBtn.hidden = !(user && roleAtLeast(user.role, "admin"));
@@ -243,14 +266,15 @@ export async function loadSmr() {
   if (weeklyPanel) weeklyPanel.hidden = !(user && roleAtLeast(user.role, "admin"));
   if (hoursOpen) void loadSmrHours();
   setMessage(message, "", "");
+  const seq = ++loadSeq;
   try {
     // The tiles request goes first (callers read it as the page's load);
     // the chart fetches alongside it rather than after it.
-    const tiles = apiListSmrTiles(currentParams());
-    if (weeklyPanel && !weeklyPanel.hidden) void loadWeeklyHours();
-    render(await tiles);
+    const tiles = apiListSmrTiles({ ...currentParams(), summary: !tilesOnly || !summary });
+    if (!tilesOnly && weeklyPanel && !weeklyPanel.hidden) void loadWeeklyHours();
+    render(await tiles, seq);
   } catch (err) {
-    setMessage(message, friendlyError(err, "Could not load SMR orders."), "error");
+    if (seq === loadSeq) setMessage(message, friendlyError(err, "Could not load SMR orders."), "error");
   }
 }
 
@@ -262,9 +286,9 @@ chipButtons.forEach((btn) => {
   });
 });
 
-// Search, dropdowns, Clear filters and the sort toggle all refetch with the
-// current controls; the chip rows above stay local.
-installFilterControls(() => { void loadSmr(); });
+// Search, dropdowns, Clear filters and the sort toggle refetch the tiles with
+// the current controls (summary and chart kept); the chip rows above stay local.
+installFilterControls(() => { void loadSmr({ tilesOnly: true }); });
 
 hoursBtn?.addEventListener("click", () => showHours(!hoursOpen));
 

@@ -253,13 +253,15 @@ def sheet_column_order(columns) -> list[str]:
     return known + sorted(c for c in columns if c not in SMR_SHEET_COLUMNS)
 
 
-def is_edited(work_order) -> bool:
+def is_edited(work_order, current: Optional[dict] = None) -> bool:
     """Whether anything billable changed since the baseline. No baseline means
-    nothing to compare against, so False."""
+    nothing to compare against, so False. `current` is a live snapshot the
+    caller already built (its `taken_at` is not compared)."""
     baseline = work_order.smr_baseline
     if not baseline:
         return False
-    current = snapshot(work_order, taken_at=datetime.min, source_row=None)
+    if current is None:
+        current = snapshot(work_order, taken_at=datetime.min, source_row=None)
     return _comparable(current) != _comparable(baseline)
 
 

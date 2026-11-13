@@ -102,7 +102,9 @@ export function weeklyHtml(data) {
 
 export async function loadWeeklyHours() {
   if (!panel) return;
-  panel.innerHTML = `<p class="smr-empty">Loading…</p>`;
+  // A reload keeps the old chart up: collapsing it to "Loading…" would shift
+  // the tiles below it out from under a restored scroll.
+  if (!panel.childElementCount) panel.innerHTML = `<p class="smr-empty">Loading…</p>`;
   try {
     panel.innerHTML = weeklyHtml(await apiSmrWeeklyHours());
   } catch (err) {
