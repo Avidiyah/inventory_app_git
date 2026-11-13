@@ -92,8 +92,8 @@ listEl.addEventListener("input", (event) => {
   results.innerHTML = matches.length
     ? matches
         .map(
-          (it) =>
-            `<button type="button" class="secondary-btn scan-choice-btn" data-action="pick-item" data-item-id="${escapeHtml(it.id)}" data-item-name="${escapeHtml(it.name)}">${escapeHtml(it.name)} <span class="ms-pick-barcode">${escapeHtml(it.barcode)}</span></button>`
+          (it, i) =>
+            `<button type="button" class="secondary-btn scan-choice-btn${i === 0 ? " is-active" : ""}" data-action="pick-item" data-item-id="${escapeHtml(it.id)}" data-item-name="${escapeHtml(it.name)}">${escapeHtml(it.name)} <span class="ms-pick-barcode">${escapeHtml(it.barcode)}</span></button>`
         )
         .join("")
     : `<p class="hint">No matching items.</p>` +
